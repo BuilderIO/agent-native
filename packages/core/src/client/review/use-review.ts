@@ -26,12 +26,18 @@ export interface ListReviewCommentsParams {
   includeResolved?: boolean;
   includeDeleted?: boolean;
   targetId?: string | null;
+  /** One surface's comments, or `null` for those on no surface. */
+  surfaceId?: string | null;
   newestFirst?: boolean;
   limit?: number;
+  /** The `nextCursor` from the previous page. */
+  cursor?: string;
 }
 
 export interface ListReviewCommentsResult {
   comments: ReviewComment[];
+  /** Set when more comments follow; pass it back as `cursor`. */
+  nextCursor?: string | null;
   discussion: ReviewDiscussionState;
   reviewStatus: ReviewStatusEntry | null;
   summary: {
@@ -55,8 +61,11 @@ export interface CreateReviewCommentInput {
   resourceType: string;
   resourceId: string;
   targetId?: string | null;
+  surfaceId?: string | null;
   kind?: ReviewCommentKind;
   anchor?: unknown;
+  anchorKind?: string | null;
+  anchorVersion?: number | null;
   body: string;
   authorName?: string | null;
   resolutionTarget?: ReviewResolutionTarget | null;
@@ -199,7 +208,11 @@ export interface UpdateReviewCommentInput {
   commentId: string;
   body?: string;
   anchor?: unknown;
+  anchorKind?: string | null;
+  anchorVersion?: number | null;
   mentions?: ReviewMention[];
+  /** Refuse the edit if the comment changed since this revision. */
+  expectedRevision?: number;
 }
 
 export interface ConsumeReviewFeedbackInput {
@@ -625,11 +638,13 @@ export function markCommentDeleted(
 
 function matchesCommentQuery(
   params: unknown,
-  comment: Pick<ReviewComment, "targetId" | "status">,
+  comment: Pick<ReviewComment, "targetId" | "surfaceId" | "status">,
 ) {
   if (!params || typeof params !== "object") return true;
   const query = params as ListReviewCommentsParams;
   if (query.targetId !== undefined && query.targetId !== comment.targetId)
+    return false;
+  if (query.surfaceId !== undefined && query.surfaceId !== comment.surfaceId)
     return false;
   if (comment.status === "resolved" && !query.includeResolved) return false;
   if (comment.status === "deleted" && !query.includeDeleted) return false;
@@ -654,11 +669,21 @@ function optimisticComment(
     targetId:
       parent?.targetId ??
       ("targetId" in input ? (input.targetId ?? null) : null),
+    surfaceId:
+      parent?.surfaceId ??
+      ("surfaceId" in input ? (input.surfaceId ?? null) : null),
     kind:
       parent?.kind ?? ("kind" in input ? (input.kind ?? "comment") : "comment"),
     status: "open",
     anchor:
       parent?.anchor ?? ("anchor" in input ? (input.anchor ?? null) : null),
+    anchorKind:
+      parent?.anchorKind ??
+      ("anchorKind" in input ? (input.anchorKind ?? null) : null),
+    anchorVersion:
+      parent?.anchorVersion ??
+      ("anchorVersion" in input ? (input.anchorVersion ?? null) : null),
+    revision: 1,
     body: input.body,
     authorEmail: null,
     authorName: input.authorName ?? null,

@@ -3,8 +3,11 @@ import { z } from "zod";
 import { defineAction, fail } from "../../action.js";
 import { ForbiddenError } from "../../sharing/access.js";
 import { roleSatisfies } from "../../sharing/schema.js";
-import { resolveReviewableResourceAccess } from "../registry.js";
-import { getReviewCommentById, updateReviewCommentAnchor } from "../store.js";
+import {
+  canCommentOnReviewableResource,
+  resolveReviewableResourceAccess,
+} from "../registry.js";
+import { getReviewCommentById, updateReviewComment } from "../store.js";
 import type { ReviewResourceContext } from "../types.js";
 
 const schema = z.object({
@@ -12,6 +15,21 @@ const schema = z.object({
   resourceId: z.string().min(1),
   commentId: z.string().min(1),
   anchor: z.unknown().nullable(),
+  anchorKind: z
+    .string()
+    .min(1)
+    .nullable()
+    .optional()
+    .describe("A new kind for the anchor; left out, the comment's kind stays"),
+  anchorVersion: z.number().int().positive().nullable().optional(),
+  expectedRevision: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      "The comment's revision when read; a newer one refuses the move with revision_conflict",
+    ),
 });
 
 export default defineAction({
@@ -56,25 +74,40 @@ export default defineAction({
       });
     }
     const isAuthor = comment.authorEmail?.trim().toLowerCase() === userEmail;
-    if (!access || !roleSatisfies(access.role, "commenter")) {
+    if (!access || !canCommentOnReviewableResource(args.resourceType, access)) {
       throw new ForbiddenError("Not allowed to move this review comment");
     }
     if (!isAuthor && !roleSatisfies(access.role, "editor")) {
       throw new ForbiddenError("Not allowed to move this review comment");
     }
-    const updatedCount = await updateReviewCommentAnchor({
-      commentId: comment.id,
-      resourceType: args.resourceType,
-      resourceId: args.resourceId,
-      anchor: args.anchor,
-    });
-    if (updatedCount < 1) {
+    const moved = await updateReviewComment(
+      comment.id,
+      {
+        anchor: args.anchor,
+        ...(args.anchorKind !== undefined
+          ? { anchorKind: args.anchorKind }
+          : {}),
+        ...(args.anchorVersion !== undefined
+          ? { anchorVersion: args.anchorVersion }
+          : {}),
+      },
+      { resourceType: args.resourceType, resourceId: args.resourceId },
+      { expectedRevision: args.expectedRevision, actorEmail: userEmail },
+    );
+    if (!moved) {
       fail("Review comment could not be moved", {
         statusCode: 404,
         errorCode: "not_found",
       });
     }
-    return { commentId: comment.id, anchor: args.anchor, updatedCount };
+    return {
+      commentId: moved.id,
+      anchor: moved.anchor,
+      anchorKind: moved.anchorKind,
+      anchorVersion: moved.anchorVersion,
+      revision: moved.revision,
+      updatedCount: 1,
+    };
   },
   audit: {
     target: (args) => ({

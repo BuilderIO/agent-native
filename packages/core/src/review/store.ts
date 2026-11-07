@@ -4,13 +4,23 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
-import { sql } from "../db/sql.js";
+import { sql, type SqlFragment } from "../db/sql.js";
 import { defineStore } from "../db/store-registry.js";
 import type { Visibility } from "../sharing/schema.js";
+import {
+  ReviewCommentLinkConflictError,
+  ReviewCommentRevisionConflictError,
+  ReviewCursorError,
+} from "./errors.js";
+import {
+  normalizeReviewAnchor,
+  runReviewCommentWriteHook,
+} from "./registry.js";
 import type {
   ReviewActorKind,
   ReviewComment,
   ReviewCommentKind,
+  ReviewCommentLink,
   ReviewCommentStatus,
   ReviewCommentReaction,
   ReviewThreadPreference,
@@ -30,8 +40,11 @@ export interface InsertReviewCommentInput {
   threadId?: string | null;
   parentCommentId?: string | null;
   targetId?: string | null;
+  surfaceId?: string | null;
   kind?: ReviewCommentKind;
   anchor?: unknown;
+  anchorKind?: string | null;
+  anchorVersion?: number | null;
   body: string;
   authorEmail?: string | null;
   authorName?: string | null;
@@ -53,7 +66,20 @@ export interface InsertReviewCommentResult {
 export interface UpdateReviewCommentInput {
   body?: string;
   anchor?: unknown;
+  /** With `anchor`: a new kind for it. Left out, the comment's kind stays. */
+  anchorKind?: string | null;
+  anchorVersion?: number | null;
   mentions?: ReviewMention[];
+}
+
+export interface ReviewCommentWriteOptions {
+  /**
+   * The revision the caller read. When the comment has moved past it, nothing
+   * is written and a `ReviewCommentRevisionConflictError` is thrown.
+   */
+  expectedRevision?: number;
+  /** Who made the change, for the resource's write hook. */
+  actorEmail?: string | null;
 }
 
 export interface QueryReviewCommentsInput {
@@ -64,11 +90,27 @@ export interface QueryReviewCommentsInput {
   includeResolved?: boolean;
   includeDeleted?: boolean;
   targetId?: string | null;
+  /** One surface's comments, or with `null` those on no surface. */
+  surfaceId?: string | null;
   newestFirst?: boolean;
   rootOnly?: boolean;
   resolutionTargets?: readonly (ReviewResolutionTarget | null)[];
   unconsumedOnly?: boolean;
+  /** Oldest first only: start after this comment. */
+  after?: ReviewCommentPosition;
   limit?: number;
+}
+
+/** Where a comment sits in oldest-first order. */
+export interface ReviewCommentPosition {
+  createdAt: string;
+  id: string;
+}
+
+export interface ReviewCommentPage {
+  comments: ReviewComment[];
+  /** Pass back as `cursor` for the next page; null on the last one. */
+  nextCursor: string | null;
 }
 
 export interface GetReviewThreadSummaryInput {
@@ -228,6 +270,34 @@ export const reviewStore = defineStore({
           indexes[5],
         );
       },
+    },
+    {
+      // What every app's comments need from one table: the surface a thread
+      // sits on, a typed and versioned anchor, a revision that goes up on
+      // every change, and links to the same comments in other systems. Each
+      // column is nullable or has a default, so code deployed before this
+      // keeps inserting.
+      name: "storage-contract",
+      sql: [
+        "ALTER TABLE agent_review_comments ADD COLUMN IF NOT EXISTS surface_id TEXT",
+        "ALTER TABLE agent_review_comments ADD COLUMN IF NOT EXISTS anchor_kind TEXT",
+        "ALTER TABLE agent_review_comments ADD COLUMN IF NOT EXISTS anchor_version INTEGER",
+        "ALTER TABLE agent_review_comments ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1",
+        `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_surface
+           ON agent_review_comments (resource_type, resource_id, surface_id, created_at)`,
+        `CREATE TABLE IF NOT EXISTS agent_review_comment_links (
+          provider TEXT NOT NULL,
+          external_kind TEXT NOT NULL,
+          external_id TEXT NOT NULL,
+          comment_id TEXT NOT NULL,
+          resource_type TEXT NOT NULL,
+          resource_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (provider, external_kind, external_id)
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_agent_review_comment_links_comment
+           ON agent_review_comment_links (comment_id)`,
+      ],
     },
   ],
 });
@@ -405,18 +475,30 @@ export async function filterUnmutedReviewThreadRecipients(
   return recipients.filter((email) => !muted.has(email));
 }
 
+/**
+ * Runs a comment write in one transaction where the client has them (every
+ * client core ships does), so the resource's write hook commits or rolls back
+ * with it.
+ */
+function inReviewWrite<T>(write: (tx: DbExec) => Promise<T>): Promise<T> {
+  const client = getDbExec();
+  return client.transaction ? client.transaction(write) : write(client);
+}
+
 export async function insertReviewComment(
   input: InsertReviewCommentInput,
 ): Promise<ReviewComment> {
   await ensureReviewTables();
-  return insertReviewCommentWithClient(input, getDbExec());
+  return inReviewWrite((tx) => insertReviewCommentWithClient(input, tx));
 }
 
 export async function insertReviewCommentIdempotently(
   input: InsertReviewCommentInput & { id: string },
 ): Promise<InsertReviewCommentResult> {
   await ensureReviewTables();
-  return insertReviewCommentIdempotentlyWithClient(input, getDbExec());
+  return inReviewWrite((tx) =>
+    insertReviewCommentIdempotentlyWithClient(input, tx),
+  );
 }
 
 export async function reviewCommentNotificationCompleted(
@@ -681,9 +763,30 @@ export async function insertReviewCommentWithClient(
   input: InsertReviewCommentInput,
   client: DbExec,
 ): Promise<ReviewComment> {
-  return (await writeReviewCommentWithClient(input, client)).comment;
+  return (
+    await writeReviewCommentWithClient(
+      normalizeReviewCommentInput(input),
+      client,
+    )
+  ).comment;
 }
 
+/**
+ * The input with its anchor checked against the resource's anchor kinds. A
+ * reply carries its thread's anchor as stored, so a thread begun before its
+ * resource declared kinds can still be answered.
+ */
+function normalizeReviewCommentInput(
+  input: InsertReviewCommentInput,
+): InsertReviewCommentInput {
+  if (input.parentCommentId) return input;
+  return {
+    ...input,
+    ...normalizeReviewAnchor(input.resourceType, input),
+  };
+}
+
+/** Writes an already normalized comment, then runs the resource's hook. */
 async function writeReviewCommentWithClient(
   input: InsertReviewCommentInput,
   client: DbExec,
@@ -698,9 +801,13 @@ async function writeReviewCommentWithClient(
     threadId: input.threadId ?? id,
     parentCommentId: input.parentCommentId ?? null,
     targetId: input.targetId ?? null,
+    surfaceId: input.surfaceId ?? null,
     kind: input.kind ?? "comment",
     status: "open",
     anchor: input.anchor ?? null,
+    anchorKind: input.anchorKind ?? null,
+    anchorVersion: input.anchorVersion ?? null,
+    revision: 1,
     body: input.body,
     authorEmail: input.authorEmail ?? null,
     authorName: input.authorName ?? null,
@@ -735,9 +842,13 @@ async function writeReviewCommentWithClient(
       thread_id,
       parent_comment_id,
       target_id,
+      surface_id,
       kind,
       status,
       anchor_json,
+      anchor_kind,
+      anchor_version,
+      revision,
       body,
       author_email,
       author_name,
@@ -756,7 +867,7 @@ async function writeReviewCommentWithClient(
       created_at,
       updated_at,
       metadata_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${onConflictDoNothing ? " ON CONFLICT (id) DO NOTHING" : ""}`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${onConflictDoNothing ? " ON CONFLICT (id) DO NOTHING" : ""}`,
     args: [
       comment.id,
       comment.resourceType,
@@ -764,9 +875,13 @@ async function writeReviewCommentWithClient(
       comment.threadId,
       comment.parentCommentId,
       comment.targetId,
+      comment.surfaceId,
       comment.kind,
       comment.status,
       stringifyOptionalJson(comment.anchor),
+      comment.anchorKind,
+      comment.anchorVersion,
+      comment.revision,
       comment.body,
       comment.authorEmail,
       comment.authorName,
@@ -788,13 +903,22 @@ async function writeReviewCommentWithClient(
     ],
   });
 
-  return { comment, replayed: (result.rowsAffected ?? 1) < 1 };
+  const replayed = (result.rowsAffected ?? 1) < 1;
+  if (!replayed) {
+    await runReviewCommentWriteHook(
+      comment.resourceType,
+      { type: "created", comment },
+      client,
+    );
+  }
+  return { comment, replayed };
 }
 
 async function insertReviewCommentIdempotentlyWithClient(
-  input: InsertReviewCommentInput & { id: string },
+  rawInput: InsertReviewCommentInput & { id: string },
   client: DbExec,
 ): Promise<InsertReviewCommentResult> {
+  const input = { ...normalizeReviewCommentInput(rawInput), id: rawInput.id };
   const submitted = reviewCommentFromInput(input);
   const existing = await getReviewCommentByIdWithClient(client, submitted.id);
   if (existing) {
@@ -824,9 +948,13 @@ function reviewCommentFromInput(
     threadId: input.threadId ?? id,
     parentCommentId: input.parentCommentId ?? null,
     targetId: input.targetId ?? null,
+    surfaceId: input.surfaceId ?? null,
     kind: input.kind ?? "comment",
     status: "open",
     anchor: input.anchor ?? null,
+    anchorKind: input.anchorKind ?? null,
+    anchorVersion: input.anchorVersion ?? null,
+    revision: 1,
     body: input.body,
     authorEmail: input.authorEmail ?? null,
     authorName: input.authorName ?? null,
@@ -880,8 +1008,11 @@ function assertMatchingReviewCommentReceipt(
     "threadId",
     "parentCommentId",
     "targetId",
+    "surfaceId",
     "kind",
     "anchor",
+    "anchorKind",
+    "anchorVersion",
     "body",
     "authorEmail",
     "createdBy",
@@ -923,6 +1054,17 @@ const LIVE_COMMENT_FILTERS = ["deleted_at IS NULL", "status <> 'deleted'"];
 
 export async function queryReviewComments(
   input: QueryReviewCommentsInput,
+): Promise<ReviewComment[]> {
+  return selectReviewComments(input);
+}
+
+/**
+ * The comments a query asks for. `lookahead` reads that many past the limit,
+ * so a page can tell whether another follows even at the largest limit.
+ */
+async function selectReviewComments(
+  input: QueryReviewCommentsInput,
+  lookahead = 0,
 ): Promise<ReviewComment[]> {
   await ensureReviewTables();
   const client = getDbExec();
@@ -973,6 +1115,14 @@ export async function queryReviewComments(
       );
     }
   }
+  if (input.surfaceId !== undefined) {
+    if (input.surfaceId === null) {
+      filters.push("surface_id IS NULL");
+    } else {
+      filters.push("surface_id = ?");
+      filterParams.push(input.surfaceId);
+    }
+  }
   if (input.rootOnly) {
     filters.push("parent_comment_id IS NULL");
   }
@@ -1002,6 +1152,10 @@ export async function queryReviewComments(
         ? `(${resolutionFilters.join(" OR ")})`
         : "1 = 0",
     );
+  }
+
+  if (input.after && input.newestFirst) {
+    throw new ReviewCursorError("Comment lists page oldest first only.");
   }
 
   if (input.newestFirst && !input.rootOnly) {
@@ -1049,6 +1203,15 @@ export async function queryReviewComments(
     return (result.rows ?? []).map(mapCommentRow);
   }
 
+  // A page starts after the last comment of the one before, in the same
+  // created-then-id order, so a run of comments written in the same
+  // millisecond is neither split nor repeated.
+  const afterSql = input.after
+    ? "(created_at > ? OR (created_at = ? AND id > ?))"
+    : null;
+  const afterParams = input.after
+    ? [input.after.createdAt, input.after.createdAt, input.after.id]
+    : [];
   const selectSql = input.rootOnly
     ? `SELECT ${commentColumns()}
          FROM (
@@ -1060,19 +1223,75 @@ export async function queryReviewComments(
              FROM agent_review_comments AS comment
             WHERE ${filters.join(" AND ")}
          ) AS distinct_review_threads
-        WHERE review_thread_rank = 1`
+        WHERE review_thread_rank = 1${afterSql ? ` AND ${afterSql}` : ""}`
     : `SELECT ${commentColumns()}
          FROM agent_review_comments AS comment
-        WHERE ${filters.join(" AND ")}`;
+        WHERE ${[...filters, ...(afterSql ? [afterSql] : [])].join(" AND ")}`;
   const order = input.newestFirst ? "DESC" : "ASC";
   const result = await client.execute({
     sql: `${selectSql}
-      ORDER BY created_at ${order}${input.rootOnly ? `, id ${order}` : ""}
+      ORDER BY created_at ${order}, id ${order}
       LIMIT ?`,
-    args: [...filterParams, clampLimit(input.limit)],
+    args: [
+      ...filterParams,
+      ...afterParams,
+      clampLimit(input.limit) + lookahead,
+    ],
   });
   const rows = result.rows ?? [];
   return (input.newestFirst ? [...rows].reverse() : rows).map(mapCommentRow);
+}
+
+/**
+ * One page of a resource's comments, oldest first, and the cursor for the
+ * next. Unlike a plain list, which stops at its limit, every comment is
+ * reachable page by page.
+ */
+export async function queryReviewCommentPage(
+  input: Omit<QueryReviewCommentsInput, "after"> & { cursor?: string | null },
+): Promise<ReviewCommentPage> {
+  const { cursor, ...query } = input;
+  if (query.newestFirst) {
+    throw new ReviewCursorError("Comment lists page oldest first only.");
+  }
+  const limit = clampLimit(query.limit);
+  // One more than the page, to know whether another follows.
+  const rows = await selectReviewComments(
+    {
+      ...query,
+      after: cursor ? decodeReviewCommentCursor(cursor) : undefined,
+      limit,
+    },
+    1,
+  );
+  const comments = rows.slice(0, limit);
+  const last = comments[comments.length - 1];
+  return {
+    comments,
+    nextCursor:
+      rows.length > limit && last ? encodeReviewCommentCursor(last) : null,
+  };
+}
+
+const REVIEW_CURSOR_PREFIX = "c1~";
+
+/** A cursor names the last comment of a page: its time and its ID. */
+function encodeReviewCommentCursor(position: ReviewCommentPosition): string {
+  return `${REVIEW_CURSOR_PREFIX}${position.createdAt}~${position.id}`;
+}
+
+function decodeReviewCommentCursor(cursor: string): ReviewCommentPosition {
+  // The time never holds a `~`, so the first one after it starts the ID.
+  const rest = cursor.startsWith(REVIEW_CURSOR_PREFIX)
+    ? cursor.slice(REVIEW_CURSOR_PREFIX.length)
+    : null;
+  const split = rest?.indexOf("~") ?? -1;
+  const createdAt = split > 0 ? rest!.slice(0, split) : "";
+  const id = split > 0 ? rest!.slice(split + 1) : "";
+  if (!id || Number.isNaN(Date.parse(createdAt))) {
+    throw new ReviewCursorError("Not a comment list cursor.");
+  }
+  return { createdAt, id };
 }
 
 export async function getReviewThreadSummary(
@@ -1168,29 +1387,93 @@ export async function getReviewThreadRoot(
   return row ? mapCommentRow(row) : null;
 }
 
-export async function updateReviewCommentAnchor(input: {
-  commentId: string;
-  resourceType: string;
-  resourceId: string;
-  anchor: unknown;
-}): Promise<number> {
-  await ensureReviewTables();
-  const result = await getDbExec().execute({
-    sql: `UPDATE agent_review_comments
-             SET anchor_json = ?, updated_at = ?
-           WHERE id = ?
-             AND resource_type = ?
-             AND resource_id = ?
-             AND deleted_at IS NULL`,
+/**
+ * Takes a live comment `FOR UPDATE`, so a change made from what was read here
+ * can't lose a concurrent one.
+ */
+async function lockLiveReviewComment(
+  client: DbExec,
+  id: string,
+  resource?: { resourceType: string; resourceId: string },
+): Promise<ReviewComment | null> {
+  // raw-sql-ok: the column list and resource clause are constant text; the
+  // values are bound.
+  const result = await client.execute({
+    sql: `SELECT ${commentColumns()}
+       FROM agent_review_comments
+      WHERE id = ?
+        ${resource ? "AND resource_type = ? AND resource_id = ?" : ""}
+        AND deleted_at IS NULL
+        FOR UPDATE`,
     args: [
-      stringifyOptionalJson(input.anchor),
-      new Date().toISOString(),
-      input.commentId,
-      input.resourceType,
-      input.resourceId,
+      id,
+      ...(resource ? [resource.resourceType, resource.resourceId] : []),
     ],
   });
-  return result.rowsAffected ?? 0;
+  const row = result.rows?.[0];
+  return row ? mapCommentRow(row) : null;
+}
+
+/**
+ * Changes a comment's body, mentions or anchor. Checks the anchor against its
+ * kind, refuses a stale `expectedRevision`, moves the revision on, and runs
+ * the resource's hook. Returns null when there's no live comment to change.
+ */
+async function writeReviewCommentChange(
+  client: DbExec,
+  id: string,
+  input: UpdateReviewCommentInput,
+  resource: { resourceType: string; resourceId: string } | undefined,
+  options: ReviewCommentWriteOptions,
+): Promise<ReviewComment | null> {
+  const current = await lockLiveReviewComment(client, id, resource);
+  if (!current) return null;
+  if (
+    options.expectedRevision !== undefined &&
+    options.expectedRevision !== current.revision
+  ) {
+    throw new ReviewCommentRevisionConflictError(id, current.revision);
+  }
+  const assignments: SqlFragment[] = [];
+  if (input.body !== undefined) {
+    assignments.push(sql`body = ${sql.value(input.body)}`);
+  }
+  if (input.mentions !== undefined) {
+    assignments.push(
+      sql`mentions_json = ${sql.value(stringifyOptionalJson(input.mentions))}`,
+    );
+  }
+  if (input.anchor !== undefined) {
+    // A moved anchor is written now, so at its kind's current version unless
+    // the caller says otherwise.
+    const anchor = normalizeReviewAnchor(current.resourceType, {
+      anchor: input.anchor,
+      anchorKind:
+        input.anchorKind !== undefined ? input.anchorKind : current.anchorKind,
+      anchorVersion: input.anchorVersion ?? null,
+    });
+    assignments.push(
+      sql`anchor_json = ${sql.value(stringifyOptionalJson(anchor.anchor))}`,
+      sql`anchor_kind = ${sql.value(anchor.anchorKind)}`,
+      sql`anchor_version = ${sql.value(anchor.anchorVersion)}`,
+    );
+  }
+  if (!assignments.length) return current;
+  await client.execute(sql`UPDATE agent_review_comments
+        SET ${sql.join(assignments, sql`, `)},
+            revision = revision + 1,
+            updated_at = ${sql.value(new Date().toISOString())}
+      WHERE id = ${sql.value(id)}`);
+  const updated = await getReviewCommentByIdWithClient(client, id);
+  if (!updated) throw new Error("Review comment not found after update");
+  const changesContent =
+    input.body !== undefined || input.mentions !== undefined;
+  await runReviewCommentWriteHook(
+    updated.resourceType,
+    { type: changesContent ? "edited" : "anchor-moved", comment: updated },
+    client,
+  );
+  return updated;
 }
 
 export async function resolveReviewThread(
@@ -1234,7 +1517,7 @@ export async function resolveReviewThreadWithClient(
     ? "AND resource_type = ? AND resource_id = ?"
     : "";
   const root = await client.execute({
-    sql: `SELECT metadata_json
+    sql: `SELECT metadata_json, resource_type, resource_id
        FROM agent_review_comments
       WHERE thread_id = ?
         AND parent_comment_id IS NULL
@@ -1267,6 +1550,7 @@ export async function resolveReviewThreadWithClient(
         SET status = ?,
             resolved_by = CASE WHEN ? = 'resolved' THEN ? ELSE NULL END,
             resolved_at = CASE WHEN ? = 'resolved' THEN ? ELSE NULL END,
+            revision = revision + 1,
             updated_at = ?
             ${metadataAssignment}
       WHERE thread_id = ? AND deleted_at IS NULL ${resourceClause}`,
@@ -1284,7 +1568,22 @@ export async function resolveReviewThreadWithClient(
       ...(resource ? [resource.resourceType, resource.resourceId] : []),
     ],
   });
-  return result.rowsAffected ?? 0;
+  const updated = result.rowsAffected ?? 0;
+  if (updated > 0) {
+    const resourceType = String(root.rows[0].resource_type);
+    await runReviewCommentWriteHook(
+      resourceType,
+      {
+        type: status === "resolved" ? "resolved" : "reopened",
+        resourceType,
+        resourceId: String(root.rows[0].resource_id),
+        threadId,
+        actorEmail: resolvedBy ?? null,
+      },
+      client,
+    );
+  }
+  return updated;
 }
 
 function withoutResolutionNote(
@@ -1332,6 +1631,7 @@ async function routeReviewThreadWithClient(
     sql: `UPDATE agent_review_comments
         SET resolution_target = ?,
             consumed_at = CASE WHEN ? = 'agent' THEN NULL ELSE consumed_at END,
+            revision = revision + 1,
             updated_at = ?
       WHERE thread_id = ?
         AND resource_type = ?
@@ -1419,15 +1719,21 @@ export async function deleteReviewComment(
   const client = getDbExec();
   const deleteIn = async (tx: DbExec) => {
     // raw-sql-ok: the statement is constant text; the id is bound.
-    const { rows: roots } = await tx.execute({
-      sql: `SELECT thread_id, resource_type, resource_id
+    const { rows: targets } = await tx.execute({
+      sql: `SELECT thread_id, resource_type, resource_id, parent_comment_id
               FROM agent_review_comments
-             WHERE id = ? AND parent_comment_id IS NULL`,
+             WHERE id = ?`,
       args: [id],
     });
-    const root = roots[0] as
-      | { thread_id: unknown; resource_type: unknown; resource_id: unknown }
+    const target = targets[0] as
+      | {
+          thread_id: unknown;
+          resource_type: unknown;
+          resource_id: unknown;
+          parent_comment_id: unknown;
+        }
       | undefined;
+    const root = target && target.parent_comment_id == null ? target : null;
     if (root) {
       // A reply still being written holds its root `FOR SHARE`. Taking every
       // first comment in the thread `FOR UPDATE` first waits that out, so
@@ -1489,6 +1795,21 @@ export async function deleteReviewComment(
       actor,
       now,
     );
+    if (target && deleted + deletedReplies > 0) {
+      const resourceType = String(target.resource_type);
+      await runReviewCommentWriteHook(
+        resourceType,
+        {
+          type: "deleted",
+          resourceType,
+          resourceId: String(target.resource_id),
+          threadId: String(target.thread_id),
+          commentIds: [id, ...rest.map((comment) => String(comment.id))],
+          actorEmail: actor,
+        },
+        tx,
+      );
+    }
     return deleted + deletedReplies;
   };
   return client.transaction ? client.transaction(deleteIn) : deleteIn(client);
@@ -1585,6 +1906,7 @@ async function clearDeletedReviewComment(
               anchor_json = NULL,
               metadata_json = ${metadata},
               deleted_by = ${sql.value(deletedBy)},
+              revision = revision + 1,
               deleted_at = ${sql.value(now)},
               updated_at = ${sql.value(now)}
         WHERE id = ${sql.value(id)}
@@ -1640,6 +1962,7 @@ async function clearDeletedReviewReplies(
               anchor_json = NULL,
               metadata_json = ${metadata},
               deleted_by = ${sql.value(deletedBy)},
+              revision = revision + 1,
               deleted_at = ${sql.value(now)},
               updated_at = ${sql.value(now)}
         WHERE id IN ${sql.in(batch.map((reply) => String(reply.id)))}
@@ -1673,39 +1996,12 @@ export async function updateReviewComment(
   id: string,
   input: UpdateReviewCommentInput,
   resource?: { resourceType: string; resourceId: string },
+  options: ReviewCommentWriteOptions = {},
 ): Promise<ReviewComment | null> {
   await ensureReviewTables();
-  const assignments: string[] = [];
-  const args: unknown[] = [];
-  if (input.body !== undefined) {
-    assignments.push("body = ?");
-    args.push(input.body);
-  }
-  if (input.anchor !== undefined) {
-    assignments.push("anchor_json = ?");
-    args.push(stringifyOptionalJson(input.anchor));
-  }
-  if (input.mentions !== undefined) {
-    assignments.push("mentions_json = ?");
-    args.push(stringifyOptionalJson(input.mentions));
-  }
-  if (!assignments.length)
-    return getReviewCommentById(id, {}, { bypassScope: true });
-  assignments.push("updated_at = ?");
-  args.push(new Date().toISOString());
-  const resourceClause = resource
-    ? " AND resource_type = ? AND resource_id = ?"
-    : "";
-  args.push(id);
-  if (resource) args.push(resource.resourceType, resource.resourceId);
-  const result = await getDbExec().execute({
-    sql: `UPDATE agent_review_comments
-             SET ${assignments.join(", ")}
-           WHERE id = ? AND deleted_at IS NULL${resourceClause}`,
-    args,
-  });
-  if ((result.rowsAffected ?? 0) < 1) return null;
-  return getReviewCommentById(id, {}, { bypassScope: true });
+  return inReviewWrite((tx) =>
+    writeReviewCommentChange(tx, id, input, resource, options),
+  );
 }
 
 export async function consumeReviewFeedback(
@@ -1739,6 +2035,7 @@ export async function consumeReviewFeedback(
           FOR UPDATE`);
     const result = await tx.execute(sql`UPDATE agent_review_comments
           SET consumed_at = ${sql.value(consumedAt)},
+              revision = revision + 1,
               updated_at = ${sql.value(consumedAt)}
         WHERE id IN ${sql.in(ids)}
           ${onResource}`);
@@ -1855,6 +2152,91 @@ export async function getReviewStatus(
   return row ? mapStatusRow(row) : null;
 }
 
+/**
+ * Links a comment to the same comment or thread in another system, such as a
+ * Notion comment or discussion, so an import can skip what it already copied.
+ * Linking the same outside ID to the same comment again changes nothing;
+ * linking it to another comment is refused. Links outlive a deleted comment,
+ * so a later import doesn't bring it back.
+ */
+export async function linkReviewComment(
+  input: Omit<ReviewCommentLink, "createdAt" | "resourceType" | "resourceId">,
+  client?: DbExec,
+): Promise<ReviewCommentLink> {
+  await ensureReviewTables();
+  const db = client ?? getDbExec();
+  const comment = await getReviewCommentByIdWithClient(db, input.commentId);
+  if (!comment) throw new Error("Review comment not found");
+  await db.execute(sql`INSERT INTO agent_review_comment_links
+        (provider, external_kind, external_id, comment_id, resource_type,
+         resource_id, created_at)
+      VALUES (${sql.value(input.provider)}, ${sql.value(input.externalKind)},
+        ${sql.value(input.externalId)}, ${sql.value(input.commentId)},
+        ${sql.value(comment.resourceType)}, ${sql.value(comment.resourceId)},
+        ${sql.value(new Date().toISOString())})
+      ON CONFLICT (provider, external_kind, external_id) DO NOTHING`);
+  const link = await findReviewCommentLink(input, db);
+  if (!link || link.commentId !== input.commentId) {
+    throw new ReviewCommentLinkConflictError(
+      input.provider,
+      input.externalKind,
+      input.externalId,
+    );
+  }
+  return link;
+}
+
+/** The comment an outside ID is linked to, if any. */
+export async function findReviewCommentLink(
+  input: Pick<ReviewCommentLink, "provider" | "externalKind" | "externalId">,
+  client?: DbExec,
+): Promise<ReviewCommentLink | null> {
+  await ensureReviewTables();
+  const result = await (client ?? getDbExec()).execute(sql`SELECT provider,
+        external_kind, external_id, comment_id, resource_type, resource_id,
+        created_at
+       FROM agent_review_comment_links
+      WHERE provider = ${sql.value(input.provider)}
+        AND external_kind = ${sql.value(input.externalKind)}
+        AND external_id = ${sql.value(input.externalId)}`);
+  const row = result.rows?.[0];
+  return row ? mapLinkRow(row as Record<string, unknown>) : null;
+}
+
+/** Every outside link on these comments, optionally from one system. */
+export async function listReviewCommentLinks(
+  commentIds: readonly string[],
+  provider?: string,
+): Promise<ReviewCommentLink[]> {
+  const ids = [...new Set(commentIds)];
+  if (!ids.length) return [];
+  await ensureReviewTables();
+  const fromProvider = provider
+    ? sql`AND provider = ${sql.value(provider)}`
+    : sql``;
+  const result = await getDbExec().execute(sql`SELECT provider, external_kind,
+        external_id, comment_id, resource_type, resource_id, created_at
+       FROM agent_review_comment_links
+      WHERE comment_id IN ${sql.in(ids)}
+        ${fromProvider}
+      ORDER BY comment_id, provider, external_kind, external_id`);
+  return (result.rows ?? []).map((row) =>
+    mapLinkRow(row as Record<string, unknown>),
+  );
+}
+
+function mapLinkRow(row: Record<string, unknown>): ReviewCommentLink {
+  return {
+    provider: String(row.provider),
+    externalKind: String(row.external_kind),
+    externalId: String(row.external_id),
+    commentId: String(row.comment_id),
+    resourceType: String(row.resource_type),
+    resourceId: String(row.resource_id),
+    createdAt: String(row.created_at),
+  };
+}
+
 export function __resetReviewInitForTests(): void {
   reviewStore.reset();
 }
@@ -1867,9 +2249,13 @@ function commentColumns(): string {
     "thread_id",
     "parent_comment_id",
     "target_id",
+    "surface_id",
     "kind",
     "status",
     "anchor_json",
+    "anchor_kind",
+    "anchor_version",
+    "revision",
     "body",
     "author_email",
     "author_name",
@@ -1939,9 +2325,16 @@ function mapCommentRow(row: Record<string, unknown>): ReviewComment {
     threadId: String(row.thread_id),
     parentCommentId: nullableString(row.parent_comment_id),
     targetId: nullableString(row.target_id),
+    surfaceId: nullableString(row.surface_id),
     kind: normalizeKind(row.kind),
     status: normalizeCommentStatus(row.status),
     anchor: parseOptionalJson(row.anchor_json),
+    anchorKind: nullableString(row.anchor_kind),
+    anchorVersion:
+      row.anchor_version === null || row.anchor_version === undefined
+        ? null
+        : Number(row.anchor_version),
+    revision: Number(row.revision ?? 1),
     body: String(row.body),
     authorEmail: nullableString(row.author_email),
     authorName: nullableString(row.author_name),
