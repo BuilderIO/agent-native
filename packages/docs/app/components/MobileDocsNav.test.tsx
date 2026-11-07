@@ -175,8 +175,12 @@ describe("MobileDocsNav", () => {
         "data-active-descendant",
       ),
     ).toBe("true");
-    // The Toolkit section starts collapsed; open it to inspect its group.
-    fireEvent.click(screen.getByRole("button", { name: toolkit.title }));
+    const toolkitButton = screen.getByRole("button", {
+      name: toolkit.title,
+    });
+    if (toolkitButton.getAttribute("aria-expanded") !== "true") {
+      fireEvent.click(toolkitButton);
+    }
     expect(
       screen.getByRole("button", { name: toolkitGroup.label }).getAttribute(
         "data-active-descendant",
