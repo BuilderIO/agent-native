@@ -1563,9 +1563,9 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
             run: async () => "ok",
           } as never);
         const defineOverride = () =>
-          define(
-            zod ? z.object({ x: z.bigint() }) : standardSchema(() => refused),
-          );
+          define(zod
+            ? z.object({ x: z.bigint() })
+            : standardSchema(() => refused));
         const override = order === "first" ? defineOverride() : undefined;
         const shared = define();
         const actions = { shared, override: override ?? defineOverride() };
