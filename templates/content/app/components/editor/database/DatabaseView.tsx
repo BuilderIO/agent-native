@@ -1,4 +1,5 @@
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   getBrowserTabId,
   setClientAppState,
@@ -10,6 +11,7 @@ import {
   useBuilderConnectFlow,
   useBuilderStatus,
 } from "@agent-native/toolkit/app/settings";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import type { DataGridColumn } from "@agent-native/toolkit/data-grid";
 import {
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
@@ -137,6 +139,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import {
   memo,
+  useContext,
   useEffect,
   useCallback,
   useId,
@@ -161,6 +164,7 @@ import {
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
   selectContentSpace,
 } from "@/components/sidebar/select-content-space";
+import { sidebarPageLinks } from "@/components/sidebar/SidebarRowActions";
 import { WorkspaceSourceMenu } from "@/components/sidebar/WorkspaceSourceMenu";
 import {
   AlertDialog,
@@ -332,7 +336,10 @@ import {
   useContentTableSelectionGutter,
 } from "./ContentTable";
 import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
-import { DatabaseCellComments } from "./database-cell-comments";
+import {
+  DatabaseCellComments,
+  databaseItemCommentAccess,
+} from "./database-cell-comments";
 import {
   createConstraintMenus,
   useConstraintMenusState,
@@ -341,6 +348,7 @@ import {
 import {
   DatabaseItemCommentsContext,
   DatabaseRowCommentCount,
+  type DatabaseItemCommentTarget,
   type OpenDatabaseItemComments,
 } from "./database-item-comments";
 import {
@@ -2044,10 +2052,11 @@ function DatabaseTable({
     setPreviewDocumentId(item.document.id);
   }
 
-  // Opens the row with its Comments showing, from a count or a cell marker.
+  // Opens the row with its Comments showing, from a count, a cell marker, or
+  // the row menu.
   // Every table cell reads this through context, so it keeps one identity.
   const previewItemComments: OpenDatabaseItemComments = useStableCallback(
-    (item, threadId, propertyId) => {
+    (item, target) => {
       if (openWorkspaceFiles(item)) return;
       seedDatabaseItemDocumentCaches(queryClient, item);
       prioritizeBuilderBodyHydrationForItem(item);
@@ -2058,19 +2067,15 @@ function DatabaseTable({
           document.id,
           activeView.id,
         );
-        const link = threadId
-          ? `${path}&comment=${encodeURIComponent(threadId)}`
-          : propertyId
-            ? `${path}&commentProperty=${encodeURIComponent(propertyId)}`
-            : path;
-        runPreviewTransition(() => void navigate(link));
+        runPreviewTransition(
+          () => void navigate(databaseItemCommentLink(path, target)),
+        );
         return;
       }
       const intent: PageCommentIntent = {
         key: ++previewCommentIntentSequenceRef.current,
         documentId: item.document.id,
-        threadId,
-        ...(propertyId ? { propertyId } : {}),
+        ...target,
       };
       if (item.document.id === previewDocumentId) {
         setPreviewCommentIntent(intent);
@@ -3351,6 +3356,15 @@ function DatabaseTable({
             onViewConfigChange={handleViewConfigChange}
             onViewIconChange={handleViewIconChange}
             onViewSelect={selectPersonalView}
+            viewLink={(viewId) =>
+              `${window.location.origin}${appPath(
+                contentRecentHref({
+                  documentId: document.id,
+                  databaseId,
+                  viewId,
+                }),
+              )}`
+            }
           />
         ) : null}
         <ContentTableToolbar className="ms-auto">
@@ -4266,6 +4280,19 @@ export function databaseItemPagePath(
   const search = new URLSearchParams({ databaseId, databaseDocumentId });
   if (fromViewId) search.set("fromViewId", fromViewId);
   return `/page/${documentId}?${search.toString()}`;
+}
+
+/** A row's page, from `databaseItemPagePath`, opened with its Comments on `target`. */
+export function databaseItemCommentLink(
+  pagePath: string,
+  target: DatabaseItemCommentTarget | null,
+) {
+  if (!target) return pagePath;
+  if ("threadId" in target)
+    return `${pagePath}&comment=${encodeURIComponent(target.threadId)}`;
+  if ("propertyId" in target)
+    return `${pagePath}&commentProperty=${encodeURIComponent(target.propertyId)}`;
+  return `${pagePath}&commentPage=1`;
 }
 
 export function databaseNavigationState({
@@ -16011,6 +16038,7 @@ function DatabaseViewTabs({
   onViewConfigChange,
   onViewIconChange,
   onViewSelect,
+  viewLink,
 }: {
   assetScopeDocumentId: string;
   viewConfig: ContentDatabaseViewConfig;
@@ -16021,6 +16049,8 @@ function DatabaseViewTabs({
     icon: ContentDatabaseView["icon"],
   ) => Promise<void>;
   onViewSelect: (viewId: string) => void;
+  /** The address that opens the collection on one of its saved views. */
+  viewLink: (viewId: string) => string;
 }) {
   const t = useT();
   const normalized = normalizeClientDatabaseViewConfig(viewConfig);
@@ -16068,6 +16098,16 @@ function DatabaseViewTabs({
     onViewConfigChange(renameDatabaseView(normalized, viewId, renameValue));
     setRenameViewId(null);
     setRenameValue("");
+  }
+
+  async function copyViewLink(viewId: string) {
+    if (await writeClipboardText(viewLink(viewId))) {
+      toast.success(dbText("copiedViewLink"));
+    } else {
+      toast.error(t("editor.toolbar.couldNotCopyLink"), {
+        description: t("editor.toolbar.clipboardAccessUnavailable"),
+      });
+    }
   }
 
   function clearDraggedView() {
@@ -16353,6 +16393,9 @@ function DatabaseViewTabs({
                   >
                     {dbText("duplicateView")}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void copyViewLink(view.id)}>
+                    {dbText("copyLinkToView")}
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     disabled={normalized.views.length <= 1}
@@ -16396,7 +16439,7 @@ function DatabaseViewTabs({
             <button
               type="button"
               aria-label={dbText("addDatabaseView")}
-              className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/viewtabs:opacity-100 group-hover/viewtabs:opacity-100 data-[state=open]:opacity-100"
+              className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/viewtabs:opacity-100 group-hover/viewtabs:opacity-100 data-[state=open]:opacity-100 [@media(any-hover:none)]:opacity-100"
             >
               <IconPlus className="size-4" />
             </button>
@@ -19830,7 +19873,9 @@ export function RowActionsCell({
   onDeletedPreviewItem?: (item: ContentDatabaseItem) => boolean;
   onOpenPage: () => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
+  const openComments = useContext(DatabaseItemCommentsContext);
   const contentSpaces = useContentSpaces();
   const { data: databaseDocument } = useDocument(databaseDocumentId);
   const databaseQuery = useContentDatabase(databaseDocumentId);
@@ -19839,6 +19884,7 @@ export function RowActionsCell({
   const removeItems = useRemoveDatabaseItems(databaseDocumentId);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const keepFocusOnCloseRef = useRef(false);
   const title = item.document.title || "Untitled";
   const removesFavoriteMembership =
     contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
@@ -19867,6 +19913,26 @@ export function RowActionsCell({
         sources: databaseSources,
       });
   const canDuplicateRow = databaseItemCanDuplicate(item, isWorkspaceCatalog);
+  // A workspace's row opens the workspace, so a link or comment to its Page
+  // would land somewhere Open page doesn't.
+  const opensAsPage = !isWorkspaceCatalog;
+  const canComment =
+    opensAsPage &&
+    openComments !== null &&
+    databaseItemCommentAccess(item).canComment;
+
+  async function copyLink() {
+    const { shareLink } = sidebarPageLinks(item.document.id, {
+      localFile: item.document.source?.mode === "local-files",
+    });
+    if (await writeClipboardText(shareLink)) {
+      toast.success(t("editor.toolbar.copiedPageLink"));
+    } else {
+      toast.error(t("editor.toolbar.couldNotCopyLink"), {
+        description: t("editor.toolbar.clipboardAccessUnavailable"),
+      });
+    }
+  }
 
   async function duplicateRow() {
     if (!canDuplicateRow) return;
@@ -19926,9 +19992,21 @@ export function RowActionsCell({
     <div className="flex items-center justify-center">
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
-          <ContentTableRowActionButton label={`Row actions for ${title}`} />
+          <ContentTableRowActionButton
+            label={dbText("rowActionsFor", { title })}
+          />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuContent
+          align="end"
+          className="w-44"
+          onCloseAutoFocus={(event) => {
+            // The row preview closes when focus leaves it, so the menu must
+            // not hand focus back to this button after opening the preview.
+            if (!keepFocusOnCloseRef.current) return;
+            keepFocusOnCloseRef.current = false;
+            event.preventDefault();
+          }}
+        >
           <DropdownMenuItem
             onSelect={(event) => {
               event.preventDefault();
@@ -19938,6 +20016,21 @@ export function RowActionsCell({
           >
             {dbText("openPage")}
           </DropdownMenuItem>
+          {opensAsPage ? (
+            <DropdownMenuItem onSelect={() => void copyLink()}>
+              {t("sidebar.copyLink")}
+            </DropdownMenuItem>
+          ) : null}
+          {canComment ? (
+            <DropdownMenuItem
+              onSelect={() => {
+                keepFocusOnCloseRef.current = true;
+                openComments(item, { pageComment: true });
+              }}
+            >
+              {t("editor.comment")}
+            </DropdownMenuItem>
+          ) : null}
           {canDuplicateRow ? (
             <DropdownMenuItem
               disabled={duplicateItem.isPending}

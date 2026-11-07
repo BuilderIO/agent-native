@@ -42,7 +42,8 @@ async function runAction(
 ): Promise<ActionResult> {
   const response = await page.request.post(`/_agent-native/actions/${name}`, {
     data,
-    headers: ACTION_HEADERS,
+    // Destructive actions such as the fixture cleanup need same-origin proof.
+    headers: { ...ACTION_HEADERS, Origin: new URL(page.url()).origin },
   });
   const result = await readJson(response);
   expect(
@@ -151,8 +152,26 @@ async function createDatabaseFixture(
     await runAction(page, "update-document", {
       id: rowFixture.documentId,
       title: rowFixture.title,
-      content: rowFixture.body,
     });
+    // A browser body write without the body it was written over is held for
+    // review instead of saved, so the row would keep an empty body.
+    const emptyRow = await readAction(page, "get-document", {
+      id: rowFixture.documentId,
+      databaseId: databaseId as string,
+      databaseDocumentId: databaseDocumentId as string,
+    });
+    expect(emptyRow.content ?? "").toBe("");
+    const bodySave = await runAction(page, "update-document", {
+      id: rowFixture.documentId,
+      content: rowFixture.body,
+      authoredBaseRevision: emptyRow.revision,
+      authoredBaseContent: "",
+      authoredCandidateContent: rowFixture.body,
+      editorSessionId: `preview-parity-${marker}`,
+      editorEditGeneration: index + 1,
+      browserSaveAttemptId: `preview-parity-body-${marker}-${letter}`,
+    });
+    expect(bodySave.preservationRequired).toBeUndefined();
     await runAction(page, "set-document-property", {
       documentId: rowFixture.documentId,
       databaseId,
@@ -700,4 +719,178 @@ test("a failed preview metadata save keeps the Page editor and draft mounted", a
   } finally {
     if (fixture) await cleanupDatabaseFixture(page, fixture);
   }
+});
+
+async function clipboardText(page: Page) {
+  return page.evaluate(() => navigator.clipboard.readText());
+}
+
+function discussionComposer(page: Page) {
+  return page.locator("[data-discussion-composer] [contenteditable='true']");
+}
+
+test("a collection row's menu copies its link and starts a comment on its page", async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  try {
+    await ensureAuthenticatedLocalSession(page);
+    const origin = new URL(page.url()).origin;
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin,
+    });
+    fixture = await createDatabaseFixture(page);
+    const row = fixture.rows[0]!;
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+
+    const rowActions = page.getByRole("button", {
+      name: `Row actions for ${row.title}`,
+    });
+    const rowMenu = page.getByRole("menu").filter({
+      has: page.getByRole("menuitem", { name: "Open page" }),
+    });
+    await rowActions.click();
+    await rowMenu
+      .getByRole("menuitem", { name: "Copy link", exact: true })
+      .click();
+    await expect(page.getByText("Copied page link")).toBeVisible();
+    await expect(rowMenu).toHaveCount(0);
+    expect(await clipboardText(page)).toBe(`${origin}/p/${row.documentId}`);
+
+    await rowActions.focus();
+    await page.keyboard.press("Enter");
+    await expect(
+      rowMenu.getByRole("menuitem", { name: "Open page" }),
+    ).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(
+      rowMenu.getByRole("menuitem", { name: "Copy link", exact: true }),
+    ).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    const comment = rowMenu.getByRole("menuitem", {
+      name: "Comment",
+      exact: true,
+    });
+    await expect(comment).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    const preview = previewDialog(page);
+    await expect(preview).toBeVisible();
+    await expect(preview.getByLabel("Document title")).toHaveValue(row.title);
+    await expect(discussionComposer(page)).toBeFocused();
+    const text = `Row menu comment ${Date.now()}`;
+    await page.keyboard.type(text);
+    await page
+      .locator("[data-discussion-composer]")
+      .getByRole("button", { name: "Comment", exact: true })
+      .click();
+    await expect
+      .poll(async () => {
+        const listed = await readAction(page, "list-comments", {
+          documentId: row.documentId,
+        });
+        return (listed.comments as ActionResult[]).map(
+          (entry) => entry.content,
+        );
+      })
+      .toContain(text);
+
+    // A full-page row opens the same way from its link, comment kept.
+    await page.goto(`/page/${row.documentId}?commentPage=1`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(discussionComposer(page)).toBeFocused();
+    await expect(page.getByText(text)).toBeVisible();
+  } finally {
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+test("a collection view's menu copies a link that opens that view", async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  try {
+    await ensureAuthenticatedLocalSession(page);
+    const origin = new URL(page.url()).origin;
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin,
+    });
+    fixture = await createDatabaseFixture(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+
+    await page.getByRole("button", { name: "Add collection view" }).click();
+    await page.getByLabel("New view name").fill("Second");
+    await page.keyboard.press("Enter");
+    const second = page.getByRole("button", { name: "Second view menu" });
+    await expect(second).toBeVisible();
+
+    await second.click();
+    await page.getByRole("menuitem", { name: "Copy link to view" }).click();
+    await expect(page.getByText("Copied view link")).toBeVisible();
+    const link = new URL(await clipboardText(page));
+    expect(link.origin).toBe(origin);
+    expect(link.pathname).toBe(`/page/${fixture.databaseDocumentId}`);
+    expect(link.searchParams.get("databaseId")).toBe(fixture.databaseId);
+    expect(link.searchParams.get("viewId")).toBeTruthy();
+
+    await page.getByRole("button", { name: "Table", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Table view menu" }),
+    ).toBeVisible();
+    await page.goto(link.href, { waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("button", { name: "Second view menu" }),
+    ).toBeVisible();
+  } finally {
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+test.describe("collection menus on a touch screen", () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+  test("shows a row's menu and Add view without hover, and taps a row's Comment", async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    let fixture: DatabaseFixture | null = null;
+    try {
+      await ensureAuthenticatedLocalSession(page);
+      fixture = await createDatabaseFixture(page);
+      const row = fixture.rows[0]!;
+      await page.goto(`/page/${fixture.databaseDocumentId}`, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(
+        await page.evaluate(() => matchMedia("(any-hover: none)").matches),
+      ).toBe(true);
+
+      const rowActions = page.getByRole("button", {
+        name: `Row actions for ${row.title}`,
+      });
+      await rowActions.scrollIntoViewIfNeeded();
+      await expect(rowActions).toHaveCSS("opacity", "1");
+      await expect(
+        page.getByRole("button", { name: "Add collection view" }),
+      ).toHaveCSS("opacity", "1");
+
+      await rowActions.tap();
+      await page.getByRole("menuitem", { name: "Comment", exact: true }).tap();
+      await expect(previewDialog(page)).toBeVisible();
+      await expect(discussionComposer(page)).toBeFocused();
+    } finally {
+      if (fixture) await cleanupDatabaseFixture(page, fixture);
+    }
+  });
 });
