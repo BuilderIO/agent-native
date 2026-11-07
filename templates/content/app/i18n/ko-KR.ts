@@ -1611,6 +1611,7 @@ const overrides = {
     commandSearchHeading: "검색",
     searchScope: "검색 범위",
     searchAllWorkspaces: "모든 워크스페이스",
+    searchThisPage: "이 페이지",
     searchFields: "검색 필드",
     searchAllText: "전체 텍스트",
     searchTitleOnly: "제목만",

@@ -321,7 +321,9 @@ function isDatabaseLifecycleQuery(query: ActionQuery): boolean {
 
 function isDocumentListQuery(query: ActionQuery): boolean {
   return (
-    query.queryKey[0] === "action" && query.queryKey[1] === "list-documents"
+    query.queryKey[0] === "action" &&
+    (query.queryKey[1] === "list-documents" ||
+      query.queryKey[1] === "list-document-titles")
   );
 }
 

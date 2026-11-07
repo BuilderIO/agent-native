@@ -220,3 +220,72 @@ export async function assertSubtreeCanChangeSpace(
     }
   }
 }
+
+/** Most pages a search can be scoped to; a larger subtree keeps its nearest. */
+export const SEARCH_SUBTREE_LIMIT = 5_000;
+
+/**
+ * A page and everything inside it, nearest first: sub-pages, the collections
+ * on it, and their rows. Ids only, for search to scope itself to; search still
+ * applies its own access rule to each page, so this reveals nothing.
+ */
+export async function searchSubtreeDocumentIds(
+  db: ContentDb,
+  rootId: string,
+): Promise<string[]> {
+  const seen = new Set([rootId]);
+  let frontier = [rootId];
+  while (frontier.length > 0 && seen.size < SEARCH_SUBTREE_LIMIT) {
+    const found: string[] = [];
+    for (const idGroup of groups(frontier)) {
+      // guard:allow-unscoped — ids only; search-documents filters every result by access.
+      const children: Array<{ id: string }> = await db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(
+          and(
+            inArray(schema.documents.parentId, idGroup),
+            isNull(schema.documents.trashedAt),
+          ),
+        );
+      // guard:allow-unscoped — ids only; search-documents filters every result by access.
+      const collections: Array<{ id: string; documentId: string }> = await db
+        .select({
+          id: schema.contentDatabases.id,
+          documentId: schema.contentDatabases.documentId,
+        })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            or(
+              inArray(schema.contentDatabases.documentId, idGroup),
+              inArray(schema.contentDatabases.ownerDocumentId, idGroup),
+            ),
+            isNull(schema.contentDatabases.systemRole),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        );
+      found.push(
+        ...children.map((child) => child.id),
+        ...collections.map((collection) => collection.documentId),
+      );
+      for (const collectionIds of groups(collections.map(({ id }) => id))) {
+        // guard:allow-unscoped — ids only; search-documents filters every result by access.
+        const rows: Array<{ documentId: string }> = await db
+          .select({ documentId: schema.contentDatabaseItems.documentId })
+          .from(schema.contentDatabaseItems)
+          .where(
+            inArray(schema.contentDatabaseItems.databaseId, collectionIds),
+          );
+        found.push(...rows.map((row) => row.documentId));
+      }
+    }
+    frontier = [];
+    for (const id of found) {
+      if (seen.has(id) || seen.size >= SEARCH_SUBTREE_LIMIT) continue;
+      seen.add(id);
+      frontier.push(id);
+    }
+  }
+  return [...seen];
+}

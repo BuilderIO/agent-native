@@ -9,6 +9,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
 import {
   and,
   asc,
@@ -28,7 +29,6 @@ import { z } from "zod";
 
 import { documentSearchIndex, getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
-import { endsInHtmlComment } from "../shared/og-description.js";
 import {
   parseSearchQuery,
   type SearchQueryTerm,
@@ -40,58 +40,12 @@ import {
   documentDiscoveryPagination,
   documentDiscoveryWhere,
 } from "./_document-discovery-query.js";
-import {
-  documentSearchRanking,
-  searchQueryProximityPattern,
-} from "./_document-search-ranking.js";
-import { loadPageSubtree } from "./_page-subtree.js";
-import { SNIPPET_WINDOW_CONTEXT, searchSnippet } from "./_search-snippet.js";
+import { loadDocumentSearchPreviews } from "./_document-search-preview.js";
+import { documentSearchRanking } from "./_document-search-ranking.js";
+import { loadPageSubtree, searchSubtreeDocumentIds } from "./_page-subtree.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
-}
-
-/** How much of the page before a match window search reads for a comment. */
-const COMMENT_SCAN_CHARS = 20_000;
-
-/**
- * Whether a match window starts inside an HTML comment, from the text before it
- * when that has an open marker. A marker too far back to read counts as one.
- */
-function startsInComment(beforeOpenMarker: string | null | undefined): boolean {
-  if (!beforeOpenMarker) return false;
-  return (
-    !beforeOpenMarker.includes("<!--") || endsInHtmlComment(beforeOpenMarker)
-  );
-}
-
-/**
- * A result's snippet from its match window. The window starts
- * `SNIPPET_WINDOW_CONTEXT` characters before the match, or at the top of the
- * page, and the database counts characters the way `Array.from` does.
- */
-function previewSnippet(
-  preview:
-    | {
-        contentPreview: string | null;
-        snippetNeedle: string | null;
-        matchPosition: number | null;
-        contentLength: number | null;
-        beforeOpenMarker: string | null;
-      }
-    | undefined,
-): string {
-  const window = preview?.contentPreview ?? "";
-  const position = Number(preview?.matchPosition) || 0;
-  const windowStart = Math.max(1, position - SNIPPET_WINDOW_CONTEXT);
-  return searchSnippet(window, preview?.snippetNeedle ?? "", {
-    clippedStart: windowStart > 1,
-    clippedEnd:
-      windowStart - 1 + Array.from(window).length <
-      (Number(preview?.contentLength) || 0),
-    startsInComment: startsInComment(preview?.beforeOpenMarker),
-    matchOffset: position > 0 ? position - windowStart : undefined,
-  });
 }
 
 export default defineAction({
@@ -120,6 +74,13 @@ export default defineAction({
         .optional()
         .describe(
           "Leave out this document and every page beneath it, e.g. to list valid new parents when moving it",
+        ),
+      withinSubtreeOf: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Search only this document and everything inside it: its sub-pages, its collections and their rows",
         ),
       documentType: z
         .enum(["page", "database"])
@@ -234,6 +195,11 @@ export default defineAction({
           ).map((document) => document.id)
         : [args.excludeSubtreeOf];
     }
+    let withinIds: string[] | null = null;
+    if (args.withinSubtreeOf) {
+      await assertAccess("document", args.withinSubtreeOf, "viewer");
+      withinIds = await searchSubtreeDocumentIds(db, args.withinSubtreeOf);
+    }
     // The core index answers when it is complete and current and the query
     // fits it; otherwise this request scans documents directly, as search
     // did before the index.
@@ -272,6 +238,7 @@ export default defineAction({
         excludedIds.length > 0
           ? notInArray(schema.documents.id, excludedIds)
           : undefined,
+        withinIds ? inArray(schema.documents.id, withinIds) : undefined,
         args.modifiedAfter
           ? gte(
               sql`${schema.documents.updatedAt}::timestamptz`,
@@ -290,96 +257,6 @@ export default defineAction({
       ? and(baseWhere, indexedSearch.match)
       : and(baseWhere, ...matchPredicates);
     const normalizedContent = sql<string>`coalesce(${schema.documents.content}, '')`;
-    const bodyNeedleArray = bodyNeedles.length
-      ? sql`array[${sql.join(
-          bodyNeedles.map((needle) => sql`${needle}`),
-          sql`, `,
-        )}]::text[]`
-      : undefined;
-    const maxOccurrencesPerNeedle = Math.max(
-      1,
-      Math.floor(256 / Math.max(1, bodyNeedles.length)),
-    );
-    const proximityPattern =
-      bodyNeedleArray && parsedQuery
-        ? searchQueryProximityPattern(parsedQuery)
-        : null;
-    const proximityPosition = proximityPattern
-      ? sql<number>`regexp_instr(${normalizedContent}, ${proximityPattern}, 1, 1, 0, 'i')`
-      : undefined;
-    const fallbackBodyPosition =
-      bodyNeedles.length === 1
-        ? sql<number>`nullif(position(lower(${bodyNeedles[0]!}) in lower(${normalizedContent})), 0)`
-        : bodyNeedleArray
-          ? sql<number>`(
-          with recursive body_occurrence(needle, query_order, match_position, occurrence_number) as (
-            select candidate.needle, candidate.query_order,
-              position(lower(candidate.needle) in lower(${normalizedContent})), 1
-            from unnest(${bodyNeedleArray}) with ordinality as candidate(needle, query_order)
-            where position(lower(candidate.needle) in lower(${normalizedContent})) > 0
-            union all
-            select occurrence.needle, occurrence.query_order,
-              occurrence.match_position + position(
-                lower(occurrence.needle)
-                in substring(lower(${normalizedContent}) from occurrence.match_position + 1)
-              ), occurrence.occurrence_number + 1
-            from body_occurrence as occurrence
-            where occurrence.occurrence_number < ${maxOccurrencesPerNeedle} and position(
-              lower(occurrence.needle)
-              in substring(lower(${normalizedContent}) from occurrence.match_position + 1)
-            ) > 0
-          )
-          select candidate.match_position
-          from body_occurrence as candidate
-          order by (
-            select count(*)
-            from unnest(${bodyNeedleArray}) as nearby(needle)
-            where position(
-              lower(nearby.needle)
-              in lower(substr(
-                ${normalizedContent},
-                greatest(1, candidate.match_position - 120),
-                240 + length(candidate.needle)
-              ))
-            ) > 0
-          ) desc,
-          candidate.match_position,
-          candidate.query_order
-          limit 1
-        )`
-          : undefined;
-    const selectedBodyPosition =
-      proximityPosition && fallbackBodyPosition
-        ? sql<number>`coalesce(nullif(${proximityPosition}, 0), ${fallbackBodyPosition})`
-        : fallbackBodyPosition;
-    const selectedBodyNeedle =
-      bodyNeedleArray && selectedBodyPosition
-        ? sql<string>`(
-            select candidate.needle
-            from unnest(${bodyNeedleArray}) with ordinality as candidate(needle, query_order)
-            where lower(substr(${normalizedContent}, ${selectedBodyPosition}, length(candidate.needle))) = lower(candidate.needle)
-            order by candidate.query_order
-            limit 1
-          )`
-        : undefined;
-    // The stored page around the match, with enough on each side to leave
-    // text for the snippet once markup is stripped.
-    const context = sql.raw(String(SNIPPET_WINDOW_CONTEXT));
-    const matchWindow = selectedBodyPosition
-      ? sql<string>`case when ${selectedBodyPosition} is not null then substr(${normalizedContent}, greatest(1, ${selectedBodyPosition} - ${context}), least(5000, 2 * ${context} + coalesce(length(${selectedBodyNeedle}), 0))) else substr(${normalizedContent}, 1, 5000) end`
-      : sql<string>`substr(${normalizedContent}, 1, 5000)`;
-    // The end of the page before the window, only when that text, read
-    // backwards, reaches a `<!--` before any `-->`. The window can only start
-    // inside a comment then, and the marker may still be code, which takes
-    // Markdown to tell.
-    const beforeWindow = selectedBodyPosition
-      ? sql<string>`substr(${normalizedContent}, 1, greatest(0, ${selectedBodyPosition} - ${context} - 1))`
-      : undefined;
-    const beforeOpenMarker = beforeWindow
-      ? sql<
-          string | null
-        >`case when strpos(reverse(${beforeWindow}), '--!<') > 0 and (strpos(reverse(${beforeWindow}), '>--') = 0 or strpos(reverse(${beforeWindow}), '--!<') < strpos(reverse(${beforeWindow}), '>--')) then right(${beforeWindow}, ${sql.raw(String(COMMENT_SCAN_CHARS))}) end`
-      : sql<string | null>`null`;
     const ranking =
       !indexedSearch && parsedQuery?.groups.length
         ? documentSearchRanking(
@@ -394,7 +271,7 @@ export default defineAction({
             },
           )
         : null;
-    const docsQuery = db
+    let docsQuery = db
       .select({
         id: schema.documents.id,
         parentId: schema.documents.parentId,
@@ -421,8 +298,10 @@ export default defineAction({
       .from(schema.documents)
       .where(where)
       .$dynamic();
+    // Reassigned because a new process's database handle replays a query from
+    // its chained steps, so a join added on the side is lost.
     if (indexedSearch) {
-      docsQuery.innerJoin(indexedSearch.join, indexedSearch.on);
+      docsQuery = docsQuery.innerJoin(indexedSearch.join, indexedSearch.on);
     }
     const docs = await docsQuery
       .orderBy(
@@ -443,39 +322,19 @@ export default defineAction({
       )
       .limit(args.limit)
       .offset(args.offset);
-    const previews = docs.length
-      ? await db
-          .select({
-            id: schema.documents.id,
-            contentPreview: matchWindow,
-            matchPosition: selectedBodyPosition ?? sql<number | null>`null`,
-            snippetNeedle: selectedBodyNeedle
-              ? sql<string>`coalesce(${selectedBodyNeedle}, '')`
-              : sql<string>`''`,
-            contentLength: sql<number>`length(${normalizedContent})`,
-            beforeOpenMarker,
-          })
-          .from(schema.documents)
-          .where(
-            and(
-              baseWhere,
-              inArray(
-                schema.documents.id,
-                docs.map((doc) => doc.id),
-              ),
-            ),
-          )
-      : [];
-    const previewById = new Map(
-      previews.map((preview) => [preview.id, preview]),
-    );
-    const countQuery = db
+    const previewById = await loadDocumentSearchPreviews({
+      db,
+      where: baseWhere,
+      ids: docs.map((doc) => doc.id),
+      needles: bodyNeedles,
+    });
+    let countQuery = db
       .select({ count: sql<number>`count(*)` })
       .from(schema.documents)
       .where(where)
       .$dynamic();
     if (indexedSearch) {
-      countQuery.innerJoin(indexedSearch.join, indexedSearch.on);
+      countQuery = countQuery.innerJoin(indexedSearch.join, indexedSearch.on);
     }
     let totalItems: number;
     if (docs.length) {
@@ -521,8 +380,8 @@ export default defineAction({
           title: doc.title,
           description: doc.description,
           icon: doc.icon,
-          snippet: previewSnippet(preview),
-          contentLength: Number(preview?.contentLength) || 0,
+          snippet: preview?.snippet ?? "",
+          contentLength: preview?.contentLength ?? 0,
           hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
           updatedAt: doc.updatedAt,
         };

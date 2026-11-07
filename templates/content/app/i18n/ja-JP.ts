@@ -1621,6 +1621,7 @@ const overrides = {
     commandSearchHeading: "検索",
     searchScope: "検索範囲",
     searchAllWorkspaces: "すべてのワークスペース",
+    searchThisPage: "このページ",
     searchFields: "検索フィールド",
     searchAllText: "すべてのテキスト",
     searchTitleOnly: "タイトルのみ",

@@ -374,16 +374,26 @@ Instead:
 ## Querying
 
 Built: `indexedSearchSql({ registration, query, fields })` returns Drizzle SQL
-that the app composes into its own statement: a join to `search_resources`, the
-match condition, and the ranking terms. The app keeps its own access condition,
-filters, snippets, parents, paging, and totals, all in the same statement.
+that the app composes into its own statement: a lookup in `search_resources` for
+each row the app's query keeps, the match condition, and the ranking terms. The
+app keeps its own access condition, filters, snippets, parents, paging, and
+totals, all in the same statement.
+
+The match reads `doc_vector` only for rows the access condition and filters
+keep, not through its GIN index across the table. The table holds every user's
+documents, and Postgres doesn't count what fetching a stored vector costs, so
+given the choice it reads most of the table for a common word. On a fixture of
+24,500 documents with 4,500 visible to the caller, that scan took 600–1,000 ms
+per word and the lookup about 50 ms for the whole query. The cost now follows
+the caller's library and filters, not the table; the trade is a rare word in a
+very large library, which the GIN index would answer sooner.
 
 Matching, for each term:
 
 - **Titles and summaries** match by substring, including mid-word ("prio"
   finds "Task Priorities").
-- **Bodies** match whole words through the GIN index, every word as a prefix.
-  A multi-word term is a phrase whose last word is a prefix.
+- **Bodies** match whole words, every word as a prefix. A multi-word term is a
+  phrase whose last word is a prefix.
 - **Fields.** A title, summary, and body share one position space, with a gap
   between them, so a phrase never spans two fields.
 - **Positions.** Postgres keeps at most 255 positions per word and none past

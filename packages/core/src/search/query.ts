@@ -6,11 +6,17 @@
  * Matching, for each term:
  * - titles and summaries match anywhere, including mid-word ("prio" finds
  *   "Task Priorities"), because they're short;
- * - bodies match whole words, every word as a prefix, through the GIN index;
- *   mid-word body matches are deliberately not supported. A phrase needs
- *   its words adjacent, except in a document too long or repetitive for
- *   Postgres to keep every word position, where every word being in one
- *   field is enough.
+ * - bodies match whole words, every word as a prefix; mid-word body matches
+ *   are deliberately not supported. A phrase needs its words adjacent, except
+ *   in a document too long or repetitive for Postgres to keep every word
+ *   position, where every word being in one field is enough.
+ *
+ * The index is read one row per document the app's query allows, not through
+ * its GIN index across the table. The table holds every user's documents, so a
+ * common word would otherwise read most of them, and Postgres will: it doesn't
+ * count what fetching a stored vector costs, so it picks that scan however many
+ * words the query has. Reading only the caller's rows keeps the cost to the
+ * size of their library, and to that of whatever else narrows the query.
  *
  * Ranking reproduces the tiers the browser lane uses
  * (`TITLE_MATCH_TIER` in Content): exact title 5, title prefix 4, title word
@@ -27,6 +33,7 @@ import { SEARCH_RESOURCES_TABLE } from "./index-store.js";
 import type { ParsedSearchQuery, SearchQueryTerm } from "./query-parser.js";
 import type { SearchableResourceRegistration } from "./registry.js";
 import {
+  allOfTsquery,
   anyOfTsquery,
   isPhraseTerm,
   normalizeSearchText,
@@ -106,10 +113,13 @@ export function indexedSearchSql(
   const bodyTerms = (terms: readonly SearchQueryTerm[]) =>
     titleOnlyField ? [] : terms.filter((term) => !term.titleOnly);
 
+  const docVector = sql.raw(`${ALIAS}.doc_vector`);
+  const positionsComplete = sql.raw(`${ALIAS}.positions_complete`);
+  const termsTsquery = (terms: readonly SearchQueryTerm[]) =>
+    anyOfTsquery(terms.map((term) => termTsquery(term.text, { prefix: true })));
+
   const bodyMatch = (terms: readonly SearchQueryTerm[]): SQL | undefined => {
-    const tsquery = anyOfTsquery(
-      terms.map((term) => termTsquery(term.text, { prefix: true })),
-    );
+    const tsquery = termsTsquery(terms);
     if (!tsquery) return undefined;
     // A document whose vector lost positions can't be phrase-matched
     // exactly, so a phrase matches it when every word is in one field.
@@ -122,10 +132,9 @@ export function indexedSearchSql(
           ),
         ),
     );
-    const vectorMatch = anyOrder
-      ? sql`(doc_vector @@ ${tsquery}::tsquery OR (NOT positions_complete AND doc_vector @@ ${anyOrder}::tsquery))`
-      : sql`doc_vector @@ ${tsquery}::tsquery`;
-    return sql`${sql.raw(`${ALIAS}.resource_id`)} IN (SELECT resource_id FROM ${sql.raw(SEARCH_RESOURCES_TABLE)} WHERE app = ${registration.app} AND resource_type = ${registration.type} AND ${vectorMatch})`;
+    return anyOrder
+      ? sql`(${docVector} @@ ${tsquery}::tsquery OR (NOT ${positionsComplete} AND ${docVector} @@ ${anyOrder}::tsquery))`
+      : sql`${docVector} @@ ${tsquery}::tsquery`;
   };
 
   const titleAny = (terms: readonly SearchQueryTerm[]) =>
@@ -140,10 +149,53 @@ export function indexedSearchSql(
     or(titleAny(terms), summaryAny(terms), bodyMatch(bodyTerms(terms)))!;
 
   const groups = query.groups.filter((group) => group.terms.length > 0);
+
+  /**
+   * Every group matching in any field, for groups of plain words. Each test of
+   * a stored vector reads it again, so asking for all the groups in one test
+   * reads each row's vector once. What that misses is a document where some
+   * group matches only in its title or summary, and only those few are tested
+   * group by group.
+   */
+  const everyPlainWordMatch = (): SQL | undefined => {
+    if (titleOnlyField || groups.length < 2) return undefined;
+    const tsqueries: string[] = [];
+    for (const group of groups) {
+      const terms = bodyTerms(group.terms);
+      const tsquery = termsTsquery(terms);
+      if (!tsquery || terms.some((term) => isPhraseTerm(term.text))) {
+        return undefined;
+      }
+      tsqueries.push(tsquery);
+    }
+    return or(
+      sql`${docVector} @@ ${allOfTsquery(tsqueries)}::tsquery`,
+      and(
+        or(
+          ...groups.flatMap((group) => [
+            titleAny(group.terms),
+            summaryAny(group.terms),
+          ]),
+        ),
+        ...groups.map(
+          (group, index) =>
+            or(
+              titleAny(group.terms),
+              summaryAny(group.terms),
+              sql`${docVector} @@ ${tsqueries[index]!}::tsquery`,
+            )!,
+        ),
+      ),
+    );
+  };
+
+  const plainWordMatch = everyPlainWordMatch();
   const match =
     groups.length || query.negatives.length
       ? and(
-          ...groups.map((group) => anyField(group.terms)),
+          ...(plainWordMatch
+            ? [plainWordMatch]
+            : groups.map((group) => anyField(group.terms))),
           ...query.negatives.map((negative) => not(anyField([negative]))),
         )!
       : sql`false`;
@@ -218,12 +270,14 @@ export function indexedSearchSql(
     ? termTsquery(phraseTerms, { prefix: true, weights: "C" })
     : null;
   const bodyPhrase = phraseQuery
-    ? sql<number>`case when ${sql.raw(`${ALIAS}.doc_vector`)} @@ ${phraseQuery}::tsquery then 1 else 0 end`
+    ? sql<number>`case when ${docVector} @@ ${phraseQuery}::tsquery then 1 else 0 end`
     : null;
 
   return {
-    join: sql`${sql.raw(SEARCH_RESOURCES_TABLE)} AS ${sql.raw(ALIAS)}`,
-    on: sql`${sql.raw(`${ALIAS}.app`)} = ${registration.app} AND ${sql.raw(`${ALIAS}.resource_type`)} = ${registration.type} AND ${sql.raw(`${ALIAS}.resource_id`)} = ${registration.idColumn}::text`,
+    // LATERAL looks up each row the app's query keeps, and OFFSET keeps Postgres
+    // from folding the lookup back into a join it would start from this table.
+    join: sql`LATERAL (SELECT * FROM ${sql.raw(SEARCH_RESOURCES_TABLE)} WHERE app = ${registration.app} AND resource_type = ${registration.type} AND resource_id = ${registration.idColumn}::text OFFSET 0) AS ${sql.raw(ALIAS)}`,
+    on: sql`true`,
     match,
     matchTier,
     titleCoverage: titleCoverage ?? zero,

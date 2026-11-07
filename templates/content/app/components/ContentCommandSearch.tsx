@@ -16,10 +16,11 @@ import {
   IconFolderOpen,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
+import { contentDocumentIdFromPathname } from "@/hooks/content-action-refresh";
 import { useContentSpaces } from "@/hooks/use-content-spaces";
-import { useDocuments } from "@/hooks/use-documents";
+import { useDocuments, useDocumentTitles } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   buildDocumentSpaceRootIndex,
@@ -30,7 +31,10 @@ import {
   excludeAlreadyShownDocuments,
   isLocalFileSearchResult,
   mergeInstantAndServerResults,
+  pagesInsidePage,
   searchHighlightParts,
+  titleEntryPassesFilters,
+  titleEntryToInstantSearchResult,
   type CommandSearchDocumentResult,
   type CommandSearchDocumentsResponse,
   type InstantSearchFilters,
@@ -56,6 +60,7 @@ import { Spinner } from "./ui/spinner";
 const INSTANT_RESULT_LIMIT = 20;
 
 const ALL_SPACES = "all";
+const THIS_PAGE = "this-page";
 
 export type ModifiedDateFilter =
   | { kind: "any" }
@@ -390,6 +395,7 @@ export function SearchPage({
   debouncedQuery,
   needles,
   spaceId,
+  withinSubtreeOf,
   searchFields,
   documentType,
   modifiedAfter,
@@ -402,6 +408,7 @@ export function SearchPage({
   debouncedQuery: string;
   needles: string[];
   spaceId?: string;
+  withinSubtreeOf?: string;
   searchFields: "all" | "title";
   documentType?: "page" | "database";
   modifiedAfter?: string;
@@ -416,7 +423,14 @@ export function SearchPage({
   const [offset, setOffset] = useState(0);
   useEffect(() => {
     setOffset(0);
-  }, [debouncedQuery, spaceId, searchFields, documentType, modifiedAfter]);
+  }, [
+    debouncedQuery,
+    spaceId,
+    withinSubtreeOf,
+    searchFields,
+    documentType,
+    modifiedAfter,
+  ]);
 
   // Instant lane: reranked on every keystroke straight from the precomputed
   // index, no debounce and no network wait (SO-01).
@@ -433,6 +447,7 @@ export function SearchPage({
   const baseArgs = {
     query: debouncedQuery,
     spaceId,
+    withinSubtreeOf,
     searchFields,
     documentType,
     modifiedAfter,
@@ -615,9 +630,15 @@ export function ContentCommandSearchResults({
     spaces: spaces.data?.spaces ?? [],
     storedSpaceId,
   });
-  const searchingAll = chosenScope === ALL_SPACES;
+  const currentPageId = contentDocumentIdFromPathname(useLocation().pathname);
+  const pageScopeId =
+    chosenScope === THIS_PAGE && currentPageId ? currentPageId : undefined;
+  // Searching inside a page crosses workspaces if the page's contents do.
+  const searchingAll = chosenScope === ALL_SPACES || Boolean(pageScopeId);
   const scopeId =
-    chosenScope && chosenScope !== ALL_SPACES ? chosenScope : selectedSpace?.id;
+    chosenScope && chosenScope !== ALL_SPACES && chosenScope !== THIS_PAGE
+      ? chosenScope
+      : selectedSpace?.id;
   const [searchFields, setSearchFields] = useState("all");
   const [documentType, setDocumentType] = useState("all");
   const [modifiedDate, setModifiedDate] = useState<ModifiedDateFilter>({
@@ -654,12 +675,15 @@ export function ContentCommandSearchResults({
     : t("root.searchDate");
   const modifiedAfter = modifiedAfterForFilter(modifiedDate);
 
-  // Instant title lane: reads whatever the sidebar has already loaded for
-  // `useDocuments()` without forcing a fetch of its own (`enabled: false`
-  // still returns cached data, if any). Filtering and indexing are memoized
-  // separately from ranking, which reruns on every keystroke.
+  // Instant title lane: the titles of everything the caller can search, or,
+  // in local-file mode, the complete list the sidebar loads for
+  // `useDocuments()` (`enabled: false` returns its cached data, if any).
+  // Filtering and indexing are memoized separately from ranking, which reruns
+  // on every keystroke.
   const documentsQuery = useDocuments({ enabled: false });
   const documents = documentsQuery.data;
+  const titleEntries = useDocumentTitles({ enabled: !documents }).data
+    ?.documents;
   const rootIndex = useMemo(
     () => buildDocumentSpaceRootIndex(documents ?? []),
     [documents],
@@ -692,15 +716,56 @@ export function ContentCommandSearchResults({
       modifiedAfter,
     ],
   );
-  const candidateDocuments = useMemo(
+  const insidePage = useMemo(
     () =>
-      (documents ?? [])
-        .filter((document) =>
-          documentPassesInstantSearchFilters(document, instantFilters),
-        )
-        .map(documentToInstantSearchResult),
-    [documents, instantFilters],
+      pageScopeId
+        ? pagesInsidePage(
+            documents?.map((document) => ({
+              id: document.id,
+              parentId: document.parentId,
+              collectionDocumentId:
+                document.databaseMembership?.databaseDocumentId,
+            })) ??
+              titleEntries ??
+              [],
+            pageScopeId,
+          )
+        : null,
+    [documents, titleEntries, pageScopeId],
   );
+  const candidateDocuments = useMemo(() => {
+    if (documents) {
+      return documents
+        .filter(
+          (document) =>
+            documentPassesInstantSearchFilters(document, instantFilters) &&
+            (!insidePage || insidePage.has(document.id)),
+        )
+        .map(documentToInstantSearchResult);
+    }
+    const titleById = new Map(
+      (titleEntries ?? []).map((entry) => [entry.id, entry.title]),
+    );
+    return (titleEntries ?? [])
+      .filter((entry) =>
+        titleEntryPassesFilters(entry, {
+          spaceId: searchingAll ? undefined : scopeId,
+          insidePage,
+          documentType: resolvedDocumentType,
+          modifiedAfter,
+        }),
+      )
+      .map((entry) => titleEntryToInstantSearchResult(entry, titleById));
+  }, [
+    documents,
+    instantFilters,
+    insidePage,
+    titleEntries,
+    searchingAll,
+    scopeId,
+    resolvedDocumentType,
+    modifiedAfter,
+  ]);
   const titleIndex = useMemo(
     () => buildTitleSearchIndex(candidateDocuments),
     [candidateDocuments],
@@ -726,8 +791,17 @@ export function ContentCommandSearchResults({
       >
         <SearchChoice
           label={t("root.searchScope")}
-          value={searchingAll ? ALL_SPACES : (scopeId ?? "")}
+          value={
+            pageScopeId
+              ? THIS_PAGE
+              : searchingAll
+                ? ALL_SPACES
+                : (scopeId ?? "")
+          }
           choices={[
+            ...(currentPageId
+              ? [{ value: THIS_PAGE, label: t("root.searchThisPage") }]
+              : []),
             { value: ALL_SPACES, label: t("root.searchAllWorkspaces") },
             ...(spaces.data?.spaces ?? []).map((entry) => ({
               value: entry.id,
@@ -801,6 +875,7 @@ export function ContentCommandSearchResults({
           debouncedQuery={debouncedQuery}
           needles={highlightNeedles}
           spaceId={searchingAll ? undefined : scopeId}
+          withinSubtreeOf={pageScopeId}
           searchFields={searchFields as "all" | "title"}
           documentType={resolvedDocumentType}
           modifiedAfter={modifiedAfter}

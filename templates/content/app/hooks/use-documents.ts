@@ -46,6 +46,7 @@ import {
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
+import type { DocumentTitlesResponse } from "@/lib/content-command-search";
 import { contentSaveTelemetryHeaders } from "@/lib/content-save-telemetry";
 
 import type {
@@ -243,6 +244,7 @@ export function restoreDeletedDocumentSnapshots(
 }
 
 const DOCUMENT_LIST_PAGE_SIZE = 200;
+const DOCUMENT_TITLES_STALE_MS = 5 * 60 * 1000;
 
 export async function fetchCompleteDocumentList(
   fetchPage: (offset: number, limit: number) => Promise<DocumentListResponse>,
@@ -841,6 +843,41 @@ export function useDocuments(options?: { enabled?: boolean }) {
     select: (data) => data.documents,
     retry: false,
     enabled: options?.enabled !== false,
+  });
+}
+
+const DOCUMENT_TITLES_ACTION = "list-document-titles";
+
+/**
+ * The titles search ranks in the browser. One read fills it, however large the
+ * library, so it stays across closing and reopening the command menu rather
+ * than making the next search wait for it again.
+ */
+export function useDocumentTitles(options?: { enabled?: boolean }) {
+  return useActionQuery<DocumentTitlesResponse>(
+    DOCUMENT_TITLES_ACTION,
+    {},
+    {
+      enabled: options?.enabled !== false,
+      retry: false,
+      staleTime: DOCUMENT_TITLES_STALE_MS,
+      gcTime: Infinity,
+    },
+  );
+}
+
+/** Reads the titles ahead of the first search, once the page has settled. */
+export function prefetchDocumentTitles(queryClient: QueryClient) {
+  return queryClient.prefetchQuery({
+    queryKey: ["action", DOCUMENT_TITLES_ACTION, {}],
+    queryFn: () =>
+      callAction<DocumentTitlesResponse>(
+        DOCUMENT_TITLES_ACTION,
+        {},
+        { method: "GET" },
+      ),
+    staleTime: DOCUMENT_TITLES_STALE_MS,
+    gcTime: Infinity,
   });
 }
 

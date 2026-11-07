@@ -3,6 +3,18 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-07
+
+### Improved
+
+- Search answers much faster, most of all for queries with several common words.
+- The search menu shows matching page titles as you type, without waiting for the server.
+- Pick "This page" in the search menu to search the open page and everything inside it: its sub-pages, its collections, and their rows.
+
+### Fixed
+
+- A search could fail with an error if it was the first thing a newly started server was asked to do.
+
 ## 2026-11-05
 
 ### Fixed

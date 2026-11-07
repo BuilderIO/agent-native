@@ -244,6 +244,7 @@ const overrides = {
     commandSearchHeading: "搜尋",
     searchScope: "範圍",
     searchAllWorkspaces: "全部工作區",
+    searchThisPage: "此頁面",
     searchFields: "搜尋欄位",
     searchAllText: "全部文字",
     searchTitleOnly: "僅標題",
