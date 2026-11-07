@@ -79,7 +79,7 @@ Quando uma execução é retomada (tempo limite de software, tempo limite de gat
 - quais chamadas de ferramenta **já concluídas** (com resultados curtos), então ela as reutiliza e **não** as executa novamente, e
 - quais chamadas de ferramenta foram **interrompidas com resultado desconhecido** para que ele verifique o estado antes de assumir sucesso ou falha.
 
-Quando o diário está vazio (um turno sem atividade de ferramenta ou uma continuação limpa), nada extra é acrescentado e o comportamento de retomada é, byte por byte, o que era antes. A observação é o melhor esforço: uma leitura do razão com falha nunca bloqueia uma recuperação que de outra forma seria bem-sucedida.
+Quando o diário está vazio (um turno sem atividade de ferramenta ou uma continuação limpa), nada extra é acrescentado e o comportamento de retomada é, byte por byte, o que era antes. O diário em si, porém, é obrigatório: se o razão não puder ser lido, mesmo após uma nova tentativa, a execução retomada para antes de o modelo rodar, com `tool_call_journal_unreadable`, e pede que você envie a solicitação de novo. Sem o razão, ela não consegue saber quais etapas já terminaram.
 
 ## Camada 2: bloco rígido da camada de ferramenta {#hard-block}
 
@@ -99,12 +99,21 @@ Principais propriedades:
 O bloco rígido impede apenas uma **repetição exata**: a mesma ferramenta de gravação com a mesma entrada, depois que uma tentativa anterior no mesmo turno terminou e registrou seu resultado. Ele não descarta todo e-mail, cobrança ou ticket duplicado:
 
 - **Uma nova tentativa reformulada não corresponde.** Se o modelo alterar qualquer argumento, como o corpo do e-mail, a chamada deixa de corresponder a uma chamada concluída, então o bloco rígido não a impede.
-- **Uma falha no meio do envio pode causar repetição.** Se o processo morrer depois que o efeito colateral acontecer, mas antes de seu resultado ser registrado, a chamada conta como interrompida, e o bloco rígido só cobre chamadas concluídas. Uma proteção separada recusa uma nova tentativa idêntica de uma escrita interrompida, mas só quando o histórico da execução retomada mostra a interrupção.
+- **Depois de uma falha no meio do envio, a repetição só é retida pelo resto do turno.** Se o processo morrer depois que o efeito colateral acontecer, mas antes de seu resultado ser registrado, a chamada conta como interrompida, e o bloco rígido só cobre chamadas concluídas. Em vez disso, a execução retomada retém essa ferramenta de escrita, como descreve [Escritas com resultado desconhecido](#unknown-outcome). Uma nova mensagem inicia um novo turno, em que nada a retém.
 - **Após uma falha, uma execução pode ser retomada no mesmo turno por dois caminhos distintos.** Um é uma [execução durável em segundo plano](/docs/durable-background-runs). O outro é um trecho posterior de um turno normal em primeiro plano que usa o [autoencadeamento em primeiro plano](/docs/durable-background-runs#foreground-self-chain). Qualquer outra execução que falhe termina com um erro. Escolher **Continuar** nela retoma o mesmo turno, então as duas camadas se aplicam.
 
 Uma ação cujo efeito colateral nunca deve se repetir precisa de sua própria verificação de idempotência. O bloco rígido nunca se aplica a ações somente leitura.
 
 </Callout>
+
+## Escritas com resultado desconhecido {#unknown-outcome}
+
+O resultado de uma escrita é desconhecido quando ela começou mas nenhum resultado foi registrado, quando excedeu o tempo limite ou quando falhou depois de começar a escrever sem dizer se algo foi salvo. Executá-la de novo poderia aplicar a mudança duas vezes, então pelo resto do turno o loop retém essa ferramenta:
+
+- **A mesma chamada de novo.** Se o modelo repetir a chamada com os mesmos argumentos, o loop primeiro verifica se o resultado da própria chamada acabou sendo registrado e, se sim, o retorna. Caso contrário, a chamada não roda: a execução para com `write_tool_outcome_unknown` e pede que você verifique o que foi salvo e depois responda "continuar".
+- **Qualquer outra chamada a essa ferramenta.** Uma chamada com argumentos diferentes, como um e-mail reescrito, também não roda. O modelo é informado de que a chamada anterior pode já ter sido aplicada e de que deve verificar o estado atual com uma leitura e contar a você o que encontrou. O turno continua.
+
+Uma ação marcada com `retrySafe` fica isenta, porque executá-la de novo não pode duplicar nem corromper dados: ela valida antes de escrever ou define um estado final, como substituir um registro pelo ID. O modelo pode corrigir os argumentos dela e tentar de novo. Ações somente leitura não são retidas, a menos que uma escrita tenha rodado dentro de uma delas.
 
 ## Continuação automática após um limite de tempo {#auto-continue}
 

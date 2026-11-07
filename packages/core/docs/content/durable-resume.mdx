@@ -83,7 +83,7 @@ When a run resumes (soft timeout, gateway timeout, or any resumable transport er
 - which tool calls **already completed** (with short results) so it reuses them and does **not** re-run them, and
 - which tool calls were **interrupted with unknown outcome** so it verifies state before assuming success or failure.
 
-When the journal is empty (a turn with no tool activity, or a clean continuation), nothing extra is appended and resume behavior is byte-for-byte what it was before. The note is best-effort: a failed ledger read never blocks a recovery that would otherwise succeed.
+When the journal is empty (a turn with no tool activity, or a clean continuation), nothing extra is appended and resume behavior is byte-for-byte what it was before. The journal itself is required, though: if the ledger can't be read, even after one retry, the resumed run stops before the model runs, with `tool_call_journal_unreadable`, and asks you to send the request again. Without the ledger it can't tell which steps already finished.
 
 ## Layer 2: tool-layer hard-block {#hard-block}
 
@@ -103,12 +103,21 @@ Key properties:
 The hard-block stops only an **exact repeat**: the same write tool with the same input, after an earlier attempt in the same turn finished and recorded its result. It does not rule out every duplicate email, charge, or ticket:
 
 - **A reworded retry isn't matched.** If the model changes any argument, such as the email body, the call no longer matches a completed call, so the hard-block doesn't stop it.
-- **A crash mid-send can repeat.** If the process dies after the side effect lands but before its result is recorded, the call counts as interrupted, and the hard-block covers only completed calls. A separate guard refuses an identical retry of an interrupted write, but only when the resumed run's history shows the interruption.
+- **After a crash mid-send, a repeat is held back only for the rest of the turn.** If the process dies after the side effect lands but before its result is recorded, the call counts as interrupted, and the hard-block covers only completed calls. The resumed run holds back that write tool instead, as [Writes with an unknown outcome](#unknown-outcome) describes. A new message starts a new turn, where nothing holds it back.
 - **A crashed run can resume in the same turn through either of two separate paths.** One is a [durable background run](/docs/durable-background-runs). The other is a later chunk of a normal foreground turn using the [foreground self-chain](/docs/durable-background-runs#foreground-self-chain). Any other crashed run ends with an error. Choosing **Continue** on it resumes the same turn, so both layers apply.
 
 An action whose side effect must never repeat needs its own idempotency check. The hard-block never applies to read-only actions.
 
 </Callout>
+
+## Writes with an unknown outcome {#unknown-outcome}
+
+A write's outcome is unknown when it started but no result was recorded, when it timed out, or when it failed after it began writing without saying whether anything was saved. Running it again could apply the change twice, so for the rest of the turn the loop holds back that tool:
+
+- **The same call again.** If the model repeats the call with the same arguments, the loop first checks whether that call's own result was recorded after all, and returns it if so. Otherwise the call doesn't run: the run stops with `write_tool_outcome_unknown` and asks you to check what was saved, then reply "continue".
+- **Any other call to that tool.** A call with different arguments, such as a reworded email, doesn't run either. The model is told that the earlier call may already have applied, and to check the current state with a read and tell you what it found. The turn goes on.
+
+An action marked `retrySafe` is exempt, because running it again can't duplicate or corrupt data: it validates before it writes, or it sets an end state, such as replacing a record by ID. The model can correct its arguments and try again. Read-only actions aren't held back unless a write ran inside one.
 
 ## Automatic continuation after a time limit {#auto-continue}
 
