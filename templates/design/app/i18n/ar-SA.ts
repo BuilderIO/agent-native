@@ -334,6 +334,7 @@ export default {
   common: {
     loading: "جارٍ التحميل...",
     genericError: "حدث خطأ ما",
+    linkedSourceSizeLimit: "يتجاوز تعديل المكوّن المرتبط حد حجم المصدر.",
   },
   editPanel: {
     colorInputLabel: "لون",
@@ -1032,6 +1033,9 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "تعذر تحميل هذه الشاشة.",
+    writeFailed: "تعذّر حفظ هذا التغيير.",
+    selectionPublishFailed: "قد لا يرى الوكيل تحديدك الأخير. حدِّده مرة أخرى.",
     liveCollaboration: {
       title: "التعاون المباشر",
       description:
@@ -2648,6 +2652,7 @@ export default {
   },
   homeContext: {
     websiteReference: "إضافة موقع ويب",
+    websiteReferenceMenu: "إضافة موقع ويب…",
     websiteUrlLabel: "عنوان URL لموقع الويب",
     websiteUrl: "الصق عنوان URL لموقع ويب",
     figmaUrlLabel: "رابط Figma",
@@ -2672,10 +2677,12 @@ export default {
     retry: "إعادة المحاولة",
     empty: "لا توجد مراجع مطابقة.",
     none: "بلا",
-    design: "التصميم",
+    design: "مراجع التصميم",
     slides: "الشرائح",
     referenceDesign: "استخدام تصميم كمرجع",
-    figmaReference: "إضافة Figma",
+    connectFigma: "ربط Figma",
+    figmaDisconnected: "اربط Figma لتصفح التصاميم.",
+    figmaReference: "تصميم Figma",
     referenceDeck: "استخدام عرض تقديمي كمرجع",
     quickSaas: "إنشاء صفحة هبوط لخدمة SaaS",
     quickDashboard: "إنشاء لوحة معلومات",

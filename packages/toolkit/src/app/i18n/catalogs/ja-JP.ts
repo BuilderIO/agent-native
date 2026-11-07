@@ -518,7 +518,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "{{integration}}のツールを使用",
   "composer.menu.scheduleTask": "タスクをスケジュール",
   "composer.menu.scheduleTaskDescription": "スケジュールに沿って実行",
-  "composer.menu.uploadFile": "ファイルをアップロード",
+  "composer.menu.uploadFile": "ファイルと画像",
+  "composer.menu.searchWorkspace": "ワークスペースを検索…",
+  "composer.menu.references": "参照",
+  "composer.menu.referenceFile": "ファイルを参照",
+  "composer.menu.attachToMessage": "コンテキストを追加",
+  "composer.menu.commands": "コマンド",
   "composer.menu.uploadFileDescription":
     "画像、PDF、テキスト／コード、JSON、CSV",
   "composer.messageAgent": "エージェントにメッセージを送信...",
@@ -3412,6 +3417,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "ワークスペースからアプリを削除",
   "chatFirst.showMore": "さらに表示",
   "chatFirst.showLess": "表示を減らす",
+  "chatFirst.showMoreCount": "さらに {{count}} 件表示",
   "chatFirst.appOrderUnavailable":
     "このデバイスではアプリの並び順を保存できませんでした。",
   "chatFirst.openSideSurfaces": "サイドパネルを開く",

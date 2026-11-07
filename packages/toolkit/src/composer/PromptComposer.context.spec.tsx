@@ -105,7 +105,7 @@ describe("controlled composer context", () => {
     );
     const menu = document.querySelector('[role="menu"]')!;
     expect(menu.querySelector('[role="searchbox"]')).toBeNull();
-    expect(menu.textContent).toContain("Upload File");
+    expect(menu.textContent).toContain("Files and images");
     expect(menu.textContent).toContain("Add context");
     await act(async () =>
       document.dispatchEvent(
@@ -522,22 +522,9 @@ describe("controlled composer context", () => {
     );
 
     const plusMenu = document.querySelector<HTMLElement>('[role="menu"]');
-    expect(plusMenu?.textContent).toContain("Upload File");
+    expect(plusMenu?.textContent).toContain("Files and images");
     expect(plusMenu?.textContent).toContain("Add context");
-    expect(plusMenu?.textContent).not.toContain("Choose source");
-    const addContext = Array.from(
-      document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-    ).find((item) => item.textContent === "Add context")!;
-    await act(async () => {
-      addContext.focus();
-      addContext.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "ArrowRight",
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    });
+    expect(plusMenu?.textContent).toContain("Choose source");
     const sourceAction = Array.from(
       document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
     ).find((item) => item.textContent === "Choose source")!;
@@ -570,19 +557,6 @@ describe("controlled composer context", () => {
       button.dispatchEvent(
         new KeyboardEvent("keydown", {
           key: "ArrowDown",
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    });
-    const addContext = Array.from(
-      document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-    ).find((item) => item.textContent === "Add context")!;
-    await act(async () => {
-      addContext.focus();
-      addContext.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "ArrowRight",
           bubbles: true,
           cancelable: true,
         }),
@@ -645,41 +619,17 @@ describe("controlled composer context", () => {
         }),
       );
     });
-    const addContext = Array.from(
-      document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-    ).find((item) => item.textContent === "Add context");
-    if (addContext) {
-      await act(async () => {
-        addContext.focus();
-        addContext.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "ArrowRight",
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-      });
-    }
-    const section = Array.from(
-      document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-    ).find((item) => item.textContent === "Connected Agents");
-    if (section) {
-      await act(async () => {
-        section.focus();
-        section.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "ArrowRight",
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-      });
-    }
-    const row = Array.from(
+    const search = Array.from(
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find(
-      (item) => item.textContent === "SlidesPresentations in this workspace",
-    )!;
+    ).find((item) => item.textContent === "Search workspace…")!;
+    expect(search).toBeDefined();
+    await act(async () => {
+      search.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const row = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((item) => item.textContent === "Slides")!;
     expect(row).toBeDefined();
     await act(async () => row.click());
     await act(async () => {
@@ -829,7 +779,7 @@ describe("controlled composer context", () => {
       }
       bounds = { ...bounds, y: window.innerHeight + 500 };
       await act(async () => observation.resize());
-      if (plusMenu) expect(panel.style.maxHeight).toBe("280px");
+      if (plusMenu) expect(panel.style.maxHeight).toBe("480px");
       bounds = { ...bounds, x: 120, y: 160 };
       await act(async () => window.dispatchEvent(new Event("scroll")));
       if (!plusMenu) {
@@ -840,7 +790,7 @@ describe("controlled composer context", () => {
           "--radix-popover-content-available-height",
         );
       } else {
-        expect(panel.style.maxHeight).toBe("246px");
+        expect(panel.style.maxHeight).toBe("446px");
       }
       await act(async () =>
         editor.dispatchEvent(
@@ -858,7 +808,7 @@ describe("controlled composer context", () => {
       vi.restoreAllMocks();
     },
   );
-  it("requests storage setup only after choosing Upload File", async () => {
+  it("requests storage setup only after choosing Files and images", async () => {
     const onAttachmentRequest = vi.fn();
     await mount({
       attachmentsEnabled: false,
@@ -882,7 +832,7 @@ describe("controlled composer context", () => {
     });
     const uploadFile = Array.from(
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((button) => button.textContent?.includes("Upload File"));
+    ).find((button) => button.textContent?.includes("Files and images"));
     expect(uploadFile).toBeDefined();
     await act(async () => uploadFile!.click());
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -909,11 +859,243 @@ describe("controlled composer context", () => {
     );
     const uploadFile = document.querySelector<HTMLElement>('[role="menuitem"]');
     expect(uploadFile).toBeDefined();
-    expect(uploadFile?.textContent).toContain("Upload File");
+    expect(uploadFile?.textContent).toContain("Files and images");
     await act(async () => uploadFile!.click());
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(onAttachmentRequest).toHaveBeenCalledOnce();
   });
+  it("shows localized source errors in the reference picker", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                code: "mention_source_unavailable",
+                message: "Impossible de charger les références.",
+                source: "dashboards",
+              },
+            }),
+            { status: 503 },
+          ),
+      ),
+    );
+    await mount({
+      contextMenuItems: [
+        {
+          id: "dashboards",
+          label: "Reference a dashboard…",
+          section: "context",
+          referenceType: "dashboard",
+          referencePicker: { source: "dashboards", referenceType: "dashboard" },
+        },
+      ],
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLElement>('button[aria-label="Add context"]')!
+        .dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+        );
+    });
+    await act(async () => {
+      Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+        .find((item) => item.textContent === "Reference a dashboard…")!
+        .click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(document.body.textContent).toContain(
+      "Impossible de charger les références.",
+    );
+  });
+  it("opens scoped native references in one dialog and excludes them from workspace search", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                id: "dashboard:one",
+                label: "Revenue overview",
+                source: "dashboards",
+                refType: "dashboard",
+                refId: "one",
+                section: "Dashboards",
+              },
+              {
+                id: "file:brief",
+                label: "Launch brief",
+                source: "resource:personal",
+                refType: "file",
+                refPath: "brief.md",
+                section: "Files",
+              },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const { composerRef, onSubmit } = await mount({
+      contextMenuItems: [
+        {
+          id: "dashboards",
+          label: "Reference a dashboard…",
+          section: "context",
+          referenceType: "dashboard",
+          referencePicker: { source: "dashboards", referenceType: "dashboard" },
+        },
+      ],
+    });
+    const open = async () => {
+      await act(async () => {
+        container
+          .querySelector<HTMLElement>('button[aria-label="Add context"]')!
+          .dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+          );
+      });
+    };
+    await open();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(
+      document.querySelector('[role="menu"] .skeleton-shimmer'),
+    ).toBeNull();
+    const choose = async (name: string) => {
+      await act(async () => {
+        Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+          .find((item) => item.textContent === name)!
+          .click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+    await choose("Reference a dashboard…");
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("source=dashboards"),
+      { signal: expect.any(AbortSignal) },
+    );
+    expect(
+      document
+        .querySelector('[role="dialog"]')
+        ?.getAttribute("aria-labelledby"),
+    ).toBeTruthy();
+    expect(document.activeElement?.getAttribute("role")).toBe("combobox");
+    expect(
+      Array.from(document.querySelectorAll('[role="option"]')).map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(["Revenue overview"]);
+    await act(async () =>
+      document.querySelector<HTMLElement>('[role="option"]')!.click(),
+    );
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(
+      container.querySelector(".ProseMirror"),
+    );
+    await open();
+    await choose("Search workspace…");
+    expect(
+      Array.from(document.querySelectorAll('[role="option"]')).map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(["Launch brief"]);
+    await act(async () =>
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    await act(async () => composerRef.current!.submit());
+    expect(onSubmit.mock.calls[0][2]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ refType: "dashboard", refId: "one" }),
+      ]),
+    );
+    expect(onSubmit.mock.calls[0][3].references).toEqual(
+      onSubmit.mock.calls[0][2],
+    );
+  });
+
+  it("aborts a workspace picker on identity change before stale results can be selected", async () => {
+    let scopeKey = "org:one";
+    let finish: (response: Response) => void = () => {
+      throw new Error("No search started");
+    };
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const onReferencesChange = vi.fn();
+    const render = async () => {
+      await act(async () =>
+        root.render(
+          <ComposerRuntimeAdaptersProvider
+            adapters={{
+              resources: { useWorkspaceMenu: () => ({ scopeKey, items: [] }) },
+            }}
+          >
+            <PromptComposer
+              onSubmit={vi.fn()}
+              onReferencesChange={onReferencesChange}
+              showModelSelector={false}
+              modelStatusChecksEnabled={false}
+              includeDefaultSlashSkills={false}
+              voiceEnabled={false}
+            />
+          </ComposerRuntimeAdaptersProvider>,
+        ),
+      );
+    };
+    await render();
+    onReferencesChange.mockClear();
+    const open = async () => {
+      await act(async () => {
+        const trigger = container.querySelector<HTMLElement>(
+          'button[aria-label="Add context"]',
+        );
+        if (!trigger) throw new Error("Missing context trigger");
+        trigger.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+        );
+      });
+      await act(async () => {
+        const action = Array.from(
+          document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+        ).find((item) => item.textContent === "Search workspace…");
+        if (!action) throw new Error("Missing workspace search");
+        action.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+    await open();
+    const signal = fetch.mock.calls[0][1].signal;
+    expect(signal.aborted).toBe(false);
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    scopeKey = "org:two";
+    await render();
+    expect(signal.aborted).toBe(true);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () =>
+      finish(
+        new Response(
+          JSON.stringify({
+            items: [
+              { id: "stale", label: "Private old reference", refType: "file" },
+            ],
+          }),
+        ),
+      ),
+    );
+    expect(document.body.textContent).not.toContain("Private old reference");
+    expect(onReferencesChange).not.toHaveBeenCalled();
+  });
+
   async function mount(props: Partial<PromptComposerProps> = {}) {
     const composerRef = React.createRef<TiptapComposerHandle>();
     const onSubmit = vi.fn();
@@ -1132,6 +1314,12 @@ describe("controlled composer context", () => {
       chip: true,
     },
     {
+      name: "an empty host model list with no loading signal",
+      configured: false,
+      props: { showMissingApiKeySetup: false, availableModels: [] },
+      chip: true,
+    },
+    {
       name: "a connected provider",
       configured: true,
       props: {},
@@ -1316,19 +1504,6 @@ describe("controlled composer context", () => {
           new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
         ),
       );
-      const addContext = Array.from(
-        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-      ).find((element) => element.textContent === "Add context")!;
-      await act(async () => {
-        addContext.focus();
-        addContext.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "ArrowRight",
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-      });
       const option = Array.from(
         document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
       ).find((element) => element.textContent?.includes("Choose brief"))!;
@@ -1677,7 +1852,9 @@ describe("controlled composer context", () => {
         expect(editor.textContent).toBe("Typed while readiness was checking");
         expect(sendButton.disabled).toBe(false);
         expect(sendButton.getAttribute("aria-busy")).toBeNull();
-        const statuses = container.querySelectorAll('[role="status"]');
+        const statuses = Array.from(
+          container.querySelectorAll('[role="status"]'),
+        ).filter((status) => status.textContent?.trim());
         expect(statuses).toHaveLength(1);
         expect(statuses[0]?.textContent).toContain(
           "agentChat.setup.providerStatusUnavailable",

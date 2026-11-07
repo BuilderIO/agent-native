@@ -1,5 +1,6 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import {
+  actionErrorMessage,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
@@ -37,6 +38,11 @@ import {
 } from "@/components/meetings/attendee-stack";
 import { BulletLink } from "@/components/meetings/bullet-link";
 import { CanvasEditor } from "@/components/meetings/canvas-editor";
+import {
+  EarlierAudioNotice,
+  useDeferredNotesWait,
+  withEarlierAudioRemoved,
+} from "@/components/meetings/earlier-audio-notice";
 import { QuickAskSidebar } from "@/components/meetings/quick-ask-sidebar";
 import { ShareMeetingPopover } from "@/components/meetings/share-meeting-dialog";
 import {
@@ -472,6 +478,7 @@ export default function MeetingDetailRoute() {
       segmentsJson?: TranscriptSegment[] | null;
     } | null;
     recording?: { id: string; durationMs?: number | null } | null;
+    earlierAudioMinutes?: number | null;
     role?: "owner" | "admin" | "editor" | "commenter" | "viewer";
     reason?: "unavailable";
   };
@@ -505,6 +512,10 @@ export default function MeetingDetailRoute() {
   const stopMeetingRecording = useActionMutation<any, any>(
     "stop-meeting-recording",
   );
+  const removeEarlierAudio = useActionMutation<
+    { notes: string },
+    { meetingId: string }
+  >("remove-earlier-meeting-audio");
 
   const [notesJustArrived, setNotesJustArrived] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -576,11 +587,11 @@ export default function MeetingDetailRoute() {
   const canEdit =
     data?.role === "owner" || data?.role === "admin" || data?.role === "editor";
 
-  const hasNotes =
+  const hasGeneratedNotes =
     !!meeting?.summaryMd ||
-    !!meeting?.userNotesMd ||
     (meeting?.bulletsJson?.length ?? 0) > 0 ||
     (meeting?.actionItemsJson?.length ?? 0) > 0;
+  const hasNotes = hasGeneratedNotes || !!meeting?.userNotesMd;
 
   useEffect(() => {
     if (!meeting) {
@@ -915,6 +926,56 @@ export default function MeetingDetailRoute() {
     finalize.mutate({ meetingId: meeting.id, force: true });
   };
 
+  const showNotesFailed = () => {
+    toast.error(t("meetingDetail.generateNotesFailed"), {
+      action: {
+        label: t("meetingDetail.retry"),
+        onClick: handleFinalize,
+      },
+    });
+  };
+
+  const deferredNotes = useDeferredNotesWait({
+    meetingId: meeting?.id,
+    notesArrived: hasGeneratedNotes,
+    refetch: refetchMeeting,
+    onGiveUp: showNotesFailed,
+  });
+  const generatingNotes =
+    finalize.isPending || removeEarlierAudio.isPending || deferredNotes.pending;
+
+  const handleRemoveEarlierAudio = () => {
+    if (!meeting) return;
+    const queryKey = ["action", "get-meeting", { id: meetingId }];
+    const previous = qc.getQueryData<GetMeetingResp>(queryKey);
+    // The cleared notes would otherwise start a finalize that races the removal.
+    // A running meeting keeps its notes, and its end still has to start them.
+    if (meeting.actualEnd) autoFinalizedRef.current = true;
+    void qc.cancelQueries({ queryKey });
+    qc.setQueryData<GetMeetingResp | undefined>(
+      queryKey,
+      (prev) => prev && withEarlierAudioRemoved(prev),
+    );
+    removeEarlierAudio.mutate(
+      { meetingId: meeting.id },
+      {
+        onSuccess: (result) => {
+          if (result.notes === "regenerating") deferredNotes.start(meeting.id);
+          if (result.notes === "failed") showNotesFailed();
+        },
+        onError: (err: unknown) => {
+          qc.setQueryData(queryKey, previous);
+          // A timeout can land after the server committed the removal.
+          void qc.invalidateQueries({ queryKey });
+          toast.error(
+            actionErrorMessage(err) ??
+              t("meetingDetail.couldNotRemoveEarlierAudio"),
+          );
+        },
+      },
+    );
+  };
+
   const handleDeleteMeeting = () => {
     if (!meeting) return;
     deleteMeeting.mutate(
@@ -1054,6 +1115,10 @@ export default function MeetingDetailRoute() {
   const segments = meeting.segmentsJson ?? [];
   const hasSummary =
     !!meeting.summaryMd || bullets.length > 0 || actionItems.length > 0;
+  // A rebuild that fails after notes were cleared leaves no summary to
+  // regenerate from, and its Retry toast doesn't survive a reload.
+  const canRetryNotes =
+    meeting.transcriptStatus === "failed" && segments.length > 0;
 
   const handleCopyTranscript = async () => {
     if (!segments.length) return;
@@ -1120,7 +1185,7 @@ export default function MeetingDetailRoute() {
           )}
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {!canEdit ? null : finalize.isPending ? (
+          {!canEdit ? null : generatingNotes ? (
             <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
               <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
               {t("meetingDetail.generatingNotesInline")}
@@ -1245,6 +1310,12 @@ export default function MeetingDetailRoute() {
         </div>
       )}
 
+      <EarlierAudioNotice
+        minutes={data?.earlierAudioMinutes}
+        canRemove={canEdit}
+        onRemove={handleRemoveEarlierAudio}
+      />
+
       {finalize.isError && (
         <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           {(finalize.error as Error)?.message ||
@@ -1297,13 +1368,13 @@ export default function MeetingDetailRoute() {
               {t("meetingDetail.summary")}
             </div>
             <div className="flex items-center gap-2">
-              {finalize.isPending && (
+              {generatingNotes && (
                 <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                   <IconLoader2 className="h-3 w-3 animate-spin" />
                   {t("meetingDetail.working")}
                 </span>
               )}
-              {canEdit && hasSummary && (
+              {canEdit && (hasSummary || canRetryNotes) && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -1311,7 +1382,7 @@ export default function MeetingDetailRoute() {
                       variant="ghost"
                       className="h-7 w-7 cursor-pointer"
                       aria-label={t("meetingDetail.regenerateNotes")}
-                      disabled={finalize.isPending}
+                      disabled={generatingNotes}
                       onClick={handleFinalize}
                     >
                       <IconRefresh className="h-3.5 w-3.5" />
@@ -1387,6 +1458,7 @@ export default function MeetingDetailRoute() {
           <TranscriptBubbles
             segments={segments}
             isLive={isLive}
+            unreadable={data?.earlierAudioMinutes === null}
             participants={meeting.participants ?? []}
             ownerEmail={meeting.ownerEmail}
             registerScrollTo={(fn) => {
