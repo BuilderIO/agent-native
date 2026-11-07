@@ -63,6 +63,7 @@ import {
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
   SESSION_REPLAY_NETWORK_EVENT_TAG,
 } from "../../shared/session-replay-diagnostics.js";
+import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import { getDb, schema } from "../db/index.js";
 import {
   resolveAnalyticsEventDimensions,
@@ -102,6 +103,7 @@ import {
   slowSessionConditions,
 } from "./session-performance.js";
 import { sessionRecordingAssociationsReady } from "./session-recording-associations.js";
+import { trafficEnvironmentCondition } from "./traffic-environment.js";
 
 export type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -154,6 +156,8 @@ export interface SessionReplayListFilters {
   hideInternal?: boolean;
   visitorType?: "internal" | "work" | "personal" | "anonymous";
   emailDomain?: string;
+  /** Production or beta traffic, by the recording's host. Omitted means all. */
+  environment?: TrafficEnvironment;
   sort?:
     | "newest"
     | "longest"
@@ -2136,6 +2140,7 @@ export async function listSessionRecordings(
     filters.hideInternal ||
     filters.visitorType ||
     filters.emailDomain ||
+    filters.environment ||
     filters.sort ||
     filters.offset ||
     filters.didEvents?.length ||
@@ -2653,6 +2658,13 @@ export async function listSessionRecordingsPage(
     conditions.push(gte(schema.sessionRecordings.rageClickCount, 1));
   if (filters.status)
     conditions.push(eq(schema.sessionRecordings.status, filters.status));
+  if (filters.environment) {
+    conditions.push(
+      trafficEnvironmentCondition(filters.environment, {
+        host: schema.sessionRecordings.hostname,
+      }),
+    );
+  }
   if (filters.emailDomain && filters.visitorType === "anonymous") {
     conditions.push(sql`false`);
   } else if (filters.emailDomain) {
