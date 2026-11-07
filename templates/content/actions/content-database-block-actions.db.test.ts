@@ -741,7 +741,7 @@ describe("exact Content database block actions", () => {
       mutateBlock.run({
         ...envelope(state, "private-image"),
         operation: "update",
-        blockId: state.listed.blocks[0]!.id,
+        blockId: state.listed.blocks[0].id,
         block: {
           kind: "paragraph",
           nfm: `See the [photo](/api/private-media/${mediaId}).`,
