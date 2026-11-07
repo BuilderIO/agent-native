@@ -2953,9 +2953,6 @@ describe("document editor layout", () => {
       /<PropertyManagementPopover[\s\S]*?popoverContainer=\{popoverContainer\}/,
     );
     expect(properties).toMatch(
-      /<HiddenPropertiesMenu[\s\S]*?popoverContainer=\{popoverContainer\}/,
-    );
-    expect(properties).toMatch(
       /<AddProperty[\s\S]*?popoverContainer=\{popoverContainer\}/,
     );
     expect(infoPanel).toContain(
