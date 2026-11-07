@@ -401,20 +401,22 @@ function visibleTextPast(
 }
 
 /**
- * Where a caret goes from a closed old Toggle's body. Its title isn't page
- * text, so there's no line of its own to go to: the caret carries on past the
- * Toggle the way it was going, or the other way at the end of the page.
+ * Where a selection goes from inside a closed old Toggle's body. Its title
+ * isn't page text, so there's no line of its own to go to: the caret carries
+ * on past the Toggle the way it was going, or the other way at the end of the
+ * page. A selection that also reaches outside the Toggle stays, so Shift and
+ * the arrow keys can extend one past it.
  */
 function pastClosedOldToggle(
-  $pos: ResolvedPos,
+  { $from, to }: Selection,
   cameFrom: number,
 ): number | null {
-  const depth = closedOldToggleDepth($pos);
-  if (depth === null) return null;
-  const direction = cameFrom >= $pos.after(depth) ? -1 : 1;
+  const depth = closedOldToggleDepth($from);
+  if (depth === null || to >= $from.after(depth)) return null;
+  const direction = cameFrom >= $from.after(depth) ? -1 : 1;
   return (
-    visibleTextPast($pos, depth, direction) ??
-    visibleTextPast($pos, depth, direction > 0 ? -1 : 1)
+    visibleTextPast($from, depth, direction) ??
+    visibleTextPast($from, depth, direction > 0 ? -1 : 1)
   );
 }
 
@@ -843,7 +845,8 @@ export function nestBlockInToggleAbove(editor: Editor): boolean {
 /**
  * Tab and Shift+Tab in a title indent and outdent its Toggle, as they do a
  * paragraph, and Shift+Tab then moves the Toggle out of the Toggle around it,
- * with the lines after it in its body, as in Notion. The keys never leave the
+ * with the lines after it in its body, as in Notion. A closed Toggle opens for
+ * them, as it does for Tab, so they stay in view. The keys never leave the
  * page, as the browser's own Tab would.
  */
 export function shiftToggleAtTitle(editor: Editor, delta: 1 | -1): boolean {
@@ -872,7 +875,14 @@ export function shiftToggleAtTitle(editor: Editor, delta: 1 | -1): boolean {
   const remaining = tr.doc.nodeAt(outerPos);
   if (remaining?.type.name !== "notionToggle") return true;
   const insertPos = outerPos + remaining.nodeSize;
-  tr.insert(insertPos, toggle.copy(toggle.content.append(after.content)));
+  tr.insert(
+    insertPos,
+    toggle.type.create(
+      { ...toggle.attrs, open: toggle.attrs.open || after.size > 0 },
+      toggle.content.append(after.content),
+      toggle.marks,
+    ),
+  );
   tr.setSelection(
     TextSelection.create(tr.doc, insertPos + (selection.from - togglePos)),
   );
@@ -2040,13 +2050,11 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
           ) {
             return null;
           }
-          const { $from, $to, empty } = newState.selection;
+          const { $from, $to } = newState.selection;
           const end =
             titleHidingPosition($from) ??
             titleHidingPosition($to) ??
-            (empty
-              ? pastClosedOldToggle($from, oldState.selection.from)
-              : null);
+            pastClosedOldToggle(newState.selection, oldState.selection.from);
           if (end === null) return null;
           return newState.tr.setSelection(
             TextSelection.create(newState.doc, end),
