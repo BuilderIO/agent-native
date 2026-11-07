@@ -2,6 +2,7 @@ import {
   getAmbientUserEmail,
   getRequestAuthCapability,
   getRequestRunContext,
+  type BrowserTabTargetSlot,
 } from "../server/request-context.js";
 import {
   appStateGet,
@@ -38,7 +39,11 @@ async function resolveSessionId(): Promise<string> {
 export async function readAppState(
   key: string,
 ): Promise<Record<string, unknown> | null> {
-  return readUnscopedAppState(requestScopedAppStateKey(key));
+  const scoped = await requestScopedAppStateKey(key);
+  // No tab to read from: a call that asked for one gets nothing rather than
+  // the account-wide row, which no tab keeps current.
+  if (scoped.unavailable) return null;
+  return readUnscopedAppState(scoped.key);
 }
 
 export async function writeAppState(
@@ -46,14 +51,16 @@ export async function writeAppState(
   value: Record<string, unknown>,
 ): Promise<void> {
   const sessionId = await resolveSessionId();
-  return appStatePut(sessionId, requestScopedAppStateKey(key), value, {
+  const { key: scopedKey } = await requestScopedAppStateKey(key);
+  return appStatePut(sessionId, scopedKey, value, {
     requestSource: "agent",
   });
 }
 
 export async function deleteAppState(key: string): Promise<boolean> {
   const sessionId = await resolveSessionId();
-  return appStateDelete(sessionId, requestScopedAppStateKey(key), {
+  const { key: scopedKey } = await requestScopedAppStateKey(key);
+  return appStateDelete(sessionId, scopedKey, {
     requestSource: "agent",
   });
 }
@@ -64,27 +71,25 @@ export async function compareAndSetAppState(
   nextValue: Record<string, unknown> | null,
 ): Promise<boolean> {
   const sessionId = await resolveSessionId();
-  return appStateCompareAndSet(
-    sessionId,
-    requestScopedAppStateKey(key),
-    expectedValue,
-    nextValue,
-    { requestSource: "agent" },
-  );
+  const { key: scopedKey } = await requestScopedAppStateKey(key);
+  return appStateCompareAndSet(sessionId, scopedKey, expectedValue, nextValue, {
+    requestSource: "agent",
+  });
 }
 
 export async function compareAndSetManyAppState(
   operations: readonly AppStateCompareAndSetOperation[],
 ): Promise<boolean> {
   const sessionId = await resolveSessionId();
-  return appStateCompareAndSetMany(
-    sessionId,
-    operations.map((operation) => ({
+  const scopedOperations = await Promise.all(
+    operations.map(async (operation) => ({
       ...operation,
-      key: requestScopedAppStateKey(operation.key),
+      key: (await requestScopedAppStateKey(operation.key)).key,
     })),
-    { requestSource: "agent" },
   );
+  return appStateCompareAndSetMany(sessionId, scopedOperations, {
+    requestSource: "agent",
+  });
 }
 
 export async function listAppState(
@@ -117,12 +122,41 @@ export function normalizeBrowserTabId(value: unknown): string | null {
   return SAFE_TAB_ID_RE.test(trimmed) ? trimmed : null;
 }
 
+/** The browser tab the current request came from, if any. */
 export function getCurrentRequestBrowserTabId(): string | null {
   try {
     return normalizeBrowserTabId(getRequestRunContext()?.browserTabId);
   } catch {
     return null;
   }
+}
+
+/**
+ * The tab whose tab-scoped app state the current request reads and writes:
+ * the tab it came from or, for an MCP call from no tab, the tab of this app
+ * the user used last. `unavailable` when the call looked for a tab and none
+ * was used recently. Requests that have neither (scripts, jobs, the CLI) get
+ * no tab and keep the account-wide rows.
+ */
+export async function resolveCurrentRequestStateTab(): Promise<{
+  tabId: string | null;
+  unavailable: boolean;
+}> {
+  const browserTabId = getCurrentRequestBrowserTabId();
+  if (browserTabId) return { tabId: browserTabId, unavailable: false };
+  let slot: BrowserTabTargetSlot | undefined;
+  try {
+    slot = getRequestRunContext()?.browserTabTarget;
+  } catch {
+    slot = undefined;
+  }
+  if (!slot) return { tabId: null, unavailable: false };
+  const target = await slot.resolve();
+  if (target.kind === "last-used") {
+    const tabId = normalizeBrowserTabId(target.tabId);
+    if (tabId) return { tabId, unavailable: false };
+  }
+  return { tabId: null, unavailable: true };
 }
 
 export function appStateKeyForBrowserTab(
@@ -133,9 +167,15 @@ export function appStateKeyForBrowserTab(
   return normalized ? `${key}:${normalized}` : key;
 }
 
-function requestScopedAppStateKey(key: string): string {
-  if (!TAB_SCOPED_AMBIENT_KEYS.has(key)) return key;
-  return appStateKeyForBrowserTab(key, getCurrentRequestBrowserTabId());
+async function requestScopedAppStateKey(
+  key: string,
+): Promise<{ key: string; unavailable: boolean }> {
+  if (!TAB_SCOPED_AMBIENT_KEYS.has(key)) return { key, unavailable: false };
+  const tab = await resolveCurrentRequestStateTab();
+  return {
+    key: appStateKeyForBrowserTab(key, tab.tabId),
+    unavailable: tab.unavailable,
+  };
 }
 
 async function readUnscopedAppState(
@@ -149,20 +189,30 @@ export async function readAppStateForCurrentTab(
   key: string,
   options?: { fallbackToGlobal?: boolean },
 ): Promise<Record<string, unknown> | null> {
-  const browserTabId = getCurrentRequestBrowserTabId();
-  const tabKey = appStateKeyForBrowserTab(key, browserTabId);
+  const tab = await resolveCurrentRequestStateTab();
+  const tabKey = appStateKeyForBrowserTab(key, tab.tabId);
   if (tabKey !== key) {
     const scoped = await readAppState(tabKey);
     if (scoped) return scoped;
     if (options?.fallbackToGlobal !== true) return null;
   }
+  if (tab.unavailable && TAB_SCOPED_AMBIENT_KEYS.has(key)) return null;
   return readUnscopedAppState(key);
 }
 
+/**
+ * Writes `key` for the current request's tab (see
+ * resolveCurrentRequestStateTab). With no tab, it writes the account-wide
+ * row, as it always has: an MCP caller learns from the call's result that no
+ * tab was found.
+ */
 export async function writeAppStateForCurrentTab(
   key: string,
   value: Record<string, unknown>,
 ): Promise<void> {
-  const tabKey = appStateKeyForBrowserTab(key, getCurrentRequestBrowserTabId());
-  return writeAppState(tabKey, value);
+  const tab = await resolveCurrentRequestStateTab();
+  const tabKey = appStateKeyForBrowserTab(key, tab.tabId);
+  if (tabKey !== key) return writeAppState(tabKey, value);
+  const sessionId = await resolveSessionId();
+  return appStatePut(sessionId, key, value, { requestSource: "agent" });
 }
