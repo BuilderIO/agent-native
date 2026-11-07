@@ -30,6 +30,45 @@ import { dbClientGeneration } from "./runtime-facts.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+const PROBE_DIAGNOSTIC_CODES = new Set([
+  "08000",
+  "08001",
+  "08003",
+  "08004",
+  "08006",
+  "08007",
+  "08P01",
+  "28000",
+  "28P01",
+  "42501",
+  "53300",
+  "57P03",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "EAI_AGAIN",
+  "ENOTFOUND",
+]);
+
+function probeDiagnosticCode(error: unknown): string | undefined {
+  let current = error;
+  for (let depth = 0; depth < 8; depth++) {
+    if (typeof current !== "object" || current === null) return undefined;
+    try {
+      const { code, cause } = current as { code?: unknown; cause?: unknown };
+      if (typeof code === "string" && PROBE_DIAGNOSTIC_CODES.has(code))
+        return code;
+      current = cause;
+      // coercion-ok: unreadable error properties mean an unknown diagnostic, not a successful probe.
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 function schemaEnsureDisabled(): boolean {
   if (isMigrationExecutingRuntime() || isMigrationAuthorizedRuntime())
     return false;
@@ -121,21 +160,20 @@ async function loadSchemaSnapshot(
       if (name) indexes.add(name);
     }
     return { tables, columns, indexes };
-  } catch (err) {
-    warnIntrospectionUnavailableOnce(err);
+  } catch {
+    warnIntrospectionUnavailableOnce();
     return null;
   }
 }
 
 let _warnedIntrospectionUnavailable = false;
 
-function warnIntrospectionUnavailableOnce(err: unknown): void {
+function warnIntrospectionUnavailableOnce(): void {
   if (_warnedIntrospectionUnavailable) return;
   _warnedIntrospectionUnavailable = true;
   console.warn(
     "[db] batched schema introspection unavailable; falling back to one probe " +
-      "per table/column/index (slower cold starts, same behaviour): " +
-      ((err as Error)?.message ?? err),
+      "per table/column/index (slower cold starts, same behaviour)",
   );
 }
 
@@ -182,6 +220,14 @@ export async function pgTableExists(
   table: string,
   injectedClient?: DbExec,
 ): Promise<boolean | undefined> {
+  return probeTableExists(table, injectedClient);
+}
+
+async function probeTableExists(
+  table: string,
+  injectedClient?: DbExec,
+  onUnreadable?: (code: string | undefined) => void,
+): Promise<boolean | undefined> {
   if (!PLAIN_IDENTIFIER.test(table)) {
     return false;
   }
@@ -196,7 +242,8 @@ export async function pgTableExists(
       args: [table],
     });
     return rows.length > 0;
-  } catch {
+  } catch (err) {
+    onUnreadable?.(probeDiagnosticCode(err));
     // coercion-ok: undefined is a typed unreadable state; callers throw rather
     // than issuing DDL against an unverified schema.
     // A failed probe is not evidence that the table is absent. Let the caller
@@ -321,13 +368,26 @@ export async function ensureTableExists(
     injectedClient?: DbExec;
   } = {},
 ): Promise<boolean> {
-  return ensureSchemaObject({
-    probe: () => pgTableExists(table, options.injectedClient),
-    ddl: createSql,
-    label: `table ${table}`,
-    lockTimeout: options.lockTimeout,
-    injectedClient: options.injectedClient,
-  });
+  let probeErrorCode: string | undefined;
+  try {
+    return await ensureSchemaObject({
+      probe: () => {
+        probeErrorCode = undefined;
+        return probeTableExists(table, options.injectedClient, (code) => {
+          probeErrorCode = code;
+        });
+      },
+      ddl: createSql,
+      label: `table ${table}`,
+      lockTimeout: options.lockTimeout,
+      injectedClient: options.injectedClient,
+    });
+  } catch (err) {
+    if (probeErrorCode && err instanceof Error) {
+      Object.assign(err, { errorCode: probeErrorCode });
+    }
+    throw err;
+  }
 }
 
 export async function ensureColumnExists(
