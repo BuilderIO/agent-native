@@ -1095,11 +1095,28 @@ function scanNumericSqlProjection(
   // Keep quoted text opaque and comments out of the projection scan; the
   // separate factual-claim check still inspects the original SQL.
   const tokenPattern =
-    /\s+|--[^\n]*|#[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|\$[a-z_][a-z_0-9]*\$|\$\$|e'|'|"(?:""|\\[\s\S]|[^"\\])*(?:"|$)|`(?:``|\\[\s\S]|[^`\\])*(?:`|$)|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|[a-z_][a-z_0-9$]*|[^\s]/giy;
+    /\s+|--[^\n]*|#>>|#>|#[^\n]*|\$[a-z_][a-z_0-9]*\$|\$\$|e'|'|"(?:""|\\[\s\S]|[^"\\])*(?:"|$)|`(?:``|\\[\s\S]|[^`\\])*(?:`|$)|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|[a-z_][a-z_0-9$]*|[^\s]/giy;
   const code: string[] = [];
   let position = 0;
   let complete = true;
   while (position < sql.length) {
+    if (sql.startsWith("/*", position)) {
+      let depth = 1;
+      position += 2;
+      while (position < sql.length && depth > 0) {
+        if (sql.startsWith("/*", position)) {
+          depth++;
+          position += 2;
+        } else if (sql.startsWith("*/", position)) {
+          depth--;
+          position += 2;
+        } else {
+          position++;
+        }
+      }
+      if (depth > 0) complete = false;
+      continue;
+    }
     tokenPattern.lastIndex = position;
     const match = tokenPattern.exec(sql);
     if (!match) break;
@@ -1131,7 +1148,11 @@ function scanNumericSqlProjection(
         break;
       }
       position = end + token.length;
-    } else if (!/^(?:\s|--|#|\/\*)/.test(token)) {
+    } else if (
+      token === "#>" ||
+      token === "#>>" ||
+      !/^(?:\s|--|#)/.test(token)
+    ) {
       code.push(token);
     }
   }
@@ -1151,7 +1172,9 @@ function scanNumericSqlProjection(
       expression = expression.slice(0, -2);
     } else if (
       expression.length >= 2 &&
-      /^[a-z_][a-z_0-9$]*$/i.test(expression.slice(-1).join(""))
+      /^(?:[a-z_][a-z_0-9$]*|"[\s\S]*"|`[\s\S]*`)$/i.test(
+        expression.slice(-1).join(""),
+      )
     ) {
       expression = expression.slice(0, -1);
     }
@@ -1192,8 +1215,21 @@ function scanNumericSqlProjection(
     }
   }
 
+  const predicateRanges: Array<[number, number]> = [];
+  for (const [index, token] of code.entries()) {
+    const [previous = ""] = code.slice(index - 1, index);
+    if (token === "(" && /^(?:exists|in)$/i.test(previous)) {
+      const end = closingParens.get(index);
+      if (end !== undefined) predicateRanges.push([index, end]);
+    }
+  }
+
   for (const [i, current] of code.entries()) {
-    if (!/^select$/i.test(current)) continue;
+    if (
+      !/^select$/i.test(current) ||
+      predicateRanges.some(([start, end]) => start < i && i < end)
+    )
+      continue;
     let depth = 0;
     let projection: string[] = [];
     let skipThrough = i;
