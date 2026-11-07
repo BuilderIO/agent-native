@@ -4,6 +4,48 @@ export const WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE =
 
 const MAX_DETAIL_LENGTH = 160;
 
+const SAFE_DATABASE_ERROR_CODES = new Set([
+  "08000",
+  "08001",
+  "08003",
+  "08006",
+  "08007",
+  "08P01",
+  "23505",
+  "42501",
+  "42P01",
+  "42703",
+  "53300",
+  "57014",
+  "57P01",
+]);
+
+export function workspaceAccessFailureDiagnostic(error: unknown): {
+  kind: string;
+  databaseCode?: string;
+} {
+  try {
+    const kind =
+      error instanceof TypeError
+        ? "TypeError"
+        : error instanceof Error
+          ? "Error"
+          : "NonError";
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? error.code
+        : undefined;
+    return {
+      kind,
+      ...(typeof code === "string" && SAFE_DATABASE_ERROR_CODES.has(code)
+        ? { databaseCode: code }
+        : {}),
+    };
+  } catch {
+    return { kind: "UnreadableError" };
+  }
+}
+
 export type WorkspaceAppAccessUnavailableReason =
   | "directory-url-invalid"
   | "org-domain-lookup-failed"
@@ -16,7 +58,8 @@ export type WorkspaceAppAccessUnavailableReason =
   | "registry-http-error"
   | "registry-malformed-response"
   | "claim-http-error"
-  | "claim-malformed-response";
+  | "claim-malformed-response"
+  | "local-access-lookup-failed";
 
 /**
  * The access check could not reach a verdict. Distinct from `false`: the

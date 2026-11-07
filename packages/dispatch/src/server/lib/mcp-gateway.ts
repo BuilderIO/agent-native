@@ -801,13 +801,7 @@ export async function listDispatchMcpApps(): Promise<{
   const [settings, agents, mountedApps] = await Promise.all([
     getDispatchMcpAppAccessSettings(),
     discoverAgents("dispatch"),
-    listWorkspaceApps({ includeAgentCards: false }).catch((error: unknown) => {
-      console.warn(
-        "[dispatch] Workspace app lookup failed during MCP app discovery",
-        { status: httpStatusFromError(error) },
-      );
-      return [];
-    }),
+    listWorkspaceApps({ includeAgentCards: false }),
   ]);
   const mountedAppsById = new Map(
     mountedApps.map((app) => [normalizeAppId(app.id), app]),

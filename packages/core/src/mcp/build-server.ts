@@ -1,4 +1,5 @@
 import "../authorization/check-action.js";
+import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/server";
 import type {
   CallToolResult,
   ClientCapabilities,
@@ -24,6 +25,7 @@ import {
 } from "../action.js";
 import type { ActionRunContext } from "../action.js";
 import {
+  isActionContractError,
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
 } from "../action.js";
@@ -45,6 +47,7 @@ import {
   ServicePrincipalRefusedError,
 } from "../org/service-principal-guard.js";
 import { isActionGranted } from "../org/service-principal-policy.js";
+import { WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE } from "../org/workspace-app-access-outcome.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import type { BearerCredentialRefusal } from "../server/bearer-credential-refusal.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
@@ -2352,6 +2355,17 @@ export async function resolveMcpAppResourceSafely(
       ...(resourceMeta ? { _meta: resourceMeta } : {}),
     };
   } catch (error) {
+    if (
+      isActionContractError(error) &&
+      error.statusCode === 503 &&
+      error.errorCode === "workspace_app_access_unavailable"
+    ) {
+      throw new ProtocolError(
+        ProtocolErrorCode.InternalError,
+        WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
+        { statusCode: 503, errorCode: error.errorCode, retryable: true },
+      );
+    }
     console.warn(
       `[mcp] Skipping MCP App resource for action "${actionName}" because its metadata could not be resolved: ${describeThrownForLog(error)}`,
     );
@@ -3604,6 +3618,27 @@ export async function createMCPServerForRequest(
             : requestMeta?.mcpRetryToken
               ? `stateless:${requestMeta.mcpRetryToken}`
               : undefined;
+      const recordToolCall = (isError: boolean) => {
+        const toolName = request.params?.name;
+        const actionEntries: Record<string, ActionEntry | undefined> = actions;
+        const calledEntry = actionEntries[toolName];
+        trackMcpToolCall(analyticsContext(request, ctx), {
+          toolName,
+          ...(calledEntry?.tool.description
+            ? { toolDescription: calledEntry.tool.description }
+            : {}),
+          ...(calledEntry
+            ? { toolCategory: calledEntry.readOnly === true ? "read" : "write" }
+            : {}),
+          parameters: (request.params?.arguments ?? {}) as Record<
+            string,
+            unknown
+          >,
+          durationMs: Date.now() - startedAt,
+          isError,
+          ...(failure ?? {}),
+        });
+      };
       const result = await withToolCallContext(async () => {
         const { name, arguments: args } = request.params;
 
@@ -3741,26 +3776,12 @@ export async function createMCPServerForRequest(
         return directActionCall({ name, args, request, ctx }, (error) => {
           failure = error;
         });
-      }, mcpRequestId);
-
-      const toolName = request.params?.name;
-      const calledEntry = actions[toolName];
-      trackMcpToolCall(analyticsContext(request, ctx), {
-        toolName,
-        ...(calledEntry?.tool.description
-          ? { toolDescription: calledEntry.tool.description }
-          : {}),
-        ...(calledEntry
-          ? { toolCategory: calledEntry.readOnly === true ? "read" : "write" }
-          : {}),
-        parameters: (request.params?.arguments ?? {}) as Record<
-          string,
-          unknown
-        >,
-        durationMs: Date.now() - startedAt,
-        isError: (result as { isError?: boolean }).isError === true,
-        ...(failure ?? {}),
+      }, mcpRequestId).catch((error: unknown) => {
+        if (failure) recordToolCall(true);
+        throw error;
       });
+
+      recordToolCall((result as { isError?: boolean }).isError === true);
       return result;
     },
   );
