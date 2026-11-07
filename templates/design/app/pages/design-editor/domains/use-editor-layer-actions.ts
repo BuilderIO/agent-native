@@ -42,6 +42,11 @@ import { runLayerMove } from "../commands/layer-move";
 import { runLayerMoveToScreen } from "../commands/layer-move-to-screen";
 import { runLayerRename } from "../commands/layer-rename";
 import { runLayerSelectionChange } from "../commands/layer-selection-change";
+import {
+  beginLayerTextEdit,
+  commitLayerTextEdit,
+  type LayerTextEditSession,
+} from "../commands/layer-text-edit";
 import { runSendRuntimeLayerStateSemanticHandoff } from "../commands/send-runtime-layer-state-semantic-handoff";
 import { runToggleLayerHidden } from "../commands/toggle-layer-hidden";
 import { runToggleLayerLocked } from "../commands/toggle-layer-locked";
@@ -78,6 +83,7 @@ import type { EditorHistory } from "./use-editor-history";
 import type { EditorLayerModels } from "./use-editor-layer-models";
 import type { EditorLayoutAndStructure } from "./use-editor-layout-and-structure";
 import type { EditorLiveEditsAndPresence } from "./use-editor-live-edits-and-presence";
+import type { EditorScreenChangeHandlers } from "./use-editor-screen-change-handlers";
 import type { EditorSelectionAndStyles } from "./use-editor-selection-and-styles";
 import type { EditorToolsAndVectors } from "./use-editor-tools-and-vectors";
 
@@ -178,6 +184,7 @@ export function useEditorLayerActions({
   editorLayoutAndStructure,
   editorEditCommands,
   editorLayerModels,
+  editorScreenChangeHandlers,
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
@@ -193,6 +200,7 @@ export function useEditorLayerActions({
   editorLayoutAndStructure: EditorLayoutAndStructure;
   editorEditCommands: EditorEditCommands;
   editorLayerModels: EditorLayerModels;
+  editorScreenChangeHandlers: EditorScreenChangeHandlers;
 }) {
   const {
     t,
@@ -289,6 +297,7 @@ export function useEditorLayerActions({
     canEditLiveScreen,
     syncLiveScreenSnapshotPreview,
     remapMotionTracksForClone,
+    setContentRenderRevision,
   } = editorLiveEditsAndPresence;
   const { contentHistorySelectionAfterRef, applyFileContentUpdate } =
     editorContentAndComponents;
@@ -319,6 +328,44 @@ export function useEditorLayerActions({
     selectedLayerIds,
     canEditSelectedLiveLayer,
   } = editorLayerModels;
+
+  const layerTextEditArgs = {
+    activeFileId: activeFile?.id,
+    canEditDesign,
+    designSourceType,
+    getOwner: (id: string) => codeLayerOwnerByNodeIdRef.current.get(id),
+    getFreshActiveContent,
+    getScreenContent,
+    lockedIds: effectiveCodeLayerState.lockedIds,
+    liveScreenSnapshotsById,
+    overviewScreens,
+    handleScreenTextContentChange:
+      editorScreenChangeHandlers.handleScreenTextContentChange,
+    requestPreviewRefresh: () =>
+      setContentRenderRevision((revision) => revision + 1),
+  };
+  const handleStartLayerTextEdit = (layerId: string) =>
+    beginLayerTextEdit(layerTextEditArgs, layerId);
+  const handleLayerTextEdit = (
+    layerId: string,
+    value: string,
+    session: LayerTextEditSession,
+  ) => {
+    if (session.layerId !== layerId) {
+      toast.error(t("designEditor.toasts.saveConflict"));
+      return false;
+    }
+    const status = commitLayerTextEdit(layerTextEditArgs, session, value);
+    if (status === "stale") toast.error(t("designEditor.toasts.saveConflict"));
+    if (status === "empty") {
+      toast.error(t("designEditor.tools.text"), {
+        description: t("questionFlow.required"),
+      });
+    }
+    if (status === "refused") toast.error(t("common.genericError"));
+    if (status !== "accepted") return false;
+    return true;
+  };
 
   const runtimeLayerRenameRevisionRef = useRef(0);
   const layerSelectionHydrationRevisionRef = useRef(0);
@@ -1492,6 +1539,8 @@ export function useEditorLayerActions({
 
   const layerPanelHandlers = {
     onRename: handleLayerRename,
+    onStartTextEdit: handleStartLayerTextEdit,
+    onTextEdit: handleLayerTextEdit,
     onToggleLocked: handleToggleLayerLocked,
     onToggleHidden: handleToggleLayerHidden,
     onHoverLayer: handleLayerHover,
@@ -1506,6 +1555,10 @@ export function useEditorLayerActions({
     return {
       onRename: (...args: Parameters<typeof handleLayerRename>) =>
         latest().onRename(...args),
+      onStartTextEdit: (...args: Parameters<typeof handleStartLayerTextEdit>) =>
+        latest().onStartTextEdit(...args),
+      onTextEdit: (...args: Parameters<typeof handleLayerTextEdit>) =>
+        latest().onTextEdit(...args),
       onToggleLocked: (...args: Parameters<typeof handleToggleLayerLocked>) =>
         latest().onToggleLocked(...args),
       onToggleHidden: (...args: Parameters<typeof handleToggleLayerHidden>) =>

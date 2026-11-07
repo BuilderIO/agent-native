@@ -1,15 +1,36 @@
 // @vitest-environment happy-dom
 
+import {
+  buildCodeLayerProjection,
+  buildCodeLayerTree,
+} from "@shared/code-layer";
 import { act, createRef } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  beginLayerTextEdit,
+  commitLayerTextEdit,
+  type LayerTextEditSession,
+} from "@/pages/design-editor/commands/layer-text-edit";
+import {
+  runScreenTextContentChange,
+  type ScreenTextContentChangeArgs,
+} from "@/pages/design-editor/commands/screen-text-content-change";
+import {
+  runTextContentChange,
+  type TextContentChangeArgs,
+} from "@/pages/design-editor/commands/text-content-change";
+import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
+
+import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
 import {
   layerRowIndentCount,
   LayersPanel,
   type LayersPanelHandle,
   type LayersPanelNode,
 } from "./LayersPanel";
+import { registerLinkedScreenPreviewHandlers } from "./multi-screen/linked-screen-preview";
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -548,6 +569,882 @@ describe("LayersPanel selection scrolling", () => {
         configurable: true,
         value: originalScrollIntoView,
       });
+    }
+  });
+});
+
+describe("LayersPanel text editing", () => {
+  it.each([
+    { nextText: "Updated text", active: true },
+    { nextText: "", active: true },
+    { nextText: "Updated text", active: false },
+    { nextText: "", active: false },
+    { nextText: "Restored text", active: true, restored: true },
+    { nextText: "Restored text", active: false, restored: true },
+  ])(
+    "edits sidebar text to $nextText on active=$active restored=$restored without removing its layer",
+    async ({ nextText, active, restored }) => {
+      const onRename = vi.fn();
+      let content =
+        '<body><p data-agent-native-node-id="text" data-agent-native-layer-name="Custom name">Canvas text</p></body>';
+      const preview = document.createElement("iframe");
+      document.body.appendChild(preview);
+      const previewWindow = preview.contentWindow;
+      if (!previewWindow) throw new Error("Preview window missing");
+      previewWindow.document.body.innerHTML = content;
+      const bridge = editorChromeBridgeScript
+        .replace("__READ_ONLY__", "false")
+        .replace("__TEXT_EDITING_ENABLED__", "false")
+        .replace("__EDITOR_CHROME_SCALE_X__", "1")
+        .replace("__EDITOR_CHROME_SCALE_Y__", "1")
+        .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("screen"))
+        .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+        .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
+        .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
+        .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+        .replace("__LIVE_REFLOW_ENABLED__", "false")
+        .replace("__SELECTED_LAYER_DRAG_PRIORITY__", "false")
+        .replace(/__INITIAL_SOURCE_HEAD__/g, JSON.stringify(""));
+      (previewWindow as Window & typeof globalThis).eval(bridge);
+      const unregisterPreview = registerLinkedScreenPreviewHandlers("screen", {
+        replaceContent: (html) => {
+          previewWindow.dispatchEvent(
+            new MessageEvent("message", {
+              source: previewWindow.parent,
+              data: {
+                type: "replace-document-content",
+                content: html,
+                selectedSelector: "",
+                selectorCandidates: [],
+                forceFullDocument: true,
+              },
+            }),
+          );
+          return true;
+        },
+        sendStyleChange: () => false,
+      });
+      const source = { kind: "design-file" as const, fileId: "screen" };
+      const projection = buildCodeLayerProjection(content, { source });
+      const node = projection.nodes.find(
+        (candidate) =>
+          candidate.dataAttributes["data-agent-native-node-id"] === "text",
+      );
+      if (!node) throw new Error("Text node not found");
+      const activeFile = {
+        id: active ? "screen" : "other",
+        filename: "screen.html",
+        fileType: "html",
+        content: active ? content : "",
+        createdAt: "",
+        updatedAt: "",
+      };
+      const activeArgs: TextContentChangeArgs = {
+        activeFile,
+        activeCanvasSourceType: "inline",
+        canEditDesign: true,
+        applyLocalContentUpdate: (nextContent) => {
+          const publication = prepareCanonicalSourceContent(nextContent, {
+            fileId: "screen",
+            fileType: "html",
+          });
+          content = publication.content;
+          return { status: "accepted", ...publication };
+        },
+        getFreshActiveContent: () => content,
+        prepareTextCreationFinalization: () => ({
+          isCreationCommit: false,
+          historyHandled: false,
+          confirm: () => {},
+        }),
+        liveScreenSnapshotsById: {},
+        recordPendingLiveTextEdit: () => {},
+        setActiveTool: () => {},
+        setMode: () => {},
+        setSelectedElement: () => {},
+        setSelectedLayerIdsState: () => {},
+        t: (key) => key,
+        updateLiveScreenSnapshotContent: () => false,
+      };
+      const args: ScreenTextContentChangeArgs = {
+        activeFile,
+        applyFileContentUpdate: (fileId, nextContent) => {
+          const publication = prepareCanonicalSourceContent(nextContent, {
+            fileId,
+            fileType: "html",
+          });
+          content = publication.content;
+          return { status: "accepted", ...publication };
+        },
+        canEditDesign: true,
+        designSourceType: "inline",
+        prepareTextCreationFinalization: () => ({
+          isCreationCommit: false,
+          historyHandled: false,
+          confirm: () => {},
+        }),
+        getScreenContent: () => content,
+        handleTextContentChange: (selector, value, info, details) =>
+          runTextContentChange(activeArgs, selector, value, info, details),
+        liveScreenSnapshotsById: {},
+        overviewScreens: [],
+        recordPendingLiveTextEdit: () => {},
+        setActiveFileId: () => {},
+        setActiveTool: () => {},
+        setMode: () => {},
+        setSelectedElement: () => {},
+        setSelectedLayerIdsState: () => {},
+        t: (key) => key,
+        updateLiveScreenSnapshotContent: () => false,
+      };
+      const textArgs: Parameters<typeof beginLayerTextEdit>[0] = {
+        activeFileId: activeFile.id,
+        canEditDesign: true,
+        designSourceType: "inline",
+        getOwner: (id) =>
+          id === node.id
+            ? { fileId: "screen", node, runtimeOnly: false }
+            : undefined,
+        getFreshActiveContent: () => content,
+        getScreenContent: () => content,
+        lockedIds: new Set(),
+        liveScreenSnapshotsById: {},
+        overviewScreens: [],
+        requestPreviewRefresh: () => {},
+        handleScreenTextContentChange: (
+          screenId,
+          selector,
+          value,
+          info,
+          details,
+        ) =>
+          runScreenTextContentChange(
+            args,
+            screenId,
+            selector,
+            value,
+            info,
+            details,
+          ),
+      };
+      const onTextEdit = vi.fn(
+        (_id: string, value: string, session: LayerTextEditSession) =>
+          commitLayerTextEdit(textArgs, session, value) === "accepted",
+      );
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const root = createRoot(host);
+      const render = (visible: boolean) => {
+        root.render(
+          <LayersPanel
+            layers={
+              visible
+                ? [{ id: node.id, name: "Custom name", type: "text" }]
+                : []
+            }
+            selectedIds={[]}
+            expandedIds={[]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={() => {}}
+            onRename={onRename}
+            onStartTextEdit={(id) => beginLayerTextEdit(textArgs, id)}
+            onTextEdit={onTextEdit}
+          />,
+        );
+      };
+      try {
+        await act(async () => render(true));
+        const row = host.querySelector<HTMLElement>("[data-layer-row-button]");
+        if (!row) throw new Error("Text row not found");
+        await act(async () => {
+          row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+        });
+        const input = host.querySelector<HTMLInputElement>(
+          "input[data-layer-row-name]",
+        );
+        expect(input?.value).toBe("Canvas text");
+        const setValue = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set;
+        if (!input || !setValue) throw new Error("Text editor not found");
+        await act(async () => {
+          setValue.call(input, nextText);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        let commitInput = input;
+        if (restored) {
+          await act(async () => render(false));
+          await act(async () => render(true));
+          const restoredRow = host.querySelector<HTMLElement>(
+            "[data-layer-row-button]",
+          );
+          if (!restoredRow) throw new Error("Restored text row missing");
+          await act(async () =>
+            restoredRow.dispatchEvent(
+              new MouseEvent("dblclick", { bubbles: true }),
+            ),
+          );
+          const restoredInput = host.querySelector<HTMLInputElement>(
+            "input[data-layer-row-name]",
+          );
+          if (!restoredInput) throw new Error("Restored text editor missing");
+          expect(restoredInput.value).toBe(nextText);
+          commitInput = restoredInput;
+        }
+        await act(async () => {
+          commitInput.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+          );
+        });
+        expect(onTextEdit).toHaveBeenCalledWith(
+          node.id,
+          nextText,
+          expect.objectContaining({
+            layerId: node.id,
+            originalValue: "Canvas text",
+          }),
+        );
+        expect(onTextEdit.mock.results[0]?.value).toBe(true);
+        const savedNode = buildCodeLayerProjection(content, {
+          source,
+        }).nodes.find(
+          (candidate) =>
+            candidate.dataAttributes["data-agent-native-node-id"] === "text",
+        );
+        expect(savedNode).toBeDefined();
+        expect(savedNode?.textSnippet ?? "").toBe(nextText);
+        expect(
+          previewWindow.document.querySelector(
+            '[data-agent-native-node-id="text"]',
+          )?.textContent,
+        ).toBe(nextText);
+        expect(savedNode?.dataAttributes["data-agent-native-layer-name"]).toBe(
+          "Custom name",
+        );
+        expect(onRename).not.toHaveBeenCalled();
+      } finally {
+        unregisterPreview();
+        await act(async () => root.unmount());
+        host.remove();
+        preview.remove();
+      }
+    },
+  );
+});
+
+describe("sidebar text edit safety", () => {
+  function textTarget(html: string) {
+    let content = html;
+    const projection = buildCodeLayerProjection(content, {
+      source: { kind: "design-file", fileId: "screen" },
+    });
+    const node = projection.nodes.find(
+      (candidate) =>
+        candidate.dataAttributes["data-agent-native-node-id"] === "text",
+    );
+    if (!node) throw new Error("Text node missing");
+    const handleScreenTextContentChange = vi.fn(() => "accepted" as const);
+    const args: Parameters<typeof beginLayerTextEdit>[0] = {
+      activeFileId: "screen",
+      canEditDesign: true,
+      designSourceType: "inline",
+      getOwner: () => ({ fileId: "screen", node, runtimeOnly: false }),
+      getFreshActiveContent: () => content,
+      getScreenContent: () => content,
+      lockedIds: new Set(),
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      requestPreviewRefresh: () => {},
+      handleScreenTextContentChange,
+    };
+    return {
+      args,
+      node,
+      handleScreenTextContentChange,
+      setContent: (value: string) => {
+        content = value;
+      },
+    };
+  }
+
+  it.each([
+    '<p data-agent-native-node-id="text">Hello <strong>world</strong></p>',
+    '<p data-agent-native-node-id="text" x-text="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" v-text="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" v-html="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" v-model="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" x-model="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" :textContent="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" x-bind:innerHTML="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" v-bind:text-content="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" :[property]="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" x-bind:[property]="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" [innerHTML]="message">Fallback</p>',
+    '<p data-agent-native-node-id="text" x-bind="bindings">Fallback</p>',
+    '<section v-if="shown"><p data-agent-native-node-id="text">Fallback</p></section>',
+    '<div x-if="visible"><p data-agent-native-node-id="text">Hello</p></div>',
+    '<p data-agent-native-node-id="text">{{ name }}</p>',
+    '<p data-agent-native-node-id="text">Line one\nLine two</p>',
+  ])(
+    "refuses source that cannot safely be edited as plain text: %s",
+    (html) => {
+      const { args, node } = textTarget(html);
+      expect(beginLayerTextEdit(args, node.id)).toBeNull();
+    },
+  );
+
+  it.each([
+    "data-agent-native-component-id",
+    "data-agent-native-component-ref",
+  ])(
+    "does not start an unconfirmed linked component text edit for %s",
+    (attribute) => {
+      const { args, node, handleScreenTextContentChange } = textTarget(
+        `<section ${attribute}="component"><p data-agent-native-node-id="text">Hello</p></section>`,
+      );
+      expect(beginLayerTextEdit(args, node.id)).toBeNull();
+      expect(handleScreenTextContentChange).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses a text commit if the target becomes a linked component", () => {
+    const { args, node, setContent, handleScreenTextContentChange } =
+      textTarget('<p data-agent-native-node-id="text">Hello</p>');
+    const session = beginLayerTextEdit(args, node.id);
+    if (!session) throw new Error("Text session missing");
+    setContent(
+      '<section data-agent-native-component-ref="component"><p data-agent-native-node-id="text">Hello</p></section>',
+    );
+    expect(commitLayerTextEdit(args, session, "Changed")).toBe("stale");
+    expect(handleScreenTextContentChange).not.toHaveBeenCalled();
+  });
+
+  it("allows empty text elements but not empty containers", () => {
+    const text = textTarget('<p data-agent-native-node-id="text"></p>');
+    expect(beginLayerTextEdit(text.args, text.node.id)?.originalValue).toBe("");
+    const container = textTarget(
+      '<div data-agent-native-node-id="text"></div>',
+    );
+    expect(beginLayerTextEdit(container.args, container.node.id)).toBeNull();
+  });
+
+  it("refuses live, locked, runtime-only and snapshot sources", () => {
+    const { args, node } = textTarget(
+      '<p data-agent-native-node-id="text">Hello</p>',
+    );
+    expect(
+      beginLayerTextEdit({ ...args, designSourceType: "fusion" }, node.id),
+    ).toBeNull();
+    expect(
+      beginLayerTextEdit({ ...args, lockedIds: new Set([node.id]) }, node.id),
+    ).toBeNull();
+    expect(
+      beginLayerTextEdit(
+        {
+          ...args,
+          getOwner: () => ({ fileId: "screen", node, runtimeOnly: true }),
+        },
+        node.id,
+      ),
+    ).toBeNull();
+    expect(
+      beginLayerTextEdit(
+        { ...args, liveScreenSnapshotsById: { screen: {} } },
+        node.id,
+      ),
+    ).toBeNull();
+  });
+
+  it("refuses clearing non-semantic text that would become an indistinguishable empty container", () => {
+    const { args, node, handleScreenTextContentChange } = textTarget(
+      '<div data-agent-native-node-id="text" style="width:100px;height:30px;background:red">Hello</div>',
+    );
+    const session = beginLayerTextEdit(args, node.id);
+    if (!session) throw new Error("Expected text session");
+    expect(commitLayerTextEdit(args, session, " ")).toBe("empty");
+    expect(handleScreenTextContentChange).not.toHaveBeenCalled();
+  });
+
+  it("requests a render when no preview handler accepts the update", () => {
+    const { args, node } = textTarget(
+      '<p data-agent-native-node-id="text">Hello</p>',
+    );
+    const requestPreviewRefresh = vi.fn();
+    const session = beginLayerTextEdit(args, node.id);
+    if (!session) throw new Error("Expected text session");
+    expect(
+      commitLayerTextEdit(
+        { ...args, requestPreviewRefresh },
+        session,
+        "Updated",
+      ),
+    ).toBe("accepted");
+    expect(requestPreviewRefresh).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    '<button data-agent-native-node-id="text" :aria-pressed="pressed">Hello</button>',
+    '<button data-agent-native-node-id="text" x-bind:class="active">Hello</button>',
+    '<button data-agent-native-node-id="text" v-bind:disabled="busy">Hello</button>',
+  ])("allows static text with a non-text binding: %s", (html) => {
+    const { args, node } = textTarget(html);
+    expect(beginLayerTextEdit(args, node.id)?.originalValue).toBe("Hello");
+  });
+
+  it("preserves unrelated collaborator changes when committing identified text", () => {
+    const { args, node, setContent } = textTarget(
+      '<main><p data-agent-native-node-id="text">Hello</p><p>Other</p></main>',
+    );
+    const commandArgs: ScreenTextContentChangeArgs = {
+      activeFile: {
+        id: "other",
+        filename: "other.html",
+        fileType: "html",
+        content: "",
+        createdAt: "",
+        updatedAt: "",
+      },
+      applyFileContentUpdate: (fileId, content) => {
+        const publication = prepareCanonicalSourceContent(content, {
+          fileId,
+          fileType: "html",
+        });
+        setContent(publication.content);
+        return { status: "accepted", ...publication };
+      },
+      canEditDesign: true,
+      designSourceType: "inline",
+      prepareTextCreationFinalization: () => ({
+        isCreationCommit: false,
+        historyHandled: false,
+        confirm: () => {},
+      }),
+      getScreenContent: args.getScreenContent,
+      handleTextContentChange: () => "refused",
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      recordPendingLiveTextEdit: () => {},
+      setActiveFileId: () => {},
+      setActiveTool: () => {},
+      setMode: () => {},
+      setSelectedElement: () => {},
+      setSelectedLayerIdsState: () => {},
+      t: (key) => key,
+      updateLiveScreenSnapshotContent: () => false,
+    };
+    const currentArgs = {
+      ...args,
+      handleScreenTextContentChange: (
+        screenId: string,
+        selector: string,
+        value: string,
+        info?: Parameters<typeof runScreenTextContentChange>[4],
+        details?: Parameters<typeof runScreenTextContentChange>[5],
+      ) =>
+        runScreenTextContentChange(
+          commandArgs,
+          screenId,
+          selector,
+          value,
+          info,
+          details,
+        ),
+    };
+    const session = beginLayerTextEdit(currentArgs, node.id);
+    if (!session) throw new Error("Expected text session");
+    setContent(
+      '<main><p data-agent-native-node-id="text">Hello</p><p>Changed elsewhere</p></main>',
+    );
+    expect(commitLayerTextEdit(currentArgs, session, "Updated")).toBe(
+      "accepted",
+    );
+    const saved = new DOMParser().parseFromString(
+      args.getScreenContent("screen"),
+      "text/html",
+    );
+    expect(
+      Array.from(saved.querySelectorAll("p"), (p) => p.textContent),
+    ).toEqual(["Updated", "Changed elsewhere"]);
+  });
+
+  it.each([
+    '<main><p data-agent-native-node-id="other">Hello</p></main>',
+    '<main><h1 data-agent-native-node-id="text">Hello</h1></main>',
+    '<main><p data-agent-native-node-id="text">Hello</p><p data-agent-native-node-id="text">Hello</p></main>',
+    '<main><p data-agent-native-node-id="text" x-text="message">Hello</p></main>',
+  ])(
+    "refuses edits when a target is deleted, replaced, duplicated, or becomes dynamic: %s",
+    (next) => {
+      const { args, node, setContent, handleScreenTextContentChange } =
+        textTarget(
+          '<main><p data-agent-native-node-id="text">Hello</p></main>',
+        );
+      const session = beginLayerTextEdit(args, node.id);
+      if (!session) throw new Error("Expected text session");
+      setContent(next);
+      expect(commitLayerTextEdit(args, session, "Updated")).toBe("stale");
+      expect(handleScreenTextContentChange).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not start editing when the durable target ID is duplicated", () => {
+    const { args, node } = textTarget(
+      '<main><p data-agent-native-node-id="text">Hello</p><p data-agent-native-node-id="text">Hello</p></main>',
+    );
+    expect(beginLayerTextEdit(args, node.id)).toBeNull();
+  });
+
+  it("keeps whole-screen conflict protection for a path-only target", () => {
+    let content = "<main><p>Hello</p><p>Other</p></main>";
+    const projection = buildCodeLayerProjection(content, {
+      source: { kind: "design-file", fileId: "screen" },
+    });
+    const node = projection.nodes.find((item) => item.tag === "p");
+    if (!node) throw new Error("Missing text node");
+    const base = textTarget('<p data-agent-native-node-id="text">Hello</p>');
+    const args = {
+      ...base.args,
+      getOwner: () => ({ fileId: "screen", node, runtimeOnly: false }),
+      getFreshActiveContent: () => content,
+      getScreenContent: () => content,
+    };
+    const session = beginLayerTextEdit(args, node.id);
+    if (!session) throw new Error("Expected text session");
+    content = "<main><p>Hello</p><p>Changed</p></main>";
+    expect(commitLayerTextEdit(args, session, "Updated")).toBe("stale");
+    expect(base.handleScreenTextContentChange).not.toHaveBeenCalled();
+  });
+
+  it("uses the complete decoded text and refuses a stale edit", () => {
+    const text = "Long & ".repeat(40);
+    const { args, node, setContent, handleScreenTextContentChange } =
+      textTarget(
+        `<p data-agent-native-node-id="text">${text.replace(/&/g, "&amp;")}</p>`,
+      );
+    const session = beginLayerTextEdit(args, node.id);
+    expect(session?.originalValue).toBe(text);
+    if (!session) throw new Error("Expected text session");
+    setContent('<p data-agent-native-node-id="text">Changed elsewhere</p>');
+    expect(commitLayerTextEdit(args, session, "Overwrite")).toBe("stale");
+    expect(handleScreenTextContentChange).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "unchanged",
+      source: '<p data-agent-native-node-id="text">Hello</p>',
+      saved: true,
+    },
+    {
+      name: "changed",
+      source: '<p data-agent-native-node-id="text">Changed elsewhere</p>',
+      saved: false,
+    },
+    {
+      name: "replaced",
+      source: '<h1 data-agent-native-node-id="text">Hello</h1>',
+      saved: false,
+    },
+  ])(
+    "revalidates a restored draft when the target is $name",
+    async ({ source, saved }) => {
+      const target = textTarget(
+        '<p data-agent-native-node-id="text">Hello</p>',
+      );
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const root = createRoot(host);
+      let legacySession: LayerTextEditSession | null = null;
+      let legacyCallbacks = false;
+      const render = (visible: boolean) =>
+        root.render(
+          <LayersPanel
+            layers={
+              visible
+                ? [{ id: target.node.id, name: "Text", type: "text" }]
+                : []
+            }
+            selectedIds={[]}
+            expandedIds={[]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={() => {}}
+            onRename={() => {}}
+            onStartTextEdit={(id) => {
+              const session = beginLayerTextEdit(target.args, id);
+              if (!legacyCallbacks) return session;
+              legacySession = session;
+              return (session?.originalValue ??
+                null) as unknown as LayerTextEditSession | null;
+            }}
+            onTextEdit={(_id, value, session) => {
+              const original =
+                typeof (session as unknown) === "string"
+                  ? legacySession
+                  : session;
+              if (!original) throw new Error("Text session missing");
+              return (
+                commitLayerTextEdit(target.args, original, value) === "accepted"
+              );
+            }}
+          />,
+        );
+      try {
+        await act(async () => render(true));
+        const open = async () => {
+          const row = host.querySelector<HTMLElement>(
+            "[data-layer-row-button]",
+          );
+          if (!row) throw new Error("Text row missing");
+          await act(async () =>
+            row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+          );
+          const input = host.querySelector<HTMLInputElement>(
+            "input[data-layer-row-name]",
+          );
+          if (!input) throw new Error("Text editor missing");
+          return input;
+        };
+        let input = await open();
+        // Before sessions were passed through the panel, this callback returned a string.
+        if (input.value === "[object Object]") {
+          legacyCallbacks = true;
+          await act(async () => root.render(null));
+          await act(async () => render(true));
+          input = await open();
+        }
+        expect(input.value).toBe("Hello");
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set;
+        if (!setter) throw new Error("Input setter missing");
+        await act(async () => {
+          setter.call(input, "Unsaved draft");
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        await act(async () => render(false));
+        target.setContent(source);
+        await act(async () => render(true));
+        const restored = await open();
+        expect(restored.value).toBe("Unsaved draft");
+        await act(async () =>
+          restored.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+          ),
+        );
+        expect(target.handleScreenTextContentChange).toHaveBeenCalledTimes(
+          saved ? 1 : 0,
+        );
+        expect(host.querySelector("input[data-layer-row-name]") === null).toBe(
+          saved,
+        );
+      } finally {
+        await act(async () => root.unmount());
+        host.remove();
+      }
+    },
+  );
+
+  it("falls back to rename for unsupported text", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onRename = vi.fn();
+    try {
+      await act(async () =>
+        root.render(
+          <LayersPanel
+            layers={[{ id: "text", name: "Label", type: "text" }]}
+            selectedIds={[]}
+            expandedIds={[]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={() => {}}
+            onRename={onRename}
+            onStartTextEdit={() => null}
+            onTextEdit={() => {}}
+          />,
+        ),
+      );
+      const row = host.querySelector<HTMLElement>(
+        '[data-layer-node-id="text"]',
+      );
+      if (!row) throw new Error("Text row missing");
+      await act(async () =>
+        row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+      );
+      expect(
+        host.querySelector<HTMLInputElement>("input[data-layer-row-name]")
+          ?.value,
+      ).toBe("Label");
+      expect(onRename).not.toHaveBeenCalled();
+      expect(host.textContent).toContain("layersPanel.rename");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it.each([
+    {
+      html: '<p data-agent-native-node-id="text" style="padding: 8px; background: red">Canvas text</p>',
+      type: "frame",
+      value: "Canvas text",
+    },
+    {
+      html: '<p data-agent-native-node-id="text"></p>',
+      type: "element",
+      value: "",
+    },
+    {
+      html: '<p data-agent-native-node-id="text" style="width: 100px; height: 30px; background: red"></p>',
+      type: "shape",
+      value: "",
+    },
+  ])(
+    "edits a text paragraph projected as $type",
+    async ({ html, type, value }) => {
+      const projection = buildCodeLayerProjection(html, {
+        source: { kind: "design-file", fileId: "screen" },
+      });
+      const target = textTarget(html);
+      const node = buildCodeLayerTree(projection).find(
+        (item) => item.tag === "p",
+      );
+      if (!node) throw new Error("Styled paragraph missing");
+      expect(node.type).toBe(type);
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const root = createRoot(host);
+      try {
+        await act(async () =>
+          root.render(
+            <LayersPanel
+              layers={[
+                {
+                  id: node.id,
+                  name: node.name,
+                  type: node.type,
+                  tagName: node.tag,
+                },
+              ]}
+              selectedIds={[]}
+              expandedIds={[]}
+              searchQuery=""
+              onSearchQueryChange={() => {}}
+              onExpandedIdsChange={() => {}}
+              onSelectionChange={() => {}}
+              onRename={() => {}}
+              onStartTextEdit={(id) => beginLayerTextEdit(target.args, id)}
+              onTextEdit={() => {}}
+            />,
+          ),
+        );
+        const row = host.querySelector<HTMLElement>("[data-layer-row-button]");
+        if (!row) throw new Error("Styled text row missing");
+        await act(async () =>
+          row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+        );
+        expect(
+          host.querySelector<HTMLInputElement>("input[data-layer-row-name]")
+            ?.value,
+        ).toBe(value);
+        expect(
+          host
+            .querySelector<HTMLInputElement>("input[data-layer-row-name]")
+            ?.getAttribute("aria-label"),
+        ).toBe("designEditor.tools.text");
+      } finally {
+        await act(async () => root.unmount());
+        host.remove();
+      }
+    },
+  );
+
+  it("keeps F2 rename and non-text double-click as layer naming", async () => {
+    const onRename = vi.fn();
+    const onStartTextEdit = vi.fn(() => ({
+      layerId: "text",
+      originalValue: "Canvas text",
+      screenId: "screen",
+      selector: "text",
+      sourceHash: "source",
+      durableId: "text",
+      tag: "p",
+    }));
+    const onTextEdit = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(
+          <LayersPanel
+            layers={[
+              { id: "text", name: "Label", type: "text" },
+              { id: "box", name: "Box", type: "shape" },
+            ]}
+            selectedIds={[]}
+            expandedIds={[]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={() => {}}
+            onRename={onRename}
+            onStartTextEdit={onStartTextEdit}
+            onTextEdit={onTextEdit}
+          />,
+        ),
+      );
+      const textRow = host.querySelector<HTMLElement>(
+        '[data-layer-node-id="text"]',
+      );
+      if (!textRow) throw new Error("Text row missing");
+      await act(async () =>
+        textRow.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "F2", bubbles: true }),
+        ),
+      );
+      let input = host.querySelector<HTMLInputElement>(
+        "input[data-layer-row-name]",
+      );
+      expect(input?.value).toBe("Label");
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      if (!input || !setValue) throw new Error("Rename input missing");
+      const renameInput = input;
+      await act(async () => {
+        setValue.call(renameInput, "Renamed");
+        renameInput.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () =>
+        renameInput.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        ),
+      );
+      expect(onRename).toHaveBeenCalledWith("text", "Renamed");
+      const box = host.querySelector<HTMLElement>('[data-layer-node-id="box"]');
+      if (!box) throw new Error("Box row missing");
+      await act(async () =>
+        box.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+      );
+      input = host.querySelector<HTMLInputElement>(
+        "input[data-layer-row-name]",
+      );
+      expect(input?.value).toBe("Box");
+      expect(onStartTextEdit).not.toHaveBeenCalled();
+      expect(onTextEdit).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
     }
   });
 });

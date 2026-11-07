@@ -57,6 +57,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import type { LayerTextEditSession } from "@/pages/design-editor/commands/layer-text-edit";
 import { isFlowDisplay } from "@/pages/design-editor/live-layer-move-layout";
 
 export type LayersPanelNodeType =
@@ -194,6 +195,12 @@ export interface LayersPanelProps {
     intent: LayersPanelSelectionIntent,
   ) => void;
   onRename?: (id: string, name: string) => void;
+  onStartTextEdit?: (id: string) => LayerTextEditSession | null;
+  onTextEdit?: (
+    id: string,
+    value: string,
+    session: LayerTextEditSession,
+  ) => boolean | void;
   onToggleLocked?: (id: string, locked: boolean) => void;
   onToggleHidden?: (id: string, hidden: boolean) => void;
   onHoverLayer?: (id: string) => void;
@@ -927,6 +934,8 @@ function LayersPanelImpl(
     onExpandedIdsChange,
     onSelectionChange,
     onRename,
+    onStartTextEdit,
+    onTextEdit,
     onToggleLocked,
     onToggleHidden,
     onHoverLayer,
@@ -974,6 +983,10 @@ function LayersPanelImpl(
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const renameOriginalNameRef = useRef<string>("");
+  const textEditRef = useRef<LayerTextEditSession | null>(null);
+  const suspendedTextDraftsRef = useRef(
+    new Map<string, { draft: string; session: LayerTextEditSession }>(),
+  );
   const [dropIndicator, setDropIndicator] =
     useState<LayersPanelMoveIntent | null>(null);
   const [searchOpen, setSearchOpen] = useState(Boolean(searchQuery));
@@ -1122,12 +1135,22 @@ function LayersPanelImpl(
 
   const renameDraftRef = useRef(renameDraft);
   const onRenameRef = useRef(onRename);
+  const onTextEditRef = useRef(onTextEdit);
   renameDraftRef.current = renameDraft;
   onRenameRef.current = onRename;
+  onTextEditRef.current = onTextEdit;
   const commitRename = useCallback((id: string) => {
-    const nextName = renameDraftRef.current.trim();
-    if (nextName) {
-      onRenameRef.current?.(id, nextName);
+    const textEdit = textEditRef.current;
+    if (textEdit?.layerId === id) {
+      if (
+        renameDraftRef.current !== textEdit.originalValue &&
+        onTextEditRef.current?.(id, renameDraftRef.current, textEdit) === false
+      )
+        return;
+      textEditRef.current = null;
+    } else {
+      const nextName = renameDraftRef.current.trim();
+      if (nextName) onRenameRef.current?.(id, nextName);
     }
     setRenamingId(null);
     setRenameDraft("");
@@ -1138,13 +1161,44 @@ function LayersPanelImpl(
 
   const startRename = useCallback(
     (node: LayersPanelNode) => {
-      if (!onRename || node.renamable === false) return;
+      if (!onRename || node.renamable === false || textEditRef.current) return;
+      textEditRef.current = null;
       renameOriginalNameRef.current = node.name;
       setRenamingId(node.id);
       setRenameDraft(node.name);
       pendingRenameFocusIdRef.current = node.id;
     },
     [onRename],
+  );
+
+  const startRowEdit = useCallback(
+    (node: LayersPanelNode) => {
+      if (textEditRef.current) return;
+      const isTextRow =
+        node.type === "text" ||
+        node.type === "frame" ||
+        node.type === "element" ||
+        (node.type === "shape" &&
+          /^(p|span|h[1-6])$/i.test(node.tagName ?? ""));
+      if (!isTextRow || !onStartTextEdit || !onTextEdit) {
+        startRename(node);
+        return;
+      }
+      const suspended = suspendedTextDraftsRef.current.get(node.id);
+      const session = node.locked
+        ? null
+        : (suspended?.session ?? onStartTextEdit(node.id));
+      if (session == null) {
+        startRename(node);
+        return;
+      }
+      textEditRef.current = session;
+      setRenamingId(node.id);
+      setRenameDraft(suspended?.draft ?? session.originalValue);
+      suspendedTextDraftsRef.current.delete(node.id);
+      pendingRenameFocusIdRef.current = node.id;
+    },
+    [onStartTextEdit, onTextEdit, startRename],
   );
 
   const registerRowElement = useCallback(
@@ -1174,11 +1228,12 @@ function LayersPanelImpl(
 
   const beginRename = useCallback(
     (layerId: string): boolean => {
-      if (!onRename) return false;
+      if (!onRename || textEditRef.current) return false;
       const found = findNodeWithAncestors(rootsRef.current, layerId);
       if (!found || found.node.renamable === false) return false;
       const { node, ancestorIds } = found;
 
+      textEditRef.current = null;
       renameOriginalNameRef.current = node.name;
       setRenamingId(node.id);
       setRenameDraft(node.name);
@@ -1199,6 +1254,22 @@ function LayersPanelImpl(
     beginRename,
     focusSearch,
   ]);
+
+  useLayoutEffect(() => {
+    const edit = textEditRef.current;
+    if (!edit || visibleRows.some((row) => row.node.id === edit.layerId))
+      return;
+    if (renameDraftRef.current !== edit.originalValue) {
+      suspendedTextDraftsRef.current.set(edit.layerId, {
+        draft: renameDraftRef.current,
+        session: edit,
+      });
+    }
+    textEditRef.current = null;
+    pendingRenameFocusIdRef.current = null;
+    setRenamingId(null);
+    setRenameDraft("");
+  }, [visibleRows]);
 
   useEffect(() => {
     const pendingId = pendingRenameFocusIdRef.current;
@@ -1234,6 +1305,7 @@ function LayersPanelImpl(
   );
 
   const handleCancelRename = useCallback(() => {
+    textEditRef.current = null;
     setRenamingId(null);
   }, []);
 
@@ -1675,6 +1747,12 @@ function LayersPanelImpl(
                     onRenameAdjacent={renameAdjacentRow}
                     onCancelRename={handleCancelRename}
                     onStartRename={startRename}
+                    onStartRowEdit={startRowEdit}
+                    textEditLabel={
+                      textEditRef.current?.layerId === row.node.id
+                        ? t("designEditor.tools.text")
+                        : undefined
+                    }
                     onRename={onRename}
                     onSelect={selectNode}
                     onToggleExpanded={handleToggleExpanded}
@@ -1729,6 +1807,8 @@ interface LayerRowProps {
   onRenameAdjacent: (id: string, step: 1 | -1) => void;
   onCancelRename: (id: string) => void;
   onStartRename: (node: LayersPanelNode) => void;
+  onStartRowEdit: (node: LayersPanelNode) => void;
+  textEditLabel?: string;
   onRename?: (id: string, name: string) => void;
   onSelect: (
     id: string,
@@ -1831,6 +1911,8 @@ const LayerRow = memo(function LayerRow({
   onRenameAdjacent,
   onCancelRename,
   onStartRename,
+  onStartRowEdit,
+  textEditLabel,
   onRename,
   onSelect,
   onToggleExpanded,
@@ -2287,7 +2369,7 @@ const LayerRow = memo(function LayerRow({
             selectable ? "cursor-default" : "cursor-default opacity-80",
           )}
           onClick={handlePointerSelect}
-          onDoubleClick={() => onStartRename(node)}
+          onDoubleClick={() => onStartRowEdit(node)}
           onKeyDown={handleKeyDown}
         >
           <span
@@ -2305,37 +2387,44 @@ const LayerRow = memo(function LayerRow({
             {node.icon ?? <LayerGlyph node={node} />}
           </span>
           {isRenaming ? (
-            <input
-              data-layer-row-name
-              ref={focusRenameInput}
-              value={renameDraft}
-              onClick={(event) => event.stopPropagation()}
-              onChange={(event) => onRenameDraftChange(event.target.value)}
-              onFocus={(event) => event.currentTarget.select()}
-              onBlur={() => {
-                if (renameCancelledRef.current) {
-                  renameCancelledRef.current = false;
-                  return;
-                }
-                onCommitRename(node.id);
-              }}
-              onKeyDown={(event) => {
-                event.stopPropagation();
-                if (event.key === "Enter") {
-                  event.preventDefault();
+            <>
+              {!textEditLabel && (
+                <span className="max-w-20 shrink-0 truncate text-[10px] text-muted-foreground">
+                  {labels.rename}
+                </span>
+              )}
+              <input
+                data-layer-row-name
+                ref={focusRenameInput}
+                value={renameDraft}
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => onRenameDraftChange(event.target.value)}
+                onFocus={(event) => event.currentTarget.select()}
+                onBlur={() => {
+                  if (renameCancelledRef.current) {
+                    renameCancelledRef.current = false;
+                    return;
+                  }
                   onCommitRename(node.id);
-                } else if (event.key === "Tab") {
-                  event.preventDefault();
-                  onRenameAdjacent(node.id, event.shiftKey ? -1 : 1);
-                } else if (event.key === "Escape") {
-                  event.preventDefault();
-                  renameCancelledRef.current = true;
-                  onCancelRename(node.id);
-                }
-              }}
-              className="h-5 min-w-0 flex-1 rounded-[3px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1 text-[11px] text-foreground outline-none"
-              aria-label={labels.rename}
-            />
+                }}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    onCommitRename(node.id);
+                  } else if (event.key === "Tab" && !textEditLabel) {
+                    event.preventDefault();
+                    onRenameAdjacent(node.id, event.shiftKey ? -1 : 1);
+                  } else if (event.key === "Escape") {
+                    event.preventDefault();
+                    renameCancelledRef.current = true;
+                    onCancelRename(node.id);
+                  }
+                }}
+                className="h-5 min-w-0 flex-1 rounded-[3px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1 text-[11px] text-foreground outline-none"
+                aria-label={textEditLabel ?? labels.rename}
+              />
+            </>
           ) : (
             <span
               data-layer-row-name

@@ -20,6 +20,18 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 type PanelProps = ComponentProps<typeof LayersPanel>;
 
+function textSession(layerId: string, originalValue: string) {
+  return {
+    layerId,
+    originalValue,
+    screenId: "screen",
+    selector: layerId,
+    sourceHash: "source",
+    durableId: layerId,
+    tag: "p",
+  };
+}
+
 let cleanup: (() => Promise<void>) | null = null;
 
 afterEach(async () => {
@@ -209,6 +221,273 @@ describe("LayersPanel rename with Tab", () => {
       rowButton(host, second).querySelector("input[data-layer-row-name]"),
     ).toBeNull();
   });
+});
+
+describe("LayersPanel double-click editing", () => {
+  it("edits text content for text layers and renames other layers", async () => {
+    const onRename = vi.fn();
+    const onStartTextEdit = vi.fn((id: string) =>
+      id === "text" ? textSession(id, "Canvas text") : null,
+    );
+    const onTextEdit = vi.fn();
+    const { host } = await renderPanel({
+      layers: [
+        { id: "text", name: "Text layer", type: "text" },
+        { id: "box", name: "Box", type: "element" },
+      ],
+      onRename,
+      onStartTextEdit,
+      onTextEdit,
+    });
+
+    await act(async () =>
+      rowButton(host, "text").dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true }),
+      ),
+    );
+    expect(onStartTextEdit).toHaveBeenCalledWith("text");
+    const textInput = host.querySelector<HTMLInputElement>(
+      "input[data-layer-row-name]",
+    );
+    expect(textInput?.value).toBe("Canvas text");
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    if (!textInput || !setValue) throw new Error("Text input unavailable");
+    await act(async () => {
+      setValue.call(textInput, "Changed text");
+      textInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await pressKey(textInput, "Enter");
+    expect(onTextEdit).toHaveBeenCalledWith(
+      "text",
+      "Changed text",
+      textSession("text", "Canvas text"),
+    );
+    expect(onRename).not.toHaveBeenCalled();
+
+    await act(async () =>
+      rowButton(host, "box").dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true }),
+      ),
+    );
+    const renameInput = host.querySelector<HTMLInputElement>(
+      "input[data-layer-row-name]",
+    );
+    expect(renameInput?.value).toBe("Box");
+    if (!renameInput) throw new Error("Rename input unavailable");
+    await act(async () => {
+      setValue.call(renameInput, "Renamed box");
+      renameInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await pressKey(renameInput, "Enter");
+    expect(onRename).toHaveBeenCalledWith("box", "Renamed box");
+    expect(onTextEdit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("LayersPanel disappearing text rows", () => {
+  it.each(["removed", "filtered", "collapsed"] as const)(
+    "allows editing another row when the draft row is %s",
+    async (reason) => {
+      const onTextEdit = vi.fn(() => false);
+      const child = { id: "text", name: "Text", type: "text" as const };
+      const group = {
+        id: "group",
+        name: "Group",
+        type: "frame" as const,
+        children: [child],
+      };
+      const other = { id: "other", name: "Other", type: "element" as const };
+      const panel = await renderPanel({
+        layers: [group, other],
+        expandedIds: ["group"],
+        onRename: () => {},
+        onStartTextEdit: (id) =>
+          textSession(id, id === "text" ? "Before" : "Other text"),
+        onTextEdit,
+      });
+      await act(async () =>
+        rowButton(panel.host, "text").dispatchEvent(
+          new MouseEvent("dblclick", { bubbles: true }),
+        ),
+      );
+      const input = panel.host.querySelector<HTMLInputElement>(
+        "input[data-layer-row-name]",
+      );
+      if (!input) throw new Error("Text input missing");
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      if (!setter) throw new Error("Input setter missing");
+      await act(async () => {
+        setter.call(input, "Unsaved draft");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      if (reason !== "removed") {
+        await pressKey(input, "Enter");
+        expect(onTextEdit).toHaveBeenCalledWith(
+          "text",
+          "Unsaved draft",
+          textSession("text", "Before"),
+        );
+      }
+      if (reason === "removed") await panel.render({ layers: [other] });
+      else if (reason === "filtered")
+        await panel.render({ searchQuery: "Other" });
+      else await panel.render({ expandedIds: [] });
+      await act(async () =>
+        rowButton(panel.host, "other").dispatchEvent(
+          new MouseEvent("dblclick", { bubbles: true }),
+        ),
+      );
+      const otherInput = rowButton(
+        panel.host,
+        "other",
+      ).querySelector<HTMLInputElement>("input[data-layer-row-name]");
+      expect(otherInput?.value).toBe("Other text");
+      if (!otherInput) throw new Error("Other text editor missing");
+      await pressKey(otherInput, "Escape");
+      await panel.render({
+        layers: [group, other],
+        expandedIds: ["group"],
+        searchQuery: "",
+      });
+      await act(async () =>
+        rowButton(panel.host, "text").dispatchEvent(
+          new MouseEvent("dblclick", { bubbles: true }),
+        ),
+      );
+      const restored = panel.host.querySelector<HTMLInputElement>(
+        "input[data-layer-row-name]",
+      );
+      expect(restored?.value).toBe("Unsaved draft");
+      if (!restored) throw new Error("Draft was not restored");
+      await pressKey(restored, "Enter");
+      expect(onTextEdit).toHaveBeenCalledTimes(reason === "removed" ? 1 : 2);
+      expect(restored.value).toBe("Unsaved draft");
+    },
+  );
+});
+
+describe("LayersPanel text edit rejection", () => {
+  it("retains a refused draft so it can be copied or corrected", async () => {
+    const onTextEdit = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
+    const { host } = await renderPanel({
+      layers: [
+        { id: "text", name: "Text", type: "text" },
+        { id: "other", name: "Other", type: "element" },
+      ],
+      onRename: () => {},
+      onStartTextEdit: (id) => textSession(id, "Before"),
+      onTextEdit,
+    });
+    await act(async () =>
+      rowButton(host, "text").dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true }),
+      ),
+    );
+    const input = host.querySelector<HTMLInputElement>(
+      "input[data-layer-row-name]",
+    );
+    if (!input) throw new Error("Text input missing");
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    if (!setValue) throw new Error("Input setter unavailable");
+    await act(async () => {
+      setValue.call(input, "Unsaved draft");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await pressKey(input, "Enter");
+    expect(onTextEdit).toHaveBeenCalledWith(
+      "text",
+      "Unsaved draft",
+      textSession("text", "Before"),
+    );
+    expect(
+      host.querySelector<HTMLInputElement>("input[data-layer-row-name]")?.value,
+    ).toBe("Unsaved draft");
+    await act(async () =>
+      rowButton(host, "other").dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true }),
+      ),
+    );
+    expect(
+      host.querySelector<HTMLInputElement>("input[data-layer-row-name]")?.value,
+    ).toBe("Unsaved draft");
+    await act(async () => {
+      setValue.call(input, "Corrected");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await pressKey(input, "Enter");
+    expect(onTextEdit).toHaveBeenLastCalledWith(
+      "text",
+      "Corrected",
+      textSession("text", "Before"),
+    );
+    expect(host.querySelector("input[data-layer-row-name]")).toBeNull();
+  });
+});
+
+describe("LayersPanel text editing with Tab", () => {
+  it.each([false, true])(
+    "commits text without opening a layer rename on Shift=$shift",
+    async (shift) => {
+      const onRename = vi.fn();
+      const onTextEdit = vi.fn();
+      const { host } = await renderPanel({
+        layers: [
+          { id: "a", name: "Alpha", type: "text" },
+          { id: "b", name: "Bravo", type: "text" },
+        ],
+        onRename,
+        onStartTextEdit: (id) => textSession(id, "Canvas text"),
+        onTextEdit,
+      });
+      const first = host.querySelector<HTMLElement>("[data-layer-row-button]");
+      if (!first) throw new Error("Missing layer row");
+      const id = first.dataset.layerNodeId;
+      await act(async () =>
+        first.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+      );
+      const input = host.querySelector<HTMLInputElement>(
+        "input[data-layer-row-name]",
+      );
+      if (!input) throw new Error("Missing text input");
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      if (!setValue) throw new Error("Input setter unavailable");
+      await act(async () => {
+        setValue.call(input, "Changed");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      const event = new KeyboardEvent("keydown", {
+        key: "Tab",
+        bubbles: true,
+        cancelable: true,
+        shiftKey: shift,
+      });
+      await act(async () => input.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(false);
+      await act(async () =>
+        input.dispatchEvent(new FocusEvent("focusout", { bubbles: true })),
+      );
+      if (!id) throw new Error("Missing layer id");
+      expect(onTextEdit).toHaveBeenCalledWith(
+        id,
+        "Changed",
+        textSession(id, "Canvas text"),
+      );
+      expect(onRename).not.toHaveBeenCalled();
+      expect(host.querySelector("input[data-layer-row-name]")).toBeNull();
+    },
+  );
 });
 
 describe("LayersPanel search", () => {
