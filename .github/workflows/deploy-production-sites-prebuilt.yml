@@ -33,6 +33,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: agent-native-production-fleet-${{ inputs.sites }}
