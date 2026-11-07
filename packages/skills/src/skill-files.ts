@@ -7,7 +7,10 @@ import path from "node:path";
  * folder or repository the skill came from. A link out of it, one that no
  * longer resolves, or one that leads back to a folder the copy is already
  * inside (which would copy forever) is left out, so a downloaded skill can't
- * copy files from elsewhere on this machine into the project.
+ * copy files from elsewhere on this machine into the project. A link inside
+ * the skill is also left out when its target sits under a name `skip` leaves
+ * out, such as `.git`; the skill folder itself may be linked from anywhere in
+ * the source, `node_modules` included.
  *
  * Core's `copyFollowingLinks` follows the same rules.
  */
@@ -29,10 +32,11 @@ export function copySkillFiles(
       // resolves.
       if (!fs.existsSync(source)) return false;
       const target = fs.realpathSync(source);
+      if (!isInside(root, target)) return false;
+      if (path.resolve(source) === top) return true;
       return (
-        isInside(root, target) &&
-        (path.resolve(source) === top ||
-          !leadsBackIntoCopy(top, source, target))
+        !path.relative(root, target).split(path.sep).some(skip) &&
+        !leadsBackIntoCopy(top, source, target)
       );
     },
   });

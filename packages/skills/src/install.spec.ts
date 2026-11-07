@@ -291,6 +291,47 @@ describe("@agent-native/skills", () => {
     ).toBeUndefined();
   });
 
+  it("leaves out links into .git or node_modules", async () => {
+    const root = tmpDir();
+    const source = path.join(root, "source");
+    const project = path.join(root, "project");
+    const skill = writeSkill(path.join(source, "skills"), "beta");
+    const gitDir = path.join(source, ".git", "objects");
+    const packageDocs = path.join(source, "node_modules", "pkg", "docs");
+    fs.mkdirSync(gitDir, { recursive: true });
+    fs.mkdirSync(packageDocs, { recursive: true });
+    fs.writeFileSync(path.join(packageDocs, "readme.md"), "Docs", "utf-8");
+    const linkType = process.platform === "win32" ? "junction" : "dir";
+    fs.symlinkSync(gitDir, path.join(skill, "objects"), linkType);
+    fs.symlinkSync(packageDocs, path.join(skill, "docs"), linkType);
+
+    await installSkills(
+      parseSkillsCliArgs(
+        [
+          "add",
+          source,
+          "--skill",
+          "beta",
+          "--agent",
+          "codex",
+          "--scope",
+          "project",
+          "--project",
+          project,
+          "--instructions",
+          "none",
+        ],
+        root,
+      ),
+      { isInteractive: () => false },
+    );
+
+    const installed = path.join(project, ".agents", "skills", "beta");
+    expect(fs.existsSync(path.join(installed, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(installed, "objects"))).toBe(false);
+    expect(fs.existsSync(path.join(installed, "docs"))).toBe(false);
+  });
+
   it("leaves out a link back to a folder the copy is inside", async () => {
     const root = tmpDir();
     const source = path.join(root, "source");
