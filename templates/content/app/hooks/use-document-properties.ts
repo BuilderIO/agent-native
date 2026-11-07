@@ -621,18 +621,20 @@ export function useSetDocumentProperty(
       const mutationContext = context as
         | DocumentPropertyMutationContext
         | undefined;
-      if (!isLatestDocumentPropertyMutation(queryClient, mutationContext)) {
-        return;
-      }
       const savedProperty = data.properties.find(
         (property) => property.definition.id === variables.propertyId,
       );
-      const savedValue = savedProperty?.value ?? variables.value;
-      const savedRelationTargets = savedProperty?.relationTargets;
-      // The refresh below can fail, and the save has already answered.
+      // The refresh below can fail, and the save has already answered. Writes
+      // here run in order and nothing is shown ahead of them, so a superseded
+      // one still counts: the write after it can fail. One Property doesn't
+      // confirm the rest of a row's early copy, so its timestamp stays.
       if (savedProperty) {
+        const propertiesKey = documentPropertiesQueryKey(
+          variables.documentId,
+          databaseId,
+        );
         queryClient.setQueryData<DocumentPropertiesResponse>(
-          documentPropertiesQueryKey(variables.documentId, databaseId),
+          propertiesKey,
           (current) =>
             current && {
               ...current,
@@ -642,8 +644,16 @@ export function useSetDocumentProperty(
                   : property,
               ),
             },
+          {
+            updatedAt: queryClient.getQueryState(propertiesKey)?.dataUpdatedAt,
+          },
         );
       }
+      if (!isLatestDocumentPropertyMutation(queryClient, mutationContext)) {
+        return;
+      }
+      const savedValue = savedProperty?.value ?? variables.value;
+      const savedRelationTargets = savedProperty?.relationTargets;
       queryClient.setQueriesData<ContentDatabaseResponse>(
         contentDatabaseQueryFilter(databaseDocumentId),
         (current) =>

@@ -15,21 +15,16 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
-vi.mock("@/hooks/use-document-properties", () => ({
+vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
+  documentPropertiesReadFailed: (
+    await importOriginal<typeof import("@/hooks/use-document-properties")>()
+  ).documentPropertiesReadFailed,
   documentPropertiesPlaceholder: () => mocks.pagePropertiesPlaceholder,
   documentPropertiesResponseMatchesScope: (
     documentId: string,
     databaseId: string | null,
     data: { documentId?: string; databaseId?: string | null } | undefined,
   ) => data?.documentId === documentId && data?.databaseId === databaseId,
-  documentPropertiesReadFailed: (
-    _documentId: string,
-    _databaseId: string | null,
-    query: { isError?: boolean; fetchStatus?: string; dataUpdatedAt?: number },
-  ) =>
-    query.isError === true &&
-    query.fetchStatus === "idle" &&
-    !query.dataUpdatedAt,
   useDocumentProperties: (
     _documentId: string,
     _databaseId: string,

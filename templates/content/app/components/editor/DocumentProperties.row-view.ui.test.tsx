@@ -100,6 +100,7 @@ function renderProperties(
     rowViewPending?: boolean;
     canEdit?: boolean;
     schemaRowsExpected?: boolean;
+    readFailureShownBelow?: boolean;
     comments?: Partial<PropertyCommentsValue>;
   } = {},
 ) {
@@ -112,6 +113,7 @@ function renderProperties(
       rowViewPending={options.rowViewPending ?? false}
       canEdit={options.canEdit ?? true}
       schemaRowsExpected={options.schemaRowsExpected}
+      readFailureShownBelow={options.readFailureShownBelow}
     />
   );
   return renderUi(
@@ -181,12 +183,28 @@ describe("a row's failed Properties read", () => {
     expect(shows("empty.genericError")).toBe(false);
   });
 
-  it("leaves a row's early copy to the error the page already shows", () => {
+  it("says so over a row's early copy when nothing else on screen does", () => {
     failRead(mocks.response);
     renderProperties(null);
 
+    expect(rowIds()).toEqual([]);
+    expect(shows("empty.genericError")).toBe(true);
+  });
+
+  it("keeps a row's early copy and stays quiet when the body reports it", () => {
+    failRead(mocks.response);
+    renderProperties(null, { readFailureShownBelow: true });
+
     expect(rowIds()).toEqual(["a", "b", "c"]);
     expect(shows("empty.genericError")).toBe(false);
+  });
+
+  it("shows nothing at all above a body that reports it", () => {
+    failRead();
+    renderProperties(null, { readFailureShownBelow: true });
+
+    expect(shows("empty.genericError")).toBe(false);
+    expect(shows("editor.properties.loadingProperties")).toBe(false);
   });
 });
 

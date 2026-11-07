@@ -10906,6 +10906,7 @@ function PageEditorSessionBody({
                           !isGitHubSourceDocument &&
                           !collabInitializationFailed
                         }
+                        readFailureShownBelow={!mcpDirectoryWidgetReadOnly}
                         popoversPortalled={false}
                       />
                     </PropertyCommentsContext.Provider>

@@ -15,7 +15,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: { count?: number }) =>
     options?.count === undefined ? key : `${key}:${options.count}`,
 }));
-vi.mock("@/hooks/use-document-properties", () => ({
+vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
+  documentPropertiesReadFailed: (
+    await importOriginal<typeof import("@/hooks/use-document-properties")>()
+  ).documentPropertiesReadFailed,
   documentPropertiesPlaceholder: () => undefined,
   documentPropertiesResponseMatchesScope: (
     documentId: string,
@@ -559,7 +562,12 @@ describe("useBlockFieldComments", () => {
   });
 
   it("opens a thread's tab once fields that failed to load are read", async () => {
-    mocks.query = { data: undefined, isError: true, isRefetching: false };
+    mocks.query = {
+      data: undefined,
+      isError: true,
+      isRefetching: false,
+      fetchStatus: "idle",
+    };
     await render({ threads, selectedThreadId: "notes-1" });
     expect(latest.tabSwitchPending).toBe(true);
 

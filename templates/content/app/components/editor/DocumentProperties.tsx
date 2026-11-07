@@ -214,6 +214,8 @@ interface DocumentPropertiesProps {
    * don't arrive later and push the page down.
    */
   schemaRowsExpected?: boolean;
+  /** The body below reports a failed read, so saying so here would repeat it. */
+  readFailureShownBelow?: boolean;
   popoversPortalled?: boolean;
   popoverContainer?: HTMLElement | null;
 }
@@ -1009,6 +1011,7 @@ export function DocumentProperties({
   rowViewPending = false,
   canEdit,
   schemaRowsExpected = false,
+  readFailureShownBelow = false,
   popoversPortalled = true,
   popoverContainer,
 }: DocumentPropertiesProps) {
@@ -1019,6 +1022,11 @@ export function DocumentProperties({
     documentId,
     databaseId,
     data,
+  );
+  const readFailed = documentPropertiesReadFailed(
+    documentId,
+    databaseId,
+    propertiesQuery,
   );
   const canEditValues =
     canEdit &&
@@ -1061,13 +1069,14 @@ export function DocumentProperties({
 
   return (
     <div className="mt-5 border-y border-transparent py-1">
-      {!loaded &&
-      documentPropertiesReadFailed(documentId, databaseId, propertiesQuery) ? (
+      {readFailed && !readFailureShownBelow ? (
         <QueryErrorState
           compact
           onRetry={() => void propertiesQuery.refetch()}
         />
-      ) : isLoading || !loaded || rowViewPending ? (
+      ) : readFailed && !loaded ? null : isLoading ||
+        !loaded ||
+        rowViewPending ? (
         <div className="flex h-8 items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-3.5" />
           {t("editor.properties.loadingProperties")}
@@ -1076,7 +1085,10 @@ export function DocumentProperties({
         <div className="grid gap-0.5">{visibleProperties.map(propertyRow)}</div>
       ) : null}
 
-      {loaded && !rowViewPending && hiddenInViewProperties.length > 0 ? (
+      {loaded &&
+      !rowViewPending &&
+      (!readFailed || readFailureShownBelow) &&
+      hiddenInViewProperties.length > 0 ? (
         <HiddenInViewProperties
           properties={hiddenInViewProperties}
           renderRow={propertyRow}

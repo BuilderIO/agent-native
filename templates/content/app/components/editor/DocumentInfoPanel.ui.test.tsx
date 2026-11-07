@@ -64,6 +64,17 @@ describe("the Info panel's Content summary", () => {
     expect(document.querySelector("[data-document-info-content]")).toBeNull();
   });
 
+  it("doesn't count an early copy's words once the read has failed", () => {
+    mocks.query.data = {
+      documentId: "row",
+      databaseId: "database",
+      properties: [],
+    };
+    renderPanel();
+
+    expect(document.querySelector("[data-document-info-content]")).toBeNull();
+  });
+
   it("holds the place while a retry is running", () => {
     mocks.query.fetchStatus = "fetching";
     renderPanel();

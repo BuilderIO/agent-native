@@ -64,7 +64,6 @@ export function DocumentInfoPanel({
   // Properties below says so and offers the retry; counts can't be known.
   const contentUnknown =
     hasDatabaseFields &&
-    !propertiesLoaded &&
     documentPropertiesReadFailed(
       document.id,
       propertyDatabaseId,
