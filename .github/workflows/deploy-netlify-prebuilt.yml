@@ -2112,6 +2112,7 @@ jobs:
           # mirror above writes that matching runtime context for this upload.
           deploy_args=(
             --site "$NETLIFY_SITE_ID"
+            --auth "$NETLIFY_AUTH_TOKEN"
             --dir "$PUBLISH_DIRECTORY"
             --functions "$FUNCTIONS_DIRECTORY"
             --filter "$SOURCE_TEMPLATE"
