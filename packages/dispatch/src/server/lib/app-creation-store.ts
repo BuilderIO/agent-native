@@ -1906,6 +1906,29 @@ async function filterWorkspaceAppsByAccess(
   return apps.filter((app) => visibleIds.has(app.id));
 }
 
+async function filterOrgAccessInventory(
+  apps: WorkspaceAppSummary[],
+  orgId: string,
+): Promise<WorkspaceAppSummary[]> {
+  const mounted = apps.filter((app) => app.status === "ready" && !app.archived);
+  const ids = new Set<string>();
+  const db = getDb();
+  for (let start = 0; start < mounted.length; start += 500) {
+    const batch = mounted.slice(start, start + 500);
+    const rows = await db
+      .select({ id: workspaceApps.id })
+      .from(workspaceApps)
+      .where(
+        and(
+          eq(workspaceApps.orgId, orgId),
+          inArray(workspaceApps.id, batch.map((app) => app.id)),
+        ),
+      );
+    for (const row of rows) ids.add(row.id);
+  }
+  return mounted.filter((app) => ids.has(app.id));
+}
+
 async function filterOrganizationVisibleWorkspaceApps(
   apps: WorkspaceAppSummary[],
   orgId: string,
@@ -2541,7 +2564,7 @@ export async function updateWorkspaceAppMetadata(input: {
 
 async function listWorkspaceAppsWithPrincipal(
   options: ListWorkspaceAppsOptions = {},
-  principal: "user" | "organization" = "user",
+  principal: "user" | "organization" | "org-access-inventory" = "user",
 ): Promise<WorkspaceAppSummary[]> {
   const finalize = async (
     apps: WorkspaceAppSummary[],
@@ -2556,12 +2579,14 @@ async function listWorkspaceAppsWithPrincipal(
       : recorded.filter((app) => !app.archived);
     const candidates = filterAppsByAudience(listed, options.audience);
     const visible =
-      principal === "organization"
-        ? await filterOrganizationVisibleWorkspaceApps(
-            candidates,
-            requireWorkspaceAppOrgId(),
-          )
-        : await filterWorkspaceAppsByAccess(candidates);
+      principal === "org-access-inventory"
+        ? await filterOrgAccessInventory(candidates, requireWorkspaceAppOrgId())
+        : principal === "organization"
+          ? await filterOrganizationVisibleWorkspaceApps(
+              candidates,
+              requireWorkspaceAppOrgId(),
+            )
+          : await filterWorkspaceAppsByAccess(candidates);
     return maybeIncludeAgentCards(visible, options);
   };
   let gatewayDenial: WorkspaceAppsGatewayAuthorizationError | null = null;
@@ -2638,6 +2663,20 @@ export function listWorkspaceApps(
   options: ListWorkspaceAppsOptions = {},
 ): Promise<WorkspaceAppSummary[]> {
   return listWorkspaceAppsWithPrincipal(options, "user");
+}
+
+export async function listWorkspaceAppsForOrgAccessInventory(): Promise<
+  WorkspaceAppSummary[]
+> {
+  requireWorkspaceAppOrgId();
+  const role = await requestOwnerRole();
+  if (role !== "owner" && role !== "admin") {
+    throw new WorkspaceAppMetadataAuthorizationError();
+  }
+  return listWorkspaceAppsWithPrincipal(
+    { includeAgentCards: false, includeArchived: false, audience: "all" },
+    "org-access-inventory",
+  );
 }
 
 export async function listOrganizationVisibleWorkspaceApps(): Promise<

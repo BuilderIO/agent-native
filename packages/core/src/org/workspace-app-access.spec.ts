@@ -635,6 +635,53 @@ describe("isWorkspaceAppAccessAllowed", () => {
     );
   });
 
+  it("reports a failed registry read instead of returning an unfiltered app inventory", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("Unavailable", { status: 503 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      currentWorkspaceAppIdsForAccessList({
+        email: "admin@example.com",
+        orgId: null,
+      }),
+    ).rejects.toThrow("Workspace app inventory unavailable: registry-http-error");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "orgAccessInventory=true",
+    );
+  });
+
+  it("requests the admin inventory so disabled mounted apps remain manageable", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([
+        { id: "disabled-mounted", orgEnabled: false },
+        { id: "live-mounted", orgEnabled: true },
+      ]), { headers: { "content-type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ids = await currentWorkspaceAppIdsForAccessList({
+      email: "admin@example.com",
+      orgId: null,
+    });
+    expect([...ids!].sort()).toEqual(["disabled-mounted", "live-mounted"]);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "orgAccessInventory=true",
+    );
+  });
+
   it("signs user registry reads with the deployment secret when an org secret exists", async () => {
     vi.stubEnv("A2A_SECRET", "workspace-deployment-secret");
     vi.stubEnv("APP_URL", "https://dispatch.example.test");

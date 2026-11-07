@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   listWorkspaceApps,
+  listWorkspaceAppsForOrgAccessInventory,
   type ListWorkspaceAppsOptions,
   type WorkspaceAppSummary,
 } from "../server/lib/app-creation-store.js";
@@ -60,11 +61,19 @@ export default defineAction({
     includeArchived: httpBoolean
       .default(false)
       .describe("Include archived workspace apps in the result."),
+    orgAccessInventory: httpBoolean
+      .default(false)
+      .describe(
+        "Admin-only mounted-app inventory for organization access settings.",
+      ),
     audience: z
       .enum(["all", "internal", "public"])
       .default("all")
       .describe("Filter by workspace app audience."),
   }),
   http: { method: "GET" },
-  run: async (input, context) => listWorkspaceAppsForRequest(input, context),
+  run: async (input, context) =>
+    input.orgAccessInventory
+      ? listWorkspaceAppsForOrgAccessInventory()
+      : listWorkspaceAppsForRequest(input, context),
 });

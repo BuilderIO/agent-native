@@ -256,9 +256,21 @@ export async function currentWorkspaceAppIdsForAccessList(
       context,
       normalizedEmail(context.email),
     );
-    if (isWorkspaceAppAccessUnavailable(auth)) return null;
-    const registry = await getHostedWorkspaceAppRegistry(auth);
-    if (registry.status !== "available") return null;
+    if (isWorkspaceAppAccessUnavailable(auth)) {
+      throw new Error(`Workspace app inventory unavailable: ${auth.reason}`);
+    }
+    const inventoryUrl = new URL(auth.url);
+    inventoryUrl.searchParams.set("orgAccessInventory", "true");
+    const registry = await getHostedWorkspaceAppRegistry({
+      ...auth,
+      url: inventoryUrl,
+      requestKey: `${auth.requestKey}:org-access-inventory`,
+    });
+    if (registry.status === "unavailable") {
+      throw new Error(
+        `Workspace app inventory unavailable: ${registry.reason}`,
+      );
+    }
     return new Set(registry.apps.map((app) => app.id.trim()));
   }
 
