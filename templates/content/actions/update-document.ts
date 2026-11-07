@@ -606,8 +606,10 @@ const updateDocumentAction = defineAction({
         "Opaque body revision from get-document; guards browser content saves without treating metadata changes as body conflicts",
       ),
     authoredBaseRevision: z.string().optional(),
-    authoredBaseContent: z.string().max(500_000).optional(),
-    authoredCandidateContent: z.string().max(500_000).optional(),
+    // Body copies take any length `content` takes. A tighter cap here refused
+    // every editor save of a longer page, so the editor retried until closed.
+    authoredBaseContent: z.string().optional(),
+    authoredCandidateContent: z.string().optional(),
     baseTitle: z
       .string()
       .optional()
@@ -644,7 +646,7 @@ const updateDocumentAction = defineAction({
       .describe(
         "The saved title the editor's snapshot title started from; when they match, the editor never edited the title",
       ),
-    editorSnapshotContent: z.string().max(500_000).optional(),
+    editorSnapshotContent: z.string().optional(),
     browserSaveAttemptId: z
       .string()
       .min(1)
