@@ -62,6 +62,24 @@ describe("typo pass vocabulary", () => {
     ]);
   });
 
+  it("keeps full corrections ahead of words kept as typed", () => {
+    // Five close words for each mistyped word: 25 full corrections, 20 kept.
+    const corrected = correctSearchQueryTypos(
+      parseSearchQuery("zats-zogs"),
+      searchVocabulary([
+        "bats cats hats mats rats",
+        "dogs hogs jogs logs togs",
+      ]),
+    );
+
+    const texts = corrected?.query.groups[0]?.terms.map(({ text }) => text);
+    expect(texts).toHaveLength(21);
+    expect(texts).toContain("mats-logs");
+    expect(texts?.slice(1).filter((text) => /zats|zogs/.test(text))).toEqual(
+      [],
+    );
+  });
+
   it("reads the vocabulary only when a word is long enough to correct", () => {
     for (const query of ['"billng v2"', "bil q3", "-roadmpa"]) {
       expect(hasCorrectableWord(parseSearchQuery(query)), query).toBe(false);

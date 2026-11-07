@@ -14,7 +14,20 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 const mode = vi.hoisted(() => ({
   fallback: false,
   indexReady: undefined as boolean | undefined,
+  vocabularyReads: 0,
 }));
+
+vi.mock("./_document-search-typo.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_document-search-typo.js")>();
+  return {
+    ...actual,
+    searchVocabulary: (...args: Parameters<typeof actual.searchVocabulary>) => {
+      mode.vocabularyReads += 1;
+      return actual.searchVocabulary(...args);
+    },
+  };
+});
 
 vi.mock("@agent-native/core/search", async (importOriginal) => {
   const actual =
@@ -358,9 +371,15 @@ describe.each([
   });
 
   it("doesn't correct phrases or words shorter than four characters", async () => {
+    mode.vocabularyReads = 0;
     expect(ids(await search('"billng v2"', { fallback }))).toEqual([]);
     expect(ids(await search("bil", { fallback }))).toEqual(["billing"]);
     expect(ids(await search("bkl", { fallback }))).toEqual([]);
+    // Nothing in these could be corrected, so the vocabulary isn't read.
+    expect(mode.vocabularyReads).toBe(0);
+
+    await search("billng", { fallback });
+    expect(mode.vocabularyReads).toBe(1);
   });
 
   it("pages through corrected results exactly once each", async () => {

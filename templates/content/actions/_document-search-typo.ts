@@ -172,40 +172,42 @@ export function correctSearchQueryTypos(
   const alternatives = (term: SearchQueryTerm): string[] => {
     const pieces = termPieces(term);
     if (!pieces) return [];
-    const corrected = new Map<number, string[]>();
+    const corrected = new Map<number, { typed: string; words: string[] }>();
     for (const [index, piece] of pieces.entries()) {
       if (!correctable(piece, index)) continue;
       const words = closestWords(vocabulary, Array.from(piece));
       if (!words.length) continue;
-      corrected.set(index, [
-        ...words.flatMap((word) => [word, ...(vocabulary.get(word) ?? [])]),
-        // The word as typed comes last, so the full corrections come first.
-        piece,
-      ]);
+      corrected.set(index, {
+        typed: piece,
+        words: words.flatMap((word) => [word, ...(vocabulary.get(word) ?? [])]),
+      });
       corrections.set(piece, words);
     }
     if (!corrected.size) return [];
     // A word inside punctuation ("q3-roadmpa") is replaced in place, by each
-    // close word in each of its stored spellings. With two mistyped words,
-    // each is also kept as typed while the other is corrected: a body can say
-    // "billng-launch", and corrections only come from titles and descriptions.
-    let combinations = [pieces];
-    for (const [index, replacements] of corrected) {
-      combinations = combinations
-        .flatMap((combination) =>
-          replacements.map((replacement) =>
-            combination.map((piece, at) =>
-              at === index ? replacement : piece,
+    // close word in each of its stored spellings.
+    const combine = (keepTyped: boolean) => {
+      let combinations = [pieces];
+      for (const [index, { typed, words }] of corrected) {
+        const options = keepTyped ? [...words, typed] : words;
+        combinations = combinations
+          .flatMap((combination) =>
+            options.map((option) =>
+              combination.map((piece, at) => (at === index ? option : piece)),
             ),
-          ),
-        )
-        .slice(0, MAX_ALTERNATIVES);
-    }
-    // Every word as typed is the term itself.
-    const typed = pieces.join("");
-    return combinations
-      .map((combination) => combination.join(""))
-      .filter((text) => text !== typed);
+          )
+          .slice(0, MAX_ALTERNATIVES);
+      }
+      return combinations.map((combination) => combination.join(""));
+    };
+    // With two mistyped words, each is also kept as typed while the other is
+    // corrected, after every full correction: a body can say "billng-launch",
+    // and corrections only come from titles and descriptions. Every word as
+    // typed is the term itself.
+    const asTyped = pieces.join("");
+    return [...new Set([...combine(false), ...combine(true)])]
+      .filter((text) => text !== asTyped)
+      .slice(0, MAX_ALTERNATIVES);
   };
   const groups = parsed.groups.map((group) => ({
     terms: group.terms.flatMap((term) => [
