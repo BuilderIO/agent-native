@@ -375,9 +375,10 @@ function main(): void {
     modules = browserModules(files, (file) => {
       try {
         return readFileSync(path.join(REPO_ROOT, file), "utf8");
-      } catch {
-        // Deleted but not yet staged.
-        return "";
+      } catch (error) {
+        // Deleted but not yet staged, so it imports nothing.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
+        throw error;
       }
     });
   } catch (error) {
