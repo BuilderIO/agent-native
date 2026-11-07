@@ -744,6 +744,43 @@ describe("data-programs/execute", () => {
       );
     });
 
+    it("reports sandbox_error, not pending, when the queued run can't be checked and there are no rows", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      storeMocks.getDataProgram.mockResolvedValue(
+        makeProgram({ background: true }),
+      );
+      accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
+      storeMocks.getLatestSuccessfulRun.mockResolvedValue(null);
+      storeMocks.getActiveRun.mockResolvedValue(
+        makeRun({
+          id: "dpr_queued",
+          status: "queued",
+          executionId: "exec_queued",
+          startedAt: Date.now() - 5_000,
+        }),
+      );
+
+      const enqueueSandboxExecution = vi.fn();
+      vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        enqueueSandboxExecution,
+        getSandboxExecutionForOwner: vi
+          .fn()
+          .mockRejectedValue(new Error("connection reset")),
+      }));
+      const { runDataProgram } = await loadExecute();
+
+      const result = await runDataProgram({
+        programId: PROGRAM_ID,
+        ctx: { userEmail: OWNER },
+        triggeredBy: "panel_view",
+      });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).toBe("sandbox_error");
+      expect(enqueueSandboxExecution).not.toHaveBeenCalled();
+    });
+
     it.each([false, true])(
       "reports a finished run it couldn't save with the last good rows, then saves it on the next read (forceRefresh %s)",
       async (forceRefresh) => {

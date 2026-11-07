@@ -594,6 +594,7 @@ async function runBackgroundProgram(
   const backgroundTimeout = Math.max(timeoutMs, BACKGROUND_TIMEOUT_MS);
 
   const active = await getActiveRun(program.id, paramsHash);
+  let statusUnknown = false;
   if (active?.executionId && args.ctx.userEmail) {
     // A failed check leaves the run for the next read to finish, rather than
     // failing a read the cache can still answer.
@@ -605,6 +606,7 @@ async function runBackgroundProgram(
         `[data-programs] couldn't check background run ${active.id}:`,
         err,
       );
+      statusUnknown = true;
       return null;
     });
     if (
@@ -689,6 +691,17 @@ async function runBackgroundProgram(
         runId: latestSuccess.id,
       };
     }
+  }
+
+  // With no rows to serve, a run whose state couldn't be read isn't reported
+  // as still computing.
+  if (statusUnknown) {
+    return failureWithLastGood(
+      program.id,
+      paramsHash,
+      "sandbox_error",
+      "This data program's background run couldn't be checked. Try again.",
+    );
   }
 
   return failureWithLastGood(
