@@ -12,6 +12,28 @@ export type SourceEdit =
       replace: string;
     };
 
+export type SourceInputErrorCode =
+  | "source_path_required"
+  | "source_path_invalid"
+  | "search_text_required"
+  | "search_text_not_found"
+  | "search_text_ambiguous";
+
+/**
+ * A source path or edit that cannot apply as written. This module ships to the
+ * browser, so it cannot throw the action runtime's typed failure itself;
+ * server callers convert it with `failOnSourceInputError`.
+ */
+export class SourceInputError extends Error {
+  readonly code: SourceInputErrorCode;
+
+  constructor(code: SourceInputErrorCode, message: string) {
+    super(message);
+    this.name = "SourceInputError";
+    this.code = code;
+  }
+}
+
 function hashSourceContent(content: string): string {
   let hash = 2166136261;
   for (let index = 0; index < content.length; index += 1) {
@@ -66,13 +88,18 @@ export function applySourceContentPatch(
 
 export function normalizeInlineSourcePath(path: string): string {
   const normalized = path.trim().replace(/^\/+/, "");
-  if (!normalized) throw new Error("Source path is required.");
+  if (!normalized) {
+    throw new SourceInputError(
+      "source_path_required",
+      "Source path is required.",
+    );
+  }
   if (
     normalized.includes("..") ||
     normalized.startsWith("~") ||
     normalized.includes("\\")
   ) {
-    throw new Error("Invalid source path.");
+    throw new SourceInputError("source_path_invalid", "Invalid source path.");
   }
   return normalized;
 }
@@ -107,15 +134,22 @@ export function applySourceEdit(
   }
 
   if (!edit.search) {
-    throw new Error("exact-replace requires non-empty search text.");
+    throw new SourceInputError(
+      "search_text_required",
+      "exact-replace requires non-empty search text.",
+    );
   }
   const firstIndex = content.indexOf(edit.search);
   if (firstIndex === -1) {
-    throw new Error("Search text was not found in the source file.");
+    throw new SourceInputError(
+      "search_text_not_found",
+      "Search text was not found in the source file.",
+    );
   }
   const secondIndex = content.indexOf(edit.search, firstIndex + 1);
   if (secondIndex !== -1) {
-    throw new Error(
+    throw new SourceInputError(
+      "search_text_ambiguous",
       "Search text matched more than once. Add more surrounding context.",
     );
   }

@@ -268,6 +268,8 @@ export default {
   common: {
     loading: "Loading...",
     genericError: "Something went wrong",
+    linkedSourceSizeLimit:
+      "This linked component edit exceeds the source size limit.",
   },
   editPanel: {
     colorInputLabel: "color",
@@ -967,6 +969,10 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "Could not load this screen.",
+    writeFailed: "Couldn't save that change.",
+    selectionPublishFailed:
+      "The agent may not see your latest selection. Select it again.",
     liveCollaboration: {
       title: "Live collaboration",
       description:
@@ -2611,6 +2617,7 @@ export default {
   },
   homeContext: {
     websiteReference: "Add website",
+    websiteReferenceMenu: "Add website…",
     websiteUrlLabel: "Website URL",
     websiteUrl: "Paste a website URL",
     figmaUrlLabel: "Figma link",
@@ -2635,10 +2642,12 @@ export default {
     retry: "Retry",
     empty: "No matching references.",
     none: "None",
-    design: "Design",
+    design: "Design references",
     slides: "Slides",
     referenceDesign: "Reference a design",
-    figmaReference: "Add Figma",
+    connectFigma: "Connect Figma",
+    figmaDisconnected: "Connect Figma to browse designs.",
+    figmaReference: "Figma design",
     referenceDeck: "Reference a presentation",
     quickSaas: "Create a SaaS landing page",
     quickDashboard: "Create a dashboard",

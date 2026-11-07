@@ -3,14 +3,28 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-05
+
+### Improved
+
+- Attach Google Slides, decks, and websites as chat context directly from the composer, with workspace integrations grouped separately.
+
+### Fixed
+
+- Fixed a crash when selecting slide text after the editor updates.
+- Presenter view is no longer offered on shared links, and a blocked popup now shows a message instead of failing silently.
+
 ## 2026-11-04
 
 ### Improved
 
+- Outside agents like Claude, Codex, and the Agent-Native desktop app now get the slide canvas size and a content budget when they create a deck, so their slides spill off the bottom far less often.
+- The agent finds the right Slides action more often, for example image generation when you ask for a picture.
 - view-screen lists the 20 most recent decks on Home and says how many more there are.
 
 ### Fixed
 
+- PDF, PowerPoint, and Google Slides export from the editor now work for long decks instead of failing with a 'slide is not currently rendered' error.
 - Building slides from PDFs or notes no longer stops with a placeholder error on some models
 - Pasting a copied slide from the thumbnail rail now works even if you wait a while after copying.
 - PowerPoint imports preserve rounded rectangle corner radii.

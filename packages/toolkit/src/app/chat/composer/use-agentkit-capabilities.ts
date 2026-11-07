@@ -25,16 +25,16 @@ export function agentKitCapabilityQueryKey(
   ] as const;
 }
 
-export function useAgentKitCapabilities() {
+export function useAgentKitCapabilities(options: { enabled?: boolean } = {}) {
   const { session, status, error: sessionError } = useSession();
   const queryClient = useQueryClient();
-  const enabled =
+  const authorized =
     status === "authenticated" &&
     Boolean(session?.email.trim()) &&
     !agentNativeApiDisabledReason();
   const queryKey = agentKitCapabilityQueryKey(
     agentNativePath("/_agent-native/actions/get-agentkit-capabilities"),
-    enabled ? session : null,
+    authorized ? session : null,
   );
   const scopeKey = JSON.stringify(queryKey);
   const scope = useMemo(() => ({ key: scopeKey }), [scopeKey]);
@@ -55,10 +55,9 @@ export function useAgentKitCapabilities() {
         undefined,
         { method: "GET", signal },
       ),
-    enabled,
+    enabled: authorized && options.enabled !== false,
     staleTime: 15_000,
     gcTime: 0,
-    placeholderData: undefined,
     refetchOnMount: "always",
     refetchOnWindowFocus: "always",
     retry: defaultActionQueryRetry,
@@ -66,7 +65,7 @@ export function useAgentKitCapabilities() {
   });
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!authorized) return;
     const invalidate = () => {
       void queryClient.invalidateQueries({
         queryKey: ["action", "get-agentkit-capabilities"],
@@ -86,12 +85,12 @@ export function useAgentKitCapabilities() {
       unsubscribe();
       removeCompleteListener();
     };
-  }, [enabled, queryClient]);
+  }, [authorized, queryClient]);
 
   const { refetch: refetchCapabilities } = capabilityQuery;
   const refetchIntegrations = useCallback(async () => {
     const assertCurrent = () => {
-      if (!enabled || activeScope.current !== scope) {
+      if (!authorized || activeScope.current !== scope) {
         throw new DOMException("The operation was aborted.", "AbortError");
       }
     };
@@ -99,14 +98,15 @@ export function useAgentKitCapabilities() {
     const result = await refetchCapabilities({ throwOnError: true });
     assertCurrent();
     return result;
-  }, [enabled, scope, refetchCapabilities]);
+  }, [authorized, scope, refetchCapabilities]);
 
   return {
     ...capabilityQuery,
     data:
-      enabled && !capabilityQuery.isError ? capabilityQuery.data : undefined,
+      authorized && !capabilityQuery.isError ? capabilityQuery.data : undefined,
     integrationsLoading:
-      status === "loading" || (enabled && capabilityQuery.isPending),
+      options.enabled !== false &&
+      (status === "loading" || (authorized && capabilityQuery.isPending)),
     integrationsError: sessionError ?? capabilityQuery.error,
     scopeKey,
     refetchIntegrations,
