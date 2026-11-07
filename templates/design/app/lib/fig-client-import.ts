@@ -5,7 +5,6 @@ import { bytesToBase64, utf8ByteLength } from "../../shared/fig-bytes.js";
 import {
   completeFigImport,
   MAX_FIG_FRAME_HTML_BYTES,
-  shouldWarnForFigImport,
   yieldToEventLoop,
   type FigFileImportResult,
   type FigImportSummary,
@@ -23,7 +22,7 @@ import {
   type RenderedBrowserFigImport,
 } from "./fig-import-worker-session";
 
-export { MAX_CLIENT_FIG_BYTES, MAX_CLIENT_IMAGE_BYTES, shouldWarnForFigImport };
+export { MAX_CLIENT_FIG_BYTES, MAX_CLIENT_IMAGE_BYTES };
 
 const MAX_SAVE_BATCH_BYTES = 3 * 1024 * 1024;
 const MAX_SAVE_BATCH_FRAMES = 32;
@@ -39,7 +38,6 @@ export interface FigClientImportOptions {
   designId: string;
   file: File;
   prepared?: PreparedFigImport;
-  selection?: ReadonlySet<string>;
   onProgress?: (progress: FigClientImportProgress) => void;
 }
 
@@ -47,8 +45,6 @@ export class FigClientImportError extends Error {
   constructor(
     message: string,
     readonly remoteMutationStarted: boolean,
-    /** The caller's prepared import is still decoded and can render another selection. */
-    readonly preparedReusable = false,
   ) {
     super(message);
     this.name = "FigClientImportError";
@@ -59,7 +55,6 @@ export interface PreparedFigImport {
   file: File;
   summary: FigImportSummary;
   render(selection?: ReadonlySet<string>): Promise<RenderedBrowserFigImport>;
-  isAlive(): boolean;
   dispose(): void;
 }
 
@@ -73,7 +68,6 @@ function startFigImportWorker(): FigImportWorker {
     return {
       prepare: (file) => session.prepare(file),
       render: async (selection) => session.render(selection),
-      isAlive: () => true,
       dispose: () => {},
     };
   }
@@ -136,7 +130,6 @@ function startFigImportWorker(): FigImportWorker {
     prepare: (file) => call<FigImportSummary>({ type: "prepare", file }),
     render: (selection) =>
       call<RenderedBrowserFigImport>({ type: "render", selection }),
-    isAlive: () => stopped === null,
     dispose: () => stop(new Error("The .fig import was cancelled.")),
   };
 }
@@ -214,21 +207,20 @@ function relativeFramePositions({
 export async function importFigInBrowser(
   options: FigClientImportOptions,
 ): Promise<ImportResult> {
-  const { designId, file, onProgress, selection } = options;
+  const { designId, file, onProgress } = options;
   assertBrowserFigSize(file);
   const prepared =
     options.prepared ?? (await prepareFigImport(file, onProgress));
   let rendered: RenderedBrowserFigImport;
   try {
     onProgress?.({ phase: "rendering" });
-    rendered = await prepared.render(selection);
+    rendered = await prepared.render();
   } catch (error) {
-    const reusable = Boolean(options.prepared) && prepared.isAlive();
-    if (!reusable) prepared.dispose();
     const message = error instanceof Error ? error.message : String(error);
-    throw new FigClientImportError(message, false, reusable);
+    throw new FigClientImportError(message, false);
+  } finally {
+    prepared.dispose();
   }
-  prepared.dispose();
 
   let remoteMutationStarted = false;
   let uploaded = 0;

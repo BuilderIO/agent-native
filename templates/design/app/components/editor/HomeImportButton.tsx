@@ -2,7 +2,7 @@ import {
   actionErrorMessage,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
-import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconUpload } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -16,8 +16,6 @@ import {
 } from "@/components/ui/tooltip";
 import {
   MAX_BROWSER_FIG_BYTES,
-  MAX_BROWSER_FIG_GB,
-  MAX_BROWSER_FIG_MB,
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
 import {
@@ -25,6 +23,7 @@ import {
   importFormatsAccept,
   requestImportFile,
 } from "@/lib/design-import-file-picker";
+import { preflightFigArchive } from "@/lib/fig-archive-preflight";
 import {
   claimFigImportToast,
   discardPendingDesignImports,
@@ -38,7 +37,6 @@ const HOME_IMPORT_FORMATS = [FIGMA_IMPORT_FORMAT];
 
 export function HomeImportButton() {
   const t = useT();
-  const formatters = useFormatters();
   const navigate = useNavigate();
   const create = useActionMutation("create-design");
   const [busy, setBusy] = useState(false);
@@ -69,9 +67,7 @@ export function HomeImportButton() {
     if (validationError) {
       toast.error(
         validationError === "too-large"
-          ? t("designEditor.import.errors.figFileTooLarge", {
-              max: formatters.formatNumber(MAX_BROWSER_FIG_MB),
-            })
+          ? t("designEditor.import.errors.figFileTooLarge")
           : t("designEditor.import.errors.invalidFigFile"),
       );
       return;
@@ -85,6 +81,15 @@ export function HomeImportButton() {
       file.name,
     );
     try {
+      // Refuse before creating a design the import could never fill.
+      if ((await preflightFigArchive(file)).status === "too-large") {
+        releaseFigImportToast(toastOwner);
+        toast.error(t("designEditor.import.errors.figFileTooLarge"), {
+          id: FIG_IMPORT_TOAST_ID,
+          description: file.name,
+        });
+        return;
+      }
       const result = await create.mutateAsync({
         title: file.name.replace(/\.fig$/i, "") || t("home.untitledDesign"),
         projectType: "prototype",
@@ -93,7 +98,7 @@ export function HomeImportButton() {
       });
       if (!result.id) throw new Error(t("home.failedToCreateDesign"));
       setPendingDesignImport(result.id, { kind: "file", file });
-      void navigate(`/design/${result.id}?panel=import`);
+      void navigate(`/design/${result.id}`);
     } catch (cause) {
       releaseFigImportToast(toastOwner);
       toast.error(actionErrorMessage(cause) ?? t("home.failedToCreateDesign"), {
@@ -136,14 +141,7 @@ export function HomeImportButton() {
             <span className="design-home-import-label">{t("home.import")}</span>
           </Button>
         </TooltipTrigger>
-        <TooltipContent className="grid gap-0.5">
-          <span>{t("home.figmaFile")}</span>
-          <span className="text-muted-foreground">
-            {t("home.figmaFileMaxSize", {
-              max: formatters.formatNumber(MAX_BROWSER_FIG_GB),
-            })}
-          </span>
-        </TooltipContent>
+        <TooltipContent>{t("home.figmaFile")}</TooltipContent>
       </Tooltip>
     </>
   );

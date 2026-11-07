@@ -4,6 +4,8 @@ import {
   actionErrorMessage,
   callAction,
 } from "@agent-native/core/client/hooks";
+import { useFormatters } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { pinCodeLayerDocuments } from "@shared/code-layer";
 import { extractProps } from "@shared/component-model";
 import { normalizeScreenHtml } from "@shared/screen-annotation";
@@ -21,7 +23,6 @@ import { flushSync } from "react-dom";
 import { useBlocker } from "react-router";
 import { toast } from "sonner";
 
-import type { DesignImportPanelHandle } from "@/components/design/DesignImportPanel";
 import { isTextElement } from "@/components/design/EditPanel";
 import {
   beginEyedropperPick,
@@ -40,6 +41,7 @@ import {
   DESIGN_IMPORT_FORMATS,
   requestImportFile,
 } from "@/lib/design-import-file-picker";
+import { claimPendingDesignImport } from "@/lib/pending-import";
 
 import {
   collectCodeLayerAncestors,
@@ -47,6 +49,7 @@ import {
   elementInfoFromCodeLayerNode,
 } from "../code-layer-state";
 import { runBooleanSubtractSelection } from "../commands/boolean-subtract-selection";
+import { runImportDesignFile } from "../commands/import-design-file";
 import {
   readLocalVisualEditPendingState,
   runPublishVisualEditPending,
@@ -184,9 +187,6 @@ export function useEditorSourceAndSync({
     pendingVisualStyleEditsRef,
     pendingLiveNonStyleEditsRef,
     clearPendingLiveEditState,
-    minimalUi,
-    setMinimalUi,
-    setActiveLeftPanel,
     clearPendingLiveEditStateRef,
     clearReloadedPendingLiveEdits,
     activeLeftPanel,
@@ -281,8 +281,6 @@ export function useEditorSourceAndSync({
     handleDetachInstanceMenuAction,
     handleToggleMinimalUi,
     handleShowAssetsPanel,
-    uiHidden,
-    setUiHidden,
   } = editorContentAndComponents;
   const {
     activeCodeFile,
@@ -315,6 +313,7 @@ export function useEditorSourceAndSync({
     handleUngroupSelection,
     handleCutSelection,
     handleZoomToSelectionFit,
+    showPastedImagesNotice,
   } = editorClipboard;
   const {
     handleAlignSelection,
@@ -828,29 +827,63 @@ export function useEditorSourceAndSync({
     clearAutoRetryTimer,
   ]);
   usePendingLiveEditUnloadGuard(hasPendingVisualStyleEdits);
-  const importPanelRef = useRef<DesignImportPanelHandle | null>(null);
   const skipPendingEditNavigationBlockRef = useRef(false);
-  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
-  // The import panel lives in the left sidebar, which is unmounted in minimal
-  // UI, so hand the file over only once that sidebar is back.
-  const importPanelMounted = !hostOwnsChrome && !uiHidden && !minimalUi;
-  useEffect(() => {
-    if (!pendingImportFile || !importPanelMounted) return;
-    importPanelRef.current?.importFile(pendingImportFile);
-    setPendingImportFile(null);
-  }, [pendingImportFile, importPanelMounted]);
+  const formatters = useFormatters();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileUploadStatusRef = useRef(fileUploadStatus);
+  fileUploadStatusRef.current = fileUploadStatus;
+  const importBusyRef = useRef(false);
   // The file input must render outside any dropdown: menus unmount on close,
   // before the file picker reports its change event.
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const startImportFile = useCallback(
     (file: File) => {
-      setMinimalUi(false);
-      setUiHidden(false);
-      setActiveLeftPanel("import");
-      setPendingImportFile(file);
+      if (!id) return;
+      if (importBusyRef.current) {
+        toast.error(t("designEditor.import.errors.importBusy"));
+        return;
+      }
+      importBusyRef.current = true;
+      void runImportDesignFile({
+        designId: id,
+        file,
+        t,
+        formatNumber: (value) => formatters.formatNumber(value),
+        formatList: (items) =>
+          formatters.formatList(items, { type: "unit", style: "short" }),
+        onImported: async (result) => {
+          await queryClient.invalidateQueries({ queryKey: ["action"] });
+          const count = result.unresolvedImageRefCount ?? 0;
+          if (count > 0 && result.files?.length) {
+            showPastedImagesNotice({
+              count,
+              fileIds: result.files.map((f) => f.id),
+            });
+          }
+          void navigate(`/design/${result.designId ?? id}?editorView=overview`);
+        },
+        onRetry: () => startImportFile(file),
+        deps: {
+          isUploadStorageConfigured: async () => {
+            const current = fileUploadStatusRef.current;
+            const status = current.isSuccess
+              ? current
+              : await current.refetch();
+            return status.isSuccess && status.data.configured === true;
+          },
+        },
+      }).finally(() => {
+        importBusyRef.current = false;
+      });
     },
-    [setActiveLeftPanel, setMinimalUi, setUiHidden],
+    [formatters, id, navigate, queryClient, showPastedImagesNotice, t],
   );
+  // A .fig picked on the home page arrives with the new design.
+  useEffect(() => {
+    if (!canEditDesign || !id) return;
+    const pending = claimPendingDesignImport(id);
+    if (pending) startImportFile(pending.file);
+  }, [canEditDesign, id, startImportFile]);
   const openImportFilePicker = useCallback(() => {
     requestImportFile({
       formats: DESIGN_IMPORT_FORMATS,
@@ -1883,7 +1916,6 @@ export function useEditorSourceAndSync({
     handleDrawTool,
     handleBooleanSubtractSelection,
     pendingVisualStyleNavigationBlocker,
-    importPanelRef,
     importFileInputRef,
     openImportFilePicker,
     handleImportFileChange,

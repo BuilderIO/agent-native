@@ -1643,31 +1643,18 @@ export default {
       editColor: "Editar a cor de {{name}}",
     },
     import: {
-      title: "Importar",
       description:
         "Traga HTML da área de transferência do Figma ou HTML independente como telas do Design.",
-      figmaUrlTitle: "URL de frame do Figma",
-      figmaUrlDescription: "Importe um frame ou arquivo de um link do Figma.",
       figmaUrlLabel: "URL de frame ou arquivo do Figma",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "Verificando conexão com o Figma…",
-      figmaConnected: "Figma conectado",
-      figmaConnectedWithSuffix: "Figma conectado · ••••{{suffix}}",
       figmaTokenLabel: "Token de acesso do Figma",
       figmaTokenDocs: "Obter token",
       figmaTokenPlaceholder: "Cole seu token de acesso pessoal do Figma",
-      figmaTokenDescription:
-        "Salvo com segurança para importações e chat. O token nunca é adicionado ao chat.",
-      importFigmaUrl: "Importar do Figma",
-      saveKeyAndImport: "Salvar chave e importar",
       figmaUrlSuccess: "Importado do Figma.",
       figmaImageFallbackWarning:
         "Fallbacks de imagem: {{count}}. A aparência é preservada, mas essas camadas não são totalmente editáveis.",
       figmaApproximationWarning:
         "Camadas aproximadas: {{count}}. HTML/CSS não consegue representar exatamente todas as propriedades do Figma.",
-      figmaPasteTitle: "Colar do Figma",
-      figmaPasteDescription:
-        "Copie um frame ou camada no Figma e cole na tela do Design. O Design importa o HTML visível da área de transferência.",
       figmaPasteTarget: "Cole na tela",
       figmaPasteApiKeyHint:
         "Conecte seu token de acesso do Figma para importações exatas de nós.",
@@ -1676,7 +1663,7 @@ export default {
       figmaPasteMatchGuidance:
         "Não foi possível corresponder a nós específicos do Figma. Cole um link do frame para uma importação exata.",
       figmaPasteUnreadable:
-        "Essa área de transferência não tem camadas do Figma copiadas. Selecione um frame no Figma, copie com Cmd+C e cole novamente, ou importe um link do Figma pelo painel Importar.",
+        "Essa área de transferência não tem camadas do Figma copiadas. Selecione um frame no Figma, copie com Cmd+C e cole novamente, ou cole um link para o frame no chat.",
       figmaPasteRestLabel: "Importado via API do Figma",
       figmaPasteHtmlLabel:
         "Importado da pré-visualização da área de transferência",
@@ -1713,75 +1700,30 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: "Enviar .fig",
       figUploadDescription:
         "Experimental: o formato .fig do Figma é proprietário e pode mudar. As camadas compatíveis viram telas editáveis; alguns recursos podem ser diferentes. Máximo de {{max}} MB.",
-      chooseFigFile: "Escolher arquivo .fig",
       figUploadUploading: "Enviando {{progress}}%",
       figUploadProcessing: "Convertendo…",
-      figImportWarningTitle: "Importação de .fig grande",
-      figImportWarningDescription:
-        "Este arquivo contém {{frames}} quadros e {{nodes}} camadas. Importar tudo pode deixar o editor lento. Escolha as páginas necessárias.",
-      figImportFrameCount: "{{selected}} de {{total}} quadros selecionados",
-      figImportSelectAll: "Selecionar tudo",
-      figImportClearAll: "Limpar tudo",
-      figImportCancel: "Cancelar",
-      figImportSelected: "Importar {{count}} selecionados",
-      figImportAll: "Importar tudo",
       figImportAnalyzing: "Analisando…",
       figImportSaving: "Salvando {{saved}} de {{total}} quadros",
-      figImportFrameLimit:
-        "Escolha páginas com {{max}} quadros ou menos no total.",
       figImportFramesSkippedWarning:
         "{{count}} quadros complexos demais para importar foram ignorados: {{names}}",
-      figUploadLimits: "Até {{size}} GB · {{frames}} quadros por importação",
-      figUploadDescriptionShort:
-        "Importação local — sem cota da API do Figma. As imagens incorporadas compatíveis são incluídas.",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "O Design pausou esta importação",
-      quotaCooldownBody:
-        "O Design está limitando suas próprias solicitações ao Figma após atingir um limite de cota. A redefinição é automática.",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "Importar HTML",
       htmlDescription:
         "Cole ou envie HTML independente. O Design salva como uma nova tela sem injetar nesta interface.",
-      htmlPlaceholder: "<main>Cole HTML independente aqui...</main>",
-      importHtml: "Importar HTML",
-      chooseHtmlFile: "Escolher arquivo HTML",
       allSupportedFiles: "Todos os arquivos compatíveis",
-      githubTitle: "GitHub",
       githubDescription:
         "Em breve: importe telas e componentes diretamente de um repositório.",
-      localTitle: "App local",
       localDescription:
         "Conecte qualquer app local em execução com /visual-edit.",
-      visualEditGuidance:
-        "Instale a skill /visual-edit, inicie qualquer app local e execute o comando de ponte nesse repo para que seu agente adicione telas por URL.",
-      comingSoon: "Em breve",
       warningsToast: "Importação concluída com avisos",
       figmaSuccess: "Colagem do Figma importada",
       htmlSuccess: "HTML importado",
       uploadSuccess: "Arquivo importado",
-      lastImport: "Última importação",
       errors: {
         figmaTokenMustBeToken:
           "Cole um token de acesso do Figma, não um link de arquivo do Figma.",
-        figmaUrlRequired: "Cole uma URL de frame ou arquivo do Figma.",
-        invalidFigmaUrl: "Insira uma URL válida do figma.com.",
         figmaImportFailed: "Não foi possível importar do Figma",
         notHtml: "Cole ou escolha HTML válido para importar.",
         importFailed: "Falha ao importar",
@@ -1790,9 +1732,9 @@ export default {
         invalidFigFile: "Escolha um arquivo que termine em .fig.",
         unsupportedFileType: "Escolha um arquivo .fig, .html ou .htm.",
         importBusy:
-          "Outra importação está em andamento. Conclua ou cancele-a primeiro.",
+          "Outra importação está em andamento. Tente novamente quando ela terminar.",
         figFileTooLarge:
-          "Esse .fig é grande demais — os envios são limitados a {{max}} MB. No Figma, copie apenas o frame desejado para um novo arquivo e exporte esse arquivo como .fig, ou use Colar do Figma.",
+          "Este arquivo é grande demais para importar aqui. Cole um link para a página ou o frame do Figma.",
       },
     },
     generationMayHaveStopped:
@@ -1855,6 +1797,7 @@ export default {
       duplicate: "Duplicar",
       versionHistory: "Histórico de versões",
       import: "Importar…",
+      connectLocalApp: "Conectar app local",
       delete: "Excluir",
       deleteError: "Não foi possível excluir este design",
     },
@@ -2904,7 +2847,6 @@ export default {
     import: "Importar",
     importFromFigma: "Importar do Figma",
     figmaFile: "Arquivo do Figma (.fig)",
-    figmaFileMaxSize: "Até {{max}} GB",
     openImport: "Abrir importação",
     importSelectedFile: "Importar arquivo selecionado",
     starterSaasPrompt:

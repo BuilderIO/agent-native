@@ -20,7 +20,6 @@ import { buildCodeLayerProjection } from "../../shared/code-layer.js";
 import {
   convertDecodedFigToEditableHtml as convertShared,
   inspectDecodedFig,
-  shouldWarnForFigImport,
 } from "../../shared/fig-to-frames.js";
 import {
   assertSafeDecodedFigDocument,
@@ -946,8 +945,6 @@ describe("editable .fig conversion", () => {
     expect(summary.pages).toEqual([
       { id: "1:2", name: "Page 1", frameCount: 2 },
     ]);
-    expect(shouldWarnForFigImport(1024, summary)).toBe(false);
-    expect(shouldWarnForFigImport(10 * 1024 * 1024, summary)).toBe(true);
   });
 
   it("renders and uploads only selected frames and their images", async () => {

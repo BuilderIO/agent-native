@@ -171,27 +171,18 @@ describe("importFigInBrowser", () => {
     expect(mocks.renderFigImport).not.toHaveBeenCalled();
   });
 
-  it("renders a prepared import's selection and frees it afterwards", async () => {
+  it("renders a prepared import and frees it afterwards", async () => {
     const prepared = await prepareFigImport(file);
     const dispose = vi.spyOn(prepared, "dispose");
-    const selection = new Set(["frame-1"]);
 
-    await importFigInBrowser({
-      designId: "design-1",
-      file,
-      prepared,
-      selection,
-    });
+    await importFigInBrowser({ designId: "design-1", file, prepared });
 
     expect(mocks.decodeFig).toHaveBeenCalledTimes(1);
-    expect(mocks.renderFigImport).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ selection }),
-    );
+    expect(mocks.renderFigImport).toHaveBeenCalledOnce();
     expect(dispose).toHaveBeenCalledOnce();
   });
 
-  it("keeps a caller's prepared import for another selection when rendering fails", async () => {
+  it("frees a prepared import when rendering fails", async () => {
     const prepared = await prepareFigImport(file);
     const dispose = vi.spyOn(prepared, "dispose");
     mocks.renderFigImport.mockImplementationOnce(() => {
@@ -202,22 +193,11 @@ describe("importFigInBrowser", () => {
       designId: "design-1",
       file,
       prepared,
-      selection: new Set(["page-1", "page-2"]),
     });
     await expect(failure).rejects.toBeInstanceOf(FigClientImportError);
     await expect(failure).rejects.toMatchObject({
-      preparedReusable: true,
       remoteMutationStarted: false,
     });
-    expect(dispose).not.toHaveBeenCalled();
-
-    await importFigInBrowser({
-      designId: "design-1",
-      file,
-      prepared,
-      selection: new Set(["page-1"]),
-    });
-    expect(mocks.decodeFig).toHaveBeenCalledTimes(1);
     expect(dispose).toHaveBeenCalledOnce();
   });
 

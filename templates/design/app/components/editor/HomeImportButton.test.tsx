@@ -133,6 +133,33 @@ describe("home Figma import", () => {
     expect(mocks.loading).not.toHaveBeenCalled();
   });
 
+  it("refuses a .fig whose document unpacks past the browser limit before creating a design", async () => {
+    const document = new Uint8Array(17);
+    document.set([0x28, 0xb5, 0x2f, 0xfd, 0xe0], 0);
+    new DataView(document.buffer).setBigUint64(
+      5,
+      BigInt(600 * 1024 ** 2),
+      true,
+    );
+    const bytes = new Uint8Array(12 + 4 + 1 + 4 + document.length);
+    const view = new DataView(bytes.buffer);
+    bytes.set(new TextEncoder().encode("fig-kiwi"), 0);
+    view.setUint32(12, 1, true);
+    view.setUint32(17, document.length, true);
+    bytes.set(document, 21);
+
+    await chooseFile(new File([bytes], "Big.fig"));
+
+    await vi.waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith(
+        "designEditor.import.errors.figFileTooLarge",
+        { id: FIG_IMPORT_TOAST_ID, description: "Big.fig" },
+      ),
+    );
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
   it("opens the .fig picker straight from the button, with no menu", async () => {
     const input =
       document.querySelector<HTMLInputElement>('input[type="file"]')!;
@@ -210,7 +237,7 @@ describe("home Figma import", () => {
       expect(mocks.create).not.toHaveBeenCalled();
     });
   });
-  it("hands the exact selected file directly to a new design's existing import panel", async () => {
+  it("hands the exact selected file to the new design's editor", async () => {
     const file = new File(["test fixture"], "example.fig");
     await chooseFile(file);
     expect(mocks.loading).toHaveBeenCalledExactlyOnceWith(
@@ -227,9 +254,7 @@ describe("home Figma import", () => {
       kind: "file",
       file,
     });
-    expect(mocks.navigate).toHaveBeenCalledWith(
-      "/design/file-design?panel=import",
-    );
+    expect(mocks.navigate).toHaveBeenCalledWith("/design/file-design");
   });
   it("rejects non-.fig files before creation and offers an explicit retry after an authenticated create failure", async () => {
     await chooseFile(new File(["invalid"], "example.pdf"));
@@ -250,7 +275,7 @@ describe("home Figma import", () => {
     await act(async () => retry());
     expect(readPendingDesignImport("file-design")?.file).toBe(file);
     expect(mocks.navigate).toHaveBeenCalledExactlyOnceWith(
-      "/design/file-design?panel=import",
+      "/design/file-design",
     );
   });
 });
