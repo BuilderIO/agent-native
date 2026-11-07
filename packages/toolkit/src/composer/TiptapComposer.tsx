@@ -2239,8 +2239,7 @@ function ModelSelector({
   // Only a loaded list that names providers, none of them connected, means
   // setup. A selected model on an unconnected provider still has others, and
   // an empty list is not proof of anything.
-  const connectionRequired =
-    onlyConnectPathAvailable && !modelListLoading && providerGroups.length > 0;
+  const connectionRequired = onlyConnectPathAvailable;
   useEffect(() => {
     onConnectionRequiredChange?.(connectionRequired);
   }, [connectionRequired, onConnectionRequiredChange]);
@@ -2250,14 +2249,14 @@ function ModelSelector({
   );
   // One connect label on every surface: hosts differ in which connect paths
   // they offer, and the picker lists those paths.
-  const selectedModelButtonLabel = noModelCatalog
-    ? modelListLoading
-      ? t("agentChat.composer.loadingModels", {
-          defaultValue: "Loading models",
-        })
-      : t("agentChat.composer.model", { defaultValue: "Model" })
-    : selectedModelNeedsConnection
-      ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
+  const selectedModelButtonLabel = selectedModelNeedsConnection
+    ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
+    : noModelCatalog
+      ? modelListLoading
+        ? t("agentChat.composer.loadingModels", {
+            defaultValue: "Loading models",
+          })
+        : t("agentChat.composer.model", { defaultValue: "Model" })
       : model === "auto" && autoRow
         ? autoRow.label
         : (selectedModelDisplayName ??
@@ -2283,14 +2282,11 @@ function ModelSelector({
   const hasAgentSection = Boolean(agents && agents.length > 0);
   // The setup card is the one setup path; a chip offering the same two
   // choices beside it reads as a second, competing one.
-  if (
+  const hideForSetupCard =
     setupCardVisible &&
     selectedModelNeedsConnection &&
     !hasAgentSection &&
-    !terminalModeControl
-  ) {
-    return null;
-  }
+    !terminalModeControl;
 
   // Two menus side by side need about 34rem; below that a submenu cannot
   // clear the viewport on either side, so the sections stack in one menu and
@@ -2811,7 +2807,16 @@ function ModelSelector({
     );
 
   const hasPrimaryItems =
-    awaitingModelList || Boolean(connectItems) || shortcutRows.length > 0;
+    awaitingModelList ||
+    Boolean(connectItems) ||
+    Boolean(modelListUnavailable && onRetryModelList) ||
+    shortcutRows.length > 0;
+  const pickerDisabled =
+    modelListUnavailable &&
+    (agentOnly ? !agentItems : !hasPrimaryItems && sections.length === 0);
+  useEffect(() => {
+    if (pickerDisabled && open) setPickerOpen(false);
+  }, [open, pickerDisabled, setPickerOpen]);
   const showEffortInLabel =
     effortOptions.length > 0 &&
     !selectedModelNeedsConnection &&
@@ -2820,11 +2825,17 @@ function ModelSelector({
     effectiveEffort !== undefined &&
     effectiveEffort !== "auto";
 
+  if (hideForSetupCard) return null;
+
   return (
-    <DropdownMenu open={open} onOpenChange={setPickerOpen}>
+    <DropdownMenu
+      open={pickerDisabled ? false : open}
+      onOpenChange={setPickerOpen}
+    >
       <DropdownMenuTrigger asChild>
         <button
           type="button"
+          disabled={pickerDisabled}
           data-agent-composer-slot="model-button"
           // Screen readers in browse mode activate with a bare click,
           // which the menu trigger ignores because it opens on pointer
