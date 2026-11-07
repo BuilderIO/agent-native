@@ -445,47 +445,38 @@ function resolveAcrossSiblingRanges(
   );
   if (targetSegment < 0 || !fixed[targetSegment]!.text) return null;
 
-  const mapped = new Set<number>();
-  let visited = 0;
-  const visit = (
-    segmentIndex: number,
-    minimum: number,
-    targetStart: number,
-  ) => {
-    if (++visited > 256 || mapped.size > 1) return;
-    if (segmentIndex === fixed.length) {
-      if (minimum <= current.length) mapped.add(targetStart);
-      return;
-    }
-    const segment = fixed[segmentIndex]!;
-    if (!segment.text) {
-      visit(segmentIndex + 1, minimum, targetStart);
-      return;
-    }
-    let position = current.indexOf(segment.text, minimum);
-    while (position >= 0) {
-      if (segmentIndex === 0 && position !== 0) break;
-      if (
-        segmentIndex === fixed.length - 1 &&
-        position + segment.text.length !== current.length
-      ) {
-        position = current.indexOf(segment.text, position + 1);
-        continue;
-      }
-      visit(
-        segmentIndex + 1,
-        position + segment.text.length,
-        segmentIndex === targetSegment
-          ? position + anchor.from - segment.from
-          : targetStart,
-      );
-      if (visited > 256 || mapped.size > 1) return;
-      position = current.indexOf(segment.text, position + 1);
-    }
-  };
-  visit(0, 0, -1);
-  if (visited > 256 || mapped.size !== 1) return null;
-  const from = [...mapped][0]!;
+  // Every way to lay the fixed text out on `current` lies between the earliest
+  // and the latest one, so the target has one place only if those two agree.
+  const last = fixed.length - 1;
+  let earliest = -1;
+  let end = 0;
+  for (const [index, segment] of fixed.entries()) {
+    const { text } = segment;
+    if (!text) continue;
+    let position = current.indexOf(text, end);
+    if (index === 0) position = current.startsWith(text) ? 0 : -1;
+    else if (index === last)
+      position = current.endsWith(text) ? current.length - text.length : -1;
+    if (position < end) return null;
+    if (index === targetSegment)
+      earliest = position + anchor.from - segment.from;
+    end = position + text.length;
+  }
+  let latest = -1;
+  let start = current.length;
+  for (const [index, segment] of [...fixed.entries()].reverse()) {
+    const { text } = segment;
+    if (!text) continue;
+    start =
+      index === 0
+        ? 0
+        : index === last
+          ? current.length - text.length
+          : current.lastIndexOf(text, start - text.length);
+    if (index === targetSegment) latest = start + anchor.from - segment.from;
+  }
+  if (earliest !== latest) return null;
+  const from = earliest;
   const to = from + anchor.to - anchor.from;
   return current.slice(from, to) === before.slice(anchor.from, anchor.to)
     ? { from, to }
