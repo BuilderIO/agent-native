@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { getDbExec } from "../db/client.js";
 import { getOrgSetting, mutateOrgSetting } from "../settings/org-settings.js";
 import {
@@ -8,6 +10,7 @@ import {
 import {
   isSkillMark,
   isSkillOn,
+  SKILL_MARKS,
   skillChoiceKey,
   skillMarkFor,
   type SkillChoiceCount,
@@ -31,6 +34,23 @@ export * from "./skill-choice-rules.js";
 export const SKILL_SWITCHES_SETTING_KEY = "skill-switches";
 /** An organization's marks other than Recommended: `{ [stored key]: mark }`. */
 export const SKILL_MARKS_SETTING_KEY = "skill-marks";
+
+const skillSwitchSchema = z.object({ on: z.boolean(), at: z.number() });
+
+/** A person's switches and their organization's marks, as actions return them. */
+export const skillChoicesSchema = z.object({
+  switches: z.partialRecord(z.string(), skillSwitchSchema),
+  marks: z.record(z.string(), z.enum(SKILL_MARKS)),
+});
+
+/** How the organization's members chose, as `get-skill-choice-counts` returns it. */
+export const skillChoiceCountsSchema = z.object({
+  members: z.number(),
+  counts: z.record(
+    z.string(),
+    z.object({ off: z.number(), on: z.number(), ownVersions: z.number() }),
+  ),
+});
 
 const WORKSPACE_KEY_PREFIX = "workspace@";
 
@@ -216,7 +236,7 @@ async function listOrgMemberEmails(orgId: string): Promise<string[]> {
           WHERE org_id = ? AND federation_removal_pending_at IS NULL`,
     args: [orgId],
   });
-  return rows.map((row: any) => String(row.email));
+  return rows.map((row) => String(row.email));
 }
 
 export async function readSkillChoiceCounts(

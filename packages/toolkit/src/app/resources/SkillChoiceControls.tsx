@@ -47,6 +47,8 @@ export interface SkillRowContext {
   orgName: string | null;
   /** Names of Dispatch skills, to warn an admin about a same-named one. */
   dispatchNames: ReadonlySet<string>;
+  /** Paths of Required shared skills, which replace anyone's own copy. */
+  requiredPaths: ReadonlySet<string>;
   /** Asks before an admin makes a skill Required. */
   onRequire: (skill: SkillRowChoice) => void;
 }
@@ -111,7 +113,19 @@ export function SkillRowNotes({
   const t = useT();
   const { locale } = useLocale();
   const { state, orgName } = context;
-  if (skill.source === "personal" || !state.isLoaded) return null;
+  if (!state.isLoaded) return null;
+  if (skill.source === "personal") {
+    // Only its owner decides, so it needs no reason unless a Required
+    // shared skill at the same path is used instead.
+    if (!context.requiredPaths.has(skill.path)) return null;
+    return (
+      <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+        {t("agentChat.settingsResources.skills.requiredHidesOwn", {
+          org: orgName ?? "",
+        })}
+      </span>
+    );
+  }
   const mark = skillMarkFor(state.choices, skill.source, skill.path);
   const key = skillChoiceKey(skill.source, skill.path);
   const lines: string[] = [];

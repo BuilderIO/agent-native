@@ -445,19 +445,35 @@ describe("Skills page", () => {
     );
   });
 
-  it("shows a Required skill as always on, with no switch", async () => {
+  it("shows a Required skill as always on, and says it replaces the person's own", async () => {
     skillChoices.value = {
       choices: {
         switches: {},
         marks: { "workspace:skills/release-notes/SKILL.md": "required" },
       },
     };
-    await renderPage(SkillsSettingsPage);
-    const dispatch = group("from-dispatch");
+    const originalPersonal = trees.personal;
+    trees.personal = [
+      ...originalPersonal,
+      leaf("skills/release-notes/SKILL.md", "me@example.test", {
+        kind: "skill",
+        skillMeta: { name: "release-notes" } as never,
+      }),
+    ];
+    try {
+      await renderPage(SkillsSettingsPage);
+      const dispatch = group("from-dispatch");
 
-    expect(dispatch.querySelector('[role="switch"]')).toBeNull();
-    expect(dispatch.textContent).toContain("Always on");
-    expect(dispatch.textContent).toContain("Required by Acme");
+      expect(dispatch.querySelector('[role="switch"]')).toBeNull();
+      expect(dispatch.textContent).toContain("Always on");
+      expect(dispatch.textContent).toContain("Required by Acme");
+      // Their own copy is kept, and its row says why it isn't used.
+      expect(group("personal").textContent).toContain(
+        "Not used: Acme requires everyone to use the shared one",
+      );
+    } finally {
+      trees.personal = originalPersonal;
+    }
   });
 
   it("shows an admin how people chose, never who", async () => {
@@ -523,6 +539,7 @@ describe("Skills page", () => {
           state,
           orgName: "Acme",
           dispatchNames: new Set(),
+          requiredPaths: new Set(),
           onRequire: () => {},
         }}
         onOpenChange={onOpenChange}

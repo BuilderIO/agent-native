@@ -3012,6 +3012,8 @@ const messages: ToolkitAgentChatTranslation = {
     "مفعّلة للجميع. لا يمكن لأحد إيقافها أو استخدام نسخته الخاصة.",
   "settingsResources.skills.recommendedBy": "موصى بها من {{org}}",
   "settingsResources.skills.requiredBy": "مطلوبة من {{org}}",
+  "settingsResources.skills.requiredHidesOwn":
+    "غير مستخدمة: تشترط {{org}} على الجميع استخدام النسخة المشتركة",
   "settingsResources.skills.optionalOff": "اختيارية: متوقفة حتى تفعّلها",
   "settingsResources.skills.optionalOn": "اختيارية: فعّلتها أنت",
   "settingsResources.skills.switchedOffOn": "أوقفتها في {{date}}",

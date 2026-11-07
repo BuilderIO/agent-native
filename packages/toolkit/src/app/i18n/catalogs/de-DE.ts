@@ -3029,6 +3029,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Für alle an. Niemand kann ihn ausschalten oder eine eigene Version nutzen.",
   "settingsResources.skills.recommendedBy": "Empfohlen von {{org}}",
   "settingsResources.skills.requiredBy": "Pflicht bei {{org}}",
+  "settingsResources.skills.requiredHidesOwn":
+    "Nicht verwendet: {{org}} verlangt, dass alle die gemeinsame Version nutzen",
   "settingsResources.skills.optionalOff":
     "Optional: aus, bis du ihn einschaltest",
   "settingsResources.skills.optionalOn": "Optional: du hast ihn eingeschaltet",

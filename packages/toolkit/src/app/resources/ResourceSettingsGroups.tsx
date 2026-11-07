@@ -218,14 +218,35 @@ export function ResourceSettingsGroups({
       ),
     [skillChoices.choices, workspaceNodes],
   );
+  const sharedNodes = trees.shared.nodes;
+  // A Required organization or Dispatch skill is used instead of anyone's
+  // own skill at the same path.
+  const requiredPaths = useMemo(() => {
+    const paths = new Set<string>();
+    for (const [nodes, source] of [
+      [sharedNodes, "organization"],
+      [workspaceNodes, "workspace"],
+    ] as const) {
+      for (const node of getLeafResources(
+        filterResourceTree(nodes, "skills"),
+      )) {
+        const { path } = node.resource;
+        if (skillMarkFor(skillChoices.choices, source, path) === "required") {
+          paths.add(path);
+        }
+      }
+    }
+    return paths;
+  }, [sharedNodes, skillChoices.choices, workspaceNodes]);
   const skillContext = useMemo<SkillRowContext>(
     () => ({
       state: skillChoices,
       orgName,
       dispatchNames,
+      requiredPaths,
       onRequire: setRequiring,
     }),
-    [dispatchNames, orgName, skillChoices],
+    [dispatchNames, orgName, requiredPaths, skillChoices],
   );
 
   const sourceLabel = (source: ResourceGroupSource) =>

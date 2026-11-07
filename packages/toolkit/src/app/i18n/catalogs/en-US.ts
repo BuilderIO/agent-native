@@ -2895,6 +2895,8 @@ const messages = {
     "On for everyone. Nobody can switch it off or use their own version.",
   "settingsResources.skills.recommendedBy": "Recommended by {{org}}",
   "settingsResources.skills.requiredBy": "Required by {{org}}",
+  "settingsResources.skills.requiredHidesOwn":
+    "Not used: {{org}} requires everyone to use the shared one",
   "settingsResources.skills.optionalOff":
     "Optional: off until you switch it on",
   "settingsResources.skills.optionalOn": "Optional: you switched it on",

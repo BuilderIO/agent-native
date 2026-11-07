@@ -14,6 +14,8 @@ vi.mock("../skill-choices.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../skill-choices.js")>();
   return {
     SKILL_MARKS: actual.SKILL_MARKS,
+    skillChoicesSchema: actual.skillChoicesSchema,
+    skillChoiceCountsSchema: actual.skillChoiceCountsSchema,
     readSkillChoices: (...args: unknown[]) => mockReadSkillChoices(...args),
     readSkillChoiceCounts: (...args: unknown[]) =>
       mockReadSkillChoiceCounts(...args),

@@ -3078,6 +3078,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Activée pour tout le monde. Personne ne peut la désactiver ni utiliser sa propre version.",
   "settingsResources.skills.recommendedBy": "Recommandée par {{org}}",
   "settingsResources.skills.requiredBy": "Imposée par {{org}}",
+  "settingsResources.skills.requiredHidesOwn":
+    "Non utilisée : {{org}} impose à tous la version partagée",
   "settingsResources.skills.optionalOff":
     "Facultative : désactivée jusqu'à ce que vous l'activiez",
   "settingsResources.skills.optionalOn": "Facultative : vous l'avez activée",
@@ -3098,26 +3100,38 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.addForEveryone": "Ajouter pour tous",
   "settingsResources.skills.offFor_one":
     "Désactivée pour {{off}} sur {{count}} personne",
+  "settingsResources.skills.offFor_many":
+    "Désactivée pour {{off}} sur {{count}} personnes",
   "settingsResources.skills.offFor_other":
     "Désactivée pour {{off}} sur {{count}} personnes",
   "settingsResources.skills.onFor_one":
     "Activée pour {{on}} sur {{count}} personne",
+  "settingsResources.skills.onFor_many":
+    "Activée pour {{on}} sur {{count}} personnes",
   "settingsResources.skills.onFor_other":
     "Activée pour {{on}} sur {{count}} personnes",
   "settingsResources.skills.ownVersions_one":
     "{{count}} personne a sa propre version",
+  "settingsResources.skills.ownVersions_many":
+    "{{count}} personnes ont leur propre version",
   "settingsResources.skills.ownVersions_other":
     "{{count}} personnes ont leur propre version",
   "settingsResources.skills.requireTurnsBackOn_one":
     "Elle se réactive pour la {{count}} personne qui l'avait désactivée.",
+  "settingsResources.skills.requireTurnsBackOn_many":
+    "Elle se réactive pour les {{count}} personnes qui l'avaient désactivée.",
   "settingsResources.skills.requireTurnsBackOn_other":
     "Elle se réactive pour les {{count}} personnes qui l'avaient désactivée.",
   "settingsResources.skills.requireTurnsOn_one":
     "Elle s'active pour la {{count}} personne qui ne l'avait pas activée.",
+  "settingsResources.skills.requireTurnsOn_many":
+    "Elle s'active pour les {{count}} personnes qui ne l'avaient pas activée.",
   "settingsResources.skills.requireTurnsOn_other":
     "Elle s'active pour les {{count}} personnes qui ne l'avaient pas activée.",
   "settingsResources.skills.requireOwnVersions_one":
     "La {{count}} personne qui a sa propre version reçoit le texte de {{org}} à la place. Sa version est conservée et revient si vous changez cela plus tard.",
+  "settingsResources.skills.requireOwnVersions_many":
+    "Les {{count}} personnes qui ont leur propre version reçoivent le texte de {{org}} à la place. Leurs versions sont conservées et reviennent si vous changez cela plus tard.",
   "settingsResources.skills.requireOwnVersions_other":
     "Les {{count}} personnes qui ont leur propre version reçoivent le texte de {{org}} à la place. Leurs versions sont conservées et reviennent si vous changez cela plus tard.",
   "settingsResources.files.empty":

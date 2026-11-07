@@ -2841,6 +2841,8 @@ const messages: ToolkitAgentChatTranslation = {
     "모두에게 켜져 있습니다. 아무도 끄거나 자신의 버전을 사용할 수 없습니다.",
   "settingsResources.skills.recommendedBy": "{{org}} 권장",
   "settingsResources.skills.requiredBy": "{{org}} 필수",
+  "settingsResources.skills.requiredHidesOwn":
+    "사용되지 않음: {{org}}에서 모두가 공유 버전을 쓰도록 요구합니다",
   "settingsResources.skills.optionalOff": "선택: 켤 때까지 꺼져 있음",
   "settingsResources.skills.optionalOn": "선택: 내가 켰음",
   "settingsResources.skills.switchedOffOn": "{{date}}에 내가 끔",

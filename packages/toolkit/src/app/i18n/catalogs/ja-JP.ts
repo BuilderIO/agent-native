@@ -2889,6 +2889,8 @@ const messages: ToolkitAgentChatTranslation = {
     "全員に対してオンです。誰もオフにしたり、自分のバージョンを使ったりできません。",
   "settingsResources.skills.recommendedBy": "{{org}} の推奨",
   "settingsResources.skills.requiredBy": "{{org}} の必須スキル",
+  "settingsResources.skills.requiredHidesOwn":
+    "使用されていません: {{org}} は全員に共有版の使用を求めています",
   "settingsResources.skills.optionalOff": "任意：オンにするまでオフです",
   "settingsResources.skills.optionalOn": "任意：あなたがオンにしました",
   "settingsResources.skills.switchedOffOn": "{{date}} にあなたがオフにしました",

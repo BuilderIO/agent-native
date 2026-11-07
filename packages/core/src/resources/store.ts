@@ -9,6 +9,7 @@ import {
 import { isMigrationAuthorizedRuntime } from "../db/migration-runtime.js";
 import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { isRecordingStoreMigration } from "../db/runtime-facts.js";
+import { sql } from "../db/sql.js";
 import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { noteJobFrontmatterWrite } from "../jobs/frontmatter-loss.js";
@@ -2948,7 +2949,6 @@ export async function resourceOwnersAtPaths(
   if (uniqueOwners.length === 0 || uniquePaths.length === 0) return [];
 
   const client = getDbExec();
-  const pathSql = uniquePaths.map(() => "?").join(", ");
   const found: Array<{ owner: string; path: string }> = [];
   for (
     let start = 0;
@@ -2956,12 +2956,11 @@ export async function resourceOwnersAtPaths(
     start += OWNERS_AT_PATHS_CHUNK
   ) {
     const chunk = uniqueOwners.slice(start, start + OWNERS_AT_PATHS_CHUNK);
-    const query = {
-      sql: `SELECT DISTINCT LOWER(owner) AS owner, path FROM resources WHERE LOWER(owner) IN (${chunk
-        .map(() => "?")
-        .join(", ")}) AND path IN (${pathSql})${scratchFilterSql()}`,
-      args: [...chunk, ...uniquePaths],
-    };
+    const query = sql`SELECT DISTINCT LOWER(owner) AS owner, path
+        FROM resources
+       WHERE LOWER(owner) IN ${sql.in(chunk)}
+         AND path IN ${sql.in(uniquePaths)}
+         AND (visibility IS NULL OR visibility != 'agent_scratch')`;
     let rows: Awaited<ReturnType<DbExec["execute"]>>["rows"];
     try {
       ({ rows } = await client.execute(query));

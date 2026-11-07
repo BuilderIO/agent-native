@@ -2828,6 +2828,8 @@ const messages: ToolkitAgentChatTranslation = {
     "सभी के लिए चालू। कोई इसे बंद नहीं कर सकता या अपना वर्शन इस्तेमाल नहीं कर सकता।",
   "settingsResources.skills.recommendedBy": "{{org}} द्वारा सुझाया गया",
   "settingsResources.skills.requiredBy": "{{org}} के लिए ज़रूरी",
+  "settingsResources.skills.requiredHidesOwn":
+    "उपयोग में नहीं: {{org}} सभी से साझा संस्करण इस्तेमाल करवाता है",
   "settingsResources.skills.optionalOff": "वैकल्पिक: जब तक आप चालू न करें, बंद",
   "settingsResources.skills.optionalOn": "वैकल्पिक: आपने इसे चालू किया",
   "settingsResources.skills.switchedOffOn": "आपने इसे {{date}} को बंद किया",

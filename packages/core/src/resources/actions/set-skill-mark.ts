@@ -23,6 +23,11 @@ export default defineAction({
       ),
     mark: z.enum(SKILL_MARKS).describe("How the skill starts for people."),
   }),
+  outputSchema: z.object({
+    source: z.enum(["organization", "workspace"]),
+    path: z.string(),
+    mark: z.enum(SKILL_MARKS),
+  }),
   http: { method: "POST" },
   mcpAnnotations: {
     readOnlyHint: false,

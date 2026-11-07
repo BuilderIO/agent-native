@@ -2644,6 +2644,8 @@ const messages: ToolkitAgentChatTranslation = {
     "對所有人開啟。任何人都無法關閉或使用自己的版本。",
   "settingsResources.skills.recommendedBy": "{{org}} 建議",
   "settingsResources.skills.requiredBy": "{{org}} 要求",
+  "settingsResources.skills.requiredHidesOwn":
+    "未使用：{{org}} 要求所有人使用共用版本",
   "settingsResources.skills.optionalOff": "選用：在您開啟前保持關閉",
   "settingsResources.skills.optionalOn": "選用：您已開啟",
   "settingsResources.skills.switchedOffOn": "您在 {{date}} 關閉了它",

@@ -22,6 +22,12 @@ export default defineAction({
       ),
     on: z.boolean().describe("Whether the agent uses it for this user."),
   }),
+  outputSchema: z.object({
+    source: z.enum(["personal", "organization", "workspace"]),
+    path: z.string(),
+    on: z.boolean(),
+    at: z.number(),
+  }),
   http: { method: "POST" },
   mcpAnnotations: {
     readOnlyHint: false,

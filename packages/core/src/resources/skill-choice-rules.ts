@@ -29,7 +29,7 @@ export interface SkillSwitch {
 
 export interface SkillChoices {
   /** The person's own switches, by `skillChoiceKey`. Absent: never touched. */
-  switches: Readonly<Record<string, SkillSwitch>>;
+  switches: Readonly<Partial<Record<string, SkillSwitch>>>;
   /** Marks other than Recommended, by `skillChoiceKey`. */
   marks: Readonly<Record<string, SkillMark>>;
 }
