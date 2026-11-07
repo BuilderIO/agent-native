@@ -554,6 +554,82 @@ describe("TiptapComposer model picker", () => {
     expect(menu.textContent).not.toContain("Add your own keys");
   });
 
+  it("keeps an Auto-only configured provider usable beside unconfigured providers", async () => {
+    const onRequired = vi.fn();
+    act(() =>
+      root.render(
+        <Harness
+          availableModels={[
+            {
+              engine: "builder",
+              label: "Builder.io",
+              models: ["auto"],
+              configured: true,
+            },
+            {
+              engine: "anthropic",
+              label: "Claude",
+              models: ["claude-sonnet-5-5"],
+              configured: false,
+            },
+          ]}
+          selectedModel="auto"
+          selectedEngine="builder"
+          onConnectProvider={vi.fn()}
+          onModelConnectionRequiredChange={onRequired}
+        />,
+      ),
+    );
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    expect(trigger.textContent).toBe("Auto");
+    expect(onRequired).not.toHaveBeenCalledWith(true);
+    const menu = await openPicker();
+    expect(
+      topLevelRows(menu).map((row) =>
+        row.getAttribute("data-agent-composer-model-row"),
+      ),
+    ).toEqual(["auto"]);
+    expect(menu.textContent).not.toMatch(
+      /Connect agent|Add your own keys|Use Builder.io/,
+    );
+  });
+
+  it("still requires setup when the only configured Auto option is hidden", () => {
+    const onRequired = vi.fn();
+    act(() =>
+      root.render(
+        <Harness
+          availableModels={[
+            {
+              engine: "builder",
+              label: "Builder.io",
+              models: ["auto"],
+              configured: true,
+            },
+            {
+              engine: "anthropic",
+              label: "Claude",
+              models: ["claude-sonnet-5-5"],
+              configured: false,
+            },
+          ]}
+          selectedModel="claude-sonnet-5-5"
+          selectedEngine="anthropic"
+          showAutoModelOption={false}
+          onConnectProvider={vi.fn()}
+          onModelConnectionRequiredChange={onRequired}
+        />,
+      ),
+    );
+    expect(
+      container.querySelector('[data-agent-composer-slot="model-button"]')
+        ?.textContent,
+    ).toBe("Connect agent");
+    expect(onRequired).toHaveBeenLastCalledWith(true);
+  });
+
   it("offers auto without presenting an unsupported default as ready", async () => {
     const groups: Groups = [
       {

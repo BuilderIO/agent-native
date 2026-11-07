@@ -2088,12 +2088,18 @@ function ModelSelector({
     trackingSource: "composer_builder_cta",
   });
   const BuilderConnectPopover = adapters.builder?.BuilderConnectPopover;
-  const hasConfiguredBuilderModels = providerGroups.some(
+  const readinessGroups = engines.filter((group) =>
+    group.models.some(
+      (candidate) =>
+        candidate !== "auto" || (showAutoModelOption && !isClaudeCodeAgent),
+    ),
+  );
+  const hasConfiguredBuilderModels = readinessGroups.some(
     (group) => group.engine === "builder" && group.configured,
   );
   const hasConfiguredCloudProviderReady =
-    hasConfiguredCloudProvider(providerGroups);
-  const hasConnectedSubscription = providerGroups.some(
+    hasConfiguredCloudProvider(readinessGroups);
+  const hasConnectedSubscription = readinessGroups.some(
     (group) =>
       hasConfiguredCloudProviderReady &&
       group.configured &&
@@ -2122,7 +2128,7 @@ function ModelSelector({
     !modelListUnconfirmed && (showBuilderAction || showAddKeysAction);
   const onlyConnectPathAvailable = shouldShowOnlyConnectPath(
     showProviderActions,
-    providerGroups,
+    readinessGroups,
   );
   // Only engines this person can run right now contribute rows; connecting a
   // provider stays on the setup card and in settings.

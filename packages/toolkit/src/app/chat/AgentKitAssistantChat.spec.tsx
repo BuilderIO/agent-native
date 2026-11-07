@@ -4080,6 +4080,13 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.composerProps.modelStatusChecksEnabled).toBe(false);
   });
 
+  it("leaves unavailable state to the composer when it owns model discovery", async () => {
+    await mount(baseProps());
+    expect(chatMocks.composerProps.modelStatusChecksEnabled).toBe(true);
+    expect(chatMocks.composerProps.availableModels).toBeUndefined();
+    expect(chatMocks.composerProps.modelListUnavailable).toBeUndefined();
+  });
+
   it("shows missing-provider setup when the model catalog is unavailable", async () => {
     const onRetryModelList = vi.fn();
     chatMocks.readiness = {
@@ -4089,11 +4096,14 @@ describe("AgentKitAssistantChat host behavior", () => {
     };
     await mount(
       baseProps({
+        availableModels: [],
         modelListError: true,
         onRetryModelList,
       }),
     );
 
+    expect(chatMocks.composerProps.modelListUnavailable).toBe(true);
+    expect(chatMocks.composerProps.onRetryModelList).toBe(onRetryModelList);
     expect(chatMocks.setupCardProps).toMatchObject({ attached: true });
     expect(chatMocks.providerGateProps).toBeNull();
     expect(container.textContent).not.toContain(
@@ -4142,12 +4152,14 @@ describe("AgentKitAssistantChat host behavior", () => {
     };
     await mount(
       baseProps({
+        availableModels: [],
         modelListError: true,
         onRetryModelList,
       }),
     );
 
     expect(chatMocks.setupCardProps).toBeNull();
+    expect(chatMocks.composerProps.onRetryModelList).toBeUndefined();
     expect(chatMocks.providerGateProps).toMatchObject({
       modelListUnavailable: true,
       providerStatus: "unavailable",
