@@ -1491,6 +1491,159 @@ describe("analytics turn classification probe", () => {
 });
 
 describe("draftClaimsAnalyticsMetrics qualitative verdicts", () => {
+  it("ignores fenced code but detects unsupported claims in surrounding prose", () => {
+    const sql = "```sql\nSELECT COUNT(*) AS signups FROM events\n```";
+    expect(draftClaimsAnalyticsMetrics(sql)).toBe(false);
+    expect(draftClaimsAnalyticsMetrics(`Signups rose last week.\n${sql}`)).toBe(
+      true,
+    );
+    expect(draftClaimsAnalyticsMetrics(`${sql}\nSignups were 42.`)).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics("~~~sql\nSELECT COUNT(*) FROM events\n~~~"),
+    ).toBe(false);
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "````sql\n```\nSELECT COUNT(*) FROM events\n```\n````",
+      ),
+    ).toBe(false);
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "```sql\nSELECT COUNT(*) FROM events\n```sql\nSignups were 42.",
+      ),
+    ).toBe(true);
+  });
+
+  it("detects factual claims in non-SQL fences and conservatively handles incomplete SQL", () => {
+    for (const draft of [
+      "```text\nSignups were 42.\n```",
+      "```\nSignups were 42.\n```",
+      '```json\n{"signups": 42}\n```',
+      "```text\n```sql\nSELECT COUNT(*) FROM events\n```\nSignups were 42.\n```",
+      "```sql\nSELECT COUNT(*) FROM events\nSignups were 42.",
+    ]) {
+      expect(draftClaimsAnalyticsMetrics(draft)).toBe(true);
+    }
+  });
+
+  it("detects claims in SQL comments and literal result projections", () => {
+    for (const draft of [
+      "```sql\nSELECT COUNT(*) FROM events; -- Signups were 42.\n```",
+      "```sql\n/* Signups were 42. */ SELECT COUNT(*) FROM events\n```",
+      "```sql\nSELECT 42 AS signups\n```",
+      "```sql\nSELECT 42 AS total\n```",
+      "```sql\nSELECT 42\n```",
+      "```sql\nSELECT 42 AS `signups`\n```",
+      "```sql\nSELECT 'Signups were 42.'\n```",
+    ])
+      expect(draftClaimsAnalyticsMetrics(draft)).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "```sql\nSELECT COUNT(*) AS signups FROM events",
+      ),
+    ).toBe(false);
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "````sql\n```\nSELECT COUNT(*) FROM events\n```\n````",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not mistake grouping and ordering ordinals for returned figures", () => {
+    for (const sql of [
+      "SELECT category, COUNT(*) AS signups FROM events GROUP BY 1 ORDER BY 1, 2",
+      "SELECT category, COUNT(*) AS signups FROM events GROUP BY 1, 2 ORDER BY 1, 2 DESC",
+    ])
+      expect(draftClaimsAnalyticsMetrics(`\`\`\`sql\n${sql}\n\`\`\``)).toBe(
+        false,
+      );
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "```sql\nSELECT category, COUNT(*) FROM events GROUP BY 1 ORDER BY 1, 2 -- 42 users\n```",
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    "SELECT category FROM events WHERE category IN (1, 2, 3)",
+    "SELECT COALESCE(value, 2, 3) AS value FROM events",
+    "SELECT IF(category IN (1, 2), COALESCE(value, 3), 4) FROM events",
+    "SELECT 1 IN (1, 2) AS matches FROM events",
+    "SELECT category FROM events WHERE value IN (SELECT value FROM events WHERE category IN (1, 2))",
+    "SELECT category FROM events WHERE EXISTS (SELECT 1 FROM events)",
+    "SELECT category FROM events WHERE value IN (SELECT 1 UNION ALL SELECT 2)",
+    "SELECT category /* outer /* SELECT 42 AS value */ SELECT 99 AS value */ FROM events",
+    "SELECT category FROM events /* outer /* inner */ SELECT 42 AS value */",
+    "SELECT 100 * revenue / amount AS ratio FROM events",
+    "SELECT (100 * revenue / amount) AS ratio FROM events",
+    "SELECT 'text, 42' AS label FROM events",
+    "SELECT 'isn''t SELECT 42' AS label FROM events",
+    "SELECT E'quoted \\' SELECT 42' AS label FROM events",
+    "SELECT 'quoted \\' SELECT 42' AS label FROM events",
+    "SELECT 'note \\' , 42 -- example' AS value",
+    "SELECT COALESCE(value, 2, 3) FROM events WHERE category IN (1, 2) AND label = 'quoted \\' text'",
+    "SELECT (SELECT COALESCE(value, 42) FROM events) AS value",
+    "SELECT 42 + amount AS value FROM events",
+    "SELECT $tag$SELECT 42$tag$ AS label FROM events",
+    'SELECT "select, 42" FROM events',
+    "SELECT `select, 42` FROM events",
+    "SELECT category /* select 42, */ FROM events",
+    "SELECT category FROM events -- select 42,\nWHERE value IN (1, 2)",
+  ])(
+    "does not treat SQL arguments, predicates, strings or comments as projections: %s",
+    (sql) => {
+      expect(draftClaimsAnalyticsMetrics(`\`\`\`sql\n${sql}\n\`\`\``)).toBe(
+        false,
+      );
+    },
+  );
+
+  it.each([
+    "SELECT DISTINCT 42 AS value",
+    "SELECT ALL -1.5e+3 AS value",
+    "SELECT 1e3 AS value",
+    "SELECT category, .5E-2 AS value FROM events",
+    "SELECT category, ((42)) AS value FROM events",
+    "SELECT 42 + 0 AS value",
+    "SELECT (42 + 0) * -2 AS value",
+    "SELECT '\\', 42 AS value",
+    "SELECT 'quoted \\' text', 42 AS value",
+    "SELECT E'quoted \\' text', 42 AS value",
+    "SELECT (SELECT COALESCE(value, 42) FROM (SELECT 1e3 AS value)) AS value",
+    "WITH sample AS (SELECT 42 AS value) SELECT value FROM sample",
+    "SELECT value FROM (SELECT DISTINCT 1e3 AS value)",
+    "SELECT (SELECT 42) AS value",
+    'SELECT 42 "signups"',
+    "SELECT 42 `signups`",
+    "SELECT payload #>> '{plan}' AS plan, 42 AS x FROM events",
+    "SELECT category, 42 AS value FROM events WHERE category IN (1, 2)",
+    "SELECT category FROM events UNION ALL SELECT 42 AS category",
+  ])("detects numeric SQL result projections: %s", (sql) => {
+    expect(draftClaimsAnalyticsMetrics(`\`\`\`sql\n${sql}\n\`\`\``)).toBe(true);
+  });
+
+  it("treats an unterminated dollar quote as opaque even with many distinct tags", () => {
+    const tags = Array.from(
+      { length: 1000 },
+      (_, index) => `$tag${index}$`,
+    ).join(" ");
+    expect(
+      draftClaimsAnalyticsMetrics(
+        `\`\`\`sql\nSELECT ${tags} SELECT 42\n\`\`\``,
+      ),
+    ).toBe(false);
+  });
+
+  it("preserves factual claims in SQL comments and surrounding prose", () => {
+    for (const draft of [
+      "```sql\nSELECT value FROM events WHERE value IN (1, 2) -- 42 users\n```",
+      "```sql\nSELECT value FROM events /* Signups were 42. */\n```",
+      "```sql\nSELECT 100 * revenue / total AS ratio FROM events\n```",
+      "Signups were 42.\n```sql\nSELECT value FROM events WHERE value IN (1, 2)\n```",
+    ]) {
+      expect(draftClaimsAnalyticsMetrics(draft)).toBe(true);
+    }
+  });
+
   it("treats a qualitative verdict about a metric as a claim", () => {
     expect(
       draftClaimsAnalyticsMetrics("Signup conversion was strong last week."),

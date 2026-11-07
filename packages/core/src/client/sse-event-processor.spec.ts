@@ -4051,6 +4051,40 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("keeps streamed narration before a completed tool across a normal clear", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_input_start", tool: "query", id: "query-1" },
+          { type: "text", text: "Narration." },
+          {
+            type: "tool_start",
+            tool: "query",
+            id: "query-1",
+            input: { sql: "select 1" },
+          },
+          { type: "tool_done", tool: "query", id: "query-1", result: "1" },
+          { type: "clear" },
+          { type: "text", text: "Complete." },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+      ),
+    );
+    expect(results.at(-1)).toEqual({
+      content: [
+        { type: "text", text: "Narration." },
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "query",
+          result: "1",
+        }),
+        { type: "text", text: "Complete." },
+      ],
+    });
+  });
+
   it("clears narration across completed tools when explicitly requested", async () => {
     const results = await drain(
       readSSEStream(

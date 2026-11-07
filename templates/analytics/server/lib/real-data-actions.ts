@@ -1074,8 +1074,228 @@ function hasUnsupportedResultClaim(text: string): boolean {
   );
 }
 
+function hasNumericSqlProjection(sql: string): boolean {
+  const standard = scanNumericSqlProjection(sql, false);
+  if (!sql.includes("\\")) return standard.claim;
+  const escaped = scanNumericSqlProjection(sql, true);
+  if (standard.complete !== escaped.complete) {
+    return standard.complete ? standard.claim : escaped.claim;
+  }
+  // Without a dialect, two complete interpretations can disagree on whether
+  // the apparent projection is inside a string.
+  return standard.complete
+    ? standard.claim && escaped.claim
+    : standard.claim || escaped.claim;
+}
+
+function scanNumericSqlProjection(
+  sql: string,
+  backslashEscapes: boolean,
+): { claim: boolean; complete: boolean } {
+  // Keep quoted text opaque and comments out of the projection scan; the
+  // separate factual-claim check still inspects the original SQL.
+  const tokenPattern =
+    /\s+|--[^\n]*|#>>|#>|#[^\n]*|\$[a-z_][a-z_0-9]*\$|\$\$|e'|'|"(?:""|\\[\s\S]|[^"\\])*(?:"|$)|`(?:``|\\[\s\S]|[^`\\])*(?:`|$)|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|[a-z_][a-z_0-9$]*|[^\s]/giy;
+  const code: string[] = [];
+  let position = 0;
+  let complete = true;
+  while (position < sql.length) {
+    if (sql.startsWith("/*", position)) {
+      let depth = 1;
+      position += 2;
+      while (position < sql.length && depth > 0) {
+        if (sql.startsWith("/*", position)) {
+          depth++;
+          position += 2;
+        } else if (sql.startsWith("*/", position)) {
+          depth--;
+          position += 2;
+        } else {
+          position++;
+        }
+      }
+      if (depth > 0) complete = false;
+      continue;
+    }
+    tokenPattern.lastIndex = position;
+    const match = tokenPattern.exec(sql);
+    if (!match) break;
+    const token = match[0];
+    position = tokenPattern.lastIndex;
+    if (token === "'" || /^e'$/i.test(token)) {
+      const escapes = backslashEscapes || token.length === 2;
+      let closed = false;
+      while (position < sql.length) {
+        if (escapes && sql[position] === "\\") {
+          position += 2;
+        } else if (sql[position] === "'" && sql[position + 1] === "'") {
+          position += 2;
+        } else if (sql[position++] === "'") {
+          closed = true;
+          break;
+        }
+      }
+      code.push("'quoted'");
+      if (!closed) {
+        complete = false;
+        break;
+      }
+    } else if (/^\$(?:[a-z_][a-z_0-9]*)?\$$/i.test(token)) {
+      const end = sql.indexOf(token, position);
+      code.push("'quoted'");
+      if (end === -1) {
+        complete = false;
+        break;
+      }
+      position = end + token.length;
+    } else if (
+      token === "#>" ||
+      token === "#>>" ||
+      !/^(?:\s|--|#)/.test(token)
+    ) {
+      code.push(token);
+    }
+  }
+  const numeric = /^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
+  const endProjection =
+    /^(?:from|where|group|order|having|qualify|limit|offset|fetch|union|intersect|except|window|;)$/i;
+
+  function isNumericProjection(tokens: string[]): boolean {
+    let expression = tokens;
+    if (/^(?:distinct|all)$/i.test(expression[0] ?? "")) {
+      expression = expression.slice(1);
+    }
+    if (
+      expression.length >= 2 &&
+      /^as$/i.test(expression.slice(-2, -1).join(""))
+    ) {
+      expression = expression.slice(0, -2);
+    } else if (
+      expression.length >= 2 &&
+      /^(?:[a-z_][a-z_0-9$]*|"[\s\S]*"|`[\s\S]*`)$/i.test(
+        expression.slice(-1).join(""),
+      )
+    ) {
+      expression = expression.slice(0, -1);
+    }
+    let expectOperand = true;
+    let depth = 0;
+    for (const token of expression) {
+      if (expectOperand) {
+        if (token === "+" || token === "-") continue;
+        if (token === "(") {
+          depth++;
+        } else if (numeric.test(token)) {
+          expectOperand = false;
+        } else {
+          return false;
+        }
+      } else if (token === ")" && depth > 0) {
+        depth--;
+      } else if (/^[+*/%-]$/.test(token)) {
+        expectOperand = true;
+      } else {
+        return false;
+      }
+    }
+    return !expectOperand && depth === 0;
+  }
+
+  const closingParens = new Map<number, number>();
+  const openParens: number[] = [];
+  const selects = [0];
+  let selectCount = 0;
+  for (const [i, token] of code.entries()) {
+    selectCount += /^select$/i.test(token) ? 1 : 0;
+    selects.push(selectCount);
+    if (token === "(") openParens.push(i);
+    else if (token === ")") {
+      const open = openParens.pop();
+      if (open !== undefined) closingParens.set(open, i);
+    }
+  }
+
+  const predicateRanges: Array<[number, number]> = [];
+  for (const [index, token] of code.entries()) {
+    const [previous = ""] = code.slice(index - 1, index);
+    if (token === "(" && /^(?:exists|in)$/i.test(previous)) {
+      const end = closingParens.get(index);
+      if (end !== undefined) predicateRanges.push([index, end]);
+    }
+  }
+
+  for (const [i, current] of code.entries()) {
+    if (
+      !/^select$/i.test(current) ||
+      predicateRanges.some(([start, end]) => start < i && i < end)
+    )
+      continue;
+    let depth = 0;
+    let projection: string[] = [];
+    let skipThrough = i;
+    for (const [j, token] of code.entries()) {
+      if (j <= skipThrough) continue;
+      if (depth === 0 && (token === ")" || endProjection.test(token))) {
+        break;
+      }
+      if (depth === 0 && token === ",") {
+        if (isNumericProjection(projection)) return { claim: true, complete };
+        projection = [];
+      } else if (token === "(") {
+        const close = closingParens.get(j) ?? code.length;
+        const [closeCount = 0] = selects.slice(close, close + 1);
+        const [openCount = 0] = selects.slice(j + 1, j + 2);
+        if (closeCount > openCount) {
+          projection.push("subquery");
+          skipThrough = close;
+        } else {
+          projection.push(token);
+          depth++;
+        }
+      } else {
+        projection.push(token);
+        if (token === ")") depth--;
+      }
+    }
+    if (isNumericProjection(projection)) return { claim: true, complete };
+  }
+  return { claim: false, complete };
+}
+
 export function draftClaimsAnalyticsMetrics(text: string): boolean {
-  return hasUnsupportedResultClaim(String(text ?? "").trim());
+  const lines = text.split("\n");
+  const prose: string[] = [];
+  let skipThrough = -1;
+  for (const [i, line] of lines.entries()) {
+    if (i <= skipThrough) continue;
+    const opening = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/.exec(line);
+    if (!opening) {
+      prose.push(line);
+      continue;
+    }
+    const [, fence = "", info = ""] = opening;
+    const closing = new RegExp(
+      `^ {0,3}${fence[0]}{${fence.length},}[ \\t]*\\r?$`,
+    );
+    const closingOffset = lines
+      .slice(i + 1)
+      .findIndex((next) => closing.test(next));
+    const end = closingOffset < 0 ? lines.length : i + 1 + closingOffset;
+    if (/^\s*sql(?:\s.*)?$/i.test(info)) {
+      const sql = lines.slice(i + 1, end).join("\n");
+      if (
+        hasNumericSqlProjection(sql) ||
+        hasUnsupportedResultClaim(sql.replace(/\bcount\s*(?=\()/gi, ""))
+      )
+        return true;
+    } else {
+      prose.push(...lines.slice(i, Math.min(end + 1, lines.length)));
+    }
+    prose.push("");
+    if (end === lines.length) break;
+    skipThrough = end;
+  }
+  return hasUnsupportedResultClaim(prose.join("\n").trim());
 }
 
 // Whether a draft only restates an earlier turn's grounded result. Every
