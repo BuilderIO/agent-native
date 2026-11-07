@@ -178,11 +178,7 @@ export default defineAction({
       ...(saved.files.length
         ? { _receipt: designOutputWriteReceipt(designId, saved.files.length) }
         : {}),
-      warnings: [
-        ...saved.warnings,
-        ...pageWarnings,
-        ...omissionWarnings,
-      ],
+      warnings: [...saved.warnings, ...pageWarnings, ...omissionWarnings],
       figma: {
         fileKey,
         nodeId: nodeIds[0] ?? requestedNodeId,

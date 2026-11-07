@@ -356,12 +356,17 @@ export function useEditorGenerationAndAccess({
    * what it saved and finish quietly when it did.
    */
   const settleIfOutputSaved = useCallback(
-    (otherwise: () => void) => {
+    /**
+     * `otherwise` learns whether the run is confirmed to have saved nothing;
+     * an output check that could not be read allows only a manual retry, so
+     * an automatic one never duplicates screens it failed to see.
+     */
+    (otherwise: (confirmedNoOutput: boolean) => void) => {
       const settledPending = readPendingGeneration(id, {
         allowUntimestamped: true,
       });
       if (!id) {
-        otherwise();
+        otherwise(false);
         return;
       }
       void readGenerationOutput(id, settledPending).then((outputState) => {
@@ -369,7 +374,7 @@ export function useEditorGenerationAndAccess({
         // A newer generation started while this check ran; leave it alone.
         if (latest && latest.startedAt !== settledPending?.startedAt) return;
         if (outputState !== "has_output") {
-          otherwise();
+          otherwise(outputState === "no_output");
           return;
         }
         clearPendingGeneration(id);
@@ -385,8 +390,8 @@ export function useEditorGenerationAndAccess({
     if (generationOutputReadyRef.current === null) return;
     clearGenerationCompleteTimer();
     clearAutoRetryTimer();
-    settleIfOutputSaved(() => {
-      rememberPendingGenerationForRetry();
+    settleIfOutputSaved((confirmedNoOutput) => {
+      rememberPendingGenerationForRetry(confirmedNoOutput);
       clearPendingGeneration(id);
       setHasPendingGeneration(false);
       setGenerationIssue(t("designEditor.generationMayHaveStopped"));
@@ -509,10 +514,10 @@ export function useEditorGenerationAndAccess({
       if (generationOutputReadyRef.current === null) return;
       clearGenerationCompleteTimer();
       clearAutoRetryTimer();
-      const reportFailure = () => {
+      const reportFailure = (confirmedNoOutput: boolean) => {
         // A rejected request fails the same way on resend; keep only the manual retry.
         const preservedForRetry = rememberPendingGenerationForRetry(
-          failure?.retryable !== false,
+          failure?.retryable !== false && confirmedNoOutput,
         );
         clearPendingGeneration(id);
         setHasPendingGeneration(false);

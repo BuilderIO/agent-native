@@ -121,17 +121,13 @@ describe("FigmaAttachDialog link picker", () => {
     await typeLink(FILE);
 
     await click(checkbox("Launch"));
-    const showArchive = document.querySelector(
-      '[aria-label="homeContext.figmaShowFrames"]:not([data-state="open"])',
-    );
     expect(checkbox("Launch").getAttribute("aria-checked")).toBe("true");
     // Archive is collapsed; open it and pick its frame on its own.
     const archiveTrigger = [
       ...document.querySelectorAll(
         '[aria-label="homeContext.figmaShowFrames"]',
       ),
-    ][1];
-    expect(showArchive).not.toBeNull();
+    ].find((_, index) => index === 1);
     if (!archiveTrigger) throw new Error("no archive trigger");
     await click(archiveTrigger);
     await click(checkbox("Old"));

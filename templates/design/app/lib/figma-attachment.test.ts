@@ -80,7 +80,7 @@ describe("readFigmaClipboardSource", () => {
       key: "figma-reference:clipboard:file-one:42",
       source: { kind: "clipboard", html: figmaHtml },
     });
-    expect(isFigmaReferenceKey(pasted!.key)).toBe(true);
+    expect(isFigmaReferenceKey(pasted?.key ?? "")).toBe(true);
   });
 
   it("leaves plain text, other HTML, and bare links alone", () => {

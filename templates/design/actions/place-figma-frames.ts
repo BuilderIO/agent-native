@@ -6,6 +6,7 @@ import { z } from "zod";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { openFigmaReference } from "../server/lib/figma-reference-attachment.js";
 import {
+  normalizeImportedHtmlDocument,
   resolveImportDesignId,
   saveImportedDesignFiles,
 } from "../server/lib/import-design-files.js";
@@ -27,12 +28,34 @@ export default defineAction({
       .describe("Design to add the screens to. Defaults to the open design."),
     frames: z
       .array(z.number().int().positive())
+      .min(1)
       .max(MAX_FIGMA_REFERENCE_FRAMES)
       .optional()
       .describe(
         "1-based frame numbers from the reference context. Omit to place every frame.",
       ),
   }),
+  outputSchema: z.object({
+    designId: z.string(),
+    files: z.array(z.object({ id: z.string(), filename: z.string() })),
+    warnings: z.array(z.string()),
+    urlPath: z.string().optional(),
+    _receipt: z
+      .object({
+        changed: z.boolean(),
+        verified: z.literal(true),
+        summary: z.string(),
+        subject: z.string(),
+      })
+      .optional(),
+    placedFrames: z.number().int().positive(),
+  }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    // Adds new screens; existing screens are never overwritten.
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   http: { method: "POST" },
   run: async ({ ref, designId, frames }, context) => {
     const ownerEmail = getRequestUserEmail();
@@ -43,9 +66,11 @@ export default defineAction({
       });
     }
     const reference = await openFigmaReference(ref, ownerEmail);
-    const picked = frames?.length
+    const picked = frames
       ? frames.map((number) => {
-          const frame = reference.frames[number - 1];
+          const frame = reference.frames.find(
+            (_, index) => index === number - 1,
+          );
           if (!frame) {
             fail(
               `Frame ${number} is not in this attachment; it has ${reference.frames.length}.`,
@@ -66,7 +91,9 @@ export default defineAction({
           // A .fig frame is named "Page / Frame"; filenames cannot hold slashes.
           filename: `${title.replace(/[\\/]+/g, "-").replace(/\.{2,}/g, ".")}.html`,
           fileType: "html" as const,
-          content: frame.html,
+          // Clipboard fallbacks and browser-decoded .fig files reach here
+          // unsanitized; every saved frame goes through the import sanitizer.
+          content: normalizeImportedHtmlDocument(frame.html, "Figma"),
           preferredFrame: {
             title,
             ...(frame.width !== undefined ? { width: frame.width } : {}),

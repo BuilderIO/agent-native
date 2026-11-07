@@ -13,7 +13,12 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 vi.mock("../server/lib/figma-reference-attachment.js", () => ({
   openFigmaReference: mocks.open,
 }));
-vi.mock("../server/lib/import-design-files.js", () => ({
+vi.mock("../server/lib/import-design-files.js", async (importOriginal) => ({
+  normalizeImportedHtmlDocument: (
+    await importOriginal<
+      typeof import("../server/lib/import-design-files.js")
+    >()
+  ).normalizeImportedHtmlDocument,
   resolveImportDesignId: mocks.resolveDesign,
   saveImportedDesignFiles: mocks.save,
 }));
@@ -68,13 +73,13 @@ describe("place-figma-frames", () => {
         {
           filename: "Page 1 - Upload.html",
           fileType: "html",
-          content: "<main>A</main>",
+          content: expect.stringContaining("<main>A</main>"),
           preferredFrame: { title: "Page 1 / Upload", width: 672, height: 498 },
         },
         {
           filename: "Figma frame 2.html",
           fileType: "html",
-          content: "<main>B</main>",
+          content: expect.stringContaining("<main>B</main>"),
           preferredFrame: { title: "Figma frame 2" },
         },
       ],
@@ -90,9 +95,32 @@ describe("place-figma-frames", () => {
     expect(mocks.save).toHaveBeenCalledWith(
       expect.objectContaining({
         designId: "open-design",
-        files: [expect.objectContaining({ content: "<main>B</main>" })],
+        files: [
+          expect.objectContaining({
+            content: expect.stringContaining("<main>B</main>"),
+          }),
+        ],
       }),
     );
+  });
+
+  it("strips scripts and event handlers before saving a frame", async () => {
+    mocks.open.mockResolvedValue({
+      ...reference,
+      frames: [
+        {
+          name: "Pasted",
+          html: '<main onclick="steal()"><script>steal()</script><a href="javascript:steal()">x</a></main>',
+        },
+      ],
+    });
+    await run({ designId: "design-1" });
+    const saved = mocks.save.mock.calls[0]?.[0] as {
+      files: Array<{ content: string }>;
+    };
+    const content = saved.files[0]?.content ?? "";
+    expect(content).toContain("<main>");
+    expect(content).not.toMatch(/onclick|<script|javascript:/i);
   });
 
   it("refuses a frame number the attachment lacks, and a signed-out caller", async () => {

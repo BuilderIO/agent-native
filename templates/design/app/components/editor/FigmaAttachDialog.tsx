@@ -354,7 +354,7 @@ export function FigmaAttachDialog({
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setDragOver(false);
-    const dropped = event.dataTransfer.files[0];
+    const dropped = event.dataTransfer.files.item(0);
     if (dropped) pickFile(dropped);
   };
 

@@ -4,6 +4,7 @@ import type {
 } from "@agent-native/core/server";
 import { splitAgentChatContextFromMessage } from "@agent-native/core/shared";
 
+import { DESIGN_OUTPUT_ACTIONS } from "../../shared/generation-output-receipt.js";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "../../shared/mutation-turn.js";
 import {
   isRepromptSelectionMessage,
@@ -577,11 +578,14 @@ export function designFinalResponseGuard(
   const requestText =
     context.requestText?.trim() || latestUserText(context.messages);
   if (!requiresPersistedDesignOutput(requestText)) return null;
-  // A verified, changed write receipt is the same proof the editor trusts,
-  // so an action that returns one never needs an entry in the list below.
+  // A verified, changed receipt from a Design output action is the same proof
+  // the editor's output check trusts; receipts from other writers are not.
   if (
     context.receipts?.some(
-      (receipt) => receipt.changed && receipt.verified === true,
+      (receipt) =>
+        DESIGN_OUTPUT_ACTIONS.has(receipt.tool) &&
+        receipt.changed &&
+        receipt.verified === true,
     ) ||
     hasSuccessfulMutation(context.toolResults)
   ) {

@@ -459,7 +459,7 @@ describe("Design final response guard", () => {
     });
   });
 
-  it("accepts any action whose verified write receipt shows a change", () => {
+  it("accepts a Design output action whose verified receipt shows a change", () => {
     const placed = {
       tool: "place-figma-frames",
       verified: true as const,
@@ -479,6 +479,15 @@ describe("Design final response guard", () => {
     expect(
       designFinalResponseGuard(
         guardContext(request, { receipts: [{ ...placed, changed: false }] }),
+      ),
+    ).not.toBeNull();
+    // A verified write by something other than a Design output action is not
+    // proof that the design was made.
+    expect(
+      designFinalResponseGuard(
+        guardContext(request, {
+          receipts: [{ ...placed, tool: "save-memory", changed: true }],
+        }),
       ),
     ).not.toBeNull();
   });
