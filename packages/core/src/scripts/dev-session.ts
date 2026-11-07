@@ -67,9 +67,9 @@ export const AGENT_ORG_SCOPE_ENV = "AGENT_ORG_SCOPE";
 
 export interface DevOrgChoice {
   /** An org the caller named: `AGENT_ORG_ID` or a forwarded org header. */
-  orgId?: string;
+  orgId?: string | undefined;
   /** The caller acts in no org and must not be given one. */
-  personal?: boolean;
+  personal?: boolean | undefined;
 }
 
 /** The org choice this CLI process inherited from its environment. */
@@ -86,7 +86,7 @@ export function devOrgChoiceFromEnv(
  * Resolve the org scope a local CLI call acts in, for `userEmail`, as fields
  * for its request context.
  *
- * A named org wins, then an inherited personal scope. Otherwise this is the
+ * An inherited personal scope wins, then a named org. Otherwise this is the
  * org the signed-in app uses for the same user: their active org, else their
  * first membership, or none when they chose their personal space or have no
  * org. Without it, `pnpm action` ran with no org and saw only the user's
@@ -99,8 +99,11 @@ export async function resolveDevOrgScope(
   userEmail: string | undefined,
   choice: DevOrgChoice,
 ): Promise<{ orgId?: string; orgScope?: "personal" }> {
-  if (choice.orgId) return { orgId: choice.orgId };
+  // Personal comes first. Only the agent's shell sets it, for a request with
+  // no org, and the child's own env loading can put an AGENT_ORG_ID from
+  // `.env` back, which must not give the command an org.
   if (choice.personal) return { orgScope: "personal" };
+  if (choice.orgId) return { orgId: choice.orgId };
   if (!userEmail) return {};
   if (await localDatabaseIsMissing()) return {};
   const { resolveOrgIdForEmail } = await import("../org/context.js");

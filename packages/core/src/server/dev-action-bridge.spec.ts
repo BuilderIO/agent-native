@@ -941,6 +941,8 @@ describe("mountDevActionForwardRoute", () => {
       _headers: {
         [DEV_ACTION_TOKEN_HEADER]: token,
         [DEV_ACTION_USER_HEADER]: "owner@example.test",
+        // An org from the caller's `.env` must not override the personal scope.
+        [DEV_ACTION_ORG_HEADER]: "org_from_env_file",
         [DEV_ACTION_ORG_SCOPE_HEADER]: "personal",
       },
       _body: { name: "do-thing" },

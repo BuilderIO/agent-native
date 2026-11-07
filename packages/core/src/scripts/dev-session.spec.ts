@@ -171,11 +171,23 @@ describe("resolveDevOrgScope", () => {
 
     const { resolveDevOrgScope } = await import("./dev-session.js");
     expect(
+      await resolveDevOrgScope("alice@example.test", { orgId: "org_explicit" }),
+    ).toEqual({ orgId: "org_explicit" });
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it("keeps a personal scope even when an org is named", async () => {
+    // A personal request's shell clears AGENT_ORG_ID, but the child's env
+    // loading can put one back from `.env`.
+    const lookup = mockOrgLookup(async () => "org_from_ui");
+
+    const { resolveDevOrgScope } = await import("./dev-session.js");
+    expect(
       await resolveDevOrgScope("alice@example.test", {
-        orgId: "org_explicit",
+        orgId: "org_from_env_file",
         personal: true,
       }),
-    ).toEqual({ orgId: "org_explicit" });
+    ).toEqual({ orgScope: "personal" });
     expect(lookup).not.toHaveBeenCalled();
   });
 

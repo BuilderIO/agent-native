@@ -218,7 +218,7 @@ export async function runAgent(
 
   try {
     const result = await runWithRequestContext(
-      { userEmail: ownerEmail, ...orgScope },
+      { ...(ownerEmail ? { userEmail: ownerEmail } : {}), ...orgScope },
       () => runLocalAgentLoop(parsed),
     );
     if (parsed.json) {

@@ -296,8 +296,9 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   const userEmail = await resolveDevUserEmail();
   const orgScope = await resolveDevOrgScope(userEmail, devOrgChoiceFromEnv());
 
-  return runWithRequestContext({ userEmail, ...orgScope }, () =>
-    dispatchAction(actionName, args, options),
+  return runWithRequestContext(
+    { ...(userEmail ? { userEmail } : {}), ...orgScope },
+    () => dispatchAction(actionName, args, options),
   );
 }
 

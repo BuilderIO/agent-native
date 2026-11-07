@@ -516,7 +516,8 @@ export function mountDevDbQueryForwardRoute(nitroApp: any): void {
         devOrgChoiceFromHeaders(event),
       );
 
-      return runWithRequestContext({ userEmail, ...orgScope }, async () => {
+      const context = { ...(userEmail ? { userEmail } : {}), ...orgScope };
+      return runWithRequestContext(context, async () => {
         try {
           const { runDbQuery } = await import("../scripts/db/query.js");
           const databaseUrl = getRuntimeDatabaseUrl("pglite:./data/pglite");
