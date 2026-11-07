@@ -182,14 +182,26 @@ export function useHomePromptContext({
   );
   const requestRevision = useRef(0);
   const figmaSources = useRef(
-    new Map<string, { source: FigmaReferenceSource; revision: number }>(),
+    new Map<
+      string,
+      {
+        source: FigmaReferenceSource;
+        revision: number;
+        images?: FigmaReference["images"];
+      }
+    >(),
   );
+  // Images of a chip that never reached a sent prompt are deleted, not kept.
+  const discardFigmaImages = (key: string) => {
+    void figmaSources.current.get(key)?.images?.discard();
+  };
   const [figmaDialogOpen, setFigmaDialogOpen] = useState(false);
   const mounted = useRef(true);
   useEffect(() => {
     if (previousIdentity.current === identity) return;
     previousIdentity.current = identity;
     requests.current.clear();
+    for (const key of figmaSources.current.keys()) discardFigmaImages(key);
     figmaSources.current.clear();
     ++requestRevision.current;
     setItems([]);
@@ -199,10 +211,13 @@ export function useHomePromptContext({
   }, [identity, onSystemChange, onTemplateChange]);
   useEffect(() => {
     const pendingRequests = requests.current;
+    const pendingFigma = figmaSources.current;
     mounted.current = true;
     return () => {
       mounted.current = false;
       pendingRequests.clear();
+      // Released images ignore a discard, so a sent chip keeps its images.
+      for (const entry of pendingFigma.values()) void entry.images?.discard();
     };
   }, []);
   const attach = useCallback(
@@ -305,6 +320,7 @@ export function useHomePromptContext({
   const resolveFigma = (key: string, source: FigmaReferenceSource) => {
     const requestIdentity = identity;
     const revision = ++requestRevision.current;
+    discardFigmaImages(key);
     figmaSources.current.set(key, { source, revision });
     const current = () =>
       mounted.current &&
@@ -316,7 +332,12 @@ export function useHomePromptContext({
     ]);
     readFigmaReference(source, t("homeContext.figmaReferenceEmpty"))
       .then((reference) => {
-        if (!current()) return;
+        if (!current()) {
+          void reference.images?.discard();
+          return;
+        }
+        const entry = figmaSources.current.get(key);
+        if (entry) entry.images = reference.images;
         const title = figmaTitle(source, reference);
         setItems((items) =>
           items.map((item) =>
@@ -695,6 +716,7 @@ export function useHomePromptContext({
       return;
     }
     requests.current.delete(key);
+    discardFigmaImages(key);
     figmaSources.current.delete(key);
     setItems((current) => current.filter((item) => item.key !== key));
   };
@@ -812,6 +834,11 @@ export function useHomePromptContext({
     if (!mounted.current || identityRef.current !== submittedIdentity)
       throw new Error(loadFailed);
     const prepared = snapshotComposerContextItems(refreshed);
+    // The submitted prompt may place these frames later; keep their images.
+    for (const item of submitted) {
+      if (isFigmaReferenceKey(item.key))
+        void figmaSources.current.get(item.key)?.images?.release();
+    }
     submissionReceipts.current.set(prepared, {
       identity: submittedIdentity,
       references: new Map(

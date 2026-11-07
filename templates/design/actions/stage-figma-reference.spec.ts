@@ -58,6 +58,14 @@ describe("stage-figma-reference", () => {
     expect(mocks.mint).not.toHaveBeenCalled();
   });
 
+  it("calls a body that inflates past the limit too large, not unreadable", async () => {
+    const bomb = gzipSync(Buffer.alloc(129 * 1024 * 1024)).toString("base64");
+    await expect(run(bomb)).rejects.toMatchObject({
+      errorCode: "figma_reference_too_large",
+    });
+    expect(mocks.mint).not.toHaveBeenCalled();
+  });
+
   it("refuses a body that is not gzipped frames", async () => {
     await expect(run("bm90IGd6aXA=")).rejects.toThrow(/could not be read/);
     await expect(run(gzip({ frames: [] }))).rejects.toThrow(

@@ -12,6 +12,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DesignComposerContextProvider } from "./DesignComposerContextProvider";
 import { useHomePromptContext } from "./HomePromptContext";
 
+const figImages = vi.hoisted(() => ({
+  finalize: vi.fn(async () => 0),
+  cleanup: vi.fn(async () => 0),
+}));
+vi.mock("@/lib/fig-client-import", () => ({
+  prepareFigImport: async () => ({
+    summary: { frameCount: 1, pages: [{ id: "p1", frameCount: 1 }] },
+    render: async () => ({ frames: [], skippedEmbeddedImageCount: 0 }),
+    dispose: () => {},
+  }),
+  browserImageUploader: () => vi.fn(),
+  browserImportId: () => "import-1",
+  completeFigInBrowser: async () => ({
+    files: [
+      {
+        filename: "Home.html",
+        content: "<main>Home</main>",
+        source: { figPageName: "Web" },
+        preferredFrame: { title: "Home", width: 1280, height: 800 },
+      },
+    ],
+    stats: { unresolvedImageRefCount: 0 },
+    finalize: figImages.finalize,
+    cleanup: figImages.cleanup,
+  }),
+}));
+
 const mocks = vi.hoisted(() => ({
   call: vi.fn(),
   refresh: 0,
@@ -204,6 +231,8 @@ function deferred() {
   return { promise, resolve, reject };
 }
 beforeEach(() => {
+  figImages.finalize.mockClear();
+  figImages.cleanup.mockClear();
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -821,6 +850,47 @@ describe("home prompt context", () => {
     act(() => result.current.submissionAccepted(accepted));
     expect(result.current.contextItems).toEqual([]);
   });
+  it("deletes a .fig chip's staged images when it is removed, and keeps them once sent", async () => {
+    mocks.call.mockImplementation(async (action) =>
+      action === "stage-figma-reference"
+        ? { ref: "attachment:v1:fig" }
+        : { id: "x", title: "x", context: "x" },
+    );
+    const { result } = renderHook(() => useHomePromptContext(defaults));
+    // Decoding a .fig streams through gzip, which takes real ticks to settle.
+    const untilReady = async () => {
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        if (result.current.contextItems[0]?.status === "ready") return;
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      }
+      expect(result.current.contextItems[0]?.status).toBe("ready");
+    };
+    const attachFile = () =>
+      act(() =>
+        (
+          result.current.dialogs as ReactElement<{
+            onAttachFile: (file: File) => void;
+          }>
+        ).props.onAttachFile(new File(["fig"], "App.fig")),
+      );
+
+    attachFile();
+    await untilReady();
+    const key = result.current.contextItems[0]?.key ?? "";
+    act(() => result.current.remove(key));
+    expect(figImages.cleanup).toHaveBeenCalledOnce();
+    expect(figImages.finalize).not.toHaveBeenCalled();
+
+    attachFile();
+    await untilReady();
+    await act(async () => {
+      await result.current.prepareSubmission(
+        snapshotComposerContextItems(result.current.contextItems),
+      );
+    });
+    expect(figImages.finalize).toHaveBeenCalledOnce();
+  });
+
   it("shows a failed Figma decode on its chip and retries it", async () => {
     mocks.call.mockRejectedValueOnce(
       Object.assign(new Error("Action failed: Too large"), {

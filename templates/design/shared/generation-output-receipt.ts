@@ -71,6 +71,33 @@ export function designOutputWriteReceipt(
   };
 }
 
+/**
+ * Writers that save requested screen content, as opposed to maintenance such
+ * as deleting or renaming. Only these prove a failed run made its output.
+ */
+const SCREEN_CONTENT_ACTIONS = new Set([
+  "add-builder-screens",
+  "add-localhost-screens",
+  "add-session-replay-screenshots-to-board",
+  "clone-creative-context-design",
+  "create-component",
+  "create-design-from-template",
+  "create-file",
+  "create-journey-canvas",
+  "duplicate-design",
+  "edit-design",
+  "generate-design",
+  "import-design-source",
+  "import-figma-clipboard",
+  "import-figma-frame",
+  "insert-asset",
+  "insert-design-native-asset",
+  "insert-figma-library-asset",
+  "place-figma-frames",
+  "present-design-variants",
+  "update-file",
+]);
+
 export function classifyDesignGenerationOutput(options: {
   designId: string;
   runId: string;
@@ -79,10 +106,10 @@ export function classifyDesignGenerationOutput(options: {
   events: readonly PersistedTurnEvent[];
 }): DesignGenerationOutputStatus {
   const { designId, runId, runStatus, runIds, events } = options;
-  // A saved-output receipt is proof however the run ended: a run that saves
+  // Saved screen content is proof however the run ended: a run that saves
   // screens and then fails on its next model turn still made them, and
-  // retrying it saves them again.
-  if (events.some(({ event }) => savedOutputForDesign(event, designId))) {
+  // retrying it saves them again. A delete or rename alone is not that proof.
+  if (events.some(({ event }) => savedScreenContent(event, designId))) {
     return "has_output";
   }
   if (
@@ -118,7 +145,11 @@ export function classifyDesignGenerationOutput(options: {
     ) {
       continue;
     }
-    if (parseDesignOutputReceipt(event.receipt, designId)) continue;
+    const receipt = parseDesignOutputReceipt(event.receipt, designId);
+    if (receipt) {
+      if (receipt.fileCount > 0) return "has_output";
+      continue;
+    }
     if (input.status === "unreadable") {
       unknownOutputEvidence = true;
       continue;
@@ -206,9 +237,9 @@ function hasCompleteTurnJournal(
   );
 }
 
-function savedOutputForDesign(event: unknown, designId: string): boolean {
+function savedScreenContent(event: unknown, designId: string): boolean {
   if (!isRecord(event) || event.type !== "tool_done") return false;
-  if (typeof event.tool !== "string" || !DESIGN_OUTPUT_ACTIONS.has(event.tool))
+  if (typeof event.tool !== "string" || !SCREEN_CONTENT_ACTIONS.has(event.tool))
     return false;
   const input = inputDesignId(event.input);
   if (

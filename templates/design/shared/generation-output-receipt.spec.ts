@@ -78,6 +78,17 @@ describe("Design generation output receipts", () => {
         ],
       }),
     ).toBe("unknown");
+    // Deleting or renaming a screen before failing is not the requested output.
+    for (const tool of ["delete-file", "rename-screen"]) {
+      expect(
+        classifyDesignGenerationOutput({
+          ...base,
+          runStatus: "failed",
+          events: [{ runId: "run-1", seq: 0, event: { ...saved, tool } }],
+        }),
+        tool,
+      ).toBe("unknown");
+    }
   });
 
   it("recognizes output receipts for every registered writer", () => {
