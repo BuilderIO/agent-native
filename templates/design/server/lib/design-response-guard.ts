@@ -43,7 +43,7 @@ const DESIGN_MUTATION_ACTIONS = new Set([
 const DESIGN_MUTATION_VERBS =
   /\b(?:add|adding|adjust|adjusting|align|aligning|apply|applying|build|building|change|changing|clean|cleaning|create|creating|decrease|decreasing|delete|deleting|design|designing|duplicate|duplicating|edit|editing|enhance|enhancing|fix|fixing|generate|generating|improve|improving|import|importing|increase|increasing|insert|inserting|make|making|modify|modifying|move|moving|polish|polishing|place|placing|reduce|reducing|refine|refining|remove|removing|replace|replacing|resize|resizing|restyle|restyling|rework|reworking|tune|tuning|update|updating)\b/i;
 const DESIGN_MUTATION_OBJECTS =
-  /\b(?:(?:animation|asset|background|behavior|border|button|canvas|card|color|component|design|file|footer|font|gap|header|height|hero|image|interaction|layout|mockup|motion|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|state|style|text|theme|transition|typography|variant|version|visual|width|wireframe)s?|it|this)\b/i;
+  /\b(?:(?:animation|asset|background|behavior|border|button|canvas|card|color|component|design|file|footer|font|frame|gap|header|height|hero|image|interaction|layout|mockup|motion|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|state|style|text|theme|transition|typography|variant|version|visual|width|wireframe)s?|it|this)\b/i;
 const DESIGN_ADVISORY_WORDS =
   /\b(?:advise|advice|analy[sz]e|audit|critique|feedback|recommend(?:ation)?s?|review|suggest(?:ion)?s?|teach(?:ing)?|tip|tips|thoughts?|tutorials?)\b/i;
 const DESIGN_TEST_REQUEST =
@@ -159,11 +159,16 @@ function hasDistinctVerbAndObject(text: string): boolean {
   return matchSpans(
     new RegExp(DESIGN_MUTATION_OBJECTS.source, "gi"),
     text,
-  ).some(([objectStart, objectEnd]) =>
-    verbs.some(
-      ([verbStart, verbEnd]) =>
-        verbEnd <= objectStart || objectEnd <= verbStart,
-    ),
+  ).some(
+    ([objectStart, objectEnd]) =>
+      !(
+        /^frames?$/i.test(text.slice(objectStart, objectEnd)) &&
+        /\btime\s+$/i.test(text.slice(0, objectStart))
+      ) &&
+      verbs.some(
+        ([verbStart, verbEnd]) =>
+          verbEnd <= objectStart || objectEnd <= verbStart,
+      ),
   );
 }
 
@@ -521,8 +526,105 @@ function removeDesignTestRequests(text: string): string {
   return parts.join("");
 }
 
+function normalizeRequestUrls(text: string): string {
+  const directUrlTarget = new RegExp(
+    DESIGN_MUTATION_VERBS.source + "[\\s.:(\\[<\"'`–—-]*$",
+    "i",
+  );
+  const followingMutation = new RegExp(
+    "^\\s+(?:(?:please|kindly)\\s+)?" + DESIGN_MUTATION_VERBS.source,
+    "i",
+  );
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const token of text.matchAll(/[^\s<>"'`]+/g)) {
+    const value = token[0];
+    let urlStart = -1;
+    const schemeEnd = value.indexOf("://");
+    if (schemeEnd !== -1) {
+      let start = schemeEnd;
+      while (start > 0 && /[a-z\d+.-]/i.test(value.charAt(start - 1)))
+        start -= 1;
+      if (/[a-z]/i.test(value[start] ?? "")) urlStart = start;
+    }
+    const wwwStart = value.toLowerCase().indexOf("www.");
+    if (
+      wwwStart !== -1 &&
+      (wwwStart === 0 || !/\w/.test(value.charAt(wwwStart - 1))) &&
+      (urlStart === -1 || wwwStart < urlStart)
+    ) {
+      urlStart = wwwStart;
+    }
+    // Requiring a URL delimiter avoids masking prose and standalone filenames.
+    if (urlStart === -1 && /[/?#]/.test(value)) {
+      const bareUrl = /^[([{]*(?:[a-z\d-]+\.)+[a-z]{2,}(?::\d+)?[/?#]/i.exec(
+        value,
+      );
+      if (bareUrl) urlStart = bareUrl[0].search(/[a-z\d]/i);
+    }
+    if (urlStart === -1) continue;
+
+    const start = token.index + urlStart;
+    const url = value.slice(urlStart);
+    // A URL ending in a conjunction is indistinguishable from a no-space
+    // clause boundary; only treat it as one before a separate mutation verb.
+    const boundary = url.match(/[,;](?:then|and|also|but)$/i);
+    const end =
+      boundary && followingMutation.test(text.slice(start + url.length))
+        ? (boundary.index ?? url.length)
+        : url.length;
+    let punctuationStart = end;
+    while (
+      punctuationStart > 0 &&
+      ".,!?;:)]}".includes(url.charAt(punctuationStart - 1))
+    ) {
+      punctuationStart -= 1;
+    }
+    const punctuation = url.slice(punctuationStart, end);
+    const beforeUrl = text.slice(cursor, start);
+    const target = directUrlTarget.exec(beforeUrl);
+    const verb = target && DESIGN_MUTATION_VERBS.exec(target[0]);
+    const beforeVerb = target ? beforeUrl.slice(0, target.index).trimEnd() : "";
+    const clause =
+      beforeVerb.split(/[.!?;,:\n]|\b(?:and|but|then|also)\b/i).pop() ?? "";
+    // A distant determiner may belong to an earlier object, not this word.
+    const isNoun =
+      !DESIGN_REQUEST_LEAD_IN.test(beforeVerb) &&
+      clause
+        .trim()
+        .split(/\s+/)
+        .slice(-3)
+        .some((word) =>
+          /^(?:a|an|the|this|that|these|those|my|your|his|her|its|our|their)$/i.test(
+            word,
+          ),
+        );
+    const isDirectTarget =
+      target &&
+      verb &&
+      !isNoun &&
+      suppliesMutationVerb(beforeUrl, [
+        target.index,
+        target.index + verb[0].length,
+      ]);
+    if (target && verb && isNoun) {
+      parts.push(
+        beforeUrl.slice(0, target.index),
+        " ",
+        beforeUrl.slice(target.index + verb[0].length),
+      );
+    } else {
+      parts.push(beforeUrl);
+    }
+    parts.push(isDirectTarget ? "this" : " ", punctuation, url.slice(end));
+    cursor = start + url.length;
+  }
+  parts.push(text.slice(cursor));
+  return parts.join("").trim();
+}
+
 export function looksLikeDesignMutationRequest(text: string): boolean {
-  const normalized = text.trim();
+  const normalized = normalizeRequestUrls(text);
   if (!normalized) return false;
   if (/^\[(?:reprompt selection|selection question)\]/i.test(normalized)) {
     return false;
