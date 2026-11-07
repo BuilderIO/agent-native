@@ -3133,6 +3133,7 @@ export default {
         communityEvent: "événement local",
       },
     },
+    selectAll: "Tout sélectionner",
   },
   visualEdit: {
     eyebrow: "Edition visuelle",

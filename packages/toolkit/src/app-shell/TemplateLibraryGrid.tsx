@@ -27,6 +27,8 @@ export type TemplateLibraryCardProps<T extends TemplateLibraryItem> = {
   item: T;
   preview: ReactNode;
   actions?: ReactNode;
+  /** A selection control, shown over the preview's top-start corner. */
+  selection?: ReactNode;
   metadata?: ReactNode;
   actionsVisible?: boolean;
   selected?: boolean;
@@ -39,6 +41,7 @@ export function TemplateLibraryCard<T extends TemplateLibraryItem>({
   item,
   preview,
   actions,
+  selection,
   metadata,
   actionsVisible = false,
   selected = false,
@@ -111,9 +114,18 @@ export function TemplateLibraryCard<T extends TemplateLibraryItem>({
           </div>
         ) : null}
       </div>
+      {selection ? (
+        <div
+          className={`agent-template-library-selection flex${
+            actionsVisible ? " !opacity-100" : ""
+          }`}
+        >
+          {selection}
+        </div>
+      ) : null}
       {actions ? (
         <div
-          className={`agent-template-library-actions flex items-center gap-2 pt-3${
+          className={`agent-template-library-actions flex items-center gap-2${
             actionsVisible ? " !opacity-100" : ""
           }`}
         >
@@ -128,6 +140,7 @@ export type TemplateLibraryGridProps<T extends TemplateLibraryItem> = {
   items: readonly T[];
   renderPreview: (item: T) => ReactNode;
   renderActions?: (item: T) => ReactNode;
+  renderSelection?: (item: T) => ReactNode;
   renderMetadata?: (item: T) => ReactNode;
   actionsVisible?: (item: T) => boolean;
   isSelected?: (item: T) => boolean;
@@ -146,6 +159,7 @@ export function TemplateLibraryGrid<T extends TemplateLibraryItem>({
   items,
   renderPreview,
   renderActions,
+  renderSelection,
   renderMetadata,
   actionsVisible,
   isSelected,
@@ -185,6 +199,7 @@ export function TemplateLibraryGrid<T extends TemplateLibraryItem>({
               item={item}
               preview={renderPreview(item)}
               actions={renderActions?.(item)}
+              selection={renderSelection?.(item)}
               metadata={renderMetadata?.(item)}
               actionsVisible={actionsVisible?.(item)}
               selected={isSelected?.(item) ?? item.id === selectedId}

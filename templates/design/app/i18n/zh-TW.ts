@@ -3135,6 +3135,7 @@ export default {
         communityEvent: "社區活動頁面",
       },
     },
+    selectAll: "全選",
   },
   templatesPage: {
     previewEmpty: "此範本中沒有可預覽的畫面。",

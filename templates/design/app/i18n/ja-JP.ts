@@ -3096,6 +3096,7 @@ export default {
         communityEvent: "スケジュール、会場",
       },
     },
+    selectAll: "すべて選択",
   },
   visualEdit: {
     eyebrow: "ビジュアル編集",

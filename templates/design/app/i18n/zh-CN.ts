@@ -2974,6 +2974,7 @@ export default {
         communityEvent: "社区活动页面",
       },
     },
+    selectAll: "全选",
   },
   visualEdit: {
     eyebrow: "视觉编辑",

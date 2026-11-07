@@ -3114,6 +3114,7 @@ export default {
         communityEvent: "evento comunitario",
       },
     },
+    selectAll: "Seleccionar todo",
   },
   visualEdit: {
     eyebrow: "Edicion visual",

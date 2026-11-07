@@ -3064,6 +3064,7 @@ export default {
         communityEvent: "صفحة فعالية مجتمعية",
       },
     },
+    selectAll: "تحديد الكل",
   },
   visualEdit: {
     eyebrow: "تحرير مرئي",

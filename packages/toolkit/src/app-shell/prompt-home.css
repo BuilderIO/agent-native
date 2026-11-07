@@ -78,6 +78,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-rows: auto 5rem;
+  container-type: inline-size;
 }
 
 .agent-template-library-primary {
@@ -92,21 +93,38 @@
   padding-inline-end: 3rem;
 }
 
-.agent-template-library-actions {
-  grid-column: 2;
-  grid-row: 2;
+.agent-template-library-selection {
+  grid-area: 1 / 1;
   align-self: start;
+  justify-self: start;
+  margin: 0.5rem;
+  z-index: 1;
+  opacity: 1;
+}
+
+/* The caption grows with a two-line description, so a grid row can't hold the
+   actions level with the title. Anchor them to the preview's bottom edge
+   instead: the preview is 16:9 of the card's width. */
+.agent-template-library-actions {
+  position: absolute;
+  top: calc(100cqw * 9 / 16 + 0.625rem);
+  inset-inline-end: 0.5rem;
   z-index: 1;
   opacity: 1;
 }
 
 @media (hover: hover) {
-  .agent-template-library-actions {
+  .agent-template-library-actions,
+  .agent-template-library-selection {
     opacity: 0;
   }
 
   .agent-template-library-card:hover .agent-template-library-actions,
-  .agent-template-library-card:focus-within .agent-template-library-actions {
+  .agent-template-library-card:focus-within .agent-template-library-actions,
+  .agent-template-library-card:hover .agent-template-library-selection,
+  .agent-template-library-card:focus-within .agent-template-library-selection,
+  .agent-template-library-card[data-selected]
+    .agent-template-library-selection {
     opacity: 1;
   }
 }
@@ -181,13 +199,24 @@
   }
 }
 
-.agent-template-library-card:focus-within {
+/* :focus-within would also ring the card after a mouse click on its menu or
+   checkbox; only keyboard focus should draw it. Selection gets its own color so
+   a selected card never reads as merely focused. */
+.agent-template-library-card {
+  border-radius: 0.5rem;
+}
+
+.agent-template-library-card:has(:focus-visible) {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
 }
 
+.agent-template-library-primary > :focus-visible {
+  outline: none;
+}
+
 .agent-template-library-card[data-selected] {
-  outline: 2px solid hsl(var(--ring));
+  outline: 2px solid hsl(var(--primary));
   outline-offset: 2px;
 }
 

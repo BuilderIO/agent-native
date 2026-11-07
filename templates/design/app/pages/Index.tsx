@@ -50,14 +50,10 @@ import { FULL_APP_BUILDING_LAB } from "@shared/labs";
 import { derivePromptTitle } from "@shared/prompt-title";
 import {
   IconArrowRight,
-  IconChecks,
   IconChevronLeft,
   IconChevronRight,
-  IconPlus,
   IconSearch,
   IconDots,
-  IconTrash,
-  IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
@@ -152,7 +148,6 @@ import {
   clearPendingGeneration,
   writePendingGeneration,
 } from "@/lib/pending-generation";
-import { cn } from "@/lib/utils";
 
 import {
   clearDesignHomeLibraryTabSelection,
@@ -1398,6 +1393,39 @@ export default function Index() {
       />
     </div>
   );
+  const selectionToolbar = (
+    <>
+      <span role="status" className="text-sm font-medium">
+        {t("home.selected", { count: selectedDesignCount })}
+      </span>
+      {allVisibleSelected ? null : (
+        <Button variant="ghost" onClick={toggleVisibleSelection}>
+          {t("home.selectAll")}
+        </Button>
+      )}
+      <Button variant="ghost" onClick={clearSelection}>
+        {t("home.clearSelection")}
+      </Button>
+      {creativeContextEnabled ? (
+        <Button
+          variant="outline"
+          onClick={() =>
+            setContextDesigns(
+              designs.filter((design) => selectedDesignIds.has(design.id)),
+            )
+          }
+        >
+          {t("creativeContext.addToContext" /* i18n-key-ignore */)}
+        </Button>
+      ) : null}
+      <Button
+        variant="outline-destructive"
+        onClick={() => setBulkDeleteOpen(true)}
+      >
+        {t("home.delete")}
+      </Button>
+    </>
+  );
   return (
     <>
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
@@ -1608,12 +1636,15 @@ export default function Index() {
                 </Link>
               </Button>
             }
-            search={searchInput}
+            search={isSelectingDesigns ? selectionToolbar : searchInput}
             recentActions={
-              <OwnershipFilter
-                value={designFilter === "not-mine" ? "shared" : designFilter}
-                onChange={handleDesignFilterChange}
-              />
+              isSelectingDesigns ? null : (
+                <OwnershipFilter
+                  value={designFilter === "not-mine" ? "shared" : designFilter}
+                  onChange={handleDesignFilterChange}
+                  className="h-9"
+                />
+              )
             }
             templates={
               templatesError ? (
@@ -1648,83 +1679,6 @@ export default function Index() {
                   )
                 ) : (
                   <>
-                    {isSelectingDesigns ? (
-                      <div className="mb-3 flex w-full flex-wrap items-center justify-between gap-3 px-1 py-1">
-                        <div className="text-sm text-muted-foreground">
-                          <span className="font-medium text-foreground">
-                            {t("home.selected", { count: selectedDesignCount })}
-                          </span>
-                        </div>
-                        <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                onClick={toggleVisibleSelection}
-                                aria-label={
-                                  allVisibleSelected
-                                    ? t("home.clearVisibleSelection")
-                                    : t("home.selectVisibleDesigns")
-                                }
-                                className="cursor-pointer"
-                              >
-                                <IconChecks className="w-4 h-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {allVisibleSelected
-                                ? t("home.clearVisibleSelection")
-                                : t("home.selectVisibleDesigns")}
-                            </TooltipContent>
-                          </Tooltip>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                onClick={clearSelection}
-                                aria-label={t("home.clearSelection")}
-                                className="cursor-pointer"
-                              >
-                                <IconX className="w-4 h-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {t("home.clearSelection")}
-                            </TooltipContent>
-                          </Tooltip>
-                          {creativeContextEnabled ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                setContextDesigns(
-                                  designs.filter((design) =>
-                                    selectedDesignIds.has(design.id),
-                                  ),
-                                )
-                              }
-                              className="cursor-pointer"
-                            >
-                              <IconPlus className="w-3.5 h-3.5" />
-                              {t(
-                                "creativeContext.addToContext" /* i18n-key-ignore */,
-                              )}
-                            </Button>
-                          ) : null}
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => setBulkDeleteOpen(true)}
-                            className="cursor-pointer"
-                          >
-                            <IconTrash className="w-3.5 h-3.5" />
-                            {t("home.delete")}
-                          </Button>
-                        </div>
-                      </div>
-                    ) : null}
                     <TemplateLibraryGrid
                       items={designs}
                       isSelected={(design) => selectedDesignIds.has(design.id)}
@@ -1762,83 +1716,75 @@ export default function Index() {
                           ) : null}
                         </div>
                       )}
-                      renderActions={(design) => {
-                        const isSelected = selectedDesignIds.has(design.id);
-                        return (
-                          <>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Checkbox
-                                  checked={isSelected}
-                                  onCheckedChange={() =>
-                                    toggleDesignSelection(design.id)
-                                  }
-                                  aria-label={t("home.selectDesign", {
-                                    title: design.title,
-                                  })}
-                                  className={cn(
-                                    "h-5 w-5",
-                                    isSelectingDesigns && "!opacity-100",
-                                  )}
-                                />
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {t("home.selectDesign", {
-                                  title: design.title,
-                                })}
-                              </TooltipContent>
-                            </Tooltip>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  aria-label={t("home.actionsForDesign", {
-                                    title: design.title,
-                                  })}
-                                >
-                                  <IconDots />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    setTimeout(() => startRename(design))
-                                  }
-                                >
-                                  {t("home.rename")}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => handleDuplicate(design.id)}
-                                >
-                                  {t("home.duplicate")}
-                                </DropdownMenuItem>
-                                {creativeContextEnabled ? (
-                                  <DropdownMenuItem
-                                    onSelect={(event) => {
-                                      event.preventDefault();
-                                      setContextDesigns([design]);
-                                    }}
-                                  >
-                                    {t(
-                                      "creativeContext.addToContext" /* i18n-key-ignore */,
-                                    )}
-                                  </DropdownMenuItem>
-                                ) : null}
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    setTimeout(() => setDeleteId(design.id))
-                                  }
-                                  className="text-destructive focus:text-destructive"
-                                >
-                                  {t("home.delete")}
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </>
-                        );
-                      }}
+                      renderSelection={(design) => (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Checkbox
+                              checked={selectedDesignIds.has(design.id)}
+                              onCheckedChange={() =>
+                                toggleDesignSelection(design.id)
+                              }
+                              aria-label={t("home.selectDesign", {
+                                title: design.title,
+                              })}
+                              className="size-5 bg-background shadow-sm"
+                            />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {t("home.selectDesign", { title: design.title })}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                      renderActions={(design) => (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={t("home.actionsForDesign", {
+                                title: design.title,
+                              })}
+                            >
+                              <IconDots />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() =>
+                                setTimeout(() => startRename(design))
+                              }
+                            >
+                              {t("home.rename")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleDuplicate(design.id)}
+                            >
+                              {t("home.duplicate")}
+                            </DropdownMenuItem>
+                            {creativeContextEnabled ? (
+                              <DropdownMenuItem
+                                onSelect={(event) => {
+                                  event.preventDefault();
+                                  setContextDesigns([design]);
+                                }}
+                              >
+                                {t(
+                                  "creativeContext.addToContext" /* i18n-key-ignore */,
+                                )}
+                              </DropdownMenuItem>
+                            ) : null}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() =>
+                                setTimeout(() => setDeleteId(design.id))
+                              }
+                              className="text-destructive focus:text-destructive"
+                            >
+                              {t("home.delete")}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
                     />
                     {totalPages > 1 ? (
                       <nav

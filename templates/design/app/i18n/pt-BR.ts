@@ -3110,6 +3110,7 @@ export default {
         communityEvent: "página de evento comunitário",
       },
     },
+    selectAll: "Selecionar tudo",
   },
   visualEdit: {
     eyebrow: "Edicao visual",

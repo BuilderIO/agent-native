@@ -3007,6 +3007,7 @@ export default {
         communityEvent: "Community Event Page",
       },
     },
+    selectAll: "Select all",
   },
   visualEdit: {
     eyebrow: "Visual edit",

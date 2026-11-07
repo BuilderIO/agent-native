@@ -3049,6 +3049,7 @@ export default {
         communityEvent: "कार्यक्रम स्थल विवरण",
       },
     },
+    selectAll: "सभी चुनें",
   },
   visualEdit: {
     eyebrow: "विजुअल एडिट",

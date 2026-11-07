@@ -3075,6 +3075,7 @@ export default {
         communityEvent: "일정 장소 정보 발표자가",
       },
     },
+    selectAll: "모두 선택",
   },
   visualEdit: {
     eyebrow: "시각 편집",
