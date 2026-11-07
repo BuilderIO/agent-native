@@ -702,10 +702,15 @@ export default defineAction({
       // again once the writes have committed finds it, as long as a create
       // that copies a resource's visibility refuses when it has changed by
       // the time the create commits (Content's does).
+      const collectLate = () => {
+        // A refusal found while preparing one isn't the last write's.
+        failing = undefined;
+        return collectFollowers();
+      };
       for (
-        let late = await collectFollowers();
+        let late = await collectLate();
         late.length > 0;
-        late = await collectFollowers()
+        late = await collectLate()
       ) {
         for (const change of late) {
           followers.push(change);

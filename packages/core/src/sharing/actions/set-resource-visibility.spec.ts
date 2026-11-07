@@ -1595,6 +1595,40 @@ describe("set-resource-visibility public followers", () => {
     ]);
   });
 
+  it("undoes the whole batch when a follower found by the second walk is refused", async () => {
+    followersOf["doc-a"] = [];
+    let added = false;
+    register({
+      publicFollowers: async (resource, options) => {
+        const found = await followersMatching(resource, options);
+        if (resource.id === "doc-a" && !added) {
+          added = true;
+          await insertDoc({ id: "doc-late", visibility: "public" });
+          followersOf["doc-a"]?.push("doc-late");
+        }
+        return found;
+      },
+      assertSharingChange: ({ resource }) => {
+        if (resource.id === "doc-late") {
+          throw new ForbiddenError("held for review");
+        }
+      },
+    });
+    await insertDoc({ id: "doc-a", visibility: "public" });
+    await insertDoc({ id: "doc-b", visibility: "public" });
+
+    const refused = batch(["doc-a", "doc-b"], "private");
+
+    // The refusal is the follower's, not pinned on the last page written.
+    await expect(refused).rejects.toThrow("held for review");
+    await expect(refused).rejects.not.toThrow("doc-b");
+    expect(await visibilities()).toEqual({
+      "doc-a": "public",
+      "doc-b": "public",
+      "doc-late": "public",
+    });
+  });
+
   it("follows it to the organization when it goes from public to org", async () => {
     await insertFamily({ [parent]: "public", "doc-child": "public" });
 
