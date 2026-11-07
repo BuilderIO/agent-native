@@ -1184,7 +1184,18 @@ pub(crate) mod macos {
         let engine: Retained<AVAudioEngine> = unsafe { AVAudioEngine::new() };
         configure_engine_input_device(&engine, mic_device_id, mic_device_label)?;
         let input_node: Retained<AVAudioInputNode> = unsafe { engine.inputNode() };
-        let _ = enable_voice_processing(&input_node);
+        if enable_voice_processing(&input_node).is_ok() {
+            // Keep VPIO for its fast, shareable start, but bypass its uplink
+            // processing for dictation. With music playing, its echo canceller
+            // treats the opening words as echo and hands back pure silence for
+            // the first 1 to 1.3 s of each press (-inf dBFS), so the start of
+            // every sentence went missing. The raw microphone signal is the
+            // better input for the transcription model.
+            unsafe {
+                input_node.setVoiceProcessingBypassed(true);
+            }
+            eprintln!("[whisper-mic] warm dictation VPIO engine runs in bypass mode");
+        }
         objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe { engine.prepare() }))
             .map_err(|e| format!("AVAudioEngine prepare threw: {e:?}"))?;
         let target = Arc::new(Mutex::new(None));
