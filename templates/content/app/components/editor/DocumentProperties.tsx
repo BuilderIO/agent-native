@@ -1046,8 +1046,6 @@ export function DocumentProperties({
     : [];
   const moreProperties = [...hiddenInViewProperties, ...emptyProperties];
   const collapsedCount = moreProperties.length + alwaysHiddenProperties.length;
-  const nestAlwaysHidden =
-    moreProperties.length > 0 && alwaysHiddenProperties.length > 0;
   const propertyRow = (property: DocumentProperty) => (
     <PropertyRow
       key={property.definition.id}
@@ -1083,16 +1081,13 @@ export function DocumentProperties({
                   count: collapsedCount,
                 })
           }
-          properties={
-            nestAlwaysHidden
-              ? moreProperties
-              : [...moreProperties, ...alwaysHiddenProperties]
-          }
+          properties={moreProperties}
           opensForProperties={[...moreProperties, ...alwaysHiddenProperties]}
           renderRow={propertyRow}
         >
-          {nestAlwaysHidden ? (
+          {alwaysHiddenProperties.length > 0 ? (
             <CollapsedProperties
+              withoutLine={moreProperties.length === 0}
               label={t("editor.properties.alwaysHiddenCount", {
                 count: alwaysHiddenProperties.length,
               })}
@@ -1153,23 +1148,28 @@ function useEmptyWhenOpened(scope: string, properties: DocumentProperty[]) {
 /**
  * Properties tucked behind one line, a click away. Opening it changes nothing
  * about the view or the collection, and a Comment being written or read on one
- * of them opens it so the Property is there to point at.
+ * of them opens it so the Property is there to point at. `withoutLine` lists
+ * the Properties straight inside a parent line; they stay open and mounted if
+ * they later need a line of their own.
  */
 function CollapsedProperties({
   label,
   properties,
   opensForProperties,
   renderRow,
+  withoutLine = false,
   children,
 }: {
   label: string;
   properties: DocumentProperty[];
   opensForProperties: DocumentProperty[];
   renderRow: (property: DocumentProperty) => ReactNode;
+  withoutLine?: boolean;
   children?: ReactNode;
 }) {
   const comments = usePropertyComments();
   const [open, setOpen] = useState(false);
+  if (withoutLine && !open) setOpen(true);
   // Keyed on which Property holds the Comment, so a different one opens a line
   // that was closed by hand.
   const heldHere = (id: string | null | undefined) =>
@@ -1185,19 +1185,27 @@ function CollapsedProperties({
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger asChild>
-        <button
-          type="button"
-          className="mt-1 flex h-8 items-center gap-2 rounded px-1 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-        >
-          <Chevron className="size-4" />
-          {label}
-        </button>
-      </CollapsibleTrigger>
+      {withoutLine ? null : (
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="mt-1 flex h-8 items-center gap-2 rounded px-1 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          >
+            <Chevron className="size-4" />
+            {label}
+          </button>
+        </CollapsibleTrigger>
+      )}
       <CollapsibleContent>
         {/* Rows give up 20px of name column, once at any depth, so values in a
             narrow panel lose less and long names still fit. */}
-        <div className="ml-[11px] grid gap-0.5 border-l border-border pl-2 [--property-name-inset:20px]">
+        <div
+          className={cn(
+            "grid gap-0.5",
+            !withoutLine &&
+              "ml-[11px] border-l border-border pl-2 [--property-name-inset:20px]",
+          )}
+        >
           {properties.map(renderRow)}
           {children}
         </div>

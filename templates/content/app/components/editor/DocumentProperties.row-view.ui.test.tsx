@@ -269,6 +269,51 @@ describe("a row's Properties in its view", () => {
     expect(alwaysHiddenLine()).toBeUndefined();
   });
 
+  it("keeps open Always hide Properties in place when a view hides another Property", async () => {
+    mocks.response.properties = [
+      property("always", "value", "always_hide"),
+      property("shown"),
+      property("hidden-later"),
+    ];
+    const view = (hiddenPropertyIds: string[]): DatabaseRowView => ({
+      type: "table",
+      tableColumnOrderIds: ["shown", "hidden-later"],
+      hiddenPropertyIds,
+    });
+    const { rerender } = renderProperties(view([]));
+    await openLine(moreLine());
+    expect(rowIds()).toEqual(["shown", "hidden-later", "always"]);
+    const row = document.querySelector('[data-property-row="always"]');
+
+    rerender(propertiesElement(view(["hidden-later"])));
+
+    expect(rowIds()).toEqual(["shown", "hidden-later", "always"]);
+    expect(alwaysHiddenLine()).toBeDefined();
+    expect(document.querySelector('[data-property-row="always"]')).toBe(row);
+  });
+
+  it("keeps the other Always hide Properties open when one becomes Hide when empty", async () => {
+    mocks.response.properties = [
+      property("changed", "", "always_hide"),
+      property("always", "value", "always_hide"),
+    ];
+    const { rerender } = renderProperties(null);
+    await openLine(moreLine());
+    expect(rowIds()).toEqual(["changed", "always"]);
+
+    mocks.response = {
+      ...mocks.response,
+      properties: [
+        property("changed", "", "hide_when_empty"),
+        property("always", "value", "always_hide"),
+      ],
+    };
+    rerender(propertiesElement(null));
+
+    expect(rowIds()).toEqual(["changed", "always"]);
+    expect(alwaysHiddenLine()).toBeDefined();
+  });
+
   it("leaves a Hide when empty Property where it is until the row reopens", async () => {
     mocks.response.properties = [
       property("was-empty", "", "hide_when_empty"),
