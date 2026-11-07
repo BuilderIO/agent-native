@@ -485,7 +485,6 @@ function CustomServerDetail({
   catalog: DefaultMcpIntegration[];
   integrationId: string;
 }) {
-  const t = useT();
   const { navigate } = useSettingsShell();
   const mcp = useMcpIntegrationsController({ integrations: catalog });
   const [removing, setRemoving] = useState(false);
