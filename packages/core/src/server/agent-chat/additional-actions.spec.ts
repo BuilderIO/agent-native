@@ -5,6 +5,7 @@ import {
   type ActionEntry,
   runAgentLoop,
 } from "../../agent/production-agent.js";
+import { getStrictToolInputValidator } from "../../agent/strict-tool-input.js";
 import { filterActionsForAgentDiscovery } from "../../agent/tool-search.js";
 import { registerActionAccessChecker } from "../../authorization/action-access-runtime.js";
 import { hashEmail } from "../../mcp-client/remote-store.js";
@@ -1084,6 +1085,58 @@ describe("resolveAppAdditionalActions", () => {
       const { assertActionAccess } =
         await import("../../authorization/check-action.js");
       registerActionAccessChecker(assertActionAccess);
+    });
+
+    it("validates schema-less arguments as objects without coercion", async () => {
+      const run = vi.fn(async (args: unknown) => args);
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "schema-less": entry("x", { run, tool: { description: "x" } }),
+          }),
+        }),
+        alice,
+        {},
+      );
+      const tool = added["schema-less"]!;
+      const validate = getStrictToolInputValidator(tool)!;
+      const object = { nested: [1, "x"] };
+      const nullPrototype = Object.assign(Object.create(null), { value: 1 });
+
+      for (const input of [
+        null,
+        false,
+        true,
+        0,
+        1,
+        1n,
+        "",
+        "{}",
+        Symbol("x"),
+        () => {},
+        [],
+        [1],
+      ]) {
+        expect(validate(input)).toBe("input must be object");
+        await expect(asAlice(() => tool.run(input))).rejects.toEqual(
+          new TypeError(
+            "Invalid arguments for schema-less: input must be object",
+          ),
+        );
+      }
+      expect(run).not.toHaveBeenCalled();
+      for (const input of [undefined, {}, object, nullPrototype, new Date(0)]) {
+        expect(validate(input)).toBeNull();
+        await expect(asAlice(() => tool.run(input))).resolves.toEqual(
+          input ?? {},
+        );
+      }
+      const oversized = { value: "x".repeat(80_000_000) };
+      expect(validate(oversized)).toContain("arguments are too large");
+      await expect(asAlice(() => tool.run(oversized))).rejects.toThrow(
+        "arguments are too large to validate",
+      );
+      expect(run).toHaveBeenCalledTimes(5);
     });
 
     it("validates arguments strictly against the entry's schema", async () => {
