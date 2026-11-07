@@ -38,7 +38,11 @@ export interface ResourceSharesResponse {
   role?: "owner" | ShareRole;
   agentReadable?: boolean;
   shares: ResourceShare[];
-  policy?: { allowPublic: boolean; requireOrgMemberForUserShares?: boolean };
+  policy?: {
+    allowPublic: boolean;
+    requireOrgMemberForUserShares?: boolean;
+    confirmOrgVisibility?: boolean;
+  };
 }
 
 export interface ShareDialogControllerOptions {
@@ -320,6 +324,7 @@ export function useShareDialogController({
     resourceId,
     current: visibility,
     orgId: data?.orgId ?? null,
+    confirmOrgVisibility: data?.policy?.confirmOrgVisibility === true,
     canManage,
     active: open,
     apply: applyVisibility,

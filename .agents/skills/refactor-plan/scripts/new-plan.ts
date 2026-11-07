@@ -1,6 +1,6 @@
 // Scaffolds a plan file for one systemic fix. Evidence comes straight from
 // analysis.json so numbers in the plan always match the run; the reasoning
-// sections are left as TODO markers that jira-upsert refuses to ship.
+// sections are left as TODO markers that findings-upsert refuses to ship.
 import { existsSync } from "node:fs";
 import path from "node:path";
 
@@ -193,7 +193,7 @@ main((args) => {
       runId: id,
       trigger: bug ? "bug" : "nightly",
       source: bug ? (bug.url ?? bug.ref) : null,
-      jira: null,
+      ticket: null,
       summary: TODO,
     },
     body,

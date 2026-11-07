@@ -2,7 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { deleteUploadedFile } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { buildRecommendedFrames } from "@shared/agent-context";
+import {
+  buildRecommendedFrames,
+  formatAgentTimestamp,
+  type AgentFrameSuggestion,
+} from "@shared/agent-context";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
@@ -357,6 +361,23 @@ async function claimOrWaitForOtherFill(
 export async function recommendedAgentFrameTimes(
   recording: PublicAgentRecording,
 ): Promise<number[]> {
+  const timeline = buildAgentEditedTimeline(
+    recording.editsJson,
+    typeof recording.durationMs === "number" ? recording.durationMs : 0,
+  );
+  const times = (await recommendedAgentFrames(recording)).map((frame) =>
+    timeline.toSourceMs(frame.atMs),
+  );
+  return [...new Set(times)];
+}
+
+/**
+ * The recommended frames with their reasons, on the edited timeline the agent
+ * context reports; `recommendedAgentFrameTimes` maps them to the original.
+ */
+export async function recommendedAgentFrames(
+  recording: PublicAgentRecording,
+): Promise<AgentFrameSuggestion[]> {
   const sourceDurationMs =
     typeof recording.durationMs === "number" ? recording.durationMs : 0;
   const timeline = buildAgentEditedTimeline(
@@ -367,14 +388,23 @@ export async function recommendedAgentFrameTimes(
     recording.id,
     sourceDurationMs,
   );
-  const times = buildRecommendedFrames({
+  const seen = new Set<number>();
+  const frames: AgentFrameSuggestion[] = [];
+  for (const frame of buildRecommendedFrames({
     durationMs: timeline.durationMs,
     chapters: timeline.mapChapters(parseAgentChapters(recording)),
     segments: timeline.mapSegments(agentSegments),
-  }).map((frame) =>
-    timeline.toSourceMs(clampAgentFrameAtMs(frame.atMs, timeline.durationMs)),
-  );
-  return [...new Set(times)];
+  })) {
+    const atMs = clampAgentFrameAtMs(frame.atMs, timeline.durationMs);
+    if (seen.has(atMs)) continue;
+    seen.add(atMs);
+    frames.push({
+      ...frame,
+      atMs,
+      timestamp: formatAgentTimestamp(atMs),
+    });
+  }
+  return frames;
 }
 
 async function isRecommendedAgentFrame(

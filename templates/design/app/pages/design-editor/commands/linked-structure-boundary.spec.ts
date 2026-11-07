@@ -64,6 +64,7 @@ it("renames through the current command without breaking the next linked propert
       activeFile: { id: "copy-file" },
       canEditDesign: true,
       files: [],
+      screenFiles: [],
       getFreshActiveContent: () => content,
       codeLayerOwnerByNodeId: new Map([
         [

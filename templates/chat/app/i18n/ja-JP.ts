@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "会話を参照…",
+    group: "会話",
+    authentication: "参照を追加するにはログインしてください。",
+    invalid: "送信する前に有効な参照を選択してください。",
+    unavailable:
+      "選択した参照は利用できなくなりました。削除するか、もう一度選択してください。",
+  },
   composer: {
     removeAttachment: "{{name}} を削除",
     removeReference: "{{name}} の参照を削除",

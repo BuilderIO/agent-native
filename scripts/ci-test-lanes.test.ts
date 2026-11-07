@@ -8,6 +8,7 @@ import {
   partitionWeighted,
   requiresFullCoreFastTests,
   splitLargePackages,
+  toolSearchBenchmarkCoreSpecs,
 } from "./ci-test-lanes.ts";
 
 const pkgs = (...entries: Array<[string, number]>) =>
@@ -153,6 +154,28 @@ test("runs the catalog contract specs for any workspace source change", () => {
     [],
     "a docs-only change",
   );
+});
+
+test("runs the tool-search benchmark only for template action and shared changes", () => {
+  const spec = ["src/agent/tool-search.benchmark.spec.ts"];
+  for (const changed of [
+    "templates/mail/actions/manage-draft.ts",
+    "templates/newapp/actions/nested/create-thing.ts",
+    "templates/mail/shared/automation-schema.ts",
+  ]) {
+    assert.deepEqual(toolSearchBenchmarkCoreSpecs([changed]), spec, changed);
+  }
+  for (const unrelated of [
+    "templates/mail/actions/manage-draft.spec.ts",
+    "templates/mail/shared/automation-schema.spec.ts",
+    "templates/mail/app/routes/inbox.tsx",
+    "templates/mail/server/lib/automations.ts",
+    "templates/mail/actions/README.md",
+    "packages/core/src/agent/tool-search.ts",
+    "packages/creative-context/src/actions/x.ts",
+  ]) {
+    assert.deepEqual(toolSearchBenchmarkCoreSpecs([unrelated]), [], unrelated);
+  }
 });
 
 test("refuses lanes that skip or repeat a core shard", () => {

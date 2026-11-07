@@ -313,6 +313,19 @@ export function workspaceAppInitialPathFromSplat(
   return path === "/" ? undefined : path;
 }
 
+/**
+ * The deep path an `/apps/<id>/<rest>` route carries, for hosts that render the
+ * pane from a layout rather than from the route component itself.
+ */
+export function workspaceAppInitialPathFromPathname(
+  pathname: string,
+  search = "",
+  hash = "",
+): string | undefined {
+  const match = pathname.match(/^\/apps\/[^/]+\/(.+)$/);
+  return workspaceAppInitialPathFromSplat(match?.[1], search, hash);
+}
+
 export function workspaceAppIdFromRoute(pathname: string): string | null {
   const match = pathname.match(/^\/apps\/([^/]+)(?:\/|$)/);
   if (!match) return null;
