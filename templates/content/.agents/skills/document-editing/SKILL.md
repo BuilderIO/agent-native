@@ -435,6 +435,42 @@ $$
 - Markdown exports preserve these delimiters. HTML and PDF-ready exports render
   the equation.
 
+### Analytics charts
+
+An `<AnalyticsChart … />` block is a copy of one Analytics dashboard panel (a
+line, area, bar, combo, pie or funnel chart, a metric, or a table) with the
+numbers Analytics returned for the editor who added or last refreshed it.
+Readers see only those numbers; Content never queries a data source, and the
+block links back to the panel. When people paste a panel's copied link
+(Copy link on the panel in Analytics) into a page they can edit, Content does
+the same steps below for them.
+
+To add one, call `capture-analytics-chart` with `documentId` and the panel's
+`link` (or `dashboardId`, `panelId` and `filters`). It checks you can edit
+the page, has Analytics run the panel as you, and returns
+`analyticsChartTag`. Put that tag in the page with `edit-document` as its own
+block, exactly as returned; never write or change an `AnalyticsChart` tag's
+data by hand. To refresh a chart, call it again with `purpose: "refresh"` and
+the chart's `id` from `get-document` as `blockId`, then replace the old tag
+with the new one.
+
+Who can open the page and who can open the dashboard can differ:
+
+- `needs_confirmation` means more people can open the page than the
+  dashboard. Tell the person, and call again with
+  `acknowledgeWiderAudience: true` only if they agree.
+- `analytics_chart_wider_than_dashboard` means the copy can't go in this page:
+  the page is public and the dashboard isn't, or the panel is a table (tables
+  list named customers and accounts) and the page reaches more people than the
+  dashboard. Don't work around it; narrow the page's sharing or ask the person
+  to share the dashboard more widely in Analytics.
+- Sharing a page more widely asks first when it holds charts from narrower
+  dashboards, and is refused (`analytics_table_wider_than_dashboard`) when a
+  table would reach more people than its dashboard.
+
+Analytics refusals (`analytics_refused`, such as a dashboard the person can't
+open) come back with Analytics' own reason; pass it on.
+
 ## Parent-Child Hierarchy
 
 Documents form a tree via `parent_id`:
@@ -491,6 +527,7 @@ failures stop the run.
 | "Delete this page"           | `view-screen` for ID and `updatedAt`, then `delete-document` with both and an idempotency key |
 | "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                                         |
 | "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                          |
+| "Add this Analytics chart"   | `capture-analytics-chart --documentId ... --link ...`, then `edit-document` with the tag       |
 | "Show me the document tree"  | `list-documents`                                                                              |
 
 Always run `refresh-list` after any create, update, or delete operation.

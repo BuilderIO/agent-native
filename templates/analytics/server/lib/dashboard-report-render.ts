@@ -2,6 +2,24 @@ import {
   resolveOgFontFiles,
   runWithRequestContext,
 } from "@agent-native/core/server";
+import {
+  ANALYTICS_CAPTURE_MAX_COLUMNS,
+  ANALYTICS_CAPTURE_MAX_ROWS,
+  ANALYTICS_CAPTURE_MAX_TABLE_ROWS,
+  type AnalyticsCaptureCell,
+  type AnalyticsCapturePanelType,
+  type AnalyticsPanelCapture,
+} from "@agent-native/core/shared";
+import {
+  renderReportChartSvg,
+  renderFunnelChartSvg,
+  REPORT_CHART_FONT_FAMILY,
+  type ReportChartBand,
+  type ReportChartEvent,
+  type ReportChartSeries,
+  type ReportChartType,
+  type ReportChartValueFormatter,
+} from "@agent-native/toolkit/dashboard/report-chart-svg";
 
 import { resolveDualAxis } from "../../app/pages/adhoc/sql-dashboard/dual-axis";
 import {
@@ -71,16 +89,6 @@ import {
   runResolvedPanel,
   type ReportPanelData,
 } from "./dashboard-panel-runner";
-import {
-  renderReportChartSvg,
-  renderFunnelChartSvg,
-  REPORT_CHART_FONT_FAMILY,
-  type ReportChartBand,
-  type ReportChartEvent,
-  type ReportChartSeries,
-  type ReportChartType,
-  type ReportChartValueFormatter,
-} from "./report-chart-svg";
 import { reportInlineMarkdownHtml } from "./report-inline-markdown";
 
 export type ReportSnapshot = {
@@ -509,7 +517,7 @@ function formatReportSeriesLabel(panel: SqlPanel, value: string): string {
     : match[1] || value;
 }
 
-const REPORT_CHART_TYPES: Record<string, ReportChartType> = {
+const REPORT_CHART_TYPES: Partial<Record<string, ReportChartType>> = {
   bar: "bar",
   line: "line",
   area: "area",
@@ -534,6 +542,8 @@ function pivotPanelRows(
 }
 
 type ChartInput = {
+  /** The column the labels come from. */
+  xKey: string;
   events: ReportChartEvent[];
   bands: ReportChartBand[];
   /** The notes this chart shows, each written out under it, whether or not it has a band. */
@@ -595,6 +605,7 @@ function buildChartInput(
   );
 
   return {
+    xKey,
     events,
     bands: shownNotes.flatMap(({ note, bands }) =>
       bands.length > 0
@@ -706,13 +717,16 @@ function dataNoteLines(notes: readonly DataNote[]): {
   };
 }
 
-function renderMetricHtml(
+/** A metric tile's value as the dashboard shows it, and its change line. */
+function metricReading(
   panel: SqlPanel,
   rows: Array<Record<string, unknown>>,
-): { html: string; text: string } {
-  if (rows.length === 0) {
-    return { html: noteHtml("No rows returned."), text: "No rows returned." };
-  }
+): {
+  valueColumn: string;
+  raw: unknown;
+  value: string;
+  line: { html: string; text: string } | null;
+} {
   const valueColumn = detectMetricValueColumn(rows[0], panel.config?.yKey);
   const raw =
     rows.length > 1 && isNumericLike(rows[0][valueColumn])
@@ -727,6 +741,17 @@ function renderMetricHtml(
     formatValue: (change) => formatMetricValue(change, format),
   });
   const line = comparison ? comparisonLine(comparison, format) : null;
+  return { valueColumn, raw, value, line };
+}
+
+function renderMetricHtml(
+  panel: SqlPanel,
+  rows: Array<Record<string, unknown>>,
+): { html: string; text: string } {
+  if (rows.length === 0) {
+    return { html: noteHtml("No rows returned."), text: "No rows returned." };
+  }
+  const { value, line } = metricReading(panel, rows);
   return {
     html: `<p style="margin:0;font-size:30px;font-weight:700;color:${TEXT_COLOR};">${escapeHtml(value)}</p>${line ? line.html : ""}`,
     text: line ? `${value}\n${line.text}` : value,
@@ -809,6 +834,20 @@ function renderCalloutHtml(
   };
 }
 
+/** The columns a table panel shows: its visible configured ones, else every column. */
+function reportTableColumns(
+  panel: SqlPanel,
+  rows: Array<Record<string, unknown>>,
+): TableColumnConfig[] {
+  const rowKeys = new Set(Object.keys(rows[0] ?? {}));
+  const configured = (panel.config?.columns ?? []).filter(
+    (column) => !column.hidden && rowKeys.has(column.key),
+  );
+  return configured.length
+    ? configured
+    : Object.keys(rows[0] ?? {}).map((key) => ({ key }));
+}
+
 function renderTableHtml(
   panel: SqlPanel,
   rows: Array<Record<string, unknown>>,
@@ -816,13 +855,7 @@ function renderTableHtml(
   if (rows.length === 0) {
     return { html: noteHtml("No rows returned."), text: "No rows returned." };
   }
-  const rowKeys = new Set(Object.keys(rows[0]));
-  const configured = (panel.config?.columns ?? []).filter(
-    (column) => !column.hidden && rowKeys.has(column.key),
-  );
-  const columns: TableColumnConfig[] = configured.length
-    ? configured
-    : Object.keys(rows[0]).map((key) => ({ key }));
+  const columns = reportTableColumns(panel, rows);
 
   const configLimit = panel.config?.limit;
   const limit = Math.min(
@@ -1432,5 +1465,245 @@ ${blocks.map((block) => block.html).join("\n")}
         Boolean(attachment),
       ),
     degradedPanelIds,
+  };
+}
+
+const CAPTURE_HEX_COLOR = /^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i;
+const CAPTURE_LABEL_CHARS = 200;
+const CAPTURE_CELL_CHARS = 500;
+
+function captureColor(color: string | undefined): { color?: string } {
+  const trimmed = color?.trim();
+  return trimmed && CAPTURE_HEX_COLOR.test(trimmed) ? { color: trimmed } : {};
+}
+
+function captureCell(value: unknown): AnalyticsCaptureCell {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value.slice(0, CAPTURE_CELL_CHARS);
+  if (typeof value === "bigint") return value.toString();
+  if (value instanceof Date) return value.toISOString();
+  // Functions and symbols stringify to undefined.
+  const json: string | undefined = JSON.stringify(value);
+  return (json ?? "").slice(0, CAPTURE_CELL_CHARS);
+}
+
+function roundToTenth(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+/** The numbers a page keeps for one panel, before the dashboard details. */
+export type PanelCaptureNumbers = Pick<
+  AnalyticsPanelCapture,
+  | "columns"
+  | "rows"
+  | "series"
+  | "stacked"
+  | "keyDates"
+  | "display"
+  | "truncated"
+> & { type: AnalyticsCapturePanelType };
+
+export type PanelCaptureOutcome =
+  | { status: "captured"; numbers: PanelCaptureNumbers }
+  | { status: "unsupported" | "empty"; message: string };
+
+/**
+ * One panel's rows as a frozen copy another app keeps, such as a chart in a
+ * Content page: the same series, colors and key dates a report email draws,
+ * as labeled rows the page stores and draws with toolkit's report renderer.
+ * Panels a page can't draw yet (heatmap, callout, section, extension) and
+ * results with nothing to draw come back with the reason instead, so a
+ * failed capture never stands in for real numbers.
+ */
+export function capturePanelNumbers(args: {
+  panel: SqlPanel;
+  rows: Array<Record<string, unknown>>;
+  truncated?: boolean;
+  vars: Record<string, string>;
+  keyDates: readonly PanelEvent[];
+  now: number;
+}): PanelCaptureOutcome {
+  const { panel, vars, keyDates, now } = args;
+  const sourceTruncated = args.truncated === true;
+  const chartType: ReportChartType | undefined =
+    REPORT_CHART_TYPES[panel.chartType];
+  if (
+    !chartType &&
+    panel.chartType !== "metric" &&
+    panel.chartType !== "table"
+  ) {
+    return {
+      status: "unsupported",
+      message: `${panel.chartType} panels can't be kept in a page yet. Line, area, bar, combo, pie, funnel, metric and table panels can.`,
+    };
+  }
+  if (args.rows.length === 0) {
+    return {
+      status: "empty",
+      message: "This panel returned no rows, so there's nothing to keep.",
+    };
+  }
+
+  if (panel.chartType === "metric") {
+    const { valueColumn, raw, value, line } = metricReading(panel, args.rows);
+    return {
+      status: "captured",
+      numbers: {
+        type: "metric",
+        columns: [(valueColumn || "value").slice(0, CAPTURE_LABEL_CHARS)],
+        rows: [[captureCell(raw)]],
+        display: {
+          value: value.slice(0, CAPTURE_LABEL_CHARS),
+          ...(line ? { comparison: line.text.slice(0, 300) } : {}),
+        },
+        truncated: sourceTruncated,
+      },
+    };
+  }
+
+  if (panel.chartType === "table") {
+    const allColumns = reportTableColumns(panel, args.rows);
+    const columns = allColumns.slice(0, ANALYTICS_CAPTURE_MAX_COLUMNS);
+    const limit = Math.min(
+      panel.config?.limit ?? ANALYTICS_CAPTURE_MAX_TABLE_ROWS,
+      ANALYTICS_CAPTURE_MAX_TABLE_ROWS,
+    );
+    return {
+      status: "captured",
+      numbers: {
+        type: "table",
+        columns: columns.map((column) =>
+          (column.label ?? column.key).slice(0, CAPTURE_LABEL_CHARS),
+        ),
+        rows: args.rows
+          .slice(0, limit)
+          .map((row) => columns.map((column) => captureCell(row[column.key]))),
+        truncated:
+          sourceTruncated ||
+          args.rows.length > limit ||
+          allColumns.length > columns.length,
+      },
+    };
+  }
+
+  if (!chartType) {
+    return {
+      status: "unsupported",
+      message: `${panel.chartType} panels can't be kept in a page yet.`,
+    };
+  }
+  const { rows, forcedYKeys } = pivotPanelRows(
+    panel,
+    args.rows,
+    timeRangeDays(vars.timeRange),
+  );
+
+  if (chartType === "funnel") {
+    const funnel = resolveDashboardFunnelRows(
+      rows,
+      panel.config?.xKey,
+      panel.config?.yKey,
+    );
+    if (funnel.items.length === 0) {
+      return {
+        status: "empty",
+        message: "This funnel returned no stages, so there's nothing to keep.",
+      };
+    }
+    const items = funnel.items.slice(0, ANALYTICS_CAPTURE_MAX_ROWS);
+    const formatter = panel.config?.yFormatter;
+    const valueLabel = (funnel.valueKey || "value").slice(
+      0,
+      CAPTURE_LABEL_CHARS,
+    );
+    return {
+      status: "captured",
+      numbers: {
+        type: "funnel",
+        columns: [
+          (funnel.labelKey || "stage").slice(0, CAPTURE_LABEL_CHARS),
+          valueLabel,
+          "percent of first stage",
+          "drop-off from previous stage",
+        ],
+        rows: items.map((item) => [
+          captureCell(item.label),
+          item.value,
+          roundToTenth(item.percentOfFirst),
+          item.dropOffPercent === null
+            ? null
+            : roundToTenth(item.dropOffPercent),
+        ]),
+        series: [
+          {
+            label: valueLabel,
+            ...captureColor(panel.config?.colors?.[0]),
+            ...(formatter ? { formatter } : {}),
+          },
+        ],
+        truncated: sourceTruncated || funnel.items.length > items.length,
+      },
+    };
+  }
+
+  const input = buildChartInput(
+    panel,
+    rows,
+    chartType,
+    forcedYKeys,
+    keyDates,
+    [],
+    panelTimeRange(panel, vars, now),
+    now,
+  );
+  if (!input || input.labels.length === 0) {
+    return {
+      status: "empty",
+      message:
+        "This panel returned no columns to chart, so there's nothing to keep.",
+    };
+  }
+  const series = input.series.slice(0, ANALYTICS_CAPTURE_MAX_COLUMNS - 1);
+  // A long series keeps its latest points: time runs left to right.
+  const start = Math.max(0, input.labels.length - ANALYTICS_CAPTURE_MAX_ROWS);
+  const labels = input.labels
+    .slice(start)
+    .map((label) => label.slice(0, CAPTURE_CELL_CHARS));
+  return {
+    status: "captured",
+    numbers: {
+      type: chartType,
+      columns: [
+        input.xKey.slice(0, CAPTURE_LABEL_CHARS),
+        ...series.map((entry) => entry.label.slice(0, CAPTURE_LABEL_CHARS)),
+      ],
+      rows: labels.map((label, index) => [
+        label,
+        ...series.map((entry) => entry.data[start + index] ?? null),
+      ]),
+      series: series.map((entry) => ({
+        label: entry.label.slice(0, CAPTURE_LABEL_CHARS),
+        ...captureColor(entry.color),
+        ...(entry.axis ? { axis: entry.axis } : {}),
+        ...(entry.formatter ? { formatter: entry.formatter } : {}),
+        ...(entry.mark ? { mark: entry.mark } : {}),
+      })),
+      ...(panel.config?.stacked === true ? { stacked: true } : {}),
+      keyDates: input.events
+        .filter((event) => event.index >= start)
+        .slice(0, 100)
+        .map((event) => ({
+          x: (labels[event.index - start] ?? "").slice(0, CAPTURE_LABEL_CHARS),
+          label: event.label.slice(0, CAPTURE_LABEL_CHARS),
+          ...captureColor(event.color),
+        })),
+      truncated:
+        sourceTruncated ||
+        input.pointLimit !== null ||
+        start > 0 ||
+        input.series.length > series.length,
+    },
   };
 }

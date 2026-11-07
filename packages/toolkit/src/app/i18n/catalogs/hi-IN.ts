@@ -1478,6 +1478,10 @@ const messages: ToolkitAgentChatTranslation = {
     "{{organization}} के सभी लोग, नए सदस्यों सहित, इसे खोल सकेंगे और इसमें मौजूद सब कुछ देख सकेंगे, जिसमें संदेश, फ़ाइलें और अन्य सामग्री शामिल हैं। आप इसे बाद में बदल सकते हैं।",
   "share.confirmOrganizationAction": "संगठन के साथ साझा करें",
   "share.confirmOrganizationSharing": "साझा किया जा रहा है...",
+  "share.confirmPublicTitle": "लिंक वाले किसी भी व्यक्ति के साथ साझा करें?",
+  "share.confirmPublicDescription":
+    "लिंक वाला कोई भी व्यक्ति, आपके संगठन से बाहर के लोग भी, इसे खोल सकेगा और इसमें सब कुछ देख सकेगा। आप इसे बाद में बदल सकते हैं।",
+  "share.confirmPublicAction": "सार्वजनिक रूप से साझा करें",
   "status.resuming": "फिर से शुरू हो रहा है",
   "status.stillWorking": "अभी काम जारी है",
   "status.thinking": "सोच रहा है",

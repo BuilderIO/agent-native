@@ -216,7 +216,23 @@ export async function resolveDocumentAccess(
 export async function resolveDocumentAccess(
   id: string,
   options: { skipResourceBody: true; db?: ReturnType<typeof getDb> },
-): Promise<({ role: ResolvedAccess["role"] } & DocumentAccessAuthority) | null>;
+): Promise<
+  | ({
+      role: ResolvedAccess["role"];
+      /**
+       * The columns access reads, never the body. A page in Trash still
+       * resolves for people who can open it, with `trashedAt` set.
+       */
+      resource: {
+        id: string;
+        ownerEmail: string;
+        orgId: string | null;
+        visibility: string;
+        trashedAt?: Date | string | null;
+      };
+    } & DocumentAccessAuthority)
+  | null
+>;
 export async function resolveDocumentAccess(
   id: string,
   options: { skipResourceBody?: boolean; db?: ReturnType<typeof getDb> } = {},

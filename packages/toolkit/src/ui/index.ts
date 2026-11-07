@@ -46,6 +46,7 @@ export * from "./sidebar.js";
 export * from "./skeleton.js";
 export * from "./slider.js";
 export * from "./sonner.js";
+export * from "./source-embed-frame.js";
 export * from "./spinner.js";
 export * from "./switch.js";
 export * from "./table.js";

@@ -9,6 +9,7 @@ import {
   useIsMcpDirectoryWidgetWriteEmbed,
 } from "@agent-native/core/client/mcp-app-host";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import type { EmbedVisibility } from "@agent-native/core/shared";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
@@ -19,6 +20,11 @@ import {
   ShareTrigger,
   type AgentShareDestination,
 } from "@agent-native/toolkit/sharing";
+import {
+  analyticsChartsWiderThan,
+  type AnalyticsChartData,
+} from "@shared/analytics-chart-block";
+import { analyticsChartsInBody } from "@shared/analytics-charts-in-body";
 import type {
   ContentDatabaseNavigationPageResponse,
   Document,
@@ -50,6 +56,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent,
@@ -1032,6 +1039,55 @@ export function DocumentToolbar({
     !isLocalFileDocument &&
     new URLSearchParams(location.search).get("share") === "1";
   const [shareRequested, setShareRequested] = useState(false);
+  const shareMounted = shareRequested || openShareOnLoad;
+  const [analyticsCharts, setAnalyticsCharts] = useState<AnalyticsChartData[]>(
+    [],
+  );
+  // Read only while Share is open: the body is parsed to find the charts.
+  useEffect(() => {
+    if (!shareMounted) return;
+    let cancelled = false;
+    analyticsChartsInBody(documentContent).then(
+      (charts) => {
+        if (!cancelled) setAnalyticsCharts(charts);
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [documentContent, shareMounted]);
+  // Sharing a page wider than a chart's dashboard asks first; a table that
+  // would go wider is refused by the server when the change is saved.
+  const confirmChartAudience = useCallback(
+    (from: EmbedVisibility, to: EmbedVisibility) => {
+      if (to === from || to === "private") return false;
+      const { warn, block } = analyticsChartsWiderThan(to, analyticsCharts);
+      return warn.length + block.length > 0;
+    },
+    [analyticsCharts],
+  );
+  const chartShareDetail = useMemo(() => {
+    if (analyticsCharts.length === 0) return undefined;
+    return (to: EmbedVisibility) => {
+      const { warn, block } = analyticsChartsWiderThan(to, analyticsCharts);
+      const wider = [...warn, ...block];
+      if (wider.length === 0) return null;
+      const dashboards = [
+        ...new Set(wider.map((chart) => chart.dashboard.title)),
+      ].join(", ");
+      const text =
+        wider.length === 1
+          ? t("analyticsChart.shareDetailOne", { dashboards })
+          : t("analyticsChart.shareDetail", {
+              count: wider.length,
+              dashboards,
+            });
+      return block.length > 0
+        ? `${text} ${t("analyticsChart.blockedTable")}`
+        : text;
+    };
+  }, [analyticsCharts, t]);
   const [autoSync, setAutoSync] = useLocalStorage(
     `notion-auto-sync:${documentId}`,
     false,
@@ -1730,6 +1786,8 @@ export function DocumentToolbar({
                     }
                     defaultOpen={shareRequested || openShareOnLoad}
                     onOpenChange={handleDbShareOpenChange}
+                    confirmVisibility={confirmChartAudience}
+                    visibilityConfirmDetail={chartShareDetail}
                     visibilityCopy={{
                       private: {
                         description: t("editor.toolbar.privateLinkCanView"),

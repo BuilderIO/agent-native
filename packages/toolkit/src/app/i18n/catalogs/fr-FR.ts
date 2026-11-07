@@ -1689,6 +1689,11 @@ const messages: ToolkitAgentChatTranslation = {
     "Toutes les personnes de {{organization}}, y compris les nouveaux membres, pourront l'ouvrir et voir tout son contenu, y compris les messages, les fichiers et les autres éléments. Vous pourrez modifier ce réglage plus tard.",
   "share.confirmOrganizationAction": "Partager avec l'organisation",
   "share.confirmOrganizationSharing": "Partage en cours...",
+  "share.confirmPublicTitle":
+    "Partager avec toute personne disposant du lien ?",
+  "share.confirmPublicDescription":
+    "Toute personne disposant du lien, y compris en dehors de votre organisation, pourra ouvrir ceci et en voir tout le contenu. Vous pourrez modifier ce choix plus tard.",
+  "share.confirmPublicAction": "Partager publiquement",
   "settings.emailTitle": "Adresse e-mail",
   "settings.emailChange": "Changer d’adresse e-mail",
   "settings.emailChanging": "Envoi...",

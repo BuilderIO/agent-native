@@ -1504,6 +1504,10 @@ const messages: ToolkitAgentChatTranslation = {
     "سيتمكن جميع أفراد {{organization}}، بمن فيهم الأعضاء الجدد، من فتح هذا وعرض كل ما فيه، بما في ذلك أي رسائل وملفات ومحتوى آخر. يمكنك تغيير ذلك لاحقًا.",
   "share.confirmOrganizationAction": "المشاركة مع المؤسسة",
   "share.confirmOrganizationSharing": "جارٍ المشاركة...",
+  "share.confirmPublicTitle": "هل تريد المشاركة مع أي شخص لديه الرابط؟",
+  "share.confirmPublicDescription":
+    "سيتمكن أي شخص لديه الرابط، بمن في ذلك أشخاص من خارج مؤسستك، من فتح هذا ورؤية كل ما فيه. يمكنك تغيير ذلك لاحقًا.",
+  "share.confirmPublicAction": "مشاركة بشكل عام",
   "status.resuming": "جارٍ الاستئناف",
   "status.stillWorking": "لا يزال قيد العمل",
   "status.thinking": "يفكّر",

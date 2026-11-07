@@ -1497,6 +1497,10 @@ const messages: ToolkitAgentChatTranslation = {
     "새 구성원을 포함한 {{organization}}의 모든 사용자가 이 항목을 열고 메시지, 파일 등 모든 내용을 볼 수 있게 됩니다. 나중에 변경할 수 있습니다.",
   "share.confirmOrganizationAction": "조직과 공유",
   "share.confirmOrganizationSharing": "공유하는 중...",
+  "share.confirmPublicTitle": "링크가 있는 모든 사용자와 공유할까요?",
+  "share.confirmPublicDescription":
+    "조직 외부 사용자를 포함해 링크가 있는 모든 사용자가 이 항목을 열고 모든 내용을 볼 수 있습니다. 나중에 변경할 수 있습니다.",
+  "share.confirmPublicAction": "공개로 공유",
   "status.resuming": "재개 중",
   "status.stillWorking": "계속 작업 중",
   "status.thinking": "생각 중",

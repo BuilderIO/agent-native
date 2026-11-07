@@ -1,5 +1,6 @@
 import { BlockRegistry } from "@agent-native/core/blocks/server";
 
+import { analyticsChartBlock } from "@/components/editor/analytics-chart/AnalyticsChartBlock";
 import { clipEmbedBlock } from "@/components/editor/clip-embed/ClipEmbedBlock";
 
 /**
@@ -9,3 +10,4 @@ import { clipEmbedBlock } from "@/components/editor/clip-embed/ClipEmbedBlock";
 export const publicContentBlockRegistry = new BlockRegistry();
 
 publicContentBlockRegistry.register(clipEmbedBlock);
+publicContentBlockRegistry.register(analyticsChartBlock);

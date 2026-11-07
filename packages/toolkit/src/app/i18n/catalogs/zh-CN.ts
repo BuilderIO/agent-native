@@ -1406,6 +1406,10 @@ const messages: ToolkitAgentChatTranslation = {
     "{{organization}} 中的所有人（包括新成员）都可以打开并查看其中的所有内容，包括任何消息、文件和其他内容。您可以稍后更改。",
   "share.confirmOrganizationAction": "与组织共享",
   "share.confirmOrganizationSharing": "正在共享...",
+  "share.confirmPublicTitle": "与任何拥有链接的人共享？",
+  "share.confirmPublicDescription":
+    "任何拥有链接的人（包括您组织以外的人）都可以打开此内容并查看其中的全部内容。您之后可以更改此设置。",
+  "share.confirmPublicAction": "公开共享",
   "status.resuming": "正在恢复",
   "status.stillWorking": "仍在处理",
   "status.thinking": "正在思考",

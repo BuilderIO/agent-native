@@ -1501,6 +1501,10 @@ const messages = {
     "Everyone in {{organization}}, including new members, will be able to open this and see everything in it, including any messages, files, and other content. You can change this later.",
   "share.confirmOrganizationAction": "Share with organization",
   "share.confirmOrganizationSharing": "Sharing...",
+  "share.confirmPublicTitle": "Share with anyone who has the link?",
+  "share.confirmPublicDescription":
+    "Anyone with the link, including people outside your organization, will be able to open this and see everything in it. You can change this later.",
+  "share.confirmPublicAction": "Share publicly",
   "status.resuming": "Resuming",
   "status.stillWorking": "Still working",
   "status.thinking": "Thinking",
