@@ -96,8 +96,8 @@ export function AgentAttributionBadge({
   source: "mcp" | "agent";
   authorName: string;
   /** The MCP host id the agent's client reported, such as `claude-code`. */
-  client?: string | null;
-  model?: string | null;
+  client?: string | null | undefined;
+  model?: string | null | undefined;
 }) {
   const t = useT();
   const attribution = t("comments.aiAttribution", { name: authorName });
@@ -138,7 +138,9 @@ export function CommentAttributionBadge({ comment }: { comment: Comment }) {
   return (
     <AgentAttributionBadge
       source={source}
-      authorName={comment.author_name ?? comment.author_email.split("@")[0]}
+      authorName={
+        comment.author_name ?? comment.author_email.replace(/@.*$/, "")
+      }
       client={comment.author_client}
       model={comment.author_model}
     />

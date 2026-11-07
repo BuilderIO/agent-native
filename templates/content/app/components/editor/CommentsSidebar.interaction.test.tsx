@@ -803,16 +803,23 @@ describe("comment review interactions", () => {
   );
 
   it("names the MCP client that posted a comment on its Agent pill", () => {
-    const attributed = thread("one");
-    attributed.comments[0].submission_source = "mcp";
-    attributed.comments[0].author_client = "claude-code";
-    render(null, [attributed], "inline");
+    const postedFrom = (client: string | null): CommentThread => {
+      const base = thread("one");
+      return {
+        ...base,
+        comments: base.comments.map((comment, index) =>
+          index === 0
+            ? { ...comment, submission_source: "mcp", author_client: client }
+            : comment,
+        ),
+      };
+    };
+    render(null, [postedFrom("claude-code")], "inline");
     expect(
       container.querySelector('[data-comment-ai-client="claude-code"]')
         ?.textContent,
     ).toContain("Claude Code");
-    attributed.comments[0].author_client = null;
-    render(null, [attributed], "inline");
+    render(null, [postedFrom(null)], "inline");
     expect(container.querySelector("[data-comment-ai-client]")).toBeNull();
     expect(
       container.querySelector('[data-comment-ai-attribution="mcp"]')

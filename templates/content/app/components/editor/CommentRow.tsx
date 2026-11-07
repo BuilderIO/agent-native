@@ -160,7 +160,7 @@ export function CommentAgentBadge({
   details: ReactNode;
   ariaLabel: string;
   /** The agent's name, such as "Claude Code", in place of "Agent". */
-  label?: string;
+  label?: string | undefined;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
