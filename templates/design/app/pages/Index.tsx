@@ -1394,6 +1394,7 @@ export default function Index() {
   return (
     <>
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
+      {homeContext.dialogs}
       <PromptHome
         title={t("home.designPromptTitle")}
         focusComposer={focusComposer}
@@ -1463,6 +1464,7 @@ export default function Index() {
                 submissionErrorRef.current = true;
               }}
               beforeSubmitContext={homeContext.prepareSubmission}
+              onPasteContext={homeContext.onPasteContext}
               submissionIdentity={homeContext.identity}
               contextItems={homeContext.contextItems}
               contextMenuItems={homeContext.menuItems}

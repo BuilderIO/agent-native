@@ -27,10 +27,11 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: () => ({ mutateAsync: mocks.create }),
-  actionErrorMessage: (error: unknown) =>
-    error instanceof Error
-      ? error.message.replace(/^Action failed: /, "")
-      : undefined,
+  actionErrorMessage: (error: unknown) => {
+    const value = (error as { actionMessage?: unknown } | undefined)
+      ?.actionMessage;
+    return typeof value === "string" ? value : undefined;
+  },
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -237,14 +238,22 @@ describe("home Figma import", () => {
     expect(mocks.error).toHaveBeenCalledWith(
       "designEditor.import.errors.invalidFigFile",
     );
-    mocks.create.mockRejectedValueOnce(new Error("Sign in required"));
+    mocks.create.mockRejectedValueOnce(
+      Object.assign(new Error("Action failed: Sign in required"), {
+        actionMessage: "Sign in required",
+      }),
+    );
     const file = new File(["fixture"], "example.fig");
     await chooseFile(file);
     expect(mocks.navigate).not.toHaveBeenCalled();
     expect(readPendingDesignImport("file-design")).toBeUndefined();
-    expect(mocks.error.mock.lastCall?.[1]).toMatchObject({
-      id: "design-fig-import-progress",
-    });
+    expect(mocks.error.mock.lastCall).toEqual([
+      "Sign in required",
+      expect.objectContaining({
+        id: "design-fig-import-progress",
+        description: undefined,
+      }),
+    ]);
     const retry = mocks.error.mock.lastCall?.[1]?.action.onClick;
     expect(retry).toBeTypeOf("function");
     await act(async () => retry());
@@ -252,5 +261,14 @@ describe("home Figma import", () => {
     expect(mocks.navigate).toHaveBeenCalledExactlyOnceWith(
       "/design/file-design?panel=import",
     );
+  });
+
+  it("names a network failure instead of only the generic title", async () => {
+    mocks.create.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await chooseFile(new File(["fixture"], "example.fig"));
+    expect(mocks.error.mock.lastCall).toEqual([
+      "home.failedToCreateDesign",
+      expect.objectContaining({ description: "Failed to fetch" }),
+    ]);
   });
 });

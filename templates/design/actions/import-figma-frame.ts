@@ -10,8 +10,8 @@ import {
 } from "../server/lib/figma-import-errors.js";
 import {
   buildScreenFilesFromFigmaNodes,
-  fetchFigmaNode,
-  resolveTargetNodeId,
+  MAX_PAGE_IMPORT_NODES,
+  resolveImportTargets,
   summarizeFidelity,
 } from "../server/lib/figma-node-import.js";
 import {
@@ -72,7 +72,7 @@ const schemaInput = z
 
 export default defineAction({
   description:
-    "Import a Figma frame/component by URL or file key + node id, mapping supported structure to fidelity-aware HTML (position, auto-layout as flexbox, text, fills/gradients, strokes, corner radii, effects) and saving it as a new Design screen. Geometry and paint models HTML/CSS cannot represent faithfully (including masks, vector/boolean geometry, lines/arcs, advanced strokes/text, and transformed image crops) use rendered fallbacks instead of silently importing the wrong visual. Returns a fidelity report of which nodes were exact, approximated, or image-fallback. Requires the saved FIGMA_ACCESS_TOKEN secret. A failure names its own cause (unusable URL, node the token cannot read, oversized frame, Figma rate limit, missing durable file storage) and carries a stable errorCode — relay that message to the user instead of reporting a generic failure.",
+    "Import a Figma frame/component by URL or file key + node id, mapping supported structure to fidelity-aware HTML (position, auto-layout as flexbox, text, fills/gradients, strokes, corner radii, effects) and saving it as a new Design screen. A page link (node-id of a page, such as Figma's 0-1) or a file link imports that page's top-level frames, sections opened, each as its own screen (up to 50). Geometry and paint models HTML/CSS cannot represent faithfully (including masks, vector/boolean geometry, lines/arcs, advanced strokes/text, and transformed image crops) use rendered fallbacks instead of silently importing the wrong visual. Returns a fidelity report of which nodes were exact, approximated, or image-fallback. Requires the saved FIGMA_ACCESS_TOKEN secret. A failure names its own cause (unusable URL, node the token cannot read, oversized frame, Figma rate limit, missing durable file storage) and carries a stable errorCode — relay that message to the user instead of reporting a generic failure.",
   schema: schemaInput,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async (args, context) => {
@@ -114,24 +114,25 @@ export default defineAction({
       await assertAccess("design", existingDesignId, "editor");
     }
 
-    const nodeId = await resolveTargetNodeId(fileKey, requestedNodeId);
-    const rootNode = await fetchFigmaNode(fileKey, nodeId);
+    const target = await resolveImportTargets(fileKey, requestedNodeId);
+    const nodeIds = Object.keys(target.nodesById);
+    const pageWarnings = target.truncated
+      ? [
+          `This Figma page has more than ${MAX_PAGE_IMPORT_NODES} top-level frames; imported the first ${MAX_PAGE_IMPORT_NODES}. Link to a frame to import the rest.`,
+        ]
+      : [];
 
     const { files, fidelityEntries, omissionWarnings } =
-      await buildScreenFilesFromFigmaNodes(
-        fileKey,
-        { [nodeId]: rootNode },
-        {
-          source: () => ({ figmaUrl: args.figmaUrl ?? null }),
-        },
-      );
+      await buildScreenFilesFromFigmaNodes(fileKey, target.nodesById, {
+        source: () => ({ figmaUrl: args.figmaUrl ?? null }),
+      });
 
     const createdDesignId = existingDesignId
       ? undefined
       : (
           await createDesign.run(
             {
-              title: rootNode.name?.trim() || "Figma import",
+              title: target.name?.trim() || "Figma import",
               projectType: "prototype",
               designSystemId: null,
               creationMethod: "import_figma",
@@ -177,8 +178,13 @@ export default defineAction({
       ...(saved.files.length
         ? { _receipt: designOutputWriteReceipt(designId, saved.files.length) }
         : {}),
-      warnings: [...(saved.warnings ?? []), ...omissionWarnings],
-      figma: { fileKey, nodeId, nodeName: rootNode.name ?? null },
+      warnings: [...saved.warnings, ...pageWarnings, ...omissionWarnings],
+      figma: {
+        fileKey,
+        nodeId: nodeIds[0] ?? requestedNodeId,
+        nodeIds,
+        nodeName: target.name,
+      },
       fidelityReport: summarizeFidelity(fidelityEntries),
       guidance:
         "Review fidelityReport.imageFallbacks for subtrees rendered as PNG (masks, vector/boolean geometry, lines/arcs, advanced strokes/text, transformed image crops, and unsupported node types) and fidelityReport.approximated for properties CSS cannot express exactly (rotation, per-side stroke alignment, radial/angular/diamond gradients, blur radius scale, and live component/variable/prototype semantics).",

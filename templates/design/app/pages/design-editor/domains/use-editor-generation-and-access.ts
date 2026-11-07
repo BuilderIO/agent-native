@@ -135,6 +135,27 @@ type ActiveBreakpointWrite = {
   editScope: ResponsiveEditScope;
 };
 
+/** Whether the tracked run saved design output, from its persisted turn. */
+function readGenerationOutput(
+  designId: string,
+  pending: { currentRunId?: string; currentTurnId?: string } | null,
+): Promise<"has_output" | "no_output" | "unknown"> {
+  const runId = pending?.currentRunId;
+  const turnId = pending?.currentTurnId;
+  if (!runId || !turnId) return Promise.resolve("unknown");
+  return callAction(
+    "get-design-generation-output",
+    { designId, runId, turnId },
+    { method: "GET", uiOnly: true },
+  )
+    .then((result) =>
+      result.status === "has_output" || result.status === "no_output"
+        ? result.status
+        : ("unknown" as const),
+    )
+    .catch(() => "unknown" as const);
+}
+
 export function useEditorGenerationAndAccess({
   editorCore,
   editorHistory,
@@ -328,23 +349,63 @@ export function useEditorGenerationAndAccess({
     },
     [id],
   );
+  /**
+   * A run can end as stale or failed after it already saved screens: a fast
+   * placement finishes before the editor sees it, or the model's next turn
+   * comes back empty. Retrying such a run saves its output again, so check
+   * what it saved and finish quietly when it did.
+   */
+  const settleIfOutputSaved = useCallback(
+    (otherwise: () => void) => {
+      const settledPending = readPendingGeneration(id, {
+        allowUntimestamped: true,
+      });
+      if (!id) {
+        otherwise();
+        return;
+      }
+      void readGenerationOutput(id, settledPending).then((outputState) => {
+        const latest = readPendingGeneration(id, { allowUntimestamped: true });
+        // The run was stopped, settled, or replaced while this check ran:
+        // its record is gone or belongs to a newer run, so leave it alone.
+        if (settledPending && latest?.startedAt !== settledPending.startedAt)
+          return;
+        if (!settledPending && latest) return;
+        // Only output the run is confirmed to have saved stops a retry; a
+        // check that could not be read keeps the usual retry path.
+        if (outputState !== "has_output") {
+          otherwise();
+          return;
+        }
+        clearPendingGeneration(id);
+        setHasPendingGeneration(false);
+        setRetryablePrompt(null);
+        staleToastShownRef.current = false;
+        setGenerationIssue(null);
+      });
+    },
+    [id, setRetryablePrompt],
+  );
   const markGenerationStale = useCallback(() => {
     if (generationOutputReadyRef.current === null) return;
     clearGenerationCompleteTimer();
     clearAutoRetryTimer();
-    rememberPendingGenerationForRetry();
-    clearPendingGeneration(id);
-    setHasPendingGeneration(false);
-    setGenerationIssue(t("designEditor.generationMayHaveStopped"));
-    if (!staleToastShownRef.current) {
-      staleToastShownRef.current = true;
-      toast.error(t("designEditor.generationMayHaveStoppedToast"));
-    }
+    settleIfOutputSaved(() => {
+      rememberPendingGenerationForRetry();
+      clearPendingGeneration(id);
+      setHasPendingGeneration(false);
+      setGenerationIssue(t("designEditor.generationMayHaveStopped"));
+      if (!staleToastShownRef.current) {
+        staleToastShownRef.current = true;
+        toast.error(t("designEditor.generationMayHaveStoppedToast"));
+      }
+    });
   }, [
     clearAutoRetryTimer,
     clearGenerationCompleteTimer,
     id,
     rememberPendingGenerationForRetry,
+    settleIfOutputSaved,
     t,
   ]);
   const handleGenerationComplete = useCallback(() => {
@@ -369,28 +430,7 @@ export function useEditorGenerationAndAccess({
       });
       const completedStartedAt = completedPending?.startedAt;
       const completedRunTabId = completedPending?.runTabId;
-      const completedRunId = completedPending?.currentRunId;
-      const completedTurnId = completedPending?.currentTurnId;
-      const outputCheck =
-        completedRunId && completedTurnId
-          ? callAction(
-              "get-design-generation-output",
-              {
-                designId: id,
-                runId: completedRunId,
-                turnId: completedTurnId,
-              },
-              { method: "GET", uiOnly: true },
-            )
-              .then((result) =>
-                result?.status === "has_output" ||
-                result?.status === "no_output"
-                  ? result.status
-                  : ("unknown" as const),
-              )
-              .catch(() => "unknown" as const)
-          : Promise.resolve("unknown" as const);
-      void outputCheck.then((outputState) => {
+      void readGenerationOutput(id, completedPending).then((outputState) => {
         const latestPending = readPendingGeneration(id, {
           allowUntimestamped: true,
         });
@@ -474,24 +514,28 @@ export function useEditorGenerationAndAccess({
       if (generationOutputReadyRef.current === null) return;
       clearGenerationCompleteTimer();
       clearAutoRetryTimer();
-      // A rejected request fails the same way on resend; keep only the manual retry.
-      const preservedForRetry = rememberPendingGenerationForRetry(
-        failure?.retryable !== false,
-      );
-      clearPendingGeneration(id);
-      setHasPendingGeneration(false);
-      setGenerationIssue(
-        preservedForRetry
-          ? t("designEditor.generationStoppedRetry")
-          : t("designEditor.generationStoppedCheckAgent"),
-      );
-      staleToastShownRef.current = false;
+      const reportFailure = () => {
+        // A rejected request fails the same way on resend; keep only the manual retry.
+        const preservedForRetry = rememberPendingGenerationForRetry(
+          failure?.retryable !== false,
+        );
+        clearPendingGeneration(id);
+        setHasPendingGeneration(false);
+        setGenerationIssue(
+          preservedForRetry
+            ? t("designEditor.generationStoppedRetry")
+            : t("designEditor.generationStoppedCheckAgent"),
+        );
+        staleToastShownRef.current = false;
+      };
+      settleIfOutputSaved(reportFailure);
     },
     [
       clearAutoRetryTimer,
       clearGenerationCompleteTimer,
       id,
       rememberPendingGenerationForRetry,
+      settleIfOutputSaved,
       t,
     ],
   );
