@@ -581,6 +581,20 @@ function withPlanComments(
   };
 }
 
+/**
+ * The anchor's section id, if it names one of the plan's sections. An anchor
+ * records whatever element id was nearest the click, and a comment's section
+ * must be a real section row.
+ */
+export function planSectionIdForAnchor(
+  sections: Pick<PlanBundle["sections"][number], "id">[],
+  sectionId: string | null | undefined,
+): string | undefined {
+  return sectionId && sections.some((section) => section.id === sectionId)
+    ? sectionId
+    : undefined;
+}
+
 export function addPlanCommentToBundle(
   bundle: PlanBundleWithHtml,
   comment: PlanCommentItem,
@@ -4550,11 +4564,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       resolutionTarget: draft.resolutionTarget,
       mentions: draft.mentions,
     };
-    const sectionId =
-      anchor.sectionId &&
-      bundle.sections.some((section) => section.id === anchor.sectionId)
-        ? anchor.sectionId
-        : undefined;
+    const sectionId = planSectionIdForAnchor(bundle.sections, anchor.sectionId);
     const anchorJson = JSON.stringify(anchor);
     const commentId = newCommentId();
     const now = new Date().toISOString();
@@ -4649,7 +4659,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           kind: annotation.kind as PlanBundle["comments"][number]["kind"],
           status: annotation.status as PlanBundle["comments"][number]["status"],
           message,
-          sectionId: annotation.sectionId ?? anchor.sectionId,
+          sectionId:
+            annotation.sectionId ??
+            planSectionIdForAnchor(bundle.sections, anchor.sectionId),
           anchor: JSON.stringify(anchor),
           createdBy: "human",
           authorEmail: collabUser?.email,
