@@ -377,6 +377,7 @@ import {
 } from "./suggestions/draft-session";
 import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
 import { useRememberedEditorMode } from "./suggestions/editor-mode-memory";
+import { suggestionPageFollow } from "./suggestions/follow-page";
 import {
   createDraftSuggestionPresentationTransition,
   createObservedSuggestionPresentationTransition,
@@ -3179,6 +3180,7 @@ function PageEditorSessionBody({
   );
   const suggestionDraftRef = useRef(suggestionDraft);
   suggestionDraftRef.current = suggestionDraft;
+  const suggestionDraftChangedAtRef = useRef<number | null>(null);
   const suggestionDraftSaveFailedRef = useRef(suggestionDraftSaveFailed);
   suggestionDraftSaveFailedRef.current = suggestionDraftSaveFailed;
   const suggestionFlushRef = useRef<Promise<Map<
@@ -6832,6 +6834,7 @@ function PageEditorSessionBody({
     (next: string) => {
       if (next === suggestionDraftRef.current) return;
       suggestionDraftRef.current = next;
+      suggestionDraftChangedAtRef.current = Date.now();
       setSuggestionDraft(next);
       scheduleSuggestionAutosave();
     },
@@ -7027,6 +7030,67 @@ function PageEditorSessionBody({
     },
     [clearSuggestionAutosave],
   );
+
+  // Someone else's change moves the Page past the draft's start, and the
+  // server refuses a suggestion against an older Page. The draft moves to the
+  // new Page once everything typed here is saved and the typing has paused.
+  // A failed save keeps its own alert, which offers to discard and move.
+  useEffect(() => {
+    if (
+      !isSuggesting ||
+      isSubmittingSuggestions ||
+      suggestionDraftSaveFailed ||
+      suggestionAmendmentConflict ||
+      pendingSuggestionDecision ||
+      pendingProposalDecision
+    )
+      return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const check = () => {
+      timer = null;
+      const session = suggestionBaseRef.current;
+      const follow = suggestionPageFollow({
+        session,
+        page: {
+          content: document.content,
+          revision: canonicalSuggestionRevision(document),
+          updatedAt: document.updatedAt,
+        },
+        draftUpdatedAt: suggestionDraftUpdatedAt,
+        settled:
+          suggestionAutosaveRef.current.dirtySince === null &&
+          !suggestionFlushRef.current &&
+          !unresolvedProposalCreationRef.current &&
+          !suggestionDecisionInFlightRef.current &&
+          !proposalDecisionInFlightRef.current &&
+          decisionRefreshInFlightRef.current === null,
+        draftChangedAt: suggestionDraftChangedAtRef.current,
+        now: Date.now(),
+      });
+      if (follow.kind === "wait") timer = setTimeout(check, follow.ms);
+      else if (follow.kind === "rebase" && session)
+        suggestionBaseRef.current = {
+          ...session,
+          baseRevision: follow.baseRevision,
+        };
+      else if (follow.kind === "restart") continueSuggestionModeFrom(document);
+    };
+    check();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [
+    continueSuggestionModeFrom,
+    document,
+    isSubmittingSuggestions,
+    isSuggesting,
+    pendingProposalDecision,
+    pendingSuggestionDecision,
+    suggestionAmendmentConflict,
+    suggestionDraftSaveFailed,
+    suggestionDraftUpdatedAt,
+    suggestionPersistenceRevision,
+  ]);
 
   const refreshSuggestionDecisionDocument = useCallback(
     async (
