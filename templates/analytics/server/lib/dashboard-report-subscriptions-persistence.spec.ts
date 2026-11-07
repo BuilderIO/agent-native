@@ -104,6 +104,17 @@ describe("report subscription dashboard locking", () => {
       expect(saved.filters).toEqual({ f_traffic_environment: "beta" });
     });
 
+    it("refuses a traffic value the filter doesn't offer", async () => {
+      await expect(
+        saveDashboardReportSubscription(
+          { ...input, filters: { f_traffic_environment: "staging" } },
+          ctx,
+        ),
+      ).rejects.toThrow(
+        "f_traffic_environment must be all, production or beta",
+      );
+    });
+
     it("gives nothing to a new report on a dashboard with no default", async () => {
       const saved = await saveDashboardReportSubscription(input, ctx);
 

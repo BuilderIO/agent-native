@@ -1,4 +1,8 @@
-import { defineAction, type ActionRunContext } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
@@ -36,6 +40,12 @@ export default defineAction({
       throw new Error("No authenticated context for query-dashboard-panel.");
     }
 
+    if (args.environment && args.source !== "first-party") {
+      fail("environment applies only to first-party panels.", {
+        errorCode: "invalid_target",
+        statusCode: 400,
+      });
+    }
     const query = normalizeDashboardPanelQuery(args.source, args.query);
     try {
       return await resolveAnalyticsPanelSource(

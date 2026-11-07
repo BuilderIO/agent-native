@@ -173,6 +173,21 @@ describe("fetchReportPanelData", () => {
     ).not.toHaveProperty("trafficEnvironment");
   });
 
+  it("fails a report saved with a traffic value the filter doesn't offer", async () => {
+    const panels = [panel({ id: "signups", sql: "select 1" })];
+
+    const data = await fetchReportPanelData({
+      ...owner,
+      snapshot: {
+        ...snapshotOf(panels),
+        filters: { f_traffic_environment: "staging" },
+      },
+    });
+
+    expect(data.get("signups")).toMatchObject({ status: "query-failed" });
+    expect(mocks.resolveAnalyticsPanelSource).not.toHaveBeenCalled();
+  });
+
   it("maps a missing-credential response to its own status", async () => {
     mocks.resolveAnalyticsPanelSource.mockResolvedValue({
       error: "missing_api_key",

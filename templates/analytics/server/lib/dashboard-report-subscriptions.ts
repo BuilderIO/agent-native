@@ -6,6 +6,7 @@ import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 
 import { BUILTIN_DASHBOARD_HIDDEN_BY } from "../../shared/builtin-dashboard-ids.js";
 import {
+  isTrafficFilterValue,
   TRAFFIC_FILTER_ID,
   TRAFFIC_FILTER_PARAM,
 } from "../../shared/traffic-environment.js";
@@ -242,6 +243,17 @@ function normalizeFilters(filters: Record<string, string> | undefined) {
     if (k && v) out[k] = v;
   }
   return out;
+}
+
+function assertTrafficFilter(
+  filters: Record<string, string>,
+): Record<string, string> {
+  for (const key of [TRAFFIC_FILTER_PARAM, TRAFFIC_FILTER_ID]) {
+    if (key in filters && !isTrafficFilterValue(filters[key])) {
+      throw new Error(`${key} must be all, production or beta`);
+    }
+  }
+  return filters;
 }
 
 function assertTimeOfDay(value: string): string {
@@ -522,10 +534,12 @@ export async function saveDashboardReportSubscription(
 
   const timeOfDay = assertTimeOfDay(input.timeOfDay);
   const timezone = assertTimezone(input.timezone);
-  const filters = normalizeFilters(
-    input.id
-      ? input.filters
-      : withDashboardTraffic(input.filters, dashboard.config),
+  const filters = assertTrafficFilter(
+    normalizeFilters(
+      input.id
+        ? input.filters
+        : withDashboardTraffic(input.filters, dashboard.config),
+    ),
   );
   const updatedAt = nowIso();
   const nextRunAt = input.enabled ? nextDailyRunAt(timeOfDay, timezone) : null;

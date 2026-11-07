@@ -371,7 +371,11 @@ export default defineAction({
       if (agentCaller) {
         verdict = await verifyPanelWrite({
           base: existing ? (existing.config as Record<string, unknown>) : null,
-          next: finalConfig,
+          // Verified on the traffic it will open on, which can refuse a shape
+          // all traffic allows.
+          next: existing
+            ? withTrafficFilterOf(existing.config, finalConfig)
+            : withNewDashboardTrafficFilter(finalConfig),
           signal: actionContext?.signal,
           allowEmptyResult: args.allowEmptyResult,
           memo: verificationMemo,

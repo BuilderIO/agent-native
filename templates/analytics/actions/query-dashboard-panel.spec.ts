@@ -12,7 +12,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("../server/lib/dashboard-panel-query", () => ({
-  DASHBOARD_PANEL_SOURCES: ["bigquery", "demo", "program"],
+  DASHBOARD_PANEL_SOURCES: ["bigquery", "demo", "first-party", "program"],
   normalizeDashboardPanelQuery: mocks.normalizeDashboardPanelQuery,
 }));
 
@@ -41,7 +41,7 @@ describe("query-dashboard-panel", () => {
     mocks.resolveAnalyticsPanelSource.mockResolvedValue({ rows: [] });
 
     await queryDashboardPanel.run(
-      { source: "bigquery", query: "select 1", environment: "beta" },
+      { source: "first-party", query: "select 1", environment: "beta" },
       {} as ActionRunContext,
     );
 
@@ -50,11 +50,26 @@ describe("query-dashboard-panel", () => {
     });
     expect(
       queryDashboardPanel.schema.safeParse({
-        source: "bigquery",
+        source: "first-party",
         query: "select 1",
         environment: "staging",
       }).success,
     ).toBe(false);
+  });
+
+  it("refuses traffic for a source that can't apply it", async () => {
+    mocks.getCredentialContext.mockReturnValue({
+      userEmail: "alice@example.com",
+      orgId: "org-1",
+    });
+
+    await expect(
+      queryDashboardPanel.run(
+        { source: "bigquery", query: "select 1", environment: "beta" },
+        {} as ActionRunContext,
+      ),
+    ).rejects.toMatchObject({ errorCode: "invalid_target", statusCode: 400 });
+    expect(mocks.resolveAnalyticsPanelSource).not.toHaveBeenCalled();
   });
 
   it("preserves the dashboard panel wire shape through the source registry", async () => {

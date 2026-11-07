@@ -85,6 +85,11 @@ export function readTrafficEnvironment(
   return TRAFFIC_ENVIRONMENTS.find((environment) => environment === value);
 }
 
+/** True for a value the traffic filter offers: all traffic, production or beta. */
+export function isTrafficFilterValue(value: string): boolean {
+  return value === ALL_TRAFFIC || readTrafficEnvironment(value) !== undefined;
+}
+
 /** The traffic a host belongs to, or null when no host was recorded. */
 export function trafficEnvironmentOfHost(
   hostname: string | null | undefined,

@@ -184,6 +184,12 @@ describe("compose-dashboard", () => {
     expect(filters.find((f) => f.id === "traffic_environment")).toMatchObject({
       default: "production",
     });
+    const verified = mocks.verifyPanelWrite.mock.calls[0]?.[0] as {
+      next: { filters: Array<Record<string, unknown>> };
+    };
+    expect(
+      verified.next.filters.find((f) => f.id === "traffic_environment"),
+    ).toMatchObject({ default: "production" });
   });
 
   describe("overwriting a dashboard", () => {
