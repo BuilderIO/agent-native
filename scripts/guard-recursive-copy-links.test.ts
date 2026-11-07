@@ -38,10 +38,12 @@ describe("recursive copy links guard", () => {
     const source = [
       "fs.cpSync(src, dest, { recursive: true, dereference: true });",
       "fs.cpSync(src, dest, { recursive: true, dereference: true, filter: undefined });",
-      "fs.cpSync(src, dest, { filter: keep, ...copyOptions, recursive: true, dereference: true });",
+      "fs.cpSync(src, dest, { filter: () => true, ...copyOptions, recursive: true, dereference: true });",
+      "fs.cpSync(src, dest, { recursive: true, dereference: true, filter: keep });",
+      "fs.cpSync(src, dest, { recursive: true, dereference: true, filter });",
     ].join("\n");
 
-    assert.deepEqual(flagged(source), [1, 2, 3]);
+    assert.deepEqual(flagged(source), [1, 2, 3, 4, 5]);
   });
 
   it("counts a choice only when it is written as true", () => {
@@ -71,7 +73,7 @@ describe("recursive copy links guard", () => {
       "fs.cpSync(src, dest, copyOptions);",
       "fs.cpSync(src, dest, { ...copyOptions });",
       "fs.cpSync(src, dest, { recursive: true, dereference: true, ...copyOptions });",
-      "fs.cpSync(src, dest, { ...copyOptions, recursive: true, dereference: true, filter: keep });",
+      "fs.cpSync(src, dest, { ...copyOptions, recursive: true, dereference: true, filter: () => true });",
     ].join("\n");
 
     assert.deepEqual(flagged(source), [1, 2, 3]);

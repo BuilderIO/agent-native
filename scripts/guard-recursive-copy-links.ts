@@ -127,16 +127,15 @@ function leavesLinksToDefault(options: ts.Expression | undefined): boolean {
       else chosen.delete(name);
     }
     if (name === "recursive") recursive = !isFalse;
+    // Like a link choice, a filter counts only when it's written here as a
+    // function: a variable could be `undefined` when the copy runs.
     if (name === "filter") {
       const value = ts.isPropertyAssignment(property)
         ? unwrap(property.initializer)
         : undefined;
-      filtered = !(
-        value &&
-        (value.kind === ts.SyntaxKind.FalseKeyword ||
-          value.kind === ts.SyntaxKind.NullKeyword ||
-          (ts.isIdentifier(value) && value.text === "undefined"))
-      );
+      filtered =
+        value !== undefined &&
+        (ts.isArrowFunction(value) || ts.isFunctionExpression(value));
     }
   }
   const followsLinks = chosen.has("dereference") && filtered;
