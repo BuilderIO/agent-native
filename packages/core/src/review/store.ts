@@ -1936,26 +1936,30 @@ export async function deleteReviewComment(
         ),
       );
     }
-    let deleted = await clearDeletedReviewComment(tx, id, actor, now);
+    // The hook hears only of what this delete cleared; a comment deleted on
+    // its own meanwhile already told it.
+    const deletedIds: string[] = [];
+    if ((await clearDeletedReviewComment(tx, id, actor, now)) > 0) {
+      deletedIds.push(id);
+    }
     // Another comment with no parent can have its metadata changed while this
     // runs, as resolving writes a note to each, so it gets the same rechecked
     // update as the root.
     for (const other of rest.filter((comment) => !comment.parent_comment_id)) {
-      deleted += await clearDeletedReviewComment(
+      const otherId = String(other.id);
+      if ((await clearDeletedReviewComment(tx, otherId, actor, now)) > 0) {
+        deletedIds.push(otherId);
+      }
+    }
+    deletedIds.push(
+      ...(await clearDeletedReviewReplies(
         tx,
-        String(other.id),
+        rest.filter((comment) => comment.parent_comment_id),
         actor,
         now,
-      );
-    }
-    const replies = rest.filter((comment) => comment.parent_comment_id);
-    const deletedReplies = await clearDeletedReviewReplies(
-      tx,
-      replies,
-      actor,
-      now,
+      )),
     );
-    if (target && deleted + deletedReplies > 0) {
+    if (target && deletedIds.length > 0) {
       const resourceType = String(target.resource_type);
       await runReviewCommentWriteHook(
         resourceType,
@@ -1964,13 +1968,13 @@ export async function deleteReviewComment(
           resourceType,
           resourceId: String(target.resource_id),
           threadId: String(target.thread_id),
-          commentIds: [id, ...rest.map((comment) => String(comment.id))],
+          commentIds: deletedIds,
           actorEmail: actor,
         },
         tx,
       );
     }
-    return deleted + deletedReplies;
+    return deletedIds.length;
   };
   if (client.transaction) return client.transaction(deleteIn);
   // A comment's resource never changes, so it can be read ahead of the delete.
@@ -2103,15 +2107,15 @@ const DELETED_REPLIES_PER_STATEMENT = 1_000;
  * metadata, read under the thread's lock, is still current here. A reply can
  * still be deleted on its own in between, as that takes no thread lock, so
  * only those still live are cleared, and one deleted meanwhile keeps who
- * deleted it and when.
+ * deleted it and when. Returns the ids it cleared.
  */
 async function clearDeletedReviewReplies(
   client: DbExec,
   replies: readonly DeletedCommentRow[],
   deletedBy: string | null,
   now: string,
-): Promise<number> {
-  let deleted = 0;
+): Promise<string[]> {
+  const deleted: string[] = [];
   for (
     let start = 0;
     start < replies.length;
@@ -2141,8 +2145,11 @@ async function clearDeletedReviewReplies(
               deleted_at = ${sql.value(now)},
               updated_at = ${sql.value(now)}
         WHERE id IN ${sql.in(batch.map((reply) => String(reply.id)))}
-          AND deleted_at IS NULL`);
-    deleted += result.rowsAffected;
+          AND deleted_at IS NULL
+        RETURNING id`);
+    for (const row of result.rows) {
+      deleted.push(String((row as { id: unknown }).id));
+    }
   }
   return deleted;
 }

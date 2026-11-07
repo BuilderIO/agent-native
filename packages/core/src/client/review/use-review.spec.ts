@@ -6,6 +6,7 @@ import type { ReviewComment } from "../../review/types.js";
 import {
   ReviewOptimisticCache,
   addOptimisticComment,
+  addOptimisticReply,
   insertOptimisticComment,
   markCommentDeleted,
   proposalDecisionOverlay,
@@ -578,6 +579,57 @@ describe("markCommentDeleted", () => {
     expect(
       statusById(markCommentDeleted([root, reply, other], "reply")),
     ).toEqual({ root: "open", reply: "deleted", other: "open" });
+  });
+});
+
+describe("addOptimisticReply", () => {
+  it("adds a reply only to the last page, beside its parent", () => {
+    const reply = (parent: ReviewComment) => ({
+      ...comment("r", "R"),
+      threadId: parent.threadId,
+      parentCommentId: parent.id,
+    });
+    const first = {
+      ...commentsResult([comment("a", "A")]),
+      nextCursor: "c1~x~a",
+    };
+    const last = { ...commentsResult([comment("a", "A")]), nextCursor: null };
+
+    expect(addOptimisticReply(first, resource, "a", reply)).toBe(first);
+    expect(
+      (
+        addOptimisticReply(
+          last,
+          resource,
+          "a",
+          reply,
+        ) as ListReviewCommentsResult
+      ).comments.map((item) => [item.id, item.parentCommentId]),
+    ).toEqual([
+      ["a", null],
+      ["r", "a"],
+    ]);
+    // A page without the parent, or a query the reply doesn't match, is left alone.
+    expect(
+      (
+        addOptimisticReply(
+          last,
+          resource,
+          "z",
+          reply,
+        ) as ListReviewCommentsResult
+      ).comments,
+    ).toHaveLength(1);
+    expect(
+      (
+        addOptimisticReply(
+          last,
+          { ...resource, surfaceId: "other" },
+          "a",
+          reply,
+        ) as ListReviewCommentsResult
+      ).comments,
+    ).toHaveLength(1);
   });
 });
 

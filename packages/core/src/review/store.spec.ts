@@ -16,6 +16,11 @@ const rawClient = {
     if (/^\s*(select|with)\b/i.test(input.sql)) {
       return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
+    // A write that returns rows reports them, as the real clients do.
+    if (/\breturning\b/i.test(input.sql)) {
+      const rows = await stmt.all(...args);
+      return { rows, rowsAffected: rows.length };
+    }
     const info = await stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),
@@ -1361,6 +1366,60 @@ describe("review store", () => {
     expect(
       await getReviewCommentById(root.id, {}, { bypassScope: true }),
     ).toMatchObject({ status: "deleted", deletedBy: "carol@example.com" });
+  });
+
+  it("tells the hook only of the comments a thread delete cleared", async () => {
+    const onCommentWrite = vi.fn();
+    registerReviewableResource({ type: "hooked-doc", onCommentWrite });
+    Object.assign(rawClient, {
+      transaction: <T>(run: (tx: typeof rawClient) => Promise<T>) =>
+        run(rawClient),
+    });
+    const at = { resourceType: "hooked-doc", resourceId: "d-hook-race" };
+    try {
+      const root = await insertReviewComment({ ...at, body: "Root" });
+      const [gone, kept] = [
+        await insertReviewComment({
+          ...at,
+          threadId: root.threadId,
+          parentCommentId: root.id,
+          body: "Deleted on its own",
+        }),
+        await insertReviewComment({
+          ...at,
+          threadId: root.threadId,
+          parentCommentId: root.id,
+          body: "Deleted with the thread",
+        }),
+      ];
+      const run = rawClient.execute.getMockImplementation();
+      if (!run) throw new Error("The test client has no implementation");
+      rawClient.execute.mockImplementation(async (input) => {
+        if (typeof input !== "string" && /RETURNING id/.test(input.sql)) {
+          // One reply is deleted on its own after the thread was read.
+          const write = await pglite.prepare(
+            `UPDATE agent_review_comments
+                SET status = 'deleted', deleted_at = ?
+              WHERE id = ?`,
+          );
+          await write.run("2026-01-01T00:00:00.000Z", gone.id);
+        }
+        return run(input);
+      });
+      onCommentWrite.mockClear();
+      try {
+        expect(await deleteReviewComment(root.id, "carol@example.com")).toBe(2);
+      } finally {
+        rawClient.execute.mockImplementation(run);
+      }
+      expect(onCommentWrite).toHaveBeenCalledTimes(1);
+      expect(onCommentWrite.mock.calls[0]?.[0]).toMatchObject({
+        type: "deleted",
+        commentIds: [root.id, kept.id],
+      });
+    } finally {
+      Reflect.deleteProperty(rawClient, "transaction");
+    }
   });
 
   it("keeps metadata another write adds while a comment is being deleted", async () => {

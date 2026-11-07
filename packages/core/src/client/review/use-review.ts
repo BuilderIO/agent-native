@@ -738,6 +738,28 @@ export function addOptimisticComment(
   );
 }
 
+/**
+ * Adds a reply to a cached list that holds its parent. Oldest first, a new
+ * reply lists after every comment there is, so like a new comment it goes
+ * only on the last page.
+ */
+export function addOptimisticReply(
+  data: unknown,
+  params: unknown,
+  parentId: string,
+  reply: (parent: ReviewComment) => ReviewComment,
+): unknown {
+  if (isReviewCommentsResult(data) && data.nextCursor) return data;
+  return updateComments(data, (comments) => {
+    const parent = comments.find((comment) => comment.id === parentId);
+    if (!parent) return comments;
+    const next = reply(parent);
+    return matchesCommentQuery(params, next)
+      ? insertOptimisticComment(comments, next, params)
+      : comments;
+  });
+}
+
 export function insertOptimisticComment(
   comments: ReviewComment[],
   comment: ReviewComment,
@@ -941,16 +963,9 @@ export function useReplyReviewComment() {
         action: "list-review-comments",
         resource: input,
         transform: (data, params) =>
-          updateComments(data, (comments) => {
-            const parent = comments.find(
-              (comment) => comment.id === input.commentId,
-            );
-            if (!parent) return comments;
-            const reply = optimisticComment(input, id, parent);
-            return matchesCommentQuery(params, reply)
-              ? insertOptimisticComment(comments, reply, params)
-              : comments;
-          }),
+          addOptimisticReply(data, params, input.commentId, (parent) =>
+            optimisticComment(input, id, parent),
+          ),
         onSuccess: (result) => (data) =>
           updateComments(data, (comments) =>
             replaceComment(comments, id, result as ReviewComment),
