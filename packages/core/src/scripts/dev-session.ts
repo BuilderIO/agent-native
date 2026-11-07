@@ -57,3 +57,35 @@ export async function resolveDevUserEmail(): Promise<string | undefined> {
     return undefined;
   }
 }
+
+const MISSING_ORG_TABLE_RE =
+  /relation\s+["'`]?(?:org_members|organizations)["'`]?\s+does not exist|no such table:\s*(?:org_members|organizations)\b/i;
+
+/**
+ * Resolve the org a local CLI call acts in, for `userEmail`.
+ *
+ * An explicit org (`AGENT_ORG_ID`, or the org header a forwarded call
+ * carries) wins. Otherwise this is the org the signed-in app uses for the
+ * same user: their active org, else their first membership, or none when
+ * they chose their personal space. Without it, `pnpm action` ran with no org
+ * and saw only the user's personal rows while the app showed their org's.
+ */
+export async function resolveDevOrgId(
+  userEmail: string | undefined,
+  explicitOrgId: string | undefined,
+): Promise<string | undefined> {
+  if (explicitOrgId) return explicitOrgId;
+  if (!userEmail) return undefined;
+  try {
+    const { resolveOrgIdForEmail } = await import("../org/context.js");
+    return (await resolveOrgIdForEmail(userEmail)) ?? undefined;
+  } catch (error) {
+    // A fresh install has no org tables until the app first boots, so no
+    // user can be in an org yet. Anything else is a real failure; acting
+    // without the org would quietly hide the user's org rows.
+    if (error instanceof Error && MISSING_ORG_TABLE_RE.test(error.message)) {
+      return undefined;
+    }
+    throw error;
+  }
+}

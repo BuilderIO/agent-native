@@ -45,7 +45,7 @@ import {
 } from "../server/request-context.js";
 import { loadCliBootstrap } from "./cli-bootstrap.js";
 import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
-import { resolveDevUserEmail } from "./dev-session.js";
+import { resolveDevOrgId, resolveDevUserEmail } from "./dev-session.js";
 import { loadEnv } from "./utils.js";
 
 loadEnv();
@@ -289,7 +289,10 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   await loadCliBootstrap();
 
   const userEmail = await resolveDevUserEmail();
-  const orgId = process.env.AGENT_ORG_ID || undefined;
+  const orgId = await resolveDevOrgId(
+    userEmail,
+    process.env.AGENT_ORG_ID || undefined,
+  );
 
   return runWithRequestContext({ userEmail, orgId }, () =>
     dispatchAction(actionName, args, options),

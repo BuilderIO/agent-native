@@ -40,7 +40,10 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
 import { runApprovedCliAction } from "../cli/action-approval.js";
 import { getRuntimeDatabaseUrl } from "../db/client.js";
-import { resolveDevUserEmail } from "../scripts/dev-session.js";
+import {
+  resolveDevOrgId,
+  resolveDevUserEmail,
+} from "../scripts/dev-session.js";
 import { notifyActionChange } from "./action-change.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
 import {
@@ -352,7 +355,10 @@ export function mountDevActionForwardRoute(
       const userEmail =
         getHeader(event, DEV_ACTION_USER_HEADER) ||
         (await resolveDevUserEmail());
-      const orgId = getHeader(event, DEV_ACTION_ORG_HEADER) || undefined;
+      const orgId = await resolveDevOrgId(
+        userEmail,
+        getHeader(event, DEV_ACTION_ORG_HEADER) || undefined,
+      );
 
       const context = {
         userEmail,
@@ -495,7 +501,10 @@ export function mountDevDbQueryForwardRoute(nitroApp: any): void {
       const userEmail =
         getHeader(event, DEV_ACTION_USER_HEADER) ||
         (await resolveDevUserEmail());
-      const orgId = getHeader(event, DEV_ACTION_ORG_HEADER) || undefined;
+      const orgId = await resolveDevOrgId(
+        userEmail,
+        getHeader(event, DEV_ACTION_ORG_HEADER) || undefined,
+      );
 
       return runWithRequestContext({ userEmail, orgId }, async () => {
         try {

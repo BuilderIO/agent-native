@@ -18,7 +18,10 @@ import type { AgentChatEvent } from "../agent/types.js";
 import { getAppConfig } from "../app-config/index.js";
 import { createGitHubRepoToolEntries } from "../provider-api/github-repo.js";
 import { loadCliBootstrap } from "../scripts/cli-bootstrap.js";
-import { resolveDevUserEmail } from "../scripts/dev-session.js";
+import {
+  resolveDevOrgId,
+  resolveDevUserEmail,
+} from "../scripts/dev-session.js";
 import { loadEnv, serializeCliArgs } from "../scripts/utils.js";
 import { autoDiscoverActions } from "../server/action-discovery.js";
 import { captureCliOutput } from "../server/cli-capture.js";
@@ -206,7 +209,10 @@ export async function runAgent(
 
   const ownerEmail =
     parsed.userEmail ?? env.AGENT_USER_EMAIL ?? (await resolveDevUserEmail());
-  const orgId = parsed.orgId ?? env.AGENT_ORG_ID ?? undefined;
+  const orgId = await resolveDevOrgId(
+    ownerEmail,
+    parsed.orgId ?? env.AGENT_ORG_ID ?? undefined,
+  );
 
   try {
     const result = await runWithRequestContext(

@@ -137,3 +137,78 @@ describe("resolveDevUserEmail", () => {
     expect(await resolveDevUserEmail()).toBeUndefined();
   });
 });
+
+describe("resolveDevOrgId", () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.restoreAllMocks();
+  });
+
+  function mockOrgLookup(lookup: (email: string) => Promise<string | null>) {
+    const resolveOrgIdForEmail = vi.fn(lookup);
+    vi.doMock("../org/context.js", () => ({ resolveOrgIdForEmail }));
+    return resolveOrgIdForEmail;
+  }
+
+  it("keeps an explicit org without looking up the user's", async () => {
+    const lookup = mockOrgLookup(async () => "org_from_ui");
+
+    const { resolveDevOrgId } = await import("./dev-session.js");
+    expect(await resolveDevOrgId("alice@example.test", "org_explicit")).toBe(
+      "org_explicit",
+    );
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it("uses the org the signed-in app would use for the user", async () => {
+    // The UI scopes reads to the user's active org (or first membership).
+    // A CLI call with no AGENT_ORG_ID must see the same rows, not only the
+    // user's personal ones.
+    const lookup = mockOrgLookup(async () => "org_from_ui");
+
+    const { resolveDevOrgId } = await import("./dev-session.js");
+    expect(await resolveDevOrgId("alice@example.test", undefined)).toBe(
+      "org_from_ui",
+    );
+    expect(lookup).toHaveBeenCalledWith("alice@example.test");
+  });
+
+  it("stays personal when the user has no org or chose personal", async () => {
+    mockOrgLookup(async () => null);
+
+    const { resolveDevOrgId } = await import("./dev-session.js");
+    expect(
+      await resolveDevOrgId("alice@example.test", undefined),
+    ).toBeUndefined();
+  });
+
+  it("has no org to look up without a user", async () => {
+    const lookup = mockOrgLookup(async () => "org_from_ui");
+
+    const { resolveDevOrgId } = await import("./dev-session.js");
+    expect(await resolveDevOrgId(undefined, undefined)).toBeUndefined();
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it("stays personal before the org tables exist", async () => {
+    mockOrgLookup(async () => {
+      throw new Error('relation "org_members" does not exist');
+    });
+
+    const { resolveDevOrgId } = await import("./dev-session.js");
+    expect(
+      await resolveDevOrgId("alice@example.test", undefined),
+    ).toBeUndefined();
+  });
+
+  it("surfaces any other lookup failure instead of acting without the org", async () => {
+    mockOrgLookup(async () => {
+      throw new Error("connection refused");
+    });
+
+    const { resolveDevOrgId } = await import("./dev-session.js");
+    await expect(
+      resolveDevOrgId("alice@example.test", undefined),
+    ).rejects.toThrow("connection refused");
+  });
+});
