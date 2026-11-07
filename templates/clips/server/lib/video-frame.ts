@@ -8,6 +8,7 @@ import {
   IMAGE_EXTENSION_BY_MIME,
   isSupportedImageMimeType,
 } from "./image-signature.js";
+import { RecordingMediaFetchError } from "./recording-media-fetch-error.js";
 import {
   frameSheetFfmpegArgs,
   frameSheetFpsFromProbe,
@@ -77,7 +78,10 @@ function isMissingVideoTrack(stderr: string): boolean {
   );
 }
 
-function mapFfmpegError(err: unknown): VideoFrameExtractionError {
+function mapFfmpegError(
+  err: unknown,
+): VideoFrameExtractionError | RecordingMediaFetchError {
+  if (err instanceof RecordingMediaFetchError) return err;
   const message = err instanceof Error ? err.message : String(err);
   const stderr = err instanceof FfmpegRunError ? err.stderr : "";
   if (/enoent|not found|eacces|enoexec/i.test(message)) {
@@ -116,6 +120,9 @@ async function runFfmpeg(
   remote?: RemoteFrameInput,
 ): Promise<string> {
   try {
+    const allowedMs = remote
+      ? Math.min(timeoutMs, remote.remainingMs())
+      : timeoutMs;
     return await new Promise<string>((resolve, reject) => {
       const child = spawn(resolveFfmpegCommand(), args, {
         stdio: ["ignore", "ignore", "pipe"],
@@ -125,7 +132,7 @@ async function runFfmpeg(
       const timeout = setTimeout(() => {
         timedOut = true;
         child.kill("SIGKILL");
-      }, timeoutMs);
+      }, allowedMs);
 
       child.stderr?.on("data", (chunk: Buffer) => {
         stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_LIMIT);
@@ -200,7 +207,8 @@ export async function probeMediaDurationMsFromFile(
   const runInSlot = requireComplete
     ? (fn: () => Promise<number | null>) =>
         withMediaValidationSlot(fn, options.maxQueueWaitMs)
-    : withFrameExtractionSlot;
+    : (fn: () => Promise<number | null>) =>
+        withFrameExtractionSlot(fn, options.remote);
 
   try {
     return await runInSlot(async () => {
@@ -233,10 +241,33 @@ export async function probeMediaDurationMsFromFile(
   }
 }
 
-async function withFrameExtractionSlot<T>(fn: () => Promise<T>): Promise<T> {
+async function withFrameExtractionSlot<T>(
+  fn: () => Promise<T>,
+  remote?: RemoteFrameInput,
+): Promise<T> {
   if (activeFrameExtractions >= MAX_CONCURRENT_FRAME_EXTRACTIONS) {
-    await new Promise<void>((resolve) => frameExtractionWaiters.push(resolve));
+    const waitMs = remote?.remainingMs();
+    await new Promise<void>((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const waiter = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      frameExtractionWaiters.push(waiter);
+      if (remote)
+        timer = setTimeout(() => {
+          const index = frameExtractionWaiters.indexOf(waiter);
+          if (index >= 0) frameExtractionWaiters.splice(index, 1);
+          reject(
+            new RecordingMediaFetchError(
+              "Recording range deadline exceeded.",
+              504,
+            ),
+          );
+        }, waitMs);
+    });
   }
+  remote?.remainingMs();
   activeFrameExtractions += 1;
   try {
     return await fn();
@@ -417,12 +448,16 @@ export async function extractJpegFrameFromFile({
 
       return new Uint8Array(await readFile(outputPath));
     } catch (err) {
-      if (err instanceof VideoFrameExtractionError) throw err;
+      if (
+        err instanceof VideoFrameExtractionError ||
+        err instanceof RecordingMediaFetchError
+      )
+        throw err;
       throw mapFfmpegError(err);
     } finally {
       await rm(dir, { recursive: true, force: true }).catch(() => {});
     }
-  });
+  }, remote);
 }
 
 /** The frame rate a frame sheet uses when its request leaves fps out. */
@@ -452,7 +487,7 @@ export async function probeFrameSheetFpsFromFile(
       throw mapFfmpegError(err);
     });
     return frameSheetFpsFromProbe(stderr);
-  });
+  }, remote);
 }
 
 export async function extractJpegFrameSheetFromFile({
@@ -522,10 +557,14 @@ export async function extractJpegFrameSheetFromFile({
 
       return new Uint8Array(await readFile(outputPath));
     } catch (err) {
-      if (err instanceof VideoFrameExtractionError) throw err;
+      if (
+        err instanceof VideoFrameExtractionError ||
+        err instanceof RecordingMediaFetchError
+      )
+        throw err;
       throw mapFfmpegError(err);
     } finally {
       await rm(dir, { recursive: true, force: true }).catch(() => {});
     }
-  });
+  }, remote);
 }

@@ -72,8 +72,10 @@ describe("recording range broker", () => {
     let release: ((response: Response) => void) | undefined;
     let canceled = false;
     let count = 0;
-    const media = await openAgentFrameRange(async () => {
+    let headerTimeoutMs = 0;
+    const media = await openAgentFrameRange(async (_range, timeoutMs) => {
       if (++count === 1) return response(Buffer.from("a"), "bytes 0-0/4");
+      headerTimeoutMs = timeoutMs;
       return await new Promise<Response>((resolve) => {
         release = resolve;
       });
@@ -83,6 +85,7 @@ describe("recording range broker", () => {
       () => null,
     );
     while (!release) await new Promise((resolve) => setImmediate(resolve));
+    expect(headerTimeoutMs).toBeLessThanOrEqual(5_000);
     controller.abort();
     await request;
     const cleanup = media.cleanup();
@@ -101,6 +104,54 @@ describe("recording range broker", () => {
     );
     await cleanup;
     expect(canceled).toBe(true);
+  });
+
+  it("cancels an active upstream body on unexpected client disconnect and closes the broker", async () => {
+    let count = 0;
+    let started!: () => void;
+    let canceled!: () => void;
+    const bodyStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const bodyCanceled = new Promise<void>((resolve) => {
+      canceled = resolve;
+    });
+    const media = await openAgentFrameRange(async () => {
+      if (++count === 1) return response(Buffer.from("a"), "bytes 0-0/4");
+      return new Response(
+        new ReadableStream({
+          start() {
+            started();
+          },
+          cancel() {
+            canceled();
+          },
+        }),
+        {
+          status: 206,
+          headers: { etag: '"one"', "content-range": "bytes 0-3/4" },
+        },
+      );
+    }, "mov");
+    const controller = new AbortController();
+    const request = fetch(media.path, { signal: controller.signal }).catch(
+      () => null,
+    );
+    try {
+      await bodyStarted;
+      controller.abort();
+      await request;
+      await bodyCanceled;
+      await media.remote.assertHealthy();
+    } finally {
+      await media.cleanup();
+    }
+    await expect(fetch(media.path)).rejects.toThrow();
+    const fresh = await openAgentFrameRange(
+      async () => response(Buffer.from("a"), "bytes 0-0/4"),
+      "mov",
+    );
+    await fresh.cleanup();
   });
 
   it("cancels a stalled range body at the overall deadline", async () => {
@@ -123,7 +174,7 @@ describe("recording range broker", () => {
         "mov",
       );
       const rejected = expect(opening).rejects.toThrow(/deadline/i);
-      await vi.advanceTimersByTimeAsync(90_000);
+      await vi.advanceTimersByTimeAsync(55_000);
       await rejected;
       expect(canceled).toBe(true);
     } finally {

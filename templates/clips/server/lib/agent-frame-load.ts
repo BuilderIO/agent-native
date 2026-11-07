@@ -170,17 +170,23 @@ export async function loadAgentFrame(
     if (resolved.atMs !== atMs) {
       return { frame: resolved.frame, atMs: resolved.atMs, moved: true };
     }
+    // A verified frame must not wait for a multi-frame fill to spend the
+    // remaining serverless request budget or poison its shared range broker.
+    if (media.remote) return { frame: resolved.frame, atMs, moved: false };
 
-    await claim?.fill(
-      (frameAtMs) =>
-        extractJpegFrameFromFile({
-          mediaPath: media.path,
-          atMs: frameAtMs,
-          remote: media.remote,
-        }),
-      { atMs, frame: resolved.frame },
-    );
-    await media.remote?.assertHealthy();
+    try {
+      await claim?.fill(
+        (frameAtMs) =>
+          extractJpegFrameFromFile({
+            mediaPath: media.path,
+            atMs: frameAtMs,
+            remote: media.remote,
+          }),
+        { atMs, frame: resolved.frame },
+      );
+    } catch {
+      console.warn("[agent-frame] optional recommended-frame fill failed");
+    }
     return { frame: resolved.frame, atMs, moved: false };
   } finally {
     // Whatever ended the request, requests waiting on this clip's frames must

@@ -2,12 +2,18 @@ import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import type { Socket } from "node:net";
 
+import {
+  RecordingMediaFetchError,
+  sanitizeRecordingMediaError,
+} from "./recording-media-fetch-error.js";
+
 const RANGE_BYTES = 1024 * 1024;
 const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 const MAX_RANGES = 128;
 const MAX_CLIENT_REQUESTS = 32;
 const MAX_CONCURRENT_REQUESTS = 2;
-const DEADLINE_MS = 90_000;
+export const FRAME_RANGE_DEADLINE_MS = 55_000;
+const MAX_HEADER_WAIT_MS = 5_000;
 const MAX_CONCURRENT_BROKERS = 2;
 let activeBrokers = 0;
 
@@ -16,12 +22,14 @@ type RangeReader = (range: string, timeoutMs: number) => Promise<Response>;
 export type RemoteFrameInput = {
   format: "mov" | "matroska";
   assertHealthy(): Promise<void>;
+  remainingMs(): number;
 };
 
 /** A loopback-only, single-object source. It never redirects FFmpeg to storage. */
 export async function openAgentFrameRange(
   readRange: RangeReader,
   format: RemoteFrameInput["format"],
+  deadline = Date.now() + FRAME_RANGE_DEADLINE_MS,
 ): Promise<{
   path: string;
   remote: RemoteFrameInput;
@@ -31,8 +39,7 @@ export async function openAgentFrameRange(
     throw new Error("Recording range capacity exceeded.");
   }
   activeBrokers++;
-  const deadline = Date.now() + DEADLINE_MS;
-  let failure: Error | undefined;
+  let failure: RecordingMediaFetchError | undefined;
   let closed = false;
   let totalBytes = 0;
   let rangeCount = 0;
@@ -42,31 +49,44 @@ export async function openAgentFrameRange(
   const readers = new Set<ReadableStreamDefaultReader<Uint8Array>>();
   const tasks = new Set<Promise<void>>();
   const sockets = new Set<Socket>();
-  const fail = (message: string) => {
-    failure ??= new Error(message);
+  const fail = (message: string, status = 502) => {
+    failure ??= new RecordingMediaFetchError(message, status);
     return failure;
   };
   const remaining = () => {
     const ms = deadline - Date.now();
-    if (ms <= 0) throw fail("Recording range deadline exceeded.");
+    if (ms <= 0) throw fail("Recording range deadline exceeded.", 504);
     return ms;
   };
   const cancelReaders = () => {
     for (const reader of readers) void reader.cancel().catch(() => {});
   };
-  const timer = setTimeout(() => {
-    fail("Recording range deadline exceeded.");
-    cancelReaders();
-    for (const socket of sockets) socket.destroy();
-  }, DEADLINE_MS);
+  const timer = setTimeout(
+    () => {
+      fail("Recording range deadline exceeded.", 504);
+      cancelReaders();
+      for (const socket of sockets) socket.destroy();
+    },
+    Math.max(0, deadline - Date.now()),
+  );
 
   async function read(start: number, end: number, signal: AbortSignal) {
     const length = end - start + 1;
     if (++rangeCount > MAX_RANGES || totalBytes + length > MAX_TOTAL_BYTES) {
-      throw fail("Recording range budget exceeded.");
+      throw fail("Recording range budget exceeded.", 413);
     }
     totalBytes += length;
-    const response = await readRange(`bytes=${start}-${end}`, remaining());
+    let response: Response;
+    try {
+      response = await readRange(
+        `bytes=${start}-${end}`,
+        Math.min(remaining(), MAX_HEADER_WAIT_MS),
+      );
+    } catch (error) {
+      const safe = sanitizeRecordingMediaError(error);
+      failure ??= safe;
+      throw safe;
+    }
     if (closed || signal.aborted) {
       await response.body?.cancel().catch(() => {});
       throw new Error("Recording range client disconnected.");
@@ -89,6 +109,11 @@ export async function openAgentFrameRange(
       !response.body
     ) {
       await response.body?.cancel().catch(() => {});
+      if (response.status !== 206) {
+        const status =
+          response.status === 413 ? 413 : response.status === 504 ? 504 : 502;
+        throw fail("Recording storage returned an invalid range.", status);
+      }
       throw fail("Recording storage returned an inconsistent range.");
     }
     identity ??= { etag, size };
@@ -104,7 +129,15 @@ export async function openAgentFrameRange(
     try {
       while (true) {
         remaining();
-        const { done, value } = await reader.read();
+        let result: ReadableStreamReadResult<Uint8Array>;
+        try {
+          result = await reader.read();
+        } catch (error) {
+          const safe = sanitizeRecordingMediaError(error);
+          failure ??= safe;
+          throw safe;
+        }
+        const { done, value } = result;
         if (done) break;
         received += value.byteLength;
         if (received > length)
@@ -139,7 +172,7 @@ export async function openAgentFrameRange(
         ++requestCount > MAX_CLIENT_REQUESTS ||
         activeRequests >= MAX_CONCURRENT_REQUESTS
       ) {
-        fail("Recording range request budget exceeded.");
+        fail("Recording range request budget exceeded.", 413);
         response.writeHead(503).end();
         return;
       }
@@ -230,6 +263,7 @@ export async function openAgentFrameRange(
       path: `http://127.0.0.1:${address.port}${path}`,
       remote: {
         format,
+        remainingMs: remaining,
         assertHealthy: async () => {
           await new Promise<void>((resolve) => setImmediate(resolve));
           await Promise.allSettled([...tasks]);

@@ -163,6 +163,46 @@ describe("agent-frame.jpg route", () => {
     );
   });
 
+  it("returns the verified requested frame when optional fill exhausts the broker", async () => {
+    const assertHealthy = vi
+      .fn()
+      .mockRejectedValue(new Error("Recording range budget exceeded."));
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({ recording: { id: "optional-fill-budget" } }),
+    });
+    mockLoadRecordingMediaFile.mockResolvedValue({
+      path: "http://127.0.0.1/test",
+      mimeType: "video/mp4",
+      cleanup: mockCleanupMediaFile,
+      remote: { format: "mov", assertHealthy },
+    });
+    mockClaimFill.mockResolvedValue(undefined);
+    const event = makeEvent({ id: "optional-fill-budget", atMs: "1000" });
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
+    expect(event.status).toBe(200);
+    expect(result).toEqual(Buffer.from([1, 2, 3]));
+    expect(mockClaimFill).not.toHaveBeenCalled();
+    expect(mockClaimRelease).toHaveBeenCalledOnce();
+  });
+
+  it("returns the verified frame if optional local fill throws", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({ recording: { id: "local-fill-failure" } }),
+    });
+    mockClaimFill.mockRejectedValueOnce(new Error("fill failed"));
+    const event = makeEvent({ id: "local-fill-failure", atMs: "1000" });
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
+    expect(event.status).toBe(200);
+    expect(result).toEqual(Buffer.from([1, 2, 3]));
+    expect(mockClaimRelease).toHaveBeenCalledOnce();
+  });
+
   it("cuts the frame from the trimmed timeline, never from trimmed-out footage", async () => {
     mockLoadPublicAgentAccess.mockResolvedValue({
       ok: true,
