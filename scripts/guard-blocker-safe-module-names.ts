@@ -88,8 +88,8 @@ const SKIPPED = /(?:\.spec\.|\.test\.|\/__tests__\/|\.d\.ts$)/;
 // followed, as no such import in the repo uses an alias.
 const QUERY_IMPORT =
   /(?:\bfrom|\bimport)\s*\(?\s*["'](\.{1,2}\/[^"'?]+)\?[^"']*["']/g;
-// The start of an `import.meta.glob` call, with or without type arguments.
-const GLOB_CALL = /\bimport\.meta\.glob\s*(?=[<(])/g;
+// Where `import.meta.glob` appears. globCallPatterns tells calls from mentions.
+const GLOB_CALL = /\bimport\.meta\.glob\b/g;
 
 // Every place a browser loads modules from, with the URL each file gets in dev.
 // Package sources reach apps as their published `dist/*.js` files. `public/`
@@ -220,13 +220,28 @@ function globPattern(glob: string): RegExp {
 }
 
 /**
- * The patterns passed to the `import.meta.glob` call whose arguments start at
- * `start` in `source`, or null when they aren't string literals.
+ * The patterns passed to the `import.meta.glob` call whose name ends at
+ * `start` in `source`: undefined when no call follows, as in a mention in a
+ * message, and null when its patterns aren't string literals.
  */
-function globCallPatterns(source: string, start: number): string[] | null {
+function globCallPatterns(
+  source: string,
+  start: number,
+): string[] | null | undefined {
   let at = start;
+  // Skips whitespace and comments.
   const skipSpace = () => {
-    while (/\s/.test(source[at] ?? "")) at++;
+    for (;;) {
+      while (/\s/.test(source[at] ?? "")) at++;
+      const close = source.startsWith("//", at)
+        ? "\n"
+        : source.startsWith("/*", at)
+          ? "*/"
+          : null;
+      if (close === null) return;
+      const end = source.indexOf(close, at + 2);
+      at = end === -1 ? source.length : end + close.length;
+    }
   };
   const readString = (): string | null => {
     const quote = source[at];
@@ -239,6 +254,8 @@ function globCallPatterns(source: string, start: number): string[] | null {
     at = end + 1;
     return text;
   };
+  skipSpace();
+  if (source[at] !== "<" && source[at] !== "(") return undefined;
   if (source[at] === "<") {
     // Type arguments can nest, as in `<Record<string, string>>`.
     let depth = 0;
@@ -303,6 +320,7 @@ export function browserModules(
     }
     for (const call of source.matchAll(GLOB_CALL)) {
       const patterns = globCallPatterns(source, call.index + call[0].length);
+      if (patterns === undefined) continue;
       // Rather than skip the files, stop at what this can't follow: patterns
       // that aren't string literals, syntax such as `[ab]` or `{1..3}`, and
       // paths from the project root.

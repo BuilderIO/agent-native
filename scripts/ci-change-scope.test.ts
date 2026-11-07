@@ -4718,6 +4718,7 @@ test(
         "scripts/ci-change-scope.test.ts",
         "scripts/ci-change-scope-renames.test.ts",
         "scripts/ci-change-scope.ts",
+        "scripts/guard-blocker-safe-module-names.ts",
         "scripts/lib/mutation-scope.ts",
         "verification/execution-lease/manifest.json",
         "scripts/ci-build-workspaces.test.ts",

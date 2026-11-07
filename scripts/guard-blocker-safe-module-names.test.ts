@@ -183,7 +183,7 @@ test("checks the files code imports as modules, whatever their type", () => {
   );
 });
 
-test("reads glob calls with type arguments, braces and exclusions", () => {
+test("reads glob calls with type arguments, comments, braces and exclusions", () => {
   const loader = "templates/chat/app/content.ts";
   const matched = [
     "templates/chat/app/content/intro.md",
@@ -192,8 +192,14 @@ test("reads glob calls with type arguments, braces and exclusions", () => {
     "templates/chat/app/notes/2027/plan.md",
   ];
   const source = [
-    "import.meta.glob<Record<string, () => Promise<string>>>(",
-    '  ["./content/*.{md,mdx}", "./notes/{2026,2027}/*.md", "!./content/draft-*.md",],',
+    'throw new Error("Unresolved import.meta.glob dependency");',
+    "import.meta.glob /* loaders */ <Record<string, () => Promise<string>>>(",
+    "  [",
+    "    // Pages and their drafts",
+    '    "./content/*.{md,mdx}",',
+    '    "./notes/{2026,2027}/*.md", /* by year */',
+    '    "!./content/draft-*.md",',
+    "  ],",
     '  { query: "?raw" },',
     ");",
   ].join("\n");
@@ -223,6 +229,7 @@ test("stops at a glob it can't follow, instead of skipping files", () => {
     'import.meta.glob("./content/" + name)',
     "import.meta.glob(`./${dir}/*.md`)",
     "import.meta.glob<Record<string, string>>(patterns)",
+    "import.meta.glob /* pages */ (patterns)",
   ]) {
     assert.throws(
       () => browserModules(["templates/chat/app/content.ts"], () => `${call};`),
