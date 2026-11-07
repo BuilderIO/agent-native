@@ -232,6 +232,31 @@ describe("verifyDashboardPanels", () => {
     });
   });
 
+  it("refuses a panel the dashboard's traffic default can't load, without running it", async () => {
+    mocks.resolve.mockResolvedValue(rows([{ n: 1 }]));
+    const rollup = (where: string) =>
+      panel({
+        source: "first-party",
+        chartType: "metric",
+        sql: `SELECT SUM(event_count) AS n FROM analytics_event_daily_rollups${where}`,
+      });
+    const config = dashboard(
+      [
+        rollup(""),
+        { ...rollup(" WHERE event_date >= '2026-01-01'"), id: "p2" },
+      ],
+      { filters: [newDashboardTrafficFilter()] },
+    );
+
+    const result = await verifyDashboardPanels(config, ["p1", "p2"]);
+
+    const [undated, dated] = result.panels;
+    expect(undated).toMatchObject({ status: "query-error" });
+    expect(undated?.error).toMatch(/needs a start date/);
+    expect(dated?.status).not.toBe("query-error");
+    expect(mocks.resolve).toHaveBeenCalledTimes(1);
+  });
+
   it("reports ok with columns, counts, bounded sample rows and resolved filters", async () => {
     const many = Array.from({ length: 40 }, (_, i) => ({
       week: `w${i}`,

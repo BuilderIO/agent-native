@@ -43,6 +43,7 @@ import {
   describeError,
   runResolvedPanel,
 } from "./dashboard-panel-runner";
+import { scopedAnalyticsSql } from "./first-party-analytics";
 import {
   describeReportSchedules,
   estimateResolvedPanels,
@@ -658,6 +659,23 @@ async function verifyOne(
       ...(opts.signal ? [opts.signal] : []),
       AbortSignal.timeout(Math.max(1, remainingMs())),
     ]);
+
+  // The run below reads all traffic, but the saved dashboard opens on its
+  // default, which refuses some shapes all traffic allows, such as a rollup
+  // with no start date. Scoping finds that without any production rows.
+  const shownTraffic =
+    source === "first-party"
+      ? readTrafficEnvironment(vars[TRAFFIC_FILTER_ID])
+      : undefined;
+  if (shownTraffic) {
+    try {
+      scopedAnalyticsSql(query, state.ctx, undefined, {
+        trafficEnvironment: shownTraffic,
+      });
+    } catch (error) {
+      return finish({ status: "query-error", error });
+    }
+  }
 
   const dryRun =
     source === "bigquery" && opts.dryRun !== false && remainingMs() > 0
