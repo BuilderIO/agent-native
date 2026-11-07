@@ -1011,7 +1011,7 @@ export function useMeetingTranscription({
         // Restarted notes reload the lines they already saved, which hold the
         // same speech Rewind recovers from the meeting's start. Whichever
         // arrives second yields to the saved lines, so it is kept only once.
-        let savedLinesLoaded = false;
+        const savedLinesLoadedRef: { current: boolean } = { current: false };
         let rewindLines: TranscriptLine[] = [];
 
         callClipsAction<{
@@ -1061,7 +1061,7 @@ export function useMeetingTranscription({
                       recovered: s.recovered,
                     }),
                   );
-                  savedLinesLoaded = true;
+                  savedLinesLoadedRef.current = true;
                   if (rewindLines.length) {
                     const duplicates = new Set(rewindLines);
                     session.lines = session.lines.filter(
@@ -1151,7 +1151,7 @@ export function useMeetingTranscription({
           meetingId: resolvedMeetingId,
         }).catch(() => {});
 
-        if (historyPreparedRef.current && savedLinesLoaded) {
+        if (historyPreparedRef.current && savedLinesLoadedRef.current) {
           invoke("rewind_meeting_history_cancel", {
             token: historyPreparedRef.current.token,
           }).catch(() => {});
@@ -1161,7 +1161,12 @@ export function useMeetingTranscription({
             segments: SourcedTranscriptSegment[];
           }>("rewind_meeting_history_collect", { token: prepared.token })
             .then((history) => {
-              if (sessionRef.current !== session || savedLinesLoaded) return;
+              if (
+                sessionRef.current !== session ||
+                savedLinesLoadedRef.current
+              ) {
+                return;
+              }
               rewindLines = history.segments.map((segment) =>
                 transcriptLineFromSegment({ ...segment, recovered: true }),
               );
