@@ -157,6 +157,7 @@ vi.mock("@agent-native/core/server", () => ({
     clips: { hostedStorage: { maxClipBytes: mockHostedMaxClipBytes.value } },
   }),
   getRequestOrgId: vi.fn(() => undefined),
+  resolveHasBuilderGatewayCredential: vi.fn(async () => true),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -1917,6 +1918,28 @@ describe("finalize-recording media serve verification", () => {
     expect(mockInsertOnConflictDoNothing).toHaveBeenCalledWith({
       target: "recordingTranscripts.recordingId",
     });
+  });
+
+  it("queues the transcript job without a pending row when no Builder credential is connected", async () => {
+    const { resolveHasBuilderGatewayCredential } =
+      await import("@agent-native/core/server");
+    vi.mocked(resolveHasBuilderGatewayCredential).mockResolvedValueOnce(false);
+    seedBufferedRecording();
+    mockUploadFile.mockResolvedValue({ url: "/api/uploads/rec_1/blob" });
+    mockState.transcriptRows = [];
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(expect.objectContaining({ status: "ready" }));
+    expect(mockInsertValues).not.toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1", status: "pending" }),
+    );
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1", kind: "transcript" }),
+    );
   });
 
   it("parks a recording waiting for storage on a days-long lease", async () => {

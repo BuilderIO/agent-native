@@ -892,6 +892,24 @@ describe("requestTranscript regeneration", () => {
     });
   });
 
+  it("reports an unavailable AI model instead of queuing a regeneration", async () => {
+    mockResolveHasBuilderGatewayCredential.mockResolvedValue(false);
+    mockSelectRows.queue = [
+      [{ status: "ready", updatedAt: new Date().toISOString() }],
+    ];
+
+    await expect(
+      requestTranscript.run(
+        { recordingId: "rec_ready", force: true, regenerate: true },
+        { caller: "frontend" } as any,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "ai_model_unavailable",
+      statusCode: 409,
+    });
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+  });
+
   it("keeps the ready transcript when regeneration fails", async () => {
     mockTranscribeWithBuilder.mockRejectedValue(
       new Error("Builder transcription failed (503 Service Unavailable)"),

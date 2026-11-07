@@ -1072,6 +1072,20 @@ const requestTranscriptAction = defineAction({
         };
       }
 
+      // A ready transcript still queues without force so its title and
+      // summary work can run; anything that needs the cloud needs a model.
+      if (
+        (args.force ||
+          args.regenerate ||
+          existingTranscript?.status !== "ready") &&
+        !(await resolveHasBuilderGatewayCredential())
+      ) {
+        fail(transcriptFailureMessage("CLOUD_UNCONFIGURED"), {
+          errorCode: "ai_model_unavailable",
+          statusCode: 409,
+        });
+      }
+
       await dispatchPostFinalizeJob({
         recordingId: args.recordingId,
         kind: "transcript",

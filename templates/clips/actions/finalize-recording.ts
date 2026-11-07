@@ -12,6 +12,7 @@ import {
   captureError,
   captureRouteError,
   getAppConfig,
+  resolveHasBuilderGatewayCredential,
 } from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
 import { track } from "@agent-native/core/tracking";
@@ -922,7 +923,14 @@ async function completeReadyRecordingBookkeeping(params: {
     .from(schema.recordingTranscripts)
     .where(eq(schema.recordingTranscripts.recordingId, params.id));
   let shouldDispatchTranscript = false;
-  if (!existingTranscript) {
+  // Without a Builder gateway credential the job records the setup-needed
+  // failure itself; a pending row here would show "Transcribing…" until it
+  // runs. Existing rows keep their state so reconnecting can retry them.
+  const cloudTranscriptionAvailable =
+    await resolveHasBuilderGatewayCredential();
+  if (!existingTranscript && !cloudTranscriptionAvailable) {
+    shouldDispatchTranscript = true;
+  } else if (!existingTranscript) {
     // A transcript import can create the row after the read above; keep it.
     const [insertedTranscript] = await db
       .insert(schema.recordingTranscripts)
@@ -937,6 +945,8 @@ async function completeReadyRecordingBookkeeping(params: {
       .returning({ recordingId: schema.recordingTranscripts.recordingId });
     shouldDispatchTranscript = Boolean(insertedTranscript);
   } else if (
+    existingTranscript &&
+    cloudTranscriptionAvailable &&
     existingTranscript.source !== "imported" &&
     (existingTranscript.status === "failed" ||
       (existingTranscript.status === "pending" &&
