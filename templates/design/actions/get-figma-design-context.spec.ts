@@ -114,6 +114,53 @@ describe("get-figma-design-context", () => {
     ).not.toHaveProperty("geometry");
   });
 
+  it("falls back to a shallower outline for a page too large to read", async () => {
+    const page = {
+      id: "6913:4184",
+      name: "One pager",
+      type: "CANVAS",
+      children: [{ id: "1:2", name: "Cover", type: "FRAME" }],
+    };
+    mocks.executeProviderApiRequest.mockImplementation(
+      async ({ query }: { query: { depth: number } }) =>
+        query.depth > 2
+          ? { response: { ok: true, status: 200, truncated: true } }
+          : jsonEnvelope({ nodes: { "6913:4184": { document: page } } }),
+    );
+
+    const result = await action.run({
+      figmaUrl:
+        "https://www.figma.com/design/abcDEF12345/Campaigns?node-id=6913-4184",
+      depth: 4,
+    } as never);
+
+    expect(result).toMatchObject({
+      mode: "overview",
+      pages: [{ id: "6913:4184", frames: [{ id: "1:2", name: "Cover" }] }],
+    });
+  });
+
+  it("keeps a frame too large to summarize as an error", async () => {
+    mocks.executeProviderApiRequest.mockImplementation(
+      async ({ query }: { query: { depth: number } }) =>
+        query.depth > 2
+          ? { response: { ok: true, status: 200, truncated: true } }
+          : jsonEnvelope({
+              nodes: {
+                "1:2": { document: { id: "1:2", name: "Huge", type: "FRAME" } },
+              },
+            }),
+    );
+
+    await expect(
+      action.run({
+        figmaUrl:
+          "https://www.figma.com/design/abcDEF12345/Campaigns?node-id=1-2",
+        depth: 4,
+      } as never),
+    ).rejects.toMatchObject({ errorCode: "figma_payload_too_large" });
+  });
+
   it("lists only pages when asked, in one shallow request", async () => {
     mocks.executeProviderApiRequest.mockImplementation(
       async ({ query }: { query: { depth: number } }) => {

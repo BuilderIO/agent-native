@@ -75,6 +75,34 @@ function referenceKey(reference: Reference) {
   return `design-home-reference:${reference.source}:${scope ?? ""}:${reference.id}`;
 }
 
+/** A Figma chip in the composer and what it has staged on the server. */
+type FigmaChip = {
+  source: FigmaReferenceSource;
+  revision: number;
+  images?: FigmaReference["images"];
+  /** Set once decoded; its context is rebuilt when the chip count changes. */
+  resolved?: { reference: FigmaReference; title: string };
+  /** Sent with a prompt: the agent may still place it, so it is kept. */
+  sent?: boolean;
+};
+
+/**
+ * A chip dropped before its prompt was sent leaves nothing behind: its staged
+ * images and its attachment are deleted. A sent chip keeps both (a discard
+ * after its images were released is a no-op).
+ */
+function discardFigmaChip(chip: FigmaChip | undefined) {
+  if (!chip) return;
+  void chip.images?.discard();
+  const ref = chip.resolved?.reference.ref;
+  if (!ref || chip.sent) return;
+  void callAction("discard-figma-reference", { ref }).catch(
+    (error: unknown) => {
+      // Best effort: a failed delete only leaves the owner's own blob behind.
+      console.warn("Could not delete a removed Figma attachment.", error);
+    },
+  );
+}
 /** The frame kinds `read-composer-source` reads as a single reference. */
 const FIGMA_ATTACHABLE_FRAME_TYPES = new Set([
   "FRAME",
@@ -182,22 +210,9 @@ export function useHomePromptContext({
     new Map<string, { reference: Reference; revision: number }>(),
   );
   const requestRevision = useRef(0);
-  const figmaSources = useRef(
-    new Map<
-      string,
-      {
-        source: FigmaReferenceSource;
-        revision: number;
-        images?: FigmaReference["images"];
-        /** Set once decoded; its context is rebuilt when the chip count changes. */
-        resolved?: { reference: FigmaReference; title: string };
-      }
-    >(),
-  );
-  // Images of a chip that never reached a sent prompt are deleted, not kept.
-  const discardFigmaImages = (key: string) => {
-    void figmaSources.current.get(key)?.images?.discard();
-  };
+  const figmaSources = useRef(new Map<string, FigmaChip>());
+  const discardFigmaKey = (key: string) =>
+    discardFigmaChip(figmaSources.current.get(key));
   /**
    * Figma chips share one context budget: the composer refuses a send past
    * its total, so each decoded chip gets an even share, recomputed whenever
@@ -234,7 +249,7 @@ export function useHomePromptContext({
     if (previousIdentity.current === identity) return;
     previousIdentity.current = identity;
     requests.current.clear();
-    for (const key of figmaSources.current.keys()) discardFigmaImages(key);
+    for (const key of figmaSources.current.keys()) discardFigmaKey(key);
     figmaSources.current.clear();
     ++requestRevision.current;
     setItems([]);
@@ -250,7 +265,7 @@ export function useHomePromptContext({
       mounted.current = false;
       pendingRequests.clear();
       // Released images ignore a discard, so a sent chip keeps its images.
-      for (const entry of pendingFigma.values()) void entry.images?.discard();
+      for (const entry of pendingFigma.values()) discardFigmaChip(entry);
     };
   }, []);
   const attach = useCallback(
@@ -353,7 +368,7 @@ export function useHomePromptContext({
   const resolveFigma = (key: string, source: FigmaReferenceSource) => {
     const requestIdentity = identity;
     const revision = ++requestRevision.current;
-    discardFigmaImages(key);
+    discardFigmaKey(key);
     figmaSources.current.set(key, { source, revision });
     const current = () =>
       mounted.current &&
@@ -366,7 +381,12 @@ export function useHomePromptContext({
     readFigmaReference(source, t("homeContext.figmaReferenceEmpty"))
       .then((reference) => {
         if (!current()) {
-          void reference.images?.discard();
+          discardFigmaChip({
+            source,
+            revision,
+            images: reference.images,
+            resolved: { reference, title: "" },
+          });
           return;
         }
         const title = figmaTitle(source, reference);
@@ -748,7 +768,7 @@ export function useHomePromptContext({
       return;
     }
     requests.current.delete(key);
-    discardFigmaImages(key);
+    discardFigmaKey(key);
     const wasFigma = figmaSources.current.delete(key);
     setItems((current) => current.filter((item) => item.key !== key));
     if (wasFigma) rebudgetFigmaChips();
@@ -886,6 +906,13 @@ export function useHomePromptContext({
     );
     if (releases.some((failed) => failed > 0))
       throw new Error(t("homeContext.figmaImagesNotKept"));
+    // A sent attachment may still be placed, so it is never deleted later.
+    for (const item of submitted) {
+      const entry = isFigmaReferenceKey(item.key)
+        ? figmaSources.current.get(item.key)
+        : undefined;
+      if (entry) entry.sent = true;
+    }
     submissionReceipts.current.set(prepared, {
       identity: submittedIdentity,
       references: new Map(

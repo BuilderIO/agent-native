@@ -15,6 +15,7 @@ import {
   fetchFileStructure,
   type FigmaFileDepthNode,
 } from "../server/lib/figma-node-import.js";
+import type { FigmaNode } from "../server/lib/figma-node-to-html.js";
 import { parseFigmaFileKey, parseFigmaNodeId } from "../shared/figma-url.js";
 
 const schemaInput = z
@@ -153,14 +154,11 @@ export default defineAction({
     // One bounded request serves both a page (its frames, sections opened)
     // and a frame (the summary reads `depth` levels; one more shows where it
     // was truncated). The summary needs no vector geometry.
-    const node = Object.values(
-      await fetchFigmaNodes(
-        fileKey,
-        [nodeId],
-        false,
-        Math.max(2, args.depth + 1),
-      ),
-    ).find((candidate) => candidate.id === nodeId);
+    const node = await fetchBoundedNode(
+      fileKey,
+      nodeId,
+      Math.max(2, args.depth + 1),
+    );
     if (!node) {
       failFigmaImport(
         `Figma node ${nodeId} was not found in file ${fileKey}.`,
@@ -207,3 +205,37 @@ export default defineAction({
     };
   },
 });
+
+/**
+ * A node read to `depth` levels. When that is too large and the node turns
+ * out to be a page, shallower outlines still list its frames (two levels opens
+ * sections; one level lists the page's top layers). Anything else too large
+ * stays an error: a frame summary needs its real depth.
+ */
+async function fetchBoundedNode(
+  fileKey: string,
+  nodeId: string,
+  depth: number,
+): Promise<FigmaNode | undefined> {
+  const read = async (levels: number) =>
+    Object.values(await fetchFigmaNodes(fileKey, [nodeId], false, levels)).find(
+      (candidate) => candidate.id === nodeId,
+    );
+  try {
+    return await read(depth);
+  } catch (error) {
+    if (!isFigmaPayloadTooLargeError(error)) throw error;
+    for (const levels of [2, 1].filter((value) => value < depth)) {
+      let outline: FigmaNode | undefined;
+      try {
+        outline = await read(levels);
+      } catch (outlineError) {
+        if (isFigmaPayloadTooLargeError(outlineError)) continue;
+        throw outlineError;
+      }
+      if (outline?.type === "CANVAS") return outline;
+      break;
+    }
+    throw error;
+  }
+}

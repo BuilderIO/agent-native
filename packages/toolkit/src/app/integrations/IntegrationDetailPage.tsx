@@ -391,11 +391,16 @@ function useFallbackToken(secretKey: string | undefined) {
       listRegisteredSecrets({ signal: current.signal })
         .then((secrets) => {
           if (current.signal.aborted) return;
+          const secret = secrets.find((entry) => entry.key === secretKey);
+          // A store that answers but cannot tell is as unreadable as one
+          // that fails, and gets the same retry.
+          if (secret?.status === "unknown") {
+            setState(null);
+            setFailedKey(secretKey);
+            return;
+          }
           setFailedKey(null);
-          setState({
-            key: secretKey,
-            secret: secrets.find((entry) => entry.key === secretKey),
-          });
+          setState({ key: secretKey, secret });
         })
         .catch(() => {
           // An unreadable store stays unknown: never offer "Add access

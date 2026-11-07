@@ -882,6 +882,10 @@ describe("home prompt context", () => {
     act(() => result.current.remove(key));
     expect(figImages.cleanup).toHaveBeenCalledOnce();
     expect(figImages.finalize).not.toHaveBeenCalled();
+    // The dropped chip's stored frames go too, not just its images.
+    expect(mocks.call).toHaveBeenCalledWith("discard-figma-reference", {
+      ref: "attachment:v1:fig",
+    });
 
     attachFile();
     await untilReady();
@@ -891,6 +895,14 @@ describe("home prompt context", () => {
       );
     });
     expect(figImages.finalize).toHaveBeenCalledOnce();
+    // Once sent, the agent may still place it: removing the chip keeps it.
+    const discards = () =>
+      mocks.call.mock.calls.filter(
+        ([action]) => action === "discard-figma-reference",
+      ).length;
+    const before = discards();
+    act(() => result.current.remove(result.current.contextItems[0]?.key ?? ""));
+    expect(discards()).toBe(before);
   });
 
   it("splits one context budget across Figma chips so several still send", async () => {

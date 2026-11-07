@@ -333,6 +333,18 @@ describe("IntegrationDetailPage", () => {
     expect(keys.removeApiKeyValue).toHaveBeenCalledWith("FIGMA_ACCESS_TOKEN");
   });
 
+  it("offers a retry when the store answers that the token status is unknown", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template: "design" });
+    secrets.listRegisteredSecrets.mockResolvedValueOnce([
+      { key: "FIGMA_ACCESS_TOKEN", status: "unknown" },
+    ]);
+    await render("figma");
+    const action = lastHeader()?.action as ReactElement<{
+      children: ReactNode;
+    }>;
+    expect(action.props.children).toBe("Try again");
+  });
+
   it("offers a retry, never a token, while the saved-token status is unreadable", async () => {
     vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template: "design" });
     secrets.listRegisteredSecrets.mockRejectedValueOnce(new Error("down"));

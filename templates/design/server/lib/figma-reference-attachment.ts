@@ -1,5 +1,6 @@
 import {
   attachmentFailureToError,
+  deleteAttachment,
   mintAttachmentRef,
   resolveAttachment,
   unwrapAttachment,
@@ -39,4 +40,14 @@ export async function openFigmaReference(
   return figmaReferencePayloadSchema.parse(
     JSON.parse(Buffer.from(file.data).toString("utf8")),
   );
+}
+
+/** Deletes an attachment the user dropped from the prompt before sending it. */
+export async function discardFigmaReference(
+  ref: string,
+  ownerEmail: string,
+): Promise<boolean> {
+  const result = await deleteAttachment(ref, { ownerEmail });
+  if (result.status !== "ok") throw attachmentFailureToError(result);
+  return result.deleted;
 }
