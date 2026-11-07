@@ -13,13 +13,21 @@ export function isDocsNavItemActive(itemPath: string, pathname: string) {
   );
 }
 
-function sectionContainsActive(section: NavSection, pathname: string) {
+export function sectionContainsActive(section: NavSection, pathname: string) {
   return section.items.some(
     (item) =>
       (item.to ? isDocsNavItemActive(item.to, pathname) : false) ||
       item.children?.some((child) =>
         child.to ? isDocsNavItemActive(child.to, pathname) : false,
       ),
+  );
+}
+
+export function groupContainsActive(item: NavItem, pathname: string) {
+  return Boolean(
+    item.children?.some(
+      (child) => child.to && isDocsNavItemActive(child.to, pathname),
+    ),
   );
 }
 

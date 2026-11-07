@@ -280,4 +280,56 @@ describe("DocsSidebar", () => {
     expect(activeLink).toContain("is-active");
     expect(activeLink).toContain('data-an-prefetch="viewport"');
   });
+
+  it("marks the current page's parent section and group", () => {
+    const html = renderSidebar("/docs/docker/");
+    const buttonForLabel = (label: string) => {
+      const labelPosition = html.indexOf(`<span>${label}</span>`);
+      if (labelPosition < 0) throw new Error(`Missing sidebar label: ${label}`);
+      const buttonPosition = html.lastIndexOf("<button", labelPosition);
+      const buttonEnd = html.indexOf(">", buttonPosition);
+      if (buttonPosition < 0 || buttonEnd > labelPosition) {
+        throw new Error(`Missing sidebar toggle: ${label}`);
+      }
+      return html.slice(buttonPosition, buttonEnd + 1);
+    };
+
+    expect(buttonForLabel("Deployment")).toContain(
+      'data-active-descendant="true"',
+    );
+    expect(buttonForLabel("Hosting Providers")).toContain(
+      'data-active-descendant="true"',
+    );
+    expect(buttonForLabel("Database providers")).not.toContain(
+      "data-active-descendant",
+    );
+  });
+
+  it("marks every section and group containing a shared page", () => {
+    const html = renderSidebar("/docs/notifications/");
+    const navSections = getDocsNavSections("en-US");
+    const sections = navSections.filter((section) =>
+      ["integrations", "toolkits"].includes(section.id),
+    );
+    expect(sections).toHaveLength(2);
+    const toolkit = sections.find((section) => section.id === "toolkits");
+    const toolkitGroup = toolkit?.items.find((item) =>
+      item.children?.some((child) => child.to === "/docs/notifications/"),
+    );
+    if (!toolkitGroup) throw new Error("Missing Toolkit notifications group");
+    for (const title of [
+      ...sections.map((section) => section.title),
+      toolkitGroup.label,
+    ]) {
+      const label = `<span>${title}</span>`;
+      const start = html.indexOf(label);
+      expect(start).toBeGreaterThan(-1);
+      const buttonStart = html.lastIndexOf("<button", start);
+      const buttonEnd = html.indexOf(">", buttonStart);
+      expect(html.slice(buttonStart, buttonEnd + 1)).toContain(
+        'data-active-descendant="true"',
+      );
+    }
+    expect(html).toContain('href="/docs/notifications/"');
+  });
 });

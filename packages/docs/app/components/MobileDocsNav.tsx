@@ -13,8 +13,10 @@ import {
   ALWAYS_OPEN_SECTION_INDEX,
   getActiveDocsNavGroupId,
   getActiveDocsNavSectionId,
+  groupContainsActive,
   isDocsNavGroupItem,
   isDocsNavItemActive,
+  sectionContainsActive,
 } from "./docsNavState";
 
 const DESKTOP_NAV_QUERY = "(min-width: 1024px)";
@@ -107,6 +109,11 @@ export default function MobileDocsNav() {
                     <button
                       type="button"
                       className="docs-sidebar-section-trigger"
+                      data-active-descendant={
+                        sectionContainsActive(section, location.pathname)
+                          ? "true"
+                          : undefined
+                      }
                       aria-expanded={isOpen}
                       aria-controls={sectionId}
                       onClick={() =>
@@ -147,6 +154,11 @@ export default function MobileDocsNav() {
                               <button
                                 type="button"
                                 className="sidebar-link sidebar-group-trigger mobile-docs-nav-group-trigger"
+                                data-active-descendant={
+                                  groupContainsActive(item, location.pathname)
+                                    ? "true"
+                                    : undefined
+                                }
                                 aria-expanded={groupOpen}
                                 aria-controls={groupClipId}
                                 tabIndex={isOpen ? undefined : -1}

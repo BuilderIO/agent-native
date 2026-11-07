@@ -116,6 +116,77 @@ describe("MobileDocsNav", () => {
         .getAttribute("aria-expanded"),
     ).toBe("true");
   });
+  it("keeps the active parent indicators after opening another group", () => {
+    const deployment = getDocsNavSections("en-US").find(
+      (section) => section.id === "deployment",
+    );
+    const hosting = deployment?.items.find(
+      (item) => item.id === "deployment-providers",
+    );
+    const databases = deployment?.items.find(
+      (item) => item.id === "database-providers",
+    );
+    if (!deployment || !hosting || !databases) {
+      throw new Error("Expected deployment navigation groups");
+    }
+
+    renderMobileNav("/docs/docker/");
+    openNav();
+    const sectionButton = screen.getByRole("button", {
+      name: deployment.title,
+    });
+    const hostingButton = screen.getByRole("button", { name: hosting.label });
+    const otherButton = screen.getByRole("button", { name: databases.label });
+
+    expect(sectionButton.getAttribute("data-active-descendant")).toBe("true");
+    expect(hostingButton.getAttribute("data-active-descendant")).toBe("true");
+    expect(otherButton.hasAttribute("data-active-descendant")).toBe(false);
+
+    fireEvent.click(otherButton);
+    expect(hostingButton.getAttribute("aria-expanded")).toBe("false");
+    expect(hostingButton.getAttribute("data-active-descendant")).toBe("true");
+    fireEvent.click(sectionButton);
+    expect(sectionButton.getAttribute("aria-expanded")).toBe("false");
+    expect(sectionButton.getAttribute("data-active-descendant")).toBe("true");
+  });
+
+  it("marks both sections for a page listed twice", () => {
+    const sections = getDocsNavSections("en-US");
+    const integrations = sections.find(
+      (section) => section.id === "integrations",
+    );
+    const toolkit = sections.find((section) => section.id === "toolkits");
+    const toolkitGroup = toolkit?.items.find((item) =>
+      item.children?.some((child) => child.to === "/docs/notifications/"),
+    );
+    if (!integrations || !toolkit || !toolkitGroup) {
+      throw new Error("Expected two navigation placements for Notifications");
+    }
+
+    renderMobileNav("/docs/notifications/");
+    openNav();
+    expect(
+      screen
+        .getByRole("button", { name: integrations.title })
+        .getAttribute("data-active-descendant"),
+    ).toBe("true");
+    expect(
+      screen
+        .getByRole("button", { name: toolkit.title })
+        .getAttribute("data-active-descendant"),
+    ).toBe("true");
+    const toolkitButton = screen.getByRole("button", {
+      name: toolkit.title,
+    });
+    if (toolkitButton.getAttribute("aria-expanded") !== "true") {
+      fireEvent.click(toolkitButton);
+    }
+    expect(
+      screen
+        .getByRole("button", { name: toolkitGroup.label })
+        .getAttribute("data-active-descendant"),
+    ).toBe("true");
+  });
 
   it("closes the docs dropdown when the viewport switches to desktop", () => {
     let handleChange: ((event: MediaQueryListEvent) => void) | undefined;
