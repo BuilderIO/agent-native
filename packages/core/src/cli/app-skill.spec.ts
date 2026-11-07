@@ -543,6 +543,25 @@ describe("app skill packaging", () => {
     ).toThrow(/local\.sourcePath must resolve inside/);
   });
 
+  it("refuses a skill path that doesn't end in a folder name", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
+    manifest.skills[0].path = ".agents/skills/asset-generation/..";
+    delete manifest.skills[0].exportAs;
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), "utf-8");
+    const outDir = path.join(tmpDir(), "out");
+    fs.mkdirSync(outDir);
+    fs.writeFileSync(path.join(outDir, "kept.txt"), "kept", "utf-8");
+
+    expect(() =>
+      buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir),
+    ).toThrow(/doesn't end in a folder name/);
+    expect(fs.readFileSync(path.join(outDir, "kept.txt"), "utf-8")).toBe(
+      "kept",
+    );
+  });
+
   it("rejects a configured local source path that is missing", () => {
     const root = tmpDir();
     const manifestFile = writeFixture(root);

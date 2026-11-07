@@ -750,7 +750,15 @@ function skillExportName(skill: AppSkillManifestSkill): string {
     return skill.exportAs;
   }
   const normalized = skill.path.replace(/\/+$/, "");
-  return path.basename(normalized);
+  const name = path.basename(normalized);
+  // The export replaces the folder this names, so a path ending in `.` or
+  // `..` would replace the pack's skills folder or the pack itself.
+  if (name === "" || name === "." || name === "..") {
+    throw new Error(
+      `Skill path ${skill.path} doesn't end in a folder name; set exportAs`,
+    );
+  }
+  return name;
 }
 
 // Where an exported skill's links may lead: the app and the workspace around

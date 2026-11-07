@@ -2310,8 +2310,10 @@ function ensureWorkspaceRootSkillsLink(
   try {
     createAgentSymlink(target, linkPath, "dir");
   } catch {
+    // Staged, so a copy that fails leaves no partial folder, and the next
+    // update tries again.
     try {
-      copyFollowingLinks(sharedSkillsDir, linkPath);
+      replaceFollowingLinks(sharedSkillsDir, linkPath);
     } catch {}
   }
 }
