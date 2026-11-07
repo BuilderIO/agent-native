@@ -18,7 +18,12 @@ import { AgentAvatar, modelDisplayName } from "./agent-identity";
 import { trimDiffContext, wordDiff } from "./comment-ai-diff";
 import { CommentRow } from "./CommentRow";
 import { ProposalGroup, SuggestionDecisionButtons } from "./SuggestionControls";
-import { suggestionLineExcerpt } from "./thread-suggestions";
+import {
+  piecesOfStaleUnits,
+  reviewUnitOperations,
+  reviewUnits,
+  suggestionLineExcerpt,
+} from "./thread-suggestions";
 
 type ThreadSuggestionProps = {
   /** One suggestion, or every edit of the proposal it belongs to, in Page order. */
@@ -29,6 +34,11 @@ type ThreadSuggestionProps = {
   conflict: (suggestion: ResourceSuggestion) => boolean;
   onDecide: (
     suggestion: ResourceSuggestion,
+    decision: SuggestionDecision,
+  ) => void;
+  /** Decides pieces reviewed together, in one save. */
+  onDecideUnit: (
+    members: ResourceSuggestion[],
     decision: SuggestionDecision,
   ) => void;
   /** Decides every edit of the proposal still pending. */
@@ -83,6 +93,7 @@ function SuggestionStatus({
  */
 function ThreadSuggestionEdit({
   suggestion,
+  operations,
   canDecide,
   busy,
   conflict,
@@ -90,6 +101,8 @@ function ThreadSuggestionEdit({
   showStatus,
 }: {
   suggestion: ResourceSuggestion;
+  /** What the edit changes: usually one, or each piece that can't read as one. */
+  operations: ResourceSuggestion["operations"];
   canDecide: boolean;
   busy: boolean;
   conflict: boolean;
@@ -98,20 +111,23 @@ function ThreadSuggestionEdit({
 }) {
   const t = useT();
   const statusLabel = useStatusLabel();
-  const excerpt = useMemo(
-    () => suggestionLineExcerpt(suggestion.operations),
-    [suggestion.operations],
-  );
-  const segments = useMemo(
+  const diffs = useMemo(
     () =>
-      excerpt ? trimDiffContext(wordDiff(excerpt.before, excerpt.after)) : [],
-    [excerpt],
+      operations
+        .map((operation) => {
+          const excerpt = suggestionLineExcerpt([operation]);
+          return excerpt
+            ? trimDiffContext(wordDiff(excerpt.before, excerpt.after))
+            : [];
+        })
+        .filter((segments) => segments.length > 0),
+    [operations],
   );
   const pending = suggestion.status === "pending";
   const decidable = pending && canDecide;
   const conflicted = conflict || suggestion.status === "stale";
   if (
-    !segments.length &&
+    !diffs.length &&
     !conflicted &&
     !decidable &&
     !(showStatus && statusLabel(suggestion.status))
@@ -132,8 +148,9 @@ function ThreadSuggestionEdit({
           />
         </div>
       ) : null}
-      {segments.length ? (
+      {diffs.map((segments, diffIndex) => (
         <p
+          key={diffIndex}
           aria-label={t("comments.suggestedChange")}
           className={cn(
             "whitespace-pre-wrap break-words leading-6",
@@ -161,7 +178,7 @@ function ThreadSuggestionEdit({
             ),
           )}
         </p>
-      ) : null}
+      ))}
       {conflicted ? (
         <p role="alert" className="mt-1 text-xs text-destructive">
           {t("editor.toolbar.conflict")}
@@ -189,6 +206,7 @@ export function ThreadSuggestionBody({
   busy,
   conflict,
   onDecide,
+  onDecideUnit,
   onDecideRemaining,
   onAcceptAndResolve,
   defaultExpanded = false,
@@ -208,14 +226,26 @@ export function ThreadSuggestionBody({
       ? first.status
       : null;
   const summary = first.proposalSummary || first.summary;
-  const edits = suggestions.map((suggestion) => (
+  const units = reviewUnits(suggestions);
+  const staleUnitPieces = piecesOfStaleUnits(suggestions);
+  const cantAccept = (suggestion: ResourceSuggestion) =>
+    conflict(suggestion) || staleUnitPieces.has(suggestion.id);
+  const edits = units.map((unit) => (
     <ThreadSuggestionEdit
-      key={suggestion.id}
-      suggestion={suggestion}
+      key={unit.leader.id}
+      suggestion={unit.leader}
+      operations={reviewUnitOperations(unit)}
       canDecide={canDecide}
-      busy={busy(suggestion)}
-      conflict={conflict(suggestion)}
-      onDecide={(decision) => onDecide(suggestion, decision)}
+      busy={unit.members.some(busy)}
+      conflict={unit.members.some(cantAccept)}
+      onDecide={(decision) =>
+        unit.members.length > 1
+          ? onDecideUnit(
+              unit.members.filter(({ status }) => status === "pending"),
+              decision,
+            )
+          : onDecide(unit.leader, decision)
+      }
       showStatus={!sharedStatus}
     />
   ));
@@ -224,17 +254,18 @@ export function ThreadSuggestionBody({
       className="mt-0.5 grid grid-cols-1 gap-2"
       data-thread-suggestion-group={first.proposalId ?? first.id}
     >
-      {suggestions.length > 1 ? (
+      {units.length > 1 ? (
         <ProposalGroup
           proposalId={first.proposalId ?? first.id}
           summary={summary}
           totalCount={suggestions.length}
+          totalUnits={units.length}
           members={suggestions}
           active={false}
           expanded={expanded}
           onExpandedChange={setExpanded}
           deciding={pending.some(busy)}
-          acceptDisabled={pending.some(conflict)}
+          acceptDisabled={pending.some(cantAccept)}
           canDecide={canDecide && !!onDecideRemaining}
           onDecide={(decision) => onDecideRemaining?.(decision)}
           onAcceptAndResolve={onAcceptAndResolve}
@@ -251,7 +282,7 @@ export function ThreadSuggestionBody({
             <div className="flex justify-end">
               <button
                 type="button"
-                disabled={pending.some(busy) || pending.some(conflict)}
+                disabled={pending.some(busy) || pending.some(cantAccept)}
                 onClick={onAcceptAndResolve}
                 className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
                 data-suggestion-accept-resolve

@@ -1202,7 +1202,7 @@ const rawLiterals = {
     previewDraftSaveSeparately: "Salvar a minha como página separada",
     previewDraftSavedToHistory: "Suas edições foram salvas no histórico",
     previewDraftSavedSeparately:
-      "Suas edições foram salvas como página separada",
+      "Suas edições foram salvas como página privada no seu espaço",
     previewDraftOpenSavedPage: "Abrir página",
     previewDraftMoreOptions: "Mais opções",
     previewDraftViewFullVersions: "Ver versões completas",
