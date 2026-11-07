@@ -2914,24 +2914,49 @@ export async function listSessionRecordingsPage(
   };
 }
 
-/** Ids of the recordings `getSessionReplaySummary` would open, as a subquery. */
+// Recordings the caller can open in their active organization, as Sessions
+// lists them. `getSessionReplaySummary` is wider: it also opens an org-visible
+// recording through membership in an organization that isn't active. Reads
+// that must agree between a list and a single row use this one condition.
+function openableSessionRecordingCondition(scope: SessionReplayScope) {
+  return and(
+    accessFilter(
+      schema.sessionRecordings,
+      schema.sessionRecordingShares,
+      scope.orgId
+        ? { userEmail: scope.userEmail, orgId: scope.orgId }
+        : { userEmail: scope.userEmail },
+    ),
+    or(replayVisibleIdentityCondition(), replayAnonymousCondition()),
+    replayPlayableEventsCondition(),
+  );
+}
+
+/** Ids of the recordings the caller can open, as a subquery. */
 export function openableSessionRecordingIds(scope: SessionReplayScope) {
+  // guard:allow-unscoped — openableSessionRecordingCondition applies accessFilter.
   return getDb()
+    .select({ id: schema.sessionRecordings.id })
+    .from(schema.sessionRecordings)
+    .where(openableSessionRecordingCondition(scope));
+}
+
+export async function canOpenSessionRecording(
+  recordingId: string,
+  scope: SessionReplayScope,
+): Promise<boolean> {
+  // guard:allow-unscoped — openableSessionRecordingCondition applies accessFilter.
+  const rows = await getDb()
     .select({ id: schema.sessionRecordings.id })
     .from(schema.sessionRecordings)
     .where(
       and(
-        accessFilter(
-          schema.sessionRecordings,
-          schema.sessionRecordingShares,
-          scope.orgId
-            ? { userEmail: scope.userEmail, orgId: scope.orgId }
-            : { userEmail: scope.userEmail },
-        ),
-        or(replayVisibleIdentityCondition(), replayAnonymousCondition()),
-        replayPlayableEventsCondition(),
+        eq(schema.sessionRecordings.id, recordingId),
+        openableSessionRecordingCondition(scope),
       ),
-    );
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 export async function getSessionReplaySummary(

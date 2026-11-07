@@ -31,6 +31,7 @@ import {
   replayBuild,
 } from "./session-replay-agent-context.js";
 import {
+  canOpenSessionRecording,
   getSessionReplaySummary,
   openableSessionRecordingIds,
   type ReplayScope,
@@ -150,20 +151,17 @@ function recordReportChange(
 /**
  * A report quotes its recording, so anyone but its writer reads it only while
  * they can open that recording. Sharing the report, or the recording turning
- * private later, must not widen who sees what the session showed.
+ * private later, must not widen who sees what the session showed. This and
+ * `listSessionReports` share one recording condition, so list and get agree.
  */
 async function canOpenReportRecording(
   report: Pick<SessionReport, "ownerEmail" | "recordingId">,
   scope: ReplayScope,
 ): Promise<boolean> {
-  if (report.ownerEmail === scope.userEmail) return true;
-  try {
-    await getSessionReplaySummary(report.recordingId, scope);
-    return true;
-  } catch (error) {
-    if ((error as { statusCode?: number }).statusCode === 404) return false;
-    throw error;
-  }
+  return (
+    report.ownerEmail === scope.userEmail ||
+    canOpenSessionRecording(report.recordingId, scope)
+  );
 }
 
 async function assertErrorIssueReadable(

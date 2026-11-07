@@ -440,12 +440,15 @@ with `create-session-report`. `get-session-report`, `list-session-reports`
   org-visible there, and is private otherwise, so it reaches no one the
   recording doesn't. Sharing is the framework `sharing` system
   (`session-report` type), limited like the recording itself: no public
-  links, and people only within the organization.
+  links, and people only within the organization. A report opens to its
+  organization or to a person only while that whole organization can open
+  the recording; otherwise sharing refuses and the report stays with its
+  writer. Making it private always works.
 - Anyone but a report's writer reads it only while they can open its
-  recording: get, list, update, and agent links check it on every read, so
-  sharing the report or the recording turning private later never shows the
-  report to someone the recording doesn't. Past retention, only the writer
-  still sees it.
+  recording in their active organization, the same rule the Sessions list
+  uses: get, list, update, and agent links check it on every read, so the
+  recording turning private later never shows the report to someone the
+  recording doesn't. Past retention, only the writer still sees it.
 - Share > Send to > Copy agent link makes a report's agent link (`create-agent-resource-link`).
   It lasts a year, and every read checks that its maker is still in the
   report's organization and can still read the report, so deleting the
