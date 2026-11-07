@@ -79,28 +79,28 @@ export interface ReviewCommentWriteOptions {
    * The revision the caller read. When the comment has moved past it, nothing
    * is written and a `ReviewCommentRevisionConflictError` is thrown.
    */
-  expectedRevision?: number;
+  expectedRevision?: number | undefined;
   /** Who made the change, for the resource's write hook. */
-  actorEmail?: string | null;
+  actorEmail?: string | null | undefined;
 }
 
 export interface QueryReviewCommentsInput {
   resourceType: string;
   resourceId: string;
   scope: ReviewScope;
-  bypassScope?: boolean;
-  includeResolved?: boolean;
-  includeDeleted?: boolean;
-  targetId?: string | null;
+  bypassScope?: boolean | undefined;
+  includeResolved?: boolean | undefined;
+  includeDeleted?: boolean | undefined;
+  targetId?: string | null | undefined;
   /** One surface's comments, or with `null` those on no surface. */
-  surfaceId?: string | null;
-  newestFirst?: boolean;
+  surfaceId?: string | null | undefined;
+  newestFirst?: boolean | undefined;
   rootOnly?: boolean;
   resolutionTargets?: readonly (ReviewResolutionTarget | null)[];
   unconsumedOnly?: boolean;
   /** Oldest first only: start after this comment. */
-  after?: ReviewCommentPosition;
-  limit?: number;
+  after?: ReviewCommentPosition | undefined;
+  limit?: number | undefined;
 }
 
 /** Where a comment sits in oldest-first order. */
@@ -981,7 +981,7 @@ function replayedReviewCommentInput(
 ): InsertReviewCommentInput {
   if (input.parentCommentId) return input;
   if (
-    stored.anchorKind === null &&
+    stored.anchorKind == null &&
     input.anchorKind == null &&
     input.anchorVersion == null
   ) {
@@ -991,7 +991,9 @@ function replayedReviewCommentInput(
     ...input,
     anchorVersion:
       input.anchorVersion ??
-      (input.anchorKind === stored.anchorKind ? stored.anchorVersion : null),
+      ((input.anchorKind ?? null) === (stored.anchorKind ?? null)
+        ? (stored.anchorVersion ?? null)
+        : null),
   });
 }
 
@@ -1308,7 +1310,9 @@ async function selectReviewComments(
  * reachable page by page.
  */
 export async function queryReviewCommentPage(
-  input: Omit<QueryReviewCommentsInput, "after"> & { cursor?: string | null },
+  input: Omit<QueryReviewCommentsInput, "after"> & {
+    cursor?: string | null | undefined;
+  },
 ): Promise<ReviewCommentPage> {
   const { cursor, ...query } = input;
   if (query.newestFirst) {
@@ -1325,13 +1329,10 @@ export async function queryReviewCommentPage(
     1,
   );
   const comments = rows.slice(0, limit);
+  const last = rows.length > limit ? comments[comments.length - 1] : undefined;
   return {
     comments,
-    // The limit is at least 1, so a page with more after it isn't empty.
-    nextCursor:
-      rows.length > limit
-        ? encodeReviewCommentCursor(comments[comments.length - 1])
-        : null,
+    nextCursor: last ? encodeReviewCommentCursor(last) : null,
   };
 }
 
@@ -1491,9 +1492,9 @@ async function writeReviewCommentChange(
   if (!current) return null;
   if (
     options.expectedRevision !== undefined &&
-    options.expectedRevision !== current.revision
+    options.expectedRevision !== (current.revision ?? 1)
   ) {
-    throw new ReviewCommentRevisionConflictError(id, current.revision);
+    throw new ReviewCommentRevisionConflictError(id, current.revision ?? 1);
   }
   const assignments: SqlFragment[] = [];
   if (input.body !== undefined) {
@@ -1510,7 +1511,9 @@ async function writeReviewCommentChange(
     const anchor = normalizeReviewAnchor(current.resourceType, {
       anchor: input.anchor,
       anchorKind:
-        input.anchorKind !== undefined ? input.anchorKind : current.anchorKind,
+        input.anchorKind !== undefined
+          ? input.anchorKind
+          : (current.anchorKind ?? null),
       anchorVersion: input.anchorVersion ?? null,
     });
     assignments.push(

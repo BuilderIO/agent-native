@@ -559,3 +559,23 @@ describe.sequential("the review kit's storage contract", () => {
     expect(plainViewerList.discussion.canReact).toBe(false);
   });
 });
+
+describe("the kit's entry point", () => {
+  it("exports the storage contract", async () => {
+    const kit = await import("./index.js");
+    expect(kit).toMatchObject({
+      assertReviewCommentAccess: expect.any(Function),
+      canCommentOnReviewableResource: expect.any(Function),
+      findReviewCommentLink: expect.any(Function),
+      linkReviewComment: expect.any(Function),
+      listReviewCommentLinks: expect.any(Function),
+      normalizeReviewAnchor: expect.any(Function),
+      queryReviewCommentPage: expect.any(Function),
+      reviewCommentPolicy: expect.any(Function),
+      ReviewAnchorError,
+      ReviewCommentLinkConflictError,
+      ReviewCommentRevisionConflictError: expect.any(Function),
+      ReviewCursorError: expect.any(Function),
+    });
+  });
+});

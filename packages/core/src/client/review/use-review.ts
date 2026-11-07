@@ -644,7 +644,10 @@ function matchesCommentQuery(
   const query = params as ListReviewCommentsParams;
   if (query.targetId !== undefined && query.targetId !== comment.targetId)
     return false;
-  if (query.surfaceId !== undefined && query.surfaceId !== comment.surfaceId)
+  if (
+    query.surfaceId !== undefined &&
+    query.surfaceId !== (comment.surfaceId ?? null)
+  )
     return false;
   if (comment.status === "resolved" && !query.includeResolved) return false;
   if (comment.status === "deleted" && !query.includeDeleted) return false;

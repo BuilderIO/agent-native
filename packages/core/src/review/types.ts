@@ -161,21 +161,25 @@ export interface ReviewComment {
   threadId: string;
   parentCommentId: string | null;
   targetId: string | null;
-  /** The part of the resource the thread sits on, such as a slide. */
-  surfaceId: string | null;
+  /**
+   * The part of the resource the thread sits on, such as a slide. The kit
+   * always returns this and the anchor and revision fields below; they're
+   * optional so comments built elsewhere, such as optimistic ones, needn't.
+   */
+  surfaceId?: string | null;
   kind: ReviewCommentKind;
   status: ReviewCommentStatus;
   anchor: unknown;
   /** The anchor's kind and the version it was written at, when typed. */
-  anchorKind: string | null;
-  anchorVersion: number | null;
+  anchorKind?: string | null;
+  anchorVersion?: number | null;
   /**
    * Goes up whenever the comment or its thread changes (its text, anchor,
    * status, routing, agent pickup or deletion), so a write can check nothing
    * changed under it. Notification bookkeeping leaves it alone, so a new
    * comment's author can edit it at the revision they got back.
    */
-  revision: number;
+  revision?: number;
   body: string;
   authorEmail: string | null;
   authorName: string | null;
