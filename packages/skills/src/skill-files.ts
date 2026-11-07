@@ -13,7 +13,9 @@ import path from "node:path";
  *
  * The skill folder itself may be a link to anywhere in the source,
  * `node_modules` included. If it leads out of the source or nowhere, this
- * throws before `to` is touched, rather than install nothing.
+ * throws before `to` is touched, rather than install nothing. It also throws
+ * when the skill folder and `to` overlap, as when a project's own skills
+ * folder is the source, since replacing `to` would delete the skill.
  *
  * Core's `copyFollowingLinks` follows the same rules.
  */
@@ -30,6 +32,12 @@ export function copySkillFiles(
   }
   if (!isInside(root, real)) {
     throw new Error(`Skill folder ${from} links outside its source: ${real}`);
+  }
+  const landing = landingPath(to);
+  if (isInside(real, landing) || isInside(landing, real)) {
+    throw new Error(
+      `Skill folder ${from} and its install folder ${to} overlap, so installing would delete it`,
+    );
   }
   fs.rmSync(to, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(to), { recursive: true });
@@ -66,6 +74,17 @@ function resolveLink(link: string): string | undefined {
       return undefined;
     }
     throw error;
+  }
+}
+
+// Where `to` sits on disk, with the folders above it resolved but not `to`
+// itself: a link at `to` is replaced, not followed, so it isn't an overlap.
+function landingPath(to: string): string {
+  const rest = [path.basename(path.resolve(to))];
+  for (let dir = path.dirname(path.resolve(to)); ; dir = path.dirname(dir)) {
+    const real = resolveLink(dir);
+    if (real !== undefined) return path.join(real, ...rest);
+    rest.unshift(path.basename(dir));
   }
 }
 

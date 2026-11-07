@@ -308,6 +308,61 @@ describe("@agent-native/skills", () => {
     },
   );
 
+  it("refuses to install a skill over the folder it comes from", async () => {
+    const project = tmpDir();
+    writeSkill(path.join(project, ".agents"), "quick-recap");
+    const skillFile = path.join(
+      project,
+      ".agents",
+      "skills",
+      "quick-recap",
+      "SKILL.md",
+    );
+
+    await expect(
+      installSkills({
+        source: path.join(project, ".agents"),
+        skillNames: ["quick-recap"],
+        clients: ["codex"],
+        scope: "project",
+        baseDir: project,
+        updateInstructions: false,
+        yes: true,
+      }),
+    ).rejects.toThrow(/overlap/);
+
+    expect(fs.existsSync(skillFile)).toBe(true);
+  });
+
+  it("replaces a link at the install folder that points at the skill", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "quick-recap");
+    const installed = path.join(project, ".agents", "skills", "quick-recap");
+    fs.mkdirSync(path.dirname(installed), { recursive: true });
+    fs.symlinkSync(
+      path.join(repo, "skills", "quick-recap"),
+      installed,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await installSkills({
+      source: repo,
+      skillNames: ["quick-recap"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: false,
+      yes: true,
+    });
+
+    expect(fs.lstatSync(installed).isSymbolicLink()).toBe(false);
+    expect(fs.existsSync(path.join(installed, "SKILL.md"))).toBe(true);
+    expect(
+      fs.existsSync(path.join(repo, "skills", "quick-recap", "SKILL.md")),
+    ).toBe(true);
+  });
+
   it("refuses a skill folder linked outside the source", async () => {
     const repo = tmpDir();
     const project = tmpDir();
