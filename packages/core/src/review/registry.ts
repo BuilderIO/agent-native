@@ -125,7 +125,7 @@ export function reviewCommentPolicy(
 export function canCommentOnReviewableResource(
   resourceType: string,
   access: ReviewResourceAccess | null | undefined,
-): boolean {
+): access is ReviewResourceAccess {
   return Boolean(
     access &&
     roleSatisfies(access.role, reviewCommentPolicy(resourceType).minimumRole),
@@ -148,7 +148,7 @@ export async function assertReviewCommentAccess(
       `Not allowed to comment on ${resourceType}:${resourceId}`,
     );
   }
-  return access!;
+  return access;
 }
 
 export interface ReviewAnchorInput {

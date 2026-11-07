@@ -834,6 +834,7 @@ async function writeReviewCommentWithClient(
         : null,
   };
 
+  // raw-sql-ok: the column list is constant text; every value is bound.
   const result = await client.execute({
     sql: `INSERT INTO agent_review_comments (
       id,
@@ -903,7 +904,7 @@ async function writeReviewCommentWithClient(
     ],
   });
 
-  const replayed = (result.rowsAffected ?? 1) < 1;
+  const replayed = result.rowsAffected < 1;
   if (!replayed) {
     await runReviewCommentWriteHook(
       comment.resourceType,
@@ -1212,6 +1213,7 @@ async function selectReviewComments(
   const afterParams = input.after
     ? [input.after.createdAt, input.after.createdAt, input.after.id]
     : [];
+  // raw-sql-ok: the columns and filters are constant text; the values are bound.
   const selectSql = input.rootOnly
     ? `SELECT ${commentColumns()}
          FROM (
@@ -1228,6 +1230,7 @@ async function selectReviewComments(
          FROM agent_review_comments AS comment
         WHERE ${[...filters, ...(afterSql ? [afterSql] : [])].join(" AND ")}`;
   const order = input.newestFirst ? "DESC" : "ASC";
+  // raw-sql-ok: the order is ASC or DESC and the rest constant; values are bound.
   const result = await client.execute({
     sql: `${selectSql}
       ORDER BY created_at ${order}, id ${order}
@@ -1265,11 +1268,13 @@ export async function queryReviewCommentPage(
     1,
   );
   const comments = rows.slice(0, limit);
-  const last = comments[comments.length - 1];
   return {
     comments,
+    // The limit is at least 1, so a page with more after it isn't empty.
     nextCursor:
-      rows.length > limit && last ? encodeReviewCommentCursor(last) : null,
+      rows.length > limit
+        ? encodeReviewCommentCursor(comments[comments.length - 1])
+        : null,
   };
 }
 
@@ -1281,13 +1286,13 @@ function encodeReviewCommentCursor(position: ReviewCommentPosition): string {
 }
 
 function decodeReviewCommentCursor(cursor: string): ReviewCommentPosition {
-  // The time never holds a `~`, so the first one after it starts the ID.
   const rest = cursor.startsWith(REVIEW_CURSOR_PREFIX)
     ? cursor.slice(REVIEW_CURSOR_PREFIX.length)
-    : null;
-  const split = rest?.indexOf("~") ?? -1;
-  const createdAt = split > 0 ? rest!.slice(0, split) : "";
-  const id = split > 0 ? rest!.slice(split + 1) : "";
+    : "";
+  // The time never holds a `~`, so the first one after it starts the ID.
+  const split = rest.indexOf("~");
+  const createdAt = split > 0 ? rest.slice(0, split) : "";
+  const id = split > 0 ? rest.slice(split + 1) : "";
   if (!id || Number.isNaN(Date.parse(createdAt))) {
     throw new ReviewCursorError("Not a comment list cursor.");
   }
@@ -1396,8 +1401,7 @@ async function lockLiveReviewComment(
   id: string,
   resource?: { resourceType: string; resourceId: string },
 ): Promise<ReviewComment | null> {
-  // raw-sql-ok: the column list and resource clause are constant text; the
-  // values are bound.
+  // raw-sql-ok: the columns and resource clause are constant; values are bound.
   const result = await client.execute({
     sql: `SELECT ${commentColumns()}
        FROM agent_review_comments
@@ -1410,7 +1414,7 @@ async function lockLiveReviewComment(
       ...(resource ? [resource.resourceType, resource.resourceId] : []),
     ],
   });
-  const row = result.rows?.[0];
+  const row = result.rows[0];
   return row ? mapCommentRow(row) : null;
 }
 
@@ -1516,6 +1520,7 @@ export async function resolveReviewThreadWithClient(
   const resourceClause = resource
     ? "AND resource_type = ? AND resource_id = ?"
     : "";
+  // raw-sql-ok: the resource clause is constant text; the ids are bound.
   const root = await client.execute({
     sql: `SELECT metadata_json, resource_type, resource_id
        FROM agent_review_comments
@@ -1545,6 +1550,7 @@ export async function resolveReviewThreadWithClient(
     nextRootMetadata === undefined
       ? ""
       : ", metadata_json = CASE WHEN parent_comment_id IS NULL THEN ? ELSE metadata_json END";
+  // raw-sql-ok: the clauses are constant text; every value is bound.
   const result = await client.execute({
     sql: `UPDATE agent_review_comments
         SET status = ?,
@@ -1568,7 +1574,7 @@ export async function resolveReviewThreadWithClient(
       ...(resource ? [resource.resourceType, resource.resourceId] : []),
     ],
   });
-  const updated = result.rowsAffected ?? 0;
+  const updated = result.rowsAffected;
   if (updated > 0) {
     const resourceType = String(root.rows[0].resource_type);
     await runReviewCommentWriteHook(
@@ -2199,7 +2205,7 @@ export async function findReviewCommentLink(
       WHERE provider = ${sql.value(input.provider)}
         AND external_kind = ${sql.value(input.externalKind)}
         AND external_id = ${sql.value(input.externalId)}`);
-  const row = result.rows?.[0];
+  const row = result.rows[0];
   return row ? mapLinkRow(row as Record<string, unknown>) : null;
 }
 
@@ -2220,9 +2226,7 @@ export async function listReviewCommentLinks(
       WHERE comment_id IN ${sql.in(ids)}
         ${fromProvider}
       ORDER BY comment_id, provider, external_kind, external_id`);
-  return (result.rows ?? []).map((row) =>
-    mapLinkRow(row as Record<string, unknown>),
-  );
+  return result.rows.map((row) => mapLinkRow(row as Record<string, unknown>));
 }
 
 function mapLinkRow(row: Record<string, unknown>): ReviewCommentLink {
@@ -2242,6 +2246,7 @@ export function __resetReviewInitForTests(): void {
 }
 
 function commentColumns(): string {
+  // raw-sql-ok: a constant column list.
   return [
     "id",
     "resource_type",

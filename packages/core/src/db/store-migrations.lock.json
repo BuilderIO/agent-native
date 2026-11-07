@@ -991,6 +991,10 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "storage-contract",
+      "checksum": "33947970edf35d1e"
     }
   ],
   "review_suggestions": [
