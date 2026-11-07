@@ -87,6 +87,19 @@ describe("caretAfterPageSwap", () => {
     expect(around(next, at)).toEqual(["Thr", "ee."]);
   });
 
+  it("follows its paragraph when one was added and another removed", () => {
+    const before = doc("One.", "Two.", "Three.", "Four.");
+    const next = doc("One.", "Inserted.", "Two.", "Four.");
+    const at = caretAfterPageSwap(before, after(before, "Tw"), next);
+    expect(around(next, at)).toEqual(["Tw", "o."]);
+  });
+
+  it("gives up in a removed paragraph when as many were added", () => {
+    const before = doc("One.", "Two.", "Three.", "Four.");
+    const next = doc("One.", "Inserted.", "Two.", "Four.");
+    expect(caretAfterPageSwap(before, after(before, "Thr"), next)).toBeNull();
+  });
+
   it("gives up when paragraphs were added around a changed one", () => {
     const before = doc("One.", "Two.", "Three.");
     const next = doc("One!", "Inserted.", "Two!", "Three.");

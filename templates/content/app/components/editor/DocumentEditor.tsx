@@ -7073,7 +7073,18 @@ function PageEditorSessionBody({
           ...session,
           baseRevision: follow.baseRevision,
         };
-      else if (follow.kind === "restart") continueSuggestionModeFrom(document);
+      else if (follow.kind === "restart") {
+        // The editor reports typing to the draft on its next task, so a key
+        // pressed just before this check hasn't arrived yet. Move only after
+        // that report has had its turn and changed nothing.
+        const changedAt = suggestionDraftChangedAtRef.current;
+        timer = setTimeout(() => {
+          timer = null;
+          if (suggestionDraftChangedAtRef.current === changedAt)
+            continueSuggestionModeFrom(document);
+          else check();
+        }, 0);
+      }
     };
     check();
     return () => {

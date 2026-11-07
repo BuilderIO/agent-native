@@ -39,6 +39,66 @@ function commonSuffixLength(a: string, b: string) {
   return length;
 }
 
+interface Placed {
+  node: ProseMirrorNode;
+  at: number;
+}
+
+/** The blocks by their text, so finding a block's copies stays linear. */
+function byText(blocks: Textblock[]) {
+  const found = new Map<string, Placed[]>();
+  for (const [at, { node }] of blocks.entries()) {
+    const copies = found.get(node.textContent);
+    if (copies) copies.push({ node, at });
+    else found.set(node.textContent, [{ node, at }]);
+  }
+  return found;
+}
+
+/** Where the one block with the content of `node` is, or -1 when none or several are. */
+function soleCopy(blocks: Map<string, Placed[]>, node: ProseMirrorNode) {
+  let at = -1;
+  let copies = 0;
+  for (const other of blocks.get(node.textContent) ?? []) {
+    if (!other.node.eq(node)) continue;
+    at = other.at;
+    copies += 1;
+  }
+  return copies === 1 ? at : -1;
+}
+
+/**
+ * Where block `index` of the old changed stretch is in the new one. A block
+ * found exactly once on each side anchors the two stretches; such a block
+ * goes to its copy. Another block keeps its place between the anchors around
+ * it when both sides hold the same number of blocks there, and otherwise
+ * blocks were added or removed next to it, so there's no sure match.
+ */
+function changedStretchMatch(
+  before: Textblock[],
+  after: Textblock[],
+  index: number,
+): number | null {
+  const beforeByText = byText(before);
+  const afterByText = byText(after);
+  let previous = { before: -1, after: -1 };
+  let next = { before: before.length, after: after.length };
+  for (const [at, { node }] of before.entries()) {
+    if (soleCopy(beforeByText, node) !== at) continue;
+    const copy = soleCopy(afterByText, node);
+    if (copy < 0) continue;
+    if (at === index) return copy;
+    if (at < index) previous = { before: at, after: copy };
+    else {
+      next = { before: at, after: copy };
+      break;
+    }
+  }
+  return next.before - previous.before === next.after - previous.after
+    ? previous.after + index - previous.before
+    : null;
+}
+
 /**
  * Where a caret at `position` in `before` belongs in `after`, a newer Page
  * swapped in under it. The swap replaces every block from the first change to
@@ -77,7 +137,14 @@ export function caretAfterPageSwap(
   if (index < same) match = newBlocks[index];
   else if (index >= oldBlocks.length - sameAtEnd)
     match = newBlocks[index + shift];
-  else if (shift === 0) match = newBlocks[index];
+  else {
+    const at = changedStretchMatch(
+      oldBlocks.slice(same, oldBlocks.length - sameAtEnd),
+      newBlocks.slice(same, newBlocks.length - sameAtEnd),
+      index - same,
+    );
+    if (at !== null) match = newBlocks[same + at];
+  }
   if (!match) return null;
 
   const oldText = flatText($position.parent);
