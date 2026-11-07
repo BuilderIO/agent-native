@@ -136,10 +136,16 @@ async function resolveDraftAttachments(
 ): Promise<ComposeAttachment[]> {
   if (!ownerEmail) throw new Error("Unauthenticated");
   const attachments: ComposeAttachment[] = [];
+  // Forwarded parts keep their display name, so two can share a filename.
+  const unmatched = [...current];
   for (const handle of handles) {
+    const match = unmatched.findIndex(
+      (existing) => existing.filename === handle.filename,
+    );
     const attachment =
-      current.find((existing) => existing.filename === handle.filename) ??
-      (await attachmentFromUpload(ownerEmail, handle));
+      match >= 0
+        ? unmatched.splice(match, 1)[0]
+        : await attachmentFromUpload(ownerEmail, handle);
     if (!attachment)
       fail(
         `Attachment "${handle.filename}" isn't an upload Mail has for this account. Finish its create-attachment-upload PUT, then use the returned attachment object.`,
