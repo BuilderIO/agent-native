@@ -486,7 +486,7 @@ function ResourceSettingsRow({
 export function RowMenuTrigger({ children }: { children: ReactNode }) {
   const t = useT();
   return (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
