@@ -1164,7 +1164,7 @@ describe("/api/video/:recordingId route", () => {
       const event = makeEvent();
       event.query = { download_access: "download-token" };
       event.headers.set("range", "bytes=0-10");
-      const result = await handler(event as any);
+      const result = await handler(event as never);
 
       expect(mockResolveRecordingDownloadAccess).toHaveBeenCalledWith(
         "rec-1",
@@ -1206,7 +1206,7 @@ describe("/api/video/:recordingId route", () => {
 
         const event = makeEvent();
         event.query = { download_access: "download-token" };
-        const result = await handler(event as any);
+        const result = await handler(event as never);
 
         expect(event.status).toBe(statusCode);
         expect(result).toEqual({ error: "refused", errorCode });
@@ -1248,7 +1248,7 @@ describe("/api/video/:recordingId route", () => {
 
       const event = makeEvent();
       event.query = { download_access: "download-token" };
-      const result = await handler(event as any);
+      const result = await handler(event as never);
 
       expect(readAs).toEqual([["recording-blob-rec-1", "owner@example.com"]]);
       expect(Buffer.from(result as Uint8Array).toString()).toBe("local media");
@@ -1264,7 +1264,7 @@ describe("/api/video/:recordingId route", () => {
         }),
       );
 
-      await handler(event as any);
+      await handler(event as never);
 
       expect(mockResolveRecordingDownloadAccess).not.toHaveBeenCalled();
       expect(mockResolveAccess).toHaveBeenCalledWith("recording", "rec-1");

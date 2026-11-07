@@ -120,11 +120,12 @@ export async function resolveRecordingDownloadAccess(
   recordingId: string,
   token: string,
 ): Promise<RecordingDownloadAccess> {
-  const [recording] = await getDb()
+  const rows = await getDb()
     .select()
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId))
     .limit(1);
+  const recording = rows.length > 0 ? rows[0] : null;
   if (!recording) {
     return {
       ok: false,
