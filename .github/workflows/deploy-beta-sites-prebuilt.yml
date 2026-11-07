@@ -236,7 +236,7 @@ jobs:
           if [ -n "$BASES_FILE" ]; then
             args+=(--site-bases "$BASES_FILE" --source "$SOURCE_SHA")
           fi
-          echo 'matrix={"site":["crm"]}' >> "$GITHUB_OUTPUT"
+          echo 'matrix={"site":["clips","plan","crm"]}' >> "$GITHUB_OUTPUT"
           echo 'has_sites=true' >> "$GITHUB_OUTPUT"
 
   build:
@@ -262,7 +262,7 @@ jobs:
       smoke: false
       migration_only: false
       artifact_upload: true
-      artifact_name: beta-${{ matrix.site }}-42397667592
+      artifact_name: beta-${{ matrix.site }}-42408822155
     secrets: inherit
 
   confirm-current-source:
@@ -333,5 +333,5 @@ jobs:
       smoke: true
       migration_only: false
       artifact_download: true
-      artifact_name: beta-${{ matrix.site }}-42397667592
+      artifact_name: beta-${{ matrix.site }}-42408822155
     secrets: inherit
