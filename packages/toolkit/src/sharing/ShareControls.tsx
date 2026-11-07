@@ -61,7 +61,7 @@ export const JoinedShareControl = forwardRef<
   const plain = appearance === "plain";
   const copyButton = (
     // A click closes a tooltip, so the confirmation holds it open.
-    <Tooltip open={copied ? true : undefined}>
+    <Tooltip {...(copied ? { open: true } : {})}>
       <TooltipTrigger asChild>
         <Button
           type="button"

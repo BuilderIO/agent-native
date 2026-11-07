@@ -1245,15 +1245,8 @@ describe("document editor layout", () => {
       to: deletion!.anchor.to,
     });
   });
-  it("lets nested menus consume Escape before dismissing comment focus", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain(
-      'if (event.key !== "Escape" || escapeWasHandled(event)) return;',
-    );
-  });
+  // oracle-change: the page's Escape moved into usePagePanelEscape; that a
+  // menu's Escape leaves comment focus alone is pressed in CommentsSidebar.escape.
   it("measures an untransformed comment lane without an offset feedback loop", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
@@ -1340,24 +1333,6 @@ describe("document editor layout", () => {
         hasPendingComment: false,
       }),
     ).toBe(true);
-  });
-
-  it("leaves the page's agent open when a row preview's panel closes", () => {
-    const source = readFileSync("app/components/editor/DocumentEditor.tsx", {
-      encoding: "utf8",
-    });
-
-    expect(source).toMatch(
-      /if \(!next && showAgentTab\) \{\s+window\.dispatchEvent\(new CustomEvent\("agent-panel:close"\)\);/,
-    );
-  });
-
-  it("gives a widget none of the panel keys, as it has none of the tabs", () => {
-    const source = readFileSync("app/components/editor/DocumentEditor.tsx", {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("usePagePanelShortcuts(!inWidget,");
   });
 
   it("does not clip a printed page at the root's screen height", () => {
@@ -3106,8 +3081,9 @@ describe("document editor layout", () => {
     expect(source).toContain(
       'activeElement.closest<HTMLElement>("[data-page-editor-owner]")',
     );
+    // oracle-change: the owner check is shared by the page's keys and Escape.
     expect(source).toContain(
-      'if (owner ? owner !== pageEditorOwner : host !== "page") return;',
+      'return owner ? owner === pageEditorOwner : host === "page";',
     );
     expect(source).not.toContain("path.includes(editorRoot)");
   });

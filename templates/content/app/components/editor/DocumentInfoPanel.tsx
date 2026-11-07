@@ -21,8 +21,8 @@ interface DocumentInfoPanelProps {
   document: Document;
   documentContent: string;
   additionalBlockContents?: Readonly<Record<string, string>>;
-  databaseId?: string | null;
-  databaseDocumentId?: string | null;
+  databaseId?: string | null | undefined;
+  databaseDocumentId?: string | null | undefined;
   rowView?: DatabaseRowView | null;
   rowViewPending?: boolean;
   canEdit: boolean;

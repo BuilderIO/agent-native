@@ -35,8 +35,8 @@ export function DocumentPagePanel({
   panelRef: RefObject<HTMLElement | null>;
   spacerRef: RefObject<HTMLDivElement | null>;
   headingRef: RefObject<HTMLHeadingElement | null>;
-  agentSlotRef?: RefObject<HTMLDivElement | null>;
-  panelId?: string;
+  agentSlotRef?: RefObject<HTMLDivElement | null> | undefined;
+  panelId?: string | undefined;
   onClose: () => void;
   children: ReactNode;
 }) {

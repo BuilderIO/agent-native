@@ -23,7 +23,6 @@ import {
 } from "@agent-native/core/client/hooks";
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
-import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import {
   useCreateResourceSuggestionProposal,
   useDecideResourceSuggestion,
@@ -282,8 +281,11 @@ import {
 import { createHistorySession } from "./document-history-session";
 import {
   type DocumentPagePanelTab,
-  escapeWasHandled,
+  pagePanelEscapeCloses,
+  returnFocusFromPagePanel,
+  sendPagePanelAgentCommand,
   useAgentPanelState,
+  usePagePanelEscape,
   usePagePanelMotion,
   usePagePanelShortcuts,
 } from "./document-page-panel-state";
@@ -8646,7 +8648,6 @@ function PageEditorSessionBody({
   // A row preview's sheet covers the page's panel, so the agent stays there
   // and the preview's own panel holds Discussion and Info.
   const agent = useAgentPanelState();
-  const inWidget = useIsMcpAppWidgetEmbed();
   const showAgentTab = useAgentPanelSlot(agentSlotRef, host === "page");
   const agentInPanel = showAgentTab && agent.inPanel;
   const utilityPanelTab = documentPagePanelTab({
@@ -8886,13 +8887,15 @@ function PageEditorSessionBody({
     !blockFieldComments.tabSwitchPending &&
     ((!!pendingComment && blockFieldComments.pendingVisible) ||
       !!selectedThreadId);
-  // Escape closes what is innermost, so a reply box or a card goes first.
+  // Escape closes what is innermost, so a reply box or a card goes first. A
+  // reply left open in Discussion doesn't show behind another tab, so it
+  // doesn't hold Escape there.
   const { openReply } = replyDrafts;
-  pagePanelEscapeRef.current =
-    !!pagePanel.tab &&
-    !openReply.threadId &&
-    !openReply.suggestionId &&
-    !showAnchoredCommentPopover;
+  pagePanelEscapeRef.current = pagePanelEscapeCloses({
+    tab: pagePanel.tab,
+    replyOpen: !!(openReply?.threadId || openReply?.suggestionId),
+    commentCardOpen: showAnchoredCommentPopover,
+  });
 
   const pagePanelTab = pagePanel.tab;
   useEffect(() => {
@@ -8921,20 +8924,14 @@ function PageEditorSessionBody({
     if (!wasOpen) return;
     const target = pagePanelReturnFocusRef.current;
     pagePanelReturnFocusRef.current = null;
-    const activeElement = globalThis.document.activeElement;
-    if (
-      activeElement !== globalThis.document.body &&
-      !panel?.contains(activeElement)
-    ) {
-      return;
-    }
-    const lastTab = globalThis.document.querySelector<HTMLElement>(
-      `[data-page-editor-owner="${CSS.escape(pageEditorOwner)}"] [data-document-panel-tab="${pagePanelLastTabRef.current}"]`,
-    );
-    (target?.isConnected
-      ? target
-      : (lastTab ?? utilityPanelFocusFallbackRef.current)
-    )?.focus({ preventScroll: true });
+    returnFocusFromPagePanel({
+      panel,
+      target,
+      tab: globalThis.document.querySelector<HTMLElement>(
+        `[data-page-editor-owner="${CSS.escape(pageEditorOwner)}"] [data-document-panel-tab="${pagePanelLastTabRef.current}"]`,
+      ),
+      fallback: utilityPanelFocusFallbackRef.current,
+    });
   }, [pageEditorOwner, pagePanelTab]);
 
   useLayoutEffect(() => {
@@ -8972,11 +8969,6 @@ function PageEditorSessionBody({
     replyDrafts.setOpenReply,
     showCommentsHistoryDrawer,
   ]);
-
-  const handleEditorEscape = useCallback(() => {
-    dismissCommentFocus();
-    editorEscapeTargetRef.current?.focus({ preventScroll: true });
-  }, [dismissCommentFocus]);
 
   const activateSuggestion = useCallback((suggestionId: string) => {
     setPendingComment(null);
@@ -9217,22 +9209,31 @@ function PageEditorSessionBody({
       }
       // One panel: the side that opens closes the other, in the effect below,
       // so the panel stays open across a switch between the agent and the rest.
-      if (next === "agent") {
-        window.dispatchEvent(
-          new CustomEvent("agent-panel:open", {
-            detail: { focus: pagePanelFocusInsideRef.current },
-          }),
-        );
+      if (
+        sendPagePanelAgentCommand(next, {
+          ownsAgent: showAgentTab,
+          focus: pagePanelFocusInsideRef.current,
+        })
+      ) {
         return;
-      }
-      // A row preview's panel closing leaves the page's agent where it is.
-      if (!next && showAgentTab) {
-        window.dispatchEvent(new CustomEvent("agent-panel:close"));
       }
       handleUtilityPanelChange(next);
     },
     [handleUtilityPanelChange, showAgentTab],
   );
+
+  // The page's text takes Escape before the window does, so it closes an open
+  // panel the same way and leaves focus in the text; with no panel to close,
+  // Escape moves focus out of the text.
+  const handleEditorEscape = useCallback(() => {
+    const closePanel = pagePanelEscapeRef.current;
+    dismissCommentFocus();
+    if (closePanel) {
+      handlePagePanelChange(null);
+      return;
+    }
+    editorEscapeTargetRef.current?.focus({ preventScroll: true });
+  }, [dismissCommentFocus, handlePagePanelChange]);
 
   const pagePanelClaims = useRef({
     agent: agentInPanel,
@@ -9253,9 +9254,12 @@ function PageEditorSessionBody({
 
   const openPanelTab = showAgentTab && agent.open ? "agent" : requestedPanelTab;
   const showCommentsTab = canComment && !isLocalFileDocument;
-  usePagePanelShortcuts(!inWidget, (shortcut, event) => {
+  const ownsPageEvent = (event: KeyboardEvent) => {
     const owner = documentEditorEventOwner(event);
-    if (owner ? owner !== pageEditorOwner : host !== "page") return;
+    return owner ? owner === pageEditorOwner : host === "page";
+  };
+  usePagePanelShortcuts((shortcut, event) => {
+    if (!ownsPageEvent(event)) return;
     const tab =
       shortcut === "last"
         ? (pagePanelLastTabRef.current ??
@@ -9423,19 +9427,13 @@ function PageEditorSessionBody({
     threads,
   ]);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || escapeWasHandled(event)) return;
-      const owner = documentEditorEventOwner(event);
-      if (owner ? owner !== pageEditorOwner : host !== "page") return;
-      const closePanel = pagePanelEscapeRef.current;
-      dismissCommentFocus();
-      const composerKeepsEscape = preserveCommentComposerEscape(event);
-      if (closePanel && !composerKeepsEscape) handlePagePanelChange(null);
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [dismissCommentFocus, handlePagePanelChange, host, pageEditorOwner]);
+  usePagePanelEscape({
+    belongs: ownsPageEvent,
+    closes: () => pagePanelEscapeRef.current,
+    keeps: preserveCommentComposerEscape,
+    onDismiss: dismissCommentFocus,
+    onClose: () => handlePagePanelChange(null),
+  });
 
   useEffect(() => {
     if (!showAnchoredCommentPopover) {

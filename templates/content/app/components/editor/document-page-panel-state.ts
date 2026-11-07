@@ -2,6 +2,7 @@ import {
   getAgentSidebarState,
   SIDEBAR_STATE_CHANGE_EVENT,
 } from "@agent-native/core/client/agent-chat";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { isAgentSidebarToggleShortcut } from "@agent-native/toolkit/app/chat/agent-sidebar-events";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
@@ -123,17 +124,18 @@ function isInAgentComposer(target: EventTarget | null) {
 /**
  * Calls `onShortcut` for a panel key that nothing on the page has handled.
  * ⇧⌘I goes first: TipTap's italic also answers it, in every editor on the page.
+ * A widget shows no tabs, so it has no keys either.
  */
 export function usePagePanelShortcuts(
-  enabled: boolean,
   onShortcut: (shortcut: PanelShortcut, event: KeyboardEvent) => void,
 ) {
+  const inWidget = useIsMcpAppWidgetEmbed();
   const onShortcutRef = useRef(onShortcut);
   useEffect(() => {
     onShortcutRef.current = onShortcut;
   });
   useEffect(() => {
-    if (!enabled) return;
+    if (inWidget) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       // ⇧⌘M on selected text has already started a comment.
       if (event.defaultPrevented) return;
@@ -151,7 +153,104 @@ export function usePagePanelShortcuts(
       document.removeEventListener("keydown", handleKeyDownFirst, true);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [enabled]);
+  }, [inWidget]);
+}
+
+/**
+ * Opens or closes the agent for a change of tab. True when the agent takes the
+ * change; the other tabs are the page's own.
+ */
+export function sendPagePanelAgentCommand(
+  next: DocumentPagePanelTab | null,
+  { ownsAgent, focus }: { ownsAgent: boolean; focus: boolean },
+): next is "agent" {
+  if (next === "agent") {
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:open", { detail: { focus } }),
+    );
+    return true;
+  }
+  // A row preview's panel closing leaves the page's agent where it is.
+  if (!next && ownsAgent) {
+    window.dispatchEvent(new CustomEvent("agent-panel:close"));
+  }
+  return false;
+}
+
+/**
+ * Whether Escape closes the panel now, or a layer inside it goes first: a
+ * reply box open in Discussion, or a comment card on the page.
+ */
+export function pagePanelEscapeCloses({
+  tab,
+  replyOpen,
+  commentCardOpen,
+}: {
+  tab: DocumentPagePanelTab | null;
+  replyOpen: boolean;
+  commentCardOpen: boolean;
+}) {
+  if (!tab || commentCardOpen) return false;
+  return !(tab === "comments" && replyOpen);
+}
+
+type PagePanelEscape = {
+  belongs: (event: KeyboardEvent) => boolean;
+  /** Whether this press closes the panel, read before anything is dismissed. */
+  closes: () => boolean;
+  /** True when a box inside keeps the key, such as a comment being written. */
+  keeps: (event: KeyboardEvent) => boolean;
+  onDismiss: () => void;
+  onClose: () => void;
+};
+
+/** Escape the page hasn't handled: lets go of a comment, then closes the panel. */
+export function usePagePanelEscape(escape: PagePanelEscape) {
+  const escapeRef = useRef(escape);
+  useEffect(() => {
+    escapeRef.current = escape;
+  });
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || escapeWasHandled(event)) return;
+      const { belongs, closes, keeps, onDismiss, onClose } = escapeRef.current;
+      if (!belongs(event)) return;
+      const closePanel = closes();
+      onDismiss();
+      const kept = keeps(event);
+      if (closePanel && !kept) onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+}
+
+/**
+ * Puts focus back when the panel closes: where it was before the panel opened,
+ * else on the open section's tab, else on `fallback`. Focus that has moved out
+ * of the panel stays where it went.
+ */
+export function returnFocusFromPagePanel({
+  panel,
+  target,
+  tab,
+  fallback,
+}: {
+  panel: HTMLElement | null;
+  target: HTMLElement | null;
+  tab: HTMLElement | null;
+  fallback: HTMLElement | null;
+}) {
+  const activeElement = globalThis.document.activeElement;
+  if (
+    activeElement !== globalThis.document.body &&
+    !panel?.contains(activeElement)
+  ) {
+    return;
+  }
+  (target?.isConnected ? target : (tab ?? fallback))?.focus({
+    preventScroll: true,
+  });
 }
 
 // Radix hands Escape to the top layer, which marks the key handled. A tab's

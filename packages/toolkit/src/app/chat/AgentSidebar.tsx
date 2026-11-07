@@ -1770,7 +1770,7 @@ export function AgentSidebar({
           composerToolbarSlot={composerToolbarSlot}
           composerSlot={composerSlot}
           // A host's tab opens the chat without taking focus from the tab.
-          composerAutoFocus={hostedPanel ? false : undefined}
+          {...(hostedPanel ? { composerAutoFocus: false } : {})}
           composerContextProvider={composerContextProvider}
           onComposerTextChange={onComposerTextChange}
           imageModelMenu={imageModelMenu}
@@ -1818,7 +1818,7 @@ export function AgentSidebar({
           storageKey={storageKey}
           restoreActiveThread={restoreActiveThread}
           scope={scope}
-          chatHistory={chatHistory}
+          {...(chatHistory ? { chatHistory } : {})}
           isolateHistoryByScope={isolateHistoryByScope}
           showScopeBadge={showScopeBadge}
           browserTabId={resolvedBrowserTabId}

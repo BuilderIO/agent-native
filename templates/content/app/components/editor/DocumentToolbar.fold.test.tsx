@@ -369,8 +369,8 @@ describe("DocumentToolbar at narrow widths", () => {
 
   it("ends page actions with Move to Trash below a divider", async () => {
     await renderToolbar(1000, { canDelete: true, onDelete: vi.fn() });
-    const items = await openPageActions();
-    const trash = items[items.length - 1];
+    const trash = (await openPageActions()).pop();
+    if (!trash) throw new Error("The page actions menu is empty");
 
     expect(trash.textContent).toContain("sidebar.moveToTrash");
     expect(trash.querySelector("svg")).not.toBeNull();

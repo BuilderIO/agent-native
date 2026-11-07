@@ -860,7 +860,7 @@ interface DocumentToolbarProps {
   openCommentCount?: number;
   onUtilityPanelChange: (panel: DocumentPagePanelTab | null) => void;
   showAgentTab?: boolean;
-  panelId?: string;
+  panelId?: string | undefined;
   showCommentsControl?: boolean;
   commentsTriggerRef?: Ref<HTMLButtonElement>;
   utilityPanelFocusFallbackRef?: Ref<HTMLButtonElement>;

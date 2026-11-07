@@ -11,9 +11,20 @@ import {
   PAGE_PANEL_MARGIN_FADE_MS,
   pagePanelShortcut,
   leaveEscapeToPagePanel,
+  pagePanelEscapeCloses,
+  returnFocusFromPagePanel,
+  sendPagePanelAgentCommand,
   usePagePanelMotion,
   usePagePanelShortcuts,
 } from "./document-page-panel-state";
+
+const widget = vi.hoisted(() => ({ embedded: false }));
+vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/mcp-app-host")
+  >()),
+  useIsMcpAppWidgetEmbed: () => widget.embedded,
+}));
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -82,7 +93,7 @@ describe("usePagePanelShortcuts", () => {
   const onShortcut = vi.fn();
 
   function Probe() {
-    usePagePanelShortcuts(true, onShortcut);
+    usePagePanelShortcuts(onShortcut);
     return (
       <>
         <button type="button" data-page-button />
@@ -115,6 +126,7 @@ describe("usePagePanelShortcuts", () => {
   afterEach(() => {
     act(() => root.unmount());
     host.remove();
+    widget.embedded = false;
     vi.clearAllMocks();
   });
 
@@ -144,6 +156,121 @@ describe("usePagePanelShortcuts", () => {
 
     press("[data-agent-box]", { key: "I" });
     expect(onShortcut).toHaveBeenCalledWith("info", expect.anything());
+  });
+
+  it("gives a widget, which shows no tabs, none of the keys", () => {
+    act(() => root.unmount());
+    widget.embedded = true;
+    root = createRoot(host);
+    act(() => root.render(<Probe />));
+
+    press("[data-page-button]", { key: "I" });
+    press("[data-page-button]", { key: "M" });
+    press("[data-page-button]", {
+      key: "\\",
+      code: "Backslash",
+      shiftKey: false,
+    });
+    expect(onShortcut).not.toHaveBeenCalled();
+  });
+});
+
+describe("sendPagePanelAgentCommand", () => {
+  const opened = vi.fn();
+  const closed = vi.fn();
+
+  beforeEach(() => {
+    window.addEventListener("agent-panel:open", opened);
+    window.addEventListener("agent-panel:close", closed);
+  });
+
+  afterEach(() => {
+    window.removeEventListener("agent-panel:open", opened);
+    window.removeEventListener("agent-panel:close", closed);
+    vi.clearAllMocks();
+  });
+
+  it("opens the agent, with focus when a key asked for it", () => {
+    expect(
+      sendPagePanelAgentCommand("agent", { ownsAgent: true, focus: true }),
+    ).toBe(true);
+    expect((opened.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({
+      focus: true,
+    });
+  });
+
+  it("closes the agent along with the panel of the page that owns it", () => {
+    expect(
+      sendPagePanelAgentCommand(null, { ownsAgent: true, focus: false }),
+    ).toBe(false);
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the page's agent open when a row preview's panel closes", () => {
+    sendPagePanelAgentCommand(null, { ownsAgent: false, focus: false });
+    expect(closed).not.toHaveBeenCalled();
+  });
+
+  it("leaves Discussion and Info to the page", () => {
+    expect(
+      sendPagePanelAgentCommand("info", { ownsAgent: true, focus: false }),
+    ).toBe(false);
+    expect(opened).not.toHaveBeenCalled();
+    expect(closed).not.toHaveBeenCalled();
+  });
+});
+
+describe("returnFocusFromPagePanel", () => {
+  let host: HTMLDivElement;
+  let panel: HTMLDivElement;
+  let opener: HTMLButtonElement;
+  let tab: HTMLButtonElement;
+  let fallback: HTMLButtonElement;
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    host.innerHTML = `
+      <button data-opener></button>
+      <button data-tab></button>
+      <button data-fallback></button>
+      <button data-elsewhere></button>
+      <div data-panel><button data-inside></button></div>`;
+    document.body.append(host);
+    const get = <T extends HTMLElement>(selector: string) => {
+      const element = host.querySelector<T>(selector);
+      if (!element) throw new Error(`No ${selector}`);
+      return element;
+    };
+    panel = get("[data-panel]");
+    opener = get("[data-opener]");
+    tab = get("[data-tab]");
+    fallback = get("[data-fallback]");
+    get("[data-inside]").focus();
+  });
+
+  afterEach(() => host.remove());
+
+  it("goes back to where focus was before the panel opened", () => {
+    returnFocusFromPagePanel({ panel, target: opener, tab, fallback });
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("goes to the open section's tab when that place has gone", () => {
+    opener.remove();
+    returnFocusFromPagePanel({ panel, target: opener, tab, fallback });
+    expect(document.activeElement).toBe(tab);
+  });
+
+  it("goes to the fallback with no tab to go to", () => {
+    returnFocusFromPagePanel({ panel, target: null, tab: null, fallback });
+    expect(document.activeElement).toBe(fallback);
+  });
+
+  it("leaves focus that has moved on out of the panel", () => {
+    const elsewhere = host.querySelector<HTMLElement>("[data-elsewhere]");
+    elsewhere?.focus();
+    returnFocusFromPagePanel({ panel, target: opener, tab, fallback });
+    expect(document.activeElement).toBe(elsewhere);
   });
 });
 
@@ -293,5 +420,35 @@ describe("usePagePanelMotion", () => {
       rendered: null,
       closing: false,
     });
+  });
+});
+
+describe("pagePanelEscapeCloses", () => {
+  const press = (
+    tab: DocumentPagePanelTab | null,
+    { replyOpen = false, commentCardOpen = false } = {},
+  ) => pagePanelEscapeCloses({ tab, replyOpen, commentCardOpen });
+
+  it("closes an open panel with nothing inside it open", () => {
+    expect(press("info")).toBe(true);
+    expect(press("comments")).toBe(true);
+    expect(press("agent")).toBe(true);
+  });
+
+  it("has no panel to close when none is open", () => {
+    expect(press(null)).toBe(false);
+  });
+
+  it("lets an open reply box in Discussion go first", () => {
+    expect(press("comments", { replyOpen: true })).toBe(false);
+  });
+
+  it("closes Info past a reply left open, unseen, in Discussion", () => {
+    expect(press("info", { replyOpen: true })).toBe(true);
+    expect(press("agent", { replyOpen: true })).toBe(true);
+  });
+
+  it("lets a comment card on the page go first", () => {
+    expect(press("comments", { commentCardOpen: true })).toBe(false);
   });
 });

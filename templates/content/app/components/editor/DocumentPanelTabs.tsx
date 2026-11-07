@@ -55,8 +55,8 @@ export function DocumentPanelTabs({
   openCommentCount?: number;
   /** A phone's header: plain 44 px buttons without the track. */
   plain?: boolean;
-  panelId?: string;
-  commentsTriggerRef?: Ref<HTMLButtonElement>;
+  panelId?: string | undefined;
+  commentsTriggerRef?: Ref<HTMLButtonElement> | undefined;
   onTabChange: (tab: DocumentPagePanelTab | null) => void;
 }) {
   const t = useT();
@@ -83,7 +83,9 @@ export function DocumentPanelTabs({
     const index = tabs.indexOf(tab);
     const move = (next: number) => {
       event.preventDefault();
-      buttons.current.get(tabs[(next + tabs.length) % tabs.length])?.focus();
+      const position = (next + tabs.length) % tabs.length;
+      const target = tabs.find((_, index) => index === position);
+      if (target) buttons.current.get(target)?.focus();
     };
     if (event.key === "ArrowRight") move(index + 1);
     else if (event.key === "ArrowLeft") move(index - 1);
