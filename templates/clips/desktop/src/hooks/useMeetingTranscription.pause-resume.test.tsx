@@ -274,6 +274,213 @@ describe("meeting transcription pause and resume", () => {
     ]);
   });
 
+  describe("restarting notes Rewind can also recover", () => {
+    const savedMeeting = {
+      meeting: { actualEnd: "2026-10-21T16:20:00.000Z" },
+      transcript: {
+        segmentsJson: JSON.stringify([
+          { startMs: 0, endMs: 1_000, text: "first session", source: "mic" },
+        ]),
+      },
+    };
+
+    beforeEach(() => {
+      mocks.invoke.mockImplementation(async (command: string) => {
+        if (command === "rewind_meeting_history_status") {
+          return { available: true };
+        }
+        if (command === "rewind_meeting_history_prepare") {
+          return {
+            token: "history-1",
+            scheduledStart: "2026-10-21T16:00:00.000Z",
+            capturedUntil: "2026-10-21T16:25:00.000Z",
+          };
+        }
+        if (command === "rewind_meeting_history_collect") {
+          return {
+            segments: [
+              {
+                startMs: 0,
+                endMs: 1_000,
+                text: "first session again",
+                source: "mic",
+              },
+            ],
+          };
+        }
+        return undefined;
+      });
+    });
+
+    async function restartAndSpeak(beforeSpeaking?: () => Promise<void>) {
+      await act(async () => {
+        root.render(createElement(Harness));
+        await settle();
+      });
+      await dispatch("meetings:start-transcription", {
+        meetingId: "meeting-1",
+        reason: "user",
+        scheduledStart: "2026-10-21T16:00:00.000Z",
+      });
+      await beforeSpeaking?.();
+      const runId = mocks.startTranscriptionEngine.mock.calls[0]?.[0]
+        .runId as number;
+      await act(async () => {
+        emitFinal(runId, "second session");
+        await vi.advanceTimersByTimeAsync(1_500);
+        await settle();
+      });
+      const saved = mocks.actions.filter(
+        (action) => action.name === "save-browser-transcript",
+      );
+      const segments = saved[saved.length - 1]?.body.segments as Array<{
+        text: string;
+        recovered?: true;
+      }>;
+      return segments.map((segment) => [segment.text, segment.recovered]);
+    }
+
+    it("skips Rewind when the saved lines load first", async () => {
+      const engine = deferred<string>();
+      mocks.startTranscriptionEngine.mockReturnValue(engine.promise);
+      mocks.legacyMeeting.mockResolvedValue(savedMeeting);
+
+      const segments = await restartAndSpeak(async () => {
+        await act(async () => {
+          engine.resolve("whisper");
+          await settle();
+        });
+      });
+
+      expect(segments).toEqual([
+        ["first session", undefined],
+        ["second session", undefined],
+      ]);
+      expect(mocks.invoke).toHaveBeenCalledWith(
+        "rewind_meeting_history_cancel",
+        { token: "history-1" },
+      );
+      expect(mocks.invoke).not.toHaveBeenCalledWith(
+        "rewind_meeting_history_collect",
+        expect.anything(),
+      );
+    });
+
+    it("drops Rewind's lines that finish after the saved lines load", async () => {
+      const meeting = deferred<unknown>();
+      mocks.legacyMeeting.mockReturnValue(meeting.promise);
+      const collected = deferred<unknown>();
+      const answer = mocks.invoke.getMockImplementation();
+      mocks.invoke.mockImplementation(async (command: string, args) =>
+        command === "rewind_meeting_history_collect"
+          ? collected.promise
+          : answer?.(command, args),
+      );
+
+      const segments = await restartAndSpeak(async () => {
+        await act(async () => {
+          meeting.resolve(savedMeeting);
+          await settle();
+          collected.resolve({
+            segments: [
+              {
+                startMs: 0,
+                endMs: 1_000,
+                text: "first session again",
+                source: "mic",
+              },
+            ],
+          });
+          await settle();
+        });
+      });
+
+      expect(mocks.invoke).toHaveBeenCalledWith(
+        "rewind_meeting_history_collect",
+        { token: "history-1" },
+      );
+      expect(segments).toEqual([
+        ["first session", undefined],
+        ["second session", undefined],
+      ]);
+    });
+
+    it("doesn't warn when Rewind fails after the saved lines load", async () => {
+      const meeting = deferred<unknown>();
+      mocks.legacyMeeting.mockReturnValue(meeting.promise);
+      const collected = deferred<unknown>();
+      const answer = mocks.invoke.getMockImplementation();
+      mocks.invoke.mockImplementation(async (command: string, args) =>
+        command === "rewind_meeting_history_collect"
+          ? collected.promise
+          : answer?.(command, args),
+      );
+
+      const segments = await restartAndSpeak(async () => {
+        await act(async () => {
+          meeting.resolve(savedMeeting);
+          await settle();
+          collected.reject(new Error("Rewind's index wasn't ready."));
+          await settle();
+        });
+      });
+
+      expect(segments).toEqual([
+        ["first session", undefined],
+        ["second session", undefined],
+      ]);
+      expect(mocks.emit).not.toHaveBeenCalledWith(
+        "meetings:history-error",
+        expect.anything(),
+      );
+    });
+
+    it("drops Rewind's lines when the saved lines load after them", async () => {
+      const meeting = deferred<unknown>();
+      mocks.legacyMeeting.mockReturnValue(meeting.promise);
+
+      const segments = await restartAndSpeak();
+      expect(segments).toEqual([
+        ["first session again", true],
+        ["second session", undefined],
+      ]);
+
+      const latestSave = () => {
+        const saved = mocks.actions.filter(
+          (action) => action.name === "save-browser-transcript",
+        );
+        const latest = saved[saved.length - 1]?.body.segments as Array<{
+          text: string;
+          recovered?: true;
+        }>;
+        return latest.map((segment) => [segment.text, segment.recovered]);
+      };
+      await act(async () => {
+        meeting.resolve(savedMeeting);
+        await settle();
+        await vi.advanceTimersByTimeAsync(1_500);
+        await settle();
+      });
+      expect(latestSave()).toEqual([
+        ["first session", undefined],
+        ["second session", undefined],
+      ]);
+
+      const runId = mocks.startTranscriptionEngine.mock.calls[0]?.[0]
+        .runId as number;
+      await act(async () => {
+        emitFinal(runId, "third line");
+        await vi.advanceTimersByTimeAsync(1_500);
+        await settle();
+      });
+      expect(latestSave()).toEqual([
+        ["first session", undefined],
+        ["second session", undefined],
+        ["third line", undefined],
+      ]);
+    });
+  });
+
   it("releases the native engine within five seconds of a persisted web end", async () => {
     await act(async () => {
       root.render(createElement(Harness));

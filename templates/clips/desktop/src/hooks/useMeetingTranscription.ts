@@ -1008,6 +1008,12 @@ export function useMeetingTranscription({
           starting: true,
         };
 
+        // Restarted notes reload the lines they already saved, which hold the
+        // same speech Rewind recovers from the meeting's start. Whichever
+        // arrives second yields to the saved lines, so it is kept only once.
+        const savedLinesLoadedRef: { current: boolean } = { current: false };
+        let rewindLines: TranscriptLine[] = [];
+
         callClipsAction<{
           meeting?: { userNotesMd?: string; title?: string | null };
           transcript?: { segmentsJson?: string | null } | null;
@@ -1055,6 +1061,15 @@ export function useMeetingTranscription({
                       recovered: s.recovered,
                     }),
                   );
+                  savedLinesLoadedRef.current = true;
+                  if (rewindLines.length) {
+                    const duplicates = new Set(rewindLines);
+                    session.lines = session.lines.filter(
+                      (line) => !duplicates.has(line),
+                    );
+                    rewindLines = [];
+                    if (!session.stopping) scheduleFlush();
+                  }
                   session.lines = [...storedLines, ...session.lines];
                   const preloadedLines = pillTranscriptLines(session.lines);
                   if (
@@ -1136,17 +1151,26 @@ export function useMeetingTranscription({
           meetingId: resolvedMeetingId,
         }).catch(() => {});
 
-        if (historyPreparedRef.current) {
+        if (historyPreparedRef.current && savedLinesLoadedRef.current) {
+          invoke("rewind_meeting_history_cancel", {
+            token: historyPreparedRef.current.token,
+          }).catch(() => {});
+        } else if (historyPreparedRef.current) {
           const prepared = historyPreparedRef.current;
           const historyPromise = invoke<{
             segments: SourcedTranscriptSegment[];
           }>("rewind_meeting_history_collect", { token: prepared.token })
             .then((history) => {
-              if (sessionRef.current !== session) return;
-              const historyLines = history.segments.map((segment) =>
+              if (
+                sessionRef.current !== session ||
+                savedLinesLoadedRef.current
+              ) {
+                return;
+              }
+              rewindLines = history.segments.map((segment) =>
                 transcriptLineFromSegment({ ...segment, recovered: true }),
               );
-              session.lines = [...historyLines, ...session.lines];
+              session.lines = [...rewindLines, ...session.lines];
               const preloadedLines = pillTranscriptLines(session.lines);
               if (pendingPillInitRef.current?.meetingId === resolvedMeetingId) {
                 pendingPillInitRef.current = {
@@ -1165,6 +1189,8 @@ export function useMeetingTranscription({
               });
             })
             .catch((error) => {
+              // The saved lines already hold the earlier speech.
+              if (savedLinesLoadedRef.current) return;
               const message =
                 typeof error === "string"
                   ? error
