@@ -64,6 +64,7 @@ let drizzleOverExec: typeof import("../db/exec.js").drizzleOverExec;
 let schema: typeof import("../db/schema.js");
 let refs: typeof import("./private-media-references.js");
 let updateDocumentAction: typeof import("../../actions/update-document.js").default;
+let editDocumentAction: typeof import("../../actions/edit-document.js").default;
 let readMedia: H3["request"];
 let count = 0;
 
@@ -168,6 +169,7 @@ beforeAll(async () => {
   refs = await import("./private-media-references.js");
   updateDocumentAction = (await import("../../actions/update-document.js"))
     .default;
+  editDocumentAction = (await import("../../actions/edit-document.js")).default;
   const plugin = (await import("../plugins/db.js")).default;
   await plugin(undefined as never);
   await privateMediaStore.ready();
@@ -355,6 +357,18 @@ describe("private media references", () => {
     await share(page);
     await runWithRequestContext({ userEmail: OWNER }, () =>
       updateDocumentAction.run({ id: page, content: body(id) }),
+    );
+    expect(await references(page, id)).toHaveLength(1);
+    await expect(canRead(id, SHARED)).resolves.toBe(true);
+  });
+
+  it("binds images when edit-document saves a body", async () => {
+    const id = mediaId();
+    await uploaded(id, OWNER);
+    const page = await document({ content: "Before" });
+    await share(page);
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocumentAction.run({ id: page, find: "Before", replace: body(id) }),
     );
     expect(await references(page, id)).toHaveLength(1);
     await expect(canRead(id, SHARED)).resolves.toBe(true);

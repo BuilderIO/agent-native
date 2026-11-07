@@ -4,6 +4,10 @@ import { join } from "node:path";
 
 import { withMigrationRuntime } from "@agent-native/core/db";
 import {
+  privateMedia,
+  privateMediaStore,
+} from "@agent-native/core/private-media";
+import {
   runFrameworkReleaseMigrations,
   runWithRequestContext,
 } from "@agent-native/core/server";
@@ -100,6 +104,7 @@ beforeAll(async () => {
   }
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
+  await privateMediaStore.ready();
 }, 60_000);
 
 afterAll(() => {
@@ -717,6 +722,46 @@ describe("exact Content database block actions", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, state.target.rowDocumentId));
     expect(stored?.content).toBe(`Alpha\n${video}`);
+  });
+
+  it("binds a private image that a primary block mutation adds", async () => {
+    const state = await fixture("Before\nSibling");
+    const mediaId = "7b0e8c52-4f8a-4d1e-9c3a-2f6d5e4b3a21";
+    await getDb().insert(privateMedia).values({
+      id: mediaId,
+      ownerEmail,
+      mimeType: "image/png",
+      size: 3,
+      sha256: "0",
+      blobHandleJson: "{}",
+      createdAt: 0,
+    });
+
+    await asOwner(() =>
+      mutateBlock.run({
+        ...envelope(state, "private-image"),
+        operation: "update",
+        blockId: state.listed.blocks[0]!.id,
+        block: {
+          kind: "paragraph",
+          nfm: `See the [photo](/api/private-media/${mediaId}).`,
+        },
+      }),
+    );
+
+    const bound = await getDb()
+      .select()
+      .from(schema.privateMediaReferences)
+      .where(
+        and(
+          eq(
+            schema.privateMediaReferences.documentId,
+            state.target.rowDocumentId,
+          ),
+          eq(schema.privateMediaReferences.mediaId, mediaId),
+        ),
+      );
+    expect(bound).toHaveLength(1);
   });
 
   it("rejects a direct editor-body race without overwriting the newer body", async () => {
