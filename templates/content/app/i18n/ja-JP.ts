@@ -696,6 +696,7 @@ const editor = {
     "表示のみ。このページは GitHub のファイルに連動し、push のたびに更新されます。",
   githubSourceOpenFile: "GitHub で開く",
   textColor: "テキストの色",
+  resizeColumns: "列の幅を変更",
   backgroundColor: "背景色",
   defaultColor: "デフォルト",
   color: {
@@ -1037,6 +1038,10 @@ const editor = {
     bulletedListDescription: "順序なしリスト",
     callout: "吹き出し",
     calloutDescription: "ハイライトされた情報ブロック",
+    columnsDescription: "ブロックを横に並べる",
+    twoColumns: "2列",
+    threeColumns: "3列",
+    fourColumns: "4列",
     codeBlock: "コードブロック",
     codeBlockDescription: "コードスニペット",
     collapsibleBlockDescription: "折りたたみ可能なブロック",

@@ -271,6 +271,24 @@ describe("NFM container export", () => {
     expect(html.match(/<div class="nfm-column">/g)).toHaveLength(2);
   });
 
+  it("gives each column the share of the row its ratio asks for", () => {
+    const html = exportedBody(
+      [
+        "<columns>",
+        '\t<column ratio="70">',
+        "\t\tWide",
+        "\t</column>",
+        '\t<column ratio="30">',
+        "\t\tNarrow",
+        "\t</column>",
+        "</columns>",
+      ].join("\n"),
+    );
+
+    expect(html).toContain('<div class="nfm-column" style="flex-grow: 70">');
+    expect(html).toContain('<div class="nfm-column" style="flex-grow: 30">');
+  });
+
   it("renders colored Tabler callout icons in standalone HTML and PDF output", () => {
     const markdown = calloutWithIcon({
       version: 1,
