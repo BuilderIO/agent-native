@@ -519,7 +519,12 @@ describe("IntegrationDetailPage", () => {
     );
     expect(row?.textContent).toContain("Connected");
     expect(row?.textContent).toContain("Personal · 12 tools available");
-    expect(row?.querySelector("button")?.textContent).toBe("Remove");
+    expect(
+      Array.from(
+        row?.querySelectorAll("button") ?? [],
+        (button) => button.textContent,
+      ),
+    ).toEqual(["Reconnect", "Remove"]);
   });
 
   it("opens a custom connected server by its slug, with Reconnect and Remove", async () => {

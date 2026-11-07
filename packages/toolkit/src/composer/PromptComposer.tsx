@@ -1183,7 +1183,9 @@ function PromptComposerInner({
             : undefined
         }
       >
-        {engineState === "unavailable" && !engineNoticeDismissed ? (
+        {engineState === "unavailable" &&
+        !setupCardVisible &&
+        !engineNoticeDismissed ? (
           <ComposerNotice
             noticeId="provider-status-unavailable"
             actions={

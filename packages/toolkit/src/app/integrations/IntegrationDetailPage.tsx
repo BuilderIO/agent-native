@@ -311,10 +311,16 @@ function ConnectedRow({
   server,
   canRemove,
   onRemove,
+  onReconnect,
+  reconnecting,
+  reconnectError,
 }: {
   server: McpServer;
   canRemove: boolean;
   onRemove: () => void;
+  onReconnect: () => void;
+  reconnecting: boolean;
+  reconnectError: string | null;
 }) {
   const t = useT();
   const scope =
@@ -329,37 +335,51 @@ function ConnectedRow({
           : t("mcpIntegrations.connected")
       }
       description={
-        server.status.state === "connected"
-          ? [
-              scope,
-              t("mcpIntegrations.toolsAvailable", {
-                count: server.status.toolCount,
-              }),
-              ...(server.status.error
-                ? [
-                    t("mcpIntegrations.connectionErrorReason", {
-                      reason: server.status.error,
-                    }),
-                  ]
-                : []),
-            ].join(" · ")
-          : server.status.state === "error"
-            ? t("mcpIntegrations.connectionErrorReason", {
-                reason: server.status.error,
-              })
-            : scope
+        reconnectError
+          ? t("mcpIntegrations.reconnectFailed", { error: reconnectError })
+          : server.status.state === "connected"
+            ? [
+                scope,
+                t("mcpIntegrations.toolsAvailable", {
+                  count: server.status.toolCount,
+                }),
+                ...(server.status.error
+                  ? [
+                      t("mcpIntegrations.connectionErrorReason", {
+                        reason: server.status.error,
+                      }),
+                    ]
+                  : []),
+              ].join(" · ")
+            : server.status.state === "error"
+              ? t("mcpIntegrations.connectionErrorReason", {
+                  reason: server.status.error,
+                })
+              : scope
       }
       control={
-        canRemove ? (
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
-            variant="outline-destructive"
+            variant="outline"
             size="sm"
-            onClick={onRemove}
+            onClick={onReconnect}
+            disabled={reconnecting}
           >
-            {t("agentChat.settingsShell.integrations.remove")}
+            {reconnecting ? <Spinner aria-hidden="true" /> : null}
+            {t("mcpIntegrations.reconnect")}
           </Button>
-        ) : null
+          {canRemove ? (
+            <Button
+              type="button"
+              variant="outline-destructive"
+              size="sm"
+              onClick={onRemove}
+            >
+              {t("agentChat.settingsShell.integrations.remove")}
+            </Button>
+          ) : null}
+        </div>
       }
     />
   );
@@ -465,7 +485,6 @@ function CustomServerDetail({
   catalog: DefaultMcpIntegration[];
   integrationId: string;
 }) {
-  const t = useT();
   const { navigate } = useSettingsShell();
   const mcp = useMcpIntegrationsController({ integrations: catalog });
   const [removing, setRemoving] = useState(false);
@@ -474,7 +493,7 @@ function CustomServerDetail({
     mcp.serversQuery.data?.role === "owner" ||
     mcp.serversQuery.data?.role === "admin";
   const reconnect = () => {
-    if (server.authMode === "oauth" && server.status.state === "error") {
+    if (server.authMode === "oauth") {
       startMcpOAuthReconnect(server);
       return;
     }
@@ -490,12 +509,14 @@ function CustomServerDetail({
         server={server}
         canRemove={canRemove}
         onRemove={() => setRemoving(true)}
+        onReconnect={reconnect}
+        reconnecting={mcp.reconnectingKey === `${server.scope}:${server.id}`}
+        reconnectError={
+          mcp.reconnectError?.key === `${server.scope}:${server.id}`
+            ? mcp.reconnectError.message
+            : null
+        }
       />
-      {server.status.state === "error" ? (
-        <Button type="button" variant="outline" size="sm" onClick={reconnect}>
-          {t("mcpIntegrations.reconnect")}
-        </Button>
-      ) : null}
       <RemoveServerDialog
         server={removing ? server : null}
         onOpenChange={(open) => {
@@ -824,6 +845,18 @@ function IntegrationDetail({
               server.scope === "user" || role === "owner" || role === "admin"
             }
             onRemove={() => setRemoving(server)}
+            reconnecting={
+              mcp.reconnectingKey === `${server.scope}:${server.id}`
+            }
+            reconnectError={
+              mcp.reconnectError?.key === `${server.scope}:${server.id}`
+                ? mcp.reconnectError.message
+                : null
+            }
+            onReconnect={() => {
+              if (server.authMode === "oauth") startMcpOAuthReconnect(server);
+              else void mcp.reconnect(server);
+            }}
           />
         ))}
         {whoRow}

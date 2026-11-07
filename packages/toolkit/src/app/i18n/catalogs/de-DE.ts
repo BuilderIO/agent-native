@@ -1015,6 +1015,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io enthält kostenlose Credits. Alternativ kannst du deinen eigenen API-Schlüssel verwenden.",
   "setup.builderOrOwnKeys":
     "Verwende Builder.io (kostenlose Credits) oder füge eigene Anbieterschlüssel hinzu.",
+  "setup.reconnectBuilder": "Builder.io erneut verbinden",
   "setup.connectAi": "KI verbinden",
   "setup.connectBuilder": "Builder.io verwenden",
   "setup.connectionsDescription":
