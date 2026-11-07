@@ -1,36 +1,32 @@
-name: Recover encrypted incident site configuration
+name: Stage independent beta CRM database rotation
 on: workflow_dispatch
 permissions:
   contents: read
 jobs:
-  recover:
+  stage:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NEW_DATABASE_URL: ${{ secrets.BETA_DATABASE_URL_CRM }}
         with:
           script: |
-            const crypto=require('node:crypto'),fs=require('node:fs');
-            const headers={Authorization:'Bearer '+process.env.NETLIFY_AUTH_TOKEN};
-            const results=[];
-            for(const id of ['bef68db5-5bbc-41c6-b3d8-edeb7b871b5e','f5cdb30b-4be2-46b8-839f-294f4c3ac89f']){
-              const sr=await fetch('https://api.netlify.com/api/v1/sites/'+id,{headers});
-              const row={id,site_status:sr.status};
-              if(sr.ok){const site=await sr.json();row.site={id:site.id,name:site.name,account_slug:site.account_slug,published_deploy_id:site.published_deploy?.id};
-                const er=await fetch('https://api.netlify.com/api/v1/accounts/'+site.account_slug+'/env?site_id='+id,{headers});row.env_status=er.status;
-                if(er.ok)row.env=(await er.json()).filter(e=>/DATABASE_URL|SECRETS_ENCRYPTION_KEY|BETTER_AUTH_SECRET|A2A_SECRET/.test(e.key));
-                const dr=await fetch('https://api.netlify.com/api/v1/sites/'+id+'/database?role=netlifydb_owner',{headers});row.database_status=dr.status;if(dr.ok)row.database=await dr.json();
-              }
-              results.push(row);
+            const id='bef68db5-5bbc-41c6-b3d8-edeb7b871b5e';
+            const headers={Authorization:'Bearer '+process.env.NETLIFY_AUTH_TOKEN,'Content-Type':'application/json'};
+            async function req(path,options={}){const r=await fetch('https://api.netlify.com/api/v1/'+path,{headers,...options});if(!r.ok)throw new Error('Netlify request failed: '+r.status);return r.status===204?null:await r.json()}
+            const site=await req('sites/'+id);if(site.id!==id||site.account_slug!=='steve8708')throw new Error('Unexpected site ownership');
+            const replacement=new URL(process.env.NEW_DATABASE_URL);
+            const normalized=u=>u.hostname.replace('-pooler.','.');
+            if(normalized(replacement)!=='ep-rough-boat-au3q2472.c-10.us-east-1.aws.neon.tech'||replacement.pathname!=='/main'||replacement.username!=='main_owner')throw new Error('Unexpected target database');
+            const endpoint='accounts/'+site.account_slug+'/env';
+            const entries=await req(endpoint+'?site_id='+id);let updated=0;
+            for(const entry of entries.filter(e=>/DATABASE_URL/.test(e.key))){
+              if(entry.is_secret)throw new Error('Opaque database value requires separate handling');
+              const values=entry.values.map(v=>{const u=new URL(v.value);if(normalized(u)!==normalized(replacement)||u.username!==replacement.username||u.pathname!==replacement.pathname)throw new Error('Different credential scope');u.password=replacement.password;return {...v,value:u.toString()}});
+              await req(endpoint+'/'+encodeURIComponent(entry.key)+'?site_id='+id,{method:'PUT',body:JSON.stringify({key:entry.key,scopes:entry.scopes,values})});updated++;
             }
-            const key=crypto.randomBytes(32),iv=crypto.randomBytes(12),cipher=crypto.createCipheriv('aes-256-gcm',key,iv);
-            const payload=Buffer.concat([cipher.update(JSON.stringify(results)),cipher.final()]);
-            const wrapped=crypto.publicEncrypt({key:"-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkGnlplJpBJEBuuhK+kzv\njd40hdEuhC7FoLt9rDJQ5/ITi6Pi8/0/YfEeZWVf3k4i3W9+2zULzT1J0P/9RPDB\nQ+r1HDyipyywgFb9seez2D0/8B1eU8pvKp4AOX8sPvy5DHVPzCFBHXA24lO0sbDt\nbmuuGQ/kwJf3t5exHtjfLZCivZbnLPTcA/PiGGwMCDFDImDLY2iG5BC2MEGDZcqw\ni2SvUAfWXtbDs3N5b5/UWJxA+y3eD043bgKe6IOo77sBc3zB4yqhOXp9gzE75176\nrJOCAnlFCyr5+eE9rxBogYUqBm+zyLJTRnM6ljzgRrJmVAJlsCJGbEMiyZs9UdYn\nNQIDAQAB\n-----END PUBLIC KEY-----\n",padding:crypto.constants.RSA_PKCS1_OAEP_PADDING,oaepHash:'sha256'},key);
-            fs.writeFileSync('incident-site-state.enc.json',JSON.stringify({wrapped:wrapped.toString('base64'),iv:iv.toString('base64'),tag:cipher.getAuthTag().toString('base64'),payload:payload.toString('base64')}));
-            core.info('Encrypted site configuration recovered; no plaintext credentials logged.');
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: encrypted-site-state-recovery
-          path: incident-site-state.enc.json
-          retention-days: 1
+            if(!updated)throw new Error('No database configuration updated');
+            const verify=await req(endpoint+'?site_id='+id);
+            for(const e of verify.filter(e=>/DATABASE_URL/.test(e.key)))for(const v of e.values)if(new URL(v.value).password!==replacement.password)throw new Error('Credential readback failed');
+            core.info('Staged and verified '+updated+' beta CRM database variables. Password reset and deploy remain.');
