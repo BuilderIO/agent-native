@@ -139,7 +139,8 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   session IDs or member identity keys used internally. Every `OFFSET` page also
   counts the whole read. The consistency field is `stable` for one page, or
   for several pages that all counted the same total and together returned
-  exactly that many rows; otherwise it reports `may_have_shifted`, because an
+  exactly that many rows, or stopped at the row budget (then
+  `coverage.truncated` says so); otherwise it reports `may_have_shifted`, because an
   event that arrived between pages can change page membership inside a
   historical window too. The action reads 4,000-row pages up to `maxEventRows` (at most 200,000),
   plus one overflow row to detect truncation. Each BigQuery page keeps a 25 GB
@@ -169,8 +170,10 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   email, when every email its events carry agrees, and by its terminal step's
   direct `properties.auth_user_id`. Sessions that share either one are one
   person, counted once and assigned to that person's latest terminal selected
-  step in the requested cohort. Later events match the person by that email or
-  auth ID. `coverage.identityJoin` reports `sessionsIdentifiedByEmail` and
+  step in the requested cohort. Later events match the person by any email or
+  auth ID its sessions carried. An unmatched event in the person's own terminal
+  session counts only when it carries no sign-in ID, and no email when the
+  person has one. `coverage.identityJoin` reports `sessionsIdentifiedByEmail` and
   `sessionsIdentifiedBySignInIdOnly`. No anonymous, user-key, or organization
   pseudo-ID fallback is used for cross-session matching. The query searches
   later events across first-party apps under the same authenticated org,

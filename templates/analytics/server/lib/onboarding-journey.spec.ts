@@ -907,6 +907,13 @@ describe("getOnboardingJourney", () => {
     expect(personSql).toContain(
       '"authUserId":null,"email":"heidi@example.com"',
     );
+    // Later activity matches every email and sign-in ID Grace's sessions carried.
+    expect(personSql).toContain(
+      '{"sessionId":"s1","authUserId":"person-g","email":null}',
+    );
+    expect(personSql).toContain(
+      '{"sessionId":"s1","authUserId":null,"email":"grace@example.com"}',
+    );
     expect(personSql).not.toContain('"sessionId":"s2"');
     expect(personSql).not.toContain('"sessionId":"s3"');
     expect(JSON.stringify(tree)).not.toContain("@example.com");

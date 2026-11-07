@@ -1210,9 +1210,9 @@ function isLaterTerminal(
 
 /**
  * Sessions that share an email or a direct auth ID belong to one person, who
- * keeps their latest terminal step. That member matches later activity by its
- * own email and auth ID; a missing one is filled from the person's other
- * sessions when they agree on a single value.
+ * keeps their latest terminal step. That member matches later activity by
+ * every email and auth ID its sessions carried, and names one of each when its
+ * own session lacks it.
  */
 function groupPersonFollowupMembers(
   members: readonly OnboardingJourneyPersonMember[],
@@ -1262,17 +1262,23 @@ function groupPersonFollowupMembers(
     if (isLaterTerminal(member, person.latest)) person.latest = member;
     people.set(id, person);
   }
-  return [...people.values()].map(({ latest, emails, authUserIds }) => ({
-    ...latest,
-    email: latest.email ?? onlyValue(emails),
-    authUserId: latest.authUserId ?? onlyValue(authUserIds),
-  }));
+  return [...people.values()].map(({ latest, emails, authUserIds }) => {
+    const aliases = {
+      emails: [...emails].sort(),
+      authUserIds: [...authUserIds].sort(),
+    };
+    return {
+      ...latest,
+      email: latest.email ?? firstValue(aliases.emails),
+      authUserId: latest.authUserId ?? firstValue(aliases.authUserIds),
+      aliases,
+    };
+  });
 }
 
-function onlyValue(values: ReadonlySet<string>): string | null {
-  if (values.size !== 1) return null;
-  const [value] = values;
-  return value;
+function firstValue(values: Iterable<string>): string | null {
+  for (const value of values) return value;
+  return null;
 }
 
 interface PersonFollowupStepCohort {

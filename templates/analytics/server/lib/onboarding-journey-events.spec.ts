@@ -788,6 +788,98 @@ describe("onboarding journey events SQL", () => {
     ]);
   });
 
+  it("matches a joined person by every email and sign-in ID, and keeps other accounts out of an email-only session", async () => {
+    await setup();
+    const terminalAt = Date.parse(`${today}T12:00:02.000Z`);
+    // Jane returns under an older email one of her sessions carried.
+    await insert("jane-later", "button_click", 5, {
+      email: "jane.old@example.com",
+      template: "design",
+    });
+    // Leo returns under the second sign-in ID his sessions carried.
+    await insert("leo-later", "button_click", 6, {
+      template: "design",
+      properties: { auth_user_id: "person-leo-2" },
+    });
+    // Kim's session goes on under another account's sign-in ID: not hers.
+    await insert("kim-cohort", "button_click", 7, {
+      properties: { auth_user_id: "person-mallory" },
+    });
+    const member = (
+      sessionId: string,
+      identity: Pick<
+        OnboardingJourneyPersonMember,
+        "authUserId" | "email" | "aliases"
+      >,
+    ): OnboardingJourneyPersonMember => ({
+      sessionId,
+      stepKey: "step:role",
+      tsMs: terminalAt,
+      app: "clips",
+      ...identity,
+    });
+
+    const rows = await runPersonFollowup([
+      member("jane-cohort", {
+        authUserId: "person-jane",
+        email: "jane@example.com",
+        aliases: {
+          emails: ["jane.old@example.com", "jane@example.com"],
+          authUserIds: ["person-jane"],
+        },
+      }),
+      member("leo-cohort", {
+        authUserId: "person-leo",
+        email: null,
+        aliases: { emails: [], authUserIds: ["person-leo", "person-leo-2"] },
+      }),
+      member("kim-cohort", { authUserId: null, email: "kim@example.com" }),
+    ]);
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        canonical_people: 3,
+        later_activity_in_selected_session: 0,
+        later_activity_outside_selected_session_or_app: 2,
+        later_activity_observed_anywhere: 2,
+        right_censored_horizon: 1,
+      }),
+    ]);
+    await expect(
+      runPersonFollowup([
+        member("unknown-only", { authUserId: null, email: null }),
+      ]),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        canonical_people: 0,
+        identity_unavailable_sessions: 1,
+      }),
+    ]);
+    expect(() =>
+      buildOnboardingJourneyPersonFollowupSql(
+        filters(),
+        [
+          member("alias-without-email", {
+            authUserId: null,
+            email: null,
+            aliases: { emails: ["a@example.com"], authUserIds: [] },
+          }),
+        ],
+        observation(),
+      ),
+    ).toThrow("Invalid onboarding person follow-up member");
+    expect(() =>
+      buildOnboardingJourneyPersonFollowupSql(
+        filters(),
+        [
+          member("same", { authUserId: "person-a", email: null }),
+          member("same", { authUserId: "person-b", email: null }),
+        ],
+        observation(),
+      ),
+    ).toThrow("Invalid onboarding person follow-up member");
+  });
+
   it("names a session's email only when its emails agree, and counts the whole read on every page", async () => {
     await setup();
     await seedSessions();

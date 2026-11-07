@@ -1784,6 +1784,14 @@ export interface OnboardingJourneyPersonMember extends OnboardingJourneyTerminal
   authUserId: string | null;
   /** The session's one lowercase email, when all of its emails agree. */
   email?: string | null;
+  /**
+   * Every email and direct auth ID of the person this member stands for, when
+   * several sessions were joined into one person. Later activity matches any.
+   */
+  aliases?: {
+    emails: readonly string[];
+    authUserIds: readonly string[];
+  };
 }
 
 export interface OnboardingJourneyEventsFilters {
@@ -2087,8 +2095,11 @@ export function onboardingPersonFollowupEmail(
 }
 
 /**
- * Cross-session person follow-up matches later events by the member's email
- * or direct auth ID, and returns aggregates only.
+ * Cross-session person follow-up matches later events by any of the member's
+ * emails or direct auth IDs, and returns aggregates only. An unmatched event
+ * in the member's own session counts only when it names no sign-in ID, and no
+ * email either when the member has one; a member with no identity keeps every
+ * event of its session.
  */
 export function buildOnboardingJourneyPersonFollowupSql(
   filters: OnboardingJourneyEventsFilters,
@@ -2107,37 +2118,84 @@ export function buildOnboardingJourneyPersonFollowupSql(
   }
 
   const allowedApps = new Set<string>(FIRST_PARTY_TEMPLATE_NAMES);
-  const terminalRows = members
-    .map((member, index) => {
-      const app = member.app.toLowerCase();
-      const authUserId = member.authUserId;
-      const email = member.email ?? null;
-      if (
-        !member.sessionId ||
-        !member.stepKey ||
-        !Number.isSafeInteger(member.tsMs) ||
-        !allowedApps.has(app) ||
-        (authUserId !== null &&
-          (!authUserId ||
-            authUserId.trim() !== authUserId ||
-            /^org:/i.test(authUserId))) ||
-        (email !== null && onboardingPersonFollowupEmail(email) !== email)
-      ) {
-        throw new Error("Invalid onboarding person follow-up member");
-      }
-      const payload = sqlStringLiteral(
+  const isDirectAuthUserId = (value: string) =>
+    value.length > 0 && value.trim() === value && !/^org:/i.test(value);
+  const sessionIds = new Set<string>();
+  const memberPayloads: string[] = [];
+  const aliasPayloads: string[] = [];
+  for (const member of members) {
+    const app = member.app.toLowerCase();
+    const authUserId = member.authUserId;
+    const email = member.email ?? null;
+    const authUserIds = new Set([
+      ...(authUserId === null ? [] : [authUserId]),
+      ...(member.aliases?.authUserIds ?? []),
+    ]);
+    const emails = new Set([
+      ...(email === null ? [] : [email]),
+      ...(member.aliases?.emails ?? []),
+    ]);
+    if (
+      !member.sessionId ||
+      sessionIds.has(member.sessionId) ||
+      !member.stepKey ||
+      !Number.isSafeInteger(member.tsMs) ||
+      !allowedApps.has(app) ||
+      (authUserId === null && authUserIds.size > 0) ||
+      (email === null && emails.size > 0) ||
+      [...authUserIds].some((value) => !isDirectAuthUserId(value)) ||
+      [...emails].some(
+        (value) => onboardingPersonFollowupEmail(value) !== value,
+      )
+    ) {
+      throw new Error("Invalid onboarding person follow-up member");
+    }
+    sessionIds.add(member.sessionId);
+    memberPayloads.push(
+      JSON.stringify({
+        sessionId: member.sessionId,
+        stepKey: member.stepKey,
+        app,
+        timestamp: new Date(member.tsMs).toISOString(),
+        authUserId,
+        email,
+      }),
+    );
+    for (const value of authUserIds) {
+      aliasPayloads.push(
         JSON.stringify({
           sessionId: member.sessionId,
-          stepKey: member.stepKey,
-          app,
-          timestamp: new Date(member.tsMs).toISOString(),
-          authUserId,
-          email,
+          authUserId: value,
+          email: null,
         }),
       );
-      return `SELECT ${payload}${index === 0 ? " AS member_payload" : ""}`;
-    })
-    .join(" UNION ALL ");
+    }
+    for (const value of emails) {
+      aliasPayloads.push(
+        JSON.stringify({
+          sessionId: member.sessionId,
+          authUserId: null,
+          email: value,
+        }),
+      );
+    }
+  }
+  // An all-unavailable cohort has no aliases; one row that matches nothing
+  // keeps the CTE valid.
+  if (!aliasPayloads.length) {
+    aliasPayloads.push(
+      JSON.stringify({ sessionId: null, authUserId: null, email: null }),
+    );
+  }
+  const unionRows = (payloads: readonly string[], column: string) =>
+    payloads
+      .map(
+        (payload, index) =>
+          `SELECT ${sqlStringLiteral(payload)}${index === 0 ? ` AS ${column}` : ""}`,
+      )
+      .join(" UNION ALL ");
+  const terminalRows = unionRows(memberPayloads, "member_payload");
+  const aliasRows = unionRows(aliasPayloads, "alias_payload");
 
   const dateRange = onboardingJourneyPersonFollowupDateRange(
     filters,
@@ -2173,6 +2231,13 @@ export function buildOnboardingJourneyPersonFollowupSql(
   FROM (
   {{terminalRows}}
   ) terminal_row
+), member_aliases AS (
+  SELECT alias_row.alias_payload::jsonb ->> 'sessionId' AS session_id,
+    alias_row.alias_payload::jsonb ->> 'authUserId' AS auth_user_id,
+    alias_row.alias_payload::jsonb ->> 'email' AS email
+  FROM (
+  {{aliasRows}}
+  ) alias_row
 ), activity_events AS (
   SELECT e.session_id, e.timestamp::timestamptz AS event_at,
     lower(${appExpression}) AS activity_app,
@@ -2221,33 +2286,47 @@ export function buildOnboardingJourneyPersonFollowupSql(
         SELECT session_id FROM terminal_members WHERE session_id IS NOT NULL
       )
       OR activity.auth_user_id IN (
-        SELECT auth_user_id FROM terminal_members WHERE auth_user_id IS NOT NULL
+        SELECT auth_user_id FROM member_aliases WHERE auth_user_id IS NOT NULL
       )
       OR lower(activity.funnel_user_email) IN (
-        SELECT email FROM terminal_members WHERE email IS NOT NULL
+        SELECT email FROM member_aliases WHERE email IS NOT NULL
       )
+    )
+), matched_activity AS (
+  SELECT member.member_id, later.session_id AS later_session_id, later.activity_app
+  FROM member_aliases alias
+  JOIN terminal_members member ON member.session_id = alias.session_id
+  JOIN filtered_activity_events later ON later.auth_user_id = alias.auth_user_id
+  WHERE later.event_at > member.terminal_at
+    AND later.event_at < member.terminal_at + INTERVAL '${ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS} days'
+  UNION ALL
+  SELECT member.member_id, later.session_id AS later_session_id, later.activity_app
+  FROM member_aliases alias
+  JOIN terminal_members member ON member.session_id = alias.session_id
+  JOIN filtered_activity_events later ON later.activity_email = alias.email
+  WHERE later.event_at > member.terminal_at
+    AND later.event_at < member.terminal_at + INTERVAL '${ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS} days'
+  UNION ALL
+  SELECT member.member_id, later.session_id AS later_session_id, later.activity_app
+  FROM terminal_members member
+  JOIN filtered_activity_events later ON later.session_id = member.session_id
+  WHERE later.event_at > member.terminal_at
+    AND later.event_at < member.terminal_at + INTERVAL '${ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS} days'
+    AND (
+      member.identity_status = 'unavailable'
+      OR (later.auth_user_id IS NULL
+        AND (member.email IS NULL OR later.activity_email IS NULL))
     )
 ), activity_evidence AS (
   SELECT member.member_id, member.terminal_step_key, member.identity_status,
-    MAX(CASE WHEN later.session_id = member.session_id
-      AND later.activity_app = member.terminal_app THEN 1 ELSE 0 END) AS selected_session_activity,
-    MAX(CASE WHEN later.event_at IS NOT NULL AND (
-      later.session_id IS DISTINCT FROM member.session_id
-      OR later.activity_app IS DISTINCT FROM member.terminal_app
+    MAX(CASE WHEN matched.later_session_id = member.session_id
+      AND matched.activity_app = member.terminal_app THEN 1 ELSE 0 END) AS selected_session_activity,
+    MAX(CASE WHEN matched.member_id IS NOT NULL AND (
+      matched.later_session_id IS DISTINCT FROM member.session_id
+      OR matched.activity_app IS DISTINCT FROM member.terminal_app
     ) THEN 1 ELSE 0 END) AS outside_session_or_app_activity
   FROM terminal_members member
-  LEFT JOIN filtered_activity_events later ON
-    later.event_at > member.terminal_at
-    AND later.event_at < member.terminal_at + INTERVAL '${ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS} days'
-    AND (
-      later.auth_user_id = member.auth_user_id
-      OR later.activity_email = member.email
-      OR (later.session_id = member.session_id
-        AND (member.auth_user_id IS NULL OR later.auth_user_id IS NULL
-          OR later.auth_user_id = member.auth_user_id)
-        AND (member.email IS NULL OR later.activity_email IS NULL
-          OR later.activity_email = member.email))
-    )
+  LEFT JOIN matched_activity matched ON matched.member_id = member.member_id
   WHERE member.session_id IS NOT NULL
   GROUP BY member.member_id, member.terminal_step_key, member.identity_status
 ), classified AS (
@@ -2285,6 +2364,7 @@ ORDER BY terminal_step_key`;
 
   return fillOnboardingJourneySql(query, {
     terminalRows,
+    aliasRows,
     activityStartDate,
     activityEndDate,
     activityStart,
