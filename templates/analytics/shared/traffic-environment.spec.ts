@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   readTrafficEnvironment,
+  readTrafficFilterValue,
   trafficEnvironmentOfHost,
   withNewDashboardTrafficFilter,
   withTrafficFilterOf,
@@ -103,5 +104,24 @@ describe("readTrafficEnvironment", () => {
     expect(readTrafficEnvironment("all")).toBeUndefined();
     expect(readTrafficEnvironment("")).toBeUndefined();
     expect(readTrafficEnvironment(null)).toBeUndefined();
+  });
+});
+
+describe("readTrafficFilterValue", () => {
+  it("reads all traffic and no choice as no environment", () => {
+    expect(readTrafficFilterValue("all")).toBeUndefined();
+    expect(readTrafficFilterValue("")).toBeUndefined();
+    expect(readTrafficFilterValue(undefined)).toBeUndefined();
+  });
+
+  it("reads production and beta", () => {
+    expect(readTrafficFilterValue("production")).toBe("production");
+    expect(readTrafficFilterValue("beta")).toBe("beta");
+  });
+
+  it("refuses a value the filter doesn't offer rather than reading all traffic", () => {
+    expect(() => readTrafficFilterValue("staging")).toThrow(
+      'The traffic filter is "staging". Set f_traffic_environment to all, production or beta.',
+    );
   });
 });

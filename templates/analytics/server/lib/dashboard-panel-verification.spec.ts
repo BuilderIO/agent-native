@@ -184,6 +184,18 @@ describe("resolveDashboardPanelQueries", () => {
     ]);
     expect(trafficOf([])).toEqual([undefined, undefined]);
   });
+
+  it("fails first-party panels on a traffic value the filter doesn't offer", () => {
+    const resolved = resolveDashboardPanelQueries(
+      { panels, filters: [newDashboardTrafficFilter()] },
+      { f_traffic_environment: "staging" },
+    );
+
+    expect(resolved.map((panel) => "error" in panel && panel.error)).toEqual([
+      'The traffic filter is "staging". Set f_traffic_environment to all, production or beta.',
+      false,
+    ]);
+  });
 });
 
 describe("verifyDashboardPanels", () => {
@@ -230,6 +242,21 @@ describe("verifyDashboardPanels", () => {
     expect(mocks.resolve.mock.calls[0]?.[0]).toMatchObject({
       trafficEnvironment: "beta",
     });
+  });
+
+  it("refuses a traffic value the filter doesn't offer, without running the panel", async () => {
+    mocks.resolve.mockResolvedValue(rows(WIDE));
+
+    const result = await verifyDashboardPanels(dashboard([panel()]), ["p1"], {
+      filters: { f_traffic_environment: "staging" },
+    });
+
+    expect(result.panels[0]).toMatchObject({
+      status: "query-error",
+      error:
+        'The traffic filter is "staging". Set f_traffic_environment to all, production or beta.',
+    });
+    expect(mocks.resolve).not.toHaveBeenCalled();
   });
 
   it("refuses a panel the dashboard's traffic default can't load, without running it", async () => {

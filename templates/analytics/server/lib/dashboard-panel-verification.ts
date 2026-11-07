@@ -31,7 +31,7 @@ import {
   MAX_CONCURRENT_SQL_QUERIES,
 } from "../../shared/sql-query-limits";
 import {
-  readTrafficEnvironment,
+  readTrafficFilterValue,
   TRAFFIC_FILTER_ID,
   type TrafficEnvironment,
 } from "../../shared/traffic-environment";
@@ -433,11 +433,10 @@ export function resolveDashboardPanelQueries(
   const vars = resolveVerificationVars(config, filters);
   // A dashboard from before the traffic filter shows it without storing it, so
   // a choice made there arrives only as an override.
-  const trafficEnvironment = readTrafficEnvironment(
+  const traffic =
     vars[TRAFFIC_FILTER_ID] ||
-      filters?.[TRAFFIC_FILTER_ID] ||
-      filters?.[FILTER_PARAM_PREFIX + TRAFFIC_FILTER_ID],
-  );
+    filters?.[TRAFFIC_FILTER_ID] ||
+    filters?.[FILTER_PARAM_PREFIX + TRAFFIC_FILTER_ID];
   return panelsOf(config)
     .filter((panel) => typeof panel.id === "string" && hasSqlToRun(panel))
     .map((panel) => {
@@ -448,7 +447,11 @@ export function resolveDashboardPanelQueries(
         const query = buildPanelQuery(panel as unknown as SqlPanel, vars);
         const failure = interpolationFailure(query, panel.sql, vars);
         if (failure) return { panelId, title, source, error: failure };
-        return source === "first-party" && trafficEnvironment
+        const trafficEnvironment =
+          source === "first-party"
+            ? readTrafficFilterValue(traffic)
+            : undefined;
+        return trafficEnvironment
           ? { panelId, title, source, query, trafficEnvironment }
           : { panelId, title, source, query };
       } catch (error) {
@@ -663,15 +666,14 @@ async function verifyOne(
   // The run below reads all traffic, but the saved dashboard opens on its
   // default, which refuses some shapes all traffic allows, such as a rollup
   // with no start date. Scoping finds that without any production rows.
-  const shownTraffic =
-    source === "first-party"
-      ? readTrafficEnvironment(vars[TRAFFIC_FILTER_ID])
-      : undefined;
-  if (shownTraffic) {
+  if (source === "first-party") {
     try {
-      scopedAnalyticsSql(query, state.ctx, undefined, {
-        trafficEnvironment: shownTraffic,
-      });
+      const shownTraffic = readTrafficFilterValue(vars[TRAFFIC_FILTER_ID]);
+      if (shownTraffic) {
+        scopedAnalyticsSql(query, state.ctx, undefined, {
+          trafficEnvironment: shownTraffic,
+        });
+      }
     } catch (error) {
       return finish({
         status: "query-error",
@@ -720,10 +722,18 @@ async function verifyOne(
   // Only a traffic filter the caller names applies. Checking a save against the
   // dashboard's default would call a panel broken on a database with no
   // production traffic, such as a local one.
-  const trafficEnvironment = readTrafficEnvironment(
-    opts.filters?.[TRAFFIC_FILTER_ID] ??
-      opts.filters?.[FILTER_PARAM_PREFIX + TRAFFIC_FILTER_ID],
-  );
+  let trafficEnvironment: ReturnType<typeof readTrafficFilterValue>;
+  try {
+    trafficEnvironment = readTrafficFilterValue(
+      opts.filters?.[TRAFFIC_FILTER_ID] ??
+        opts.filters?.[FILTER_PARAM_PREFIX + TRAFFIC_FILTER_ID],
+    );
+  } catch (error) {
+    return finish({
+      status: "query-error",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   const data = await runResolvedPanel({
     source: source as DashboardPanelSource,
     query,

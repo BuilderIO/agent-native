@@ -90,6 +90,24 @@ export function isTrafficFilterValue(value: string): boolean {
   return value === ALL_TRAFFIC || readTrafficEnvironment(value) !== undefined;
 }
 
+/**
+ * The traffic a dashboard's traffic filter value reads, undefined for all
+ * traffic or no choice. Throws on a value the filter doesn't offer, which
+ * readTrafficEnvironment would read as all traffic.
+ */
+export function readTrafficFilterValue(
+  value: string | undefined,
+): TrafficEnvironment | undefined {
+  if (!value || value === ALL_TRAFFIC) return undefined;
+  const environment = readTrafficEnvironment(value);
+  if (!environment) {
+    throw new Error(
+      `The traffic filter is ${JSON.stringify(value)}. Set ${TRAFFIC_FILTER_PARAM} to all, production or beta.`,
+    );
+  }
+  return environment;
+}
+
 /** The traffic a host belongs to, or null when no host was recorded. */
 export function trafficEnvironmentOfHost(
   hostname: string | null | undefined,

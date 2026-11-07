@@ -60,10 +60,9 @@ import {
 } from "../../shared/sql-query-limits";
 import { numberTableColumns } from "../../shared/table-columns";
 import {
-  isTrafficFilterValue,
-  readTrafficEnvironment,
+  readTrafficFilterValue,
   TRAFFIC_FILTER_ID,
-  TRAFFIC_FILTER_PARAM,
+  type TrafficEnvironment,
 } from "../../shared/traffic-environment";
 import type { DashboardPanelSource } from "./dashboard-panel-query";
 import {
@@ -191,16 +190,12 @@ async function fetchOnePanel(
   }
   // Only the report's own saved filters choose its traffic, not the
   // dashboard's default: a report saved without one keeps reading all traffic.
-  // One saved with a value the filter doesn't offer would read all traffic as
-  // though asked to, so it fails instead.
-  const savedTraffic = vars[TRAFFIC_FILTER_ID];
-  if (savedTraffic && !isTrafficFilterValue(savedTraffic)) {
-    return {
-      status: "query-failed",
-      message: `The report's traffic filter is ${JSON.stringify(savedTraffic)}. Set ${TRAFFIC_FILTER_PARAM} to all, production or beta.`,
-    };
+  let trafficEnvironment: TrafficEnvironment | undefined;
+  try {
+    trafficEnvironment = readTrafficFilterValue(vars[TRAFFIC_FILTER_ID]);
+  } catch (error) {
+    return { status: "query-failed", message: describeError(error) };
   }
-  const trafficEnvironment = readTrafficEnvironment(savedTraffic);
   return runResolvedPanel({
     source,
     query,

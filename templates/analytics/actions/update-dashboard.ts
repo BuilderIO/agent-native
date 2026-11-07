@@ -58,7 +58,11 @@ import { normalizeDashboardConfig } from "../shared/dashboard-config-normalizati
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
 import { dashboardAnnotationsIssue } from "../shared/key-dates";
 import { panelLabel, stableStringify } from "../shared/panel-render-contract";
-import { withNewDashboardTrafficFilter } from "../shared/traffic-environment";
+import {
+  isTrafficFilterValue,
+  TRAFFIC_FILTER_ID,
+  withNewDashboardTrafficFilter,
+} from "../shared/traffic-environment";
 import {
   applyPanelOrder,
   compactDashboardResult,
@@ -358,6 +362,17 @@ function collectDashboardConfigIssues(
       }
       if (f.default !== undefined && typeof f.default !== "string") {
         return dashboardIssue(`config.filters[${i}].default must be a string`);
+      }
+      // A traffic default the filter doesn't offer can't be read: the page would
+      // show all traffic, and reports and save checks would fail on it.
+      if (
+        id === TRAFFIC_FILTER_ID &&
+        typeof f.default === "string" &&
+        !isTrafficFilterValue(f.default)
+      ) {
+        return dashboardIssue(
+          `config.filters[${i}].default must be all, production or beta on the traffic filter`,
+        );
       }
       if (f.type === "multi-select") {
         if (typeof f.default === "string" && f.default !== "") {
