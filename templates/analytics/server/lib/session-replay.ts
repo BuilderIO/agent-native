@@ -1996,7 +1996,7 @@ export async function recordSessionReplayChunks(
       : (recording.durationMs ?? null));
   const latestStoredSeq = Math.max(
     -1,
-    ...existingChunks.map((chunk) => Number(chunk.seq)),
+    ...existingChunks.map((chunk: { seq: unknown }) => Number(chunk.seq)),
   );
   const metadata = mergeReplayMetadata(
     parseRecordingMetadata(recording),
