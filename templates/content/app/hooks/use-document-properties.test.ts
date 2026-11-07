@@ -1126,6 +1126,49 @@ describe("useSetDocumentProperty", () => {
     expect(queryClient.getQueryState(key)?.dataUpdatedAt).toBe(0);
   });
 
+  it("keeps a row's failed read failed when one of its Properties saves", async () => {
+    const queryClient = new QueryClient();
+    const key = documentPropertiesQueryKey("row-1", "database-1");
+    const saved = { definition: { id: "marker" }, value: "before" };
+    queryClient.setQueryData(
+      key,
+      {
+        documentId: "row-1",
+        databaseId: "database-1",
+        canEditValues: false,
+        canManageSchema: false,
+        properties: [saved],
+      },
+      { updatedAt: 0 },
+    );
+    await queryClient
+      .fetchQuery({
+        queryKey: key,
+        queryFn: () => Promise.reject(new Error("refused")),
+        retry: false,
+      })
+      .catch(() => undefined);
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockImplementation((_name, options) => options);
+
+    useSetDocumentProperty("row-1", "database-1", "database-page");
+    const options = useActionMutation.mock.calls[0]?.[1];
+    const variables = {
+      documentId: "row-1",
+      databaseId: "database-1",
+      propertyId: "marker",
+      value: "after",
+    };
+    const context = await options.onMutate(variables);
+    options.onSuccess(
+      { properties: [{ ...saved, value: "after" }] },
+      variables,
+      context,
+    );
+
+    expect(queryClient.getQueryState(key)?.status).toBe("error");
+  });
+
   it("keeps a saved value when the edit queued behind it fails", async () => {
     const queryClient = new QueryClient();
     const key = documentPropertiesQueryKey("row-1", "database-1");

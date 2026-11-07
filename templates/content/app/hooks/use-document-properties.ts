@@ -627,13 +627,18 @@ export function useSetDocumentProperty(
       // The refresh below can fail, and the save has already answered. Writes
       // here run in order and nothing is shown ahead of them, so a superseded
       // one still counts: the write after it can fail. One Property doesn't
-      // confirm the rest of a row's early copy, so its timestamp stays.
+      // confirm the rest of a row's early copy, so its timestamp stays and a
+      // failed read of that copy stays failed, which setting data would clear.
       const propertiesKey = documentPropertiesQueryKey(
         variables.documentId,
         databaseId,
       );
       const propertiesState = queryClient.getQueryState(propertiesKey);
-      if (savedProperty && propertiesState) {
+      if (
+        savedProperty &&
+        propertiesState &&
+        (propertiesState.dataUpdatedAt > 0 || !propertiesState.error)
+      ) {
         queryClient.setQueryData<DocumentPropertiesResponse>(
           propertiesKey,
           (current) =>
