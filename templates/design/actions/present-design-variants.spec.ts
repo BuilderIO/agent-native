@@ -616,7 +616,7 @@ describe("present-design-variants", () => {
       designId: "design_123",
       prompt: "Pick a direction",
       brief: "Create a LinkedIn ad for our launch",
-      responsive: true,
+      fixedCanvas: false,
       variants: [
         {
           id: "a",
@@ -659,7 +659,7 @@ describe("present-design-variants", () => {
       designId: "design_123",
       prompt: "Pick a direction",
       brief: "Create an ad for our launch",
-      responsive: true,
+      fixedCanvas: false,
       variants: [
         {
           id: "a",
@@ -707,7 +707,7 @@ describe("present-design-variants", () => {
       designId: "design_123",
       prompt: "Pick a direction",
       brief: "Create a poster for the conference",
-      responsive: true,
+      fixedCanvas: false,
       variants: [
         {
           id: "a",
@@ -978,6 +978,44 @@ describe("present-design-variants", () => {
     expect(
       Object.values(data.canvasFrames).map((frame) => frame.width),
     ).toEqual([1440, 1440, 1440]);
+  });
+
+  // GPT-6 Luna pads every boolean it isn't using with `false`.
+  it("keeps app directions responsive when fixedCanvas is false", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt: "Landing page for a Super Mario game",
+      fixedCanvas: false,
+      variants: [
+        { id: "retro", label: "Classic 8-Bit Retro" },
+        { id: "modern", label: "Modern 3D" },
+      ],
+    });
+
+    expect(mocks.designData.breakpointSet).toMatchObject({
+      id: "generated-responsive",
+    });
+    expect(mocks.designData.screenMetadata["file-a"]).not.toHaveProperty(
+      "breakpointWidths",
+    );
+  });
+
+  it("makes every direction one fixed canvas when fixedCanvas is true", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt: "Landing page for a Super Mario game",
+      fixedCanvas: true,
+      variants: [
+        { id: "retro", label: "Classic 8-Bit Retro" },
+        { id: "modern", label: "Modern 3D" },
+      ],
+    });
+
+    expect(mocks.designData.breakpointSet).toBeUndefined();
+    expect(mocks.designData.screenMetadata).toMatchObject({
+      "file-a": { breakpointWidths: [] },
+      "file-b": { breakpointWidths: [] },
+    });
   });
 
   it("reserves every breakpoint the design already has", async () => {
