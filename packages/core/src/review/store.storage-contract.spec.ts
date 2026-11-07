@@ -376,9 +376,15 @@ describe.sequential("the review kit's storage contract", () => {
     await expect(route("agent")).resolves.toBe(1);
     expect(await read()).toMatchObject({ revision: 2 });
 
-    await consumeReviewFeedback([root.id], undefined, resource);
-    await consumeReviewFeedback([root.id], undefined, resource);
-    expect(await read()).toMatchObject({ revision: 3 });
+    const takenAt = "2026-01-01T00:00:00.000Z";
+    await consumeReviewFeedback([root.id], takenAt, resource);
+    // Taken again, it keeps when it was first taken.
+    await consumeReviewFeedback(
+      [root.id],
+      "2026-02-01T00:00:00.000Z",
+      resource,
+    );
+    expect(await read()).toMatchObject({ revision: 3, consumedAt: takenAt });
     // Sent back to the agent after it took the thread, it's queued again.
     await route("agent");
     expect(await read()).toMatchObject({ consumedAt: null, revision: 4 });
@@ -468,6 +474,17 @@ describe.sequential("the review kit's storage contract", () => {
     expect(await hookLog()).toEqual(hookEvents.map((event) => event.type));
   });
 
+  it("tells the hook of an edit and a move made together", async () => {
+    hookEvents.length = 0;
+    const root = await insertReviewComment(comment(HOOKED, "doc-both"));
+    await updateReviewComment(root.id, { body: "Edited", anchor: { at: 4 } });
+    expect(hookEvents.map((event) => event.type)).toEqual([
+      "created",
+      "edited",
+      "anchor-moved",
+    ]);
+  });
+
   it("rolls the write back when the hook refuses it", async () => {
     const before = await hookLog();
     await expect(
@@ -532,6 +549,18 @@ describe.sequential("the review kit's storage contract", () => {
     expect(await list()).toEqual(["null", "slide-1", "slide-1", "slide-2"]);
     expect(await list("slide-1")).toEqual(["slide-1", "slide-1"]);
     expect(await list(null)).toEqual(["null"]);
+
+    // The list's summary counts the same surface's threads.
+    const summary = async (surfaceId?: string | null) =>
+      (
+        await listReviewComments.run(
+          { resourceType: PLAIN, resourceId: "deck-surfaces", surfaceId },
+          { userEmail: OWNER },
+        )
+      ).summary.openCount;
+    expect(await summary()).toBe(4);
+    expect(await summary("slide-1")).toBe(2);
+    expect(await summary(null)).toBe(1);
   });
 
   it("pages past the largest limit without skipping or repeating", async () => {

@@ -122,6 +122,8 @@ export interface GetReviewThreadSummaryInput {
   scope: ReviewScope;
   bypassScope?: boolean;
   targetId?: string | null;
+  /** One surface's threads, or `null` for those on no surface. */
+  surfaceId?: string | null | undefined;
 }
 
 export interface ReviewThreadSummary {
@@ -1418,6 +1420,12 @@ export async function getReviewThreadSummary(
       filterParams.push(input.targetId);
     }
   }
+  if (input.surfaceId === null) {
+    filters.push("surface_id IS NULL");
+  } else if (input.surfaceId !== undefined) {
+    filters.push("surface_id = ?");
+    filterParams.push(input.surfaceId);
+  }
   const result = await getDbExec().execute({
     sql: `SELECT COUNT(DISTINCT thread_id) AS open_count,
                  COUNT(DISTINCT CASE
@@ -1579,15 +1587,20 @@ async function writeReviewCommentChange(
   if (!updated) throw new Error("Review comment not found after update");
   const changesContent =
     input.body !== undefined || input.mentions !== undefined;
-  await runReviewCommentWriteHook(
-    updated.resourceType,
-    {
-      type: changesContent ? "edited" : "anchor-moved",
-      comment: updated,
-      actorEmail: options.actorEmail ?? null,
-    },
-    client,
-  );
+  // An edit that also moves the anchor tells the hook both, so a hook keeping
+  // anchor or surface state still hears of the move.
+  const events = changesContent
+    ? input.anchor === undefined
+      ? (["edited"] as const)
+      : (["edited", "anchor-moved"] as const)
+    : (["anchor-moved"] as const);
+  for (const type of events) {
+    await runReviewCommentWriteHook(
+      updated.resourceType,
+      { type, comment: updated, actorEmail: options.actorEmail ?? null },
+      client,
+    );
+  }
   return updated;
 }
 
@@ -2226,12 +2239,15 @@ export async function consumeReviewFeedback(
         ORDER BY id
           FOR UPDATE`);
     const result = await tx.execute(sql`UPDATE agent_review_comments
-          SET consumed_at = ${sql.value(consumedAt)},
+          SET consumed_at = COALESCE(consumed_at, ${sql.value(consumedAt)}),
               revision = CASE
                 WHEN consumed_at IS NULL THEN revision + 1
                 ELSE revision
               END,
-              updated_at = ${sql.value(consumedAt)}
+              updated_at = CASE
+                WHEN consumed_at IS NULL THEN ${sql.value(consumedAt)}
+                ELSE updated_at
+              END
         WHERE id IN ${sql.in(ids)}
           ${onResource}`);
     return result.rowsAffected;

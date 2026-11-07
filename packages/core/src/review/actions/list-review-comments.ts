@@ -102,6 +102,7 @@ export default defineAction({
         scope,
         bypassScope: true,
         targetId: args.targetId,
+        surfaceId: args.surfaceId,
       }),
     ]);
     const comments = await Promise.all(
