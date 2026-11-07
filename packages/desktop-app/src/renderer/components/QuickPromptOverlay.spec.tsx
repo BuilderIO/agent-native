@@ -10,15 +10,36 @@ vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   PromptComposer: ({
     disabled,
     selectedModel,
+    onBeforeSubmit,
+    onSubmit,
   }: {
     disabled: boolean;
     selectedModel: string;
+    onBeforeSubmit: () => Promise<boolean>;
+    onSubmit: (
+      text: string,
+      files: File[],
+      references: unknown[],
+      options: object,
+    ) => Promise<void>;
   }) => (
-    <textarea
-      aria-label="composer"
-      disabled={disabled}
-      data-model={selectedModel}
-    />
+    <>
+      <textarea
+        aria-label="composer"
+        disabled={disabled}
+        data-model={selectedModel}
+      />
+      <button
+        disabled={disabled}
+        onClick={() =>
+          void (async () => {
+            if (await onBeforeSubmit()) await onSubmit("hello", [], [], {});
+          })()
+        }
+      >
+        Send
+      </button>
+    </>
   ),
   readAgentPromptAttachment: vi.fn(),
 }));
@@ -145,14 +166,67 @@ describe("Quick Prompt model discovery", () => {
     ).toBe("gpt-5-mini");
   });
 
-  it.each([
-    ["retry", "rejection"],
-    ["retry", "unavailable"],
-    ["focus", "rejection"],
-    ["focus", "unavailable"],
-  ])(
-    "ignores an older %s %s after a newer successful refresh",
-    async (older, outcome) => {
+  it.each(["ok", "unavailable"])(
+    "waits for the forced pre-submit refresh when focus occurs (%s)",
+    async (status) => {
+      let finishRefresh: (value: unknown) => void = () => {};
+      const listModels = vi
+        .fn()
+        .mockResolvedValueOnce({
+          status: "ok",
+          models: [model],
+          selected: model,
+        })
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishRefresh = resolve;
+            }),
+        );
+      const onSubmit = vi.fn(async () => {});
+      Object.defineProperty(window, "electronAPI", {
+        configurable: true,
+        value: {
+          codeAgents: {
+            listModels,
+            listProjects: vi.fn(async () => ({ projects: [] })),
+          },
+          quickPrompt: {
+            setSetupRequired: vi.fn(),
+            onHidden: () => () => {},
+            setPickerOpen: vi.fn(),
+          },
+        },
+      });
+      await act(async () => {
+        root.render(
+          <QuickPromptOverlay onSubmit={onSubmit} onDismiss={vi.fn()} />,
+        );
+      });
+      const send = [...container.querySelectorAll("button")].find(
+        (button) => button.textContent === "Send",
+      )!;
+      await act(async () => send.click());
+      await act(async () => window.dispatchEvent(new Event("focus")));
+      expect(listModels).toHaveBeenCalledTimes(2);
+      expect(onSubmit).not.toHaveBeenCalled();
+      await act(async () =>
+        finishRefresh(
+          status === "ok"
+            ? { status, models: [model], selected: model }
+            : { status },
+        ),
+      );
+      expect(onSubmit).toHaveBeenCalledTimes(status === "ok" ? 1 : 0);
+      expect(
+        container.querySelector<HTMLTextAreaElement>("textarea")!.disabled,
+      ).toBe(status !== "ok");
+    },
+  );
+
+  it.each(["rejection", "unavailable"])(
+    "ignores an older focus %s after a forced refresh succeeds",
+    async (outcome) => {
       let rejectOlder: (error: Error) => void = () => {};
       let resolveOlder: (result: { status: string }) => void = () => {};
       const listModels = vi
@@ -193,12 +267,10 @@ describe("Quick Prompt model discovery", () => {
         (button) => button.textContent === "common.retry",
       )!;
       await act(async () => {
-        if (older === "retry") retry.click();
-        else window.dispatchEvent(new Event("focus"));
+        window.dispatchEvent(new Event("focus"));
       });
       await act(async () => {
-        if (older === "retry") window.dispatchEvent(new Event("focus"));
-        else retry.click();
+        retry.click();
       });
       const composer =
         container.querySelector<HTMLTextAreaElement>("textarea")!;

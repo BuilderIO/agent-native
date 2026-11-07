@@ -186,6 +186,10 @@ export default function QuickPromptOverlay({
   );
   const normalizedSelectionRef = useRef(modelSelection);
   const modelRefreshGeneration = useRef(0);
+  const activeModelRefresh = useRef<{
+    forced: boolean;
+    promise: Promise<boolean>;
+  } | null>(null);
   useEffect(() => {
     normalizedSelectionRef.current = modelOptions.length
       ? normalizedModelSelection
@@ -225,36 +229,47 @@ export default function QuickPromptOverlay({
     };
   }, []);
 
-  const refreshModels = useCallback(async (force = false) => {
+  const refreshModels = useCallback((force = false): Promise<boolean> => {
+    const active = activeModelRefresh.current;
+    if (active && (active.forced || !force)) return active.promise;
+
     const generation = ++modelRefreshGeneration.current;
     const api = window.electronAPI?.codeAgents;
-    try {
-      const result = api
-        ? await (force ? api.listModels({ refresh: true }) : api.listModels())
-        : null;
-      if (generation !== modelRefreshGeneration.current) return false;
-      if (!result || result.status !== "ok") {
-        setModelListUnavailable(true);
+    const promise = (async () => {
+      try {
+        const result = api
+          ? await (force ? api.listModels({ refresh: true }) : api.listModels())
+          : null;
+        if (generation !== modelRefreshGeneration.current) return false;
+        if (!result || result.status !== "ok") {
+          setModelListUnavailable(true);
+          setModelListLoading(false);
+          return false;
+        }
+        const selection = preferConfiguredModelSelection(
+          normalizedSelectionRef.current,
+          result.models,
+          result.selected,
+        );
+        setModelOptions(result.models);
+        setModelSelection(selection);
+        setModelListUnavailable(false);
         setModelListLoading(false);
+        return isCodeAgentModelConfigured(result.models, selection);
+      } catch {
+        if (generation === modelRefreshGeneration.current) {
+          setModelListUnavailable(true);
+          setModelListLoading(false);
+        }
         return false;
       }
-      const selection = preferConfiguredModelSelection(
-        normalizedSelectionRef.current,
-        result.models,
-        result.selected,
-      );
-      setModelOptions(result.models);
-      setModelSelection(selection);
-      setModelListUnavailable(false);
-      setModelListLoading(false);
-      return isCodeAgentModelConfigured(result.models, selection);
-    } catch {
+    })().finally(() => {
       if (generation === modelRefreshGeneration.current) {
-        setModelListUnavailable(true);
-        setModelListLoading(false);
+        activeModelRefresh.current = null;
       }
-      return false;
-    }
+    });
+    activeModelRefresh.current = { forced: force, promise };
+    return promise;
   }, []);
 
   useEffect(() => {
@@ -263,6 +278,7 @@ export default function QuickPromptOverlay({
     window.addEventListener("focus", refreshModelsOnFocus);
     return () => {
       modelRefreshGeneration.current += 1;
+      activeModelRefresh.current = null;
       window.removeEventListener("focus", refreshModelsOnFocus);
     };
   }, [refreshModels]);
