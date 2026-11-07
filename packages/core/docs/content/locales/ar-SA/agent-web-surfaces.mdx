@@ -17,7 +17,7 @@ description: "اجعل المسارات العامة قابلة للزحف، و�
 - JSON-LD للمؤسسة الأساسية وموقع الويب والبيانات الوصفية للصفحة.
 - تدقيق CLI (`npx @agent-native/core@latest audit-agent-web`) يتحقق من كل ما سبق.
 
-يؤدي إعداد `publicMcp: true` أيضًا إلى كشف actions التي تم اختيارها كنقطة نهاية MCP عامة، مما يسمح للوكلاء الخارجيين بالاتصال بهم مباشرة (راجع [MCP Protocol](/docs/mcp-protocol)).
+نشر هذه الملفات لا يكشف أي إجراء أبدًا. يصل الإجراء إلى الوكلاء الخارجيين فقط من خلال اشتراكه الخاص في `publicAgent`؛ راجع [التعريض للوكلاء العامين](/docs/actions-access-control#public-agent).
 
 <Diagram id="doc-block-fx6d6w" title={"ما ينشر الطريق العام"} summary={"يتحول الطريق العام إلى تمثيلات صديقة للوكلاء. تعد قراءة المسار منفصلة عن أدوات الاتصال — ويظل الوصول إلى الأداة قيد الاشتراك."}>
 
@@ -25,7 +25,7 @@ description: "اجعل المسارات العامة قابلة للزحف، و�
 <div class="diagram-web">
   <div class="diagram-box" data-rough>
     الطريق العام<br /><small class="diagram-muted"
-      >المستمدة من إعدادات الوصول إلى الطريق</small
+      >من قائمة الصفحات التي تمررها</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -40,7 +40,7 @@ description: "اجعل المسارات العامة قابلة للزحف، و�
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-col gate">
     <span class="diagram-pill warn">تظل الأدوات خاصة</span
-    ><small class="diagram-muted">مطلوب publicMcp + publicAgent.expose</small>
+    ><small class="diagram-muted">مطلوب publicAgent.expose</small>
   </div>
 </div>
 ```
@@ -73,45 +73,56 @@ description: "اجعل المسارات العامة قابلة للزحف، و�
 
 ## التكوين {#config}
 
-أضف `agentWeb` ضمن تكوين تطبيق مساحة العمل الحالي (في `package.json` لتطبيقك ضمن مفتاح `agent-native` - أو `workspace.agentWeb` أو `agentWeb` أو `root.agentWeb` بشكل مكافئ). لا تزال قائمة المسارات العامة مستمدة من إعدادات الوصول إلى المسار الخاصة بالتطبيق؛ يتحكم `agentWeb` في كيفية تمثيل هذا السطح العام للوكلاء.
+يكتب `createAgentWebVitePlugin` من `@agent-native/core/vite` هذه الملفات أثناء بناء الإنتاج. أضفه إلى إعدادات Vite مع الصفحات التي يجب أن يقرأها الوكلاء:
 
-```json
-{
-  "agent-native": {
-    "workspaceApp": {
-      "audience": "public",
-      "protectedPaths": ["/admin/*"],
-      "agentWeb": {
-        "discoverable": true,
-        "markdownTwins": true,
-        "llmsTxt": true,
-        "jsonLd": true,
-        "publicAgentCard": true,
-        "publicMcp": false,
-        "crawlerPolicy": "discoverable-no-training",
-        "crawlers": {
-          "training": "disallow",
-          "search": "allow",
-          "userTriggered": "allow",
-          "codingAgents": "allow",
-          "autonomousAgents": "allow"
-        }
-      }
-    }
-  }
-}
+```ts
+// vite.config.ts
+import { createAgentWebVitePlugin } from "@agent-native/core/vite";
+
+export default defineConfig({
+  plugins: [
+    // ...your existing plugins
+    createAgentWebVitePlugin({
+      siteName: "My Agent-Native App",
+      siteUrl: "https://example.com",
+      pages: [
+        {
+          path: "/pricing",
+          title: "Pricing",
+          description: "Plans and limits.",
+          markdown: "Plans and limits.\n",
+        },
+      ],
+      agentWeb: { crawlerPolicy: "discoverable-no-training" },
+    }),
+  ],
+});
 ```
 
-بالنسبة لمعظم التطبيقات، اترك الإعدادات الافتراضية كما هي. إذا كان التطبيق يحتوي على أي مسار عام، فسيتم تشغيل `discoverable` بشكل افتراضي. سياسة الزاحف الافتراضية هي "قابلة للاكتشاف وغير قابلة للتدريب": يُسمح بالبحث والاسترجاع بواسطة المستخدم ووكلاء الترميز ووكلاء التصفح المستقلين؛ برامج زحف التدريب غير مسموح بها.
+ينشر المكوّن الإضافي الصفحات التي تدرجها فقط، ولا شيء غيرها. لا يقرأ إعدادات الوصول إلى المسارات، ولا يقرأ `agentWeb` من `package.json` ما لم تمرره إليه. لإبقاء الإعدادات في `package.json` تحت `agent-native.workspaceApp.agentWeb`، مرّر `agentWeb: agentWebConfigFromPackageJson(pkg)` المستورد من `@agent-native/core/agent-web`.
+
+| الخيار          | الافتراضي                         | ما يفعله                                                                                                                                       |
+| --------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `discoverable`  | مفعّل عندما لا تكون `pages` فارغة | القيمة `false` لا تكتب أي ملفات.                                                                                                               |
+| `llmsTxt`       | `true`                            | يكتب `/llms.txt` و`/llms-full.txt`.                                                                                                            |
+| `markdownTwins` | `true`                            | يكتب نسخة `.md` من كل صفحة لها `markdown`.                                                                                                     |
+| `crawlerPolicy` | `"discoverable-no-training"`      | يحدد قواعد `robots.txt`: `"discoverable-no-training"` أو `"allow-all"` أو `"disallow-all"`.                                                    |
+| `crawlers`      | لا شيء                            | يتجاوز فئة زواحف واحدة: `training` أو `search` أو `userTriggered` أو `codingAgents` أو `autonomousAgents`، وكل منها `"allow"` أو `"disallow"`. |
+
+سياسة الزواحف الافتراضية هي "قابل للاكتشاف، غير قابل للتدريب": يُسمح بالبحث والاسترجاع الذي يبدأه المستخدم ووكلاء البرمجة ووكلاء التصفح المستقلين؛ ولا يُسمح بزواحف التدريب.
+
+يُقبل `jsonLd` و`publicAgentCard` و`publicMcp`، لكن لا شيء يقرؤها حتى الآن. للحصول على JSON-LD، اعرض `buildBaseJsonLd` و`buildPageJsonLd` من `@agent-native/core/agent-web` في صفحاتك بنفسك.
 
 ## توجيه مصدر الحقيقة {#route-source}
 
-يتبع اكتشاف ويب الوكيل نموذج الوصول إلى المسار:
+قائمة الصفحات هي مصدر الحقيقة: يحصل الوكلاء على الصفحات التي تمررها، وعليها فقط. ابنِها من صفحات عامة بالفعل:
 
-- تكشف التطبيقات العامة عن كل مسار باستثناء `protectedPaths`.
-- تكشف التطبيقات الداخلية عن `publicPaths` فقط.
-- يمكن للوكلاء قراءة صفحات المشاركة العامة والنماذج.
-- لا يتم تضمين البيانات الخاصة المرسلة ولوحات التحكم التي تمت مصادقتها وحالة المستخدم/المؤسسة مطلقًا لمجرد أن الصفحة القريبة عامة.
+- في التطبيق العام، كل مسار باستثناء `protectedPaths`.
+- في التطبيق الداخلي، `publicPaths` فقط.
+- صفحات المشاركة والنماذج العامة التي ينبغي أن يتمكن الوكلاء من قراءتها.
+- لا تُدرج أبدًا البيانات الخاصة المرسلة أو لوحات المعلومات التي تتطلب مصادقة أو حالة المستخدم أو المؤسسة، حتى لو كانت صفحة قريبة عامة.
+
+للبدء من إعدادات الوصول، يأخذ `deriveAgentWebPublicRoutes` من `@agent-native/core/agent-web` قيم `audience` و`publicPaths` و`protectedPaths` و`routes` لتطبيقك، ويعيد المسارات التي تجعلها تلك الإعدادات عامة. ولا تزال كل صفحة تحتاج إلى عنوانها الخاص وMarkdown الخاص بها.
 
 يؤدي هذا إلى إبقاء التطبيقات المختلطة طبيعية. يمكن لتطبيق النماذج الكشف عن صفحة نموذج عامة والحفاظ على خصوصية عمليات الإرسال. يمكن لتطبيق المحتوى أن يكشف المنشورات المنشورة ويحافظ على خصوصية المحرر. يمكن لموقع المستندات أن يكشف كل شيء باستثناء أدوات الإدارة.
 
@@ -121,7 +132,7 @@ description: "اجعل المسارات العامة قابلة للزحف، و�
 
 <Callout id="doc-block-s50w8y" tone="warning">
 
-**A public page is not a public tool.** Making a route crawlable never exposes an action. Tool access requires an explicit `publicAgent.expose` opt-in on the action _and_ `publicMcp: true` on the app.
+**الصفحة العامة ليست أداة عامة.** جعل المسار قابلاً للزحف لا يكشف أي إجراء أبدًا. يتطلب الوصول إلى الأداة اشتراكًا صريحًا في `publicAgent.expose` على الإجراء.
 
 </Callout>
 
@@ -149,7 +160,7 @@ description: "اجعل المسارات العامة قابلة للزحف، و�
   ]}
 />
 
-يظل `agentWeb.publicMcp` `false` بشكل افتراضي. عند تمكين MCP العام، يجب أن يعرض الخادم فقط actions مع `publicAgent.expose === true`، ويجب أن يستمر في استبعاد التبعية أو كتابة actions ما لم يسمح الإجراء وسياسة المصادقة بذلك صراحة.
+لا يوجد إعداد في `agentWeb` يكشف إجراءً، و`publicMcp` ليس له أي تأثير اليوم. راجع [التعريض للوكلاء العامين](/docs/actions-access-control#public-agent) لمعرفة ما يكشف `publicAgent` الإجراء له والفحوصات التي تظل سارية.
 
 ## ملفات وقت البناء {#build-time}
 
@@ -184,7 +195,9 @@ const files = buildAgentWebStaticFiles({
 });
 ```
 
-يمكن لتطبيقات Vite استخدام `createAgentWebVitePlugin` من `@agent-native/core/vite` لكتابة هذه الملفات إلى `public` أو `dist` أو `dist/client` أو `dist/server/public` أو `build/client` أثناء إنشاءات الإنتاج.
+يستدعي `createAgentWebVitePlugin` الدالة `buildAgentWebStaticFiles` نيابةً عنك ويكتب الملفات في المجلدات الموجودة من بين `public` و`dist` و`dist/client` و`dist/server/public` و`build/client`. مع أداة بناء أخرى، استدعِ الأدوات المساعدة مباشرة.
+
+لا يستجيب أي منهما لـ `Accept: text/markdown` على عنوان URL الخاص بالصفحة: نسخة Markdown موجودة فقط على عنوان `.md` الخاص بها. للاستجابة لهذا الترويسة، أضف مسار خادم يعيد Markdown الصفحة مع الترويسات من `buildMarkdownResponseHeaders`، كما يفعل موقع التوثيق. من دون هذا المسار، يفشل التدقيق أدناه في فحص `Accept: text/markdown`.
 
 مرِّر `sitemapGroup` إلى `buildAgentWebStaticFiles` أو `createAgentWebVitePlugin` لتقسيم خريطة موقع كبيرة. يربط الخيار كل صفحة بمفتاح مجموعة، مثل لغتها، فيصبح `sitemap.xml` فهرسًا لخرائط الموقع يضم ملف `sitemap-<group>.xml` واحدًا لكل مجموعة.
 
@@ -213,5 +226,5 @@ npx @agent-native/core@latest audit-agent-web --url https://www.agent-native.com
 ## ما هي الخطوة التالية
 
 - [**Actions**](/docs/actions-overview) — كيفية تفعيل actions في بروتوكول الوكيل العام
-- [**MCP Protocol**](/docs/mcp-protocol) — سطح MCP الذي يتيحه `publicMcp: true`
+- [**MCP Protocol**](/docs/mcp-protocol) — خادم MCP الذي يتصل به الوكلاء الخارجيون
 - [**Deployment**](/docs/deployment) — حيث تتم كتابة هذه الملفات الثابتة أثناء عمليات الإنشاء

@@ -17,7 +17,7 @@ description: "パブリック ルートを、エージェントによるクロ�
 - 基本組織、Web サイト、ページのメタデータ用の JSON-LD。
 - 上記のすべてをチェックする監査 CLI (`npx @agent-native/core@latest audit-agent-web`)。
 
-`publicMcp: true` を設定すると、オプトインされた actions がパブリック MCP エンドポイントとしてさらに公開され、外部エージェントがそれらを直接呼び出すことができるようになります ([MCP Protocol](/docs/mcp-protocol) を参照)。
+これらのファイルを公開しても、アクションが公開されることはありません。アクションが外部エージェントに届くのは、そのアクション自身の `publicAgent` オプトインを通じてだけです。[公開エージェントに公開する](/docs/actions-access-control#public-agent)を参照してください。
 
 <Diagram id="doc-block-1xzjykc" title={"パブリックルートが公開するもの"} summary={"パブリック ルートは、エージェントに優しい表現に展開されます。ルートの読み取りはツールの呼び出しとは別のものです。ツールへのアクセスはオプトインのままです。"}>
 
@@ -25,7 +25,7 @@ description: "パブリック ルートを、エージェントによるクロ�
 <div class="diagram-web">
   <div class="diagram-box" data-rough>
     公開ルート<br /><small class="diagram-muted"
-      >derived from route access settings</small
+      >from the page list you pass</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -40,9 +40,7 @@ description: "パブリック ルートを、エージェントによるクロ�
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-col gate">
     <span class="diagram-pill warn">ツールは非公開のまま</span
-    ><small class="diagram-muted"
-      >publicMcp + publicAgent.expose required</small
-    >
+    ><small class="diagram-muted">publicAgent.expose required</small>
   </div>
 </div>
 ```
@@ -75,45 +73,56 @@ description: "パブリック ルートを、エージェントによるクロ�
 
 ## 構成 {#config}
 
-既存のワークスペース アプリ構成の下 (アプリの `agent-native` キーの下の `package.json`、または同等の `workspace.agentWeb`、`agentWeb`、または `root.agentWeb`) に `agentWeb` を追加します。パブリック ルート リストは依然としてアプリのルート アクセス設定から派生します。 `agentWeb` は、パブリック サーフェスがエージェントに対してどのように表示されるかを制御します。
+`@agent-native/core/vite` の `createAgentWebVitePlugin` は、本番ビルド中にこれらのファイルを書き出します。エージェントに読ませたいページを指定して、Vite の設定に追加します。
 
-```json
-{
-  "agent-native": {
-    "workspaceApp": {
-      "audience": "public",
-      "protectedPaths": ["/admin/*"],
-      "agentWeb": {
-        "discoverable": true,
-        "markdownTwins": true,
-        "llmsTxt": true,
-        "jsonLd": true,
-        "publicAgentCard": true,
-        "publicMcp": false,
-        "crawlerPolicy": "discoverable-no-training",
-        "crawlers": {
-          "training": "disallow",
-          "search": "allow",
-          "userTriggered": "allow",
-          "codingAgents": "allow",
-          "autonomousAgents": "allow"
-        }
-      }
-    }
-  }
-}
+```ts
+// vite.config.ts
+import { createAgentWebVitePlugin } from "@agent-native/core/vite";
+
+export default defineConfig({
+  plugins: [
+    // ...your existing plugins
+    createAgentWebVitePlugin({
+      siteName: "My Agent-Native App",
+      siteUrl: "https://example.com",
+      pages: [
+        {
+          path: "/pricing",
+          title: "Pricing",
+          description: "Plans and limits.",
+          markdown: "Plans and limits.\n",
+        },
+      ],
+      agentWeb: { crawlerPolicy: "discoverable-no-training" },
+    }),
+  ],
+});
 ```
 
-ほとんどのアプリでは、デフォルトのままにしておきます。アプリにパブリック ルートがある場合、`discoverable` はデフォルトでオンになります。デフォルトのクローラ ポリシーは「検出可能ですがトレーニングは不可能」です。検索、ユーザー トリガーによる取得、コーディング エージェント、自律型ブラウジング エージェントが許可されます。トレーニング クローラーは許可されません。
+プラグインが公開するのは、指定したページだけです。ルートのアクセス設定は読まず、`package.json` の `agentWeb` も渡さない限り読みません。設定を `package.json` の `agent-native.workspaceApp.agentWeb` に置いておくには、`@agent-native/core/agent-web` からインポートした `agentWebConfigFromPackageJson(pkg)` を `agentWeb` に渡します。
+
+| オプション      | デフォルト                   | 動作                                                                                                                                                                      |
+| --------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `discoverable`  | `pages` が空でなければオン   | `false` にするとファイルを一切書き出しません。                                                                                                                            |
+| `llmsTxt`       | `true`                       | `/llms.txt` と `/llms-full.txt` を書き出します。                                                                                                                          |
+| `markdownTwins` | `true`                       | `markdown` を持つ各ページの `.md` コピーを書き出します。                                                                                                                  |
+| `crawlerPolicy` | `"discoverable-no-training"` | `robots.txt` のルールを設定します。`"discoverable-no-training"`、`"allow-all"`、`"disallow-all"` のいずれかです。                                                         |
+| `crawlers`      | なし                         | クローラーのカテゴリを個別に上書きします。`training`、`search`、`userTriggered`、`codingAgents`、`autonomousAgents` のそれぞれに `"allow"` か `"disallow"` を指定します。 |
+
+デフォルトのクローラーポリシーは「発見可能、学習不可」です。検索、ユーザーが起動した取得、コーディングエージェント、自律ブラウジングエージェントは許可され、学習用クローラーは拒否されます。
+
+`jsonLd`、`publicAgentCard`、`publicMcp` は受け付けますが、今のところ何も読みません。JSON-LD が必要な場合は、`@agent-native/core/agent-web` の `buildBaseJsonLd` と `buildPageJsonLd` を自分でページに描画してください。
 
 ## 信頼できる情報源のルート {#route-source}
 
-エージェント Web ディスカバリはルート アクセス モデルに従います:
+ページリストが唯一の情報源です。エージェントが受け取るのは渡したページだけです。すでに公開されているページからリストを作ります。
 
-- パブリック アプリは、`protectedPaths` を除くすべてのルートを公開します。
-- 内部アプリは `publicPaths` のみを公開します。
-- パブリック共有ページとフォーム ページはエージェントが読み取ることができます。
-- 近くのページが公開されているという理由だけで、送信されたプライベート データ、認証されたダッシュボード、ユーザー/組織の状態が含まれることはありません。
+- 公開アプリでは、`protectedPaths` を除くすべてのルート。
+- 内部アプリでは、`publicPaths` のみ。
+- エージェントに読ませたい公開の共有ページとフォームページ。
+- 送信されたプライベートデータ、認証済みダッシュボード、ユーザーや組織の状態は、近くのページが公開されていても決して含めません。
+
+アクセス設定から始めるには、`@agent-native/core/agent-web` の `deriveAgentWebPublicRoutes` にアプリの `audience`、`publicPaths`、`protectedPaths`、`routes` を渡すと、それらの設定で公開になるルートが返ります。各ページには引き続き独自のタイトルと Markdown が必要です。
 
 これにより、混合アプリが自然に保たれます。フォーム アプリはパブリック フォーム ページを公開し、送信内容を非公開に保つことができます。コンテンツ アプリは、公開された投稿を公開し、エディターを非公開に保つことができます。ドキュメント サイトでは、管理ツール以外のすべてを公開できます。
 
@@ -123,7 +132,7 @@ description: "パブリック ルートを、エージェントによるクロ�
 
 <Callout id="doc-block-s50w8y" tone="warning">
 
-**A public page is not a public tool.** Making a route crawlable never exposes an action. Tool access requires an explicit `publicAgent.expose` opt-in on the action _and_ `publicMcp: true` on the app.
+**公開ページは公開ツールではありません。** ルートをクロール可能にしても、アクションが公開されることはありません。ツールへのアクセスには、アクションでの明示的な `publicAgent.expose` オプトインが必要です。
 
 </Callout>
 
@@ -151,7 +160,7 @@ description: "パブリック ルートを、エージェントによるクロ�
   ]}
 />
 
-`agentWeb.publicMcp` はデフォルトでは `false` のままです。パブリック MCP が有効な場合、サーバーは `publicAgent.expose === true` を持つ actions のみを公開する必要があり、アクションと認証ポリシーで明示的に許可されていない限り、引き続き consequential を除外するか、actions を書き込む必要があります。
+`agentWeb` のどの設定もアクションを公開せず、`publicMcp` は現在何の効果もありません。`publicAgent` がアクションを何に公開し、どのチェックが引き続き適用されるかは、[公開エージェントに公開する](/docs/actions-access-control#public-agent)を参照してください。
 
 ## ビルド時ファイル {#build-time}
 
@@ -186,7 +195,9 @@ const files = buildAgentWebStaticFiles({
 });
 ```
 
-Vite アプリは、実稼働ビルド中に `@agent-native/core/vite` の `createAgentWebVitePlugin` を使用して、これらのファイルを `public`、`dist`、`dist/client`、`dist/server/public`、または `build/client` に書き込むことができます。
+`createAgentWebVitePlugin` は `buildAgentWebStaticFiles` を代わりに呼び出し、`public`、`dist`、`dist/client`、`dist/server/public`、`build/client` のうち存在するフォルダーにファイルを書き出します。別のビルドツールでは、ユーティリティを直接呼び出してください。
+
+どちらも、ページ自身の URL で `Accept: text/markdown` に応答しません。Markdown のコピーはその `.md` URL にしかありません。このヘッダーに応答するには、ドキュメントサイトと同じように、`buildMarkdownResponseHeaders` のヘッダーを付けてページの Markdown を返すサーバールートを追加します。そのルートがないと、下の監査の `Accept: text/markdown` チェックは失敗します。
 
 大きなサイトマップを分割するには、`buildAgentWebStaticFiles` または `createAgentWebVitePlugin` に `sitemapGroup` を渡します。各ページをロケールなどのグループ キーに対応付けると、`sitemap.xml` はグループごとに 1 つの `sitemap-<group>.xml` を持つサイトマップ インデックスになります。
 
@@ -215,5 +226,5 @@ npx @agent-native/core@latest audit-agent-web --url https://www.agent-native.com
 ## 次は何ですか
 
 - [**Actions**](/docs/actions-overview) — actions をパブリック エージェント プロトコルにオプトインする方法
-- [**MCP Protocol**](/docs/mcp-protocol) — `publicMcp: true` が有効にする MCP サーフェス
+- [**MCP Protocol**](/docs/mcp-protocol) — 外部エージェントが接続する MCP サーバー
 - [**Deployment**](/docs/deployment) — これらの静的ファイルがビルド中に書き込まれる場所

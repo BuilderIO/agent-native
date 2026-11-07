@@ -17,7 +17,7 @@ Die Dokumentationsseite ist die Referenzimplementierung. Heute wird Folgendes au
 - JSON-LD für Basisorganisation, Website und Seitenmetadaten.
 - Ein Audit CLI (`npx @agent-native/core@latest audit-agent-web`), das alle oben genannten Punkte überprüft.
 
-Durch das Festlegen von `publicMcp: true` wird zusätzlich der optierte actions als öffentlicher MCP-Endpunkt verfügbar gemacht, sodass externe Agenten ihn direkt aufrufen können (siehe [MCP Protocol](/docs/mcp-protocol)).
+Das Veröffentlichen dieser Dateien macht nie eine Aktion verfügbar. Eine Aktion erreicht externe Agenten nur über ihr eigenes `publicAgent`-Opt-in; siehe [Für öffentliche Agenten freigeben](/docs/actions-access-control#public-agent).
 
 <Diagram id="doc-block-1lrp8dq" title={"Was für eine öffentliche Route veröffentlicht"} summary={"Ein öffentlicher Weg fächert sich in agentenfreundliche Darstellungen auf. Das Lesen der Route erfolgt getrennt vom Aufrufen von Tools – der Tool-Zugriff bleibt optional."}>
 
@@ -25,7 +25,7 @@ Durch das Festlegen von `publicMcp: true` wird zusätzlich der optierte actions 
 <div class="diagram-web">
   <div class="diagram-box" data-rough>
     Öffentliche Route<br /><small class="diagram-muted"
-      >derived from route access settings</small
+      >from the page list you pass</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -40,9 +40,7 @@ Durch das Festlegen von `publicMcp: true` wird zusätzlich der optierte actions 
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-col gate">
     <span class="diagram-pill warn">Tools bleiben privat</span
-    ><small class="diagram-muted"
-      >publicMcp + publicAgent.expose required</small
-    >
+    ><small class="diagram-muted">publicAgent.expose required</small>
   </div>
 </div>
 ```
@@ -75,45 +73,56 @@ Durch das Festlegen von `publicMcp: true` wird zusätzlich der optierte actions 
 
 ## Konfiguration {#config}
 
-Fügen Sie `agentWeb` unter der vorhandenen Workspace-App-Konfiguration hinzu (im `package.json` Ihrer App unter dem Schlüssel `agent-native` – oder entsprechend `workspace.agentWeb`, `agentWeb` oder `root.agentWeb`). Die öffentliche Routenliste wird weiterhin von den Routenzugriffseinstellungen der App abgeleitet; `agentWeb` steuert, wie diese öffentliche Oberfläche den Agenten dargestellt wird.
+`createAgentWebVitePlugin` aus `@agent-native/core/vite` schreibt diese Dateien während eines Produktions-Builds. Fügen Sie es mit den Seiten, die Agenten lesen sollen, zu Ihrer Vite-Konfiguration hinzu:
 
-```json
-{
-  "agent-native": {
-    "workspaceApp": {
-      "audience": "public",
-      "protectedPaths": ["/admin/*"],
-      "agentWeb": {
-        "discoverable": true,
-        "markdownTwins": true,
-        "llmsTxt": true,
-        "jsonLd": true,
-        "publicAgentCard": true,
-        "publicMcp": false,
-        "crawlerPolicy": "discoverable-no-training",
-        "crawlers": {
-          "training": "disallow",
-          "search": "allow",
-          "userTriggered": "allow",
-          "codingAgents": "allow",
-          "autonomousAgents": "allow"
-        }
-      }
-    }
-  }
-}
+```ts
+// vite.config.ts
+import { createAgentWebVitePlugin } from "@agent-native/core/vite";
+
+export default defineConfig({
+  plugins: [
+    // ...your existing plugins
+    createAgentWebVitePlugin({
+      siteName: "My Agent-Native App",
+      siteUrl: "https://example.com",
+      pages: [
+        {
+          path: "/pricing",
+          title: "Pricing",
+          description: "Plans and limits.",
+          markdown: "Plans and limits.\n",
+        },
+      ],
+      agentWeb: { crawlerPolicy: "discoverable-no-training" },
+    }),
+  ],
+});
 ```
 
-Lassen Sie bei den meisten Apps die Standardeinstellungen unverändert. Wenn eine App über eine öffentliche Route verfügt, ist `discoverable` standardmäßig aktiviert. Die Standard-Crawler-Richtlinie ist „erkennbar, nicht trainierbar“: Suche, vom Benutzer ausgelöster Abruf, Codierungsagenten und autonome Browsing-Agenten sind zulässig; Trainings-Crawler sind nicht zulässig.
+Das Plugin veröffentlicht die Seiten, die Sie auflisten, und sonst nichts. Es liest weder Ihre Routenzugriffseinstellungen noch `agentWeb` aus `package.json`, solange Sie es nicht übergeben. Um die Einstellungen in `package.json` unter `agent-native.workspaceApp.agentWeb` zu behalten, übergeben Sie `agentWeb: agentWebConfigFromPackageJson(pkg)`, importiert aus `@agent-native/core/agent-web`.
+
+| Option          | Standard                        | Wirkung                                                                                                                                                  |
+| --------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `discoverable`  | An, wenn `pages` nicht leer ist | `false` schreibt keine Dateien.                                                                                                                          |
+| `llmsTxt`       | `true`                          | Schreibt `/llms.txt` und `/llms-full.txt`.                                                                                                               |
+| `markdownTwins` | `true`                          | Schreibt eine `.md`-Kopie jeder Seite, die `markdown` hat.                                                                                               |
+| `crawlerPolicy` | `"discoverable-no-training"`    | Legt die Regeln in `robots.txt` fest: `"discoverable-no-training"`, `"allow-all"` oder `"disallow-all"`.                                                 |
+| `crawlers`      | Keiner                          | Überschreibt eine Crawler-Kategorie: `training`, `search`, `userTriggered`, `codingAgents` oder `autonomousAgents`, jeweils `"allow"` oder `"disallow"`. |
+
+Die Standard-Crawler-Richtlinie ist „erkennbar, nicht trainierbar“: Suche, vom Benutzer ausgelöster Abruf, Codierungsagenten und autonome Browsing-Agenten sind zulässig; Trainings-Crawler sind nicht zulässig.
+
+`jsonLd`, `publicAgentCard` und `publicMcp` werden akzeptiert, aber noch von nichts gelesen. Für JSON-LD rendern Sie `buildBaseJsonLd` und `buildPageJsonLd` aus `@agent-native/core/agent-web` selbst in Ihre Seiten.
 
 ## Quelle der Wahrheit weiterleiten {#route-source}
 
-Agent Web Discovery folgt dem Routenzugriffsmodell:
+Die Seitenliste ist die Quelle der Wahrheit: Agenten erhalten die Seiten, die Sie übergeben, und nur diese. Stellen Sie sie aus Seiten zusammen, die bereits öffentlich sind:
 
-- Öffentliche Apps machen jede Route außer `protectedPaths` verfügbar.
-- Interne Apps machen nur `publicPaths` verfügbar.
-- Öffentliche Freigabe- und Formularseiten können von Agenten gelesen werden.
-- Übermittelte private Daten, authentifizierte Dashboards und Benutzer-/Organisationsstatus werden niemals berücksichtigt, nur weil eine Seite in der Nähe öffentlich ist.
+- In einer öffentlichen App jede Route außer `protectedPaths`.
+- In einer internen App nur `publicPaths`.
+- Öffentliche Freigabe- und Formularseiten, die Agenten lesen können sollen.
+- Niemals übermittelte private Daten, authentifizierte Dashboards oder Benutzer- bzw. Organisationsstatus, auch wenn eine Seite in der Nähe öffentlich ist.
+
+Um von Ihren Zugriffseinstellungen auszugehen, nimmt `deriveAgentWebPublicRoutes` aus `@agent-native/core/agent-web` `audience`, `publicPaths`, `protectedPaths` und `routes` Ihrer App entgegen und gibt die Routen zurück, die diese Einstellungen öffentlich machen. Jede Seite braucht trotzdem ihren eigenen Titel und ihr eigenes Markdown.
 
 Dadurch bleiben gemischte Apps natürlich. Eine Formular-App kann eine öffentliche Formularseite verfügbar machen und Übermittlungen privat halten. Eine Content-App kann veröffentlichte Beiträge offenlegen und den Herausgeber privat halten. Eine Dokumentenseite kann alles außer Verwaltungstools offenlegen.
 
@@ -123,7 +132,7 @@ Der Zugriff auf öffentliche Seiten und der Zugriff auf öffentliche Tools sind 
 
 <Callout id="doc-block-s50w8y" tone="warning">
 
-**A public page is not a public tool.** Making a route crawlable never exposes an action. Tool access requires an explicit `publicAgent.expose` opt-in on the action _and_ `publicMcp: true` on the app.
+**Eine öffentliche Seite ist kein öffentliches Tool.** Eine Route crawlbar zu machen, macht nie eine Aktion verfügbar. Für den Tool-Zugriff ist ein ausdrückliches `publicAgent.expose`-Opt-in an der Aktion nötig.
 
 </Callout>
 
@@ -151,7 +160,7 @@ Um eine Aktion über ein öffentliches Agentenprotokoll verfügbar zu machen, mu
   ]}
 />
 
-`agentWeb.publicMcp` bleibt standardmäßig `false`. Wenn öffentliches MCP aktiviert ist, sollte der Server nur actions mit `publicAgent.expose === true` verfügbar machen und weiterhin Folge- oder Schreib-actions ausschließen, es sei denn, die Aktion und die Authentifizierungsrichtlinie erlauben dies ausdrücklich.
+Keine `agentWeb`-Einstellung macht eine Aktion verfügbar, und `publicMcp` hat derzeit keine Wirkung. Unter [Für öffentliche Agenten freigeben](/docs/actions-access-control#public-agent) steht, wofür `publicAgent` eine Aktion freischaltet und welche Prüfungen weiterhin gelten.
 
 ## Dateien zur Erstellungszeit {#build-time}
 
@@ -186,7 +195,9 @@ const files = buildAgentWebStaticFiles({
 });
 ```
 
-Vite-Apps können `createAgentWebVitePlugin` von `@agent-native/core/vite` verwenden, um diese Dateien während Produktionsbuilds in `public`, `dist`, `dist/client`, `dist/server/public` oder `build/client` zu schreiben.
+`createAgentWebVitePlugin` ruft `buildAgentWebStaticFiles` für Sie auf und schreibt die Dateien in diejenigen der Ordner `public`, `dist`, `dist/client`, `dist/server/public` und `build/client`, die existieren. Mit einem anderen Build-Tool rufen Sie die Dienstprogramme direkt auf.
+
+Keines von beiden beantwortet `Accept: text/markdown` unter der eigenen URL einer Seite: Die Markdown-Kopie liegt nur unter ihrer `.md`-URL. Um diesen Header zu beantworten, fügen Sie eine Server-Route hinzu, die das Markdown der Seite mit den Headern aus `buildMarkdownResponseHeaders` zurückgibt, wie es die Dokumentationsseite tut. Ohne diese Route schlägt die Prüfung `Accept: text/markdown` im Audit unten fehl.
 
 Übergeben Sie `sitemapGroup` an `buildAgentWebStaticFiles` oder `createAgentWebVitePlugin`, um eine große Sitemap aufzuteilen. Die Option ordnet jede Seite einem Gruppenschlüssel zu, etwa ihrer Sprache, und `sitemap.xml` wird zu einem Sitemap-Index mit einer `sitemap-<group>.xml` pro Gruppe.
 
@@ -215,5 +226,5 @@ Die Prüfung endet mit einem Wert ungleich Null, wenn eine erforderliche öffent
 ## Was kommt als nächstes?
 
 - [**Actions**](/docs/actions-overview) – So aktivieren Sie actions für das öffentliche Agentenprotokoll
-- [**MCP Protocol**](/docs/mcp-protocol) – die MCP-Oberfläche, die `publicMcp: true` aktiviert
+- [**MCP Protocol**](/docs/mcp-protocol) – der MCP-Server, mit dem sich externe Agenten verbinden
 - [**Deployment**](/docs/deployment) – wohin diese statischen Dateien während Builds geschrieben werden
