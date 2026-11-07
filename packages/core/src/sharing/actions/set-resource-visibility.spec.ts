@@ -1595,6 +1595,34 @@ describe("set-resource-visibility public followers", () => {
     ]);
   });
 
+  it("undoes its followers when another change takes the page back meanwhile", async () => {
+    await insertFamily();
+    register({
+      publicFollowers: followersMatching,
+      // Another request makes the page private just after this one writes
+      // its first follower, having walked while that follower was private.
+      assertSharingChange: async ({ resource }) => {
+        if (resource.id !== "doc-child") return;
+        const current = await visibilities();
+        if (current["doc-child"] === "public") {
+          await db
+            .update(docs)
+            .set({ visibility: "private" })
+            .where(eq(docs.id, parent));
+        }
+      },
+    });
+
+    await expect(setOne(parent, "public")).rejects.toThrow(
+      "changed visibility while its sub-pages were being saved",
+    );
+    expect(await visibilities()).toEqual({
+      [parent]: "private",
+      "doc-child": "private",
+      "doc-grandchild": "private",
+    });
+  });
+
   it("undoes the whole batch when a follower found by the second walk is refused", async () => {
     followersOf["doc-a"] = [];
     let added = false;

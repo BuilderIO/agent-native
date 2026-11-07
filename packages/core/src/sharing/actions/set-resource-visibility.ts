@@ -720,6 +720,28 @@ export default defineAction({
           await write(change);
         }
       }
+      // Another change to the same resource may have walked before these
+      // followers were written, so it left them out. Once they're written,
+      // a resource still holding this call's visibility means any later
+      // change walks after them and takes them along; one that has already
+      // moved on undoes this whole call instead, rather than leave its
+      // followers public under a resource that isn't.
+      if (followers.length > 0) {
+        failing = undefined;
+        for (const change of prepared) {
+          if (!change.visibilityChanged) continue;
+          const [current] = await db
+            .select({ visibility: reg.resourceTable.visibility })
+            .from(reg.resourceTable)
+            .where(eq(reg.resourceTable.id, change.resourceId));
+          if (current?.visibility !== args.visibility) {
+            fail(
+              `${reg.displayName} ${change.resourceId} changed visibility while its sub-pages were being saved. Try again.`,
+              { errorCode: "visibility_conflict", statusCode: 409 },
+            );
+          }
+        }
+      }
     } catch (error) {
       const stillVisible: string[] = [];
       const stillAttached: string[] = [];
