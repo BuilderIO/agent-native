@@ -7,7 +7,7 @@ import {
   type Request,
 } from "@playwright/test";
 
-import { postAction, presentUiCapability } from "./helpers";
+import { EDITOR, gotoEditor, postAction, presentUiCapability } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
 
@@ -1395,6 +1395,66 @@ test("a collection view's menu copies a link that opens that view", async ({
     ).toBeVisible();
   } finally {
     if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+test("an inline collection's view link opens the collection as its own page", async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(240_000);
+  let hostId: string | null = null;
+  try {
+    await ensureAuthenticatedLocalSession(page);
+    const origin = new URL(page.url()).origin;
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin,
+    });
+    const host = await runAction(page, "create-document", {
+      title: `Inline view link ${Date.now()}`,
+      content: "Intro paragraph.",
+    });
+    hostId = host.id as string;
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await gotoEditor(page, hostId);
+    await page.locator(`${EDITOR} > *`).first().click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("/collection inline");
+    await expect(page.locator(".slash-command-menu")).toBeVisible();
+    await page.keyboard.press("Enter");
+
+    await page.getByRole("button", { name: "Add collection view" }).click();
+    await page.getByLabel("New view name").fill("Second");
+    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "Second view menu" }).click();
+    await page.getByRole("menuitem", { name: "Copy link to view" }).click();
+    await expect(page.getByText("Copied view link")).toBeVisible();
+    const link = new URL(await clipboardText(page));
+    expect(link.pathname).not.toBe(`/page/${hostId}`);
+
+    await page.goto(link.href, { waitUntil: "domcontentloaded" });
+    await expect(page.getByLabel("Document title").first()).toHaveValue(
+      "Untitled collection",
+    );
+    await expect(
+      page.getByRole("button", { name: "Second view menu" }),
+    ).toBeVisible();
+    await expect(page.getByText("Intro paragraph.")).toHaveCount(0);
+  } finally {
+    if (hostId) {
+      await runAction(page, "delete-document", { id: hostId });
+      const plan = await runAction(page, "plan-content-trash-purge", {
+        mode: "selection",
+        documentIds: [hostId],
+      });
+      await presentUiCapability(page);
+      await postAction(page, "permanently-delete-document", {
+        id: hostId,
+        planId: plan.planId,
+        scopeToken: plan.scopeToken,
+      });
+    }
   }
 });
 
