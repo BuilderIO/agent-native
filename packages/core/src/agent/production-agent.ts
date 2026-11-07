@@ -5050,8 +5050,8 @@ function isInternalRetryText(text: string): boolean {
 
 function isInternalContinuationTurn(messages: EngineMessage[]): boolean {
   for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i];
-    if (message.role !== "user") continue;
+    const message = messages.at(i);
+    if (!message || message.role !== "user") continue;
     return message.content.some(
       (part) =>
         part.type === "text" &&
@@ -5073,8 +5073,8 @@ function findCurrentTurnStartForContinuation(
 ): number {
   let i = messages.length - 1;
   while (i >= 0) {
-    const message = messages[i];
-    if (message.role !== "user") {
+    const message = messages.at(i);
+    if (!message || message.role !== "user") {
       i--;
       continue;
     }
@@ -5114,8 +5114,8 @@ function clearGuardDraftFromHistory(
   let incomplete = false;
   let reachedTool = false;
   for (let i = messages.length - 1; i >= turnStart && !reachedTool; i--) {
-    const message = messages[i];
-    if (message.role !== "assistant") continue;
+    const message = messages.at(i);
+    if (!message || message.role !== "assistant") continue;
     const hasToolCall = message.content.some(
       (part) => part.type === "tool-call",
     );
@@ -5128,7 +5128,8 @@ function clearGuardDraftFromHistory(
       break;
     const kept = [...message.content];
     for (let j = kept.length - 1; j >= 0; j--) {
-      const part = kept[j];
+      const part = kept.at(j);
+      if (!part) continue;
       if (
         part.type === "tool-call" &&
         completedCalls.has(part.id) &&
@@ -5162,9 +5163,9 @@ function clearGuardDraftFromHistory(
   }
   // Removing a draft can leave continuation instructions beside tool results.
   for (let i = Math.max(1, turnStart); i < messages.length; i++) {
-    const previous = messages[i - 1];
-    const message = messages[i];
-    if (previous.role === "user" && message.role === "user") {
+    const previous = messages.at(i - 1);
+    const message = messages.at(i);
+    if (previous?.role === "user" && message?.role === "user") {
       previous.content.push(...message.content);
       messages.splice(i--, 1);
     }
@@ -5214,16 +5215,18 @@ function findSafeWindowStart(
   desiredStart: number,
 ): number {
   let start = Math.max(0, desiredStart);
-  while (start < messages.length && hasToolResult(messages[start])) {
+  while (start < messages.length) {
+    const current = messages.at(start);
+    if (!current || !hasToolResult(current)) break;
     const ids = new Set(
-      messages[start].content.flatMap((part) =>
+      current.content.flatMap((part) =>
         part.type === "tool-result" ? [part.toolCallId] : [],
       ),
     );
     let earliest = start;
     for (let i = start - 1; i >= 0 && ids.size; i--) {
-      const message = messages[i];
-      if (message.role !== "assistant") continue;
+      const message = messages.at(i);
+      if (!message || message.role !== "assistant") continue;
       for (const part of message.content) {
         if (part.type === "tool-call" && ids.delete(part.id)) earliest = i;
       }
@@ -9485,7 +9488,7 @@ export async function runAgentLoop(opts: {
         const lastMessage = messages.at(-1);
         if (lastMessage?.role === "assistant") lastMessage.content.push(part);
         else messages.push({ role: "assistant", content: [part] });
-        send({ type: "text", text: replacement });
+        void send({ type: "text", text: replacement });
       } else {
         flushUnstreamedAssistantText();
         if (

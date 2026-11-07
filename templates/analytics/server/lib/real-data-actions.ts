@@ -1144,11 +1144,14 @@ function scanNumericSqlProjection(
     if (/^(?:distinct|all)$/i.test(expression[0] ?? "")) {
       expression = expression.slice(1);
     }
-    if (expression.length >= 2 && /^as$/i.test(expression.at(-2) ?? "")) {
+    if (
+      expression.length >= 2 &&
+      /^as$/i.test(expression.slice(-2, -1).join(""))
+    ) {
       expression = expression.slice(0, -2);
     } else if (
       expression.length >= 2 &&
-      /^[a-z_][a-z_0-9$]*$/i.test(expression.at(-1) ?? "")
+      /^[a-z_][a-z_0-9$]*$/i.test(expression.slice(-1).join(""))
     ) {
       expression = expression.slice(0, -1);
     }
@@ -1178,21 +1181,24 @@ function scanNumericSqlProjection(
   const closingParens = new Map<number, number>();
   const openParens: number[] = [];
   const selects = [0];
-  for (let i = 0; i < code.length; i++) {
-    selects.push(selects[i] + (/^select$/i.test(code[i]) ? 1 : 0));
-    if (code[i] === "(") openParens.push(i);
-    else if (code[i] === ")") {
+  let selectCount = 0;
+  for (const [i, token] of code.entries()) {
+    selectCount += /^select$/i.test(token) ? 1 : 0;
+    selects.push(selectCount);
+    if (token === "(") openParens.push(i);
+    else if (token === ")") {
       const open = openParens.pop();
       if (open !== undefined) closingParens.set(open, i);
     }
   }
 
-  for (let i = 0; i < code.length; i++) {
-    if (!/^select$/i.test(code[i])) continue;
+  for (const [i, current] of code.entries()) {
+    if (!/^select$/i.test(current)) continue;
     let depth = 0;
     let projection: string[] = [];
-    for (let j = i + 1; j < code.length; j++) {
-      const token = code[j];
+    let skipThrough = i;
+    for (const [j, token] of code.entries()) {
+      if (j <= skipThrough) continue;
       if (depth === 0 && (token === ")" || endProjection.test(token))) {
         break;
       }
@@ -1201,9 +1207,11 @@ function scanNumericSqlProjection(
         projection = [];
       } else if (token === "(") {
         const close = closingParens.get(j) ?? code.length;
-        if (selects[close] > selects[j + 1]) {
+        const [closeCount = 0] = selects.slice(close, close + 1);
+        const [openCount = 0] = selects.slice(j + 1, j + 2);
+        if (closeCount > openCount) {
           projection.push("subquery");
-          j = close;
+          skipThrough = close;
         } else {
           projection.push(token);
           depth++;
@@ -1219,21 +1227,25 @@ function scanNumericSqlProjection(
 }
 
 export function draftClaimsAnalyticsMetrics(text: string): boolean {
-  const lines = String(text ?? "").split("\n");
+  const lines = text.split("\n");
   const prose: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const opening = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/.exec(lines[i]);
+  let skipThrough = -1;
+  for (const [i, line] of lines.entries()) {
+    if (i <= skipThrough) continue;
+    const opening = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/.exec(line);
     if (!opening) {
-      prose.push(lines[i]);
+      prose.push(line);
       continue;
     }
-    const fence = opening[1];
+    const [, fence = "", info = ""] = opening;
     const closing = new RegExp(
       `^ {0,3}${fence[0]}{${fence.length},}[ \\t]*\\r?$`,
     );
-    let end = i + 1;
-    while (end < lines.length && !closing.test(lines[end])) end++;
-    if (/^\s*sql(?:\s.*)?$/i.test(opening[2])) {
+    const closingOffset = lines
+      .slice(i + 1)
+      .findIndex((next) => closing.test(next));
+    const end = closingOffset < 0 ? lines.length : i + 1 + closingOffset;
+    if (/^\s*sql(?:\s.*)?$/i.test(info)) {
       const sql = lines.slice(i + 1, end).join("\n");
       if (
         hasNumericSqlProjection(sql) ||
@@ -1245,7 +1257,7 @@ export function draftClaimsAnalyticsMetrics(text: string): boolean {
     }
     prose.push("");
     if (end === lines.length) break;
-    i = end;
+    skipThrough = end;
   }
   return hasUnsupportedResultClaim(prose.join("\n").trim());
 }
