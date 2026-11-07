@@ -1,0 +1,117 @@
+import type { ActionRunContext } from "@agent-native/core/action";
+import {
+  buildAgentAccessUrl,
+  createScopedAgentAccessGrant,
+  getConfiguredAppBasePath,
+  verifyScopedAgentAccessToken,
+} from "@agent-native/core/server";
+import { getRequestContext } from "@agent-native/core/server/request-context";
+import { and, eq, inArray } from "drizzle-orm";
+
+import {
+  privateMediaIdsInContent,
+  privateMediaPath,
+} from "../../shared/private-media.js";
+import { getDb, schema } from "../db/index.js";
+
+/** The scope of an agent's link to one private image. */
+export const PRIVATE_MEDIA_AGENT_RESOURCE_KIND = "content:private-media";
+
+/**
+ * How long an agent's image link works. A leaked link opens that one image
+ * until then, even for someone who has since lost access to its page.
+ */
+export const PRIVATE_MEDIA_AGENT_LINK_TTL_SECONDS = 60 * 60;
+
+/** Bounds the tokens one read can mint, however many images a page links. */
+const MAX_AGENT_LINKS = 200;
+
+/** Callers that read a page without Content's sign-in cookie. */
+const AGENT_CALLERS = new Set<ActionRunContext["caller"]>([
+  "mcp",
+  "a2a",
+  "tool",
+  "cli",
+  "automation",
+]);
+
+export interface PrivateMediaAgentLinks {
+  /** When every link below stops working. */
+  expiresAt: string;
+  /** Each private image the page shows, by the link its body stores. */
+  links: Array<{ src: string; url: string }>;
+}
+
+export function readsWithoutSessionCookie(
+  ctx: Pick<ActionRunContext, "caller"> | undefined,
+): boolean {
+  return !!ctx && AGENT_CALLERS.has(ctx.caller);
+}
+
+/**
+ * Expiring links to the private images a page shows, for a reader that
+ * can't send Content's sign-in cookie, such as an agent over MCP. The caller
+ * must already have checked that the reader can read `documentId`. Only
+ * images bound to that page get a link: those are the ones the reader could
+ * open in the browser.
+ */
+export async function privateMediaAgentLinks(input: {
+  documentId: string;
+  content: string | null | undefined;
+  origin?: string;
+}): Promise<PrivateMediaAgentLinks | undefined> {
+  const ids = [...privateMediaIdsInContent(input.content ?? "")].slice(
+    0,
+    MAX_AGENT_LINKS,
+  );
+  if (ids.length === 0) return undefined;
+  const rows = await getDb()
+    .select({ mediaId: schema.privateMediaReferences.mediaId })
+    .from(schema.privateMediaReferences)
+    .where(
+      and(
+        eq(schema.privateMediaReferences.documentId, input.documentId),
+        inArray(schema.privateMediaReferences.mediaId, ids),
+      ),
+    );
+  const bound = new Set(rows.map((row) => row.mediaId));
+  if (bound.size === 0) return undefined;
+  const origin = input.origin ?? getRequestContext()?.requestOrigin;
+  const basePath = getConfiguredAppBasePath();
+  const expiresAt = new Date(
+    Date.now() + PRIVATE_MEDIA_AGENT_LINK_TTL_SECONDS * 1000,
+  ).toISOString();
+  const links = ids
+    .filter((id) => bound.has(id))
+    .map((id) => {
+      const { token } = createScopedAgentAccessGrant({
+        resourceKind: PRIVATE_MEDIA_AGENT_RESOURCE_KIND,
+        resourceId: id,
+        ttlSeconds: PRIVATE_MEDIA_AGENT_LINK_TTL_SECONDS,
+      });
+      return {
+        src: privateMediaPath(id),
+        url: buildAgentAccessUrl({
+          path: privateMediaPath(id),
+          token,
+          origin,
+          basePath,
+        }),
+      };
+    });
+  return { expiresAt, links };
+}
+
+/** True when `token` is an unexpired agent link to this image. */
+export function agentLinkOpensPrivateMedia(
+  token: string,
+  mediaId: string,
+): boolean {
+  return (
+    !!token &&
+    verifyScopedAgentAccessToken(token, {
+      resourceKind: PRIVATE_MEDIA_AGENT_RESOURCE_KIND,
+      resourceId: mediaId,
+    }).ok
+  );
+}
