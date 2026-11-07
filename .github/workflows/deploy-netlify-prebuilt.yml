@@ -2146,6 +2146,7 @@ jobs:
             --functions "$FUNCTIONS_DIRECTORY"
             --filter "$SOURCE_TEMPLATE"
             --no-build
+            --skip-functions-cache
             --message "$deploy_message"
           )
           if [[ "$TARGET" == "preview" ]]; then
