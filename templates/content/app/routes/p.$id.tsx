@@ -114,6 +114,11 @@ function publicDocumentLoaderData(
   });
 }
 
+// Public pages stay out of search engines, as in Notion: anyone with the link
+// can read one, but nobody finds it by searching. Crawlers still fetch the
+// page (robots.txt allows it) so they can read this.
+export const PUBLIC_DOCUMENT_ROBOTS = "noindex";
+
 // Every answer keeps the short window, including a thrown not-found, which
 // arrives here as errorHeaders; an answer that asked for less keeps its own.
 export function headers({ loaderHeaders, errorHeaders }: HeadersArgs) {
@@ -121,6 +126,7 @@ export function headers({ loaderHeaders, errorHeaders }: HeadersArgs) {
   if (!answer.has(SSR_MAX_AGE_HEADER)) {
     answer.set(SSR_MAX_AGE_HEADER, String(PUBLIC_DOCUMENT_CACHE_SECONDS));
   }
+  answer.set("X-Robots-Tag", PUBLIC_DOCUMENT_ROBOTS);
   return answer;
 }
 
@@ -239,6 +245,7 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
         ];
   return [
     { title },
+    { name: "robots", content: PUBLIC_DOCUMENT_ROBOTS },
     ...socialMeta,
     ...(discovery
       ? [

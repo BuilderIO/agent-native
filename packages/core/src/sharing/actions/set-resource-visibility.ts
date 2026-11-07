@@ -10,9 +10,11 @@ import {
   assertAccess,
   currentAccess,
   ForbiddenError,
+  resolveAccess,
   resolveRegisteredAccessContext,
 } from "../access.js";
 import {
+  MAX_PUBLIC_FOLLOWERS,
   requireShareableResource,
   type ShareableResourceRegistration,
 } from "../registry.js";
@@ -20,6 +22,7 @@ import {
   LINK_PRINCIPAL_ID,
   LINK_PRINCIPAL_TYPE,
   LINK_ROLES,
+  ROLE_RANK,
   type ShareRole,
 } from "../schema.js";
 import { assertWidgetShareWriteGrant } from "../widget-grant.js";
@@ -179,7 +182,7 @@ async function readGrants(
 
 export default defineAction({
   description:
-    "Change the coarse visibility of one or more shareable resources: 'private' keeps them owner-only, 'org' shares them with all members of the owner's organization, 'public' makes them accessible to anyone with the link. Pass role to choose what those people can do: with 'org', view, comment, or edit; with 'public', view or comment. Leaving 'org' or 'public' removes its role. Visibility changes require owner or admin role. To change several resources of the same type, pass resourceIds instead of calling once per resource: every resource is checked before any changes, and the result lists each one as changed or unchanged.",
+    "Change the coarse visibility of one or more shareable resources: 'private' keeps them owner-only, 'org' shares them with all members of the owner's organization, 'public' makes them accessible to anyone with the link. Pass role to choose what those people can do: with 'org', view, comment, or edit; with 'public', view or comment. Leaving 'org' or 'public' removes its role. Visibility changes require owner or admin role. Some types carry related resources with them, such as a Content page's sub-pages: they go public with the resource and leave public with it, and `followersChanged` says how many changed. To change several resources of the same type, pass resourceIds instead of calling once per resource: every resource is checked before any changes, and the result lists each one as changed or unchanged.",
   toolCallable: false,
   mcpApp: {
     compactCatalog: true,
@@ -239,9 +242,15 @@ export default defineAction({
     const rawAccess = currentAccess();
     const currentOrgId = resolveRegisteredAccessContext(reg, rawAccess).orgId;
 
-    const prepare = async (resourceId: string): Promise<PreparedChange> => {
-      const access = await assertAccess(args.resourceType, resourceId, "admin");
+    const prepare = async (
+      resourceId: string,
+      follower?: { access: Access },
+    ): Promise<PreparedChange> => {
+      const access =
+        follower?.access ??
+        (await assertAccess(args.resourceType, resourceId, "admin"));
       if (
+        !follower &&
         args.expectedVisibility &&
         access.resource.visibility !== args.expectedVisibility
       ) {
@@ -488,6 +497,40 @@ export default defineAction({
       for (const resourceId of ids) prepared.push(await prepare(resourceId));
     }
 
+    // A resource's public followers, such as a page's sub-pages, go public
+    // with it and leave public with it, in this same all-or-nothing write.
+    // They are what the change does, not what was asked for, so a widget
+    // grant pinned to the resource covers them and the result counts them
+    // apart.
+    const followers: PreparedChange[] = [];
+    if (reg.publicFollowers) {
+      const seen = new Set(ids);
+      for (const change of prepared) {
+        const from = change.access.resource.visibility as Visibility;
+        if (!change.visibilityChanged) continue;
+        if (args.visibility !== "public" && from !== "public") continue;
+        const followerIds = await reg.publicFollowers(change.access.resource);
+        if (followerIds.length > MAX_PUBLIC_FOLLOWERS) {
+          fail(
+            `${reg.displayName} ${change.resourceId} has more than ${MAX_PUBLIC_FOLLOWERS} sub-pages, which is too many to change with it at once.`,
+            { errorCode: "too_many_followers", statusCode: 409 },
+          );
+        }
+        for (const followerId of followerIds) {
+          if (seen.has(followerId)) continue;
+          seen.add(followerId);
+          // One the caller can't manage stays as it is.
+          const access = await resolveAccess(args.resourceType, followerId);
+          if (!access || ROLE_RANK[access.role] < ROLE_RANK.admin) continue;
+          const current = access.resource.visibility as Visibility;
+          if (current === args.visibility) continue;
+          // Leaving public moves only the followers still public.
+          if (args.visibility !== "public" && current !== "public") continue;
+          followers.push(await prepare(followerId, { access }));
+        }
+      }
+    }
+
     // Used for the write and for its undo, so a registration's own
     // persistence (for example, a reserved name) runs both ways.
     const persistVisibility = async (
@@ -568,10 +611,15 @@ export default defineAction({
 
     // A batch leaves resources already in this state alone, so a no-op can't
     // trip a registration's own checks or send a change notice; a single
-    // call writes as it always has.
-    const toWrite = args.resourceIds
-      ? prepared.filter((change) => change.resourceChanged)
-      : prepared;
+    // call writes as it always has. Followers come last and only when they
+    // change.
+    const toWrite = [
+      ...(args.resourceIds
+        ? prepared.filter((change) => change.resourceChanged)
+        : prepared),
+      ...followers,
+    ];
+    const followerChanges = new Set(followers);
 
     const beforeExtensionTargets = new Map<
       string,
@@ -670,7 +718,8 @@ export default defineAction({
           error,
         );
       }
-      if (change.visibilityChanged) {
+      // A follower's change is part of the change asked for, not another one.
+      if (change.visibilityChanged && !followerChanges.has(change)) {
         track(
           "share_visibility_change",
           {
@@ -697,11 +746,15 @@ export default defineAction({
         )
       : undefined;
     const roleResult = args.role ? { role: args.role } : {};
+    const followerResult = followers.length
+      ? { followersChanged: followers.length }
+      : {};
     if (!args.resourceIds) {
       return {
         ok: true,
         visibility: args.visibility,
         ...roleResult,
+        ...followerResult,
         ...(card ? { change: card } : {}),
       };
     }
@@ -709,6 +762,7 @@ export default defineAction({
       ok: true,
       visibility: args.visibility,
       ...roleResult,
+      ...followerResult,
       results: prepared.map((change) => ({
         resourceId: change.resourceId,
         status: change.resourceChanged

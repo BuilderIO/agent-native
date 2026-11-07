@@ -1447,6 +1447,8 @@ const exactEnglish = {
       temporaryAgentLink: "अस्थायी एजेंट लिंक",
       privateLinkCanView: "केवल पहुँच वाले लोग इसे देख सकते हैं",
       publicLinkCanView: "लिंक वाला कोई भी व्यक्ति इसे देख सकता है",
+      publicSubPagesOne: "यह पेज और इसका उप-पेज",
+      publicSubPages: "यह पेज और इसके {{count}} उप-पेज",
       copiedAgentPrompt: "एजेंट निर्देश कॉपी किए गए",
       couldNotCopyAgentPrompt: "एजेंट निर्देश कॉपी नहीं किए जा सके",
       agentPrompt:

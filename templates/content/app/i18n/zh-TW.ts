@@ -958,6 +958,8 @@ const overrides = {
       temporaryAgentLink: "暫時性代理程式連結",
       privateLinkCanView: "只有有權限的人可以檢視",
       publicLinkCanView: "任何取得連結的人都可以檢視",
+      publicSubPagesOne: "此頁面及其子頁面",
+      publicSubPages: "此頁面及其 {{count}} 個子頁面",
       copiedAgentPrompt: "已複製代理程式指示",
       couldNotCopyAgentPrompt: "無法複製代理程式指示",
       agentPrompt:

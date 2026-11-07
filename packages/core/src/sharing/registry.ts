@@ -1,5 +1,6 @@
 import type { EmailCta, EmailLinkBlock } from "../server/email-template.js";
 import type { UserProfile } from "../user-profile/shared.js";
+import type { AccessProjectedResource } from "./access.js";
 
 export interface ShareEmailExtras {
   paragraphs?: string[];
@@ -7,6 +8,9 @@ export interface ShareEmailExtras {
   linkBlock?: EmailLinkBlock;
   closingParagraphs?: string[];
 }
+
+/** The most resources one change may carry along through `publicFollowers`. */
+export const MAX_PUBLIC_FOLLOWERS = 500;
 
 export interface ShareableResourceRegistration {
   type: string;
@@ -70,6 +74,17 @@ export interface ShareableResourceRegistration {
       | { kind: "grant" };
   }) => void | Promise<void>;
   allowPublic?: boolean;
+  /**
+   * Resources that go public with this one and leave public with it, such as
+   * a page's sub-pages. When `set-resource-visibility` makes this resource
+   * public, each of these becomes public too; when it takes this resource out
+   * of public, each of these still public follows it to the new visibility.
+   * They change in the same all-or-nothing call, with the same checks, and
+   * ones the caller can't manage are left as they are. The share listing
+   * counts the public ones for the resource's managers. Return at most
+   * `MAX_PUBLIC_FOLLOWERS` ids; the change is refused when there are more.
+   */
+  publicFollowers?: (resource: AccessProjectedResource) => Promise<string[]>;
   /**
    * Ask before a private resource opens to the whole organization. For types
    * whose content is easy to overlook, such as a chat's messages and files;

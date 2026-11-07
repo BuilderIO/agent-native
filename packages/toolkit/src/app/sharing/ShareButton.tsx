@@ -150,6 +150,13 @@ export interface ShareButtonProps {
     Record<Visibility, { label?: string; description?: string }>
   >;
   /**
+   * Names the resources that went public with this one, already translated,
+   * such as "and 3 sub-pages". Shown under general access while the
+   * resource is public and some are; the resource type's `publicFollowers`
+   * supplies the count.
+   */
+  publicFollowersLabel?: (count: number) => ReactNode;
+  /**
    * What is specific to this resource, already translated, added to the
    * confirmation shown before it becomes visible to the organization.
    */
@@ -595,6 +602,11 @@ function SharePanel(
             canManage={canManage}
             onToggle={handleHideInSearch}
           />
+        ) : null}
+        {visibility === "public" &&
+        props.publicFollowersLabel &&
+        (data?.publicFollowers ?? 0) > 0 ? (
+          <span>{props.publicFollowersLabel(data?.publicFollowers ?? 0)}</span>
         ) : null}
       </ShareGeneralAccessRow>
     </section>

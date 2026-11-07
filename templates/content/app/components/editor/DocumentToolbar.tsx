@@ -1743,6 +1743,11 @@ export function DocumentToolbar({
                         description: t("editor.toolbar.publicLinkCanView"),
                       },
                     }}
+                    publicFollowersLabel={(count) =>
+                      count === 1
+                        ? t("editor.toolbar.publicSubPagesOne")
+                        : t("editor.toolbar.publicSubPages", { count })
+                    }
                     hideInSearchControl={
                       inWidget
                         ? undefined

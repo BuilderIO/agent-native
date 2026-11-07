@@ -131,12 +131,21 @@ using the framework-wide `share-resource` / `unshare-resource` /
 `list-resource-shares` / `set-resource-visibility` actions (`resourceType`
 `document`). See the `sharing` skill for the general access model.
 
-`set-resource-visibility` changes only the requested page — it never cascades
-to child pages, so making a parent public or org-visible cannot widen a child
-that was left private. Set each page's visibility individually. This is
+A page's sub-pages go public with it and leave public with it, as in Notion.
+When `set-resource-visibility` makes a page public, every sub-page under it
+(at any depth, with the same owner, not in the trash) becomes public too, in
+the same all-or-nothing change; when it makes the page private or org-visible
+again, the sub-pages still public follow it. `followersChanged` in the result
+says how many sub-pages changed, and `list-resource-shares` returns
+`publicFollowers` to the page's owner and admins. Tell the user how many
+sub-pages a public change carries. Every other change (private to org and
+back) touches only the requested page, so set those page by page. Sub-pages
+created later copy their parent's visibility when they're made. This is
 distinct from `set-document-discoverability`, whose `includeChildren` option
-controls search/sidebar listing (not link or organization access) and does
-apply to descendants by design.
+controls search/sidebar listing (not link or organization access).
+
+Public pages (`/p/<id>`) carry `noindex`, so search engines don't list them;
+link previews in Slack and elsewhere still work.
 
 Read (`get-document`, `list-documents`, `search-documents`) admits rows the
 current user owns, has been shared on, or that match the resource's

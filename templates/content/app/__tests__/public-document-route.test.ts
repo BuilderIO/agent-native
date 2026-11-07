@@ -436,4 +436,51 @@ Second part
     expect(answer.get("Referrer-Policy")).toBe("no-referrer");
     expect(answer.get(SSR_MAX_AGE_HEADER)).toBe("0");
   });
+
+  it("keeps every answer out of search engines", () => {
+    for (const answer of [
+      headers({
+        loaderHeaders: new Headers(),
+        parentHeaders: new Headers(),
+        actionHeaders: new Headers(),
+        errorHeaders: undefined,
+      }),
+      headers({
+        loaderHeaders: new Headers(),
+        parentHeaders: new Headers(),
+        actionHeaders: new Headers(),
+        errorHeaders: new Headers(),
+      }),
+    ]) {
+      expect(answer.get("X-Robots-Tag")).toBe("noindex");
+    }
+
+    const loaded = {
+      agentAccessToken: null,
+      basePath: "/content",
+      origin: "https://content.example.test",
+    };
+    for (const loaderData of [
+      {
+        ...loaded,
+        document: {
+          id: "doc-1",
+          title: "Launch notes",
+          content: "",
+          visibility: "public",
+        },
+      },
+      {
+        ...loaded,
+        document: null,
+        unavailable: { reason: "private", id: "doc-1", basePath: "/content" },
+      },
+      undefined,
+    ]) {
+      expect(meta({ loaderData } as never)).toContainEqual({
+        name: "robots",
+        content: "noindex",
+      });
+    }
+  });
 });

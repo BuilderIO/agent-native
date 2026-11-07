@@ -7,6 +7,7 @@ import { table, text, ownableColumns } from "../../db/schema.js";
 import { runWithRequestContext } from "../../server/request-context.js";
 import { ForbiddenError, resolveAccess } from "../access.js";
 import {
+  MAX_PUBLIC_FOLLOWERS,
   registerShareableResource,
   type ShareableResourceRegistration,
 } from "../registry.js";
@@ -1459,5 +1460,227 @@ describe("set-resource-visibility link role", () => {
 
     expect(listed.linkRole).toBe("commenter");
     expect(listed.shares).toEqual([]);
+  });
+});
+
+describe("set-resource-visibility public followers", () => {
+  const followersOf: Record<string, string[]> = {};
+  const parent = "doc-parent";
+
+  beforeEach(() => {
+    for (const key of Object.keys(followersOf)) delete followersOf[key];
+    followersOf[parent] = ["doc-child", "doc-grandchild"];
+    register({
+      publicFollowers: async (resource) => followersOf[resource.id] ?? [],
+    });
+  });
+
+  async function insertFamily(
+    visibilities: Partial<Record<string, Visibility>> = {},
+  ) {
+    for (const id of [parent, "doc-child", "doc-grandchild"]) {
+      await insertDoc({ id, visibility: visibilities[id] ?? "private" });
+    }
+  }
+
+  it("makes its followers public with it, and counts them apart", async () => {
+    await insertFamily();
+
+    const result = await setOne(parent, "public");
+
+    expect(await visibilities()).toEqual({
+      [parent]: "public",
+      "doc-child": "public",
+      "doc-grandchild": "public",
+    });
+    expect(result.followersChanged).toBe(2);
+    expect(result.change.title).toBe(parent);
+    expect(result).not.toHaveProperty("results");
+    // One change was asked for, so one is tracked; every row's access cache
+    // and notice still goes out.
+    expect(calls.tracked).toHaveLength(1);
+    expect(calls.invalidated).toEqual([
+      `${resourceType}:${parent}`,
+      `${resourceType}:doc-child`,
+      `${resourceType}:doc-grandchild`,
+    ]);
+    expect(calls.notified.map((notice) => notice.resourceId)).toEqual([
+      parent,
+      "doc-child",
+      "doc-grandchild",
+    ]);
+  });
+
+  it("gives its followers the link role the call names", async () => {
+    await insertFamily();
+
+    await as({ userEmail: ownerEmail, orgId }, () =>
+      setResourceVisibility.run({
+        resourceType,
+        resourceId: parent,
+        visibility: "public",
+        role: "commenter",
+      }),
+    );
+
+    expect(
+      (await db.select().from(docShares))
+        .map((row) => `${row.resourceId}:${row.principalType}:${row.role}`)
+        .sort(),
+    ).toEqual([
+      "doc-child:link:commenter",
+      "doc-grandchild:link:commenter",
+      `${parent}:link:commenter`,
+    ]);
+  });
+
+  it("takes the followers still public with it when it leaves public", async () => {
+    followersOf[parent] = ["doc-child", "doc-grandchild", "doc-org"];
+    await insertFamily({
+      [parent]: "public",
+      "doc-child": "public",
+      "doc-grandchild": "private",
+    });
+    await insertDoc({ id: "doc-org", visibility: "org" });
+
+    const result = await setOne(parent, "private");
+
+    expect(await visibilities()).toEqual({
+      [parent]: "private",
+      "doc-child": "private",
+      "doc-grandchild": "private",
+      "doc-org": "org",
+    });
+    expect(result.followersChanged).toBe(1);
+  });
+
+  it("follows it to the organization when it goes from public to org", async () => {
+    await insertFamily({ [parent]: "public", "doc-child": "public" });
+
+    await setOne(parent, "org");
+
+    expect(await visibilities()).toEqual({
+      [parent]: "org",
+      "doc-child": "org",
+      "doc-grandchild": "private",
+    });
+  });
+
+  it("leaves its followers alone when its visibility doesn't cross public", async () => {
+    await insertFamily({ [parent]: "public" });
+
+    const samePublic = await setOne(parent, "public");
+    expect(samePublic).not.toHaveProperty("followersChanged");
+    await setOne(parent, "private");
+    await setOne(parent, "org");
+
+    expect(await visibilities()).toEqual({
+      [parent]: "org",
+      "doc-child": "private",
+      "doc-grandchild": "private",
+    });
+  });
+
+  it("leaves a follower the caller can't manage as it is", async () => {
+    await insertFamily();
+    await shareWith(parent, adminEmail, "admin");
+    await shareWith("doc-child", adminEmail, "admin");
+    await shareWith("doc-grandchild", adminEmail, "editor");
+
+    const result = await setOne(parent, "public", {
+      userEmail: adminEmail,
+      orgId,
+    });
+
+    expect(await visibilities()).toEqual({
+      [parent]: "public",
+      "doc-child": "public",
+      "doc-grandchild": "private",
+    });
+    expect(result.followersChanged).toBe(1);
+  });
+
+  it("doesn't hold followers to the visibility the caller expected", async () => {
+    await insertFamily({ "doc-child": "org" });
+
+    await as({ userEmail: ownerEmail, orgId }, () =>
+      setResourceVisibility.run({
+        resourceType,
+        resourceId: parent,
+        visibility: "public",
+        expectedVisibility: "private",
+      }),
+    );
+
+    expect((await visibilities())["doc-child"]).toBe("public");
+  });
+
+  it("changes a follower the call also names once, as asked", async () => {
+    await insertFamily();
+
+    const result = await batch([parent, "doc-child"], "public");
+
+    expect(await visibilities()).toEqual({
+      [parent]: "public",
+      "doc-child": "public",
+      "doc-grandchild": "public",
+    });
+    expect(result.changedCount).toBe(2);
+    expect(result.followersChanged).toBe(1);
+    expect(calls.notified.map((notice) => notice.resourceId)).toEqual([
+      parent,
+      "doc-child",
+      "doc-grandchild",
+    ]);
+  });
+
+  it("puts it and every follower back when a follower can't change", async () => {
+    register({
+      publicFollowers: async (resource) => followersOf[resource.id] ?? [],
+      persistVisibilityChange: persistUnless((resourceId) =>
+        resourceId === "doc-grandchild" ? new Error("write failed") : undefined,
+      ),
+    });
+    await insertFamily();
+
+    await expect(setOne(parent, "public")).rejects.toThrow("write failed");
+
+    expect(await visibilities()).toEqual({
+      [parent]: "private",
+      "doc-child": "private",
+      "doc-grandchild": "private",
+    });
+    expect(calls.tracked).toEqual([]);
+  });
+
+  it("refuses a change that would carry too many followers", async () => {
+    followersOf[parent] = Array.from(
+      { length: MAX_PUBLIC_FOLLOWERS + 1 },
+      (_, index) => `doc-many-${index}`,
+    );
+    await insertDoc({ id: parent });
+
+    await expect(setOne(parent, "public")).rejects.toThrow(
+      `has more than ${MAX_PUBLIC_FOLLOWERS} sub-pages`,
+    );
+    expect(await visibilities()).toEqual({ [parent]: "private" });
+  });
+
+  it("counts its public followers for the people who manage it", async () => {
+    await insertFamily({ [parent]: "public", "doc-child": "public" });
+    await shareWith(parent, adminEmail, "admin");
+    await shareWith(parent, outsiderEmail, "editor");
+
+    const list = (userEmail: string) =>
+      as({ userEmail, orgId }, () =>
+        listResourceShares.run({ resourceType, resourceId: parent }),
+      ) as Promise<Record<string, any>>;
+
+    expect((await list(ownerEmail)).publicFollowers).toBe(1);
+    expect((await list(adminEmail)).publicFollowers).toBe(1);
+    expect(await list(outsiderEmail)).not.toHaveProperty("publicFollowers");
+
+    await setOne(parent, "private");
+    expect(await list(ownerEmail)).not.toHaveProperty("publicFollowers");
   });
 });

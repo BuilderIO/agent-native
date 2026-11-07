@@ -136,6 +136,8 @@ Every shareable resource gets a share button in its header. Clicking it opens a 
 
 Visibility changes save at once. A resource type whose content is easy to overlook can ask first: chats set `confirmOrgVisibility: true` on their registration, so moving a chat from `Private` to `Organization` waits until the user confirms. Cancel or Escape keeps the current access. If saving fails, the dialog shows the error and the user can try again. The confirmation lives in the share UI only, so the agent and any other caller still change visibility directly through `set-resource-visibility`, and the resource's sharing policy still decides what is allowed.
 
+A resource type can also carry related resources with it when it becomes public or stops being public. Content registers `publicFollowers`, which returns a page's sub-pages: making the page public makes them public too, and making it private or organization-only again takes along the ones still public. Related resources the caller can't manage keep their own setting, the whole change saves or fails together, and `set-resource-visibility` returns how many followed as `followersChanged`. The share dialog says how many are public with the resource when the app passes `publicFollowersLabel` to `ShareButton`. A change that would carry more than `MAX_PUBLIC_FOLLOWERS` (500) is refused.
+
 <WireframeBlock id="doc-block-sharing2">
   <Screen
     surface="popover"

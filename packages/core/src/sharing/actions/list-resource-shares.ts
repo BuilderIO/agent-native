@@ -12,7 +12,11 @@ import {
 import { isEmailDerivedName } from "../../user-profile/shared.js";
 import { getUserProfilesWithStatus } from "../../user-profile/store.js";
 import { listWorkspaceUserGroupsForOrg } from "../../workspace-connections/groups.js";
-import { assertAccess, resolveAccess } from "../access.js";
+import {
+  assertAccess,
+  resolveAccess,
+  type AccessProjectedResource,
+} from "../access.js";
 import {
   listShareableAgents,
   orgAgentName,
@@ -175,6 +179,32 @@ async function profileNameAccess(
   }
 }
 
+/**
+ * How many of a public resource's followers (a page's sub-pages) are public
+ * with it, for the people who manage its sharing. Absent otherwise.
+ */
+async function publicFollowerCount(
+  reg: ReturnType<typeof requireShareableResource>,
+  resource: AccessProjectedResource,
+  role: string,
+): Promise<{ publicFollowers?: number }> {
+  if (!reg.publicFollowers || resource.visibility !== "public") return {};
+  if (role !== "owner" && role !== "admin") return {};
+  const ids = await reg.publicFollowers(resource);
+  let count = 0;
+  for (let index = 0; index < ids.length; index += 200) {
+    const rows = await reg
+      .getDb()
+      .select({ visibility: reg.resourceTable.visibility })
+      .from(reg.resourceTable)
+      .where(inArray(reg.resourceTable.id, ids.slice(index, index + 200)));
+    count += rows.filter(
+      (row: { visibility: string }) => row.visibility === "public",
+    ).length;
+  }
+  return { publicFollowers: count };
+}
+
 function agentReadPrompt(reg: ReturnType<typeof requireShareableResource>) {
   if (!reg.agentRead) return {};
   const noun = reg.displayName.toLowerCase();
@@ -190,7 +220,7 @@ function agentReadPrompt(reg: ReturnType<typeof requireShareableResource>) {
 
 export default defineAction({
   description:
-    "List the current visibility and share grants on a shareable resource. A public resource also returns `linkRole`, what anyone with the link can do. Ordinary reads require resource access; widget reads require admin access. `displayNamesUnavailable` means profile names could not be read, so rows show emails only. `agentRead` names the MCP tool that reads the resource, when the type declares one. Owners and admins inside the resource's org also get `agents`: the org's service principals they can share with as a user principal.",
+    "List the current visibility and share grants on a shareable resource. A public resource also returns `linkRole`, what anyone with the link can do, and to its owner and admins `publicFollowers` when its type has them: how many of the resources that go public with it, such as a Content page's sub-pages, are public. Ordinary reads require resource access; widget reads require admin access. `displayNamesUnavailable` means profile names could not be read, so rows show emails only. `agentRead` names the MCP tool that reads the resource, when the type declares one. Owners and admins inside the resource's org also get `agents`: the org's service principals they can share with as a user principal.",
   schema: z.object({
     resourceType: z.string(),
     resourceId: z.string(),
@@ -245,15 +275,25 @@ export default defineAction({
     const shares = rows.filter((row) => row !== linkShare);
     const visibility = access.resource.visibility;
     const ownerEmail: string = access.resource.ownerEmail;
-    const [orgDisplayNames, groupDisplayNames, nameAccess, shareableAgents] =
-      await Promise.all([
-        loadOrgDisplayNames(db, shares),
-        loadGroupDisplayNames(access.resource.orgId, shares),
-        profileNameAccess(access.role, access.resource.orgId, shares),
-        context?.mcpDirectoryWidgetReadOnly
-          ? {}
-          : loadShareableAgents(access.resource.orgId, access.role),
-      ]);
+    const [
+      orgDisplayNames,
+      groupDisplayNames,
+      nameAccess,
+      shareableAgents,
+      followers,
+    ] = await Promise.all([
+      loadOrgDisplayNames(db, shares),
+      loadGroupDisplayNames(access.resource.orgId, shares),
+      profileNameAccess(access.role, access.resource.orgId, shares),
+      context?.mcpDirectoryWidgetReadOnly
+        ? {}
+        : loadShareableAgents(access.resource.orgId, access.role),
+      publicFollowerCount(
+        reg,
+        { ...access.resource, id: args.resourceId },
+        access.role,
+      ),
+    ]);
     const { names: userDisplayNames, unavailable: displayNamesUnavailable } =
       nameAccess !== "allowed"
         ? {
@@ -282,6 +322,7 @@ export default defineAction({
       ...(visibility === "public"
         ? { linkRole: linkShare?.role ?? "viewer" }
         : {}),
+      ...followers,
       role: access.role,
       agentReadable: Boolean(reg.agentReadable),
       ...(context?.mcpDirectoryWidgetReadOnly ? {} : agentReadPrompt(reg)),
