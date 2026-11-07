@@ -1,5 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+// oracle-change: the deleted Slides 2 template no longer has an inline app, and Mail's manage-draft now has one
 exports[`explicit connector inline apps > advertises each inline tool on the default production catalog, with a UI resource only for a scoped widget target 1`] = `
 {
   "analytics": [
