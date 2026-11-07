@@ -130,22 +130,38 @@ const S3_SECRET_KEYS = [
  * send the deployment's keys to an endpoint a workspace saved, so a setting
  * saved anywhere else leaves storage unconfigured.
  */
-async function readS3Config(): Promise<S3Config | null> {
+function assertS3ReadDeadline(deadline?: number): void {
+  if (deadline !== undefined && Date.now() >= deadline) {
+    const error = new Error("Recording storage setup timed out.");
+    error.name = "TimeoutError";
+    throw error;
+  }
+}
+
+async function readS3Config(deadline?: number): Promise<S3Config | null> {
+  assertS3ReadDeadline(deadline);
   await prefetchSecrets(S3_SECRET_KEYS);
+  assertS3ReadDeadline(deadline);
   const found = new Map<string, ResolvedSecretDetail>();
-  await Promise.all(
-    S3_SECRET_KEYS.map(async (key) => {
-      const detail = await resolveSecretDetailed(key);
-      // A self-hosted runtime answers a failed lookup with the env value,
-      // which could stand in for a bucket the workspace saved.
-      if (detail.lookupFailed) {
-        throw detail.cause instanceof Error
-          ? detail.cause
-          : new Error(`Unable to read configured ${key}`);
-      }
-      if (cleanValue(detail.value)) found.set(key, detail);
-    }),
-  );
+  const lookups = S3_SECRET_KEYS.map(async (key) => {
+    const detail = await resolveSecretDetailed(key);
+    // A self-hosted runtime answers a failed lookup with the env value,
+    // which could stand in for a bucket the workspace saved.
+    if (detail.lookupFailed) {
+      throw detail.cause instanceof Error
+        ? detail.cause
+        : new Error(`Unable to read configured ${key}`);
+    }
+    if (cleanValue(detail.value)) found.set(key, detail);
+  });
+  if (deadline === undefined) {
+    await Promise.all(lookups);
+  } else {
+    const results = await Promise.allSettled(lookups);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
+    assertS3ReadDeadline(deadline);
+  }
   const saved = (detail: ResolvedSecretDetail | undefined) =>
     detail !== undefined && detail.source !== "env";
   const bucket =
@@ -304,8 +320,9 @@ export async function deleteS3MediaForCleanup(
 
 function readS3ConfigForMode(
   mode: ClipsS3StorageMode,
+  deadline?: number,
 ): Promise<S3Config | null> | S3Config | null {
-  return mode === "hosted" ? readHostedClipS3Config() : readS3Config();
+  return mode === "hosted" ? readHostedClipS3Config() : readS3Config(deadline);
 }
 
 /** Core's error for a saved secret this process can't decrypt. */
@@ -891,9 +908,15 @@ export async function isS3ObjectUrlBoundToRecording(
 
 export async function openS3Recording(
   url: string,
-  options: { recordingId: string; storageMode: ClipsS3StorageMode },
+  options: {
+    recordingId: string;
+    storageMode: ClipsS3StorageMode;
+    deadline?: number;
+  },
 ): Promise<((range: string, timeoutMs: number) => Promise<Response>) | null> {
-  const cfg = await readS3ConfigForMode(options.storageMode);
+  assertS3ReadDeadline(options.deadline);
+  const cfg = await readS3ConfigForMode(options.storageMode, options.deadline);
+  assertS3ReadDeadline(options.deadline);
   if (!cfg) return null;
   const key = objectKeyFromUrl(cfg, url);
   if (

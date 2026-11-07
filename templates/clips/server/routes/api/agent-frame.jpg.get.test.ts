@@ -188,7 +188,7 @@ describe("agent-frame.jpg route", () => {
     expect(mockClaimRelease).toHaveBeenCalledOnce();
   });
 
-  it("returns the verified frame if optional local fill throws", async () => {
+  it("reports optional local fill failures", async () => {
     mockLoadPublicAgentAccess.mockResolvedValue({
       ok: true,
       access: makeAccess({ recording: { id: "local-fill-failure" } }),
@@ -198,8 +198,8 @@ describe("agent-frame.jpg route", () => {
     const result = await handler(
       event as unknown as Parameters<typeof handler>[0],
     );
-    expect(event.status).toBe(200);
-    expect(result).toEqual(Buffer.from([1, 2, 3]));
+    expect(event.status).toBe(502);
+    expect(result).toMatchObject({ error: "fill failed" });
     expect(mockClaimRelease).toHaveBeenCalledOnce();
   });
 

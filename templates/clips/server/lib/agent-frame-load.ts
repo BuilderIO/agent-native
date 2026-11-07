@@ -174,19 +174,15 @@ export async function loadAgentFrame(
     // remaining serverless request budget or poison its shared range broker.
     if (media.remote) return { frame: resolved.frame, atMs, moved: false };
 
-    try {
-      await claim?.fill(
-        (frameAtMs) =>
-          extractJpegFrameFromFile({
-            mediaPath: media.path,
-            atMs: frameAtMs,
-            remote: media.remote,
-          }),
-        { atMs, frame: resolved.frame },
-      );
-    } catch {
-      console.warn("[agent-frame] optional recommended-frame fill failed");
-    }
+    await claim?.fill(
+      (frameAtMs) =>
+        extractJpegFrameFromFile({
+          mediaPath: media.path,
+          atMs: frameAtMs,
+          remote: media.remote,
+        }),
+      { atMs, frame: resolved.frame },
+    );
     return { frame: resolved.frame, atMs, moved: false };
   } finally {
     // Whatever ended the request, requests waiting on this clip's frames must

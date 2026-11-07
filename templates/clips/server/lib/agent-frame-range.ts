@@ -17,6 +17,22 @@ const MAX_HEADER_WAIT_MS = 5_000;
 const MAX_CONCURRENT_BROKERS = 2;
 let activeBrokers = 0;
 
+export function acquireAgentFrameRangeAdmission(): () => void {
+  if (activeBrokers >= MAX_CONCURRENT_BROKERS) {
+    throw new RecordingMediaFetchError(
+      "Recording range capacity exceeded.",
+      503,
+    );
+  }
+  activeBrokers++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    activeBrokers--;
+  };
+}
+
 type RangeReader = (range: string, timeoutMs: number) => Promise<Response>;
 
 export type RemoteFrameInput = {
@@ -30,15 +46,12 @@ export async function openAgentFrameRange(
   readRange: RangeReader,
   format: RemoteFrameInput["format"],
   deadline = Date.now() + FRAME_RANGE_DEADLINE_MS,
+  release = acquireAgentFrameRangeAdmission(),
 ): Promise<{
   path: string;
   remote: RemoteFrameInput;
   cleanup(): Promise<void>;
 }> {
-  if (activeBrokers >= MAX_CONCURRENT_BROKERS) {
-    throw new Error("Recording range capacity exceeded.");
-  }
-  activeBrokers++;
   let failure: RecordingMediaFetchError | undefined;
   let closed = false;
   let totalBytes = 0;
@@ -283,14 +296,14 @@ export async function openAgentFrameRange(
             await stopped;
           } finally {
             clearTimeout(timer);
-            activeBrokers--;
+            release();
           }
         })()),
     };
   } catch (error) {
     clearTimeout(timer);
     cancelReaders();
-    activeBrokers--;
+    release();
     throw error;
   }
 }

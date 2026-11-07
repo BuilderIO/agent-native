@@ -830,6 +830,67 @@ describe("loadRecordingMediaBytes", () => {
     });
   });
 
+  it("holds admission for timed-out setups until they settle", async () => {
+    vi.useFakeTimers();
+    const resolveSetup: Array<
+      (
+        reader: null | ((range: string, timeout: number) => Promise<Response>),
+      ) => void
+    > = [];
+    const reader = vi.fn(
+      async () =>
+        new Response("a", {
+          status: 206,
+          headers: { etag: '"stable"', "content-range": "bytes 0-0/4" },
+        }),
+    );
+    const recording = makeRecording({
+      videoSizeBytes: 100,
+      storageMode: "own",
+    }) as any;
+    try {
+      mockOpenS3Recording.mockReset().mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveSetup.push(resolve);
+          }),
+      );
+      const first = loadRecordingMediaFile(recording);
+      const second = loadRecordingMediaFile(recording);
+      const firstTimeout = expect(first).rejects.toMatchObject({
+        statusCode: 504,
+      });
+      const secondTimeout = expect(second).rejects.toMatchObject({
+        statusCode: 504,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      const excess = loadRecordingMediaFile(recording);
+      const excessResult = excess.catch((error) => error);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(mockOpenS3Recording).toHaveBeenCalledTimes(2);
+      await expect(excessResult).resolves.toMatchObject({ statusCode: 503 });
+      await vi.advanceTimersByTimeAsync(55_000);
+      await Promise.all([firstTimeout, secondTimeout]);
+      await expect(loadRecordingMediaFile(recording)).rejects.toMatchObject({
+        statusCode: 503,
+      });
+      resolveSetup[0](reader);
+      resolveSetup[1](null);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reader).not.toHaveBeenCalled();
+      mockOpenS3Recording.mockResolvedValue(reader);
+      const media = await loadRecordingMediaFile(recording);
+      await media.cleanup();
+    } finally {
+      await vi.advanceTimersByTimeAsync(55_000);
+      for (const resolve of resolveSetup) resolve(null);
+      await vi.advanceTimersByTimeAsync(0);
+      vi.useRealTimers();
+    }
+  });
+
   it("times out stalled storage setup without starting a late range request", async () => {
     vi.useFakeTimers();
     let finish!: (

@@ -305,6 +305,70 @@ describe("s3FileUploadProvider", () => {
     }
   });
 
+  it("does not start credential lookups after a stalled prefetch passes the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      let finish!: () => void;
+      mockPrefetchSecrets.mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+      );
+      const request = openS3Recording(
+        "https://s3.example.test/clips/clips/rec-1/video.mp4",
+        {
+          recordingId: "rec-1",
+          storageMode: "own",
+          deadline: Date.now() + 100,
+        },
+      );
+      const rejected = expect(request).rejects.toMatchObject({
+        name: "TimeoutError",
+      });
+      await vi.advanceTimersByTimeAsync(101);
+      finish();
+      await rejected;
+      expect(mockResolveSecret).not.toHaveBeenCalled();
+      expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for all deadline-bound credential lookups even when one fails", async () => {
+    let finish!: () => void;
+    const stalled = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      if (key === "S3_BUCKET") throw new Error("lookup failed");
+      if (key === "S3_ACCESS_KEY_ID") await stalled;
+      return null;
+    });
+    let settled = false;
+    const request = openS3Recording(
+      "https://s3.example.test/clips/clips/rec-1/video.mp4",
+      {
+        recordingId: "rec-1",
+        storageMode: "own",
+        deadline: Date.now() + 10_000,
+      },
+    );
+    const result = request.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    finish();
+    await result;
+    await expect(request).rejects.toThrow("lookup failed");
+  });
+
   it("prefetches the S3 and R2 request secrets before resolving them", async () => {
     const values: Record<string, string> = {
       S3_BUCKET: "clips",

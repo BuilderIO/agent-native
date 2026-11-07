@@ -54,6 +54,7 @@ import { getDb, schema } from "../db/index.js";
 import { buildAgentEditedTimeline } from "./agent-edited-timeline.js";
 import {
   openAgentFrameRange,
+  acquireAgentFrameRangeAdmission,
   FRAME_RANGE_DEADLINE_MS,
   type RemoteFrameInput,
 } from "./agent-frame-range.js";
@@ -1339,6 +1340,10 @@ export async function loadRecordingMediaFile(
   ) {
     const storageMode = recording.storageMode;
     const deadline = Date.now() + FRAME_RANGE_DEADLINE_MS;
+    const release = acquireAgentFrameRangeAdmission();
+    let settled = false;
+    let timedOut = false;
+    let handedOff = false;
     try {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const setup = Promise.resolve()
@@ -1352,11 +1357,16 @@ export async function loadRecordingMediaFile(
               openS3Recording(videoUrl, {
                 recordingId: recording.id,
                 storageMode,
+                deadline,
               }),
           ),
         )
         .catch((error) => {
           throw sanitizeRecordingMediaError(error);
+        })
+        .finally(() => {
+          settled = true;
+          if (timedOut) release();
         });
       let read: Awaited<typeof setup>;
       try {
@@ -1375,20 +1385,33 @@ export async function loadRecordingMediaFile(
             );
           }),
         ]);
+      } catch (error) {
+        timedOut = !settled;
+        throw error;
       } finally {
         clearTimeout(timer);
+      }
+      if (Date.now() >= deadline) {
+        throw new RecordingMediaFetchError(
+          "Recording media fetch timed out.",
+          504,
+        );
       }
       if (read) {
         const media = await openAgentFrameRange(
           read,
           recording.videoFormat === "mp4" ? "mov" : "matroska",
           deadline,
+          release,
         );
+        handedOff = true;
         return { ...media, mimeType: fallbackMimeType };
       }
     } catch (error) {
       if (error instanceof RecordingMediaFetchError) throw error;
       throw sanitizeRecordingMediaError(error);
+    } finally {
+      if (!handedOff && !timedOut) release();
     }
   }
   assertFrameMediaFileSize(recording.videoSizeBytes);
