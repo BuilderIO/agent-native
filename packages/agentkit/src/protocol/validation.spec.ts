@@ -819,6 +819,21 @@ describe("AgentKit protocol validation", () => {
 
     expect(isPersistableAttachmentUrl(durable.url)).toBe(true);
     expect(isPersistableAttachmentUrl("AQID")).toBe(false);
+    const storageDownload = {
+      type: "file" as const,
+      name: "report.pdf",
+      url: "https://cdn.builder.io/o/assets%2Ffake-space%2Ffake-id?alt=media&token=fake-download-token",
+    };
+    expect(isPersistableAttachmentUrl(storageDownload.url)).toBe(true);
+    expect(persistableFilePart(storageDownload)).toEqual(storageDownload);
+    for (const url of [
+      "https://cdn.builder.io/o/assets%2Fspace%2Fid?alt=media&token=a&token=b",
+      "https://cdn.builder.io/o/assets%2Fspace%2Fid?alt=media&token=a&expires=1",
+      "https://cdn.builder.io/o/assets%2Fspace%2Fid?alt=media&token=",
+      "http://cdn.builder.io/o/assets%2Fspace%2Fid?alt=media&token=a",
+    ]) {
+      expect(isPersistableAttachmentUrl(url)).toBe(false);
+    }
     const localS3 = {
       type: "file" as const,
       name: "photo.png",

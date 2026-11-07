@@ -240,9 +240,7 @@ describe("session replay list page", () => {
       const db = {
         select: vi.fn((selection?: Record<string, unknown>) => {
           if (!selection) return rowSelect();
-          const rows = selection.app
-            ? [{ app: "clips", count: "137" }]
-            : [{ count: String(total) }];
+          const rows = total ? [{ app: "clips", count: String(total) }] : [];
           const query = {
             from: () => query,
             where: () => query,
@@ -264,9 +262,103 @@ describe("session replay list page", () => {
       ).resolves.toEqual({
         recordings: [],
         total,
-        appCounts: [{ app: "clips", count: 137 }],
+        appCounts: total ? [{ app: "clips", count: total }] : [],
       });
       expect(rowSelect).not.toHaveBeenCalled();
+    },
+  );
+
+  it("totals every app's recordings from one read when no app is chosen", async () => {
+    const selections: Record<string, unknown>[] = [];
+    const db = {
+      select: vi.fn((selection?: Record<string, unknown>) => {
+        if (selection) selections.push(selection);
+        const rows = selection
+          ? [
+              { app: "clips", count: "137" },
+              { app: null, count: "3" },
+            ]
+          : [];
+        const query = {
+          from: () => query,
+          where: () => query,
+          groupBy: () => query,
+          orderBy: () => query,
+          limit: () => query,
+          offset: async () => rows,
+          then: (resolve: (value: unknown[]) => void) =>
+            Promise.resolve(rows).then(resolve),
+        };
+        return query;
+      }),
+    };
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      listSessionRecordingsPage({ userEmail: "qa@example.test", orgId: null }),
+    ).resolves.toEqual({
+      recordings: [],
+      total: 140,
+      appCounts: [{ app: "clips", count: 137 }],
+    });
+    expect(selections).toHaveLength(1);
+  });
+
+  it("totals a chosen app apart from the counts for every app", async () => {
+    const rowSelect = vi.fn(() => {
+      throw new Error("Out-of-range recording row query must not run");
+    });
+    const db = {
+      select: vi.fn((selection?: Record<string, unknown>) => {
+        if (!selection) return rowSelect();
+        const rows = selection.app
+          ? [{ app: "clips", count: "137" }]
+          : [{ count: "0" }];
+        const query = {
+          from: () => query,
+          where: () => query,
+          groupBy: () => query,
+          orderBy: () => query,
+          then: (resolve: (value: unknown[]) => void) =>
+            Promise.resolve(rows).then(resolve),
+        };
+        return query;
+      }),
+    };
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      listSessionRecordingsPage(
+        { userEmail: "qa@example.test", orgId: null },
+        { app: "slides" },
+      ),
+    ).resolves.toEqual({
+      recordings: [],
+      total: 0,
+      appCounts: [{ app: "clips", count: 137 }],
+    });
+    expect(rowSelect).not.toHaveBeenCalled();
+  });
+
+  it.each(["many", "not a count"])(
+    "fails on an unreadable app count of %s",
+    async (count) => {
+      const query = {
+        from: () => query,
+        where: () => query,
+        groupBy: () => query,
+        orderBy: () => query,
+        then: (resolve: (value: unknown[]) => void) =>
+          Promise.resolve([{ app: "clips", count }]).then(resolve),
+      };
+      getDbMock.mockReturnValue({ select: vi.fn(() => query) });
+
+      await expect(
+        listSessionRecordingsPage({
+          userEmail: "qa@example.test",
+          orgId: null,
+        }),
+      ).rejects.toThrow("invalid count");
     },
   );
 
@@ -333,6 +425,7 @@ describe("session replay list page", () => {
         hideEmpty: true,
         hasNetworkErrors: true,
         visitorType: "internal",
+        environment: "beta",
         sort: "longest",
         offset: 100,
         limit: 50,
@@ -350,6 +443,9 @@ describe("session replay list page", () => {
     expect(conditionText(conditions[1])).not.toContain("clips");
     expect(conditionText(conditions[2])).toContain("clips");
     expect(conditionText(orders[1])).toContain("nulls last");
+    // The app menu counts within the traffic on screen.
+    expect(conditionText(conditions[0])).toContain("hostname");
+    expect(conditionText(conditions[1])).toContain("hostname");
   });
 
   it("filters by exact observed sessions while retaining replay and access scope", async () => {
@@ -385,7 +481,7 @@ describe("session replay list page", () => {
       { sessionId: "s-observed", query: "s-observed" },
     );
 
-    expect(conditions).toHaveLength(3);
+    expect(conditions).toHaveLength(2);
     const where = conditions.map(conditionText).join(" ");
     expect(where).toContain("session_recording_session_associations");
     expect(where).toContain("not exists");
@@ -466,6 +562,37 @@ describe("session replay list page", () => {
     expect(where).toContain("org_id");
     expect(where).toContain("chunk_count");
     expect(where).toContain("event_count");
+  });
+
+  it("filters the simple list by traffic", async () => {
+    const conditions: unknown[] = [];
+    const query = {
+      orderBy: () => query,
+      groupBy: () => query,
+      limit: () => query,
+      offset: async () => [],
+      then: (resolve: (value: unknown[]) => void) =>
+        Promise.resolve([]).then(resolve),
+    };
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn((condition: unknown) => {
+            conditions.push(condition);
+            return query;
+          }),
+        })),
+      })),
+    });
+
+    await expect(
+      listSessionRecordings(
+        { userEmail: "viewer@example.test", orgId: "org_1" },
+        { environment: "beta" },
+      ),
+    ).resolves.toEqual([]);
+
+    expect(conditionText(conditions)).toContain("hostname");
   });
 
   it("filters the simple list by the legacy pointer before associations migrate", async () => {

@@ -9,7 +9,7 @@ import {
   withPreparedYDocMutation,
   type PreparedYDocMutationLease,
 } from "@agent-native/core/collab";
-import { getDbExec, type DbExec } from "@agent-native/core/db";
+import { getDbExec, withDbExec, type DbExec } from "@agent-native/core/db";
 import type {
   ResourceSuggestion,
   SuggestionAdapter,
@@ -44,6 +44,7 @@ import {
 } from "../../shared/comment-reanchor.js";
 import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
 import { canonicalizeNfm } from "../../shared/nfm.js";
+import { PRIVATE_MEDIA_PATH_PREFIX } from "../../shared/private-media.js";
 import {
   applyMarkdownSuggestionOperation,
   applyMarkdownSuggestionWithSiblings,
@@ -68,7 +69,7 @@ import { recordDocumentBodyIntent } from "./document-body-intents.js";
 import { lockLegacyBodyWrites } from "./document-body-revision.js";
 import { recordDocumentHistoryTransition } from "./document-history.js";
 import { liveBodyWriterGate } from "./live-body-writer.js";
-import { syncPrivateCalloutReferences } from "./private-icon-references.js";
+import { syncPrivateBodyReferences } from "./private-icon-references.js";
 import {
   acceptedRangesOnSameText,
   acceptOnLiveCopy,
@@ -403,6 +404,28 @@ export function suggestionStaleError(message: string) {
   const error = new Error(message);
   error.name = "SuggestionStaleError";
   return error;
+}
+
+/**
+ * A page conversion can leave one piece of a review unit stale. Accepting the
+ * rest would land half of a sentence, whatever the reviewer's screen last showed.
+ */
+async function refuseHalfOfStaleUnit(
+  tx: DbExec,
+  suggestion: ResourceSuggestion,
+) {
+  const unit = suggestion.metadata?.reviewUnit;
+  if (!suggestion.proposalId || typeof unit !== "string") return;
+  const stale = (
+    await tx.execute({
+      sql: "SELECT metadata_json FROM agent_review_suggestions WHERE proposal_id = ? AND status = 'stale'",
+      args: [suggestion.proposalId],
+    })
+  ).rows;
+  const isSameUnit = (row: { metadata_json?: unknown }) =>
+    (JSON.parse(String(row.metadata_json)) as { reviewUnit?: unknown } | null)
+      ?.reviewUnit === unit;
+  if (stale.some(isSameUnit)) throw suggestionStaleError(STALE_ACCEPT_MESSAGE);
 }
 
 function failBeforeStateConflict(): never {
@@ -844,22 +867,29 @@ async function commitAcceptedContent(input: {
       return updated.rowsAffected === 1;
     },
     afterWrite: async () => {
+      // Callouts can carry private icons, and the body private images; both
+      // need their references on this page.
       if (
         currentContent.includes("<callout") ||
-        nextContent.includes("<callout")
+        nextContent.includes("<callout") ||
+        nextContent.includes(PRIVATE_MEDIA_PATH_PREFIX)
       ) {
         const actorEmail = input.ctx?.userEmail;
         if (typeof actorEmail !== "string" || !actorEmail) {
           throw new Error("Authentication is required to accept a suggestion");
         }
-        await syncPrivateCalloutReferences(identityTx, {
-          documentId,
-          before: currentContent,
-          after: nextContent,
-          userEmail: actorEmail,
-          ownerEmail: String(current.owner_email),
-          orgId: current.org_id === null ? null : String(current.org_id),
-        });
+        // Core opens this transaction without `withDbExec`, which the access
+        // checks need to stay on it.
+        await withDbExec(tx, () =>
+          syncPrivateBodyReferences(identityTx, {
+            documentId,
+            before: currentContent,
+            after: nextContent,
+            userEmail: actorEmail,
+            ownerEmail: String(current.owner_email),
+            orgId: current.org_id === null ? null : String(current.org_id),
+          }),
+        );
       }
       for (const field of primaryBlocksFields) {
         await persistBlocksFieldIdentity({
@@ -1127,6 +1157,10 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     });
   },
   async apply(context) {
+    await refuseHalfOfStaleUnit(
+      context.transaction as DbExec,
+      context.suggestion,
+    );
     if (isLiveCopyDecision(context.coordination))
       return applyOnLiveCopy(context, context.coordination);
     const operations = validateOperations(context.operations);

@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "Could not upload the selected file.",
+    reference: "Reference a dashboard…",
+    group: "Dashboards",
+    authentication: "Sign in to add a reference.",
+    invalid: "Choose a valid reference before sending.",
+    unavailable:
+      "A selected reference is no longer available. Remove it or choose it again.",
+  },
   creativeContext: {
     title: "Library",
     description:
@@ -1754,6 +1763,10 @@ export default {
     hideEmptySessions: "Hide empty sessions",
     networkErrors: "Network errors",
     rageClicksFilter: "Rage clicks",
+    traffic: "Traffic",
+    allTraffic: "All traffic",
+    productionTraffic: "Production",
+    betaTraffic: "Beta",
     visitors: "Visitors",
     allVisitors: "All visitors",
     internalVisitors: "Internal",

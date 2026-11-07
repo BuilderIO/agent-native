@@ -9,7 +9,7 @@ import path from "node:path";
 import {
   artifact,
   readBug,
-  readJiraResults,
+  readFindingResults,
 } from "../../fragility-common/lib/artifacts.ts";
 import {
   argString,
@@ -20,8 +20,8 @@ import {
   ScriptError,
   writeJson,
 } from "../../fragility-common/lib/cli.ts";
+import { loadTracker } from "../../fragility-common/lib/findings.ts";
 import { readPlan } from "../../fragility-common/lib/plan-format.ts";
-import { loadJiraConfig } from "../../jira-refactor-findings/scripts/jira.ts";
 
 export interface BugVerdict {
   symptom: string;
@@ -43,13 +43,13 @@ export interface BugVerdict {
 const VERDICTS = ["one-off", "pattern", "known", "needs-info"] as const;
 const EVIDENCE = ["reproduced", "traced", "inferred"] as const;
 
-main((args) => {
+main(async (args) => {
   const verdict = argString(args, "verdict");
   const rootCause = argString(args, "root-cause");
   const reason = argString(args, "reason");
   if (args.help || !verdict || !rootCause || !reason) {
     console.log(
-      'bug-verdict --run <id> --verdict one-off|pattern|known|needs-info --root-cause "<file:line, what goes wrong>" --reason "<why>" [--symptom "<label>"] [--fix "<local fix>"] [--plan <file>] [--unfiled "<why no ticket>"] [--ticket ENG-123] [--ask "<what to get from the reporter>"] --evidence reproduced|traced|inferred --trigger "<what changed to break it now, or none-found: what you checked>" --ruled-out "<other explanations and the check that ruled each out>"\n  one-off needs --fix; pattern needs --plan; known needs --ticket with a sighting recorded in this run; needs-info needs --ask.\n  --trigger and --ruled-out are required for one-off and pattern.',
+      'bug-verdict --run <id> --verdict one-off|pattern|known|needs-info --root-cause "<file:line, what goes wrong>" --reason "<why>" [--symptom "<label>"] [--fix "<local fix>"] [--plan <file>] [--unfiled "<why no ticket>"] [--ticket <ENG-123 or #123>] [--ask "<what to get from the reporter>"] --evidence reproduced|traced|inferred --trigger "<what changed to break it now, or none-found: what you checked>" --ruled-out "<other explanations and the check that ruled each out>"\n  one-off needs --fix; pattern needs --plan; known needs --ticket with a sighting recorded in this run; needs-info needs --ask.\n  --trigger and --ruled-out are required for one-off and pattern.',
     );
     if (!args.help) process.exitCode = 1;
     return;
@@ -81,7 +81,9 @@ main((args) => {
   const planArg = argString(args, "plan");
   const unfiled = argString(args, "unfiled") ?? null;
   const ask = argString(args, "ask") ?? null;
-  let ticket = argString(args, "ticket") ?? null;
+  const tracker = await loadTracker();
+  const ticketArg = argString(args, "ticket");
+  let ticket = ticketArg ? tracker.parseKey(ticketArg) : null;
   let plan: string | null = null;
 
   if (verdict === "one-off") {
@@ -98,10 +100,10 @@ main((args) => {
         `${planArg} belongs to run ${meta.runId}, not ${id}`,
       );
     plan = rel(file);
-    ticket = meta.jira;
+    ticket = meta.ticket;
     if (!ticket && !unfiled) {
       throw new ScriptError(
-        `${planArg} has no ticket. File it with jira-upsert --apply, or pass --unfiled "<reason>" (low confidence, ticket cap)`,
+        `${planArg} has no ticket. File it with findings-upsert --apply, or pass --unfiled "<reason>" (low confidence, ticket cap)`,
       );
     }
   }
@@ -114,12 +116,12 @@ main((args) => {
       throw new ScriptError("needs-info takes no --plan or --ticket");
   }
   if (verdict === "known") {
-    if (!ticket) throw new ScriptError("known needs --ticket ENG-123");
-    const results = readJiraResults(id);
+    if (!ticket) throw new ScriptError("known needs --ticket");
+    const results = readFindingResults(id);
     // A nightly or unrelated sighting is not evidence the bug is covered.
     if (!results.some((r) => r.key === ticket && r.source)) {
       throw new ScriptError(
-        `no bug-linked sighting on ${ticket} in this run; run jira-upsert --run ${id} --key ${ticket} --system <system> --source <report> --note "..." --apply first`,
+        `no bug-linked sighting on ${ticket} in this run; run findings-upsert --run ${id} --key ${ticket} --system <system> --source <report> --note "..." --apply first`,
       );
     }
   }
@@ -135,7 +137,7 @@ main((args) => {
     fix,
     plan,
     ticket,
-    ticketUrl: ticket ? `${loadJiraConfig().baseUrl}/browse/${ticket}` : null,
+    ticketUrl: ticket ? tracker.ticketUrl(ticket) : null,
     unfiled,
     ask,
     at: new Date().toISOString(),

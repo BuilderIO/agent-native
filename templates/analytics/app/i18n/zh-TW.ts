@@ -1,4 +1,12 @@
 export default {
+  composerSources: {
+    uploadFailed: "無法上傳所選檔案。",
+    reference: "引用儀表板…",
+    group: "儀表板",
+    authentication: "登入以新增引用。",
+    invalid: "傳送前請選擇有效的引用。",
+    unavailable: "所選引用已無法使用。請移除或重新選擇。",
+  },
   creativeContext: {
     title: "資料庫",
     description: "可重複使用的創意脈絡，協助代理在不同工作中保持一致。",
@@ -1676,6 +1684,10 @@ export default {
     hideEmptySessions: "隱藏空工作階段",
     networkErrors: "網路錯誤",
     rageClicksFilter: "憤怒點擊",
+    traffic: "流量",
+    allTraffic: "所有流量",
+    productionTraffic: "正式環境",
+    betaTraffic: "測試版",
     visitors: "訪客",
     allVisitors: "所有訪客",
     internalVisitors: "內部",

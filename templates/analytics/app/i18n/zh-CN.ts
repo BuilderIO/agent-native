@@ -1,4 +1,12 @@
 export default {
+  composerSources: {
+    uploadFailed: "无法上传所选文件。",
+    reference: "引用仪表板…",
+    group: "仪表板",
+    authentication: "登录以添加引用。",
+    invalid: "发送前请选择有效的引用。",
+    unavailable: "所选引用已不可用。请移除或重新选择。",
+  },
   root: {
     whatsNew: "新增内容",
   },
@@ -1592,6 +1600,10 @@ export default {
     hideEmptySessions: "隐藏空会话",
     networkErrors: "网络错误",
     rageClicksFilter: "愤怒点击",
+    traffic: "流量",
+    allTraffic: "全部流量",
+    productionTraffic: "生产环境",
+    betaTraffic: "测试版",
     visitors: "访客",
     allVisitors: "所有访客",
     internalVisitors: "内部",

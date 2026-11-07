@@ -214,6 +214,7 @@ function readOnlyWriterArgs(
     files: [activeFile],
     getScreenContent: () => activeFile.content ?? "",
     id: "design",
+    primeAcceptedSource: () => {},
     markPendingLocalFileContent: vi.fn(),
     overviewIsSynced: false,
     overviewPresenceFileId: null,
@@ -483,3 +484,50 @@ describe("Layers selection source identity", () => {
     );
   });
 });
+
+it.each(["overview", "single"] as const)(
+  "selects an unloaded screen by metadata in %s mode without an active body",
+  (viewMode) => {
+    const target: DesignFile = {
+      id: "unloaded",
+      filename: "other.html",
+      fileType: "html",
+      content: "",
+      createdAt: null,
+      updatedAt: "1",
+      sourceState: "unloaded",
+    };
+    const setActiveFileId = vi.fn();
+    const setOverviewSelectedScreenIds = vi.fn();
+    const setSelectedLayerIdsState = vi.fn();
+    runLayerSelectionChange(
+      {
+        activeFile: undefined,
+        applyFileContentUpdate: vi.fn(),
+        clearPendingOverviewLayerSelectionTimer: vi.fn(),
+        codeLayerOwnerByNodeId: new Map(),
+        effectiveCodeLayerState: { hiddenIds: new Set(), lockedIds: new Set() },
+        files: [target],
+        getScreenContent: vi.fn(),
+        overviewSelectedScreenIds: [],
+        pendingOverviewLayerSelectionRef: { current: null },
+        pendingOverviewScreenSelectionRef: { current: null },
+        selectedElement: null,
+        setActiveFileId,
+        setActiveTool: vi.fn(),
+        setCreatedOverviewLayerSelection: vi.fn(),
+        setMode: vi.fn(),
+        setOverviewSelectedScreenIds,
+        setSelectedElement: vi.fn(),
+        setSelectedLayerIdsState,
+        setViewMode: vi.fn(),
+        viewModeRef: { current: viewMode },
+      },
+      ["unloaded"],
+      { additive: false, id: "unloaded", range: false },
+    );
+    expect(setActiveFileId).toHaveBeenCalledWith("unloaded");
+    expect(setOverviewSelectedScreenIds).toHaveBeenCalledWith(["unloaded"]);
+    expect(setSelectedLayerIdsState).toHaveBeenCalledWith(["unloaded"]);
+  },
+);

@@ -21,9 +21,10 @@ import { CONTENT_DOCUMENT_SUGGESTION_ADAPTER } from "../server/lib/suggested-edi
 import type { CommentAiRequest } from "../shared/comment-ai.js";
 import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
 import {
-  markdownSuggestionOperationsForFindReplaceEdits,
+  findReplaceEditPieces,
   markdownSuggestionOperationSummary,
 } from "../shared/suggestion-diff.js";
+import { sentenceUnits } from "../shared/suggestion-units.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 import { addCommentWithGuard, commentIdForIdempotency } from "./add-comment.js";
 
@@ -151,7 +152,7 @@ export default defineAction({
         payload.edits,
       );
       if (!proposed.ok) throw targetError(proposed.error.kind);
-      const operations = markdownSuggestionOperationsForFindReplaceEdits({
+      const { operations, editOfPiece } = findReplaceEditPieces({
         before: verification.source.document.content,
         edits: proposed.ranges,
       });
@@ -186,6 +187,7 @@ export default defineAction({
         runId: request.runId,
         model: request.model,
       };
+      const units = sentenceUnits(operations, editOfPiece);
       // A Content suggestion holds exactly one edit, so separate changes become
       // one proposal. The receipt links its first edit. Each attempt creates
       // under its own key, because a retry may propose different edits.
@@ -205,10 +207,13 @@ export default defineAction({
                 {
                   ...proposal,
                   idempotencyKey: `comment-ai:${args.attemptId}:proposal`,
-                  suggestions: operations.map((operation) => ({
+                  suggestions: operations.map((operation, index) => ({
                     summary: markdownSuggestionOperationSummary(operation),
                     operations: [{ ...operation, ordinal: 0 }],
-                    metadata,
+                    metadata: {
+                      ...metadata,
+                      reviewUnit: `${args.attemptId}:${units[index]}`,
+                    },
                   })),
                 },
                 ctx,

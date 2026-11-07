@@ -43,6 +43,165 @@ describe("AuthPage interactions", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each(["control", "automatic"] as const)(
+    "shows Builder legal disclosure before Google-only signup only for the %s assignment",
+    async (variant) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => ({
+          ok: true,
+          status: 200,
+          json: async () =>
+            String(input).includes("builder-signup-experiment")
+              ? {
+                  status: "assigned",
+                  id: "a".repeat(32),
+                  variant,
+                  policy: "builder-signup-2026-11-06",
+                }
+              : { available: false },
+        })),
+      );
+      await act(async () => {
+        root.render(
+          <AuthPage
+            {...propsFromHtml(
+              getOnboardingHtml({
+                requestHost: "127.0.0.1",
+                requestPath: "/signup",
+              }),
+            )}
+            trackingApp="design"
+            googleOnly
+            showGoogle
+            signupLegalNotice={{
+              termsUrl: "https://example.com/terms",
+              privacyUrl: "https://example.com/privacy",
+            }}
+            identitySsoEnabled={false}
+          />,
+        );
+      });
+      expect(
+        container.textContent?.includes(
+          "You also create a Builder.io account and agree to Builder’s",
+        ),
+      ).toBe(variant === "automatic");
+      expect(
+        container.querySelector<HTMLButtonElement>("#google-btn")?.disabled,
+      ).toBe(false);
+      const footer = container.querySelector(".legal-note");
+      if (variant === "automatic") {
+        expect(footer?.textContent).not.toContain(
+          "By signing up, you accept our",
+        );
+        expect(
+          container
+            .querySelector("#google-btn")
+            ?.compareDocumentPosition(footer ?? container),
+        ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+        expect(footer?.querySelectorAll("a").length).toBe(2);
+        expect(
+          container.querySelector(
+            'a[href="https://www.builder.io/legal/terms"]',
+          ),
+        ).not.toBeNull();
+        expect(
+          container.querySelector(
+            'a[href="https://www.builder.io/legal/privacy"]',
+          ),
+        ).not.toBeNull();
+      } else {
+        expect(footer).toBeNull();
+      }
+    },
+  );
+
+  it.each([200, 409])(
+    "opens Google immediately and preserves the existing flow when acceptance returns %s",
+    async (acceptStatus) => {
+      window.history.replaceState({}, "", "/signup");
+      const popup = {
+        closed: false,
+        location: { href: "" },
+      } as unknown as Window;
+      const open = vi.fn(() => popup);
+      vi.stubGlobal("open", open);
+      let accept: () => void = () => {
+        throw new Error("Acceptance has not started");
+      };
+      const oauthRequests = vi.fn();
+      let oauthUrl: string | undefined;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (
+            url.includes("builder-signup-experiment") &&
+            init?.method === "POST"
+          ) {
+            return new Promise<Response>((resolve) => {
+              accept = () =>
+                resolve(
+                  new Response(JSON.stringify({ status: "accepted" }), {
+                    status: acceptStatus,
+                  }),
+                );
+            });
+          }
+          if (url.includes("google/auth-url")) {
+            oauthUrl = url;
+            oauthRequests();
+            return new Promise<Response>(() => {});
+          }
+          return Promise.resolve(
+            new Response(
+              JSON.stringify(
+                url.includes("builder-signup-experiment")
+                  ? {
+                      status: "assigned",
+                      id: "a".repeat(32),
+                      variant: "automatic",
+                      policy: "builder-signup-2026-11-06",
+                    }
+                  : { available: false },
+              ),
+            ),
+          );
+        }),
+      );
+      await act(async () => {
+        root.render(
+          <AuthPage
+            {...propsFromHtml(
+              getOnboardingHtml({
+                requestHost: "127.0.0.1",
+                requestPath: "/signup",
+              }),
+            )}
+            trackingApp="design"
+            identitySsoEnabled={false}
+            googleViaIdentitySso={false}
+            googleAuthMode="popup"
+            showGoogle
+          />,
+        );
+      });
+      const button = container.querySelector<HTMLButtonElement>("#google-btn");
+      await act(async () => button?.click());
+      expect(open).toHaveBeenCalledTimes(1);
+      expect(button?.getAttribute("aria-busy")).toBe("true");
+      expect(oauthRequests).not.toHaveBeenCalled();
+      await act(async () => accept());
+      expect(oauthRequests).toHaveBeenCalledTimes(1);
+      expect(
+        new URL(oauthUrl ?? "", "https://design.example.com").searchParams.has(
+          "builder_signup_attempt",
+        ),
+      ).toBe(acceptStatus === 200);
+    },
+  );
+
   it("opens and closes the auth options without dropping focus from the localized toggle", async () => {
     await act(async () => {
       root.render(
