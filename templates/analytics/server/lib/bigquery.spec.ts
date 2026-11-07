@@ -630,20 +630,24 @@ describe("runQuery cancellation", () => {
     { status: 429, reasons: ["rateLimitExceeded"] },
     { status: 403, reasons: ["unrecognized"] },
     { status: 400, reasons: [] },
+    { status: 400, reasons: [], malformed: true },
     { status: 400, reasons: ["invalid", "jobBackendError"] },
   ])(
     "keeps HTTP $status/$reasons submission failures unknown without resubmitting the query",
-    async ({ status, reasons }) => {
+    async (fixture) => {
+      const { status, reasons } = fixture;
       const fetchMock = vi.fn<typeof globalThis.fetch>(async (input) => {
         const url = String(input);
         if (url.endsWith("/jobs"))
           return new Response(
-            JSON.stringify({
-              error: {
-                message: "Ambiguous submission",
-                errors: reasons.map((reason) => ({ reason })),
-              },
-            }),
+            "malformed" in fixture
+              ? "invalid provider JSON"
+              : JSON.stringify({
+                  error: {
+                    message: "Ambiguous submission",
+                    errors: reasons.map((reason) => ({ reason })),
+                  },
+                }),
             { status },
           );
         if (url.includes("/jobs?")) return jsonResponse({ jobs: [] });

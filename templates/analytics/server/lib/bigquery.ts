@@ -228,6 +228,7 @@ function isDefiniteJobSubmissionRejection(
       )
     );
   } catch {
+    // coercion-ok: Unparseable errors are not confirmed rejections; the caller keeps submission unknown and throws the provider error.
     return false;
   }
 }
