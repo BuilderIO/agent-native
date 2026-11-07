@@ -18,6 +18,8 @@ const {
   insertReviewComment,
   insertReviewCommentIdempotently,
   insertReviewReply,
+  consumeReviewFeedback,
+  routeReviewThread,
   linkReviewComment,
   listReviewCommentLinks,
   queryReviewCommentPage,
@@ -322,6 +324,45 @@ describe.sequential("the review kit's storage contract", () => {
     await expect(reopen()).resolves.toBe(1);
     await expect(reopen()).resolves.toBe(1);
     expect(await read()).toMatchObject({ status: "open", revision: 4 });
+  });
+
+  it("moves a revision only when routing or pickup changes", async () => {
+    const root = await insertReviewComment(comment(PLAIN, "doc-route"));
+    const resource = { resourceType: PLAIN, resourceId: "doc-route" };
+    const read = async () =>
+      (
+        await queryReviewComments({
+          resourceType: PLAIN,
+          resourceId: "doc-route",
+          scope: {},
+          bypassScope: true,
+        })
+      )[0];
+    const route = (target: "agent" | "human") =>
+      routeReviewThread(root.threadId, target, resource);
+
+    await expect(route("agent")).resolves.toBe(1);
+    expect(await read()).toMatchObject({
+      resolutionTarget: "agent",
+      revision: 2,
+    });
+    // Routed where it already goes, it still counts as routed.
+    await expect(route("agent")).resolves.toBe(1);
+    expect(await read()).toMatchObject({ revision: 2 });
+
+    await consumeReviewFeedback([root.id], undefined, resource);
+    await consumeReviewFeedback([root.id], undefined, resource);
+    expect(await read()).toMatchObject({ revision: 3 });
+    // Sent back to the agent after it took the thread, it's queued again.
+    await route("agent");
+    expect(await read()).toMatchObject({ consumedAt: null, revision: 4 });
+
+    await route("human");
+    await route("human");
+    expect(await read()).toMatchObject({
+      resolutionTarget: "human",
+      revision: 5,
+    });
   });
 
   it("returns a moved anchor's new revision from the action", async () => {

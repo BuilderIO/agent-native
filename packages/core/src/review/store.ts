@@ -1753,12 +1753,27 @@ async function routeReviewThreadWithClient(
   resource: { resourceType: string; resourceId: string },
 ): Promise<number> {
   const now = new Date().toISOString();
+  // Every open first comment still counts as routed, but only one whose route
+  // changes, or that the agent already took and is sent back to it, moves its
+  // revision; a caller's next edit at the revision it read still goes through.
   const result = await client.execute({
     sql: `UPDATE agent_review_comments
         SET resolution_target = ?,
             consumed_at = CASE WHEN ? = 'agent' THEN NULL ELSE consumed_at END,
-            revision = revision + 1,
-            updated_at = ?
+            revision = CASE
+              WHEN resolution_target IS NULL
+                OR resolution_target <> ?
+                OR (? = 'agent' AND consumed_at IS NOT NULL)
+              THEN revision + 1
+              ELSE revision
+            END,
+            updated_at = CASE
+              WHEN resolution_target IS NULL
+                OR resolution_target <> ?
+                OR (? = 'agent' AND consumed_at IS NOT NULL)
+              THEN ?
+              ELSE updated_at
+            END
       WHERE thread_id = ?
         AND resource_type = ?
         AND resource_id = ?
@@ -1766,6 +1781,10 @@ async function routeReviewThreadWithClient(
         AND status = 'open'
         AND deleted_at IS NULL`,
     args: [
+      resolutionTarget,
+      resolutionTarget,
+      resolutionTarget,
+      resolutionTarget,
       resolutionTarget,
       resolutionTarget,
       now,
@@ -2176,7 +2195,10 @@ export async function consumeReviewFeedback(
           FOR UPDATE`);
     const result = await tx.execute(sql`UPDATE agent_review_comments
           SET consumed_at = ${sql.value(consumedAt)},
-              revision = revision + 1,
+              revision = CASE
+                WHEN consumed_at IS NULL THEN revision + 1
+                ELSE revision
+              END,
               updated_at = ${sql.value(consumedAt)}
         WHERE id IN ${sql.in(ids)}
           ${onResource}`);
