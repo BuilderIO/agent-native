@@ -1126,6 +1126,39 @@ test("choosing the row on show takes back a switch waiting on its save", async (
   }
 });
 
+test("an arrow pressed while a switch waits on its save steps on from that switch's row", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  let release = () => {};
+  try {
+    await ensureAuthenticatedLocalSession(page);
+    fixture = await createDatabaseFixture(page, 3);
+    const [rowA, , rowC] = fixture.rows;
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const preview = await openPreview(page, rowA.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowA.body);
+
+    const save = await holdPreviewSave(page, preview, `${rowA.title} edited`);
+    release = save.release;
+    const next = preview.getByRole("button", { name: "Next collection page" });
+    await next.click();
+    await save.saveStarted();
+    await next.click();
+    release();
+
+    await expect(preview.getByLabel("Document title")).toHaveValue(rowC.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowC.body);
+  } finally {
+    release();
+    await page.unroute("**/_agent-native/actions/update-document**");
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
 test("a switch waiting on its save doesn't follow someone who left the collection", async ({
   page,
 }) => {

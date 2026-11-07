@@ -1164,17 +1164,26 @@ function DatabaseTable({
   }, []);
   const [previewTransitionPending, setPreviewTransitionPending] =
     useState(false);
+  // The row a switch waiting on the save will show, so the arrows step on
+  // from it rather than from the row still on show.
+  const [previewDestinationId, setPreviewDestinationId] = useState<
+    string | null
+  >(null);
   const handlePreviewSessionChange = useCallback(
     (session: PageEditorSession | null) => {
       previewSessionRef.current = session;
     },
     [],
   );
-  function runPreviewTransition(action: () => void) {
+  function runPreviewTransition(
+    action: () => void,
+    destinationId: string | null = null,
+  ) {
     // The save in progress holds the switch, and the latest choice is the one
     // that runs once it lands.
     if (previewTransitionRef.current) {
       queuedPreviewTransitionRef.current = action;
+      setPreviewDestinationId(destinationId);
       return;
     }
     const session = previewSessionRef.current;
@@ -1184,11 +1193,13 @@ function DatabaseTable({
     }
     previewTransitionRef.current = true;
     setPreviewTransitionPending(true);
+    setPreviewDestinationId(destinationId);
     void session
       .flush()
       .then(() => {
         previewTransitionRef.current = false;
         setPreviewTransitionPending(false);
+        setPreviewDestinationId(null);
         const queued = queuedPreviewTransitionRef.current;
         queuedPreviewTransitionRef.current = null;
         // Someone who left the collection while it saved has gone elsewhere.
@@ -1199,6 +1210,7 @@ function DatabaseTable({
         previewTransitionRef.current = false;
         queuedPreviewTransitionRef.current = null;
         setPreviewTransitionPending(false);
+        setPreviewDestinationId(null);
         toast.error(dbText("failedToSavePagePreview"), {
           description:
             error instanceof Error
@@ -1211,6 +1223,7 @@ function DatabaseTable({
   function keepPreviewedRow() {
     if (previewTransitionRef.current) {
       queuedPreviewTransitionRef.current = () => {};
+      setPreviewDestinationId(null);
     }
   }
   function setPreviewDocumentId(id: string | null) {
@@ -1222,7 +1235,7 @@ function DatabaseTable({
       previewSessionRef.current = null;
       setPreviewCommentIntent(null);
       setPreviewDocumentIdState(id);
-    });
+    }, id);
   }
   const [createdPreviewItem, setCreatedPreviewItem] =
     useState<ContentDatabaseItem | null>(null);
@@ -1625,17 +1638,20 @@ function DatabaseTable({
   useEffect(() => {
     lastPreviewItemRef.current = previewItem;
   }, [previewItem]);
-  const previousPreviewItem = previewItem
+  const previewNeighborsOf = previewItem
+    ? (previewDestinationId ?? previewItem.document.id)
+    : null;
+  const previousPreviewItem = previewNeighborsOf
     ? databaseItemPreviewNeighbor(
         screenVisibleItems,
-        previewItem.document.id,
+        previewNeighborsOf,
         "prev",
       )
     : null;
-  const nextPreviewItem = previewItem
+  const nextPreviewItem = previewNeighborsOf
     ? databaseItemPreviewNeighbor(
         screenVisibleItems,
-        previewItem.document.id,
+        previewNeighborsOf,
         "next",
       )
     : null;
@@ -2129,7 +2145,7 @@ function DatabaseTable({
         previewSessionRef.current = null;
         setPreviewCommentIntent(intent);
         setPreviewDocumentIdState(item.document.id);
-      });
+      }, item.document.id);
     },
   );
 
@@ -2200,29 +2216,34 @@ function DatabaseTable({
       spaces: spacesResponse.spaces,
     });
     if (!space) return false;
-    void workspaceSelectionQueueRef
-      .current(async () => {
-        await selectContentSpace({
-          space,
-          syncApplicationState: (selected) =>
-            setClientAppState(
-              "content-space",
-              {
-                spaceId: selected.id,
-                name: selected.name,
-                kind: selected.kind,
-                filesDatabaseId: selected.filesDatabaseId,
-              },
-              { requestSource: "content-workspaces-database" },
-            ),
-          persistSelection: setStoredSpaceId,
-          openSpace: (spaceId) =>
-            navigate(`/home?spaceId=${encodeURIComponent(spaceId)}`),
+    // Opening the workspace leaves the collection, so an open panel saves
+    // its edits first, as a switch would.
+    runPreviewTransition(() => {
+      void workspaceSelectionQueueRef
+        .current(async () => {
+          await selectContentSpace({
+            space,
+            syncApplicationState: (selected) =>
+              setClientAppState(
+                "content-space",
+                {
+                  spaceId: selected.id,
+                  name: selected.name,
+                  kind: selected.kind,
+                  filesDatabaseId: selected.filesDatabaseId,
+                },
+                { requestSource: "content-workspaces-database" },
+              ),
+            persistSelection: setStoredSpaceId,
+            openSpace: (spaceId) => {
+              void navigate(`/home?spaceId=${encodeURIComponent(spaceId)}`);
+            },
+          });
+        })
+        .catch((error) => {
+          toast.error(error instanceof Error ? error.message : String(error));
         });
-      })
-      .catch((error) => {
-        toast.error(error instanceof Error ? error.message : String(error));
-      });
+    });
     return true;
   }
 

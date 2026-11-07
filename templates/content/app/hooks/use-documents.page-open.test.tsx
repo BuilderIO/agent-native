@@ -39,6 +39,11 @@ const session = vi.hoisted(() => {
       answer = next;
       listeners.clear();
     },
+    // The session read answers, and what waited on it hears so.
+    answer() {
+      answer = "first-read";
+      for (const listener of [...listeners]) listener();
+    },
   };
 });
 
@@ -471,6 +476,28 @@ describe("page open document reads", () => {
     await vi.waitFor(() => expect(reads("list-comments")).toBe(1));
     expect(reads("list-resource-suggestions")).toBe(1);
     expect(reads("get-page-open-read")).toBe(1);
+  });
+
+  it("reads a row's Properties ahead only once the session is known", async () => {
+    session.reset("pending");
+    const item = {
+      id: "item-1",
+      databaseId: "database",
+      document: { id: "row-1", title: "Plan" },
+      properties: [],
+    } as unknown as ContentDatabaseItem;
+
+    startDatabaseItemPreviewReads(queryClient, item, "database-page", {
+      reviewReads: false,
+    });
+
+    await vi.waitFor(() => expect(reads("get-page-open-read")).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(reads("list-document-properties")).toBe(0);
+
+    session.answer();
+
+    await vi.waitFor(() => expect(reads("list-document-properties")).toBe(1));
   });
 
   it("leaves comments and suggestions to the page when the session is not known yet", async () => {

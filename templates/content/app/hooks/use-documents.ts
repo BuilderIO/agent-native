@@ -844,17 +844,26 @@ export function startDatabaseItemPreviewReads(
     { databaseId: item.databaseId, databaseDocumentId },
     { reviewReads },
   );
-  void queryClient.prefetchQuery({
-    queryKey: documentPropertiesQueryKey(item.document.id, item.databaseId),
-    queryFn: ({ signal }) =>
-      callAction<DocumentPropertiesResponse>(
-        "list-document-properties",
-        { documentId: item.document.id, databaseId: item.databaseId },
-        { method: "GET", signal },
-      ),
-    staleTime: DATABASE_ITEM_PREVIEW_PROPERTIES_READ_MS,
-    retry: false,
-  });
+  // Like the review reads, this read isn't tracked as the open's own, so one
+  // sent as someone else couldn't be dropped: it starts once the session this
+  // tab accepts is known.
+  whenReadIdentityCurrent(
+    queryClient,
+    sessionReadIdentity(),
+    () =>
+      void queryClient.prefetchQuery({
+        queryKey: documentPropertiesQueryKey(item.document.id, item.databaseId),
+        queryFn: ({ signal }) =>
+          callAction<DocumentPropertiesResponse>(
+            "list-document-properties",
+            { documentId: item.document.id, databaseId: item.databaseId },
+            { method: "GET", signal },
+          ),
+        staleTime: DATABASE_ITEM_PREVIEW_PROPERTIES_READ_MS,
+        retry: false,
+      }),
+    { documentId: item.document.id },
+  );
 }
 
 export function useDocuments(options?: { enabled?: boolean }) {
