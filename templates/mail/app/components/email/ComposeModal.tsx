@@ -61,7 +61,10 @@ import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { openFilePicker, uploadFile, uploadFiles } from "@/lib/upload";
-import { toastUploadFailure } from "@/lib/upload-toast";
+import {
+  toastImageUploadFailure,
+  toastUploadFailure,
+} from "@/lib/upload-toast";
 import { cn } from "@/lib/utils";
 
 import { AttachmentStrip } from "./AttachmentStrip";
@@ -796,7 +799,7 @@ export function ComposeModal({
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      toastUploadFailure(
+      toastImageUploadFailure(
         err,
         t("mail.toasts.failedToUploadImage"),
         t("mail.draftQueue.openSettings"),

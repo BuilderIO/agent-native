@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { UploadError } from "./upload";
-import { toastUploadFailure } from "./upload-toast";
+import { toastImageUploadFailure, toastUploadFailure } from "./upload-toast";
 
 const mocks = vi.hoisted(() => ({ error: vi.fn() }));
 
@@ -48,5 +48,27 @@ describe("toastUploadFailure", () => {
     toastUploadFailure("nope", "Failed to attach file", "Open settings");
 
     expect(mocks.error).toHaveBeenCalledWith("Failed to attach file");
+  });
+
+  it("keeps an image failure's translated message", () => {
+    toastImageUploadFailure(
+      new TypeError("Failed to fetch"),
+      "Failed to upload image",
+      "Open settings",
+    );
+
+    expect(mocks.error).toHaveBeenCalledWith("Failed to upload image");
+  });
+
+  it("still offers Settings when an image needs storage reconnected", () => {
+    toastImageUploadFailure(
+      new UploadError("Builder.io rejected the connection.", true),
+      "Failed to upload image",
+      "Open settings",
+    );
+
+    const [message, options] = mocks.error.mock.calls[0];
+    expect(message).toBe("Builder.io rejected the connection.");
+    expect(options.action.label).toBe("Open settings");
   });
 });

@@ -30,3 +30,18 @@ export function toastUploadFailure(
   }
   toast.error(message);
 }
+
+/** Image uploads keep their translated message unless storage needs reconnecting. */
+export function toastImageUploadFailure(
+  error: unknown,
+  fallback: string,
+  openSettingsLabel: string,
+): void {
+  const needsReconnect =
+    error instanceof UploadError && error.storageSetupRequired;
+  toastUploadFailure(
+    needsReconnect ? error : null,
+    fallback,
+    openSettingsLabel,
+  );
+}

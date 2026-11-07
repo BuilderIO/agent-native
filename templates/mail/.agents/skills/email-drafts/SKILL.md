@@ -205,6 +205,9 @@ Mail expects. From the local host, upload the raw bytes directly:
 curl --fail-with-body --request PUT --header '<Authorization header>' --data-binary @/absolute/path/to/report.pdf '<uploadUrl>'
 ```
 
+With several files, finish one PUT before starting the next: uploads running at
+the same time can lose each other's records.
+
 Pass the `attachment` object to `manage-draft` in `attachments`, on `create` or
 `update`. That list replaces the draft's files, so on `update` include the ones
 to keep, and `[]` removes them all. The upload Authorization header is a
