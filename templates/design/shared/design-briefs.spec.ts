@@ -5,7 +5,6 @@ import { designBriefsFromData, designBriefsSchema } from "./design-briefs";
 const brief = {
   source: "content",
   id: "page-example",
-  title: "Launch brief",
   url: "https://content.example.com/_agent-native/open?documentId=page-example",
 } as const;
 
@@ -26,7 +25,7 @@ describe("design briefs", () => {
           brief,
           { ...brief, url: "javascript:alert(1)" },
           { ...brief, url: "/relative" },
-          { ...brief, title: "" },
+          { ...brief, id: "" },
           "not a brief",
         ],
       }),
@@ -37,6 +36,12 @@ describe("design briefs", () => {
     expect(designBriefsFromData(null)).toEqual([]);
     expect(designBriefsFromData("{not json")).toEqual([]);
     expect(designBriefsFromData({ briefs: "nope" })).toEqual([]);
+  });
+
+  it("keeps a brief's id and link, never the page title", () => {
+    expect(
+      designBriefsFromData({ briefs: [{ ...brief, title: "Private plan" }] }),
+    ).toEqual([brief]);
   });
 
   it("caps how many briefs a design records", () => {

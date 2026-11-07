@@ -1827,6 +1827,7 @@ export default {
       allDesigns: "सभी डिज़ाइन",
       rename: "नाम बदलें",
       builtFrom: "{{title}} से बनाया गया",
+      builtFromPage: "एक Content पेज से बनाया गया",
       duplicate: "डुप्लिकेट करें",
       versionHistory: "संस्करण इतिहास",
       import: "आयात करें…",

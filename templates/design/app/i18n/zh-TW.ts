@@ -1979,6 +1979,7 @@ export default {
       allDesigns: "所有設計",
       rename: "重新命名",
       builtFrom: "依據 {{title}} 建立",
+      builtFromPage: "依據 Content 頁面建立",
       duplicate: "複製",
       versionHistory: "版本記錄",
       import: "匯入…",

@@ -415,6 +415,18 @@ describe("create-design-from-template", () => {
     expect(result.nextRequiredAction).toContain("Do not call generate-design");
   });
 
+  it("keeps the Content pages the copy is built from", async () => {
+    const brief = {
+      source: "content" as const,
+      id: "page-one",
+      url: "https://content.example.com/_agent-native/open?documentId=page-one",
+    };
+    await action.run({ templateId: "saved-template", briefs: [brief] });
+
+    const data = JSON.parse(String(testState.insertedDesign?.data));
+    expect(data.briefs).toEqual([brief]);
+  });
+
   it("fills the design the caller already created instead of making a second one", async () => {
     const result = await action.run({
       templateId: "saved-template",

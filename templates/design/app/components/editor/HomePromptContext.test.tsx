@@ -658,12 +658,7 @@ describe("home prompt context", () => {
       status: "ready",
       title: "Launch brief",
     });
-    const brief = {
-      source: "content",
-      id: "page-one",
-      title: "Launch brief",
-      url: pageUrl,
-    };
+    const brief = { source: "content", id: "page-one", url: pageUrl };
     expect(result.current.briefsFor(result.current.contextItems)).toEqual([
       brief,
     ]);
@@ -678,6 +673,37 @@ describe("home prompt context", () => {
         { key: "design-home-reference:content::page-one" },
       ]),
     ).toEqual([]);
+  });
+  it("keeps at most five attached pages as the design's briefs", async () => {
+    const { result } = renderHook(() => useHomePromptContext(defaults));
+    const presentation = picker(
+      result.current,
+      "content-reference",
+    ).presentation;
+    if (
+      !presentation ||
+      presentation === "submenu" ||
+      presentation.mode !== "multiple"
+    )
+      throw new Error("Missing reference dialog");
+    const pageUrl = (id: string) =>
+      `https://content.example.com/_agent-native/open?documentId=${id}`;
+    mocks.call.mockImplementation(async (_action, args) => ({
+      id: args.id,
+      title: `Page ${args.id}`,
+      url: pageUrl(args.id),
+      context: "Content page",
+    }));
+    const pages = ["a", "b", "c", "d", "e", "f"].map((id) => ({
+      id,
+      title: `Page ${id}`,
+    }));
+    await act(async () => presentation.onAttach(pages, request()));
+
+    expect(result.current.contextItems).toHaveLength(6);
+    expect(
+      result.current.briefsFor(result.current.contextItems).map(({ id }) => id),
+    ).toEqual(["a", "b", "c", "d", "e"]);
   });
   it("records no brief for a page whose link is not http(s)", async () => {
     const { result } = renderHook(() => useHomePromptContext(defaults));

@@ -1791,6 +1791,7 @@ export default {
       allDesigns: "所有设计",
       rename: "重命名",
       builtFrom: "基于 {{title}} 创建",
+      builtFromPage: "基于 Content 页面创建",
       duplicate: "复制",
       versionHistory: "版本历史",
       import: "导入…",

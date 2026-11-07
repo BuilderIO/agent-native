@@ -83,7 +83,7 @@ export default defineAction({
     briefs: designBriefsSchema
       .optional()
       .describe(
-        "Content pages this design is built from, each with its id, title, and http(s) link. The Design UI sets this when a Content page is attached to the prompt; agents may pass a page they read as the brief.",
+        "Content pages this design is built from, each with its id and http(s) link. The Design UI sets this when a Content page is attached to the prompt; agents may pass a page they read as the brief.",
       ),
   }),
   mcpApp: {

@@ -1774,6 +1774,7 @@ export default {
       allDesigns: "All designs",
       rename: "Rename",
       builtFrom: "Built from {{title}}",
+      builtFromPage: "Built from a Content page",
       duplicate: "Duplicate",
       versionHistory: "Version history",
       import: "Import…",

@@ -1857,6 +1857,7 @@ export default {
       allDesigns: "すべてのデザイン",
       rename: "名前を変更",
       builtFrom: "{{title}} から作成",
+      builtFromPage: "Content のページから作成",
       duplicate: "複製",
       versionHistory: "バージョン履歴",
       import: "インポート…",

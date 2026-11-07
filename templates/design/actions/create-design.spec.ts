@@ -115,7 +115,6 @@ describe("create-design briefs", () => {
   const brief = {
     source: "content" as const,
     id: "page-one",
-    title: "Launch brief",
     url: "https://content.example.com/_agent-native/open?documentId=page-one",
   };
 

@@ -55,6 +55,7 @@ let clock = Date.parse("2026-01-01T00:00:00.000Z");
 async function addDocument(args: {
   id: string;
   title?: string;
+  description?: string;
   content?: string;
   ownerEmail?: string;
   trashed?: boolean;
@@ -68,7 +69,7 @@ async function addDocument(args: {
       ownerEmail: args.ownerEmail ?? OWNER,
       orgId: null,
       title: args.title ?? args.id,
-      description: "",
+      description: args.description ?? "",
       content: args.content ?? `body of ${args.id}`,
       visibility: "private",
       createdAt: timestamp,
@@ -165,6 +166,28 @@ describe("Content read-composer-source", () => {
     const context = "context" in result ? result.context : "";
     expect(context.length).toBeLessThanOrEqual(20_000);
     expect(context).toContain("Page text (partial):");
+    expect(context.endsWith("[truncated]")).toBe(true);
+  });
+
+  it("keeps the whole context inside the limit when the title and description are long", async () => {
+    await addDocument({
+      id: "wordy-page",
+      title: "t".repeat(2_500),
+      description: "d".repeat(1_500),
+      content: "x".repeat(20_000),
+    });
+    const result = await readAs(owner, () =>
+      action.run({
+        source: "content",
+        operation: "read",
+        id: "wordy-page",
+        page: 1,
+      }),
+    );
+    const context = "context" in result ? result.context : "";
+    expect(context.length).toBeLessThanOrEqual(20_000);
+    expect(context).toContain(`Page: ${"t".repeat(2_000)}`);
+    expect(context).toContain(`Description: ${"d".repeat(1_000)}`);
     expect(context.endsWith("[truncated]")).toBe(true);
   });
 

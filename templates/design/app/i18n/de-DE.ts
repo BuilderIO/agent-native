@@ -1866,6 +1866,7 @@ export default {
       allDesigns: "Alle Designs",
       rename: "Umbenennen",
       builtFrom: "Erstellt aus {{title}}",
+      builtFromPage: "Erstellt aus einer Content-Seite",
       duplicate: "Duplizieren",
       versionHistory: "Versionsverlauf",
       import: "Importieren…",

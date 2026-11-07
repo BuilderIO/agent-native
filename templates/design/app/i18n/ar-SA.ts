@@ -1821,6 +1821,7 @@ export default {
       allDesigns: "كل التصاميم",
       rename: "إعادة التسمية",
       builtFrom: "مبني على {{title}}",
+      builtFromPage: "مبني على صفحة Content",
       duplicate: "تكرار",
       versionHistory: "سجل الإصدارات",
       import: "استيراد…",

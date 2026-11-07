@@ -1838,6 +1838,7 @@ export default {
       allDesigns: "모든 디자인",
       rename: "이름 바꾸기",
       builtFrom: "{{title}}에서 만듦",
+      builtFromPage: "Content 페이지에서 만듦",
       duplicate: "복제",
       versionHistory: "버전 기록",
       import: "가져오기…",

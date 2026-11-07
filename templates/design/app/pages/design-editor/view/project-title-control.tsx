@@ -1,5 +1,10 @@
-import { useActionMutation } from "@agent-native/core/client/hooks";
-import { designBriefsFromData } from "@shared/design-briefs";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { composerSourceReferenceSchema } from "@agent-native/core/shared";
+import { designBriefsFromData, type DesignBrief } from "@shared/design-briefs";
 import { IconChevronDown, IconExternalLink } from "@tabler/icons-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -39,6 +44,35 @@ import { shouldShowFullDesignProjectMenu } from "../mcp-widget-write-capabilitie
 import { clearPendingEditSessionMarker } from "../pending-edit-session-marker";
 import type { DesignData } from "../types";
 import { ExportSubmenuContent } from "./export-submenu-content";
+
+/**
+ * A "Built from" link to a Content page the design started from. The design
+ * keeps only the page's id and link, so the title is read here under the
+ * viewer's own Content access; anyone who can't open the page sees a generic
+ * label instead.
+ */
+function BuiltFromItem({ brief }: { brief: DesignBrief }) {
+  const t = useT();
+  const page = useActionQuery(
+    "read-composer-source",
+    { source: "content", operation: "read", id: brief.id, page: 1 },
+    { method: "GET", staleTime: 5 * 60_000, retry: false },
+  );
+  const read = composerSourceReferenceSchema.safeParse(page.data);
+  const title = read.success ? read.data.title.trim() : "";
+  return (
+    <DropdownMenuItem asChild>
+      <a href={brief.url} target="_blank" rel="noopener noreferrer">
+        <IconExternalLink className="size-3.5 shrink-0" />
+        <span className="truncate">
+          {title
+            ? t("designEditor.fileMenu.builtFrom", { title })
+            : t("designEditor.fileMenu.builtFromPage")}
+        </span>
+      </a>
+    </DropdownMenuItem>
+  );
+}
 
 interface ProjectTitleControlProps {
   editorCore: EditorCore;
@@ -180,14 +214,7 @@ function ProjectTitleControl({
           }}
         >
           {briefs.map((brief) => (
-            <DropdownMenuItem key={`${brief.source}:${brief.id}`} asChild>
-              <a href={brief.url} target="_blank" rel="noopener noreferrer">
-                <IconExternalLink className="size-3.5 shrink-0" />
-                <span className="truncate">
-                  {t("designEditor.fileMenu.builtFrom", { title: brief.title })}
-                </span>
-              </a>
-            </DropdownMenuItem>
+            <BuiltFromItem key={`${brief.source}:${brief.id}`} brief={brief} />
           ))}
           {briefs.length > 0 ? <DropdownMenuSeparator /> : null}
           <DropdownMenuItem

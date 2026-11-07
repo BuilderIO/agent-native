@@ -24,7 +24,11 @@ import {
   type ComposerContextPickerItem,
   type ComposerContextPickerRequest,
 } from "@agent-native/toolkit/app/chat/composer/index";
-import { designBriefSchema, type DesignBrief } from "@shared/design-briefs";
+import {
+  DESIGN_BRIEF_LIMIT,
+  designBriefSchema,
+  type DesignBrief,
+} from "@shared/design-briefs";
 import { parseFigmaFileKey } from "@shared/figma-url";
 import {
   IconFileText,
@@ -72,13 +76,12 @@ function referenceKey(reference: Reference) {
 
 function contentBrief(
   reference: Reference,
-  result: { id: string; title: string; url?: string | undefined },
+  result: { id: string; url?: string | undefined },
 ): DesignBrief | undefined {
   if (reference.source !== "content") return undefined;
   const brief = designBriefSchema.safeParse({
     source: "content",
     id: result.id,
-    title: result.title,
     url: result.url,
   });
   return brief.success ? brief.data : undefined;
@@ -846,13 +849,19 @@ export function useHomePromptContext({
     )
       onSystemChange(null);
   };
-  /** The Content pages among submitted context items, for the new design. */
+  /**
+   * The Content pages among submitted context items, for the new design. Only
+   * the first few are kept as its "Built from" links; every attached page still
+   * reaches the prompt.
+   */
   const briefsFor = useCallback(
     (submitted: readonly { key: string }[] | undefined) =>
-      (submitted ?? []).flatMap((item) => {
-        const brief = contentBriefs.current.get(item.key);
-        return brief ? [brief] : [];
-      }),
+      (submitted ?? [])
+        .flatMap((item) => {
+          const brief = contentBriefs.current.get(item.key);
+          return brief ? [brief] : [];
+        })
+        .slice(0, DESIGN_BRIEF_LIMIT),
     [],
   );
   return {

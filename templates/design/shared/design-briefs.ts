@@ -1,14 +1,20 @@
 import { composerWebsiteUrlSchema } from "@agent-native/core/shared";
 import { z } from "zod";
 
-/** A Content page a design was started from, kept in `designs.data.briefs`. */
+/**
+ * A Content page a design was started from, kept in `designs.data.briefs`.
+ * Only the page's id and link are stored: the design can be shared more widely
+ * than the page, so its title is read per viewer, under their Content access.
+ */
 export const designBriefSchema = z.object({
   source: z.literal("content"),
   id: z.string().trim().min(1).max(200),
-  title: z.string().trim().min(1).max(2000),
   url: composerWebsiteUrlSchema,
 });
-export const designBriefsSchema = z.array(designBriefSchema).max(5);
+export const DESIGN_BRIEF_LIMIT = 5;
+export const designBriefsSchema = z
+  .array(designBriefSchema)
+  .max(DESIGN_BRIEF_LIMIT);
 
 export type DesignBrief = z.infer<typeof designBriefSchema>;
 

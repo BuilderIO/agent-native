@@ -1853,6 +1853,7 @@ export default {
       allDesigns: "Todos os designs",
       rename: "Renomear",
       builtFrom: "Criado a partir de {{title}}",
+      builtFromPage: "Criado a partir de uma página do Content",
       duplicate: "Duplicar",
       versionHistory: "Histórico de versões",
       import: "Importar…",

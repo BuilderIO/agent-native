@@ -982,6 +982,7 @@ export default function Index() {
           key: retryKey,
           id: newId,
         });
+        const templateBriefs = homeBriefsFor(options.contextItems);
         try {
           const result = await createFromTemplateMutation.mutateAsync({
             templateId: selectedTemplate.id,
@@ -990,6 +991,7 @@ export default function Index() {
             retryKey,
             ...(designSystemId !== undefined ? { designSystemId } : {}),
             ...(trimmedPrompt ? { prompt } : {}),
+            ...(templateBriefs.length ? { briefs: templateBriefs } : {}),
           });
           if (!result.id) {
             throw new Error("Template copy did not return a design ID");

@@ -1859,6 +1859,7 @@ export default {
       allDesigns: "Todos los diseños",
       rename: "Renombrar",
       builtFrom: "Creado a partir de {{title}}",
+      builtFromPage: "Creado a partir de una página de Content",
       duplicate: "Duplicar",
       versionHistory: "Historial de versiones",
       import: "Importar…",
