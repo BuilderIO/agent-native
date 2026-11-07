@@ -368,6 +368,27 @@ describe("agent discovery", () => {
     );
   });
 
+  it("keeps remote resources best-effort when using a workspace manifest snapshot", async () => {
+    resourceListMock.mockRejectedValueOnce(new Error("resource store offline"));
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = "{invalid";
+    await expect(
+      discoverAgents("sender", {
+        workspaceAppsManifest: [
+          {
+            id: "sibling",
+            name: "Sibling",
+            description: "",
+            path: "/sibling",
+            homePath: "/home",
+            url: "https://workspace.example.test/sibling",
+          },
+        ],
+      }),
+    ).resolves.toContainEqual(
+      expect.objectContaining({ id: "sibling", source: "workspace" }),
+    );
+  });
+
   it("preserves individual resource read failures for callers that need complete discovery", async () => {
     resourceListMock.mockResolvedValueOnce([
       { id: "remote-1", path: "remote-agents/custom.json" },
@@ -2087,6 +2108,42 @@ describe("agent discovery", () => {
         reason: "workspace-metadata",
       });
     });
+  });
+
+  it("skips non-app workspace directories but rejects invalid package files", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    try {
+      fs.writeFileSync(
+        path.join(workspaceRoot, "package.json"),
+        JSON.stringify({
+          name: "test-workspace",
+          "agent-native": { workspaceCore: "workspace-core" },
+        }),
+      );
+      const appsDir = path.join(workspaceRoot, "apps");
+      fs.mkdirSync(path.join(appsDir, "notes"), { recursive: true });
+      fs.mkdirSync(path.join(appsDir, "healthy"));
+      fs.writeFileSync(
+        path.join(appsDir, "healthy", "package.json"),
+        JSON.stringify({ name: "healthy" }),
+      );
+      await expect(loadWorkspaceAppsManifest(true)).resolves.toEqual([
+        expect.objectContaining({ id: "healthy" }),
+      ]);
+      fs.writeFileSync(
+        path.join(appsDir, "notes", "package.json"),
+        "{bad json",
+      );
+      await expect(loadWorkspaceAppsManifest(true)).rejects.toThrow(
+        "Invalid workspace package: notes",
+      );
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it("skips filesystem apps with unreadable route trees in best-effort discovery", async () => {

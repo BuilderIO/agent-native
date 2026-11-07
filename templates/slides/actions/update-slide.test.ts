@@ -193,6 +193,63 @@ beforeEach(() => {
   mockReadAppStateForCurrentTab.mockResolvedValue(null);
 });
 
+describe("update-slide silent success", () => {
+  it("accepts notes in the action schema", async () => {
+    const result = await action.schema["~standard"].validate({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      notes: "Say this",
+      fullContent: "<div>New</div>",
+      baseContentHash: hashSlideContent("<div>Old</div>"),
+    });
+    expect(result.issues).toBeUndefined();
+    expect(result.value.notes).toBe("Say this");
+  });
+
+  it("saves notes together with a content edit", async () => {
+    await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        fullContent: "<div>New</div>",
+        baseContentHash: hashSlideContent("<div>Old</div>"),
+        notes: "Say this",
+      },
+      { caller: "mcp" },
+    );
+    const saved = JSON.parse(String(lastUpdateSet?.data));
+    expect(saved.slides[0]).toMatchObject({
+      content: "<div>New</div>",
+      notes: "Say this",
+    });
+  });
+
+  it("saves notes alone", async () => {
+    await action.run(
+      { deckId: "deck-1", slideId: "slide-1", notes: "Only notes" },
+      { caller: "mcp" },
+    );
+    const saved = JSON.parse(String(lastUpdateSet?.data));
+    expect(saved.slides[0].notes).toBe("Only notes");
+  });
+
+  it("writes nothing when a find miss would also save notes", async () => {
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-1",
+          find: "absent text",
+          replace: "x",
+          notes: "Say this",
+        },
+        { caller: "mcp" },
+      ),
+    ).rejects.toThrow(/text not found/);
+    expect(lastUpdateSet).toBeUndefined();
+  });
+});
+
 describe("update-slide", () => {
   it("uses a full-content repair for verified layout overflow", () => {
     expect(action.tool.description).toContain(
@@ -937,6 +994,36 @@ describe("update-slide", () => {
     );
     expect(mockNotifyClients).not.toHaveBeenCalled();
     expect(mockRecordGenerationCreativeContext).not.toHaveBeenCalled();
+  });
+
+  it("returns the current slide and hash with a stale-content error so the agent can rebase", async () => {
+    onUpdateMiss = () => {
+      const latest = JSON.parse(String(mockDeckRow?.data ?? "{}"));
+      latest.slides[0].content = "<div>Old UIEDITB</div>";
+      mockDeckRow = {
+        ...mockDeckRow,
+        data: JSON.stringify(latest),
+        updatedAt: "2026-01-01T00:00:00.001Z",
+      };
+    };
+    updateRowsAffected = 0;
+
+    await expect(
+      runSlideActionWithCurrentHash({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "Old", replace: "New" }],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "slide_content_stale",
+      statusCode: 409,
+      details: {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        currentContent: "<div>Old UIEDITB</div>",
+        currentContentHash: hashSlideContent("<div>Old UIEDITB</div>"),
+      },
+    });
   });
 
   it("does not reapply a bounded edit after the slide changes during a lost CAS", async () => {

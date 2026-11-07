@@ -142,5 +142,61 @@ describe("useActionQuery refetchInterval", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain("viewer-a");
     expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain("org-a");
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("GET");
+  });
+
+  it("sends an explicit read-only POST query body without serializing it into the URL", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const params = { filter: "example" };
+    function Probe() {
+      useActionQuery("get-thread" as never, params as never, {
+        method: "POST",
+      });
+      return null;
+    }
+    await mountProbe(new QueryClient(), Probe);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBe(JSON.stringify(params));
+    expect(String(url)).toContain("/_agent-native/actions/get-thread");
+    expect(String(url)).not.toContain("example");
+  });
+
+  it("waits for the query send gate and reports a rejected gate", async () => {
+    let rejectGate: (error: Error) => void = () => {};
+    const gate = new Promise<void>((_resolve, reject) => {
+      rejectGate = reject;
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    function Probe() {
+      useActionQuery("read-thing" as never, undefined, {
+        beforeSend: () => gate,
+      });
+      return null;
+    }
+    await mountProbe(client, Probe);
+    expect(fetchMock).not.toHaveBeenCalled();
+    await act(async () => {
+      rejectGate(new Error("gate failed"));
+    });
+    await vi.waitFor(() =>
+      expect(
+        client.getQueryState(["action", "read-thing", undefined])?.status,
+      ).toBe("error"),
+    );
+    expect(
+      client.getQueryState(["action", "read-thing", undefined])?.error?.message,
+    ).toContain("gate failed");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

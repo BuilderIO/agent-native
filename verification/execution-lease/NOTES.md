@@ -16,8 +16,9 @@ Helper invariants, checked in the same runs:
 - **P1, single writer.** Every committed write to `agent_execution_steps` was
   made by the owner of the current live lease generation. The reset fallback
   is attributed to the successor whose live lease and running run it locks.
-- **P6, no resurrection.** A lease `(owner, generation)` that stopped being
-  live never becomes live again.
+- **P6, no resurrection.** A lease `(owner, generation)` that was revoked,
+  replaced by a claim, or pruned never owns the lease again. A lease that only
+  lapsed is still its owner's: the owner may renew it.
 - **ClaimRespectsLiveOwner.** A claim never supersedes a live lease whose
   owner run is still `running`.
 
@@ -33,8 +34,14 @@ Helper invariants, checked in the same runs:
   request turn IDs that are not reused after their rows are pruned. P8 is
   conditional on this explicit assumption. The F7 finding sets it to `FALSE`,
   matching source admission after pruning and checking the broader P8Strict.
-- Time is modelled only as "a live lease may stop being live at any moment"
-  (expiry, or a revoke with no owner check).
+- Time is modelled only as "a live lease may stop being live at any moment".
+  Expiry (`LeaseLapse`) and a revoke with no owner check (`LeaseRevoke`) are
+  separate: every revoke sets `lease_expires_at` and `updated_at` to now
+  together, so `ownsLapsedTurnLease` can tell them apart from the row alone.
+  While a lease is lapsed and unrevoked and its run is still `running` at its
+  generation, the fence (`Current`) still accepts its owner, and a renewal
+  makes it live again. A claim may still take a lapsed lease, which bumps the
+  generation and fences the old owner out under the same row lock.
 - Workers are adversarial. They keep acting until a database guard rejects
   them; the heartbeat abort and the 3 s abort poll are not relied on.
 - The dispatched marker commits before handler entry. Cancellation can reset
@@ -91,6 +98,20 @@ Helper invariants, checked in the same runs:
   admission metadata retain every unresolved approval pause; interruption writes
   each completed pause's marker in that transaction. Completed runs and their
   leases remain unchanged; cross-turn admission is outside this model.
+
+## Protocol change: a lapsed lease stays its owner's
+
+The worker used to lose its lease 15 s after a stalled renewal or a blocked
+event loop, abort without a terminal event, and leave the reaper to report
+the run as stale. `lockAndAssertCurrentExecutionFences` and
+`renewExecutionLease` now fall back to `ownsLapsedTurnLease` when the live
+check misses. It requires the lease row to still name the run and generation,
+to have expired at least 1 s after its last `updated_at` (a revoke sets both
+to now), and the run row to be `running` at that generation. The model
+gained `lease.revoked`, split `LeaseRevoke` from `LeaseLapse`, widened
+`Current` to the lapsed-unrevoked case, and restated P6 over ownership rather
+than liveness. Claims, the reaper and `ClaimRespectsLiveOwner` still key on a
+live lease, so a lapsed lease can be taken over exactly as before.
 
 ## Coverage review for MCP automation approval
 
@@ -199,6 +220,14 @@ prune after the window expires.
 
 P8 holds per step row. These paths concern call identity or event persistence,
 which the execution-lease model does not cover.
+
+Private tool inputs retain a server-keyed identity instead of raw arguments.
+Implementation tests check equal-input admission, changed-input rejection and
+unverifiable legacy rows. Recovery stops before model or handler execution when
+a prior private call cannot be reconstructed; a verified, unexecuted approval
+pause remains resumable. These are implementation obligations outside the
+model's step-identity assumption. The additional guards remove possible
+executions without changing the modeled lease, dispatch or effect ordering.
 
 - **F4, not reproduced in current recovery code.** Agent-team retries set
   `recoverCompletedExecutionSteps` after the first claim

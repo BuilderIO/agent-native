@@ -24,6 +24,7 @@ import {
 import {
   DEV_SERVER_RECOVERY_EXIT_CODE,
   DEV_SERVER_SUPERVISOR_ENV,
+  markDevServerReady,
 } from "../cli/process.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
 import {
@@ -727,6 +728,21 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Rolldown tests a hook filter natively. A resolveId or load hook without one
+// is called from Rust for every import of every module, about 47,000 times in
+// one app's client build, even when it only returns null.
+function exactIdFilter(id: string): RegExp {
+  return new RegExp(`^${escapeRegex(id)}$`);
+}
+
+function prefixIdFilter(prefix: string): RegExp {
+  return new RegExp(`^${escapeRegex(prefix)}`);
+}
+
+function packageIdFilter(packages: Iterable<string>): RegExp {
+  return new RegExp(`^(?:${[...packages].map(escapeRegex).join("|")})(?:/|$)`);
+}
+
 function hasDep(pkg: string, cwd: string): boolean {
   try {
     const pkgJson = JSON.parse(
@@ -1283,7 +1299,13 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "i18next" },
     { specifier: "input-otp" },
     { specifier: "lowlight" },
+    // Core's comment plain text (`review/plain-text`, which the toolkit's
+    // CommentBody imports) parses with these. Served unbundled, micromark's
+    // development build hands the browser CommonJS `debug`.
+    { specifier: "mdast-util-from-markdown" },
+    { specifier: "mdast-util-gfm" },
     { specifier: "mermaid" },
+    { specifier: "micromark-extension-gfm" },
     { specifier: "next-themes" },
     { specifier: "react-hook-form" },
     { specifier: "react-day-picker" },
@@ -2636,28 +2658,38 @@ function clientOptionalPeerStubPlugin(cwd: string): Plugin | null {
   return {
     name: "agent-native-client-optional-peer-stub",
     enforce: "pre",
-    resolveId(id) {
-      const packageName = id
-        .split("/")
-        .slice(0, id.startsWith("@") ? 2 : 1)
-        .join("/");
-      return missing.has(packageName) ? `${stubIdPrefix}${packageName}` : null;
+    resolveId: {
+      filter: { id: packageIdFilter(missing) },
+      handler(id) {
+        const packageName = id
+          .split("/")
+          .slice(0, id.startsWith("@") ? 2 : 1)
+          .join("/");
+        return missing.has(packageName)
+          ? `${stubIdPrefix}${packageName}`
+          : null;
+      },
     },
-    load(id) {
-      if (!id.startsWith(stubIdPrefix)) return null;
-      const packageName = id.slice(stubIdPrefix.length);
-      const exports = CLIENT_OPTIONAL_PEER_EXPORTS[packageName] ?? [];
-      return [
-        `import { OptionalPeerDependencyError } from ${JSON.stringify(errorModule)};`,
-        `function missingOptionalPeer() { throw new OptionalPeerDependencyError(${JSON.stringify(packageName)}); }`,
-        ...exports.map((name) => `export const ${name} = missingOptionalPeer;`),
-        ...(packageName === "mermaid"
-          ? [
-              "const mermaid = new Proxy({}, { get: () => missingOptionalPeer });",
-              "export default mermaid;",
-            ]
-          : []),
-      ].join("\n");
+    load: {
+      filter: { id: prefixIdFilter(stubIdPrefix) },
+      handler(id) {
+        if (!id.startsWith(stubIdPrefix)) return null;
+        const packageName = id.slice(stubIdPrefix.length);
+        const exports = CLIENT_OPTIONAL_PEER_EXPORTS[packageName] ?? [];
+        return [
+          `import { OptionalPeerDependencyError } from ${JSON.stringify(errorModule)};`,
+          `function missingOptionalPeer() { throw new OptionalPeerDependencyError(${JSON.stringify(packageName)}); }`,
+          ...exports.map(
+            (name) => `export const ${name} = missingOptionalPeer;`,
+          ),
+          ...(packageName === "mermaid"
+            ? [
+                "const mermaid = new Proxy({}, { get: () => missingOptionalPeer });",
+                "export default mermaid;",
+              ]
+            : []),
+        ].join("\n");
+      },
     },
   };
 }
@@ -2769,35 +2801,41 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
   return {
     name: "agent-native-ssr-stub-heavy-libs",
     enforce: "pre",
-    resolveId(id, _importer, opts) {
-      if (!opts?.ssr) return null;
-      const pkg = id
-        .split("/")
-        .slice(0, id.startsWith("@") ? 2 : 1)
-        .join("/");
-      if (stubbed.has(pkg)) return STUB_ID;
-      return null;
+    resolveId: {
+      filter: { id: packageIdFilter(stubbed) },
+      handler(id, _importer, opts) {
+        if (!opts.ssr) return null;
+        const pkg = id
+          .split("/")
+          .slice(0, id.startsWith("@") ? 2 : 1)
+          .join("/");
+        if (stubbed.has(pkg)) return STUB_ID;
+        return null;
+      },
     },
-    load(id) {
-      if (id !== STUB_ID) return null;
-      return (
-        "function makeStub() { return new Proxy(makeStub, resultHandler); } " +
-        "const handler = { get(_, p) { " +
-        "if (p === Symbol.toPrimitive) return () => ''; " +
-        "if (p === 'then') return undefined; " +
-        "return new Proxy(makeStub, handler); " +
-        "} };" +
-        "const resultHandler = { get(_, p) { " +
-        "if (p === Symbol.toPrimitive) return () => ''; " +
-        "if (p === 'then') return (resolve) => { " +
-        "if (typeof resolve === 'function') resolve(''); " +
-        "return new Proxy(makeStub, resultHandler); }; " +
-        "return new Proxy(makeStub, resultHandler); " +
-        "} };" +
-        "const stub = new Proxy(makeStub, handler);" +
-        "export default stub;" +
-        namedExports.map((name) => `export const ${name} = stub;`).join("")
-      );
+    load: {
+      filter: { id: exactIdFilter(STUB_ID) },
+      handler(id) {
+        if (id !== STUB_ID) return null;
+        return (
+          "function makeStub() { return new Proxy(makeStub, resultHandler); } " +
+          "const handler = { get(_, p) { " +
+          "if (p === Symbol.toPrimitive) return () => ''; " +
+          "if (p === 'then') return undefined; " +
+          "return new Proxy(makeStub, handler); " +
+          "} };" +
+          "const resultHandler = { get(_, p) { " +
+          "if (p === Symbol.toPrimitive) return () => ''; " +
+          "if (p === 'then') return (resolve) => { " +
+          "if (typeof resolve === 'function') resolve(''); " +
+          "return new Proxy(makeStub, resultHandler); }; " +
+          "return new Proxy(makeStub, resultHandler); " +
+          "} };" +
+          "const stub = new Proxy(makeStub, handler);" +
+          "export default stub;" +
+          namedExports.map((name) => `export const ${name} = stub;`).join("")
+        );
+      },
     },
   };
 }
@@ -2818,25 +2856,31 @@ function toolkitTablerIconSsrStubPlugin(cwd: string): Plugin | null {
   return {
     name: "agent-native-toolkit-tabler-chunk-loaders-ssr",
     enforce: "pre",
-    resolveId(id, importer, options) {
-      if (!options?.ssr || id !== "./tabler-chunk-loaders.js" || !importer) {
-        return null;
-      }
-      const importerPath = path.resolve(importer.split("?")[0]);
-      if (
-        !fs.existsSync(importerPath) ||
-        !catalogPaths.has(fs.realpathSync(importerPath))
-      ) {
-        return null;
-      }
-      return stubId;
+    resolveId: {
+      filter: { id: exactIdFilter("./tabler-chunk-loaders.js") },
+      handler(id, importer, options) {
+        if (!options.ssr || id !== "./tabler-chunk-loaders.js" || !importer) {
+          return null;
+        }
+        const importerPath = path.resolve(importer.replace(/\?.*/s, ""));
+        if (
+          !fs.existsSync(importerPath) ||
+          !catalogPaths.has(fs.realpathSync(importerPath))
+        ) {
+          return null;
+        }
+        return stubId;
+      },
     },
-    load(id) {
-      if (id !== stubId) return null;
-      return [
-        'const unavailable = () => { throw new Error("Tabler icons are available only in the browser"); };',
-        "export default unavailable;",
-      ].join("\n");
+    load: {
+      filter: { id: exactIdFilter(stubId) },
+      handler(id) {
+        if (id !== stubId) return null;
+        return [
+          'const unavailable = () => { throw new Error("Tabler icons are available only in the browser"); };',
+          "export default unavailable;",
+        ].join("\n");
+      },
     },
   };
 }
@@ -2849,16 +2893,24 @@ function enterpriseAuthAdapterStubPlugin(enabled: boolean): Plugin | null {
   return {
     name: "agent-native-enterprise-auth-adapter-stub",
     enforce: "pre",
-    resolveId(id) {
-      const packageName = id
-        .split("/")
-        .slice(0, id.startsWith("@") ? 2 : 1)
-        .join("/");
-      return stubbed.has(packageName) ? `${stubIdPrefix}${packageName}` : null;
+    resolveId: {
+      filter: { id: packageIdFilter(stubbed) },
+      handler(id) {
+        const packageName = id
+          .split("/")
+          .slice(0, id.startsWith("@") ? 2 : 1)
+          .join("/");
+        return stubbed.has(packageName)
+          ? `${stubIdPrefix}${packageName}`
+          : null;
+      },
     },
-    load(id) {
-      if (!id.startsWith(stubIdPrefix)) return null;
-      return "export const sso = undefined; export const scim = undefined;";
+    load: {
+      filter: { id: prefixIdFilter(stubIdPrefix) },
+      handler(id) {
+        if (!id.startsWith(stubIdPrefix)) return null;
+        return "export const sso = undefined; export const scim = undefined;";
+      },
     },
   };
 }
@@ -2970,16 +3022,23 @@ function appChangelogRawPlugin(): Plugin {
   return {
     name: "agent-native-app-changelog-raw",
     enforce: "pre",
-    resolveId(source, importer) {
-      return resolveChangelogRawImport(source, importer);
+    // Only a request with a query can carry ?raw; the handlers decide the rest.
+    resolveId: {
+      filter: { id: /\?/ },
+      handler(source, importer) {
+        return resolveChangelogRawImport(source, importer);
+      },
     },
-    load(id) {
-      const changelogPath = changelogRawPathFromId(id);
-      if (!changelogPath) return null;
-      const markdown = readAppChangelogMarkdown(changelogPath, (file) =>
-        this.addWatchFile(file),
-      );
-      return `export default ${JSON.stringify(markdown)};`;
+    load: {
+      filter: { id: /\?/ },
+      handler(id) {
+        const changelogPath = changelogRawPathFromId(id);
+        if (!changelogPath) return null;
+        const markdown = readAppChangelogMarkdown(changelogPath, (file) =>
+          this.addWatchFile(file),
+        );
+        return `export default ${JSON.stringify(markdown)};`;
+      },
     },
     handleHotUpdate(ctx) {
       if (!isChangelogSourceFile(ctx.file)) return;
@@ -2998,6 +3057,7 @@ function portExposer(): Plugin {
       server.httpServer?.once("listening", () => {
         const addr = server.httpServer?.address();
         if (addr && typeof addr === "object" && addr.port) {
+          markDevServerReady();
           process.env.PORT = String(addr.port); // guard:allow-env-mutation — Vite dev server port published once at boot before any request
         }
       });
@@ -3638,13 +3698,19 @@ function createDesignSystemThemePlugin(
         );
       }
     },
-    resolveId(id) {
-      if (id === DESIGN_SYSTEM_THEME_MODULE_ID) {
-        return RESOLVED_DESIGN_SYSTEM_THEME_MODULE_ID;
-      }
+    resolveId: {
+      filter: { id: exactIdFilter(DESIGN_SYSTEM_THEME_MODULE_ID) },
+      handler(id) {
+        if (id === DESIGN_SYSTEM_THEME_MODULE_ID) {
+          return RESOLVED_DESIGN_SYSTEM_THEME_MODULE_ID;
+        }
+      },
     },
-    load(id) {
-      if (id === RESOLVED_DESIGN_SYSTEM_THEME_MODULE_ID) return css;
+    load: {
+      filter: { id: exactIdFilter(RESOLVED_DESIGN_SYSTEM_THEME_MODULE_ID) },
+      handler(id) {
+        if (id === RESOLVED_DESIGN_SYSTEM_THEME_MODULE_ID) return css;
+      },
     },
     transformIndexHtml() {
       return [
@@ -4587,24 +4653,27 @@ function externalStoreShimPlugin(): Plugin {
   return {
     name: "agent-native-external-store-esm-shim",
     enforce: "pre",
-    resolveId(source, _importer, options) {
-      if (options?.ssr) return null;
-      if (
-        source === "use-sync-external-store" ||
-        source === "use-sync-external-store/shim" ||
-        source === "use-sync-external-store/shim/index.js"
-      ) {
-        return entry;
-      }
-      if (
-        source === "use-sync-external-store/with-selector" ||
-        source === "use-sync-external-store/with-selector.js" ||
-        source === "use-sync-external-store/shim/with-selector" ||
-        source === "use-sync-external-store/shim/with-selector.js"
-      ) {
-        return entry;
-      }
-      return null;
+    resolveId: {
+      filter: { id: packageIdFilter(["use-sync-external-store"]) },
+      handler(source, _importer, options) {
+        if (options.ssr) return null;
+        if (
+          source === "use-sync-external-store" ||
+          source === "use-sync-external-store/shim" ||
+          source === "use-sync-external-store/shim/index.js"
+        ) {
+          return entry;
+        }
+        if (
+          source === "use-sync-external-store/with-selector" ||
+          source === "use-sync-external-store/with-selector.js" ||
+          source === "use-sync-external-store/shim/with-selector" ||
+          source === "use-sync-external-store/shim/with-selector.js"
+        ) {
+          return entry;
+        }
+        return null;
+      },
     },
   };
 }

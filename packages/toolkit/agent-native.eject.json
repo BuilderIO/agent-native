@@ -793,6 +793,7 @@
         "@agent-native/core/client/analytics",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/auth/auth-page-helpers",
+        "@agent-native/core/client/auth/builder-signup",
         "@agent-native/core/client/consent",
         "@agent-native/core/client/oauth-popup",
         "@agent-native/core/client/sign-in-return",
@@ -1351,6 +1352,7 @@
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/review/use-review",
         "@agent-native/core/client/use-avatar",
+        "@agent-native/core/review/plain-text",
         "@agent-native/core/review/types"
       ]
     },

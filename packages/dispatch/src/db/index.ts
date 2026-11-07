@@ -21,6 +21,7 @@ registerShareableResource({
   allowPublic: false,
   requireOrgMemberForUserShares: true,
   supportsGroupShares: true,
+  canManageAccessKey: (resource) => resource.orgId ?? undefined,
   canManageAccess: async (resource, ctx) => {
     if (!ctx.userEmail || !ctx.orgId || resource?.orgId !== ctx.orgId) {
       return false;

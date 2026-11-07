@@ -45,7 +45,7 @@ const item = {
   hasAccessibleTrashedChildren: false,
 } satisfies ContentTrashItem;
 
-function renderRow(row: ContentTrashItem) {
+function renderRow(row: ContentTrashItem, selected = false) {
   return renderToStaticMarkup(
     <DatabaseTableLayout.Provider
       value={{ frozenThroughColumnId: "name", viewportWidth: 1280 }}
@@ -53,7 +53,7 @@ function renderRow(row: ContentTrashItem) {
       <DatabaseTableColumnOrder.Provider value={TRASH_TABLE_COLUMNS}>
         <TrashRow
           item={row}
-          selected={false}
+          selected={selected}
           expanded={false}
           onSelect={() => {}}
           onToggle={() => {}}
@@ -126,7 +126,7 @@ describe("TrashRow responsive expander contract", () => {
     expect(html).toContain("group-hover:opacity-100");
   });
 
-  it("distinguishes named, known, and unresolved actors without exposing IDs", () => {
+  it("shows a person's name, else their email, else that nobody is recorded", () => {
     const html = renderRow({
       ...item,
       createdBy: "creator@example.test",
@@ -137,11 +137,17 @@ describe("TrashRow responsive expander contract", () => {
       trashedByName: "Display name",
     });
 
-    expect(html).toContain("trash.knownActor");
+    // oracle-change: a person with no profile name now shows as their email, not "Known user".
+    expect(html).toContain("creator@example.test");
     expect(html).toContain("trash.unresolvedActor");
     expect(html).toContain("Display name");
-    expect(html).not.toContain("creator@example.test");
     expect(html).not.toContain("deleter@example.test");
+  });
+
+  it("keeps selected and hover row backgrounds opaque so frozen cells hide scrolled columns", () => {
+    const html = renderRow(item, true);
+
+    expect(html).not.toMatch(/bg-muted\/\d+/);
   });
 
   it("shows a parent chevron below lg and swaps from its icon on desktop", () => {

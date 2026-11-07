@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "선택한 파일을 업로드할 수 없습니다.",
+    reference: "대시보드 참조…",
+    group: "대시보드",
+    authentication: "참조를 추가하려면 로그인하세요.",
+    invalid: "전송하기 전에 유효한 참조를 선택하세요.",
+    unavailable:
+      "선택한 참조를 더 이상 사용할 수 없습니다. 제거하거나 다시 선택하세요.",
+  },
   root: {
     whatsNew: "새로운 기능",
   },
@@ -1661,6 +1670,10 @@ export default {
     hideEmptySessions: "빈 세션 숨기기",
     networkErrors: "네트워크 오류",
     rageClicksFilter: "반복 클릭",
+    traffic: "트래픽",
+    allTraffic: "모든 트래픽",
+    productionTraffic: "프로덕션",
+    betaTraffic: "베타",
     visitors: "방문자",
     allVisitors: "모든 방문자",
     internalVisitors: "내부",

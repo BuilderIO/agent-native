@@ -48,6 +48,12 @@ export interface EnsureFusionContainerResult {
   status: "ready" | "provisioning" | "error";
   url?: string;
   message?: string;
+  /**
+   * For an error: whether the container reported it failed (`container`), or
+   * the request to Builder failed (`request`, e.g. this caller's credentials
+   * were rejected), which says nothing about the container.
+   */
+  errorSource?: "container" | "request";
 }
 
 export interface SendFusionMessageResult {
@@ -283,6 +289,7 @@ export async function ensureFusionContainer(
       const text = await response.text().catch(() => "");
       return {
         status: "error",
+        errorSource: "request",
         message:
           text.slice(0, 500) || `ensure-container failed (${response.status})`,
       };
@@ -310,15 +317,41 @@ export async function ensureFusionContainer(
     }
     return {
       status: "error",
+      errorSource: "request",
       message: error instanceof Error ? error.message : String(error),
     };
   } finally {
     clearTimeout(timer);
   }
 
-  if (errorMessage) return { status: "error", message: errorMessage };
+  if (errorMessage) {
+    return { status: "error", errorSource: "container", message: errorMessage };
+  }
   if (readyUrl) return { status: "ready", url: readyUrl, message: lastMessage };
   return { status: "provisioning", message: lastMessage };
+}
+
+/**
+ * Whether the branch's dev server is serving pages. ensureFusionContainer
+ * reports `ready` once the container is up, which is earlier: a page loaded
+ * before the dev server serves never gets the editor bridge.
+ */
+export async function isFusionDevServerServing(
+  previewUrl: string,
+  timeoutMs = 5_000,
+): Promise<boolean> {
+  try {
+    const response = await fetch(
+      new URL("/_builder.io/api/status-v2", previewUrl),
+      { cache: "no-store", signal: AbortSignal.timeout(timeoutMs) },
+    );
+    if (!response.ok) return false;
+    const status = (await response.json()) as { httpServerState?: unknown };
+    return status.httpServerState === "ok-2xx";
+  } catch {
+    // coercion-ok: an unreachable or unparsable status is "not serving yet".
+    return false;
+  }
 }
 
 const DEFAULT_SEND_MESSAGE_TIMEOUT_MS = 30_000;
@@ -400,7 +433,12 @@ export async function sendFusionBranchMessage(
         if (event && typeof event === "object") {
           const ev = event as Record<string, unknown>;
           args.onEvent?.(ev);
-          if (asString(ev.type) === "done") finished = true;
+          // A `done` ends one model turn, not the run: `autoContinue` says
+          // the agent runs another (after tool calls, a pause, compaction,
+          // or a max_tokens cut-off).
+          if (asString(ev.type) === "done") {
+            finished = ev.autoContinue !== true;
+          }
           if (asString(ev.type) === "done" && Array.isArray(ev.actions)) {
             for (const action of ev.actions) {
               if (

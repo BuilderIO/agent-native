@@ -95,6 +95,41 @@ describe("get-triage-config", () => {
     expect(readTriageConfigRowMock).toHaveBeenCalled();
   });
 
+  it("tells a saved key it cannot decrypt from an outage: the code is typed, and the message names the key", async () => {
+    const { UnreadableSecretError } =
+      await import("../server/lib/unreadable-secret.js");
+    resolveFactoryConnectorReadinessMock.mockRejectedValue(
+      new UnreadableSecretError("SLACK_BOT_TOKEN"),
+    );
+    const { default: action } = await import("./get-triage-config.js");
+    const result = await action.run(
+      { factoryId: "support-triage" },
+      { userEmail: "owner@example.com" },
+    );
+
+    expect(result).toMatchObject({
+      pollingEnabled: true,
+      readinessErrorCode: "app_secret_unreadable",
+      readinessError: expect.stringContaining(
+        "SLACK_BOT_TOKEN is saved but this deployment cannot decrypt it",
+      ),
+    });
+    expect(result).not.toHaveProperty("connections");
+  });
+
+  it("gives an outage no code, so it reads as one to wait out", async () => {
+    resolveFactoryConnectorReadinessMock.mockRejectedValue(
+      new Error("vault timeout"),
+    );
+    const { default: action } = await import("./get-triage-config.js");
+    const result = await action.run(
+      { factoryId: "support-triage" },
+      { userEmail: "owner@example.com" },
+    );
+
+    expect(result).not.toHaveProperty("readinessErrorCode");
+  });
+
   it("attaches connections when connector readiness succeeds", async () => {
     const { default: action } = await import("./get-triage-config.js");
     const result = await action.run(

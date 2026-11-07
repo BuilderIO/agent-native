@@ -9,7 +9,6 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { InlineMarkdown } from "@agent-native/toolkit/app/review";
 import type {
   CommentAiIntent,
   CommentAiRequest,
@@ -28,12 +27,11 @@ import { cn } from "@/lib/utils";
 
 import {
   AgentAvatar,
-  agentDisplayName,
   commentAiModelLabel,
   modelDisplayName,
 } from "./agent-identity";
 import { trimDiffContext, wordDiff } from "./comment-ai-diff";
-import { CommentAgentBadge, CommentRow } from "./CommentRow";
+import { CommentAgentBadge, CommentRow, renderCommentBody } from "./CommentRow";
 
 const ACTIVE_STATUSES = new Set<CommentAiRequest["status"]>([
   "classifying",
@@ -159,6 +157,26 @@ function isAppliedResolution(request: CommentAiRequest) {
     request.status === "resolved" &&
     Boolean(request.result?.editApplied) &&
     !request.result?.undone
+  );
+}
+
+/**
+ * Whether any of these requests made in the thread changed the page and
+ * hasn't undone it, whether it resolved the thread or left it for review.
+ * Deleting the thread deletes all of its requests, not just the latest,
+ * while the change stays in the page. The client sees only the viewer's own
+ * requests; someone else's applied change leaves their receipt reply in the
+ * thread, which already keeps its author from deleting it.
+ */
+export function threadHasAppliedAiChange(
+  requests: readonly CommentAiRequest[] | undefined,
+  threadId: string,
+) {
+  return !!requests?.some(
+    (request) =>
+      request.threadId === threadId &&
+      !!request.result?.editApplied &&
+      !request.result.undone,
   );
 }
 
@@ -1071,7 +1089,6 @@ function requestStatusLabel(
   if (request.status === "failed") return t("comments.aiFailed");
   if (request.status === "cancelled") return t("comments.aiCancelled");
   if (request.status === "needs-review") return t("comments.aiNeedsReview");
-  if (request.status === "suggested") return t("comments.aiSuggestionReady");
   if (request.status === "resolved")
     return request.result?.undone
       ? t("comments.aiChangeUndone")
@@ -1353,10 +1370,8 @@ export function CommentAiConversation({
             }}
             name={
               <>
-                <span className="sr-only">
-                  {agentDisplayName(request.model)}:{" "}
-                </span>
-                <span aria-hidden>{agentDisplayName(request.model)}</span>
+                <span className="sr-only">{modelLabel}: </span>
+                <span aria-hidden>{modelLabel}</span>
               </>
             }
             badge={
@@ -1373,7 +1388,7 @@ export function CommentAiConversation({
               ) : null
             }
           >
-            <InlineMarkdown content={turn.assistantText!} />
+            {renderCommentBody(turn.assistantText ?? "", [])}
           </CommentRow>
         ))}
     </div>

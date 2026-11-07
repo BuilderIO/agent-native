@@ -10,6 +10,10 @@ import {
   ENVIRONMENT_BETA_HOSTS,
 } from "./environment-lanes.js";
 import {
+  fetchTransportScript,
+  recordSessionBootstrapAnswerScript,
+  recordSessionInvalidationMarkerScript,
+  SESSION_BOOTSTRAP_TRANSPORT_GLOBAL,
   SESSION_NAVIGATION_FLAG,
   SESSION_NAVIGATION_RELEASED_EVENT,
   SESSION_NAVIGATION_STALL_MS,
@@ -99,6 +103,8 @@ export function getSsrBetaRedirectScriptBody(
     var sharesAppRead = probePath === ${safeJsonForHtml(sessionPath)};
     var read = sharesAppRead ? window.__agentNativeSessionBootstrap : undefined;
     if (!read) {
+      if (sharesAppRead) ${recordSessionInvalidationMarkerScript()}
+      var transport = ${fetchTransportScript("window.fetch")};
       read = window.fetch(probePath, {
         credentials: 'same-origin',
         cache: 'no-store',
@@ -114,7 +120,14 @@ export function getSsrBetaRedirectScriptBody(
       }, function () {
         return { state: 'unavailable' };
       });
-      if (sharesAppRead) window.__agentNativeSessionBootstrap = read;
+      if (sharesAppRead) {
+        read = read.then(function (result) {
+          ${recordSessionBootstrapAnswerScript()}
+          return result;
+        });
+        window[${JSON.stringify(SESSION_BOOTSTRAP_TRANSPORT_GLOBAL)}] = transport;
+        window.__agentNativeSessionBootstrap = read;
+      }
     }
     return read.then(function (result) {
       if (result && result.state === 'available') return result.value;

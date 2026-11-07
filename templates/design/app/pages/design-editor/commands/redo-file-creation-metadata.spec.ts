@@ -2,6 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 
 import { runRedo } from "@/pages/design-editor/commands/redo";
 
+const sourceRead = vi.hoisted(() => ({
+  get: () => ({ files: [] as unknown[] }),
+}));
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  callAction: async () => sourceRead.get(),
+}));
+
 const ref = <T>(current: T) => ({ current });
 
 function makeRedoHarness(
@@ -46,6 +54,8 @@ function makeRedoHarness(
     refetchQueries: vi.fn(),
     setQueryData: vi.fn(),
   };
+
+  sourceRead.get = () => queryClient.getQueryData() ?? { files: [] };
 
   const args = {
     activeEditorDragRef: ref(false),

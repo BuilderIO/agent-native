@@ -7,12 +7,17 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
+import { preparePromptComposerAgentHandoff } from "@agent-native/toolkit/app/chat";
 import {
   AgentToggleButton,
   useSendToAgentChat,
   useSendToAgentChat as useCoreSendToAgentChat,
 } from "@agent-native/toolkit/app/chat";
-import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import {
+  PromptComposer,
+  type PromptComposerSubmitOptions,
+  type Reference,
+} from "@agent-native/toolkit/app/chat/composer/index";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 import {
   MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS,
@@ -63,6 +68,7 @@ import {
 import { Link, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { useAnalyticsComposerMenuItems } from "@/components/AnalyticsComposerContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -433,13 +439,29 @@ function AskSessionPopover({
   recording: SessionRecordingSummary;
 }) {
   const t = useT();
+  const contextMenuItems = useAnalyticsComposerMenuItems();
   const [open, setOpen] = useState(false);
   const { send, isGenerating } = useCoreSendToAgentChat();
 
-  function handleSubmit(text: string) {
+  async function handleSubmit(
+    text: string,
+    files: File[],
+    references: Reference[],
+    options: PromptComposerSubmitOptions,
+  ) {
     const trimmed = text.trim();
     if (!trimmed || isGenerating) return;
+    const handoff = await preparePromptComposerAgentHandoff(
+      files,
+      options,
+      t("composerSources.uploadFailed"),
+    );
     send({
+      ...handoff,
+      references,
+      model: options.model,
+      engine: options.engine,
+      effort: options.effort,
       message: trimmed,
       context:
         `The user is looking at session replay recording ${recording.id} on /sessions/${recording.id}. ` +
@@ -476,6 +498,7 @@ function AskSessionPopover({
           </p>
         </div>
         <PromptComposer
+          contextMenuItems={contextMenuItems}
           autoFocus
           requireAgentEngine
           disabled={isGenerating}

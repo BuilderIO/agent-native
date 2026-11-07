@@ -14,6 +14,8 @@ import {
 } from "@/pages/design-editor/design-data-geometry-utils";
 import { sanitizeCanvasFrameGeometryForPersist } from "@/pages/design-editor/geometry-persistence";
 
+import { designMetadataQueryKey } from "../design-query-key";
+
 export interface WriteFrameGeometrySnapshotArgs {
   boardFileId: string | undefined;
   canEditDesignRef: RefObject<boolean>;
@@ -105,9 +107,12 @@ export function runWriteFrameGeometrySnapshot(
   );
   designDataJsonRef.current = nextData;
   if (liveFrameGeometryRef) liveFrameGeometryRef.current = snapshot;
-  queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-    if (!old || typeof old !== "object") return old;
-    return { ...old, data: JSON.stringify(nextData) };
-  });
+  queryClient.setQueryData(
+    designMetadataQueryKey(id),
+    (old: Record<string, unknown> | undefined) => {
+      if (!old || typeof old !== "object") return old;
+      return { ...old, data: JSON.stringify(nextData) };
+    },
+  );
   enqueueFrameGeometryDataSave(dataOperations);
 }
