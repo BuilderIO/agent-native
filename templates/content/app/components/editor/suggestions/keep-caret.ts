@@ -105,7 +105,8 @@ function changedStretchMatch(
  * the last, which sends a caret anywhere in between to the end of that
  * stretch. This finds the caret's paragraph by the unchanged paragraphs around
  * it, then its place in that paragraph by the text that didn't change. Null
- * when the paragraphs around it were added or removed, so no match is sure.
+ * when the paragraphs around it were added or removed, or the paragraph in its
+ * place shares little of its text, so no match is sure.
  */
 export function caretAfterPageSwap(
   before: ProseMirrorNode,
@@ -155,6 +156,10 @@ export function caretAfterPageSwap(
     commonSuffixLength(oldText, newText),
     Math.min(oldText.length, newText.length) - prefix,
   );
+  // A paragraph matched by its place keeps most of its text. One that doesn't
+  // is another paragraph that took the place of the caret's.
+  if (2 * (prefix + suffix) < Math.min(oldText.length, newText.length))
+    return null;
   const fromEnd = oldText.length - offset;
   const newOffset =
     offset <= prefix

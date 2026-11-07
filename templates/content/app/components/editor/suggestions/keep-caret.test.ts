@@ -100,6 +100,12 @@ describe("caretAfterPageSwap", () => {
     expect(caretAfterPageSwap(before, after(before, "Thr"), next)).toBeNull();
   });
 
+  it("gives up when its edited paragraph's place went to another", () => {
+    const before = doc("One.", "Two words here.", "Three.", "Four.");
+    const next = doc("One.", "Inserted paragraph.", "Two words here!", "Four.");
+    expect(caretAfterPageSwap(before, after(before, "Two"), next)).toBeNull();
+  });
+
   it("gives up when paragraphs were added around a changed one", () => {
     const before = doc("One.", "Two.", "Three.");
     const next = doc("One!", "Inserted.", "Two!", "Three.");
