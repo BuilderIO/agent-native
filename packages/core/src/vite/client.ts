@@ -24,6 +24,7 @@ import {
 import {
   DEV_SERVER_RECOVERY_EXIT_CODE,
   DEV_SERVER_SUPERVISOR_ENV,
+  markDevServerReady,
 } from "../cli/process.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
 import {
@@ -3056,6 +3057,7 @@ function portExposer(): Plugin {
       server.httpServer?.once("listening", () => {
         const addr = server.httpServer?.address();
         if (addr && typeof addr === "object" && addr.port) {
+          markDevServerReady();
           process.env.PORT = String(addr.port); // guard:allow-env-mutation — Vite dev server port published once at boot before any request
         }
       });

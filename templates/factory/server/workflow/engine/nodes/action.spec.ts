@@ -11,7 +11,7 @@ import {
   sourceResult,
   stepOf,
 } from "../../testing/engine-fixtures.js";
-import { aiPerItem, failure, ok } from "../../testing/fakes.js";
+import { aiFailed, aiPerItem, failure, ok } from "../../testing/fakes.js";
 import {
   makeHost,
   seedWorkflow,
@@ -584,6 +584,56 @@ describe("a write with a field the model writes", () => {
       code: "ai_invalid_output",
     });
     expect(test.operations.callsTo("test.write")).toHaveLength(0);
+  });
+
+  it("fails the item, without a write, when the model's answer is about another item", async () => {
+    const test = makeHost();
+    const { id } = await seedWorkflow(test, aiPost());
+    test.operations.script("test.items", sourceResult([normalizedItem("a")]));
+    test.ai.respond(() => ({
+      ok: true,
+      mode: "perItem",
+      usage: { modelCalls: 1 },
+      results: [
+        { itemId: "a", ok: true, fields: { text: "Hi there" } },
+        { itemId: "b", ok: true, fields: { text: "Hi someone else" } },
+      ],
+    }));
+
+    const result = await ran(test, id);
+
+    expect(stepOf(result, "post").error).toMatchObject({
+      code: "ai_invalid_output",
+      message: expect.stringContaining('it names "b", which was not given'),
+    });
+    expect(test.operations.callsTo("test.write")).toHaveLength(0);
+  });
+
+  it("says whose credential the model lacked on the step, so the write's own provider is not blamed", async () => {
+    const test = makeHost();
+    const { id } = await seedWorkflow(test, aiPost());
+    test.operations.script("test.items", sourceResult([normalizedItem("a")]));
+    test.ai.respond(aiFailed("credentials", "Sign in again", "builder"));
+
+    const result = await ran(test, id, { mode: "dry" });
+
+    const step = stepOf(result, "post");
+    expect(step.error).toMatchObject({ code: "credential_missing" });
+    expect(step.fields).toMatchObject({ credentialProvider: "builder" });
+    expect(test.operations.callsTo("test.write")).toHaveLength(0);
+  });
+
+  it("names no provider for a model failure that is not about a credential", async () => {
+    const test = makeHost();
+    const { id } = await seedWorkflow(test, aiPost());
+    test.operations.script("test.items", sourceResult([normalizedItem("a")]));
+    test.ai.respond(aiFailed("timeout"));
+
+    const result = await ran(test, id, { mode: "dry" });
+
+    expect(stepOf(result, "post").fields).not.toHaveProperty(
+      "credentialProvider",
+    );
   });
 
   it("still asks the model in a dry run, and shows what it wrote", async () => {

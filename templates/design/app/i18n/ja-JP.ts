@@ -344,6 +344,8 @@ export default {
   common: {
     loading: "読み込み中...",
     genericError: "何か問題が発生しました",
+    linkedSourceSizeLimit:
+      "このリンクされたコンポーネントの編集はソースのサイズ制限を超えています。",
   },
   editPanel: {
     colorInputLabel: "色",
@@ -1048,6 +1050,10 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "この画面を読み込めませんでした。",
+    writeFailed: "変更を保存できませんでした。",
+    selectionPublishFailed:
+      "エージェントが最新の選択範囲を認識していない可能性があります。もう一度選択してください。",
     liveCollaboration: {
       title: "ライブコラボレーション",
       description:
@@ -2705,6 +2711,7 @@ export default {
   },
   homeContext: {
     websiteReference: "ウェブサイトを追加",
+    websiteReferenceMenu: "ウェブサイトを追加…",
     websiteUrlLabel: "ウェブサイトのURL",
     websiteUrl: "ウェブサイトのURLを貼り付け",
     figmaUrlLabel: "Figmaリンク",
@@ -2730,10 +2737,12 @@ export default {
     retry: "再試行",
     empty: "一致する参照がありません。",
     none: "なし",
-    design: "デザイン",
+    design: "デザインの参照",
     slides: "スライド",
     referenceDesign: "デザインを参照",
-    figmaReference: "Figmaを追加",
+    connectFigma: "Figma を接続",
+    figmaDisconnected: "デザインを探すには Figma を接続してください。",
+    figmaReference: "Figma デザイン",
     referenceDeck: "プレゼンテーションを参照",
     quickSaas: "SaaS ランディングページを作成",
     quickDashboard: "ダッシュボードを作成",

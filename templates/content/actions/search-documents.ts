@@ -28,6 +28,7 @@ import { z } from "zod";
 
 import { documentSearchIndex, getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
+import { endsInHtmlComment } from "../shared/og-description.js";
 import {
   parseSearchQuery,
   type SearchQueryTerm,
@@ -44,31 +45,53 @@ import {
   searchQueryProximityPattern,
 } from "./_document-search-ranking.js";
 import { loadPageSubtree } from "./_page-subtree.js";
+import { SNIPPET_WINDOW_CONTEXT, searchSnippet } from "./_search-snippet.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
-function makeSnippet(content: string, query: string, radius = 120) {
-  const compact = content.replace(/\s+/g, " ").trim();
-  const compactQuery = query.replace(/\s+/g, " ").trim();
-  if (!compact) return "";
-  if (!compactQuery) {
-    return compact.length <= radius * 2
-      ? compact
-      : `${compact.slice(0, radius * 2).trimEnd()}...`;
-  }
-  const index = compact.toLowerCase().indexOf(compactQuery.toLowerCase());
-  if (index < 0) {
-    return compact.length <= radius * 2
-      ? compact
-      : `${compact.slice(0, radius * 2).trimEnd()}...`;
-  }
-  const start = Math.max(0, index - radius);
-  const end = Math.min(compact.length, index + compactQuery.length + radius);
-  return `${start > 0 ? "..." : ""}${compact.slice(start, end).trim()}${
-    end < compact.length ? "..." : ""
-  }`;
+/** How much of the page before a match window search reads for a comment. */
+const COMMENT_SCAN_CHARS = 20_000;
+
+/**
+ * Whether a match window starts inside an HTML comment, from the text before it
+ * when that has an open marker. A marker too far back to read counts as one.
+ */
+function startsInComment(beforeOpenMarker: string | null | undefined): boolean {
+  if (!beforeOpenMarker) return false;
+  return (
+    !beforeOpenMarker.includes("<!--") || endsInHtmlComment(beforeOpenMarker)
+  );
+}
+
+/**
+ * A result's snippet from its match window. The window starts
+ * `SNIPPET_WINDOW_CONTEXT` characters before the match, or at the top of the
+ * page, and the database counts characters the way `Array.from` does.
+ */
+function previewSnippet(
+  preview:
+    | {
+        contentPreview: string | null;
+        snippetNeedle: string | null;
+        matchPosition: number | null;
+        contentLength: number | null;
+        beforeOpenMarker: string | null;
+      }
+    | undefined,
+): string {
+  const window = preview?.contentPreview ?? "";
+  const position = Number(preview?.matchPosition) || 0;
+  const windowStart = Math.max(1, position - SNIPPET_WINDOW_CONTEXT);
+  return searchSnippet(window, preview?.snippetNeedle ?? "", {
+    clippedStart: windowStart > 1,
+    clippedEnd:
+      windowStart - 1 + Array.from(window).length <
+      (Number(preview?.contentLength) || 0),
+    startsInComment: startsInComment(preview?.beforeOpenMarker),
+    matchOffset: position > 0 ? position - windowStart : undefined,
+  });
 }
 
 export default defineAction({
@@ -339,9 +362,24 @@ export default defineAction({
             limit 1
           )`
         : undefined;
+    // The stored page around the match, with enough on each side to leave
+    // text for the snippet once markup is stripped.
+    const context = sql.raw(String(SNIPPET_WINDOW_CONTEXT));
     const matchWindow = selectedBodyPosition
-      ? sql<string>`case when ${selectedBodyPosition} is not null then substr(${normalizedContent}, greatest(1, ${selectedBodyPosition} - 120), least(5000, 240 + coalesce(length(${selectedBodyNeedle}), 0))) else substr(${normalizedContent}, 1, 5000) end`
+      ? sql<string>`case when ${selectedBodyPosition} is not null then substr(${normalizedContent}, greatest(1, ${selectedBodyPosition} - ${context}), least(5000, 2 * ${context} + coalesce(length(${selectedBodyNeedle}), 0))) else substr(${normalizedContent}, 1, 5000) end`
       : sql<string>`substr(${normalizedContent}, 1, 5000)`;
+    // The end of the page before the window, only when that text, read
+    // backwards, reaches a `<!--` before any `-->`. The window can only start
+    // inside a comment then, and the marker may still be code, which takes
+    // Markdown to tell.
+    const beforeWindow = selectedBodyPosition
+      ? sql<string>`substr(${normalizedContent}, 1, greatest(0, ${selectedBodyPosition} - ${context} - 1))`
+      : undefined;
+    const beforeOpenMarker = beforeWindow
+      ? sql<
+          string | null
+        >`case when strpos(reverse(${beforeWindow}), '--!<') > 0 and (strpos(reverse(${beforeWindow}), '>--') = 0 or strpos(reverse(${beforeWindow}), '--!<') < strpos(reverse(${beforeWindow}), '>--')) then right(${beforeWindow}, ${sql.raw(String(COMMENT_SCAN_CHARS))}) end`
+      : sql<string | null>`null`;
     const ranking =
       !indexedSearch && parsedQuery?.groups.length
         ? documentSearchRanking(
@@ -410,10 +448,12 @@ export default defineAction({
           .select({
             id: schema.documents.id,
             contentPreview: matchWindow,
+            matchPosition: selectedBodyPosition ?? sql<number | null>`null`,
             snippetNeedle: selectedBodyNeedle
               ? sql<string>`coalesce(${selectedBodyNeedle}, '')`
               : sql<string>`''`,
             contentLength: sql<number>`length(${normalizedContent})`,
+            beforeOpenMarker,
           })
           .from(schema.documents)
           .where(
@@ -481,10 +521,7 @@ export default defineAction({
           title: doc.title,
           description: doc.description,
           icon: doc.icon,
-          snippet: makeSnippet(
-            preview?.contentPreview ?? "",
-            preview?.snippetNeedle ?? "",
-          ),
+          snippet: previewSnippet(preview),
           contentLength: Number(preview?.contentLength) || 0,
           hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
           updatedAt: doc.updatedAt,

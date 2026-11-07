@@ -406,14 +406,6 @@ export async function createResourceScriptEntries(): Promise<
       list.default,
       { readOnly: true },
     );
-    const readEntry = wrapCliScript(
-      {
-        description: "",
-        parameters: { type: "object" as const, properties: {} },
-      },
-      read.default,
-      { readOnly: true },
-    );
     const writeEntry = wrapCliScript(
       {
         description: "",
@@ -465,6 +457,15 @@ export async function createResourceScriptEntries(): Promise<
               content: {
                 type: "string",
                 description: "Content to write. Required for write.",
+              },
+              offset: {
+                type: "string",
+                description:
+                  "read: start character (default 0); use the partial header's next offset.",
+              },
+              length: {
+                type: "string",
+                description: "read: max chars (default/max 40000).",
               },
               scope: {
                 type: "string",
@@ -524,7 +525,7 @@ export async function createResourceScriptEntries(): Promise<
         },
         needsApproval: requiresSharedResourceApproval,
         allowPersistentApproval: false,
-        run: async (args: Record<string, string>) => {
+        run: async (args: Record<string, string>, context) => {
           const { action: a, ...rest } = args;
           if (a === "list") {
             // The CLI keeps unpaged json as a bare array; the agent always pages.
@@ -533,7 +534,24 @@ export async function createResourceScriptEntries(): Promise<
           }
           if (a === "read") {
             if (!rest.path) return "Error: path is required for read";
-            return readEntry.run(rest);
+            let limitError:
+              | InstanceType<typeof read.ResourceReadResultLimitError>
+              | undefined;
+            const result = await captureCliOutput(async () => {
+              try {
+                await read.default(serializeCliArgs(rest), {
+                  ...(context?.maxResultChars !== undefined && {
+                    maxResultChars: context.maxResultChars,
+                  }),
+                });
+              } catch (error) {
+                if (!(error instanceof read.ResourceReadResultLimitError))
+                  throw error;
+                limitError = error;
+              }
+            });
+            if (limitError) throw limitError;
+            return result;
           }
           if (a === "effective") {
             if (!rest.path) return "Error: path is required for effective";

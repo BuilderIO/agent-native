@@ -334,6 +334,8 @@ export default {
   common: {
     loading: "लोड हो रहा है...",
     genericError: "कुछ गलत हो गया",
+    linkedSourceSizeLimit:
+      "यह लिंक किए गए घटक का संपादन स्रोत आकार सीमा से अधिक है।",
   },
   editPanel: {
     colorInputLabel: "रंग",
@@ -1033,6 +1035,10 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "यह स्क्रीन लोड नहीं हो सकी।",
+    writeFailed: "वह बदलाव सहेजा नहीं जा सका।",
+    selectionPublishFailed:
+      "एजेंट शायद आपका नवीनतम चयन नहीं देख पाएगा। उसे फिर से चुनें।",
     liveCollaboration: {
       title: "लाइव सहयोग",
       description:
@@ -2655,6 +2661,7 @@ export default {
   },
   homeContext: {
     websiteReference: "वेबसाइट जोड़ें",
+    websiteReferenceMenu: "वेबसाइट जोड़ें…",
     websiteUrlLabel: "वेबसाइट URL",
     websiteUrl: "वेबसाइट का URL पेस्ट करें",
     figmaUrlLabel: "Figma लिंक",
@@ -2679,10 +2686,12 @@ export default {
     retry: "फिर प्रयास करें",
     empty: "कोई मिलते-जुलते संदर्भ नहीं हैं।",
     none: "कोई नहीं",
-    design: "डिज़ाइन",
+    design: "डिज़ाइन संदर्भ",
     slides: "स्लाइड",
     referenceDesign: "डिज़ाइन को संदर्भ बनाएँ",
-    figmaReference: "Figma जोड़ें",
+    connectFigma: "Figma कनेक्ट करें",
+    figmaDisconnected: "डिज़ाइन ब्राउज़ करने के लिए Figma कनेक्ट करें।",
+    figmaReference: "Figma डिज़ाइन",
     referenceDeck: "प्रस्तुति को संदर्भ बनाएँ",
     quickSaas: "SaaS लैंडिंग पेज बनाएँ",
     quickDashboard: "डैशबोर्ड बनाएँ",
