@@ -39,23 +39,34 @@ export function copySkillFiles(
       `Skill folder ${from} and its install folder ${to} overlap, so installing would delete it`,
     );
   }
-  fs.rmSync(to, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(to), { recursive: true });
-  fs.cpSync(from, to, {
-    recursive: true,
-    dereference: true,
-    filter(source) {
-      if (path.resolve(source) === top) return true;
-      if (isLeftOut(path.basename(source))) return false;
-      if (!fs.lstatSync(source).isSymbolicLink()) return true;
-      const target = resolveLink(source);
-      if (target === undefined || !isInside(root, target)) return false;
-      return (
-        !path.relative(root, target).split(path.sep).some(isLeftOut) &&
-        !leadsBackIntoCopy(top, source, target)
-      );
-    },
-  });
+  // Copied beside `to` first, so a copy that fails partway, such as on a link
+  // this user can't read, leaves the earlier install in place.
+  const staging = fs.mkdtempSync(
+    path.join(path.dirname(to), `.${path.basename(to)}-`),
+  );
+  const copy = path.join(staging, "skill");
+  try {
+    fs.cpSync(from, copy, {
+      recursive: true,
+      dereference: true,
+      filter(source) {
+        if (path.resolve(source) === top) return true;
+        if (isLeftOut(path.basename(source))) return false;
+        if (!fs.lstatSync(source).isSymbolicLink()) return true;
+        const target = resolveLink(source);
+        if (target === undefined || !isInside(root, target)) return false;
+        return (
+          !path.relative(root, target).split(path.sep).some(isLeftOut) &&
+          !leadsBackIntoCopy(top, source, target)
+        );
+      },
+    });
+    fs.rmSync(to, { recursive: true, force: true });
+    fs.renameSync(copy, to);
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
 }
 
 function isLeftOut(name: string): boolean {

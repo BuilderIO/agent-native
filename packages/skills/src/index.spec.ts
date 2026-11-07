@@ -280,7 +280,7 @@ describe("@agent-native/skills", () => {
 
   // oracle-change: a new test, skipped on Windows and as root, where folder permissions can't lock the test out.
   it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
-    "fails when a link's target can't be read",
+    "fails when a link's target can't be read, keeping the earlier install",
     async () => {
       const repo = tmpDir();
       const project = tmpDir();
@@ -289,6 +289,12 @@ describe("@agent-native/skills", () => {
       const locked = path.join(repo, "locked");
       fs.mkdirSync(path.join(locked, "notes"), { recursive: true });
       fs.symlinkSync(path.join(locked, "notes"), path.join(skill, "notes"));
+      const installRoot = path.join(project, ".agents", "skills");
+      fs.mkdirSync(path.join(installRoot, "quick-recap"), { recursive: true });
+      fs.writeFileSync(
+        path.join(installRoot, "quick-recap", "SKILL.md"),
+        "Earlier install\n",
+      );
       fs.chmodSync(locked, 0o000);
       try {
         await expect(
@@ -305,6 +311,14 @@ describe("@agent-native/skills", () => {
       } finally {
         fs.chmodSync(locked, 0o755);
       }
+
+      expect(
+        fs.readFileSync(
+          path.join(installRoot, "quick-recap", "SKILL.md"),
+          "utf8",
+        ),
+      ).toBe("Earlier install\n");
+      expect(fs.readdirSync(installRoot)).toEqual(["quick-recap"]);
     },
   );
 
