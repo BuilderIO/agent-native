@@ -35,7 +35,10 @@ describe("runDuplicateSelection selection tracking", () => {
       applyFileContentUpdate: vi.fn(),
       applyLocalContentUpdate: vi.fn(),
       canEditDesign: true,
-      files: [activeFile],
+      files: [
+        activeFile,
+        { ...activeFile, id: "source", filename: "source.html" },
+      ],
       getFreshActiveContent: () => activeFile.content,
       getScreenContent: () => activeFile.content,
       getSelectedLayerSnapshots: () => [],

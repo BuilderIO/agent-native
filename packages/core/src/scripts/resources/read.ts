@@ -65,19 +65,116 @@ async function requireSkillLabAccess(
   }
 }
 
+export const RESOURCE_READ_PAGE_CHARS = 40_000;
+
+export class ResourceReadResultLimitError extends Error {}
+
+function parseRangeArg(
+  name: "offset" | "length",
+  value: string | undefined,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < (name === "length" ? 1 : 0)) {
+    fail(
+      `--${name} must be ${name === "length" ? "a positive" : "a non-negative"} integer.`,
+    );
+  }
+  return n;
+}
+
+function isInsideSurrogatePair(content: string, offset: number): boolean {
+  const previous = content.charCodeAt(offset - 1);
+  const current = content.charCodeAt(offset);
+  return (
+    previous >= 0xd800 &&
+    previous <= 0xdbff &&
+    current >= 0xdc00 &&
+    current <= 0xdfff
+  );
+}
+
 async function writeResource(
   resource: Resource,
   resourcePath: string,
   owner: string,
   orgId: string | null,
+  range: { offset: number | undefined; length: number | undefined },
+  maxResultChars: number,
 ): Promise<void> {
   await requireSkillLabAccess(resource, resourcePath, owner, orgId);
-  process.stdout.write(resource.content);
+  const { content } = resource;
+  const offset = range.offset ?? 0;
+  const length = Math.min(
+    range.length ?? RESOURCE_READ_PAGE_CHARS,
+    RESOURCE_READ_PAGE_CHARS,
+  );
+  if (
+    offset === 0 &&
+    content.length <= length &&
+    content.length <= maxResultChars
+  ) {
+    process.stdout.write(content);
+    return;
+  }
+  if (offset >= content.length) {
+    fail(
+      `--offset ${offset} is past the end of "${resourcePath}" (${content.length} chars).`,
+    );
+  }
+  if (isInsideSurrogatePair(content, offset)) {
+    fail(
+      `--offset ${offset} falls inside a surrogate pair in "${resourcePath}".`,
+    );
+  }
+  let end = Math.min(offset + length, content.length);
+  if (isInsideSurrogatePair(content, end)) {
+    end += end - offset === 1 ? 1 : -1;
+  }
+  const header = (pageEnd: number) => {
+    const status =
+      pageEnd < content.length
+        ? `partial - read again with offset=${pageEnd} for the rest`
+        : "end of resource";
+    return `[chars ${offset}-${pageEnd} of ${content.length}; ${status}]\n`;
+  };
+  if (header(end).length + end - offset > maxResultChars) {
+    let low = offset + 1;
+    let high = Math.min(end, content.length - 1);
+    let fittingEnd = offset;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      if (header(mid).length + mid - offset <= maxResultChars) {
+        fittingEnd = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    end = fittingEnd;
+    if (isInsideSurrogatePair(content, end)) end--;
+    if (end === offset) {
+      throw new ResourceReadResultLimitError(
+        "Resource read result limit is too small for a page header and one character.",
+      );
+    }
+  }
+  process.stdout.write(header(end) + content.slice(offset, end));
 }
 
 export default async function resourceReadScript(
   args: string[],
+  options: { maxResultChars?: number } = {},
 ): Promise<void> {
+  const maxResultChars = options.maxResultChars ?? Infinity;
+  if (
+    maxResultChars !== Infinity &&
+    (!Number.isSafeInteger(maxResultChars) || maxResultChars < 0)
+  ) {
+    throw new ResourceReadResultLimitError(
+      "Invalid resource read result limit.",
+    );
+  }
   const parsed = parseArgs(args);
 
   if (parsed.help === "true") {
@@ -87,6 +184,8 @@ Options:
   --path <path>            Resource path (required)
   --scope personal|shared|workspace
                            Scope to read from (default: personal, falls back to shared then workspace)
+  --offset <n>             Start at this character (default: 0)
+  --length <n>             Characters to return (max ${RESOURCE_READ_PAGE_CHARS}; larger resources are returned in pages)
   --help                   Show this help message`);
     return;
   }
@@ -96,6 +195,10 @@ Options:
     fail("--path is required. Example: --path LEARNINGS.md");
   }
 
+  const range = {
+    offset: parseRangeArg("offset", parsed.offset),
+    length: parseRangeArg("length", parsed.length),
+  };
   const scope = parsed.scope;
   const owner = getRequestUserEmail() ?? getAmbientUserEmail();
   if (!owner) {
@@ -119,7 +222,14 @@ Options:
       );
       return;
     }
-    await writeResource(resource, resourcePath, owner, orgId);
+    await writeResource(
+      resource,
+      resourcePath,
+      owner,
+      orgId,
+      range,
+      maxResultChars,
+    );
     return;
   }
 
@@ -137,7 +247,14 @@ Options:
       );
       return;
     }
-    await writeResource(resource, resourcePath, owner, orgId);
+    await writeResource(
+      resource,
+      resourcePath,
+      owner,
+      orgId,
+      range,
+      maxResultChars,
+    );
     return;
   }
 
@@ -148,6 +265,8 @@ Options:
       resourcePath,
       owner,
       getRequestOrgId() ?? null,
+      range,
+      maxResultChars,
     );
     return;
   }
@@ -167,7 +286,14 @@ Options:
       ? null
       : await resourceGetByPath(SHARED_OWNER, resourcePath, { orgId }));
   if (shared) {
-    await writeResource(shared, resourcePath, owner, orgId);
+    await writeResource(
+      shared,
+      resourcePath,
+      owner,
+      orgId,
+      range,
+      maxResultChars,
+    );
     return;
   }
 
@@ -175,7 +301,14 @@ Options:
     orgId,
   });
   if (workspace) {
-    await writeResource(workspace, resourcePath, owner, orgId);
+    await writeResource(
+      workspace,
+      resourcePath,
+      owner,
+      orgId,
+      range,
+      maxResultChars,
+    );
     return;
   }
 

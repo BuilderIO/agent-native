@@ -1,3 +1,39 @@
+## 0.1.11
+
+### Patch Changes
+
+- 823d635: Upgrade the workspace toolchain to TypeScript 7 (`tsc`) with a side-by-side TypeScript 6 API package for tools that still need programmatic access. Replace `@typescript/native-preview` / `tsgo` with the stable `typescript` 7 release.
+
+## 0.1.10
+
+### Patch Changes
+
+- 2a03c35: Adopt the native TypeScript and oxfmt package build baselines.
+
+## 0.1.9
+
+### Patch Changes
+
+- a784d3c: Update user-facing `npx` guidance to recommend explicit `@latest` package invocations.
+
+## 0.1.8
+
+### Patch Changes
+
+- a56d93d: Remove unused imports, dead state, no-op plugin hooks, and debug logging from package internals.
+
+## 0.1.7
+
+### Patch Changes
+
+- d4013f0: Remove unused imports, dead state, no-op plugin hooks, and debug logging from package internals.
+
+## 0.1.6
+
+### Patch Changes
+
+- 3107f96: Preserve MCP tool error and read-only metadata through action execution, and allow Pinpoint's empty test suite to pass intentionally.
+
 ## 0.1.5
 
 ### Patch Changes

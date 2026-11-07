@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "選択したファイルをアップロードできませんでした。",
+    reference: "ダッシュボードを参照…",
+    group: "ダッシュボード",
+    authentication: "参照を追加するにはログインしてください。",
+    invalid: "送信する前に有効な参照を選択してください。",
+    unavailable:
+      "選択した参照は利用できなくなりました。削除するか、もう一度選択してください。",
+  },
   root: {
     whatsNew: "新着情報",
   },

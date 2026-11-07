@@ -24,6 +24,23 @@ describe("design template data", () => {
     expect(fonts).toEqual(["Sora"]);
   });
 
+  it("keeps an email screen's frame type when a template is copied", () => {
+    const data = remapTemplateFileIds(
+      redactTemplateDesignData(
+        JSON.stringify({
+          screenMetadata: {
+            old: { width: 600, frameType: "hubspot-email" },
+          },
+        }),
+      ),
+      new Map([["old", "new"]]),
+    );
+
+    expect(data.screenMetadata).toEqual({
+      new: { width: 600, frameType: "hubspot-email" },
+    });
+  });
+
   it("remaps file-addressed canvas and screen metadata", () => {
     const data = remapTemplateFileIds(
       JSON.stringify({

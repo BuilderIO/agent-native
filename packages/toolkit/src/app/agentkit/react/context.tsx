@@ -143,6 +143,16 @@ export interface AgentKitSlots {
   messageActions?: ComponentType<AgentKitRenderProps<AgentMessage>>;
   /** Host-owned actions aligned with the trailing message-action group. */
   messageActionsTrailing?: ComponentType<AgentKitRenderProps<AgentMessage>>;
+  feedbackNote?: ComponentType<{
+    threadId: ThreadId;
+    runId?: RunId;
+    messageSeq?: number;
+    renderTrigger: (
+      toggle: () => void,
+      open: boolean,
+      contentId: string,
+    ) => ReactNode;
+  }>;
   text?: ComponentType<
     AgentKitRenderProps<Extract<AgentMessagePart, { type: "text" }>>
   >;

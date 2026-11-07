@@ -1,6 +1,7 @@
 import { useComposer, useComposerRuntime } from "@assistant-ui/react";
 import {
   IconCheck,
+  IconSearch,
   IconChevronDown,
   IconBulb,
   IconClock,
@@ -14,6 +15,7 @@ import {
 } from "@tabler/icons-react";
 import type { Editor } from "@tiptap/core";
 import Placeholder from "@tiptap/extension-placeholder";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { useEditor, EditorContent } from "@tiptap/react";
@@ -112,7 +114,11 @@ import type {
   ComposerMode,
   AgentComposerLayoutVariant,
 } from "./types.js";
-import { useMentionSearch } from "./use-mention-search.js";
+import {
+  useMentionSearch,
+  loadWorkspaceMentionItems,
+  MentionSearchError,
+} from "./use-mention-search.js";
 import { useSkills } from "./use-skills.js";
 import {
   RealtimeVoiceModeBoundary,
@@ -469,6 +475,20 @@ export function mentionItemMatchesQuery(
   );
 }
 
+/**
+ * The items that match a query, in their given order except that one named
+ * exactly by the query comes first, so typing a whole name or alias and
+ * pressing Enter picks it over an earlier item that merely contains the text.
+ */
+export function mentionItemsForQuery(
+  items: MentionItem[],
+  query: string,
+): MentionItem[] {
+  const matches = items.filter((item) => mentionItemMatchesQuery(item, query));
+  const exact = findExactMentionItem(matches, query.trim());
+  return exact ? [exact, ...matches.filter((item) => item !== exact)] : matches;
+}
+
 export function findExactMentionItem(
   items: MentionItem[],
   query: string,
@@ -793,6 +813,24 @@ function composerDocumentHasContent(doc: ComposerDocument): boolean {
     return true;
   });
   return hasContent;
+}
+
+function composerReferenceSignature(
+  doc: Pick<ProseMirrorNode, "descendants">,
+): string {
+  const references: unknown[] = [];
+  doc.descendants((node) => {
+    if (
+      node.type.name === "mentionReference" ||
+      node.type.name === "fileReference" ||
+      node.type.name === "skillReference"
+    ) {
+      references.push([node.type.name, node.attrs]);
+      return false;
+    }
+    return true;
+  });
+  return JSON.stringify(references);
 }
 
 function persistComposerDraft(
@@ -1163,9 +1201,9 @@ export interface TiptapComposerProps {
   documentAttachmentLimitLabel?: string;
   focusRef?: React.Ref<TiptapComposerHandle>;
   /** Programmatically seed the editor with plain text. */
-  initialText?: string;
+  initialText?: string | undefined;
   /** Stable key used to re-apply the seeded text. */
-  initialTextKey?: string | number;
+  initialTextKey?: string | number | undefined;
   /** Let an explicit host handoff replace a saved draft. */
   initialTextOverridesSavedDraft?: boolean;
   /** Skip onTextChange notifications caused only by initial draft setup. */
@@ -1240,9 +1278,11 @@ export interface TiptapComposerProps {
   /** Extra button to render alongside the primary action. */
   extraActionButton?: React.ReactNode;
   /**
-   * Stop control rendered beside send while a run is active, whatever the
-   * draft holds. Pass it only while there is something to stop; Escape in the
-   * editor clicks it when it is enabled.
+   * Stop control for an active run. It takes the primary slot while the
+   * composer is empty and gives it to Send once a draft exists; it stays
+   * mounted, so Escape in the editor still clicks it when it is enabled.
+   * During voice chat it sits beside End voice chat, which does not stop the
+   * run. Pass it only while there is something to stop.
    */
   stopButton?: React.ReactNode;
   /** Custom attachment button to render instead of ComposerPrimitive.AddAttachment. */
@@ -2166,10 +2206,14 @@ function ModelSelector({
     selectedModelDisplayName ??
     selectedModelDescription?.name ??
     friendlyModelName(model, t);
+  // An empty list mid-load says nothing about connection; judging it now
+  // flashes "Connect agent" at a connected user.
+  const awaitingModelList = modelListLoading && providerGroups.length === 0;
   const selectedModelNeedsConnection =
-    onlyConnectPathAvailable ||
-    (selectedModelProviderGroups.length > 0 &&
-      selectedModelProviderGroups.every((group) => !group.configured));
+    !awaitingModelList &&
+    (onlyConnectPathAvailable ||
+      (selectedModelProviderGroups.length > 0 &&
+        selectedModelProviderGroups.every((group) => !group.configured)));
   // Only a loaded list that names providers, none of them connected, means
   // setup. A selected model on an unconnected provider still has others, and
   // an empty list is a catalog that failed to load, not proof of anything.
@@ -2228,71 +2272,73 @@ function ModelSelector({
     typeof window !== "undefined" &&
     window.innerWidth < MODEL_PICKER_STACK_BELOW_PX;
 
-  const connectItems = showProviderActions ? (
-    <>
-      {showBuilderAction && BuilderConnectPopover ? (
-        <>
-          <BuilderConnectPopover
-            flow={builderFlow}
-            onConnect={(provisionAccount) => {
-              if (onConnectProvider && !provisionAccount) {
-                onConnectProvider();
-              } else {
-                builderFlow.start({ provisionAccount });
-              }
-            }}
+  const connectItems =
+    showProviderActions && !awaitingModelList ? (
+      <>
+        {showBuilderAction && BuilderConnectPopover ? (
+          <>
+            <BuilderConnectPopover
+              flow={builderFlow}
+              keepOpenOnFocusOutside
+              onConnect={(provisionAccount) => {
+                if (onConnectProvider && !provisionAccount) {
+                  onConnectProvider();
+                } else {
+                  builderFlow.start({ provisionAccount });
+                }
+              }}
+            >
+              <DropdownMenuItem
+                disabled={builderFlow.connecting}
+                // The Builder choice opens its own popover from this row.
+                onSelect={(event) => event.preventDefault()}
+                className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
+              >
+                <span className="block font-medium text-foreground">
+                  {builderFlow.connecting
+                    ? t("agentPanel.connectingBuilder", {
+                        defaultValue: "Setting up Builder.io…",
+                      })
+                    : t("agentPanel.connectBuilderIo", {
+                        defaultValue: "Use Builder.io",
+                      })}
+                </span>
+                <span className="block agent-kit-caption-copy text-muted-foreground">
+                  {t("agentPanel.builderModelCredits", {
+                    defaultValue: "Free credits for Claude, OpenAI & Gemini",
+                  })}
+                </span>
+              </DropdownMenuItem>
+            </BuilderConnectPopover>
+            {!onConnectProvider && builderFlow.error && (
+              <p
+                role="alert"
+                className="px-2 pb-2 agent-kit-caption-copy text-destructive"
+              >
+                {builderFlow.error}
+              </p>
+            )}
+          </>
+        ) : null}
+        {showAddKeysAction && (
+          <DropdownMenuItem
+            onSelect={openLlmSettings}
+            className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
           >
-            <DropdownMenuItem
-              disabled={builderFlow.connecting}
-              // The Builder choice opens its own popover from this row.
-              onSelect={(event) => event.preventDefault()}
-              className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
-            >
-              <span className="block font-medium text-foreground">
-                {builderFlow.connecting
-                  ? t("agentPanel.connectingBuilder", {
-                      defaultValue: "Setting up Builder.io…",
-                    })
-                  : t("agentPanel.connectBuilderIo", {
-                      defaultValue: "Use Builder.io",
-                    })}
-              </span>
-              <span className="block agent-kit-caption-copy text-muted-foreground">
-                {t("agentPanel.builderModelCredits", {
-                  defaultValue: "Free credits for Claude, OpenAI & Gemini",
-                })}
-              </span>
-            </DropdownMenuItem>
-          </BuilderConnectPopover>
-          {!onConnectProvider && builderFlow.error && (
-            <p
-              role="alert"
-              className="px-2 pb-2 agent-kit-caption-copy text-destructive"
-            >
-              {builderFlow.error}
-            </p>
-          )}
-        </>
-      ) : null}
-      {showAddKeysAction && (
-        <DropdownMenuItem
-          onSelect={openLlmSettings}
-          className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
-        >
-          <span className="block font-medium text-foreground">
-            {t("agentPanel.addOwnKeys", {
-              defaultValue: "Add your own keys",
-            })}
-          </span>
-          <span className="block agent-kit-caption-copy text-muted-foreground">
-            {t("agentPanel.configureProviderKeys", {
-              defaultValue: "Choose a cloud, gateway, or local provider",
-            })}
-          </span>
-        </DropdownMenuItem>
-      )}
-    </>
-  ) : null;
+            <span className="block font-medium text-foreground">
+              {t("agentPanel.addOwnKeys", {
+                defaultValue: "Add your own keys",
+              })}
+            </span>
+            <span className="block agent-kit-caption-copy text-muted-foreground">
+              {t("agentPanel.configureProviderKeys", {
+                defaultValue: "Choose a cloud, gateway, or local provider",
+              })}
+            </span>
+          </DropdownMenuItem>
+        )}
+      </>
+    ) : null;
 
   const agentItems = hasAgentSection ? (
     <>
@@ -2494,6 +2540,17 @@ function ModelSelector({
 
   const primaryItems = (
     <>
+      {awaitingModelList ? (
+        <div
+          role="status"
+          aria-busy="true"
+          className="agent-composer-model-loading flex flex-col gap-2 px-2 py-2"
+        >
+          <div className="h-4 w-40 animate-pulse rounded bg-muted" />
+          <div className="h-4 w-32 animate-pulse rounded bg-muted" />
+          <div className="h-4 w-36 animate-pulse rounded bg-muted" />
+        </div>
+      ) : null}
       {connectItems}
       {hasConfiguredProvider &&
         isCodexAgent &&
@@ -2716,10 +2773,12 @@ function ModelSelector({
       </DropdownMenuSub>
     );
 
-  const hasPrimaryItems = Boolean(connectItems) || shortcutRows.length > 0;
+  const hasPrimaryItems =
+    awaitingModelList || Boolean(connectItems) || shortcutRows.length > 0;
   const showEffortInLabel =
     effortOptions.length > 0 &&
     !selectedModelNeedsConnection &&
+    !awaitingModelList &&
     effectiveEffort !== undefined &&
     effectiveEffort !== "auto";
 
@@ -2762,9 +2821,17 @@ function ModelSelector({
                 {selectedAgentOption.icon}
               </span>
             ) : null}
-            {selectedAgentOption && selectedAgentOption.id !== "default"
-              ? selectedAgentLabel
-              : selectedModelButtonLabel}
+            {selectedAgentOption && selectedAgentOption.id !== "default" ? (
+              selectedAgentLabel
+            ) : awaitingModelList ? (
+              // The default model name is a guess until the list says what is connected.
+              <span
+                aria-hidden="true"
+                className="inline-block h-3.5 w-20 animate-pulse rounded bg-muted align-middle"
+              />
+            ) : (
+              selectedModelButtonLabel
+            )}
           </span>
           {showEffortInLabel && (
             <span className="agent-composer-model-effort shrink-0 text-muted-foreground">
@@ -3169,7 +3236,7 @@ function TiptapComposerSurface({
     settledQuery: settledMentionQuery,
   } = useMentionSearch(
     popover?.type === "@" ? popover.query : "",
-    includeDefaultMentionSearch && (contextMenuOpen || popover?.type === "@"),
+    includeDefaultMentionSearch && popover?.type === "@",
   );
   const mentionQuery = popover?.type === "@" ? popover.query : "";
   const filteredMentionItems = useMemo(
@@ -3177,9 +3244,7 @@ function TiptapComposerSurface({
       filterMentionItemsForSlots(
         [
           // Host items arrive unfiltered; the default search filters itself.
-          ...hostMentionItems.filter((item) =>
-            mentionItemMatchesQuery(item, mentionQuery),
-          ),
+          ...mentionItemsForQuery(hostMentionItems, mentionQuery),
           ...mentionItems,
         ].filter(
           (item, index, items) =>
@@ -3659,6 +3724,7 @@ function TiptapComposerSurface({
   const placeholderRef = useRef(resolvedPlaceholder);
   placeholderRef.current = resolvedPlaceholder;
   const applyingInitialContentRef = useRef(false);
+  const editorReferenceSignatureRef = useRef("[]");
   const initialTextSyncCompleteRef = useRef(false);
 
   const editor = useEditor({
@@ -3676,9 +3742,22 @@ function TiptapComposerSurface({
       ) {
         onTextChangeRef.current?.(ed.getText({ blockSeparator: "\n" }).trim());
       }
-      setReferenceRevision((revision) => revision + 1);
-
       scheduleComposerDraftPersist(ed);
+    },
+    onTransaction: ({ editor: ed, transaction, appendedTransactions }) => {
+      if (
+        !transaction.docChanged &&
+        !appendedTransactions.some((appended) => appended.docChanged)
+      ) {
+        return;
+      }
+      // An unconditional bump can loop through React node views and the
+      // ProseMirror DOM observer, even when references have not changed.
+      const referenceSignature = composerReferenceSignature(ed.state.doc);
+      if (referenceSignature !== editorReferenceSignatureRef.current) {
+        editorReferenceSignatureRef.current = referenceSignature;
+        setReferenceRevision((revision) => revision + 1);
+      }
     },
     onSelectionUpdate: ({ editor: ed }) => {
       const { from, to, anchor, head } = ed.state.selection;
@@ -6383,51 +6462,140 @@ function TiptapComposerSurface({
   const launchersDisabled = disabled || contextControlsDisabled;
 
   const contextLauncherItems = useMemo(() => {
-    const sections = new Map<string, ComposerContextMenuItem[]>();
-    for (const item of filteredMentionItems) {
-      const section = item.section || "Other";
-      const entries = sections.get(section) ?? [];
-      entries.push({
-        id: `mention:${item.id}`,
-        label: item.label,
-        description: item.description,
-        onSelect: () => insertReference(composerReferenceFromMentionItem(item)),
-      });
-      sections.set(section, entries);
-    }
-    const sectionKeys: Record<string, string> = {
-      Agents: "agents",
-      "Connected Agents": "connectedAgents",
-      Files: "files",
-      Other: "other",
+    const excludedTypes = new Set<string>();
+    const visit = (entries: readonly ComposerContextMenuItem[]) => {
+      for (const entry of entries) {
+        if (entry.referenceType) excludedTypes.add(entry.referenceType);
+        if (entry.referencePicker)
+          excludedTypes.add(entry.referencePicker.referenceType);
+        if (entry.children) visit(entry.children);
+      }
     };
+    visit(contextMenuItems ?? []);
+    const pickerFor = (filter?: { referenceType: string; source: string }) => {
+      const available = new Map<string, MentionItem>();
+      return {
+        identityScope: "workspace" as const,
+        presentation: { type: "dialog" as const, mode: "action" as const },
+        searchPlaceholder: t("agentChat.composer.menu.searchWorkspace", {
+          defaultValue: "Search workspace…",
+        }),
+        load: async ({
+          search,
+          signal,
+        }: {
+          search: string;
+          signal: AbortSignal;
+        }) => {
+          const remote =
+            filter || includeDefaultMentionSearch
+              ? await loadWorkspaceMentionItems(
+                  search,
+                  adapters.resolvePath,
+                  signal,
+                  filter?.source,
+                ).catch((cause: unknown) => {
+                  if (signal.aborted) throw cause;
+                  if (cause instanceof MentionSearchError) throw cause;
+                  throw new Error(
+                    t("agentChat.composer.contextLoadFailed", {
+                      defaultValue: "Could not load context.",
+                    }),
+                    { cause },
+                  );
+                })
+              : [];
+          const entries = [
+            ...mentionItemsForQuery(hostMentionItems, search),
+            ...remote,
+          ].filter((item) =>
+            filter
+              ? item.refType === filter.referenceType &&
+                (!filter.source || item.source === filter.source)
+              : !excludedTypes.has(item.refType),
+          );
+          if (signal.aborted)
+            throw new DOMException("The operation was aborted.", "AbortError");
+          available.clear();
+          for (const item of entries) available.set(item.id, item);
+          return {
+            items: Array.from(available.values()).map((item) => ({
+              id: item.id,
+              title: item.label,
+              ...(item.description === undefined
+                ? {}
+                : { description: item.description }),
+              ...(item.section === undefined
+                ? {}
+                : {
+                    group:
+                      item.section === "Files"
+                        ? "agentChat.mentions.sections.files"
+                        : item.section === "Agents"
+                          ? "agentChat.mentions.sections.agents"
+                          : item.section === "Connected Agents"
+                            ? "agentChat.mentions.sections.connectedAgents"
+                            : item.section,
+                  }),
+              icon: (
+                <MentionItemMedia
+                  {...(item.icon === undefined ? {} : { icon: item.icon })}
+                  {...(item.media === undefined ? {} : { media: item.media })}
+                  size="sm"
+                />
+              ),
+            })),
+          };
+        },
+        onSelect: (item: { id: string }) => {
+          const reference = available.get(item.id);
+          if (!reference)
+            throw new Error(
+              t("agentChat.composer.contextLoadFailed", {
+                defaultValue: "Could not load context.",
+              }),
+            );
+          insertReference(composerReferenceFromMentionItem(reference));
+        },
+      };
+    };
+    const resolveEntries = (
+      entries: readonly ComposerContextMenuItem[],
+    ): ComposerContextMenuItem[] =>
+      entries.map((entry) => {
+        if (entry.referencePicker) {
+          const { referencePicker, ...rest } = entry;
+          return { ...rest, picker: pickerFor(referencePicker) };
+        }
+        return entry.children
+          ? { ...entry, children: resolveEntries(entry.children) }
+          : entry;
+      });
     return [
-      ...(contextMenuItems ?? []),
-      ...Array.from(sections)
-        .sort(([left], [right]) => {
-          const order = (section: string) =>
-            section === "Agents"
-              ? 0
-              : section === "Connected Agents"
-                ? 1
-                : section === "Files"
-                  ? 3
-                  : section === "Other"
-                    ? 4
-                    : 2;
-          return order(left) - order(right) || left.localeCompare(right);
-        })
-        .map(([section, children]) => ({
-          id: `mentions:${section}`,
-          label: sectionKeys[section]
-            ? t(`agentChat.mentions.sections.${sectionKeys[section]}`, {
-                defaultValue: section,
-              })
-            : section,
-          children,
-        })),
+      ...resolveEntries(contextMenuItems ?? []),
+      ...(includeDefaultMentionSearch || hostMentionItems.length
+        ? [
+            {
+              id: "composer-workspace-search",
+              section: "context" as const,
+              order: 90,
+              label: t("agentChat.composer.menu.searchWorkspace", {
+                defaultValue: "Search workspace…",
+              }),
+              icon: <IconSearch />,
+              picker: pickerFor(),
+            },
+          ]
+        : []),
     ];
-  }, [contextMenuItems, filteredMentionItems, insertReference, t]);
+  }, [
+    contextMenuItems,
+    hostMentionItems,
+    includeDefaultMentionSearch,
+    adapters.resolvePath,
+    insertReference,
+    t,
+  ]);
 
   const sendButton = (
     <ComposerSendButton
@@ -6714,15 +6882,7 @@ function TiptapComposerSurface({
             attachmentsEnabled={attachmentsEnabled}
             open={contextMenuOpen}
             onOpenChange={setContextMenuOpen}
-            loading={mentionsLoading}
-            error={
-              mentionsError
-                ? t("agentChat.composer.contextLoadFailed", {
-                    defaultValue: "Could not load context.",
-                  })
-                : undefined
-            }
-            onRetry={retryMentions}
+            onSelectIntegration={insertReference}
             onRestoreFocus={
               launchersDisabled
                 ? undefined
@@ -6806,20 +6966,17 @@ function TiptapComposerSurface({
               />
             )}
             {stopButton ? (
-              // Stop takes Send's place while the composer is empty, and Send
-              // joins it once a draft exists so a draft never hides Stop. The
-              // slot grows from zero width, gap included, so the controls to
-              // its left slide rather than jump.
+              // Stop and Send are one control: Stop while the composer is
+              // empty, Send once a draft exists. The hidden Stop stays mounted
+              // so Escape can still stop the run mid-draft. Voice chat keeps it
+              // visible: End voice chat does not stop the run.
               <div
                 ref={stopSlotRef}
                 data-agent-composer-slot="stop-slot"
-                className={`grid shrink-0 grid-cols-[1fr] justify-items-end transition-[grid-template-columns,margin-inline-start,margin-inline-end] duration-150 ease-out starting:-ms-[var(--agentkit-composer-toolbar-control-gap,0.25rem)] starting:me-0 starting:grid-cols-[0fr] motion-reduce:transition-none ${
-                  hasDraft ? "me-1" : ""
-                }`}
+                hidden={hasDraft && voiceChat === null}
+                className="flex shrink-0"
               >
-                <div className="flex min-w-0 transition-[opacity,scale] duration-150 ease-out starting:scale-75 starting:opacity-0 motion-reduce:transition-none">
-                  {stopButton}
-                </div>
+                {stopButton}
               </div>
             ) : null}
             {stopButton && !hasDraft && !voiceChat ? null : sendButton}
@@ -6829,6 +6986,7 @@ function TiptapComposerSurface({
       <MentionPopover
         ref={popoverRef}
         density={mentionPopoverDensity}
+        keepSectionOrder={!includeDefaultMentionSearch}
         type={popover?.type ?? "@"}
         position={popover?.position ?? null}
         mentionItems={inlineMentionItems}
@@ -6836,8 +6994,15 @@ function TiptapComposerSurface({
         commands={filteredCommands}
         hint={hint}
         isLoading={popover?.type === "@" ? mentionsLoading : skillsLoading}
-        error={mentionItemsError}
-        onRetry={onRetryMentionItems}
+        error={
+          mentionItemsError ??
+          (mentionsError
+            ? t("agentChat.composer.contextLoadFailed", {
+                defaultValue: "Could not load context.",
+              })
+            : undefined)
+        }
+        onRetry={onRetryMentionItems ?? retryMentions}
         query={popover?.query ?? ""}
         onSelectMention={handleSelectMention}
         onSelectSkill={handleSelectSkill}

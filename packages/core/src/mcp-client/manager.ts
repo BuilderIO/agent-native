@@ -1,6 +1,7 @@
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
+  noteExternalWrite,
   type ActionAuthorize,
   type ActionRunContext,
 } from "../action.js";
@@ -1015,6 +1016,7 @@ export class McpClientManager {
           `MCP server "${parsed.serverId}" changed while authorizing tool "${parsed.toolName}"`,
         );
       }
+      noteExternalWrite("mcp");
       return client.callTool({
         name: parsed.toolName,
         arguments: normalizedArgs,

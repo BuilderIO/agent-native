@@ -28,6 +28,7 @@ const IntegrationDetailPage = lazy(() =>
 export default function IntegrationsSettingsPage({
   context,
   sub,
+  bridge,
 }: SettingsPageProps) {
   const t = useT();
   const appName =
@@ -38,7 +39,12 @@ export default function IntegrationsSettingsPage({
       {sub === "builder" ? (
         <BuilderIntegrationPage context={context} />
       ) : sub ? (
-        <IntegrationDetailPage id={sub} appName={appName} context={context} />
+        <IntegrationDetailPage
+          id={sub}
+          appName={appName}
+          context={context}
+          extensionContent={bridge.integrationDetailContent(sub)}
+        />
       ) : (
         <IntegrationsPage appName={appName} />
       )}

@@ -85,6 +85,16 @@
           "summary": "A sample ticket about an invoice."
         }
       }
+    },
+    "allOther": {
+      "perItem": {
+        "*": {
+          "category": "other",
+          "severity": "low",
+          "confidence": "high",
+          "summary": "A routine how-to question."
+        }
+      }
     }
   },
   "jira": {

@@ -23,6 +23,7 @@ import {
   useCollabReconcile,
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
+import type { ContentLinkTarget } from "@shared/api";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { isContentClipUploadMimeType } from "@shared/clips-peer-contract";
 import type { EditorMountMode } from "@shared/editor-mount-outcomes";
@@ -38,6 +39,8 @@ import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
 import type { SuggestionPlacement } from "@shared/suggestion-placement";
 import {
   suggestionAnchorText,
+  suggestionLinkDestinations,
+  suggestionTextPresentation,
   suggestionTextPresentationForSource,
   type SuggestionPresentationContext,
 } from "@shared/suggestion-text";
@@ -168,6 +171,8 @@ import {
   CompatibleCode,
   createNotionEditorExtensions,
   focusMostRecentEmptyToggleSummary,
+  TOGGLE_SUMMARY_PLACEHOLDER,
+  TOGGLE_TITLE_NODE,
 } from "./extensions/NotionExtensions";
 import { notionFidelityExtensions } from "./extensions/NotionFidelity";
 import {
@@ -709,7 +714,13 @@ const NotionMarkdownShortcuts = Extension.create({
       if (!view.state.selection.empty) return null;
 
       const { $from } = view.state.selection;
-      if (!$from.parent.isTextblock) return null;
+      // A Toggle's title is its own line, not a block to turn into another.
+      if (
+        !$from.parent.isTextblock ||
+        $from.parent.type.name === TOGGLE_TITLE_NODE
+      ) {
+        return null;
+      }
 
       const blockStart = $from.start();
       const textBeforeCursor = view.state.doc.textBetween(blockStart, from);
@@ -1604,11 +1615,16 @@ export function suggestionHighlightSpec(
     };
   }
   if (suggestion.presentation === "draft") {
+    const newLines = /^\n+$/.test(suggestionAnchorText(suggestion.afterText));
+    // A code line's break is real text, so it takes a highlight. An uneditable
+    // widget beside it would send Chrome's caret, typing and Backspace up a line.
+    const inCode = !!doc.resolve(range.from).parent.type.spec.code;
     if (
-      /^\n+$/.test(suggestionAnchorText(suggestion.afterText)) ||
-      (afterPresentation &&
-        afterPresentation.length > 0 &&
-        afterPresentation.every((node) => node.type === "indent"))
+      !inCode &&
+      (newLines ||
+        (afterPresentation &&
+          afterPresentation.length > 0 &&
+          afterPresentation.every((node) => node.type === "indent")))
     ) {
       return {
         suggestionId: suggestion.id,
@@ -1645,6 +1661,7 @@ export function suggestionHighlightSpec(
           : undefined,
       editableBoundary: suggestion.kind === "replace_text",
       editableText: true,
+      lineBreak: newLines,
     };
   }
   // Removed syntax with no text, such as indentation, a list marker, or an
@@ -1679,6 +1696,14 @@ export function suggestionHighlightSpec(
     deletedPresentation: structuralDeletion
       ? suggestion.beforePresentation
       : undefined,
+    ...(suggestion.kind === "replace_text"
+      ? {
+          replacedLinks: suggestionLinkDestinations(
+            beforePresentation ??
+              suggestionTextPresentation(suggestion.beforeText),
+          ),
+        }
+      : {}),
     ...(suggestion.frozen ? { frozen: true } : {}),
   };
 }
@@ -1816,6 +1841,7 @@ interface VisualEditorProps {
   showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
   onOpenNotionPageLink?: (documentId: string) => void;
+  resolveNotionPageLink?: (id: string) => ContentLinkTarget | null;
   notionPageId?: string | null;
   onHistoryControllerChange?: (
     controller: VisualEditorHistoryController | null,
@@ -2168,6 +2194,7 @@ interface VisualEditorExtensionOptions {
   isSuggesting?: () => boolean;
   onJoinTitle?: (text: string) => void;
   onOpenNotionPageLink?: (documentId: string) => void;
+  resolveNotionPageLink?: (id: string) => ContentLinkTarget | null;
   localFilePath?: string | null;
   referenceDepth?: number;
   emptyBlockPlaceholder?: string;
@@ -2517,6 +2544,8 @@ function getVisualEditorPlaceholder({
   hasAnchor: boolean;
   emptyBlockPlaceholder?: string;
 }): string {
+  if (node.type.name === TOGGLE_TITLE_NODE) return TOGGLE_SUMMARY_PLACEHOLDER;
+
   const isToggleBody =
     node.type.name === "paragraph" &&
     hasAncestorType(editor, pos, "notionToggle");
@@ -2813,6 +2842,7 @@ export function createVisualEditorExtensions({
   isSuggesting,
   onJoinTitle,
   onOpenNotionPageLink,
+  resolveNotionPageLink,
   localFilePath,
   referenceDepth = 0,
   emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
@@ -2904,6 +2934,8 @@ export function createVisualEditorExtensions({
       ...createNotionEditorExtensions({
         documentId,
         onOpenPageLink: onOpenNotionPageLink,
+        isEdit: isLocalEditorEdit,
+        resolvePageLink: resolveNotionPageLink,
       }),
       ...notionFidelityExtensions,
       RegistryBlockNode,
@@ -3288,6 +3320,7 @@ export function VisualEditor({
   showCommentIndicators = true,
   onJoinTitle,
   onOpenNotionPageLink,
+  resolveNotionPageLink,
   notionPageId,
   onHistoryControllerChange,
   onHistoryStateChange,
@@ -3606,6 +3639,7 @@ export function VisualEditor({
         isSuggesting,
         onJoinTitle,
         onOpenNotionPageLink,
+        resolveNotionPageLink,
         localFilePath,
         referenceDepth,
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
@@ -3654,6 +3688,7 @@ export function VisualEditor({
       isSuggesting,
       onJoinTitle,
       onOpenNotionPageLink,
+      resolveNotionPageLink,
       localFilePath,
       referenceDepth,
       t,

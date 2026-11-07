@@ -12,7 +12,7 @@ Use this workflow for HubSpot email requests, including “make sure this aligns
 to HubSpot emails” and “add HubSpot tokens.” It replaces the web stack,
 interaction, typography, CSS-variable and animation defaults in
 `design-generation`. Any HTML frame can export when its content passes
-validation; a special frame type or internal marker is not required.
+validation; the email frame type is not required for export.
 
 For a review-only assignment, read `hubspot-email-review` and follow its review
 workflow directly. Do not author content or delegate another reviewer.
@@ -26,9 +26,11 @@ only when the available context leaves materially different choices.
 
 - Create the design if needed, then author complete email HTML with
   `create-file` (`fileType: "html"`) or `generate-design` (`devices: []`, a
-  600px-wide `canvasFrames` placement). Put
-  `<meta name="agent-native:frame-type" content="hubspot-email">` in the
-  head to retain email authoring defaults on future edits. Include the leading
+  600px-wide `canvasFrames` placement), passing `frameType: "hubspot-email"`
+  on each email file. The frame type is stored with the screen and keeps email
+  authoring defaults on future edits; do not add a frame-type meta tag. To make
+  an email frame an ordinary screen again, call `update-file` with
+  `frameType: "web"`. Include the leading
   HubSpot header comment containing `templateType: email` and
   `isAvailableForNewContent: true` so new emails are selectable. The leading
   `templateType: email` is required; availability controls template selection
@@ -85,7 +87,7 @@ To convert an ordinary web frame, use the resolved `designId` and `fileId` to
 read its current snapshot. Keep its approved copy, content hierarchy and
 branding, and re-author its layout using the email contract above. Save a new
 sibling HTML file in the same design with a unique filename; preserve the
-source frame. Adding HubSpot tokens or an internal marker alone does not
+source frame. Adding HubSpot tokens or the email frame type alone does not
 convert browser layout. Existing email-safe content, including unmarked HTML,
 can be refined in place with `edit-design` after a fresh snapshot. Re-read the
 saved frame and confirm the original is unchanged after creating a sibling.

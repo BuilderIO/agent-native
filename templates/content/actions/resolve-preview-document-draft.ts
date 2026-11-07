@@ -23,7 +23,7 @@ const exactDraft = {
   documentId: z.string().min(1),
   expectedDraftVersion: z.number().int().positive(),
   expectedDraftTitle: z.string().max(10_000),
-  expectedDraftContent: z.string().max(500_000),
+  expectedDraftContent: z.string(),
 };
 
 const durableClaimPayload = z.object({
