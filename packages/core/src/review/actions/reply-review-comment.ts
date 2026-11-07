@@ -86,11 +86,15 @@ export default defineAction({
         errorCode: "not_found",
       });
     }
-    if (parent.status === "deleted") {
-      fail("This thread was deleted.", {
-        statusCode: 404,
-        errorCode: "not_found",
-      });
+    // A retry of a reply that already saved goes on to the store, which
+    // replays it while the thread is still there.
+    if (parent.status === "deleted" && !existingReply) {
+      fail(
+        parent.parentCommentId
+          ? "This comment was deleted."
+          : "This thread was deleted.",
+        { statusCode: 404, errorCode: "not_found" },
+      );
     }
     if (parent.status !== "open" && !existingReply) {
       fail("This thread is resolved. Reopen it to reply.", {

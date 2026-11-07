@@ -1181,6 +1181,56 @@ describe("review actions", () => {
     expect(comments.map((comment) => comment.id)).toEqual([root.id]);
   });
 
+  it("replays a saved reply after the comment it answered is deleted, but not after its thread is", async () => {
+    const ctx = { userEmail: EDITOR_EMAIL, caller: "frontend" } as const;
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "private",
+      body: "Open thread",
+      ownerEmail: OWNER_EMAIL,
+    });
+    const first = await replyReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "private",
+        commentId: root.id,
+        body: "First reply",
+      },
+      ctx,
+    );
+    const answer = {
+      resourceType: "doc",
+      resourceId: "private",
+      commentId: first.id,
+      body: "Answer to the first reply",
+      clientOperationId: "00000000-0000-4000-8000-000000000021",
+    };
+    const saved = await replyReviewCommentAction.run(answer, ctx);
+    await deleteReviewComment(first.id, EDITOR_EMAIL);
+
+    await expect(
+      replyReviewCommentAction.run(answer, ctx),
+    ).resolves.toMatchObject({ id: saved.id, replayed: true });
+    await expect(
+      replyReviewCommentAction.run(
+        {
+          ...answer,
+          clientOperationId: "00000000-0000-4000-8000-000000000022",
+        },
+        ctx,
+      ),
+    ).rejects.toMatchObject({
+      message: "This comment was deleted.",
+      statusCode: 404,
+      errorCode: "not_found",
+    });
+
+    await deleteReviewComment(root.id, OWNER_EMAIL);
+    await expect(
+      replyReviewCommentAction.run(answer, ctx),
+    ).rejects.toMatchObject({ statusCode: 404, errorCode: "not_found" });
+  });
+
   it("answers a 404 when the thread goes before the reply saves", async () => {
     const root = await insertReviewComment({
       resourceType: "doc",
