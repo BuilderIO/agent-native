@@ -1363,6 +1363,62 @@ describe("a lock turned on while a write is under way", () => {
       }
     });
   });
+
+  it("stops an agent's block edit through the live copy, and a person's lands", async () => {
+    await asOwner(async () => {
+      const row = await collectionRow();
+      await liveCopyPage.putPageOnLiveCopy(row.documentId, { seeded: true });
+      try {
+        const write = async (
+          ctx: typeof agent | typeof person,
+          idempotencyKey: string,
+          nfm: string,
+        ) => {
+          const { discovered, listed } = await rowRevision(
+            row.databaseId,
+            row.blocksId,
+            row,
+          );
+          return mutateBlock.run(
+            {
+              target: {
+                ...discovered.target,
+                itemId: row.itemId,
+                rowDocumentId: row.documentId,
+                propertyId: row.blocksId,
+              },
+              expectedSchemaRevision: discovered.schemaRevision,
+              expectedRowRevision: listed.rowRevision,
+              expectedFieldRevision: listed.fieldRevision,
+              idempotencyKey,
+              operation: "insert",
+              block: { kind: "paragraph", nfm },
+              position: { placement: "end" },
+            } as never,
+            ctx,
+          );
+        };
+        const version = await liveCopyPage.liveCopyVersionOf(row.documentId);
+
+        await expect(
+          write(agent, "live-block-agent", "Agent block"),
+        ).rejects.toMatchObject(locked);
+        expect((await readPage(row.documentId)).content).not.toContain(
+          "Agent block",
+        );
+
+        await write(person, "live-block-person", "Person block");
+        expect((await readPage(row.documentId)).content).toContain(
+          "Person block",
+        );
+        expect(
+          await liveCopyPage.liveCopyVersionOf(row.documentId),
+        ).toBeGreaterThan(version ?? 0);
+      } finally {
+        await liveCopyPage.turnLiveCopyFlagsOff();
+      }
+    });
+  });
 });
 
 describe("an agent's call that reaches a locked page another way", () => {

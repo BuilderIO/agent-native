@@ -903,6 +903,7 @@ async function mutatePrimaryBlockThroughLiveCopy(
   input: MutationInput,
   inputDigest: string,
   loaded: LoadedField,
+  ctx: ActionRunContext | undefined,
 ): Promise<ContentDatabaseBlockMutationResult | false> {
   if (
     loaded.storageTarget !== "document_body" ||
@@ -935,6 +936,8 @@ async function mutatePrimaryBlockThroughLiveCopy(
       db: tx,
       accessAlreadyResolved: true,
     });
+    // After the replay, so a write that landed before the lock keeps its receipt.
+    assertAgentsMayEditPageText(current.row.document, ctx);
     assertMutationRevisions(current, input);
     if (current.storageTarget !== "document_body") {
       contractError(
@@ -954,6 +957,7 @@ async function mutatePrimaryBlockThroughLiveCopy(
     assertNoNewlySharedVideoIds(loaded.markdown, changed.markdown);
     await editContentLiveCopy(input.target.rowDocumentId, {
       cause: {
+        ctx,
         operation: "mutate-content-database-block",
         lockCollections: [input.target.databaseId],
         expectedBlocksFieldRevision: {
@@ -1063,6 +1067,7 @@ export async function mutateDatabaseBlock(
         input,
         inputDigest,
         loaded,
+        ctx,
       );
       if (liveResult) return liveResult;
       return getDb().transaction(async (transaction) => {
