@@ -172,33 +172,47 @@ export function correctSearchQueryTypos(
   const alternatives = (term: SearchQueryTerm): string[] => {
     const pieces = termPieces(term);
     if (!pieces) return [];
-    const corrected = new Map<number, { typed: string; words: string[] }>();
+    // Each close word and its stored spellings share the word's rank.
+    type Option = { text: string; rank: number };
+    const corrected = new Map<number, { typed: Option; words: Option[] }>();
     for (const [index, piece] of pieces.entries()) {
       if (!correctable(piece, index)) continue;
       const words = closestWords(vocabulary, Array.from(piece));
       if (!words.length) continue;
       corrected.set(index, {
-        typed: piece,
-        words: words.flatMap((word) => [word, ...(vocabulary.get(word) ?? [])]),
+        typed: { text: piece, rank: words.length },
+        words: words.flatMap((word, rank) =>
+          [word, ...(vocabulary.get(word) ?? [])].map((text) => ({
+            text,
+            rank,
+          })),
+        ),
       });
       corrections.set(piece, words);
     }
     if (!corrected.size) return [];
     // A word inside punctuation ("q3-roadmpa") is replaced in place, by each
-    // close word in each of its stored spellings.
+    // close word in each of its stored spellings. With two mistyped words,
+    // the combinations with the best ranks in total are kept, so the second
+    // closest word for one can pair with the closest for the other.
     const combine = (keepTyped: boolean) => {
-      let combinations = [pieces];
+      let combinations = [{ pieces, rank: 0 }];
       for (const [index, { typed, words }] of corrected) {
         const options = keepTyped ? [...words, typed] : words;
         combinations = combinations
           .flatMap((combination) =>
-            options.map((option) =>
-              combination.map((piece, at) => (at === index ? option : piece)),
-            ),
+            options.map((option) => ({
+              pieces: combination.pieces.map((piece, at) =>
+                at === index ? option.text : piece,
+              ),
+              rank: combination.rank + option.rank,
+            })),
           )
+          // Keeping the best ranks at each step keeps the best overall.
+          .sort((a, b) => a.rank - b.rank)
           .slice(0, MAX_ALTERNATIVES);
       }
-      return combinations.map((combination) => combination.join(""));
+      return combinations.map((combination) => combination.pieces.join(""));
     };
     // With two mistyped words, each is also kept as typed while the other is
     // corrected, after every full correction: a body can say "billng-launch",

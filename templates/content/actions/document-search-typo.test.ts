@@ -62,7 +62,7 @@ describe("typo pass vocabulary", () => {
     ]);
   });
 
-  it("keeps full corrections ahead of words kept as typed", () => {
+  it("keeps the best-ranked full corrections ahead of words kept as typed", () => {
     // Five close words for each mistyped word: 25 full corrections, 20 kept.
     const corrected = correctSearchQueryTypos(
       parseSearchQuery("zats-zogs"),
@@ -74,7 +74,12 @@ describe("typo pass vocabulary", () => {
 
     const texts = corrected?.query.groups[0]?.terms.map(({ text }) => text);
     expect(texts).toHaveLength(21);
-    expect(texts).toContain("mats-logs");
+    // The fifth closest word for either one pairs with the closest for the
+    // other; two fourth or fifth closest words don't.
+    expect(texts).toEqual(
+      expect.arrayContaining(["bats-dogs", "rats-dogs", "bats-togs"]),
+    );
+    expect(texts).not.toContain("rats-togs");
     expect(texts?.slice(1).filter((text) => /zats|zogs/.test(text))).toEqual(
       [],
     );
