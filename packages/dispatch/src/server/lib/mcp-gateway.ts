@@ -600,7 +600,7 @@ function isDispatchAppPageUrl(url: string): boolean {
   );
 }
 
-function mountedWorkspaceAppHomeUrl(app: {
+export function mountedWorkspaceAppHomeUrl(app: {
   path: string;
   url: string | null;
 }): string | null {

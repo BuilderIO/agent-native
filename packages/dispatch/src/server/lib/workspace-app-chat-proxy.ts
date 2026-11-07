@@ -1,6 +1,7 @@
 import { getOrgContext } from "@agent-native/core/org";
 import {
   getAppProductionUrl,
+  getBrowserCookieSession,
   getForwardedRequestOrigin,
   getSession,
   resolveAppRuntimeUrl,
@@ -12,9 +13,11 @@ import {
 } from "@agent-native/core/shared";
 
 import { parseWorkspaceAppChatProxyPath } from "../../shared/workspace-app-chat.js";
+import { listWorkspaceApps } from "./app-creation-store.js";
 import {
   createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat,
   createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
+  mountedWorkspaceAppHomeUrl,
 } from "./mcp-gateway.js";
 
 const TARGET_CHAT_PATH = "/_agent-native/agent-chat";
@@ -300,19 +303,27 @@ export function clearWorkspaceAppChatSessions(): void {
 
 function upstreamRequestHeaders(
   request: Request,
-  session: WorkspaceAppChatSession,
+  session?: WorkspaceAppChatSession,
 ): Headers {
   const headers = new Headers();
   for (const [name, value] of request.headers) {
     const lower = name.toLowerCase();
-    if (HOP_BY_HOP_HEADERS.has(lower) || DROPPED_REQUEST_HEADERS.has(lower)) {
+    const browserHeader =
+      !session &&
+      (lower === "cookie" || lower === "origin" || lower === "referer");
+    if (
+      HOP_BY_HOP_HEADERS.has(lower) ||
+      (DROPPED_REQUEST_HEADERS.has(lower) && !browserHeader)
+    ) {
       continue;
     }
     headers.set(name, value);
   }
-  headers.set("authorization", `Bearer ${session.token}`);
-  headers.set(EMBED_TARGET_HEADER, session.embedTarget);
-  headers.set(CSRF_MARKER_HEADER, "1");
+  if (session) {
+    headers.set("authorization", `Bearer ${session.token}`);
+    headers.set(EMBED_TARGET_HEADER, session.embedTarget);
+    headers.set(CSRF_MARKER_HEADER, "1");
+  }
   return headers;
 }
 
@@ -358,16 +369,45 @@ export function createWorkspaceAppChatProxyHandler(
     }
 
     let requestOrigin: string;
-    let appSession: WorkspaceAppChatSession;
+    let appBaseUrl: string;
+    let appSession: WorkspaceAppChatSession | undefined;
     try {
       requestOrigin = trustedWorkspaceRequestOrigin(event);
-      appSession = await resolveWorkspaceAppChatSession({
-        appId: parsed.appId,
-        userEmail: session.email,
-        orgId,
-        requestOrigin,
-        fetchImpl,
-      });
+      const browserSession = await getBrowserCookieSession(event as never);
+      let browserAppUrl: string | null = null;
+      if (
+        browserSession?.email === session.email &&
+        (browserSession.orgId ?? null) === (orgId ?? null)
+      ) {
+        const apps = await runWithRequestContext(
+          {
+            userEmail: session.email,
+            ...(orgId ? { orgId } : {}),
+            requestOrigin,
+          },
+          () => listWorkspaceApps({ includeAgentCards: false }),
+        );
+        const app = apps.find(
+          (candidate) =>
+            candidate.id === parsed.appId &&
+            !candidate.isDispatch &&
+            candidate.status !== "pending",
+        );
+        browserAppUrl = app ? mountedWorkspaceAppHomeUrl(app) : null;
+      }
+      // Page-only embed tokens do not authorize chat; same-origin apps recheck the browser session themselves.
+      if (browserAppUrl && new URL(browserAppUrl).origin === requestOrigin) {
+        appBaseUrl = browserAppUrl;
+      } else {
+        appSession = await resolveWorkspaceAppChatSession({
+          appId: parsed.appId,
+          userEmail: session.email,
+          orgId,
+          requestOrigin,
+          fetchImpl,
+        });
+        appBaseUrl = appSession.appBaseUrl;
+      }
     } catch (error) {
       console.warn("[dispatch] workspace app chat proxy could not connect", {
         app: parsed.appId,
@@ -381,7 +421,7 @@ export function createWorkspaceAppChatProxyHandler(
 
     const request = event.req;
     const target = new URL(
-      `${appSession.appBaseUrl}${TARGET_CHAT_PATH}${parsed.targetSubPath}`,
+      `${appBaseUrl}${TARGET_CHAT_PATH}${parsed.targetSubPath}`,
     );
     target.search = url.search;
 
@@ -411,7 +451,7 @@ export function createWorkspaceAppChatProxyHandler(
       );
     }
 
-    if (upstream.status === 401 || upstream.status === 403) {
+    if (appSession && (upstream.status === 401 || upstream.status === 403)) {
       sessionCache.delete(
         sessionCacheKey({
           appId: parsed.appId,

@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
+  getBrowserCookieSession: vi.fn(),
+  listWorkspaceApps: vi.fn(),
   getOrgContext: vi.fn(),
   getAppProductionUrl: vi.fn(),
   getForwardedRequestOrigin: vi.fn(),
@@ -21,6 +23,7 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
     getAppProductionUrl: mocks.getAppProductionUrl,
     getForwardedRequestOrigin: mocks.getForwardedRequestOrigin,
     getSession: mocks.getSession,
+    getBrowserCookieSession: mocks.getBrowserCookieSession,
     resolveAppRuntimeUrl: mocks.resolveAppRuntimeUrl,
   };
 });
@@ -29,7 +32,12 @@ vi.mock("@agent-native/core/org", () => ({
   getOrgContext: mocks.getOrgContext,
 }));
 
-vi.mock("./mcp-gateway.js", () => ({
+vi.mock("./app-creation-store.js", () => ({
+  listWorkspaceApps: mocks.listWorkspaceApps,
+}));
+
+vi.mock("./mcp-gateway.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./mcp-gateway.js")>()),
   createWorkspaceSsoEmbedSession: mocks.createWorkspaceSsoEmbedSession,
   createGrantedDispatchMcpEmbedSession:
     mocks.createGrantedDispatchMcpEmbedSession,
@@ -117,6 +125,8 @@ describe("workspace app chat proxy", () => {
   beforeEach(() => {
     clearWorkspaceAppChatSessions();
     mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
+    mocks.getBrowserCookieSession.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
     mocks.getOrgContext.mockResolvedValue({ orgId: "org-1" });
     mocks.getAppProductionUrl.mockReturnValue(
       "https://dispatch.agent-native.com",
@@ -164,6 +174,134 @@ describe("workspace app chat proxy", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
+  });
+
+  describe("same-origin workspace apps", () => {
+    const origin = "https://dispatch.agent-native.com";
+    const browserSession = { email: "owner@example.com", orgId: "org-1" };
+    const app = {
+      id: "analytics",
+      path: "/analytics",
+      url: `${origin}/dispatch/apps/analytics`,
+      isDispatch: false,
+      status: "ready",
+    };
+
+    beforeEach(() => {
+      mocks.getBrowserCookieSession.mockResolvedValue(browserSession);
+      mocks.listWorkspaceApps.mockResolvedValue([app]);
+    });
+
+    it("uses the browser session for the registered app without minting a page token", async () => {
+      const fetchImpl = vi.fn(async () => new Response("ok"));
+      const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
+      const body = JSON.stringify({ messages: [] });
+      const response = await handler(
+        proxyEvent(
+          "/_agent-native/workspace-app-chat/analytics?thread=example",
+          {
+            method: "POST",
+            body,
+            headers: {
+              cookie: "session=fake-session",
+              origin,
+              authorization: "Bearer fake-caller-token",
+              "content-type": "application/json",
+              "x-agent-native-embed-target": "/unrelated",
+            },
+          },
+        ),
+      );
+
+      expect(response.status).toBe(200);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      const [target, init] = fetchImpl.mock.calls[0] as unknown as [
+        string,
+        RequestInit,
+      ];
+      expect(target).toBe(
+        `${origin}/analytics/_agent-native/agent-chat?thread=example`,
+      );
+      expect(init.body).toEqual(new TextEncoder().encode(body).buffer);
+      expect(init.redirect).toBe("manual");
+      const headers = init.headers as Headers;
+      expect(headers.get("cookie")).toBe("session=fake-session");
+      expect(headers.get("origin")).toBe(origin);
+      expect(headers.get("authorization")).toBeNull();
+      expect(headers.get("x-agent-native-embed-target")).toBeNull();
+      expect(headers.get("x-agent-native-csrf")).toBeNull();
+      expect(
+        mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
+      ).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      null,
+      { email: "another@example.com", orgId: "org-1" },
+      { email: "owner@example.com", orgId: "another-org" },
+    ])(
+      "does not forward cookies without the same independently verified browser identity: %j",
+      async (session) => {
+        mocks.getBrowserCookieSession.mockResolvedValue(session);
+        const fetchImpl = stubFetch(() => new Response("ok"));
+        const response = await createWorkspaceAppChatProxyHandler({
+          fetchImpl,
+        })(
+          proxyEvent("/_agent-native/workspace-app-chat/analytics/mode", {
+            headers: { cookie: "session=fake-session" },
+          }),
+        );
+
+        expect(response.status).toBe(200);
+        expect(fetchImpl).toHaveBeenCalledTimes(2);
+        const init = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
+          .calls[1][1] as RequestInit;
+        expect((init.headers as Headers).get("cookie")).toBeNull();
+      },
+    );
+
+    it.each([
+      { apps: [] },
+      { apps: [{ ...app, url: APP_ORIGIN }] },
+      { apps: [{ ...app, status: "pending" }] },
+      { apps: [{ ...app, path: "//untrusted.example" }] },
+    ])(
+      "does not forward cookies outside a ready, accessible same-origin mount: %j",
+      async ({ apps }) => {
+        mocks.listWorkspaceApps.mockResolvedValue(apps);
+        const fetchImpl = stubFetch(() => new Response("ok"));
+        const response = await createWorkspaceAppChatProxyHandler({
+          fetchImpl,
+        })(
+          proxyEvent("/_agent-native/workspace-app-chat/analytics/mode", {
+            headers: { cookie: "session=fake-session" },
+          }),
+        );
+
+        expect(response.status).toBe(200);
+        expect(fetchImpl).toHaveBeenCalledTimes(2);
+        const init = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
+          .calls[1][1] as RequestInit;
+        expect((init.headers as Headers).get("cookie")).toBeNull();
+      },
+    );
+
+    it("fails closed when the accessible-app registry cannot be read", async () => {
+      mocks.listWorkspaceApps.mockRejectedValue(
+        new Error("registry unavailable"),
+      );
+      const fetchImpl = vi.fn();
+      const response = await createWorkspaceAppChatProxyHandler({ fetchImpl })(
+        proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+      );
+
+      expect(response.status).toBe(502);
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(console.warn).toHaveBeenCalledWith(
+        "[dispatch] workspace app chat proxy could not connect",
+        { app: "analytics", error: "registry unavailable" },
+      );
+    });
   });
 
   it("forwards a chat turn to the target app's own agent-chat route", async () => {
