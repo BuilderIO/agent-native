@@ -1,4 +1,8 @@
-import { defineAction, type ActionRunContext } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
@@ -13,6 +17,7 @@ import {
   BREAKDOWN_OVER_BYTE_CAP_ERROR,
   ROW_BREAKDOWN_MAX_BYTES_BILLED,
 } from "../shared/row-breakdown";
+import { TRAFFIC_ENVIRONMENTS } from "../shared/traffic-environment";
 
 export default defineAction({
   description:
@@ -24,6 +29,7 @@ export default defineAction({
     // Interaction budgets are fixed here. The normal SQL operation retains its
     // source budget; purpose is not an authorization boundary for arbitrary SQL.
     purpose: z.enum(["row-breakdown", "panel-drilldown"]).optional(),
+    environment: z.enum(TRAFFIC_ENVIRONMENTS).optional(),
   }),
   http: { method: "POST" },
   readOnly: true,
@@ -35,6 +41,12 @@ export default defineAction({
       throw new Error("No authenticated context for query-dashboard-panel.");
     }
 
+    if (args.environment && args.source !== "first-party") {
+      fail("environment applies only to first-party panels.", {
+        errorCode: "invalid_target",
+        statusCode: 400,
+      });
+    }
     const query = normalizeDashboardPanelQuery(args.source, args.query);
     try {
       return await withBigQueryUsageAttribution(
@@ -44,6 +56,9 @@ export default defineAction({
             {
               source: args.source,
               query,
+              ...(args.environment
+                ? { trafficEnvironment: args.environment }
+                : {}),
               ...(args.forceRefresh ? { forceRefresh: true } : {}),
               ...(actionContext?.signal
                 ? { signal: actionContext.signal }

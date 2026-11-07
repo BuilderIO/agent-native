@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import {
   useHeaderTitle,
@@ -11,8 +12,9 @@ const pageTitles: Record<string, string> = {
   "/": "Content",
 };
 
-function resolveTitle(pathname: string): string {
+function resolveTitle(pathname: string, t: ReturnType<typeof useT>): string {
   if (pageTitles[pathname]) return pageTitles[pathname];
+  if (pathname === "/trash") return t("sidebar.trash");
 
   if (pathname.startsWith("/page/")) return "Document";
   if (pathname.startsWith("/extensions")) return "Extensions";
@@ -25,6 +27,7 @@ interface HeaderProps {
 }
 
 export function Header({ sidebarTrigger }: HeaderProps) {
+  const t = useT();
   const location = useLocation();
   const title = useHeaderTitle();
   const actions = useHeaderActions();
@@ -39,7 +42,7 @@ export function Header({ sidebarTrigger }: HeaderProps) {
         {sidebarTrigger}
         {title ?? (
           <h1 className="text-lg font-semibold tracking-tight truncate">
-            {resolveTitle(location.pathname)}
+            {resolveTitle(location.pathname, t)}
           </h1>
         )}
       </div>

@@ -30,6 +30,11 @@ import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
 } from "../../shared/sql-query-limits";
+import {
+  readTrafficFilterValue,
+  TRAFFIC_FILTER_ID,
+  type TrafficEnvironment,
+} from "../../shared/traffic-environment";
 import { dryRunQuerySchema, type DryRunQueryResult } from "./bigquery";
 import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import type { DashboardPanelSource } from "./dashboard-panel-query";
@@ -38,6 +43,7 @@ import {
   describeError,
   runResolvedPanel,
 } from "./dashboard-panel-runner";
+import { scopedAnalyticsSql } from "./first-party-analytics";
 import {
   describeReportSchedules,
   estimateResolvedPanels,
@@ -405,7 +411,13 @@ function interpolationFailure(
 }
 
 export type ResolvedDashboardPanelQuery =
-  | { panelId: string; title: string; source: string; query: string }
+  | {
+      panelId: string;
+      title: string;
+      source: string;
+      query: string;
+      trafficEnvironment?: TrafficEnvironment;
+    }
   | { panelId: string; title: string; source: string; error: string };
 
 /**
@@ -419,6 +431,12 @@ export function resolveDashboardPanelQueries(
 ): ResolvedDashboardPanelQuery[] {
   const config = normalizeDashboardConfig(rawConfig);
   const vars = resolveVerificationVars(config, filters);
+  // A dashboard from before the traffic filter shows it without storing it, so
+  // a choice made there arrives only as an override.
+  const traffic =
+    vars[TRAFFIC_FILTER_ID] ||
+    filters?.[TRAFFIC_FILTER_ID] ||
+    filters?.[FILTER_PARAM_PREFIX + TRAFFIC_FILTER_ID];
   return panelsOf(config)
     .filter((panel) => typeof panel.id === "string" && hasSqlToRun(panel))
     .map((panel) => {
@@ -428,8 +446,13 @@ export function resolveDashboardPanelQueries(
       try {
         const query = buildPanelQuery(panel as unknown as SqlPanel, vars);
         const failure = interpolationFailure(query, panel.sql, vars);
-        return failure
-          ? { panelId, title, source, error: failure }
+        if (failure) return { panelId, title, source, error: failure };
+        const trafficEnvironment =
+          source === "first-party"
+            ? readTrafficFilterValue(traffic)
+            : undefined;
+        return trafficEnvironment
+          ? { panelId, title, source, query, trafficEnvironment }
           : { panelId, title, source, query };
       } catch (error) {
         return {
@@ -640,6 +663,25 @@ async function verifyOne(
       AbortSignal.timeout(Math.max(1, remainingMs())),
     ]);
 
+  // The run below reads all traffic, but the saved dashboard opens on its
+  // default, which refuses some shapes all traffic allows, such as a rollup
+  // with no start date. Scoping finds that without any production rows.
+  if (source === "first-party") {
+    try {
+      const shownTraffic = readTrafficFilterValue(vars[TRAFFIC_FILTER_ID]);
+      if (shownTraffic) {
+        scopedAnalyticsSql(query, state.ctx, undefined, {
+          trafficEnvironment: shownTraffic,
+        });
+      }
+    } catch (error) {
+      return finish({
+        status: "query-error",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   const dryRun =
     source === "bigquery" && opts.dryRun !== false && remainingMs() > 0
       ? await dryRunPanel(query, budgetSignal(), opts.signal)
@@ -677,6 +719,21 @@ async function verifyOne(
     return finish({ status: "unverified", note: "timeout" });
   }
 
+  // Only a traffic filter the caller names applies. Checking a save against the
+  // dashboard's default would call a panel broken on a database with no
+  // production traffic, such as a local one.
+  let trafficEnvironment: ReturnType<typeof readTrafficFilterValue>;
+  try {
+    trafficEnvironment = readTrafficFilterValue(
+      opts.filters?.[TRAFFIC_FILTER_ID] ??
+        opts.filters?.[FILTER_PARAM_PREFIX + TRAFFIC_FILTER_ID],
+    );
+  } catch (error) {
+    return finish({
+      status: "query-error",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   const data = await runResolvedPanel({
     source: source as DashboardPanelSource,
     query,
@@ -685,6 +742,7 @@ async function verifyOne(
     signal: budgetSignal(),
     forceRefresh: opts.forceRefresh,
     usageAttribution: { workload: "panel-verification", panelId },
+    ...(trafficEnvironment ? { trafficEnvironment } : {}),
   });
   if (opts.signal?.aborted) throw cancelled();
   if (data.status === "missing-credential") {

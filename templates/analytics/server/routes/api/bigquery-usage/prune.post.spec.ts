@@ -10,7 +10,8 @@ vi.mock("h3", () => ({
 }));
 import handler from "./prune.post";
 afterEach(() => {
-  delete globalThis.__AGENT_NATIVE_BIGQUERY_USAGE_RETENTION_SCHEDULED_RUNTIME__;
+  globalThis.__AGENT_NATIVE_BIGQUERY_USAGE_RETENTION_SCHEDULED_RUNTIME__ =
+    undefined;
   prune.mockReset();
 });
 it("refuses ordinary requests before global maintenance starts", async () => {

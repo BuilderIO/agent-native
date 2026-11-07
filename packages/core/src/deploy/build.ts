@@ -2963,6 +2963,7 @@ function patchReactRouterServerManifestSource(
   source: string,
   serverBuildFile: string,
   clientManifest: ReactRouterAssetManifest,
+  unreadable: string[],
 ): string | undefined {
   const regionStart = source.indexOf(
     "//#region \\0virtual:react-router/server-manifest",
@@ -3003,13 +3004,23 @@ function patchReactRouterServerManifestSource(
     /(?:\b[A-Za-z_][\w$]*|\$[\w$]*)\s*=\s*(\{\s*(?:entry|["']entry["'])\s*:)/g;
   for (const match of source.matchAll(assignments)) {
     const valueStart = match.index! + match[0].lastIndexOf("{");
-    const valueEnd = findJavaScriptObjectEnd(source, valueStart);
-    const serverManifest = evaluateReactRouterServerManifest(
-      source,
-      serverBuildFile,
-      valueStart,
-      valueEnd,
-    );
+    let valueEnd: number;
+    let serverManifest: unknown;
+    // Any bundled library can assign an object with an `entry` key, and one
+    // that reads a variable can't be evaluated here. The real manifest is plain
+    // data; if nothing matches, the caller reports what it couldn't read.
+    try {
+      valueEnd = findJavaScriptObjectEnd(source, valueStart);
+      serverManifest = evaluateReactRouterServerManifest(
+        source,
+        serverBuildFile,
+        valueStart,
+        valueEnd,
+      );
+    } catch (error) {
+      unreadable.push(error instanceof Error ? error.message : String(error));
+      continue;
+    }
     if (
       !serverManifest ||
       typeof serverManifest !== "object" ||
@@ -3040,6 +3051,7 @@ function patchReactRouterServerManifestInOutput(
     pairedClientDirectory,
   );
   let patchedFile: string | undefined;
+  const unreadable: string[] = [];
   walkServerJavaScriptFiles(serverDirectory, (serverBuildFile) => {
     const source = fs.readFileSync(serverBuildFile, "utf8");
     let rewritten = replacePairedClientAssetReferences(
@@ -3051,6 +3063,7 @@ function patchReactRouterServerManifestInOutput(
         rewritten,
         serverBuildFile,
         clientManifest,
+        unreadable,
       );
       if (patched !== undefined) {
         rewritten = patched;
@@ -3061,7 +3074,10 @@ function patchReactRouterServerManifestInOutput(
   });
   if (!patchedFile) {
     throw new Error(
-      `React Router server manifest not found in Nitro output ${serverDirectory}`,
+      [
+        `React Router server manifest not found in Nitro output ${serverDirectory}`,
+        ...unreadable,
+      ].join("\n"),
     );
   }
   console.log(

@@ -1,9 +1,9 @@
-import { AGENT_ACCESS_PARAM } from "../shared/agent-access.js";
+import { SIGNED_LINK_PARAMS } from "../shared/agent-access.js";
 
 /**
  * Query parameters that may carry sensitive values in the URL bar. Browser
  * telemetry and feedback integrations must not copy OAuth codes, share tokens,
- * password params, email-confirm tokens, signed agent-access links, or similar
+ * password params, email-confirm tokens, signed links, or similar
  * secrets into downstream systems. Callers may opt into additional
  * app-specific query parameters.
  */
@@ -16,7 +16,7 @@ const SENSITIVE_QUERY_PARAMS = new Set([
   "share",
   "share_token",
   "bridge",
-  AGENT_ACCESS_PARAM,
+  ...SIGNED_LINK_PARAMS,
 ]);
 
 const MAX_QUERY_DECODE_DEPTH = 8;
