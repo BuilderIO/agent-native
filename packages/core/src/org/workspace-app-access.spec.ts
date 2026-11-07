@@ -33,6 +33,7 @@ vi.mock("./federation.js", () => ({
 
 import {
   checkWorkspaceAppAccess,
+  currentWorkspaceAppIdsForAccessList,
   isWorkspaceAppAccessAllowed,
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
 } from "./workspace-app-access.js";
@@ -600,6 +601,36 @@ describe("isWorkspaceAppAccessAllowed", () => {
       }),
     );
     expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("lists apps discovered by Dispatch after the startup manifest", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "dispatch" }, { id: "programs" }]),
+    );
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([{ id: "programs" }, { id: "new-live-app" }]),
+        { headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ids = await currentWorkspaceAppIdsForAccessList({
+      email: "member@example.com",
+      orgId: null,
+    });
+
+    expect([...ids!].sort()).toEqual(["new-live-app", "programs"]);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/_agent-native/actions/list-workspace-apps",
+    );
   });
 
   it("signs user registry reads with the deployment secret when an org secret exists", async () => {
