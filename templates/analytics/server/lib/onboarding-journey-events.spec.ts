@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 
 import { readAgentSqlQuery } from "@agent-native/core/agent-sql";
@@ -5,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   assertFirstPartyAnalyticsBigQuerySql,
+  ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS,
   renderFirstPartyAnalyticsBigQuerySql,
 } from "./first-party-analytics-backend.js";
 import {
@@ -21,12 +23,19 @@ import {
   type OnboardingJourneyPersonMember,
   type OnboardingJourneyTerminalStep,
 } from "./first-party-metric-catalog.js";
-import { ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS } from "./onboarding-journey.js";
+import {
+  ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
+  ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS,
+} from "./onboarding-journey.js";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
+
+/** The hash the journey read returns for a session email. */
+const emailHash = (email: string) =>
+  createHash("md5").update(email.toLowerCase()).digest("hex");
 
 const SCOPE = { userEmail: "owner@example.test", orgId: "org-1" };
 
@@ -196,7 +205,12 @@ describe("onboarding journey events SQL", () => {
       members,
       window,
     );
-    const scoped = scopedAnalyticsSql(sql, SCOPE);
+    const scoped = scopedAnalyticsSql(
+      sql,
+      SCOPE,
+      undefined,
+      ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS,
+    );
     const result = (await client.query(scoped.sql, scoped.args)) as {
       rows: Array<Record<string, unknown>>;
     };
@@ -365,6 +379,7 @@ describe("onboarding journey events SQL", () => {
       tsMs: Date.parse(`${today}T12:00:00.000Z`),
       app: "clips",
       authUserId: "person'\\u0027\nline",
+      emailHash: emailHash("o'neil@example.com"),
     };
     const sql = buildOnboardingJourneyPersonFollowupSql(
       filters(),
@@ -384,6 +399,7 @@ describe("onboarding journey events SQL", () => {
       app: member.app,
       timestamp: new Date(member.tsMs).toISOString(),
       authUserId: member.authUserId,
+      emailHash: member.emailHash,
     });
     const table = {
       projectId: "example-project",
@@ -406,6 +422,61 @@ describe("onboarding journey events SQL", () => {
     expect(rendered).toContain(
       "FROM `example-project.analytics.first_party_analytics_events_raw`",
     );
+  });
+
+  it("renders the person follow-up's narrow source for BigQuery and keeps response events", async () => {
+    await setup();
+    const window = observation();
+    const sql = buildOnboardingJourneyPersonFollowupSql(
+      filters({ excludeNonProductionHosts: true }),
+      [
+        {
+          sessionId: "session-1",
+          stepKey: "step:role",
+          tsMs: Date.parse(`${today}T12:00:00.000Z`),
+          app: "clips",
+          authUserId: "person-1",
+          emailHash: emailHash("person@example.com"),
+        },
+      ],
+      window,
+    );
+    const scoped = scopedAnalyticsSql(
+      sql,
+      SCOPE,
+      undefined,
+      ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS,
+    );
+    await client.query(scoped.sql, scoped.args);
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      scoped.sql,
+      scoped.args,
+      {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "example-project.analytics.first_party_analytics_events_raw",
+      },
+      {
+        eventDateRange: { startDate: yesterday, endDate: today },
+        ...ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS,
+      },
+    );
+
+    expect(() =>
+      readAgentSqlQuery(rendered, { dialect: "bigquery" }),
+    ).not.toThrow();
+    expect(rendered).not.toMatch(/SELECT \* FROM `example-project/);
+    expect(rendered).toContain(
+      `SELECT ${ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS.join(", ")} FROM`,
+    );
+    expect(rendered).not.toContain("event_name != 'http.response'");
+    // Both engines spell the email hash as lowercase hex.
+    expect(rendered).toMatch(
+      /TO_HEX\(MD5\(lower\(activity\.funnel_user_email\)\)\)/i,
+    );
+    expect(rendered).not.toContain("person@example.com");
   });
 
   it("avoids an unused identity-bridge scan while keeping session email filters", async () => {
@@ -667,6 +738,198 @@ describe("onboarding journey events SQL", () => {
         later_activity_observed_anywhere: 1,
       },
     ]);
+  });
+
+  it("matches later activity by email when a member has no sign-in ID", async () => {
+    await setup();
+    const terminalAt = Date.parse(`${today}T12:00:02.000Z`);
+    // Grace returns in Design, signed in under a differently cased email.
+    await insert("grace-later", "button_click", 5, {
+      email: "Grace@Example.com",
+      template: "design",
+    });
+    // Heidi's own session continues under someone else's email: not hers.
+    await insert("heidi-cohort", "button_click", 6, {
+      email: "mallory@example.com",
+    });
+    // Ivan matches on his sign-in ID alone.
+    await insert("ivan-later", "button_click", 7, {
+      template: "design",
+      properties: { auth_user_id: "person-ivan" },
+    });
+    const member = (
+      sessionId: string,
+      identity: Pick<OnboardingJourneyPersonMember, "authUserId" | "emailHash">,
+    ): OnboardingJourneyPersonMember => ({
+      sessionId,
+      stepKey: "step:role",
+      tsMs: terminalAt,
+      app: "clips",
+      ...identity,
+    });
+
+    const rows = await runPersonFollowup(
+      [
+        member("grace-cohort", {
+          authUserId: null,
+          emailHash: emailHash("grace@example.com"),
+        }),
+        member("heidi-cohort", {
+          authUserId: null,
+          emailHash: emailHash("heidi@example.com"),
+        }),
+        member("ivan-cohort", { authUserId: "person-ivan", emailHash: null }),
+        member("unknown-cohort", { authUserId: null, emailHash: null }),
+      ],
+      {},
+      observation(),
+    );
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        canonical_people: 3,
+        identity_unavailable_sessions: 1,
+        later_activity_in_selected_session: 0,
+        later_activity_outside_selected_session_or_app: 2,
+        later_activity_observed_anywhere: 2,
+        no_activity_observed_within_horizon: 0,
+        right_censored_horizon: 1,
+      }),
+    ]);
+  });
+
+  it("matches a joined person by every email and sign-in ID, and keeps other accounts out of their session", async () => {
+    await setup();
+    const terminalAt = Date.parse(`${today}T12:00:02.000Z`);
+    // Jane returns under an older email one of her sessions carried.
+    await insert("jane-later", "button_click", 5, {
+      email: "jane.old@example.com",
+      template: "design",
+    });
+    // Leo returns under the second sign-in ID his sessions carried.
+    await insert("leo-later", "button_click", 6, {
+      template: "design",
+      properties: { auth_user_id: "person-leo-2" },
+    });
+    // Kim's session goes on under another account's sign-in ID: not hers.
+    await insert("kim-cohort", "button_click", 7, {
+      properties: { auth_user_id: "person-mallory" },
+    });
+    // Nina's session goes on under another account's email: not hers either.
+    await insert("nina-cohort", "button_click", 8, {
+      email: "mallory@example.com",
+    });
+    const member = (
+      sessionId: string,
+      identity: Pick<
+        OnboardingJourneyPersonMember,
+        "authUserId" | "emailHash" | "aliases"
+      >,
+    ): OnboardingJourneyPersonMember => ({
+      sessionId,
+      stepKey: "step:role",
+      tsMs: terminalAt,
+      app: "clips",
+      ...identity,
+    });
+
+    const rows = await runPersonFollowup([
+      member("jane-cohort", {
+        authUserId: "person-jane",
+        emailHash: emailHash("jane@example.com"),
+        aliases: {
+          emailHashes: ["jane.old@example.com", "jane@example.com"].map(
+            emailHash,
+          ),
+          authUserIds: ["person-jane"],
+        },
+      }),
+      member("leo-cohort", {
+        authUserId: "person-leo",
+        emailHash: null,
+        aliases: {
+          emailHashes: [],
+          authUserIds: ["person-leo", "person-leo-2"],
+        },
+      }),
+      member("kim-cohort", {
+        authUserId: null,
+        emailHash: emailHash("kim@example.com"),
+      }),
+      member("nina-cohort", { authUserId: "person-nina", emailHash: null }),
+    ]);
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        canonical_people: 4,
+        later_activity_in_selected_session: 0,
+        later_activity_outside_selected_session_or_app: 2,
+        later_activity_observed_anywhere: 2,
+        right_censored_horizon: 2,
+      }),
+    ]);
+    await expect(
+      runPersonFollowup([
+        member("unknown-only", { authUserId: null, emailHash: null }),
+      ]),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        canonical_people: 0,
+        identity_unavailable_sessions: 1,
+      }),
+    ]);
+    expect(() =>
+      buildOnboardingJourneyPersonFollowupSql(
+        filters(),
+        [
+          member("alias-without-email", {
+            authUserId: null,
+            emailHash: null,
+            aliases: {
+              emailHashes: [emailHash("a@example.com")],
+              authUserIds: [],
+            },
+          }),
+        ],
+        observation(),
+      ),
+    ).toThrow("Invalid onboarding person follow-up member");
+    expect(() =>
+      buildOnboardingJourneyPersonFollowupSql(
+        filters(),
+        [
+          member("same", { authUserId: "person-a", emailHash: null }),
+          member("same", { authUserId: "person-b", emailHash: null }),
+        ],
+        observation(),
+      ),
+    ).toThrow("Invalid onboarding person follow-up member");
+  });
+
+  it("names a session's email only when its emails agree, and counts the whole read on every page", async () => {
+    await setup();
+    await seedSessions();
+    await insert("two-emails", "signup", 3, { email: "x@example.com" });
+    await insert("two-emails", "onboarding_step_viewed", 4, {
+      email: "Y@example.com",
+      properties: { flow: "first_run", step_id: "role" },
+    });
+
+    const all = await run();
+    const emailsBySession = new Map(
+      all.map((row) => [row.session_id, row.session_email_hash]),
+    );
+    expect(emailsBySession.get("normal")).toBe(emailHash("alice@example.com"));
+    expect(emailsBySession.get("two-emails")).toBeNull();
+    expect(all.every((row) => row.journey_total_rows === all.length)).toBe(
+      true,
+    );
+
+    const first = await run({}, { limit: 2, offset: 0 });
+    const second = await run({}, { limit: 2, offset: 2 });
+    expect([...first, ...second].map((row) => row.journey_total_rows)).toEqual(
+      Array(first.length + second.length).fill(all.length),
+    );
   });
 
   it("selects renderable Design output events for onboarding sessions", async () => {
@@ -1454,9 +1717,11 @@ describe("onboarding journey events SQL", () => {
       "flow",
       "id",
       "journey_kind",
+      "journey_total_rows",
       "method_id",
       "outcome",
       "path",
+      "session_email_hash",
       "session_id",
       "session_replay_id",
       "session_replay_started_at",

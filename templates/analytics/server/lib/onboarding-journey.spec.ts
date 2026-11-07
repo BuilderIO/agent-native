@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -813,6 +815,118 @@ describe("getOnboardingJourney", () => {
     now.mockRestore();
   });
 
+  it("joins sessions into one person by email or sign-in ID and reports how each matched", async () => {
+    const now = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.parse("2026-11-05T00:00:56.789Z"));
+    const hash = (email: string) =>
+      createHash("md5").update(email).digest("hex");
+    const grace = { session_email_hash: hash("grace@example.com") };
+    const rows = [
+      eventRow("s1", "signup", 0, grace),
+      eventRow("s1", "onboarding_step_viewed", 5, {
+        ...grace,
+        step_id: "role",
+      }),
+      eventRow("s2", "signup", 0, { auth_user_id: "person-g" }),
+      eventRow("s3", "signup", 0, { ...grace, auth_user_id: "person-g" }),
+      eventRow("s4", "signup", 0),
+      eventRow("s5", "signup", 0, {
+        session_email_hash: hash("heidi@example.com"),
+      }),
+    ];
+    const personRow = (
+      stepKey: string,
+      counts: Record<string, number>,
+    ): Record<string, unknown> => ({
+      terminal_step_key: stepKey,
+      canonical_people: 0,
+      identity_unavailable_sessions: 0,
+      later_activity_in_selected_session: 0,
+      later_activity_outside_selected_session_or_app: 0,
+      later_activity_in_both_selected_and_outside: 0,
+      later_activity_observed_anywhere: 0,
+      no_activity_observed_within_horizon: 0,
+      right_censored_horizon: 0,
+      fully_observed_canonical_people: 0,
+      identity_unavailable_with_selected_session_activity: 0,
+      identity_unavailable_with_outside_session_or_app_activity: 0,
+      ...counts,
+    });
+    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
+      if (sql.includes("terminal_members AS (")) {
+        return {
+          rows: [
+            personRow("signup", {
+              canonical_people: 1,
+              identity_unavailable_sessions: 1,
+              later_activity_outside_selected_session_or_app: 1,
+              later_activity_observed_anywhere: 1,
+              fully_observed_canonical_people: 1,
+            }),
+            personRow("step:role", {
+              canonical_people: 1,
+              no_activity_observed_within_horizon: 1,
+              fully_observed_canonical_people: 1,
+            }),
+          ],
+          schema: [],
+        };
+      }
+      if (sql.includes("terminal_steps AS (")) {
+        return { rows: [], schema: [] };
+      }
+      return { rows, schema: [] };
+    });
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      followUpMode: "person",
+    })) as JourneyTree;
+
+    expect(tree.personFollowUp).toMatchObject({
+      status: "complete",
+      coverage: {
+        identityJoin: {
+          status: "partial",
+          terminalSessions: 5,
+          sessionsWithCanonicalIdentity: 4,
+          sessionsIdentifiedByEmail: 3,
+          sessionsIdentifiedBySignInIdOnly: 1,
+          sessionsWithoutCanonicalIdentity: 1,
+          uniqueCanonicalPeople: 2,
+        },
+      },
+      total: {
+        canonicalPeople: 2,
+        identityUnavailableSessions: 1,
+      },
+    });
+    const personSql = mocks.queryFirstPartyAnalytics.mock.calls
+      .map(([sql]) => sql as string)
+      .find((sql) => sql.includes("terminal_members AS ("))!;
+    // Grace's latest session has only her email; her sign-in ID comes from
+    // the sessions that share it.
+    expect(personSql).toContain(
+      `"sessionId":"s1","stepKey":"step:role","app":"clips","timestamp":"2026-10-01T12:00:05.000Z","authUserId":"person-g","emailHash":"${hash("grace@example.com")}"`,
+    );
+    expect(personSql).toContain(
+      `"authUserId":null,"emailHash":"${hash("heidi@example.com")}"`,
+    );
+    // Later activity matches every email and sign-in ID Grace's sessions carried.
+    expect(personSql).toContain(
+      '{"sessionId":"s1","authUserId":"person-g","emailHash":null}',
+    );
+    expect(personSql).toContain(
+      `{"sessionId":"s1","authUserId":null,"emailHash":"${hash("grace@example.com")}"}`,
+    );
+    expect(personSql).not.toContain('"sessionId":"s2"');
+    expect(personSql).not.toContain('"sessionId":"s3"');
+    expect(JSON.stringify(tree)).not.toContain("@example.com");
+    expect(JSON.stringify(tree)).not.toContain("person-g");
+    now.mockRestore();
+  });
+
   it("uses a typed session-follow-up stage for unclassified query errors", async () => {
     const providerDetail = "private SQL policy detail";
     mocks.queryFirstPartyAnalytics
@@ -1169,11 +1283,19 @@ describe("getOnboardingJourney", () => {
     ).toEqual({ startDate: "2026-10-08", endDate: "2026-10-09" });
   });
 
-  it("marks multi-page offset reads incomplete while preserving the tree", async () => {
+  it("marks multi-page reads incomplete when an event arrives between pages", async () => {
     const firstPage = Array.from({ length: 4000 }, (_, index) =>
-      eventRow(`page-${String(index).padStart(4, "0")}`, "signup", index),
+      eventRow(`page-${String(index).padStart(4, "0")}`, "signup", index, {
+        journey_total_rows: 4001,
+      }),
     );
-    const pageQueue = [firstPage, [eventRow("last-page", "signup", 4000)]];
+    const pageQueue = [
+      firstPage,
+      [
+        eventRow("last-page", "signup", 4000, { journey_total_rows: 4002 }),
+        eventRow("late-arrival", "signup", 4001, { journey_total_rows: 4002 }),
+      ],
+    ];
     const querySql: string[] = [];
     const now = vi
       .spyOn(Date, "now")
@@ -1224,7 +1346,7 @@ describe("getOnboardingJourney", () => {
       rightCensoredAtWindowEnd: true,
       coverage: {
         journeyEventRead: {
-          rows: 4001,
+          rows: 4002,
           pages: 2,
           truncated: false,
           paginationConsistency: "may_have_shifted",
@@ -1243,6 +1365,63 @@ describe("getOnboardingJourney", () => {
       observationFollowupDurationMs: null,
     });
     now.mockRestore();
+  });
+
+  it("runs follow-up on a multi-page read whose pages counted the same rows", async () => {
+    // 1,001 sessions of four signup events each: two pages, under the
+    // follow-up terminal cap.
+    const allRows = Array.from({ length: 4004 }, (_, index) =>
+      eventRow(
+        `cohort-${String(Math.floor(index / 4)).padStart(4, "0")}`,
+        "signup",
+        index,
+        { journey_total_rows: 4004 },
+      ),
+    );
+    const pageQueue = [allRows.slice(0, 4000), allRows.slice(4000)];
+    const querySql: string[] = [];
+    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
+      querySql.push(sql);
+      if (sql.includes("terminal_steps AS (")) {
+        return {
+          rows: [
+            {
+              terminal_step_key: "signup",
+              cohort_sessions: 1001,
+              later_recorded_activity: 0,
+            },
+          ],
+          schema: [],
+        };
+      }
+      return { rows: pageQueue.shift() ?? [], schema: [] };
+    });
+    mocks.listJourneyRecordings.mockResolvedValue({
+      recordings: [],
+      complete: true,
+    });
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      maxEventRows: 5000,
+    })) as JourneyTree;
+
+    expect(
+      querySql.filter((sql) => sql.includes("terminal_steps AS (")),
+    ).toHaveLength(1);
+    expect(tree.notes?.join(" ") ?? "").not.toMatch(/OFFSET pages/);
+    expect(tree.followUp).toMatchObject({
+      status: "complete",
+      coverage: {
+        journeyEventRead: {
+          rows: 4004,
+          pages: 2,
+          truncated: false,
+          paginationConsistency: "stable",
+        },
+        cohortSessions: 1001,
+      },
+    });
   });
 
   it("aggregates a complete one-page cohort in one follow-up query", async () => {
