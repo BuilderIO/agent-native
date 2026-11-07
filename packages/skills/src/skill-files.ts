@@ -5,9 +5,10 @@ import path from "node:path";
  * Replaces `to` with a copy of a skill folder as plain files, so the copy
  * still works on another machine. A link is followed only when it resolves
  * inside `sourceRoot`, the folder or repository the skill came from. A link
- * out of it, one that no longer resolves, or one that leads back to a folder
- * the copy is already inside (which would copy forever) is left out, so a
- * downloaded skill can't copy files from elsewhere on this machine into the
+ * out of it, one that no longer resolves, or one that leads to a folder the
+ * copy is already inside or is writing into (either would copy forever) is
+ * left out, so a downloaded skill can't copy files from elsewhere on this
+ * machine into the
  * project. A `.git` or `node_modules` folder is left out too, and so is a
  * link inside the skill whose target sits under one.
  *
@@ -46,6 +47,8 @@ export function copySkillFiles(
     path.join(path.dirname(to), `.${path.basename(to)}-`),
   );
   const copy = path.join(staging, "skill");
+  const out = path.join(fs.realpathSync(staging), "skill");
+  const aside = path.join(staging, "earlier");
   try {
     fs.cpSync(from, copy, {
       recursive: true,
@@ -55,16 +58,26 @@ export function copySkillFiles(
         if (isLeftOut(path.basename(source))) return false;
         if (!fs.lstatSync(source).isSymbolicLink()) return true;
         const target = resolveLink(source);
-        if (target === undefined || !isInside(root, target)) return false;
+        if (
+          target === undefined ||
+          !isInside(root, target) ||
+          isInside(target, out)
+        ) {
+          return false;
+        }
         return (
           !path.relative(root, target).split(path.sep).some(isLeftOut) &&
           !leadsBackIntoCopy(top, source, target)
         );
       },
     });
-    swapIn(copy, to, path.join(staging, "earlier"));
+    swapIn(copy, to, aside);
   } finally {
-    fs.rmSync(staging, { recursive: true, force: true });
+    // Kept when the earlier install couldn't be put back, as it's the only
+    // copy.
+    if (!exists(aside) || exists(to)) {
+      fs.rmSync(staging, { recursive: true, force: true });
+    }
   }
 }
 
@@ -72,14 +85,26 @@ export function copySkillFiles(
 // deleted, and moved back if the move fails, as it can on Windows while
 // another program has a file in `to` open.
 function swapIn(copy: string, to: string, aside: string): void {
-  const earlier = fs.lstatSync(to, { throwIfNoEntry: false }) !== undefined;
+  const earlier = exists(to);
   if (earlier) fs.renameSync(to, aside);
   try {
     fs.renameSync(copy, to);
   } catch (error) {
-    if (earlier) fs.renameSync(aside, to);
+    if (!earlier) throw error;
+    try {
+      fs.renameSync(aside, to);
+    } catch (restoreError) {
+      throw new Error(
+        `Couldn't replace ${to}, nor put it back: it is now at ${aside} (${(restoreError as Error).message})`,
+        { cause: error },
+      );
+    }
     throw error;
   }
+}
+
+function exists(file: string): boolean {
+  return fs.lstatSync(file, { throwIfNoEntry: false }) !== undefined;
 }
 
 function isLeftOut(name: string): boolean {

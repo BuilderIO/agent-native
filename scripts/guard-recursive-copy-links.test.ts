@@ -24,7 +24,7 @@ describe("recursive copy links guard", () => {
     assert.deepEqual(flagged(source), [1, 2, 3, 4]);
   });
 
-  it("flags a copier imported or destructured under another name", () => {
+  it("flags a copier imported, destructured or assigned under another name", () => {
     const source = [
       'import { cpSync as copyTree } from "node:fs";',
       'import { cp as copyAsync } from "node:fs/promises";',
@@ -34,9 +34,14 @@ describe("recursive copy links guard", () => {
       "copyAll(src, dest, { recursive: true });",
       "copyTree(src, dest, { recursive: true, dereference: true, filter: () => true });",
       "copyOther(src, dest, { recursive: true });",
+      "const copyBound = fs.cpSync.bind(fs);",
+      "let copyLater;",
+      "copyLater = copyTree;",
+      "copyBound(src, dest, { recursive: true });",
+      "copyLater(src, dest, { recursive: true });",
     ].join("\n");
 
-    assert.deepEqual(flagged(source), [4, 5, 6]);
+    assert.deepEqual(flagged(source), [4, 5, 6, 12, 13]);
   });
 
   it("accepts a copy that chooses dereference or verbatimSymlinks", () => {

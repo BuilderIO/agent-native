@@ -14,8 +14,8 @@ export interface CopyFollowingLinksOptions {
 /**
  * Copies a folder as plain files, following the links inside it, so the copy
  * still works on another machine. A link inside it is left out when it no
- * longer resolves, resolves outside `within`, or leads back to a folder the
- * copy is already inside, which would copy forever.
+ * longer resolves, resolves outside `within`, or leads to a folder the copy
+ * is already inside or is writing into, either of which would copy forever.
  *
  * The filter matters even with nothing to leave out: without one, Node 24's
  * `cpSync` takes a native shortcut that follows only a link at the top of the
@@ -28,6 +28,7 @@ export function copyFollowingLinks(
 ): void {
   const top = path.resolve(from);
   const within = options.within?.map((root) => fs.realpathSync(root));
+  const out = landingPath(to);
   fs.cpSync(from, to, {
     recursive: true,
     dereference: true,
@@ -37,7 +38,7 @@ export function copyFollowingLinks(
       if (options.skip?.(path.basename(source))) return false;
       if (!fs.lstatSync(source).isSymbolicLink()) return true;
       const target = resolveLink(source);
-      if (target === undefined) return false;
+      if (target === undefined || isInside(target, out)) return false;
       if (within) {
         const root = within.find((folder) => isInside(folder, target));
         if (root === undefined) return false;
@@ -74,12 +75,16 @@ export function replaceFollowingLinks(
   const staging = fs.mkdtempSync(
     path.join(path.dirname(to), `.${path.basename(to)}-`),
   );
+  const aside = path.join(staging, "earlier");
   try {
     const copy = path.join(staging, "copy");
     copyFollowingLinks(from, copy, options);
-    swapIn(copy, to, path.join(staging, "earlier"));
+    swapIn(copy, to, aside);
   } finally {
-    fs.rmSync(staging, { recursive: true, force: true });
+    // Kept when what was at `to` couldn't be put back, as it's the only copy.
+    if (!exists(aside) || exists(to)) {
+      fs.rmSync(staging, { recursive: true, force: true });
+    }
   }
 }
 
@@ -87,14 +92,26 @@ export function replaceFollowingLinks(
 // deleted, and moved back if the move fails, as it can on Windows while
 // another program has a file in `to` open.
 function swapIn(copy: string, to: string, aside: string): void {
-  const earlier = fs.lstatSync(to, { throwIfNoEntry: false }) !== undefined;
+  const earlier = exists(to);
   if (earlier) fs.renameSync(to, aside);
   try {
     fs.renameSync(copy, to);
   } catch (error) {
-    if (earlier) fs.renameSync(aside, to);
+    if (!earlier) throw error;
+    try {
+      fs.renameSync(aside, to);
+    } catch (restoreError) {
+      throw new Error(
+        `Couldn't replace ${to}, nor put it back: it is now at ${aside} (${(restoreError as Error).message})`,
+        { cause: error },
+      );
+    }
     throw error;
   }
+}
+
+function exists(file: string): boolean {
+  return fs.lstatSync(file, { throwIfNoEntry: false }) !== undefined;
 }
 
 // Where `to` sits on disk, with the folders above it resolved but not `to`

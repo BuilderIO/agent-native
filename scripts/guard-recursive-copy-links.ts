@@ -80,10 +80,24 @@ function isCopier(call: ts.CallExpression, names: Set<string>): boolean {
 }
 
 // `cp` and `cpSync`, plus any other name this file gives them, as in
-// `import { cpSync as copyTree } from "node:fs"` or
-// `const { cpSync: copyTree } = fs`.
+// `import { cpSync as copyTree } from "node:fs"`,
+// `const { cpSync: copyTree } = fs` or `const copyTree = fs.cpSync`.
 function copierNames(sourceFile: ts.SourceFile): Set<string> {
   const names = new Set(COPIERS);
+  // `fs.cpSync`, a name already known, or either with `.bind(...)`.
+  const isCopierValue = (value: ts.Expression): boolean => {
+    const inner = unwrap(value);
+    if (ts.isIdentifier(inner)) return names.has(inner.text);
+    if (ts.isPropertyAccessExpression(inner)) {
+      return COPIERS.has(inner.name.text);
+    }
+    return (
+      ts.isCallExpression(inner) &&
+      ts.isPropertyAccessExpression(inner.expression) &&
+      inner.expression.name.text === "bind" &&
+      isCopierValue(inner.expression.expression)
+    );
+  };
   const visit = (node: ts.Node) => {
     if (
       (ts.isImportSpecifier(node) || ts.isBindingElement(node)) &&
@@ -94,6 +108,22 @@ function copierNames(sourceFile: ts.SourceFile): Set<string> {
       ts.isIdentifier(node.name)
     ) {
       names.add(node.name.text);
+    }
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      isCopierValue(node.initializer)
+    ) {
+      names.add(node.name.text);
+    }
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(node.left) &&
+      isCopierValue(node.right)
+    ) {
+      names.add(node.left.text);
     }
     ts.forEachChild(node, visit);
   };

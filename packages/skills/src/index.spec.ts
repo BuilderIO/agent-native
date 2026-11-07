@@ -364,6 +364,73 @@ describe("@agent-native/skills", () => {
     expect(fs.readdirSync(installRoot)).toEqual(["quick-recap"]);
   });
 
+  it("keeps the earlier install, and says where, when it can't be put back", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "quick-recap");
+    const installRoot = path.join(project, ".agents", "skills");
+    fs.mkdirSync(path.join(installRoot, "quick-recap"), { recursive: true });
+    fs.writeFileSync(
+      path.join(installRoot, "quick-recap", "SKILL.md"),
+      "Earlier install\n",
+    );
+    const rename = fs.renameSync;
+    vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      const name = path.basename(String(from));
+      if (name === "skill" || name === "earlier") {
+        throw Object.assign(new Error("EBUSY: resource busy or locked"), {
+          code: "EBUSY",
+        });
+      }
+      rename(from, to);
+    });
+
+    const failure = await installSkills({
+      source: repo,
+      skillNames: ["quick-recap"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: false,
+      yes: true,
+    }).then(
+      () => undefined,
+      (error: Error) => error,
+    );
+
+    const kept = /it is now at (.+) \(/.exec(failure?.message ?? "")?.[1];
+    expect(kept).toBeDefined();
+    expect(fs.readFileSync(path.join(kept!, "SKILL.md"), "utf8")).toBe(
+      "Earlier install\n",
+    );
+  });
+
+  it("leaves out a link to a folder the install is written into", async () => {
+    const repo = tmpDir();
+    const project = path.join(repo, "project");
+    fs.mkdirSync(project);
+    writeSkill(repo, "quick-recap");
+    fs.symlinkSync(
+      project,
+      path.join(repo, "skills", "quick-recap", "project"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await installSkills({
+      source: repo,
+      skillNames: ["quick-recap"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: false,
+      yes: true,
+    });
+
+    const installed = path.join(project, ".agents", "skills", "quick-recap");
+    expect(fs.existsSync(path.join(installed, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(installed, "project"))).toBe(false);
+  });
+
   it("refuses to install a skill over the folder it comes from", async () => {
     const project = tmpDir();
     writeSkill(path.join(project, ".agents"), "quick-recap");

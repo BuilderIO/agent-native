@@ -139,6 +139,20 @@ describe("copyFollowingLinks", () => {
     expect(fs.statSync(path.join(out, "b", "to-a")).isDirectory()).toBe(true);
     expect(fs.existsSync(path.join(out, "b", "to-a", "to-b"))).toBe(false);
   });
+
+  it("leaves out a link to a folder the copy is written into", () => {
+    const root = tmpDir();
+    const skill = writeSkill(root);
+    const installs = path.join(root, "installs");
+    fs.mkdirSync(installs);
+    linkDir(installs, path.join(skill, "installs"));
+
+    const out = path.join(installs, "actions");
+    copyFollowingLinks(skill, out);
+
+    expect(fs.existsSync(path.join(out, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(out, "installs"))).toBe(false);
+  });
 });
 
 describe("replaceFollowingLinks", () => {
@@ -209,6 +223,35 @@ describe("replaceFollowingLinks", () => {
       "Earlier install\n",
     );
     expect(fs.readdirSync(path.dirname(to))).toEqual(["actions"]);
+  });
+
+  it("keeps what was there, and says where, when it can't be put back", () => {
+    const root = tmpDir();
+    const skill = writeSkill(root);
+    const to = earlierInstall(root);
+    const rename = fs.renameSync;
+    vi.spyOn(fs, "renameSync").mockImplementation((from, dest) => {
+      const name = path.basename(String(from));
+      if (name === "copy" || name === "earlier") {
+        throw Object.assign(new Error("EBUSY: resource busy or locked"), {
+          code: "EBUSY",
+        });
+      }
+      rename(from, dest);
+    });
+
+    let message = "";
+    try {
+      replaceFollowingLinks(skill, to);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+
+    const kept = /it is now at (.+) \(/.exec(message)?.[1];
+    expect(kept).toBeDefined();
+    expect(fs.readFileSync(path.join(kept!, "SKILL.md"), "utf8")).toBe(
+      "Earlier install\n",
+    );
   });
 
   it("refuses to replace a folder the copy comes from", () => {
