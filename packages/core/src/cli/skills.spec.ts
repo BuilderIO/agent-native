@@ -14,6 +14,8 @@ import {
   AGENT_NATIVE_SKILL_METADATA_FILE,
   CONNECTION_REFERENCE_MD,
   _copyScaffoldGuidanceSkills,
+  _restoreInstallPaths,
+  _snapshotInstallPaths,
   parseSkillsArgs,
   runSkills,
   VISUAL_RECAP_SKILL_MD,
@@ -886,6 +888,30 @@ describe("agent-native skills", () => {
         delete process.env.CLIPS_SCREEN_MEMORY_DIR;
       else process.env.CLIPS_SCREEN_MEMORY_DIR = previousStore;
     }
+  });
+
+  it("puts a folder link that no longer resolves back as a folder link", () => {
+    const root = tmpDir();
+    const gone = path.join(root, "gone");
+    const skillDir = path.join(root, "home", ".claude", "skills", "rewind");
+    fs.mkdirSync(gone);
+    fs.mkdirSync(path.dirname(skillDir), { recursive: true });
+    linkDir(gone, skillDir);
+    fs.rmSync(gone, { recursive: true });
+    const written = fs.readlinkSync(skillDir);
+
+    const snapshots = _snapshotInstallPaths(
+      [skillDir],
+      fs.mkdtempSync(path.join(root, "backup-")),
+    );
+    fs.rmSync(skillDir, { force: true });
+    fs.mkdirSync(skillDir);
+    _restoreInstallPaths(snapshots, root);
+
+    expect(fs.readlinkSync(skillDir)).toBe(written);
+    // On Windows a file link to a folder can't be listed once it resolves.
+    fs.mkdirSync(path.join(gone, "references"), { recursive: true });
+    expect(fs.readdirSync(skillDir)).toEqual(["references"]);
   });
 
   it("dry-runs Rewind setup without requiring an active local store", async () => {

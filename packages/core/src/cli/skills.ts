@@ -31,6 +31,7 @@ import {
   CONTEXT_XRAY_SKILL_MD,
   installLocalContextXray,
 } from "./context-xray-local.js";
+import { copyFollowingLinks } from "./copy-following-links.js";
 import {
   detectInstalledClients,
   isHomeDirectory,
@@ -1634,12 +1635,23 @@ function snapshotInstallPaths(
       target,
       backup,
       existed: true,
-      link: {
-        target: fs.readlinkSync(target),
-        type: resolved?.isDirectory() ? "dir" : "file",
-      },
+      link: { target: fs.readlinkSync(target), type: linkKind(target) },
     };
   });
+}
+
+// Whether a link was made for a folder or a file. Only Windows tells the two
+// apart, and its links keep the kind after their target is gone: opening a
+// dangling folder link as a folder fails with ENOENT, a file link with ENOTDIR.
+function linkKind(linkPath: string): "file" | "dir" {
+  const resolved = fs.statSync(linkPath, { throwIfNoEntry: false });
+  if (resolved) return resolved.isDirectory() ? "dir" : "file";
+  try {
+    fs.opendirSync(linkPath).closeSync();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOTDIR") return "file";
+  }
+  return "dir";
 }
 
 function removeEmptyParents(start: string, boundary: string): void {
@@ -2243,18 +2255,6 @@ function copyScaffoldGuidanceSkills(
   }
 }
 
-// Copies a folder as plain files, following every link in it. Without a
-// `filter`, Node 24's `cpSync` takes a native shortcut that follows only a
-// link at the top and copies the links inside as links with absolute targets,
-// so it gets one that keeps everything.
-function copyFollowingLinks(from: string, to: string): void {
-  fs.cpSync(from, to, {
-    recursive: true,
-    dereference: true,
-    filter: () => true,
-  });
-}
-
 // Before 0.221, refreshing a copied skill could write an absolute link to its
 // source instead of a copy (#8231). That link only resolves on the machine
 // that wrote it, so it is copied again; links that point anywhere else stay.
@@ -2266,7 +2266,11 @@ function isMachineOnlyLinkTo(linkPath: string, sourceDir: string): boolean {
   );
 }
 
-export { copyScaffoldGuidanceSkills as _copyScaffoldGuidanceSkills };
+export {
+  copyScaffoldGuidanceSkills as _copyScaffoldGuidanceSkills,
+  restoreInstallPaths as _restoreInstallPaths,
+  snapshotInstallPaths as _snapshotInstallPaths,
+};
 
 function updateScaffoldGuidanceStates(
   states: ScaffoldGuidanceState[],

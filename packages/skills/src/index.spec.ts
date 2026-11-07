@@ -278,6 +278,32 @@ describe("@agent-native/skills", () => {
     ).toBeUndefined();
   });
 
+  it("leaves out a link back to a folder the copy is inside", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    const skill = path.join(repo, "skills", "quick-recap");
+    writeSkill(repo, "quick-recap");
+    fs.symlinkSync(
+      path.join(repo, "skills"),
+      path.join(skill, "parent"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await installSkills({
+      source: repo,
+      skillNames: ["quick-recap"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: false,
+      yes: true,
+    });
+
+    const installed = path.join(project, ".agents", "skills", "quick-recap");
+    expect(fs.existsSync(path.join(installed, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(installed, "parent"))).toBe(false);
+  });
+
   it("forwards scaffold update commands through the shared core flow", async () => {
     await runSkillsCli(["update", "scaffold", "--project"], {
       isInteractive: () => false,

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { findWorkspaceRoot } from "../scripts/workspace-root.js";
 import {
   AGENT_PLUGIN_MCP_SCHEMA,
   AGENT_PLUGIN_SCHEMA,
@@ -13,13 +14,13 @@ import {
   supportsRemoteMcpOAuth,
   writeConfigs,
 } from "./connect.js";
+import { copyFollowingLinks } from "./copy-following-links.js";
 import {
   type ClientId,
   buildHttpMcpEntry,
   removeSameUrlDuplicatesForClient,
 } from "./mcp-config-writers.js";
 import { openUrlInBrowser } from "./open-url.js";
-import { findWorkspaceRoot } from "../scripts/workspace-root.js";
 
 export type SkillVisibility = "internal" | "exported" | "both";
 export type AppSkillHostAdapter =
@@ -752,25 +753,53 @@ function skillExportName(skill: AppSkillManifestSkill): string {
   return path.basename(normalized);
 }
 
+// Where an exported skill's links may lead: the app and the workspace around
+// it.
+function skillLinkRoots(manifestDir: string): string[] {
+  const workspaceRoot = findWorkspaceRoot(manifestDir);
+  return workspaceRoot ? [manifestDir, workspaceRoot] : [manifestDir];
+}
+
 // A skill folder can be a link into the workspace (an app's
 // `.agents/skills/<name>` usually is), and it is exported as the files it
 // points at. Wherever a link sits on the way, the folder it reaches has to be
-// inside the app or the workspace around it.
+// inside one of `roots`.
 function resolveSkillSourceOnDisk(
-  manifestDir: string,
+  roots: string[],
   source: string,
   field: string,
 ): string {
   const target = fs.realpathSync(source);
-  const isInside = (root: string) => {
+  for (const root of roots) {
     const relative = path.relative(fs.realpathSync(root), target);
-    return !relative.startsWith("..") && !path.isAbsolute(relative);
-  };
-  if (isInside(manifestDir)) return target;
-  const workspaceRoot = findWorkspaceRoot(manifestDir);
-  if (workspaceRoot && isInside(workspaceRoot)) return target;
+    if (!relative.startsWith("..") && !path.isAbsolute(relative)) {
+      return target;
+    }
+  }
   throw new Error(
     `${field} links outside the app and its workspace: ${target}`,
+  );
+}
+
+// Names a pack never includes: build output, dependencies and secrets.
+function isLeftOutOfPack(name: string): boolean {
+  const lower = name.toLowerCase();
+  return (
+    name === "node_modules" ||
+    name === ".git" ||
+    name === "dist" ||
+    name === ".output" ||
+    name === ".react-router" ||
+    name === ".netlify" ||
+    name === "secrets" ||
+    name === "private" ||
+    name.startsWith(".env") ||
+    name === ".dev.vars" ||
+    name === ".npmrc" ||
+    lower.endsWith(".pem") ||
+    lower.endsWith(".key") ||
+    lower.endsWith(".crt") ||
+    lower.endsWith(".p12")
   );
 }
 
@@ -797,25 +826,7 @@ function copyDirFiltered(source: string, dest: string): void {
       ) {
         return false;
       }
-      const base = path.basename(src);
-      const lower = base.toLowerCase();
-      return (
-        base !== "node_modules" &&
-        base !== ".git" &&
-        base !== "dist" &&
-        base !== ".output" &&
-        base !== ".react-router" &&
-        base !== ".netlify" &&
-        base !== "secrets" &&
-        base !== "private" &&
-        !base.startsWith(".env") &&
-        base !== ".dev.vars" &&
-        base !== ".npmrc" &&
-        !lower.endsWith(".pem") &&
-        !lower.endsWith(".key") &&
-        !lower.endsWith(".crt") &&
-        !lower.endsWith(".p12")
-      );
+      return !isLeftOutOfPack(path.basename(src));
     },
   });
 }
@@ -831,15 +842,19 @@ function copySkill(
   if (!fs.existsSync(source)) {
     throw new Error(`Exported skill source not found: ${source}`);
   }
+  const roots = skillLinkRoots(manifestDir);
   const from = resolveSkillSourceOnDisk(
-    manifestDir,
+    roots,
     source,
     `Skill path ${skill.path}`,
   );
   fs.mkdirSync(destRoot, { recursive: true });
   const stat = fs.statSync(from);
   if (stat.isDirectory()) {
-    copyDirFiltered(from, dest);
+    // An exported skill is installed somewhere else, so the links inside it
+    // are copied as the files they point at, under the same rules as the
+    // folder, and never through a name the pack leaves out.
+    copyFollowingLinks(from, dest, { within: roots, skip: isLeftOutOfPack });
   } else {
     fs.mkdirSync(dest, { recursive: true });
     fs.copyFileSync(from, path.join(dest, "SKILL.md"));

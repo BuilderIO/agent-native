@@ -291,6 +291,43 @@ describe("@agent-native/skills", () => {
     ).toBeUndefined();
   });
 
+  it("leaves out a link back to a folder the copy is inside", async () => {
+    const root = tmpDir();
+    const source = path.join(root, "source");
+    const project = path.join(root, "project");
+    const skill = writeSkill(path.join(source, "skills"), "beta");
+    fs.symlinkSync(
+      path.join(source, "skills"),
+      path.join(skill, "parent"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await installSkills(
+      parseSkillsCliArgs(
+        [
+          "add",
+          source,
+          "--skill",
+          "beta",
+          "--agent",
+          "codex",
+          "--scope",
+          "project",
+          "--project",
+          project,
+          "--instructions",
+          "none",
+        ],
+        root,
+      ),
+      { isInteractive: () => false },
+    );
+
+    const installed = path.join(project, ".agents", "skills", "beta");
+    expect(fs.existsSync(path.join(installed, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(installed, "parent"))).toBe(false);
+  });
+
   it("prompts for skills when no explicit selection is provided", async () => {
     const root = tmpDir();
     const source = path.join(root, "source");

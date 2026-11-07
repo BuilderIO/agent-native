@@ -641,6 +641,48 @@ describe("app skill packaging", () => {
     ).toBe(true);
   });
 
+  it("exports links inside a skill as files, leaving out what a pack does", () => {
+    const workspace = tmpDir();
+    fs.writeFileSync(
+      path.join(workspace, "package.json"),
+      JSON.stringify({ "agent-native": { workspaceCore: "packages/core" } }),
+      "utf-8",
+    );
+    const root = path.join(workspace, "apps", "assets");
+    fs.mkdirSync(root, { recursive: true });
+    const manifestFile = writeFixture(root);
+    const skill = path.join(root, ".agents", "skills", "asset-generation");
+    const brand = path.join(workspace, "shared", "brand");
+    const keys = path.join(root, "private", "keys");
+    fs.mkdirSync(brand, { recursive: true });
+    fs.writeFileSync(path.join(brand, "palette.md"), "Palette\n", "utf-8");
+    fs.mkdirSync(keys, { recursive: true });
+    fs.writeFileSync(path.join(keys, "token.txt"), "secret\n", "utf-8");
+    // Junctions, which Windows makes without extra rights, are absolute.
+    const link = (target: string, linkPath: string) =>
+      process.platform === "win32"
+        ? fs.symlinkSync(target, linkPath, "junction")
+        : fs.symlinkSync(
+            path.relative(path.dirname(linkPath), target),
+            linkPath,
+            "dir",
+          );
+    link(brand, path.join(skill, "brand"));
+    link(keys, path.join(skill, "keys"));
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    const exported = path.join(outDir, "skills", "assets");
+    expect(fs.lstatSync(path.join(exported, "brand")).isSymbolicLink()).toBe(
+      false,
+    );
+    expect(
+      fs.readFileSync(path.join(exported, "brand", "palette.md"), "utf-8"),
+    ).toBe("Palette\n");
+    expect(fs.existsSync(path.join(exported, "keys"))).toBe(false);
+  });
+
   it("refuses a skill folder linked outside the app and its workspace", () => {
     const root = tmpDir();
     const manifestFile = writeFixture(root);
