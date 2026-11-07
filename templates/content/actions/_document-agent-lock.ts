@@ -68,7 +68,7 @@ export function isAgentCall(ctx: CallProvenance | undefined) {
 }
 
 /**
- * "Agents can't edit the text of this": a person keeps a page's title, body,
+ * Agents set to Can comment on a page: a person keeps its title, body,
  * description and tabs out of agents' reach, while agents can still comment
  * and suggest edits. It keeps connected agents out of the text; it isn't a
  * permission, since they act for someone who could turn it off.
@@ -96,7 +96,7 @@ export function isAgentTextLockRefusal(
 /** The same refusal for an action that writes many pages at once. */
 /**
  * For a write across a collection's rows. Its collection and membership locks
- * don't stop the switch, which updates only the page's row, so an agent's write
+ * don't stop a level change, which updates only the page's row, so an agent's write
  * takes the pages' rows too, next in Content's lock order, and checks under them.
  */
 export async function lockPagesAndAssertAgentsMayEditText(

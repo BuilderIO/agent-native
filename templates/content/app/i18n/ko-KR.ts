@@ -1101,9 +1101,28 @@ const editor = {
     hideInSearch: "검색에서 숨기기",
     hideInSearchDescription:
       "조직에서 숨기고 검색해 보세요. 링크가 있는 사용자는 계속 볼 수 있습니다.",
-    agentTextLock: "에이전트는 이 페이지의 텍스트를 편집할 수 없음",
-    agentTextLockDescription:
-      "에이전트는 계속 댓글을 달고 수정을 제안할 수 있습니다. 제안은 사람만 수락할 수 있습니다.",
+    sharePeopleTab: "사람",
+    shareAgentsTab: "에이전트",
+    agentLevelHeading: "이 페이지의 에이전트",
+    agentLevelMenuLabel: "이 페이지에서 에이전트가 할 수 있는 일",
+    agentLevelDefault: "(기본값)",
+    agentLevelCommentDescription:
+      "읽기, 댓글 달기, 수정 제안을 할 수 있습니다. 제안은 사람만 수락할 수 있습니다.",
+    agentLevelEditDescription:
+      "읽기, 댓글 달기, 제안, 텍스트·제목·탭 편집, 페이지를 휴지통으로 이동할 수 있습니다.",
+    agentLevelCommentConfirm:
+      "이제 에이전트는 이 페이지에서 댓글을 달고 수정을 제안할 수 있지만 편집할 수는 없습니다.",
+    agentLevelEditConfirm: "에이전트가 이 페이지를 다시 편집할 수 있습니다.",
+    agentLevelLimit:
+      "에이전트는 자신이 대신 일하는 사람보다 더 많은 권한을 갖지 않습니다.",
+    agentLevelManagersOnly: "이 페이지를 관리하는 사람만 변경할 수 있습니다.",
+    agentLevelUpdateFailed:
+      "여기서 에이전트가 할 수 있는 일을 변경하지 못했습니다.",
+    agentLevelNote: "에이전트 댓글 가능",
+    agentLevelNoteHint:
+      "에이전트는 이 페이지에 댓글을 달 수 있습니다. 공유에서 변경하세요.",
+    sendPageToAgent: "이 페이지를 에이전트에게 보내기",
+    connectAgentOverMcp: "MCP로 에이전트 연결",
     importingFromNotion: "Notion에서 가져오는 중...",
     lastSynced: "마지막 동기화",
     linkedToNotion: "노션과 연결됨",

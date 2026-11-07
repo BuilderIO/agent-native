@@ -31,7 +31,7 @@ export const documents = table("documents", {
   position: integer("position").notNull().default(0),
   isFavorite: integer("is_favorite").notNull().default(0),
   hideFromSearch: integer("hide_from_search").notNull().default(0),
-  // 1 when a person has switched on "Agents can't edit the text of this".
+  // 1 when a person has set agents to Can comment on this page.
   agentTextLocked: integer("agent_text_locked").notNull().default(0),
   sourceMode: text("source_mode"),
   sourceKind: text("source_kind"),

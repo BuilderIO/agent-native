@@ -446,7 +446,7 @@ describe("who counts as an agent", () => {
   });
 });
 
-describe("Agents can't edit the text of this", () => {
+describe("Agents set to Can comment on a page", () => {
   it("is off until a person turns it on, and agents can't change it", async () => {
     await asOwner(async () => {
       const { id } = (await createDocument.run(

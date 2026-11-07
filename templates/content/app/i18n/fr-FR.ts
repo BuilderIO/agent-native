@@ -1130,9 +1130,29 @@ const editor = {
     hideInSearch: "Masquer dans la recherche",
     hideInSearchDescription:
       "Masquer de l’organisation et effectuer la recherche. Les personnes disposant du lien peuvent toujours consulter.",
-    agentTextLock: "Les agents ne peuvent pas modifier le texte de cette page",
-    agentTextLockDescription:
-      "Les agents peuvent toujours commenter et suggérer des modifications. Seules les personnes peuvent les accepter.",
+    sharePeopleTab: "Personnes",
+    shareAgentsTab: "Agents",
+    agentLevelHeading: "Agents sur cette page",
+    agentLevelMenuLabel: "Ce que les agents peuvent faire sur cette page",
+    agentLevelDefault: "(par défaut)",
+    agentLevelCommentDescription:
+      "Peuvent lire, commenter et suggérer des modifications. Seules les personnes peuvent les accepter.",
+    agentLevelEditDescription:
+      "Peuvent lire, commenter, suggérer, modifier le texte, le titre et les onglets, et placer la page dans la corbeille.",
+    agentLevelCommentConfirm:
+      "Les agents peuvent maintenant commenter et suggérer des modifications sur cette page, mais pas la modifier.",
+    agentLevelEditConfirm: "Les agents peuvent de nouveau modifier cette page.",
+    agentLevelLimit:
+      "Un agent n'obtient jamais plus de droits que la personne pour laquelle il travaille.",
+    agentLevelManagersOnly:
+      "Seules les personnes qui gèrent cette page peuvent modifier ce réglage.",
+    agentLevelUpdateFailed:
+      "Impossible de modifier ce que les agents peuvent faire ici.",
+    agentLevelNote: "Les agents peuvent commenter",
+    agentLevelNoteHint:
+      "Les agents peuvent commenter sur cette page. Modifiez cela dans Partager.",
+    sendPageToAgent: "Envoyer cette page à un agent",
+    connectAgentOverMcp: "Connecter un agent via MCP",
     importingFromNotion: "Importation depuis Notion...",
     lastSynced: "Dernière synchronisation",
     linkedToNotion: "Lié à Notion",

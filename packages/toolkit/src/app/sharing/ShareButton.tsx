@@ -118,6 +118,8 @@ export interface ShareButtonProps {
   agentShareLabel?: string;
   /** Destinations in the Send to menu beside Copy link. */
   sendTo?: ShareSendTo;
+  /** Leaves the Send to menu out, for an app that offers it in a tab of its own. */
+  hideSendTo?: boolean;
   /** Immediate human-link copy action beside the Share trigger. */
   quickCopy?: {
     label: string;
@@ -745,11 +747,12 @@ function ShareFooter(
       </span>
     ) : null;
   const hasSendTo =
-    Boolean(sendTo?.openInAgent) ||
-    Boolean(sendTo?.items?.length) ||
-    Boolean(sendTo?.copyAgentPrompt) ||
-    Boolean(sendTo?.openMcpSettings) ||
-    props.agentReadable;
+    !props.hideSendTo &&
+    (Boolean(sendTo?.openInAgent) ||
+      Boolean(sendTo?.items?.length) ||
+      Boolean(sendTo?.copyAgentPrompt) ||
+      Boolean(sendTo?.openMcpSettings) ||
+      props.agentReadable);
   if (!copyLink && !hasSendTo) return null;
   return (
     <div className="flex items-center justify-between gap-2">
@@ -2113,10 +2116,11 @@ export function ShareGeneralAccessRow({
             disabled={controller.visibilityTransition.submitting}
             plain
             roleCopy={roleCopy}
-            allowedRoles={(allowedRoles ?? BASIC_SHARING_ROLES).filter((role) =>
-              controller.visibility === "public"
-                ? LINK_ROLES.includes(role)
-                : role !== "admin",
+            allowedRoles={(allowedRoles ?? BASIC_SHARING_ROLES).filter(
+              (role) =>
+                controller.visibility === "public"
+                  ? LINK_ROLES.includes(role)
+                  : role !== "admin",
             )}
           />
         </div>
