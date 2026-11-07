@@ -391,7 +391,10 @@ import {
   type SuggestionPresentationTransitions,
 } from "./suggestions/presentation-rebase";
 import {
+  refreshedProposalMembers,
+  reviewedAsOne,
   reviewedInThread,
+  reviewUnits,
   suggestionSourceThreadId,
 } from "./thread-suggestions";
 import {
@@ -6287,6 +6290,18 @@ function PageEditorSessionBody({
     },
     [documentId, savedSuggestions],
   );
+  const activeSuggestionOnPage =
+    hoveredSuggestionId ?? editingSuggestionId ?? selectedSuggestionId;
+  // Whichever word of a unit is active, all of its words light up.
+  const activeUnitIds = useMemo(
+    () =>
+      reviewUnits(savedSuggestions)
+        .find((unit) =>
+          unit.members.some((member) => member.id === activeSuggestionOnPage),
+        )
+        ?.members.map((member) => member.id),
+    [activeSuggestionOnPage, savedSuggestions],
+  );
   // The suggestion a Suggesting-mode decision is for: the draft that was
   // clicked, and once its save records it, the saved copy.
   const decidingSuggestionIds = useMemo(() => {
@@ -9470,17 +9485,25 @@ function PageEditorSessionBody({
     collabEditorEnabled &&
     !!ydoc &&
     suggestionEditorIsolation.bindCanonicalYDoc;
+  // Turns off Accept on an edit the server refused and shows why. A group's
+  // refusal doesn't say which of its edits failed, so it marks nothing.
+  const showUnplaceableEdit = (members: readonly ResourceSuggestion[]) => {
+    const [first = null] = members;
+    if (!first || !reviewedAsOne(members)) return;
+    setUnplaceableSuggestionRevisions((current) => {
+      const next = new Map(current);
+      for (const { id, revision } of members) next.set(id, revision);
+      return next;
+    });
+    setSelectedSuggestionId(first.id);
+    setUtilityPanel("comments");
+    setCommentsBrowseOpen(true);
+  };
   useSuggestionDecisionView(documentId, {
     failed: (entry, error) => {
       void suggestionsQuery.refetch();
-      const member = singleDecisionMember(entry);
-      if (!member || !isSuggestionStaleActionError(error)) return;
-      setUnplaceableSuggestionRevisions((revisions) =>
-        new Map(revisions).set(member.id, member.revision),
-      );
-      setSelectedSuggestionId(member.id);
-      setUtilityPanel("comments");
-      setCommentsBrowseOpen(true);
+      if (isSuggestionStaleActionError(error))
+        showUnplaceableEdit(entry.members);
     },
     decided: (entry, decided) => {
       if (
@@ -9563,9 +9586,10 @@ function PageEditorSessionBody({
         suggestionDecisionView(pageId)?.failed(entry, error);
         const unplaceable = isSuggestionStaleActionError(error);
         const accepting = entry.decision === "accepted";
+        const asOne = single || reviewedAsOne(entry.members);
         toast.error(
           t(
-            single
+            asOne
               ? accepting
                 ? "editor.suggestionAcceptFailed"
                 : "editor.suggestionRejectFailed"
@@ -9576,10 +9600,10 @@ function PageEditorSessionBody({
           {
             description: t(
               unplaceable
-                ? single
+                ? asOne
                   ? "editor.suggestionUnplaceable"
                   : "editor.proposalUnplaceable"
-                : single
+                : asOne
                   ? "editor.suggestionDecisionReverted"
                   : "editor.proposalDecisionReverted",
             ),
@@ -9744,14 +9768,7 @@ function PageEditorSessionBody({
       setDecisionRefreshFailed(false);
       suggestionDecisionInFlightRef.current = false;
       const unplaceable = isSuggestionStaleActionError(error);
-      if (unplaceable) {
-        setUnplaceableSuggestionRevisions((current) =>
-          new Map(current).set(decided.id, decided.revision),
-        );
-        setSelectedSuggestionId(decided.id);
-        setUtilityPanel("comments");
-        setCommentsBrowseOpen(true);
-      }
+      if (unplaceable) showUnplaceableEdit([decided]);
       toast.error(
         t(unplaceable ? "editor.toolbar.conflict" : "empty.genericError"),
         {
@@ -9910,7 +9927,12 @@ function PageEditorSessionBody({
             decideSuggestionProposal.isPending ||
             queuedDecisions.length > 0)
       }
-      onDecideSuggestionProposal={async (proposalId, decision, members) => {
+      onDecideSuggestionProposal={async (
+        proposalId,
+        decision,
+        members,
+        exactMembers = false,
+      ) => {
         if (decisionQueueActive) {
           if (
             members.length === 0 ||
@@ -9953,8 +9975,8 @@ function PageEditorSessionBody({
           readbackContent: null,
         });
         let awaitingReadback = false;
+        let currentMembers = members;
         try {
-          let currentMembers = members;
           if (continueSuggesting) {
             const persisted = await flushSuggestionDraft({ keepMode: true });
             if (!persisted) return;
@@ -9968,11 +9990,19 @@ function PageEditorSessionBody({
               throw (
                 refreshed.error ?? new Error("Could not refresh proposal edits")
               );
-            currentMembers = refreshed.data.suggestions.filter(
-              (suggestion) =>
-                suggestion.proposalId === proposalId &&
-                suggestion.status === "pending",
+            const refreshedMembers = refreshedProposalMembers(
+              refreshed.data.suggestions,
+              proposalId,
+              members,
+              exactMembers,
             );
+            if (!refreshedMembers) {
+              toast.error(t("editor.toolbar.conflict"), {
+                description: t("editor.suggestionAmendmentResolved"),
+              });
+              return;
+            }
+            currentMembers = refreshedMembers;
             setPendingProposalDecision((current) =>
               current?.generation === decisionGeneration
                 ? { ...current, members: currentMembers }
@@ -10063,11 +10093,14 @@ function PageEditorSessionBody({
             return;
           void suggestionsQuery.refetch();
           const unplaceable = isSuggestionStaleActionError(error);
+          if (unplaceable) showUnplaceableEdit(currentMembers);
           toast.error(
             t(unplaceable ? "editor.toolbar.conflict" : "empty.genericError"),
             {
               description: unplaceable
-                ? t("editor.proposalUnplaceable")
+                ? reviewedAsOne(members)
+                  ? t("editor.suggestionUnplaceable")
+                  : t("editor.proposalUnplaceable")
                 : (actionErrorMessage(error) ?? t("empty.genericError")),
             },
           );
@@ -10990,11 +11023,8 @@ function PageEditorSessionBody({
                                     : undefined
                                 }
                                 suggestions={visualSuggestions}
-                                activeSuggestionId={
-                                  hoveredSuggestionId ??
-                                  editingSuggestionId ??
-                                  selectedSuggestionId
-                                }
+                                activeSuggestionId={activeSuggestionOnPage}
+                                activeSuggestionUnitIds={activeUnitIds}
                                 onActivateSuggestion={activateInlineSuggestion}
                                 onHoverSuggestion={setHoveredSuggestionId}
                                 onSuggestionReplacementIntent={
