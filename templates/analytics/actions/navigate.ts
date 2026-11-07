@@ -56,12 +56,9 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "View to navigate to (ask, adhoc, analyses, extensions, sessions, session-report, event-catalog, performance, monitoring, agents, semantic-layer (alias: data-dictionary), data-sources (alias: source-status), settings). event-catalog, performance (per-route Web Vitals and request percentiles) and session-report require the Sessions triage Lab.",
+        "View to navigate to (ask, adhoc, analyses, extensions, sessions, event-catalog, performance, monitoring, agents, semantic-layer (alias: data-dictionary), data-sources (alias: source-status), settings). event-catalog and performance (per-route Web Vitals and request percentiles) require the Sessions triage Lab.",
       ),
-    dashboardId: z
-      .string()
-      .optional()
-      .describe("Dashboard ID to open (used with view=adhoc)"),
+    dashboardId: z.string().optional().describe("Dashboard ID to open"),
     dashboardName: z
       .string()
       .trim()
@@ -70,22 +67,10 @@ export default defineAction({
       .describe(
         'Accessible SQL dashboard name to open when its id is unknown (for example, "Agent-Native" or "Agent-Native dashboard").',
       ),
-    analysisId: z
-      .string()
-      .optional()
-      .describe("Analysis ID to open (used with view=analyses)"),
-    extensionId: z
-      .string()
-      .optional()
-      .describe("Extension ID to open (used with view=extensions)"),
-    recordingId: z
-      .string()
-      .optional()
-      .describe("Session recording id to open (used with view=sessions)"),
-    reportId: z
-      .string()
-      .optional()
-      .describe("Session report id (srep_...) to open"),
+    analysisId: z.string().optional().describe("Analysis ID to open"),
+    extensionId: z.string().optional().describe("Extension ID to open"),
+    recordingId: z.string().optional().describe("Session recording id to open"),
+    reportId: z.string().optional().describe("Session report id to open"),
     agentsView: z
       .enum(["monitoring", "dashboards", "database", "flags"])
       .optional()

@@ -7,6 +7,11 @@ import {
 } from "../server/lib/session-reports.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Delete a session report and its shares, which also ends its agent links. The session replay it cites is untouched. Only its owner or an admin can. Requires the Sessions triage Lab.",
   schema: z.object({

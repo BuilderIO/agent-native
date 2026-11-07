@@ -15,6 +15,11 @@ import {
 } from "../shared/session-reports.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Change a session report's title, summary, key moments, repro steps or linked Monitoring error issue. Send only the fields to change: a list replaces the whole list, and errorIssueId null unlinks the issue. Needs edit access. Requires the Sessions triage Lab.",
   schema: z.object({

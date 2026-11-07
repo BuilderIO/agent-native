@@ -424,7 +424,9 @@ agent answers about browser recordings in the Analytics template.
 
 A report saves what someone found in one session (Sessions triage Lab). The
 session page's Create report asks the agent to write it; the agent saves it
-with `create-session-report`.
+with `create-session-report`. `get-session-report`, `list-session-reports`
+(optionally by `recordingId`), `update-session-report`,
+`delete-session-report`, and `navigate --reportId` cover the rest.
 
 - Write it from the session's evidence only: read
   `get-session-replay-summary` and `get-session-replay-timeline` first. The

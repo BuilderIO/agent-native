@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
 import {
@@ -15,8 +16,13 @@ import {
 } from "../shared/session-reports.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
-    "Save a report on one session replay: a title and summary you write from the session's evidence, its key moments, the steps that reproduce the problem, and the Monitoring error issue it hit. Read get-session-replay-summary and get-session-replay-timeline first and write only what the session shows. The report records the commit the session reported by itself, opens to the caller's organization, and lives at /sessions/reports/<id>. Requires the Sessions triage Lab.",
+    "Save a report on one session replay: a title and summary you write from the session's evidence, its key moments, the steps that reproduce the problem, and the Monitoring error issue it hit. Read the session-replay skill, get-session-replay-summary and get-session-replay-timeline first, and write only what the session shows. The report records the commit the session reported by itself, opens to the caller's organization when the recording is org-visible there (private otherwise), and lives at /sessions/reports/<id>. Requires the Sessions triage Lab.",
   schema: z.object({
     recordingId: z.string().min(1).describe("The session_recordings id"),
     title: z
@@ -66,4 +72,13 @@ export default defineAction({
     const scope = await sessionReportActionScope();
     return createSessionReport(args, scope);
   },
+  link: ({ result }) => ({
+    url: buildDeepLink({
+      app: "analytics",
+      view: "session-report",
+      params: { reportId: result.id },
+    }),
+    label: "Open the report in Analytics",
+    view: "session-report",
+  }),
 });
