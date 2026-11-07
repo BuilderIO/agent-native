@@ -215,7 +215,7 @@ function workspaceAppsFromResponse(
   return apps as WorkspaceAppRegistryEntry[];
 }
 
-function workspaceAppsFromManifest(
+export function workspaceAppsFromManifest(
   appsJson: string | undefined,
 ): WorkspaceAppRegistryEntry[] | null {
   if (appsJson === undefined) return null;
