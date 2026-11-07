@@ -1300,34 +1300,39 @@ describe("controlled composer context", () => {
       configured: false,
       props: {},
       chip: false,
+      label: undefined,
     },
     {
       name: "a host setup card",
       configured: false,
       props: { showMissingApiKeySetup: false, setupCardVisible: true },
       chip: false,
+      label: undefined,
     },
     {
       name: "no setup card on screen",
       configured: false,
       props: { showMissingApiKeySetup: false },
       chip: true,
+      label: "Connect agent",
     },
     {
       name: "an empty host model list with no loading signal",
       configured: false,
       props: { showMissingApiKeySetup: false, availableModels: [] },
       chip: true,
+      label: "Model",
     },
     {
       name: "a connected provider",
       configured: true,
       props: {},
       chip: true,
+      label: undefined,
     },
   ])(
     "shows the model control beside $name: $chip",
-    async ({ configured, props, chip }) => {
+    async ({ configured, props, chip, label }) => {
       await act(async () => {
         root.render(
           <ComposerRuntimeAdaptersProvider
@@ -1371,8 +1376,8 @@ describe("controlled composer context", () => {
         '[data-agent-composer-slot="model-button"]',
       );
       expect(Boolean(modelButton)).toBe(chip);
-      if (chip && !configured) {
-        expect(modelButton?.textContent).toContain("Connect agent");
+      if (label) {
+        expect(modelButton?.textContent).toContain(label);
       }
     },
   );
