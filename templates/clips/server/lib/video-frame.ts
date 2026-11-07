@@ -124,6 +124,7 @@ async function runFfmpeg(
       ? Math.min(timeoutMs, remote.remainingMs())
       : timeoutMs;
     return await new Promise<string>((resolve, reject) => {
+      // observed-write-ok: FFmpeg only reads media and writes temporary frame files or null output.
       const child = spawn(resolveFfmpegCommand(), args, {
         stdio: ["ignore", "ignore", "pipe"],
       });
@@ -134,7 +135,7 @@ async function runFfmpeg(
         child.kill("SIGKILL");
       }, allowedMs);
 
-      child.stderr?.on("data", (chunk: Buffer) => {
+      child.stderr.on("data", (chunk: Buffer) => {
         stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_LIMIT);
       });
       child.on("error", (err) => {
@@ -390,7 +391,7 @@ export async function extractJpegFrameFromFile({
 }: {
   mediaPath: string;
   atMs: number;
-  remote?: RemoteFrameInput;
+  remote?: RemoteFrameInput | undefined;
 }): Promise<Uint8Array> {
   const info = remote ? null : await stat(mediaPath);
   if (info && !info.size) {
@@ -503,7 +504,7 @@ export async function extractJpegFrameSheetFromFile({
 }: {
   mediaPath: string;
   plan: FrameSheetPlan;
-  remote?: RemoteFrameInput;
+  remote?: RemoteFrameInput | undefined;
 }): Promise<Uint8Array> {
   const info = remote ? null : await stat(mediaPath);
   if (info && !info.size) {

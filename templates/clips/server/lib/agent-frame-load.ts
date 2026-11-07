@@ -58,7 +58,7 @@ export async function extractFrameWithStaleDurationRecovery({
 }: {
   mediaPath: string;
   atMs: number;
-  remote?: RemoteFrameInput;
+  remote?: RemoteFrameInput | undefined;
   lastVisibleSourceMs: (sourceMs: number) => number | null;
 }): Promise<{ frame: Uint8Array; atMs: number }> {
   try {

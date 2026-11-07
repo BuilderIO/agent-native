@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+// observed-write-ok: loopback broker only serves bounded reads of one recording
 import { createServer } from "node:http";
 import type { Socket } from "node:net";
 
@@ -147,11 +148,12 @@ export async function openAgentFrameRange(
       void reader.cancel().catch(() => {});
     };
     signal.addEventListener("abort", cancel, { once: true });
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- The signal can abort while the stream is acquired.
     if (signal.aborted) cancel();
     const chunks: Buffer[] = [];
     let received = 0;
     try {
-      while (true) {
+      for (;;) {
         assertActive(signal);
         remaining();
         let result: ReadableStreamReadResult<Uint8Array>;
@@ -222,6 +224,7 @@ export async function openAgentFrameRange(
       }
       const end = Math.min(requestedEnd, size - 1);
       let disconnected = false;
+      const isDisconnected = () => disconnected || closed;
       const controller = new AbortController();
       response.on("error", () => {
         disconnected = true;
@@ -237,7 +240,7 @@ export async function openAgentFrameRange(
       const task = (async () => {
         try {
           let offset = start;
-          while (offset <= end && !disconnected && !closed) {
+          while (offset <= end && !isDisconnected()) {
             const last = Math.min(offset + RANGE_BYTES - 1, end);
             const bytes = await read(offset, last, controller.signal);
             if (!response.headersSent) {
@@ -264,9 +267,9 @@ export async function openAgentFrameRange(
               });
             }
           }
-          if (!disconnected && !closed) response.end();
+          if (!isDisconnected()) response.end();
         } catch {
-          if (!disconnected && !closed) fail("Recording storage range failed.");
+          if (!isDisconnected()) fail("Recording storage range failed.");
           response.destroy();
         } finally {
           activeRequests--;

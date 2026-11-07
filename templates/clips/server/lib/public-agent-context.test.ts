@@ -109,6 +109,7 @@ import {
   loadRecordingMediaFile,
   loadRecordingMediaBytes,
   RecordingMediaFetchError,
+  type PublicAgentRecording,
 } from "./public-agent-context";
 import { verifySharePassword } from "./share-password.js";
 import { planFrameSheet } from "./video-frame-sheet.js";
@@ -718,7 +719,7 @@ describe("loadRecordingMediaBytes", () => {
               videoFormat: isMp4 ? "mp4" : "webm",
               videoSizeBytes: logicalSize,
               storageMode: "own",
-            }) as any,
+            }) as PublicAgentRecording,
           );
           try {
             const frames: Buffer[] = [];
@@ -807,7 +808,7 @@ describe("loadRecordingMediaBytes", () => {
         const recording = makeRecording({
           videoSizeBytes: 100,
           storageMode: "hosted",
-        }) as any;
+        }) as PublicAgentRecording;
         let error: unknown;
         if (later) {
           const media = await loadRecordingMediaFile(recording);
@@ -848,7 +849,10 @@ describe("loadRecordingMediaBytes", () => {
         async () => new Response(sensitive, { status, statusText: sensitive }),
       );
       const error = await loadRecordingMediaFile(
-        makeRecording({ videoSizeBytes: 100, storageMode: "hosted" }) as any,
+        makeRecording({
+          videoSizeBytes: 100,
+          storageMode: "hosted",
+        }) as PublicAgentRecording,
       ).catch((err: unknown) => err);
       expect(error).toBeInstanceOf(RecordingMediaFetchError);
       expect(frameFailureStatus(error)).toBe(502);
@@ -887,7 +891,7 @@ describe("loadRecordingMediaBytes", () => {
     const recording = makeRecording({
       videoSizeBytes: 100,
       storageMode: "own",
-    }) as any;
+    }) as PublicAgentRecording;
     const expected = {
       name: "RecordingMediaFetchError",
       statusCode: 504,
@@ -922,7 +926,9 @@ describe("loadRecordingMediaBytes", () => {
     );
     mockFetchS3ObjectByUrl.mockRejectedValueOnce(timeout);
     await expect(
-      loadRecordingMediaBytes(makeRecording({ storageMode: "hosted" }) as any),
+      loadRecordingMediaBytes(
+        makeRecording({ storageMode: "hosted" }) as PublicAgentRecording,
+      ),
     ).rejects.toMatchObject(expected);
     mockOpenS3Recording.mockResolvedValueOnce(
       async () =>
@@ -952,7 +958,7 @@ describe("loadRecordingMediaBytes", () => {
     const recording = makeRecording({
       videoSizeBytes: 100,
       storageMode: "own",
-    }) as any;
+    }) as PublicAgentRecording;
     try {
       mockOpenS3Recording.mockReset().mockImplementation(
         () =>
@@ -981,8 +987,12 @@ describe("loadRecordingMediaBytes", () => {
       await expect(loadRecordingMediaFile(recording)).rejects.toMatchObject({
         statusCode: 503,
       });
-      resolveSetup[0](reader);
-      resolveSetup[1](null);
+      const [resolveFirst, resolveSecond] = resolveSetup as [
+        (typeof resolveSetup)[number],
+        (typeof resolveSetup)[number],
+      ];
+      resolveFirst(reader);
+      resolveSecond(null);
       await vi.advanceTimersByTimeAsync(0);
       expect(reader).not.toHaveBeenCalled();
       mockOpenS3Recording.mockResolvedValue(reader);
@@ -1009,7 +1019,10 @@ describe("loadRecordingMediaBytes", () => {
         }),
       );
       const pending = loadRecordingMediaFile(
-        makeRecording({ videoSizeBytes: 100, storageMode: "own" }) as any,
+        makeRecording({
+          videoSizeBytes: 100,
+          storageMode: "own",
+        }) as PublicAgentRecording,
       );
       const rejected = expect(pending).rejects.toMatchObject({
         name: "RecordingMediaFetchError",
@@ -1032,7 +1045,7 @@ describe("loadRecordingMediaBytes", () => {
         makeRecording({
           videoSizeBytes: 10,
           storageMode: null,
-        }) as any,
+        }) as PublicAgentRecording,
       ),
     ).rejects.toThrow(/too large/i);
     expect(mockOpenS3Recording).not.toHaveBeenCalled();
@@ -1041,7 +1054,7 @@ describe("loadRecordingMediaBytes", () => {
         makeRecording({
           videoSizeBytes: 10,
           storageMode: "own",
-        }) as any,
+        }) as PublicAgentRecording,
       ),
     ).rejects.toThrow(/too large/i);
     expect(mockOpenS3Recording).toHaveBeenCalledTimes(1);
@@ -1056,7 +1069,10 @@ describe("loadRecordingMediaBytes", () => {
       );
       await expect(
         loadRecordingMediaFile(
-          makeRecording({ storageMode: "own", videoSizeBytes }) as any,
+          makeRecording({
+            storageMode: "own",
+            videoSizeBytes,
+          }) as PublicAgentRecording,
         ),
       ).rejects.toThrow(/too large/i);
       expect(mockOpenS3Recording).not.toHaveBeenCalled();

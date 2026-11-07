@@ -13,7 +13,10 @@ vi.mock("./s3-upload-provider.js", () => ({
 }));
 vi.mock("../db/index.js", () => ({ getDb: vi.fn(), schema: {} }));
 
-import { loadRecordingMediaFile } from "./public-agent-context.js";
+import {
+  loadRecordingMediaFile,
+  type PublicAgentRecording,
+} from "./public-agent-context.js";
 
 it("opens a recording above the download limit with scoped bounded range reads", async () => {
   const size = 513 * 1024 * 1024;
@@ -40,7 +43,7 @@ it("opens a recording above the download limit with scoped bounded range reads",
       "https://storage.example.test/clips/synthetic-recording/video.mp4",
     videoFormat: "mp4",
     videoSizeBytes: size,
-  } as any);
+  } as PublicAgentRecording);
   try {
     const response = await fetch(media.path, {
       headers: { Range: "bytes=0-15" },

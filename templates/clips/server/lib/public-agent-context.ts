@@ -1335,6 +1335,7 @@ export async function loadRecordingMediaFile(
     typeof recording.videoSizeBytes === "number" &&
     recording.videoSizeBytes > maxAgentFrameMediaFileBytes() &&
     (recording.storageMode === "own" || recording.storageMode === "hosted") &&
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- Database rows can contain formats outside the TypeScript enum.
     (recording.videoFormat === "mp4" || recording.videoFormat === "webm") &&
     !isLocalRecordingBlob(videoUrl)
   ) {
