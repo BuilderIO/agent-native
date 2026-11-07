@@ -36,10 +36,14 @@ it. Use that name wherever a step below says APP_NAME.
 4. Read APP_NAME/AGENTS.md so you know how the app is laid out.
 5. Start the app with `pnpm dev` and keep it running in the background.
 6. Read the local URL that `pnpm dev` prints. Check that it responds,
-   for example with `curl -I <url>`. Do not open a browser and do not
-   use headless browser tools. I will open the app myself.
-7. Show me the result. Give me the local URL and the response you got
-   from it. Do not just say that setup is complete.
+   with `curl <url>/_agent-native/ping?configuration=1`. The reply
+   should include `"message":"pong"` and a configuration status of
+   `"ok"`. Do not open a browser and do not use headless browser
+   tools. I will open the app myself.
+7. In the APP_NAME folder, run `pnpm action hello`. It runs the
+   app's sample action and should print "Hello, world!".
+8. Show me the result. Give me the local URL and what both checks
+   printed. Do not just say that setup is complete.
 
 Rules:
 
@@ -57,6 +61,8 @@ A good run ends with these results, and you can check each one yourself:
 - A new app folder, named `my-app` unless you changed it, that contains `actions/`, `app/`, and an `AGENTS.md` file.
 - `pnpm dev` running without errors.
 - A local URL, usually `http://localhost:8080`, that the agent has checked responds.
+- A reply from `<url>/_agent-native/ping?configuration=1` with a configuration status of `ok`.
+- `pnpm action hello` printing "Hello, world!".
 
 Then open the local URL in your own browser. On the Welcome screen, choose **Continue as local dev**. The Get started page appears.
 
