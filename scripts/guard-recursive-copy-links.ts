@@ -16,6 +16,10 @@
  * count as recursive, and a link choice counts only when it is written as
  * `true`.
  *
+ * `dereference` also needs a `filter`. Without one, Node 24's `cpSync` takes
+ * a native shortcut that follows only a link at the top of the copy and copies
+ * the links inside it as links with absolute targets.
+ *
  * A copy that really should write absolute links can say so, on any line of
  * the call or on the line immediately above it:
  *
@@ -87,11 +91,21 @@ function leavesLinksToDefault(options: ts.Expression | undefined): boolean {
   if (!ts.isObjectLiteralExpression(inner)) return true;
   // Read in order, so a later property or spread wins.
   let recursive = false;
+  let filtered = false;
   const chosen = new Set<string>();
   for (const property of inner.properties) {
     if (ts.isSpreadAssignment(property)) {
       recursive = true;
+      filtered = false;
       chosen.clear();
+      continue;
+    }
+    if (
+      ts.isMethodDeclaration(property) &&
+      ts.isIdentifier(property.name) &&
+      property.name.text === "filter"
+    ) {
+      filtered = true;
       continue;
     }
     if (
@@ -113,8 +127,20 @@ function leavesLinksToDefault(options: ts.Expression | undefined): boolean {
       else chosen.delete(name);
     }
     if (name === "recursive") recursive = !isFalse;
+    if (name === "filter") {
+      const value = ts.isPropertyAssignment(property)
+        ? unwrap(property.initializer)
+        : undefined;
+      filtered = !(
+        value &&
+        (value.kind === ts.SyntaxKind.FalseKeyword ||
+          value.kind === ts.SyntaxKind.NullKeyword ||
+          (ts.isIdentifier(value) && value.text === "undefined"))
+      );
+    }
   }
-  return recursive && chosen.size === 0;
+  const followsLinks = chosen.has("dereference") && filtered;
+  return recursive && !followsLinks && !chosen.has("verbatimSymlinks");
 }
 
 export function findRecursiveCopies(
@@ -197,8 +223,10 @@ function main() {
     "\nBy default fs.cp and fs.cpSync copy a link as a link and make its target\n" +
       "absolute, so the copy only works on the machine that made it (#8231).\n" +
       "Choose what happens to links:\n\n" +
-      "  fs.cpSync(src, dest, { recursive: true, dereference: true });\n" +
+      "  fs.cpSync(src, dest, { recursive: true, dereference: true, filter: () => true });\n" +
       "  fs.cpSync(appDir, bundleDir, { recursive: true, verbatimSymlinks: true });\n\n" +
+      "dereference needs a filter: without one, Node 24 follows only a link at\n" +
+      "the top of the copy.\n\n" +
       "A copy that really should write absolute links can say so on the call or\n" +
       "the line above it:\n\n" +
       "  // guard:allow-copy-links — <why>\n",

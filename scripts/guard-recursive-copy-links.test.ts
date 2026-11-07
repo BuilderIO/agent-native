@@ -26,11 +26,22 @@ describe("recursive copy links guard", () => {
 
   it("accepts a copy that chooses dereference or verbatimSymlinks", () => {
     const source = [
-      "fs.cpSync(src, dest, { recursive: true, dereference: true });",
+      "fs.cpSync(src, dest, { recursive: true, dereference: true, filter: () => true });",
+      "fs.cpSync(src, dest, { recursive: true, dereference: true, filter(path) { return keep(path); } });",
       "fs.cpSync(backup, target, { recursive: true, verbatimSymlinks: true });",
     ].join("\n");
 
     assert.deepEqual(flagged(source), []);
+  });
+
+  it("flags dereference without a filter, which Node applies only at the top", () => {
+    const source = [
+      "fs.cpSync(src, dest, { recursive: true, dereference: true });",
+      "fs.cpSync(src, dest, { recursive: true, dereference: true, filter: undefined });",
+      "fs.cpSync(src, dest, { filter: keep, ...copyOptions, recursive: true, dereference: true });",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [1, 2, 3]);
   });
 
   it("counts a choice only when it is written as true", () => {
@@ -60,7 +71,7 @@ describe("recursive copy links guard", () => {
       "fs.cpSync(src, dest, copyOptions);",
       "fs.cpSync(src, dest, { ...copyOptions });",
       "fs.cpSync(src, dest, { recursive: true, dereference: true, ...copyOptions });",
-      "fs.cpSync(src, dest, { ...copyOptions, recursive: true, dereference: true });",
+      "fs.cpSync(src, dest, { ...copyOptions, recursive: true, dereference: true, filter: keep });",
     ].join("\n");
 
     assert.deepEqual(flagged(source), [1, 2, 3]);

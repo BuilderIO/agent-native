@@ -1851,10 +1851,7 @@ function bundledScaffoldSkillsDir(templateName: string): string {
   if (cached) return cached;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-layer-skills-"));
   const skillsDir = path.join(root, ".agents", "skills");
-  fs.cpSync(bundledScaffoldSkillsDir(layer.base), skillsDir, {
-    recursive: true,
-    dereference: true,
-  });
+  copyFollowingLinks(bundledScaffoldSkillsDir(layer.base), skillsDir);
   applyTemplateLayer(templateDir, layer, root, { only: ".agents/skills" });
   layeredScaffoldSkillsDirs.set(templateName, skillsDir);
   return skillsDir;
@@ -2242,11 +2239,20 @@ function copyScaffoldGuidanceSkills(
       continue;
     }
     fs.rmSync(targetSkillDir, { recursive: true, force: true });
-    fs.cpSync(sourceSkillDir, targetSkillDir, {
-      recursive: true,
-      dereference: true,
-    });
+    copyFollowingLinks(sourceSkillDir, targetSkillDir);
   }
+}
+
+// Copies a folder as plain files, following every link in it. Without a
+// `filter`, Node 24's `cpSync` takes a native shortcut that follows only a
+// link at the top and copies the links inside as links with absolute targets,
+// so it gets one that keeps everything.
+function copyFollowingLinks(from: string, to: string): void {
+  fs.cpSync(from, to, {
+    recursive: true,
+    dereference: true,
+    filter: () => true,
+  });
 }
 
 // Before 0.221, refreshing a copied skill could write an absolute link to its
@@ -2312,10 +2318,7 @@ function ensureWorkspaceRootSkillsLink(
     createAgentSymlink(target, linkPath, "dir");
   } catch {
     try {
-      fs.cpSync(sharedSkillsDir, linkPath, {
-        recursive: true,
-        dereference: true,
-      });
+      copyFollowingLinks(sharedSkillsDir, linkPath);
     } catch {}
   }
 }

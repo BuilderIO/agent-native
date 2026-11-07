@@ -67,6 +67,32 @@ describe("copy scaffold guidance skills", () => {
     ).toBe("Action reference\n");
   });
 
+  it("copies a linked folder inside a source skill as files", () => {
+    const root = tmpDir();
+    const sourceRoot = path.join(root, "source", ".agents", "skills");
+    const sharedReferences = path.join(root, "workspace", "references");
+    const targetRoot = path.join(root, "app", ".claude", "skills");
+    fs.mkdirSync(path.join(sourceRoot, "actions"), { recursive: true });
+    fs.writeFileSync(
+      path.join(sourceRoot, "actions", "SKILL.md"),
+      "# Actions\n",
+    );
+    fs.mkdirSync(sharedReferences, { recursive: true });
+    fs.writeFileSync(
+      path.join(sharedReferences, "actions.md"),
+      "Action reference\n",
+    );
+    linkDir(sharedReferences, path.join(sourceRoot, "actions", "references"));
+
+    _copyScaffoldGuidanceSkills([sourceRoot], targetRoot, ["actions"], false);
+
+    const references = path.join(targetRoot, "actions", "references");
+    expect(fs.lstatSync(references).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(path.join(references, "actions.md"), "utf8")).toBe(
+      "Action reference\n",
+    );
+  });
+
   it("turns an absolute link to the source skill back into a copy", () => {
     const root = tmpDir();
     const sourceRoot = path.join(root, "source", ".agents", "skills");
