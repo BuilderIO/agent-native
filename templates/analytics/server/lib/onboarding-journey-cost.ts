@@ -23,6 +23,7 @@ import {
   ONBOARDING_EVENT_PAGE_ROWS,
   ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_BYTES_BILLED,
+  ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
 } from "./onboarding-journey.js";
 
 export type OnboardingJourneyCostFailureCode =
@@ -137,26 +138,19 @@ export async function estimateOnboardingJourneyEventQueryCost(
             observation,
             freezeReceivedAt,
           );
-          const scoped = scopedAnalyticsSql(request.sql, scope, undefined, {
-            scopedEventsSingleScan: true,
-            scopedEventsProjection: "onboarding_journey",
-            scopedEventsSourceProjections: {
-              e: "onboarding_journey",
-              r: "onboarding_journey_response_identity",
-            },
-          });
+          const scoped = scopedAnalyticsSql(
+            request.sql,
+            scope,
+            undefined,
+            ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
+          );
           renderedSql = renderFirstPartyAnalyticsBigQueryRequestSql(
             scoped.sql,
             scoped.args,
             table,
             {
               eventDateRange: request.eventDateRange,
-              scopedEventsSingleScan: true,
-              scopedEventsProjection: "onboarding_journey",
-              scopedEventsSourceProjections: {
-                e: "onboarding_journey",
-                r: "onboarding_journey_response_identity",
-              },
+              ...ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
             },
           );
         } catch (error) {
