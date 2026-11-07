@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-import { COLLAB_OUTBOX_PREFIXES } from "@agent-native/core/collab/outbox-keys";
+import { COLLAB_OUTBOX_PREFIXES } from "../../../packages/core/src/collab/outbox-keys";
 import {
   expect,
   test,
