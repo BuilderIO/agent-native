@@ -476,6 +476,17 @@ export function createWorkspaceAppChatProxyHandler(
       `${appBaseUrl}${TARGET_CHAT_PATH}${parsed.targetSubPath}`,
     );
     target.search = url.search;
+    // URL parsing resolves encoded dot segments such as "%2e%2e", so check where
+    // the request lands before it carries the caller's session.
+    const chatPath = `${new URL(appBaseUrl).pathname.replace(/\/+$/, "")}${TARGET_CHAT_PATH}`;
+    const chatSubPath = target.pathname.slice(chatPath.length);
+    if (
+      !target.pathname.startsWith(chatPath) ||
+      (chatSubPath !== "" && !chatSubPath.startsWith("/")) ||
+      /%(?:2f|5c)/i.test(chatSubPath)
+    ) {
+      return proxyErrorResponse(404, "Workspace app chat route not found.");
+    }
 
     const method = request.method.toUpperCase();
     const body =

@@ -286,6 +286,28 @@ describe("workspace app chat proxy", () => {
       },
     );
 
+    it.each([
+      "/_agent-native/workspace-app-chat/analytics/.%2e/actions/delete-account",
+      "/_agent-native/workspace-app-chat/analytics/threads/%2E%2E/%2e%2e/admin",
+      "/_agent-native/workspace-app-chat/analytics/threads%2fother",
+      "/_agent-native/workspace-app-chat/analytics/threads%5cother",
+    ])(
+      "does not forward the session outside the app chat route: %s",
+      async (rawPath) => {
+        const fetchImpl = vi.fn(async () => new Response("ok"));
+        const response = await createWorkspaceAppChatProxyHandler({
+          fetchImpl,
+        })(
+          mountedProxyEvent(rawPath, "/", {
+            headers: { cookie: "session=fake-session" },
+          }),
+        );
+
+        expect(response.status).toBe(404);
+        expect(fetchImpl).not.toHaveBeenCalled();
+      },
+    );
+
     it("reuses one registry lookup across chat polling", async () => {
       const fetchImpl = vi.fn(async () => new Response("ok"));
       const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
