@@ -80,7 +80,10 @@ narrower scan; only timeout, rate-limit, and temporary backend failures permit
 one unchanged retry. Use the separate BigQuery action for GoogleSQL-only SQL.
 
 `query-agent-native-analytics` reads all traffic unless `environment` is
-`production` or `beta`. A usage number should usually pass `production`. With
+`production` or `beta`. A usage number should usually pass `production`. An
+event with no host counts as production unless its `deployment_environment`
+property names a beta one (`beta`, `preview`, `local`, `development` or
+`test`). With
 it set, `analytics_event_daily_rollups` and `analytics_user_days` are rebuilt
 from raw events, because they have no host: include an `event_date` condition
 in the same query level, or the whole event table is read. The content tables

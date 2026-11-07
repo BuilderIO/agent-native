@@ -338,7 +338,7 @@ export default defineAction({
       .enum(TRAFFIC_ENVIRONMENTS)
       .optional()
       .describe(
-        "Read only production or only beta traffic. Omit to read all traffic. Beta includes PR previews and local runs. Events with no host count as production unless their deployment_environment says otherwise.",
+        "Read only production or only beta traffic; omit for all. Beta includes PR previews and local runs.",
       ),
     showTable: z
       .boolean()
@@ -350,7 +350,7 @@ export default defineAction({
       .enum(["postgres"])
       .optional()
       .describe(
-        'Set "postgres" when the user rules out BigQuery; skip get-first-party-analytics-health then. BigQuery-only queries fail with first_party_backend_not_postgres.',
+        'Set "postgres" when the user rules out BigQuery. BigQuery-only queries fail with first_party_backend_not_postgres.',
       ),
   }),
   outputSchema: z.union([
