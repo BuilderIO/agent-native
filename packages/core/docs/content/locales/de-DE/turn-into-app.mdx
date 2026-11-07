@@ -105,7 +105,7 @@ Screenshots werden in `.tmp/ui-review/out/` der App gespeichert, und der Abschlu
 
 ## Ausführen und bereitstellen {#run-deploy}
 
-Für die lokale Review setzt der Skill `AUTH_DISABLED=1` in der ignorierten `.env` der App, weil ein frischer Screenshot-Browser nicht angemeldet ist. Dies gilt nur für die Loopback-Entwicklung. Es wird vor dem abschließenden `pnpm build` entfernt und darf nie committet oder bereitgestellt werden. Anschließend wird der erste Browser, der die App öffnet, automatisch als lokales Dev-Konto angemeldet. Später geöffnete frische Browser zeigen eine Karte „Continue as local dev“.
+Für die lokale Review setzt der Skill `AUTH_DISABLED=1` in der ignorierten `.env` der App, weil ein frischer Screenshot-Browser nicht angemeldet ist. Dies gilt nur für die Loopback-Entwicklung. Es wird vor dem abschließenden `pnpm build` entfernt und darf nie committet oder bereitgestellt werden. Nach dem Build startet der Skill die App noch einmal und öffnet sie in Ihrem Standardbrowser, wodurch Sie automatisch als lokales Dev-Konto angemeldet werden. Später geöffnete frische Browser zeigen eine Karte „Continue as local dev“.
 
 So führen Sie die App selbst aus:
 
@@ -119,7 +119,7 @@ Um lokal Ihren eigenen Modellanbieter zu nutzen, tragen Sie einen Schlüssel wie
 
 Der Skill stellt nur bereit, wenn Sie darum bitten oder der Anbieter bereits konfiguriert ist. Ein gesunder lokaler Build gibt dennoch einen Block „production configuration errors“ mit Exit-Code 0 aus. Das ist die Bereitstellungs-Checkliste: ein stabiles `BETTER_AUTH_SECRET` und eine persistente `DATABASE_URL`, plus `A2A_SECRET` für eine App innerhalb eines Workspace. Der Skill meldet diese als ausstehenden Schritt und erzeugt keine Platzhalterwerte. Siehe [Eine App bereitstellen](/docs/deploy-an-app) und [Einen Workspace bereitstellen](/docs/workspace-deployment).
 
-Der Abschlussbericht kennzeichnet Belege getrennt: lokal ausgeführt, lokal verifiziert, build-bereit, bereitgestellt und live verifiziert sind unterschiedliche Zustände, und der Bericht lässt nie zu, dass einer für einen anderen steht.
+Der Abschlussbericht beginnt mit Ihrer App: „Your app is open at …“ bei einem lokalen Build oder der Builder-Link, den Dispatch zurückgegeben hat, bei einer gehosteten App. Danach sagt er, wie Sie die App ändern, was jedes Bedienelement tut und was die App bereits mitbringt, etwa Integrationen, Automatisierungen und einen MCP-Server. Details folgen unter einer eigenen Überschrift, mit getrennt gekennzeichneten Belegen: lokal ausgeführt, lokal verifiziert, build-bereit, bereitgestellt und live verifiziert sind unterschiedliche Zustände, und der Bericht lässt nie zu, dass einer für einen anderen steht.
 
 ## Bekannte Grenzen {#limits}
 

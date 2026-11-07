@@ -44,9 +44,9 @@ pnpm is missing. Otherwise recommend **On your machine**.
 
 Continue with step 3. If Node.js or pnpm is missing, say what to install (the
 installer from nodejs.org; `corepack enable` for pnpm, which ships with
-Node.js) and continue once both answer. The final report ends with how to
-change the app: ask this agent, in this folder. On localhost the app's own
-agent can't edit its code.
+Node.js) and continue once both answer. Right after where the app is, the
+final report says how to change it: ask this agent, in this folder. On
+localhost the app's own agent can't edit its code.
 
 ## Hosted with Builder
 
@@ -88,6 +88,6 @@ so and offer two ways on:
 2. Build on this machine instead.
 
 Never fall back to a local build without asking, and never claim the app
-exists. The report says what Dispatch returned, as the browser-host guide
-describes, and that changes happen in Builder, where the app's code lives,
-not in this folder.
+exists. The report leads with what Dispatch returned, as the browser-host
+guide describes, then says that changes happen in Builder, where the app's
+code lives, not in this folder.

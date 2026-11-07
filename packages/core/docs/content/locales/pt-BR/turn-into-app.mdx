@@ -105,7 +105,7 @@ As capturas são salvas em `.tmp/ui-review/out/` do app, e o relatório final li
 
 ## Execução e deploy {#run-deploy}
 
-Para a revisão local, a skill define `AUTH_DISABLED=1` no `.env` ignorado do app, porque um navegador de captura novo não está autenticado. Isso é apenas para desenvolvimento em loopback. É removido antes do `pnpm build` final e nunca deve ser commitado nem implantado. Depois disso, o primeiro navegador a abrir o app é autenticado automaticamente como a conta de desenvolvimento local. Navegadores novos abertos depois mostram um cartão "Continue as local dev".
+Para a revisão local, a skill define `AUTH_DISABLED=1` no `.env` ignorado do app, porque um navegador de captura novo não está autenticado. Isso é apenas para desenvolvimento em loopback. É removido antes do `pnpm build` final e nunca deve ser commitado nem implantado. Depois do build, a skill inicia o app mais uma vez e o abre no seu navegador padrão, que é autenticado automaticamente como a conta de desenvolvimento local. Navegadores novos abertos depois mostram um cartão "Continue as local dev".
 
 Para executar o app você mesmo:
 
@@ -119,7 +119,7 @@ Para usar seu próprio provedor de modelo localmente, coloque uma chave como `AN
 
 A skill só faz o deploy quando você pede ou quando o provedor já está configurado. Um build local saudável ainda imprime um bloco "production configuration errors" com código de saída 0. Essa é a lista de verificação de deploy: um `BETTER_AUTH_SECRET` estável e um `DATABASE_URL` persistente, além de `A2A_SECRET` para um app dentro de um workspace. A skill relata isso como a etapa pendente e não cria valores de placeholder. Veja [Implantar um app](/docs/deploy-an-app) e [Implantar um workspace](/docs/workspace-deployment).
 
-O relatório final rotula as evidências separadamente: em execução local, verificado localmente, pronto para build, implantado e verificado em produção são estados diferentes, e o relatório nunca deixa um substituir o outro.
+O relatório final começa pelo seu app: "Your app is open at …" em um build local, ou o link do Builder que o Dispatch retornou em um app hospedado. Em seguida, diz como mudar o app, o que cada controle faz e o que o app já traz, como integrações, automações e um servidor MCP. Os detalhes vêm depois, sob um título próprio, com as evidências rotuladas separadamente: em execução local, verificado localmente, pronto para build, implantado e verificado em produção são estados diferentes, e o relatório nunca deixa um substituir o outro.
 
 ## Limites conhecidos {#limits}
 
