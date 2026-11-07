@@ -534,6 +534,13 @@ describe("comment AI dedicated action boundaries", () => {
       expect.objectContaining({ supersedes: ["earlier-suggestion"] }),
       ctx,
     );
+    // The agent kept these apart, so they stay apart in one sentence too.
+    const [{ suggestions }] = mocks.createProposal.mock.lastCall as unknown as [
+      { suggestions: Array<{ metadata: { reviewUnit: string } }> },
+    ];
+    const units = suggestions.map(({ metadata }) => metadata.reviewUnit);
+    expect(units).toHaveLength(2);
+    expect(new Set(units).size).toBe(2);
   });
 
   it.each([

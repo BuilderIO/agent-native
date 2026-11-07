@@ -1,4 +1,12 @@
 export default {
+  composerSources: {
+    uploadFailed: "चुनी गई फ़ाइल अपलोड नहीं हो सकी।",
+    reference: "डैशबोर्ड का संदर्भ दें…",
+    group: "डैशबोर्ड",
+    authentication: "संदर्भ जोड़ने के लिए साइन इन करें।",
+    invalid: "भेजने से पहले एक मान्य संदर्भ चुनें।",
+    unavailable: "चुना गया संदर्भ अब उपलब्ध नहीं है। उसे हटाएँ या फिर से चुनें।",
+  },
   root: {
     whatsNew: "नया क्या है",
   },
@@ -1642,6 +1650,10 @@ export default {
     hideEmptySessions: "खाली सत्र छिपाएँ",
     networkErrors: "नेटवर्क त्रुटियाँ",
     rageClicksFilter: "बार-बार क्लिक",
+    traffic: "ट्रैफ़िक",
+    allTraffic: "सारा ट्रैफ़िक",
+    productionTraffic: "प्रोडक्शन",
+    betaTraffic: "बीटा",
     visitors: "आगंतुक",
     allVisitors: "सभी आगंतुक",
     internalVisitors: "आंतरिक",

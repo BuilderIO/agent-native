@@ -70,6 +70,13 @@ export interface ShareableResourceRegistration {
       | { kind: "grant" };
   }) => void | Promise<void>;
   allowPublic?: boolean;
+  /**
+   * Ask before a private resource opens to the whole organization. For types
+   * whose content is easy to overlook, such as a chat's messages and files;
+   * everywhere else the panel saves the change at once, and it can be undone
+   * the same way.
+   */
+  confirmOrgVisibility?: boolean;
   publicAccessRole?:
     | "viewer"
     | "commenter"
@@ -102,6 +109,18 @@ export interface ShareableResourceRegistration {
       orgId?: string;
     },
   ) => boolean | Promise<boolean>;
+  /**
+   * Resources that return the same key get the same `canManageAccess` answer
+   * for the same viewer, so `resolveAccessMany` asks once per key. Return
+   * `undefined` for a resource whose answer depends on more than the key.
+   */
+  canManageAccessKey?: (
+    resource: { orgId?: string | null },
+    ctx: {
+      userEmail?: string;
+      orgId?: string;
+    },
+  ) => string | undefined;
   resolveAccessContext?: (ctx: {
     userEmail?: string;
     orgId?: string;

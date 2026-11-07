@@ -16,6 +16,11 @@ agent answers about browser recordings in the Analytics template.
   `get-session-replay-summary`, and `get-session-replay-events`.
 - `/sessions/:recordingId` is keyed by `session_recordings.id`, not
   `analytics_events.session_id`.
+- `environment` on `list-session-recordings` (`production` or `beta`; omit
+  for all) filters by the recording's host. `beta` also covers PR previews and
+  local runs, and a recording with no host counts as production. The Sessions
+  page's traffic menu and row badge use the same rule, and `view-screen` reads
+  `?environment=`.
 - Do not add actions that synthesize "sessions" from `analytics_events`.
   Events can be linked beside a recording through `session_id`, but they are not
   playable replay rows by themselves.

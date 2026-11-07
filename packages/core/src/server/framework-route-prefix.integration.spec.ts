@@ -6,6 +6,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import { closeDbExec } from "../db/client.js";
+import {
+  registerFileUploadProvider,
+  unregisterFileUploadProvider,
+} from "../file-upload/index.js";
+import type { FileUploadInput } from "../file-upload/types.js";
 import { createCoreRoutesPlugin } from "./core-routes-plugin.js";
 import {
   awaitBootstrap,
@@ -47,13 +52,19 @@ async function dispatch(
 ) {
   const url = `https://host.test${pathname}`;
   const requestHeaders = new Headers(headers);
-  if (body !== undefined && !requestHeaders.has("Content-Type")) {
+  if (
+    body !== undefined &&
+    !(body instanceof FormData) &&
+    !requestHeaders.has("Content-Type")
+  ) {
     requestHeaders.set("Content-Type", "application/json");
   }
   const req = new Request(url, {
     method,
     headers: requestHeaders,
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    ...(body !== undefined
+      ? { body: body instanceof FormData ? body : JSON.stringify(body) }
+      : {}),
   });
   const responseHeaders = new Headers();
   const event = {
@@ -211,6 +222,58 @@ describe("public framework route prefix through the real request boundary", () =
     });
     const streamBody = stream instanceof Response ? stream.body : stream;
     if (streamBody instanceof ReadableStream) await streamBody.cancel();
+
+    const bytes = new Uint8Array([0x77, 0x4f, 0x46, 0x32, 0x01, 0x02]);
+    const upload = vi.fn(async (_input: FileUploadInput) => ({
+      url: "https://assets.example.test/font.woff2",
+      provider: "test-font",
+    }));
+    registerFileUploadProvider({
+      id: "test-font",
+      name: "Test font",
+      isConfigured: () => true,
+      upload,
+    });
+    try {
+      const font = new FormData();
+      font.append(
+        "file",
+        new Blob([bytes], { type: "font/woff2" }),
+        "font.woff2",
+      );
+      const result = await dispatch(nitroApp, "/_platform/file-upload", {
+        method: "POST",
+        headers: { cookie: "an_session=member", "X-Agent-Native-CSRF": "1" },
+        body: font,
+      });
+      expect(result.status).toBe(201);
+      expect(result.body).toMatchObject({
+        url: "https://assets.example.test/font.woff2",
+      });
+      expect(upload).toHaveBeenCalledOnce();
+      expect(upload.mock.calls[0]?.[0]).toMatchObject({
+        data: bytes,
+        filename: "font.woff2",
+        mimeType: "font/woff2",
+        ownerEmail: "member@example.com",
+      });
+
+      const unsupported = new FormData();
+      unsupported.append(
+        "file",
+        new Blob([bytes], { type: "font/woff" }),
+        "font.woff",
+      );
+      const rejected = await dispatch(nitroApp, "/_platform/file-upload", {
+        method: "POST",
+        headers: { cookie: "an_session=member", "X-Agent-Native-CSRF": "1" },
+        body: unsupported,
+      });
+      expect(rejected.status).toBe(415);
+      expect(upload).toHaveBeenCalledOnce();
+    } finally {
+      unregisterFileUploadProvider("test-font");
+    }
 
     await corePluginDone;
   });

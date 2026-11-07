@@ -76,23 +76,57 @@ export async function loadAgentFrameAccess(
     };
   }
 
-  const recording = accessResult.access.recording;
+  const refusal = checkAgentFrameClip(accessResult.access);
+  if (refusal) {
+    return {
+      ok: false,
+      body: sendFrameJson(event, refusal.status, refusal.body, refusal.headers),
+    };
+  }
+
+  return { ok: true, access: accessResult.access };
+}
+
+/** Why a clip's frames are withheld after access was granted. */
+export type AgentFrameClipRefusal = {
+  reason: "redaction" | "preparing" | "failed" | "embed";
+  status: number;
+  body: {
+    failureKind: "processing" | "unsupported";
+    error: string;
+    nextStep: string;
+    redactionPending?: true;
+    retryAfterSeconds?: number;
+  };
+  headers?: Record<string, string>;
+};
+
+/**
+ * The refusal for a clip whose frames cannot be served, or null: a redaction
+ * hold, a clip still preparing or failed, or a YouTube or legacy Loom embed
+ * with no Clips-hosted video.
+ */
+export function checkAgentFrameClip(
+  access: PublicAgentAccess,
+): AgentFrameClipRefusal | null {
+  const recording = access.recording;
 
   if (
     isHeldForRedaction(
       recording.editsJson,
-      accessResult.access.viewerIsOwner ? "owner" : null,
+      access.viewerIsOwner ? "owner" : null,
     )
   ) {
     return {
-      ok: false,
-      body: sendFrameJson(event, 409, {
+      reason: "redaction",
+      status: 409,
+      body: {
         failureKind: "processing",
         error: REDACTION_HOLD_MESSAGE,
         nextStep:
           "Frames are temporarily withheld while the owner is editing or applying redactions. Wait for the owner to finish and save the clip, then fetch agentContextUrl again before requesting frames.",
         redactionPending: true,
-      }),
+      },
     };
   }
 
@@ -100,51 +134,50 @@ export async function loadAgentFrameAccess(
   if (readiness.state === "preparing") {
     const retryAfterSeconds = readiness.retryAfterSeconds ?? 15;
     return {
-      ok: false,
-      body: sendFrameJson(
-        event,
-        409,
-        {
-          failureKind: "processing",
-          error: `This clip is still ${recording.status} and its frames are not ready.`,
-          nextStep:
-            readiness.instruction ??
-            "Wait 15 seconds, then fetch agentContextUrl again before requesting frames.",
-          retryAfterSeconds,
-        },
-        { "Retry-After": String(retryAfterSeconds) },
-      ),
+      reason: "preparing",
+      status: 409,
+      body: {
+        failureKind: "processing",
+        error: `This clip is still ${recording.status} and its frames are not ready.`,
+        nextStep:
+          readiness.instruction ??
+          "Wait 15 seconds, then fetch agentContextUrl again before requesting frames.",
+        retryAfterSeconds,
+      },
+      headers: { "Retry-After": String(retryAfterSeconds) },
     };
   }
   if (readiness.state === "failed") {
     return {
-      ok: false,
-      body: sendFrameJson(event, 409, {
+      reason: "failed",
+      status: 409,
+      body: {
         failureKind: "processing",
         error: "This clip's recording failed, so its frames are unavailable.",
         nextStep:
           readiness.instruction ??
           "Do not retry this frame request. Ask the owner to retry or replace the clip.",
-      }),
+      },
     };
   }
 
   const embedProvider = recordingEmbedProvider(recording);
   if (embedProvider) {
     return {
-      ok: false,
-      body: sendFrameJson(event, 422, {
+      reason: "embed",
+      status: 422,
+      body: {
         failureKind: "unsupported",
         error: embedFramesUnavailableReason(embedProvider),
         nextStep:
           embedProvider === "youtube"
             ? "Do not retry this frame request. Read the transcript around the moment instead (apis.transcript), or open the clip to watch it in YouTube's player."
             : "This clip has an embedded Loom player instead of a Clips-hosted video file. Open the embedded player for visual review, or reimport the video into Clips before requesting frames.",
-      }),
+      },
     };
   }
 
-  return { ok: true, access: accessResult.access };
+  return null;
 }
 
 /** The HTTP status for a failure while loading media or extracting frames. */

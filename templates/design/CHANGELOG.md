@@ -3,6 +3,49 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-06
+
+### Added
+
+- Adds a signup experiment that connects new Builder accounts automatically after acceptance and verification.
+
+### Improved
+
+- Selecting a layer or screen on a large board responds faster.
+
+### Fixed
+
+- Selecting or duplicating screens on a large design no longer makes the editor run out of memory.
+
+## 2026-11-05
+
+### Improved
+
+- Add Figma designs, design references, and websites directly from the composer.
+- Large designs stay more responsive while screens load
+- Large designs with hundreds of screens load, pan, and select faster on the canvas.
+- Smoother panning, zooming and selecting on large designs
+
+### Fixed
+
+- Failed saves in the editor now show an error message instead of failing silently.
+- Large designs open without loading every screen at once.
+- Renaming a screen to a name that is already taken, or saving an invalid file name or source path, now shows the real reason instead of "Internal server error".
+
+## 2026-11-04
+
+### Fixed
+
+- Ungrouping cards inside a flex or grid row now puts them back in the row instead of leaving them pinned and breaking the layout.
+
+## 2026-11-03
+
+### Fixed
+
+- Design runs on Claude models no longer fail right after the agent takes a screenshot of the design.
+- Design runs on GPT-6 Luna no longer fail when the agent saves a design.
+- The Design agent now fixes a screen it could not save, such as one with invalid HTML or a misplaced HubSpot email frame, and tries again instead of stopping the run.
+
 ## 2026-11-02
 
 ### Improved
@@ -2190,192 +2233,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Fixed
 
 - Local-code screens keep their connection when duplicated, and source saves now detect conflicts
-
-## 2026-07-03
-
-### Added
-
-- The AI now edits like a collaborator on canvas: its cursor glides to the element it changes, with a labeled selection ring and a fading highlight after each edit
-
-### Improved
-
-- Canvas interactions are sharper: rotation-aware resizing, shift constraints, smarter snapping with equal-gap guides, group rotation, and reliable alt-drag duplicating
-- Design system setup now indexes Figma, code, and design.md sources through Builder DSI.
-- Layers panel is smarter: top layer on top, drag with auto-scroll and spring-open folders, and hidden layers stay out of exports
-- Much faster editor: smooth dragging, zooming, and panel updates in large multi-screen files
-- Pen tool refinements: click the first point to close with a drag-to-curve, double-click to finish, alt to break handles, and anchors stay visible at any zoom
-- The code editor is easier to use with top sidebar tabs, clearer screen names, no minimap, and fewer false reload conflicts.
-- The Code panel is now a full VS Code-style editor with a file explorer, tabs, search, quick open (⌘P), a command palette, and automatic Prettier formatting
-
-### Fixed
-
-- Design chat can now wait longer for large background screen updates instead of retrying the same step too early.
-- Design chat now keeps continuing when a quiet model recovery briefly overlaps with the previous run finishing.
-- Design chat now keeps selected-variant screen edits moving when a large edit stalls during preparation, instead of leaving the chat waiting for a browser-side recovery.
-- Design retries stalled screen edits with a smaller, safer follow-up instead of repeating the same stuck update.
-- Inspector fixes: mixed selections show Mixed instead of wrong values, gradients edit safely, and hidden fills restore their original colors
-- Keyframe timeline works reliably: drag keyframes smoothly, pick easing per keyframe, and motion edits save safely without reverting
-- Text editing: Enter adds a line break, international (IME) typing works, and text keeps its content during live collaboration
-- Undo and redo are dependable across agent edits, screen switches, and copy/paste between tabs
-- Variant picks now more reliably expand the selected direction into the full requested screen instead of leaving a direction summary behind.
-
-## 2026-07-02
-
-### Improved
-
-- Design assets are easier to search and can be dragged directly into the canvas.
-
-### Fixed
-
-- Creating two frames in a row no longer freezes and reloads the editor
-- Design chat now recovers when the model connection goes quiet after reading a screen.
-- Design chat now starts new requests from the design list without carrying over a previously selected screen.
-- Design inspector and canvas controls stay consistent when selecting screens.
-- Design now marks stopped agent actions clearly and keeps variant follow-ups focused on the selected screen.
-- Design now recovers cleanly when an edit screen action stalls before streaming any content.
-- Fixed a crash when opening the code editor.
-- The Motion drawer now animates smoothly when opening and closing.
-
-### Changed
-
-- The temporary Code tab is hidden from the Design editor sidebar.
-
-## 2026-07-01
-
-### Added
-
-- Design can import Figma paste, .fig files, and standalone HTML from a new Import tab.
-- Designs can be edited in a new Code workspace from the left rail.
-
-### Improved
-
-- Exporting a design as PNG or SVG now downloads just the selected frame instead of the entire screen.
-- Import is more compact, Local app setup is clearer, and Figma selections can be pasted from the canvas.
-
-### Fixed
-
-- Code workspace now opens a VS Code-like editor with real code editing affordances
-- Design chat no longer shows an empty-state selection chip in the composer.
-- Design editor polish makes zoom controls, asset insertion, sharing, collaborator following, and agent handoffs clearer.
-- Design previews refresh immediately after agent screen edits.
-- Design prompts that already ask for multiple directions now start generating variants instead of stopping at intake questions.
-- Design QA fixes make exports, read-only permissions, tool filters, and screen overview controls behave more clearly.
-- Design recovers sooner when an agent gets stuck preparing a large design edit.
-- Design systems no longer crash when imported tokens include responsive values.
-- Design variants can now be generated from compact directions, reducing long-running agent stalls.
-- Improved variant-pick follow-ups so selected directions continue from the kept screen in a bounded pass.
-- Motion tracks can be added in local Design editor sessions without failing to save.
-- Org members can see Design projects created in their workspace.
-- Share general access options now appear above the dialog when switching a design from private to organization access.
-- Zoom menus in the design editor now open independently from the toolbar and inspector.
-
-### Removed
-
-- Design chat no longer shows a redundant context tab above the composer.
-
-## 2026-06-30
-
-### Added
-
-- Accessibility findings can now be fixed in one click for common inline issues like low contrast, small tap targets, and focus visibility.
-- Selecting a component instance now shows editable props in the inspector — change variants, toggle booleans, and edit labels, and the component updates live.
-- Design can browse Figma library components and insert them into the active screen with source provenance.
-- Design now has native components, embedded media, and Figma imports as separate asset tabs.
-- Shader fill presets can now be applied to a selected element, not just previewed.
-- The motion timeline can now add an animation track to any selected element and write it to CSS, with a live scrub preview.
-- Tokens can now be imported from pasted notes, code files, folders, or the current design instead of entering each one by hand.
-
-### Improved
-
-- Component selections now use purple component chrome and show auto-layout parent outlines.
-- Constraints now expand inline from a compact inspector preview toggle.
-- Creating a component now opens in a compact inspector popover.
-- Design no longer shows the connected local code warning banner.
-- Design now has a slim left rail for File, Agent, Assets, Tools, and Tokens.
-- Design opens with a cleaner empty canvas and loading preview.
-- Design preview now includes a publish app waitlist option from the play menu.
-- Design questions now use tighter editor typography and controls.
-- Design's left rail now matches the sidebar chrome and uses tighter labels.
-- Design tools now use a quieter, more compact list layout.
-- Design tools use simpler, less decorative icons.
-- Inspect code now shows the selected element’s opening tag (tag name and attributes) at a glance.
-- Inspector element headers show the selected HTML tag and the code action previews highlighted HTML.
-- Layers can be multi-selected from the canvas and edited together with mixed values shown in the inspector.
-- Motion edits now save automatically without a separate CSS apply button.
-- Motion is now available from the persistent left rail and the timeline opens and closes smoothly.
-- Motion timelines now reopen as editable tracks after writing keyframes to CSS.
-- New board shapes now start with neutral gray styling while preserving explicit fill and stroke choices.
-- Pending visual style edits now warn before you leave the editor without applying them.
-- Share options now make link sharing, export, and agent handoff easier to notice while keeping the dialog cleaner.
-- Share options use a tighter Design editor popover with compact tabs and controls.
-- Signed-out save and share controls use simpler labels and open sign-up in a new tab.
-- The Motion timeline now opens from a quiet footer row in the Layers panel.
-- The Design editor loading skeleton is simpler and its bottom toolbar uses one consistent surface.
-- The Design inspector now shows States and Review in a tighter, less noisy sidebar layout.
-- The empty Designs page now focuses on a single primary New Design action.
-- Visual edit can open and refresh localhost screens in one authenticated step for faster chat-driven canvas updates.
-- Visual style drags stay live while pending edits can be applied by an agent or copied as a prompt.
-
-### Fixed
-
-- Agent chat now reports saved Design generations clearly when only the final assistant note times out.
-- Apply styles now appears only for localhost visual-edit screens.
-- Applying the one-click fix for a small tap-target accessibility finding now clears it on re-audit instead of having it reappear
-- Board shapes stay visible in the overview.
-- Canvas creation, screen dragging, undo/redo, and image fill edits are more reliable in the visual editor.
-- Canvas editing now keeps undo/redo and cross-screen layer moves reliable in All screens mode.
-- Component prop edits and shader fills now preserve rapid same-tab Design Studio changes.
-- Copying or dragging screen elements onto the infinite canvas preserves their styling.
-- Design cards no longer show legacy project-type badges.
-- Design chat now keeps new turns in the visible Design agent panel so thinking, tabs, streaming replies, and tool calls update live.
-- Design editor panels now keep their compact text sizing consistently across controls.
-- Design editor undo, drag/drop, style editing, and visual-edit save flows are more reliable.
-- Design now opens to the Files panel unless a generation is actively running.
-- Design's Tools create menu now stays compact instead of rendering the full chat setup flow.
-- Design starter prompts now begin generating immediately and avoid stalled native tool calls.
-- Design Studio canvas layers can be copied, pasted, and reparented more reliably across screens.
-- Design token edits now stay visible in previews and token lists after saving new CSS variables.
-- Dragging absolute elements no longer shows coordinate labels next to the cursor.
-- Drawing rectangles on the all screens canvas no longer flashes a default-size preview and selects the new rectangle.
-- Element drags can be cancelled with Escape before they commit.
-- Fixed All screens opening too zoomed in by default.
-- Fixed Code-Native Design Studio edits so component props, motion CSS, shader fills, audits, and exports persist cleanly.
-- Fixed the public Design Assets sidebar so native components load for signed-out viewers.
-- Fixed the screen overview board so empty board space no longer blocks pan, zoom, or layer selection.
-- Fixed visual editing hover overlays and spacing handles so selection stays steady.
-- Full-view screens can now scroll while remaining editable.
-- Inspector inputs stay compact across desktop breakpoints.
-- Local visual-edit links can edit localhost frames without signing in.
-- Local visual-edit frames can now be panned, selected, and edited from the Design canvas.
-- Marquee selection now works inside screens, multi-selected layers show resize handles, and mixed dimensions display clearly.
-- Motion timeline collapse and reopen animations feel smoother.
-- Multi-select outlines now stay consistent across All screens and root canvas marquee selection is more predictable.
-- New design prompts with uploaded screenshots work reliably on hosted deployments.
-- New designs open into a steadier loading state before the editor appears.
-- New designs show a loading state during handoff and keep editing chrome hidden until the first screen appears.
-- Public visual-edit Design links now open directly instead of showing the sign-in screen.
-- Screen previews in all-screens view now keep rounded outlines visible at the corners.
-- Selection outlines now sit flush on rectangles drawn directly on the all screens canvas.
-- Share stays visible as soon as editable designs load.
-- Text added on the canvas now focuses cleanly with the right editing outline.
-- The design editor loading skeleton now follows the current theme while designs load.
-- The Design inspector no longer shows child layout controls for empty layers or conversion prompts in Auto layout.
-- The Layers panel header stays as Layers while multiple items are selected.
-- The missing design screen now uses a neutral back button.
-- The motion timeline now closes without squeezing the canvas and saves animation edits with lighter responses.
-- The new-design Connect AI setup now lines up with the composer and keeps its actions compact.
-- The screen overview board now blends into the canvas and new rectangles use neutral gray defaults.
-- The sidebar keeps the organization picker space stable while account details load.
-- Top-level canvas layers now show screen drop guides before moving into a screen.
-- Top-level canvas layers now keep a transparent backdrop and drop into screens reliably.
-- Top-level canvas layers now select reliably from All screens.
-- Visual editor selection, layer dragging, paint blend modes, and drawing controls are more reliable.
-
-### Removed
-
-- Removed the confusing States section from the design editor inspector.
-- Removed the Templates gallery from Design navigation.
-- The design inspector no longer shows the Ask AI section above Export.
-- The Design review panel no longer shows a separate inline audit run button.
 
 For the full list of updates, see the [changelog folder](./changelog/).

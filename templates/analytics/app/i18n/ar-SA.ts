@@ -1,4 +1,12 @@
 export default {
+  composerSources: {
+    uploadFailed: "تعذّر رفع الملف المحدد.",
+    reference: "الإشارة إلى لوحة بيانات…",
+    group: "لوحات البيانات",
+    authentication: "سجّل الدخول لإضافة مرجع.",
+    invalid: "اختر مرجعًا صالحًا قبل الإرسال.",
+    unavailable: "لم يعد المرجع المحدد متاحًا. أزله أو اختره مرة أخرى.",
+  },
   root: {
     whatsNew: "ما الجديد",
   },
@@ -1654,6 +1662,10 @@ export default {
     hideEmptySessions: "إخفاء الجلسات الفارغة",
     networkErrors: "أخطاء الشبكة",
     rageClicksFilter: "النقرات المتكررة",
+    traffic: "حركة المرور",
+    allTraffic: "كل حركة المرور",
+    productionTraffic: "الإنتاج",
+    betaTraffic: "بيتا",
     visitors: "الزوار",
     allVisitors: "كل الزوار",
     internalVisitors: "داخلي",

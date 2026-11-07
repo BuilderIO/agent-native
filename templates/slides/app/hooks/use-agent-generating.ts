@@ -72,6 +72,7 @@ type AgentGeneratingSubmitOptions = Pick<
   | "model"
   | "engine"
   | "effort"
+  | "references"
   | "submitMessageId"
   | "targetTabId"
 > & {
