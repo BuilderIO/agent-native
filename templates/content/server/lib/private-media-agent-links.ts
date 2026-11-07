@@ -106,8 +106,8 @@ export async function privateMediaAgentLinks(input: {
       url: buildAgentAccessUrl({
         path: privateMediaPath(id),
         token,
-        origin,
         basePath,
+        ...(origin ? { origin } : {}),
       }),
     };
   });
