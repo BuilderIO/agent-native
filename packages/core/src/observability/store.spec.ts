@@ -1850,6 +1850,62 @@ describe("observability store: per-user isolation", () => {
   });
 });
 
+describe("promoted eval datasets on Postgres", () => {
+  it.each([["alice@example.com"], [null]])(
+    "finds and claims a dataset for owner %s",
+    async (userId) => {
+      const pg = await createTestPglite();
+      const capturingExecute = vi
+        .mocked(mockDb.execute)
+        .getMockImplementation()!;
+      try {
+        await pg.exec(`
+          CREATE TABLE agent_eval_datasets (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            entries TEXT NOT NULL DEFAULT '[]',
+            created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+            user_id TEXT, idempotency_key TEXT
+          );
+        `);
+        await pg.query(
+          `INSERT INTO agent_eval_datasets
+            (id, name, description, created_at, updated_at, user_id)
+            VALUES (?, ?, ?, ?, ?, ?)`,
+          ["legacy", "promoted", "from run-1", 1, 1, userId],
+        );
+        vi.mocked(mockDb.execute).mockImplementation(async (input) => {
+          const { sql, args } =
+            typeof input === "string" ? { sql: input, args: [] } : input;
+          const result = await pg.query(sql, args ?? []);
+          return { rows: result.rows, rowsAffected: result.affectedRows ?? 0 };
+        });
+
+        const claimed = await findPromotedEvalDataset({
+          idempotencyKey: "run-1",
+          description: "from run-1",
+          userId,
+        });
+        expect(claimed).toMatchObject({
+          id: "legacy",
+          userId,
+          idempotencyKey: "run-1",
+        });
+
+        const found = await findPromotedEvalDataset({
+          idempotencyKey: "run-1",
+          description: "from run-1",
+          userId,
+        });
+        expect(found?.id).toBe("legacy");
+      } finally {
+        vi.mocked(mockDb.execute).mockImplementation(capturingExecute);
+        await pg.close();
+      }
+    },
+  );
+});
+
 describe("observability list bounds", () => {
   beforeEach(() => {
     execCalls.length = 0;
