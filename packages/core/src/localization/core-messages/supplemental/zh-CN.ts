@@ -126,6 +126,11 @@ export const privacySettingsMessages: PrivacySettingsMessages = {
 };
 
 export const clientForkMessages = {
+  downloading: "正在下载源码",
+  installing: "正在安装",
+  building: "正在构建",
+  ready: "已就绪",
+  gitRequired: "自定义需要 Git。请安装 Git 或 Xcode 命令行工具，然后重试。",
   original: "原版",
   mine: "我的版本",
   manage: "管理自定义",

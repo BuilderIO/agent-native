@@ -133,6 +133,12 @@ export const privacySettingsMessages: PrivacySettingsMessages = {
 };
 
 export const clientForkMessages = {
+  downloading: "소스 다운로드 중",
+  installing: "설치 중",
+  building: "빌드 중",
+  ready: "준비 완료",
+  gitRequired:
+    "사용자 지정에는 Git이 필요합니다. Git 또는 Xcode 명령줄 도구를 설치한 후 다시 시도하세요.",
   original: "원본",
   mine: "내 버전",
   manage: "사용자 지정 관리",

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -6,12 +6,26 @@ import path from "node:path";
 import { z } from "zod";
 
 import type { ClientForkStatus } from "../../shared/client-forks.js";
+import {
+  sparseForkSource,
+  sourceSize,
+  verifyClientAssets,
+} from "./client-fork-source.js";
 
 const stateSchema = z.object({
   appId: z.string(),
+  appUrl: z.string().url().optional(),
+  buildBasePath: z.string().optional(),
   sourcePath: z.string(),
   baseSha: z.string().regex(/^[a-f0-9]{40}$/),
   hostedSha: z.string().nullable(),
+  hostVersionStatus: z.enum(["known", "absent", "unauthenticated"]).optional(),
+  intents: z.array(z.string()).optional(),
+  phase: z
+    .enum(["downloading", "installing", "building", "ready", "error"])
+    .optional(),
+  cloneMs: z.number().optional(),
+  sourceBytes: z.number().optional(),
   enabled: z.boolean(),
   buildPath: z.string().nullable(),
   previousBuildPath: z.string().nullable(),
@@ -20,11 +34,25 @@ const stateSchema = z.object({
   buildMs: z.number().nullable(),
 });
 
-export async function runForkCommand(
-  command: string,
-  args: string[],
-  cwd: string,
-  env: NodeJS.ProcessEnv = Object.fromEntries(
+const forkProcesses = new Set<ChildProcess>();
+export class ClientForkRepairRequiredError extends Error {}
+function stopForkProcess(child: ChildProcess): void {
+  if (!child.pid) return;
+  try {
+    if (process.platform === "win32") child.kill("SIGTERM");
+    else process.kill(-child.pid, "SIGTERM");
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ESRCH"))
+      throw error;
+  }
+}
+
+export function stopForkBuilds(): void {
+  for (const child of forkProcesses) stopForkProcess(child);
+}
+
+export function forkCommandEnvironment(): NodeJS.ProcessEnv {
+  return Object.fromEntries(
     [
       "PATH",
       "HOME",
@@ -36,38 +64,63 @@ export async function runForkCommand(
       "XDG_CACHE_HOME",
       "XDG_DATA_HOME",
     ].flatMap((key) => (process.env[key] ? [[key, process.env[key]]] : [])),
-  ),
+  );
+}
+
+export async function runForkCommand(
+  command: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = forkCommandEnvironment(),
+  maxOutputBytes = 24_000,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
       env,
+      detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"],
     });
+    forkProcesses.add(child);
+    const timeout = setTimeout(() => stopForkProcess(child), 10 * 60_000);
+    timeout.unref();
     let output = "";
     const append = (chunk: Buffer) => {
-      output = (output + chunk.toString()).slice(-24_000);
+      output = (output + chunk.toString()).slice(-maxOutputBytes);
     };
     child.stdout.on("data", append);
     child.stderr.on("data", append);
-    child.on("error", reject);
-    child.on("close", (code) =>
-      code === 0
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      forkProcesses.delete(child);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      forkProcesses.delete(child);
+      return code === 0
         ? resolve(output.trim())
-        : reject(new Error(`${command} failed (${code}):\n${output}`)),
-    );
+        : reject(new Error(`${command} failed (${code}):\n${output}`));
+    });
   });
 }
 
 export class ClientForks {
   private states = new Map<string, ClientForkStatus>();
   private busy = new Set<string>();
+  private buildTail: Promise<void> = Promise.resolve();
   constructor(
     private options: {
       root: string;
       source: string;
       baseSha: string;
       pnpm: string;
+      toolchain?: () => Promise<{
+        command: string;
+        args: string[];
+        env: NodeJS.ProcessEnv;
+      }>;
+      notify?: (state: ClientForkStatus) => void;
     },
   ) {}
 
@@ -118,7 +171,10 @@ export class ClientForks {
   }
 
   async save(state: ClientForkStatus): Promise<void> {
-    await fs.mkdir(this.directory(state.appId), { recursive: true });
+    await fs.mkdir(this.directory(state.appId), {
+      recursive: true,
+      mode: 0o700,
+    });
     const filename = path.join(this.directory(state.appId), "state.json");
     const temporary = `${filename}.${randomUUID()}.tmp`;
     await fs.writeFile(temporary, JSON.stringify(state, null, 2), {
@@ -126,6 +182,7 @@ export class ClientForks {
     });
     await fs.rename(temporary, filename);
     this.states.set(state.appId, state);
+    this.options.notify?.(state);
   }
 
   async exclusive<T>(appId: string, execute: () => Promise<T>): Promise<T> {
@@ -139,18 +196,61 @@ export class ClientForks {
     }
   }
 
+  private async cloneSource(
+    state: ClientForkStatus,
+    base: string,
+  ): Promise<void> {
+    const temporary = path.join(
+      this.directory(state.appId),
+      `source-preparing-${randomUUID()}`,
+    );
+    try {
+      await runForkCommand(
+        "git",
+        [
+          "clone",
+          "--filter=blob:none",
+          "--no-checkout",
+          this.options.source,
+          temporary,
+        ],
+        this.directory(state.appId),
+      );
+      await runForkCommand("git", ["fetch", "origin", base], temporary);
+      await sparseForkSource(temporary, base, state.appId);
+      await runForkCommand(
+        "git",
+        ["checkout", "-b", "my-version", base],
+        temporary,
+      );
+      await runForkCommand(
+        "git",
+        ["branch", `upstream/${base}`, base],
+        temporary,
+      );
+      await fs.rename(temporary, state.sourcePath);
+    } catch (error) {
+      await fs.rm(temporary, { recursive: true, force: true });
+      throw error;
+    }
+  }
+
   async prepare(
     appId: string,
     hostedSha: string | null,
   ): Promise<ClientForkStatus> {
     return this.exclusive(appId, async () => {
       const state = await this.load(appId);
+      await this.options.toolchain?.();
+      const started = performance.now();
+      state.phase = "downloading";
+      await this.save(state);
       const base = hostedSha ?? state.baseSha;
       if (!/^[a-f0-9]{40}$/.test(base))
         throw new Error(
           "The desktop build has no source commit; rebuild Desktop from a git checkout",
         );
-      await fs.mkdir(this.directory(appId), { recursive: true });
+      await fs.mkdir(this.directory(appId), { recursive: true, mode: 0o700 });
       let existing = false;
       try {
         await fs.access(path.join(state.sourcePath, ".git"));
@@ -164,37 +264,14 @@ export class ClientForks {
           )
         )
           throw error;
-        await runForkCommand(
-          "git",
-          [
-            "clone",
-            "--filter=blob:none",
-            "--no-checkout",
-            this.options.source,
-            state.sourcePath,
-          ],
-          this.directory(appId),
-        );
-        await runForkCommand(
-          "git",
-          ["fetch", "origin", base],
-          state.sourcePath,
-        );
-        await runForkCommand(
-          "git",
-          ["checkout", "-b", "my-version", base],
-          state.sourcePath,
-        );
-        await runForkCommand(
-          "git",
-          ["branch", `upstream/${base}`, base],
-          state.sourcePath,
-        );
+        await this.cloneSource(state, base);
       }
       if (existing && base !== state.baseSha)
         throw new Error(
           "The host has a new version. Update the existing fork before editing it.",
         );
+      state.cloneMs = Math.round(performance.now() - started);
+      state.sourceBytes = await sourceSize(state.sourcePath);
       state.baseSha = base;
       state.hostedSha = hostedSha;
       await this.save(state);
@@ -203,15 +280,37 @@ export class ClientForks {
   }
 
   async build(appId: string): Promise<ClientForkStatus> {
+    const previous = this.buildTail;
+    let release: () => void = () => {};
+    this.buildTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await this.buildNow(appId);
+    } finally {
+      release();
+    }
+  }
+
+  private async buildNow(appId: string): Promise<ClientForkStatus> {
     return this.exclusive(appId, async () => {
       const state = await this.load(appId);
       const appDirectory = path.join(state.sourcePath, "templates", appId);
       try {
-        await runForkCommand(
-          "git",
-          ["add", "--", `templates/${appId}`],
-          state.sourcePath,
-        );
+        const tools = await this.options.toolchain?.();
+        const pnpm = (
+          args: string[],
+          cwd: string,
+          extra: NodeJS.ProcessEnv = {},
+        ) =>
+          runForkCommand(
+            tools?.command ?? this.options.pnpm,
+            [...(tools?.args ?? []), ...args],
+            cwd,
+            { ...(tools?.env ?? forkCommandEnvironment()), ...extra },
+          );
+        await runForkCommand("git", ["add", "--all"], state.sourcePath);
         const changedServer = await runForkCommand(
           "git",
           [
@@ -229,6 +328,8 @@ export class ClientForks {
           throw new Error(
             "This edit changes server code. This prototype runs client edits against the hosted backend; server edits need a separate runtime.",
           );
+        state.phase = "installing";
+        await this.save(state);
         const installStart = performance.now();
         const dependencyHash = createHash("sha256");
         for (const filename of [
@@ -255,11 +356,11 @@ export class ClientForks {
             throw error;
         }
         if (installedDigest !== digest) {
-          await runForkCommand(
-            this.options.pnpm,
+          await pnpm(
             [
               "install",
               "--frozen-lockfile",
+              "--ignore-scripts",
               "--filter",
               `${appId}...`,
               "--store-dir",
@@ -270,22 +371,26 @@ export class ClientForks {
           await fs.writeFile(stamp, digest);
         }
         state.installMs = Math.round(performance.now() - installStart);
+        await this.save(state);
+        state.phase = "building";
+        await this.save(state);
         const buildStart = performance.now();
-        await runForkCommand(
-          this.options.pnpm,
-          [
-            "exec",
-            "node",
-            "scripts/prebuild-workspace-packages.ts",
-            "agentkit-acceptance",
-          ],
+        await pnpm(
+          ["--filter", "@agent-native/toolkit...", "run", "build"],
           state.sourcePath,
         );
-        await runForkCommand(
-          this.options.pnpm,
+        await pnpm(
           ["exec", "agent-native", "build", "--client-only"],
           appDirectory,
+          {
+            VITE_APP_BASE_PATH: new URL(
+              state.appUrl ?? "https://local.example/",
+            ).pathname,
+            AGENT_NATIVE_BUILD_SHA: state.baseSha,
+            AGENT_NATIVE_BUILD_ID: state.baseSha,
+          },
         );
+        await verifyClientAssets(path.join(appDirectory, "build", "client"));
         const candidate = path.join(
           this.directory(appId),
           "builds",
@@ -310,11 +415,16 @@ export class ClientForks {
           );
         state.previousBuildPath = state.buildPath;
         state.buildPath = candidate;
+        state.buildBasePath = new URL(
+          state.appUrl ?? "https://local.example/",
+        ).pathname;
         state.buildMs = Math.round(performance.now() - buildStart);
         state.error = null;
+        state.phase = "ready";
         await this.save(state);
         return state;
       } catch (error) {
+        state.phase = "error";
         state.error = error instanceof Error ? error.message : String(error);
         state.enabled = false;
         await this.save(state);
@@ -334,6 +444,9 @@ export class ClientForks {
         await runForkCommand("git", ["status", "--porcelain"], state.sourcePath)
       )
         throw new Error("Build or preserve your current edits before updating");
+      state.hostedSha = hostedSha;
+      state.enabled = false;
+      await this.save(state);
       await runForkCommand(
         "git",
         ["fetch", "origin", hostedSha],
@@ -358,9 +471,40 @@ export class ClientForks {
         state.error = `Update needs repair: ${error instanceof Error ? error.message : String(error)}`;
         state.enabled = false;
         await this.save(state);
-        throw error;
+        throw new ClientForkRepairRequiredError(state.error, { cause: error });
       }
     });
-    return this.build(appId);
+    try {
+      return await this.build(appId);
+    } catch (error) {
+      throw new ClientForkRepairRequiredError(
+        "Updated client needs a build repair",
+        { cause: error },
+      );
+    }
+  }
+
+  async completeRepair(appId: string): Promise<void> {
+    const state = await this.load(appId);
+    if (!state.hostedSha || state.hostedSha === state.baseSha) return;
+    await runForkCommand(
+      "git",
+      ["merge-base", "--is-ancestor", state.hostedSha, "HEAD"],
+      state.sourcePath,
+    );
+    const branch = `upstream/${state.hostedSha}`;
+    const found = await runForkCommand(
+      "git",
+      ["branch", "--list", branch],
+      state.sourcePath,
+    );
+    if (!found)
+      await runForkCommand(
+        "git",
+        ["branch", branch, state.hostedSha],
+        state.sourcePath,
+      );
+    state.baseSha = state.hostedSha;
+    await this.save(state);
   }
 }

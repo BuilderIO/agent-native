@@ -136,6 +136,12 @@ export const privacySettingsMessages: PrivacySettingsMessages = {
 };
 
 export const clientForkMessages = {
+  downloading: "ソースをダウンロード中",
+  installing: "インストール中",
+  building: "ビルド中",
+  ready: "準備完了",
+  gitRequired:
+    "カスタマイズには Git が必要です。Git または Xcode コマンドラインツールをインストールして再試行してください。",
   original: "オリジナル",
   mine: "自分のバージョン",
   manage: "カスタマイズを管理",

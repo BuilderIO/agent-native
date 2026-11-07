@@ -52,20 +52,22 @@ export function clientForkLocalPath(
 }
 
 export function createClientForkHandler(options: {
-  origin: string;
+  origin: string | (() => string);
   status: () => ClientForkStatus;
   forward: (request: Request) => Promise<Response>;
   fail: (error: Error) => void;
 }): (request: Request) => Promise<Response> {
   return async (request) => {
     const status = options.status();
+    const origin =
+      typeof options.origin === "function" ? options.origin() : options.origin;
     if (!status.enabled || !status.buildPath) return options.forward(request);
     try {
-      const relative = clientForkLocalPath(request, options.origin);
+      const relative = clientForkLocalPath(request, origin);
       if (!relative) {
         const response = await options.forward(request);
         if (
-          new URL(request.url).origin === new URL(options.origin).origin &&
+          new URL(request.url).origin === new URL(origin).origin &&
           new URL(request.url).pathname.includes("/_agent-native/actions/") &&
           response.headers.get("x-agent-native-client-mismatch") === "1"
         ) {
@@ -77,13 +79,34 @@ export function createClientForkHandler(options: {
         }
         return response;
       }
-      const root = await realpath(status.buildPath);
-      const target = await realpath(path.join(root, relative));
-      if (
-        !target.startsWith(`${root}${path.sep}`) ||
-        !(await stat(target)).isFile()
-      )
-        throw new Error("Local asset escaped its build directory");
+      let target: string | null = null;
+      for (const build of [
+        status.buildPath,
+        ...(relative.startsWith("assets/") ? [status.previousBuildPath] : []),
+      ]) {
+        if (!build) continue;
+        const root = await realpath(build);
+        try {
+          const candidate = await realpath(path.join(root, relative));
+          if (
+            !candidate.startsWith(`${root}${path.sep}`) ||
+            !(await stat(candidate)).isFile()
+          )
+            throw new Error("Local asset escaped its build directory");
+          target = candidate;
+          break;
+        } catch (error) {
+          if (
+            !(
+              error instanceof Error &&
+              "code" in error &&
+              error.code === "ENOENT"
+            )
+          )
+            throw error;
+        }
+      }
+      if (!target) throw new Error("Local client asset is missing");
       const bytes = await readFile(target);
       return new Response(bytes, {
         headers: {

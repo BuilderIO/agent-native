@@ -12,12 +12,21 @@ import { z } from "zod";
 import {
   CLIENT_FORK_CHANNEL,
   type ClientForkResult,
+  type ClientForkStatus,
 } from "../../shared/client-forks.js";
 import {
   createClientForkHandler,
   clientForkLocalPath,
 } from "./client-fork-protocol.js";
-import { ClientForks } from "./client-forks.js";
+import {
+  clientForkToolchain,
+  writeClientForkBuildCommand,
+} from "./client-fork-toolchain.js";
+import {
+  ClientForks,
+  ClientForkRepairRequiredError,
+  stopForkBuilds,
+} from "./client-forks.js";
 
 const requestSchema = z.object({
   appId: z.string().regex(/^[a-z][a-z0-9-]{0,80}$/),
@@ -37,17 +46,60 @@ export function registerClientForkRuntime(options: {
   baseSha: string;
   pnpm: string;
   isShell: (event: IpcMainInvokeEvent) => boolean;
-  apps: () => { id: string; url?: string }[];
+  apps: () => { id: string; url?: string | undefined }[];
   notify: (appId: string, error: string | null) => void;
+  repair: (state: ClientForkStatus) => Promise<void>;
 }) {
   const forks = new ClientForks({
     root: path.join(app.getPath("userData"), "client-forks"),
     source: options.source,
     baseSha: options.baseSha,
     pnpm: options.pnpm,
+    toolchain: clientForkToolchain,
+    notify: (state) => options.notify(state.appId, state.error),
   });
+  app.on("before-quit", stopForkBuilds);
   const installed = new Set<string>();
   const pending = new Map<string, Promise<void>>();
+  const editing = new Set<string>();
+  function reloadApp(appId: string): void {
+    const partition = session.fromPartition(`persist:app-${appId}`);
+    for (const contents of webContents.getAllWebContents()) {
+      if (contents.getType() === "webview" && contents.session === partition)
+        contents.reloadIgnoringCache();
+    }
+  }
+
+  async function update(appId: string, origin: string): Promise<void> {
+    if (editing.has(appId))
+      throw new Error("Finish the current source edit before updating");
+    try {
+      uninstall(appId);
+      await forks.update(appId, await hostedSha(appId, origin));
+    } catch (error) {
+      const state = await forks.load(appId);
+      if (error instanceof ClientForkRepairRequiredError) {
+        editing.add(appId);
+        try {
+          await options.repair(state);
+        } catch (failure) {
+          editing.delete(appId);
+          throw failure;
+        }
+      }
+      throw error;
+    }
+  }
+
+  function uninstall(appId: string): void {
+    if (!installed.delete(appId)) return;
+    session.fromPartition(`persist:app-${appId}`).protocol.unhandle("https");
+  }
+
+  async function sync(appId: string, origin: string): Promise<void> {
+    if ((await forks.load(appId)).enabled) await install(appId, origin);
+    else uninstall(appId);
+  }
 
   async function install(appId: string, origin: string): Promise<void> {
     if (installed.has(appId)) return;
@@ -59,12 +111,15 @@ export function registerClientForkRuntime(options: {
       partition.protocol.handle(
         "https",
         createClientForkHandler({
-          origin,
+          origin: () =>
+            options.apps().find((candidate) => candidate.id === appId)?.url ??
+            origin,
           status: () => state,
           forward: (request) =>
             partition.fetch(request, { bypassCustomProtocolHandlers: true }),
           fail: (error) => {
             state.enabled = false;
+            uninstall(appId);
             state.error = error.message;
             options.notify(appId, state.error);
             void forks
@@ -104,15 +159,25 @@ export function registerClientForkRuntime(options: {
       bypassCustomProtocolHandlers: true,
       signal: AbortSignal.timeout(15_000),
     });
+    const state = await forks.load(appId);
+    state.appUrl = origin;
+    if (response.status === 401 || response.status === 403) {
+      state.hostVersionStatus = "unauthenticated";
+      await forks.save(state);
+      return null;
+    }
     // Older hosts have no build-info route; an HTML shell is not metadata.
     if (
       response.status === 404 ||
       response.headers.get("content-type")?.includes("text/html")
-    )
+    ) {
+      state.hostVersionStatus = "absent";
+      await forks.save(state);
       return null;
+    }
     if (!response.ok)
       throw new Error(`Could not read host version (${response.status})`);
-    return z
+    const sha = z
       .object({
         gitSha: z
           .string()
@@ -120,6 +185,9 @@ export function registerClientForkRuntime(options: {
           .nullable(),
       })
       .parse(await response.json()).gitSha;
+    state.hostVersionStatus = sha ? "known" : "absent";
+    await forks.save(state);
+    return sha;
   }
 
   ipcMain.handle(
@@ -139,7 +207,7 @@ export function registerClientForkRuntime(options: {
           throw new Error("Choose a hosted first-party app");
         const origin = configured.url;
         const state = await forks.load(request.appId);
-        await install(request.appId, origin);
+
         switch (request.operation) {
           case "prepare":
             await forks.prepare(
@@ -148,13 +216,25 @@ export function registerClientForkRuntime(options: {
             );
             break;
           case "build":
-            await forks.build(request.appId);
+            if (editing.has(request.appId))
+              throw new Error(
+                "Wait for the current source edit to finish before building",
+              );
+            try {
+              await forks.build(request.appId);
+            } catch (error) {
+              await sync(request.appId, origin);
+              reloadApp(request.appId);
+              throw error;
+            }
             break;
           case "original":
             state.enabled = false;
             await forks.save(state);
             break;
           case "activate":
+            if ((state.buildBasePath ?? "/") !== new URL(origin).pathname)
+              throw new Error("Rebuild the client for this app mount path");
             if (!state.buildPath || state.error)
               throw new Error("Build a working client before activating it");
             state.hostedSha = await hostedSha(request.appId, origin);
@@ -177,14 +257,12 @@ export function registerClientForkRuntime(options: {
             break;
           }
           case "update":
-            await forks.update(
-              request.appId,
-              await hostedSha(request.appId, origin),
-            );
+            await update(request.appId, origin);
             break;
           case "status":
             break;
         }
+        await sync(request.appId, origin);
         return { ok: true, status: state };
       } catch (error) {
         return {
@@ -230,7 +308,7 @@ export function registerClientForkRuntime(options: {
           if (
             contents.isDestroyed() ||
             current !== generation ||
-            !state.enabled
+            !(await forks.load(configured.id)).enabled
           )
             return;
           const health: string | null = await contents.executeJavaScript(
@@ -240,9 +318,11 @@ export function registerClientForkRuntime(options: {
             const remote = await hostedSha(configured.id, configured.url ?? "");
             if (remote && remote !== state.baseSha) {
               options.notify(configured.id, null);
-              await forks.update(configured.id, remote);
+              uninstall(configured.id);
+              await update(configured.id, configured.url ?? "");
               state.enabled = true;
               await forks.save(state);
+              await sync(configured.id, configured.url ?? "");
               if (!contents.isDestroyed()) contents.reloadIgnoringCache();
             }
             return;
@@ -250,6 +330,7 @@ export function registerClientForkRuntime(options: {
           if (health === "error") break;
         }
         state.enabled = false;
+        uninstall(configured.id);
         state.error =
           "The customized client did not boot. Original has been restored.";
         await forks.save(state);
@@ -266,7 +347,8 @@ export function registerClientForkRuntime(options: {
       if (!configured.url?.startsWith("https://")) continue;
       try {
         const state = await forks.load(configured.id);
-        if (state.buildPath) await install(configured.id, configured.url);
+        if (state.enabled && state.buildPath)
+          await install(configured.id, configured.url);
       } catch (error) {
         options.notify(
           configured.id,
@@ -278,15 +360,55 @@ export function registerClientForkRuntime(options: {
 
   return {
     ready,
-    prepare: async (appId: string, origin: string) => {
-      await install(appId, origin);
-      return forks.prepare(appId, await hostedSha(appId, origin));
+    prepare: async (appId: string, origin: string, prompt: string) => {
+      if (editing.has(appId))
+        throw new Error("This app already has a source edit running");
+      editing.add(appId);
+      try {
+        const state = await forks.prepare(
+          appId,
+          await hostedSha(appId, origin),
+        );
+        if (!state.buildPath) await forks.build(appId);
+        await writeClientForkBuildCommand(
+          state.sourcePath,
+          appId,
+          origin,
+          state.baseSha,
+        );
+        state.intents = [...(state.intents ?? []), prompt];
+        await forks.save(state);
+        return state;
+      } catch (error) {
+        editing.delete(appId);
+        const state = await forks.load(appId);
+        state.phase = "error";
+        state.error = error instanceof Error ? error.message : String(error);
+        await forks.save(state);
+        throw error;
+      }
     },
     finish: async (appId: string) => {
-      const state = await forks.build(appId);
-      state.enabled = true;
-      await forks.save(state);
-      return state;
+      try {
+        await forks.completeRepair(appId);
+        const state = await forks.build(appId);
+        state.enabled = true;
+        await forks.save(state);
+        const origin = options
+          .apps()
+          .find((candidate) => candidate.id === appId)?.url;
+        if (origin) await sync(appId, origin);
+        return state;
+      } catch (error) {
+        uninstall(appId);
+        reloadApp(appId);
+        throw error;
+      } finally {
+        editing.delete(appId);
+      }
+    },
+    failEdit: (appId: string) => {
+      editing.delete(appId);
     },
   };
 }

@@ -134,6 +134,12 @@ export const privacySettingsMessages: PrivacySettingsMessages = {
 };
 
 export const clientForkMessages = {
+  downloading: "सोर्स डाउनलोड हो रहा है",
+  installing: "इंस्टॉल हो रहा है",
+  building: "बिल्ड हो रहा है",
+  ready: "तैयार",
+  gitRequired:
+    "अनुकूलन के लिए Git चाहिए। Git या Xcode कमांड लाइन टूल इंस्टॉल करें और फिर कोशिश करें।",
   original: "मूल",
   mine: "मेरा संस्करण",
   manage: "अनुकूलन प्रबंधित करें",

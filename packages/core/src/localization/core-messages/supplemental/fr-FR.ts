@@ -142,6 +142,12 @@ export const privacySettingsMessages: PrivacySettingsMessages = {
 };
 
 export const clientForkMessages = {
+  downloading: "Téléchargement du code",
+  installing: "Installation",
+  building: "Compilation",
+  ready: "Prêt",
+  gitRequired:
+    "La personnalisation nécessite Git. Installez Git ou les outils de ligne de commande Xcode, puis réessayez.",
   original: "Original",
   mine: "Ma version",
   manage: "Gérer la personnalisation",

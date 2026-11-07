@@ -28,7 +28,7 @@ the public repository. A packaged build containing unpublished commits cannot
 fetch those commits from GitHub and must be published before distribution.
 
 Dependency installation uses a shared pnpm store and is repeated when its input
-hash changes. Git and pnpm must be installed for this prototype. Install and build
+hash changes. Git is required (Xcode Command Line Tools on macOS); Desktop detects it before cloning. pnpm ships with Desktop and runs on Electron’s Node runtime. Install and build
 durations are recorded in the local fork state. New commands and state use the
 same desktop IPC boundary for UI and browser-accessible agent tools; only version
 and profile metadata is mirrored to the owning app's application state.

@@ -5,7 +5,10 @@ export {
   type ClientConfigOptions,
   type NitroOptions,
 } from "./client.js";
-export { isDesktopClientBuild } from "./desktop-client.js";
+export {
+  isDesktopClientBuild,
+  desktopClientBasePath,
+} from "./desktop-client.js";
 export {
   defineAgentNativeConfig,
   type AgentNativeConfig,

@@ -133,6 +133,12 @@ export const privacySettingsMessages: PrivacySettingsMessages = {
 };
 
 export const clientForkMessages = {
+  downloading: "جارٍ تنزيل المصدر",
+  installing: "جارٍ التثبيت",
+  building: "جارٍ البناء",
+  ready: "جاهز",
+  gitRequired:
+    "يتطلب التخصيص Git. ثبّت Git أو أدوات سطر أوامر Xcode، ثم أعد المحاولة.",
   original: "الأصلي",
   mine: "نسختي",
   manage: "إدارة التخصيص",

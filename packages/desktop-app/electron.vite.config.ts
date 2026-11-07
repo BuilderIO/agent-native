@@ -230,7 +230,9 @@ const desktopDefines = {
       encoding: "utf8",
     }).trim(),
   ),
-  __AGENT_NATIVE_DESKTOP_SOURCE_DIRECTORY__: JSON.stringify(resolve("../..")),
+  __AGENT_NATIVE_DESKTOP_SOURCE_DIRECTORY__: JSON.stringify(
+    desktopBuildChannel === "release" ? "" : resolve("../.."),
+  ),
 };
 
 export default defineConfig({

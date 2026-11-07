@@ -19,6 +19,10 @@ import type {
   ClientForkStatus,
 } from "../../../shared/client-forks.js";
 
+function desktopApi(): Partial<Window["electronAPI"]> | undefined {
+  return (window as Partial<Window>).electronAPI;
+}
+
 export default function ClientForkControls({
   appId,
   reload,
@@ -36,7 +40,12 @@ export default function ClientForkControls({
     setBusy(true);
     try {
       const result = await window.electronAPI.clientForks({ appId, operation });
-      if (!result.ok) throw new Error(result.error);
+      if (!result.ok)
+        throw new Error(
+          result.error === "clientFork.gitRequired"
+            ? t("clientFork.gitRequired")
+            : result.error,
+        );
       setStatus(result.status);
       setError(null);
       if (["original", "activate", "undo"].includes(operation)) reload();
@@ -47,13 +56,11 @@ export default function ClientForkControls({
     }
   }
   useEffect(() => {
-    if (!window.electronAPI?.clientForks) return;
+    if (!desktopApi()?.clientForks) return;
     void execute("status");
-    const unsubscribe = window.electronAPI.appConfig?.onRuntimeStatus?.(
-      (next) => {
-        if (next.appId === appId) void execute("status");
-      },
-    );
+    const unsubscribe = desktopApi()?.appConfig?.onRuntimeStatus((next) => {
+      if (next.appId === appId) void execute("status");
+    });
     return unsubscribe;
   }, [appId]);
   useEffect(() => {
@@ -69,7 +76,7 @@ export default function ClientForkControls({
     );
   }, [active, appId, status]);
   useEffect(() => {
-    if (!active || !window.electronAPI?.clientForks) return;
+    if (!active || !desktopApi()?.clientForks) return;
     const registration = createAgentNativeWebMcpRegistration({
       actions: [
         defineClientAction<{ operation: ClientForkRequest["operation"] }>({
@@ -99,7 +106,12 @@ export default function ClientForkControls({
               appId,
               operation,
             });
-            if (!result.ok) throw new Error(result.error);
+            if (!result.ok)
+              throw new Error(
+                result.error === "clientFork.gitRequired"
+                  ? t("clientFork.gitRequired")
+                  : result.error,
+              );
             setStatus(result.status);
             if (["original", "activate", "undo"].includes(operation)) reload();
             return {
@@ -119,9 +131,20 @@ export default function ClientForkControls({
       );
     return () => registration.stop();
   }, [active, appId, reload]);
-  if (!status?.buildPath && !status?.error && !error) return null;
+  const diagnostic = error ?? status?.error;
+  const errorMessage =
+    diagnostic === "clientFork.gitRequired"
+      ? t("clientFork.gitRequired")
+      : diagnostic;
+  if (!status?.phase && !status?.buildPath && !status?.error && !error)
+    return null;
   return (
     <div className="absolute right-2 top-2 z-20 flex max-w-sm items-center gap-1 rounded-md border border-border bg-background p-1 shadow-sm">
+      {status?.phase && status.phase !== "error" ? (
+        <span role="status" className="px-2 text-xs text-muted-foreground">
+          {t(`clientFork.${status.phase}`)}
+        </span>
+      ) : null}
       <Button
         size="sm"
         variant={status?.enabled ? "ghost" : "secondary"}
@@ -176,9 +199,9 @@ export default function ClientForkControls({
         <span
           role="alert"
           className="max-w-48 truncate text-xs text-destructive"
-          title={error ?? status?.error ?? ""}
+          title={errorMessage ?? ""}
         >
-          {error ?? status?.error}
+          {errorMessage}
         </span>
       ) : null}
     </div>

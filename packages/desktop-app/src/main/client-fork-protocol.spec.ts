@@ -103,6 +103,13 @@ describe("client fork interception", () => {
       installMs: null,
       buildMs: null,
     };
+    const previous = path.join(root, "previous");
+    await fs.mkdir(path.join(previous, "assets"), { recursive: true });
+    await fs.writeFile(
+      path.join(previous, "assets", "old-hash.js"),
+      "old chunk",
+    );
+    state.previousBuildPath = previous;
     const fail = vi.fn();
     const forward = vi.fn(async () => new Response("hosted"));
     const handle = createClientForkHandler({
@@ -118,6 +125,12 @@ describe("client fork interception", () => {
     );
     expect(await document.text()).toBe("custom client");
     expect(document.headers.get("cache-control")).toBe("no-store");
+    expect(
+      await (
+        await handle(new Request("https://app.example/assets/old-hash.js"))
+      ).text(),
+    ).toBe("old chunk");
+    expect(fail).not.toHaveBeenCalled();
     expect(
       await (
         await handle(new Request("https://app.example/assets/escape.js"))

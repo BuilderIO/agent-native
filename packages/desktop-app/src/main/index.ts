@@ -1,12 +1,4 @@
 import fs from "fs";
-
-import { registerClientForkRuntime } from "./client-fork-runtime.js";
-
-declare const __AGENT_NATIVE_DESKTOP_SOURCE_SHA__: string;
-declare const __AGENT_NATIVE_DESKTOP_SOURCE_DIRECTORY__: string;
-let desktopClientForkRuntime:
-  | ReturnType<typeof registerClientForkRuntime>
-  | undefined;
 import {
   execFile,
   spawn,
@@ -186,6 +178,7 @@ import {
   loadMcpConfig,
   type McpServerConfig,
 } from "../../../core/src/mcp-client/config.js";
+import type { ClientForkStatus } from "../../shared/client-forks.js";
 import {
   isBetaLaneEmail,
   resolveDesktopEnvironmentLane,
@@ -206,6 +199,7 @@ import {
   createCliStatusCache,
   type CliStatusCache,
 } from "./cli-status-cache.js";
+import { registerClientForkRuntime } from "./client-fork-runtime.js";
 import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
 import { normalizeCodeAgentPromptAttachments } from "./code-agent-prompt-attachments.js";
 import {
@@ -351,6 +345,12 @@ import { setMailWebviewBackgroundThrottling } from "./webview-background-throttl
 import { installWebviewNavigationListeners } from "./webview-navigation";
 import { installWindowDragController } from "./window-drag";
 import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
+
+declare const __AGENT_NATIVE_DESKTOP_SOURCE_SHA__: string;
+declare const __AGENT_NATIVE_DESKTOP_SOURCE_DIRECTORY__: string;
+let desktopClientForkRuntime:
+  | ReturnType<typeof registerClientForkRuntime>
+  | undefined;
 
 initializeDesktopStartup({
   isPackaged: app.isPackaged,
@@ -6237,6 +6237,7 @@ async function spawnCodeAgentRunner(
         void finishDesktopClientForkRun(finalRecord);
         showCodeAgentRunNotification(runId, "completed", runTitle);
       } else if (finalStatus === "errored") {
+        void finishDesktopClientForkRun(finalRecord);
         showCodeAgentRunNotification(runId, "failed", runTitle);
       } else if (finalStatus === "needs-approval") {
         showCodeAgentRunNotification(runId, "approval-needed", runTitle);
@@ -6452,6 +6453,7 @@ async function spawnCodeAgentApprovalRunner(
         void finishDesktopClientForkRun(finalRecord);
         showCodeAgentRunNotification(runId, "completed", runTitle);
       } else if (finalStatus === "errored") {
+        void finishDesktopClientForkRun(finalRecord);
         showCodeAgentRunNotification(runId, "failed", runTitle);
       } else if (finalStatus === "needs-approval") {
         showCodeAgentRunNotification(runId, "approval-needed", runTitle);
@@ -8906,12 +8908,14 @@ async function prepareDesktopAppForLocalCodeChange(
     desktopClientForkRuntime &&
     getTemplate(appId) &&
     appConfig.mode !== "dev" &&
-    appConfig.url?.startsWith("https://")
+    appConfig.url.startsWith("https://")
   ) {
     try {
       const state = await desktopClientForkRuntime.prepare(
         appId,
-        appConfig.url,
+        clientForkAppConfigs().find((candidate) => candidate.id === appId)
+          ?.url ?? appConfig.url,
+        prompt,
       );
       const engine = getLocalCodexCliStatus().authenticated
         ? CODEX_CLI_ENGINE_NAME
@@ -8931,9 +8935,10 @@ async function prepareDesktopAppForLocalCodeChange(
         prompt: [
           `Customize the real source for templates/${appId} in this personal checkout.`,
           `User request: ${prompt}`,
+          "This is already an isolated personal fork. Keep its current branch and worktree; do not fetch a new base or modify other apps. Any file in this fork may be edited, including the vendored core and toolkit.",
           "Change the existing screens and client interactions directly. Keep actions/auth/provider access on the unchanged hosted backend.",
           "Server/action/schema edits require a separate runtime and are not supported by this prototype; explain that if required.",
-          "Do not start a dev server or watch process. Desktop will build the client after this run completes. Do not edit .env, install arbitrary packages, or commit changes yourself.",
+          "Do not start a dev server or watch process. Run sh .git/agent-native-client-build.sh from the fork root before finishing; Desktop will also verify the build after this run. Do not edit .env, install arbitrary packages, or commit changes yourself.",
           "Preserve the desktop-client build, clientLoader equivalents, and root client-health signals. Route new UI copy through the app catalogs.",
         ].join("\n"),
         metadata: { kind: "desktop-client-fork", appId, userPrompt: prompt },
@@ -8953,6 +8958,7 @@ async function prepareDesktopAppForLocalCodeChange(
         message: "Editing your local client source.",
       };
     } catch (error) {
+      desktopClientForkRuntime.failEdit(appId);
       return {
         ok: false,
         apps: currentApps,
@@ -9079,6 +9085,54 @@ async function prepareDesktopAppForLocalCodeChange(
 
 const lastDesktopAppRuntimeStatus = new Map<string, string>();
 
+function clientForkAppConfigs(): { id: string; url: string | undefined }[] {
+  const lane = resolveDesktopEnvironmentLaneState().lane;
+  return loadAppsForAuthContext()
+    .filter((configured) => Boolean(getTemplate(configured.id)))
+    .map((configured) => ({
+      id: configured.id,
+      url: configured.url
+        ? withDesktopEnvironmentLane(configured.url, lane)
+        : undefined,
+    }));
+}
+
+async function startDesktopClientForkRepair(
+  state: ClientForkStatus,
+): Promise<void> {
+  const engine = getLocalCodexCliStatus().authenticated
+    ? CODEX_CLI_ENGINE_NAME
+    : getLocalClaudeCliStatus().authenticated
+      ? CLAUDE_CLI_ENGINE_NAME
+      : undefined;
+  if (!engine)
+    throw new Error(
+      "A local coding agent must be signed in to repair this update.",
+    );
+  const result = await createCodeAgentRun({
+    goalId: "task",
+    cwd: state.sourcePath,
+    engine,
+    executionTarget: "local",
+    permissionMode: "default",
+    prompt: [
+      `Repair the upstream update of templates/${state.appId} in this existing personal fork.`,
+      `Preserve these customization intents:\n${(state.intents ?? []).join("\n")}`,
+      `Failure: ${state.error ?? "The updated client failed its build."}`,
+      "Resolve any in-progress rebase without dropping personal changes. Continue that rebase when resolved; do not reset, force-push, start a server, or alter hosted actions/schema/auth.",
+      "Keep the current worktree. Desktop will build the client when this run finishes. Explain any required server-runtime change instead of pretending it works against the hosted server.",
+    ].join("\n"),
+    metadata: { kind: "desktop-client-fork", appId: state.appId, repair: true },
+  });
+  if (!result.ok || !result.run)
+    throw new Error(result.error ?? result.message);
+  emitDesktopAppRuntimeStatus({
+    appId: state.appId,
+    state: "starting",
+    message: "A local agent is repairing your customization update.",
+  });
+}
+
 async function finishDesktopClientForkRun(
   record: Record<string, unknown> | null,
 ): Promise<void> {
@@ -9090,6 +9144,16 @@ async function finishDesktopClientForkRun(
   )
     return;
   const appId = metadata.appId;
+  if (getRecordString(record, "status") !== "completed") {
+    desktopClientForkRuntime.failEdit(appId);
+    emitDesktopAppRuntimeStatus({
+      appId,
+      state: "error",
+      message:
+        "The source edit did not complete. Your last working build is preserved.",
+    });
+    return;
+  }
   try {
     emitDesktopAppRuntimeStatus({
       appId,
@@ -14303,13 +14367,14 @@ void app.whenReady().then(async () => {
     baseSha: __AGENT_NATIVE_DESKTOP_SOURCE_SHA__,
     pnpm: "pnpm",
     isShell: isShellIdentityIpc,
-    apps: () => AppStore.loadApps(),
+    apps: clientForkAppConfigs,
     notify: (appId, error) =>
       emitDesktopAppRuntimeStatus({
         appId,
         state: error ? "error" : "starting",
         message: error ?? "Updating your local client.",
       }),
+    repair: startDesktopClientForkRepair,
   });
   await desktopClientForkRuntime.ready;
   if (isDesktopSsoEnabled()) {

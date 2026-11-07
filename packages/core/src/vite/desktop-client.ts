@@ -9,6 +9,16 @@ export function isDesktopClientBuild(
   return env.AGENT_NATIVE_CLIENT_ONLY === "1";
 }
 
+export function desktopClientBasePath(
+  env: Record<string, string | undefined> = process.env,
+): string {
+  if (!isDesktopClientBuild(env)) return "/";
+  const value = env.VITE_APP_BASE_PATH ?? "/";
+  if (!value.startsWith("/") || value.startsWith("//") || /[?#\\]/.test(value))
+    throw new Error("Desktop client base must be an absolute URL path");
+  return value;
+}
+
 export function desktopClientRouteSource(
   code: string,
   filename: string,
@@ -110,7 +120,7 @@ export function desktopClientPlugin(): Plugin {
     name: "agent-native:desktop-client",
     enforce: "pre",
     transform(code, id) {
-      const filename = id.split("?")[0];
+      const filename = id.split("?")[0] ?? id;
       if (
         !isDesktopClientBuild() ||
         !/\/app\/(?:routes\/.*|root)\.[jt]sx?$/.test(filename) ||
