@@ -51,6 +51,114 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.226.0
+
+### Minor Changes
+
+- d93b5ad: Add user-scoped experience profile actions that select presets over existing deviation flags and enforce private reference access on the server.
+
+### Patch Changes
+
+- 5ee10e8: Separate app context from scoped workspace integration contributions in the shared composer, preserve references through app handoffs, and revalidate integration access before engine dispatch. Preserve bounded app-owned source identifiers in composer draft metadata. Support transport-owned binary uploads in AgentKit and provide the native file-storage upload lifecycle across shared composers.
+- 9aabcfb: Add a pre-signup experiment for automatic Builder account activation with recorded acceptance, verified identity checks, and a new-account-only provisioning contract.
+- Release all public npm packages with a patch version bump.
+- dfb0acb: The `resources` tool `read` action now accepts `offset` and `length` and pages resources larger than 40,000 characters, with a header showing whether the read is partial and the next offset.
+- Updated dependencies [5ee10e8]
+- Updated dependencies
+  - @agent-native/agentkit@0.226.0
+  - @agent-native/recap-cli@0.5.99
+
+## 0.225.1
+
+### Patch Changes
+
+- 1a62c08: Non-image chat attachments uploaded to Builder storage no longer fail the agent run with "An attachment has inline bytes but no durable file URL". Builder's file download URL (`/o/<object>?alt=media&token=…`) now counts as a durable reference, and the client, thread storage, and background dispatch all share one rule for it.
+- a94e957: Log which recurring-job sweep steps were incomplete, and which runs failed stale-projection retry, when the sweep route returns 500.
+- Release all public npm packages with a patch version bump.
+- efb0662: Keep event persistence failures visible to later flushes, durable abort requests, and run finalization without changing a durable abort outcome.
+- Updated dependencies [1a62c08]
+- Updated dependencies
+  - @agent-native/agentkit@0.225.1
+  - @agent-native/recap-cli@0.5.98
+
+## 0.225.0
+
+### Minor Changes
+
+- aeb3d12: Let the share panel choose what general access allows. Anyone at the organization gets a role picker for Can view, Can comment, or Can edit, and Anyone with the link gets one for Can view or Can comment. `set-resource-visibility` takes an optional `role` with `visibility: "org"` or `"public"`. The organization's role is stored as the share grant to the resource's own organization, and the link's role as a share row for the new `link` principal, which only signed-in callers receive and which is never listed or shared as a person. Each is removed when the resource leaves that visibility, and raising the link role needs the same approval as making a resource public. `list-resource-shares` returns `linkRole` for a public resource. `useShareButtonController` adds `generalAccessRole`, `canSetGeneralAccessRole` and `handleGeneralAccessRole`, and while visibility is `org` its `shares` no longer lists the organization grant. `ShareGeneralAccessRow` takes `roleCopy` and `allowedRoles`.
+
+  Going from private to the organization no longer opens a confirmation for every resource type. A registration opts in with `confirmOrgVisibility: true`, which chat threads set; `useShareVisibilityTransition` takes the matching `confirmOrgVisibility` option.
+
+- 573f431: `tool-search` finds the right tool more often in large apps. It now scores each field separately (name, then search hints, then the description's first sentence, then the rest, then parameters), drops conversational words such as "can you" and "my", marks results that delete or cancel as `destructive` so the agent confirms intent before calling one, matches tense ("archived" finds "archive", "running" finds "run") and joined words ("powerpoint" finds "PowerPoint"), counts common synonyms ("copy" for duplicate, "page" for document) at half weight, and ranks an app's own actions slightly above framework tools with the same words. `defineAction` accepts `searchHints`, a short list of words users say for the action, which `tool-search` ranks just below the name and never sends to the model. An action with malformed `searchHints` now fails to load with an `ActionDefinitionError` in every loader, instead of being skipped or run as a CLI wrapper; the error names the action when the loader knows it, which an error raised while a module is evaluated may not.
+
+### Patch Changes
+
+- 891c0ae: Accept an active Better Auth session token as a bearer credential, so the Clips Chrome extension stays signed in when the browser session has no legacy session row. Reject expired Better Auth tokens presented in framework session cookies.
+- 00835a7: Actions now accept a boolean for a parameter declared as the strings `"true"` and `"false"`. Models read a flag like `compact` as a boolean and send `false`; that call used to fail validation, and it now runs as `"false"`.
+- fdf139b: Factory template feedback sweep skill: a test-only change means only test files, plus an optional `.changeset/` entry; Markdown changes no longer count as test-only.
+- e61063b: Feedback sweep skill: every run also searches for roots with no eyes reaction, so a last-seen timestamp can no longer skip reports, and that timestamp advances only to report roots.
+- Release all public npm packages with a patch version bump.
+- 3ae69a9: Keep a redacted private reply attributed to its run so later prompts in the same chat no longer fail with "Thread history cannot be verified".
+- 2d71bbb: Allow WOFF2 font files through the shared upload endpoint.
+- 5c25ab0: Allow organization A2A secret sync to configured loopback workspace gateways without following redirects or syncing to the sender. Fail sync when workspace manifests or recipient URLs are invalid instead of silently omitting apps, including URLs with query strings or fragments, while ignoring non-app folders.
+- Updated dependencies
+  - @agent-native/agentkit@0.225.0
+  - @agent-native/recap-cli@0.5.97
+
+## 0.224.0
+
+### Minor Changes
+
+- ba3ccfd: The CLIs now say that they collect anonymous usage data, the first time they would send any, and `agent-native telemetry status|enable|disable|reset` controls it for both CLIs. `AGENT_NATIVE_TELEMETRY_DEBUG=1` prints each event and sends nothing. Crash reports no longer carry raw messages, logs, paths, hostnames or anything from your code, and CLI Sentry reports follow the same off switches. Unknown commands are reported as `unknown` instead of verbatim. See https://agent-native.com/docs/telemetry for everything the CLIs can send.
+- 6552f04: Let organizations hide Agent-Native.com hosted apps in Dispatch, group Dispatch's app pages into Pinned apps, Apps, and Agent-Native.com hosted apps, and keep the sidebar to pinned apps.
+  - Organization owners and admins get a "Show Agent-Native.com hosted apps" switch under Settings › Organization › Apps, backed by the new `get-hosted-apps-settings` and `set-hosted-apps-settings` actions (recorded in Dispatch's audit log, on by default). When it is off, Agent-Native.com hosted apps leave Dispatch's app lists, `list_apps`, and the Dispatch agent's app context; `list-connected-agents` still returns them marked `hiddenFromLaunchers`, and `call-agent` by name still reaches them. An unreadable stored value hides Agent-Native.com hosted apps and Settings offers to repair it.
+  - Core adds `registerAgentContextAgentFilter` and `discoverAgentContextAgents` so an app can narrow the peers its own agent is shown (`<available-apps>`, relevant apps, @-mention Connected Agents, `describe-workspace-apps`) without changing `discoverAgents` routing.
+  - Home, New chat, and All apps show Pinned apps, Apps, and Agent-Native.com hosted apps sections. The sidebar shows pinned apps, or until something is pinned, three suggested apps, above an All apps link. Every app row has a visible pin button, and pins stay in sync across surfaces. The toolkit apps rail accepts optional `sections` and `onTogglePinned` (pin changes go to the host instead of a whole layout); without them it renders as before.
+
+- 810b9e0: Two writers changing one record no longer silently overwrite each other. Core adds `saveIfCurrent` in `@agent-native/core/save-conflict/server`, which writes only when the record still has the revision the caller read and otherwise throws a typed `save_conflict` carrying the current value, and `saveWithMerge` in `@agent-native/core/save-conflict`, which merges and saves again before asking anyone. Toolkit adds `useSaveConflictPrompt` in `@agent-native/toolkit/app/save-conflict`, the one prompt for when both writers changed the same field. Forms, Clips and Mail use them first.
+
+### Patch Changes
+
+- e3954dc: Docs, the workspace note `create` prints, and the agent's scaffolding hint now say `pnpm exec agent-native add-app` instead of `npx @agent-native/core@latest add-app`, so adding an app runs the workspace's installed CLI instead of downloading the latest Core each time.
+- 7c0e9ed: Stop reporting the abort AgentKit raises when a chat client is disposed as an unhandled browser error.
+- c410ff4: Export `authorizeAutomationRunNow` from `@agent-native/core/triggers`: the permission check `queueAutomationRunNow` makes, without queuing a run, so a caller that runs in the request can be held to the same rule.
+- 01f229f: `set-resource-visibility` takes `resourceIds` to change up to 100 resources of one type in one call. It checks every resource before changing any, puts back earlier writes if a later one fails, and lists each resource as changed or unchanged.
+- e9a3946: Dispatch's home page checks which workspace apps you can open in a handful of database queries instead of about a dozen per app, so the app list no longer slows down as the workspace grows. Core gains `resolveAccessMany` to check many resources of one type at once, with the same results as `resolveAccess`.
+- af3350d: Report a build step killed by a signal (usually an out-of-memory kill on a small CI host) as its own error issue instead of grouping it with ordinary build failures.
+- c410ff4: Export `resolveBuilderOAuthRequestAccessState` and its `BuilderOAuthRequestAccessState` type from `@agent-native/core/server`, so an app's readiness check can tell a saved Builder.io sign-in this deployment cannot decrypt (`unreadable`) from no sign-in (`not_connected`) instead of reading both as "not connected".
+- c410ff4: Report a stored Builder.io sign-in that this deployment's encryption key cannot open as `builder_credential_unreadable`, instead of as an expired sign-in (`builder_auth_error`, "Sign in to Builder.io again"). A database copied from another deployment, or a rotated key, now says so.
+- 9b9e1bb: Export the collaboration outbox localStorage key prefixes from `@agent-native/core/collab/outbox-keys`, so tests and tools that look for unsent edits match every format the client reads.
+- d5dd14b: Export `runInBackground` from `@agent-native/core/server`, so an app can hand best-effort work to the platform's `waitUntil`, or wait for it at most a moment where the platform has none, instead of holding its answer for the whole job.
+- 431c15a: Send tool-result images we host, like Design's screenshots, to the Builder gateway as image bytes instead of URLs. Claude models on Vertex refused URL images ("URL sources are not supported"), so a Design chat on Claude failed right after the agent took a screenshot to check its work, and every retry failed the same way. The saved chat keeps the URL; images we do not host are unchanged.
+- 221972d: Fix `getDb()` select subqueries (e.g. `inArray(col, db.select(...).from(t))`) throwing "unresolved query chain" on the first query after a cold start.
+- aea3de5: Stop refusing agent tool calls that pair `null` placeholders with an empty list, which left models that pad every field, such as GPT-6 Luna, unable to run Design's `generate-design`.
+- 264f987: An app can name a tool's card as an embed target without exposing a directory route, by setting `directoryRoute: false` on its `directoryProfile`. Embeds that run in place, the way Claude shows them, now load and keep saving: the shell asks for the app page as HTML, sends a write's body as bytes rather than as a stream, and renews an expired session through the host. When the shell opens a tab itself, it now reports whether the browser blocked it, so a blocked tab no longer counts as opened and an opened one no longer makes the app open a second.
+- Release all public npm packages with a patch version bump.
+- 9e1d54e: A database failure over MCP now names its driver error code without the query, as in `The database request failed (57014).`. MCP analytics records the same code as the error type. A failure with no well-formed code keeps the plain text.
+- 4e36f27: Agent runs no longer end on `write_tool_outcome_unknown` when a write action rejects its input before anything is saved. The framework now watches the database statements and the HTTP requests (any method but GET, HEAD or OPTIONS) a call sends, so a validation error thrown before the first write lets the agent correct the arguments and retry, while a failure after a write still stops the run; a `SELECT` that calls a built-in function with side effects, such as `pg_notify` or `setval`, counts as a write; analytics, error reports, model calls, table locks and the framework's own schema setup do not count as writes. Actions that write somewhere the framework cannot watch, such as a socket, a file or a vendor SDK, call `noteExternalWrite(channel)` before sending, and a write a retry provably cannot repeat can opt out with `withoutWriteObservation`, both from `@agent-native/core/action`.
+- 13c7051: `presignS3GetUrl` takes `trustedEndpoint`, so an app whose S3 endpoint comes from its deployment can sign links for a plain-HTTP endpoint such as a local MinIO. Without it, links still need HTTPS. `readS3ErrorText` also no longer throws when an error body fails partway, so a failed S3 request keeps its status in the error message.
+- 0b1ae94: Answer every session read on a page load from the shell's bootstrap read, even after the page wraps `fetch`, and add `firstSessionReadAnswer` and `subscribeFirstSessionReadAnswer` so an app can tell whether reads it sent before the session answered still belong to the signed-in account.
+- f8879a0: Refuse agent tool calls that pair `null` placeholders with an empty list again, unless the action sets `emptyListsEraseNothing`, so a model that pads every field can't wipe a stored list such as a Content view's hidden columns. Design's `generate-design` sets it and keeps running under GPT-6 Luna.
+- dc3a21e: Treat null on an optional action field as "not provided" for every call prepared through `actionCallIntent` (agent loop, MCP, HTTP, A2A, scripts), not only the agent loop. A padded call still refuses when it would clear data: a null on a nullable field, or an empty value that differs from the schema default. Declared read-only calls and empty values equal to the default run. The strip also walks nested unions.
+- 2bf999e: New apps and workspaces pin every `@agent-native/*` package to the exact version released with the Core that created them, instead of `latest` or a `^` range. A scaffold made shortly before a new release no longer installs a newer Dispatch, OTel, or Toolkit beside the older Core, which used to crash `pnpm dev` with missing exports such as `appServerPath`.
+- 0b1ae94: Read the session again when another tab broadcast a session change while this tab's app code was still loading. The early session read in the document head now records the broadcast marker it was sent under, and the session module compares it when it starts listening, so a sign-in elsewhere that nothing heard no longer leaves the tab on the previous account's session.
+- 0b1ae94: Add `sessionReadIdentity()` and `sessionReadIdentityStatus()` to `use-session`, so a request can record whom it was sent as (the session read open when it left, and the transport it went out on) and be checked against the session the tab accepts before its answer is shown. A routine session re-check holds requests sent while it is out until it answers, and keeps what it already accepted shown unless it finds another account. The embed auth interceptor and the MCP host runtime announce a change of fetch transport (`FETCH_TRANSPORT_CHANGED_EVENT`), and the session is read again over the new one. The demo-mode fetch wrapper passes the transport of the fetch underneath through, and the backend wrapper, which sends requests to the app server's origin, has a transport of its own for each transport underneath and server origin, so the page's session answer is never taken for it. Under either, an embed token change still reads as a new transport, and only the current bearer token is kept. `sessionReadIdentity()` takes the transport a request went out on (`{ transport }`) instead of its fetch, and the shell's bootstrap session read records its transport as it is sent (`fetchTransportScript`), so a token that changes before the app takes the answer makes it another transport's. A session answer taken from the shell's bootstrap read ages from when that read answered. A session read that hangs past the retry budget is abandoned without invalidating what is accepted, and the session keeps being read in the background, backing off, until the read it was waiting on answers.
+- 0b1ae94: Share a session answer only between reads sent with the same credentials, so a read that carries an embed token is never answered with the page's cookie session, or the reverse.
+- bd816b3: Find-and-replace edits that miss only because of spacing around `: ; , < >` (for example Prettier's `padding: 4px` against stored `padding:4px`) now report the stored text as the closest match, and a multi-line quote against shorter content no longer returns an empty hint. The edit is still never applied loosely.
+- 8a7ba43: Download first-party templates over HTTPS by fetching only the files they need instead of the whole-repository archive, cutting `create`, `add-app`, and `template sync` downloads from minutes to seconds. Downloads no longer need `git` installed, and they retry for ten seconds when GitHub is unavailable.
+- 3bf6395: Add `syncInvalidationsAfter()` to `use-db-sync`, which tells a read that answered with a sync cursor which invalidations sync asked for changes after it, including ones asked before anything watched for that read. Export `getCurrentPollBaseline()` from `@agent-native/core/server` so an action can return the cursor it read at.
+- eee07e5: The WebMCP manifest now revalidates behind a host that compresses it. A compressed response reaches the browser with `-df` on its tag and the browser sends that tag back, so the server's exact comparison missed and every load downloaded the manifest again. The comparison now ignores that suffix, so a warm load gets the bodyless 304.
+- cb95f4f: Fix `pnpm dev` in multi-app workspaces failing with `spawn pnpm ENOENT` on Windows when only a `pnpm.cmd` shim is on PATH.
+- 559011e: Start pnpm through a shell on Windows, where it is a `pnpm.cmd` shim. `agent-native create` no longer says pnpm is missing when it is installed, `agent-native amplify-stream` can run its build, `agent-native deploy` can build a workspace's apps, and Dispatch can add an app to a workspace there.
+- 5be202c: Fix background chat runs with image attachments failing with `submission_payload_attachments_mismatch`: the worker no longer re-checks client attachment fingerprints against the sanitized durable dispatch payload.
+- 7abe86d: New-workspace-app instructions now tell the agent to keep `configureClientRouterBasename()` in `app/entry.client.tsx`, matching the shipped templates.
+- 2fe85f4: New apps scaffolded from the default template serve their root when mounted in a workspace at `/<app-id>`, instead of returning 404. Workspace and starter guidance now points at `configureClientRouterBasename()` for mounted apps and at `agent-native add-app` for adding an app to a workspace.
+- 4f32324: `WORKSPACE_DEFAULT_APP` now works from the workspace root `.env` in `agent-native dev` (variables already in the environment still win), and workspace Netlify and Vercel deploys send `/` to that app at build time instead of always sending it to Dispatch.
+- 89e73f0: Start a workspace's new app sooner and report it ready only once it serves: a `WORKSPACE_DEFAULT_APP` that isn't created yet starts as soon as it appears (without booting Dispatch), apps that need dependencies share one install, the install no longer stalls without a terminal, and non-browser requests to `/` are answered by the default app instead of a redirect.
+- Updated dependencies
+  - @agent-native/agentkit@0.224.0
+  - @agent-native/recap-cli@0.5.96
+
 ## 0.223.1
 
 ### Patch Changes
@@ -4448,73 +4556,5 @@
   the dependency verbatim — its trailing `module.exports` lines threw in the
   browser. It now has a default `optimizeDeps.include` entry like the other CJS
   dependencies core reaches from client code.
-
-## 0.172.2
-
-### Patch Changes
-
-- f208c0e: Stop later tool calls in the same assistant message from running while an action
-  waits for human approval.
-
-  The approval gate told the model "the turn is paused" and set
-  `requestedActionStop`, but that flag is only read after the tool loop finishes.
-  The flag that actually suppresses the remaining calls is `turnYieldedToUser`,
-  which the approval path never set — so on `[write(needs approval),
-delete(no approval)]` in one message, the human saw an approval card for the
-  first while the second had already executed. The approval branch now yields the
-  turn like any other action that hands control to the user, and the message shown
-  for a suppressed call names the approval case as well as the ends-turn case.
-
-  A gated call is also no longer eligible for parallel batching. `flushParallelBatch`
-  dispatches a batch through `Promise.all`, so a gated call and its siblings all
-  start before the gate is reached and the suppression lands too late to stop a
-  sibling that already ran. Any action declaring `needsApproval` or `endsTurn` is
-  now serialized, which is what makes the suppression meaningful for the calls
-  after it.
-
-## 0.172.1
-
-### Patch Changes
-
-- bad078e: Expose developer resources, explicit when-to-use guidance, and complete Markdown cache headers in generated agent-web surfaces.
-
-## 0.172.0
-
-### Minor Changes
-
-- 5da9484: Add durable action-level approval preferences and recoverable harness checkpoints.
-
-### Patch Changes
-
-- bd7384b: Scope sidebar toggle events to the matching app chat surface.
-- 4fa0d0c: Harden the shell command policy and the untrusted-text prompt boundaries.
-  - `classifyCodeAgentCommandPermission` now matches its blocked and
-    approval-required rules against the quote-stripped form of the command as well
-    as the raw text. The shell removes quoting before the command word exists, so
-    `git 'checkout' main`, `gi''t checkout main`, `drizzle-kit "push"` and
-    `rm -'r'f /` previously ran as unclassified writes. A command using `$'…'`
-    escaping, which this pass cannot decode, now asks for approval instead of
-    falling through.
-  - `runCodingCommand` settles on `exit` with a short grace for `close` instead of
-    waiting on `close` alone, and spawns detached so a timeout signals the whole
-    process group. A command that backgrounds anything (`npm run dev &`) left a
-    grandchild holding the output pipe and the call never returned — past its
-    timeout too, whose `SIGTERM` went to an `sh -c` wrapper that had already
-    exited. When output is cut short this way the result says so rather than
-    reading as a clean finish.
-  - Automation trigger payloads are capped, wrapped in `<event_payload>` tags with
-    an explicit untrusted-data instruction, and no longer sit ahead of the
-    automation's own body — the same defense `condition-evaluator.ts` already
-    applied before this data reached a tool-less classifier, now applied on the
-    path that reaches an agent with the full tool surface.
-  - Prompt `<resource>` blocks escape both halves of the fence in the body, so
-    shared `AGENTS.md`/`LEARNINGS.md` content cannot forge a block header and pass
-    itself off as framework instructions.
-
-## 0.171.3
-
-### Patch Changes
-
-- 2292fac: Allow shared loading spinners to provide localized accessible labels.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

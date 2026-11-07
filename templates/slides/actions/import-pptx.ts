@@ -1,5 +1,4 @@
 import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -107,8 +106,8 @@ export async function importPptxBufferToDeck(args: {
   fileBuffer: Buffer;
   title?: string;
   deckId?: string;
+  replaceExisting?: boolean;
   designSystemId?: string | null;
-  source?: string;
   imageFallbacks?: ImportedImageFallback[];
   parsedPresentation?: ParsedPresentation;
 }): Promise<{
@@ -118,6 +117,7 @@ export async function importPptxBufferToDeck(args: {
   theme: Awaited<ReturnType<typeof parsePptx>>["theme"];
   imported: true;
   url: string;
+  replacedExisting: boolean;
   imagesSkipped?: number;
   tablesDegraded?: number;
 }> {
@@ -125,13 +125,31 @@ export async function importPptxBufferToDeck(args: {
     fileBuffer,
     title,
     deckId,
+    replaceExisting = false,
     designSystemId,
-    source = "import-pptx",
     imageFallbacks,
     parsedPresentation,
   } = args;
+  if (deckId && !replaceExisting) {
+    fail(
+      "Importing into an existing deck replaces all of its slides and title. Pass replaceExisting: true to confirm. No deck was written.",
+      { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
+    );
+  }
+  if (replaceExisting && !deckId) {
+    fail(
+      "replaceExisting only applies when importing into a deckId. No deck was written.",
+      { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
+    );
+  }
   const presentation =
     parsedPresentation ?? (await parsePptxBeforeDeckWrite(fileBuffer));
+  if (presentation.slides.length === 0) {
+    fail(
+      "This PowerPoint file has no slides, so nothing was imported. No deck was written.",
+      { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
+    );
+  }
   applyImageFallbacks(presentation, imageFallbacks);
   const requestedTitle = title?.trim() || presentation.title || "";
   const ownerEmail = getRequestUserEmail();
@@ -260,10 +278,6 @@ export async function importPptxBufferToDeck(args: {
       assertDeckWriteApplied(updateResult, deckId, "PPTX import");
 
       await notifyClients(deckId);
-      await writeAppState("refresh-signal", {
-        ts: now,
-        source,
-      });
 
       return {
         id: deckId,
@@ -272,6 +286,7 @@ export async function importPptxBufferToDeck(args: {
         theme: presentation.theme,
         imported: true,
         url: getDeckUrl(deckId),
+        replacedExisting: true,
         ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
         ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
       };
@@ -300,7 +315,6 @@ export async function importPptxBufferToDeck(args: {
   });
 
   await notifyClients(id);
-  await writeAppState("refresh-signal", { ts: now, source });
 
   return {
     id,
@@ -309,6 +323,7 @@ export async function importPptxBufferToDeck(args: {
     theme: presentation.theme,
     imported: true,
     url: getDeckUrl(id),
+    replacedExisting: false,
     ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
     ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
   };
@@ -330,7 +345,13 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "If provided, import slides into this existing deck (replaces all slides)",
+        "If provided, import slides into this existing deck. Requires replaceExisting: true.",
+      ),
+    replaceExisting: z
+      .boolean()
+      .optional()
+      .describe(
+        "Must be true with deckId to confirm the import replaces all slides and the title of that deck",
       ),
     designSystemId: z
       .string()
@@ -348,13 +369,17 @@ export default defineAction({
       .optional()
       .describe("Why the deck is being imported; used only for analytics"),
   }),
-  run: async ({ filePath, deckId, title, designSystemId, purpose }, ctx) => {
+  run: async (
+    { filePath, deckId, replaceExisting, title, designSystemId, purpose },
+    ctx,
+  ) => {
     const { data: fileBuffer } = await readUserUploadedFile(filePath, ctx, {
       expectedExtensions: [".pptx"],
     });
     const result = await importPptxBufferToDeck({
       fileBuffer,
       deckId,
+      replaceExisting,
       title,
       designSystemId,
     });

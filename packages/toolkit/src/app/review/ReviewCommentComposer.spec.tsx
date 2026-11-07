@@ -198,6 +198,46 @@ describe("ReviewCommentComposer", () => {
     ).not.toBeNull();
   });
 
+  it("keeps the reply variant expanded until a press outside it has finished", async () => {
+    await render(
+      <ReviewCommentComposer
+        variant="reply"
+        value=""
+        onChange={() => {}}
+        onSubmit={() => {}}
+      />,
+    );
+    const field = container.querySelector("[data-review-composer-field]");
+    const dispatchFocus = (type: "focusin" | "focusout") =>
+      act(() => {
+        editorDom().dispatchEvent(new FocusEvent(type, { bubbles: true }));
+      });
+    const press = (type: "pointerdown" | "pointerup") =>
+      act(() => {
+        document.body.dispatchEvent(new Event(type, { bubbles: true }));
+      });
+
+    dispatchFocus("focusin");
+    expect(field?.hasAttribute("data-expanded")).toBe(true);
+
+    vi.useFakeTimers();
+    try {
+      press("pointerdown");
+      dispatchFocus("focusout");
+      expect(field?.hasAttribute("data-expanded")).toBe(true);
+
+      press("pointerup");
+      expect(field?.hasAttribute("data-expanded")).toBe(true);
+
+      act(() => {
+        vi.runOnlyPendingTimers();
+      });
+      expect(field?.hasAttribute("data-expanded")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("stays expanded while the reply has content", async () => {
     await render(
       <ReviewCommentComposer

@@ -131,10 +131,10 @@ Every shareable resource gets a share button in its header. Clicking it opens a 
 
 - One invite field for people, organization groups, and the org's agents, with a role picker and Invite. A typed email also gets a `Notify people` checkbox.
 - People with access: the owner, people, groups, and agents in one list. Roles read Can view, Can comment, Can edit, and Can manage access. Remove access is the last item in each row's role menu.
-- General access: Only people invited / Anyone at the organization / Anyone with the link.
+- General access: Only people invited / Anyone at the organization / Anyone with the link. Anyone at the organization has a role picker (Can view, Can comment, Can edit), and so does Anyone with the link (Can view, Can comment).
 - Copy link, and a Send to menu: Open in Claude, Claude Code, or Codex, Copy agent prompt, Copy agent link, MCP server settings, and any destinations the app adds.
 
-Moving a resource from `Private` to `Organization` asks for confirmation first. Nothing changes until the user confirms. Cancel or Escape keeps the current access. If saving fails, the dialog shows the error and the user can try again. Other visibility changes save at once. The confirmation lives in the share UI only. `set-resource-visibility` is unchanged, so the agent and any other caller still change visibility directly and the resource's sharing policy still decides what is allowed.
+Visibility changes save at once. A resource type whose content is easy to overlook can ask first: chats set `confirmOrgVisibility: true` on their registration, so moving a chat from `Private` to `Organization` waits until the user confirms. Cancel or Escape keeps the current access. If saving fails, the dialog shows the error and the user can try again. The confirmation lives in the share UI only, so the agent and any other caller still change visibility directly through `set-resource-visibility`, and the resource's sharing policy still decides what is allowed.
 
 <WireframeBlock id="doc-block-sharing2">
   <Screen
@@ -204,13 +204,13 @@ Pins are personal: `pinnedAt` is the caller's pin, including on shared chats; li
 
 The framework auto-mounts these actions in every template — the agent calls them as tools, and the UI calls them through `useActionQuery` / `useActionMutation`:
 
-| Action                       | What it does                                                                                   |
-| ---------------------------- | ---------------------------------------------------------------------------------------------- |
-| `share-resource`             | Grant a user or org access at a specific role. Optional `notify` controls email notifications. |
-| `unshare-resource`           | Revoke access for a user or org.                                                               |
-| `list-resource-shares`       | Show current visibility plus all explicit grants.                                              |
-| `set-resource-visibility`    | Change to `private`, `org`, or `public`.                                                       |
-| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.        |
+| Action                       | What it does                                                                                                                                              |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `share-resource`             | Grant a user or org access at a specific role. Optional `notify` controls email notifications.                                                            |
+| `unshare-resource`           | Revoke access for a user or org.                                                                                                                          |
+| `list-resource-shares`       | Show current visibility plus all explicit grants.                                                                                                         |
+| `set-resource-visibility`    | Change to `private`, `org`, or `public`. Optional `role` sets what the organization (view, comment, edit) or anyone with the link (view, comment) can do. |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                                   |
 
 Tell the agent "share this design with the marketing team as editors" and it calls `share-resource` against the same endpoint the UI uses. The result shows up in the share dialog the next render.
 

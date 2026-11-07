@@ -126,6 +126,7 @@ describe("suggest-document-edit", () => {
           suggestions: Array<{
             id: string;
             proposalId?: string;
+            metadata?: { reviewUnit?: string };
             operations: Array<{
               before: { markdown: string; changedText: string };
               after: { changedText: string };
@@ -139,6 +140,11 @@ describe("suggest-document-edit", () => {
         expect(
           children.every((item) => item.proposalId === result.proposalId),
         ).toBe(true);
+        // One sentence, so one unit, labeled so a retry writes the same label.
+        expect(children.map((item) => item.metadata?.reviewUnit)).toEqual([
+          `granular-${id}:0`,
+          `granular-${id}:0`,
+        ]);
         expect(
           children.map((item) => [
             item.operations[0]!.before.changedText,
@@ -268,6 +274,20 @@ describe("suggest-document-edit", () => {
         expect(second.proposalId).toBe(first.proposalId);
         expect(second.suggestionIds).toHaveLength(1);
         expect(second.suggestionIds[0]).not.toBe(first.suggestionIds[0]);
+        // A later call on the proposal is its own decision, never part of a unit.
+        const listed = (await listResourceSuggestions.run(
+          { resourceType: "document", resourceId: id },
+          ctx,
+        )) as {
+          suggestions: Array<{
+            id: string;
+            metadata?: { reviewUnit?: string };
+          }>;
+        };
+        const added = listed.suggestions.find(
+          (item) => item.id === second.suggestionIds[0],
+        );
+        expect(added?.metadata?.reviewUnit).toBeUndefined();
       },
     );
   });

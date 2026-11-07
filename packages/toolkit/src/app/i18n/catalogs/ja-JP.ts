@@ -518,7 +518,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "{{integration}}のツールを使用",
   "composer.menu.scheduleTask": "タスクをスケジュール",
   "composer.menu.scheduleTaskDescription": "スケジュールに沿って実行",
-  "composer.menu.uploadFile": "ファイルをアップロード",
+  "composer.menu.uploadFile": "ファイルと画像",
+  "composer.menu.searchWorkspace": "ワークスペースを検索…",
+  "composer.menu.references": "参照",
+  "composer.menu.referenceFile": "ファイルを参照",
+  "composer.menu.attachToMessage": "コンテキストを追加",
+  "composer.menu.commands": "コマンド",
   "composer.menu.uploadFileDescription":
     "画像、PDF、テキスト／コード、JSON、CSV",
   "composer.messageAgent": "エージェントにメッセージを送信...",
@@ -1347,6 +1352,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io には無料クレジットが含まれています。独自の API キーを使用することもできます。",
   "setup.builderOrOwnKeys":
     "Builder.io（無料クレジット付き）を使用するか、独自のプロバイダーキーを追加します。",
+  "setup.reconnectBuilder": "Builder.io に再接続",
   "setup.connectAi": "AI に接続",
   "setup.connectBuilder": "Builder.io を使用",
   "setup.connectionsDescription":

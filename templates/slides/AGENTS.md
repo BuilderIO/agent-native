@@ -34,6 +34,7 @@ For framework questions, use local docs: `pnpm action docs-search --query "<topi
 | `list-deck-templates` / `get-deck-template` / `create-deck-from-template` | Browse/copy templates |
 | `add-slide-comment` / `list-slide-comments` / `update-slide-comment` / `delete-slide-comment` / `toggle-slide-comment-reaction` | Manage comments |
 | `read-composer-source` / `apply-design-system` | Read references / link design system |
+| `read-google-slides-context` | Read Google Slides text and speaker notes as chat context; creates no deck |
 | `generate-image-api` | Generate images locally; Assets is opt-in |
 | `export-pptx` / `export-html` / `export-google-slides` | Export deck |
 

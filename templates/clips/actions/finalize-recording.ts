@@ -510,6 +510,7 @@ async function failStoredButUnservableRecording(params: {
         await releaseHostedClipRecording({
           recordingId: id,
           ownerEmail,
+          reason: "finalize_failed",
         });
       }
     } else {
@@ -1375,6 +1376,7 @@ async function consumeHostedAllowanceIfNeeded(params: {
       await releaseHostedClipRecording({
         recordingId: params.id,
         ownerEmail: params.ownerEmail,
+        reason: "finalize_failed",
       });
     }
   } else {
@@ -2066,6 +2068,7 @@ export default defineAction({
                   await releaseHostedClipRecording({
                     recordingId: id,
                     ownerEmail,
+                    reason: "finalize_failed",
                   });
                 }
                 await reconcileMeetingOnRecordingFailed({
@@ -2345,6 +2348,7 @@ export default defineAction({
           await releaseHostedClipRecording({
             recordingId: id,
             ownerEmail,
+            reason: "finalize_failed",
           });
         }
         if (failedRecording)
