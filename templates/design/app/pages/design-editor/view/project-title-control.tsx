@@ -46,25 +46,34 @@ import type { DesignData } from "../types";
 import { ExportSubmenuContent } from "./export-submenu-content";
 
 /**
- * A "Built from" link to a Content page the design started from. The design
- * keeps only the page's id and link, so the title is read here under the
- * viewer's own Content access; anyone who can't open the page sees a generic
- * label instead.
+ * The title of a Content page the design started from. The design keeps only
+ * the page's id and link, so the title is read under the viewer's own Content
+ * access, and is empty for anyone who can't open the page.
  */
-function BuiltFromItem({ brief }: { brief: DesignBrief }) {
-  const t = useT();
+function useBriefPageTitle(brief: DesignBrief) {
   const page = useActionQuery(
     "read-composer-source",
     { source: "content", operation: "read", id: brief.id, page: 1 },
     { method: "GET", staleTime: 5 * 60_000, retry: false },
   );
   const read = composerSourceReferenceSchema.safeParse(page.data);
-  const title = read.success ? read.data.title.trim() : "";
+  return read.success ? read.data.title.trim() : "";
+}
+
+/** Reads the title when the editor opens, so the file menu opens with it. */
+function BriefTitlePrefetch({ brief }: { brief: DesignBrief }) {
+  useBriefPageTitle(brief);
+  return null;
+}
+
+function BuiltFromItem({ brief }: { brief: DesignBrief }) {
+  const t = useT();
+  const title = useBriefPageTitle(brief);
   return (
-    <DropdownMenuItem asChild>
+    <DropdownMenuItem asChild className="items-start">
       <a href={brief.url} target="_blank" rel="noopener noreferrer">
-        <IconExternalLink className="size-3.5 shrink-0" />
-        <span className="truncate">
+        <IconExternalLink className="mt-0.5 size-3.5 shrink-0" />
+        <span className="line-clamp-2 min-w-0 break-words">
           {title
             ? t("designEditor.fileMenu.builtFrom", { title })
             : t("designEditor.fileMenu.builtFromPage")}
@@ -194,6 +203,9 @@ function ProjectTitleControl({
 
   return (
     <>
+      {briefs.map((brief) => (
+        <BriefTitlePrefetch key={`${brief.source}:${brief.id}`} brief={brief} />
+      ))}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
