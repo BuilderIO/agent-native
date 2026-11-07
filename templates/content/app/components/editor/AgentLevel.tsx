@@ -1,7 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconRobot } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -18,10 +18,13 @@ export function useAgentLevel(documentId: string, locked: boolean) {
     invalidates: [],
   });
   const [pending, setPending] = useState<AgentLevel | null>(null);
+  const latestChange = useRef(0);
   const level: AgentLevel = locked ? "comment" : "edit";
 
   const apply = useCallback(
     async (next: AgentLevel, announce: boolean) => {
+      // Undo can land while a menu change is saving; only the latest one ends the wait.
+      const change = ++latestChange.current;
       setPending(next);
       try {
         const nextLocked = next === "comment";
@@ -57,7 +60,7 @@ export function useAgentLevel(documentId: string, locked: boolean) {
             err instanceof Error ? err.message : t("empty.genericError"),
         });
       } finally {
-        setPending(null);
+        if (change === latestChange.current) setPending(null);
         void queryClient.invalidateQueries(documentQueryFilter(documentId));
       }
     },

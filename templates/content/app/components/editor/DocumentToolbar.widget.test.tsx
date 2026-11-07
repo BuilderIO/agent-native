@@ -554,11 +554,11 @@ describe("DocumentToolbar in an MCP App widget", () => {
       mocks.widget.write = false;
       await renderToolbar(1040, { readOnly: false, agentTextLocked: true });
 
-      await act(async () =>
-        byLabel<HTMLButtonElement>(
-          "editor.toolbar.agentLevelNoteHint",
-        )!.click(),
+      const note = byLabel<HTMLButtonElement>(
+        "editor.toolbar.agentLevelNoteHint",
       );
+      if (!note) throw new Error("No note beside Share");
+      await act(async () => note.click());
       await act(async () => Promise.resolve());
       await act(async () => Promise.resolve());
 

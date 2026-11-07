@@ -54,9 +54,11 @@ describe("AgentsShareTab", () => {
   }
 
   function levelMenu() {
-    return container.querySelector<HTMLButtonElement>(
+    const menu = container.querySelector<HTMLButtonElement>(
       'button[aria-label="editor.toolbar.agentLevelMenuLabel"]',
-    )!;
+    );
+    if (!menu) throw new Error("No level menu");
+    return menu;
   }
 
   it("shows the level and what it means", async () => {
@@ -87,7 +89,11 @@ describe("AgentsShareTab", () => {
     ]);
     expect(items[1].textContent).toContain("editor.toolbar.agentLevelDefault");
 
-    await act(async () => items[0].click());
+    await act(async () =>
+      items[0].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      ),
+    );
 
     expect(onLevelChange).toHaveBeenCalledWith("comment");
   });
@@ -116,12 +122,15 @@ describe("AgentsShareTab", () => {
     const onOpenMcpSettings = vi.fn();
     await show({ onCopyPrompt, onOpenMcpSettings });
 
-    const button = (label: string) =>
-      Array.from(container.querySelectorAll("button")).find(
+    const button = (label: string) => {
+      const found = Array.from(container.querySelectorAll("button")).find(
         (candidate) =>
-          candidate.textContent?.includes(label) ||
+          candidate.textContent.includes(label) ||
           candidate.getAttribute("aria-label") === label,
-      )!;
+      );
+      if (!found) throw new Error(`No ${label} button`);
+      return found;
+    };
     await act(async () => button("agentChat.share.copyAgentPrompt").click());
     await act(async () => button("editor.toolbar.connectAgentOverMcp").click());
 

@@ -26,10 +26,10 @@ vi.mock("sonner", async (importOriginal) => ({
 import { AgentLevelNote, useAgentLevel } from "./AgentLevel";
 
 function Levels({ locked }: { locked: boolean }) {
-  const { level, setLevel } = useAgentLevel("page-1", locked);
+  const { level, setLevel, pending } = useAgentLevel("page-1", locked);
   return createElement(
     "div",
-    null,
+    { "data-saving": pending ? "yes" : "no" },
     createElement("output", null, level),
     createElement("button", { onClick: () => setLevel("comment") }, "comment"),
     createElement("button", { onClick: () => setLevel("edit") }, "edit"),
@@ -74,7 +74,8 @@ describe("what agents can do on a page", () => {
     const button = Array.from(container.querySelectorAll("button")).find(
       (candidate) => candidate.textContent === label,
     );
-    await act(async () => button!.click());
+    if (!button) throw new Error(`No ${label} button`);
+    await act(async () => button.click());
   }
 
   it("limits agents, says so, and offers Undo", async () => {
@@ -150,13 +151,44 @@ describe("what agents can do on a page", () => {
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
   });
 
+  it("keeps waiting until the latest of an Undo and a new change saves", async () => {
+    await show(false);
+    await press("comment");
+    const [, options] = mocks.toastSuccess.mock.calls[0] as unknown as [
+      string,
+      { action: { onClick: () => void } },
+    ];
+    const settle: Array<() => void> = [];
+    mocks.mutateAsync.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          settle.push(() => resolve({ ok: true }));
+        }),
+    );
+    const saving = () =>
+      container.querySelector("[data-saving]")?.getAttribute("data-saving");
+
+    await act(async () => options.action.onClick());
+    await press("comment");
+    expect(settle).toHaveLength(2);
+    await act(async () => settle[0]());
+
+    expect(saving()).toBe("yes");
+    expect(container.querySelector("output")?.textContent).toBe("comment");
+
+    await act(async () => settle[1]());
+
+    expect(saving()).toBe("no");
+  });
+
   it("notes a limit beside Share, and opens the tab from it", async () => {
     const onOpen = vi.fn();
     await act(async () => {
       root.render(createElement(AgentLevelNote, { level: "comment", onOpen }));
     });
 
-    const note = container.querySelector("button")!;
+    const note = container.querySelector("button");
+    if (!note) throw new Error("No note beside Share");
     expect(note.textContent).toBe("editor.toolbar.agentLevelNote");
     expect(note.getAttribute("aria-label")).toBe(
       "editor.toolbar.agentLevelNoteHint",

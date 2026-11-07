@@ -71,7 +71,9 @@ export function isAgentCall(ctx: CallProvenance | undefined) {
  * Agents set to Can comment on a page: a person keeps its title, body,
  * description and tabs out of agents' reach, while agents can still comment
  * and suggest edits. It keeps connected agents out of the text; it isn't a
- * permission, since they act for someone who could turn it off.
+ * permission, since they act for someone who could turn it off. A space's
+ * catalog entry always takes the space's name, so its title follows a rename
+ * of the space's Files page; that page's own level is the one that holds it.
  */
 export function assertAgentsMayEditPageText(
   document: { agentTextLocked?: number | null } | undefined,
