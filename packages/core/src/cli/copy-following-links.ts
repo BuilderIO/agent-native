@@ -51,6 +51,63 @@ export function copyFollowingLinks(
   });
 }
 
+/**
+ * Replaces `to` with a copy of `from` made as `copyFollowingLinks` makes it.
+ * The copy is made beside `to` and swapped in only once it is whole, so a
+ * copy that fails partway, such as on a link this user can't read, leaves
+ * what was at `to` in place. It throws before touching `to` when the two
+ * overlap, since replacing `to` would delete what the copy comes from.
+ */
+export function replaceFollowingLinks(
+  from: string,
+  to: string,
+  options: CopyFollowingLinksOptions = {},
+): void {
+  const real = fs.realpathSync(from);
+  const landing = landingPath(to);
+  if (isInside(real, landing) || isInside(landing, real)) {
+    throw new Error(
+      `${from} and ${to} overlap, so replacing ${to} would delete it`,
+    );
+  }
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  const staging = fs.mkdtempSync(
+    path.join(path.dirname(to), `.${path.basename(to)}-`),
+  );
+  try {
+    const copy = path.join(staging, "copy");
+    copyFollowingLinks(from, copy, options);
+    swapIn(copy, to, path.join(staging, "earlier"));
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
+}
+
+// Moves `copy` to `to`. What was at `to` is moved aside first rather than
+// deleted, and moved back if the move fails, as it can on Windows while
+// another program has a file in `to` open.
+function swapIn(copy: string, to: string, aside: string): void {
+  const earlier = fs.lstatSync(to, { throwIfNoEntry: false }) !== undefined;
+  if (earlier) fs.renameSync(to, aside);
+  try {
+    fs.renameSync(copy, to);
+  } catch (error) {
+    if (earlier) fs.renameSync(aside, to);
+    throw error;
+  }
+}
+
+// Where `to` sits on disk, with the folders above it resolved but not `to`
+// itself: a link at `to` is replaced, not followed, so it isn't an overlap.
+function landingPath(to: string): string {
+  const rest = [path.basename(path.resolve(to))];
+  for (let dir = path.dirname(path.resolve(to)); ; dir = path.dirname(dir)) {
+    const real = resolveLink(dir);
+    if (real !== undefined) return path.join(real, ...rest);
+    rest.unshift(path.basename(dir));
+  }
+}
+
 // The real path a link leads to, or `undefined` when it leads nowhere: its
 // target is gone, or links loop. Any other error, such as a target this user
 // can't read, is thrown rather than leave the copy quietly incomplete.

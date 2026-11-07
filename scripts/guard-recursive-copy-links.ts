@@ -14,7 +14,8 @@
  * is (a whole-app copy, where following a link could pull in a file the copy
  * leaves out). Options the guard can't read, such as a variable or a spread,
  * count as recursive, and a link choice counts only when it is written as
- * `true`.
+ * `true`. A copier is found by name, including a name the file gives it on
+ * import or destructuring, as in `import { cpSync as copyTree } from "node:fs"`.
  *
  * `dereference` also needs a `filter`. Without one, Node 24's `cpSync` takes
  * a native shortcut that follows only a link at the top of the copy and copies
@@ -72,10 +73,32 @@ function unwrap(node: ts.Expression): ts.Expression {
   return current;
 }
 
-function isCopier(call: ts.CallExpression): boolean {
+function isCopier(call: ts.CallExpression, names: Set<string>): boolean {
   const callee = unwrap(call.expression);
-  if (ts.isIdentifier(callee)) return COPIERS.has(callee.text);
+  if (ts.isIdentifier(callee)) return names.has(callee.text);
   return ts.isPropertyAccessExpression(callee) && COPIERS.has(callee.name.text);
+}
+
+// `cp` and `cpSync`, plus any other name this file gives them, as in
+// `import { cpSync as copyTree } from "node:fs"` or
+// `const { cpSync: copyTree } = fs`.
+function copierNames(sourceFile: ts.SourceFile): Set<string> {
+  const names = new Set(COPIERS);
+  const visit = (node: ts.Node) => {
+    if (
+      (ts.isImportSpecifier(node) || ts.isBindingElement(node)) &&
+      node.propertyName &&
+      (ts.isIdentifier(node.propertyName) ||
+        ts.isStringLiteral(node.propertyName)) &&
+      COPIERS.has(node.propertyName.text) &&
+      ts.isIdentifier(node.name)
+    ) {
+      names.add(node.name.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return names;
 }
 
 /**
@@ -158,11 +181,12 @@ export function findRecursiveCopies(
   );
   const lines = source.split(/\r?\n/);
   const findings: CopyLinksFinding[] = [];
+  const names = copierNames(sourceFile);
 
   const visit = (node: ts.Node) => {
     if (
       ts.isCallExpression(node) &&
-      isCopier(node) &&
+      isCopier(node, names) &&
       node.arguments.length >= 2 &&
       leavesLinksToDefault(node.arguments[2])
     ) {
@@ -206,7 +230,8 @@ function main() {
     } catch {
       continue;
     }
-    if (!/\bcp(?:Sync)?\s*\(/.test(source)) continue;
+    // Also matches `cpSync as copyTree`, whose calls don't say cp.
+    if (!/\bcp(?:Sync)?\b/.test(source)) continue;
     findings.push(...findRecursiveCopies(rel, source));
   }
 

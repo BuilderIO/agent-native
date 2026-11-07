@@ -31,7 +31,11 @@ import {
   CONTEXT_XRAY_SKILL_MD,
   installLocalContextXray,
 } from "./context-xray-local.js";
-import { copyFollowingLinks, linkKind } from "./copy-following-links.js";
+import {
+  copyFollowingLinks,
+  linkKind,
+  replaceFollowingLinks,
+} from "./copy-following-links.js";
 import {
   detectInstalledClients,
   isHomeDirectory,
@@ -2236,8 +2240,7 @@ function copyScaffoldGuidanceSkills(
     ) {
       continue;
     }
-    fs.rmSync(targetSkillDir, { recursive: true, force: true });
-    copyFollowingLinks(sourceSkillDir, targetSkillDir);
+    replaceFollowingLinks(sourceSkillDir, targetSkillDir);
   }
 }
 

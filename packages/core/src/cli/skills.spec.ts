@@ -194,6 +194,50 @@ describe("copy scaffold guidance skills", () => {
       );
     },
   );
+
+  // oracle-change: a new test, skipped on Windows and as root, where folder permissions can't lock the test out.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "keeps the copied skill when its refresh fails partway",
+    () => {
+      const root = tmpDir();
+      const sourceRoot = path.join(root, ".agents", "skills");
+      const targetRoot = path.join(root, ".claude", "skills");
+      const locked = path.join(root, "locked");
+      fs.mkdirSync(path.join(sourceRoot, "actions"), { recursive: true });
+      fs.writeFileSync(
+        path.join(sourceRoot, "actions", "SKILL.md"),
+        "# Actions\n",
+      );
+      fs.mkdirSync(path.join(locked, "notes"), { recursive: true });
+      linkDir(
+        path.join(locked, "notes"),
+        path.join(sourceRoot, "actions", "notes"),
+      );
+      fs.mkdirSync(path.join(targetRoot, "actions"), { recursive: true });
+      fs.writeFileSync(
+        path.join(targetRoot, "actions", "SKILL.md"),
+        "# Earlier copy\n",
+      );
+      fs.chmodSync(locked, 0o000);
+      try {
+        expect(() =>
+          _copyScaffoldGuidanceSkills(
+            [sourceRoot],
+            targetRoot,
+            ["actions"],
+            false,
+          ),
+        ).toThrow(/EACCES/);
+      } finally {
+        fs.chmodSync(locked, 0o755);
+      }
+
+      expect(
+        fs.readFileSync(path.join(targetRoot, "actions", "SKILL.md"), "utf8"),
+      ).toBe("# Earlier copy\n");
+      expect(fs.readdirSync(targetRoot)).toEqual(["actions"]);
+    },
+  );
 });
 
 // An absolute directory link like the ones `skills update` wrote before 0.221.

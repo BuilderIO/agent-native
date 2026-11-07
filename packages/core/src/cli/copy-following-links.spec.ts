@@ -2,13 +2,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { copyFollowingLinks } from "./copy-following-links.js";
+import {
+  copyFollowingLinks,
+  replaceFollowingLinks,
+} from "./copy-following-links.js";
 
 const tmpRoots: string[] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const root of tmpRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -134,5 +138,89 @@ describe("copyFollowingLinks", () => {
     expect(fs.existsSync(path.join(out, "a", "to-b", "to-a"))).toBe(false);
     expect(fs.statSync(path.join(out, "b", "to-a")).isDirectory()).toBe(true);
     expect(fs.existsSync(path.join(out, "b", "to-a", "to-b"))).toBe(false);
+  });
+});
+
+describe("replaceFollowingLinks", () => {
+  function earlierInstall(root: string): string {
+    const to = path.join(root, "installs", "actions");
+    fs.mkdirSync(to, { recursive: true });
+    fs.writeFileSync(path.join(to, "SKILL.md"), "Earlier install\n");
+    fs.writeFileSync(path.join(to, "stale.md"), "Stale\n");
+    return to;
+  }
+
+  it("replaces what was there and leaves nothing beside it", () => {
+    const root = tmpDir();
+    const skill = writeSkill(root);
+    const to = earlierInstall(root);
+
+    replaceFollowingLinks(skill, to);
+
+    expect(fs.readFileSync(path.join(to, "SKILL.md"), "utf8")).toBe(
+      "# Actions\n",
+    );
+    expect(fs.existsSync(path.join(to, "stale.md"))).toBe(false);
+    expect(fs.readdirSync(path.dirname(to))).toEqual(["actions"]);
+  });
+
+  // oracle-change: a new test, skipped on Windows and as root, where folder permissions can't lock the test out.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "keeps what was there when the copy fails",
+    () => {
+      const root = tmpDir();
+      const skill = writeSkill(root);
+      const locked = path.join(root, "locked");
+      fs.mkdirSync(path.join(locked, "notes"), { recursive: true });
+      linkDir(path.join(locked, "notes"), path.join(skill, "notes"));
+      const to = earlierInstall(root);
+      fs.chmodSync(locked, 0o000);
+      try {
+        expect(() => replaceFollowingLinks(skill, to)).toThrow(/EACCES/);
+      } finally {
+        fs.chmodSync(locked, 0o755);
+      }
+
+      expect(fs.readFileSync(path.join(to, "SKILL.md"), "utf8")).toBe(
+        "Earlier install\n",
+      );
+      expect(fs.readdirSync(path.dirname(to))).toEqual(["actions"]);
+    },
+  );
+
+  it("puts what was there back when moving the copy in fails", () => {
+    const root = tmpDir();
+    const skill = writeSkill(root);
+    const to = earlierInstall(root);
+    const rename = fs.renameSync;
+    vi.spyOn(fs, "renameSync").mockImplementation((from, dest) => {
+      // Windows refuses the move like this while a file in the folder is open.
+      if (path.basename(String(from)) === "copy") {
+        throw Object.assign(new Error("EBUSY: resource busy or locked"), {
+          code: "EBUSY",
+        });
+      }
+      rename(from, dest);
+    });
+
+    expect(() => replaceFollowingLinks(skill, to)).toThrow(/EBUSY/);
+
+    expect(fs.readFileSync(path.join(to, "SKILL.md"), "utf8")).toBe(
+      "Earlier install\n",
+    );
+    expect(fs.readdirSync(path.dirname(to))).toEqual(["actions"]);
+  });
+
+  it("refuses to replace a folder the copy comes from", () => {
+    const root = tmpDir();
+    const skill = writeSkill(root);
+
+    expect(() =>
+      replaceFollowingLinks(skill, path.join(root, "skills")),
+    ).toThrow(/overlap/);
+
+    expect(fs.readFileSync(path.join(skill, "SKILL.md"), "utf8")).toBe(
+      "# Actions\n",
+    );
   });
 });

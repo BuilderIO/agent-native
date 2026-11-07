@@ -757,6 +757,36 @@ describe("app skill packaging", () => {
       fs.existsSync(path.join(outDir, "skills", "assets", "SKILL.md")),
     ).toBe(true);
   });
+
+  it("drops a linked file from a rebuilt pack once the link no longer resolves", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    // Only the skill copy is under test, so the pack leaves the app out.
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
+    delete manifest.local;
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest), "utf-8");
+    const notes = path.join(root, "notes");
+    fs.mkdirSync(notes);
+    fs.writeFileSync(path.join(notes, "plan.md"), "Plan\n");
+    fs.symlinkSync(
+      notes,
+      path.join(root, ".agents", "skills", "asset-generation", "notes"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const outDir = path.join(tmpDir(), "packed-assets");
+    const packedNotes = path.join(outDir, "skills", "assets", "notes");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+    expect(fs.existsSync(path.join(packedNotes, "plan.md"))).toBe(true);
+
+    fs.rmSync(notes, { recursive: true });
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    expect(fs.existsSync(packedNotes)).toBe(false);
+    expect(
+      fs.existsSync(path.join(outDir, "skills", "assets", "SKILL.md")),
+    ).toBe(true);
+    expect(fs.readdirSync(path.join(outDir, "skills"))).toEqual(["assets"]);
+  });
 });
 
 describe("app skill launch and ensure", () => {

@@ -62,10 +62,23 @@ export function copySkillFiles(
         );
       },
     });
-    fs.rmSync(to, { recursive: true, force: true });
-    fs.renameSync(copy, to);
+    swapIn(copy, to, path.join(staging, "earlier"));
   } finally {
     fs.rmSync(staging, { recursive: true, force: true });
+  }
+}
+
+// Moves `copy` to `to`. What was at `to` is moved aside first rather than
+// deleted, and moved back if the move fails, as it can on Windows while
+// another program has a file in `to` open.
+function swapIn(copy: string, to: string, aside: string): void {
+  const earlier = fs.lstatSync(to, { throwIfNoEntry: false }) !== undefined;
+  if (earlier) fs.renameSync(to, aside);
+  try {
+    fs.renameSync(copy, to);
+  } catch (error) {
+    if (earlier) fs.renameSync(aside, to);
+    throw error;
   }
 }
 

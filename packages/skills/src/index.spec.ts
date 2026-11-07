@@ -322,6 +322,48 @@ describe("@agent-native/skills", () => {
     },
   );
 
+  it("puts the earlier install back when moving the new copy in fails", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "quick-recap");
+    const installRoot = path.join(project, ".agents", "skills");
+    fs.mkdirSync(path.join(installRoot, "quick-recap"), { recursive: true });
+    fs.writeFileSync(
+      path.join(installRoot, "quick-recap", "SKILL.md"),
+      "Earlier install\n",
+    );
+    const rename = fs.renameSync;
+    vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      // Windows refuses the move like this while a file in the folder is open.
+      if (path.basename(String(from)) === "skill") {
+        throw Object.assign(new Error("EBUSY: resource busy or locked"), {
+          code: "EBUSY",
+        });
+      }
+      rename(from, to);
+    });
+
+    await expect(
+      installSkills({
+        source: repo,
+        skillNames: ["quick-recap"],
+        clients: ["codex"],
+        scope: "project",
+        baseDir: project,
+        updateInstructions: false,
+        yes: true,
+      }),
+    ).rejects.toThrow(/EBUSY/);
+
+    expect(
+      fs.readFileSync(
+        path.join(installRoot, "quick-recap", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("Earlier install\n");
+    expect(fs.readdirSync(installRoot)).toEqual(["quick-recap"]);
+  });
+
   it("refuses to install a skill over the folder it comes from", async () => {
     const project = tmpDir();
     writeSkill(path.join(project, ".agents"), "quick-recap");

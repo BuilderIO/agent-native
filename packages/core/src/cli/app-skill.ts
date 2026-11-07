@@ -14,7 +14,7 @@ import {
   supportsRemoteMcpOAuth,
   writeConfigs,
 } from "./connect.js";
-import { copyFollowingLinks, linkKind } from "./copy-following-links.js";
+import { linkKind, replaceFollowingLinks } from "./copy-following-links.js";
 import {
   type ClientId,
   buildHttpMcpEntry,
@@ -890,8 +890,13 @@ function copySkill(
   if (stat.isDirectory()) {
     // An exported skill is installed somewhere else, so the links inside it
     // are copied as the files they point at, under the same rules as the
-    // folder, and never through a name the pack leaves out.
-    copyFollowingLinks(from, dest, { within: roots, skip: isLeftOutOfPack });
+    // folder, and never through a name the pack leaves out. A rebuild into
+    // the same folder replaces the skill, so files a link no longer brings
+    // in don't linger from the last build.
+    replaceFollowingLinks(from, dest, {
+      within: roots,
+      skip: isLeftOutOfPack,
+    });
   } else {
     fs.mkdirSync(dest, { recursive: true });
     fs.copyFileSync(from, path.join(dest, "SKILL.md"));
