@@ -286,6 +286,73 @@ describe("workspace app chat proxy", () => {
       },
     );
 
+    it("reuses one registry lookup across chat polling", async () => {
+      const fetchImpl = vi.fn(async () => new Response("ok"));
+      const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
+      for (let i = 0; i < 3; i++) {
+        const response = await handler(
+          proxyEvent("/_agent-native/workspace-app-chat/analytics/runs/list"),
+        );
+        expect(response.status).toBe(200);
+      }
+
+      expect(mocks.listWorkspaceApps).toHaveBeenCalledTimes(1);
+      expect(fetchImpl).toHaveBeenCalledTimes(3);
+    });
+
+    it("checks the registry again after the app refuses the browser session", async () => {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(new Response("denied", { status: 403 }))
+        .mockResolvedValueOnce(new Response("ok"));
+      const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
+      const first = await handler(
+        proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+      );
+      const second = await handler(
+        proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+      );
+
+      expect(first.status).toBe(403);
+      expect(second.status).toBe(200);
+      expect(mocks.listWorkspaceApps).toHaveBeenCalledTimes(2);
+    });
+
+    it("checks the registry again once the cached lookup expires", async () => {
+      vi.useFakeTimers();
+      try {
+        const fetchImpl = vi.fn(async () => new Response("ok"));
+        const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
+        await handler(
+          proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+        );
+        vi.advanceTimersByTime(60_001);
+        await handler(
+          proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+        );
+
+        expect(mocks.listWorkspaceApps).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not share a cached lookup between users", async () => {
+      const fetchImpl = vi.fn(async () => new Response("ok"));
+      const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
+      await handler(
+        proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+      );
+      const other = { email: "other@example.com", orgId: "org-1" };
+      mocks.getSession.mockResolvedValue(other);
+      mocks.getBrowserCookieSession.mockResolvedValue(other);
+      await handler(
+        proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+      );
+
+      expect(mocks.listWorkspaceApps).toHaveBeenCalledTimes(2);
+    });
+
     it("fails closed when the accessible-app registry cannot be read", async () => {
       mocks.listWorkspaceApps.mockRejectedValue(
         new Error("registry unavailable"),
@@ -301,6 +368,11 @@ describe("workspace app chat proxy", () => {
         "[dispatch] workspace app chat proxy could not connect",
         { app: "analytics", error: "registry unavailable" },
       );
+
+      await createWorkspaceAppChatProxyHandler({ fetchImpl })(
+        proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+      );
+      expect(mocks.listWorkspaceApps).toHaveBeenCalledTimes(2);
     });
   });
 

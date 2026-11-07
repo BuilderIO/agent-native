@@ -70,6 +70,17 @@ export interface WorkspaceAppChatSession {
 }
 
 const sessionCache = new Map<string, Promise<WorkspaceAppChatSession>>();
+/**
+ * Chat polls several routes every few seconds, and each registry read can
+ * reach the gateway and the database. The target app re-checks the browser
+ * session on every request, so a short-lived routing decision does not widen
+ * access.
+ */
+const BROWSER_APP_URL_TTL_MS = 60 * 1000;
+const browserAppUrlCache = new Map<
+  string,
+  { expiresAt: number; url: Promise<string | null> }
+>();
 
 interface WorkspaceAppChatProxyEvent {
   url: URL;
@@ -299,6 +310,46 @@ async function resolveWorkspaceAppChatSession(input: {
 
 export function clearWorkspaceAppChatSessions(): void {
   sessionCache.clear();
+  browserAppUrlCache.clear();
+}
+
+function resolveBrowserAppUrl(input: {
+  appId: string;
+  userEmail: string;
+  orgId: string | undefined;
+  requestOrigin: string;
+}): Promise<string | null> {
+  const key = sessionCacheKey(input);
+  const cached = browserAppUrlCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.url;
+  const url = Promise.resolve(
+    runWithRequestContext(
+      {
+        userEmail: input.userEmail,
+        ...(input.orgId ? { orgId: input.orgId } : {}),
+        requestOrigin: input.requestOrigin,
+      },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    ),
+  ).then((apps) => {
+    const app = apps.find(
+      (candidate) =>
+        candidate.id === input.appId &&
+        !candidate.isDispatch &&
+        candidate.status !== "pending",
+    );
+    return app ? mountedWorkspaceAppHomeUrl(app) : null;
+  });
+  browserAppUrlCache.set(key, {
+    expiresAt: Date.now() + BROWSER_APP_URL_TTL_MS,
+    url,
+  });
+  // The caller still receives the rejection; this only stops a failed read being reused.
+  url.catch(() => {
+    if (browserAppUrlCache.get(key)?.url === url)
+      browserAppUrlCache.delete(key);
+  });
+  return url;
 }
 
 function upstreamRequestHeaders(
@@ -379,21 +430,12 @@ export function createWorkspaceAppChatProxyHandler(
         browserSession?.email === session.email &&
         (browserSession.orgId ?? null) === (orgId ?? null)
       ) {
-        const apps = await runWithRequestContext(
-          {
-            userEmail: session.email,
-            ...(orgId ? { orgId } : {}),
-            requestOrigin,
-          },
-          () => listWorkspaceApps({ includeAgentCards: false }),
-        );
-        const app = apps.find(
-          (candidate) =>
-            candidate.id === parsed.appId &&
-            !candidate.isDispatch &&
-            candidate.status !== "pending",
-        );
-        browserAppUrl = app ? mountedWorkspaceAppHomeUrl(app) : null;
+        browserAppUrl = await resolveBrowserAppUrl({
+          appId: parsed.appId,
+          userEmail: session.email,
+          orgId,
+          requestOrigin,
+        });
       }
       // Page-only embed tokens do not authorize chat; same-origin apps recheck the browser session themselves.
       if (browserAppUrl && new URL(browserAppUrl).origin === requestOrigin) {
@@ -451,15 +493,14 @@ export function createWorkspaceAppChatProxyHandler(
       );
     }
 
-    if (appSession && (upstream.status === 401 || upstream.status === 403)) {
-      sessionCache.delete(
-        sessionCacheKey({
-          appId: parsed.appId,
-          userEmail: session.email,
-          orgId,
-          requestOrigin,
-        }),
-      );
+    if (upstream.status === 401 || upstream.status === 403) {
+      const key = sessionCacheKey({
+        appId: parsed.appId,
+        userEmail: session.email,
+        orgId,
+        requestOrigin,
+      });
+      (appSession ? sessionCache : browserAppUrlCache).delete(key);
     }
 
     const headers = new Headers();
