@@ -301,6 +301,21 @@ describe("session reports", () => {
     expect([shares.rows, reports.rows]).toEqual([[], []]);
   });
 
+  it("deletes a damaged report it can't read", async () => {
+    const report = await createSessionReport(input, maker);
+    await client.query(
+      "UPDATE session_reports SET key_moments = 'not json' WHERE id = $1",
+      [report.id],
+    );
+
+    await expect(deleteSessionReport(report.id, maker)).resolves.toEqual({
+      id: report.id,
+      deleted: true,
+    });
+    const { rows } = await client.query("SELECT id FROM session_reports");
+    expect(rows).toEqual([]);
+  });
+
   describe("agent context", () => {
     it("refuses a link that doesn't verify", async () => {
       const report = await createSessionReport(input, maker);

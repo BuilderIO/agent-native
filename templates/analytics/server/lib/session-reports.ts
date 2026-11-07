@@ -282,7 +282,8 @@ export async function deleteSessionReport(
     "admin",
     accessContext(scope),
   );
-  const report = rowToReport(access.resource);
+  // Delete reads no stored JSON, so a damaged report can still be removed.
+  const report: SessionReportRow = access.resource;
   await getDb().transaction(async (tx) => {
     await tx
       .delete(schema.sessionReportShares)
@@ -389,8 +390,11 @@ export async function buildSessionReportAgentContext({
   let sessionUnavailable: string | undefined;
   let labStateError: string | undefined;
   try {
-    // A fresh two-hour session link on every read, so the session's own
-    // links in this context work for as long as the report link does.
+    // A fresh two-hour session grant on every read, so the session's links
+    // here keep working while the report link does. The grant is stateless:
+    // one already handed out opens the recording until it expires, even after
+    // the report is deleted or the link revoked, and never opens more than
+    // the maker could when it was minted.
     const fresh = await createSessionReplayAgentGrant({
       recordingId: report.recordingId,
       scope: makerScope,

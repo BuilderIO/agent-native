@@ -455,7 +455,9 @@ with `create-session-report`. `get-session-report`, `list-session-reports`
   report, leaving the organization, or losing access ends it.
   `/api/session-report-agent-context.json?id=<reportId>&agent_access=<token>`
   returns the report and, under `session`, the replay's full agent context
-  through a fresh two-hour session link. A recording past retention or one the
+  through a fresh two-hour session link. That session link is stateless: one
+  already handed out keeps opening the recording until its two hours end,
+  even after the report is deleted or the agent link revoked. A recording past retention or one the
   maker lost gives `session: null` with `sessionUnavailable`, never an empty
   session. `labStateError` means the maker's Lab state couldn't be read, so
   `session` has no `keyMoments` or `build`.
