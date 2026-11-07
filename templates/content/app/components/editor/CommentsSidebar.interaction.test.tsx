@@ -92,8 +92,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useFormatters: () => ({
     formatDate: (date: Date | string) => new Date(date).toISOString(),
   }),
-  useT: () => (key: string, params?: { count?: number }) =>
-    key === "comments.proposalEditCount" ? `${key}:${params?.count}` : key,
+  useT: () => (key: string, params?: { count?: number; name?: string }) =>
+    key === "comments.proposalEditCount"
+      ? `${key}:${params?.count}`
+      : key === "comments.aiAttribution"
+        ? `${key}:${params?.name}`
+        : key,
 }));
 vi.mock("@agent-native/toolkit/app/review", () => ({
   CommentBody: ({ body }: { body: string }) => body,
@@ -801,6 +805,70 @@ describe("comment review interactions", () => {
       ).toBeNull();
     },
   );
+
+  it("names the MCP client that posted a comment on its Agent pill", () => {
+    const postedFrom = (client: string | null): CommentThread => {
+      const base = thread("one");
+      return {
+        ...base,
+        comments: base.comments.map((comment, index) =>
+          index === 0
+            ? { ...comment, submission_source: "mcp", author_client: client }
+            : comment,
+        ),
+      };
+    };
+    render(null, [postedFrom("claude-code")], "inline");
+    expect(
+      container.querySelector('[data-comment-ai-client="claude-code"]')
+        ?.textContent,
+    ).toContain("Claude Code");
+    render(null, [postedFrom(null)], "inline");
+    expect(container.querySelector("[data-comment-ai-client]")).toBeNull();
+    expect(
+      container.querySelector('[data-comment-ai-attribution="mcp"]')
+        ?.textContent,
+    ).toContain("comments.agentBadge");
+  });
+
+  it("tells an MCP agent's suggestion from the app agent's, by client", () => {
+    const agent = (
+      id: string,
+      author: Pick<ResourceSuggestion, "authorSource" | "authorClient"> &
+        Partial<Pick<ResourceSuggestion, "authorEmail">>,
+    ): ResourceSuggestion => ({
+      ...proposalSuggestion(id),
+      proposalId: id,
+      actorKind: "agent",
+      ...author,
+    });
+    render(null, [], "inline", {
+      suggestions: [
+        agent("one", {
+          authorSource: "mcp",
+          authorClient: "codex",
+          authorEmail: "writer@example.test",
+        }),
+        agent("two", { authorSource: "agent", authorClient: null }),
+      ],
+    });
+    const badge = (id: string) =>
+      container.querySelector(
+        `[data-suggestion-id='${id}'] [data-comment-ai-attribution]`,
+      );
+    expect(badge("one")?.getAttribute("data-comment-ai-attribution")).toBe(
+      "mcp",
+    );
+    expect(badge("one")?.getAttribute("data-comment-ai-client")).toBe("codex");
+    expect(badge("one")?.textContent).toContain("Codex");
+    expect(
+      badge("one")?.querySelector("[aria-label]")?.getAttribute("aria-label"),
+    ).toContain("comments.aiAttribution:writer.");
+    expect(badge("two")?.getAttribute("data-comment-ai-attribution")).toBe(
+      "agent",
+    );
+    expect(badge("two")?.textContent).toContain("comments.agentBadge");
+  });
 
   it("keeps a thread AI just resolved as a mark, then reopens its result", () => {
     const applied: CommentAiRequest = {

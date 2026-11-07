@@ -1671,6 +1671,11 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_private_media_reference_media_idx
         ON content_private_media_references (media_id)`,
     },
+    {
+      version: 136,
+      name: "content-comment-author-client",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS author_client TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

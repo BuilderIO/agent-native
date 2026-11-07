@@ -12,6 +12,8 @@ import {
 import {
   suggestionActorKind,
   suggestionActorKindMatchesReceipt,
+  suggestionAuthorClient,
+  suggestionAuthorSource,
 } from "./actor-kind.js";
 import { getSuggestionAdapter } from "./registry.js";
 import {
@@ -279,6 +281,8 @@ export const createResourceSuggestion = defineAction({
           threadId: `suggestion-thread-${globalThis.crypto.randomUUID()}`,
           authorEmail,
           actorKind,
+          authorSource: suggestionAuthorSource(ctx),
+          authorClient: suggestionAuthorClient(ctx),
           baseRevision: args.baseRevision,
           status: "pending",
           summary: args.summary,
@@ -986,6 +990,8 @@ export const createResourceSuggestionProposal = defineAction({
               threadId: `suggestion-thread-${globalThis.crypto.randomUUID()}`,
               authorEmail,
               actorKind,
+              authorSource: suggestionAuthorSource(ctx),
+              authorClient: suggestionAuthorClient(ctx),
               baseRevision: args.baseRevision,
               status: "pending",
               summary: item.summary,
