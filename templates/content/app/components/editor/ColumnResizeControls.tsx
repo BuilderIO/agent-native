@@ -90,9 +90,8 @@ function rowGeometry(
   set: HTMLElement,
   columns: HTMLElement[],
 ): RowGeometry | null {
-  const first = columns.at(0);
-  if (!first) return null;
-  const style = getComputedStyle(first);
+  if (columns.length === 0) return null;
+  const style = getComputedStyle(columns[0]);
   const px = (value: string) => Number.parseFloat(value) || 0;
   const frame =
     px(style.paddingLeft) +
@@ -292,9 +291,9 @@ export function ColumnResizeControls({ editor }: { editor: Editor }) {
     if (!drag || event.pointerId !== drag.pointerId) return;
     const columns = columnElements(drag.set);
     const geometry = rowGeometry(drag.set, columns);
-    const column = columns.at(drag.index);
-    if (!geometry || !column) return;
-    const { left } = column.getBoundingClientRect();
+    // Another tab can take a column away mid-drag; the seam needs both sides.
+    if (!geometry || drag.index + 1 >= columns.length) return;
+    const { left } = columns[drag.index].getBoundingClientRect();
     const ratioOf = (width: number) =>
       ((width - geometry.frame) / geometry.free) * 100;
     const current = effectiveColumnRatios(drag.ratios);
