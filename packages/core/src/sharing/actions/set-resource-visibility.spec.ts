@@ -1595,6 +1595,26 @@ describe("set-resource-visibility public followers", () => {
     ]);
   });
 
+  it("writes its followers first when it leaves public, last when it goes public", async () => {
+    await insertFamily();
+    const order: string[] = [];
+    register({
+      publicFollowers: followersMatching,
+      persistVisibilityChange: persistUnless((resourceId) => {
+        order.push(resourceId);
+        return undefined;
+      }),
+    });
+
+    await setOne(parent, "public");
+    expect(order).toEqual([parent, "doc-child", "doc-grandchild"]);
+    order.length = 0;
+    // A request that dies part-way leaves the page public, so the same
+    // change can finish it.
+    await setOne(parent, "private");
+    expect(order).toEqual(["doc-child", "doc-grandchild", parent]);
+  });
+
   it("undoes its followers when another change takes the page back meanwhile", async () => {
     await insertFamily();
     register({

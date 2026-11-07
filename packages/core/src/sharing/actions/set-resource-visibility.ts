@@ -696,7 +696,18 @@ export default defineAction({
       for (const grant of change.grants) await writeGrant(change, grant);
     };
     try {
-      for (const change of toWrite) await write(change);
+      // Leaving public, the followers go first. A request that dies part-way
+      // can't put anything back, but it leaves the resource still public: its
+      // share dialog still counts the followers left, and making the same
+      // change again takes them along.
+      const writeOrder =
+        args.visibility === "public"
+          ? toWrite
+          : [
+              ...followers,
+              ...toWrite.filter((change) => !followerChanges.has(change)),
+            ];
+      for (const change of writeOrder) await write(change);
       // A follower created while this ran, such as a sub-page added under
       // the page, copied the old visibility after the walk above. Walking
       // again once the writes have committed finds it, as long as a create

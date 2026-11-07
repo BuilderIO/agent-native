@@ -9,9 +9,11 @@ const PARENT_GROUP = 90;
 
 /**
  * The sub-pages that go public with a page and leave public with it, as in
- * Notion: every page under it, at any depth, that has the same owner and
- * isn't in the trash or in a deleted database. A sub-page someone else owns,
- * and everything under it, keeps its own setting.
+ * Notion: every page under it, at any depth, that has the same owner. A
+ * sub-page someone else owns, and everything under it, keeps its own
+ * setting. One in the trash or in a deleted database doesn't go public, but
+ * does leave public, so restoring it can't bring back a public page under a
+ * private one.
  *
  * Returns the public ones when `isPublic` is true and the rest when it is
  * false, walking through both, since a private sub-page can hold public
@@ -42,8 +44,12 @@ export async function publicSubPageIds(
               frontier.slice(index, index + PARENT_GROUP),
             ),
             eq(schema.documents.ownerEmail, page.ownerEmail),
-            isNull(schema.documents.trashedAt),
-            ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
+            ...(options.isPublic
+              ? []
+              : [
+                  isNull(schema.documents.trashedAt),
+                  ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
+                ]),
           ),
         );
       for (const child of children) {

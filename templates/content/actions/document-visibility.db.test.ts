@@ -157,7 +157,7 @@ describe("a page's sub-pages and public visibility", () => {
     ]);
   });
 
-  it("don't include pages in the trash or in a deleted database", async () => {
+  it("don't go public from the trash or a deleted database, but leave public from there", async () => {
     const parent = await page();
     const trashed = await page({
       parentId: parent,
@@ -182,6 +182,20 @@ describe("a page's sub-pages and public visibility", () => {
     ).toEqual([]);
     await setVisibility(parent, "public");
     expect(await visibilitiesOf(trashed, tracker, row)).toEqual([
+      "private",
+      "private",
+      "private",
+    ]);
+
+    // Ones that are public there still leave with the page, so a restore
+    // doesn't bring back a public page under a private one.
+    await getDb()
+      .update(schema.documents)
+      .set({ visibility: "public" })
+      .where(inArray(schema.documents.id, [trashed, tracker, row]));
+    await setVisibility(parent, "private");
+    expect(await visibilitiesOf(parent, trashed, tracker, row)).toEqual([
+      "private",
       "private",
       "private",
       "private",

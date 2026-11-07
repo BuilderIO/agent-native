@@ -135,8 +135,9 @@ A page's sub-pages go public with it and leave public with it, as in Notion.
 When `set-resource-visibility` makes a page public, every sub-page under it
 (at any depth, with the same owner, not in the trash) becomes public too, in
 the same all-or-nothing change; when it makes the page private or org-visible
-again, the sub-pages still public follow it. `followersChanged` in the result
-says how many sub-pages changed, and `list-resource-shares` returns
+again, the sub-pages still public follow it, including ones in the trash, so a
+restore can't bring back a public page under a private one. `followersChanged`
+in the result says how many sub-pages changed, and `list-resource-shares` returns
 `publicFollowers` to the page's owner and admins (with `publicFollowersMore`
 when there are more than 500). Tell the user how many sub-pages a public
 change carries. A change that would carry more than 500 is refused with
