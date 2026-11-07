@@ -83,9 +83,11 @@ describe("dashboard layout rows", () => {
     const panels = [panel("a"), panel("b"), panel("c", 3), panel("d")];
 
     const next = removePanelFromLayout(panels, "c", 3);
-    const [group] = buildDashboardPanelGroups(next, 3);
+    const rows = buildDashboardPanelGroups(next, 3).flatMap(
+      (group) => group.rows,
+    );
 
-    expect(ids(group.rows)).toEqual([["a", "b"], ["d"]]);
+    expect(ids(rows)).toEqual([["a", "b"], ["d"]]);
     expect(next.map((item) => [item.id, item.width])).toEqual([
       ["a", 2],
       ["b", 1],
@@ -105,11 +107,9 @@ describe("dashboard layout rows", () => {
       "section",
       4,
     );
-    expect(ids(buildDashboardPanelGroups(wider, 4)[0].rows)).toEqual([
-      ["a"],
-      ["b", "c"],
-      ["d"],
-    ]);
+    expect(
+      ids(buildDashboardPanelGroups(wider, 4).flatMap((group) => group.rows)),
+    ).toEqual([["a"], ["b", "c"], ["d"]]);
     expect(wider.map((item) => [item.id, item.width])).toEqual([
       ["a", 4],
       ["b", 2],
@@ -122,11 +122,11 @@ describe("dashboard layout rows", () => {
       "section",
       2,
     );
-    expect(ids(buildDashboardPanelGroups(narrower, 2)[0].rows)).toEqual([
-      ["a"],
-      ["b", "c"],
-      ["d"],
-    ]);
+    expect(
+      ids(
+        buildDashboardPanelGroups(narrower, 2).flatMap((group) => group.rows),
+      ),
+    ).toEqual([["a"], ["b", "c"], ["d"]]);
     expect(narrower.map((item) => [item.id, item.width])).toEqual([
       ["a", 2],
       ["b", 1],
@@ -175,9 +175,11 @@ describe("dashboard layout rows", () => {
     };
 
     const next = movePanelToDropSlot([...panels, panel("new")], "new", slot, 2);
-    const [group] = buildDashboardPanelGroups(next, 3);
+    const rows = buildDashboardPanelGroups(next, 3).flatMap(
+      (group) => group.rows,
+    );
 
-    expect(ids(group.rows)).toEqual([["a", "new", "b"], ["c"]]);
+    expect(ids(rows)).toEqual([["a", "new", "b"], ["c"]]);
     expect(next.map((item) => [item.id, item.width])).toEqual([
       ["a", 1],
       ["new", 1],

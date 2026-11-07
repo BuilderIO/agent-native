@@ -252,8 +252,10 @@ function laysOutAsOneRow(
   next: SqlPanel | undefined,
   columns: number,
 ): boolean {
-  const rows = buildDashboardRows(next ? [...panels, next] : panels, columns);
-  return rows.length > 0 && rows[0].panels.length === panels.length;
+  // Packing is greedy, so a panel after them can join their row or start the
+  // next one, but never changes how they split.
+  if (buildDashboardRows(panels, columns).length !== 1) return false;
+  return !next || buildDashboardRows([...panels, next], columns).length === 2;
 }
 
 /**
@@ -274,8 +276,7 @@ function flattenGroups(
     // Bottom up, so each row is checked against the final width of the panel
     // after it. A group's last row ends at the next section.
     let next: SqlPanel | undefined;
-    for (let rowIndex = group.rows.length - 1; rowIndex >= 0; rowIndex--) {
-      const row = group.rows[rowIndex];
+    for (const row of [...group.rows].reverse()) {
       const laidOut =
         reflowedRows.has(row) ||
         !laysOutAsOneRow(row.panels, next, group.columns)
@@ -314,16 +315,14 @@ export function removePanelFromLayout(
 
     // A removed section's rows join the group before it, on that group's
     // grid, split where a row holds more panels than it has columns.
-    if (nextGroups.length === 0) {
-      nextGroups.push({
-        key: "intro",
-        section: null,
-        panels: [],
-        rows: [],
-        columns: clampDashboardColumns(dashboardColumns),
-      });
-    }
-    const receiving = nextGroups[nextGroups.length - 1];
+    const receiving = nextGroups.pop() ?? {
+      key: "intro",
+      section: null,
+      panels: [],
+      rows: [],
+      columns: clampDashboardColumns(dashboardColumns),
+    };
+    nextGroups.push(receiving);
     for (const row of rows) {
       for (
         let start = 0;
