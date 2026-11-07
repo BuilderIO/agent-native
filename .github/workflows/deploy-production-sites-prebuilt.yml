@@ -177,6 +177,7 @@ jobs:
     name: ${{ matrix.site }} production prebuilt deploy
     permissions:
       contents: read
+      actions: read
     needs: [resolve-source, discover-sites, beta-e2e]
     if: >-
       ${{ !cancelled()
