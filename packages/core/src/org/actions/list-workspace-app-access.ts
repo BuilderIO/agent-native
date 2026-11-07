@@ -13,7 +13,7 @@ export default defineAction({
   run: async (_args, ctx) => {
     const caller = await requireOrgMember(ctx, true);
     const activeAppIds = await currentWorkspaceAppIdsForAccessList({
-      email: ctx.userEmail ?? "",
+      email: ctx?.userEmail ?? "",
       orgId: caller.orgId,
     });
     const result = await getDbExec().execute({
