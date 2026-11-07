@@ -34,8 +34,8 @@ export function decryptBlobBytes(
   params: BlobEncryptionParams,
   ciphertext: Uint8Array,
 ): Uint8Array {
-  try {
-    return decryptWithSecretKeys((key) => {
+  return decryptWithSecretKeys((key) => {
+    try {
       const decipher = createDecipheriv(
         "aes-256-gcm",
         key,
@@ -48,12 +48,12 @@ export function decryptBlobBytes(
           decipher.final(),
         ]),
       );
-    });
-  } catch (error) {
-    throw new PrivateBlobError(
-      "Private blob bytes could not be decrypted",
-      "corrupt",
-      { cause: error },
-    );
-  }
+    } catch (error) {
+      throw new PrivateBlobError(
+        "Private blob bytes could not be decrypted",
+        "corrupt",
+        { cause: error },
+      );
+    }
+  });
 }

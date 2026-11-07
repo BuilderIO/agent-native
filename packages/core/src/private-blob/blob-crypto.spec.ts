@@ -79,6 +79,22 @@ describe("blob encryption", () => {
     }
   });
 
+  it("reports missing production key configuration separately from corrupt bytes", () => {
+    const encrypted = encryptBlobBytes(plain);
+    vi.stubEnv("NODE_ENV", "production");
+    for (const name of [
+      "APP_NAME",
+      "SECRETS_ENCRYPTION_KEY",
+      "BETTER_AUTH_SECRET",
+      "A2A_SECRET",
+    ]) {
+      vi.stubEnv(name, "");
+    }
+    expect(() => decryptBlobBytes(encrypted, encrypted.ciphertext)).toThrow(
+      "Refusing to start in production without an encryption key",
+    );
+  });
+
   it("can't decrypt under a different key", () => {
     const encrypted = encryptBlobBytes(plain);
     vi.stubEnv("SECRETS_ENCRYPTION_KEY", "another-deployment-key");
