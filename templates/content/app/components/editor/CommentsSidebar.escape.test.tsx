@@ -29,12 +29,12 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { CommentThread } from "@/hooks/use-comments";
 
 import { CommentComposer } from "./CommentComposer";
-import { usePagePanelEscape } from "./document-page-panel-state";
 import {
   CommentsSidebar,
   preserveCommentComposerEscape,
   useCommentReplyDrafts,
 } from "./CommentsSidebar";
+import { usePagePanelEscape } from "./document-page-panel-state";
 
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   ...(await importOriginal<

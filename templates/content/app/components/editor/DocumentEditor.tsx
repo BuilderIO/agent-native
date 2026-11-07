@@ -8897,6 +8897,10 @@ function PageEditorSessionBody({
     commentCardOpen: showAnchoredCommentPopover,
   });
 
+  // A phone's sheet covers the page under the header, so nothing behind it
+  // takes focus; the header's tabs stay live above it to switch or close.
+  const pageUnderSheet = !!pagePanel.tab && pagePanelLayout.mode === "sheet";
+
   const pagePanelTab = pagePanel.tab;
   useEffect(() => {
     const wasOpen = pagePanelOpenRef.current;
@@ -10606,7 +10610,10 @@ function PageEditorSessionBody({
             onImport={canImportPages ? openImport : undefined}
           />
         </div>
-        <div className="col-start-1 row-start-2 flex min-h-0 min-w-0 flex-col">
+        <div
+          className="col-start-1 row-start-2 flex min-h-0 min-w-0 flex-col"
+          inert={pageUnderSheet || undefined}
+        >
           <ContentImportDialog
             request={importRequest}
             parentId={documentId}

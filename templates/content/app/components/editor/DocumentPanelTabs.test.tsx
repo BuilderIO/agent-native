@@ -118,6 +118,26 @@ describe("DocumentPanelTabs", () => {
     expect(document.activeElement).toBe(host.querySelector("[data-in-panel]"));
   });
 
+  it("leaves Tab to the browser while the panel can't take focus yet", () => {
+    render({ activeTab: "comments" });
+    const inPanel = host.querySelector<HTMLButtonElement>("[data-in-panel]");
+    if (!inPanel) throw new Error("No panel button");
+    // An inert panel, mid-fade, refuses focus.
+    inPanel.focus = () => {};
+    tab("comments").focus();
+
+    const event = new KeyboardEvent("keydown", {
+      key: "Tab",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      tab("comments").dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(tab("comments"));
+  });
+
   describe("tooltip", () => {
     const tooltip = () => document.querySelector('[role="tooltip"]');
     const pointer = (element: HTMLElement, type: string) =>

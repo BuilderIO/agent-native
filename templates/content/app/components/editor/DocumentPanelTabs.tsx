@@ -93,11 +93,11 @@ export function DocumentPanelTabs({
     else if (event.key === "End") move(tabs.length - 1);
     else if (event.key === "Tab" && !event.shiftKey && tab === activeTab) {
       // The panel comes after the whole header in the page, so Tab goes there
-      // directly from the tab that opened it.
+      // directly from the tab that opened it. A panel still on its way in can't
+      // take focus yet, and then Tab carries on as usual.
       const target = firstFocusableIn(document.getElementById(panelId));
-      if (!target) return;
-      event.preventDefault();
-      target.focus();
+      target?.focus();
+      if (target && document.activeElement === target) event.preventDefault();
     }
   };
 
