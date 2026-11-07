@@ -887,14 +887,13 @@ function copyDirFiltered(
   }
 }
 
-function copySkill(
+// Where an exported skill is copied from, once it checks out, and the
+// folders its links may lead into.
+function exportedSkillSource(
   manifestDir: string,
   skill: AppSkillManifestSkill,
-  destRoot: string,
-): string {
+): { from: string; roots: string[] } {
   const source = resolveSkillSource(manifestDir, skill);
-  const exportName = skillExportName(skill);
-  const dest = path.join(destRoot, exportName);
   if (!fs.existsSync(source)) {
     throw new Error(`Exported skill source not found: ${source}`);
   }
@@ -904,6 +903,17 @@ function copySkill(
     source,
     `Skill path ${skill.path}`,
   );
+  return { from, roots };
+}
+
+function copySkill(
+  manifestDir: string,
+  skill: AppSkillManifestSkill,
+  destRoot: string,
+): string {
+  const { from, roots } = exportedSkillSource(manifestDir, skill);
+  const exportName = skillExportName(skill);
+  const dest = path.join(destRoot, exportName);
   fs.mkdirSync(destRoot, { recursive: true });
   const stat = fs.statSync(from);
   if (stat.isDirectory()) {
@@ -1272,10 +1282,13 @@ export function buildAppSkillPack(
   if (skills.length === 0) {
     throw new Error("Manifest has no exported or both-visibility skills.");
   }
+  // Checked before anything is written, so a skill the export refuses leaves
+  // the last build as it was.
+  for (const skill of skills) exportedSkillSource(loaded.dir, skill);
+  const appSource = resolveLocalSourceDir(loaded);
   const pluginVersion = resolvePluginVersion(manifest, loaded.dir, skills);
 
   fs.mkdirSync(target, { recursive: true });
-  const appSource = resolveLocalSourceDir(loaded);
   const packedManifest: AppSkillManifest = appSource
     ? {
         ...manifest,

@@ -817,6 +817,8 @@ describe("app skill packaging", () => {
     expect(() =>
       buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir),
     ).toThrow(/links outside the app and its workspace/);
+    // Refused before the pack is written, so a last build there stays whole.
+    expect(fs.existsSync(outDir)).toBe(false);
   });
 
   it("refuses a skill folder linked into a folder a pack leaves out", () => {

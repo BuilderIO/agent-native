@@ -13,8 +13,8 @@
  * link points at, and `verbatimSymlinks: true` keeps each link exactly as it
  * is (a whole-app copy, where following a link could pull in a file the copy
  * leaves out). Options the guard can't read, such as a variable, a spread, a
- * computed key or arguments spread into the call, count as recursive, and a
- * link choice counts only when it is written as `true`. A copier is found by
+ * getter, a computed key or arguments spread into the call, count as
+ * recursive, and a link choice counts only when it is written as `true`. A copier is found by
  * name, including `fs["cpSync"]` and a name the file gives it by import,
  * destructuring or assignment, as in `import { cpSync as copyTree } from
  * "node:fs"`, and also when it's called through `.call` or `.apply`.
@@ -222,9 +222,12 @@ function leavesLinksToDefault(options: ts.Expression | undefined): boolean {
   let filtered = false;
   const chosen = new Set<string>();
   for (const property of inner.properties) {
-    // A spread, or a key the guard can't read, could set any option.
+    // A spread, a getter or setter, or a key the guard can't read, could set
+    // any option.
     if (
       ts.isSpreadAssignment(property) ||
+      ts.isGetAccessorDeclaration(property) ||
+      ts.isSetAccessorDeclaration(property) ||
       (property.name !== undefined &&
         ts.isComputedPropertyName(property.name) &&
         propertyName(property.name) === undefined)
