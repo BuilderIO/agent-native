@@ -11,6 +11,7 @@ import {
   ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT,
   ROUTE_WARMUP_PRELOAD_ATTRIBUTE,
   STALE_CHUNK_EXHAUSTED_KEY,
+  STALE_CHUNK_NAVIGATING_AT_KEY,
   STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT,
   STALE_CHUNK_RELOAD_AT_KEY,
 } from "./route-chunk-recovery-bootstrap.js";
@@ -88,7 +89,7 @@ function installBootstrap(
 
 describe("route chunk recovery bootstrap", () => {
   it("retries required module failures before client handlers can classify them", () => {
-    const { assign, onError, sessionValues } = installBootstrap();
+    const { assign, onError, sessionValues, windowState } = installBootstrap();
     const stopImmediatePropagation = vi.fn();
 
     onError({
@@ -115,7 +116,28 @@ describe("route chunk recovery bootstrap", () => {
       "#latest",
     );
     expect(sessionValues.get(STALE_CHUNK_RELOAD_AT_KEY)).toBe("2000000");
+    expect(windowState[STALE_CHUNK_NAVIGATING_AT_KEY]).toBe(2_000_000);
     expect(stopImmediatePropagation).toHaveBeenCalledOnce();
+  });
+
+  it("clears the navigating marker when the recovery navigation throws", () => {
+    const { assign, onError, windowState } = installBootstrap();
+    assign.mockImplementation(() => {
+      throw new Error("blocked");
+    });
+
+    expect(() =>
+      onError({
+        target: {
+          getAttribute: (name) => (name === "rel" ? "modulepreload" : null),
+          hasAttribute: () => false,
+          rel: "modulepreload",
+          tagName: "LINK",
+        },
+        stopImmediatePropagation: vi.fn(),
+      }),
+    ).toThrow("blocked");
+    expect(windowState[STALE_CHUNK_NAVIGATING_AT_KEY]).toBeUndefined();
   });
 
   it("replaces legacy arbitrary recovery markers with the fixed recovery path", () => {

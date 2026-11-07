@@ -8,6 +8,8 @@ import {
   CHUNK_RECOVERY_QUERY_PARAM,
   CHUNK_RECOVERY_QUERY_VALUE,
   EXTERNAL_EMBED_WINDOW_KEY,
+  STALE_CHUNK_NAVIGATING_AT_KEY,
+  STALE_CHUNK_RELOAD_AT_KEY,
 } from "../shared/route-chunk-recovery-bootstrap.js";
 import {
   createRouteChunkRecoveryState,
@@ -857,7 +859,7 @@ describe("route chunk recovery", () => {
     expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
     expectRecoveryNavigation(fakeLocation, "https://example.com/dispatch/apps");
 
-    expect(reloadForStaleChunk(fakeWindow, 5_000)).toBe(false);
+    expect(reloadForStaleChunk(fakeWindow, 5_000)).toBe(true);
     expect(fakeLocation.assign).toHaveBeenCalledTimes(1);
 
     expect(reloadForStaleChunk(fakeWindow, 20_000)).toBe(true);
@@ -1027,15 +1029,93 @@ describe("route chunk recovery", () => {
       expect(dispatchEvent).not.toHaveBeenCalled();
     });
 
-    it("reports exactly once when the reload cooldown blocks it", () => {
-      const { fakeWindow } = createFakeWindow();
+    it("stays silent for chunks that fail while this page's own recovery reload is unloading", () => {
+      const { fakeWindow, fakeLocation } = createFakeWindow();
       const dispatchEvent = vi.fn();
       (fakeWindow as unknown as { dispatchEvent: unknown }).dispatchEvent =
         dispatchEvent;
 
       expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
-      expect(reloadForStaleChunk(fakeWindow, 2_000)).toBe(false);
-      expect(reloadForStaleChunk(fakeWindow, 3_000)).toBe(false);
+      expect(reloadForStaleChunk(fakeWindow, 1_050)).toBe(true);
+      expect(reloadForStaleChunk(fakeWindow, 3_000)).toBe(true);
+
+      expect(fakeLocation.assign).toHaveBeenCalledOnce();
+      expect(readStaleChunkRecoveryExhausted(fakeWindow)).toBeUndefined();
+      expect(dispatchEvent).not.toHaveBeenCalled();
+    });
+
+    it("keeps suppressing through the full cooldown but not past it", () => {
+      const { fakeWindow, fakeLocation } = createFakeWindow();
+      expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
+      expect(reloadForStaleChunk(fakeWindow, 11_000)).toBe(true);
+      expect(fakeLocation.assign).toHaveBeenCalledOnce();
+      expect(reloadForStaleChunk(fakeWindow, 11_001)).toBe(true);
+      expect(fakeLocation.assign).toHaveBeenCalledTimes(2);
+      expect(readStaleChunkRecoveryExhausted(fakeWindow)).toBeUndefined();
+    });
+
+    it("reports exhaustion when the navigating marker is stale or malformed", () => {
+      const stale = createFakeWindow();
+      const win = stale.fakeWindow as unknown as Record<string, unknown>;
+      win[STALE_CHUNK_RELOAD_AT_KEY] = 999_900;
+      win[STALE_CHUNK_NAVIGATING_AT_KEY] = 1_000;
+      expect(reloadForStaleChunk(stale.fakeWindow, 1_000_000)).toBe(false);
+      expect(readStaleChunkRecoveryExhausted(stale.fakeWindow)).toEqual({
+        reason: "cooldown",
+      });
+
+      const malformed = createFakeWindow();
+      const mWin = malformed.fakeWindow as unknown as Record<string, unknown>;
+      mWin[STALE_CHUNK_RELOAD_AT_KEY] = 1_000;
+      mWin[STALE_CHUNK_NAVIGATING_AT_KEY] = "1000";
+      expect(reloadForStaleChunk(malformed.fakeWindow, 1_050)).toBe(false);
+    });
+
+    it("clears the navigating marker when both navigation attempts throw", () => {
+      const { fakeWindow, fakeLocation } = createFakeWindow();
+      fakeLocation.assign.mockImplementation(() => {
+        throw new Error("blocked");
+      });
+      Object.defineProperty(fakeLocation, "href", {
+        configurable: true,
+        get: () => "https://example.com/dispatch/apps",
+        set: () => {
+          throw new Error("blocked");
+        },
+      });
+
+      expect(() => reloadForStaleChunk(fakeWindow, 1_000)).toThrow("blocked");
+      expect(
+        (fakeWindow as unknown as Record<string, unknown>)[
+          STALE_CHUNK_NAVIGATING_AT_KEY
+        ],
+      ).toBeUndefined();
+      expect(reloadForStaleChunk(fakeWindow, 1_050)).toBe(false);
+    });
+
+    it("falls back to href assignment when assign throws once", () => {
+      const { fakeWindow, fakeLocation } = createFakeWindow();
+      fakeLocation.assign.mockImplementation(() => {
+        throw new Error("assign blocked");
+      });
+
+      expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
+      expect(fakeLocation.href).toContain(CHUNK_RECOVERY_QUERY_PARAM);
+    });
+
+    it("reports exactly once when a reloaded page still hits the cooldown", () => {
+      const first = createFakeWindow();
+      expect(reloadForStaleChunk(first.fakeWindow, Date.now())).toBe(true);
+      const recoveryUrl = first.fakeLocation.assign.mock.calls[0]?.[0];
+
+      const { fakeWindow } = createFakeWindow(recoveryUrl);
+      const dispatchEvent = vi.fn();
+      (fakeWindow as unknown as { dispatchEvent: unknown }).dispatchEvent =
+        dispatchEvent;
+      installRouteChunkRecovery(fakeWindow);
+
+      expect(reloadForStaleChunk(fakeWindow, Date.now())).toBe(false);
+      expect(reloadForStaleChunk(fakeWindow, Date.now())).toBe(false);
 
       expect(readStaleChunkRecoveryExhausted(fakeWindow)).toEqual({
         reason: "cooldown",
