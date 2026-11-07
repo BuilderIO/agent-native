@@ -201,7 +201,13 @@ function panelLink(
  */
 export async function captureDashboardPanel(
   request: AnalyticsPanelCaptureRequest,
-  ctx: AccessCtx & { signal?: AbortSignal; timeoutMs: number; now?: number },
+  ctx: AccessCtx & {
+    signal?: AbortSignal;
+    timeoutMs: number;
+    /** The action's result limit, in characters of pretty-printed JSON. */
+    maxChars: number;
+    now?: number;
+  },
 ): Promise<AnalyticsPanelCapture> {
   const dashboard = await openSqlDashboard(request.dashboardId, {
     email: ctx.email,
@@ -289,7 +295,7 @@ export async function captureDashboardPanel(
   const { type, ...numbers } = outcome.numbers;
   const { dashboardUrl, panelUrl } = panelLink(dashboard.id, panel.id, filters);
   const summary = filterSummary(dashboard.config, filters);
-  return analyticsPanelCaptureSchema.parse({
+  const capture = analyticsPanelCaptureSchema.parse({
     dashboard: {
       id: dashboard.id,
       title: dashboard.title,
@@ -306,8 +312,68 @@ export async function captureDashboardPanel(
     filters,
     ...(summary ? { filterSummary: summary } : {}),
     ...numbers,
+    rows: numbers.rows.map((row) =>
+      row.map((cell) =>
+        typeof cell === "number" ? roundCaptureNumber(cell) : cell,
+      ),
+    ),
     capturedAt: new Date(now).toISOString(),
   });
+  return fitCaptureToChars(capture, ctx.maxChars);
+}
+
+/**
+ * Six significant digits are plenty to draw or read a number, but the digits
+ * before the point, and two after it, are never rounded away.
+ */
+export function roundCaptureNumber(value: number): number {
+  if (Number.isInteger(value) || !Number.isFinite(value)) return value;
+  const wholeDigits = Math.max(1, Math.floor(Math.log10(Math.abs(value))) + 1);
+  return Number(value.toPrecision(Math.min(15, Math.max(6, wholeDigits + 2))));
+}
+
+/**
+ * Another app reads a capture as the action's pretty-printed result, which
+ * the framework cuts off at the action's result limit, and a cut-off copy
+ * can't be read at all. A capture over the limit keeps fewer rows instead,
+ * and says so: a chart its latest points, as the row cap does, and a table,
+ * pie or funnel its first rows.
+ */
+export function fitCaptureToChars(
+  capture: AnalyticsPanelCapture,
+  maxChars: number,
+): AnalyticsPanelCapture {
+  const size = (value: AnalyticsPanelCapture) =>
+    JSON.stringify(value, null, 2).length;
+  if (size(capture) <= maxChars) return capture;
+  const type = capture.panel.type;
+  const keepsLatest = type !== "table" && type !== "pie" && type !== "funnel";
+  for (
+    let keep = Math.floor(capture.rows.length * 0.8);
+    keep >= 1;
+    keep = Math.floor(keep * 0.8)
+  ) {
+    const rows = keepsLatest
+      ? capture.rows.slice(capture.rows.length - keep)
+      : capture.rows.slice(0, keep);
+    const labels = new Set(rows.map((row) => String(row[0])));
+    const fitted: AnalyticsPanelCapture = {
+      ...capture,
+      rows,
+      truncated: true,
+      ...(capture.keyDates
+        ? {
+            keyDates: capture.keyDates.filter((date) => labels.has(date.x)),
+          }
+        : {}),
+    };
+    if (size(fitted) <= maxChars) return fitted;
+  }
+  throw new PanelCaptureError(
+    "This panel's rows are too long to keep in a page.",
+    "panel_too_large",
+    413,
+  );
 }
 
 /**

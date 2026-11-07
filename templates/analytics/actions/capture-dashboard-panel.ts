@@ -1,4 +1,5 @@
 import { defineAction, fail } from "@agent-native/core";
+import { resolveToolMaxResultChars } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -15,6 +16,10 @@ import {
 } from "../server/lib/panel-capture";
 
 const CAPTURE_BUDGET_MS = 45_000;
+// Another app reads the whole capture, so it has to fit the result limit.
+const CAPTURE_MAX_RESULT_CHARS = 50_000;
+// Room for anything the framework adds around the result.
+const CAPTURE_RESULT_MARGIN_CHARS = 1_000;
 
 export default defineAction({
   description:
@@ -27,6 +32,7 @@ export default defineAction({
   mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   timeoutMs: 55_000,
+  maxResultChars: CAPTURE_MAX_RESULT_CHARS,
   run: async (args, actionContext) => {
     const email = getRequestUserEmail();
     if (!email) {
@@ -40,6 +46,11 @@ export default defineAction({
         email,
         orgId: getRequestOrgId() || null,
         timeoutMs: CAPTURE_BUDGET_MS,
+        maxChars:
+          (actionContext?.maxResultChars ??
+            resolveToolMaxResultChars({
+              maxResultChars: CAPTURE_MAX_RESULT_CHARS,
+            })) - CAPTURE_RESULT_MARGIN_CHARS,
         ...(actionContext?.signal ? { signal: actionContext.signal } : {}),
       });
       track(

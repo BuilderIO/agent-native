@@ -23,8 +23,14 @@ vi.mock("./key-dates-store", () => ({
   listKeyDateSets: mocks.listKeyDateSets,
 }));
 
-const { captureDashboardPanel, dashboardPanelStatus, panelFingerprint } =
-  await import("./panel-capture");
+const {
+  captureDashboardPanel,
+  dashboardPanelStatus,
+  fitCaptureToChars,
+  PanelCaptureError,
+  panelFingerprint,
+  roundCaptureNumber,
+} = await import("./panel-capture");
 
 const TIME_RANGE = {
   id: "timeRange",
@@ -77,6 +83,7 @@ const CTX = {
   email: "alice@example.com",
   orgId: "org-1",
   timeoutMs: 10_000,
+  maxChars: 49_000,
   now: Date.parse("2026-11-07T17:00:00.000Z"),
 };
 
@@ -265,6 +272,94 @@ describe("captureDashboardPanel", () => {
     expect(capture.columns).toEqual(["name", "seats"]);
     expect(capture.rows).toHaveLength(50);
     expect(capture.truncated).toBe(true);
+  });
+});
+
+describe("fitting a capture to the result limit", () => {
+  function sizeOf(value: unknown) {
+    return JSON.stringify(value, null, 2).length;
+  }
+
+  it("rounds long decimals and leaves whole numbers and money alone", () => {
+    expect(roundCaptureNumber(0.00022222222222223066)).toBe(0.000222222);
+    expect(roundCaptureNumber(0.9721851851851507)).toBe(0.972185);
+    expect(roundCaptureNumber(1234567.891)).toBe(1234567.89);
+    expect(roundCaptureNumber(1500)).toBe(1500);
+    expect(roundCaptureNumber(-12.3456789)).toBe(-12.3457);
+  });
+
+  it("rounds the numbers a panel returns", async () => {
+    mocks.resolvePanel.mockResolvedValue(
+      result([{ week: "2026-11-03", signups: 0.12345678912 }]),
+    );
+    const capture = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "signups" },
+      CTX,
+    );
+    expect(capture.rows[0]?.[1]).toBe(0.123457);
+  });
+
+  it("keeps a long chart's latest points, and says so, when the copy would be cut off", async () => {
+    mocks.resolvePanel.mockResolvedValue(
+      result(
+        Array.from({ length: 120 }, (_, index) => ({
+          week: `2026-W${String(index).padStart(3, "0")}`,
+          signups: index + 0.5,
+        })),
+      ),
+    );
+    const full = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "signups" },
+      CTX,
+    );
+    expect(full.truncated).toBe(false);
+
+    const limit = Math.floor(sizeOf(full) / 2);
+    const fitted = fitCaptureToChars(full, limit);
+    expect(sizeOf(fitted)).toBeLessThanOrEqual(limit);
+    expect(fitted.truncated).toBe(true);
+    expect(fitted.rows.length).toBeLessThan(full.rows.length);
+    expect(fitted.rows[fitted.rows.length - 1]).toEqual(
+      full.rows[full.rows.length - 1],
+    );
+    expect(fitCaptureToChars(full, sizeOf(full))).toBe(full);
+  });
+
+  it("keeps a table's first rows", async () => {
+    mocks.getDashboard.mockResolvedValue(
+      dashboard([
+        {
+          id: "accounts",
+          title: "Accounts",
+          source: "bigquery",
+          sql: "select name, seats from accounts",
+          chartType: "table",
+        },
+      ]),
+    );
+    mocks.resolvePanel.mockResolvedValue(
+      result(
+        Array.from({ length: 40 }, (_, index) => ({
+          name: `Account ${index}`,
+          seats: index,
+        })),
+      ),
+    );
+    const full = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "accounts" },
+      CTX,
+    );
+    const fitted = fitCaptureToChars(full, Math.floor(sizeOf(full) / 2));
+    expect(fitted.rows[0]).toEqual(full.rows[0]);
+    expect(fitted.truncated).toBe(true);
+  });
+
+  it("refuses a panel whose single row is over the limit", async () => {
+    const capture = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "signups" },
+      CTX,
+    );
+    expect(() => fitCaptureToChars(capture, 100)).toThrow(PanelCaptureError);
   });
 });
 

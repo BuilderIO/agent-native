@@ -113,7 +113,11 @@ export async function requestAnalytics<T>(
       orgSecret: auth.orgSecret,
       requestTimeoutMs,
     });
-  } catch {
+  } catch (error) {
+    console.warn("[content-analytics] Analytics request failed", {
+      action,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return {
       ok: false,
       code: "analytics_unreachable",
@@ -137,6 +141,16 @@ export async function requestAnalytics<T>(
   }
   const parsed = schema.safeParse(output);
   if (!parsed.success) {
+    // Field paths and reasons only; the values are the person's data.
+    console.warn(
+      "[content-analytics] Analytics answered in a shape Content can't read",
+      {
+        action,
+        issues: parsed.error.issues
+          .slice(0, 5)
+          .map((issue) => `${issue.path.join(".")}: ${issue.message}`),
+      },
+    );
     return {
       ok: false,
       code: "analytics_invalid_response",
