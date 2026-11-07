@@ -94,8 +94,12 @@ export interface ReviewAnchorKind {
 /** A comment write, as a resource's `onCommentWrite` hook sees it. */
 export type ReviewCommentWriteEvent =
   | { type: "created"; comment: ReviewComment }
-  | { type: "edited"; comment: ReviewComment }
-  | { type: "anchor-moved"; comment: ReviewComment }
+  | {
+      type: "edited" | "anchor-moved";
+      comment: ReviewComment;
+      /** Who changed it, which for an editor moving a pin isn't the author. */
+      actorEmail: string | null;
+    }
   | {
       type: "resolved" | "reopened";
       resourceType: string;
@@ -165,7 +169,12 @@ export interface ReviewComment {
   /** The anchor's kind and the version it was written at, when typed. */
   anchorKind: string | null;
   anchorVersion: number | null;
-  /** Goes up on every change, so a write can check nothing changed under it. */
+  /**
+   * Goes up whenever the comment or its thread changes (its text, anchor,
+   * status, routing, agent pickup or deletion), so a write can check nothing
+   * changed under it. Notification bookkeeping leaves it alone, so a new
+   * comment's author can edit it at the revision they got back.
+   */
   revision: number;
   body: string;
   authorEmail: string | null;

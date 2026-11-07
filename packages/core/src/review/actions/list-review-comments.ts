@@ -84,9 +84,9 @@ export default defineAction({
       limit: args.limit,
     };
     // Newest first lists whole threads by latest activity, which no cursor
-    // can resume, so only oldest first pages.
+    // can resume, so only oldest first pages; a cursor with it is refused.
     const [page, reviewStatus, summary] = await Promise.all([
-      args.newestFirst
+      args.newestFirst && !args.cursor
         ? queryReviewComments(query).then((comments) => ({
             comments,
             nextCursor: null,

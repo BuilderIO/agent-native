@@ -102,11 +102,12 @@ registerReviewableResource({
   written at the kind's current `version` unless it gives an older one.
 - `onCommentWrite` runs inside the comment's own database transaction for
   `created`, `edited`, `anchor-moved`, `resolved`, `reopened` and `deleted`.
-  Throwing refuses the write. Use the `tx` handle for database work there.
+  Throwing refuses the write. Use the `tx` handle for database work there. A
+  database client without transactions refuses a hooked write.
 
 Every comment also carries a `surfaceId` (the slide, page or screen a thread
-sits on; `list-review-comments` filters by it) and a `revision` that goes up on
-each change. Pass the revision you read as `expectedRevision` to
+sits on; `list-review-comments` filters by it) and a `revision` that goes up
+when the comment or its thread changes. Pass the revision you read as `expectedRevision` to
 `update-review-comment` or `update-review-comment-anchor`, and a newer one
 refuses the write with `revision_conflict`. `list-review-comments` pages oldest
 first: pass back its `nextCursor` as `cursor` to read past the `limit` of 500.

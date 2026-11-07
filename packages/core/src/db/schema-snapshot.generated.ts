@@ -445,7 +445,6 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
     "CREATE INDEX idx_agent_review_comments_owner ON public.agent_review_comments USING btree (owner_email, created_at);",
     "CREATE INDEX idx_agent_review_comments_queue ON public.agent_review_comments USING btree (resource_type, resource_id, parent_comment_id, resolution_target, consumed_at, created_at);",
     "CREATE INDEX idx_agent_review_comments_resource ON public.agent_review_comments USING btree (resource_type, resource_id, created_at);",
-    "CREATE INDEX idx_agent_review_comments_surface ON public.agent_review_comments USING btree (resource_type, resource_id, surface_id, created_at);",
     "CREATE INDEX idx_agent_review_comments_thread ON public.agent_review_comments USING btree (thread_id, created_at);",
     "CREATE INDEX agent_review_statuses_access_owner_lower_idx ON public.agent_review_statuses USING btree (lower(owner_email));",
     "CREATE INDEX idx_agent_review_statuses_resource ON public.agent_review_statuses USING btree (resource_type, resource_id);",
@@ -1189,7 +1188,7 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
     ["resources", "visibility-expires-index", null],
     ["resources", "widen-bigint", null],
     ["review", "baseline", null],
-    ["review", "storage-contract", "33947970edf35d1e"],
+    ["review", "storage-contract", "ed0e701a19ad1c15"],
     ["review_suggestions", "baseline", null],
     ["sandbox_executions", "baseline", null],
     [

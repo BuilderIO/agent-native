@@ -26,6 +26,8 @@ vi.mock("../db/client.js", () => ({
   isProductionServerlessFunctionRuntime: () => false,
 }));
 
+const { __resetReviewableResourcesForTests, registerReviewableResource } =
+  await import("./registry.js");
 const {
   __resetReviewInitForTests,
   consumeReviewFeedback,
@@ -57,6 +59,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  __resetReviewableResourcesForTests();
   await pglite.close();
   vi.clearAllMocks();
 });
@@ -1418,5 +1421,43 @@ describe("review store", () => {
       metadata: { source: "pin", label: "kept" },
     });
     expect(stored?.metadata).not.toHaveProperty("attachments");
+  });
+});
+
+describe("review writes on a client without transactions", () => {
+  it("refuses a hooked write before changing anything", async () => {
+    const onCommentWrite = vi.fn();
+    registerReviewableResource({ type: "hooked-doc", onCommentWrite });
+    await expect(
+      insertReviewComment({
+        resourceType: "hooked-doc",
+        resourceId: "doc-1",
+        body: "Review",
+      }),
+    ).rejects.toThrow("no transactions");
+    expect(onCommentWrite).not.toHaveBeenCalled();
+    expect(
+      await queryReviewComments({
+        resourceType: "hooked-doc",
+        resourceId: "doc-1",
+        scope: {},
+        bypassScope: true,
+        includeDeleted: true,
+      }),
+    ).toEqual([]);
+
+    // A resource with no hook still writes, but a delete, which can't tell
+    // its resource before it reads the row, waits for a transaction.
+    const plain = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "doc-1",
+      body: "Review",
+    });
+    await expect(deleteReviewComment(plain.id, null)).rejects.toThrow(
+      "no transactions",
+    );
+    expect(
+      (await getReviewCommentById(plain.id, {}, { bypassScope: true }))?.status,
+    ).toBe("open");
   });
 });

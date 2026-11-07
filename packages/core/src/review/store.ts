@@ -13,6 +13,8 @@ import {
   ReviewCursorError,
 } from "./errors.js";
 import {
+  hasReviewCommentWriteHook,
+  listReviewableResources,
   normalizeReviewAnchor,
   runReviewCommentWriteHook,
 } from "./registry.js";
@@ -283,8 +285,6 @@ export const reviewStore = defineStore({
         "ALTER TABLE agent_review_comments ADD COLUMN IF NOT EXISTS anchor_kind TEXT",
         "ALTER TABLE agent_review_comments ADD COLUMN IF NOT EXISTS anchor_version INTEGER",
         "ALTER TABLE agent_review_comments ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1",
-        `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_surface
-           ON agent_review_comments (resource_type, resource_id, surface_id, created_at)`,
         `CREATE TABLE IF NOT EXISTS agent_review_comment_links (
           provider TEXT NOT NULL,
           external_kind TEXT NOT NULL,
@@ -476,27 +476,52 @@ export async function filterUnmutedReviewThreadRecipients(
 }
 
 /**
- * Runs a comment write in one transaction where the client has them (every
- * client core ships does), so the resource's write hook commits or rolls back
- * with it.
+ * Runs a comment write in one transaction, so the resource's write hook
+ * commits or rolls back with it. Pass the resource type when it's known.
  */
-function inReviewWrite<T>(write: (tx: DbExec) => Promise<T>): Promise<T> {
+function inReviewWrite<T>(
+  resourceType: string | undefined,
+  write: (tx: DbExec) => Promise<T>,
+): Promise<T> {
   const client = getDbExec();
-  return client.transaction ? client.transaction(write) : write(client);
+  if (client.transaction) return client.transaction(write);
+  assertReviewWriteCanRollBack(resourceType);
+  return write(client);
+}
+
+/**
+ * A write hook refuses a write by throwing, which only a transaction can
+ * undo. A client without transactions (Neon's HTTP mode, some test doubles)
+ * is refused a hooked write before anything changes. With no resource type
+ * to check, any registered hook counts.
+ */
+function assertReviewWriteCanRollBack(resourceType: string | undefined): void {
+  const hooked = resourceType
+    ? hasReviewCommentWriteHook(resourceType)
+    : listReviewableResources().some((resource) =>
+        Boolean(resource.onCommentWrite),
+      );
+  if (hooked) {
+    throw new Error(
+      "This database client has no transactions, so it can't run a comment write that has a write hook.",
+    );
+  }
 }
 
 export async function insertReviewComment(
   input: InsertReviewCommentInput,
 ): Promise<ReviewComment> {
   await ensureReviewTables();
-  return inReviewWrite((tx) => insertReviewCommentWithClient(input, tx));
+  return inReviewWrite(input.resourceType, (tx) =>
+    insertReviewCommentWithClient(input, tx),
+  );
 }
 
 export async function insertReviewCommentIdempotently(
   input: InsertReviewCommentInput & { id: string },
 ): Promise<InsertReviewCommentResult> {
   await ensureReviewTables();
-  return inReviewWrite((tx) =>
+  return inReviewWrite(input.resourceType, (tx) =>
     insertReviewCommentIdempotentlyWithClient(input, tx),
   );
 }
@@ -654,6 +679,7 @@ export async function insertReviewReply(
     return insertReviewCommentWithClient(input, tx);
   };
   if (client.transaction) return client.transaction(insertAndRoute);
+  assertReviewWriteCanRollBack(resource.resourceType);
 
   // raw-sql-ok: the helper's statement is constant text; the ids are bound.
   await assertLiveReviewRoot(client, input.threadId, resource);
@@ -713,6 +739,7 @@ export async function insertReviewReplyIdempotently(
     return result;
   };
   if (client.transaction) return client.transaction(insertAndRoute);
+  assertReviewWriteCanRollBack(resource.resourceType);
 
   // raw-sql-ok: the helper's statement is constant text; the ids are bound.
   await assertLiveReviewRoot(client, input.threadId, resource);
@@ -919,14 +946,19 @@ async function insertReviewCommentIdempotentlyWithClient(
   rawInput: InsertReviewCommentInput & { id: string },
   client: DbExec,
 ): Promise<InsertReviewCommentResult> {
-  const input = { ...normalizeReviewCommentInput(rawInput), id: rawInput.id };
-  const submitted = reviewCommentFromInput(input);
-  const existing = await getReviewCommentByIdWithClient(client, submitted.id);
+  // A retry is read the way its first submission was stored, so a change to
+  // the resource's anchor kinds since then doesn't turn it into a conflict.
+  const existing = await getReviewCommentByIdWithClient(client, rawInput.id);
   if (existing) {
-    assertMatchingReviewCommentReceipt(existing, submitted);
+    assertMatchingReviewCommentReceipt(
+      existing,
+      reviewCommentFromInput(replayedReviewCommentInput(rawInput, existing)),
+    );
     return { comment: existing, replayed: true };
   }
 
+  const input = { ...normalizeReviewCommentInput(rawInput), id: rawInput.id };
+  const submitted = reviewCommentFromInput(input);
   const insertion = await writeReviewCommentWithClient(input, client, true);
   if (!insertion.replayed) return insertion;
 
@@ -936,6 +968,31 @@ async function insertReviewCommentIdempotentlyWithClient(
   }
   assertMatchingReviewCommentReceipt(receipt, submitted);
   return { comment: receipt, replayed: true };
+}
+
+/**
+ * A retried submission normalized as its stored comment was: untyped if it
+ * was stored untyped, and otherwise at its stored anchor version unless the
+ * retry names one.
+ */
+function replayedReviewCommentInput(
+  input: InsertReviewCommentInput,
+  stored: ReviewComment,
+): InsertReviewCommentInput {
+  if (input.parentCommentId) return input;
+  if (
+    stored.anchorKind === null &&
+    input.anchorKind == null &&
+    input.anchorVersion == null
+  ) {
+    return { ...input, anchorKind: null, anchorVersion: null };
+  }
+  return normalizeReviewCommentInput({
+    ...input,
+    anchorVersion:
+      input.anchorVersion ??
+      (input.anchorKind === stored.anchorKind ? stored.anchorVersion : null),
+  });
 }
 
 function reviewCommentFromInput(
@@ -1474,7 +1531,11 @@ async function writeReviewCommentChange(
     input.body !== undefined || input.mentions !== undefined;
   await runReviewCommentWriteHook(
     updated.resourceType,
-    { type: changesContent ? "edited" : "anchor-moved", comment: updated },
+    {
+      type: changesContent ? "edited" : "anchor-moved",
+      comment: updated,
+      actorEmail: options.actorEmail ?? null,
+    },
     client,
   );
   return updated;
@@ -1498,7 +1559,9 @@ export async function resolveReviewThread(
       resolutionNote,
       status,
     );
-  return client.transaction ? client.transaction(resolve) : resolve(client);
+  if (client.transaction) return client.transaction(resolve);
+  assertReviewWriteCanRollBack(resource?.resourceType);
+  return resolve(client);
 }
 
 export async function resolveReviewThreadWithClient(
@@ -1818,7 +1881,9 @@ export async function deleteReviewComment(
     }
     return deleted + deletedReplies;
   };
-  return client.transaction ? client.transaction(deleteIn) : deleteIn(client);
+  if (client.transaction) return client.transaction(deleteIn);
+  assertReviewWriteCanRollBack(undefined);
+  return deleteIn(client);
 }
 
 interface DeletedCommentRow {
@@ -2005,7 +2070,7 @@ export async function updateReviewComment(
   options: ReviewCommentWriteOptions = {},
 ): Promise<ReviewComment | null> {
   await ensureReviewTables();
-  return inReviewWrite((tx) =>
+  return inReviewWrite(resource?.resourceType, (tx) =>
     writeReviewCommentChange(tx, id, input, resource, options),
   );
 }

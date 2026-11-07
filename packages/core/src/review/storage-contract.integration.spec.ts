@@ -16,6 +16,7 @@ const {
   ensureReviewTables,
   findReviewCommentLink,
   insertReviewComment,
+  insertReviewCommentIdempotently,
   insertReviewReply,
   linkReviewComment,
   listReviewCommentLinks,
@@ -197,6 +198,46 @@ describe.sequential("the review kit's storage contract", () => {
     ).rejects.toBeInstanceOf(ReviewAnchorError);
   });
 
+  it("replays a retry the way its first submission was stored", async () => {
+    const STAMPED = "storage-contract-stamped";
+    const stampAt = (version: number) =>
+      registerReviewableResource({
+        type: STAMPED,
+        resolveAccess,
+        anchorKinds: { stamp: { version, parse: (anchor) => anchor } },
+      });
+    registerReviewableResource({ type: STAMPED, resolveAccess });
+    const untyped = {
+      ...comment(STAMPED, "doc-replay", { anchor: { at: 1 } }),
+      id: "replay-untyped",
+    };
+    await insertReviewCommentIdempotently(untyped);
+    stampAt(1);
+    const typed = {
+      ...comment(STAMPED, "doc-replay", {
+        anchor: { at: 2 },
+        anchorKind: "stamp",
+      }),
+      id: "replay-typed",
+    };
+    await insertReviewCommentIdempotently(typed);
+
+    // The resource now declares kinds, and the kind has moved to version 2.
+    stampAt(2);
+    await expect(
+      insertReviewCommentIdempotently(untyped),
+    ).resolves.toMatchObject({
+      replayed: true,
+      comment: { anchorKind: null, anchorVersion: null },
+    });
+    await expect(insertReviewCommentIdempotently(typed)).resolves.toMatchObject(
+      { replayed: true, comment: { anchorKind: "stamp", anchorVersion: 1 } },
+    );
+    await expect(
+      insertReviewCommentIdempotently({ ...typed, body: "Another body" }),
+    ).rejects.toThrow("conflicts with another submission");
+  });
+
   it("lets a reply carry an anchor written before its resource had kinds", async () => {
     // Stored the way a thread from before anchor kinds is.
     const root = await insertReviewComment(comment(PLAIN, "deck-legacy"));
@@ -290,7 +331,9 @@ describe.sequential("the review kit's storage contract", () => {
       null,
       { resourceType: HOOKED, resourceId: "doc-hook" },
     );
-    await updateReviewComment(root.id, { body: "Edited" });
+    await updateReviewComment(root.id, { body: "Edited" }, undefined, {
+      actorEmail: OWNER,
+    });
     await updateReviewComment(root.id, { anchor: { at: 3 } });
     await resolveReviewThread(root.threadId, OWNER);
     await resolveReviewThread(
@@ -314,6 +357,8 @@ describe.sequential("the review kit's storage contract", () => {
     expect(hookEvents[0]).toMatchObject({
       comment: { id: root.id, surfaceId: "page-1" },
     });
+    expect(hookEvents[2]).toMatchObject({ actorEmail: OWNER });
+    expect(hookEvents[3]).toMatchObject({ actorEmail: null });
     expect(hookEvents[6]).toMatchObject({
       threadId: root.threadId,
       commentIds: [root.id, reply.id],
@@ -417,6 +462,17 @@ describe.sequential("the review kit's storage contract", () => {
       { userEmail: OWNER },
     );
     expect(next.comments.map((row) => row.id)).toEqual(ids.slice(2, 4));
+    await expect(
+      listReviewComments.run(
+        {
+          resourceType: PLAIN,
+          resourceId: "doc-many",
+          newestFirst: true,
+          cursor: listed.nextCursor!,
+        },
+        { userEmail: OWNER },
+      ),
+    ).rejects.toMatchObject({ errorCode: "invalid_cursor" });
   });
 
   it("links comments to outside IDs, once each", async () => {
