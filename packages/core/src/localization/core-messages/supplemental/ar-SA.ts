@@ -131,3 +131,13 @@ export const privacySettingsMessages: PrivacySettingsMessages = {
     "يسجّل هذا طلب حذف، ولا يحذف البيانات فورًا. سيتحقق مسؤول من هويتك وينفذ الطلب وفق التزامات الاحتفاظ والالتزامات القانونية لهذا النشر.",
   privacyDocsLink: "قراءة معلومات الخصوصية وحقوق البيانات",
 };
+
+export const clientForkMessages = {
+  original: "الأصلي",
+  mine: "نسختي",
+  manage: "إدارة التخصيص",
+  base: "الأساس: agent-native {{sha}}",
+  build: "بناء العميل",
+  update: "التحديث من المصدر",
+  undo: "التراجع عن البناء",
+};

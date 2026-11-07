@@ -39,6 +39,7 @@ import {
 } from "../../../shared/environment-lane.js";
 import { buildContentDirectoryPickerBridgeScript } from "../lib/content-directory-picker-bridge.js";
 import { buildGuestThemeScript, type RendererTheme } from "../lib/theme.js";
+import ClientForkControls from "./ClientForkControls.js";
 import DesktopIdentityGate from "./DesktopIdentityGate.js";
 import { shouldReloadActiveWebview } from "./webview-refresh.js";
 
@@ -1768,7 +1769,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       };
     }, [app.id, app.placeholder, isActive, url]);
 
-    function handleRetry() {
+    const handleRetry = useCallback(() => {
       loadFailureRef.current = false;
       unresponsiveFailureRef.current = false;
       setError(false);
@@ -1782,7 +1783,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           wv.src = url;
         }
       }
-    }
+    }, [url]);
 
     async function handleSwitchToProd() {
       if (!appConfig?.id) return;
@@ -1804,6 +1805,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         className={`webview-slot${isActive ? " webview-slot--active" : " webview-slot--hidden"}${isFullscreen ? " webview-slot--fullscreen" : ""}`}
       >
         {app.placeholder && <PlaceholderScreen app={app} />}
+        {!app.placeholder && !isDevMode && (
+          <ClientForkControls
+            appId={app.id}
+            reload={handleRetry}
+            active={isActive}
+          />
+        )}
 
         {!app.placeholder && !error && isLoading && (
           <LoadingScreen app={app} slow={slowLoad} isDev={isDevMode} />

@@ -131,3 +131,13 @@ export const privacySettingsMessages: PrivacySettingsMessages = {
     "삭제 요청을 기록합니다. 데이터가 즉시 삭제되지는 않습니다. 관리자가 신원을 확인하고 이 배포의 보존 및 법적 의무에 따라 요청을 처리합니다.",
   privacyDocsLink: "개인정보 및 데이터 권리 읽기",
 };
+
+export const clientForkMessages = {
+  original: "원본",
+  mine: "내 버전",
+  manage: "사용자 지정 관리",
+  base: "기반: agent-native {{sha}}",
+  build: "클라이언트 빌드",
+  update: "업스트림에서 업데이트",
+  undo: "빌드 실행 취소",
+};

@@ -113,6 +113,7 @@ export async function loadCoreMessagesForLocale(
     : supplementalCoreMessageLoaders[DEFAULT_LOCALE];
   const supplementalMessages = await supplementalLoader();
   return {
+    clientFork: supplementalMessages.clientForkMessages,
     agentResources: agentResourcePackMessagesForLocale(locale),
     consentBanner: consentBannerMessagesForLocale(locale),
     environmentBadge: environmentBadgeMessagesForLocale(locale),
@@ -126,6 +127,7 @@ export async function loadCoreMessagesForLocale(
 }
 
 const englishCoreMessages = {
+  clientFork: englishSupplementalMessages.clientForkMessages,
   agentResources: agentResourcePackMessagesForLocale(DEFAULT_LOCALE),
   consentBanner: consentBannerMessagesForLocale(DEFAULT_LOCALE),
   environmentBadge: englishSupplementalMessages.environmentBadgeMessages,

@@ -134,3 +134,13 @@ export const privacySettingsMessages: PrivacySettingsMessages = {
     "削除リクエストを記録します。データはすぐには削除されません。管理者が本人確認を行い、このデプロイの保持義務と法的義務に従って対応します。",
   privacyDocsLink: "プライバシーとデータに関する権利を読む",
 };
+
+export const clientForkMessages = {
+  original: "オリジナル",
+  mine: "自分のバージョン",
+  manage: "カスタマイズを管理",
+  base: "ベース: agent-native {{sha}}",
+  build: "クライアントをビルド",
+  update: "上流から更新",
+  undo: "ビルドを元に戻す",
+};

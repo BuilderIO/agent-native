@@ -140,3 +140,13 @@ export const privacySettingsMessages: PrivacySettingsMessages = {
     "Damit wird eine Löschanfrage gespeichert; die Daten werden nicht sofort gelöscht. Eine Administration bestätigt deine Identität und bearbeitet die Anfrage gemäß den Aufbewahrungs- und gesetzlichen Pflichten dieses Deployments.",
   privacyDocsLink: "Datenschutz und Datenrechte lesen",
 };
+
+export const clientForkMessages = {
+  original: "Original",
+  mine: "Meine Version",
+  manage: "Anpassung verwalten",
+  base: "Basis: agent-native {{sha}}",
+  build: "Client erstellen",
+  update: "Vom Ursprung aktualisieren",
+  undo: "Build rückgängig machen",
+};

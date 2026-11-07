@@ -125,3 +125,13 @@ export const privacySettingsMessages: PrivacySettingsMessages = {
     "這會記錄刪除要求，不會立即刪除資料。管理員會驗證您的身分，並依照此部署的保留期限與法律義務完成要求。",
   privacyDocsLink: "閱讀隱私與資料權利",
 };
+
+export const clientForkMessages = {
+  original: "原版",
+  mine: "我的版本",
+  manage: "管理自訂",
+  base: "基礎版本：agent-native {{sha}}",
+  build: "建置用戶端",
+  update: "更新上游程式碼",
+  undo: "復原建置",
+};

@@ -138,3 +138,13 @@ export const privacySettingsMessages: PrivacySettingsMessages = {
     "Isso registra uma solicitação de exclusão; os dados não são excluídos imediatamente. Um administrador verificará sua identidade e concluirá a solicitação conforme as obrigações legais e de retenção desta implantação.",
   privacyDocsLink: "Ler sobre privacidade e direitos sobre os dados",
 };
+
+export const clientForkMessages = {
+  original: "Original",
+  mine: "Minha versão",
+  manage: "Gerenciar personalização",
+  base: "Base: agent-native {{sha}}",
+  build: "Compilar cliente",
+  update: "Atualizar da origem",
+  undo: "Desfazer compilação",
+};

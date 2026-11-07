@@ -116,6 +116,12 @@ import type {
 import { isDesktopSentryConfigured } from "@shared/sentry-config";
 import { contextBridge, ipcRenderer } from "electron";
 
+import {
+  CLIENT_FORK_CHANNEL,
+  type ClientForkRequest,
+  type ClientForkResult,
+} from "../../shared/client-forks.js";
+
 const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:subscribe-transcript";
 const CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL =
@@ -136,6 +142,8 @@ type CodeAgentTranscriptSubscriptionBatch = CodeAgentTranscriptResult & {
 };
 
 const electronAPI = {
+  clientForks: (request: ClientForkRequest): Promise<ClientForkResult> =>
+    ipcRenderer.invoke(CLIENT_FORK_CHANNEL, request),
   platform: process.platform as string,
 
   sentry: {

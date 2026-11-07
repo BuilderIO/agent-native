@@ -133,3 +133,13 @@ export const privacySettingsMessages: PrivacySettingsMessages = {
     "This records a deletion request; it does not delete data immediately. An administrator will verify your identity and complete the request under the deployment's retention and legal obligations.",
   privacyDocsLink: "Read privacy and data rights",
 };
+
+export const clientForkMessages = {
+  original: "Original",
+  mine: "My version",
+  manage: "Manage customization",
+  base: "Base: agent-native {{sha}}",
+  build: "Build client",
+  update: "Update from upstream",
+  undo: "Undo build",
+};

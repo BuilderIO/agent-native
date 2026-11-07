@@ -61,6 +61,10 @@ import {
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
+
+export function HydrateFallback() {
+  return <AppShellSkeleton />;
+}
 configureTracking({
   sessionReplay: {
     console: false,
@@ -585,6 +589,16 @@ export function computeSessionBypass(): boolean {
 }
 
 export default function Root() {
+  useEffect(() => {
+    document.documentElement.setAttribute(
+      "data-agent-native-client-health",
+      "ready",
+    );
+    return () =>
+      document.documentElement.removeAttribute(
+        "data-agent-native-client-health",
+      );
+  }, []);
   const [queryClient] = useState(() => {
     const client = createAgentNativeQueryClient();
     bindThreadCacheQueryClient(client);
@@ -628,6 +642,12 @@ function routeErrorMessage(error: unknown, fallback: string): string {
 }
 
 export function ErrorBoundary() {
+  useEffect(() => {
+    document.documentElement.setAttribute(
+      "data-agent-native-client-health",
+      "error",
+    );
+  }, []);
   const error = useRouteError();
   const copy =
     MAIL_ERROR_COPY[activeErrorLocale()] ?? MAIL_ERROR_COPY[DEFAULT_LOCALE];

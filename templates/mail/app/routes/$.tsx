@@ -11,6 +11,8 @@ export function loader() {
   return data(null, { status: 404 });
 }
 
+export const clientLoader = loader;
+
 export default function CatchAllRoute() {
   return <NotFound />;
 }

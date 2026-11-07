@@ -136,3 +136,13 @@ export const privacySettingsMessages: PrivacySettingsMessages = {
     "Esto registra una solicitud de eliminación; los datos no se eliminan de inmediato. Un administrador verificará tu identidad y completará la solicitud según las obligaciones legales y de conservación de esta implementación.",
   privacyDocsLink: "Leer sobre privacidad y derechos sobre los datos",
 };
+
+export const clientForkMessages = {
+  original: "Original",
+  mine: "Mi versión",
+  manage: "Gestionar personalización",
+  base: "Base: agent-native {{sha}}",
+  build: "Compilar cliente",
+  update: "Actualizar desde origen",
+  undo: "Deshacer compilación",
+};

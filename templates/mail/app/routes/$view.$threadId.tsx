@@ -18,6 +18,8 @@ export function loader({ params }: { params: { view?: string } }) {
   return null;
 }
 
+export const clientLoader = loader;
+
 export function meta({ params }: { params: { view?: string } }) {
   if (!isKnownMailView(params.view)) {
     return [{ title: messages.mail.routeTitles.notFound }];

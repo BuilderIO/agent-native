@@ -1,4 +1,12 @@
 import fs from "fs";
+
+import { registerClientForkRuntime } from "./client-fork-runtime.js";
+
+declare const __AGENT_NATIVE_DESKTOP_SOURCE_SHA__: string;
+declare const __AGENT_NATIVE_DESKTOP_SOURCE_DIRECTORY__: string;
+let desktopClientForkRuntime:
+  | ReturnType<typeof registerClientForkRuntime>
+  | undefined;
 import {
   execFile,
   spawn,
@@ -6226,6 +6234,7 @@ async function spawnCodeAgentRunner(
         getRecordString(finalRecord, "goal") ??
         runId;
       if (finalStatus === "completed") {
+        void finishDesktopClientForkRun(finalRecord);
         showCodeAgentRunNotification(runId, "completed", runTitle);
       } else if (finalStatus === "errored") {
         showCodeAgentRunNotification(runId, "failed", runTitle);
@@ -6440,6 +6449,7 @@ async function spawnCodeAgentApprovalRunner(
         getRecordString(finalRecord, "goal") ??
         runId;
       if (finalStatus === "completed") {
+        void finishDesktopClientForkRun(finalRecord);
         showCodeAgentRunNotification(runId, "completed", runTitle);
       } else if (finalStatus === "errored") {
         showCodeAgentRunNotification(runId, "failed", runTitle);
@@ -7039,7 +7049,8 @@ async function createCodeAgentRun(
   }
   const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
   const isDesktopLocalCodeChange =
-    userMetadata.kind === "desktop-local-code-change";
+    userMetadata.kind === "desktop-local-code-change" ||
+    userMetadata.kind === "desktop-client-fork";
   const engine = normalizeCodeAgentRequestedEngine(
     firstStringValue(payload.engine),
   );
@@ -8891,6 +8902,66 @@ async function prepareDesktopAppForLocalCodeChange(
     };
   }
 
+  if (
+    desktopClientForkRuntime &&
+    getTemplate(appId) &&
+    appConfig.mode !== "dev" &&
+    appConfig.url?.startsWith("https://")
+  ) {
+    try {
+      const state = await desktopClientForkRuntime.prepare(
+        appId,
+        appConfig.url,
+      );
+      const engine = getLocalCodexCliStatus().authenticated
+        ? CODEX_CLI_ENGINE_NAME
+        : getLocalClaudeCliStatus().authenticated
+          ? CLAUDE_CLI_ENGINE_NAME
+          : undefined;
+      if (!engine)
+        throw new Error(
+          "Sign in to a local Codex or Claude Code agent before customizing an app.",
+        );
+      const result = await createCodeAgentRun({
+        goalId: "task",
+        cwd: state.sourcePath,
+        engine,
+        executionTarget: "local",
+        permissionMode: "default",
+        prompt: [
+          `Customize the real source for templates/${appId} in this personal checkout.`,
+          `User request: ${prompt}`,
+          "Change the existing screens and client interactions directly. Keep actions/auth/provider access on the unchanged hosted backend.",
+          "Server/action/schema edits require a separate runtime and are not supported by this prototype; explain that if required.",
+          "Do not start a dev server or watch process. Desktop will build the client after this run completes. Do not edit .env, install arbitrary packages, or commit changes yourself.",
+          "Preserve the desktop-client build, clientLoader equivalents, and root client-health signals. Route new UI copy through the app catalogs.",
+        ].join("\n"),
+        metadata: { kind: "desktop-client-fork", appId, userPrompt: prompt },
+      });
+      if (!result.ok || !result.run)
+        throw new Error(result.error ?? result.message);
+      emitDesktopAppRuntimeStatus({
+        appId,
+        state: "starting",
+        message: "Editing your local client source.",
+      });
+      return {
+        ok: true,
+        apps: currentApps,
+        app: appConfig,
+        run: result.run,
+        message: "Editing your local client source.",
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        apps: currentApps,
+        message: "Could not prepare the source fork.",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   const template = getTemplate(appId);
   const existingLocalPath = resolveUsableDirectory(appConfig.localPath);
   const existingLocalApp = Boolean(
@@ -9007,6 +9078,45 @@ async function prepareDesktopAppForLocalCodeChange(
 }
 
 const lastDesktopAppRuntimeStatus = new Map<string, string>();
+
+async function finishDesktopClientForkRun(
+  record: Record<string, unknown> | null,
+): Promise<void> {
+  const metadata = record && isObject(record.metadata) ? record.metadata : null;
+  if (
+    metadata?.kind !== "desktop-client-fork" ||
+    typeof metadata.appId !== "string" ||
+    !desktopClientForkRuntime
+  )
+    return;
+  const appId = metadata.appId;
+  try {
+    emitDesktopAppRuntimeStatus({
+      appId,
+      state: "starting",
+      message: "Building your client without a dev server.",
+    });
+    await desktopClientForkRuntime.finish(appId);
+    for (const contents of webContents.getAllWebContents()) {
+      if (
+        contents.getType() === "webview" &&
+        contents.session === session.fromPartition(`persist:app-${appId}`)
+      )
+        contents.reloadIgnoringCache();
+    }
+    emitDesktopAppRuntimeStatus({
+      appId,
+      state: "running",
+      message: "Your compiled client is ready.",
+    });
+  } catch (error) {
+    emitDesktopAppRuntimeStatus({
+      appId,
+      state: "error",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 
 function emitDesktopAppRuntimeStatus(status: DesktopAppRuntimeStatus): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -14186,6 +14296,22 @@ function configurePermissionHandlers(
 }
 
 void app.whenReady().then(async () => {
+  desktopClientForkRuntime = registerClientForkRuntime({
+    source: app.isPackaged
+      ? "https://github.com/BuilderIO/agent-native.git"
+      : __AGENT_NATIVE_DESKTOP_SOURCE_DIRECTORY__,
+    baseSha: __AGENT_NATIVE_DESKTOP_SOURCE_SHA__,
+    pnpm: "pnpm",
+    isShell: isShellIdentityIpc,
+    apps: () => AppStore.loadApps(),
+    notify: (appId, error) =>
+      emitDesktopAppRuntimeStatus({
+        appId,
+        state: error ? "error" : "starting",
+        message: error ?? "Updating your local client.",
+      }),
+  });
+  await desktopClientForkRuntime.ready;
   if (isDesktopSsoEnabled()) {
     ensureDesktopIdentityBroker();
   }

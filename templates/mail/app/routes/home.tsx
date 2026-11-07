@@ -3,7 +3,6 @@ import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 import { resolveDefaultMailHref } from "@/lib/inbox-tabs";
-import { InboxPage } from "@/pages/InboxPage";
 
 const SEO_TITLE =
   "Mail - Open Source AI email client and Superhuman alternative";
@@ -84,10 +83,6 @@ export async function clientLoader({ request }: LoaderFunctionArgs) {
     return redirect(`/inbox${url.search}`);
   }
   throw withSsrHtmlContentType(redirect(await resolveRootInboxHref()));
-}
-
-export function HydrateFallback() {
-  return <InboxPage />;
 }
 
 export default function IndexRoute() {

@@ -525,6 +525,10 @@ switch (command) {
   }
 
   case "build": {
+    const clientOnly = args.includes("--client-only");
+    const clientBuildEnv = clientOnly
+      ? { ...process.env, AGENT_NATIVE_CLIENT_ONLY: "1" }
+      : process.env;
     if (!process.env[WORKSPACE_DEPLOY_BUILD_ENV]) {
       reportAtExit(cliTelemetry, DEPLOY_FINISHED_EVENT, (exitCode) =>
         deployFinishedProperties(exitCode, {
@@ -565,15 +569,19 @@ switch (command) {
         await runBuildStep(rr.command, rr.args, {
           label: "react-router-build",
           shell: rr.shell,
+          env: clientBuildEnv,
         });
       } else {
         buildStep = "vite-build";
         const vite = findViteBin();
         console.log("Building...");
-        await runBuildStep(vite, ["build"], { label: "vite-build" });
+        await runBuildStep(vite, ["build"], {
+          label: "vite-build",
+          env: clientBuildEnv,
+        });
       }
 
-      if (isReactRouterFramework()) {
+      if (isReactRouterFramework() && !clientOnly) {
         buildStep = "deploy-build";
         const configuredNitroPreset = resolveAgentNativeNitroPreset();
         const deployEnv = configuredNitroPreset

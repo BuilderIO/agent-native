@@ -1,6 +1,24 @@
 import { z } from "zod";
 
 export const runtimeConfig = z.object({
+  buildGitSha: z
+    .string()
+    .regex(/^[0-9a-f]{40}$/i)
+    .optional()
+    .meta({
+      env: [
+        "AGENT_NATIVE_BUILD_SHA",
+        "COMMIT_REF",
+        "NETLIFY_COMMIT_REF",
+        "VERCEL_GIT_COMMIT_SHA",
+        "CF_PAGES_COMMIT_SHA",
+      ],
+      doc: "Public source commit of this deployment, when supplied by the build platform.",
+    }),
+  buildVersion: z.string().trim().min(1).optional().meta({
+    env: "npm_package_version",
+    doc: "Public application package version recorded by its build.",
+  }),
   backgroundJobsEnabled: z.boolean().optional().meta({
     env: "RUN_BACKGROUND_JOBS",
     doc: "Run app-owned recurring background jobs. Defaults to enabled only in production.",

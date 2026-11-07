@@ -99,6 +99,7 @@ import {
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { boundedTaskSourcePlugin } from "./bounded-task-plugin.js";
+import { desktopClientPlugin, isDesktopClientBuild } from "./desktop-client.js";
 import { migrationDiagnosticPlugin } from "./migration-diagnostic-plugin.js";
 import { motionSourceProvenancePlugin } from "./motion-source-provenance-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
@@ -4788,6 +4789,7 @@ function reportRuntimeConfigDiagnostics(
   mode: string,
   env: Record<string, string | undefined> = process.env,
 ): void {
+  if (isDesktopClientBuild(env)) return;
   const production =
     mode === "production" || process.env.NODE_ENV === "production";
   if (!production) return;
@@ -5273,6 +5275,7 @@ export function agentNative(
   options: AgentNativeVitePluginOptions = {},
 ): Plugin[] {
   return [
+    desktopClientPlugin(),
     createAgentNativeConfigPlugin(options),
     ...createAgentNativePlugins(options, {
       includeReactTransform: options.legacySpa === true,

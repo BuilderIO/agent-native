@@ -132,3 +132,13 @@ export const privacySettingsMessages: PrivacySettingsMessages = {
     "यह हटाने का अनुरोध दर्ज करता है; डेटा तुरंत नहीं हटाया जाता। व्यवस्थापक आपकी पहचान सत्यापित करेगा और इस डिप्लॉयमेंट की डेटा-रिटेंशन तथा कानूनी बाध्यताओं के अनुसार अनुरोध पूरा करेगा।",
   privacyDocsLink: "गोपनीयता और डेटा अधिकार पढ़ें",
 };
+
+export const clientForkMessages = {
+  original: "मूल",
+  mine: "मेरा संस्करण",
+  manage: "अनुकूलन प्रबंधित करें",
+  base: "आधार: agent-native {{sha}}",
+  build: "क्लाइंट बनाएँ",
+  update: "अपस्ट्रीम से अपडेट करें",
+  undo: "बिल्ड पूर्ववत करें",
+};

@@ -914,6 +914,9 @@ type MultiFrontierSubscriptionResult = {
 };
 
 interface ElectronAPI {
+  clientForks(
+    request: import("../../shared/client-forks").ClientForkRequest,
+  ): Promise<import("../../shared/client-forks").ClientForkResult>;
   platform: string;
   sentry: {
     enabled: boolean;

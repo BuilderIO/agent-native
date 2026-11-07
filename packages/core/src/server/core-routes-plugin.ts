@@ -3411,6 +3411,7 @@ export function createCoreRoutesPlugin(
         createOpenAiAppsChallengeHandler(),
       );
       markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
+        `${P}/build-info`,
         ...(!options.disablePing ? [`${P}/ping`] : []),
         ...(!options.disableHealth ? [`${P}/health`] : []),
         `${P}/identity`,
@@ -3419,6 +3420,23 @@ export function createCoreRoutesPlugin(
         ...(!options.disableAppState ? [`${P}/application-state`] : []),
         "/.well-known/openai-apps-challenge",
       ]);
+
+      getH3App(nitroApp).use(
+        `${P}/build-info`,
+        defineEventHandler((event) => {
+          if (getMethod(event) !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          setResponseHeader(event, "Cache-Control", "no-cache");
+          const config = getAppConfig();
+          return {
+            appId: config.app.slug ?? config.app.template ?? null,
+            gitSha: config.runtime.buildGitSha ?? null,
+            version: config.runtime.buildVersion ?? null,
+          };
+        }),
+      );
 
       // Keep the framework-owned S3-compatible provider available even when an
       // app does not mount the optional onboarding plugin. The settings CTA and

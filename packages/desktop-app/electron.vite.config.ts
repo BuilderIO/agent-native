@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { resolve } from "path";
 
 import tailwindcss from "@tailwindcss/vite";
@@ -223,6 +224,13 @@ const desktopBuildChannel =
 const desktopDefines = {
   ...desktopSentryDefines,
   __AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__: JSON.stringify(desktopBuildChannel),
+  __AGENT_NATIVE_DESKTOP_SOURCE_SHA__: JSON.stringify(
+    execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: resolve("../.."),
+      encoding: "utf8",
+    }).trim(),
+  ),
+  __AGENT_NATIVE_DESKTOP_SOURCE_DIRECTORY__: JSON.stringify(resolve("../..")),
 };
 
 export default defineConfig({

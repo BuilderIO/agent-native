@@ -140,3 +140,13 @@ export const privacySettingsMessages: PrivacySettingsMessages = {
   privacyDocsLink:
     "Lire les informations sur la confidentialité et les droits sur les données",
 };
+
+export const clientForkMessages = {
+  original: "Original",
+  mine: "Ma version",
+  manage: "Gérer la personnalisation",
+  base: "Base : agent-native {{sha}}",
+  build: "Compiler le client",
+  update: "Mettre à jour depuis la source",
+  undo: "Annuler la compilation",
+};

@@ -1,9 +1,37 @@
 # Agent-Native — Electron Shell
 
-A minimal Electron chat-first workbench. Each app runs as an independent dev
-server and is embedded in an Electron `<webview>` when opened from the app
-rail or chat, preserving its full state (login sessions, scroll position,
-in-flight requests) while it remains mounted.
+A minimal Electron chat-first workbench. Hosted apps open in isolated Electron
+webviews without a local server. Local development remains available when needed.
+
+## Personal client source (prototype)
+
+Mail supports local source customization against its unchanged hosted backend.
+Use the existing code-change entry in the app chat with an authenticated local
+Codex or Claude Code agent. Desktop creates a git checkout under its user-data
+directory, runs a one-off client build, and serves the compiled document and
+assets through the app partition. No development server is started. Local edits
+may replace the existing sidebar, screens, keyboard interactions, and client logic.
+
+The Original / My version controls switch clients at the current URL. Their menu
+can rebuild, update from upstream, or restore the previous compiled build. Build
+and boot failures preserve artifacts and return to Original with a diagnostic.
+Server, action, and schema changes need a separate runtime and are not supported
+by this client-only prototype. It is not an offline backend or a sandbox for
+untrusted community code.
+
+`agent-native build --client-only` requires an opted-in router config and explicit
+client-loader equivalents. The standard SSR build remains separate. The fork
+records the host's public build-info SHA when available; older hosts use the
+desktop source SHA, labeled as the base rather than a verified deployed match.
+Development Desktop reads that source from its checkout; packaged Desktop uses
+the public repository. A packaged build containing unpublished commits cannot
+fetch those commits from GitHub and must be published before distribution.
+
+Dependency installation uses a shared pnpm store and is repeated when its input
+hash changes. Git and pnpm must be installed for this prototype. Install and build
+durations are recorded in the local fork state. New commands and state use the
+same desktop IPC boundary for UI and browser-accessible agent tools; only version
+and profile metadata is mirrored to the owning app's application state.
 
 ```
 ┌────────────────────────────────────────────────────┐
