@@ -57,7 +57,7 @@ const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
-const GROQ_CLEANUP_MODEL = "llama-3.3-70b-versatile";
+const GROQ_CLEANUP_MODEL = "openai/gpt-oss-120b";
 const OPENAI_MODEL = "gpt-transcribe";
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 const OPENAI_CLEANUP_MODEL = "gpt-6-luna";
@@ -860,6 +860,8 @@ async function cleanupWithChatProvider({
           { role: "user", content: buildCleanupUserPrompt(text) },
         ],
         temperature: 0,
+        // gpt-oss reasons before it answers: keep Groq's cleanup inside the timeout.
+        ...(provider === "groq" ? { reasoning_effort: "low" } : {}),
       }),
       signal: withClientAbort(controller.signal, clientAbortSignal),
     });
