@@ -4,6 +4,7 @@ import {
   MIN_COLUMN_RATIO,
   parseColumnRatio,
   resizeColumnPair,
+  seamPairRatio,
 } from "@shared/column-ratios";
 import type { EditorView } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/react";
@@ -86,11 +87,27 @@ interface RowGeometry {
   minWidth: number;
 }
 
+/**
+ * A computed length in pixels. Chrome leaves a `min()` such as
+ * `min(100%, 128px)` unresolved, so each `px` and `%` (of `basis`) term is read
+ * and the smallest one, or the largest in a `max()`, is the length.
+ */
+export function resolveCssLength(value: string, basis: number): number {
+  const terms = [...value.matchAll(/(-?\d*\.?\d+)(px|%)/g)].map(
+    ([, amount, unit]) =>
+      unit === "%" ? (Number(amount) / 100) * basis : Number(amount),
+  );
+  if (terms.length === 0) return 0;
+  return value.trimStart().startsWith("max(")
+    ? Math.max(...terms)
+    : Math.min(...terms);
+}
+
 function rowGeometry(
   set: HTMLElement,
   columns: HTMLElement[],
 ): RowGeometry | null {
-  if (columns.length === 0) return null;
+  if (!columns[0]) return null;
   const style = getComputedStyle(columns[0]);
   const px = (value: string) => Number.parseFloat(value) || 0;
   const frame =
@@ -102,7 +119,24 @@ function rowGeometry(
   const free =
     set.clientWidth - columns.length * frame - (columns.length - 1) * gap;
   if (!(free > 0)) return null;
-  return { frame, free, gap, minWidth: px(style.minWidth) };
+  return {
+    frame,
+    free,
+    gap,
+    minWidth: resolveCssLength(style.minWidth, set.clientWidth),
+  };
+}
+
+/** A width in pixels as a percentage of the row, as a column's ratio. */
+function ratioOfWidth(geometry: RowGeometry, width: number) {
+  return ((width - geometry.frame) / geometry.free) * 100;
+}
+
+/** The narrowest a column may get: its CSS minimum, and never under 10%. */
+function minimumRatio(geometry: RowGeometry | null) {
+  return geometry
+    ? Math.max(MIN_COLUMN_RATIO, ratioOfWidth(geometry, geometry.minWidth))
+    : MIN_COLUMN_RATIO;
 }
 
 /** A wrapped or stacked set has no seam to drag. */
@@ -122,17 +156,22 @@ interface Seam {
 function seamsOf(set: HTMLElement, origin: DOMRect): Seam[] {
   const columns = columnElements(set);
   if (columns.length < 2 || !isOneRow(columns)) return [];
-  const rects = columns.map((column) => column.getBoundingClientRect());
-  return rects.slice(0, -1).map((rect, index) => {
-    const next = rects[index + 1];
-    const top = Math.min(rect.top, next.top);
-    return {
-      index,
-      left: (rect.right + next.left) / 2 - origin.left,
-      top: top - origin.top,
-      height: Math.max(rect.bottom, next.bottom) - top,
-    };
-  });
+  const seams: Seam[] = [];
+  let previous: DOMRect | null = null;
+  for (const column of columns) {
+    const rect = column.getBoundingClientRect();
+    if (previous) {
+      const top = Math.min(previous.top, rect.top);
+      seams.push({
+        index: seams.length,
+        left: (previous.right + rect.left) / 2 - origin.left,
+        top: top - origin.top,
+        height: Math.max(previous.bottom, rect.bottom) - top,
+      });
+    }
+    previous = rect;
+  }
+  return seams;
 }
 
 /** Puts each column back to the width its saved ratio gives it. */
@@ -292,18 +331,19 @@ export function ColumnResizeControls({ editor }: { editor: Editor }) {
     const columns = columnElements(drag.set);
     const geometry = rowGeometry(drag.set, columns);
     // Another tab can take a column away mid-drag; the seam needs both sides.
-    if (!geometry || drag.index + 1 >= columns.length) return;
-    const { left } = columns[drag.index].getBoundingClientRect();
-    const ratioOf = (width: number) =>
-      ((width - geometry.frame) / geometry.free) * 100;
-    const current = effectiveColumnRatios(drag.ratios);
-    const pair = current[drag.index] + current[drag.index + 1];
-    const wanted = ratioOf(event.clientX - left - geometry.gap / 2);
+    const column = columns.find((_, index) => index === drag.index);
+    if (!geometry || !column || drag.index + 1 >= columns.length) return;
+    const left = column.getBoundingClientRect().left;
+    const pair = seamPairRatio(effectiveColumnRatios(drag.ratios), drag.index);
+    const wanted = ratioOfWidth(
+      geometry,
+      event.clientX - left - geometry.gap / 2,
+    );
     const next = resizeColumnPair(
       drag.ratios,
       drag.index,
       wanted / pair,
-      Math.max(MIN_COLUMN_RATIO, ratioOf(geometry.minWidth)),
+      minimumRatio(geometry),
     );
     drag.next = next;
     columns.forEach((column, index) => {
@@ -323,11 +363,18 @@ export function ColumnResizeControls({ editor }: { editor: Editor }) {
     event.preventDefault();
     const ratios = writtenRatios(view, pos);
     const current = effectiveColumnRatios(ratios);
-    const pair = current[index] + current[index + 1];
+    const pair = seamPairRatio(current, index);
     const step = event.key === "ArrowLeft" ? -KEYBOARD_STEP : KEYBOARD_STEP;
+    // Arrow keys stop at the same CSS minimum a drag does.
+    const geometry = rowGeometry(activeSet, columnElements(activeSet));
     saveRatios(
       activeSet,
-      resizeColumnPair(ratios, index, (current[index] + step) / pair),
+      resizeColumnPair(
+        ratios,
+        index,
+        ((current[index] ?? 0) + step) / pair,
+        minimumRatio(geometry),
+      ),
       "keydown",
     );
   };

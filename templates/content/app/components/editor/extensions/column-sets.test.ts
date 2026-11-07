@@ -90,8 +90,7 @@ function dragTo(editor: Editor, text: string, where: "start" | "end") {
   editor.view.dispatch(tr.setMeta("uiEvent", "drop"));
 }
 
-const dragToEnd = (editor: Editor, text: string) =>
-  dragTo(editor, text, "end");
+const dragToEnd = (editor: Editor, text: string) => dragTo(editor, text, "end");
 
 /** Selects the block that reads `text` and deletes it. */
 function deleteBlock(editor: Editor, text: string) {

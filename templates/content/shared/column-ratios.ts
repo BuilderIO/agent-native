@@ -62,6 +62,14 @@ export function effectiveColumnRatios(
   return normalized.map((ratio) => ratio ?? 100 / Math.max(ratios.length, 1));
 }
 
+/** The share of the row the two columns beside the seam right of `index` take. */
+export function seamPairRatio(
+  ratios: readonly number[],
+  index: number,
+): number {
+  return (ratios[index] ?? 0) + (ratios[index + 1] ?? 0);
+}
+
 /**
  * The set's ratios after the seam right of column `index` moves so that that
  * column takes `leftShare` (0 to 1) of the two columns beside the seam. The
@@ -77,7 +85,7 @@ export function resizeColumnPair(
   const current = effectiveColumnRatios(ratios);
   if (index < 0 || index + 1 >= current.length)
     return current.map(roundColumnRatio);
-  const pair = current[index] + current[index + 1];
+  const pair = seamPairRatio(current, index);
   const floor = Math.min(minRatio, pair / 2);
   const share = Number.isFinite(leftShare) ? leftShare : 0.5;
   const left = roundColumnRatio(

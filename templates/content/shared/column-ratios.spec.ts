@@ -6,6 +6,7 @@ import {
   normalizeColumnRatios,
   parseColumnRatio,
   resizeColumnPair,
+  seamPairRatio,
 } from "./column-ratios";
 
 describe("parseColumnRatio", () => {
@@ -74,6 +75,11 @@ describe("resizeColumnPair", () => {
 
   it("ignores a seam that isn't there", () => {
     expect(resizeColumnPair([60, 40], 1, 0.5)).toEqual([60, 40]);
+  });
+
+  it("measures the two columns beside a seam", () => {
+    expect(seamPairRatio([50, 25, 25], 1)).toBe(50);
+    expect(seamPairRatio([60, 40], 1)).toBe(40);
   });
 
   it("draws columns without widths as equal parts", () => {

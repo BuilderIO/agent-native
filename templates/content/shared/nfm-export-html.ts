@@ -7,7 +7,11 @@ import { icons } from "@tabler/icons-react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { formatColumnRatio, parseColumnRatio } from "./column-ratios.js";
+import {
+  formatColumnRatio,
+  normalizeColumnRatios,
+  parseColumnRatio,
+} from "./column-ratios.js";
 import { splitGfmPipeRow } from "./nfm.js";
 
 export interface NfmExportRenderers {
@@ -451,8 +455,31 @@ const renderDetailsContainer: ContainerRenderer = ({
   )}</div></details>`;
 };
 
-const renderColumnsContainer: ContainerRenderer = ({ inner, renderers }) =>
-  `<div class="nfm-columns">${renderers.renderBlocks(dedentChildren(inner))}</div>`;
+// The set's columns share the row as the editor draws them: a set where only
+// some columns give a ratio, or whose ratios don't add up to the whole row, is
+// evened out before each column is drawn.
+const renderColumnsContainer: ContainerRenderer = ({ inner, renderers }) => {
+  const lines = dedentChildren(inner).split("\n");
+  const columns = lines.flatMap((line, index) =>
+    line.match(OPEN_TAG_PATTERN)?.[1] === "column"
+      ? [{ index, attrsRaw: line.slice("<column".length, -1) }]
+      : [],
+  );
+  const ratios = normalizeColumnRatios(
+    columns.map(({ attrsRaw }) =>
+      parseColumnRatio(parseTagAttrs(attrsRaw).ratio),
+    ),
+  );
+  columns.forEach(({ index, attrsRaw }, position) => {
+    const others = attrsRaw.replace(/\s+ratio\s*=\s*"[^"]*"/g, "");
+    const ratio = ratios[position] ?? null;
+    lines[index] =
+      ratio === null
+        ? `<column${others}>`
+        : `<column${others} ratio="${formatColumnRatio(ratio)}">`;
+  });
+  return `<div class="nfm-columns">${renderers.renderBlocks(lines.join("\n"))}</div>`;
+};
 
 // A column with a ratio takes that share of the row; one without, an equal one.
 const renderColumnContainer: ContainerRenderer = ({
