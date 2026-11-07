@@ -656,6 +656,66 @@ describe("useBlocksFieldSuggestions", () => {
     expect(leave()).toBe(false);
   });
 
+  it("still asks before the browser leaves while an ended tab's draft retries", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.createProposal.mockRejectedValueOnce(new Error("Network down"));
+      await render(true, []);
+      const leave = () => {
+        const event = new Event("beforeunload", { cancelable: true });
+        window.dispatchEvent(event);
+        return event.defaultPrevented;
+      };
+      await draftInTab();
+
+      await render(false, []);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(latest.provider.sessions.size).toBe(0);
+
+      let asked = false;
+      await act(async () => {
+        asked = leave();
+        await Promise.resolve();
+      });
+      expect(asked).toBe(true);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      expect(mocks.createProposal).toHaveBeenCalledTimes(2);
+      expect(leave()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops asking once an ended tab's draft is refused", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.createProposal.mockRejectedValueOnce(
+        Object.assign(new Error("Refused"), { status: 409 }),
+      );
+      await render(true, []);
+      const leave = () => {
+        const event = new Event("beforeunload", { cancelable: true });
+        window.dispatchEvent(event);
+        return event.defaultPrevented;
+      };
+      await draftInTab();
+
+      await render(false, []);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(mocks.createProposal).toHaveBeenCalledTimes(1);
+      expect(leave()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("doesn't take a failed read of the suggestions for a fresh one", async () => {
     await render(true, []);
     await draftInTab();

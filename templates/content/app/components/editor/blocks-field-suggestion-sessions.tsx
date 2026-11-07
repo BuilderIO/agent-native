@@ -322,6 +322,8 @@ export function useBlocksFieldSuggestions({
   tRef.current = t;
 
   const sessionsRef = useRef(new Map<string, FieldSession>());
+  /** Ended sessions that are still saving what they hold. */
+  const endedRef = useRef(new Set<FieldSession>());
   const [revision, setRevision] = useState(0);
   const bump = useCallback(() => setRevision((current) => current + 1), []);
   const suggestingRef = useRef(suggesting);
@@ -569,6 +571,9 @@ export function useBlocksFieldSuggestions({
         return false;
       } finally {
         session.saving = false;
+        // No retry would change a refusal, so nothing is left to wait for.
+        if (session.refused || (!session.dirty && !session.unresolved))
+          endedRef.current.delete(session);
         if (savedNow.length > 0) onSavedRef.current(savedNow);
         bump();
       }
@@ -615,6 +620,7 @@ export function useBlocksFieldSuggestions({
       // A save under way has cleared `dirty`, and it may yet fail.
       if (session.dirty || session.saving || session.unresolved) {
         session.ended = true;
+        endedRef.current.add(session);
         void save(session, { autosave: true });
       } else if (session.timer) clearTimeout(session.timer);
     }
@@ -630,9 +636,13 @@ export function useBlocksFieldSuggestions({
   useEffect(() => () => endSessionsRef.current(), [documentId]);
 
   useEffect(() => {
-    if (!suggesting) return;
+    // Suggesting mode may have ended, but what it left unsaved still counts.
+    const unsavedSessions = () => [
+      ...sessionsRef.current.values(),
+      ...endedRef.current,
+    ];
     const saveNow = () => {
-      for (const session of sessionsRef.current.values()) {
+      for (const session of unsavedSessions()) {
         if (session.dirty) void save(session, { autosave: true });
       }
     };
@@ -642,7 +652,7 @@ export function useBlocksFieldSuggestions({
     // As the body's draft does, a tab's unsaved or saving draft asks before
     // the browser leaves the page, since a refusal then has nowhere to show.
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      const unsaved = [...sessionsRef.current.values()].some(
+      const unsaved = unsavedSessions().some(
         (session) =>
           session.dirty || session.saving || session.unresolved !== null,
       );
@@ -663,7 +673,7 @@ export function useBlocksFieldSuggestions({
         onVisibilityChange,
       );
     };
-  }, [save, suggesting]);
+  }, [save]);
 
   const start = useCallback(
     (fieldId: string, base: { content: string; revision: number }) => {
