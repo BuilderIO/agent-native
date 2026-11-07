@@ -285,6 +285,7 @@ export default {
     notFoundDescription: "La page que vous recherchez n’existe pas.",
     notFoundSignIn: "Se connecter",
     notFoundBackToDesigns: "Retour aux designs",
+    presentGoToScreen: "Aller à l’écran {{number}}",
   },
   onboarding: {
     fileStorage: {
@@ -955,6 +956,7 @@ export default {
       maxLines: "Nombre maximal de lignes",
       restoreError:
         "Impossible de restaurer la mise en page d’origine du texte.",
+      title: "Détails typographiques",
     },
     flexDirections: {
       row: "Rangée",
@@ -1697,8 +1699,8 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} nécessite{{plural}} un accès Figma pour être chargée{{plural}}.",
       figmaPasteImagesDontShowAgain: "Ne plus afficher",
-      figmaPasteUploadImage: "Importer une image",
-      figmaPasteUploadImageFor: "Importer « {{name}} »",
+      figmaPasteUploadImage: "Importer une image…",
+      figmaPasteUploadImageFor: "Importer « {{name}} »…",
       figmaPasteImageFallbackName: "Image {{index}}",
       figmaPasteUploadImageSuccess: "Image ajoutée",
       figmaPasteUploadImageInvalid:
@@ -1715,7 +1717,7 @@ export default {
       figmaHydrationFigTitle: "Have the original .fig file?",
       figmaHydrationFigOption:
         "Fastest — pulls every image straight from the file. No token, no rate limits.",
-      figmaHydrationChooseFig: "Fill images from .fig",
+      figmaHydrationChooseFig: "Compléter les images depuis un .fig…",
       figmaHydrationOrToken: "Or fetch from Figma",
       figmaHydrationTokenDescription:
         'Fetches the exact images from the copied frame\'s Figma file. Needs "File content" and "Current user" scopes; saved securely, never shown in chat.',
@@ -1806,7 +1808,27 @@ export default {
           "Une autre importation est en cours. Terminez-la ou annulez-la d’abord.",
         figFileTooLarge:
           "Ce .fig est trop volumineux : les téléversements sont limités à {{max}} Mo. Dans Figma, copiez uniquement le frame souhaité dans un nouveau fichier et exportez ce fichier en .fig, ou utilisez Coller depuis Figma.",
+        figmaTokenForbidden:
+          "Jeton refusé (403). Dans les paramètres de jeton de Figma, activez les portées « File content » et « Current user », puis générez un nouveau jeton.",
       },
+      figmaHydrationFigFilled_one:
+        "{{count}} image complétée à partir du fichier .fig.",
+      figmaHydrationFigFilled_other:
+        "{{count}} images complétées à partir du fichier .fig.",
+      figmaHydrationTokenFilled_one: "{{count}} image complétée depuis Figma.",
+      figmaHydrationTokenFilled_other:
+        "{{count}} images complétées depuis Figma.",
+      figmaPasteImagesMissing_one:
+        "{{count}} image nécessite un accès à Figma pour se charger.",
+      figmaPasteImagesMissing_other:
+        "{{count}} images nécessitent un accès à Figma pour se charger.",
+      figmaPasteConnectAndFetch: "Connecter et récupérer les images…",
+      figmaHydrationFigFilled_many:
+        "{{count}} images complétées à partir du fichier .fig.",
+      figmaHydrationTokenFilled_many:
+        "{{count}} images complétées depuis Figma.",
+      figmaPasteImagesMissing_many:
+        "{{count}} images nécessitent un accès à Figma pour se charger.",
     },
     generationMayHaveStopped:
       "La génération s’est peut-être arrêtée avant de créer des fichiers. Consultez le message de l’agent ou réessayez.",
@@ -1850,8 +1872,8 @@ export default {
       file: "Fichier",
       preferences: "Préférences",
       newDesign: "Nouveau design",
-      saveLocalCopy: "Enregistrer une copie locale…",
-      makeAnApp: "Créer une app",
+      saveLocalCopy: "Enregistrer une copie locale",
+      makeAnApp: "Créer une app…",
       theme: "Thème",
       themeLight: "Clair",
       themeDark: "Sombre",
@@ -2137,7 +2159,7 @@ export default {
     extensionsDocs: "Docs",
     extensionsPromptTitle: "Que doit faire cette extension ?",
     extensionsPlaceholder:
-      "Outils de style, aides de sélection, actions de plan...",
+      "Outils de style, aides de sélection, actions de plan…",
     extensionsEmptyTitle: "Aucune extension d’éditeur pour l’instant",
     extensionsEmptyDescription:
       "Créez une petite extension d’inspecteur qui peut lire l’élément sélectionné, appeler des actions ou demander à l’agent de mettre à jour le plan.",
@@ -2150,7 +2172,7 @@ export default {
     designExport: "Export Design",
     designPreview: "Aperçu de Design",
     preview: "Aperçu",
-    publish: "Publier",
+    publish: "Publier…",
     presentMode: "Mode Présent",
     useThisDirection: "Utilisez cette direction",
     variantHandoffHelp:
@@ -2231,7 +2253,7 @@ export default {
       title: "Ajouter un écran depuis votre application",
       description:
         "Choisissez une route à ajouter comme nouveau cadre, ou saisissez un chemin.",
-      searchPlaceholder: "Rechercher des routes…",
+      searchPlaceholder: "Rechercher des routes ou saisir un chemin…",
       noRoutes: "Aucune route correspondante",
       noDiscoveredRoutes:
         "Aucune route détectée dans cette application. Saisissez un chemin pour ajouter un écran.",
@@ -2240,9 +2262,11 @@ export default {
       viewportMobile: "Mobile",
       added: "Écran ajouté",
       addFailed: "Impossible d’ajouter l’écran",
+      viewportLabel: "Fenêtre d’affichage",
+      searchLabel: "Rechercher des routes",
     },
     localhostConsent: {
-      approvedTitle: "Approuvé — relancez la modification",
+      approvedTitle: "Écriture de fichiers approuvée",
       approvedDescription:
         "L'écriture de fichiers est autorisée pendant 8 heures. La modification qui a demandé l'accès n'a pas été enregistrée.",
       retryInChat: "Relancer dans le chat",
@@ -2253,6 +2277,8 @@ export default {
       close: "Fermer",
       prepareSignInError:
         "Impossible d'enregistrer cette demande avant la connexion. Réessayez.",
+      writeScope:
+        "Seuls les fichiers texte et de code peuvent être écrits. Les secrets comme .env et les fichiers de clés, ainsi que les chemins hors du dossier racine, sont toujours bloqués.",
     },
     nodeRewrite: {
       composerTitle: "Questionner ou modifier la sélection",
@@ -2433,10 +2459,31 @@ export default {
     commenterRoleLabel: "Commentateur",
     commenterRoleDescription:
       "Peut consulter et ajouter des commentaires de révision",
+    saveTemplateTitle: "Enregistrer comme modèle",
+    templateSnapshotScreens_one: "{{count}} écran",
+    templateSnapshotScreens_other: "{{count}} écrans",
+    templateSnapshotLocks_one: "{{count}} calque verrouillé",
+    templateSnapshotLocks_other: "{{count}} calques verrouillés",
+    templateSnapshotSummaryWithLocks:
+      "{{screens}} et {{locks}} seront conservés",
+    templateSnapshotSummaryScreens: "{{screens}} seront conservés",
+    zoomMenu: {
+      percentage: "Pourcentage de zoom",
+      zoomToPreset: "Zoomer à {{percent}} %",
+      pixelGrid: "Grille de pixels",
+      snapToPixelGrid: "Aligner sur la grille de pixels",
+      rulers: "Règles",
+      multiplayerCursors: "Curseurs multijoueurs",
+      comments: "Commentaires",
+    },
+    states: { nameLabel: "Nom de l’état" },
+    createExtension: "Créer une extension",
+    templateSnapshotScreens_many: "{{count}} écrans",
+    templateSnapshotLocks_many: "{{count}} calques verrouillés",
   },
   canvasMenu: {
-    editWithAgent: "Modifier avec Agent",
-    exploreWithAgent: "Explorer avec Agent",
+    editWithAgent: "Modifier avec l’agent",
+    exploreWithAgent: "Explorer avec l’agent",
     group: "Grouper la sélection",
     inspiration: "Inspiration",
     inspirationDescription: "Explorer plusieurs variantes",
@@ -2536,6 +2583,8 @@ export default {
       publicPreviewUnavailableDescription:
         "Les aperçus localhost ne sont pas partagés avec les visiteurs publics. Ouvrez ce design comme collaborateur pour voir cet écran.",
       previewCredentialsRetry: "Réessayer les identifiants",
+      maybeBlockedDescription:
+        "Votre navigateur a peut-être besoin d’une autorisation pour se connecter à localhost, ou le serveur de développement est peut-être hors ligne.",
     },
   },
   multiScreenCanvas: {
@@ -2642,7 +2691,7 @@ export default {
     blank: "Vierge",
     builtIn: "Intégré",
     chooseTemplate: "Choisir un modèle",
-    searchTemplates: "Rechercher des modèles...",
+    searchTemplates: "Rechercher des modèles…",
     noTemplatesFound: "Aucun modèle trouvé.",
     yourTemplates: "Vos modèles",
     builtInTemplates: "Modèles intégrés",
@@ -2960,7 +3009,7 @@ export default {
     all: "Tous",
     showMineDesigns: "Afficher mes designs",
     showAllDesigns: "Afficher tous les designs",
-    openingDesign: "Ouverture du design...",
+    openingDesign: "Ouverture du design…",
     skipToEditor: "Accéder à l’éditeur",
     failedToCreateDesign: "Impossible de créer le design",
     describeBuild: "Décrivez ce que vous voulez créer...",
@@ -2971,15 +3020,15 @@ export default {
     delete: "Supprimer",
     selectDesign: "Sélectionnez {{title}}",
     actionsForDesign: "Actions pour {{title}}",
-    rename: "Renommer",
+    rename: "Renommer…",
     duplicate: "Dupliquer",
     renameDesign: "Renommer la conception",
     designName: "Nom Design",
     cancel: "Annuler",
     save: "Enregistrer",
-    deleteDesignTitle: "Supprimer Design ?",
-    deleteDesignsTitle: "Supprimer les {{count}} Design ?",
-    deleteSingleDesignsTitle: "Supprimer {{count}} Design ?",
+    deleteDesignTitle: "Supprimer le design ?",
+    deleteDesignsTitle: "Supprimer {{count}} designs ?",
+    deleteSingleDesignsTitle: "Supprimer {{count}} design ?",
     deleteDesignDescription:
       "Cela supprimera définitivement cette conception et tous ses fichiers. Cette action ne peut pas être annulée.",
     deleteDesignsDescription:
@@ -3120,7 +3169,7 @@ export default {
     useTemplate: "Utiliser un modèle",
     useAsIs: "Utiliser le modèle tel quel",
     promptPlaceholder: "Décrivez ce que vous souhaitez créer avec ce modèle...",
-    opening: "Ouverture du modèle...",
+    opening: "Ouverture du modèle…",
     createFailed: "Impossible de créer un design à partir de ce modèle",
     deleted: "Modèle supprimé",
     deleteFailed: "Impossible de supprimer ce modèle",
@@ -3357,10 +3406,10 @@ export default {
       cancel: "Annuler",
     },
     deleteDialog: {
-      title: "Supprimer le système de conception?",
+      title: "Supprimer le système de design ?",
       description:
         "Cela supprimera définitivement ce système de conception et le dissociera de toutes les conceptions qui l'utilisent. Cette action ne peut pas être annulée.",
-      bulkTitle: "Supprimer les systèmes de conception {{count}}?",
+      bulkTitle: "Supprimer {{count}} systèmes de design ?",
       bulkDescription:
         "Cela supprimera définitivement les systèmes de conception {{count}} et les dissociera de toutes les conceptions qui les utilisent. Cette action ne peut pas être annulée.",
     },
@@ -3375,7 +3424,7 @@ export default {
       noCustomInstructions:
         "Aucune instruction personnalisée n'a encore été enregistrée.",
       useAsStartingPoint: "Utiliser comme point de départ",
-      saving: "Économie...",
+      saving: "Enregistrement…",
       saveChanges: "Enregistrer les modifications",
     },
     preview: {

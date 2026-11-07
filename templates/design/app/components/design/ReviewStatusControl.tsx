@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -66,27 +67,34 @@ export function ReviewStatusControl({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">
-        {REVIEW_STATUSES.map((nextStatus) => (
-          <DropdownMenuItem
-            key={nextStatus}
-            disabled={setStatus.isPending}
-            onSelect={() => {
-              if (nextStatus === currentStatus || setStatus.isPending) return;
-              setStatus.mutate(
-                {
-                  resourceType: "design",
-                  resourceId: designId,
-                  status: nextStatus,
-                },
-                {
-                  onError: () => toast.error(t("review.status.saveFailed")),
-                },
-              );
-            }}
-          >
-            {label(nextStatus)}
-          </DropdownMenuItem>
-        ))}
+        <DropdownMenuRadioGroup
+          value={currentStatus}
+          onValueChange={(value) => {
+            const nextStatus = value as ReviewStatus;
+            if (nextStatus === currentStatus || setStatus.isPending) return;
+            setStatus.mutate(
+              {
+                resourceType: "design",
+                resourceId: designId,
+                status: nextStatus,
+              },
+              {
+                onError: () => toast.error(t("review.status.saveFailed")),
+              },
+            );
+          }}
+        >
+          {REVIEW_STATUSES.map((nextStatus) => (
+            <DropdownMenuRadioItem
+              key={nextStatus}
+              value={nextStatus}
+              indicator="check"
+              disabled={setStatus.isPending}
+            >
+              {label(nextStatus)}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );

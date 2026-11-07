@@ -265,6 +265,7 @@ export default {
     notFoundDescription: "您要尋找的頁面不存在。",
     notFoundSignIn: "登入",
     notFoundBackToDesigns: "返回設計",
+    presentGoToScreen: "前往畫面 {{number}}",
   },
   review: {
     comments: "評論",
@@ -1092,6 +1093,7 @@ export default {
       truncateText: "截斷文字",
       maxLines: "最大行數",
       restoreError: "無法還原原始文字版面配置。",
+      title: "排版詳細資料",
     },
     flexDirections: {
       row: "排",
@@ -1847,8 +1849,8 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} 個圖片{{plural}}需要 Figma 存取權才能載入。",
       figmaPasteImagesDontShowAgain: "不再顯示",
-      figmaPasteUploadImage: "上傳圖片",
-      figmaPasteUploadImageFor: "上傳「{{name}}」",
+      figmaPasteUploadImage: "上傳圖片…",
+      figmaPasteUploadImageFor: "上傳「{{name}}」…",
       figmaPasteImageFallbackName: "圖片 {{index}}",
       figmaPasteUploadImageSuccess: "已填入圖片",
       figmaPasteUploadImageInvalid: "請選擇圖片檔，例如 SVG、PNG 或 JPG。",
@@ -1864,7 +1866,7 @@ export default {
       figmaHydrationFigTitle: "Have the original .fig file?",
       figmaHydrationFigOption:
         "Fastest — pulls every image straight from the file. No token, no rate limits.",
-      figmaHydrationChooseFig: "Fill images from .fig",
+      figmaHydrationChooseFig: "從 .fig 填入圖片…",
       figmaHydrationOrToken: "Or fetch from Figma",
       figmaHydrationTokenDescription:
         'Fetches the exact images from the copied frame\'s Figma file. Needs "File content" and "Current user" scopes; saved securely, never shown in chat.',
@@ -1948,7 +1950,14 @@ export default {
         importBusy: "另一個匯入正在進行。請先完成或取消。",
         figFileTooLarge:
           "此 .fig 檔案太大 — 上傳上限為 {{max}} MB。請在 Figma 中將要匯入的畫框複製到新檔案，並匯出該檔案為 .fig，或改用「從 Figma 貼上」。",
+        figmaTokenForbidden:
+          "權杖遭拒 (403)。請在 Figma 的權杖設定中啟用「File content」和「Current user」範圍，然後產生新權杖。",
       },
+      figmaHydrationFigFilled_other: "已從 .fig 檔案填入 {{count}} 張圖片。",
+      figmaHydrationTokenFilled_other: "已從 Figma 填入 {{count}} 張圖片。",
+      figmaPasteImagesMissing_other:
+        "{{count}} 張圖片需要 Figma 存取權才能載入。",
+      figmaPasteConnectAndFetch: "連線並擷取圖片…",
     },
     generationMayHaveStopped:
       "生成可能在建立檔案前停止。請檢視代理訊息或重試。",
@@ -1963,8 +1972,8 @@ export default {
       file: "檔案",
       preferences: "偏好設定",
       newDesign: "新增設計",
-      saveLocalCopy: "儲存本機副本…",
-      makeAnApp: "製作應用程式",
+      saveLocalCopy: "儲存本機副本",
+      makeAnApp: "製作應用程式…",
       theme: "主題",
       themeLight: "淺色",
       themeDark: "深色",
@@ -2099,7 +2108,7 @@ export default {
     addExtension: "擴充功能",
     extensionsDocs: "文件",
     extensionsPromptTitle: "這個擴充功能應該做什麼？",
-    extensionsPlaceholder: "樣式工具、選取輔助、畫板操作...",
+    extensionsPlaceholder: "樣式工具、選取輔助、畫板操作…",
     extensionsEmptyTitle: "還沒有編輯器擴充功能",
     extensionsEmptyDescription:
       "建立一個小型檢查器擴充功能，用來讀取所選元素、呼叫操作，或請代理更新畫板。",
@@ -2112,7 +2121,7 @@ export default {
     designExport: "Design 匯出",
     designPreview: "Design 預覽",
     preview: "預覽",
-    publish: "發布",
+    publish: "發布…",
     presentMode: "呈現模式",
     useThisDirection: "使用這個方向",
     variantHandoffHelp: "將此摘要貼上到您的編碼代理中以繼續。",
@@ -2188,7 +2197,7 @@ export default {
     addLocalhostScreen: {
       title: "從您的應用程式新增畫面",
       description: "選擇一個路由做為新畫面，或輸入路徑。",
-      searchPlaceholder: "搜尋路由…",
+      searchPlaceholder: "搜尋路由或輸入路徑…",
       noRoutes: "找不到符合的路由",
       noDiscoveredRoutes: "此應用程式未找到路由。輸入路徑即可新增畫面。",
       useCustomPath: "新增「{{path}}」",
@@ -2196,9 +2205,11 @@ export default {
       viewportMobile: "行動版",
       added: "已新增畫面",
       addFailed: "無法新增畫面",
+      viewportLabel: "檢視區",
+      searchLabel: "搜尋路由",
     },
     localhostConsent: {
-      approvedTitle: "已核准 — 請重新執行編輯",
+      approvedTitle: "已核准檔案寫入",
       approvedDescription:
         "檔案寫入權限有效期為 8 小時。要求存取權的那次編輯未儲存。",
       retryInChat: "在聊天中重新執行",
@@ -2208,6 +2219,8 @@ export default {
       unavailableDescription: "重新執行編輯以要求存取權。",
       close: "關閉",
       prepareSignInError: "無法在登入前儲存此要求。請再試一次。",
+      writeScope:
+        "只能寫入文字和程式碼檔案。.env 和金鑰檔案等機密檔案，以及根資料夾以外的路徑，一律會被封鎖。",
     },
     capabilities: {
       "deterministic-style-edit": "安全樣式編輯",
@@ -2459,10 +2472,26 @@ export default {
         imageVideo: "圖片/影片…",
       },
     },
+    saveTemplateTitle: "儲存為範本",
+    templateSnapshotScreens_other: "{{count}} 個畫面",
+    templateSnapshotLocks_other: "{{count}} 個鎖定圖層",
+    templateSnapshotSummaryWithLocks: "將保留{{screens}}和{{locks}}",
+    templateSnapshotSummaryScreens: "將保留{{screens}}",
+    zoomMenu: {
+      percentage: "縮放百分比",
+      zoomToPreset: "縮放至 {{percent}}%",
+      pixelGrid: "像素格線",
+      snapToPixelGrid: "貼齊像素格線",
+      rulers: "尺規",
+      multiplayerCursors: "多人游標",
+      comments: "留言",
+    },
+    states: { nameLabel: "狀態名稱" },
+    createExtension: "建立擴充功能",
   },
   canvasMenu: {
-    editWithAgent: "使用 Agent 編輯",
-    exploreWithAgent: "使用 Agent 探索",
+    editWithAgent: "使用代理編輯",
+    exploreWithAgent: "使用代理探索",
     group: "群組所選內容",
     inspiration: "靈感",
     inspirationDescription: "探索多個變體",
@@ -2560,6 +2589,8 @@ export default {
       publicPreviewUnavailableDescription:
         "localhost 預覽不會與公開檢視者分享。請以協作者身分開啟此設計以查看此畫面。",
       previewCredentialsRetry: "重新取得認證資訊",
+      maybeBlockedDescription:
+        "你的瀏覽器可能需要連線到 localhost 的權限，或開發伺服器可能已離線。",
     },
   },
   multiScreenCanvas: {
@@ -2638,7 +2669,7 @@ export default {
     blank: "空白",
     builtIn: "內建",
     chooseTemplate: "選擇範本",
-    searchTemplates: "搜尋範本...",
+    searchTemplates: "搜尋範本…",
     noTemplatesFound: "找不到範本。",
     yourTemplates: "你的範本",
     builtInTemplates: "內建範本",
@@ -2982,7 +3013,7 @@ export default {
     all: "全部",
     showMineDesigns: "顯示我的設計",
     showAllDesigns: "顯示所有設計",
-    openingDesign: "正在開啟設計...",
+    openingDesign: "正在開啟設計…",
     skipToEditor: "直接進入編輯器",
     failedToCreateDesign: "無法建立設計",
     describeBuild: "描述您想要建置的內容...",
@@ -2993,15 +3024,15 @@ export default {
     delete: "刪除",
     selectDesign: "選取{{title}}",
     actionsForDesign: "{{title}} 的操作",
-    rename: "重新命名",
+    rename: "重新命名…",
     duplicate: "重複",
     renameDesign: "重新命名設計",
     designName: "Design 名稱",
     cancel: "取消",
     save: "儲存",
-    deleteDesignTitle: "刪除Design？",
-    deleteDesignsTitle: "刪除 {{count}} Design？",
-    deleteSingleDesignsTitle: "刪除 {{count}} Design？",
+    deleteDesignTitle: "刪除設計？",
+    deleteDesignsTitle: "刪除 {{count}} 個設計？",
+    deleteSingleDesignsTitle: "刪除 {{count}} 個設計？",
     deleteDesignDescription: "這將永久刪除該設計及其所有檔案。此操作無法復原。",
     deleteDesignsDescription:
       "這將永久刪除這些 {{count}} 設計及其所有檔案。此操作無法復原。",
@@ -3124,7 +3155,7 @@ export default {
     builtIn: "內建",
     useAsIs: "直接使用範本",
     promptPlaceholder: "描述您想用此範本製作的內容...",
-    opening: "正在開啟範本...",
+    opening: "正在開啟範本…",
     createFailed: "無法從此範本建立設計",
     deleted: "範本已刪除",
     deleteFailed: "無法刪除此範本",
@@ -3350,7 +3381,7 @@ export default {
       title: "刪除設計系統？",
       description:
         "這將永久刪除該設計系統，並取消它與任何使用它的設計的連結。此操作無法復原。",
-      bulkTitle: "刪除 {{count}} 設計系統？",
+      bulkTitle: "刪除 {{count}} 個設計系統？",
       bulkDescription:
         "這將永久刪除 {{count}} 設計系統，並取消它們與使用它們的任何設計的連結。此操作無法復原。",
     },
@@ -3363,7 +3394,7 @@ export default {
         "每當該系統連結到設計時，代理就會重複使用持久的指導。",
       noCustomInstructions: "尚未儲存自訂指令。",
       useAsStartingPoint: "用作起點",
-      saving: "儲存...",
+      saving: "正在儲存…",
       saveChanges: "儲存更改",
     },
     preview: {

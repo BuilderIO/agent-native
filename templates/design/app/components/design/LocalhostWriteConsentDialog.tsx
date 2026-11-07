@@ -204,7 +204,10 @@ export function LocalhostWriteConsentDialog({
         else handleCancel();
       }}
     >
-      <DialogContent className="max-w-md">
+      <DialogContent
+        className="max-w-md"
+        closeLabel={t("designEditor.localhostConsent.close")}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <IconDeviceFloppy className="size-4" />
@@ -245,9 +248,7 @@ export function LocalhostWriteConsentDialog({
           )}
 
           <p className="text-xs text-muted-foreground">
-            {
-              "Only text and code files can be written — never secrets like .env or key files. Paths outside the root folder are always blocked." /* i18n-ignore */
-            }
+            {t("designEditor.localhostConsent.writeScope")}
           </p>
 
           {blocked ? (
@@ -304,7 +305,7 @@ export function LocalhostWriteConsentDialog({
               {
                 granting ? (
                   <>
-                    <Spinner className="mr-2 size-3.5" />
+                    <Spinner className="size-3.5" />
                     {"Granting…" /* i18n-ignore */}
                   </>
                 ) : (
@@ -574,7 +575,10 @@ function LocalhostWriteConsentNoticeDialog({
         if (!next) onClose();
       }}
     >
-      <DialogContent className="max-w-md">
+      <DialogContent
+        className="max-w-md"
+        closeLabel={t("designEditor.localhostConsent.close")}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {approved ? (

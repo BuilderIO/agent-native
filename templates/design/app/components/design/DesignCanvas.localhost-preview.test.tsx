@@ -447,7 +447,9 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         ),
       ).toHaveLength(1);
       expect(
-        document.querySelectorAll('[role="dialog"] button[aria-label="Close"]'),
+        Array.from(document.querySelectorAll('[role="dialog"] button')).filter(
+          (button) => button.textContent.trim() === "Close",
+        ),
       ).toHaveLength(1);
 
       await act(async () => {

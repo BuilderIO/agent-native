@@ -3,11 +3,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconDeviceDesktop,
-  IconDeviceMobile,
-  IconPlus,
-} from "@tabler/icons-react";
+import { IconDeviceDesktop, IconDeviceMobile } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -24,7 +20,6 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -215,20 +210,26 @@ export function AddLocalhostScreenDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-w-md p-0">
+      <DialogContent
+        className="max-w-md p-0"
+        aria-describedby={undefined}
+        closeLabel={t("designEditor.close")}
+      >
         <DialogHeader className="px-4 pt-4">
           <DialogTitle>
             {t("designEditor.addLocalhostScreen.title")}
           </DialogTitle>
-          <DialogDescription>
-            {t("designEditor.addLocalhostScreen.description")}
-          </DialogDescription>
         </DialogHeader>
-        <div className="flex items-center gap-1 px-4">
+        <div
+          role="group"
+          aria-label={t("designEditor.addLocalhostScreen.viewportLabel")}
+          className="flex items-center gap-1 px-4"
+        >
           <Button
             type="button"
             size="sm"
             variant={viewport === "desktop" ? "secondary" : "ghost"}
+            aria-pressed={viewport === "desktop"}
             className="cursor-pointer gap-1.5"
             onClick={() => setViewport("desktop")}
           >
@@ -239,6 +240,7 @@ export function AddLocalhostScreenDialog({
             type="button"
             size="sm"
             variant={viewport === "mobile" ? "secondary" : "ghost"}
+            aria-pressed={viewport === "mobile"}
             className="cursor-pointer gap-1.5"
             onClick={() => setViewport("mobile")}
           >
@@ -252,7 +254,11 @@ export function AddLocalhostScreenDialog({
               value={selectedConnectionId}
               onValueChange={setSelectedConnectionId}
             >
-              <SelectTrigger size="sm" className="w-full text-xs">
+              <SelectTrigger
+                size="sm"
+                className="w-full text-xs"
+                aria-label={t("editPanel.screenSource.chooseLocalApp")}
+              >
                 <SelectValue
                   placeholder={t("editPanel.screenSource.chooseLocalApp")}
                 />
@@ -264,9 +270,11 @@ export function AddLocalhostScreenDialog({
                     value={connection.id}
                     className="text-xs"
                   >
-                    {connection.name ||
-                      connection.devServerUrl ||
-                      connection.id}
+                    <span className="min-w-0 truncate">
+                      {connection.name ||
+                        connection.devServerUrl ||
+                        connection.id}
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -278,6 +286,7 @@ export function AddLocalhostScreenDialog({
             value={search}
             onValueChange={setSearch}
             placeholder={t("designEditor.addLocalhostScreen.searchPlaceholder")}
+            aria-label={t("designEditor.addLocalhostScreen.searchLabel")}
           />
           <CommandList>
             {connectionsFetching ? (
@@ -319,7 +328,9 @@ export function AddLocalhostScreenDialog({
                   onSelect={() => handleAdd(route.path)}
                 >
                   <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate font-medium">{route.path}</span>
+                    <span className="truncate font-medium" title={route.path}>
+                      {route.path}
+                    </span>
                     {route.title ? (
                       <span className="truncate text-xs text-muted-foreground">
                         {route.title}
@@ -337,10 +348,11 @@ export function AddLocalhostScreenDialog({
                   )}
                   onSelect={() => handleAdd(customPath)}
                 >
-                  <IconPlus className="size-4" />
-                  {t("designEditor.addLocalhostScreen.useCustomPath", {
-                    path: customPath,
-                  })}
+                  <span className="min-w-0 truncate" title={customPath}>
+                    {t("designEditor.addLocalhostScreen.useCustomPath", {
+                      path: customPath,
+                    })}
+                  </span>
                 </CommandItem>
               ) : null}
             </CommandGroup>

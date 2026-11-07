@@ -514,7 +514,7 @@ export function ImageFillControls({
           disabled={disabled}
         >
           <SelectTrigger
-            aria-label={"Fill" /* i18n-ignore image fit selector */}
+            aria-label={t("editPanel.labels.imageScaleMode")}
             className="h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0"
           >
             <SelectValue />

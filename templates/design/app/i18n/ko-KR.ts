@@ -278,6 +278,7 @@ export default {
     notFoundDescription: "찾고 있는 페이지가 없습니다.",
     notFoundSignIn: "로그인",
     notFoundBackToDesigns: "디자인으로 돌아가기",
+    presentGoToScreen: "화면 {{number}}(으)로 이동",
   },
   onboarding: {
     fileStorage: {
@@ -941,6 +942,7 @@ export default {
       truncateText: "텍스트 자르기",
       maxLines: "최대 줄 수",
       restoreError: "원래 텍스트 레이아웃을 복원할 수 없습니다.",
+      title: "타이포그래피 세부 정보",
     },
     flexDirections: {
       row: "열",
@@ -1671,8 +1673,8 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}}개의 이미지{{plural}}를 로드하려면 Figma 접근이 필요합니다.",
       figmaPasteImagesDontShowAgain: "다시 표시하지 않기",
-      figmaPasteUploadImage: "이미지 업로드",
-      figmaPasteUploadImageFor: "“{{name}}” 업로드",
+      figmaPasteUploadImage: "이미지 업로드…",
+      figmaPasteUploadImageFor: "“{{name}}” 업로드…",
       figmaPasteImageFallbackName: "이미지 {{index}}",
       figmaPasteUploadImageSuccess: "이미지를 채웠습니다",
       figmaPasteUploadImageInvalid:
@@ -1689,7 +1691,7 @@ export default {
       figmaHydrationFigTitle: "Have the original .fig file?",
       figmaHydrationFigOption:
         "Fastest — pulls every image straight from the file. No token, no rate limits.",
-      figmaHydrationChooseFig: "Fill images from .fig",
+      figmaHydrationChooseFig: ".fig에서 이미지 채우기…",
       figmaHydrationOrToken: "Or fetch from Figma",
       figmaHydrationTokenDescription:
         'Fetches the exact images from the copied frame\'s Figma file. Needs "File content" and "Current user" scopes; saved securely, never shown in chat.',
@@ -1778,7 +1780,22 @@ export default {
           "다른 가져오기가 진행 중입니다. 먼저 완료하거나 취소하세요.",
         figFileTooLarge:
           "이 .fig 파일은 너무 큽니다. 업로드는 {{max}}MB까지 지원됩니다. Figma에서 원하는 프레임만 새 파일로 복사한 뒤 그 파일을 .fig로 내보내거나, 'Figma에서 붙여넣기'를 사용하세요.",
+        figmaTokenForbidden:
+          '토큰이 거부되었습니다(403). Figma 토큰 설정에서 "File content" 및 "Current user" 범위를 켠 다음 새 토큰을 생성하세요.',
       },
+      figmaHydrationFigFilled_one:
+        ".fig 파일에서 이미지 {{count}}개를 채웠습니다.",
+      figmaHydrationFigFilled_other:
+        ".fig 파일에서 이미지 {{count}}개를 채웠습니다.",
+      figmaHydrationTokenFilled_one:
+        "Figma에서 이미지 {{count}}개를 채웠습니다.",
+      figmaHydrationTokenFilled_other:
+        "Figma에서 이미지 {{count}}개를 채웠습니다.",
+      figmaPasteImagesMissing_one:
+        "이미지 {{count}}개를 불러오려면 Figma 액세스가 필요합니다.",
+      figmaPasteImagesMissing_other:
+        "이미지 {{count}}개를 불러오려면 Figma 액세스가 필요합니다.",
+      figmaPasteConnectAndFetch: "연결하고 이미지 가져오기…",
     },
     generationMayHaveStopped:
       "파일을 만들기 전에 생성이 중지되었을 수 있습니다. 에이전트 메시지를 확인하거나 다시 시도하세요.",
@@ -1821,8 +1838,8 @@ export default {
       file: "파일",
       preferences: "환경설정",
       newDesign: "새 디자인",
-      saveLocalCopy: "로컬 사본 저장…",
-      makeAnApp: "앱 만들기",
+      saveLocalCopy: "로컬 사본 저장",
+      makeAnApp: "앱 만들기…",
       theme: "테마",
       themeLight: "라이트",
       themeDark: "다크",
@@ -2105,7 +2122,7 @@ export default {
     addExtension: "확장",
     extensionsDocs: "문서",
     extensionsPromptTitle: "이 확장은 무엇을 해야 하나요?",
-    extensionsPlaceholder: "스타일 도구, 선택 도우미, 아트보드 작업...",
+    extensionsPlaceholder: "스타일 도구, 선택 도우미, 아트보드 작업…",
     extensionsEmptyTitle: "아직 에디터 확장이 없습니다",
     extensionsEmptyDescription:
       "선택한 요소를 읽고, 액션을 호출하거나, 에이전트에게 아트보드 업데이트를 요청할 수 있는 작은 인스펙터 확장을 만드세요.",
@@ -2118,7 +2135,7 @@ export default {
     designExport: "Design 내보내기",
     designPreview: "Design 미리보기",
     preview: "미리보기",
-    publish: "게시",
+    publish: "게시…",
     presentMode: "현재 모드",
     useThisDirection: "이 방향을 사용하세요",
     variantHandoffHelp: "계속하려면 이 요약을 코딩 에이전트에 붙여넣으세요.",
@@ -2196,7 +2213,7 @@ export default {
     addLocalhostScreen: {
       title: "앱에서 화면 추가",
       description: "새 프레임으로 추가할 경로를 선택하거나 경로를 입력하세요.",
-      searchPlaceholder: "경로 검색…",
+      searchPlaceholder: "경로를 검색하거나 경로를 입력하세요…",
       noRoutes: "일치하는 경로가 없습니다",
       noDiscoveredRoutes:
         "이 앱에서 경로를 찾지 못했습니다. 화면을 추가하려면 경로를 입력하세요.",
@@ -2205,9 +2222,11 @@ export default {
       viewportMobile: "모바일",
       added: "화면이 추가되었습니다",
       addFailed: "화면을 추가할 수 없습니다",
+      viewportLabel: "뷰포트",
+      searchLabel: "경로 검색",
     },
     localhostConsent: {
-      approvedTitle: "승인됨 — 편집을 다시 실행하세요",
+      approvedTitle: "파일 쓰기가 승인됨",
       approvedDescription:
         "파일 쓰기가 8시간 동안 허용됩니다. 액세스를 요청한 편집은 저장되지 않았습니다.",
       retryInChat: "채팅에서 다시 실행",
@@ -2218,6 +2237,8 @@ export default {
       close: "닫기",
       prepareSignInError:
         "로그인하기 전에 이 요청을 저장하지 못했습니다. 다시 시도하세요.",
+      writeScope:
+        "텍스트 및 코드 파일만 쓸 수 있습니다. .env 및 키 파일 같은 비밀 정보와 루트 폴더 밖의 경로는 항상 차단됩니다.",
     },
     nodeRewrite: {
       composerTitle: "선택 영역 질문 또는 변경",
@@ -2390,10 +2411,28 @@ export default {
     },
     commenterRoleLabel: "댓글 작성자",
     commenterRoleDescription: "보고 검토 댓글을 추가할 수 있음",
+    saveTemplateTitle: "템플릿으로 저장",
+    templateSnapshotScreens_one: "화면 {{count}}개",
+    templateSnapshotScreens_other: "화면 {{count}}개",
+    templateSnapshotLocks_one: "잠긴 레이어 {{count}}개",
+    templateSnapshotLocks_other: "잠긴 레이어 {{count}}개",
+    templateSnapshotSummaryWithLocks: "{{screens}}과 {{locks}}가 유지됩니다",
+    templateSnapshotSummaryScreens: "{{screens}}이 유지됩니다",
+    zoomMenu: {
+      percentage: "확대/축소 비율",
+      zoomToPreset: "{{percent}}%로 확대/축소",
+      pixelGrid: "픽셀 그리드",
+      snapToPixelGrid: "픽셀 그리드에 맞추기",
+      rulers: "눈금자",
+      multiplayerCursors: "멀티플레이어 커서",
+      comments: "댓글",
+    },
+    states: { nameLabel: "상태 이름" },
+    createExtension: "확장 만들기",
   },
   canvasMenu: {
-    editWithAgent: "Agent로 편집",
-    exploreWithAgent: "Agent로 탐색",
+    editWithAgent: "에이전트로 편집",
+    exploreWithAgent: "에이전트로 탐색",
     group: "선택 항목 그룹화",
     inspiration: "영감",
     inspirationDescription: "여러 변형 탐색",
@@ -2493,6 +2532,8 @@ export default {
       publicPreviewUnavailableDescription:
         "로컬호스트 미리보기는 공개 사용자와 공유되지 않습니다. 이 화면을 보려면 공동작업자로 이 디자인을 여세요.",
       previewCredentialsRetry: "자격 증명 다시 시도",
+      maybeBlockedDescription:
+        "브라우저에 localhost 연결 권한이 필요하거나 개발 서버가 오프라인일 수 있습니다.",
     },
   },
   multiScreenCanvas: {
@@ -2597,7 +2638,7 @@ export default {
     blank: "빈 템플릿",
     builtIn: "기본 제공",
     chooseTemplate: "템플릿 선택",
-    searchTemplates: "템플릿 검색...",
+    searchTemplates: "템플릿 검색…",
     noTemplatesFound: "템플릿을 찾을 수 없습니다.",
     yourTemplates: "내 템플릿",
     builtInTemplates: "기본 제공 템플릿",
@@ -2911,7 +2952,7 @@ export default {
     all: "전체",
     showMineDesigns: "내 디자인 보기",
     showAllDesigns: "모든 디자인 보기",
-    openingDesign: "디자인을 여는 중...",
+    openingDesign: "디자인을 여는 중…",
     skipToEditor: "편집기로 이동",
     failedToCreateDesign: "디자인을 만들지 못했습니다",
     describeBuild: "만들고 싶은 것을 설명하세요...",
@@ -2922,15 +2963,15 @@ export default {
     delete: "삭제",
     selectDesign: "{{title}}을 선택하세요",
     actionsForDesign: "{{title}}에 대한 작업",
-    rename: "이름 바꾸기",
+    rename: "이름 바꾸기…",
     duplicate: "중복",
     renameDesign: "디자인 이름 바꾸기",
     designName: "Design 이름",
     cancel: "취소",
     save: "저장",
-    deleteDesignTitle: "Design을 삭제하시겠습니까?",
-    deleteDesignsTitle: "{{count}} Design을 삭제하시겠습니까?",
-    deleteSingleDesignsTitle: "{{count}} Design을 삭제하시겠습니까?",
+    deleteDesignTitle: "디자인을 삭제할까요?",
+    deleteDesignsTitle: "디자인 {{count}}개를 삭제할까요?",
+    deleteSingleDesignsTitle: "디자인 {{count}}개를 삭제할까요?",
     deleteDesignDescription:
       "이 디자인과 모든 파일이 영구적으로 삭제됩니다. 이 작업은 취소할 수 없습니다.",
     deleteDesignsDescription:
@@ -3069,7 +3110,7 @@ export default {
     useTemplate: "템플릿 사용",
     useAsIs: "템플릿 그대로 사용",
     promptPlaceholder: "이 템플릿으로 만들고 싶은 내용을 설명하세요...",
-    opening: "템플릿 여는 중...",
+    opening: "템플릿 여는 중…",
     createFailed: "이 템플릿에서 디자인을 만들 수 없습니다",
     deleted: "템플릿이 삭제되었습니다",
     deleteFailed: "이 템플릿을 삭제할 수 없습니다",
@@ -3298,10 +3339,10 @@ export default {
       cancel: "취소",
     },
     deleteDialog: {
-      title: "디자인 시스템을 삭제하시겠습니까?",
+      title: "디자인 시스템을 삭제할까요?",
       description:
         "이렇게 하면 이 디자인 시스템이 영구적으로 삭제되고 이를 사용하는 모든 디자인에서 연결이 해제됩니다. 이 작업은 취소할 수 없습니다.",
-      bulkTitle: "{{count}} 디자인 시스템을 삭제하시겠습니까?",
+      bulkTitle: "디자인 시스템 {{count}}개를 삭제할까요?",
       bulkDescription:
         "이렇게 하면 {{count}} 디자인 시스템이 영구적으로 삭제되고 이를 사용하는 모든 디자인에서 연결이 해제됩니다. 이 작업은 취소할 수 없습니다.",
     },
@@ -3315,7 +3356,7 @@ export default {
         "에이전트는 이 시스템이 설계에 연결될 때마다 재사용되는 지속적인 지침을 제공합니다.",
       noCustomInstructions: "아직 저장된 맞춤 안내가 없습니다.",
       useAsStartingPoint: "출발점으로 사용",
-      saving: "절약...",
+      saving: "저장 중…",
       saveChanges: "변경사항 저장",
     },
     preview: {

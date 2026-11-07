@@ -16,12 +16,17 @@ import {
   IconMinus,
   IconPlus,
   IconSearch,
-  IconTimelineEvent,
   IconX,
 } from "@tabler/icons-react";
 import { useMemo, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -190,7 +195,12 @@ export function AnimationStyleBrowser({
                 <IconPlus aria-hidden="true" className="size-4" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="start" side="left" className="w-[300px] p-0">
+            <PopoverContent
+              align="start"
+              side="left"
+              className="w-[300px] p-0"
+              aria-label={t("designEditor.motion.animationStyles.createTitle")}
+            >
               <CreateStyleForm
                 disabled={disabled}
                 selectedTargetTracks={selectedTargetTracks}
@@ -287,10 +297,6 @@ export function AnimationStyleBrowser({
                         className="flex w-full min-w-0 items-center gap-2 rounded-sm px-1.5 py-1.5 text-start text-xs outline-none transition-colors hover:bg-accent/60 focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
                         onClick={() => onApplyPreset(style)}
                       >
-                        <IconTimelineEvent
-                          aria-hidden="true"
-                          className="size-3.5 shrink-0 text-muted-foreground"
-                        />
                         <span className="truncate">{style.label}</span>
                       </button>
                     </li>
@@ -332,10 +338,6 @@ export function AnimationStyleBrowser({
                         className="flex w-full min-w-0 items-start gap-2 rounded-sm px-1.5 py-1.5 text-start text-xs outline-none transition-colors hover:bg-accent/60 focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
                         onClick={() => onApply(style)}
                       >
-                        <IconTimelineEvent
-                          aria-hidden="true"
-                          className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
-                        />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-medium">
                             {style.name}
@@ -595,8 +597,11 @@ function CreateStyleForm({
           <h3 className="text-xs font-medium">
             {t("designEditor.motion.animationStyles.animation")}
           </h3>
-          <Popover open={addAnimationOpen} onOpenChange={setAddAnimationOpen}>
-            <PopoverTrigger asChild>
+          <DropdownMenu
+            open={addAnimationOpen}
+            onOpenChange={setAddAnimationOpen}
+          >
+            <DropdownMenuTrigger asChild>
               <Button
                 type="button"
                 variant="ghost"
@@ -608,24 +613,20 @@ function CreateStyleForm({
               >
                 <IconPlus aria-hidden="true" className="size-4" />
               </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" side="bottom" className="w-44 p-1">
-              <div className="flex flex-col" role="menu">
-                {availableTrackTypes.map((type) => (
-                  <button
-                    key={type.id}
-                    type="button"
-                    role="menuitem"
-                    disabled={disabled || !type.available}
-                    className="rounded-sm px-2 py-1.5 text-left text-xs outline-none hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
-                    onClick={() => addAnimation(type.id)}
-                  >
-                    {t(`designEditor.motion.animationStyles.${type.key}`)}
-                  </button>
-                ))}
-              </div>
-            </PopoverContent>
-          </Popover>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" side="bottom" className="w-44">
+              {availableTrackTypes.map((type) => (
+                <DropdownMenuItem
+                  key={type.id}
+                  disabled={disabled || !type.available}
+                  className="text-xs"
+                  onSelect={() => addAnimation(type.id)}
+                >
+                  {t(`designEditor.motion.animationStyles.${type.key}`)}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         {tracks.length === 0 ? (
           <p className="rounded-sm border border-dashed border-border px-2 py-3 text-center text-xs text-muted-foreground">

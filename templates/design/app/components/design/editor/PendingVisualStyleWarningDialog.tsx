@@ -44,7 +44,7 @@ export function PendingVisualStyleWarningDialog({
             {t("designEditor.pendingVisualStyles.stay")}
           </AlertDialogCancel>
           <AlertDialogAction
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            variant="destructive"
             onClick={onDiscardAndNavigate}
           >
             {t("designEditor.pendingVisualStyles.leave")}

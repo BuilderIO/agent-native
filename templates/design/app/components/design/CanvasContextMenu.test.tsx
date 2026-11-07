@@ -271,14 +271,14 @@ describe("CanvasContextMenu edit with agent", () => {
     await view.cleanup();
   });
 
-  it("opens the agent panel when the Edit with Agent row itself is clicked", async () => {
+  it("opens the agent panel when the Edit with agent row itself is clicked", async () => {
     const onExploreWithAgent = vi.fn();
     const view = await renderContextMenu({
       selectedCount: 1,
       onExploreWithAgent,
     });
 
-    await act(async () => view.findButton("Edit with Agent")?.click());
+    await act(async () => view.findButton("Edit with agent")?.click());
     expect(onExploreWithAgent).toHaveBeenCalledTimes(1);
     await view.cleanup();
   });
@@ -288,7 +288,7 @@ describe("CanvasContextMenu edit with agent", () => {
       selectedCount: 1,
       onAgentPreset: vi.fn(),
     });
-    const submenuTrigger = view.findButton("Edit with Agent");
+    const submenuTrigger = view.findButton("Edit with agent");
     expect(submenuTrigger).toBeDefined();
     expect(submenuTrigger?.className ?? "").not.toContain(
       "--design-editor-selection-color",
@@ -325,7 +325,7 @@ describe("CanvasContextMenu multiple layers layout", () => {
     });
     const text = view.container.textContent ?? "";
     const order = [
-      "Edit with Agent",
+      "Edit with agent",
       "Copy link",
       "Copy",
       "Paste to replace",
@@ -374,7 +374,7 @@ describe("CanvasContextMenu component instance layout", () => {
     });
     const text = view.container.textContent ?? "";
     const order = [
-      "Edit with Agent",
+      "Edit with agent",
       "Copy link",
       "Copy",
       "Paste to replace",
@@ -409,7 +409,7 @@ describe("CanvasContextMenu single layer layout", () => {
     });
     const text = view.container.textContent ?? "";
     const order = [
-      "Edit with Agent",
+      "Edit with agent",
       "Copy link",
       "Copy",
       "Paste to replace",
@@ -642,12 +642,12 @@ describe("CanvasContextMenu empty canvas", () => {
     });
     await rightClick(canvasChild(view));
 
-    expect(view.findButton("Explore with Agent")?.disabled).toBe(false);
+    expect(view.findButton("Explore with agent")?.disabled).toBe(false);
     expect(view.findButton("Copy link")).toBeUndefined();
     expect(view.findButton("Hide UI")).toBeDefined();
     expect(view.findButton("Bring to front")).toBeUndefined();
 
-    view.findButton("Explore with Agent")?.click();
+    view.findButton("Explore with agent")?.click();
     expect(onExploreWithAgent).toHaveBeenCalledTimes(1);
     await view.cleanup();
   });
@@ -660,7 +660,7 @@ describe("CanvasContextMenu empty canvas", () => {
     await rightClick(screen);
 
     expect(view.findButton("Bring to front")).toBeDefined();
-    expect(view.findButton("Explore with Agent")).toBeUndefined();
+    expect(view.findButton("Explore with agent")).toBeUndefined();
     await view.cleanup();
   });
 });

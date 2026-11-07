@@ -1145,11 +1145,6 @@ export function renderDesignEditorView({
             <SelectTrigger
               className="size-7 shrink-0 justify-center p-0 [&>svg:last-child]:hidden"
               aria-label={t("designEditor.breakpointBar.scope.label")}
-              title={
-                responsiveEditScope === "only"
-                  ? t("designEditor.breakpointBar.scope.only")
-                  : t("designEditor.breakpointBar.scope.cascadeSmaller")
-              }
             >
               <IconArrowsDown className="size-3.5" aria-hidden="true" />
               <SelectValue className="sr-only" />

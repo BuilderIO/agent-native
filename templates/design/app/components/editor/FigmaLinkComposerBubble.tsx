@@ -5,9 +5,8 @@ import {
   IconCheck,
   IconDots,
   IconExternalLink,
-  IconLoader2,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +16,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
   FigmaFileUrlUsedAsTokenError,
@@ -73,6 +74,7 @@ export function FigmaLinkComposerBubble({
   designId,
 }: FigmaLinkComposerBubbleProps) {
   const t = useT();
+  const errorId = useId();
   const fileTitle =
     getFigmaFileTitle(link) ??
     t(
@@ -260,11 +262,12 @@ export function FigmaLinkComposerBubble({
 
       {checking ? (
         <div
-          className="mt-2 flex items-center gap-1.5 text-[10px] text-muted-foreground"
+          className="mt-2 flex items-center gap-1.5"
           role="status"
+          aria-label={t("chat.figmaLink.checkingConnection")}
         >
-          <IconLoader2 className="size-3 animate-spin" />
-          {t("chat.figmaLink.checkingConnection")}
+          <Skeleton className="h-7 min-w-0 flex-1" />
+          <Skeleton className="size-7 shrink-0" />
         </div>
       ) : !connection ? null : connection.connected ? (
         <div className="mt-2 flex min-w-0 items-center gap-1.5">
@@ -323,6 +326,8 @@ export function FigmaLinkComposerBubble({
               autoComplete="off"
               spellCheck={false}
               aria-label={t("chat.figmaLink.tokenLabel")}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? errorId : undefined}
               placeholder={t("chat.figmaLink.tokenPlaceholder")}
               className="h-7 min-w-0 flex-1 px-2 text-[11px]"
             />
@@ -332,7 +337,7 @@ export function FigmaLinkComposerBubble({
               className="h-7 px-2 text-[11px]"
               disabled={!token.trim() || saving}
             >
-              {saving ? <IconLoader2 className="size-3 animate-spin" /> : null}
+              {saving ? <Spinner className="size-3" /> : null}
               {saving
                 ? t("chat.figmaLink.connecting")
                 : t("chat.figmaLink.connect")}
@@ -352,6 +357,7 @@ export function FigmaLinkComposerBubble({
 
       {error ? (
         <div
+          id={errorId}
           role="alert"
           className="mt-1.5 flex items-start gap-1.5 text-[10px] leading-snug text-destructive"
         >

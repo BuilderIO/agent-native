@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -40,19 +39,21 @@ export function AutoLayoutSuggestionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent
+        className="sm:max-w-lg"
+        aria-describedby={undefined}
+        closeLabel={t("designEditor.close")}
+      >
         <DialogHeader>
           <DialogTitle>
             {t("designEditor.autoLayoutSuggestion.title")}
           </DialogTitle>
-          <DialogDescription>
-            {t("designEditor.autoLayoutSuggestion.description")}
-          </DialogDescription>
         </DialogHeader>
 
         {suggestion ? (
           <div className="space-y-4">
             <div
+              role="img"
               aria-label={t("designEditor.autoLayoutSuggestion.preview")}
               className="grid min-h-32 place-items-center overflow-hidden rounded-lg border bg-muted/30 p-5"
             >
@@ -76,7 +77,7 @@ export function AutoLayoutSuggestionDialog({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-xs">
+            <dl className="grid grid-cols-2 gap-2 text-xs">
               <PreviewValue
                 label={t("editPanel.labels.direction")}
                 value={t(`editPanel.flexDirections.${suggestion.direction}`)}
@@ -104,7 +105,7 @@ export function AutoLayoutSuggestionDialog({
                   .map((_, index) => index + 1)
                   .join(" → ")}
               />
-            </div>
+            </dl>
 
             {warningLabels && warningLabels.length > 0 ? (
               <div className="flex gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
@@ -138,14 +139,16 @@ function PreviewValue({
   icon?: ReactNode;
 }) {
   return (
-    <div className="rounded-md border bg-background px-3 py-2">
-      <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+    <div className="min-w-0 rounded-md border bg-background px-3 py-2">
+      <dt className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
         {label}
-      </div>
-      <div className="flex items-center gap-1.5 font-medium">
+      </dt>
+      <dd className="flex min-w-0 items-center gap-1.5 font-medium">
         {icon}
-        <span className="truncate">{value}</span>
-      </div>
+        <span className="truncate" title={value}>
+          {value}
+        </span>
+      </dd>
     </div>
   );
 }

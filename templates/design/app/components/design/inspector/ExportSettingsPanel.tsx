@@ -113,11 +113,13 @@ function rowFromValue(v: ExportSettingsValue): ExportRow {
 }
 
 function ScaleSelect({
+  label,
   scale,
   customScale,
   disabled,
   onPresetChange,
 }: {
+  label: string;
   scale: number;
   customScale: boolean;
   disabled: boolean;
@@ -139,6 +141,7 @@ function ScaleSelect({
       }}
     >
       <SelectTrigger
+        aria-label={label}
         className={cn(
           "h-6 w-14 shrink-0 px-1.5 !text-[11px]",
           controlChromeClass,
@@ -331,12 +334,13 @@ function ExportRow({
             "h-6 w-14 shrink-0 px-1.5 !text-[11px] tabular-nums md:!text-[11px]",
             controlChromeClass,
           )}
-          aria-label="Scale"
+          aria-label={labels.scale}
           // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
         />
       ) : (
         <ScaleSelect
+          label={labels.scale}
           scale={row.scale}
           customScale={false}
           disabled={isDisabled}
@@ -359,6 +363,7 @@ function ExportRow({
         }
       >
         <SelectTrigger
+          aria-label={labels.format}
           className={cn(
             "h-6 min-w-0 flex-1 px-1.5 !text-[11px]",
             controlChromeClass,

@@ -212,7 +212,7 @@ function TypographyDetailsPopover({
               type="button"
               variant="ghost"
               size="icon"
-              aria-label={"Typography details" /* i18n-ignore design action */}
+              aria-label={t("editPanel.typographyDetails.title")}
               aria-pressed={open}
               className={cn(
                 "h-6 min-w-6 cursor-pointer rounded-md text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground",
@@ -225,7 +225,7 @@ function TypographyDetailsPopover({
           </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent>
-          {"Typography details" /* i18n-ignore design action */}
+          {t("editPanel.typographyDetails.title")}
         </TooltipContent>
       </Tooltip>
       <PopoverContent
@@ -234,6 +234,7 @@ function TypographyDetailsPopover({
         sideOffset={8}
         data-design-chrome-region="right-panel"
         className="z-[100010] w-[360px] rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-0 text-foreground shadow-2xl"
+        aria-label={t("editPanel.typographyDetails.title")}
       >
         <div className="flex items-center gap-1 border-b border-[var(--design-editor-control-border)] p-2.5">
           <div
@@ -673,7 +674,10 @@ export function TypographyProperties({
             value={fontWeightIsMixed ? MIXED_VALUE : currentFontWeight}
             onValueChange={(v) => onStyleChange("fontWeight", v)}
           >
-            <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+            <SelectTrigger
+              aria-label={t("editPanel.labels.weight")}
+              className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent data-design-chrome-region="right-panel">

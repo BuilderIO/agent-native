@@ -30,6 +30,7 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -210,7 +211,10 @@ export function DesignTemplateLibrary({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("home.cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void deleteSelected()}>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => void deleteSelected()}
+            >
               {t("home.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -253,10 +257,15 @@ function TemplateMenu({
             resourceTitle={template.title}
             trigger="label"
           />
-          <DropdownMenuItem disabled={disabled} onSelect={onDelete}>
-            {t("home.delete")}
-          </DropdownMenuItem>
         </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={disabled}
+          onSelect={onDelete}
+          className="text-destructive focus:text-destructive"
+        >
+          {t("home.delete")}
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

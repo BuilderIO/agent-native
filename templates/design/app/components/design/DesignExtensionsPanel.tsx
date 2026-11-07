@@ -33,6 +33,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -45,7 +46,8 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -395,14 +397,20 @@ function ToolFilterMenu<T extends string>({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-36">
-        {options.map((option) => (
-          <DropdownMenuItem
-            key={option.value}
-            onClick={() => onChange(option.value)}
-          >
-            {option.label}
-          </DropdownMenuItem>
-        ))}
+        <DropdownMenuRadioGroup
+          value={value}
+          onValueChange={(next) => onChange(next as T)}
+        >
+          {options.map((option) => (
+            <DropdownMenuRadioItem
+              key={option.value}
+              value={option.value}
+              indicator="check"
+            >
+              {option.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -1503,6 +1511,7 @@ function CreateExtensionPopover({
   onRetryProvider: () => void;
 }) {
   const t = useT();
+  const promptTitleId = useId();
   const [draft, setDraft] = useState("");
   const providerReady = providerStatus === "configured";
   const canSubmit = providerReady && draft.trim().length > 0;
@@ -1521,7 +1530,7 @@ function CreateExtensionPopover({
           variant="outline"
           size="sm"
           className="h-6 cursor-pointer rounded-md bg-transparent px-2 !text-[11px] font-medium"
-          aria-label={t("designEditor.addExtension")}
+          aria-label={t("designEditor.createExtension")}
         >
           Create
         </Button>
@@ -1550,11 +1559,15 @@ function CreateExtensionPopover({
             </div>
           ) : null}
           <form onSubmit={handleSubmit} className="space-y-3">
-            <p className="px-0.5 text-sm font-semibold text-foreground">
+            <p
+              id={promptTitleId}
+              className="px-0.5 text-sm font-semibold text-foreground"
+            >
               {t("designEditor.extensionsPromptTitle")}
             </p>
             <Textarea
               autoFocus
+              aria-labelledby={promptTitleId}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder={t("designEditor.extensionsPlaceholder")}
@@ -1564,7 +1577,7 @@ function CreateExtensionPopover({
             <div className="flex justify-end gap-2">
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 onClick={() => onOpenChange(false)}
               >

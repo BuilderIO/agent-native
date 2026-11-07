@@ -107,7 +107,9 @@ export function TemplatePickerControl({
         height={template.height}
         className="h-8 w-12 shrink-0 rounded-md border bg-muted/40"
       />
-      <span className="min-w-0 flex-1 truncate">{template.title}</span>
+      <span className="min-w-0 flex-1 truncate" title={template.title}>
+        {template.title}
+      </span>
       {template.isBuiltIn ? (
         <Badge
           variant="secondary"
@@ -130,7 +132,6 @@ export function TemplatePickerControl({
           variant="outline"
           size="sm"
           className="h-9 w-full min-w-0 justify-start gap-2 px-2.5 text-xs"
-          aria-label={t("promptDialog.chooseTemplate")}
           disabled={loading}
           data-template-picker-trigger
         >
@@ -150,6 +151,7 @@ export function TemplatePickerControl({
               "min-w-0 truncate",
               selected ? "text-foreground" : "text-muted-foreground",
             )}
+            title={selected?.title}
           >
             {t("promptDialog.template")} ·{" "}
             {selected ? selected.title : t("promptDialog.blank")}
@@ -170,6 +172,7 @@ export function TemplatePickerControl({
         side="top"
         sideOffset={8}
         data-agent-native-template-popover
+        aria-label={t("promptDialog.chooseTemplate")}
         className="w-[min(360px,calc(100vw-32px))] p-0"
       >
         <Command>
@@ -265,6 +268,7 @@ export function DesignSystemPickerControl({
             <span className="flex min-w-0 items-center gap-2.5">
               {system.colors && system.colors.length > 0 ? (
                 <span
+                  aria-hidden="true"
                   className="flex shrink-0 items-center gap-1"
                   data-design-system-swatches
                 >

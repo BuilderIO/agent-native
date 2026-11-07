@@ -437,7 +437,7 @@ export function DesignColorPicker({
   backgroundSize,
   backgroundRepeat,
   backgroundPosition,
-  label: _label,
+  label,
   opacity,
   onOpacityChange,
   blendMode,
@@ -1853,6 +1853,7 @@ export function DesignColorPicker({
           align="start"
           sideOffset={8}
           className="max-h-[var(--radix-popover-content-available-height)] w-[272px] overflow-y-auto border-0 p-0 shadow-xl ring-1 ring-inset ring-border"
+          aria-label={label ?? copy.rowHex}
           data-design-chrome-region="right-panel"
           data-design-history-hotkeys={
             allowDesignHistoryHotkeys ? "true" : undefined

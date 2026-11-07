@@ -386,12 +386,24 @@ describe("AnimationStyleBrowser", () => {
     const addAnimation = document.body.querySelector<HTMLButtonElement>(
       'button[aria-label="Add animation"]',
     );
-    await act(async () => addAnimation?.click());
+    if (!addAnimation) throw new Error("Add animation button is missing");
+    addAnimation.focus();
+    await act(async () => {
+      addAnimation.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await Promise.resolve();
+    });
     const opacityItem = Array.from(
-      document.body.querySelectorAll<HTMLButtonElement>("[role='menuitem']"),
+      document.body.querySelectorAll<HTMLElement>("[role='menuitem']"),
     ).find((item) => item.textContent === "Opacity");
-    expect(opacityItem?.disabled).toBe(false);
-    await act(async () => opacityItem!.click());
+    if (!opacityItem) throw new Error("Opacity menu item is missing");
+    expect(opacityItem.hasAttribute("data-disabled")).toBe(false);
+    await act(async () => opacityItem.click());
 
     const saveButton = Array.from(
       document.body.querySelectorAll<HTMLButtonElement>("button"),

@@ -127,19 +127,24 @@ export function NudgeAmountDialog({
             </Button>
           </DialogClose>
         </div>
-        <TooltipProvider delayDuration={200}>
-          <div className="flex flex-col gap-3 px-4 py-4">
-            {field("small")}
-            {field("big")}
-          </div>
-        </TooltipProvider>
-        <div className="flex justify-end border-t border-border p-3">
-          <DialogClose asChild>
-            <Button type="button" size="sm">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            onClose();
+          }}
+        >
+          <TooltipProvider delayDuration={200}>
+            <div className="flex flex-col gap-3 px-4 py-4">
+              {field("small")}
+              {field("big")}
+            </div>
+          </TooltipProvider>
+          <div className="flex justify-end border-t border-border p-3">
+            <Button type="submit" size="sm">
               {t("designEditor.keyboardShortcuts.nudgeAmount.done")}
             </Button>
-          </DialogClose>
-        </div>
+          </div>
+        </form>
       </DialogContent>
     </Dialog>
   );

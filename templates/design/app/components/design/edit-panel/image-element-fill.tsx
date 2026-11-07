@@ -349,6 +349,7 @@ export function ImageElementFill({
             align="start"
             sideOffset={8}
             className="w-[252px] p-0 shadow-xl"
+            aria-label={t("editPanel.labels.imageAdjustments")}
             data-design-chrome-region="right-panel"
             onInteractOutside={(event) => {
               const target = event.target as Element | null;

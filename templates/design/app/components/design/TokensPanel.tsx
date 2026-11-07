@@ -29,7 +29,7 @@ import {
   IconSpacingHorizontal,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { LeftPanelHeader } from "@/components/design/editor/LeftPanelHeader";
@@ -38,6 +38,7 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -520,19 +521,21 @@ function AddTokenMenu({
         }}
       >
         {TOKEN_TYPE_MENU.map((section, index) => (
-          <div key={section[0]}>
+          <Fragment key={section[0]}>
             {index > 0 && <DropdownMenuSeparator />}
-            {section.map((type) => (
-              <DropdownMenuItem
-                key={type}
-                onSelect={() => {
-                  pickedTypeRef.current = type;
-                }}
-              >
-                {t(tokenTypeLabelKey(type))}
-              </DropdownMenuItem>
-            ))}
-          </div>
+            <DropdownMenuGroup>
+              {section.map((type) => (
+                <DropdownMenuItem
+                  key={type}
+                  onSelect={() => {
+                    pickedTypeRef.current = type;
+                  }}
+                >
+                  {t(tokenTypeLabelKey(type))}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </Fragment>
         ))}
       </DropdownMenuContent>
     </DropdownMenu>

@@ -847,6 +847,7 @@ function LayoutAdvancedPopover({
         sideOffset={8}
         data-design-chrome-region="right-panel"
         className="w-72 space-y-3 p-3 !text-[11px]"
+        aria-label={label}
       >
         {flexChild ? (
           <FlexChildControls element={element} onStyleChange={onStyleChange} />

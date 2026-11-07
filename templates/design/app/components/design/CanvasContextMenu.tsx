@@ -307,7 +307,7 @@ export interface CanvasContextMenuProps {
 
 const DEFAULT_LABELS: CanvasContextMenuLabels = {
   selectLayer: "Select layer",
-  editWithAgent: "Edit with Agent",
+  editWithAgent: "Edit with agent",
   arrange: "Arrange",
   transform: "Transform",
   addMotion: "Add animation",
@@ -371,7 +371,7 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
   toggleUiHide: "Hide UI",
   toggleCommentsShow: "Show comments",
   toggleCommentsHide: "Hide comments",
-  exploreWithAgent: "Explore with Agent",
+  exploreWithAgent: "Explore with agent",
   copyLink: "Copy link",
   sendTo: "Send to",
   sendToAgents: "Agents",

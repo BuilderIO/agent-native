@@ -28,7 +28,10 @@ export function HubspotEmailConversionDialog({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="sm:max-w-md">
+      <DialogContent
+        className="sm:max-w-md"
+        closeLabel={t("designEditor.close")}
+      >
         <DialogHeader>
           <DialogTitle>{t("designEditor.hubspotConversion.title")}</DialogTitle>
           <DialogDescription>

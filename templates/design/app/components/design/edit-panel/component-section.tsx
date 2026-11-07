@@ -53,6 +53,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
@@ -1207,11 +1208,15 @@ export function ComponentSection({
                     <PopoverContent
                       align="end"
                       className="w-56 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-1.5 text-[11px]"
+                      aria-label={t("designEditor.componentInstances.swap")}
                     >
                       <Input
                         autoFocus
                         value={swapQuery}
                         onChange={(e) => setSwapQuery(e.target.value)}
+                        aria-label={t(
+                          "designEditor.componentInstances.searchComponents",
+                        )}
                         placeholder={t(
                           "designEditor.componentInstances.searchComponents",
                         )}
@@ -1219,8 +1224,12 @@ export function ComponentSection({
                       />
                       <div className="max-h-52 overflow-y-auto">
                         {swapCatalogLoading ? (
-                          <div className="px-2 py-1.5 text-muted-foreground">
-                            {t("designEditor.componentInstances.loading")}
+                          <div aria-busy="true">
+                            {[0, 1, 2].map((row) => (
+                              <div key={row} className="px-2 py-1.5">
+                                <Skeleton className="h-4 w-full" />
+                              </div>
+                            ))}
                           </div>
                         ) : swapCandidates.length === 0 ? (
                           <div className="px-2 py-1.5 text-muted-foreground">
@@ -1237,7 +1246,10 @@ export function ComponentSection({
                               onClick={() => handleSwapInstance(candidate.name)}
                               className="flex w-full items-center justify-between gap-2 rounded-[4px] px-2 py-1.5 text-left hover:bg-[var(--design-editor-selection-color)] hover:text-primary-foreground disabled:cursor-wait disabled:opacity-60"
                             >
-                              <span className="min-w-0 flex-1 truncate">
+                              <span
+                                className="min-w-0 flex-1 truncate"
+                                title={candidate.name}
+                              >
                                 {candidate.name}
                               </span>
                               <span className="design-sidebar-field-label shrink-0 text-muted-foreground">
@@ -1371,7 +1383,10 @@ export function ComponentSection({
                         onValueChange={(v) => commitProp(row, v)}
                         disabled={disabled}
                       >
-                        <SelectTrigger className="h-6 w-full min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+                        <SelectTrigger
+                          aria-label={row.name}
+                          className="h-6 w-full min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>

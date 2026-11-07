@@ -27,25 +27,58 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
 }));
 
-vi.mock("@/components/ui/dropdown-menu", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/components/ui/dropdown-menu")>()),
-  DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
-  DropdownMenuContent: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DropdownMenuItem: ({
-    children,
-    onClick,
-  }: {
-    children: ReactNode;
-    onClick?: () => void;
-  }) => (
-    <button type="button" role="menuitem" onClick={onClick}>
-      {children}
-    </button>
-  ),
-  DropdownMenuTrigger: ({ children }: { children: ReactNode }) => children,
-}));
+vi.mock("@/components/ui/dropdown-menu", async (importOriginal) => {
+  const { createContext, useContext } = await import("react");
+  const RadioSelect = createContext<(value: string) => void>(() => {});
+  return {
+    ...(await importOriginal<typeof import("@/components/ui/dropdown-menu")>()),
+    DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
+    DropdownMenuContent: ({ children }: { children: ReactNode }) => (
+      <div>{children}</div>
+    ),
+    DropdownMenuItem: ({
+      children,
+      onClick,
+    }: {
+      children: ReactNode;
+      onClick?: () => void;
+    }) => (
+      <button type="button" role="menuitem" onClick={onClick}>
+        {children}
+      </button>
+    ),
+    DropdownMenuRadioGroup: ({
+      children,
+      onValueChange,
+    }: {
+      children: ReactNode;
+      onValueChange?: (value: string) => void;
+    }) => (
+      <RadioSelect.Provider value={(value) => onValueChange?.(value)}>
+        {children}
+      </RadioSelect.Provider>
+    ),
+    DropdownMenuRadioItem: function MockRadioItem({
+      children,
+      value,
+    }: {
+      children: ReactNode;
+      value: string;
+    }) {
+      const select = useContext(RadioSelect);
+      return (
+        <button
+          type="button"
+          role="menuitemradio"
+          onClick={() => select(value)}
+        >
+          {children}
+        </button>
+      );
+    },
+    DropdownMenuTrigger: ({ children }: { children: ReactNode }) => children,
+  };
+});
 
 import type { DesignExtensionSlotContext } from "./DesignExtensionsPanel";
 import { DesignExtensionsPanel } from "./DesignExtensionsPanel";
@@ -107,7 +140,7 @@ describe("DesignExtensionsPanel Motion Lab gate", () => {
 
   function categoryOptions() {
     return Array.from(
-      container.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      container.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
     ).map((item) => item.textContent?.trim());
   }
 
@@ -119,7 +152,7 @@ describe("DesignExtensionsPanel Motion Lab gate", () => {
     renderPanel(true);
     expect(container.textContent).toContain("Motion Presets");
     const motionOption = Array.from(
-      container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+      container.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'),
     ).find((item) => item.textContent?.trim() === "Motion");
     expect(motionOption).toBeDefined();
     act(() => motionOption?.click());

@@ -276,6 +276,7 @@ export default {
     notFoundDescription: "الصفحة التي تبحث عنها غير موجودة.",
     notFoundSignIn: "تسجيل الدخول",
     notFoundBackToDesigns: "العودة إلى التصاميم",
+    presentGoToScreen: "الانتقال إلى الشاشة {{number}}",
   },
   onboarding: {
     fileStorage: {
@@ -936,6 +937,7 @@ export default {
       truncateText: "اقتطاع النص",
       maxLines: "الحد الأقصى للأسطر",
       restoreError: "تعذرت استعادة تخطيط النص الأصلي.",
+      title: "تفاصيل الطباعة",
     },
     flexDirections: {
       row: "صف",
@@ -1660,8 +1662,8 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} صورة{{plural}} تحتاج إلى الوصول إلى Figma للتحميل.",
       figmaPasteImagesDontShowAgain: "عدم الإظهار مرة أخرى",
-      figmaPasteUploadImage: "رفع صورة",
-      figmaPasteUploadImageFor: "رفع “{{name}}”",
+      figmaPasteUploadImage: "رفع صورة…",
+      figmaPasteUploadImageFor: "رفع “{{name}}”…",
       figmaPasteImageFallbackName: "صورة {{index}}",
       figmaPasteUploadImageSuccess: "تمت إضافة الصورة",
       figmaPasteUploadImageInvalid: "اختر ملف صورة، مثل SVG أو PNG أو JPG.",
@@ -1677,7 +1679,7 @@ export default {
       figmaHydrationFigTitle: "Have the original .fig file?",
       figmaHydrationFigOption:
         "Fastest — pulls every image straight from the file. No token, no rate limits.",
-      figmaHydrationChooseFig: "Fill images from .fig",
+      figmaHydrationChooseFig: "ملء الصور من ‎.fig…",
       figmaHydrationOrToken: "Or fetch from Figma",
       figmaHydrationTokenDescription:
         'Fetches the exact images from the copied frame\'s Figma file. Needs "File content" and "Current user" scopes; saved securely, never shown in chat.',
@@ -1763,7 +1765,34 @@ export default {
         importBusy: "هناك استيراد آخر قيد التنفيذ. أنهِه أو ألغِه أولاً.",
         figFileTooLarge:
           "ملف ‎.fig‎ كبير جدًا — الحد الأقصى للرفع {{max}} ميغابايت. في Figma، انسخ الإطار المطلوب فقط إلى ملف جديد وصدّر ذلك الملف بصيغة ‎.fig‎، أو استخدم اللصق من Figma.",
+        figmaTokenForbidden:
+          'تم رفض الرمز المميز (403). في إعدادات الرموز في Figma، فعّل نطاقي "File content" و"Current user"، ثم أنشئ رمزًا جديدًا.',
       },
+      figmaHydrationFigFilled_one: "تم ملء {{count}} صورة من ملف ‎.fig.",
+      figmaHydrationFigFilled_other: "تم ملء {{count}} صورة من ملف ‎.fig.",
+      figmaHydrationTokenFilled_one: "تم ملء {{count}} صورة من Figma.",
+      figmaHydrationTokenFilled_other: "تم ملء {{count}} صورة من Figma.",
+      figmaPasteImagesMissing_one:
+        "تحتاج {{count}} صورة إلى الوصول إلى Figma لتحميلها.",
+      figmaPasteImagesMissing_other:
+        "تحتاج {{count}} صورة إلى الوصول إلى Figma لتحميلها.",
+      figmaPasteConnectAndFetch: "الاتصال وجلب الصور…",
+      figmaHydrationFigFilled_zero: "تم ملء {{count}} صورة من ملف ‎.fig.",
+      figmaHydrationFigFilled_two: "تم ملء {{count}} صورتين من ملف ‎.fig.",
+      figmaHydrationFigFilled_few: "تم ملء {{count}} صور من ملف ‎.fig.",
+      figmaHydrationFigFilled_many: "تم ملء {{count}} صورة من ملف ‎.fig.",
+      figmaHydrationTokenFilled_zero: "تم ملء {{count}} صورة من Figma.",
+      figmaHydrationTokenFilled_two: "تم ملء {{count}} صورتين من Figma.",
+      figmaHydrationTokenFilled_few: "تم ملء {{count}} صور من Figma.",
+      figmaHydrationTokenFilled_many: "تم ملء {{count}} صورة من Figma.",
+      figmaPasteImagesMissing_zero:
+        "تحتاج {{count}} صورة إلى الوصول إلى Figma لتحميلها.",
+      figmaPasteImagesMissing_two:
+        "تحتاج {{count}} صورتان إلى الوصول إلى Figma لتحميلها.",
+      figmaPasteImagesMissing_few:
+        "تحتاج {{count}} صور إلى الوصول إلى Figma لتحميلها.",
+      figmaPasteImagesMissing_many:
+        "تحتاج {{count}} صورة إلى الوصول إلى Figma لتحميلها.",
     },
     generationMayHaveStopped:
       "ربما توقّف الإنشاء قبل إنشاء الملفات. تحقق من رسالة الوكيل أو حاول مرة أخرى.",
@@ -1804,8 +1833,8 @@ export default {
       file: "ملف",
       preferences: "التفضيلات",
       newDesign: "تصميم جديد",
-      saveLocalCopy: "حفظ نسخة محلية…",
-      makeAnApp: "إنشاء تطبيق",
+      saveLocalCopy: "حفظ نسخة محلية",
+      makeAnApp: "إنشاء تطبيق…",
       theme: "السمة",
       themeLight: "فاتح",
       themeDark: "داكن",
@@ -2087,7 +2116,7 @@ export default {
     addExtension: "إضافة",
     extensionsDocs: "المستندات",
     extensionsPromptTitle: "ماذا يجب أن تفعل هذه الإضافة؟",
-    extensionsPlaceholder: "أدوات النمط، مساعدات التحديد، إجراءات اللوحة...",
+    extensionsPlaceholder: "أدوات النمط، مساعدات التحديد، إجراءات اللوحة…",
     extensionsEmptyTitle: "لا توجد إضافات للمحرر بعد",
     extensionsEmptyDescription:
       "أنشئ إضافة صغيرة للمفتش يمكنها قراءة العنصر المحدد، أو استدعاء الإجراءات، أو طلب تحديث اللوحة من الوكيل.",
@@ -2100,7 +2129,7 @@ export default {
     designExport: "تصدير Design",
     designPreview: "معاينة Design",
     preview: "معاينة",
-    publish: "نشر",
+    publish: "نشر…",
     presentMode: "الوضع الحالي",
     useThisDirection: "استخدم هذا الاتجاه",
     variantHandoffHelp: "الصق هذا الملخص في وكيل الترميز الخاص بك للمتابعة.",
@@ -2178,7 +2207,7 @@ export default {
     addLocalhostScreen: {
       title: "إضافة شاشة من تطبيقك",
       description: "اختر مسارًا لإضافته كإطار جديد، أو أدخل مسارًا.",
-      searchPlaceholder: "البحث في المسارات…",
+      searchPlaceholder: "ابحث في المسارات أو اكتب مسارًا…",
       noRoutes: "لا توجد مسارات مطابقة",
       noDiscoveredRoutes:
         "لم يتم العثور على مسارات في هذا التطبيق. أدخل مسارًا لإضافة شاشة.",
@@ -2187,9 +2216,11 @@ export default {
       viewportMobile: "الجوال",
       added: "تمت إضافة الشاشة",
       addFailed: "تعذرت إضافة الشاشة",
+      viewportLabel: "إطار العرض",
+      searchLabel: "البحث في المسارات",
     },
     localhostConsent: {
-      approvedTitle: "تمت الموافقة — شغّل التعديل مرة أخرى",
+      approvedTitle: "تمت الموافقة على كتابة الملفات",
       approvedDescription:
         "الكتابة إلى الملفات مسموح بها لمدة 8 ساعات. لم يُحفظ التعديل الذي طلب الوصول.",
       retryInChat: "إعادة التشغيل في الدردشة",
@@ -2199,6 +2230,8 @@ export default {
       unavailableDescription: "شغّل التعديل مرة أخرى لطلب الوصول.",
       close: "إغلاق",
       prepareSignInError: "تعذّر حفظ هذا الطلب قبل تسجيل الدخول. حاول مرة أخرى.",
+      writeScope:
+        "يمكن كتابة ملفات النصوص والتعليمات البرمجية فقط. يتم دائمًا حظر الأسرار مثل ‎.env وملفات المفاتيح، والمسارات خارج المجلد الجذر.",
     },
     nodeRewrite: {
       composerTitle: "اسأل عن التحديد أو غيّره",
@@ -2360,10 +2393,36 @@ export default {
     },
     commenterRoleLabel: "معلّق",
     commenterRoleDescription: "يمكنه العرض وإضافة تعليقات المراجعة",
+    saveTemplateTitle: "حفظ كقالب",
+    templateSnapshotScreens_one: "{{count}} شاشة",
+    templateSnapshotScreens_other: "{{count}} شاشة",
+    templateSnapshotLocks_one: "{{count}} طبقة مقفلة",
+    templateSnapshotLocks_other: "{{count}} طبقة مقفلة",
+    templateSnapshotSummaryWithLocks: "سيتم الاحتفاظ بـ {{screens}} و{{locks}}",
+    templateSnapshotSummaryScreens: "سيتم الاحتفاظ بـ {{screens}}",
+    zoomMenu: {
+      percentage: "نسبة التكبير",
+      zoomToPreset: "التكبير إلى {{percent}}%",
+      pixelGrid: "شبكة البكسل",
+      snapToPixelGrid: "المحاذاة إلى شبكة البكسل",
+      rulers: "المساطر",
+      multiplayerCursors: "مؤشرات متعددة المستخدمين",
+      comments: "التعليقات",
+    },
+    states: { nameLabel: "اسم الحالة" },
+    createExtension: "إنشاء إضافة",
+    templateSnapshotScreens_zero: "{{count}} شاشة",
+    templateSnapshotScreens_two: "{{count}} شاشتان",
+    templateSnapshotScreens_few: "{{count}} شاشات",
+    templateSnapshotScreens_many: "{{count}} شاشة",
+    templateSnapshotLocks_zero: "{{count}} طبقة مقفلة",
+    templateSnapshotLocks_two: "{{count}} طبقتان مقفلتان",
+    templateSnapshotLocks_few: "{{count}} طبقات مقفلة",
+    templateSnapshotLocks_many: "{{count}} طبقة مقفلة",
   },
   canvasMenu: {
-    editWithAgent: "التحرير باستخدام Agent",
-    exploreWithAgent: "الاستكشاف باستخدام Agent",
+    editWithAgent: "التحرير باستخدام الوكيل",
+    exploreWithAgent: "الاستكشاف باستخدام الوكيل",
     group: "تجميع التحديد",
     inspiration: "إلهام",
     inspirationDescription: "استكشاف عدة نسخ بديلة",
@@ -2463,6 +2522,8 @@ export default {
       publicPreviewUnavailableDescription:
         "لا تتم مشاركة معاينات localhost مع المشاهدين العامة. افتح هذا التصميم بصفتك متعاونًا لعرض هذه الشاشة.",
       previewCredentialsRetry: "إعادة محاولة بيانات الاعتماد",
+      maybeBlockedDescription:
+        "قد يحتاج متصفحك إلى إذن للاتصال بـ localhost، أو قد يكون خادم التطوير غير متصل.",
     },
   },
   multiScreenCanvas: {
@@ -2566,7 +2627,7 @@ export default {
     blank: "فارغ",
     builtIn: "مدمج",
     chooseTemplate: "اختيار قالب",
-    searchTemplates: "البحث في القوالب...",
+    searchTemplates: "البحث في القوالب…",
     noTemplatesFound: "لم يتم العثور على قوالب.",
     yourTemplates: "قوالبك",
     builtInTemplates: "القوالب المدمجة",
@@ -2880,7 +2941,7 @@ export default {
     all: "الكل",
     showMineDesigns: "عرض تصميماتي",
     showAllDesigns: "عرض كل التصميمات",
-    openingDesign: "جارٍ فتح التصميم...",
+    openingDesign: "جارٍ فتح التصميم…",
     skipToEditor: "الانتقال إلى المحرر",
     failedToCreateDesign: "تعذر إنشاء التصميم",
     describeBuild: "صف ما تريد إنشاءه...",
@@ -2891,15 +2952,15 @@ export default {
     delete: "حذف",
     selectDesign: "حدد {{title}}",
     actionsForDesign: "إجراءات لـ {{title}}",
-    rename: "إعادة تسمية",
+    rename: "إعادة تسمية…",
     duplicate: "مكررة",
     renameDesign: "إعادة تسمية التصميم",
     designName: "اسم Design",
     cancel: "إلغاء",
     save: "حفظ",
-    deleteDesignTitle: "هل تريد حذف Design؟",
-    deleteDesignsTitle: "هل تريد حذف {{count}} Designs؟",
-    deleteSingleDesignsTitle: "هل تريد حذف {{count}} Design؟",
+    deleteDesignTitle: "هل تريد حذف التصميم؟",
+    deleteDesignsTitle: "هل تريد حذف {{count}} تصاميم؟",
+    deleteSingleDesignsTitle: "هل تريد حذف {{count}} تصميم؟",
     deleteDesignDescription:
       "سيؤدي هذا إلى حذف هذا التصميم وجميع ملفاته نهائيًا. لا يمكن التراجع عن هذا الإجراء.",
     deleteDesignsDescription:
@@ -3037,7 +3098,7 @@ export default {
     useTemplate: "استخدم القالب",
     useAsIs: "استخدام القالب كما هو",
     promptPlaceholder: "صف ما تريد إنشاءه باستخدام هذا القالب...",
-    opening: "جارٍ فتح القالب...",
+    opening: "جارٍ فتح القالب…",
     createFailed: "تعذر إنشاء تصميم من هذا القالب",
     deleted: "تم حذف القالب",
     deleteFailed: "تعذر حذف هذا القالب",
@@ -3266,7 +3327,7 @@ export default {
       title: "هل تريد حذف نظام التصميم؟",
       description:
         "سيؤدي هذا إلى حذف نظام التصميم هذا نهائيًا وإلغاء ربطه بأي تصميمات تستخدمه. لا يمكن التراجع عن هذا الإجراء.",
-      bulkTitle: "هل تريد حذف أنظمة التصميم {{count}}؟",
+      bulkTitle: "هل تريد حذف {{count}} أنظمة تصميم؟",
       bulkDescription:
         "سيؤدي هذا إلى حذف أنظمة التصميم {{count}} نهائيًا وإلغاء ربطها بأي تصميمات تستخدمها. لا يمكن التراجع عن هذا الإجراء.",
     },
@@ -3280,7 +3341,7 @@ export default {
         "إرشادات متينة يعيد الوكيل استخدامها عندما يرتبط هذا النظام بالتصميم.",
       noCustomInstructions: "لم يتم حفظ أي تعليمات مخصصة حتى الآن.",
       useAsStartingPoint: "استخدم كنقطة انطلاق",
-      saving: "توفير...",
+      saving: "جارٍ الحفظ…",
       saveChanges: "حفظ التغييرات",
     },
     preview: {

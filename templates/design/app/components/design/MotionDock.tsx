@@ -53,13 +53,6 @@ import {
   IconRepeatOnce,
   IconTrash,
   IconRefresh,
-  IconArrowsMove,
-  IconCircleHalf,
-  IconResize,
-  IconRotate,
-  IconScale,
-  IconTypography,
-  IconVectorBezier2,
   IconEye,
   IconEyeOff,
   IconAdjustmentsHorizontal,
@@ -2868,55 +2861,33 @@ interface AddTrackMenuProps {
 const NATIVE_STYLE_OPTIONS: ReadonlyArray<{
   styleKey: MotionNativeStyleKey;
   labelKey: string;
-  Icon: typeof IconArrowsMove;
 }> = [
   {
     styleKey: "Position",
     labelKey: "designEditor.motion.animationStyles.position",
-    Icon: IconArrowsMove,
   },
   {
     styleKey: "Scale",
     labelKey: "designEditor.motion.animationStyles.scale",
-    Icon: IconScale,
   },
   {
     styleKey: "Rotation",
     labelKey: "designEditor.motion.animationStyles.rotation",
-    Icon: IconRotate,
   },
   {
     styleKey: "Size",
     labelKey: "designEditor.motion.animationStyles.size",
-    Icon: IconResize,
   },
   {
     styleKey: "Opacity",
     labelKey: "designEditor.motion.animationStyles.opacity",
-    Icon: IconCircleHalf,
   },
 ];
 
 const PATH_STYLE_OPTION = {
   styleKey: "Path",
   labelKey: "designEditor.motion.animationStyles.path",
-  Icon: IconVectorBezier2,
 } as const;
-
-function primaryStyleIcon(property: string): typeof IconArrowsMove {
-  switch (property) {
-    case "translate":
-      return IconArrowsMove;
-    case "scale":
-      return IconScale;
-    case "rotate":
-      return IconRotate;
-    case "size":
-      return IconResize;
-    default:
-      return IconCircleHalf;
-  }
-}
 
 export function AddTrackMenu({
   selectedTarget,
@@ -2934,7 +2905,6 @@ export function AddTrackMenu({
   const options: Array<{
     key: string;
     label: string;
-    Icon: typeof IconArrowsMove;
     disabled?: boolean;
     onSelect: () => void;
   }> = !selectedTarget
@@ -2945,7 +2915,6 @@ export function AddTrackMenu({
               {
                 key: "text",
                 label: t("designEditor.motion.text"),
-                Icon: IconTypography,
                 onSelect: () =>
                   onCreateNativeStyle
                     ? onCreateNativeStyle("TextStagger")
@@ -2957,17 +2926,15 @@ export function AddTrackMenu({
           ? [
               ...NATIVE_STYLE_OPTIONS,
               ...(selectedTarget.isPath ? [PATH_STYLE_OPTION] : []),
-            ].map(({ styleKey, labelKey, Icon }) => ({
+            ].map(({ styleKey, labelKey }) => ({
               key: styleKey,
               label: t(labelKey),
-              Icon,
               onSelect: () => onCreateNativeStyle(styleKey),
             }))
           : onCreateStyle || onCreateTrack
             ? primaryStyles.map((style) => ({
                 key: `${style.preset.property}-${style.label}`,
                 label: style.label,
-                Icon: primaryStyleIcon(style.preset.property),
                 disabled: style.preset.additionalProperties
                   ? style.preset.additionalProperties.every((property) =>
                       disabledProperties.includes(property),
@@ -3027,17 +2994,13 @@ export function AddTrackMenu({
               label: selectedTarget!.label,
             })}
           </DropdownMenuLabel>
-          {options.map(({ key, label, Icon, disabled, onSelect }) => (
+          {options.map(({ key, label, disabled, onSelect }) => (
             <DropdownMenuItem
               key={key}
-              className="h-6 gap-2 px-2 text-[12px] leading-none"
+              className="h-6 px-2 text-[12px] leading-none"
               disabled={disabled}
               onSelect={onSelect}
             >
-              <Icon
-                className="size-3.5 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
               {label}
             </DropdownMenuItem>
           ))}
@@ -3589,6 +3552,7 @@ function MotionTrackSettingsButton({
         side="right"
         align="start"
         className="w-64 space-y-3 p-3"
+        aria-label={animationLabel}
         onPointerDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3">

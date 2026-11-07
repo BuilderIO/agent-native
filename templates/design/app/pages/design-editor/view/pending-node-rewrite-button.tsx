@@ -111,7 +111,6 @@ export function renderPendingNodeRewriteButton({
             key={proposal.proposalId}
             onClick={() => handleReviewNodeRewrite(proposal)}
           >
-            <IconFileStack className="size-4" />
             <span className="min-w-0 flex-1 truncate">
               {prettyScreenName(proposal.filename)}
             </span>

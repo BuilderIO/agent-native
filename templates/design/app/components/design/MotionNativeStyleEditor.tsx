@@ -21,20 +21,15 @@ import type {
 import { switchMotionNativeStyleKey } from "@shared/motion-native-style-runtime";
 import {
   IconAdjustmentsHorizontal,
-  IconArrowsMove,
-  IconBlur,
   IconChartLine,
   IconChevronDown,
   IconCheck,
-  IconCircleHalf,
   IconClock,
   IconFlipHorizontal,
   IconEye,
   IconEyeOff,
   IconMinus,
   IconPlus,
-  IconRotate,
-  IconScale,
   IconX,
 } from "@tabler/icons-react";
 import {
@@ -218,7 +213,6 @@ const TEXT_STAGGER_EFFECTS = [
     enabledKey: "positionEnabled",
     visibleKey: "positionVisible",
     nameKey: "move",
-    Icon: IconArrowsMove,
     amountKey: "distance",
     amountLabelKey: "distance",
     unit: "px",
@@ -231,7 +225,6 @@ const TEXT_STAGGER_EFFECTS = [
     enabledKey: "scaleEnabled",
     visibleKey: "scaleVisible",
     nameKey: "growShrink",
-    Icon: IconScale,
     amountKey: "scaleAmount",
     amountLabelKey: "amount",
     unit: "%",
@@ -244,7 +237,6 @@ const TEXT_STAGGER_EFFECTS = [
     enabledKey: "rotationEnabled",
     visibleKey: "rotationVisible",
     nameKey: "spin",
-    Icon: IconRotate,
     amountKey: "rotationAmount",
     amountLabelKey: "amount",
     unit: "°",
@@ -257,7 +249,6 @@ const TEXT_STAGGER_EFFECTS = [
     enabledKey: "opacityEnabled",
     visibleKey: "opacityVisible",
     nameKey: "fade",
-    Icon: IconCircleHalf,
     amountKey: "opacityAmount",
     amountLabelKey: "amount",
     unit: "%",
@@ -270,7 +261,6 @@ const TEXT_STAGGER_EFFECTS = [
     enabledKey: "blurEnabled",
     visibleKey: "blurVisible",
     nameKey: "soften",
-    Icon: IconBlur,
     amountKey: "blurAmount",
     amountLabelKey: "amount",
     unit: "px",
@@ -614,6 +604,7 @@ export function MotionNativeStyleEditor({
                       side="left"
                       sideOffset={16}
                       className="w-60 p-0"
+                      aria-label={label}
                       data-motion-native-style-settings={instance.styleKey}
                       onInteractOutside={(event) => {
                         if (
@@ -1514,13 +1505,9 @@ function NativeTextStaggerDetails({
               {availableEffects.map((effect) => (
                 <DropdownMenuItem
                   key={effect.enabledKey}
-                  className="h-6 gap-2 px-2 text-[12px] leading-none"
+                  className="h-6 px-2 text-[12px] leading-none"
                   onSelect={() => addEffect(effect)}
                 >
-                  <effect.Icon
-                    aria-hidden="true"
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                  />
                   {effectLabel(effect)}
                 </DropdownMenuItem>
               ))}
@@ -1875,6 +1862,7 @@ export function MotionEasingPicker({
         {...(side === undefined ? {} : { side })}
         {...(sideOffset === undefined ? {} : { sideOffset })}
         className={compactPopover ? "max-h-[336px] w-[232px] p-2" : "w-60 p-2"}
+        aria-label={t("designEditor.motion.animationStyles.easing")}
       >
         {view === "new-variable" ? (
           <NewEasingVariableForm
@@ -2122,6 +2110,8 @@ function NewEasingVariableForm({
   const canCreate = name.trim().length > 0 && !duplicateName && !disabled;
   const collectionId = `${id}-collection`;
   const nameId = `${id}-name`;
+  const nameErrorId = `${id}-name-error`;
+  const valueLabelId = `${id}-value-label`;
 
   return (
     <div className="space-y-2">
@@ -2153,6 +2143,8 @@ function NewEasingVariableForm({
         <Input
           id={nameId}
           aria-label={t(`${key}.name`)}
+          aria-invalid={duplicateName || undefined}
+          aria-describedby={duplicateName ? nameErrorId : undefined}
           maxLength={128}
           value={name}
           disabled={disabled}
@@ -2161,22 +2153,22 @@ function NewEasingVariableForm({
         />
       </Field>
       {duplicateName ? (
-        <p role="alert" className="text-[10px] text-destructive">
+        <p
+          id={nameErrorId}
+          role="alert"
+          className="text-[10px] text-destructive"
+        >
           {t(`${key}.duplicateName`)}
         </p>
       ) : null}
       <div className="space-y-1">
         <p
-          id="motion-easing-variable-value-label"
+          id={valueLabelId}
           className="text-[10px] leading-none text-muted-foreground"
         >
           {t(`${key}.value`)}
         </p>
-        <div
-          role="group"
-          aria-labelledby="motion-easing-variable-value-label"
-          className="min-w-0"
-        >
+        <div role="group" aria-labelledby={valueLabelId} className="min-w-0">
           <NativeEasingCurveEditor
             value={value}
             disabled={disabled}
@@ -2188,7 +2180,7 @@ function NewEasingVariableForm({
       <div className="flex justify-end gap-1">
         <Button
           type="button"
-          variant="ghost"
+          variant="outline"
           size="sm"
           className="h-7 px-2 text-[11px]"
           disabled={disabled}

@@ -24,6 +24,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
@@ -312,6 +313,7 @@ export function BreakpointDeviceControl({
               size="icon"
               className="size-6 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
               title={t("designEditor.breakpointBar.addBreakpoint")}
+              aria-label={t("designEditor.breakpointBar.addBreakpoint")}
             >
               <IconPlus className="size-3.5" />
             </Button>
@@ -322,7 +324,7 @@ export function BreakpointDeviceControl({
                 <button
                   key={preset.widthPx}
                   type="button"
-                  className="flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-left !text-[12px] hover:bg-muted"
+                  className="flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-start !text-[12px] outline-none hover:bg-muted focus-visible:bg-muted disabled:pointer-events-none disabled:opacity-50"
                   disabled={mutationPending}
                   onClick={() => {
                     onAdd(
@@ -332,8 +334,7 @@ export function BreakpointDeviceControl({
                     setAddOpen(false);
                   }}
                 >
-                  <span className="flex items-center gap-2">
-                    <DeviceIcon widthPx={preset.widthPx} />
+                  <span>
                     {t(`designEditor.breakpointBar.${preset.labelKey}`)}
                   </span>
                   <span className="tabular-nums text-muted-foreground/60">
@@ -343,15 +344,13 @@ export function BreakpointDeviceControl({
               ))}
               {devicePresets.length > 0 ? (
                 <>
-                  {presets.length > 0 ? (
-                    <div className="my-1 h-px bg-border" />
-                  ) : null}
+                  {presets.length > 0 ? <Separator className="my-1" /> : null}
                   <div className="max-h-48 overflow-y-auto overscroll-contain">
                     {devicePresets.map((preset) => (
                       <button
                         key={preset.widthPx}
                         type="button"
-                        className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left !text-[12px] hover:bg-muted"
+                        className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-start !text-[12px] outline-none hover:bg-muted focus-visible:bg-muted disabled:pointer-events-none disabled:opacity-50"
                         disabled={mutationPending}
                         onClick={() => {
                           onAdd(
@@ -361,9 +360,8 @@ export function BreakpointDeviceControl({
                           setAddOpen(false);
                         }}
                       >
-                        <span className="flex min-w-0 items-center gap-2">
-                          <DeviceIcon widthPx={preset.widthPx} />
-                          <span className="truncate">{preset.name}</span>
+                        <span className="min-w-0 truncate" title={preset.name}>
+                          {preset.name}
                         </span>
                         <span className="shrink-0 tabular-nums text-muted-foreground/60">
                           {preset.widthPx}
@@ -374,7 +372,7 @@ export function BreakpointDeviceControl({
                 </>
               ) : null}
               {presets.length > 0 || devicePresets.length > 0 ? (
-                <div className="my-1 h-px bg-border" />
+                <Separator className="my-1" />
               ) : null}
               <form
                 className="flex items-center gap-1 px-1 py-0.5"
@@ -390,6 +388,7 @@ export function BreakpointDeviceControl({
                   value={customWidth}
                   onChange={(event) => setCustomWidth(event.target.value)}
                   placeholder={t("designEditor.breakpointBar.customWidth")}
+                  aria-label={t("designEditor.breakpointBar.customWidth")}
                   aria-invalid={
                     customWidth !== "" &&
                     parseBreakpointWidthInput(customWidth, existingWidths) ===
@@ -409,8 +408,8 @@ export function BreakpointDeviceControl({
               </form>
               {onShowAllFramesChange !== undefined ? (
                 <>
-                  <div className="my-1 h-px bg-border" />
-                  <label className="flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 !text-[12px] hover:bg-muted">
+                  <Separator className="my-1" />
+                  <label className="flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 !text-[12px] hover:bg-muted">
                     <span>
                       {t("designEditor.breakpointBar.showAllBreakpoints")}
                     </span>

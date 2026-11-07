@@ -46,6 +46,9 @@ function ZoomMenuRow({
       onClick={onSelect}
       disabled={disabled}
       className={ZOOM_MENU_ROW_CLASS}
+      {...(checked === undefined
+        ? {}
+        : { role: "menuitemcheckbox", "aria-checked": checked })}
     >
       <span className="flex size-4 shrink-0 items-center justify-center">
         {checked ? <IconCheck className="size-3.5" /> : null}
@@ -174,24 +177,24 @@ export function renderZoomMenu({
               }}
               style={{ width: `${Math.max(zoomInputValue.length, 1)}ch` }}
               className="h-auto min-w-0 rounded-none border-0 bg-transparent p-0 text-[12px] font-medium shadow-none focus-visible:ring-0"
-              aria-label={"Zoom percentage" /* i18n-ignore zoom field */}
+              aria-label={t("designEditor.zoomMenu.percentage")}
             />
             <span aria-hidden="true">%</span>
           </div>
         </div>
         <DropdownMenuSeparator />
         <ZoomMenuRow
-          label={"Zoom in" /* i18n-ignore */}
+          label={t("designEditor.zoomIn")}
           shortcut={shortcut("$mod+=")}
           onSelect={handleZoomIn}
         />
         <ZoomMenuRow
-          label={"Zoom out" /* i18n-ignore */}
+          label={t("designEditor.zoomOut")}
           shortcut={shortcut("$mod+-")}
           onSelect={handleZoomOut}
         />
         <ZoomMenuRow
-          label={"Zoom to fit" /* i18n-ignore */}
+          label={t("designEditor.keyboardShortcuts.commands.zoomFit")}
           shortcut={shortcut("shift+1")}
           onSelect={handleZoomToFit}
         />
@@ -203,12 +206,7 @@ export function renderZoomMenu({
         {[50, 100, 200].map((preset) => (
           <ZoomMenuRow
             key={preset}
-            label={
-              <>
-                {"Zoom to " /* i18n-ignore */}
-                {preset}%
-              </>
-            }
+            label={t("designEditor.zoomMenu.zoomToPreset", { percent: preset })}
             shortcut={preset === 100 ? shortcut("shift+0") : undefined}
             onSelect={() => {
               suppressOverviewPopForExplicitZoomRef.current = true;
@@ -218,32 +216,32 @@ export function renderZoomMenu({
         ))}
         <DropdownMenuSeparator />
         <ZoomMenuRow
-          label={"Pixel grid" /* i18n-ignore */}
+          label={t("designEditor.zoomMenu.pixelGrid")}
           checked={pixelGrid}
           onSelect={() => toggleViewSetting("pixelGrid")}
         />
         <ZoomMenuRow
-          label={"Snap to pixel grid" /* i18n-ignore */}
+          label={t("designEditor.zoomMenu.snapToPixelGrid")}
           checked={snapToPixelGrid}
           disabled={viewMode !== "overview"}
           onSelect={() => toggleViewSetting("snapToPixelGrid")}
         />
         <ZoomMenuRow
-          label={"Rulers" /* i18n-ignore */}
+          label={t("designEditor.zoomMenu.rulers")}
           checked={rulers}
           shortcut={shortcut("shift+r")}
           disabled={viewMode !== "overview"}
           onSelect={() => toggleViewSetting("rulers")}
         />
         <ZoomMenuRow
-          label={"Multiplayer cursors" /* i18n-ignore */}
+          label={t("designEditor.zoomMenu.multiplayerCursors")}
           checked={multiplayerCursors}
           disabled={viewMode === "overview"}
           onSelect={() => toggleViewSetting("multiplayerCursors")}
         />
         <DropdownMenuSeparator />
         <ZoomMenuRow
-          label={"Comments" /* i18n-ignore */}
+          label={t("designEditor.zoomMenu.comments")}
           checked={!commentsHidden}
           shortcut={shortcut("shift+c")}
           onSelect={handleToggleComments}

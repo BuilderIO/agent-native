@@ -276,6 +276,7 @@ export default {
     notFoundDescription: "आप जिस पृष्ठ को ढूँढ रहे हैं वह मौजूद नहीं है।",
     notFoundSignIn: "साइन इन करें",
     notFoundBackToDesigns: "डिज़ाइन पर वापस जाएँ",
+    presentGoToScreen: "स्क्रीन {{number}} पर जाएँ",
   },
   onboarding: {
     fileStorage: {
@@ -938,6 +939,7 @@ export default {
       truncateText: "पाठ छोटा करें",
       maxLines: "अधिकतम पंक्तियाँ",
       restoreError: "पाठ का मूल लेआउट पुनर्स्थापित नहीं हो सका।",
+      title: "टाइपोग्राफ़ी विवरण",
     },
     flexDirections: {
       row: "पंक्ति",
@@ -1666,8 +1668,8 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} छवि{{plural}} को लोड करने के लिए Figma की पहुँच चाहिए।",
       figmaPasteImagesDontShowAgain: "फिर से न दिखाएँ",
-      figmaPasteUploadImage: "इमेज अपलोड करें",
-      figmaPasteUploadImageFor: "“{{name}}” अपलोड करें",
+      figmaPasteUploadImage: "इमेज अपलोड करें…",
+      figmaPasteUploadImageFor: "“{{name}}” अपलोड करें…",
       figmaPasteImageFallbackName: "इमेज {{index}}",
       figmaPasteUploadImageSuccess: "इमेज भर दी गई",
       figmaPasteUploadImageInvalid: "SVG, PNG या JPG जैसी कोई इमेज फ़ाइल चुनें।",
@@ -1683,7 +1685,7 @@ export default {
       figmaHydrationFigTitle: "Have the original .fig file?",
       figmaHydrationFigOption:
         "Fastest — pulls every image straight from the file. No token, no rate limits.",
-      figmaHydrationChooseFig: "Fill images from .fig",
+      figmaHydrationChooseFig: ".fig से इमेज भरें…",
       figmaHydrationOrToken: "Or fetch from Figma",
       figmaHydrationTokenDescription:
         'Fetches the exact images from the copied frame\'s Figma file. Needs "File content" and "Current user" scopes; saved securely, never shown in chat.',
@@ -1770,7 +1772,18 @@ export default {
         importBusy: "एक और आयात जारी है। पहले उसे पूरा करें या रद्द करें।",
         figFileTooLarge:
           "यह .fig बहुत बड़ी है — uploads की सीमा {{max}} MB है। Figma में जिस frame को import करना है उसे एक नई file में copy करें और उस file को .fig के रूप में export करें, या Paste from Figma का उपयोग करें।",
+        figmaTokenForbidden:
+          'टोकन अस्वीकार किया गया (403)। Figma की टोकन सेटिंग में "File content" और "Current user" स्कोप चालू करें, फिर नया टोकन बनाएँ।',
       },
+      figmaHydrationFigFilled_one: ".fig फ़ाइल से {{count}} इमेज भरी गई।",
+      figmaHydrationFigFilled_other: ".fig फ़ाइल से {{count}} इमेज भरी गईं।",
+      figmaHydrationTokenFilled_one: "Figma से {{count}} इमेज भरी गई।",
+      figmaHydrationTokenFilled_other: "Figma से {{count}} इमेज भरी गईं।",
+      figmaPasteImagesMissing_one:
+        "{{count}} इमेज लोड करने के लिए Figma एक्सेस चाहिए।",
+      figmaPasteImagesMissing_other:
+        "{{count}} इमेज लोड करने के लिए Figma एक्सेस चाहिए।",
+      figmaPasteConnectAndFetch: "कनेक्ट करें और इमेज लाएँ…",
     },
     generationMayHaveStopped:
       "फ़ाइलें बनाने से पहले जनरेशन रुक गया हो सकता है। एजेंट संदेश देखें या फिर कोशिश करें।",
@@ -1811,8 +1824,8 @@ export default {
       file: "फ़ाइल",
       preferences: "प्राथमिकताएँ",
       newDesign: "नया डिज़ाइन",
-      saveLocalCopy: "लोकल कॉपी सहेजें…",
-      makeAnApp: "ऐप बनाएँ",
+      saveLocalCopy: "लोकल कॉपी सहेजें",
+      makeAnApp: "ऐप बनाएँ…",
       theme: "थीम",
       themeLight: "लाइट",
       themeDark: "डार्क",
@@ -2093,7 +2106,7 @@ export default {
     addExtension: "एक्सटेंशन",
     extensionsDocs: "दस्तावेज़",
     extensionsPromptTitle: "यह एक्सटेंशन क्या करे?",
-    extensionsPlaceholder: "स्टाइल टूल, चयन सहायक, आर्टबोर्ड क्रियाएं...",
+    extensionsPlaceholder: "स्टाइल टूल, चयन सहायक, आर्टबोर्ड क्रियाएं…",
     extensionsEmptyTitle: "अभी कोई एडिटर एक्सटेंशन नहीं",
     extensionsEmptyDescription:
       "एक छोटा इंस्पेक्टर एक्सटेंशन बनाएं जो चयनित तत्व पढ़ सके, एक्शन कॉल कर सके, या एजेंट से आर्टबोर्ड अपडेट करा सके.",
@@ -2106,7 +2119,7 @@ export default {
     designExport: "Design निर्यात",
     designPreview: "Design पूर्वावलोकन",
     preview: "पूर्वावलोकन",
-    publish: "प्रकाशित करें",
+    publish: "प्रकाशित करें…",
     presentMode: "वर्तमान मोड",
     useThisDirection: "इस दिशा का प्रयोग करें",
     variantHandoffHelp: "जारी रखने के लिए इस सारांश को अपने कोडिंग एजेंट में चिपकाएँ।",
@@ -2183,7 +2196,7 @@ export default {
     addLocalhostScreen: {
       title: "अपनी app से screen जोड़ें",
       description: "नए frame के रूप में जोड़ने के लिए एक route चुनें, या path टाइप करें।",
-      searchPlaceholder: "Routes खोजें…",
+      searchPlaceholder: "Routes खोजें या पाथ लिखें…",
       noRoutes: "कोई मेल खाता route नहीं मिला",
       noDiscoveredRoutes:
         "इस app में कोई route नहीं मिला। स्क्रीन जोड़ने के लिए कोई path टाइप करें।",
@@ -2192,9 +2205,11 @@ export default {
       viewportMobile: "Mobile",
       added: "Screen जोड़ी गई",
       addFailed: "Screen नहीं जोड़ी जा सकी",
+      viewportLabel: "व्यूपोर्ट",
+      searchLabel: "Routes खोजें",
     },
     localhostConsent: {
-      approvedTitle: "स्वीकृत — संपादन फिर से चलाएँ",
+      approvedTitle: "फ़ाइल लिखना स्वीकृत",
       approvedDescription:
         "फ़ाइल लिखने की अनुमति 8 घंटे के लिए है। जिस संपादन ने एक्सेस माँगा था, वह सहेजा नहीं गया।",
       retryInChat: "चैट में फिर से चलाएँ",
@@ -2205,6 +2220,8 @@ export default {
       close: "बंद करें",
       prepareSignInError:
         "साइन इन से पहले यह अनुरोध सहेजा नहीं जा सका। फिर से कोशिश करें।",
+      writeScope:
+        "केवल टेक्स्ट और कोड फ़ाइलें लिखी जा सकती हैं। .env और की फ़ाइलों जैसे सीक्रेट, और रूट फ़ोल्डर के बाहर के पाथ हमेशा ब्लॉक रहते हैं।",
     },
     nodeRewrite: {
       composerTitle: "चयन के बारे में पूछें या बदलें",
@@ -2368,10 +2385,28 @@ export default {
     },
     commenterRoleLabel: "टिप्पणीकार",
     commenterRoleDescription: "समीक्षा टिप्पणियाँ देख और जोड़ सकते हैं",
+    saveTemplateTitle: "टेम्पलेट के रूप में सहेजें",
+    templateSnapshotScreens_one: "{{count}} स्क्रीन",
+    templateSnapshotScreens_other: "{{count}} स्क्रीन",
+    templateSnapshotLocks_one: "{{count}} लॉक की गई लेयर",
+    templateSnapshotLocks_other: "{{count}} लॉक की गई लेयर",
+    templateSnapshotSummaryWithLocks: "{{screens}} और {{locks}} सुरक्षित रहेंगी",
+    templateSnapshotSummaryScreens: "{{screens}} सुरक्षित रहेंगी",
+    zoomMenu: {
+      percentage: "ज़ूम प्रतिशत",
+      zoomToPreset: "{{percent}}% पर ज़ूम करें",
+      pixelGrid: "पिक्सेल ग्रिड",
+      snapToPixelGrid: "पिक्सेल ग्रिड पर स्नैप करें",
+      rulers: "रूलर",
+      multiplayerCursors: "मल्टीप्लेयर कर्सर",
+      comments: "टिप्पणियाँ",
+    },
+    states: { nameLabel: "स्टेट का नाम" },
+    createExtension: "एक्सटेंशन बनाएँ",
   },
   canvasMenu: {
-    editWithAgent: "Agent से संपादित करें",
-    exploreWithAgent: "Agent के साथ खोजें",
+    editWithAgent: "एजेंट से संपादित करें",
+    exploreWithAgent: "एजेंट के साथ खोजें",
     group: "चयन को समूहित करें",
     inspiration: "प्रेरणा",
     inspirationDescription: "कई वेरिएंट खोजें",
@@ -2470,6 +2505,8 @@ export default {
       publicPreviewUnavailableDescription:
         "लोकलहोस्ट प्रीव्यू सार्वजनिक दर्शकों के साथ साझा नहीं किए जाते। इस स्क्रीन को देखने के लिए इस डिज़ाइन को सहयोगी के रूप में खोलें।",
       previewCredentialsRetry: "क्रेडेंशियल फिर से आज़माएँ",
+      maybeBlockedDescription:
+        "आपके ब्राउज़र को localhost से कनेक्ट करने की अनुमति चाहिए हो सकती है, या डेव सर्वर ऑफ़लाइन हो सकता है।",
     },
   },
   multiScreenCanvas: {
@@ -2575,7 +2612,7 @@ export default {
     blank: "खाली",
     builtIn: "अंतर्निहित",
     chooseTemplate: "टेम्पलेट चुनें",
-    searchTemplates: "टेम्पलेट खोजें...",
+    searchTemplates: "टेम्पलेट खोजें…",
     noTemplatesFound: "कोई टेम्पलेट नहीं मिला।",
     yourTemplates: "आपके टेम्पलेट",
     builtInTemplates: "अंतर्निहित टेम्पलेट",
@@ -2889,7 +2926,7 @@ export default {
     all: "सभी",
     showMineDesigns: "मेरे डिज़ाइन दिखाएं",
     showAllDesigns: "सभी डिज़ाइन दिखाएं",
-    openingDesign: "डिज़ाइन खोला जा रहा है...",
+    openingDesign: "डिज़ाइन खोला जा रहा है…",
     skipToEditor: "एडिटर पर जाएँ",
     failedToCreateDesign: "डिज़ाइन नहीं बनाया जा सका",
     describeBuild: "बताएँ कि आप क्या बनाना चाहते हैं...",
@@ -2900,15 +2937,15 @@ export default {
     delete: "हटाएँ",
     selectDesign: "{{title}} का चयन करें",
     actionsForDesign: "{{title}} के लिए क्रियाएँ",
-    rename: "नाम बदलें",
+    rename: "नाम बदलें…",
     duplicate: "डुप्लिकेट",
     renameDesign: "डिज़ाइन का नाम बदलें",
     designName: "Design नाम",
     cancel: "रद्द करें",
     save: "सहेजें",
-    deleteDesignTitle: "Design हटाएँ?",
-    deleteDesignsTitle: "{{count}} Designs हटाएँ?",
-    deleteSingleDesignsTitle: "{{count}} Design हटाएँ?",
+    deleteDesignTitle: "डिज़ाइन हटाएँ?",
+    deleteDesignsTitle: "{{count}} डिज़ाइन हटाएँ?",
+    deleteSingleDesignsTitle: "{{count}} डिज़ाइन हटाएँ?",
     deleteDesignDescription:
       "इससे यह डिज़ाइन और इसकी सभी फ़ाइलें स्थायी रूप से हटा दी जाएंगी। इस एक्शन को वापस नहीं किया जा सकता।",
     deleteDesignsDescription:
@@ -3046,7 +3083,7 @@ export default {
     useTemplate: "टेम्प्लेट का उपयोग करें",
     useAsIs: "टेम्पलेट जैसा है वैसा उपयोग करें",
     promptPlaceholder: "बताएँ कि इस टेम्पलेट से क्या बनाना चाहते हैं...",
-    opening: "टेम्पलेट खुल रहा है...",
+    opening: "टेम्पलेट खुल रहा है…",
     createFailed: "इस टेम्पलेट से डिज़ाइन नहीं बनाया जा सका",
     deleted: "टेम्पलेट हटा दिया गया",
     deleteFailed: "यह टेम्पलेट हटाया नहीं जा सका",
@@ -3273,7 +3310,7 @@ export default {
       title: "डिज़ाइन सिस्टम हटाएँ?",
       description:
         "यह इस डिज़ाइन सिस्टम को स्थायी रूप से हटा देगा और इसका उपयोग करने वाले किसी भी डिज़ाइन से इसे अनलिंक कर देगा। इस एक्शन को वापस नहीं किया जा सकता।",
-      bulkTitle: "{{count}} डिज़ाइन सिस्टम हटाएं?",
+      bulkTitle: "{{count}} डिज़ाइन सिस्टम हटाएँ?",
       bulkDescription:
         "यह {{count}} डिज़ाइन सिस्टम को स्थायी रूप से हटा देगा और उनका उपयोग करने वाले किसी भी डिज़ाइन से उन्हें अनलिंक कर देगा। इस एक्शन को वापस नहीं किया जा सकता।",
     },
@@ -3287,7 +3324,7 @@ export default {
         "जब भी यह सिस्टम किसी डिज़ाइन से जुड़ा होता है तो एजेंट टिकाऊ मार्गदर्शन का पुन: उपयोग करता है।",
       noCustomInstructions: "अभी तक कोई कस्टम निर्देश सहेजा नहीं गया है.",
       useAsStartingPoint: "आरंभिक बिंदु के रूप में उपयोग करें",
-      saving: "सहेजा जा रहा है...",
+      saving: "सहेजा जा रहा है…",
       saveChanges: "परिवर्तनों को सुरक्षित करें",
     },
     preview: {

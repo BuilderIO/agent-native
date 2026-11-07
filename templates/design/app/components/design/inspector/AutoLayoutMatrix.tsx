@@ -65,13 +65,9 @@ import {
   IconGapVertical,
   IconPaddingHorizontal,
   IconPaddingVertical,
-  IconSizingFill,
-  IconSizingFixed,
-  IconSizingHug,
   IconSizingMax,
   IconSizingMin,
   IconSizingRemove,
-  IconSizingVariable,
 } from "./design-icons";
 import {
   MotionKeyframeDiamond,
@@ -1106,7 +1102,12 @@ function GridAdvancedPopover({
         </TooltipTrigger>
         <TooltipContent>{settingsLabel}</TooltipContent>
       </Tooltip>
-      <PopoverContent align="end" sideOffset={6} className="w-56 space-y-2 p-3">
+      <PopoverContent
+        align="end"
+        sideOffset={6}
+        className="w-56 space-y-2 p-3"
+        aria-label={settingsLabel}
+      >
         <div className="grid grid-cols-2 gap-1.5">
           <GridNumberField
             label={"Columns" /* i18n-ignore design inspector label */}
@@ -2083,14 +2084,12 @@ export function SizingField({
     >
       {/* ── Modes ── */}
       <SizingMenuItem
-        icon={<IconSizingFixed />}
         label={labels.fixed}
         active={!autoMode?.active && value === "fixed"}
         onSelect={() => onChange("fixed")}
       />
       {canHug ? (
         <SizingMenuItem
-          icon={<IconSizingHug />}
           label={labels.hugContents}
           active={!autoMode?.active && value === "hug"}
           onSelect={() => onChange("hug")}
@@ -2098,7 +2097,6 @@ export function SizingField({
       ) : null}
       {canFill ? (
         <SizingMenuItem
-          icon={<IconSizingFill />}
           label={labels.fillContainer}
           active={!autoMode?.active && value === "fill"}
           onSelect={() => onChange("fill")}
@@ -2106,7 +2104,6 @@ export function SizingField({
       ) : null}
       {autoMode ? (
         <SizingMenuItem
-          icon={<IconSizingFixed />}
           label={autoMode.label}
           active={autoMode.active}
           onSelect={autoMode.onSelect}
@@ -2118,14 +2115,12 @@ export function SizingField({
         <>
           <DropdownMenuSeparator />
           <SizingMenuItem
-            icon={<IconSizingMin />}
             label={addMinLabel}
             active={hasMin}
             disabled={hasMin}
             onSelect={() => openEditor("min")}
           />
           <SizingMenuItem
-            icon={<IconSizingMax />}
             label={addMaxLabel}
             active={hasMax}
             disabled={hasMax}
@@ -2139,7 +2134,6 @@ export function SizingField({
         <>
           <DropdownMenuSeparator />
           <SizingMenuItem
-            icon={<IconSizingVariable />}
             label={labels.applyVariable}
             disabled={!onApplyVariable}
             onSelect={() => onApplyVariable?.(sizingAxis)}
@@ -2288,13 +2282,11 @@ export function SizingField({
 }
 
 function SizingMenuItem({
-  icon,
   label,
   active = false,
   disabled = false,
   onSelect,
 }: {
-  icon: ReactNode;
   label: string;
   active?: boolean;
   disabled?: boolean;
@@ -2307,9 +2299,6 @@ function SizingMenuItem({
       onSelect={onSelect}
       className="gap-2 pl-2 pr-2 text-[12px]"
     >
-      <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
-        {icon}
-      </span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
       <span className="flex size-3.5 shrink-0 items-center justify-center text-[var(--design-editor-accent-color,hsl(var(--primary)))]">
         {active ? <IconCheck className="size-3" /> : null}

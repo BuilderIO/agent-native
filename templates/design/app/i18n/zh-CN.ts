@@ -266,6 +266,7 @@ export default {
     notFoundDescription: "您要查找的页面不存在。",
     notFoundSignIn: "登录",
     notFoundBackToDesigns: "返回设计",
+    presentGoToScreen: "转到屏幕 {{number}}",
   },
   onboarding: {
     fileStorage: {
@@ -926,6 +927,7 @@ export default {
       truncateText: "截断文本",
       maxLines: "最大行数",
       restoreError: "无法恢复原始文本布局。",
+      title: "排版详情",
     },
     flexDirections: {
       row: "排",
@@ -1636,8 +1638,8 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} 张图片{{plural}}需要 Figma 访问权限才能加载。",
       figmaPasteImagesDontShowAgain: "不再显示",
-      figmaPasteUploadImage: "上传图片",
-      figmaPasteUploadImageFor: "上传“{{name}}”",
+      figmaPasteUploadImage: "上传图片…",
+      figmaPasteUploadImageFor: "上传“{{name}}”…",
       figmaPasteImageFallbackName: "图片 {{index}}",
       figmaPasteUploadImageSuccess: "已填充图片",
       figmaPasteUploadImageInvalid: "请选择图片文件，例如 SVG、PNG 或 JPG。",
@@ -1653,7 +1655,7 @@ export default {
       figmaHydrationFigTitle: "Have the original .fig file?",
       figmaHydrationFigOption:
         "Fastest — pulls every image straight from the file. No token, no rate limits.",
-      figmaHydrationChooseFig: "Fill images from .fig",
+      figmaHydrationChooseFig: "从 .fig 填充图片…",
       figmaHydrationOrToken: "Or fetch from Figma",
       figmaHydrationTokenDescription:
         'Fetches the exact images from the copied frame\'s Figma file. Needs "File content" and "Current user" scopes; saved securely, never shown in chat.',
@@ -1738,7 +1740,14 @@ export default {
         importBusy: "另一个导入正在进行。请先完成或取消。",
         figFileTooLarge:
           "该 .fig 文件太大 — 上传上限为 {{max}} MB。请在 Figma 中将需要导入的画板复制到新文件，然后导出该文件为 .fig，或改用“从 Figma 粘贴”。",
+        figmaTokenForbidden:
+          "令牌被拒绝 (403)。请在 Figma 的令牌设置中启用“File content”和“Current user”权限范围，然后生成新令牌。",
       },
+      figmaHydrationFigFilled_other: "已从 .fig 文件填充 {{count}} 张图片。",
+      figmaHydrationTokenFilled_other: "已从 Figma 填充 {{count}} 张图片。",
+      figmaPasteImagesMissing_other:
+        "{{count}} 张图片需要 Figma 访问权限才能加载。",
+      figmaPasteConnectAndFetch: "连接并获取图片…",
     },
     generationMayHaveStopped:
       "生成可能在创建文件前停止。请查看代理消息或重试。",
@@ -1775,8 +1784,8 @@ export default {
       file: "文件",
       preferences: "偏好设置",
       newDesign: "新建设计",
-      saveLocalCopy: "保存本地副本…",
-      makeAnApp: "制作应用",
+      saveLocalCopy: "保存本地副本",
+      makeAnApp: "制作应用…",
       theme: "主题",
       themeLight: "浅色",
       themeDark: "深色",
@@ -2054,7 +2063,7 @@ export default {
     addExtension: "扩展",
     extensionsDocs: "文档",
     extensionsPromptTitle: "这个扩展应该做什么？",
-    extensionsPlaceholder: "样式工具、选择辅助、画板操作...",
+    extensionsPlaceholder: "样式工具、选择辅助、画板操作…",
     extensionsEmptyTitle: "还没有编辑器扩展",
     extensionsEmptyDescription:
       "构建一个小型检查器扩展，用来读取所选元素、调用操作，或让代理更新画板。",
@@ -2067,7 +2076,7 @@ export default {
     designExport: "Design 导出",
     designPreview: "Design 预览",
     preview: "预览",
-    publish: "发布",
+    publish: "发布…",
     presentMode: "呈现模式",
     useThisDirection: "使用这个方向",
     variantHandoffHelp: "将此摘要粘贴到您的编码代理中以继续。",
@@ -2143,7 +2152,7 @@ export default {
     addLocalhostScreen: {
       title: "从您的应用添加屏幕",
       description: "选择一个路由作为新屏幕，或输入路径。",
-      searchPlaceholder: "搜索路由…",
+      searchPlaceholder: "搜索路由或输入路径…",
       noRoutes: "未找到匹配的路由",
       noDiscoveredRoutes: "此应用未发现路由。输入路径即可添加屏幕。",
       useCustomPath: "添加“{{path}}”",
@@ -2151,9 +2160,11 @@ export default {
       viewportMobile: "移动版",
       added: "已添加屏幕",
       addFailed: "无法添加屏幕",
+      viewportLabel: "视口",
+      searchLabel: "搜索路由",
     },
     localhostConsent: {
-      approvedTitle: "已批准 — 请重新运行编辑",
+      approvedTitle: "已批准文件写入",
       approvedDescription:
         "文件写入权限有效期为 8 小时。请求访问权限的那次编辑未保存。",
       retryInChat: "在聊天中重新运行",
@@ -2163,6 +2174,8 @@ export default {
       unavailableDescription: "重新运行编辑以请求访问权限。",
       close: "关闭",
       prepareSignInError: "无法在登录前保存此请求。请重试。",
+      writeScope:
+        "只能写入文本和代码文件。.env 和密钥文件等机密文件，以及根文件夹之外的路径，始终会被阻止。",
     },
     nodeRewrite: {
       composerTitle: "询问或更改所选内容",
@@ -2309,10 +2322,26 @@ export default {
     },
     commenterRoleLabel: "评论者",
     commenterRoleDescription: "可以查看并添加审阅评论",
+    saveTemplateTitle: "存为模板",
+    templateSnapshotScreens_other: "{{count}} 个屏幕",
+    templateSnapshotLocks_other: "{{count}} 个锁定图层",
+    templateSnapshotSummaryWithLocks: "将保留{{screens}}和{{locks}}",
+    templateSnapshotSummaryScreens: "将保留{{screens}}",
+    zoomMenu: {
+      percentage: "缩放百分比",
+      zoomToPreset: "缩放至 {{percent}}%",
+      pixelGrid: "像素网格",
+      snapToPixelGrid: "对齐像素网格",
+      rulers: "标尺",
+      multiplayerCursors: "多人光标",
+      comments: "评论",
+    },
+    states: { nameLabel: "状态名称" },
+    createExtension: "创建扩展",
   },
   canvasMenu: {
-    editWithAgent: "使用 Agent 编辑",
-    exploreWithAgent: "使用 Agent 探索",
+    editWithAgent: "使用智能体编辑",
+    exploreWithAgent: "使用智能体探索",
     group: "编组所选内容",
     inspiration: "灵感",
     inspirationDescription: "探索多个变体",
@@ -2410,6 +2439,8 @@ export default {
       publicPreviewUnavailableDescription:
         "localhost 预览不会与公开访问者共享。请以协作者身份打开此设计以查看此屏幕。",
       previewCredentialsRetry: "重试获取凭据",
+      maybeBlockedDescription:
+        "你的浏览器可能需要连接 localhost 的权限，或者开发服务器可能已离线。",
     },
   },
   multiScreenCanvas: {
@@ -2510,7 +2541,7 @@ export default {
     blank: "空白",
     builtIn: "内置",
     chooseTemplate: "选择模板",
-    searchTemplates: "搜索模板...",
+    searchTemplates: "搜索模板…",
     noTemplatesFound: "未找到模板。",
     yourTemplates: "你的模板",
     builtInTemplates: "内置模板",
@@ -2821,7 +2852,7 @@ export default {
     all: "全部",
     showMineDesigns: "显示我的设计",
     showAllDesigns: "显示所有设计",
-    openingDesign: "正在打开设计...",
+    openingDesign: "正在打开设计…",
     skipToEditor: "直接进入编辑器",
     failedToCreateDesign: "无法创建设计",
     describeBuild: "描述您想要构建的内容...",
@@ -2832,15 +2863,15 @@ export default {
     delete: "删除",
     selectDesign: "选择{{title}}",
     actionsForDesign: "{{title}} 的操作",
-    rename: "重命名",
+    rename: "重命名…",
     duplicate: "重复",
     renameDesign: "重命名设计",
     designName: "Design 名称",
     cancel: "取消",
     save: "保存",
-    deleteDesignTitle: "删除Design？",
-    deleteDesignsTitle: "删除 {{count}} Design？",
-    deleteSingleDesignsTitle: "删除 {{count}} Design？",
+    deleteDesignTitle: "删除设计？",
+    deleteDesignsTitle: "删除 {{count}} 个设计？",
+    deleteSingleDesignsTitle: "删除 {{count}} 个设计？",
     deleteDesignDescription: "这将永久删除该设计及其所有文件。此操作无法撤消。",
     deleteDesignsDescription:
       "这将永久删除这些 {{count}} 设计及其所有文件。此操作无法撤消。",
@@ -2976,7 +3007,7 @@ export default {
     useTemplate: "使用模板",
     useAsIs: "直接使用模板",
     promptPlaceholder: "描述您想使用此模板制作的内容...",
-    opening: "正在打开模板...",
+    opening: "正在打开模板…",
     createFailed: "无法从此模板创建设计",
     deleted: "模板已删除",
     deleteFailed: "无法删除此模板",
@@ -3192,7 +3223,7 @@ export default {
       title: "删除设计系统？",
       description:
         "这将永久删除该设计系统，并取消它与任何使用它的设计的链接。此操作无法撤消。",
-      bulkTitle: "删除 {{count}} 设计系统？",
+      bulkTitle: "删除 {{count}} 个设计系统？",
       bulkDescription:
         "这将永久删除 {{count}} 设计系统，并取消它们与使用它们的任何设计的链接。此操作无法撤消。",
     },
@@ -3205,7 +3236,7 @@ export default {
         "每当该系统链接到设计时，代理就会重复使用持久的指导。",
       noCustomInstructions: "尚未保存自定义指令。",
       useAsStartingPoint: "用作起点",
-      saving: "保存...",
+      saving: "正在保存…",
       saveChanges: "保存更改",
     },
     preview: {

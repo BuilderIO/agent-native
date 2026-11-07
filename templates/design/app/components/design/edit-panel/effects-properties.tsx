@@ -25,6 +25,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -540,18 +542,25 @@ function ShadowEffectRow({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-36">
-            <DropdownMenuItem
-              className="!text-[11px]"
-              onSelect={() => onChange({ inset: false })}
+            <DropdownMenuRadioGroup
+              value={layer.inset ? "inner" : "drop"}
+              onValueChange={(value) => onChange({ inset: value === "inner" })}
             >
-              {t("editPanel.labels.dropShadow")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="!text-[11px]"
-              onSelect={() => onChange({ inset: true })}
-            >
-              {t("editPanel.labels.innerShadow")}
-            </DropdownMenuItem>
+              <DropdownMenuRadioItem
+                value="drop"
+                indicator="check"
+                className="!text-[11px]"
+              >
+                {t("editPanel.labels.dropShadow")}
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem
+                value="inner"
+                indicator="check"
+                className="!text-[11px]"
+              >
+                {t("editPanel.labels.innerShadow")}
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       }

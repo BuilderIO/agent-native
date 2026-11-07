@@ -216,10 +216,7 @@ export function EditorTabs() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{"Cancel" /* i18n-ignore */}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-transparent text-foreground shadow-none hover:bg-muted"
-              onClick={handleDiscardAndClose}
-            >
+            <AlertDialogAction variant="ghost" onClick={handleDiscardAndClose}>
               {"Don't Save" /* i18n-ignore */}
             </AlertDialogAction>
             <AlertDialogAction onClick={() => void handleSaveAndClose()}>

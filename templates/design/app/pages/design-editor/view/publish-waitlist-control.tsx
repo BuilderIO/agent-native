@@ -1,7 +1,14 @@
 import { IconPlayerPlay, IconChevronDown } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,7 +39,7 @@ export function PublishWaitlistPanel({
   editorLayerActions: EditorLayerActions;
   onClose: () => void;
 }) {
-  const { isSignedIn } = editorCore;
+  const { isSignedIn, t } = editorCore;
   const {
     publishWaitlistJoined,
     publishWaitlistError,
@@ -42,15 +49,13 @@ export function PublishWaitlistPanel({
 
   return (
     <>
-      <div className="space-y-1">
-        <p className="text-sm font-medium text-foreground">
-          {
-            publishWaitlistJoined
-              ? "You're on the waitlist" /* i18n-ignore */
-              : "Publish app" /* i18n-ignore */
-          }
-        </p>
-        <p className="text-xs leading-5 text-muted-foreground">
+      <DialogHeader>
+        <DialogTitle className="text-sm font-medium">
+          {publishWaitlistJoined
+            ? "You're on the waitlist" /* i18n-ignore */
+            : t("designEditor.publishApp")}
+        </DialogTitle>
+        <DialogDescription className="text-xs leading-5">
           {
             publishWaitlistJoined
               ? "We'll follow up when app publishing is ready for your workspace." /* i18n-ignore */
@@ -58,14 +63,14 @@ export function PublishWaitlistPanel({
                 ? "Publish directly from Design is opening soon. Want early access?" /* i18n-ignore */
                 : "Publish directly from Design is opening soon. Sign in to join the waitlist." /* i18n-ignore */
           }
-        </p>
-      </div>
+        </DialogDescription>
+      </DialogHeader>
       {publishWaitlistError ? (
         <p role="alert" className="text-xs text-destructive">
           {publishWaitlistError}
         </p>
       ) : null}
-      <div className="flex justify-end gap-2">
+      <DialogFooter>
         <Button
           variant="outline"
           size="sm"
@@ -87,7 +92,7 @@ export function PublishWaitlistPanel({
           >
             {joiningPublishWaitlist ? (
               <>
-                <Spinner className="mr-1.5 size-3.5" />
+                <Spinner className="size-3.5" />
                 {"Joining" /* i18n-ignore */}
               </>
             ) : isSignedIn ? (
@@ -97,7 +102,7 @@ export function PublishWaitlistPanel({
             )}
           </Button>
         )}
-      </div>
+      </DialogFooter>
     </>
   );
 }
@@ -190,10 +195,10 @@ export function renderPublishWaitlistControl({
           if (!open) setPublishWaitlistPopoverView("actions");
         }}
       >
-        <DialogContent className="sm:max-w-sm">
-          <DialogTitle className="sr-only">
-            {t("designEditor.publishApp")}
-          </DialogTitle>
+        <DialogContent
+          className="sm:max-w-sm"
+          closeLabel={t("designEditor.close")}
+        >
           <PublishWaitlistPanel
             editorCore={editorCore}
             editorLayerActions={editorLayerActions}

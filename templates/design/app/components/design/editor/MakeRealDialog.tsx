@@ -249,7 +249,7 @@ export function MakeRealDialog({
                   >
                     {joiningWaitlist ? (
                       <>
-                        <Spinner className="mr-2 size-3.5" />
+                        <Spinner className="size-3.5" />
                         {"Joining…" /* i18n-ignore */}
                       </>
                     ) : (
@@ -284,7 +284,7 @@ export function MakeRealDialog({
                   <BuilderConnectPopover flow={builderConnect}>
                     <Button className="cursor-pointer">
                       {result.cta.primaryAction}
-                      <IconExternalLink className="ml-1.5 size-3.5" />
+                      <IconExternalLink className="size-3.5" />
                     </Button>
                   </BuilderConnectPopover>
                 ) : (
@@ -295,7 +295,7 @@ export function MakeRealDialog({
                       rel="noopener noreferrer"
                     >
                       {result.cta.primaryAction}
-                      <IconExternalLink className="ml-1.5 size-3.5" />
+                      <IconExternalLink className="size-3.5" />
                     </a>
                   </Button>
                 )
@@ -382,7 +382,7 @@ export function MakeRealDialog({
               >
                 {pending ? (
                   <>
-                    <Spinner className="mr-2 size-3.5" />
+                    <Spinner className="size-3.5" />
                     {"Starting migration…" /* i18n-ignore */}
                   </>
                 ) : (

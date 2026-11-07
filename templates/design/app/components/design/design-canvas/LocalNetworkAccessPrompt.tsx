@@ -53,7 +53,10 @@ export function LocalNetworkAccessPrompt({
       ? "The local bridge restarted, so this screen's preview token is stale. Run design connect again, then click Retry." /* i18n-ignore stale local dev preview token body */
       : isConfirmedUnreachable
         ? "Is it still running?" /* i18n-ignore local dev connect card body */
-        : "Your browser may need permission to connect to localhost — or the dev server may be offline." /* i18n-ignore local dev connect card body */;
+        : t("designCanvas.localBridge.maybeBlockedDescription", {
+            defaultValue:
+              "Your browser may need permission to connect to localhost, or the dev server may be offline.",
+          });
   const actionLabel = connecting
     ? "Connecting…" /* i18n-ignore local dev connect card button, transient */
     : kind === "maybePermissionBlocked"
@@ -97,44 +100,36 @@ export function LocalNetworkAccessPrompt({
 
   if (proactive) {
     return (
-      <>
-        <Dialog defaultOpen>
-          <DialogContent
-            className="sm:max-w-md"
-            overlayClassName="backdrop-blur-[4px]"
-            hideClose
-            onInteractOutside={(event) => event.preventDefault()}
-            onEscapeKeyDown={(event) => event.preventDefault()}
-          >
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={t("designEditor.close")}
-              className="absolute end-3 top-3 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              onClick={onDismiss}
-            >
-              <IconX className="size-4" />
-              <span className="sr-only">{t("designEditor.close")}</span>
-            </Button>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <IconPlugConnected className="size-4" />
-                {title}
-              </DialogTitle>
-              <DialogDescription>{description}</DialogDescription>
-            </DialogHeader>
-            <img
-              src="/local-network-access-permission.png"
-              alt={description}
-              className="block w-full rounded-md border border-border"
-              width={1460}
-              height={850}
-            />
-            {permissionHelp}
-          </DialogContent>
-        </Dialog>
-      </>
+      <Dialog
+        open
+        onOpenChange={(next) => {
+          if (!next) onDismiss();
+        }}
+      >
+        <DialogContent
+          className="sm:max-w-md"
+          overlayClassName="backdrop-blur-[4px]"
+          closeLabel={t("designEditor.close")}
+          onInteractOutside={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => event.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <IconPlugConnected className="size-4" />
+              {title}
+            </DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
+          </DialogHeader>
+          <img
+            src="/local-network-access-permission.png"
+            alt={description}
+            className="block w-full rounded-md border border-border"
+            width={1460}
+            height={850}
+          />
+          {permissionHelp}
+        </DialogContent>
+      </Dialog>
     );
   }
 
@@ -145,15 +140,11 @@ export function LocalNetworkAccessPrompt({
           type="button"
           variant="ghost"
           size="icon"
-          className="absolute right-1.5 top-1.5 size-6"
+          className="absolute end-1.5 top-1.5 size-6"
+          aria-label={t("designEditor.close")}
           onClick={onDismiss}
         >
           <IconX className="size-3.5" />
-          <span className="sr-only">
-            {
-              "Dismiss" /* i18n-ignore transient local dev connect card dismiss */
-            }
-          </span>
         </Button>
         <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent">
           {isConfirmedUnreachable || isStalePreviewToken ? (
@@ -162,7 +153,7 @@ export function LocalNetworkAccessPrompt({
             <IconPlugConnected className="size-4 text-accent-foreground" />
           )}
         </div>
-        <div className="flex flex-col gap-0.5 pr-4">
+        <div className="flex flex-col gap-0.5 pe-4">
           <div className="text-sm font-medium text-foreground">{title}</div>
           <div className="text-xs text-muted-foreground">{description}</div>
         </div>

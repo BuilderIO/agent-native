@@ -130,13 +130,7 @@ export function InteractDevicePicker({
             disabled
             className="!text-xs"
           >
-            <span className="flex w-full items-center gap-2">
-              <DeviceCategoryIcon
-                category="custom"
-                className="size-3.5 shrink-0 text-muted-foreground"
-              />
-              <span className="flex-1 truncate">{customLabel}</span>
-            </span>
+            <span className="truncate">{customLabel}</span>
           </SelectItem>
         ) : null}
         {SELECTABLE_INTERACT_DEVICE_PRESETS.map((option) => (
@@ -146,10 +140,6 @@ export function InteractDevicePicker({
             className="!text-xs"
           >
             <span className="flex w-full items-center gap-2">
-              <DeviceCategoryIcon
-                category={option.category}
-                className="size-3.5 shrink-0 text-muted-foreground"
-              />
               <span className="flex-1 truncate">{option.name}</span>
               <span className="shrink-0 tabular-nums text-muted-foreground/60">
                 {option.width}×{option.height}
@@ -236,7 +226,7 @@ export function InteractThemePicker({
           }}
         >
           {THEME_OPTIONS.map((option) => {
-            const { mode: optionMode, labelKey, Icon: Glyph } = option;
+            const { mode: optionMode, labelKey } = option;
             const unavailable = optionMode === "dark" && !darkAvailable;
             const hintKey = unavailable
               ? "designEditor.responsiveInteract.themeNoDarkStyles"
@@ -247,9 +237,8 @@ export function InteractThemePicker({
                 value={optionMode}
                 indicator="check"
                 data-design-theme-unavailable={unavailable || undefined}
-                className={cn("gap-2 text-xs", unavailable && "opacity-60")}
+                className={cn("text-xs", unavailable && "opacity-60")}
               >
-                <Glyph className="size-4 shrink-0 text-muted-foreground" />
                 {t(labelKey)}
               </DropdownMenuRadioItem>
             );

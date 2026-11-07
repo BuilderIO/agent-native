@@ -3,15 +3,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
-import {
-  IconChevronDown,
-  IconCloudUpload,
-  IconExternalLink,
-  IconPlayerPlay,
-  IconRocket,
-  IconWand,
-  IconWorld,
-} from "@tabler/icons-react";
+import { IconChevronDown, IconPlayerPlay } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -21,6 +13,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuTrailing,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
@@ -183,7 +176,7 @@ export function FusionAppMenu({
               {pendingCount > 0 ? (
                 <span
                   aria-hidden="true"
-                  className="absolute right-1 top-1 size-1.5 rounded-full bg-primary"
+                  className="absolute end-1 top-1 size-1.5 rounded-full bg-primary"
                 />
               ) : null}
             </Button>
@@ -204,42 +197,41 @@ export function FusionAppMenu({
             if (previewUrl) window.open(previewUrl, "_blank", "noopener");
           }}
         >
-          <IconExternalLink className="size-4" />
           {"Preview" /* i18n-ignore flag-gated full-app feature */}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={publishing} onSelect={publish}>
-          {publishing ? (
-            <Spinner className="size-4" />
-          ) : (
-            <IconRocket className="size-4" />
-          )}
           {
             publishing
               ? "Publishing…" /* i18n-ignore flag-gated full-app feature */
               : "Publish" /* i18n-ignore flag-gated full-app feature */
           }
+          {publishing ? (
+            <DropdownMenuTrailing>
+              <Spinner className="size-4" />
+            </DropdownMenuTrailing>
+          ) : null}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={pushMutation.isPending} onSelect={push}>
-          {pushMutation.isPending ? (
-            <Spinner className="size-4" />
-          ) : (
-            <IconCloudUpload className="size-4" />
-          )}
           {"Push" /* i18n-ignore flag-gated full-app feature */}
+          {pushMutation.isPending ? (
+            <DropdownMenuTrailing>
+              <Spinner className="size-4" />
+            </DropdownMenuTrailing>
+          ) : null}
         </DropdownMenuItem>
         {pendingCount > 0 ? (
           <DropdownMenuItem
             disabled={applyEditsMutation.isPending}
             onSelect={() => applyEditsMutation.mutate({ designId } as any)}
           >
-            {applyEditsMutation.isPending ? (
-              <Spinner className="size-4" />
-            ) : (
-              <IconWand className="size-4" />
-            )}
             {
               `Apply ${pendingCount} queued edit${pendingCount === 1 ? "" : "s"}` /* i18n-ignore flag-gated full-app feature */
             }
+            {applyEditsMutation.isPending ? (
+              <DropdownMenuTrailing>
+                <Spinner className="size-4" />
+              </DropdownMenuTrailing>
+            ) : null}
           </DropdownMenuItem>
         ) : null}
         {publishedUrl || editorUrl ? <DropdownMenuSeparator /> : null}
@@ -247,7 +239,6 @@ export function FusionAppMenu({
           <DropdownMenuItem
             onSelect={() => window.open(publishedUrl, "_blank", "noopener")}
           >
-            <IconWorld className="size-4" />
             {"Open live app" /* i18n-ignore flag-gated full-app feature */}
           </DropdownMenuItem>
         ) : null}
@@ -264,7 +255,6 @@ export function FusionAppMenu({
               )
             }
           >
-            <IconExternalLink className="size-4" />
             {"Open in Builder" /* i18n-ignore flag-gated full-app feature */}
           </DropdownMenuItem>
         ) : null}

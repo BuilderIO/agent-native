@@ -283,6 +283,7 @@ export default {
     notFoundDescription: "La página que buscas no existe.",
     notFoundSignIn: "Iniciar sesión",
     notFoundBackToDesigns: "Volver a diseños",
+    presentGoToScreen: "Ir a la pantalla {{number}}",
   },
   onboarding: {
     fileStorage: {
@@ -954,6 +955,7 @@ export default {
       truncateText: "Recortar texto",
       maxLines: "Máximo de líneas",
       restoreError: "No se pudo restaurar el diseño original del texto.",
+      title: "Detalles de tipografía",
     },
     flexDirections: {
       row: "Fila",
@@ -1692,8 +1694,8 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} imagen{{plural}} necesita{{plural}} acceso a Figma para cargarse.",
       figmaPasteImagesDontShowAgain: "No mostrar de nuevo",
-      figmaPasteUploadImage: "Subir imagen",
-      figmaPasteUploadImageFor: "Subir “{{name}}”",
+      figmaPasteUploadImage: "Subir imagen…",
+      figmaPasteUploadImageFor: "Subir “{{name}}”…",
       figmaPasteImageFallbackName: "Imagen {{index}}",
       figmaPasteUploadImageSuccess: "Imagen añadida",
       figmaPasteUploadImageInvalid:
@@ -1710,7 +1712,7 @@ export default {
       figmaHydrationFigTitle: "Have the original .fig file?",
       figmaHydrationFigOption:
         "Fastest — pulls every image straight from the file. No token, no rate limits.",
-      figmaHydrationChooseFig: "Fill images from .fig",
+      figmaHydrationChooseFig: "Completar imágenes desde .fig…",
       figmaHydrationOrToken: "Or fetch from Figma",
       figmaHydrationTokenDescription:
         'Fetches the exact images from the copied frame\'s Figma file. Needs "File content" and "Current user" scopes; saved securely, never shown in chat.',
@@ -1799,7 +1801,28 @@ export default {
           "Hay otra importación en curso. Termínala o cancélala primero.",
         figFileTooLarge:
           "Ese .fig es demasiado grande: las subidas están limitadas a {{max}} MB. En Figma, copia solo el frame que quieras a un archivo nuevo y exporta ese archivo como .fig, o usa Pegar desde Figma.",
+        figmaTokenForbidden:
+          'Token rechazado (403). En la configuración de tokens de Figma, activa los permisos "File content" y "Current user" y genera un token nuevo.',
       },
+      figmaHydrationFigFilled_one:
+        "Se completó {{count}} imagen desde el archivo .fig.",
+      figmaHydrationFigFilled_other:
+        "Se completaron {{count}} imágenes desde el archivo .fig.",
+      figmaHydrationTokenFilled_one:
+        "Se completó {{count}} imagen desde Figma.",
+      figmaHydrationTokenFilled_other:
+        "Se completaron {{count}} imágenes desde Figma.",
+      figmaPasteImagesMissing_one:
+        "{{count}} imagen necesita acceso a Figma para cargarse.",
+      figmaPasteImagesMissing_other:
+        "{{count}} imágenes necesitan acceso a Figma para cargarse.",
+      figmaPasteConnectAndFetch: "Conectar y obtener imágenes…",
+      figmaHydrationFigFilled_many:
+        "Se completaron {{count}} imágenes desde el archivo .fig.",
+      figmaHydrationTokenFilled_many:
+        "Se completaron {{count}} imágenes desde Figma.",
+      figmaPasteImagesMissing_many:
+        "{{count}} imágenes necesitan acceso a Figma para cargarse.",
     },
     generationMayHaveStopped:
       "La generación puede haberse detenido antes de crear archivos. Revisa el mensaje del agente o inténtalo de nuevo.",
@@ -1842,8 +1865,8 @@ export default {
       file: "Archivo",
       preferences: "Preferencias",
       newDesign: "Nuevo diseño",
-      saveLocalCopy: "Guardar copia local…",
-      makeAnApp: "Crear una app",
+      saveLocalCopy: "Guardar copia local",
+      makeAnApp: "Crear una app…",
       theme: "Tema",
       themeLight: "Claro",
       themeDark: "Oscuro",
@@ -2127,7 +2150,7 @@ export default {
     extensionsDocs: "Docs",
     extensionsPromptTitle: "¿Qué debe hacer esta extensión?",
     extensionsPlaceholder:
-      "Herramientas de estilo, selección, acciones de mesa...",
+      "Herramientas de estilo, selección, acciones de mesa…",
     extensionsEmptyTitle: "Aún no hay extensiones del editor",
     extensionsEmptyDescription:
       "Crea una pequeña extensión del inspector que pueda leer el elemento seleccionado, llamar acciones o pedir al agente que actualice la mesa de trabajo.",
@@ -2140,7 +2163,7 @@ export default {
     designExport: "Exportación de Design",
     designPreview: "Vista previa de Design",
     preview: "Vista previa",
-    publish: "Publicar",
+    publish: "Publicar…",
     presentMode: "Modo presente",
     useThisDirection: "Usa esta dirección",
     variantHandoffHelp:
@@ -2222,7 +2245,7 @@ export default {
       title: "Añadir una pantalla desde tu app",
       description:
         "Elige una ruta para añadirla como nuevo marco, o escribe una ruta.",
-      searchPlaceholder: "Buscar rutas…",
+      searchPlaceholder: "Busca rutas o escribe una ruta…",
       noRoutes: "No hay rutas que coincidan",
       noDiscoveredRoutes:
         "No se han encontrado rutas en esta app. Escribe una ruta para añadir una pantalla.",
@@ -2231,9 +2254,11 @@ export default {
       viewportMobile: "Móvil",
       added: "Pantalla añadida",
       addFailed: "No se pudo añadir la pantalla",
+      viewportLabel: "Ventana gráfica",
+      searchLabel: "Buscar rutas",
     },
     localhostConsent: {
-      approvedTitle: "Aprobado: vuelve a ejecutar la edición",
+      approvedTitle: "Escritura de archivos aprobada",
       approvedDescription:
         "La escritura de archivos está permitida durante 8 horas. La edición que pidió acceso no se guardó.",
       retryInChat: "Volver a ejecutar en el chat",
@@ -2244,6 +2269,8 @@ export default {
       close: "Cerrar",
       prepareSignInError:
         "No se pudo guardar esta solicitud antes de iniciar sesión. Inténtalo de nuevo.",
+      writeScope:
+        "Solo se pueden escribir archivos de texto y código. Los secretos, como .env y los archivos de claves, y las rutas fuera de la carpeta raíz siempre se bloquean.",
     },
     nodeRewrite: {
       composerTitle: "Pregunta o cambia la selección",
@@ -2417,10 +2444,30 @@ export default {
     },
     commenterRoleLabel: "Comentarista",
     commenterRoleDescription: "Puede ver y añadir comentarios de revisión",
+    saveTemplateTitle: "Guardar como plantilla",
+    templateSnapshotScreens_one: "{{count}} pantalla",
+    templateSnapshotScreens_other: "{{count}} pantallas",
+    templateSnapshotLocks_one: "{{count}} capa bloqueada",
+    templateSnapshotLocks_other: "{{count}} capas bloqueadas",
+    templateSnapshotSummaryWithLocks: "Se conservarán {{screens}} y {{locks}}",
+    templateSnapshotSummaryScreens: "Se conservarán {{screens}}",
+    zoomMenu: {
+      percentage: "Porcentaje de zoom",
+      zoomToPreset: "Zoom al {{percent}} %",
+      pixelGrid: "Cuadrícula de píxeles",
+      snapToPixelGrid: "Ajustar a la cuadrícula de píxeles",
+      rulers: "Reglas",
+      multiplayerCursors: "Cursores multijugador",
+      comments: "Comentarios",
+    },
+    states: { nameLabel: "Nombre del estado" },
+    createExtension: "Crear extensión",
+    templateSnapshotScreens_many: "{{count}} pantallas",
+    templateSnapshotLocks_many: "{{count}} capas bloqueadas",
   },
   canvasMenu: {
-    editWithAgent: "Editar con Agent",
-    exploreWithAgent: "Explorar con Agent",
+    editWithAgent: "Editar con el agente",
+    exploreWithAgent: "Explorar con el agente",
     group: "Agrupar selección",
     inspiration: "Inspiración",
     inspirationDescription: "Explorar varias variantes",
@@ -2520,6 +2567,8 @@ export default {
       publicPreviewUnavailableDescription:
         "Las vistas previas de localhost no se comparten con los visitantes públicos. Abre este diseño como colaborador para ver esta pantalla.",
       previewCredentialsRetry: "Reintentar credenciales",
+      maybeBlockedDescription:
+        "Es posible que tu navegador necesite permiso para conectarse a localhost o que el servidor de desarrollo esté desconectado.",
     },
   },
   multiScreenCanvas: {
@@ -2625,7 +2674,7 @@ export default {
     blank: "En blanco",
     builtIn: "Integrada",
     chooseTemplate: "Elegir una plantilla",
-    searchTemplates: "Buscar plantillas...",
+    searchTemplates: "Buscar plantillas…",
     noTemplatesFound: "No se encontraron plantillas.",
     yourTemplates: "Tus plantillas",
     builtInTemplates: "Plantillas integradas",
@@ -2942,7 +2991,7 @@ export default {
     all: "Todos",
     showMineDesigns: "Mostrar mis diseños",
     showAllDesigns: "Mostrar todos los diseños",
-    openingDesign: "Abriendo diseño...",
+    openingDesign: "Abriendo diseño…",
     skipToEditor: "Ir al editor",
     failedToCreateDesign: "No se pudo crear el diseño",
     describeBuild: "Describe lo que quieres crear...",
@@ -2953,15 +3002,15 @@ export default {
     delete: "Eliminar",
     selectDesign: "Seleccione {{title}}",
     actionsForDesign: "Acciones para {{title}}",
-    rename: "Cambiar nombre",
+    rename: "Cambiar nombre…",
     duplicate: "Duplicar",
     renameDesign: "Cambiar el nombre del diseño",
     designName: "Nombre Design",
     cancel: "Cancelar",
     save: "Guardar",
-    deleteDesignTitle: "¿Eliminar Design?",
-    deleteDesignsTitle: "¿Eliminar {{count}} Design?",
-    deleteSingleDesignsTitle: "¿Eliminar {{count}} Design?",
+    deleteDesignTitle: "¿Eliminar diseño?",
+    deleteDesignsTitle: "¿Eliminar {{count}} diseños?",
+    deleteSingleDesignsTitle: "¿Eliminar {{count}} diseño?",
     deleteDesignDescription:
       "Esto eliminará permanentemente este diseño y todos sus archivos. Esta acción no se puede deshacer.",
     deleteDesignsDescription:
@@ -3101,7 +3150,7 @@ export default {
     useTemplate: "Usar plantilla",
     useAsIs: "Usar la plantilla tal cual",
     promptPlaceholder: "Describe lo que quieres crear con esta plantilla...",
-    opening: "Abriendo plantilla...",
+    opening: "Abriendo plantilla…",
     createFailed: "No se pudo crear un diseño desde esta plantilla",
     deleted: "Plantilla eliminada",
     deleteFailed: "No se pudo eliminar esta plantilla",
@@ -3342,7 +3391,7 @@ export default {
       title: "¿Eliminar sistema de diseño?",
       description:
         "Esto eliminará permanentemente este sistema de diseño y lo desvinculará de cualquier diseño que lo utilice. Esta acción no se puede deshacer.",
-      bulkTitle: "¿Eliminar sistemas de diseño {{count}}?",
+      bulkTitle: "¿Eliminar {{count}} sistemas de diseño?",
       bulkDescription:
         "Esto eliminará permanentemente los sistemas de diseño {{count}} y los desvinculará de cualquier diseño que los utilice. Esta acción no se puede deshacer.",
     },
@@ -3357,7 +3406,7 @@ export default {
       noCustomInstructions:
         "Aún no se han guardado instrucciones personalizadas.",
       useAsStartingPoint: "Usar como punto de partida",
-      saving: "Ahorro...",
+      saving: "Guardando…",
       saveChanges: "Guardar cambios",
     },
     preview: {

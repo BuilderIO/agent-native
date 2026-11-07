@@ -41,7 +41,6 @@ import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -384,6 +383,7 @@ export default function Present() {
           <Sheet open={commentsOpen} onOpenChange={setCommentsOpen}>
             <SheetContent
               side="right"
+              aria-describedby={undefined}
               className="flex w-[min(92vw,380px)] flex-col overflow-hidden p-0"
             >
               <SheetHeader className="border-b border-border px-4 py-3">
@@ -391,9 +391,6 @@ export default function Present() {
                   <IconMessageCircle className="size-4" />
                   {t("review.presentComments")}
                 </SheetTitle>
-                <SheetDescription className="sr-only">
-                  {t("review.commentsTitle")}
-                </SheetDescription>
               </SheetHeader>
               <ReviewCommentsPanel
                 designId={id}
@@ -433,6 +430,9 @@ export default function Present() {
           {files.map((_, i) => (
             <button
               key={i}
+              type="button"
+              aria-label={t("pages.presentGoToScreen", { number: i + 1 })}
+              aria-current={i === currentPage ? "true" : undefined}
               onClick={() => setCurrentPage(i)}
               className={`w-2 h-2 rounded-full cursor-pointer ${
                 i === currentPage ? "bg-white" : "bg-white/30"

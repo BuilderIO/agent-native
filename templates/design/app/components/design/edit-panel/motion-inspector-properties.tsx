@@ -239,6 +239,7 @@ export function MotionOriginControl({
         side="bottom"
         sideOffset={6}
         className="w-[13.25rem] p-2 pt-[9px]"
+        aria-label={t("designEditor.motion.origin")}
       >
         <div className="space-y-1">
           <div className="text-xs font-medium leading-4">

@@ -283,6 +283,7 @@ export default {
     notFoundDescription: "A página que você procura não existe.",
     notFoundSignIn: "Entrar",
     notFoundBackToDesigns: "Voltar aos designs",
+    presentGoToScreen: "Ir para a tela {{number}}",
   },
   onboarding: {
     fileStorage: {
@@ -951,6 +952,7 @@ export default {
       truncateText: "Truncar texto",
       maxLines: "Máximo de linhas",
       restoreError: "Não foi possível restaurar o layout original do texto.",
+      title: "Detalhes de tipografia",
     },
     flexDirections: {
       row: "Linha",
@@ -1685,8 +1687,8 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} imagem{{plural}} precisa{{plural}} de acesso ao Figma para carregar.",
       figmaPasteImagesDontShowAgain: "Não mostrar novamente",
-      figmaPasteUploadImage: "Enviar imagem",
-      figmaPasteUploadImageFor: "Enviar “{{name}}”",
+      figmaPasteUploadImage: "Enviar imagem…",
+      figmaPasteUploadImageFor: "Enviar “{{name}}”…",
       figmaPasteImageFallbackName: "Imagem {{index}}",
       figmaPasteUploadImageSuccess: "Imagem preenchida",
       figmaPasteUploadImageInvalid:
@@ -1703,7 +1705,7 @@ export default {
       figmaHydrationFigTitle: "Have the original .fig file?",
       figmaHydrationFigOption:
         "Fastest — pulls every image straight from the file. No token, no rate limits.",
-      figmaHydrationChooseFig: "Fill images from .fig",
+      figmaHydrationChooseFig: "Preencher imagens a partir do .fig…",
       figmaHydrationOrToken: "Or fetch from Figma",
       figmaHydrationTokenDescription:
         'Fetches the exact images from the copied frame\'s Figma file. Needs "File content" and "Current user" scopes; saved securely, never shown in chat.',
@@ -1793,7 +1795,28 @@ export default {
           "Outra importação está em andamento. Conclua ou cancele-a primeiro.",
         figFileTooLarge:
           "Esse .fig é grande demais — os envios são limitados a {{max}} MB. No Figma, copie apenas o frame desejado para um novo arquivo e exporte esse arquivo como .fig, ou use Colar do Figma.",
+        figmaTokenForbidden:
+          'Token recusado (403). Nas configurações de token do Figma, ative os escopos "File content" e "Current user" e gere um novo token.',
       },
+      figmaHydrationFigFilled_one:
+        "{{count}} imagem preenchida a partir do arquivo .fig.",
+      figmaHydrationFigFilled_other:
+        "{{count}} imagens preenchidas a partir do arquivo .fig.",
+      figmaHydrationTokenFilled_one:
+        "{{count}} imagem preenchida a partir do Figma.",
+      figmaHydrationTokenFilled_other:
+        "{{count}} imagens preenchidas a partir do Figma.",
+      figmaPasteImagesMissing_one:
+        "{{count}} imagem precisa de acesso ao Figma para carregar.",
+      figmaPasteImagesMissing_other:
+        "{{count}} imagens precisam de acesso ao Figma para carregar.",
+      figmaPasteConnectAndFetch: "Conectar e buscar imagens…",
+      figmaHydrationFigFilled_many:
+        "{{count}} imagens preenchidas a partir do arquivo .fig.",
+      figmaHydrationTokenFilled_many:
+        "{{count}} imagens preenchidas a partir do Figma.",
+      figmaPasteImagesMissing_many:
+        "{{count}} imagens precisam de acesso ao Figma para carregar.",
     },
     generationMayHaveStopped:
       "A geração pode ter parado antes de criar arquivos. Confira a mensagem do agente ou tente novamente.",
@@ -1836,8 +1859,8 @@ export default {
       file: "Arquivo",
       preferences: "Preferências",
       newDesign: "Novo design",
-      saveLocalCopy: "Salvar cópia local…",
-      makeAnApp: "Criar um app",
+      saveLocalCopy: "Salvar cópia local",
+      makeAnApp: "Criar um app…",
       theme: "Tema",
       themeLight: "Claro",
       themeDark: "Escuro",
@@ -2121,7 +2144,7 @@ export default {
     extensionsDocs: "Docs",
     extensionsPromptTitle: "O que esta extensão deve fazer?",
     extensionsPlaceholder:
-      "Ferramentas de estilo, seleção, ações de prancheta...",
+      "Ferramentas de estilo, seleção, ações de prancheta…",
     extensionsEmptyTitle: "Ainda não há extensões do editor",
     extensionsEmptyDescription:
       "Crie uma pequena extensão do inspetor que possa ler o elemento selecionado, chamar ações ou pedir ao agente para atualizar a prancheta.",
@@ -2134,7 +2157,7 @@ export default {
     designExport: "Exportação de Design",
     designPreview: "Visualização Design",
     preview: "Visualizar",
-    publish: "Publicar",
+    publish: "Publicar…",
     presentMode: "Modo Presente",
     useThisDirection: "Use esta direção",
     variantHandoffHelp:
@@ -2214,7 +2237,7 @@ export default {
       title: "Adicionar uma tela do seu app",
       description:
         "Escolha uma rota para adicionar como novo quadro, ou digite um caminho.",
-      searchPlaceholder: "Buscar rotas…",
+      searchPlaceholder: "Busque rotas ou digite um caminho…",
       noRoutes: "Nenhuma rota encontrada",
       noDiscoveredRoutes:
         "Nenhuma rota foi encontrada neste app. Digite um caminho para adicionar uma tela.",
@@ -2223,9 +2246,11 @@ export default {
       viewportMobile: "Celular",
       added: "Tela adicionada",
       addFailed: "Não foi possível adicionar a tela",
+      viewportLabel: "Janela de visualização",
+      searchLabel: "Buscar rotas",
     },
     localhostConsent: {
-      approvedTitle: "Aprovado — execute a edição novamente",
+      approvedTitle: "Gravação de arquivos aprovada",
       approvedDescription:
         "A gravação de arquivos está permitida por 8 horas. A edição que pediu acesso não foi salva.",
       retryInChat: "Executar novamente no chat",
@@ -2236,6 +2261,8 @@ export default {
       close: "Fechar",
       prepareSignInError:
         "Não foi possível salvar esta solicitação antes de entrar. Tente novamente.",
+      writeScope:
+        "Somente arquivos de texto e código podem ser gravados. Segredos como .env e arquivos de chave, e caminhos fora da pasta raiz, são sempre bloqueados.",
     },
     nodeRewrite: {
       composerTitle: "Pergunte ou altere a seleção",
@@ -2412,10 +2439,31 @@ export default {
     },
     commenterRoleLabel: "Comentarista",
     commenterRoleDescription: "Pode ver e adicionar comentários de revisão",
+    saveTemplateTitle: "Salvar como modelo",
+    templateSnapshotScreens_one: "{{count}} tela",
+    templateSnapshotScreens_other: "{{count}} telas",
+    templateSnapshotLocks_one: "{{count}} camada bloqueada",
+    templateSnapshotLocks_other: "{{count}} camadas bloqueadas",
+    templateSnapshotSummaryWithLocks:
+      "{{screens}} e {{locks}} serão preservadas",
+    templateSnapshotSummaryScreens: "{{screens}} serão preservadas",
+    zoomMenu: {
+      percentage: "Porcentagem de zoom",
+      zoomToPreset: "Zoom para {{percent}}%",
+      pixelGrid: "Grade de pixels",
+      snapToPixelGrid: "Ajustar à grade de pixels",
+      rulers: "Réguas",
+      multiplayerCursors: "Cursores multijogador",
+      comments: "Comentários",
+    },
+    states: { nameLabel: "Nome do estado" },
+    createExtension: "Criar extensão",
+    templateSnapshotScreens_many: "{{count}} telas",
+    templateSnapshotLocks_many: "{{count}} camadas bloqueadas",
   },
   canvasMenu: {
-    editWithAgent: "Editar com Agent",
-    exploreWithAgent: "Explorar com Agent",
+    editWithAgent: "Editar com o agente",
+    exploreWithAgent: "Explorar com o agente",
     group: "Agrupar seleção",
     inspiration: "Inspiração",
     inspirationDescription: "Explorar várias variantes",
@@ -2515,6 +2563,8 @@ export default {
       publicPreviewUnavailableDescription:
         "Pré-visualizações do localhost não são compartilhadas com visitantes públicos. Abra este Design como colaborador para ver esta tela.",
       previewCredentialsRetry: "Tentar credenciais novamente",
+      maybeBlockedDescription:
+        "Seu navegador pode precisar de permissão para se conectar ao localhost, ou o servidor de desenvolvimento pode estar offline.",
     },
   },
   multiScreenCanvas: {
@@ -2619,7 +2669,7 @@ export default {
     blank: "Em branco",
     builtIn: "Integrado",
     chooseTemplate: "Escolher um modelo",
-    searchTemplates: "Buscar modelos...",
+    searchTemplates: "Buscar modelos…",
     noTemplatesFound: "Nenhum modelo encontrado.",
     yourTemplates: "Seus modelos",
     builtInTemplates: "Modelos integrados",
@@ -2936,7 +2986,7 @@ export default {
     all: "Todos",
     showMineDesigns: "Mostrar meus designs",
     showAllDesigns: "Mostrar todos os designs",
-    openingDesign: "Abrindo design...",
+    openingDesign: "Abrindo design…",
     skipToEditor: "Ir para o editor",
     failedToCreateDesign: "Não foi possível criar o design",
     describeBuild: "Descreva o que você quer criar...",
@@ -2947,15 +2997,15 @@ export default {
     delete: "Excluir",
     selectDesign: "Selecione {{title}}",
     actionsForDesign: "Ações para {{title}}",
-    rename: "Renomear",
+    rename: "Renomear…",
     duplicate: "Duplicar",
     renameDesign: "Renomear desenho",
     designName: "Nome Design",
     cancel: "Cancelar",
     save: "Salvar",
-    deleteDesignTitle: "Excluir Design?",
-    deleteDesignsTitle: "Excluir {{count}} Designs?",
-    deleteSingleDesignsTitle: "Excluir {{count}} Design?",
+    deleteDesignTitle: "Excluir design?",
+    deleteDesignsTitle: "Excluir {{count}} designs?",
+    deleteSingleDesignsTitle: "Excluir {{count}} design?",
     deleteDesignDescription:
       "Isso excluirá permanentemente este design e todos os seus arquivos. Esta ação não pode ser desfeita.",
     deleteDesignsDescription:
@@ -3096,7 +3146,7 @@ export default {
     useTemplate: "Usar modelo",
     useAsIs: "Usar o modelo como está",
     promptPlaceholder: "Descreva o que você quer criar com este modelo...",
-    opening: "Abrindo modelo...",
+    opening: "Abrindo modelo…",
     createFailed: "Não foi possível criar um design com este modelo",
     deleted: "Modelo excluído",
     deleteFailed: "Não foi possível excluir este modelo",
@@ -3334,7 +3384,7 @@ export default {
       title: "Excluir sistema de design?",
       description:
         "Isso excluirá permanentemente este sistema de design e o desvinculará de quaisquer designs que o utilizem. Esta ação não pode ser desfeita.",
-      bulkTitle: "Excluir sistemas de design {{count}}?",
+      bulkTitle: "Excluir {{count}} sistemas de design?",
       bulkDescription:
         "Isso excluirá permanentemente os sistemas de design {{count}} e os desvinculará de quaisquer designs que os utilizem. Esta ação não pode ser desfeita.",
     },
@@ -3348,7 +3398,7 @@ export default {
         "Orientação durável que o agente reutiliza sempre que este sistema está vinculado a um projeto.",
       noCustomInstructions: "Nenhuma instrução personalizada salva ainda.",
       useAsStartingPoint: "Use como ponto de partida",
-      saving: "Salvando...",
+      saving: "Salvando…",
       saveChanges: "Salvar alterações",
     },
     preview: {

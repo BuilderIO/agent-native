@@ -270,9 +270,10 @@ export function SearchView({ searchSeed }: SearchViewProps) {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search" /* i18n-ignore */
-            className="h-7 rounded-[4px] border-[var(--workbench-border)] bg-[var(--workbench-surface-bg)] pr-[68px] text-[12px] text-[var(--workbench-fg)] shadow-none placeholder:text-[var(--workbench-muted-fg)] focus-visible:ring-1 focus-visible:ring-[var(--workbench-accent)]"
+            aria-label="Search" /* i18n-ignore */
+            className="h-7 rounded-[4px] border-[var(--workbench-border)] bg-[var(--workbench-surface-bg)] pe-[68px] text-[12px] text-[var(--workbench-fg)] shadow-none placeholder:text-[var(--workbench-muted-fg)] focus-visible:ring-1 focus-visible:ring-[var(--workbench-accent)]"
           />
-          <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+          <div className="absolute end-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
             <ToggleSquare
               label="Match Case"
               /* i18n-ignore */ active={matchCase}
@@ -299,6 +300,7 @@ export function SearchView({ searchSeed }: SearchViewProps) {
         <button
           type="button"
           aria-label="Toggle Replace" /* i18n-ignore */
+          aria-expanded={replaceOpen}
           className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[4px] text-[var(--workbench-muted-fg)] hover:bg-[var(--workbench-hover-bg)] hover:text-[var(--workbench-fg)]"
           onClick={() => setReplaceOpen((v) => !v)}
         >
@@ -316,6 +318,7 @@ export function SearchView({ searchSeed }: SearchViewProps) {
             value={replaceValue}
             onChange={(event) => setReplaceValue(event.target.value)}
             placeholder="Replace" /* i18n-ignore */
+            aria-label="Replace" /* i18n-ignore */
             className="h-7 flex-1 rounded-[4px] border-[var(--workbench-border)] bg-[var(--workbench-surface-bg)] text-[12px] text-[var(--workbench-fg)] shadow-none placeholder:text-[var(--workbench-muted-fg)] focus-visible:ring-1 focus-visible:ring-[var(--workbench-accent)]"
           />
           <button

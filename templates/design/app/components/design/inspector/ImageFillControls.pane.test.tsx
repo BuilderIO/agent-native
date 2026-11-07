@@ -21,7 +21,10 @@ vi.mock("@agent-native/core/client/uploads", () => ({
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
-    ({ "editPanel.colorPicker.chooseImage": "Choose image…" })[key] ?? key,
+    ({
+      "editPanel.colorPicker.chooseImage": "Choose image…",
+      "editPanel.labels.imageScaleMode": "Image scale mode",
+    })[key] ?? key,
 }));
 
 import { ImageFillControls, type ImageFillValue } from "./ImageFillControls";
@@ -78,8 +81,9 @@ describe("ImageFillControls pane", () => {
       ),
     ).toBe(true);
     expect(
-      container.querySelector('[role="combobox"][aria-label="Fill"]')
-        ?.textContent,
+      container.querySelector(
+        '[role="combobox"][aria-label="Image scale mode"]',
+      )?.textContent,
     ).toBe("Fill");
     expect(container.querySelector('button[aria-label="Remove image"]')).toBe(
       null,
@@ -107,7 +111,10 @@ describe("ImageFillControls pane", () => {
 
   it("changes the fit and keeps the image", async () => {
     const onChange = render({ url: "https://example.test/a.png", fit: "fill" });
-    const select = container.querySelector<HTMLElement>('[aria-label="Fill"]')!;
+    const select = container.querySelector<HTMLElement>(
+      '[aria-label="Image scale mode"]',
+    );
+    if (!select) throw new Error("Image scale mode select is missing");
 
     await act(async () => {
       select.focus();

@@ -3,16 +3,15 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCamera,
-  IconChevronRight,
   IconDeviceDesktop,
   IconDeviceMobile,
   IconDeviceTablet,
   IconDots,
   IconPlus,
   IconRefresh,
-  IconTrash,
 } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -154,7 +153,7 @@ function StateRow({
             type="button"
             variant="ghost"
             size="icon"
-            className="size-5 shrink-0 cursor-pointer text-muted-foreground/50 opacity-0 hover:text-foreground group-hover:opacity-100"
+            className="size-5 shrink-0 cursor-pointer text-muted-foreground/50 opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
             onClick={(e) => e.stopPropagation()}
             aria-label={`Options for ${row.name}`}
           >
@@ -162,10 +161,7 @@ function StateRow({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-40">
-          <DropdownMenuItem onClick={onSelect}>
-            <IconChevronRight className="mr-2 size-3.5" />
-            Apply state
-          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onSelect}>Apply state</DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={(e) => {
@@ -174,7 +170,6 @@ function StateRow({
             }}
             className="text-destructive focus:text-destructive"
           >
-            <IconTrash className="mr-2 size-3.5" />
             Delete
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -194,6 +189,7 @@ export function StatesPanel({
   onAddBreakpoint,
   onCapture,
 }: StatesPanelProps) {
+  const t = useT();
   const [isAdding, setIsAdding] = useState(false);
   const [newStateName, setNewStateName] = useState("");
 
@@ -460,6 +456,7 @@ export function StatesPanel({
               value={newStateName}
               onChange={(e) => setNewStateName(e.target.value)}
               placeholder="State name…"
+              aria-label={t("designEditor.states.nameLabel")}
               className="h-6 min-w-0 flex-1 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
               onKeyDown={(e) => {
                 if (e.key === "Escape") {

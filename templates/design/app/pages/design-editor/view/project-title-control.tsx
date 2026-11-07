@@ -139,6 +139,7 @@ function ProjectTitleControl({
         onChange={(e) => setTitleDraft(e.target.value)}
         onBlur={commitTitleEdit}
         onKeyDown={handleTitleInputKeyDown}
+        aria-label={t("home.designName")}
         className="-mx-1 h-7 min-w-0 flex-1 border-transparent bg-[var(--design-editor-panel-raised-bg)] px-1 py-0 text-[13px] font-medium text-foreground shadow-none ring-offset-0 focus-visible:border-[var(--design-editor-control-border)] focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0"
       />
     );
@@ -241,7 +242,8 @@ function ProjectTitleControl({
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleMoveToTrash}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
+              variant="destructive"
+              className="cursor-pointer"
             >
               {t("home.delete")}
             </AlertDialogAction>

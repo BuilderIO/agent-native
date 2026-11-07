@@ -284,6 +284,7 @@ export default {
     notFoundDescription: "お探しのページは存在しません。",
     notFoundSignIn: "ログイン",
     notFoundBackToDesigns: "デザインに戻る",
+    presentGoToScreen: "画面 {{number}} へ移動",
   },
   onboarding: {
     fileStorage: {
@@ -953,6 +954,7 @@ export default {
       truncateText: "テキストを省略",
       maxLines: "最大行数",
       restoreError: "元のテキストレイアウトを復元できませんでした。",
+      title: "タイポグラフィの詳細",
     },
     flexDirections: {
       row: "行",
@@ -1687,8 +1689,8 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} 枚の画像{{plural}}を読み込むには Figma へのアクセスが必要です。",
       figmaPasteImagesDontShowAgain: "今後は表示しない",
-      figmaPasteUploadImage: "画像をアップロード",
-      figmaPasteUploadImageFor: "「{{name}}」をアップロード",
+      figmaPasteUploadImage: "画像をアップロード…",
+      figmaPasteUploadImageFor: "「{{name}}」をアップロード…",
       figmaPasteImageFallbackName: "画像 {{index}}",
       figmaPasteUploadImageSuccess: "画像を埋めました",
       figmaPasteUploadImageInvalid:
@@ -1705,7 +1707,7 @@ export default {
       figmaHydrationFigTitle: "Have the original .fig file?",
       figmaHydrationFigOption:
         "Fastest — pulls every image straight from the file. No token, no rate limits.",
-      figmaHydrationChooseFig: "Fill images from .fig",
+      figmaHydrationChooseFig: ".fig から画像を補完…",
       figmaHydrationOrToken: "Or fetch from Figma",
       figmaHydrationTokenDescription:
         'Fetches the exact images from the copied frame\'s Figma file. Needs "File content" and "Current user" scopes; saved securely, never shown in chat.',
@@ -1797,7 +1799,16 @@ export default {
           "別のインポートを実行中です。先に完了するかキャンセルしてください。",
         figFileTooLarge:
           "この .fig ファイルは大きすぎます。アップロードは {{max}} MB までです。Figma で目的のフレームだけを新しいファイルにコピーし、そのファイルを .fig として書き出すか、「Figma から貼り付け」をご利用ください。",
+        figmaTokenForbidden:
+          "トークンが拒否されました (403)。Figma のトークン設定で「File content」と「Current user」のスコープを有効にしてから、新しいトークンを生成してください。",
       },
+      figmaHydrationFigFilled_other:
+        ".fig ファイルから {{count}} 枚の画像を補完しました。",
+      figmaHydrationTokenFilled_other:
+        "Figma から {{count}} 枚の画像を補完しました。",
+      figmaPasteImagesMissing_other:
+        "{{count}} 枚の画像を読み込むには Figma へのアクセスが必要です。",
+      figmaPasteConnectAndFetch: "接続して画像を取得…",
     },
     generationMayHaveStopped:
       "ファイルを作成する前に生成が停止した可能性があります。エージェントのメッセージを確認するか、もう一度お試しください。",
@@ -1840,8 +1851,8 @@ export default {
       file: "ファイル",
       preferences: "環境設定",
       newDesign: "新規デザイン",
-      saveLocalCopy: "ローカルコピーを保存…",
-      makeAnApp: "アプリを作成",
+      saveLocalCopy: "ローカルコピーを保存",
+      makeAnApp: "アプリを作成…",
       theme: "テーマ",
       themeLight: "ライト",
       themeDark: "ダーク",
@@ -2125,7 +2136,7 @@ export default {
     addExtension: "拡張機能",
     extensionsDocs: "ドキュメント",
     extensionsPromptTitle: "この拡張機能で何をしますか？",
-    extensionsPlaceholder: "スタイルツール、選択補助、アートボード操作...",
+    extensionsPlaceholder: "スタイルツール、選択補助、アートボード操作…",
     extensionsEmptyTitle: "エディター拡張機能はまだありません",
     extensionsEmptyDescription:
       "選択中の要素を読み取り、アクションを呼び出し、エージェントにアートボード更新を依頼できる小さなインスペクター拡張機能を作成します。",
@@ -2138,7 +2149,7 @@ export default {
     designExport: "Design エクスポート",
     designPreview: "Design プレビュー",
     preview: "プレビュー",
-    publish: "公開",
+    publish: "公開…",
     presentMode: "プレゼントモード",
     useThisDirection: "この方向を使用してください",
     variantHandoffHelp:
@@ -2219,7 +2230,7 @@ export default {
       title: "アプリから画面を追加",
       description:
         "新しいフレームとして追加するルートを選ぶか、パスを入力してください。",
-      searchPlaceholder: "ルートを検索…",
+      searchPlaceholder: "ルートを検索するかパスを入力…",
       noRoutes: "一致するルートがありません",
       noDiscoveredRoutes:
         "このアプリでルートが見つかりません。画面を追加するにはパスを入力してください。",
@@ -2228,9 +2239,11 @@ export default {
       viewportMobile: "モバイル",
       added: "画面を追加しました",
       addFailed: "画面を追加できませんでした",
+      viewportLabel: "ビューポート",
+      searchLabel: "ルートを検索",
     },
     localhostConsent: {
-      approvedTitle: "承認済み — 編集をもう一度実行してください",
+      approvedTitle: "ファイルの書き込みを承認しました",
       approvedDescription:
         "ファイルの書き込みは 8 時間許可されます。アクセスを求めた編集は保存されていません。",
       retryInChat: "チャットで再実行",
@@ -2242,6 +2255,8 @@ export default {
       close: "閉じる",
       prepareSignInError:
         "サインイン前にこのリクエストを保存できませんでした。もう一度お試しください。",
+      writeScope:
+        "書き込めるのはテキストファイルとコードファイルのみです。.env やキーファイルなどのシークレット、およびルートフォルダー外のパスは常にブロックされます。",
     },
     nodeRewrite: {
       composerTitle: "選択範囲について質問または変更",
@@ -2417,10 +2432,26 @@ export default {
     },
     commenterRoleLabel: "コメント投稿者",
     commenterRoleDescription: "閲覧してレビューコメントを追加できます",
+    saveTemplateTitle: "テンプレートとして保存",
+    templateSnapshotScreens_other: "{{count}} 画面",
+    templateSnapshotLocks_other: "{{count}} 個のロックされたレイヤー",
+    templateSnapshotSummaryWithLocks: "{{screens}}と{{locks}}が保持されます",
+    templateSnapshotSummaryScreens: "{{screens}}が保持されます",
+    zoomMenu: {
+      percentage: "ズーム率",
+      zoomToPreset: "{{percent}}% にズーム",
+      pixelGrid: "ピクセルグリッド",
+      snapToPixelGrid: "ピクセルグリッドにスナップ",
+      rulers: "定規",
+      multiplayerCursors: "マルチプレイヤーカーソル",
+      comments: "コメント",
+    },
+    states: { nameLabel: "状態名" },
+    createExtension: "拡張機能を作成",
   },
   canvasMenu: {
-    editWithAgent: "Agentで編集",
-    exploreWithAgent: "Agentで探索",
+    editWithAgent: "エージェントで編集",
+    exploreWithAgent: "エージェントで探索",
     group: "選択範囲をグループ化",
     inspiration: "インスピレーション",
     inspirationDescription: "複数のバリエーションを探索",
@@ -2520,6 +2551,8 @@ export default {
       publicPreviewUnavailableDescription:
         "localhost のプレビューは公開ユーザーには共有されません。この画面を見るには、共同編集者としてこのデザインを開いてください。",
       previewCredentialsRetry: "認証情報を再取得",
+      maybeBlockedDescription:
+        "ブラウザーで localhost への接続許可が必要か、開発サーバーがオフラインの可能性があります。",
     },
   },
   multiScreenCanvas: {
@@ -2625,7 +2658,7 @@ export default {
     blank: "空白",
     builtIn: "組み込み",
     chooseTemplate: "テンプレートを選択",
-    searchTemplates: "テンプレートを検索...",
+    searchTemplates: "テンプレートを検索…",
     noTemplatesFound: "テンプレートが見つかりません。",
     yourTemplates: "自分のテンプレート",
     builtInTemplates: "組み込みテンプレート",
@@ -2940,7 +2973,7 @@ export default {
     all: "すべて",
     showMineDesigns: "自分のデザインを表示",
     showAllDesigns: "すべてのデザインを表示",
-    openingDesign: "デザインを開いています...",
+    openingDesign: "デザインを開いています…",
     skipToEditor: "エディターに移動",
     failedToCreateDesign: "デザインを作成できませんでした",
     describeBuild: "作成したいものを説明してください...",
@@ -2951,15 +2984,15 @@ export default {
     delete: "削除",
     selectDesign: "{{title}}を選択してください",
     actionsForDesign: "{{title}} のアクション",
-    rename: "名前の変更",
+    rename: "名前の変更…",
     duplicate: "重複",
     renameDesign: "デザイン名の変更",
     designName: "Design 名前",
     cancel: "キャンセル",
     save: "保存",
-    deleteDesignTitle: "Design を削除しますか?",
-    deleteDesignsTitle: "{{count}} Design を削除しますか?",
-    deleteSingleDesignsTitle: "{{count}} Design を削除しますか?",
+    deleteDesignTitle: "デザインを削除しますか？",
+    deleteDesignsTitle: "{{count}} 件のデザインを削除しますか？",
+    deleteSingleDesignsTitle: "{{count}} 件のデザインを削除しますか？",
     deleteDesignDescription:
       "これにより、このデザインとそのすべてのファイルが完全に削除されます。この操作は元に戻すことができません。",
     deleteDesignsDescription:
@@ -3099,7 +3132,7 @@ export default {
     useTemplate: "テンプレートを使用する",
     useAsIs: "そのまま使用",
     promptPlaceholder: "このテンプレートで作りたいものを説明してください...",
-    opening: "テンプレートを開いています...",
+    opening: "テンプレートを開いています…",
     createFailed: "このテンプレートからデザインを作成できませんでした",
     deleted: "テンプレートを削除しました",
     deleteFailed: "このテンプレートを削除できませんでした",
@@ -3333,10 +3366,10 @@ export default {
       cancel: "キャンセル",
     },
     deleteDialog: {
-      title: "デザインシステムを削除しますか?",
+      title: "デザインシステムを削除しますか？",
       description:
         "これにより、このデザイン システムが完全に削除され、それを使用するデザインからのリンクが解除されます。この操作は元に戻すことができません。",
-      bulkTitle: "{{count}} デザイン システムを削除しますか?",
+      bulkTitle: "{{count}} 件のデザインシステムを削除しますか？",
       bulkDescription:
         "これにより、{{count}} デザイン システムが完全に削除され、それらを使用するデザインからのリンクが解除されます。この操作は元に戻すことができません。",
     },
@@ -3350,7 +3383,7 @@ export default {
         "このシステムが設計にリンクされるたびに、エージェントが再利用する永続的なガイダンス。",
       noCustomInstructions: "カスタム命令はまだ保存されていません。",
       useAsStartingPoint: "出発点として使用する",
-      saving: "保存中...",
+      saving: "保存中…",
       saveChanges: "変更を保存する",
     },
     preview: {

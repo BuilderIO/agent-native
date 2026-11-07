@@ -3324,6 +3324,7 @@ export function ReviewCanvasPins({
               {t("review.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
+              variant="destructive"
               disabled={!deleteCandidate || deleteComment.isPending}
               onClick={(event) => {
                 event.preventDefault();

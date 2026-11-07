@@ -1,16 +1,16 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -57,6 +57,10 @@ export function SaveTemplateDialog({
   const [title, setTitle] = useState(defaultTitle);
   const [description, setDescription] = useState(defaultDescription);
   const [category, setCategory] = useState<TemplateCategory>("other");
+  const fieldId = useId();
+  const screens = t("designEditor.templateSnapshotScreens", {
+    count: screenCount,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -67,94 +71,113 @@ export function SaveTemplateDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{t("designEditor.saveAsTemplate")}</DialogTitle>
-          <DialogDescription>
-            {t("designEditor.saveTemplateDescription")}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4 py-1">
-          <label className="grid gap-1.5 text-sm">
-            <span className="font-medium">
-              {t("designEditor.templateName")}
-            </span>
-            <Input
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              autoFocus
-            />
-          </label>
-          <label className="grid gap-1.5 text-sm">
-            <span className="font-medium">
-              {t("designEditor.templateDescription")}
-            </span>
-            <Textarea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              rows={3}
-            />
-          </label>
-          <div className="grid gap-1.5 text-sm">
-            <span className="font-medium">
-              {t("designEditor.templateCategory")}
-            </span>
-            <Select
-              value={category}
-              onValueChange={(value) => setCategory(value as TemplateCategory)}
+      <DialogContent
+        className="sm:max-w-lg"
+        aria-describedby={undefined}
+        closeLabel={t("designEditor.close")}
+      >
+        <form
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!title.trim() || saving) return;
+            const trimmedDescription = description.trim();
+            void onSave({
+              title: title.trim(),
+              ...(trimmedDescription
+                ? { description: trimmedDescription }
+                : {}),
+              category,
+            });
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{t("designEditor.saveTemplateTitle")}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-1">
+            <div className="grid gap-1.5">
+              <Label htmlFor={`${fieldId}-name`}>
+                {t("designEditor.templateName")}
+              </Label>
+              <Input
+                id={`${fieldId}-name`}
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor={`${fieldId}-description`}>
+                {t("designEditor.templateDescription")}
+              </Label>
+              <Textarea
+                id={`${fieldId}-description`}
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                rows={3}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor={`${fieldId}-category`}>
+                {t("designEditor.templateCategory")}
+              </Label>
+              <Select
+                value={category}
+                onValueChange={(value) =>
+                  setCategory(value as TemplateCategory)
+                }
+              >
+                <SelectTrigger id={`${fieldId}-category`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {(
+                      [
+                        "ad",
+                        "social",
+                        "one-pager",
+                        "landing-page",
+                        "presentation",
+                        "other",
+                      ] as const
+                    ).map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {t(`templatesPage.categories.${value}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {lockedLayerCount > 0
+                ? t("designEditor.templateSnapshotSummaryWithLocks", {
+                    screens,
+                    locks: t("designEditor.templateSnapshotLocks", {
+                      count: lockedLayerCount,
+                    }),
+                  })
+                : t("designEditor.templateSnapshotSummaryScreens", {
+                    screens,
+                  })}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={saving}
             >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {(
-                    [
-                      "ad",
-                      "social",
-                      "one-pager",
-                      "landing-page",
-                      "presentation",
-                      "other",
-                    ] as const
-                  ).map((value) => (
-                    <SelectItem key={value} value={value}>
-                      {t(`templatesPage.categories.${value}`)}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="rounded-lg border bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
-            {t("designEditor.templateSnapshotSummary", {
-              screens: screenCount,
-              locks: lockedLayerCount,
-            })}
-          </div>
-        </div>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={saving}
-          >
-            {t("home.cancel")}
-          </Button>
-          <Button
-            onClick={() =>
-              void onSave({
-                title: title.trim(),
-                description: description.trim() || undefined,
-                category,
-              })
-            }
-            disabled={!title.trim() || saving}
-          >
-            {saving ? <Spinner className="size-4" /> : null}
-            {t("designEditor.saveTemplate")}
-          </Button>
-        </DialogFooter>
+              {t("home.cancel")}
+            </Button>
+            <Button type="submit" disabled={!title.trim() || saving}>
+              {saving ? <Spinner className="size-4" /> : null}
+              {t("designEditor.saveTemplate")}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

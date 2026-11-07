@@ -90,10 +90,9 @@ export function FigmaHydrationDialog({
       setToken("");
       onHydrated();
       toast.success(t("designEditor.import.figmaHydrationSuccess"), {
-        description: t(
-          "designEditor.import.figmaHydrationFigSuccessDescription",
-          { count: totalResolved, plural: totalResolved === 1 ? "" : "s" },
-        ),
+        description: t("designEditor.import.figmaHydrationFigFilled", {
+          count: totalResolved,
+        }),
       });
     } catch (err) {
       if (err instanceof FigmaFileUrlUsedAsTokenError) {
@@ -132,9 +131,8 @@ export function FigmaHydrationDialog({
       setToken("");
       onHydrated();
       toast.success(t("designEditor.import.figmaHydrationSuccess"), {
-        description: t("designEditor.import.figmaHydrationSuccessDescription", {
+        description: t("designEditor.import.figmaHydrationTokenFilled", {
           count: totalResolved,
-          plural: totalResolved === 1 ? "" : "s",
         }),
       });
     } catch (err) {
@@ -142,7 +140,7 @@ export function FigmaHydrationDialog({
         figmaHydrationErrorMessage(
           err,
           t("common.genericError"),
-          'Token rejected (403). In Figma\'s token settings, enable the "File content" and "Current user" scopes, then generate a new token.',
+          t("designEditor.import.errors.figmaTokenForbidden"),
           t("designEditor.import.errors.figmaTokenMustBeToken"),
         ),
       );
@@ -153,7 +151,11 @@ export function FigmaHydrationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent
+        className="sm:max-w-md"
+        aria-describedby={undefined}
+        closeLabel={t("designEditor.close")}
+      >
         <form
           onSubmit={(e) => {
             void handleSubmit(e);
@@ -198,11 +200,18 @@ export function FigmaHydrationDialog({
               placeholder={t("designEditor.import.figmaTokenPlaceholder")}
               autoComplete="new-password"
               aria-invalid={error ? true : undefined}
+              aria-describedby={
+                error ? "figma-hydration-token-error" : undefined
+              }
               className="text-xs"
               disabled={busy}
             />
             {error ? (
-              <p className="rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-[10px] leading-snug text-destructive">
+              <p
+                id="figma-hydration-token-error"
+                role="alert"
+                className="rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-[10px] leading-snug text-destructive"
+              >
                 {error}
               </p>
             ) : null}

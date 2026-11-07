@@ -65,7 +65,6 @@ import { afterBodyPointerUnlock } from "@/components/ui/pointer-lock";
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
@@ -854,9 +853,8 @@ export default function DesignSystems() {
                                           setDeleteId(ds.id),
                                         )
                                       }
-                                      className="text-red-400 focus:text-red-400 cursor-pointer"
+                                      className="text-destructive focus:text-destructive cursor-pointer"
                                     >
-                                      <IconTrash className="w-3.5 h-3.5 me-2" />
                                       {t("designSystems.actions.delete")}
                                     </DropdownMenuItem>
                                   </DropdownMenuContent>
@@ -907,7 +905,8 @@ export default function DesignSystems() {
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={bulkDeleteOpen ? handleBulkDelete : handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
+              variant="destructive"
+              className="cursor-pointer"
             >
               {t("designSystems.actions.delete")}
             </AlertDialogAction>
@@ -1034,12 +1033,14 @@ function DesignSystemDetailsSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="flex w-full flex-col overflow-y-auto sm:max-w-xl">
-        <SheetHeader className="pr-8">
-          <SheetTitle>{designSystem.title}</SheetTitle>
-          <SheetDescription>
-            {t("designSystems.details.description")}
-          </SheetDescription>
+      <SheetContent
+        aria-describedby={undefined}
+        className="flex w-full flex-col overflow-y-auto sm:max-w-xl"
+      >
+        <SheetHeader className="pe-8">
+          <SheetTitle className="min-w-0 truncate" title={designSystem.title}>
+            {designSystem.title}
+          </SheetTitle>
         </SheetHeader>
 
         <div className="flex-1 space-y-7 py-6">
@@ -1081,14 +1082,22 @@ function DesignSystemDetailsSheet({
 
           <section className="space-y-3 border-t border-border pt-6">
             <div>
-              <h3 className="text-sm font-medium text-foreground">
+              <h3
+                id="design-system-custom-instructions-label"
+                className="text-sm font-medium text-foreground"
+              >
                 {t("designSystems.details.customInstructionsTitle")}
               </h3>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              <p
+                id="design-system-custom-instructions-description"
+                className="mt-1 text-xs leading-relaxed text-muted-foreground"
+              >
                 {t("designSystems.details.customInstructionsDescription")}
               </p>
             </div>
             <Textarea
+              aria-labelledby="design-system-custom-instructions-label"
+              aria-describedby="design-system-custom-instructions-description"
               value={customInstructions}
               onChange={(event) => setCustomInstructions(event.target.value)}
               readOnly={!canEdit}

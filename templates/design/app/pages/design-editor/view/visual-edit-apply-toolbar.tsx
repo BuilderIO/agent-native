@@ -1,4 +1,4 @@
-import { IconChevronDown, IconClipboard, IconX } from "@tabler/icons-react";
+import { IconChevronDown } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -7,6 +7,7 @@ import {
   DropdownMenuContent,
   DropdownMenuLabel,
   DropdownMenuItem,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
@@ -164,7 +165,6 @@ export function renderVisualEditApplyToolbar({
                       )
                     }
                   >
-                    <IconClipboard className="mr-2 h-4 w-4" />
                     {t("designEditor.pendingVisualStyles.copyPrompt")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
@@ -175,17 +175,18 @@ export function renderVisualEditApplyToolbar({
                       )
                     }
                   >
-                    <IconClipboard className="mr-2 h-4 w-4" />
                     {t("designEditor.pendingVisualStyles.copyFullPrompt")}
                   </DropdownMenuItem>
                   {showSharedVisualEditApply ? null : (
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={handleAbortPendingVisualStyles}
-                    >
-                      <IconX className="mr-2 h-4 w-4" />
-                      {t("designEditor.pendingVisualStyles.abortPreview")}
-                    </DropdownMenuItem>
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={handleAbortPendingVisualStyles}
+                      >
+                        {t("designEditor.pendingVisualStyles.abortPreview")}
+                      </DropdownMenuItem>
+                    </>
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>

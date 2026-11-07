@@ -695,8 +695,8 @@ describe("Motion animation style menu", () => {
     expect(
       Array.from(
         document.body.querySelectorAll<HTMLElement>("[role='menuitem']"),
-      ).every((item) => item.querySelector("svg")),
-    ).toBe(true);
+      ).some((item) => item.querySelector("svg")),
+    ).toBe(false);
     expect(
       Array.from(document.body.querySelectorAll(".sr-only")).some((element) =>
         element.textContent?.includes('Animate "Heading"'),

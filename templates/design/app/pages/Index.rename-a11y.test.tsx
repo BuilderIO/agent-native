@@ -236,6 +236,7 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
       {children}
     </div>
   ),
+  DropdownMenuSeparator: () => <div role="separator" />,
 }));
 
 vi.mock("@/components/ui/tooltip", () => ({

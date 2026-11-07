@@ -57,9 +57,7 @@ import {
   IconSearch,
   IconDots,
   IconTrash,
-  IconCopy,
   IconX,
-  IconPencil,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
@@ -112,9 +110,18 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -1799,13 +1806,11 @@ export default function Index() {
                                     setTimeout(() => startRename(design))
                                   }
                                 >
-                                  <IconPencil />
                                   {t("home.rename")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() => handleDuplicate(design.id)}
                                 >
-                                  <IconCopy />
                                   {t("home.duplicate")}
                                 </DropdownMenuItem>
                                 {creativeContextEnabled ? (
@@ -1815,19 +1820,18 @@ export default function Index() {
                                       setContextDesigns([design]);
                                     }}
                                   >
-                                    <IconPlus />
                                     {t(
                                       "creativeContext.addToContext" /* i18n-key-ignore */,
                                     )}
                                   </DropdownMenuItem>
                                 ) : null}
+                                <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   onClick={() =>
                                     setTimeout(() => setDeleteId(design.id))
                                   }
                                   className="text-destructive focus:text-destructive"
                                 >
-                                  <IconTrash />
                                   {t("home.delete")}
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
@@ -1936,7 +1940,8 @@ export default function Index() {
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={bulkDeleteOpen ? handleBulkDelete : handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
+              variant="destructive"
+              className="cursor-pointer"
             >
               {t("home.delete")}
             </AlertDialogAction>
@@ -1945,44 +1950,54 @@ export default function Index() {
       </AlertDialog>
 
       {/* Rename Dialog */}
-      <AlertDialog
+      <Dialog
         open={!!renameId}
         onOpenChange={(open) => {
           if (!open) setRenameId(null);
         }}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("home.renameDesign")}</AlertDialogTitle>
-          </AlertDialogHeader>
-          <Input
-            value={renameDraft}
-            onChange={(e) => setRenameDraft(e.target.value)}
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                commitRename();
-              }
+        <DialogContent
+          aria-describedby={undefined}
+          closeLabel={t("designEditor.close")}
+        >
+          <form
+            className="grid gap-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              commitRename();
             }}
-            placeholder={t("home.designName")}
-            aria-label={t("home.designName")}
-            className="text-sm"
-          />
-          <AlertDialogFooter>
-            <AlertDialogCancel className="cursor-pointer">
-              {t("home.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={commitRename}
-              disabled={!renameDraft.trim()}
-              className="cursor-pointer"
-            >
-              {t("home.save")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          >
+            <DialogHeader>
+              <DialogTitle>{t("home.renameDesign")}</DialogTitle>
+            </DialogHeader>
+            <Input
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              placeholder={t("home.designName")}
+              aria-label={t("home.designName")}
+              className="text-sm"
+            />
+            <DialogFooter className="gap-2 sm:space-x-0">
+              <DialogClose asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="cursor-pointer"
+                >
+                  {t("home.cancel")}
+                </Button>
+              </DialogClose>
+              <Button
+                type="submit"
+                disabled={!renameDraft.trim()}
+                className="cursor-pointer"
+              >
+                {t("home.save")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -2018,6 +2033,7 @@ function NewDesignHandoffOverlay() {
   const t = useT();
   return (
     <div
+      role="status"
       className="fixed inset-0 z-[180] flex items-center justify-center bg-background/70 backdrop-blur-sm"
       aria-live="polite"
       aria-busy="true"

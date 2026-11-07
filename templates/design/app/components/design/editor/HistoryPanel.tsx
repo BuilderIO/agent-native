@@ -1,9 +1,4 @@
-import {
-  IconArrowLeft,
-  IconHistory,
-  IconLoader2,
-  IconRestore,
-} from "@tabler/icons-react";
+import { IconArrowLeft, IconHistory, IconRestore } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -15,11 +10,11 @@ import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import {
   useDesignVersion,
   useDesignVersions,
@@ -128,7 +123,11 @@ export function HistoryPanel({
 
   return (
     <Sheet open={open} onOpenChange={handleClose}>
-      <SheetContent side="right" className="w-[92vw] max-w-[640px] p-0">
+      <SheetContent
+        side="right"
+        aria-describedby={undefined}
+        className="w-[92vw] max-w-[640px] p-0"
+      >
         <SheetHeader className="px-4 pt-4 pb-0">
           <SheetTitle className="flex items-center gap-2 text-sm font-medium">
             {selectedVersionId ? (
@@ -150,9 +149,6 @@ export function HistoryPanel({
               </>
             )}
           </SheetTitle>
-          <SheetDescription className="sr-only">
-            {"Browse and restore saved design versions" /* i18n-ignore */}
-          </SheetDescription>
         </SheetHeader>
 
         <Separator className="mt-3" />
@@ -225,9 +221,9 @@ export function HistoryPanel({
                   disabled={restoreVersion.isPending || versionDetailPending}
                 >
                   {restoreVersion.isPending ? (
-                    <IconLoader2 size={15} className="mr-1.5 animate-spin" />
+                    <Spinner className="me-1.5" />
                   ) : (
-                    <IconRestore size={15} className="mr-1.5" />
+                    <IconRestore size={15} className="me-1.5" />
                   )}
                   {"Restore this version" /* i18n-ignore */}
                 </Button>
@@ -249,7 +245,7 @@ export function HistoryPanel({
                     key={version.id}
                     type="button"
                     onClick={() => setSelectedVersionId(version.id)}
-                    className="w-full rounded-md px-3 py-2.5 text-left transition-colors hover:bg-accent"
+                    className="w-full rounded-md px-3 py-2.5 text-start transition-colors hover:bg-accent"
                   >
                     <div className="flex min-w-0 items-start gap-3">
                       <div className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-[var(--design-editor-accent-color)]" />

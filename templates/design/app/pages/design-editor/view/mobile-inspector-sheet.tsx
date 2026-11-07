@@ -62,6 +62,7 @@ export function renderMobileInspectorSheet({
           </SheetTrigger>
           <SheetContent
             side="right"
+            aria-describedby={undefined}
             onInteractOutside={(event) => {
               if (motionDockOpen) event.preventDefault();
             }}

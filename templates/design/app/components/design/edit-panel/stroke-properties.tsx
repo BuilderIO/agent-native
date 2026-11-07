@@ -279,7 +279,10 @@ function StrokeLayerControl({
         <InspectorGrid className="items-center" layout="stroke-details">
           <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
             <Select value={position} onValueChange={movePosition}>
-              <SelectTrigger className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+              <SelectTrigger
+                aria-label={t("editPanel.labels.position")}
+                className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

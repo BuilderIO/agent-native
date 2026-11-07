@@ -210,6 +210,7 @@ export default {
     notFoundDescription: "The page you are looking for does not exist.",
     notFoundSignIn: "Sign in",
     notFoundBackToDesigns: "Back to designs",
+    presentGoToScreen: "Go to screen {{number}}",
   },
   onboarding: {
     fileStorage: {
@@ -872,6 +873,7 @@ export default {
       truncateText: "Truncate text",
       maxLines: "Max lines",
       restoreError: "Could not restore the original text layout.",
+      title: "Typography details",
     },
     flexDirections: {
       row: "Row",
@@ -1201,7 +1203,7 @@ export default {
         rotateOut: "Rotate out",
         resizeIn: "Resize in",
         resizeOut: "Resize out",
-        fadeIn: "Fade In",
+        fadeIn: "Fade in",
         fadeOut: "Fade out",
         custom: "Custom",
         toLeft: "To left",
@@ -1607,8 +1609,8 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} need Figma access to load.",
       figmaPasteImagesDontShowAgain: "Don't show again",
-      figmaPasteUploadImage: "Upload image",
-      figmaPasteUploadImageFor: "Upload “{{name}}”",
+      figmaPasteUploadImage: "Upload image…",
+      figmaPasteUploadImageFor: "Upload “{{name}}”…",
       figmaPasteImageFallbackName: "Image {{index}}",
       figmaPasteUploadImageSuccess: "Image filled in",
       figmaPasteUploadImageInvalid:
@@ -1625,7 +1627,7 @@ export default {
       figmaHydrationFigTitle: "Have the original .fig file?",
       figmaHydrationFigOption:
         "Fastest — pulls every image straight from the file. No token, no rate limits.",
-      figmaHydrationChooseFig: "Fill images from .fig",
+      figmaHydrationChooseFig: "Fill images from .fig…",
       figmaHydrationOrToken: "Or fetch from Figma",
       figmaHydrationTokenDescription:
         'Fetches the exact images from the copied frame\'s Figma file. Needs "File content" and "Current user" scopes; saved securely, never shown in chat.',
@@ -1713,7 +1715,20 @@ export default {
         importBusy: "Another import is in progress. Finish or cancel it first.",
         figFileTooLarge:
           "That .fig is too large — uploads are limited to {{max}} MB. In Figma, copy just the frame you want into a new file and export that as .fig, or use Paste from Figma instead.",
+        figmaTokenForbidden:
+          'Token rejected (403). In Figma\'s token settings, enable the "File content" and "Current user" scopes, then generate a new token.',
       },
+      figmaHydrationFigFilled_one:
+        "{{count}} image filled in from the .fig file.",
+      figmaHydrationFigFilled_other:
+        "{{count}} images filled in from the .fig file.",
+      figmaHydrationTokenFilled_one: "{{count}} image filled in from Figma.",
+      figmaHydrationTokenFilled_other: "{{count}} images filled in from Figma.",
+      figmaPasteImagesMissing_one:
+        "{{count}} image needs Figma access to load.",
+      figmaPasteImagesMissing_other:
+        "{{count}} images need Figma access to load.",
+      figmaPasteConnectAndFetch: "Connect & fetch images…",
     },
     generationMayHaveStopped:
       "Generation may have stopped before creating files. Check the agent message or try again.",
@@ -1757,8 +1772,8 @@ export default {
       file: "File",
       preferences: "Preferences",
       newDesign: "New design",
-      saveLocalCopy: "Save local copy…",
-      makeAnApp: "Make an app",
+      saveLocalCopy: "Save local copy",
+      makeAnApp: "Make an app…",
       theme: "Theme",
       themeLight: "Light",
       themeDark: "Dark",
@@ -2040,8 +2055,7 @@ export default {
     addExtension: "Extension",
     extensionsDocs: "Docs",
     extensionsPromptTitle: "What should this extension do?",
-    extensionsPlaceholder:
-      "Style tools, selection helpers, artboard actions...",
+    extensionsPlaceholder: "Style tools, selection helpers, artboard actions…",
     extensionsEmptyTitle: "No editor extensions yet",
     extensionsEmptyDescription:
       "Build a small inspector extension that can read the selected element, call actions, or ask the agent to update the artboard.",
@@ -2054,7 +2068,7 @@ export default {
     designExport: "Design export",
     designPreview: "Design Preview",
     preview: "Preview",
-    publish: "Publish",
+    publish: "Publish…",
     presentMode: "Present Mode",
     useThisDirection: "Use this direction",
     variantHandoffHelp:
@@ -2134,7 +2148,7 @@ export default {
     addLocalhostScreen: {
       title: "Add a screen from your app",
       description: "Pick a route to add as a new frame, or type a path.",
-      searchPlaceholder: "Search routes…",
+      searchPlaceholder: "Search routes or type a path…",
       noRoutes: "No matching routes",
       noDiscoveredRoutes:
         "This app has no discovered routes. Type a path to add a screen.",
@@ -2143,9 +2157,11 @@ export default {
       viewportMobile: "Mobile",
       added: "Screen added",
       addFailed: "Could not add screen",
+      viewportLabel: "Viewport",
+      searchLabel: "Search routes",
     },
     localhostConsent: {
-      approvedTitle: "Approved — run the edit again",
+      approvedTitle: "File writes approved",
       approvedDescription:
         "File writes are allowed for 8 hours. The edit that asked for access wasn't saved.",
       retryInChat: "Run again in chat",
@@ -2156,6 +2172,8 @@ export default {
       close: "Close",
       prepareSignInError:
         "Couldn't save this request before sign-in. Try again.",
+      writeScope:
+        "Only text and code files can be written. Secrets such as .env and key files, and paths outside the root folder, are always blocked.",
     },
     nodeRewrite: {
       composerTitle: "Ask or change selection",
@@ -2324,10 +2342,29 @@ export default {
     },
     commenterRoleLabel: "Commenter",
     commenterRoleDescription: "Can view and add review comments",
+    saveTemplateTitle: "Save as template",
+    templateSnapshotScreens_one: "{{count}} screen",
+    templateSnapshotScreens_other: "{{count}} screens",
+    templateSnapshotLocks_one: "{{count}} locked layer",
+    templateSnapshotLocks_other: "{{count}} locked layers",
+    templateSnapshotSummaryWithLocks:
+      "{{screens}} and {{locks}} will be preserved",
+    templateSnapshotSummaryScreens: "{{screens}} will be preserved",
+    zoomMenu: {
+      percentage: "Zoom percentage",
+      zoomToPreset: "Zoom to {{percent}}%",
+      pixelGrid: "Pixel grid",
+      snapToPixelGrid: "Snap to pixel grid",
+      rulers: "Rulers",
+      multiplayerCursors: "Multiplayer cursors",
+      comments: "Comments",
+    },
+    states: { nameLabel: "State name" },
+    createExtension: "Create extension",
   },
   canvasMenu: {
-    editWithAgent: "Edit with Agent",
-    exploreWithAgent: "Explore with Agent",
+    editWithAgent: "Edit with agent",
+    exploreWithAgent: "Explore with agent",
     group: "Group selection",
     inspiration: "Inspiration",
     inspirationDescription: "Explore multiple variants",
@@ -2427,6 +2464,8 @@ export default {
         "Live editor bridge did not confirm after several attempts.",
       connectionNotConfirmed:
         "The live editor bridge did not confirm the connection. Is the local dev server still running?",
+      maybeBlockedDescription:
+        "Your browser may need permission to connect to localhost, or the dev server may be offline.",
     },
   },
   multiScreenCanvas: {
@@ -2530,7 +2569,7 @@ export default {
     blank: "Blank",
     builtIn: "Built-in",
     chooseTemplate: "Choose a template",
-    searchTemplates: "Search templates...",
+    searchTemplates: "Search templates…",
     noTemplatesFound: "No templates found.",
     yourTemplates: "Your templates",
     builtInTemplates: "Built-in templates",
@@ -2845,7 +2884,7 @@ export default {
     all: "All",
     showMineDesigns: "Show my designs",
     showAllDesigns: "Show all designs",
-    openingDesign: "Opening design...",
+    openingDesign: "Opening design…",
     skipToEditor: "Skip to editor",
     failedToCreateDesign: "Failed to create design",
     describeBuild: "Describe what you want to build...",
@@ -2856,15 +2895,15 @@ export default {
     delete: "Delete",
     selectDesign: "Select {{title}}",
     actionsForDesign: "Actions for {{title}}",
-    rename: "Rename",
+    rename: "Rename…",
     duplicate: "Duplicate",
     renameDesign: "Rename design",
     designName: "Design name",
     cancel: "Cancel",
     save: "Save",
-    deleteDesignTitle: "Delete Design?",
-    deleteDesignsTitle: "Delete {{count}} Designs?",
-    deleteSingleDesignsTitle: "Delete {{count}} Design?",
+    deleteDesignTitle: "Delete design?",
+    deleteDesignsTitle: "Delete {{count}} designs?",
+    deleteSingleDesignsTitle: "Delete {{count}} design?",
     deleteDesignDescription:
       "This will permanently delete this design and all its files. This action cannot be undone.",
     deleteDesignsDescription:
@@ -3003,7 +3042,7 @@ export default {
     useTemplate: "Use template",
     useAsIs: "Use template as-is",
     promptPlaceholder: "Describe what you want to make with this template...",
-    opening: "Opening template...",
+    opening: "Opening template…",
     createFailed: "Could not create a design from this template",
     deleted: "Template deleted",
     deleteFailed: "Could not delete this template",
@@ -3230,10 +3269,10 @@ export default {
       cancel: "Cancel",
     },
     deleteDialog: {
-      title: "Delete Design System?",
+      title: "Delete design system?",
       description:
         "This will permanently delete this design system and unlink it from any designs that use it. This action cannot be undone.",
-      bulkTitle: "Delete {{count}} Design Systems?",
+      bulkTitle: "Delete {{count}} design systems?",
       bulkDescription:
         "This will permanently delete {{count}} design systems and unlink them from any designs that use them. This action cannot be undone.",
     },
@@ -3247,7 +3286,7 @@ export default {
         "Durable guidance the agent reuses whenever this system is linked to a design.",
       noCustomInstructions: "No custom instructions saved yet.",
       useAsStartingPoint: "Use as starting point",
-      saving: "Saving...",
+      saving: "Saving…",
       saveChanges: "Save changes",
     },
     preview: {

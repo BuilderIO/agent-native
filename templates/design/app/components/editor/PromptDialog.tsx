@@ -30,6 +30,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useId,
   useMemo,
   useRef,
 } from "react";
@@ -308,6 +309,7 @@ export default function PromptPopover({
   scopeDraftsToOrg = true,
 }: PromptPopoverProps) {
   const t = useT();
+  const titleId = useId();
   const systemsEnabled = useDesignSystemWorkflows();
   const attachmentLimitMessage = t("promptDialog.attachmentsTooLarge", {
     max: MAX_UPLOAD_MB,
@@ -759,7 +761,7 @@ export default function PromptPopover({
     <>
       {!inline && (
         <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
-          <span className="text-sm font-medium text-foreground/90">
+          <span id={titleId} className="text-sm font-medium text-foreground/90">
             {title}
           </span>
           {creationModeToggle}
@@ -786,7 +788,7 @@ export default function PromptPopover({
                 composer?.focus();
               });
             }}
-            className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-transparent bg-[var(--design-editor-accent-color)] px-3 py-3 text-left text-[color:var(--design-editor-accent-contrast-color)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-transparent bg-[var(--design-editor-accent-color)] px-3 py-3 text-start text-[color:var(--design-editor-accent-contrast-color)] outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-popover disabled:cursor-not-allowed disabled:opacity-50"
           >
             <AgentMark className="size-5 shrink-0" />
             <span className="text-sm font-medium">
@@ -820,7 +822,7 @@ export default function PromptPopover({
                 }
               })();
             }}
-            className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-border px-3 py-3 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-border px-3 py-3 text-start outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           >
             <IconArtboard className="size-5 shrink-0 text-muted-foreground" />
             <span className="text-sm font-medium text-foreground">
@@ -1010,7 +1012,8 @@ export default function PromptPopover({
     <Popover open={open} onOpenChange={onOpenChange}>
       {open && centered && (
         <div
-          className="fixed inset-0 z-[199] bg-black/40"
+          aria-hidden="true"
+          className="fixed inset-0 z-[199] bg-background/45 backdrop-blur-[1px]"
           onClick={() => onOpenChange(false)}
         />
       )}
@@ -1044,7 +1047,8 @@ export default function PromptPopover({
           }
         }}
         data-agent-native-prompt-popover
-        className="relative z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border-border p-0 shadow-2xl shadow-black/60"
+        aria-labelledby={titleId}
+        className="relative z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border-border p-0 shadow-2xl"
       >
         {content}
       </PopoverContent>
@@ -1082,7 +1086,7 @@ function CreationModeToggle({
           });
           onChange("design");
         }}
-        className={`flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 !text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+        className={`flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 !text-[11px] font-medium outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${
           mode === "design"
             ? "bg-background text-foreground shadow-sm"
             : "text-muted-foreground hover:text-foreground/80"
@@ -1104,7 +1108,7 @@ function CreationModeToggle({
           });
           onChange("app");
         }}
-        className={`flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 !text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+        className={`flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 !text-[11px] font-medium outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${
           mode === "app"
             ? "bg-background text-foreground shadow-sm"
             : "text-muted-foreground hover:text-foreground/80"

@@ -52,6 +52,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -705,6 +706,7 @@ function CreateComponentPopover({
 }) {
   const [name, setName] = useState(defaultName);
   const inputRef = useRef<HTMLInputElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
     if (open) setName(defaultName);
@@ -743,6 +745,7 @@ function CreateComponentPopover({
         align="end"
         sideOffset={8}
         className="w-80 p-3 text-[12px]"
+        aria-labelledby={titleId}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           window.requestAnimationFrame(() => inputRef.current?.select());
@@ -755,16 +758,12 @@ function CreateComponentPopover({
             commit();
           }}
         >
-          <div className="space-y-1">
-            <h3 className="design-sidebar-context-title text-foreground">
-              {"Create component" /* i18n-ignore design inspector action */}
-            </h3>
-            <p className="!text-[11px] leading-4 text-muted-foreground">
-              {
-                "Name this element so it becomes a reusable component. The agent can then extract props and replace repeated instances." /* i18n-ignore design inspector copy */
-              }
-            </p>
-          </div>
+          <h3
+            id={titleId}
+            className="design-sidebar-context-title text-foreground"
+          >
+            {"Create component" /* i18n-ignore design inspector action */}
+          </h3>
           <div className="space-y-1.5">
             <Label
               htmlFor="create-component-name"
@@ -785,7 +784,7 @@ function CreateComponentPopover({
           <div className="flex justify-end gap-2">
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               size="sm"
               onClick={() => onOpenChange(false)}
             >
@@ -802,6 +801,7 @@ function CreateComponentPopover({
 }
 
 function InspectCodePopover({ data }: { data: InspectCodeData }) {
+  const titleId = useId();
   return (
     <Popover>
       <Tooltip>
@@ -824,8 +824,12 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
           {"Inspect code" /* i18n-ignore design inspector action */}
         </TooltipContent>
       </Tooltip>
-      <PopoverContent align="end" className="w-80 space-y-2 p-2 !text-[11px]">
-        <InspectCodePopoverBody data={data} />
+      <PopoverContent
+        align="end"
+        className="w-80 space-y-2 p-2 !text-[11px]"
+        aria-labelledby={titleId}
+      >
+        <InspectCodePopoverBody data={data} titleId={titleId} />
       </PopoverContent>
     </Popover>
   );
@@ -833,7 +837,13 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
 
 // Formatting a large element's markup costs hundreds of ms, so it runs only
 // while the popover is open (closed PopoverContent is unmounted).
-function InspectCodePopoverBody({ data }: { data: InspectCodeData }) {
+function InspectCodePopoverBody({
+  data,
+  titleId,
+}: {
+  data: InspectCodeData;
+  titleId: string;
+}) {
   const [copied, setCopied] = useState(false);
   const html = data.html ?? "";
   const source = data.sourceLocation ?? null;
@@ -856,7 +866,10 @@ function InspectCodePopoverBody({ data }: { data: InspectCodeData }) {
   return (
     <>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+        <span
+          id={titleId}
+          className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70"
+        >
           {"Inspect code" /* i18n-ignore design inspector label */}
         </span>
         <Button
@@ -1089,7 +1102,12 @@ function ScreenSizePresetPicker({
         </TooltipTrigger>
         <TooltipContent side="left">{label}</TooltipContent>
       </Tooltip>
-      <PopoverContent align="end" side="left" className="w-56 p-0">
+      <PopoverContent
+        align="end"
+        side="left"
+        className="w-56 p-0"
+        aria-label={label}
+      >
         <div className="flex max-h-80 flex-col overflow-hidden">
           <FramePresetsPanel
             onPick={(preset) => {
@@ -1348,7 +1366,10 @@ function ScreenGeometryProperties({
                   }}
                   disabled={!sourceEditable || screenSourcePending}
                 >
-                  <SelectTrigger className="h-6 w-full min-w-0 text-[11px]">
+                  <SelectTrigger
+                    aria-label={t("editPanel.screenSource.chooseLocalApp")}
+                    className="h-6 w-full min-w-0 text-[11px]"
+                  >
                     <SelectValue
                       placeholder={t("editPanel.screenSource.chooseLocalApp")}
                     />
@@ -3333,6 +3354,9 @@ export const EditPanel = memo(function EditPanel({
                                         animationStyleBrowserSideOffset
                                       }
                                       className="h-[min(485px,calc(100dvh-4rem))] w-[240px] overflow-hidden p-0"
+                                      aria-label={t(
+                                        "designEditor.motion.animationStyles.title",
+                                      )}
                                     >
                                       <div className="h-full min-h-0 overflow-hidden">
                                         <AnimationStyleBrowser

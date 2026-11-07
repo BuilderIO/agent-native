@@ -16,15 +16,7 @@ import {
   callAction,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconBellOff,
-  IconChevronDown,
-  IconPhotoOff,
-  IconPhotoUp,
-  IconPlugConnected,
-  IconUpload,
-  IconX,
-} from "@tabler/icons-react";
+import { IconChevronDown, IconPhotoOff, IconX } from "@tabler/icons-react";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -227,10 +219,9 @@ export function FigmaPasteImagesNotice({
       onHydrated();
       onClose();
       toast.success(t("designEditor.import.figmaHydrationSuccess"), {
-        description: t(
-          "designEditor.import.figmaHydrationFigSuccessDescription",
-          { count: resolved, plural: resolved === 1 ? "" : "s" },
-        ),
+        description: t("designEditor.import.figmaHydrationFigFilled", {
+          count: resolved,
+        }),
       });
     } catch (error) {
       toast.error(t("designEditor.import.figmaHydrationFigError"), {
@@ -243,7 +234,7 @@ export function FigmaPasteImagesNotice({
   }
 
   const rowClass =
-    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-[background-color,opacity] hover:bg-accent focus-visible:bg-accent focus-visible:outline-none disabled:opacity-50";
+    "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-start text-xs text-foreground transition-[background-color,opacity] hover:bg-accent focus-visible:bg-accent focus-visible:outline-none disabled:opacity-50";
 
   return (
     <div
@@ -267,9 +258,8 @@ export function FigmaPasteImagesNotice({
       <div className="flex items-center gap-2 px-1">
         <IconPhotoOff className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-xs">
-          {t("designEditor.import.figmaPasteImagesNeedToken", {
+          {t("designEditor.import.figmaPasteImagesMissing", {
             count: remaining,
-            plural: remaining === 1 ? "" : "s",
           })}
         </span>
         <Popover open={expanded} onOpenChange={setExpanded}>
@@ -298,7 +288,6 @@ export function FigmaPasteImagesNotice({
                 disabled={busy}
                 onClick={() => chooseImage(missingImages[0]!)}
               >
-                <IconPhotoUp className="size-3.5 shrink-0 text-muted-foreground" />
                 {t("designEditor.import.figmaPasteUploadImage")}
               </button>
             ) : missingImages.length > 1 ? (
@@ -312,7 +301,6 @@ export function FigmaPasteImagesNotice({
                       disabled={busy}
                       onClick={() => chooseImage(image)}
                     >
-                      <IconPhotoUp className="size-3.5 shrink-0 text-muted-foreground" />
                       <span className="min-w-0 truncate">
                         {t("designEditor.import.figmaPasteUploadImageFor", {
                           name:
@@ -337,7 +325,6 @@ export function FigmaPasteImagesNotice({
               disabled={busy}
               onClick={() => figInputRef.current?.click()}
             >
-              <IconUpload className="size-3.5 shrink-0 text-muted-foreground" />
               {t("designEditor.import.figmaHydrationChooseFig")}
             </button>
             <button
@@ -349,8 +336,7 @@ export function FigmaPasteImagesNotice({
                 onConnect();
               }}
             >
-              <IconPlugConnected className="size-3.5 shrink-0 text-muted-foreground" />
-              {t("designEditor.import.figmaHydrationConnectAndLoad")}
+              {t("designEditor.import.figmaPasteConnectAndFetch")}
             </button>
             <button
               type="button"
@@ -360,14 +346,13 @@ export function FigmaPasteImagesNotice({
                 onClose();
               }}
             >
-              <IconBellOff className="size-3.5 shrink-0" />
               {t("designEditor.import.figmaPasteImagesDontShowAgain")}
             </button>
           </PopoverContent>
         </Popover>
         <button
           type="button"
-          aria-label={t("home.cancel")}
+          aria-label={t("designEditor.close")}
           onClick={onClose}
           className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >

@@ -386,6 +386,8 @@ export function FileTree({
           const isExpanded =
             row.node.kind === "folder" && expandedPaths.has(row.path);
           const isRenaming = renamingPath === row.path;
+          const canCreateInNode =
+            row.node.kind === "folder" && capabilities.create;
           const canRenameNode = row.node.kind === "file" && capabilities.rename;
           const canDeleteNode = row.node.kind === "file" && capabilities.delete;
           return (
@@ -473,7 +475,7 @@ export function FileTree({
                 </div>
               </ContextMenuTrigger>
               <ContextMenuContent className="min-w-[180px] text-[12px]">
-                {row.node.kind === "folder" && capabilities.create ? (
+                {canCreateInNode ? (
                   <ContextMenuItem
                     className="text-[12px]"
                     onSelect={() => {
@@ -494,15 +496,7 @@ export function FileTree({
                     {"Rename…" /* i18n-ignore */}
                   </ContextMenuItem>
                 ) : null}
-                {canDeleteNode ? (
-                  <ContextMenuItem
-                    className="text-[12px] text-destructive focus:text-destructive"
-                    onSelect={() => requestDelete(row.node)}
-                  >
-                    {"Delete" /* i18n-ignore */}
-                  </ContextMenuItem>
-                ) : null}
-                {canRenameNode || canDeleteNode ? (
+                {canCreateInNode || canRenameNode ? (
                   <ContextMenuSeparator />
                 ) : null}
                 <ContextMenuItem
@@ -517,6 +511,17 @@ export function FileTree({
                 >
                   {"Copy Relative Path" /* i18n-ignore */}
                 </ContextMenuItem>
+                {canDeleteNode ? (
+                  <>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem
+                      className="text-[12px] text-destructive focus:text-destructive"
+                      onSelect={() => requestDelete(row.node)}
+                    >
+                      {"Delete" /* i18n-ignore */}
+                    </ContextMenuItem>
+                  </>
+                ) : null}
               </ContextMenuContent>
             </ContextMenu>
           );
@@ -591,7 +596,7 @@ export function FileTree({
               <AlertDialogCancel>
                 {"Cancel" /* i18n-ignore */}
               </AlertDialogCancel>
-              <AlertDialogAction onClick={confirmDelete}>
+              <AlertDialogAction variant="destructive" onClick={confirmDelete}>
                 {"Delete" /* i18n-ignore */}
               </AlertDialogAction>
             </AlertDialogFooter>

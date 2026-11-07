@@ -167,7 +167,7 @@ describe("document page background inspector", () => {
     });
 
     const fill = document.querySelector<HTMLButtonElement>(
-      'button[aria-label="Fill"]',
+      'button[aria-label="editPanel.labels.imageScaleMode"]',
     );
     expect(fill).not.toBeNull();
     act(() => fill!.click());
