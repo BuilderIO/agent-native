@@ -209,6 +209,9 @@ export class ClientForks {
         "git",
         [
           "clone",
+          "--depth=1",
+          "--single-branch",
+          "--no-tags",
           "--filter=blob:none",
           "--no-checkout",
           this.options.source,
@@ -216,7 +219,11 @@ export class ClientForks {
         ],
         this.directory(state.appId),
       );
-      await runForkCommand("git", ["fetch", "origin", base], temporary);
+      await runForkCommand(
+        "git",
+        ["fetch", "--depth=1", "origin", base],
+        temporary,
+      );
       await sparseForkSource(temporary, base, state.appId);
       await runForkCommand(
         "git",
@@ -422,6 +429,16 @@ export class ClientForks {
         state.error = null;
         state.phase = "ready";
         await this.save(state);
+        const builds = path.join(this.directory(appId), "builds");
+        for (const entry of await fs.readdir(builds)) {
+          const artifact = path.join(builds, entry);
+          if (
+            /^[a-f0-9-]{36}$/.test(entry) &&
+            artifact !== state.buildPath &&
+            artifact !== state.previousBuildPath
+          )
+            await fs.rm(artifact, { recursive: true, force: true });
+        }
         return state;
       } catch (error) {
         state.phase = "error";
@@ -449,7 +466,7 @@ export class ClientForks {
       await this.save(state);
       await runForkCommand(
         "git",
-        ["fetch", "origin", hostedSha],
+        ["fetch", "--depth=1", "origin", hostedSha],
         state.sourcePath,
       );
       try {
