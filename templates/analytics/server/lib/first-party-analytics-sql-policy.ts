@@ -79,6 +79,7 @@ const SQL_PARENTHESIS_KEYWORDS = new Set([
   "then",
   "using",
   "values",
+  "when",
   "where",
 ]);
 const SAFE_BIGQUERY_FUNCTIONS = new Set([

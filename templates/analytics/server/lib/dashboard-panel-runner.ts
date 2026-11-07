@@ -3,6 +3,7 @@ import type { CredentialContext } from "@agent-native/core/credentials";
 import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
 import type { SqlPanel } from "../../app/pages/adhoc/sql-dashboard/types";
+import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import {
   normalizeDashboardPanelQuery,
   type DashboardPanelSource,
@@ -96,8 +97,10 @@ export async function runResolvedPanel(args: {
   timeoutMs: number;
   signal?: AbortSignal;
   forceRefresh?: boolean;
+  trafficEnvironment?: TrafficEnvironment;
 }): Promise<ReportPanelData> {
   const { source, query, ctx, timeoutMs, signal, forceRefresh } = args;
+  const { trafficEnvironment } = args;
   const startedAt = Date.now();
   try {
     const result = await withTimeout(
@@ -108,6 +111,7 @@ export async function runResolvedPanel(args: {
           timeoutMs,
           ...(forceRefresh ? { forceRefresh: true } : {}),
           ...(signal ? { signal } : {}),
+          ...(trafficEnvironment ? { trafficEnvironment } : {}),
         },
         ctx,
       ),
