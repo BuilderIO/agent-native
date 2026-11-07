@@ -77,8 +77,8 @@ export const NFM_EXPORT_STYLES = `
     .nfm-details { margin: 18px 0; }
     .nfm-details > summary { cursor: default; font-weight: 600; }
     .nfm-details-body { margin-left: 1.1rem; }
-    .nfm-columns { display: flex; gap: 24px; margin: 18px 0; }
-    .nfm-column { flex: 1 1 0; min-width: 0; }
+    .nfm-columns { display: flex; flex-wrap: wrap; gap: 24px; margin: 18px 0; }
+    .nfm-column { flex: 1 1 0; min-width: min(100%, 8rem); }
     .nfm-column > :first-child { margin-top: 0; }
     .nfm-synced { margin: 18px 0; }`;
 
@@ -457,14 +457,19 @@ const renderDetailsContainer: ContainerRenderer = ({
 
 // The set's columns share the row as the editor draws them: a set where only
 // some columns give a ratio, or whose ratios don't add up to the whole row, is
-// evened out before each column is drawn.
+// evened out before each column is drawn. Only the set's own columns count: a
+// set inside one of them is evened out on its own when it is drawn.
 const renderColumnsContainer: ContainerRenderer = ({ inner, renderers }) => {
   const lines = dedentChildren(inner).split("\n");
-  const columns = lines.flatMap((line, index) =>
-    line.match(OPEN_TAG_PATTERN)?.[1] === "column"
-      ? [{ index, attrsRaw: line.slice("<column".length, -1) }]
-      : [],
-  );
+  const columns: { index: number; attrsRaw: string }[] = [];
+  let insideColumnUntil = -1;
+  lines.forEach((line, index) => {
+    if (index <= insideColumnUntil) return;
+    if (line.match(OPEN_TAG_PATTERN)?.[1] !== "column") return;
+    columns.push({ index, attrsRaw: line.slice("<column".length, -1) });
+    insideColumnUntil =
+      findContainerClose(lines, index, "column") ?? lines.length;
+  });
   const ratios = normalizeColumnRatios(
     columns.map(({ attrsRaw }) =>
       parseColumnRatio(parseTagAttrs(attrsRaw).ratio),

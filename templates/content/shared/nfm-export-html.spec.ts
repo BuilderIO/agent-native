@@ -333,6 +333,30 @@ describe("NFM container export", () => {
     expect(columnGrows(html)).toEqual(["75", "25"]);
   });
 
+  it("evens out a set inside a column apart from the set around it", () => {
+    const html = exportedBody(
+      [
+        "<columns>",
+        '<column ratio="70">',
+        "<columns>",
+        '<column ratio="25">',
+        "Inner left",
+        "</column>",
+        '<column ratio="75">',
+        "Inner right",
+        "</column>",
+        "</columns>",
+        "</column>",
+        "<column>",
+        "Outer right",
+        "</column>",
+        "</columns>",
+      ].join("\n"),
+    );
+
+    expect(columnGrows(html)).toEqual(["70", "25", "75", "30"]);
+  });
+
   it("renders colored Tabler callout icons in standalone HTML and PDF output", () => {
     const markdown = calloutWithIcon({
       version: 1,
