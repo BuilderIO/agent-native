@@ -5,6 +5,7 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
+import { getEngineCredentialOrgId } from "../agent/engine/credential-owner.js";
 import {
   getStoredModelForEngine,
   isResolvedEngineUsableForRequest,
@@ -72,6 +73,7 @@ import { attachToolSearch } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS } from "../app-config/run-lifecycle-invariants.js";
 import {
+  automationRunScopeContext,
   lookupOwnerAccount,
   resolveAutomationExecutionIdentity,
   type AutomationExecutionIdentity,
@@ -333,12 +335,11 @@ export async function validateAutomationRunIdentity(
 export async function resolveBackgroundAutomationIdentity(
   automation: BackgroundAutomationContext,
 ): Promise<BackgroundAutomationIdentityResult> {
-  if (automation.meta.triggerType) {
-    let resolved: Awaited<
-      ReturnType<typeof resolveAutomationExecutionIdentity>
-    >;
+  const resolveExecutionIdentity = async (): Promise<
+    Awaited<ReturnType<typeof resolveAutomationExecutionIdentity>>
+  > => {
     try {
-      resolved = await resolveAutomationExecutionIdentity(
+      return await resolveAutomationExecutionIdentity(
         automation.resource.owner,
         automation.meta,
       );
@@ -350,6 +351,9 @@ export async function resolveBackgroundAutomationIdentity(
         code: "owner_unverifiable",
       };
     }
+  };
+  if (automation.meta.triggerType) {
+    const resolved = await resolveExecutionIdentity();
     if (!resolved.ok) return resolved;
     // The service verifies an organization creator exists; a personal
     // automation's owner was never looked up, so a deleted user kept running.
@@ -380,10 +384,7 @@ export async function resolveBackgroundAutomationIdentity(
     automation.resource.owner !== "__shared__" &&
     !organizationIdFromResourceOwner(automation.resource.owner)
   ) {
-    const resolved = await resolveAutomationExecutionIdentity(
-      automation.resource.owner,
-      automation.meta,
-    );
+    const resolved = await resolveExecutionIdentity();
     if (!resolved.ok) return resolved;
     const validity = await validateAutomationRunIdentity(
       resolved.identity.userEmail,
@@ -1344,12 +1345,7 @@ async function resolveBackgroundAutomationModel(
  * paused for `missing_credentials` as soon as the credential exists.
  */
 export async function checkBackgroundAutomationCredentials(
-  identity: {
-    ownerEmail: string;
-    orgId?: string;
-    orgScope?: "personal";
-    defaultAgentEngineScope?: "deployment";
-  },
+  identity: AutomationExecutionIdentity,
   deps: BackgroundAutomationDeps,
   automationModel?: string,
 ): Promise<
@@ -1359,18 +1355,15 @@ export async function checkBackgroundAutomationCredentials(
   try {
     const { engine, model } = await runWithRequestContext(
       {
-        userEmail: identity.ownerEmail,
+        userEmail: identity.userEmail,
         orgId: identity.orgId,
-        ...(identity.orgScope === "personal"
-          ? { orgScope: "personal" as const }
-          : {}),
-        ...(identity.defaultAgentEngineScope === "deployment"
-          ? { defaultAgentEngineScope: "deployment" as const }
-          : {}),
+        ...automationRunScopeContext(identity),
       },
       async () => {
         const engine = await resolveUsableBackgroundEngine(
-          identity,
+          identity.orgId === undefined
+            ? { ownerEmail: identity.userEmail }
+            : { ownerEmail: identity.userEmail, orgId: identity.orgId },
           deps,
           () => undefined,
         );
@@ -1635,10 +1628,14 @@ async function executeBackgroundAutomation(
         ) {
           return;
         }
+        // A personal run has no org, but when its org's key paid, the usage
+        // belongs to that org too, so its owners and admins see it.
+        const paidByOrgId = getEngineCredentialOrgId(engine);
         try {
           const { recordUsage } = await import("../usage/store.js");
           await recordUsage({
             ownerEmail,
+            ...(paidByOrgId ? { orgId: paidByOrgId } : {}),
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
             cacheReadTokens: usage.cacheReadTokens,

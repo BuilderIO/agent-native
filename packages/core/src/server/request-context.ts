@@ -140,6 +140,11 @@ export interface RequestContext {
   credentialScope?: "org";
   /** Storage-only org selection; null prevents an active-org fallback. */
   builderStorageCredentialOrgId?: string | null;
+  /**
+   * Personal runs only: the org whose AI provider keys back `userEmail` alone
+   * when they have none. `orgId` must stay unset so data and sharing stay personal.
+   */
+  providerKeyOrg?: { orgId: string; userEmail: string };
   /** Provenance set only after a stored org service token is verified. */
   verifiedServiceIdentity?: { userEmail: string; orgId: string };
   identityAuthenticatedAtMs?: number;

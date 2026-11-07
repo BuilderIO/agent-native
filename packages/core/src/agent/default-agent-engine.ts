@@ -97,6 +97,19 @@ function hasEngine(value: Record<string, unknown>): boolean {
 }
 
 /**
+ * A scoped row answers with what {@link writeDefaultAgentEngineSelection}
+ * saves. Engine `config` there has no recorded owner, so an endpoint in it
+ * must not receive whichever key the run resolves.
+ */
+function scopedDefaultValue(
+  row: Record<string, unknown>,
+): Record<string, unknown> | null {
+  if (!hasEngine(row)) return null;
+  const { config: _unownedConfig, ...value } = row;
+  return value;
+}
+
+/**
  * Read the default that applies to `ctx` (the current request when omitted):
  * the organization's row, else an explicitly personal user's own row, else
  * the legacy deployment-wide row. An unresolved scope throws before fallback.
@@ -119,7 +132,7 @@ export async function readDefaultAgentEngineSettingDetailed(
   if (orgId) {
     const scoped = await getOrgSetting(orgId, DEFAULT_AGENT_ENGINE_SETTING_KEY);
     if (scoped) {
-      return { value: hasEngine(scoped) ? scoped : null, source: "org" };
+      return { value: scopedDefaultValue(scoped), source: "org" };
     }
   } else if (userEmail && ctx.orgScope === "personal") {
     const scoped = await getUserSetting(
@@ -127,7 +140,7 @@ export async function readDefaultAgentEngineSettingDetailed(
       DEFAULT_AGENT_ENGINE_SETTING_KEY,
     );
     if (scoped) {
-      return { value: hasEngine(scoped) ? scoped : null, source: "user" };
+      return { value: scopedDefaultValue(scoped), source: "user" };
     }
   }
 

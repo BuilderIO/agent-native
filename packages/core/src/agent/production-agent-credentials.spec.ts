@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockReadAppSecret = vi.fn();
 const mockGetSetting = vi.fn();
 const mockGetRequestOrgId = vi.fn<[], string | undefined>();
+const mockGetRequestUserEmail = vi.fn<[], string | undefined>();
 const mockGetRequestContext = vi.fn();
 const mockResolveBuilderGatewayAuth = vi.fn();
 
@@ -18,7 +19,7 @@ vi.mock("../settings/store.js", async (importOriginal) => ({
 vi.mock("../server/request-context.js", () => ({
   getRequestContext: () => mockGetRequestContext(),
   getRequestOrgId: () => mockGetRequestOrgId(),
-  getRequestUserEmail: () => undefined,
+  getRequestUserEmail: () => mockGetRequestUserEmail(),
 }));
 vi.mock("../server/credential-provider.js", async (importOriginal) => ({
   ...(await importOriginal<
@@ -44,6 +45,7 @@ import { resetOptionalKeyCache } from "../secrets/optional-key-cache.js";
 import {
   getJevContextCredentials,
   getOwnerApiKey,
+  getOwnerApiKeyForEngine,
   getOwnerJevApiKey,
   missingCredentialsChatError,
 } from "./production-agent.js";
@@ -54,6 +56,7 @@ beforeEach(() => {
   mockGetSetting.mockResolvedValue(undefined);
   mockGetRequestContext.mockReturnValue(undefined);
   mockGetRequestOrgId.mockReturnValue(undefined);
+  mockGetRequestUserEmail.mockReturnValue(undefined);
   mockResolveBuilderGatewayAuth.mockReset();
   mockResolveBuilderGatewayAuth.mockResolvedValue(null);
   mockIsPersonalProviderKeyUseRestricted.mockResolvedValue(false);
@@ -184,6 +187,93 @@ describe("getOwnerApiKey with personal API keys restricted", () => {
     ).resolves.toBeUndefined();
     expect(onLookupFailure).toHaveBeenCalledTimes(1);
     expect(mockReadAppSecret).not.toHaveBeenCalled();
+  });
+});
+
+describe("getOwnerApiKey in a personal run with a provider-key organization", () => {
+  const ORG = "org-1";
+
+  function storeRows(rows: Record<string, string>) {
+    mockReadAppSecret.mockImplementation(
+      async ({ key, scope, scopeId }: any) => {
+        const value = rows[`${scope}:${scopeId}:${key}`];
+        return value ? { value, last4: value.slice(-4), updatedAt: 1 } : null;
+      },
+    );
+  }
+
+  beforeEach(() => {
+    mockGetRequestUserEmail.mockReturnValue("member@example.com");
+    mockGetRequestContext.mockReturnValue({
+      orgScope: "personal",
+      providerKeyOrg: { orgId: ORG, userEmail: "member@example.com" },
+    });
+  });
+
+  it("leaves the organization's key to the engine, after the deployment's key", async () => {
+    storeRows({ [`org:${ORG}:ANTHROPIC_API_KEY`]: "org-anthropic-key" });
+
+    await expect(
+      getOwnerApiKeyForEngine("anthropic", "member@example.com"),
+    ).resolves.toMatchObject({ apiKey: undefined });
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0].scope)).toEqual([
+      "user",
+      "workspace",
+    ]);
+  });
+
+  it("prefers every personal row, including the legacy settings row", async () => {
+    storeRows({
+      "workspace:solo:member@example.com:ANTHROPIC_API_KEY": "solo-key",
+      [`org:${ORG}:ANTHROPIC_API_KEY`]: "org-anthropic-key",
+    });
+    await expect(
+      getOwnerApiKey("anthropic", "member@example.com"),
+    ).resolves.toBe("solo-key");
+
+    storeRows({ [`org:${ORG}:ANTHROPIC_API_KEY`]: "org-anthropic-key" });
+    mockGetSetting.mockResolvedValue({ key: "legacy-personal-key" });
+    await expect(
+      getOwnerApiKey("anthropic", "member@example.com"),
+    ).resolves.toBe("legacy-personal-key");
+  });
+
+  it("applies the restriction of the provider-key organization", async () => {
+    mockIsPersonalProviderKeyUseRestricted.mockResolvedValue(true);
+    storeRows({
+      "user:member@example.com:ANTHROPIC_API_KEY": "personal-key",
+    });
+    mockGetSetting.mockResolvedValue({ key: "legacy-personal-key" });
+
+    await expect(
+      getOwnerApiKey("anthropic", "member@example.com"),
+    ).resolves.toBeUndefined();
+    expect(mockIsPersonalProviderKeyUseRestricted).toHaveBeenCalledWith({
+      email: "member@example.com",
+      orgId: ORG,
+    });
+    expect(mockGetSetting).not.toHaveBeenCalledWith(
+      "user-api-key:anthropic:member@example.com",
+    );
+  });
+
+  it("does not apply the policy to the Jev key, which it does not cover", async () => {
+    storeRows({ [`org:${ORG}:JEV_API_KEY`]: "org-jev-key" });
+
+    await expect(
+      getOwnerApiKey("jev", "member@example.com"),
+    ).resolves.toBeUndefined();
+    expect(mockIsPersonalProviderKeyUseRestricted).not.toHaveBeenCalled();
+  });
+
+  it("ignores a decision made for another user", async () => {
+    mockGetRequestUserEmail.mockReturnValue("other@example.com");
+
+    await getOwnerApiKey("anthropic", "other@example.com");
+
+    expect(mockIsPersonalProviderKeyUseRestricted).toHaveBeenCalledWith({
+      email: "other@example.com",
+    });
   });
 });
 
