@@ -93,7 +93,8 @@ registerReviewableResource({
 ```
 
 - `comments.minimumRole` is the lowest role that may comment, reply, react and
-  edit or delete their own comments (default `commenter`).
+  edit or delete their own comments (default `commenter`). Suggesting needs it
+  too, and never less than `commenter`.
   `comments.unmentionedRoute` sends a new thread with no mention to the agent
   (the default) or to people.
 - `anchorKinds` types the anchor. Once a resource declares any, every anchored

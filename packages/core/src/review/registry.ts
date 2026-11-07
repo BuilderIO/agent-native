@@ -123,6 +123,19 @@ export function reviewCommentPolicy(
 }
 
 /**
+ * The role a suggestion's author needs. A suggestion opens a comment thread,
+ * so a resource asking more of commenters asks it of suggesters too; but it
+ * proposes a change as well, so it never takes less than a commenter, even
+ * where viewers may comment.
+ */
+export function reviewSuggestionAuthorRole(
+  resourceType: string,
+): ReviewResourceRole {
+  const { minimumRole } = reviewCommentPolicy(resourceType);
+  return roleSatisfies(minimumRole, "commenter") ? minimumRole : "commenter";
+}
+
+/**
  * Whether this access lets its holder comment, reply and react, and edit or
  * delete their own comments. A viewer-level policy opens that to signed-in
  * viewers only: a caller who isn't signed in, such as a visitor to a public

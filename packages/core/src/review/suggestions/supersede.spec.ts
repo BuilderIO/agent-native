@@ -41,6 +41,7 @@ vi.mock("../registry.js", () => ({
     ownerEmail: "owner@example.com",
   })),
   REVIEW_SUGGESTION_ANCHOR_KIND: "review-suggestion",
+  reviewSuggestionAuthorRole: () => "commenter",
 }));
 vi.mock("../notifications.js", () => ({ notifyReviewComment: vi.fn() }));
 vi.mock("../store.js", () => ({

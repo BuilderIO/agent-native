@@ -29,6 +29,7 @@ const {
   registerReviewableResource,
   resolveReviewableResourceAccess,
   reviewCommentPolicy,
+  reviewSuggestionAuthorRole,
   runReviewCommentWriteHook,
 } = await import("./registry.js");
 type ReviewResourceRole = import("./types.js").ReviewResourceRole;
@@ -153,6 +154,14 @@ describe("review comment rules", () => {
       unmentionedRoute: "human",
     });
     expect(reviewCommentPolicy("mystery").minimumRole).toBe("commenter");
+    // A suggester needs the policy's role, and never less than a commenter.
+    registerReviewableResource({
+      type: "sheet",
+      comments: { minimumRole: "editor" },
+    });
+    expect(reviewSuggestionAuthorRole("doc")).toBe("commenter");
+    expect(reviewSuggestionAuthorRole("deck")).toBe("commenter");
+    expect(reviewSuggestionAuthorRole("sheet")).toBe("editor");
 
     expect(canCommentOnReviewableResource("doc", access("viewer"))).toBe(false);
     expect(canCommentOnReviewableResource("doc", access("commenter"))).toBe(

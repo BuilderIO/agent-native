@@ -6,6 +6,7 @@ import { notifyReviewComment } from "../notifications.js";
 import {
   assertReviewableResourceAccess,
   REVIEW_SUGGESTION_ANCHOR_KIND,
+  reviewSuggestionAuthorRole,
 } from "../registry.js";
 import {
   ensureReviewTables,
@@ -237,7 +238,7 @@ export const createResourceSuggestion = defineAction({
       args.resourceType,
       args.resourceId,
       ctx as any,
-      "commenter",
+      reviewSuggestionAuthorRole(args.resourceType),
     );
     const adapter = getSuggestionAdapter(args.adapterKind);
     if (!adapter) throw new Error("Suggestion adapter not registered");
@@ -406,7 +407,7 @@ export const updateResourceSuggestion = defineAction({
       initial.resourceType,
       initial.resourceId,
       ctx as any,
-      "commenter",
+      reviewSuggestionAuthorRole(initial.resourceType),
     );
     const author = (ctx as any)?.userEmail;
     if (!author || author !== initial.authorEmail) {
@@ -437,7 +438,7 @@ export const updateResourceSuggestion = defineAction({
         current.resourceType,
         current.resourceId,
         { ...(ctx as any), transaction: tx },
-        "commenter",
+        reviewSuggestionAuthorRole(current.resourceType),
       );
       if (current.authorEmail !== author)
         fail("Only the author can amend this suggestion", {
@@ -567,7 +568,7 @@ export const getResourceSuggestion = defineAction({
 });
 
 function decisionAccessRole(
-  suggestion: Pick<ResourceSuggestion, "authorEmail">,
+  suggestion: Pick<ResourceSuggestion, "authorEmail" | "resourceType">,
   decision: "accepted" | "rejected" | "withdrawn",
   ctx: unknown,
 ) {
@@ -579,7 +580,7 @@ function decisionAccessRole(
       errorCode: "forbidden",
     });
   }
-  return "commenter";
+  return reviewSuggestionAuthorRole(suggestion.resourceType);
 }
 
 export const decideResourceSuggestion = defineAction({
@@ -853,7 +854,7 @@ export const createResourceSuggestionProposal = defineAction({
       args.resourceType,
       args.resourceId,
       ctx as any,
-      "commenter",
+      reviewSuggestionAuthorRole(args.resourceType),
     );
     const adapter = getSuggestionAdapter(args.adapterKind);
     if (!adapter) throw new Error("Suggestion adapter not registered");
@@ -884,7 +885,7 @@ export const createResourceSuggestionProposal = defineAction({
         args.resourceType,
         args.resourceId,
         { ...(ctx as any), transaction: tx },
-        "commenter",
+        reviewSuggestionAuthorRole(args.resourceType),
       );
       if (
         prior.requestHash !== requestHash ||
@@ -931,7 +932,7 @@ export const createResourceSuggestionProposal = defineAction({
           args.resourceType,
           args.resourceId,
           { ...(ctx as any), transaction: tx },
-          "commenter",
+          reviewSuggestionAuthorRole(args.resourceType),
         );
         const proposal = args.proposalId
           ? await getSuggestionProposal(tx, args.proposalId)
