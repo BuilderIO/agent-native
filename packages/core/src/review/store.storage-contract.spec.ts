@@ -330,11 +330,18 @@ describe.sequential("the review kit's storage contract", () => {
     await expect(resolveReviewThread(root.threadId, OWNER)).resolves.toBe(1);
     // Resolving it again still finds the thread but changes nothing.
     await expect(resolveReviewThread(root.threadId, VIEWER)).resolves.toBe(1);
-    expect(await read()).toMatchObject({ revision: 2, resolvedBy: OWNER });
+    const resolved = await read();
+    expect(resolved).toMatchObject({ revision: 2, resolvedBy: OWNER });
 
-    // A new resolution note still rewrites the first comment, once.
-    await resolveReviewThread(root.threadId, OWNER, undefined, "Done");
-    expect(await read()).toMatchObject({ revision: 3, resolutionNote: "Done" });
+    // A new resolution note still rewrites the first comment, once, and
+    // keeps who resolved it and when.
+    await resolveReviewThread(root.threadId, VIEWER, undefined, "Done");
+    expect(await read()).toMatchObject({
+      revision: 3,
+      resolutionNote: "Done",
+      resolvedBy: OWNER,
+      resolvedAt: resolved?.resolvedAt,
+    });
     await resolveReviewThread(root.threadId, OWNER, undefined, "Done");
     expect(await read()).toMatchObject({ revision: 3 });
 

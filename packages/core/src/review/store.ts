@@ -1665,7 +1665,7 @@ export async function resolveReviewThreadWithClient(
       stringifyOptionalJson(rootMetadata);
   // Only comments not already in this state change, so resolving a resolved
   // thread again moves no revision and fires no hook; a new resolution note
-  // still rewrites the first comment.
+  // still rewrites the first comment, keeping who resolved it and when.
   // raw-sql-ok: the resource clause is constant text; the ids are bound.
   const counts = await client.execute({
     sql: `SELECT COUNT(*) AS live,
@@ -1688,8 +1688,16 @@ export async function resolveReviewThreadWithClient(
     await client.execute({
       sql: `UPDATE agent_review_comments
           SET status = ?,
-              resolved_by = CASE WHEN ? = 'resolved' THEN ? ELSE NULL END,
-              resolved_at = CASE WHEN ? = 'resolved' THEN ? ELSE NULL END,
+              resolved_by = CASE
+                WHEN status = ? THEN resolved_by
+                WHEN ? = 'resolved' THEN ?
+                ELSE NULL
+              END,
+              resolved_at = CASE
+                WHEN status = ? THEN resolved_at
+                WHEN ? = 'resolved' THEN ?
+                ELSE NULL
+              END,
               revision = revision + 1,
               updated_at = ?
               ${metadataAssignment}
@@ -1699,7 +1707,9 @@ export async function resolveReviewThreadWithClient(
       args: [
         status,
         status,
+        status,
         resolvedBy ?? null,
+        status,
         status,
         status === "resolved" ? now : null,
         now,
