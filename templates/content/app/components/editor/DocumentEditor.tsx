@@ -9995,7 +9995,6 @@ function PageEditorSessionBody({
               proposalId,
               members,
               exactMembers,
-              decision,
             );
             if (!refreshedMembers) {
               toast.error(t("editor.toolbar.conflict"), {

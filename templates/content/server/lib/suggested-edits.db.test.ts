@@ -453,6 +453,113 @@ describe("Content suggested edits Blocks transaction", () => {
     });
   });
 
+  it("won't accept what's left of a unit with a stale piece, only reject it", async () => {
+    sequence += 1;
+    const documentId = `suggestion-stale-unit-page-${sequence}`;
+    const before = canonicalizeNfm(
+      "Teh team will recieve the files.\n\nBring the draft on Thursday.",
+    );
+    const after = canonicalizeNfm(
+      "The team will receive the files.\n\nBring the draft on Friday.",
+    );
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      title: "Stale unit page",
+      content: before,
+      ownerEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const ctx = { caller: "cli" as const, userEmail: ownerEmail };
+    const create =
+      await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal");
+    const decideGroup =
+      await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion-proposal");
+    const decideOne =
+      await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion");
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      const document = await getDocumentAction.run({ id: documentId }, ctx);
+      const created = await create.default.run(
+        {
+          resourceType: "document",
+          resourceId: documentId,
+          adapterKind: adapter.kind,
+          baseRevision: document.revision,
+          summary: "Three pieces, two units",
+          idempotencyKey: `content-stale-unit-${documentId}`,
+          suggestions: markdownSuggestionOperations(before, after).map(
+            (part, index) => ({
+              summary: `Piece ${index + 1}`,
+              operations: [part],
+              metadata: { reviewUnit: index < 2 ? "key:0" : "key:1" },
+            }),
+          ),
+        },
+        ctx,
+      );
+      const [teh = null, recieve = null, thursday = null] = created.suggestions;
+      if (!teh || !recieve || !thursday) throw new Error("Three pieces");
+      await getDbExec().execute({
+        sql: "UPDATE agent_review_suggestions SET status = 'stale' WHERE id = ?",
+        args: [teh.id],
+      });
+      const onThePage = async () =>
+        (await getDocumentAction.run({ id: documentId }, ctx)).content;
+      const decideMembers = (
+        members: (typeof created.suggestions)[number][],
+        decision: "accepted" | "rejected",
+        key: string,
+      ) =>
+        decideGroup.default.run(
+          {
+            proposalId: created.proposal.id,
+            decision,
+            idempotencyKey: `${key}-${documentId}`,
+            members: members.map((suggestion) => ({
+              id: suggestion.id,
+              observedRevision: suggestion.revision,
+              observedBase: suggestion.baseRevision,
+            })),
+          },
+          ctx,
+        );
+
+      const refused = { statusCode: 409, errorCode: "suggestion_stale" };
+      await expect(
+        decideMembers([recieve, thursday], "accepted", "accept-group"),
+      ).rejects.toMatchObject(refused);
+      await expect(
+        decideOne.default.run(
+          {
+            id: recieve.id,
+            decision: "accepted",
+            idempotencyKey: `accept-piece-${documentId}`,
+            observedBase: recieve.baseRevision,
+            observedRevision: recieve.revision,
+          },
+          ctx,
+        ),
+      ).rejects.toMatchObject(refused);
+      expect(await onThePage()).toBe(before);
+
+      // The other unit isn't affected, and what's left of this one can go.
+      const other = await decideMembers([thursday], "accepted", "accept-other");
+      expect(other.suggestions.map(({ status }) => status)).toEqual([
+        "accepted",
+      ]);
+      const rest = await decideMembers([recieve], "rejected", "reject-rest");
+      expect(rest.suggestions.map(({ status }) => status)).toEqual([
+        "rejected",
+      ]);
+      expect(await onThePage()).toBe(
+        canonicalizeNfm(
+          "Teh team will recieve the files.\n\nBring the draft on Friday.",
+        ),
+      );
+    });
+  });
+
   it("accepts a 50-edit proposal as one Page version with every edit placed", async () => {
     sequence += 1;
     const documentId = `suggestion-large-proposal-page-${sequence}`;
