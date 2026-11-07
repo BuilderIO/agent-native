@@ -34,7 +34,7 @@ description: "把一条提示词交给 Claude、ChatGPT、Codex、Cursor 或其�
     --standalone --template chat
 3. 在新建的 APP_NAME 文件夹中运行 `pnpm install`。
 4. 阅读 APP_NAME/AGENTS.md，了解应用的结构。
-5. 用 `pnpm dev` 启动应用，并让它在后台持续运行。
+5. 用 `pnpm dev --no-open` 启动应用，并让它在后台持续运行。
 6. 读取 `pnpm dev` 输出的本地 URL。检查它是否有响应，
    例如用 `curl -I <url>`。不要打开浏览器，也不要使用无头
    浏览器工具。我会自己打开应用。

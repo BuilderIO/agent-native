@@ -34,7 +34,7 @@ it. Use that name wherever a step below says APP_NAME.
     --standalone --template chat
 3. In the new APP_NAME folder, run `pnpm install`.
 4. Read APP_NAME/AGENTS.md so you know how the app is laid out.
-5. Start the app with `pnpm dev` and keep it running in the background.
+5. Start the app with `pnpm dev --no-open` and keep it running in the background.
 6. Read the local URL that `pnpm dev` prints. Check that it responds,
    for example with `curl -I <url>`. Do not open a browser and do not
    use headless browser tools. I will open the app myself.
