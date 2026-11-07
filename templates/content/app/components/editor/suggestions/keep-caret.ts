@@ -59,19 +59,16 @@ export function caretAfterPageSwap(
   const index = oldBlocks.findIndex(({ start }) => start === $position.start());
   if (index < 0) return null;
 
+  const unchanged = (first?: Textblock, second?: Textblock) =>
+    !!first && !!second && first.node.eq(second.node);
   let same = 0;
-  while (
-    same < oldBlocks.length &&
-    same < newBlocks.length &&
-    oldBlocks[same]!.node.eq(newBlocks[same]!.node)
-  )
-    same++;
+  while (unchanged(oldBlocks[same], newBlocks[same])) same++;
   let sameAtEnd = 0;
   while (
-    sameAtEnd < oldBlocks.length - same &&
-    sameAtEnd < newBlocks.length - same &&
-    oldBlocks[oldBlocks.length - 1 - sameAtEnd]!.node.eq(
-      newBlocks[newBlocks.length - 1 - sameAtEnd]!.node,
+    same + sameAtEnd < Math.min(oldBlocks.length, newBlocks.length) &&
+    unchanged(
+      oldBlocks[oldBlocks.length - 1 - sameAtEnd],
+      newBlocks[newBlocks.length - 1 - sameAtEnd],
     )
   )
     sameAtEnd++;

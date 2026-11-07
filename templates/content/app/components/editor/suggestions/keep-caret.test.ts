@@ -14,18 +14,19 @@ const doc = (...paragraphs: string[]) =>
 
 /** The position just after `text` in the document. */
 function after(document: ProseMirrorNode, text: string) {
-  let found: number | null = null;
+  const found: number[] = [];
   document.descendants((node, position) => {
-    if (found !== null || !node.isText) return;
-    const index = node.text?.indexOf(text) ?? -1;
-    if (index >= 0) found = position + index + text.length;
+    const index = node.isText ? (node.text?.indexOf(text) ?? -1) : -1;
+    if (index >= 0) found.push(position + index + text.length);
   });
-  if (found === null) throw new Error(`No "${text}" in the fixture`);
-  return found;
+  const first = found.at(0);
+  if (first === undefined) throw new Error(`No "${text}" in the fixture`);
+  return first;
 }
 
 /** What the caret's paragraph reads before and after it. */
-function around(document: ProseMirrorNode, position: number) {
+function around(document: ProseMirrorNode, position: number | null) {
+  if (position === null) throw new Error("No place for the caret");
   const $position = document.resolve(position);
   const text = $position.parent.textContent;
   return [
@@ -39,14 +40,14 @@ describe("caretAfterPageSwap", () => {
     const before = doc("First words here.", "Second words.", "Third words.");
     const next = doc("First words here.", "Second words, edited.", "Third.");
     const at = caretAfterPageSwap(before, after(before, "First words"), next);
-    expect(around(next, at!)).toEqual(["First words", " here."]);
+    expect(around(next, at)).toEqual(["First words", " here."]);
   });
 
   it("finds the caret's paragraph between two changed ones", () => {
     const before = doc("Alpha one.", "Beta two.", "Gamma three.");
     const next = doc("Alpha one!", "Beta two.", "Gamma three!");
     const at = caretAfterPageSwap(before, after(before, "Beta"), next);
-    expect(around(next, at!)).toEqual(["Beta", " two."]);
+    expect(around(next, at)).toEqual(["Beta", " two."]);
   });
 
   it("puts a caret after this tab's own saved words where they were", () => {
@@ -59,24 +60,21 @@ describe("caretAfterPageSwap", () => {
       after(before, "Suggested words."),
       next,
     );
-    expect(around(next, at!)).toEqual(["Opening line.", ""]);
+    expect(around(next, at)).toEqual(["Opening line.", ""]);
   });
 
   it("keeps a caret before the changed text in its paragraph", () => {
     const before = doc("Keep this start and an old ending.");
     const next = doc("Keep this start and a new ending.");
     const at = caretAfterPageSwap(before, after(before, "Keep this"), next);
-    expect(around(next, at!)).toEqual([
-      "Keep this",
-      " start and a new ending.",
-    ]);
+    expect(around(next, at)).toEqual(["Keep this", " start and a new ending."]);
   });
 
   it("keeps a caret after the changed text in its paragraph", () => {
     const before = doc("An old start, then the same ending.");
     const next = doc("A new start, then the same ending.");
     const at = caretAfterPageSwap(before, after(before, "the same"), next);
-    expect(around(next, at!)).toEqual([
+    expect(around(next, at)).toEqual([
       "A new start, then the same",
       " ending.",
     ]);
@@ -86,7 +84,7 @@ describe("caretAfterPageSwap", () => {
     const before = doc("One.", "Two.", "Three.");
     const next = doc("One.", "Inserted.", "Two.", "Three.");
     const at = caretAfterPageSwap(before, after(before, "Thr"), next);
-    expect(around(next, at!)).toEqual(["Thr", "ee."]);
+    expect(around(next, at)).toEqual(["Thr", "ee."]);
   });
 
   it("gives up when paragraphs were added around a changed one", () => {
