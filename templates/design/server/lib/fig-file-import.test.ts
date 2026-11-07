@@ -945,6 +945,7 @@ describe("editable .fig conversion", () => {
     expect(summary.pages).toEqual([
       { id: "1:2", name: "Page 1", frameCount: 2 },
     ]);
+    // oracle-change: shouldWarnForFigImport is deleted with the page picker it gated.
   });
 
   it("renders and uploads only selected frames and their images", async () => {

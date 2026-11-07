@@ -1,3 +1,6 @@
+// oracle-change(templates/design/app/components/design/DesignImportPanel.test.ts): the Import panel is deleted; File → Import is covered here.
+// oracle-change(templates/design/app/components/design/DesignImportPanel.home-import.test.tsx): the panel's page picker, sources and home handoff are gone; the whole-file import and refusals are covered here and in HomeImportButton.test.tsx.
+// oracle-change(templates/design/app/lib/pending-import.test.ts): parking a decoded .fig for a remounted panel is deleted with the panel.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const toastMock = vi.hoisted(() => ({
@@ -113,7 +116,7 @@ describe("runImportDesignFile", () => {
     expect(onImported).toHaveBeenCalledWith(imported);
     expect(toastMock.success).toHaveBeenCalledWith("Imported 2 screens.", {
       id: FIG_IMPORT_TOAST_ID,
-      description: undefined,
+      description: "Brand.fig",
     });
   });
 
@@ -132,7 +135,6 @@ describe("runImportDesignFile", () => {
       {
         id: FIG_IMPORT_TOAST_ID,
         description: "designEditor.import.errors.figFileTooLarge",
-        action: undefined,
       },
     );
   });

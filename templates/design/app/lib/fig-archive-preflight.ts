@@ -42,24 +42,24 @@ async function readBytes(
  * frame leaves it out. */
 function zstdDeclaredContentSize(header: Uint8Array): number | null {
   if (header.length < 6 || readU32LE(header, 0) !== ZSTD_MAGIC) return null;
-  const descriptor = header[4]!;
+  const view = new DataView(header.buffer, header.byteOffset, header.length);
+  const descriptor = view.getUint8(4);
   const singleSegment = (descriptor & 0x20) !== 0;
   const contentSizeFlag = descriptor >>> 6;
-  let offset = 5 + (singleSegment ? 0 : 1);
-  offset += [0, 1, 2, 4][descriptor & 0x03]!;
+  const dictionaryIdFlag = descriptor & 0x03;
+  const offset =
+    5 +
+    (singleSegment ? 0 : 1) +
+    (dictionaryIdFlag === 3 ? 4 : dictionaryIdFlag);
   const contentSizeBytes =
-    contentSizeFlag === 0
-      ? singleSegment
-        ? 1
-        : 0
-      : [0, 2, 4, 8][contentSizeFlag]!;
+    contentSizeFlag === 0 ? (singleSegment ? 1 : 0) : 2 ** contentSizeFlag;
   if (contentSizeBytes === 0) return null;
   if (offset + contentSizeBytes > header.length) {
     throw new UnreadableArchive("Truncated Zstandard frame header.");
   }
   let size = 0;
   for (let index = contentSizeBytes - 1; index >= 0; index -= 1) {
-    size = size * 256 + header[offset + index]!;
+    size = size * 256 + view.getUint8(offset + index);
   }
   return contentSizeBytes === 2 ? size + 256 : size;
 }

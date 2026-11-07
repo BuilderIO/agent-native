@@ -178,6 +178,7 @@ describe("importFigInBrowser", () => {
     await importFigInBrowser({ designId: "design-1", file, prepared });
 
     expect(mocks.decodeFig).toHaveBeenCalledTimes(1);
+    // oracle-change: imports always take the whole file, so there is no page selection to assert or keep for a retry.
     expect(mocks.renderFigImport).toHaveBeenCalledOnce();
     expect(dispose).toHaveBeenCalledOnce();
   });

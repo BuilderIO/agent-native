@@ -170,8 +170,9 @@ function fidelityWarnings(
   return warnings;
 }
 
-function settledToastId(owner: FigImportToastOwner) {
-  return releaseFigImportToast(owner) ? FIG_IMPORT_TOAST_ID : undefined;
+/** Replaces the progress toast in place while this import still owns it. */
+function settledToast(owner: FigImportToastOwner): { id?: string } {
+  return releaseFigImportToast(owner) ? { id: FIG_IMPORT_TOAST_ID } : {};
 }
 
 async function importFigFile(
@@ -266,7 +267,7 @@ export async function runImportDesignFile(
       const content = await file.text();
       if (!looksLikeStandaloneHtml(content)) {
         toast.error(t("designEditor.import.errors.notHtml"), {
-          id: settledToastId(owner),
+          ...settledToast(owner),
           description: file.name,
         });
         return { status: "refused", reason: "not-html" };
@@ -290,29 +291,31 @@ export async function runImportDesignFile(
         fidelityWarnings: fidelityWarnings(result, t, formatNumber, formatList),
       },
     );
-    const id = settledToastId(owner);
+    const settled = settledToast(owner);
     if (notification.variant === "warning") {
       toast.warning(notification.title, {
-        id,
-        description: notification.description,
+        ...settled,
+        description: notification.description ?? file.name,
       });
     } else {
-      toast.success(notification.title, { id, description: undefined });
+      toast.success(notification.title, {
+        ...settled,
+        description: file.name,
+      });
     }
     return { status: "imported", result };
   } catch (error) {
     const tooLarge = error instanceof FigFileTooLargeError;
     toast.error(t("designEditor.import.errors.importFailed"), {
-      id: settledToastId(owner),
+      ...settledToast(owner),
       description: tooLarge
         ? t("designEditor.import.errors.figFileTooLarge")
         : error instanceof Error
           ? error.message
           : t("common.genericError"),
-      action:
-        !tooLarge && args.onRetry
-          ? { label: t("homeContext.retry"), onClick: args.onRetry }
-          : undefined,
+      ...(!tooLarge && args.onRetry
+        ? { action: { label: t("homeContext.retry"), onClick: args.onRetry } }
+        : {}),
     });
     return tooLarge
       ? { status: "refused", reason: "too-large" }
