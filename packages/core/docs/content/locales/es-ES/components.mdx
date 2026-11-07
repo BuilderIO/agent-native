@@ -310,7 +310,11 @@ El host puede preparar contexto ya autorizado y recibir una instantánea inmutab
 />
 ```
 
-Las fuentes de contexto registran `picker` en un `ComposerContextMenuItem`. `ComposerContextMenu` controla submenús conectados en cascada de shadcn/Radix, no paneles que sustituyen al anterior: la raíz ofrece subir archivos y después Añadir contexto → categorías del anfitrión → selectores de fuentes. Añadir contexto se omite si no hay entradas del anfitrión. Las flechas y Escape recorren la jerarquía. Volver dentro de un selector de enlaces solo regresa de los resultados a la entrada del enlace en el mismo submenú. El selector compartido controla búsqueda, filas, estados de carga, vacío y error, reintentos, paginación y entrada de enlaces. Las aplicaciones proporcionan datos autorizados y callbacks de selección, no su propio JSX de selector.
+Las fuentes registran acciones directas con nombres claros en `ComposerContextMenuItem`. El menú compartido presenta Añadir contexto, Integraciones y Comandos como grupos accesibles separados. Una elección abre el diálogo de la fuente. Las integraciones del espacio de trabajo tienen su propio grupo y Comandos contiene modos de tareas poco frecuentes. Los datos se cargan dentro del diálogo y las filas raíz permanecen estables. El menú admite flechas, búsqueda por escritura y Escape. Los diálogos gestionan búsqueda, resultados agrupados, carga, estados vacíos y errores, reintentos y restauración del foco.
+
+Las contribuciones usan `section: "context" | "integrations" | "commands"` y `order` ascendente, con etiqueta e id para desempatar. `renderLink(children)` conserva la navegación nativa. Las aplicaciones con un proveedor de menciones delimitado registran `referencePicker: { source, referenceType }`. La selección inserta una referencia normal del compositor. `referenceType` excluye los tipos propios de la aplicación del diálogo compartido de búsqueda del espacio de trabajo para evitar duplicados. El espacio registra mediante `resources.useWorkspaceMenu({ enabled, onSelectIntegration })`. Su `scopeKey` reinicia los selectores y cancela solicitudes cuando cambia la identidad. Los fallos del proveedor siguen siendo errores, no resultados vacíos.
+
+Una fuente como Figma permanece visible durante la comprobación de acceso. Su diálogo muestra la carga o un error con reintento, un enlace real de conexión si está desconectada o el selector de URL autorizado si está conectada. Crear habilidad selecciona directamente el modo de habilidad. Subir archivo de habilidad abre un diálogo de revisión y guardado después del selector nativo de archivos.
 
 La configuración del selector acepta:
 
@@ -333,6 +337,7 @@ const contextMenuItems: ComposerContextMenuItem[] = [
     label: labels.references,
     picker: {
       searchPlaceholder: labels.searchReferences,
+      presentation: { type: "dialog", mode: "single" },
       items: authorizedReferences,
       selectedIds,
       onSelect: stageReference,
@@ -406,7 +411,7 @@ Las entradas de selector no definen además `render` ni `onSelect` a nivel de en
 
 El `footerAction` opcional permanece debajo de los resultados incluso durante la carga, los errores o una lista vacía. Acepta un `label` localizado, `icon` y `disabled` opcionales, y bien `onSelect()` o bien `renderLink(children)`. Use un callback para un modal u otro flujo con estado: `false` mantiene el menú abierto, `true` o `void` lo cierra, y un rechazo muestra un error con reintento. Para navegación simple, `renderLink` devuelve un `Link` real de React Router o un enlace HTML; el menú compartido proporciona la fila mediante `asChild`, conservando su `href` y la navegación del navegador. Conecte flujos existentes y autorizados, no acciones ficticias.
 
-Al pasar `addAttachment` a `ComposerContextMenu`, la acción estándar de carga aparece primero y conserva el callback de archivos del anfitrión.
+Al pasar `addAttachment` a `ComposerContextMenu`, se añade Archivos e imágenes a la sección de adjuntos y se conserva el callback de archivos del anfitrión.
 
 `PromptComposer` y `AgentKitComposer` aceptan `attachmentAdapter`, con el tipo público `AttachmentAdapter` de `@assistant-ui/react`. Proporcione mediante este adaptador las reglas del anfitrión para archivos aceptados, validación de tamaño y preparación; omítalo para conservar los adaptadores predeterminados. El compositor compartido sigue controlando la carga, el selector de archivos, el selector de contexto y las fichas de adjuntos. No sustituya estos controles para personalizar la preparación de archivos.
 

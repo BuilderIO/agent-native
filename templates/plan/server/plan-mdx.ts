@@ -1,5 +1,3 @@
-import * as nodeUtil from "node:util";
-
 import {
   BlockRegistry,
   prop,
@@ -8,12 +6,6 @@ import {
   parseSpecBlock,
   type MdxJsxNode,
 } from "@agent-native/core/blocks/server";
-// The browser loads this module for parsePlanMdxFolder
-// (app/lib/plan-local-bridge.ts), which hashes idless blocks into stable ids,
-// so hashing uses a portable SHA-256. node:util stays a namespace import, read
-// only when comparing against previous content on the server: the Vite dev
-// server throws as soon as a named export of a Node module is read in client
-// code.
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import matter from "gray-matter";
@@ -1584,7 +1576,11 @@ function samePlanBlockSource(current: PlanBlock, previous: PlanBlock): boolean {
     unknown
   >;
   stripBlockIdsForSourceComparison(currentCopy, previousCopy);
-  return nodeUtil.isDeepStrictEqual(currentCopy, previousCopy);
+  return canonicalSourceJson(currentCopy) === canonicalSourceJson(previousCopy);
+}
+
+function sha256Hex(value: string): string {
+  return bytesToHex(sha256(new TextEncoder().encode(value)));
 }
 
 function canonicalSourceJson(value: unknown): string {
@@ -2440,7 +2436,7 @@ function samePlanColumnSource(
       }
     }
   }
-  return nodeUtil.isDeepStrictEqual(currentCopy, previousCopy);
+  return canonicalSourceJson(currentCopy) === canonicalSourceJson(previousCopy);
 }
 
 function samePlanNestedGroupSource(
@@ -2476,7 +2472,7 @@ function samePlanNestedGroupSource(
     delete currentCopy.blocks;
     delete previousCopy.blocks;
   }
-  return nodeUtil.isDeepStrictEqual(currentCopy, previousCopy);
+  return canonicalSourceJson(currentCopy) === canonicalSourceJson(previousCopy);
 }
 
 function reuseMatchingNestedBlockIds(
@@ -3235,10 +3231,6 @@ function createStableWireframeNodeId(
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
-}
-
-function sha256Hex(value: string): string {
-  return bytesToHex(sha256(new TextEncoder().encode(value)));
 }
 
 function createStablePlanSourceId(context: string): string {

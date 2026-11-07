@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "auth.logOutFailed": "साइन आउट नहीं हो सका",
   "block.renderUnavailable": "यह ब्लॉक अस्थायी रूप से उपलब्ध नहीं है।",
   "block.loading": "ब्लॉक लोड हो रहा है।",
   "composer.contextUrlLabel": "यूआरएल",
@@ -125,6 +126,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "मार्केटिंग",
   "onboarding.roleSales": "बिक्री",
   "onboarding.roleOps": "संचालन",
+  "onboarding.roleCreator": "कंटेंट क्रिएटर",
+  "onboarding.roleStudent": "छात्र",
+  "onboarding.roleEducator": "शिक्षक",
   "onboarding.roleIndividual": "व्यक्तिगत",
   "onboarding.roleOther": "अन्य",
   "onboarding.roleOtherInputLabel": "अपनी भूमिका बताएं",
@@ -494,7 +498,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "{{integration}} टूल का उपयोग करें",
   "composer.menu.scheduleTask": "कार्य शेड्यूल करें",
   "composer.menu.scheduleTaskDescription": "किसी कार्य को शेड्यूल के अनुसार चलाएँ",
-  "composer.menu.uploadFile": "फ़ाइल अपलोड करें",
+  "composer.menu.uploadFile": "फ़ाइलें और छवियाँ",
+  "composer.menu.searchWorkspace": "वर्कस्पेस में खोजें…",
+  "composer.menu.references": "संदर्भ",
+  "composer.menu.referenceFile": "फ़ाइल का संदर्भ दें",
+  "composer.menu.attachToMessage": "संदर्भ जोड़ें",
+  "composer.menu.commands": "कमांड",
   "composer.menu.uploadFileDescription": "इमेज, PDFs, टेक्स्ट/कोड, JSON, CSV",
   "composer.messageAgent": "एजेंट को संदेश भेजें...",
   "composer.model": "मॉडल",
@@ -1307,6 +1316,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io में मुफ़्त क्रेडिट शामिल हैं, या आप अपनी API कुंजी इस्तेमाल कर सकते हैं।",
   "setup.builderOrOwnKeys":
     "Builder.io (मुफ़्त क्रेडिट) का उपयोग करें या अपनी प्रदाता कुंजियाँ जोड़ें।",
+  "setup.reconnectBuilder": "Builder.io फिर से कनेक्ट करें",
   "setup.connectAi": "AI कनेक्ट करें",
   "setup.connectBuilder": "Builder.io इस्तेमाल करें",
   "setup.connectionsDescription":
@@ -3334,6 +3344,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "ऐप को वर्कस्पेस से हटाएँ",
   "chatFirst.showMore": "और दिखाएँ",
   "chatFirst.showLess": "कम दिखाएँ",
+  "chatFirst.showMoreCount": "{{count}} और दिखाएं",
   "chatFirst.appOrderUnavailable": "इस डिवाइस पर ऐप का क्रम सहेजा नहीं जा सका।",
   "chatFirst.openSideSurfaces": "साइड पैनल खोलें",
   "chatFirst.sideSurfaces": "साइड पैनल",

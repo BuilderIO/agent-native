@@ -10,7 +10,7 @@ Use Brain actions rather than raw SQL.
 1. Call `get-brain-settings` before answering, searching broadly, or distilling when current settings are not already in context. Apply the returned guidance for assistant name, company name, tone, source policy, citation requirements, publish tier, redaction, and distillation instructions.
 2. Import raw material with `import-capture` (generic), `import-transcript`
    (meeting-shaped: participants, `sourceUrl`, tags), or
-   `import-markdown-files` for a bounded Markdown folder/batch. These default
+   `import-markdown-files` for a bounded `.md`/`.txt` folder/batch. These default
    `enqueueDistillation: true`, immediately create or reuse queue items, and
    auto-create a private `manual` source when `sourceId` is omitted — don't
    call `create-source` first just to import one ad hoc item.
@@ -177,7 +177,7 @@ AGENTS.md carries a one-line action index; these are the fuller purposes.
 | `ask-brain` | Cited-answer endpoint: reviewed knowledge, capped raw-capture fallback, citations, `federatedCoverage`. |
 | `get-knowledge` / `list-knowledge` | Read one or list distilled knowledge records. |
 | `get-capture` / `list-captures` | Read one or list raw captures (redacted by default; `includeRawContent` for exact quotes). |
-| `import-capture` / `import-transcript` / `import-markdown-files` | Ingest generic material or a bounded Markdown batch, auto-create a private `manual` source when needed, and queue distillation by default. |
+| `import-capture` / `import-transcript` / `import-markdown-files` | Ingest generic material or a bounded Markdown or plain-text batch, auto-create a private `manual` source when needed, and queue distillation by default. |
 | `enqueue-distillation` / `mark-capture-distilled` | Queue a capture for distillation; close out the queue row when done. |
 | `write-knowledge` | Write/update durable knowledge; publishes directly — see Publish Tiers above. |
 | `review-proposal` / `approve-proposal` / `reject-proposal` / `list-proposals` / `update-proposal` | Legacy proposal records; new writes never create proposals. |

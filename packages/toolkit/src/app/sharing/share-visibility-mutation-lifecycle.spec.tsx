@@ -65,7 +65,7 @@ vi.mock("@agent-native/core/client/use-action", async () => {
                 : (transport.resources.get(id) ?? "private"),
             role: "owner",
             shares: [],
-            policy: { allowPublic: true },
+            policy: { allowPublic: true, confirmOrgVisibility: true },
           };
           return transport.pauseReads
             ? new Promise<ResourceSharesResponse>((resolve) =>

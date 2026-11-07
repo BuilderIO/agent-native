@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { identifierSchema, operationIdSchema } from "./contract.js";
 import { FORBIDDEN_SEGMENTS, validateResponsePath } from "./expressions.js";
+import { MAX_KEEP_PATHS, parseFieldsToKeep } from "./fields-to-keep.js";
 import { itemKindSchema } from "./items.js";
 
 const OPERATION_NODE_KINDS = ["source", "lookup", "action", "agent"] as const;
@@ -122,6 +123,24 @@ const operationOutputSchema = z.strictObject({
 });
 export type OperationOutput = z.infer<typeof operationOutputSchema>;
 
+// An operation with no fixed endpoint: the declared fields below carry the
+// path a person typed and the optional query, headers, sign-in, timeout,
+// paging and paths to keep, and the request builder checks each one. Only a GET
+// read may declare it, and a model is never given one as a tool.
+const freeFormSchema = z.strictObject({
+  path: identifierSchema,
+  query: identifierSchema.optional(),
+  headers: identifierSchema.optional(),
+  auth: identifierSchema.optional(),
+  timeoutSeconds: identifierSchema.optional(),
+  pagination: identifierSchema.optional(),
+  includeStatus: identifierSchema.optional(),
+  fieldsToKeep: identifierSchema.optional(),
+  // Names core fills from the provider's connection, such as `{projectId}`; a typed path may keep one as a whole segment.
+  placeholders: z.array(identifierSchema).max(5).optional(),
+});
+export type FreeFormRequest = z.infer<typeof freeFormSchema>;
+
 const implementationSchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("action"),
@@ -134,6 +153,7 @@ const implementationSchema = z.discriminatedUnion("type", [
     pathTemplate: z.string().min(1).max(500),
     query: z.record(z.string().min(1), z.string()).optional(),
     bodyTemplate: z.unknown().optional(),
+    freeForm: freeFormSchema.optional(),
   }),
   z.strictObject({
     type: z.literal("builder"),
@@ -202,6 +222,8 @@ export const operationDefinitionSchema = z
     id: operationIdSchema,
     provider: z.string().min(1).max(60),
     label: z.string().min(1).max(120),
+    // For the agent that writes graphs, not for the canvas: what the operation is for and where its limits are.
+    description: z.string().min(1).max(1000).optional(),
     nodeKinds: z.array(z.enum(OPERATION_NODE_KINDS)).min(1).max(4),
     effect: z.enum(["read", "write"]),
     // A read that goes out as a POST (a search or query), so a write cannot hide behind `read`.
@@ -212,17 +234,21 @@ export const operationDefinitionSchema = z
     cursor: z
       .strictObject({
         param: z.string().min(1).max(80),
-        // Where the position after a whole newest-first page sits in the response; priming reads it.
-        path: responsePathSchema,
+        // Where the position after a whole newest-first page sits in the response; priming reads it. A cursor that sorts in code has none: it reads each row's own position.
+        path: responsePathSchema.optional(),
         // The position before any row existed. A priming pass over an empty page stores it, so the source is primed and the first row that arrives is processed.
         origin: z.string().min(1).max(80).optional(),
         // For a provider that can sort oldest first: once a position is stored the request asks oldest first (`sortParam` holds `oldestFirst`, otherwise `newestFirst`) and the position after a page is `itemPath` of the last row kept, so a page cut at the limit continues next tick.
         forward: z
           .strictObject({
             itemPath: responsePathSchema,
-            sortParam: z.string().min(1).max(80),
-            newestFirst: z.string().min(1).max(40),
-            oldestFirst: z.string().min(1).max(40),
+            sortParam: z.string().min(1).max(80).optional(),
+            newestFirst: z.string().min(1).max(40).optional(),
+            oldestFirst: z.string().min(1).max(40).optional(),
+            // For a provider that cannot be asked to sort: Factory orders the page by `itemPath`, read as an RFC 3339 time or whole epoch seconds, oldest first, and a page cut at the limit continues next tick the same way. That is right only when the page holds every row newer than the position, so `morePath` names where the response says it does not; a `true` there fails the run, because the oldest rows are then not on the page.
+            sortInCode: z
+              .strictObject({ morePath: responsePathSchema })
+              .optional(),
           })
           .optional(),
       })
@@ -236,6 +262,20 @@ export const operationDefinitionSchema = z
     // For a provider that answers a range holding nothing with a 404 instead of an empty list: the 404 reads as zero items only when every error text it carries contains this text. Any other 404 stays a failure.
     emptyRange: z
       .strictObject({ errorIncludes: z.string().trim().min(3).max(120) })
+      .optional(),
+    // For a lookup: the most characters of the answer it hands on, cut and reported the way any over-long answer is. One step carries 64 KB in all, summed over every item it emits and every earlier answer still attached, so a lookup that runs once per item is sized to what a full step of items can hold. A lookup that calls a host action passes it on as `budgetChars`, and the action cuts whole entries to it.
+    answerBudgetChars: z.number().int().min(1_000).max(30_000).optional(),
+    // For a lookup whose answer is bulky and holds a few fields a graph reads: the dotted paths it keeps, as Fields to keep does on an API request. The rest is left out before the budget looks at it, so a cut drops the tail of a list and never a field a graph reads because it came late in the provider's key order, and a budget holds as many entries as it can. A lookup that calls a host action passes them on as `answerFields`, under `items.`, and the action applies them to its list.
+    answerFields: z
+      .array(z.string())
+      .min(1)
+      .max(MAX_KEEP_PATHS)
+      .superRefine((paths, ctx) => {
+        const checked = parseFieldsToKeep(paths);
+        if (!checked.ok) {
+          ctx.addIssue({ code: "custom", message: checked.message });
+        }
+      })
       .optional(),
     // What `nodes.<step>` carries once this operation ran. A graph that reads a name not listed here is refused on save; an operation that lists none is not checked.
     outputs: z.array(operationOutputSchema).min(1).max(60).optional(),
@@ -263,6 +303,30 @@ export const operationDefinitionSchema = z
       new Set(def.fields.map((field) => field.name)).size !== def.fields.length
     ) {
       fail("field names must be unique", "fields");
+    }
+    const forward = def.cursor?.forward;
+    if (forward) {
+      const asksProvider = [
+        forward.sortParam,
+        forward.newestFirst,
+        forward.oldestFirst,
+      ];
+      const named = asksProvider.filter((name) => name !== undefined).length;
+      if (forward.sortInCode ? named > 0 : named < asksProvider.length) {
+        fail(
+          "a forward cursor either names the parameter that sorts (sortParam, newestFirst and oldestFirst) or sorts in code, never both and never neither",
+          "cursor",
+        );
+      }
+    }
+    if (
+      def.cursor &&
+      (def.cursor.path === undefined) !== !!forward?.sortInCode
+    ) {
+      fail(
+        "a cursor names the response path of its position unless it sorts in code, where it reads each row's own",
+        "cursor",
+      );
     }
     const sortParam = def.cursor?.forward?.sortParam;
     if (
@@ -307,6 +371,28 @@ export const operationDefinitionSchema = z
     ) {
       fail("a write operation cannot be a source or lookup", "effect");
     }
+    if (
+      def.answerBudgetChars !== undefined &&
+      !(def.effect === "read" && kinds.size === 1 && kinds.has("lookup"))
+    ) {
+      fail("only a lookup read declares an answer budget", "answerBudgetChars");
+    }
+    if (
+      def.answerFields !== undefined &&
+      !(
+        def.effect === "read" &&
+        kinds.size === 1 &&
+        kinds.has("lookup") &&
+        (def.implementation.type === "action" ||
+          (def.implementation.type === "provider-request" &&
+            !def.implementation.freeForm))
+      )
+    ) {
+      fail(
+        "only a lookup read with a fixed endpoint or a host action keeps answer fields",
+        "answerFields",
+      );
+    }
     if (def.effect === "read" && kinds.has("action")) {
       fail("a read operation cannot be an action", "effect");
     }
@@ -326,6 +412,69 @@ export const operationDefinitionSchema = z
     }
     if (def.readsViaPost && !(def.effect === "read" && method === "POST")) {
       fail('"readsViaPost" marks a read that sends a POST', "readsViaPost");
+    }
+    if (
+      def.implementation.type === "provider-request" &&
+      def.implementation.freeForm
+    ) {
+      const { freeForm, pathTemplate, query, bodyTemplate } =
+        def.implementation;
+      if (def.effect !== "read" || method !== "GET") {
+        fail("a free-form request is a GET read", "implementation");
+      }
+      if (query !== undefined || bodyTemplate !== undefined) {
+        fail(
+          "a free-form request has no fixed query or body",
+          "implementation",
+        );
+      }
+      if (def.nodeKinds.some((kind) => kind !== "lookup")) {
+        fail("a free-form request serves only lookup nodes", "nodeKinds");
+      }
+      if (pathTemplate !== `/{${freeForm.path}}`) {
+        fail(
+          `a free-form request's path is exactly "/{${freeForm.path}}"`,
+          "implementation",
+        );
+      }
+      const roles = {
+        path: "string",
+        query: "json",
+        headers: "json",
+        auth: "enum",
+        timeoutSeconds: "number",
+        pagination: "json",
+        includeStatus: "boolean",
+        fieldsToKeep: "json",
+      } as const;
+      const named: string[] = [];
+      for (const [role, type] of Object.entries(roles)) {
+        const name = freeForm[role as keyof typeof roles];
+        if (name === undefined) continue;
+        named.push(name);
+        const field = def.fields.find((candidate) => candidate.name === name);
+        if (field?.type !== type) {
+          fail(`"${name}" is declared as a ${type} field`, "implementation");
+        }
+      }
+      if (new Set(named).size !== named.length) {
+        fail("each free-form role has a field of its own", "implementation");
+      }
+      const pathField = def.fields.find(
+        (field) => field.name === freeForm.path,
+      );
+      if (pathField && !pathField.required) {
+        fail("the path field is required", "implementation");
+      }
+      const auth = def.fields.find((field) => field.name === freeForm.auth);
+      if (
+        auth &&
+        (auth.enum?.length !== 2 ||
+          !auth.enum.includes("provider") ||
+          !auth.enum.includes("none"))
+      ) {
+        fail('the sign-in field is "provider" or "none"', "implementation");
+      }
     }
     if (kinds.has("agent")) {
       if (def.nodeKinds.length !== 1) {
@@ -365,6 +514,19 @@ export function isWriteAllowedForNode(
   if (def.effect === "write")
     return nodeKind === "action" || nodeKind === "agent";
   return true;
+}
+
+/**
+ * A model may be given a read as a tool only when a person fixed what it
+ * reads. An operation that takes a typed endpoint path is never one: letting a
+ * model choose the path would let it read anything the connection can reach.
+ */
+export function isModelToolAllowed(def: OperationDefinition): boolean {
+  if (def.effect !== "read") return false;
+  return !(
+    def.implementation.type === "provider-request" &&
+    def.implementation.freeForm !== undefined
+  );
 }
 
 /**

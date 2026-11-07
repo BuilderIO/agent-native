@@ -102,6 +102,213 @@ describe("useFeatureFlagState", () => {
     expect(states.at(-1)).toEqual({ status: "ready", enabled: false });
   });
 
+  it.each([
+    { cached: false, fresh: true, status: 200 },
+    { cached: true, fresh: false, status: 200 },
+    { cached: true, fresh: false, status: 500 },
+  ])(
+    "revalidates cached $cached before using status $status",
+    async ({ cached, fresh, status }) => {
+      sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+      let respond: (response: Response) => void = () => {};
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          () =>
+            new Promise<Response>((resolve) => {
+              respond = resolve;
+            }),
+        ),
+      );
+      const states: FeatureFlagState[] = [];
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+      });
+      client.setQueryData(
+        [
+          "action",
+          "get-feature-flags",
+          undefined,
+          "fresh-on-mount",
+          JSON.stringify([null, null, "example-flag"]),
+        ],
+        { "example-flag": cached },
+      );
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      cleanups.push(() => {
+        act(() => root.unmount());
+        container.remove();
+      });
+      function Probe() {
+        states.push(
+          useFeatureFlagState("example-flag", { freshOnMount: true }),
+        );
+        return null;
+      }
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={client}>
+            <Probe />
+          </QueryClientProvider>,
+        ),
+      );
+      expect(states.at(-1)).toEqual({ status: "loading", enabled: false });
+      await act(async () => {
+        respond(jsonResponse({ "example-flag": fresh }, status));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(states.at(-1)).toEqual(
+        status === 200
+          ? { status: "ready", enabled: fresh }
+          : { status: "unavailable", enabled: false },
+      );
+    },
+  );
+
+  it.each([500, 403])(
+    "reports status %s on a later refresh instead of a stale value",
+    async (failureStatus) => {
+      sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValueOnce(jsonResponse({ "example-flag": true }))
+          .mockResolvedValueOnce(
+            jsonResponse({ error: "unavailable" }, failureStatus),
+          ),
+      );
+      const states: FeatureFlagState[] = [];
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      cleanups.push(() => {
+        act(() => root.unmount());
+        container.remove();
+      });
+      function Probe() {
+        states.push(
+          useFeatureFlagState("example-flag", { freshOnMount: true }),
+        );
+        return null;
+      }
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={client}>
+            <Probe />
+          </QueryClientProvider>,
+        ),
+      );
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+      expect(states.at(-1)).toEqual({ status: "ready", enabled: true });
+      await act(async () => {
+        await client.invalidateQueries({
+          queryKey: ["action", "get-feature-flags"],
+        });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(states.at(-1)).toEqual({ status: "unavailable", enabled: false });
+    },
+  );
+
+  it("does not reuse a verified flag for a different viewer", async () => {
+    sessionMocks.useSession.mockReturnValue({
+      status: "authenticated",
+      session: { userId: "viewer-a" },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ "example-flag": true }))
+        .mockResolvedValueOnce(jsonResponse({ error: "unavailable" }, 500)),
+    );
+    const states: FeatureFlagState[] = [];
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    cleanups.push(() => {
+      act(() => root.unmount());
+      container.remove();
+    });
+    function Probe() {
+      states.push(useFeatureFlagState("example-flag", { freshOnMount: true }));
+      return null;
+    }
+    const render = () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <Probe />
+        </QueryClientProvider>,
+      );
+    await act(async () => render());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(states.at(-1)).toEqual({ status: "ready", enabled: true });
+    sessionMocks.useSession.mockReturnValue({
+      status: "authenticated",
+      session: { userId: "viewer-b" },
+    });
+    await act(async () => render());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(states.at(-1)).toEqual({ status: "unavailable", enabled: false });
+  });
+
+  it("does not restore a flag after access is denied", async () => {
+    sessionMocks.useSession.mockReturnValue({
+      status: "authenticated",
+      session: { userId: "viewer-a" },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ "example-flag": true }))
+        .mockResolvedValueOnce(jsonResponse({ error: "denied" }, 403))
+        .mockResolvedValueOnce(jsonResponse({ error: "unavailable" }, 500)),
+    );
+    const states: FeatureFlagState[] = [];
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    cleanups.push(() => {
+      act(() => root.unmount());
+      container.remove();
+    });
+    function Probe() {
+      states.push(useFeatureFlagState("example-flag", { freshOnMount: true }));
+      return null;
+    }
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <Probe />
+        </QueryClientProvider>,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(states.at(-1)).toEqual({ status: "ready", enabled: true });
+    for (let i = 0; i < 2; i++) {
+      await act(async () => {
+        await client.invalidateQueries({
+          queryKey: ["action", "get-feature-flags"],
+        });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(states.at(-1)).toEqual({ status: "unavailable", enabled: false });
+    }
+  });
+
   it("tells an unreadable answer apart from off", async () => {
     sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
     vi.stubGlobal(

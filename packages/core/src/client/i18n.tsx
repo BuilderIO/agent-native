@@ -103,6 +103,7 @@ export interface AgentNativeI18nCatalog {
     Record<LocaleCode, AgentNativeI18nLocaleLoader>
   >;
   supportedLocales?: readonly LocaleCode[];
+  restrictToCatalogLocales?: boolean;
 }
 
 export function createAgentNativeI18nCatalog(args: {
@@ -115,6 +116,7 @@ export function createAgentNativeI18nCatalog(args: {
   namespace?: string;
   sourceLocale?: LocaleCode;
   supportedLocales?: readonly LocaleCode[];
+  restrictToCatalogLocales?: boolean;
 }): AgentNativeI18nCatalog & {
   messages: LocaleMessages;
   sourceLocale: LocaleCode;
@@ -127,6 +129,7 @@ export function createAgentNativeI18nCatalog(args: {
     locales: args.locales,
     coreMessageOverrides: args.coreMessageOverrides,
     supportedLocales: args.supportedLocales,
+    restrictToCatalogLocales: args.restrictToCatalogLocales,
     loadMessages: async (locale) => {
       return loadAgentNativeI18nLocale(args.localeLoaders[locale]);
     },
@@ -254,7 +257,16 @@ function resolveSupportedLocales(args: {
     ...(args.catalog?.supportedLocales ?? SUPPORTED_LOCALES),
     ...catalogLocales,
   ];
-  const sourceCandidates = [...candidates, args.sourceLocale];
+  const candidatesWithinCatalog = args.catalog?.restrictToCatalogLocales
+    ? candidates.flatMap((locale) => {
+        const normalized = normalizeLocaleCode(
+          locale,
+          args.catalog?.supportedLocales ?? [],
+        );
+        return normalized ? [normalized] : [];
+      })
+    : candidates;
+  const sourceCandidates = [...candidatesWithinCatalog, args.sourceLocale];
   const supported = sourceCandidates
     .map((locale) => normalizeLocaleCode(locale, sourceCandidates))
     .filter((locale): locale is LocaleCode => locale !== null);

@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "Die ausgewählte Datei konnte nicht hochgeladen werden.",
+    reference: "Dashboard referenzieren…",
+    group: "Dashboards",
+    authentication: "Melde dich an, um eine Referenz hinzuzufügen.",
+    invalid: "Wähle vor dem Senden eine gültige Referenz.",
+    unavailable:
+      "Eine ausgewählte Referenz ist nicht mehr verfügbar. Entferne sie oder wähle sie erneut.",
+  },
   root: {
     whatsNew: "Neuigkeiten",
   },
@@ -1724,6 +1733,10 @@ export default {
     hideEmptySessions: "Leere Sitzungen ausblenden",
     networkErrors: "Netzwerkfehler",
     rageClicksFilter: "Wutklicks",
+    traffic: "Datenverkehr",
+    allTraffic: "Gesamter Datenverkehr",
+    productionTraffic: "Produktion",
+    betaTraffic: "Beta",
     visitors: "Besucher",
     allVisitors: "Alle Besucher",
     internalVisitors: "Intern",
