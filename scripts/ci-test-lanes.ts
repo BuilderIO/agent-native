@@ -230,6 +230,7 @@ export function requiresFullCoreFastTests(paths: readonly string[]): boolean {
 // register tools: a missed directory skips the contract without any failure.
 const CATALOG_CONTRACT_CORE_SPECS = [
   "src/mcp/advertised-tool-annotations.spec.ts",
+  "src/mcp/agent-mcp-parity.spec.ts",
   "src/mcp/instructions-name-advertised-tools.spec.ts",
   "src/mcp/hidden-inline-apps.spec.ts",
 ] as const;
