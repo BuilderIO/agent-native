@@ -19,10 +19,11 @@ describe("pickDebugTabIds", () => {
     expect(
       pickDebugTabIds({
         targetTabId: 7,
+        targetWindowId: 1,
         nowMs: NOW,
         activations: [
-          { tabId: 1, lastActiveMs: NOW - 2 * MINUTE },
-          { tabId: 2, lastActiveMs: NOW - MINUTE },
+          { tabId: 1, windowId: 1, lastActiveMs: NOW - 2 * MINUTE },
+          { tabId: 2, windowId: 1, lastActiveMs: NOW - MINUTE },
         ],
       }),
     ).toEqual([7, 2, 1]);
@@ -32,10 +33,15 @@ describe("pickDebugTabIds", () => {
     expect(
       pickDebugTabIds({
         targetTabId: 7,
+        targetWindowId: 1,
         nowMs: NOW,
         activations: [
-          { tabId: 1, lastActiveMs: NOW - RECENT_TAB_WINDOW_MS - 1 },
-          { tabId: 2, lastActiveMs: NOW - RECENT_TAB_WINDOW_MS },
+          {
+            tabId: 1,
+            windowId: 1,
+            lastActiveMs: NOW - RECENT_TAB_WINDOW_MS - 1,
+          },
+          { tabId: 2, windowId: 1, lastActiveMs: NOW - RECENT_TAB_WINDOW_MS },
         ],
       }),
     ).toEqual([7, 2]);
@@ -44,10 +50,12 @@ describe("pickDebugTabIds", () => {
   it("caps the set at MAX_DEBUGGED_TABS and keeps the recording's tab", () => {
     const activations = Array.from({ length: 12 }, (_, index) => ({
       tabId: index + 1,
+      windowId: 1,
       lastActiveMs: NOW - index * 1000,
     }));
     const picked = pickDebugTabIds({
       targetTabId: 99,
+      targetWindowId: 1,
       nowMs: NOW,
       activations,
     });
@@ -55,12 +63,28 @@ describe("pickDebugTabIds", () => {
     expect(picked[0]).toBe(99);
   });
 
+  it("leaves out tabs in other windows", () => {
+    expect(
+      pickDebugTabIds({
+        targetTabId: 7,
+        targetWindowId: 1,
+        nowMs: NOW,
+        activations: [
+          { tabId: 1, windowId: 2, lastActiveMs: NOW },
+          { tabId: 2, lastActiveMs: NOW },
+          { tabId: 3, windowId: 1, lastActiveMs: NOW },
+        ],
+      }),
+    ).toEqual([7, 3]);
+  });
+
   it("never lists the recording's tab twice", () => {
     expect(
       pickDebugTabIds({
         targetTabId: 7,
+        targetWindowId: 1,
         nowMs: NOW,
-        activations: [{ tabId: 7, lastActiveMs: NOW }],
+        activations: [{ tabId: 7, windowId: 1, lastActiveMs: NOW }],
       }),
     ).toEqual([7]);
   });
