@@ -2901,6 +2901,16 @@ pub async fn native_fullscreen_recording_warm(
     }
 }
 
+/// Starts cursor effects for a recording that just began capturing. Callers
+/// hold the session lock, so a concurrent cancel or stop, which removes the
+/// session under that lock, always dispatches its teardown after this start.
+/// Effects draw into the screen, so a window capture cannot show them.
+fn start_cursor_effects(app: &AppHandle, captures_screen: bool) {
+    if captures_screen {
+        crate::cursor_effects::start(app);
+    }
+}
+
 #[tauri::command]
 pub async fn native_fullscreen_recording_begin(
     app: AppHandle,
@@ -3056,6 +3066,7 @@ pub async fn native_fullscreen_recording_begin(
                     server_url.as_deref(),
                     has_camera.unwrap_or(false),
                 );
+                start_cursor_effects(&app, selected_window.is_none());
             }
             drop(guard);
             return Ok(info);
@@ -3151,6 +3162,7 @@ pub async fn native_fullscreen_recording_begin(
             server_url.as_deref(),
             has_camera.unwrap_or(false),
         );
+        start_cursor_effects(&app, selected_window.is_none());
 
         Ok(NativeFullscreenStartInfo {
             recording_id,
@@ -3181,15 +3193,20 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         None,
         None,
     );
+    let finalized = take_and_finalize_active_session(&state, |_session| {
+        stop_cursor_effects_after_capture(&app);
+        let _ = app.emit("clips:native-recording-finalized", &recording_id);
+    });
+    if finalized.is_err() {
+        crate::cursor_effects::stop(&app);
+    }
     let StoppedSession {
         mut session,
         duration_ms,
         stop_outcome,
         consolidate_outcome,
         multi_segment,
-    } = take_and_finalize_active_session(&state, |_session| {
-        let _ = app.emit("clips:native-recording-finalized", &recording_id);
-    })?;
+    } = finalized?;
 
     #[cfg(target_os = "macos")]
     restore_camera_bubble_alignment(&app, &state, Some(session.restart.alignment_generation));
@@ -3587,13 +3604,19 @@ pub async fn native_fullscreen_recording_stop_and_save(
     folder_name: String,
     file_role: String,
 ) -> Result<NativeFullscreenSaveResult, String> {
+    let finalized = take_and_finalize_active_session(&state, |_session| {
+        stop_cursor_effects_after_capture(&app)
+    });
+    if finalized.is_err() {
+        crate::cursor_effects::stop(&app);
+    }
     let StoppedSession {
         mut session,
         duration_ms,
         stop_outcome,
         consolidate_outcome,
         multi_segment,
-    } = take_and_finalize_active_session(&state, |_session| {})?;
+    } = finalized?;
     #[cfg(target_os = "macos")]
     restore_camera_bubble_alignment(&app, &state, Some(session.restart.alignment_generation));
     #[cfg(target_os = "macos")]
@@ -3687,6 +3710,9 @@ pub async fn native_fullscreen_recording_cancel(
         if guard.as_ref().is_some_and(|session| {
             should_discard_cancelled_native_session(session, cancelled_generation)
         }) {
+            // Under the session lock, so a stale cancel that keeps a newer
+            // session also keeps that session's cursor effects.
+            crate::cursor_effects::stop(&app);
             guard.take()
         } else {
             None
@@ -3745,6 +3771,19 @@ fn should_reuse_warmed_native_session(
 pub async fn native_fullscreen_recording_pause(
     app: AppHandle,
     state: State<'_, NativeFullscreenRecordingState>,
+) -> Result<(), String> {
+    let result = pause_native_recording(&app, &state);
+    // Hide cursor effects only once capture has paused, so a failed pause
+    // keeps them on the still-running recording.
+    if result.is_ok() {
+        crate::cursor_effects::set_paused(&app, true);
+    }
+    result
+}
+
+fn pause_native_recording(
+    app: &AppHandle,
+    state: &NativeFullscreenRecordingState,
 ) -> Result<(), String> {
     let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
     let session = guard
@@ -3877,6 +3916,18 @@ pub async fn native_fullscreen_recording_pause(
 pub async fn native_fullscreen_recording_resume(
     app: AppHandle,
     state: State<'_, NativeFullscreenRecordingState>,
+) -> Result<(), String> {
+    let result = resume_native_recording(&app, &state);
+    // Show cursor effects again only once capture has resumed.
+    if result.is_ok() {
+        crate::cursor_effects::set_paused(&app, false);
+    }
+    result
+}
+
+fn resume_native_recording(
+    app: &AppHandle,
+    state: &NativeFullscreenRecordingState,
 ) -> Result<(), String> {
     let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
     let session = guard
@@ -4160,6 +4211,13 @@ struct StoppedSession {
     stop_outcome: Result<(), String>,
     consolidate_outcome: Result<(), String>,
     multi_segment: bool,
+}
+
+/// Removes cursor effects once the capture backend has stopped, so the last
+/// recorded frames still show them, and before segments are merged, so the
+/// overlay does not linger on screen during that work.
+fn stop_cursor_effects_after_capture(app: &AppHandle) {
+    crate::cursor_effects::stop(app);
 }
 
 fn take_and_finalize_active_session(

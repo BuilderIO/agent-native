@@ -5,6 +5,7 @@ mod capture_audio_bus;
 mod capture_graph;
 mod clips;
 mod config;
+mod cursor_effects;
 mod debug;
 mod echo_guard;
 mod eventkit;
@@ -206,6 +207,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             clips::show_countdown,
+            clips::show_ready_to_record,
+            clips::close_ready_to_record,
             clips::finish_countdown_shortcuts,
             clips::show_preparing,
             clips::hide_preparing,
@@ -270,6 +273,8 @@ pub fn run() {
             clips::load_bubble_size,
             config::get_feature_config,
             config::set_feature_config,
+            cursor_effects::get_cursor_effects,
+            cursor_effects::set_cursor_effects,
             screen_memory::screen_memory_status,
             screen_memory::screen_memory_configure,
             screen_memory::screen_memory_start,

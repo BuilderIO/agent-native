@@ -16,6 +16,7 @@
     "region-guides",
     "region-guide-editor",
     "region-record-border",
+    "ready-to-record",
     "monitor-picker-*"
   ],
   "permissions": [

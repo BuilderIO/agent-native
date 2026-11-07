@@ -383,6 +383,8 @@ pub(crate) fn rewind_clip_start(
     active.lease_id = Some(lease.id);
     active.started_elapsed_ms = lease.interval.started_elapsed_ms;
     active.activated = true;
+    // Rewind-derived clips are always full-screen, so cursor effects apply.
+    crate::cursor_effects::start(&app);
     crate::logfile::diagnostic(&format!(
         "[rewind-latency] start boundary accepted in {}ms",
         started.elapsed().as_millis()
@@ -516,6 +518,7 @@ pub(crate) fn rewind_clip_pause(
     active.intervals.push(interval);
     active.lease_id = None;
     active.paused = true;
+    crate::cursor_effects::set_paused(&app, true);
     Ok(RewindClipStatus {
         compatibility: RewindClipCompatibility::Compatible,
         active: true,
@@ -568,6 +571,7 @@ pub(crate) fn rewind_clip_resume(
     active.started_elapsed_ms = lease.interval.started_elapsed_ms;
     active.sources = sources;
     active.paused = false;
+    crate::cursor_effects::set_paused(&app, false);
     Ok(RewindClipStatus {
         compatibility: RewindClipCompatibility::Compatible,
         active: true,
@@ -1465,7 +1469,11 @@ pub(crate) async fn rewind_clip_stop_and_upload(
     {
         let stop_started = std::time::Instant::now();
         let mut active = take_active(&state)?;
-        if let Err(error) = close_direct_clip_interval(&app, &mut active) {
+        let closed = close_direct_clip_interval(&app, &mut active);
+        // The clip's interval has ended, so removing the effects now cannot
+        // cut them from its last frames.
+        crate::cursor_effects::stop(&app);
+        if let Err(error) = closed {
             if let Some(sink) = active.shared_sink.take() {
                 sink.cancel();
             }
@@ -1690,7 +1698,11 @@ pub(crate) async fn rewind_clip_stop_and_save(
     {
         let stop_started = std::time::Instant::now();
         let mut active = take_active(&state)?;
-        if let Err(error) = close_direct_clip_interval(&app, &mut active) {
+        let closed = close_direct_clip_interval(&app, &mut active);
+        // The clip's interval has ended, so removing the effects now cannot
+        // cut them from its last frames.
+        crate::cursor_effects::stop(&app);
+        if let Err(error) = closed {
             if let Some(sink) = active.shared_sink.take() {
                 sink.cancel();
             }
@@ -1770,6 +1782,9 @@ pub(crate) fn rewind_clip_cancel(
     let active = active_state.take();
     drop(active_state);
     if let Some(mut active) = active {
+        // Only the clip being cancelled owns the overlay; a stale cancel
+        // returned above and leaves a newer clip's effects running.
+        crate::cursor_effects::stop(&app);
         if let Some(lease_id) = active.lease_id.as_deref() {
             let _ = app
                 .state::<CaptureGraphState>()
