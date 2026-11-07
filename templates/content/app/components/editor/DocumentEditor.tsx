@@ -377,7 +377,10 @@ import {
 } from "./suggestions/draft-session";
 import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
 import { useRememberedEditorMode } from "./suggestions/editor-mode-memory";
-import { suggestionPageFollow } from "./suggestions/follow-page";
+import {
+  SUGGESTION_FOLLOW_RECHECK_MS,
+  suggestionPageFollow,
+} from "./suggestions/follow-page";
 import {
   createDraftSuggestionPresentationTransition,
   createObservedSuggestionPresentationTransition,
@@ -7102,6 +7105,30 @@ function PageEditorSessionBody({
     suggestionDraftUpdatedAt,
     suggestionPersistenceRevision,
   ]);
+
+  // On a Page whose body is its live copy, someone else's typing reaches the
+  // server through the live copy, whose writes send no refresh event, and the
+  // suggesting editor isn't bound to it. The server saves the Page before it
+  // passes the update on, so read the Page again when the live copy changes.
+  useEffect(() => {
+    if (!isSuggesting || !bodyWritesThroughLiveCopy || !ydoc) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const refetch = () => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void queryClient.refetchQueries({
+          ...documentQueryFilter(documentId),
+          type: "active",
+        });
+      }, SUGGESTION_FOLLOW_RECHECK_MS);
+    };
+    ydoc.on("update", refetch);
+    return () => {
+      ydoc.off("update", refetch);
+      if (timer) clearTimeout(timer);
+    };
+  }, [bodyWritesThroughLiveCopy, documentId, isSuggesting, queryClient, ydoc]);
 
   const refreshSuggestionDecisionDocument = useCallback(
     async (
