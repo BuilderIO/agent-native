@@ -1680,8 +1680,7 @@ export default {
       figmaPasteRestLabel: "Importado via API do Figma",
       figmaPasteHtmlLabel:
         "Importado da pré-visualização da área de transferência",
-      figmaPasteLocalKiwiLabel:
-        "Importado sem token — apenas geometria e texto",
+      figmaPasteLocalKiwiLabel: "Importado da área de transferência do Figma",
       figmaPasteImagesNeedToken:
         "{{count}} imagem{{plural}} precisa{{plural}} de acesso ao Figma para carregar.",
       figmaPasteImagesDontShowAgain: "Não mostrar novamente",
@@ -2711,7 +2710,6 @@ export default {
     websiteReferenceMenu: "Adicionar site…",
     websiteUrlLabel: "URL do site",
     websiteUrl: "Cole a URL de um site",
-    figmaUrlLabel: "Link do Figma",
     invalidFigmaUrl: "Insira uma URL válida de quadro ou arquivo do figma.com.",
     tooMany: "Escolha até 20 referências.",
     invalidWebsiteUrl: "Insira uma URL HTTP ou HTTPS válida.",
@@ -2719,7 +2717,6 @@ export default {
     noSystems:
       "Você ainda não tem um sistema de design. Crie um a partir de um site, arquivos ou Figma.",
     searchSystems: "Buscar sistemas de design…",
-    searchFrames: "Buscar quadros do Figma…",
     searchDesigns: "Buscar designs…",
     searchPresentations: "Buscar apresentações…",
     searchDesign: "Buscar design…",
@@ -2727,8 +2724,6 @@ export default {
     notReady:
       "A solicitação ainda não está pronta. Confira o contexto selecionado e a conexão e tente novamente.",
     search: "Buscar contexto…",
-    figmaUrl: "Cole um link do Figma",
-    browse: "Explorar quadros",
     loadFailed: "Não foi possível carregar esta referência.",
     retry: "Tentar novamente",
     empty: "Nenhuma referência correspondente.",
@@ -2737,8 +2732,24 @@ export default {
     slides: "Slides",
     referenceDesign: "Usar um design como referência",
     connectFigma: "Conectar Figma",
-    figmaDisconnected: "Conecte o Figma para explorar designs.",
-    figmaReference: "Design do Figma",
+    figmaReference: "Design do Figma…",
+    figmaDialogTitle: "Adicionar design do Figma",
+    figmaDropTitle: "Solte um arquivo .fig",
+    figmaChooseFile: "Escolher arquivo",
+    figmaPasteHint: "Você também pode colar um frame copiado direto no prompt.",
+    figmaAddToPrompt: "Adicionar ao prompt",
+    figmaLinkNeedsConnection:
+      "Links precisam de uma conta do Figma conectada. Solte um arquivo .fig ou cole um frame copiado.",
+    figmaReferenceMore: "{{name}} e mais {{count}}",
+    figmaReferenceEmpty:
+      "Nenhum frame chegou. Copie um frame no Figma e tente novamente.",
+    figmaSelection: "Seleção do Figma",
+    figmaFileTooLarge:
+      "Este arquivo é grande demais para ser lido aqui. Cole um link para a página ou o frame dele.",
+    figmaSearch: "Pesquisar páginas e frames",
+    figmaSelectedCount: "{{count}} selecionados",
+    figmaShowFrames: "Mostrar frames em {{name}}",
+    figmaLinkNotFrame: "Use um link para uma página ou frame do Figma.",
     referenceDeck: "Usar uma apresentação como referência",
     quickSaas: "Criar uma página de SaaS",
     quickDashboard: "Criar um painel",

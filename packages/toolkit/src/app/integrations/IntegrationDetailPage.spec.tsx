@@ -21,7 +21,13 @@ const dialogMocks = vi.hoisted(() => ({
   McpIntegrationDialog: vi.fn(() => null),
 }));
 const agent = vi.hoisted(() => ({ submitToAgent: vi.fn() }));
-const keys = vi.hoisted(() => ({ saveApiKeyValue: vi.fn() }));
+const keys = vi.hoisted(() => ({
+  saveApiKeyValue: vi.fn(),
+  removeApiKeyValue: vi.fn(),
+}));
+const secrets = vi.hoisted(() => ({
+  listRegisteredSecrets: vi.fn(async (): Promise<unknown[]> => []),
+}));
 const oauth = vi.hoisted(() => ({
   navigateToMcpOAuthStart: vi.fn(() => true),
 }));
@@ -33,6 +39,7 @@ vi.mock("../shared/index.js", async (importOriginal) => ({
   ...agent,
 }));
 vi.mock("../settings/api-keys/api-keys-client.js", () => keys);
+vi.mock("@agent-native/core/client/secrets", () => secrets);
 vi.mock("@agent-native/core/client/org/hooks", () => ({
   useOrg: () => ({ data: { orgName: "Acme" } }),
 }));
@@ -308,6 +315,28 @@ describe("IntegrationDetailPage", () => {
     expect(createServer).not.toHaveBeenCalled();
     expect(oauth.navigateToMcpOAuthStart).not.toHaveBeenCalled();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("shows a saved Figma token as connected instead of offering another", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template: "design" });
+    secrets.listRegisteredSecrets.mockResolvedValueOnce([
+      { key: "FIGMA_ACCESS_TOKEN", status: "set", scope: "user" },
+    ]);
+    await render("figma");
+    expect(lastHeader()?.action).toBeNull();
+    expect(container.textContent).toContain("Connected");
+    const remove = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Remove",
+    );
+    await act(async () => remove?.click());
+    expect(keys.removeApiKeyValue).toHaveBeenCalledWith("FIGMA_ACCESS_TOKEN");
+  });
+
+  it("offers no token while the saved-token status is unreadable", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template: "design" });
+    secrets.listRegisteredSecrets.mockRejectedValueOnce(new Error("down"));
+    await render("figma");
+    expect(lastHeader()?.action).toBeNull();
   });
 
   it.each(["slides", undefined])(

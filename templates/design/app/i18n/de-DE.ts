@@ -1692,8 +1692,7 @@ export default {
         "In dieser Zwischenablage sind keine kopierten Figma-Ebenen. Wähle in Figma einen Frame aus, kopiere ihn mit Cmd+C und füge ihn erneut ein – oder importiere einen Figma-Link über das Import-Panel.",
       figmaPasteRestLabel: "Über die Figma-API importiert",
       figmaPasteHtmlLabel: "Aus der Zwischenablage-Vorschau importiert",
-      figmaPasteLocalKiwiLabel:
-        "Ohne Token importiert — nur Geometrie und Text",
+      figmaPasteLocalKiwiLabel: "Aus der Figma-Zwischenablage importiert",
       figmaPasteImagesNeedToken:
         "{{count}} Bild{{plural}} benötigt{{plural}} Figma-Zugriff zum Laden.",
       figmaPasteImagesDontShowAgain: "Nicht mehr anzeigen",
@@ -2744,7 +2743,6 @@ export default {
     websiteReferenceMenu: "Website hinzufügen…",
     websiteUrlLabel: "Website-URL",
     websiteUrl: "Website-URL einfügen",
-    figmaUrlLabel: "Figma-Link",
     invalidFigmaUrl:
       "Gib eine gültige Frame- oder Datei-URL von figma.com ein.",
     tooMany: "Wähle bis zu 20 Referenzen.",
@@ -2753,7 +2751,6 @@ export default {
     noSystems:
       "Du hast noch kein Designsystem. Erstelle eines aus einer Website, Dateien oder Figma.",
     searchSystems: "Designsysteme suchen…",
-    searchFrames: "Figma-Frames suchen…",
     searchDesigns: "Designs suchen…",
     searchPresentations: "Präsentationen suchen…",
     searchDesign: "Design suchen…",
@@ -2761,8 +2758,6 @@ export default {
     notReady:
       "Die Anfrage ist noch nicht bereit. Prüfe den ausgewählten Kontext und die Verbindung und versuche es erneut.",
     search: "Kontext suchen…",
-    figmaUrl: "Figma-Link einfügen",
-    browse: "Frames durchsuchen",
     loadFailed: "Diese Referenz konnte nicht geladen werden.",
     retry: "Erneut versuchen",
     empty: "Keine passenden Referenzen.",
@@ -2771,8 +2766,25 @@ export default {
     slides: "Folien",
     referenceDesign: "Ein Design als Referenz verwenden",
     connectFigma: "Figma verbinden",
-    figmaDisconnected: "Verbinde Figma, um Designs zu durchsuchen.",
-    figmaReference: "Figma-Design",
+    figmaReference: "Figma-Design…",
+    figmaDialogTitle: "Figma-Design hinzufügen",
+    figmaDropTitle: "Lege eine .fig-Datei ab",
+    figmaChooseFile: "Datei auswählen",
+    figmaPasteHint:
+      "Du kannst einen kopierten Frame auch direkt in den Prompt einfügen.",
+    figmaAddToPrompt: "Zum Prompt hinzufügen",
+    figmaLinkNeedsConnection:
+      "Links benötigen ein verbundenes Figma-Konto. Lege stattdessen eine .fig-Datei ab oder füge einen kopierten Frame ein.",
+    figmaReferenceMore: "{{name}} und {{count}} weitere",
+    figmaReferenceEmpty:
+      "Es kamen keine Frames an. Kopiere einen Frame in Figma und versuche es erneut.",
+    figmaSelection: "Figma-Auswahl",
+    figmaFileTooLarge:
+      "Diese Datei ist zu groß, um sie hier zu lesen. Füge stattdessen einen Link zu ihrer Seite oder ihrem Frame ein.",
+    figmaSearch: "Seiten und Frames durchsuchen",
+    figmaSelectedCount: "{{count}} ausgewählt",
+    figmaShowFrames: "Frames in {{name}} anzeigen",
+    figmaLinkNotFrame: "Verlinke eine Figma-Seite oder einen Frame.",
     referenceDeck: "Eine Präsentation als Referenz verwenden",
     quickSaas: "SaaS-Landingpage erstellen",
     quickDashboard: "Dashboard erstellen",

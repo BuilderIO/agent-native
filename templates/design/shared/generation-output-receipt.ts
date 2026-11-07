@@ -49,6 +49,7 @@ export const DESIGN_OUTPUT_ACTIONS = new Set([
   "insert-design-native-asset",
   "insert-figma-library-asset",
   "migrate-board-objects-to-file",
+  "place-figma-frames",
   "present-design-variants",
   "remove-motion-timeline",
   "rename-component",
@@ -78,6 +79,12 @@ export function classifyDesignGenerationOutput(options: {
   events: readonly PersistedTurnEvent[];
 }): DesignGenerationOutputStatus {
   const { designId, runId, runStatus, runIds, events } = options;
+  // A saved-output receipt is proof however the run ended: a run that saves
+  // screens and then fails on its next model turn still made them, and
+  // retrying it saves them again.
+  if (events.some(({ event }) => savedOutputForDesign(event, designId))) {
+    return "has_output";
+  }
   if (
     runStatus !== "completed" ||
     !hasCompleteTurnJournal(events, runId, runIds)
@@ -111,11 +118,7 @@ export function classifyDesignGenerationOutput(options: {
     ) {
       continue;
     }
-    const receipt = parseDesignOutputReceipt(event.receipt, designId);
-    if (receipt) {
-      if (receipt.fileCount > 0) return "has_output";
-      continue;
-    }
+    if (parseDesignOutputReceipt(event.receipt, designId)) continue;
     if (input.status === "unreadable") {
       unknownOutputEvidence = true;
       continue;
@@ -200,6 +203,22 @@ function hasCompleteTurnJournal(
     byRun.get(finalRunId)?.some(({ event }) => {
       return isRecord(event) && event.type === "done";
     }) === true
+  );
+}
+
+function savedOutputForDesign(event: unknown, designId: string): boolean {
+  if (!isRecord(event) || event.type !== "tool_done") return false;
+  if (typeof event.tool !== "string" || !DESIGN_OUTPUT_ACTIONS.has(event.tool))
+    return false;
+  const input = inputDesignId(event.input);
+  if (
+    input.status === "readable" &&
+    input.designId &&
+    input.designId !== designId
+  )
+    return false;
+  return (
+    (parseDesignOutputReceipt(event.receipt, designId)?.fileCount ?? 0) > 0
   );
 }
 

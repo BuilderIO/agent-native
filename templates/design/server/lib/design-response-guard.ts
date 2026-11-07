@@ -577,7 +577,16 @@ export function designFinalResponseGuard(
   const requestText =
     context.requestText?.trim() || latestUserText(context.messages);
   if (!requiresPersistedDesignOutput(requestText)) return null;
-  if (hasSuccessfulMutation(context.toolResults)) return null;
+  // A verified, changed write receipt is the same proof the editor trusts,
+  // so an action that returns one never needs an entry in the list below.
+  if (
+    context.receipts?.some(
+      (receipt) => receipt.changed && receipt.verified === true,
+    ) ||
+    hasSuccessfulMutation(context.toolResults)
+  ) {
+    return null;
+  }
 
   return {
     retryMessage:

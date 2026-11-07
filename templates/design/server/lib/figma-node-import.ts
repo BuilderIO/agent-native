@@ -492,31 +492,106 @@ export async function fetchFileStructure(
   return json.document ?? {};
 }
 
-export async function resolveTargetNodeId(
+/** A page link imports at most this many of the page's top-level nodes. */
+export const MAX_PAGE_IMPORT_NODES = 50;
+
+const SCREEN_NODE_TYPES = new Set([
+  "FRAME",
+  "COMPONENT",
+  "COMPONENT_SET",
+  "INSTANCE",
+]);
+
+function visibleTopLevelNodes(nodes: readonly FigmaNode[]): FigmaNode[] {
+  return nodes
+    .filter((node) => node.visible !== false)
+    .flatMap((node) =>
+      node.type === "SECTION"
+        ? visibleTopLevelNodes(node.children ?? [])
+        : [node],
+    );
+}
+
+/**
+ * A page's importable nodes, sections opened: its frames and components, or,
+ * on a page with none, its loose top-level layers, so a page of shapes and
+ * groups still imports instead of coming back empty.
+ */
+export function pageImportNodes(nodes: readonly FigmaNode[]): FigmaNode[] {
+  const visible = visibleTopLevelNodes(nodes);
+  const screens = visible.filter((node) => SCREEN_NODE_TYPES.has(node.type));
+  return screens.length ? screens : visible;
+}
+
+/**
+ * The nodes a Figma link means. A frame link is that frame. A page link
+ * (Figma's "Copy link" with nothing selected is `node-id=0-1`) or a file link
+ * means the page's top-level frames: a page has no size of its own, so
+ * rendering it as one screen gives an empty frame.
+ */
+export async function resolveImportTargets(
   fileKey: string,
   nodeId: string | null,
-): Promise<string> {
-  if (nodeId) return nodeId;
-
-  const document = await fetchFileStructure(fileKey, 2);
-  const firstPage = document.children?.[0];
-  const firstFrame = firstPage?.children?.find(
-    (child) => child?.type === "FRAME" && Boolean(child.id),
+): Promise<{
+  nodesById: Record<string, FigmaNode>;
+  name: string | null;
+  truncated: boolean;
+}> {
+  let targetId = nodeId && nodeId !== "0:0" ? nodeId : null;
+  if (!targetId) {
+    const document = await fetchFileStructure(fileKey, 1);
+    targetId = document.children?.find((page) => page.id)?.id ?? null;
+    if (!targetId) {
+      failFigmaImport(
+        "This Figma file has no pages to import.",
+        FIGMA_IMPORT_ERROR_CODES.nodeNotFound,
+        { statusCode: 404 },
+      );
+    }
+  }
+  const { node, outline } = await fetchFigmaNodeOrPageOutline(
+    fileKey,
+    targetId,
   );
-  if (!firstFrame?.id) {
+  if (node.type !== "CANVAS") {
+    return {
+      nodesById: { [targetId]: node },
+      name: node.name ?? null,
+      truncated: false,
+    };
+  }
+  const nodes = pageImportNodes(node.children ?? []);
+  if (!nodes.length) {
     failFigmaImport(
-      "Could not find a frame to import. Pass a specific node-id or a Figma frame URL with ?node-id=.",
+      `The Figma page "${node.name ?? targetId}" is empty. Link to a page or frame that has content.`,
       FIGMA_IMPORT_ERROR_CODES.nodeNotFound,
       { statusCode: 404 },
     );
   }
-  return firstFrame.id;
+  const kept = nodes.slice(0, MAX_PAGE_IMPORT_NODES);
+  return {
+    // An outline holds only the frames' top levels; fetch them in full, in
+    // batches that split when a response is too large.
+    nodesById: outline
+      ? await fetchFigmaNodes(
+          fileKey,
+          kept.map((child) => child.id),
+        )
+      : Object.fromEntries(kept.map((child) => [child.id, child])),
+    name:
+      (kept.length === 1
+        ? kept.find((child) => child.name)?.name
+        : node.name) ?? null,
+    truncated: nodes.length > kept.length,
+  };
 }
 
 export async function fetchFigmaNodes(
   fileKey: string,
   nodeIds: string[],
   withGeometry = true,
+  /** Levels below each node to include; omitted means the whole subtree. */
+  depth?: number,
 ): Promise<Record<string, FigmaNode>> {
   if (nodeIds.length === 0) return {};
   let json: {
@@ -526,6 +601,7 @@ export async function fetchFigmaNodes(
     const envelope = await figmaGet(`/files/${fileKey}/nodes`, {
       ids: nodeIds.join(","),
       ...(withGeometry ? { geometry: "paths" } : {}),
+      ...(depth === undefined ? {} : { depth }),
     });
     json = providerJson(envelope, "nodes") as typeof json;
   } catch (error) {
@@ -533,8 +609,13 @@ export async function fetchFigmaNodes(
     if (isOversize && nodeIds.length > 1) {
       const midpoint = Math.ceil(nodeIds.length / 2);
       const [left, right] = await Promise.all([
-        fetchFigmaNodes(fileKey, nodeIds.slice(0, midpoint), withGeometry),
-        fetchFigmaNodes(fileKey, nodeIds.slice(midpoint), withGeometry),
+        fetchFigmaNodes(
+          fileKey,
+          nodeIds.slice(0, midpoint),
+          withGeometry,
+          depth,
+        ),
+        fetchFigmaNodes(fileKey, nodeIds.slice(midpoint), withGeometry, depth),
       ]);
       return { ...left, ...right };
     }
@@ -542,7 +623,7 @@ export async function fetchFigmaNodes(
       console.warn(
         `[figma-import] Node ${nodeIds.join(",")} exceeded the provider response limit with geometry=paths; retrying without it (vectors will import as rendered PNGs).`,
       );
-      return fetchFigmaNodes(fileKey, nodeIds, false);
+      return fetchFigmaNodes(fileKey, nodeIds, false, depth);
     }
     throw error;
   }
@@ -581,6 +662,27 @@ export async function fetchFigmaNode(
 ): Promise<FigmaNode> {
   const nodes = await fetchFigmaNodes(fileKey, [nodeId]);
   return nodes[nodeId]!;
+}
+
+/**
+ * A node with its whole subtree, or, when that outgrows the response limit
+ * and the node is a page, the page with only two levels below it: enough to
+ * list its frames (sections opened). Anything else too large stays an error.
+ */
+export async function fetchFigmaNodeOrPageOutline(
+  fileKey: string,
+  nodeId: string,
+): Promise<{ node: FigmaNode; outline: boolean }> {
+  try {
+    return { node: await fetchFigmaNode(fileKey, nodeId), outline: false };
+  } catch (error) {
+    if (!isFigmaPayloadTooLargeError(error)) throw error;
+    const outline = Object.values(
+      await fetchFigmaNodes(fileKey, [nodeId], false, 2),
+    ).find((candidate) => candidate.type === "CANVAS");
+    if (!outline) throw error;
+    return { node: outline, outline: true };
+  }
 }
 
 async function fetchFallbackImageUrls(

@@ -47,6 +47,39 @@ describe("Design generation output receipts", () => {
     ).toBe("has_output");
   });
 
+  it("counts screens a run saved before it failed, so it is not retried", () => {
+    const saved = {
+      type: "tool_done",
+      tool: "place-figma-frames",
+      input: { ref: "attachment:v1:abc", designId: "design-1" },
+      completedSideEffect: true,
+      receipt: designOutputWriteReceipt("design-1", 24),
+    };
+    expect(
+      classifyDesignGenerationOutput({
+        ...base,
+        runStatus: "failed",
+        events: [{ runId: "run-1", seq: 0, event: saved }],
+      }),
+    ).toBe("has_output");
+    expect(
+      classifyDesignGenerationOutput({
+        ...base,
+        runStatus: "failed",
+        events: [
+          {
+            runId: "run-1",
+            seq: 0,
+            event: {
+              ...saved,
+              receipt: designOutputWriteReceipt("design-2", 3),
+            },
+          },
+        ],
+      }),
+    ).toBe("unknown");
+  });
+
   it("recognizes output receipts for every registered writer", () => {
     for (const tool of DESIGN_OUTPUT_ACTIONS) {
       expect(

@@ -35,6 +35,7 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 | --- | --- |
 | `list-design-templates` / `list-designs` | Search paged templates/designs |
 | `read-composer-source` | Read bounded Design/Slides/Figma sources |
+| `place-figma-frames` | Place attached Figma frames by ref |
 | `delete-file` | Delete a screen when requested |
 | `create-design-from-template` | Copy template; source screens stay locked |
 | `get-design-snapshot` / `get-design-template` | Inspect design or source template |

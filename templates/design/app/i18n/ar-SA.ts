@@ -1655,8 +1655,7 @@ export default {
         "لا تحتوي هذه الحافظة على طبقات Figma منسوخة. حدّد إطارًا في Figma وانسخه بالضغط على Cmd+C ثم الصقه مرة أخرى، أو استورد رابط Figma من لوحة الاستيراد.",
       figmaPasteRestLabel: "تم الاستيراد عبر واجهة Figma البرمجية",
       figmaPasteHtmlLabel: "تم الاستيراد من معاينة الحافظة",
-      figmaPasteLocalKiwiLabel:
-        "تم الاستيراد بدون رمز — الأشكال الهندسية والنص فقط",
+      figmaPasteLocalKiwiLabel: "تم الاستيراد من حافظة Figma",
       figmaPasteImagesNeedToken:
         "{{count}} صورة{{plural}} تحتاج إلى الوصول إلى Figma للتحميل.",
       figmaPasteImagesDontShowAgain: "عدم الإظهار مرة أخرى",
@@ -2655,7 +2654,6 @@ export default {
     websiteReferenceMenu: "إضافة موقع ويب…",
     websiteUrlLabel: "عنوان URL لموقع الويب",
     websiteUrl: "الصق عنوان URL لموقع ويب",
-    figmaUrlLabel: "رابط Figma",
     invalidFigmaUrl: "أدخل عنوان URL صالحًا لإطار أو ملف على figma.com.",
     tooMany: "اختر ما يصل إلى 20 مرجعًا.",
     invalidWebsiteUrl: "أدخل عنوان URL صالحًا ببروتوكول HTTP أو HTTPS.",
@@ -2663,7 +2661,6 @@ export default {
     noSystems:
       "ليس لديك نظام تصميم بعد. أنشئ نظامًا من موقع ويب أو ملفات أو Figma.",
     searchSystems: "البحث في أنظمة التصميم…",
-    searchFrames: "البحث في إطارات Figma…",
     searchDesigns: "البحث في التصاميم…",
     searchPresentations: "البحث في العروض التقديمية…",
     searchDesign: "البحث في التصميم…",
@@ -2671,8 +2668,6 @@ export default {
     notReady:
       "الطلب غير جاهز للإرسال. تحقق من السياق المحدد والاتصال ثم أعد المحاولة.",
     search: "البحث في السياق…",
-    figmaUrl: "ألصق رابط Figma",
-    browse: "تصفح الإطارات",
     loadFailed: "تعذّر تحميل هذا المرجع.",
     retry: "إعادة المحاولة",
     empty: "لا توجد مراجع مطابقة.",
@@ -2681,8 +2676,24 @@ export default {
     slides: "الشرائح",
     referenceDesign: "استخدام تصميم كمرجع",
     connectFigma: "ربط Figma",
-    figmaDisconnected: "اربط Figma لتصفح التصاميم.",
-    figmaReference: "تصميم Figma",
+    figmaReference: "تصميم Figma…",
+    figmaDialogTitle: "إضافة تصميم Figma",
+    figmaDropTitle: "أفلت ملف .fig",
+    figmaChooseFile: "اختيار ملف",
+    figmaPasteHint: "يمكنك أيضًا لصق إطار منسوخ مباشرةً في الطلب.",
+    figmaAddToPrompt: "إضافة إلى الطلب",
+    figmaLinkNeedsConnection:
+      "تتطلب الروابط حساب Figma متصلًا. أفلت ملف .fig أو الصق إطارًا منسوخًا بدلًا من ذلك.",
+    figmaReferenceMore: "{{name}} و{{count}} أخرى",
+    figmaReferenceEmpty:
+      "لم تصل أي إطارات. انسخ إطارًا في Figma وحاول مرة أخرى.",
+    figmaSelection: "تحديد من Figma",
+    figmaFileTooLarge:
+      "هذا الملف كبير جدًا لقراءته هنا. الصق رابطًا إلى صفحته أو إطاره بدلًا من ذلك.",
+    figmaSearch: "ابحث في الصفحات والإطارات",
+    figmaSelectedCount: "تم تحديد {{count}}",
+    figmaShowFrames: "إظهار الإطارات في {{name}}",
+    figmaLinkNotFrame: "استخدم رابطًا إلى صفحة أو إطار في Figma.",
     referenceDeck: "استخدام عرض تقديمي كمرجع",
     quickSaas: "إنشاء صفحة هبوط لخدمة SaaS",
     quickDashboard: "إنشاء لوحة معلومات",

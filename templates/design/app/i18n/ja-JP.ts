@@ -1682,8 +1682,7 @@ export default {
         "クリップボードにコピーされた Figma レイヤーがありません。Figma でフレームを選択し Cmd+C でコピーしてから貼り付け直すか、インポートパネルから Figma のリンクをインポートしてください。",
       figmaPasteRestLabel: "Figma API 経由でインポート",
       figmaPasteHtmlLabel: "クリップボードプレビューからインポート",
-      figmaPasteLocalKiwiLabel:
-        "トークンなしでインポート — ジオメトリとテキストのみ",
+      figmaPasteLocalKiwiLabel: "Figma のクリップボードからインポートしました",
       figmaPasteImagesNeedToken:
         "{{count}} 枚の画像{{plural}}を読み込むには Figma へのアクセスが必要です。",
       figmaPasteImagesDontShowAgain: "今後は表示しない",
@@ -2714,7 +2713,6 @@ export default {
     websiteReferenceMenu: "ウェブサイトを追加…",
     websiteUrlLabel: "ウェブサイトのURL",
     websiteUrl: "ウェブサイトのURLを貼り付け",
-    figmaUrlLabel: "Figmaリンク",
     invalidFigmaUrl:
       "有効なfigma.comのフレームまたはファイルのURLを入力してください。",
     tooMany: "参照は20件まで選択できます。",
@@ -2723,7 +2721,6 @@ export default {
     noSystems:
       "まだデザインシステムがありません。ウェブサイト、ファイル、または Figma から作成できます。",
     searchSystems: "デザインシステムを検索…",
-    searchFrames: "Figmaフレームを検索…",
     searchDesigns: "デザインを検索…",
     searchPresentations: "プレゼンテーションを検索…",
     searchDesign: "デザインを検索…",
@@ -2731,8 +2728,6 @@ export default {
     notReady:
       "まだ送信できません。選択したコンテキストと接続を確認して、再試行してください。",
     search: "コンテキストを検索…",
-    figmaUrl: "Figmaリンクを貼り付け",
-    browse: "フレームを参照",
     loadFailed: "この参照を読み込めませんでした。",
     retry: "再試行",
     empty: "一致する参照がありません。",
@@ -2741,8 +2736,26 @@ export default {
     slides: "スライド",
     referenceDesign: "デザインを参照",
     connectFigma: "Figma を接続",
-    figmaDisconnected: "デザインを探すには Figma を接続してください。",
-    figmaReference: "Figma デザイン",
+    figmaReference: "Figma デザイン…",
+    figmaDialogTitle: "Figma デザインを追加",
+    figmaDropTitle: ".fig ファイルをドロップ",
+    figmaChooseFile: "ファイルを選択",
+    figmaPasteHint:
+      "コピーしたフレームはプロンプトに直接貼り付けることもできます。",
+    figmaAddToPrompt: "プロンプトに追加",
+    figmaLinkNeedsConnection:
+      "リンクには Figma アカウントの接続が必要です。代わりに .fig ファイルをドロップするか、コピーしたフレームを貼り付けてください。",
+    figmaReferenceMore: "{{name}} ほか {{count}} 件",
+    figmaReferenceEmpty:
+      "フレームを取得できませんでした。Figma でフレームをコピーして、もう一度お試しください。",
+    figmaSelection: "Figma の選択範囲",
+    figmaFileTooLarge:
+      "このファイルは大きすぎてここでは読み込めません。代わりにページまたはフレームへのリンクを貼り付けてください。",
+    figmaSearch: "ページとフレームを検索",
+    figmaSelectedCount: "{{count}} 件を選択中",
+    figmaShowFrames: "{{name}} のフレームを表示",
+    figmaLinkNotFrame:
+      "Figma のページまたはフレームへのリンクを指定してください。",
     referenceDeck: "プレゼンテーションを参照",
     quickSaas: "SaaS ランディングページを作成",
     quickDashboard: "ダッシュボードを作成",

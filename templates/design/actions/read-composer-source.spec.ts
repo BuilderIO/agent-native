@@ -336,4 +336,40 @@ describe("Design composer references", () => {
       }),
     ).rejects.toMatchObject({ errorCode: "composer_reference_required" });
   });
+
+  it("reads a page link as one reference the agent imports by its URL", async () => {
+    mocks.user.mockReturnValue("designer@example.com");
+    mocks.figma.mockResolvedValue({
+      mode: "overview",
+      pages: [
+        {
+          id: "12:3",
+          name: "Launch",
+          type: "CANVAS",
+          frames: [
+            { id: "12:4", name: "OG image", type: "FRAME", childCount: 3 },
+            { id: "12:5", name: "Promo", type: "FRAME", childCount: 5 },
+          ],
+        },
+      ],
+    });
+    const result = await action.run({
+      source: "figma",
+      operation: "read",
+      id: "12:3",
+      figmaUrl: "https://www.figma.com/design/exampleFile/App?node-id=12-3",
+      page: 1,
+    });
+    expect(result).toMatchObject({
+      id: "12:3",
+      title: "Launch",
+      url: "https://www.figma.com/design/exampleFile?node-id=12%3A3",
+    });
+    expect("context" in result && result.context).toContain(
+      "call import-figma-frame with figmaUrl https://www.figma.com/design/exampleFile?node-id=12%3A3",
+    );
+    expect("context" in result && result.context).toContain(
+      "Layers: OG image, Promo",
+    );
+  });
 });

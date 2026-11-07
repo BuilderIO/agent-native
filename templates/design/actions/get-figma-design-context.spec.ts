@@ -26,6 +26,96 @@ describe("get-figma-design-context", () => {
     expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();
   });
 
+  it("lists only pages, with frames marked unlisted, when the full overview is too large", async () => {
+    mocks.executeProviderApiRequest.mockImplementation(
+      async ({ query }: { query: { depth: number } }) =>
+        query.depth === 3
+          ? {
+              response: {
+                ok: true,
+                status: 200,
+                truncated: true,
+                size: 4_209_753,
+              },
+            }
+          : jsonEnvelope({
+              document: {
+                children: [
+                  { id: "0:1", name: "Launch", type: "CANVAS" },
+                  { id: "0:2", name: "Archive", type: "CANVAS" },
+                ],
+              },
+            }),
+    );
+
+    const result = await action.run({
+      figmaUrl: "https://www.figma.com/design/abcDEF12345/Campaigns",
+    } as never);
+
+    expect(result).toMatchObject({
+      mode: "overview",
+      pages: [
+        { id: "0:1", name: "Launch", frames: null },
+        { id: "0:2", name: "Archive", frames: null },
+      ],
+    });
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it("lists a page too large to fetch whole from a two-level outline", async () => {
+    mocks.executeProviderApiRequest.mockImplementation(
+      async ({ query }: { query: { depth?: number } }) =>
+        query.depth === 2
+          ? jsonEnvelope({
+              nodes: {
+                "6913:4184": {
+                  document: {
+                    id: "6913:4184",
+                    name: "One pager",
+                    type: "CANVAS",
+                    children: [
+                      { id: "1:2", name: "Cover", type: "FRAME", children: [] },
+                      {
+                        id: "1:3",
+                        name: "Group",
+                        type: "SECTION",
+                        children: [{ id: "1:4", name: "Back", type: "FRAME" }],
+                      },
+                    ],
+                  },
+                },
+              },
+            })
+          : {
+              response: {
+                ok: true,
+                status: 200,
+                truncated: true,
+                size: 4_202_448,
+              },
+            },
+    );
+
+    const result = await action.run({
+      figmaUrl:
+        "https://www.figma.com/design/abcDEF12345/Campaigns?node-id=6913-4184",
+    } as never);
+
+    expect(result).toMatchObject({
+      mode: "overview",
+      pages: [
+        {
+          id: "6913:4184",
+          name: "One pager",
+          frames: [
+            { id: "1:2", name: "Cover", type: "FRAME" },
+            { id: "1:4", name: "Back", type: "FRAME" },
+          ],
+        },
+      ],
+    });
+  });
+
   it("returns a pages/frames overview when no nodeId is given", async () => {
     mocks.executeProviderApiRequest.mockImplementation(
       async ({ path, query }: any) => {
@@ -131,6 +221,39 @@ describe("get-figma-design-context", () => {
     expect(mocks.executeProviderApiRequest).toHaveBeenCalledWith(
       expect.objectContaining({ query: { depth: 3 } }),
     );
+  });
+
+  it("lists a linked page's frames instead of summarizing the empty page", async () => {
+    mocks.executeProviderApiRequest.mockResolvedValue(
+      jsonEnvelope({
+        nodes: {
+          "0:1": {
+            document: {
+              id: "0:1",
+              name: "Page 1",
+              type: "CANVAS",
+              children: [
+                { id: "1:234", name: "Upload", type: "FRAME", children: [] },
+              ],
+            },
+          },
+        },
+      }),
+    );
+    const result = await action.run({
+      figmaUrl: "https://www.figma.com/design/abcDEF12345/Test?node-id=0-1",
+    } as any);
+    expect(result).toMatchObject({
+      mode: "overview",
+      pages: [
+        {
+          id: "0:1",
+          name: "Page 1",
+          frames: [{ id: "1:234", name: "Upload", type: "FRAME" }],
+        },
+      ],
+    });
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(1);
   });
 
   it("summarizes a node's fills, gradients, text, and layout, with a screenshot url", async () => {

@@ -459,6 +459,30 @@ describe("Design final response guard", () => {
     });
   });
 
+  it("accepts any action whose verified write receipt shows a change", () => {
+    const placed = {
+      tool: "place-figma-frames",
+      verified: true as const,
+      summary: "Design output: 24 files saved.",
+      subject: "design-1",
+    };
+    const request = "Make this Figma design. Skip questions.";
+
+    expect(
+      designFinalResponseGuard(
+        guardContext(request, {
+          toolResults: [toolResult("place-figma-frames", { placedFrames: 24 })],
+          receipts: [{ ...placed, changed: true }],
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      designFinalResponseGuard(
+        guardContext(request, { receipts: [{ ...placed, changed: false }] }),
+      ),
+    ).not.toBeNull();
+  });
+
   it("does not accept the empty project shell as a completed design", () => {
     const result = designFinalResponseGuard(
       guardContext("create a new design", {

@@ -8,9 +8,10 @@ import {
 import {
   FIGMA_IMPORT_ERROR_CODES,
   failFigmaImport,
+  isFigmaPayloadTooLargeError,
 } from "../server/lib/figma-import-errors.js";
 import {
-  fetchFigmaNode,
+  fetchFigmaNodeOrPageOutline,
   fetchFileStructure,
   type FigmaFileDepthNode,
 } from "../server/lib/figma-node-import.js";
@@ -108,19 +109,50 @@ export default defineAction({
       parseFigmaNodeId(args.nodeId) ?? parseFigmaNodeId(args.figmaUrl);
 
     if (!nodeId) {
-      const document = await fetchFileStructure(fileKey, 3);
-      const pages = summarizeStructure(document);
+      let document: FigmaFileDepthNode;
+      try {
+        document = await fetchFileStructure(fileKey, 3);
+      } catch (error) {
+        if (!isFigmaPayloadTooLargeError(error)) throw error;
+        // A large file's frames outgrow one response; its pages alone fit.
+        const pagesOnly = await fetchFileStructure(fileKey, 1);
+        return {
+          source: "figma",
+          fileKey,
+          mode: "overview" as const,
+          pages: (pagesOnly.children ?? []).map((page) => ({
+            id: page.id,
+            name: page.name,
+            type: page.type,
+            frames: null,
+          })),
+          guidance:
+            "This file is too large to list every page's frames at once, so only its pages are listed (frames: null means not listed, not empty). Call get-figma-design-context again with a page id as nodeId to list that page's frames.",
+        };
+      }
       return {
         source: "figma",
         fileKey,
         mode: "overview" as const,
-        pages,
+        pages: summarizeStructure(document),
         guidance:
           "No nodeId was given, so this lists the file's pages and top-level frames, including frames within sections present in the depth-3 overview (get_metadata). Deeper section contents may not be included. Call get-figma-design-context again with a frame id or node-id link for its structural summary and screenshot.",
       };
     }
 
-    const node = await fetchFigmaNode(fileKey, nodeId);
+    const { node } = await fetchFigmaNodeOrPageOutline(fileKey, nodeId);
+    if (node.type === "CANVAS") {
+      // A page link (Figma's "Copy link" with nothing selected) names a page,
+      // which has no geometry to summarize; list its frames instead.
+      return {
+        source: "figma",
+        fileKey,
+        mode: "overview" as const,
+        pages: summarizeStructure({ children: [node] }),
+        guidance:
+          "This link names a page, so this lists its top-level frames, with sections opened. Call get-figma-design-context again with a frame id for its structural summary and screenshot.",
+      };
+    }
     const {
       node: summary,
       nodeCount,

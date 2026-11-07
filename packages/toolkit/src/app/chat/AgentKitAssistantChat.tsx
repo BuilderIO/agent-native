@@ -6199,6 +6199,7 @@ function AgentKitComposerSurface({
             else onRemoveContextItem(key);
           }}
           onRetryContextItem={composerContext?.onRetryContextItem}
+          onPasteContext={composerContext?.onPasteContext}
           interceptBuildRequestsForBuilder={isInBuilderFrame()}
           selectedModel={props.selectedModel ?? props.defaultModel}
           contextUsageSlot={

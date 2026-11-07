@@ -9,6 +9,7 @@ import {
   yieldToEventLoop,
   type FigFileImportResult,
   type FigImportSummary,
+  type ImageUploader,
 } from "../../shared/fig-to-frames.js";
 import type { ImportResult } from "./design-import";
 import type {
@@ -141,7 +142,7 @@ function startFigImportWorker(): FigImportWorker {
   };
 }
 
-function browserImportId(): string {
+export function browserImportId(): string {
   return (
     globalThis.crypto?.randomUUID?.() ??
     `fig-${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -211,6 +212,69 @@ function relativeFramePositions({
   }));
 }
 
+/**
+ * Uploads a rendered .fig's embedded images to file storage. Each upload is
+ * held until `finalize` releases it or `cleanup` deletes it, so a failed
+ * import or attachment leaves no orphaned images behind.
+ */
+export function browserImageUploader(
+  importId: string,
+  events: { onStart?: () => void; onUploaded?: () => void } = {},
+): ImageUploader {
+  return async ({ data, filename, mimeType }) => {
+    events.onStart?.();
+    const idempotencyKey = `${importId}:${filename}`;
+    const uploaded = await callWithOneRetry<{ url?: string } | null>(
+      "upload-image",
+      {
+        data: `data:${mimeType};base64,${bytesToBase64(data)}`,
+        filename,
+        idempotencyKey,
+      },
+    );
+    events.onUploaded?.();
+    if (!uploaded?.url) return null;
+    return {
+      url: uploaded.url,
+      cleanup: async () => {
+        const result = await callWithOneRetry<{
+          alreadyMissing?: boolean;
+          committed?: boolean;
+          deleted?: boolean;
+        }>("upload-image", { idempotencyKey, cleanup: "delete" });
+        return (
+          result.deleted === true ||
+          result.alreadyMissing === true ||
+          result.committed === true
+        );
+      },
+      finalize: async () => {
+        const result = await callWithOneRetry<{
+          alreadyMissing?: boolean;
+          released?: boolean;
+        }>("upload-image", { idempotencyKey, cleanup: "release" });
+        return result.released === true || result.alreadyMissing === true;
+      },
+    };
+  };
+}
+
+/** Turns rendered frames into screen HTML with uploaded images, saving no screens. */
+export function completeFigInBrowser(
+  rendered: RenderedBrowserFigImport,
+  originalName: string,
+  uploader: ImageUploader,
+): Promise<FigFileImportResult> {
+  return completeFigImport(rendered, {
+    originalName,
+    ownerEmail: "",
+    normalizeHtml: (content: string) => content,
+    maxFrameHtmlBytes: MAX_FIG_FRAME_HTML_BYTES,
+    limits: BROWSER_FIG_LIMITS,
+    uploader,
+  });
+}
+
 export async function importFigInBrowser(
   options: FigClientImportOptions,
 ): Promise<ImportResult> {
@@ -236,50 +300,22 @@ export async function importFigInBrowser(
   const importId = browserImportId();
   let converted: FigFileImportResult;
   try {
-    converted = await completeFigImport(rendered, {
-      originalName: file.name,
-      ownerEmail: "",
-      normalizeHtml: (content: string) => content,
-      maxFrameHtmlBytes: MAX_FIG_FRAME_HTML_BYTES,
-      limits: BROWSER_FIG_LIMITS,
-      uploader: async ({ data, filename, mimeType }) => {
-        remoteMutationStarted = true;
-        const idempotencyKey = `${importId}:${filename}`;
-        const url = await callWithOneRetry<{ url?: string }>("upload-image", {
-          data: `data:${mimeType};base64,${bytesToBase64(data)}`,
-          filename,
-          idempotencyKey,
-        });
-        uploaded += 1;
-        onProgress?.({
-          phase: "images",
-          ratio: total ? uploaded / total : 1,
-        });
-        if (!url?.url) return null;
-        return {
-          url: url.url,
-          cleanup: async () => {
-            const result = await callWithOneRetry<{
-              alreadyMissing?: boolean;
-              committed?: boolean;
-              deleted?: boolean;
-            }>("upload-image", { idempotencyKey, cleanup: "delete" });
-            return (
-              result.deleted === true ||
-              result.alreadyMissing === true ||
-              result.committed === true
-            );
-          },
-          finalize: async () => {
-            const result = await callWithOneRetry<{
-              alreadyMissing?: boolean;
-              released?: boolean;
-            }>("upload-image", { idempotencyKey, cleanup: "release" });
-            return result.released === true || result.alreadyMissing === true;
-          },
-        };
-      },
-    });
+    converted = await completeFigInBrowser(
+      rendered,
+      file.name,
+      browserImageUploader(importId, {
+        onStart: () => {
+          remoteMutationStarted = true;
+        },
+        onUploaded: () => {
+          uploaded += 1;
+          onProgress?.({
+            phase: "images",
+            ratio: total ? uploaded / total : 1,
+          });
+        },
+      }),
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new FigClientImportError(message, remoteMutationStarted);

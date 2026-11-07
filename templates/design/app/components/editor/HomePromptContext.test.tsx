@@ -4,7 +4,7 @@ import {
   writeAssistantChatComposerContextDraft,
   snapshotComposerContextItems,
 } from "@agent-native/toolkit/app/chat/composer/index";
-import { act, type ReactNode } from "react";
+import { act, type ReactElement, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -132,20 +132,31 @@ const request = (extra = {}) => ({
 });
 const url = "https://www.figma.com/design/example-one/Example";
 const website = "https://example.com/reference";
-function picker(
+function menuEntry(
   controller: ReturnType<typeof useHomePromptContext>,
-  id = "figma-reference",
+  id: string,
 ) {
-  const item = controller.menuItems
+  return controller.menuItems
     .flatMap((item) => item.children ?? [item])
     .find((item) => item.id === id);
+}
+function picker(
+  controller: ReturnType<typeof useHomePromptContext>,
+  id = "design-reference",
+) {
+  const item = menuEntry(controller, id);
   if (!item || !("picker" in item) || !item.picker)
     throw new Error("Missing picker");
   return item.picker;
 }
+function load(controller: ReturnType<typeof useHomePromptContext>) {
+  const config = picker(controller);
+  if (!("load" in config) || !config.load) throw new Error("Missing load");
+  return config.load;
+}
 function batch(
   controller: ReturnType<typeof useHomePromptContext>,
-  items: { id: string; title: string; url?: string }[],
+  items: { id: string; title: string }[],
 ) {
   const presentation = picker(controller).presentation;
   if (
@@ -154,13 +165,26 @@ function batch(
     presentation.mode !== "multiple"
   )
     throw new Error("Missing dialog");
-  return presentation.onAttach(items, request({ url }));
+  return presentation.onAttach(items, request());
 }
-const frame = (id: string, fileUrl = url) => ({
-  id: `file:${encodeURIComponent(id)}`,
-  title: `Frame ${id}`,
-  url: fileUrl,
-});
+const designItem = (id: string) => ({ id, title: `Design ${id}` });
+const figmaClipboard = (html: string) =>
+  ({
+    getData: (type: string) => (type === "text/html" ? html : ""),
+  }) as unknown as DataTransfer;
+const figmaSelectionHtml = `<span data-metadata="<!--(figmeta)${btoa(
+  JSON.stringify({ fileKey: "abc", pasteID: 1 }),
+)}(/figmeta)-->"></span>`;
+const figmaSelectionKey = "figma-reference:clipboard:abc:1";
+function pasteFigmaSelection(
+  controller: ReturnType<typeof useHomePromptContext>,
+) {
+  let handled!: boolean;
+  act(() => {
+    handled = controller.onPasteContext(figmaClipboard(figmaSelectionHtml));
+  });
+  return handled;
+}
 function addWebsite(
   controller: ReturnType<typeof useHomePromptContext>,
   value = website,
@@ -287,12 +311,18 @@ describe("home prompt context", () => {
   it("restores only reference metadata across same-thread surface remounts and re-reads its content", async () => {
     let model!: AssistantChatComposerContext;
     const provider = (threadId: string, tabId: string) => (
-      <DesignComposerContextProvider threadId={threadId} tabId={tabId} isActive>
-        {(value) => {
-          model = value;
-          return null;
-        }}
-      </DesignComposerContextProvider>
+      <MemoryRouter initialEntries={["/design/d1"]}>
+        <DesignComposerContextProvider
+          threadId={threadId}
+          tabId={tabId}
+          isActive
+        >
+          {(value) => {
+            model = value;
+            return null;
+          }}
+        </DesignComposerContextProvider>
+      </MemoryRouter>
     );
     const view = render(provider("thread", "sidebar-tab"));
     const action = model.menuItems
@@ -348,20 +378,23 @@ describe("home prompt context", () => {
   });
   it("isolates provider selections by thread and account and hides inactive menus", async () => {
     const models = new Map<string, AssistantChatComposerContext>();
-    const providers = (active: string) =>
-      ["one", "two"].map((threadId) => (
-        <DesignComposerContextProvider
-          key={threadId}
-          threadId={threadId}
-          tabId={threadId}
-          isActive={active === threadId}
-        >
-          {(model) => {
-            models.set(threadId, model);
-            return null;
-          }}
-        </DesignComposerContextProvider>
-      ));
+    const providers = (active: string) => (
+      <MemoryRouter initialEntries={["/design/d1"]}>
+        {["one", "two"].map((threadId) => (
+          <DesignComposerContextProvider
+            key={threadId}
+            threadId={threadId}
+            tabId={threadId}
+            isActive={active === threadId}
+          >
+            {(model) => {
+              models.set(threadId, model);
+              return null;
+            }}
+          </DesignComposerContextProvider>
+        ))}
+      </MemoryRouter>
+    );
     const view = render(providers("one"));
     const action = models
       .get("one")!
@@ -418,7 +451,9 @@ describe("home prompt context", () => {
     const prepared = await result.current.prepareSubmission(captured);
     expect(prepared![0].context).toBe("Refreshed context");
     expect(result.current.contextItems).toHaveLength(1);
-    act(() => result.current.submissionAccepted(prepared!));
+    if (!prepared) throw new Error("Submission was not prepared");
+    const accepted = prepared;
+    act(() => result.current.submissionAccepted(accepted));
     expect(result.current.contextItems).toEqual([]);
   });
 
@@ -445,7 +480,9 @@ describe("home prompt context", () => {
     });
     const prepared = await pending;
     expect(prepared).toHaveLength(1);
-    act(() => result.current.submissionAccepted(prepared!));
+    if (!prepared) throw new Error("Submission was not prepared");
+    const accepted = prepared;
+    act(() => result.current.submissionAccepted(accepted));
     expect(result.current.contextItems).toHaveLength(2);
     expect(
       result.current.contextItems.every((item) => item.status === "ready"),
@@ -459,7 +496,9 @@ describe("home prompt context", () => {
     const capturedController = result.current;
     await act(async () => addWebsite(result.current));
     const prepared = await capturedController.prepareSubmission(captured);
-    act(() => result.current.submissionAccepted(prepared!));
+    if (!prepared) throw new Error("Submission was not prepared");
+    const accepted = prepared;
+    act(() => result.current.submissionAccepted(accepted));
     expect(result.current.contextItems).toHaveLength(1);
   });
   it("does not clear a newer design system when an older selection is accepted", async () => {
@@ -483,7 +522,9 @@ describe("home prompt context", () => {
       { method: "GET" },
     );
     mocks.select.mockClear();
-    act(() => result.current.submissionAccepted(prepared!));
+    if (!prepared) throw new Error("Submission was not prepared");
+    const accepted = prepared;
+    act(() => result.current.submissionAccepted(accepted));
     expect(mocks.select).not.toHaveBeenCalled();
     expect(result.current.contextItems).toHaveLength(1);
   });
@@ -625,13 +666,10 @@ describe("home prompt context", () => {
   it("uses ordinary shared dialogs with source labels, no app render slots or URL list", () => {
     const { result } = renderHook(() => useHomePromptContext(defaults));
     expect(picker(result.current)).toMatchObject({
-      presentation: { type: "dialog", mode: "multiple" },
-      searchPlaceholder: "homeContext.searchFrames",
-      link: {
-        label: "homeContext.figmaUrlLabel",
-        placeholder: "homeContext.figmaUrl",
-      },
+      presentation: { type: "dialog", mode: "multiple", layout: "gallery" },
+      searchPlaceholder: "homeContext.searchDesigns",
     });
+    expect(picker(result.current).link).toBeUndefined();
     expect(picker(result.current).onSelect).toBeUndefined();
     expect(picker(result.current, "website-reference")).toMatchObject({
       presentation: { type: "dialog", mode: "url" },
@@ -641,111 +679,195 @@ describe("home prompt context", () => {
       result.current.menuItems.every((entry) => !("render" in entry)),
     ).toBe(true);
   });
-  it("keeps the actual Figma action in a dialog across pending, unavailable, disconnected, and connected capabilities", () => {
-    Object.assign(mocks.capabilities, {
-      data: undefined,
-      integrationsLoading: true,
-      integrationsError: undefined,
-    });
+  it("opens the Figma dialog from the menu across pending, unavailable, disconnected, and connected capabilities", () => {
+    const states = [
+      {
+        data: undefined,
+        integrationsLoading: true,
+        integrationsError: undefined,
+      },
+      {
+        data: undefined,
+        integrationsLoading: false,
+        integrationsError: new Error("read failed"),
+      },
+      {
+        data: { sources: { figma: { available: false } }, integrations: [] },
+        integrationsLoading: false,
+        integrationsError: undefined,
+      },
+      {
+        data: { sources: { figma: { available: true } }, integrations: [] },
+        integrationsLoading: false,
+        integrationsError: undefined,
+      },
+    ];
     const { result, rerender } = renderHook(() =>
       useHomePromptContext(defaults),
     );
-    expect(picker(result.current, "figma-reference")).toMatchObject({
-      presentation: { type: "dialog", mode: "action" },
-      loading: true,
+    for (const state of states) {
+      Object.assign(mocks.capabilities, state);
+      rerender();
+      const entry = menuEntry(result.current, "figma-reference");
+      expect(entry).toMatchObject({
+        referenceType: "figma",
+        opensDialog: true,
+        onSelect: expect.any(Function),
+      });
+      expect(entry && "picker" in entry).toBe(false);
+      expect(
+        result.current.menuItems.some((item) => item.id === "integrations"),
+      ).toBe(false);
+    }
+    const dialog = () =>
+      result.current.dialogs as ReactElement<{
+        open: boolean;
+        figmaConnected?: boolean;
+      }>;
+    expect(dialog().props).toMatchObject({
+      open: false,
+      figmaConnected: true,
     });
-    Object.assign(mocks.capabilities, {
-      integrationsLoading: false,
-      integrationsError: new Error("read failed"),
+    const entry = menuEntry(result.current, "figma-reference");
+    const onSelect = entry && "onSelect" in entry ? entry.onSelect : undefined;
+    if (!onSelect) throw new Error("Missing Figma action");
+    act(() => {
+      void onSelect();
     });
-    rerender();
-    expect(picker(result.current, "figma-reference")).toMatchObject({
-      error: "homeContext.loadFailed",
-    });
-    Object.assign(mocks.capabilities, { integrationsError: undefined });
-    rerender();
-    expect(picker(result.current, "figma-reference")).toMatchObject({
-      error: "homeContext.loadFailed",
-    });
-    Object.assign(mocks.capabilities, {
-      data: { sources: { figma: { available: false } }, integrations: [] },
-    });
-    rerender();
-    expect(
-      picker(result.current, "figma-reference").footerAction,
-    ).toBeDefined();
-    Object.assign(mocks.capabilities, {
-      data: { sources: { figma: { available: true } }, integrations: [] },
-    });
-    rerender();
-    expect(picker(result.current, "figma-reference").link).toBeDefined();
-    expect(picker(result.current, "figma-reference").load).toBeTypeOf(
-      "function",
-    );
+    expect(dialog().props.open).toBe(true);
   });
-  it("keeps disconnected Figma available through the existing integration setup link without duplicating workspace integrations", () => {
-    mocks.capabilities = {
-      data: { sources: { figma: { available: false } }, integrations: [] },
-    };
-    const { result } = renderHook(() => useHomePromptContext(defaults));
-    const entry = result.current.menuItems.find(
-      (item) => item.id === "figma-reference",
+  it("decodes a copied Figma selection into a reference on paste and ignores other clipboards", async () => {
+    mocks.call.mockImplementation(async (action) =>
+      action === "read-figma-clipboard"
+        ? {
+            frames: [
+              {
+                name: "Pricing",
+                width: 1440,
+                height: 900,
+                html: "<main>Plans</main>",
+              },
+              { name: "Checkout", html: "<form>Pay</form>" },
+            ],
+            unresolvedImages: 0,
+          }
+        : { id: "x", title: "x", context: "x" },
     );
-    expect(entry).toMatchObject({ referenceType: "figma" });
-    const fallback = picker(result.current, "figma-reference");
-    expect(
-      fallback.footerAction &&
-        "renderLink" in fallback.footerAction &&
-        fallback.footerAction.renderLink?.("Figma"),
-    ).toMatchObject({ props: { to: "/settings/integrations/figma" } });
-    expect(
-      result.current.menuItems.some((item) => item.id === "integrations"),
-    ).toBe(false);
-  });
-
-  it("lists without staging, then attaches two canonical per-frame URLs together", async () => {
     const { result } = renderHook(() => useHomePromptContext(defaults));
-    const other = "https://www.figma.com/design/example-two/Frame?node-id=1-2";
-    mocks.call.mockResolvedValueOnce({
-      items: [
-        { id: "1:2", title: "One", url: url + "?node-id=1-2" },
-        { id: "1:2", title: "Two", url: other },
-      ],
-      hasMore: false,
+    let handled!: boolean;
+    act(() => {
+      handled = result.current.onPasteContext(
+        figmaClipboard("<p>Plain text</p>"),
+      );
     });
-    const listed = await picker(result.current).load!(request({ url }));
+    expect(handled).toBe(false);
     expect(result.current.contextItems).toEqual([]);
-    await act(async () => batch(result.current, [...listed.items]));
-    expect(result.current.contextItems).toHaveLength(2);
-    expect(mocks.call).toHaveBeenLastCalledWith(
-      "read-composer-source",
+    expect(pasteFigmaSelection(result.current)).toBe(true);
+    expect(result.current.contextItems).toEqual([
       {
-        source: "figma",
-        operation: "read",
-        id: "1:2",
-        nodeId: "1:2",
-        figmaUrl: other,
-        page: 1,
+        key: figmaSelectionKey,
+        title: "homeContext.figmaSelection",
+        context: "",
+        status: "pending",
       },
-      { method: "GET" },
+    ]);
+    await waitFor(() => {
+      expect(result.current.contextItems).toEqual([
+        expect.objectContaining({
+          key: figmaSelectionKey,
+          title: "homeContext.figmaReferenceMore",
+          status: "ready",
+          context: expect.stringContaining("<main>Plans</main>"),
+        }),
+      ]);
+    });
+    expect(mocks.call).toHaveBeenCalledWith(
+      "read-figma-clipboard",
+      expect.objectContaining({ figmetaFileKey: "abc" }),
     );
-    expect(picker(result.current).selectedIds).toEqual(
-      listed.items.map((item) => item.id),
+    expect(mocks.call).not.toHaveBeenCalledWith(
+      "import-figma-clipboard",
+      expect.anything(),
     );
+  });
+  it("sends a Figma reference as is and imports nothing", async () => {
+    mocks.call.mockImplementation(async (action) =>
+      action === "read-figma-clipboard"
+        ? {
+            frames: [{ name: "Pricing", html: "<main>Plans</main>" }],
+            unresolvedImages: 0,
+          }
+        : { id: "x", title: "x", context: "x" },
+    );
+    const { result } = renderHook(() => useHomePromptContext(defaults));
+    pasteFigmaSelection(result.current);
+    await waitFor(() => {
+      expect(result.current.contextItems[0]?.status).toBe("ready");
+    });
+    const snapshot = snapshotComposerContextItems(result.current.contextItems);
+    const calls = mocks.call.mock.calls.length;
+    let prepared!: Awaited<ReturnType<typeof result.current.prepareSubmission>>;
+    await act(async () => {
+      prepared = await result.current.prepareSubmission(snapshot);
+    });
+    expect(mocks.call).toHaveBeenCalledTimes(calls);
+    expect(prepared?.[0]).toMatchObject({
+      key: figmaSelectionKey,
+      title: "Pricing",
+      context: expect.stringContaining("do not put it on the canvas"),
+    });
+    if (!prepared) throw new Error("Submission was not prepared");
+    const accepted = prepared;
+    act(() => result.current.submissionAccepted(accepted));
+    expect(result.current.contextItems).toEqual([]);
+  });
+  it("shows a failed Figma decode on its chip and retries it", async () => {
+    mocks.call.mockRejectedValueOnce(
+      Object.assign(new Error("Action failed: Too large"), {
+        actionMessage: "Too large",
+      }),
+    );
+    const { result } = renderHook(() => useHomePromptContext(defaults));
+    pasteFigmaSelection(result.current);
+    await waitFor(() => {
+      expect(result.current.contextItems).toEqual([
+        expect.objectContaining({
+          key: figmaSelectionKey,
+          status: "error",
+          statusMessage: "Too large",
+        }),
+      ]);
+    });
+    expect(() =>
+      snapshotComposerContextItems(result.current.contextItems),
+    ).toThrow();
+    mocks.call.mockResolvedValueOnce({
+      frames: [{ name: "Pricing", html: "<main>Plans</main>" }],
+      unresolvedImages: 0,
+    });
+    act(() => result.current.retry(figmaSelectionKey));
+    await waitFor(() => {
+      expect(result.current.contextItems[0]).toMatchObject({
+        title: "Pricing",
+        status: "ready",
+      });
+    });
   });
   it("deduplicates before enforcing the 20-reference limit, with no partial staging", async () => {
     const { result } = renderHook(() => useHomePromptContext(defaults));
     await act(async () =>
       batch(
         result.current,
-        Array.from({ length: 19 }, (_, i) => frame(`1:${i}`)),
+        Array.from({ length: 19 }, (_, i) => designItem(`design-${i}`)),
       ),
     );
-    await act(async () => batch(result.current, [frame("1:0"), frame("1:19")]));
-    const calls = mocks.call.mock.calls.length;
-    expect(() => batch(result.current, [frame("1:20"), frame("1:21")])).toThrow(
-      "homeContext.tooMany",
+    await act(async () =>
+      batch(result.current, [designItem("design-0"), designItem("design-19")]),
     );
+    const calls = mocks.call.mock.calls.length;
+    expect(() =>
+      batch(result.current, [designItem("design-20"), designItem("design-21")]),
+    ).toThrow("homeContext.tooMany");
     expect(result.current.contextItems).toHaveLength(20);
     expect(mocks.call).toHaveBeenCalledTimes(calls);
   });
@@ -778,33 +900,30 @@ describe("home prompt context", () => {
   );
   it("rejects oversized URLs locally and accepts surrounding whitespace", () => {
     const { result } = renderHook(() => useHomePromptContext(defaults));
-    expect(picker(result.current).link!.validate!(url.padEnd(2049, "a"))).toBe(
-      "homeContext.invalidFigmaUrl",
+    const validate = picker(result.current, "website-reference").link?.validate;
+    if (!validate) throw new Error("Missing website validation");
+    expect(validate(website.padEnd(2049, "a"))).toBe(
+      "homeContext.invalidWebsiteUrl",
     );
-    expect(
-      picker(result.current, "website-reference").link!.validate!(
-        website.padEnd(2049, "a"),
-      ),
-    ).toBe("homeContext.invalidWebsiteUrl");
-    expect(
-      picker(result.current).link!.validate!("  " + url + "  "),
-    ).toBeUndefined();
+    expect(validate("  " + website + "  ")).toBeUndefined();
     expect(mocks.call).not.toHaveBeenCalled();
   });
   it("shows genuine provider failure, blocks sending, then retries and removes", async () => {
     const pending = deferred();
     mocks.call.mockReturnValueOnce(pending.promise);
     const { result } = renderHook(() => useHomePromptContext(defaults));
-    act(() => batch(result.current, [frame("1:2")]));
+    act(() => {
+      void batch(result.current, [designItem("design-one")]);
+    });
     expect(() =>
       snapshotComposerContextItems(result.current.contextItems),
     ).toThrow();
     await act(async () =>
-      pending.reject(new Error("Action failed: Figma connection required")),
+      pending.reject(new Error("Action failed: Design access required")),
     );
     expect(result.current.contextItems[0]).toMatchObject({
       status: "error",
-      statusMessage: "Figma connection required",
+      statusMessage: "Design access required",
     });
     expect(() =>
       snapshotComposerContextItems(result.current.contextItems),
@@ -946,23 +1065,15 @@ describe("home prompt context", () => {
     const { result, rerender } = renderHook(() =>
       useHomePromptContext(defaults),
     );
-    mocks.call.mockResolvedValueOnce({
+    mocks.call.mockResolvedValueOnce({ designs: [], hasMore: true });
+    const input = request({ search: "campaign", page: 2, cursor: "next" });
+    await expect(load(result.current)(input)).resolves.toEqual({
       items: [],
       hasMore: true,
-      nextCursor: "third",
     });
-    const input = request({ url, search: "campaign", page: 2, cursor: "next" });
-    await picker(result.current).load!(input);
     expect(mocks.call).toHaveBeenLastCalledWith(
-      "read-composer-source",
-      {
-        source: "figma",
-        operation: "list",
-        search: "campaign",
-        page: 2,
-        cursor: "next",
-        figmaUrl: url,
-      },
+      "list-designs",
+      { includePreview: "true", pageSize: 12, search: "campaign", page: 2 },
       { method: "GET", signal: input.signal },
     );
     const scope = picker(result.current).scopeKey;
@@ -978,9 +1089,9 @@ describe("home prompt context", () => {
     async (data) => {
       const { result } = renderHook(() => useHomePromptContext(defaults));
       mocks.call.mockResolvedValueOnce(data);
-      await expect(
-        picker(result.current).load!(request({ url })),
-      ).rejects.toThrow("homeContext.loadFailed");
+      await expect(load(result.current)(request())).rejects.toThrow(
+        "homeContext.loadFailed",
+      );
     },
   );
 });
