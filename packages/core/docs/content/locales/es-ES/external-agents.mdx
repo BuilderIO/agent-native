@@ -137,6 +137,8 @@ La autenticación identifica la cuenta conectada; no amplía sus permisos sobre 
 
 Reinstalar el conector o cambiar el enlace público compartido no resuelve una denegación de permisos confirmada de la cuenta conectada.
 
+Las imágenes subidas a un documento privado se guardan en su cuerpo como enlaces `/api/private-media/<id>`, que solo cargan con una sesión de Content. Cuando un agente lee el documento por MCP, `get-document` y `pull-document` también devuelven `privateMediaLinks`: cada enlace guardado junto con una URL que abre esa imagen sin iniciar sesión durante una hora. Vuelve a leer el documento para obtener enlaces nuevos. Conserva los enlaces guardados al editar el cuerpo.
+
 <a id="access-tab"></a>
 
 ### La opción MCP dentro de la aplicación {#mcp-settings}

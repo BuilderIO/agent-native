@@ -138,6 +138,8 @@ L’authentification identifie le compte connecté sans élargir ses autorisatio
 
 La réinstallation du connecteur ou la modification du lien de partage public ne résout pas un refus d’autorisation confirmé du compte connecté.
 
+Les images importées dans un document privé sont enregistrées dans son corps sous forme de liens `/api/private-media/<id>`, qui ne se chargent qu'avec une session Content. Quand un agent lit le document via MCP, `get-document` et `pull-document` renvoient aussi `privateMediaLinks` : chaque lien enregistré associé à une URL qui ouvre cette seule image sans connexion, pendant une heure. Relisez le document pour obtenir de nouveaux liens. Conservez les liens enregistrés lorsque vous modifiez le corps.
+
 <a id="access-tab"></a>
 
 ### Le réglage MCP dans l'application {#mcp-settings}
