@@ -13,6 +13,7 @@ const where = vi.hoisted(() => vi.fn(() => ({ limit })));
 const from = vi.hoisted(() => vi.fn(() => ({ where })));
 const select = vi.hoisted(() => vi.fn(() => ({ from })));
 const configuredBasePath = vi.hoisted(() => ({ current: "" }));
+const requestUserEmail = vi.hoisted(() => ({ current: null as string | null }));
 const clipsAppUrl = vi.hoisted(() => ({
   current: "https://clips.example.test" as string | null,
 }));
@@ -44,7 +45,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@agent-native/core/server", () => ({
   AGENT_ACCESS_PARAM: "agent_access",
   getConfiguredAppBasePath: () => configuredBasePath.current,
-  getRequestUserEmail: () => null,
+  getRequestUserEmail: () => requestUserEmail.current,
   verifyScopedAgentAccessToken: (token: unknown, options: unknown) =>
     mockVerifyScopedAgentAccessToken(token, options),
 }));
@@ -83,6 +84,7 @@ vi.mock("../../server/db", () => ({
   },
 }));
 
+import { resolveAccess } from "@agent-native/core/sharing";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
@@ -113,6 +115,13 @@ function requestFor(id = "doc-1", token?: string) {
     params: { id },
     request: new Request(url),
   } as any;
+}
+
+/** The page's data; a signed-in reader who has access is redirected instead. */
+async function loadPage(id?: string, token?: string) {
+  const result = await loader(requestFor(id, token));
+  if (result instanceof Response) throw new Error("Redirected to the editor");
+  return result;
 }
 
 function documentRows(visibility: "public" | "private" | "org") {
@@ -175,7 +184,7 @@ describe("public document route", () => {
   it("does not disclose private document fields to an anonymous share-page request", async () => {
     resultQueue.current = [documentRows("private")];
 
-    const result = (await loader(requestFor())).data;
+    const result = (await loadPage()).data;
 
     expect(result).toMatchObject({
       document: null,
@@ -330,7 +339,7 @@ Second part
   it("serves a public document cached for seconds, without private loader headers", async () => {
     resultQueue.current = [documentRows("public")];
 
-    const result = await loader(requestFor());
+    const result = await loadPage();
 
     expect(result.data).toMatchObject({
       document: {
@@ -400,7 +409,7 @@ Second part
   it("keeps the short window on private notices", async () => {
     resultQueue.current = [documentRows("private")];
 
-    const result = await loader(requestFor());
+    const result = await loadPage();
 
     expect(result.data).toMatchObject({ document: null });
     expect(result.init?.headers).toEqual({
@@ -437,7 +446,7 @@ Second part
     expect(answer.get(SSR_MAX_AGE_HEADER)).toBe("0");
   });
 
-  it("keeps every answer out of search engines", () => {
+  it("keeps every answer out of search engines", async () => {
     for (const answer of [
       headers({
         loaderHeaders: new Headers(),
@@ -460,6 +469,24 @@ Second part
       basePath: "/content",
       origin: "https://content.example.test",
     };
+    requestUserEmail.current = "reader@example.test";
+    vi.mocked(resolveAccess).mockResolvedValueOnce({
+      role: "viewer",
+      resource: {},
+    } as never);
+    try {
+      const redirected = await loader(requestFor());
+      expect(redirected).toBeInstanceOf(Response);
+      expect((redirected as Response).headers.get("Location")).toContain(
+        "/page/doc-1",
+      );
+      expect((redirected as Response).headers.get("X-Robots-Tag")).toBe(
+        "noindex",
+      );
+    } finally {
+      requestUserEmail.current = null;
+    }
+
     for (const loaderData of [
       {
         ...loaded,

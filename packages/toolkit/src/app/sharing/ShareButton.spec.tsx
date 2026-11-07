@@ -1972,8 +1972,10 @@ describe("ShareButton", () => {
             <ShareButton
               resourceType="document"
               resourceId="doc-1"
-              publicFollowersLabel={(count) =>
-                `This page and its ${count} sub-pages`
+              publicFollowersLabel={(count, more) =>
+                more
+                  ? `This page and more than ${count} sub-pages`
+                  : `This page and its ${count} sub-pages`
               }
             />
           </QueryClientProvider>,
@@ -1994,6 +1996,16 @@ describe("ShareButton", () => {
       publicFollowers: 3,
     };
     expect(await renderPanel()).toContain("This page and its 3 sub-pages");
+
+    sharesData.current = {
+      ...shared,
+      visibility: "public",
+      publicFollowers: 500,
+      publicFollowersMore: true,
+    };
+    expect(await renderPanel()).toContain(
+      "This page and more than 500 sub-pages",
+    );
 
     sharesData.current = {
       ...shared,

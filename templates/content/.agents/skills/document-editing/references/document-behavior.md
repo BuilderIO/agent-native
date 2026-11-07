@@ -137,10 +137,13 @@ When `set-resource-visibility` makes a page public, every sub-page under it
 the same all-or-nothing change; when it makes the page private or org-visible
 again, the sub-pages still public follow it. `followersChanged` in the result
 says how many sub-pages changed, and `list-resource-shares` returns
-`publicFollowers` to the page's owner and admins. Tell the user how many
-sub-pages a public change carries. Every other change (private to org and
-back) touches only the requested page, so set those page by page. Sub-pages
-created later copy their parent's visibility when they're made. This is
+`publicFollowers` to the page's owner and admins (with `publicFollowersMore`
+when there are more than 500). Tell the user how many sub-pages a public
+change carries. A change that would carry more than 500 is refused with
+`too_many_followers`: change a few sections on their own first, then the
+page. Every other change (private to org and back) touches only the requested
+page, so set those page by page. Sub-pages created later copy their parent's
+visibility when they're made. This is
 distinct from `set-document-discoverability`, whose `includeChildren` option
 controls search/sidebar listing (not link or organization access).
 

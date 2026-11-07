@@ -1449,6 +1449,7 @@ const exactEnglish = {
       publicLinkCanView: "लिंक वाला कोई भी व्यक्ति इसे देख सकता है",
       publicSubPagesOne: "यह पेज और इसका उप-पेज",
       publicSubPages: "यह पेज और इसके {{count}} उप-पेज",
+      publicSubPagesMore: "यह पेज और इसके {{count}} से अधिक उप-पेज",
       copiedAgentPrompt: "एजेंट निर्देश कॉपी किए गए",
       couldNotCopyAgentPrompt: "एजेंट निर्देश कॉपी नहीं किए जा सके",
       agentPrompt:

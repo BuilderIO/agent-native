@@ -1466,12 +1466,22 @@ describe("set-resource-visibility link role", () => {
 describe("set-resource-visibility public followers", () => {
   const followersOf: Record<string, string[]> = {};
   const parent = "doc-parent";
+  // Like Content's walk: only the followers on the side that needs to change.
+  const followersMatching = async (
+    resource: { id: string },
+    { isPublic }: { isPublic: boolean },
+  ) => {
+    const current = await visibilities();
+    return (followersOf[resource.id] ?? []).filter(
+      (id) => (current[id] === "public") === isPublic,
+    );
+  };
 
   beforeEach(() => {
     for (const key of Object.keys(followersOf)) delete followersOf[key];
     followersOf[parent] = ["doc-child", "doc-grandchild"];
     register({
-      publicFollowers: async (resource) => followersOf[resource.id] ?? [],
+      publicFollowers: followersMatching,
     });
   });
 
@@ -1552,6 +1562,37 @@ describe("set-resource-visibility public followers", () => {
       "doc-org": "org",
     });
     expect(result.followersChanged).toBe(1);
+  });
+
+  it("walks again after its writes, for a follower created meanwhile", async () => {
+    await insertFamily({ [parent]: "public", "doc-child": "public" });
+    let walks = 0;
+    register({
+      publicFollowers: async (resource, options) => {
+        const found = await followersMatching(resource, options);
+        // A sub-page created just after the first walk, copying "public".
+        if (++walks === 1) {
+          await insertDoc({ id: "doc-late", visibility: "public" });
+          followersOf[parent]?.push("doc-late");
+        }
+        return found;
+      },
+    });
+
+    const result = await setOne(parent, "private");
+
+    expect(await visibilities()).toEqual({
+      [parent]: "private",
+      "doc-child": "private",
+      "doc-grandchild": "private",
+      "doc-late": "private",
+    });
+    expect(result.followersChanged).toBe(2);
+    expect(calls.notified.map((notice) => notice.resourceId)).toEqual([
+      parent,
+      "doc-child",
+      "doc-late",
+    ]);
   });
 
   it("follows it to the organization when it goes from public to org", async () => {
@@ -1636,7 +1677,7 @@ describe("set-resource-visibility public followers", () => {
 
   it("puts it and every follower back when a follower can't change", async () => {
     register({
-      publicFollowers: async (resource) => followersOf[resource.id] ?? [],
+      publicFollowers: followersMatching,
       persistVisibilityChange: persistUnless((resourceId) =>
         resourceId === "doc-grandchild" ? new Error("write failed") : undefined,
       ),
@@ -1661,9 +1702,45 @@ describe("set-resource-visibility public followers", () => {
     await insertDoc({ id: parent });
 
     await expect(setOne(parent, "public")).rejects.toThrow(
-      `has more than ${MAX_PUBLIC_FOLLOWERS} sub-pages`,
+      `more than ${MAX_PUBLIC_FOLLOWERS} sub-pages`,
     );
     expect(await visibilities()).toEqual({ [parent]: "private" });
+  });
+
+  it("holds a whole batch to the same limit", async () => {
+    const half = Math.ceil((MAX_PUBLIC_FOLLOWERS + 1) / 2);
+    for (const id of ["doc-a", "doc-b"]) {
+      followersOf[id] = Array.from({ length: half }, (_, i) => `${id}-${i}`);
+      await insertDoc({ id });
+    }
+
+    await expect(batch(["doc-a", "doc-b"], "public")).rejects.toThrow(
+      `more than ${MAX_PUBLIC_FOLLOWERS} sub-pages`,
+    );
+    expect(await visibilities()).toEqual({
+      "doc-a": "private",
+      "doc-b": "private",
+    });
+  });
+
+  it("says when there are more public followers than it counts", async () => {
+    register({
+      publicFollowers: async (_resource, { isPublic }) =>
+        isPublic
+          ? Array.from(
+              { length: MAX_PUBLIC_FOLLOWERS + 1 },
+              (_, index) => `doc-many-${index}`,
+            )
+          : [],
+    });
+    await insertDoc({ id: parent, visibility: "public" });
+
+    const listed = (await as({ userEmail: ownerEmail, orgId }, () =>
+      listResourceShares.run({ resourceType, resourceId: parent }),
+    )) as Record<string, unknown>;
+
+    expect(listed.publicFollowers).toBe(MAX_PUBLIC_FOLLOWERS);
+    expect(listed.publicFollowersMore).toBe(true);
   });
 
   it("counts its public followers for the people who manage it", async () => {

@@ -64,6 +64,8 @@ export interface ShareButtonSharesResponse {
    * are public; present for managers while visibility is `public`.
    */
   publicFollowers?: number;
+  /** There are more public followers than `publicFollowers` counts. */
+  publicFollowersMore?: boolean;
   /** Present for managers inside the resource's org. */
   agents?: ShareButtonAgent[];
   /** The org's agents could not be read; distinct from having none. */

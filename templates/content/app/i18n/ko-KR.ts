@@ -1468,6 +1468,7 @@ const exactEnglish = {
       publicLinkCanView: "링크가 있는 누구나 볼 수 있습니다",
       publicSubPagesOne: "이 페이지와 하위 페이지",
       publicSubPages: "이 페이지와 하위 페이지 {{count}}개",
+      publicSubPagesMore: "이 페이지와 하위 페이지 {{count}}개 이상",
       copiedAgentPrompt: "에이전트 지침을 복사했습니다",
       couldNotCopyAgentPrompt: "에이전트 지침을 복사할 수 없습니다",
       agentPrompt:

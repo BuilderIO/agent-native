@@ -81,10 +81,18 @@ export interface ShareableResourceRegistration {
    * of public, each of these still public follows it to the new visibility.
    * They change in the same all-or-nothing call, with the same checks, and
    * ones the caller can't manage are left as they are. The share listing
-   * counts the public ones for the resource's managers. Return at most
-   * `MAX_PUBLIC_FOLLOWERS` ids; the change is refused when there are more.
+   * counts the public ones for the resource's managers.
+   *
+   * Return only the followers whose visibility is public when `isPublic` is
+   * true, and only the others when it is false, so a resource with many
+   * followers that are already where they belong can still change. Stop one
+   * past `MAX_PUBLIC_FOLLOWERS`: a change that would carry more is refused,
+   * and the listing reports "more than" that many.
    */
-  publicFollowers?: (resource: AccessProjectedResource) => Promise<string[]>;
+  publicFollowers?: (
+    resource: AccessProjectedResource,
+    options: { isPublic: boolean },
+  ) => Promise<string[]>;
   /**
    * Ask before a private resource opens to the whole organization. For types
    * whose content is easy to overlook, such as a chat's messages and files;

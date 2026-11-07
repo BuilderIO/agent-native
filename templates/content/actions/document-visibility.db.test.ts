@@ -174,9 +174,12 @@ describe("a page's sub-pages and public visibility", () => {
       });
     const row = await page({ parentId: tracker });
 
-    expect(await publicSubPageIds({ id: parent, ownerEmail: OWNER })).toEqual(
-      [],
-    );
+    expect(
+      await publicSubPageIds(
+        { id: parent, ownerEmail: OWNER },
+        { isPublic: false },
+      ),
+    ).toEqual([]);
     await setVisibility(parent, "public");
     expect(await visibilitiesOf(trashed, tracker, row)).toEqual([
       "private",
@@ -193,12 +196,15 @@ describe("a page's sub-pages and public visibility", () => {
       .set({ parentId: second })
       .where(eq(schema.documents.id, first));
 
-    expect(await publicSubPageIds({ id: first, ownerEmail: OWNER })).toEqual([
-      second,
-    ]);
+    expect(
+      await publicSubPageIds(
+        { id: first, ownerEmail: OWNER },
+        { isPublic: false },
+      ),
+    ).toEqual([second]);
   });
 
-  it("are listed one past the limit, so the change is refused", async () => {
+  it("are limited to the ones that need to change", async () => {
     const parent = await page();
     const now = new Date().toISOString();
     const children = Array.from(
@@ -220,11 +226,44 @@ describe("a page's sub-pages and public visibility", () => {
     await page({ parentId: "visibility-many-0" });
 
     expect(
-      await publicSubPageIds({ id: parent, ownerEmail: OWNER }),
+      await publicSubPageIds(
+        { id: parent, ownerEmail: OWNER },
+        { isPublic: false },
+      ),
     ).toHaveLength(MAX_PUBLIC_FOLLOWERS + 1);
     await expect(setVisibility(parent, "public")).rejects.toThrow(
       `more than ${MAX_PUBLIC_FOLLOWERS} sub-pages`,
     );
     expect(await visibilitiesOf(parent)).toEqual(["private"]);
+
+    // Public with one public sub-page among them, it can still leave public:
+    // only that one has to follow.
+    await getDb()
+      .update(schema.documents)
+      .set({ visibility: "public" })
+      .where(eq(schema.documents.id, parent));
+    const shared = await page({ parentId: parent, visibility: "public" });
+    const result = await setVisibility(parent, "private");
+    expect(result.followersChanged).toBe(1);
+    expect(await visibilitiesOf(parent, shared)).toEqual([
+      "private",
+      "private",
+    ]);
+
+    // With all of them public, the listing says "more than" the limit.
+    await getDb()
+      .update(schema.documents)
+      .set({ visibility: "public" })
+      .where(
+        inArray(schema.documents.id, [
+          parent,
+          ...children.map((child) => child.id),
+        ]),
+      );
+    const listed = await runWithRequestContext({ userEmail: OWNER }, () =>
+      listResourceShares.run({ resourceType: "document", resourceId: parent }),
+    );
+    expect(listed.publicFollowers).toBe(MAX_PUBLIC_FOLLOWERS);
+    expect(listed.publicFollowersMore).toBe(true);
   });
 });

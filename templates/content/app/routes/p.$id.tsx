@@ -150,7 +150,11 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   const userEmail = getRequestUserEmail();
   if (userEmail) {
     const access = await resolveAccess("document", id);
-    if (access) throw redirect(withBase(`/page/${encodeURIComponent(id)}`));
+    if (access) {
+      return redirect(withBase(`/page/${encodeURIComponent(id)}`), {
+        headers: { "X-Robots-Tag": PUBLIC_DOCUMENT_ROBOTS },
+      });
+    }
   }
 
   const [doc] = await getDb()

@@ -960,6 +960,7 @@ const overrides = {
       publicLinkCanView: "任何取得連結的人都可以檢視",
       publicSubPagesOne: "此頁面及其子頁面",
       publicSubPages: "此頁面及其 {{count}} 個子頁面",
+      publicSubPagesMore: "此頁面及其超過 {{count}} 個子頁面",
       copiedAgentPrompt: "已複製代理程式指示",
       couldNotCopyAgentPrompt: "無法複製代理程式指示",
       agentPrompt:

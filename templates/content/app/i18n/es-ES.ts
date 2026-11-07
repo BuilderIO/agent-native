@@ -1755,6 +1755,7 @@ const exactEnglish = {
       publicLinkCanView: "Cualquiera con el enlace puede verlo",
       publicSubPagesOne: "Esta página y su subpágina",
       publicSubPages: "Esta página y sus {{count}} subpáginas",
+      publicSubPagesMore: "Esta página y más de {{count}} subpáginas",
       copiedAgentPrompt: "Instrucciones para el agente copiadas",
       couldNotCopyAgentPrompt:
         "No se pudieron copiar las instrucciones para el agente",

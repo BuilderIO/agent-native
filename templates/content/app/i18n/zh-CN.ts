@@ -1529,6 +1529,7 @@ const exactEnglish = {
       publicLinkCanView: "任何获得链接的人都可以查看",
       publicSubPagesOne: "此页面及其子页面",
       publicSubPages: "此页面及其 {{count}} 个子页面",
+      publicSubPagesMore: "此页面及其超过 {{count}} 个子页面",
       copiedAgentPrompt: "已复制智能体指令",
       couldNotCopyAgentPrompt: "无法复制智能体指令",
       agentPrompt:

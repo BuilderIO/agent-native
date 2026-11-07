@@ -11,14 +11,17 @@ const PARENT_GROUP = 90;
  * The sub-pages that go public with a page and leave public with it, as in
  * Notion: every page under it, at any depth, that has the same owner and
  * isn't in the trash or in a deleted database. A sub-page someone else owns,
- * and everything under it, keeps its own setting. Stops one past
- * `MAX_PUBLIC_FOLLOWERS`, so a change that would carry more is refused
- * rather than half done.
+ * and everything under it, keeps its own setting.
+ *
+ * Returns the public ones when `isPublic` is true and the rest when it is
+ * false, walking through both, since a private sub-page can hold public
+ * ones. Stops one past `MAX_PUBLIC_FOLLOWERS`, so a change that would carry
+ * more is refused rather than half done.
  */
-export async function publicSubPageIds(page: {
-  id: string;
-  ownerEmail: string;
-}): Promise<string[]> {
+export async function publicSubPageIds(
+  page: { id: string; ownerEmail: string },
+  options: { isPublic: boolean },
+): Promise<string[]> {
   const db = getDb();
   const ids: string[] = [];
   const seen = new Set([page.id]);
@@ -27,7 +30,10 @@ export async function publicSubPageIds(page: {
     const next: string[] = [];
     for (let index = 0; index < frontier.length; index += PARENT_GROUP) {
       const children = await db
-        .select({ id: schema.documents.id })
+        .select({
+          id: schema.documents.id,
+          visibility: schema.documents.visibility,
+        })
         .from(schema.documents)
         .where(
           and(
@@ -43,8 +49,10 @@ export async function publicSubPageIds(page: {
       for (const child of children) {
         if (seen.has(child.id)) continue;
         seen.add(child.id);
-        ids.push(child.id);
         next.push(child.id);
+        if ((child.visibility === "public") === options.isPublic) {
+          ids.push(child.id);
+        }
       }
     }
     frontier = next;

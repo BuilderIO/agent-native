@@ -1086,6 +1086,7 @@ const editorToolbarMessages = {
   publicLinkCanView: "Anyone with the link can view",
   publicSubPagesOne: "This page and its sub-page",
   publicSubPages: "This page and its {{count}} sub-pages",
+  publicSubPagesMore: "This page and more than {{count}} sub-pages",
   copiedAgentPrompt: "Agent prompt copied",
   couldNotCopyAgentPrompt: "Could not copy agent prompt",
   agentPrompt:

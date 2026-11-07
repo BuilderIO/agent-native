@@ -1473,6 +1473,7 @@ const exactEnglish = {
       publicLinkCanView: "يمكن لأي شخص لديه الرابط عرضه",
       publicSubPagesOne: "هذه الصفحة وصفحتها الفرعية",
       publicSubPages: "هذه الصفحة و{{count}} من صفحاتها الفرعية",
+      publicSubPagesMore: "هذه الصفحة وأكثر من {{count}} من صفحاتها الفرعية",
       copiedAgentPrompt: "تم نسخ تعليمات الوكيل",
       couldNotCopyAgentPrompt: "تعذر نسخ تعليمات الوكيل",
       agentPrompt:
