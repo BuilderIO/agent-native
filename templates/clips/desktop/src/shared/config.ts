@@ -125,6 +125,7 @@ export interface FeatureConfig {
   meetingsEnabled: boolean;
   voiceEnabled: boolean;
   voiceCleanupEnabled: boolean;
+  voiceDimAudioEnabled: boolean;
   launchAtLoginEnabled: boolean;
   autoHidePopoverEnabled: boolean;
   meetingTranscriptionMode: "manual" | "ask" | "auto";
