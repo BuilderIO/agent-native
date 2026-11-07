@@ -1,5 +1,6 @@
 import {
   ALL_TRAFFIC,
+  isTrafficFilterValue,
   readTrafficEnvironment,
   TRAFFIC_FILTER_ID,
   TRAFFIC_FILTER_PARAM,
@@ -60,6 +61,21 @@ export function reportFiltersWithTraffic(
   return value === ALL_TRAFFIC && filter.default === ALL_TRAFFIC
     ? others
     : { ...others, [TRAFFIC_FILTER_PARAM]: value };
+}
+
+/**
+ * The page's filter values, with a traffic value the filter doesn't offer, such
+ * as a stale link's, replaced by the dashboard's default. Read as given, it
+ * would mean all traffic.
+ */
+export function withOfferedTraffic(
+  vars: Record<string, string>,
+  shownFilters: readonly DashboardFilter[],
+): Record<string, string> {
+  const filter = shownFilters.find((f) => f.id === TRAFFIC_FILTER_ID);
+  const value = vars[TRAFFIC_FILTER_ID] ?? ALL_TRAFFIC;
+  if (!filter || isTrafficFilterValue(value)) return vars;
+  return { ...vars, [TRAFFIC_FILTER_ID]: filter.default ?? ALL_TRAFFIC };
 }
 
 export function dashboardTrafficEnvironment(vars: Record<string, string>) {

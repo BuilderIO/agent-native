@@ -249,10 +249,13 @@ function assertTrafficFilter(
   filters: Record<string, string>,
 ): Record<string, string> {
   for (const [key, value] of Object.entries(filters)) {
-    if (
-      (key === TRAFFIC_FILTER_PARAM || key === TRAFFIC_FILTER_ID) &&
-      !isTrafficFilterValue(value)
-    ) {
+    // A report reads only f_ keys, so the bare id would be saved and ignored.
+    if (key === TRAFFIC_FILTER_ID) {
+      throw new Error(
+        `Set traffic as ${TRAFFIC_FILTER_PARAM}; a report doesn't read ${TRAFFIC_FILTER_ID}`,
+      );
+    }
+    if (key === TRAFFIC_FILTER_PARAM && !isTrafficFilterValue(value)) {
       throw new Error(`${key} must be all, production or beta`);
     }
   }

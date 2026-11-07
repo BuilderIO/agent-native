@@ -115,6 +115,17 @@ describe("report subscription dashboard locking", () => {
       );
     });
 
+    it("refuses traffic under the filter's bare id, which reports don't read", async () => {
+      await expect(
+        saveDashboardReportSubscription(
+          { ...input, filters: { traffic_environment: "beta" } },
+          ctx,
+        ),
+      ).rejects.toThrow(
+        "Set traffic as f_traffic_environment; a report doesn't read traffic_environment",
+      );
+    });
+
     it("gives nothing to a new report on a dashboard with no default", async () => {
       const saved = await saveDashboardReportSubscription(input, ctx);
 

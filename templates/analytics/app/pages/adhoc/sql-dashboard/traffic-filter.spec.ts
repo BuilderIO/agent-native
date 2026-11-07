@@ -4,6 +4,7 @@ import {
   dashboardFiltersWithTraffic,
   dashboardTrafficEnvironment,
   reportFiltersWithTraffic,
+  withOfferedTraffic,
 } from "./traffic-filter";
 import type { DashboardFilter, SqlPanel } from "./types";
 
@@ -101,6 +102,28 @@ describe("reportFiltersWithTraffic", () => {
     expect(
       reportFiltersWithTraffic({ f_traffic_environment: "beta" }, [], {}),
     ).toEqual({});
+  });
+});
+
+describe("withOfferedTraffic", () => {
+  it("reads a traffic value the filter doesn't offer as the dashboard's default", () => {
+    expect(
+      withOfferedTraffic({ traffic_environment: "staging", app: "slides" }, [
+        savedTraffic,
+      ]),
+    ).toEqual({ traffic_environment: "production", app: "slides" });
+  });
+
+  it.each(["all", "production", "beta"])("keeps %s as chosen", (value) => {
+    expect(
+      withOfferedTraffic({ traffic_environment: value }, [savedTraffic]),
+    ).toEqual({ traffic_environment: value });
+  });
+
+  it("leaves values alone on a dashboard that doesn't show the filter", () => {
+    expect(
+      withOfferedTraffic({ traffic_environment: "staging" }, [timeRange]),
+    ).toEqual({ traffic_environment: "staging" });
   });
 });
 

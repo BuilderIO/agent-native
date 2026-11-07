@@ -222,6 +222,7 @@ import {
   dashboardFiltersWithTraffic,
   dashboardTrafficEnvironment,
   reportFiltersWithTraffic,
+  withOfferedTraffic,
 } from "./traffic-filter";
 import {
   clampDashboardColumns,
@@ -2322,7 +2323,10 @@ function SqlDashboardPageContent({
       shownFilters,
       (key) => searchParams.get(FILTER_PARAM_PREFIX + key) ?? "",
     );
-    return { ...(dashboard?.variables ?? {}), ...filterValues };
+    return {
+      ...(dashboard?.variables ?? {}),
+      ...withOfferedTraffic(filterValues, shownFilters),
+    };
   }, [dashboard?.variables, shownFilters, searchParams]);
 
   const timeRangeFilter = useMemo<DashboardFilter | undefined>(
