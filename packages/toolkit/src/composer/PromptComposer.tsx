@@ -975,6 +975,9 @@ function PromptComposerInner({
   const composerModelListLoading =
     showModelSelector &&
     (modelListLoading ?? (availableModels ? false : models.isLoading));
+  const composerModelListUnavailable =
+    modelListUnavailable ??
+    (availableModels ? false : models.catalogUnavailable);
   const handleModelChange = showModelSelector
     ? (onModelChange ?? models.onModelChange)
     : undefined;
@@ -1004,7 +1007,10 @@ function PromptComposerInner({
   const missingApiKey =
     engineStatusChecksEnabled &&
     (engineState === "missing" ||
-      (engineState !== "configured" && modelListNeedsConnection));
+      (engineState !== "configured" &&
+        !composerModelListLoading &&
+        !composerModelListUnavailable &&
+        modelListNeedsConnection));
   const [setupBouncePulse, setSetupBouncePulse] = useState(0);
   const [providerCheckPending, setProviderCheckPending] = useState(false);
   const heldProviderDraftRef = useRef<ComposerDraftSnapshot | null>(null);
@@ -1299,10 +1305,7 @@ function PromptComposerInner({
           agentOnly={agentOnly}
           showAutoModelOption={showAutoModelOption}
           modelListLoading={composerModelListLoading}
-          modelListUnavailable={
-            modelListUnavailable ??
-            (availableModels ? false : models.catalogUnavailable)
-          }
+          modelListUnavailable={composerModelListUnavailable}
           onRetryModelList={
             onRetryModelList ??
             (availableModels ? undefined : models.refreshEngines)

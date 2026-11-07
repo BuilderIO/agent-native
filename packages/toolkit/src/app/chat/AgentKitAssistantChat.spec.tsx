@@ -4103,6 +4103,36 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(onRetryModelList).not.toHaveBeenCalled();
   });
 
+  it("does not infer setup from a stale composer catalog after discovery fails", async () => {
+    chatMocks.readiness = { canChat: false, missing: false, state: "unknown" };
+    const onRetryModelList = vi.fn();
+    await mount(baseProps());
+    await act(async () =>
+      chatMocks.composerProps.onModelConnectionRequiredChange(true),
+    );
+    expect(
+      container.querySelector('[data-testid="builder-setup-card"]'),
+    ).not.toBeNull();
+
+    await act(async () =>
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ modelListError: true, onRetryModelList })}
+        />,
+      ),
+    );
+    expect(
+      container.querySelector('[data-testid="builder-setup-card"]'),
+    ).toBeNull();
+    expect(chatMocks.providerGateProps).toMatchObject({
+      modelListUnavailable: true,
+      providerStatus: "unavailable",
+    });
+    expect(container.textContent).toContain(
+      "agentChat.setup.modelListUnavailable",
+    );
+  });
+
   it("offers a model catalog retry when AI is configured", async () => {
     const onRetryModelList = vi.fn();
     chatMocks.readiness = {

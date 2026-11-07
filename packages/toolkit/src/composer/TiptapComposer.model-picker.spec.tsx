@@ -488,6 +488,55 @@ describe("TiptapComposer model picker", () => {
     expect(retry).toHaveBeenCalledTimes(1);
   });
 
+  it("does not treat stale unconfigured providers as missing after refresh fails", async () => {
+    const retry = vi.fn();
+    const onRequired = vi.fn();
+    const groups: Groups = [
+      {
+        engine: "anthropic",
+        label: "Claude",
+        models: ["claude-sonnet-5-5"],
+        configured: false,
+      },
+    ];
+    const render = (unavailable: boolean) =>
+      root.render(
+        <Harness
+          availableModels={groups}
+          selectedModel="claude-sonnet-5-5"
+          selectedEngine="anthropic"
+          onConnectProvider={vi.fn()}
+          onModelConnectionRequiredChange={onRequired}
+          modelListUnavailable={unavailable}
+          onRetryModelList={retry}
+        />,
+      );
+    act(() => render(false));
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    expect(trigger.textContent).toBe("Connect agent");
+    expect(onRequired).toHaveBeenLastCalledWith(true);
+
+    act(() => render(true));
+    expect(trigger.textContent).toBe("Model");
+    expect(onRequired).toHaveBeenLastCalledWith(false);
+    const menu = await openPicker();
+    expect(menu.textContent).toContain("Couldn't load models.");
+    expect(menu.textContent).not.toMatch(
+      /Use Builder.io|Add your own keys|Connect agent/,
+    );
+    const retryItem = Array.from(
+      menu.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Retry"))!;
+    await act(async () => retryItem.click());
+    expect(retry).toHaveBeenCalledTimes(1);
+
+    act(() => render(false));
+    expect(trigger.textContent).toBe("Connect agent");
+    expect(onRequired).toHaveBeenLastCalledWith(true);
+  });
+
   it("keeps previously loaded models selectable when refresh fails", async () => {
     const retry = vi.fn();
     act(() =>

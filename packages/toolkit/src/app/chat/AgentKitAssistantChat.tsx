@@ -2369,6 +2369,8 @@ const AgentKitAssistantChatBody = forwardRef<
     (providerChecksEnabled &&
       ownsSetupCard &&
       effectiveReadiness !== "configured" &&
+      !modelCatalogPending &&
+      !modelListUnavailable &&
       composerSetupRequired);
   const providerStatus: AgentEngineConfiguredState = setupMissing
     ? "missing"
