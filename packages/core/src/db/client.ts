@@ -1230,8 +1230,12 @@ export function isConnectionError(err: any): boolean {
   let current: unknown = err;
   for (let depth = 0; depth < 4 && current; depth++) {
     const link = current as { message?: unknown; cause?: unknown };
-    if (schemaProbeFailure.test(String(link.message ?? ""))) return false;
-    current = link.cause;
+    try {
+      if (schemaProbeFailure.test(String(link.message ?? ""))) return false;
+      current = link.cause;
+    } catch {
+      break;
+    }
   }
   const code = err.code || err.cause?.code;
   if (code && CONNECTION_ERROR_CODES.has(code)) return true;

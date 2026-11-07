@@ -2249,6 +2249,23 @@ describe("Neon background HTTP statement budgets", () => {
 });
 
 describe("isTransientDatabaseError", () => {
+  it.each(["cause", "message"])(
+    "classifies a coded connection error when its %s accessor throws",
+    async (property) => {
+      const { isConnectionError } = await import("./client.js");
+      const error = Object.assign(new Error("connection failed"), {
+        code: "ECONNRESET",
+      });
+      Object.defineProperty(error, property, {
+        get() {
+          throw new Error("unreadable property");
+        },
+      });
+
+      expect(isConnectionError(error)).toBe(true);
+    },
+  );
+
   it("classifies Neon connection exhaustion as retryable", async () => {
     const { isConnectionError, isTransientDatabaseError } =
       await import("./client.js");
