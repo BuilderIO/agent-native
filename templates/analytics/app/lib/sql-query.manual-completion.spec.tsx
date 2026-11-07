@@ -219,7 +219,7 @@ describe("useSqlQuery manual refresh completion", () => {
     cachedAnswers = true;
     await render(1, descriptor, "program");
     await waitForCalls(2);
-    expect(calls[1].forceRefresh).toBe(true);
+    expect(calls[1]?.forceRefresh).toBe(true);
     await settle(1, "resolve");
     expect(completed()).toBe("undefined");
     expect(confirmed()).toBe("false");
@@ -228,7 +228,7 @@ describe("useSqlQuery manual refresh completion", () => {
     cachedAnswers = false;
     await render(2, descriptor, "program");
     await waitForCalls(3);
-    expect(calls[2].forceRefresh).toBe(true);
+    expect(calls[2]?.forceRefresh).toBe(true);
     await settle(2, "resolve");
     expect(completed()).toBe("2");
     expect(confirmed()).toBe("true");
@@ -243,7 +243,7 @@ describe("useSqlQuery manual refresh completion", () => {
     cachedAnswers = true;
     await render(1);
     await waitForCalls(2);
-    expect(calls[1].forceRefresh).toBe(true);
+    expect(calls[1]?.forceRefresh).toBe(true);
     await settle(1, "resolve");
     expect(completed()).toBe("1");
     expect(confirmed()).toBe("true");

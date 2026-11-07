@@ -16,7 +16,6 @@ export {
   updateDataProgramRun,
   getLatestSuccessfulRun,
   getLatestRun,
-  getLatestFinishedRun,
   getActiveRun,
   pruneDataProgramRuns,
   MAX_PROGRAM_ROWS,
