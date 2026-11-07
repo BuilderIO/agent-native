@@ -337,6 +337,20 @@ describe("workspace app chat proxy", () => {
       }
     });
 
+    it("does not keep lookups for apps that are not registered", async () => {
+      mocks.listWorkspaceApps.mockResolvedValue([]);
+      const fetchImpl = stubFetch(() => new Response("ok"));
+      const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
+      await handler(
+        proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+      );
+      await handler(
+        proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+      );
+
+      expect(mocks.listWorkspaceApps).toHaveBeenCalledTimes(2);
+    });
+
     it("does not share a cached lookup between users", async () => {
       const fetchImpl = vi.fn(async () => new Response("ok"));
       const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });

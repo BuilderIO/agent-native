@@ -340,15 +340,25 @@ function resolveBrowserAppUrl(input: {
     );
     return app ? mountedWorkspaceAppHomeUrl(app) : null;
   });
+  const now = Date.now();
+  // Keys include the requested app id; drop expired entries so the map
+  // cannot grow with every id a caller asks for.
+  for (const [entryKey, entry] of browserAppUrlCache) {
+    if (entry.expiresAt <= now) browserAppUrlCache.delete(entryKey);
+  }
   browserAppUrlCache.set(key, {
-    expiresAt: Date.now() + BROWSER_APP_URL_TTL_MS,
+    expiresAt: now + BROWSER_APP_URL_TTL_MS,
     url,
   });
-  // The caller still receives the rejection; this only stops a failed read being reused.
-  url.catch(() => {
+  // Keep only resolved apps: an unknown id or a failed read is not reused.
+  // The caller still receives the original result or rejection.
+  const forget = () => {
     if (browserAppUrlCache.get(key)?.url === url)
       browserAppUrlCache.delete(key);
-  });
+  };
+  url.then((resolved) => {
+    if (resolved === null) forget();
+  }, forget);
   return url;
 }
 
