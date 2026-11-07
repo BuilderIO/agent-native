@@ -248,8 +248,11 @@ function normalizeFilters(filters: Record<string, string> | undefined) {
 function assertTrafficFilter(
   filters: Record<string, string>,
 ): Record<string, string> {
-  for (const key of [TRAFFIC_FILTER_PARAM, TRAFFIC_FILTER_ID]) {
-    if (key in filters && !isTrafficFilterValue(filters[key])) {
+  for (const [key, value] of Object.entries(filters)) {
+    if (
+      (key === TRAFFIC_FILTER_PARAM || key === TRAFFIC_FILTER_ID) &&
+      !isTrafficFilterValue(value)
+    ) {
       throw new Error(`${key} must be all, production or beta`);
     }
   }
