@@ -234,6 +234,21 @@ describe("useSqlQuery manual refresh completion", () => {
     expect(confirmed()).toBe("true");
   });
 
+  it("confirms a BigQuery refresh that joined one already running", async () => {
+    await render(0);
+    await waitForCalls(1);
+    await settle(0, "resolve");
+
+    // BigQuery marks rows cached when the forced refresh it joined wrote them.
+    cachedAnswers = true;
+    await render(1);
+    await waitForCalls(2);
+    expect(calls[1].forceRefresh).toBe(true);
+    await settle(1, "resolve");
+    expect(completed()).toBe("1");
+    expect(confirmed()).toBe("true");
+  });
+
   it("is not confirmed by an automatic fetch that finishes while the request is cancelled", async () => {
     honorAbort = false;
     await render(0);
