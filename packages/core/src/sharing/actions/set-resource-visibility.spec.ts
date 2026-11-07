@@ -1789,6 +1789,61 @@ describe("set-resource-visibility public followers", () => {
     expect(await visibilities()).toEqual({ [parent]: "private" });
   });
 
+  // A widget ticket granted on the parent alone.
+  const setFromWidget = (visibility: Visibility) =>
+    as({ userEmail: ownerEmail, orgId }, () =>
+      setResourceVisibility.run(
+        { resourceType, resourceId: parent, visibility },
+        {
+          caller: "mcp-widget-write",
+          mcpDirectoryWidgetWrite: {
+            actionNames: ["set-resource-visibility"],
+            resourceIds: { resourceType, [`${resourceType}Id`]: parent },
+          },
+        } as never,
+      ),
+    );
+
+  it("won't let a widget grant carry followers public", async () => {
+    await insertFamily();
+
+    await expect(setFromWidget("public")).rejects.toThrow(
+      "sub-pages public too",
+    );
+    expect(await visibilities()).toEqual({
+      [parent]: "private",
+      "doc-child": "private",
+      "doc-grandchild": "private",
+    });
+
+    // With none left to carry, the widget changes its own resource.
+    for (const id of ["doc-child", "doc-grandchild"]) {
+      await db
+        .update(docs)
+        .set({ visibility: "public" })
+        .where(eq(docs.id, id));
+    }
+    await setFromWidget("public");
+    expect((await visibilities())[parent]).toBe("public");
+  });
+
+  it("lets a widget grant take its followers back from public", async () => {
+    await insertFamily({
+      [parent]: "public",
+      "doc-child": "public",
+      "doc-grandchild": "public",
+    });
+
+    const result = await setFromWidget("private");
+
+    expect(await visibilities()).toEqual({
+      [parent]: "private",
+      "doc-child": "private",
+      "doc-grandchild": "private",
+    });
+    expect(result.followersChanged).toBe(2);
+  });
+
   it("holds a whole batch to the same limit", async () => {
     const half = Math.ceil((MAX_PUBLIC_FOLLOWERS + 1) / 2);
     for (const id of ["doc-a", "doc-b"]) {
