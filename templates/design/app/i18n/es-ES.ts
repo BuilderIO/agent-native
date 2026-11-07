@@ -2758,6 +2758,8 @@ export default {
     figmaSelectedCount: "{{count}} seleccionados",
     figmaShowFrames: "Mostrar los marcos de {{name}}",
     figmaLinkNotFrame: "Enlaza a una página o un marco de Figma.",
+    figmaFramesPartial:
+      "Solo se muestra parte de esta página. Marca la página para añadirla entera.",
     referenceDeck: "Usar una presentación como referencia",
     quickSaas: "Crear una página de SaaS",
     quickDashboard: "Crear un panel",

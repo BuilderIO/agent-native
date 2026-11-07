@@ -25,7 +25,33 @@ const FIGMA_REFERENCE_KEY_PREFIX = "figma-reference:";
 export const FIGMA_REFERENCE_CONTEXT_BUDGET = 48 * 1024;
 // Room for the closing notes about omitted and undecoded frames.
 const CONTEXT_NOTES_RESERVE_BYTES = 600;
-const utf8Bytes = (text: string) => new TextEncoder().encode(text).length;
+/**
+ * Bytes as the composer counts them: it measures the JSON snapshot, where
+ * every quote and newline in the HTML costs an escape.
+ */
+const contextBytes = (text: string) =>
+  new TextEncoder().encode(JSON.stringify(text)).length - 2;
+
+const TRUNCATED_MARK = " [truncated]";
+
+/** Cuts a linked page's or frame's context to its share of the Figma budget. */
+export function clampFigmaContext(
+  context: string,
+  budgetBytes: number,
+): string {
+  if (contextBytes(context) <= budgetBytes) return context;
+  const limit = budgetBytes - contextBytes(TRUNCATED_MARK);
+  let low = 0;
+  let high = context.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (contextBytes(context.slice(0, middle)) <= limit) low = middle;
+    else high = middle - 1;
+  }
+  // Never end on half of a surrogate pair.
+  const end = /[\uD800-\uDBFF]/.test(context.charAt(low - 1)) ? low - 1 : low;
+  return `${context.slice(0, end)}${TRUNCATED_MARK}`;
+}
 
 /**
  * A .fig is decoded in the browser with no progress shown; past this size
@@ -241,12 +267,17 @@ function oneLine(text: string): string {
     .slice(0, 200);
 }
 
+/** A Figma name as a quoted label its own quotes cannot close. */
+function quotedName(text: string): string {
+  return `"${oneLine(text).replace(/"/g, "'")}"`;
+}
+
 function frameLabel(frame: FigmaReferenceFrame, index: number): string {
   const size =
     frame.width !== undefined && frame.height !== undefined
       ? ` (${Math.round(frame.width)}×${Math.round(frame.height)})`
       : "";
-  return `"${oneLine(frame.name ?? `Frame ${index + 1}`).replace(/"/g, "'")}"${size}`;
+  return `${quotedName(frame.name ?? `Frame ${index + 1}`)}${size}`;
 }
 
 /**
@@ -255,12 +286,13 @@ function frameLabel(frame: FigmaReferenceFrame, index: number): string {
  */
 export function figmaReferenceContext(
   reference: FigmaReference,
-  sourceLabel: string,
+  /** The file or selection name, unquoted. */
+  sourceName: string,
   /** This chip's share when several Figma chips are attached. */
   budgetBytes = FIGMA_REFERENCE_CONTEXT_BUDGET,
 ): string {
   const parts = [
-    `The user attached a Figma design as reference: ${oneLine(sourceLabel)}, ${reference.frameCount} frame${reference.frameCount === 1 ? "" : "s"}, decoded from Figma with layout, text, and styles as HTML.`,
+    `The user attached a Figma design as reference: ${quotedName(sourceName)}, ${reference.frameCount} frame${reference.frameCount === 1 ? "" : "s"}, decoded from Figma with layout, text, and styles as HTML.`,
     "Use it as reference for the request, and do not put it on the canvas unless the request asks for that.",
     `To make, recreate, or import this design, call place-figma-frames with ref "${reference.ref}" (frames are numbered as below; omit frames to place all). It saves each frame exactly. Never retype a frame's HTML yourself: it is too long to copy and comes out truncated.`,
     "When building something new from it, copy its SVG markup for logos, icons, and other vectors verbatim; never redraw a vector with CSS shapes or new paths.",
@@ -272,12 +304,13 @@ export function figmaReferenceContext(
     );
   }
   const limit = budgetBytes - CONTEXT_NOTES_RESERVE_BYTES;
-  let used = utf8Bytes(parts.join("\n\n"));
+  let used = contextBytes(parts.join("\n\n"));
   const omitted: string[] = [];
   reference.frames.forEach((frame, index) => {
     const fence = codeFence(frame.html);
     const block = `## Frame ${index + 1}: ${frameLabel(frame, index)}\n${fence}html\n${frame.html}\n${fence}`;
-    const blockBytes = utf8Bytes(block) + 2;
+    // Each block is joined by a blank line, two escaped newlines.
+    const blockBytes = contextBytes(block) + 4;
     if (omitted.length || used + blockBytes > limit) {
       omitted.push(frameLabel(frame, index));
       return;
@@ -289,7 +322,7 @@ export function figmaReferenceContext(
     // The names count against the budget too; past it, say how many remain.
     const named: string[] = [];
     for (const label of omitted) {
-      const labelBytes = utf8Bytes(label) + 2;
+      const labelBytes = contextBytes(label) + 2;
       if (used + labelBytes > limit) break;
       named.push(label);
       used += labelBytes;

@@ -44,6 +44,7 @@ import {
   TEMPLATE_CONTEXT_KEY,
 } from "@/lib/composer-context";
 import {
+  clampFigmaContext,
   figFileReferenceKey,
   figmaReferenceContext,
   isFigmaReferenceKey,
@@ -128,6 +129,8 @@ const figmaLinkSchema = z.union([
           .nullable(),
       }),
     ),
+    // A page link past `maxNodes` lists only its first frames.
+    totalFrames: z.number().optional(),
   }),
   z.object({
     mode: z.literal("node"),
@@ -211,42 +214,54 @@ export function useHomePromptContext({
   const figmaSources = useRef(new Map<string, FigmaChip>());
   const discardFigmaKey = (key: string) =>
     discardFigmaChip(figmaSources.current.get(key));
+  /** Each linked Figma page or frame's context as read, before its share. */
+  const figmaLinkContexts = useRef(new Map<string, string>());
   /**
    * Figma chips share one context budget: the composer refuses a send past
-   * its total, so each decoded chip gets an even share, recomputed whenever
-   * one is added or removed. Frames past a share stay attached and placeable.
+   * its total, so each decoded or linked chip gets an even share, recomputed
+   * whenever one is added or removed. Frames past a share stay placeable.
    */
-  const rebudgetFigmaChips = () => {
-    const share = Math.floor(
-      FIGMA_REFERENCE_CONTEXT_BUDGET /
-        Math.max(
-          1,
-          [...figmaSources.current.values()].filter((entry) => entry.resolved)
-            .length,
-        ),
-    );
+  const figmaContextShare = useCallback(
+    () =>
+      Math.floor(
+        FIGMA_REFERENCE_CONTEXT_BUDGET /
+          Math.max(
+            1,
+            [...figmaSources.current.values()].filter((entry) => entry.resolved)
+              .length + figmaLinkContexts.current.size,
+          ),
+      ),
+    [],
+  );
+  const rebudgetFigmaChips = useCallback(() => {
+    const share = figmaContextShare();
     setItems((items) =>
       items.map((item) => {
+        if (item.status !== "ready") return item;
         const resolved = figmaSources.current.get(item.key)?.resolved;
-        return resolved && item.status === "ready"
-          ? {
-              ...item,
-              context: figmaReferenceContext(
-                resolved.reference,
-                `"${resolved.title}"`,
-                share,
-              ),
-            }
-          : item;
+        if (resolved)
+          return {
+            ...item,
+            context: figmaReferenceContext(
+              resolved.reference,
+              resolved.title,
+              share,
+            ),
+          };
+        const linked = figmaLinkContexts.current.get(item.key);
+        return linked === undefined
+          ? item
+          : { ...item, context: clampFigmaContext(linked, share) };
       }),
     );
-  };
+  }, [figmaContextShare]);
   const [figmaDialogOpen, setFigmaDialogOpen] = useState(false);
   const mounted = useRef(true);
   useEffect(() => {
     if (previousIdentity.current === identity) return;
     previousIdentity.current = identity;
     requests.current.clear();
+    figmaLinkContexts.current.clear();
     for (const key of figmaSources.current.keys()) discardFigmaKey(key);
     figmaSources.current.clear();
     ++requestRevision.current;
@@ -297,6 +312,8 @@ export function useHomePromptContext({
             requests.current.get(key)?.revision !== revision
           )
             return;
+          if (reference.source === "figma")
+            figmaLinkContexts.current.set(key, result.context);
           setItems((current) =>
             current.map((item) =>
               item.key === key
@@ -309,6 +326,7 @@ export function useHomePromptContext({
                 : item,
             ),
           );
+          if (reference.source === "figma") rebudgetFigmaChips();
         })
         .catch((error: unknown) => {
           if (
@@ -330,7 +348,7 @@ export function useHomePromptContext({
           );
         });
     },
-    [loadFailed, identity],
+    [loadFailed, identity, rebudgetFigmaChips],
   );
   const attachBatch = (references: readonly Reference[]) => {
     if (!activeRef.current || identityRef.current !== identity)
@@ -767,9 +785,10 @@ export function useHomePromptContext({
     }
     requests.current.delete(key);
     discardFigmaKey(key);
+    const wasLink = figmaLinkContexts.current.delete(key);
     const wasFigma = figmaSources.current.delete(key);
     setItems((current) => current.filter((item) => item.key !== key));
-    if (wasFigma) rebudgetFigmaChips();
+    if (wasFigma || wasLink) rebudgetFigmaChips();
   };
   const retry = (key: string) => {
     const figma = figmaSources.current.get(key);
@@ -836,7 +855,10 @@ export function useHomePromptContext({
             );
             if (!("context" in result) || !result.context.trim())
               throw new Error(loadFailed);
-            context = result.context;
+            context =
+              reference.source === "figma"
+                ? clampFigmaContext(result.context, figmaContextShare())
+                : result.context;
           }
           if (identityRef.current !== submittedIdentity)
             throw new Error(loadFailed);
@@ -925,7 +947,11 @@ export function useHomePromptContext({
       figmaSources.current.delete(key);
       removed.add(key);
     }
+    let figmaRemoved = false;
+    for (const key of removed)
+      if (figmaLinkContexts.current.delete(key)) figmaRemoved = true;
     setItems((current) => current.filter((item) => !removed.has(item.key)));
+    if (figmaRemoved || receipt.figmaKeys.length) rebudgetFigmaChips();
     if (
       receipt.systemItem &&
       currentSystem.current?.item === receipt.systemItem
@@ -968,6 +994,9 @@ export function useHomePromptContext({
               ]
             : [],
         ) ?? null,
+      ...(result.totalFrames !== undefined
+        ? { totalFrames: result.totalFrames }
+        : {}),
     }));
     return { result, nodeUrl, pages };
   };
@@ -1020,7 +1049,12 @@ export function useHomePromptContext({
       (candidate) => candidate.id === page.id,
     );
     if (!loaded?.frames) throw new Error(loadFailed);
-    return loaded.frames;
+    return {
+      frames: loaded.frames,
+      ...(loaded.totalFrames !== undefined
+        ? { totalFrames: loaded.totalFrames }
+        : {}),
+    };
   };
   const dialogs = (
     <FigmaAttachDialog

@@ -90,6 +90,58 @@ describe("resolveImportTargets on a page too large to fetch whole", () => {
     expect(Object.keys(targets.nodesById)).toEqual(["1:2"]);
   });
 
+  it("opens sections a one-level outline lists without their frames", async () => {
+    provider.request.mockImplementation(
+      async ({ query }: { query: { ids: string; depth?: number } }) => {
+        if (query.ids === "6913:4184") {
+          return query.depth === 1
+            ? ok({
+                nodes: {
+                  "6913:4184": {
+                    document: {
+                      id: "6913:4184",
+                      name: "One pager",
+                      type: "CANVAS",
+                      children: [
+                        { id: "5:1", name: "Launch", type: "SECTION" },
+                      ],
+                    },
+                  },
+                },
+              })
+            : tooLarge;
+        }
+        if (query.ids === "5:1") {
+          return ok({
+            nodes: {
+              "5:1": {
+                document: {
+                  id: "5:1",
+                  name: "Launch",
+                  type: "SECTION",
+                  children: [
+                    { id: "1:2", name: "Cover", type: "FRAME" },
+                    { id: "1:3", name: "Back", type: "FRAME" },
+                  ],
+                },
+              },
+            },
+          });
+        }
+        const ids = query.ids.split(",");
+        return ok({
+          nodes: Object.fromEntries(
+            ids.map((id) => [id, { document: frame(id, `Frame ${id}`) }]),
+          ),
+        });
+      },
+    );
+
+    const targets = await resolveImportTargets("abcDEF12345", "6913:4184");
+
+    expect(Object.keys(targets.nodesById)).toEqual(["1:2", "1:3"]);
+  });
+
   it("keeps a frame too large to fetch as an error", async () => {
     provider.request.mockImplementation(
       async ({ query }: { query: { depth?: number } }) =>

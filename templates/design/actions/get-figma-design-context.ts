@@ -13,6 +13,7 @@ import {
 import {
   fetchFigmaNodes,
   fetchFileStructure,
+  openOutlineSections,
   type FigmaFileDepthNode,
 } from "../server/lib/figma-node-import.js";
 import type { FigmaNode } from "../server/lib/figma-node-to-html.js";
@@ -231,10 +232,17 @@ async function fetchBoundedNode(
   nodeId: string,
   depth: number,
 ): Promise<FigmaNode | undefined> {
-  const read = async (levels: number) =>
-    Object.values(await fetchFigmaNodes(fileKey, [nodeId], false, levels)).find(
-      (candidate) => candidate.id === nodeId,
-    );
+  const read = async (levels: number) => {
+    const node = Object.values(
+      await fetchFigmaNodes(fileKey, [nodeId], false, levels),
+    ).find((candidate) => candidate.id === nodeId);
+    return node?.type === "CANVAS" && node.children
+      ? {
+          ...node,
+          children: await openOutlineSections(fileKey, node.children),
+        }
+      : node;
+  };
   try {
     return await read(depth);
   } catch (error) {

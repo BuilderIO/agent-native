@@ -60,7 +60,7 @@ function render(tree: FigmaLinkTree) {
         onOpenChange={() => {}}
         figmaConnected
         loadLink={async () => tree}
-        loadPage={async () => []}
+        loadPage={async () => ({ frames: [] })}
         onAttachLinks={(references) => attached.push(references)}
         onAttachFile={attachFile}
       />,
@@ -141,6 +141,26 @@ describe("FigmaAttachDialog link picker", () => {
     ]);
   });
 
+  it("says when a page lists only its first frames, and adds the whole page", async () => {
+    render({
+      pages: [{ ...launch, totalFrames: 1_200 }],
+      preselected: [],
+      preselectedPages: [],
+      expandedPages: [launch.id],
+    });
+    await typeLink(`${FILE}?node-id=1-1`);
+
+    expect(document.body.textContent).toContain(
+      "homeContext.figmaFramesPartial",
+    );
+    await click(checkbox("Launch"));
+    await click(addButton());
+
+    expect(attached).toEqual([
+      [{ id: "1:1", title: "Launch", url: launch.url }],
+    ]);
+  });
+
   it("shows a partly selected page as mixed and adds only its checked frames", async () => {
     render({
       pages: [launch],
@@ -177,7 +197,7 @@ describe("FigmaAttachDialog link picker", () => {
             preselectedPages: [],
             expandedPages: [],
           })}
-          loadPage={async () => []}
+          loadPage={async () => ({ frames: [] })}
           onAttachLinks={() => {
             throw new Error("Choose up to 20 references.");
           }}

@@ -2775,6 +2775,8 @@ export default {
     figmaSelectedCount: "{{count}} sélectionné(s)",
     figmaShowFrames: "Afficher les cadres de {{name}}",
     figmaLinkNotFrame: "Indiquez un lien vers une page ou un cadre Figma.",
+    figmaFramesPartial:
+      "Seule une partie de cette page est affichée. Cochez la page pour l’ajouter en entier.",
     referenceDeck: "Utiliser une présentation comme référence",
     quickSaas: "Créer une page SaaS",
     quickDashboard: "Créer un tableau de bord",

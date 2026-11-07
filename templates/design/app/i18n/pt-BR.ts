@@ -2750,6 +2750,8 @@ export default {
     figmaSelectedCount: "{{count}} selecionados",
     figmaShowFrames: "Mostrar frames em {{name}}",
     figmaLinkNotFrame: "Use um link para uma página ou frame do Figma.",
+    figmaFramesPartial:
+      "Só parte desta página aparece na lista. Marque a página para adicionar tudo.",
     referenceDeck: "Usar uma apresentação como referência",
     quickSaas: "Criar uma página de SaaS",
     quickDashboard: "Criar um painel",

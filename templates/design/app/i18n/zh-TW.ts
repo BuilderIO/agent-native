@@ -2797,6 +2797,7 @@ export default {
     figmaSelectedCount: "已選取 {{count}} 項",
     figmaShowFrames: "顯示 {{name}} 中的框架",
     figmaLinkNotFrame: "請連結到 Figma 頁面或框架。",
+    figmaFramesPartial: "僅列出此頁面的一部分。勾選該頁面即可全部加入。",
     referenceDeck: "參考簡報",
     quickSaas: "建立 SaaS 登陸頁",
     quickDashboard: "建立儀表板",

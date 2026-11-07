@@ -669,6 +669,44 @@ export async function fetchFigmaNode(
  * and the node is a page, the page with only two levels below it: enough to
  * list its frames (sections opened). Anything else too large stays an error.
  */
+/**
+ * A depth-limited read stops at sections: one past the limit comes back with
+ * no children, which reads as empty. Each such section is read one level
+ * deeper, so the frames inside it are still listed.
+ */
+export async function openOutlineSections(
+  fileKey: string,
+  nodes: readonly FigmaNode[],
+): Promise<FigmaNode[]> {
+  const closed = nodes.filter(
+    (node) =>
+      node.type === "SECTION" &&
+      node.visible !== false &&
+      node.children === undefined,
+  );
+  if (!closed.length) return [...nodes];
+  const opened = await fetchFigmaNodes(
+    fileKey,
+    closed.map((section) => section.id),
+    false,
+    1,
+  );
+  return Promise.all(
+    nodes.map(async (node) => {
+      const section = closed.includes(node) ? opened[node.id] : undefined;
+      return section
+        ? {
+            ...node,
+            children: await openOutlineSections(
+              fileKey,
+              section.children ?? [],
+            ),
+          }
+        : node;
+    }),
+  );
+}
+
 export async function fetchFigmaNodeOrPageOutline(
   fileKey: string,
   nodeId: string,
@@ -688,7 +726,16 @@ export async function fetchFigmaNodeOrPageOutline(
         if (isFigmaPayloadTooLargeError(outlineError)) continue;
         throw outlineError;
       }
-      if (outline) return { node: outline, outline: true };
+      if (outline)
+        return {
+          node: outline.children
+            ? {
+                ...outline,
+                children: await openOutlineSections(fileKey, outline.children),
+              }
+            : outline,
+          outline: true,
+        };
       break;
     }
     throw error;

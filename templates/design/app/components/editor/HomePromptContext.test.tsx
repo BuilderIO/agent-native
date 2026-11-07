@@ -4,7 +4,12 @@ import {
   writeAssistantChatComposerContextDraft,
   snapshotComposerContextItems,
 } from "@agent-native/toolkit/app/chat/composer/index";
-import { act, type ReactElement, type ReactNode } from "react";
+import {
+  act,
+  type ComponentProps,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FIGMA_REFERENCE_CONTEXT_BUDGET } from "@/lib/figma-attachment";
 
 import { DesignComposerContextProvider } from "./DesignComposerContextProvider";
+import type { FigmaAttachDialog } from "./FigmaAttachDialog";
 import { useHomePromptContext } from "./HomePromptContext";
 
 const figImages = vi.hoisted(() => ({
@@ -965,6 +971,50 @@ describe("home prompt context", () => {
           new TextEncoder().encode(item.context).length > Math.max(...bytes),
       ),
     ).toBe(true);
+  });
+
+  it("fits many linked Figma frames in one send by sharing the budget", async () => {
+    // Quotes cost an escape each in the composer's JSON snapshot.
+    const structure = `Frame structure: ${'{"a":"b"}'.repeat(2_000)}`;
+    mocks.call.mockImplementation(
+      async (action: string, params: { nodeId?: string }) =>
+        action === "read-composer-source"
+          ? { id: params.nodeId, title: params.nodeId, context: structure }
+          : { id: "x", title: "x", context: "x" },
+    );
+    const { result } = renderHook(() => useHomePromptContext(defaults));
+    const dialog = result.current.dialogs as ReactElement<
+      ComponentProps<typeof FigmaAttachDialog>
+    >;
+    act(() =>
+      dialog.props.onAttachLinks(
+        Array.from({ length: 6 }, (_, index) => ({
+          id: `1:${index}`,
+          title: `Frame ${index}`,
+          url: `https://www.figma.com/design/abcDEF12345?node-id=1-${index}`,
+        })),
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        result.current.contextItems.every((item) => item.status === "ready"),
+      ).toBe(true),
+    );
+    const snapshot = snapshotComposerContextItems(result.current.contextItems);
+    expect(snapshot).toHaveLength(6);
+    const prepared = await result.current.prepareSubmission(snapshot);
+    expect(() => snapshotComposerContextItems(prepared)).not.toThrow();
+    expect(
+      prepared?.every((item) => item.context.endsWith("[truncated]")),
+    ).toBe(true);
+
+    const before = result.current.contextItems[0]?.context.length ?? 0;
+    act(() =>
+      result.current.remove("design-home-reference:figma:abcDEF12345:1:5"),
+    );
+    expect(result.current.contextItems[0]?.context.length).toBeGreaterThan(
+      before,
+    );
   });
 
   it("shows a failed Figma decode on its chip and retries it", async () => {

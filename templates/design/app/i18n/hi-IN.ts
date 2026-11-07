@@ -2703,6 +2703,8 @@ export default {
     figmaSelectedCount: "{{count}} चुने गए",
     figmaShowFrames: "{{name}} के फ़्रेम दिखाएँ",
     figmaLinkNotFrame: "किसी Figma पेज या फ़्रेम का लिंक दें।",
+    figmaFramesPartial:
+      "इस पेज का केवल कुछ हिस्सा दिख रहा है। पूरा पेज जोड़ने के लिए पेज चुनें।",
     referenceDeck: "प्रस्तुति को संदर्भ बनाएँ",
     quickSaas: "SaaS लैंडिंग पेज बनाएँ",
     quickDashboard: "डैशबोर्ड बनाएँ",

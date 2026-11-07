@@ -2726,6 +2726,8 @@ export default {
     figmaSelectedCount: "{{count}}개 선택됨",
     figmaShowFrames: "{{name}}의 프레임 보기",
     figmaLinkNotFrame: "Figma 페이지나 프레임 링크를 사용하세요.",
+    figmaFramesPartial:
+      "이 페이지의 일부만 표시됩니다. 전체를 추가하려면 페이지를 선택하세요.",
     referenceDeck: "프레젠테이션 참조",
     quickSaas: "SaaS 랜딩 페이지 만들기",
     quickDashboard: "대시보드 만들기",

@@ -55,6 +55,8 @@ export interface FigmaPageOption {
   url: string;
   /** Null until loaded, for a large file that listed only its pages. */
   frames: FigmaLinkReference[] | null;
+  /** The page's layer count, when `frames` lists only the first of them. */
+  totalFrames?: number;
 }
 
 export interface FigmaLinkTree {
@@ -91,7 +93,11 @@ export function FigmaAttachDialog({
   /** Undefined while the connection is still being checked. */
   figmaConnected: boolean | undefined;
   loadLink: (url: string) => Promise<FigmaLinkTree>;
-  loadPage: (page: FigmaPageOption) => Promise<FigmaLinkReference[]>;
+  loadPage: (page: FigmaPageOption) => Promise<
+    Pick<FigmaPageOption, "totalFrames"> & {
+      frames: FigmaLinkReference[];
+    }
+  >;
   /** Throws when the references cannot be added, keeping the dialog open. */
   onAttachLinks: (references: FigmaLinkReference[]) => void;
   onAttachFile: (file: File) => void;
@@ -292,19 +298,21 @@ export function FigmaAttachDialog({
       });
     setPageLoading(true);
     try {
-      const frames = await loadPage(page);
+      const loaded = await loadPage(page);
       if (version !== loadVersion.current) return;
       setTree(
         (current) =>
           current && {
             ...current,
             pages: current.pages.map((candidate) =>
-              candidate.id === page.id ? { ...candidate, frames } : candidate,
+              candidate.id === page.id
+                ? { ...candidate, ...loaded }
+                : candidate,
             ),
           },
       );
       // A page checked before its frames arrived stays fully checked.
-      if (selectedPages.has(page.id) && frames.length) {
+      if (selectedPages.has(page.id) && loaded.frames.length) {
         setSelectedPages((current) => {
           const next = new Set(current);
           next.delete(page.id);
@@ -312,7 +320,7 @@ export function FigmaAttachDialog({
         });
         setSelected((current) => {
           const next = new Set(current);
-          for (const frame of frames) next.add(frame.id);
+          for (const frame of loaded.frames) next.add(frame.id);
           return next;
         });
       }
@@ -647,7 +655,14 @@ function FigmaPageRow({
             ))}
           </div>
         ) : (
-          frames
+          <>
+            {frames}
+            {page.totalFrames !== undefined ? (
+              <p className="py-1.5 ps-12 pe-2 text-xs text-muted-foreground">
+                {t("homeContext.figmaFramesPartial")}
+              </p>
+            ) : null}
+          </>
         )}
       </CollapsibleContent>
     </Collapsible>
