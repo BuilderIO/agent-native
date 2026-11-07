@@ -7,13 +7,13 @@ describe("signInLandingLoader", () => {
     vi.unstubAllEnvs();
   });
 
-  it("document-redirects to the mounted app sign-in page", () => {
+  it("returns a router-relative document redirect for a mounted app", () => {
     vi.stubEnv("VITE_APP_BASE_PATH", "/account-expert");
 
     const response = signInLandingLoader();
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe("/account-expert/sign-in");
+    expect(response.headers.get("location")).toBe("/sign-in");
     expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
   });
 
