@@ -93,6 +93,7 @@ const guards = [
   "guard:no-bare-error-in-actions",
   "guard:no-unobserved-writes",
   "guard:no-bare-pnpm-spawn",
+  "guard:recursive-copy-links",
   "guard:no-deferred-server-counts",
   "guard:no-oracle-loosening",
   "guard:no-new-legacy-mcp-hints",
