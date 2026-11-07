@@ -49,6 +49,10 @@ import {
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { openFilePicker, uploadFile, uploadFiles } from "@/lib/upload";
+import {
+  toastImageUploadFailure,
+  toastUploadFailure,
+} from "@/lib/upload-toast";
 import { cn } from "@/lib/utils";
 
 import { AttachmentStrip } from "./AttachmentStrip";
@@ -424,10 +428,10 @@ export const InlineReplyComposer = forwardRef<
       const existing = draft.attachments ?? [];
       onUpdate(draft.id, { attachments: [...existing, ...attachments] });
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t("mail.toasts.failedToAttachFile"),
+      toastUploadFailure(
+        error,
+        t("mail.toasts.failedToAttachFile"),
+        t("mail.draftQueue.openSettings"),
       );
     }
   };
@@ -437,7 +441,11 @@ export const InlineReplyComposer = forwardRef<
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      toast.error(t("mail.toasts.failedToUploadImage"));
+      toastImageUploadFailure(
+        err,
+        t("mail.toasts.failedToUploadImage"),
+        t("mail.draftQueue.openSettings"),
+      );
       throw err;
     }
   };

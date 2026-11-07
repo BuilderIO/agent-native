@@ -8,6 +8,7 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server/request-context";
 
+import type { ComposeAttachment } from "../../shared/types.js";
 import { getStoredUpload, putStoredUpload } from "./upload-store.js";
 
 const UPLOADS_DIR = path.resolve("data/uploads");
@@ -21,6 +22,8 @@ const MIME_MAP: Record<string, string> = {
   ".svg": "image/svg+xml",
   ".pdf": "application/pdf",
   ".txt": "text/plain",
+  ".md": "text/markdown",
+  ".markdown": "text/markdown",
   ".csv": "text/csv",
   ".doc": "application/msword",
   ".docx":
@@ -41,8 +44,32 @@ export interface StoredMediaUpload {
   provider?: string;
 }
 
+export const BUILDER_RECONNECT_MESSAGE =
+  "Builder.io rejected Mail's file storage connection, so this file wasn't attached. Open Settings > Model, choose Use Builder.io, then attach the file again.";
+
 export class MediaStorageSetupError extends Error {
   readonly storageSetupRequired = true;
+}
+
+/**
+ * Builder refused the credential itself, so retrying can't help until someone
+ * reconnects. A 401 or 403 only counts when Builder's own API sent it: one from
+ * the signed storage URL or another provider isn't about this connection.
+ */
+function isBuilderReconnectFailure(error: unknown): boolean {
+  const details = (error ?? {}) as {
+    errorCode?: unknown;
+    message?: unknown;
+    status?: unknown;
+  };
+  const message = typeof details.message === "string" ? details.message : "";
+  return (
+    details.errorCode === "builder_credentials_rejected" ||
+    details.errorCode === "builder_oauth_reauthorization_required" ||
+    ((details.status === 401 || details.status === 403) &&
+      message.startsWith("Builder.io")) ||
+    /sign in to builder\.io again/i.test(message)
+  );
 }
 
 export function extensionForUpload(originalName: string): string {
@@ -108,7 +135,11 @@ export async function storeMediaUpload(input: {
       return { ...payload, url: uploaded.url, provider: uploaded.provider };
     }
   } catch (error) {
-    if (process.env.NODE_ENV === "production") throw error;
+    if (process.env.NODE_ENV === "production") {
+      if (!isBuilderReconnectFailure(error)) throw error;
+      console.error("[media] Builder rejected the upload:", error);
+      throw new MediaStorageSetupError(BUILDER_RECONNECT_MESSAGE);
+    }
   }
 
   if (process.env.NODE_ENV === "production") {
@@ -125,5 +156,32 @@ export async function storeMediaUpload(input: {
   if (storedSize !== input.data.byteLength) {
     throw new Error("Uploaded file did not persist completely");
   }
+  await putStoredUpload(input.ownerEmail, {
+    ...payload,
+    createdAt: Date.now(),
+  });
   return payload;
+}
+
+/**
+ * Turns the handle an upload returned into a draft attachment. Uploads are
+ * read per owner, so a handle can't reach someone else's file.
+ */
+export async function attachmentFromUpload(
+  ownerEmail: string,
+  handle: { filename: string; originalName?: string | undefined },
+): Promise<ComposeAttachment | null> {
+  const { filename } = handle;
+  if (/[\\/]/.test(filename) || filename.includes("..")) return null;
+
+  const stored = await getStoredUpload(ownerEmail, filename);
+  if (!stored) return null;
+  return {
+    id: filename,
+    filename,
+    originalName: handle.originalName || stored.originalName,
+    mimeType: stored.mimeType,
+    size: stored.size,
+    url: stored.url ?? `/api/media/${filename}`,
+  };
 }

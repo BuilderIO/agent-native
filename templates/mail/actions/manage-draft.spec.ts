@@ -21,6 +21,11 @@ const mocks = vi.hoisted(() => ({
   withLocalEmailMutationLock: vi.fn(),
   writeLocalEmails: vi.fn(),
   appendSignatureToBody: vi.fn(),
+  attachmentFromUpload: vi.fn(),
+}));
+
+vi.mock("../server/lib/media-upload.js", () => ({
+  attachmentFromUpload: mocks.attachmentFromUpload,
 }));
 
 vi.mock("@agent-native/core", async () => {
@@ -129,6 +134,212 @@ function revisionOf(id: string): string {
 function manageDraftSource(): string {
   return readFileSync(new URL("./manage-draft.ts", import.meta.url), "utf8");
 }
+
+describe("manage-draft attachments", () => {
+  const uploaded = {
+    id: "abc123.pdf",
+    filename: "abc123.pdf",
+    originalName: "invoice.pdf",
+    mimeType: "application/pdf",
+    size: 2048,
+    url: "https://cdn.builder.io/o/assets/abc123",
+  };
+  const handle = {
+    filename: "abc123.pdf",
+    originalName: "invoice.pdf",
+    mimeType: "application/pdf",
+  };
+
+  it("puts an uploaded file on a new draft and its Gmail copy", async () => {
+    mocks.attachmentFromUpload.mockResolvedValue(uploaded);
+
+    const result = await action.run({
+      action: "create",
+      id: "with-file",
+      to: "recipient@example.com",
+      attachments: [handle],
+    });
+
+    expect(mocks.attachmentFromUpload).toHaveBeenCalledWith(
+      "owner@example.com",
+      handle,
+    );
+    expect(mocks.saveGmailDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments: [uploaded] }),
+    );
+    expect((result as { draft: unknown }).draft).toMatchObject({
+      attachments: [uploaded],
+    });
+  });
+
+  it("saves nothing when a handle isn't one of this account's uploads", async () => {
+    mocks.attachmentFromUpload.mockResolvedValue(null);
+
+    await expect(
+      action.run({
+        action: "create",
+        id: "missing-file",
+        attachments: [{ filename: "someone-elses.pdf" }],
+      }),
+    ).rejects.toMatchObject({ errorCode: "draft_attachment_not_found" });
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+    expect(appState.has("compose-missing-file")).toBe(false);
+  });
+
+  it("keeps a forwarded Gmail file named in an update without re-reading it", async () => {
+    const forwarded = {
+      id: "gmail-part",
+      filename: "forwarded.pdf",
+      originalName: "forwarded.pdf",
+      mimeType: "application/pdf",
+      size: 10,
+      url: "",
+      source: "gmail",
+      gmailMessageId: "message-1",
+      gmailAttachmentId: "part-1",
+    };
+    appState.set("compose-forward", {
+      id: "forward",
+      to: "recipient@example.com",
+      subject: "Fwd",
+      body: "",
+      mode: "forward",
+      attachments: [forwarded],
+    });
+    mocks.attachmentFromUpload.mockResolvedValue(uploaded);
+
+    const result = await action.run({
+      action: "update",
+      id: "forward",
+      expectedRevision: revisionOf("forward"),
+      attachments: [{ filename: "forwarded.pdf" }, handle],
+    });
+
+    expect(mocks.attachmentFromUpload).toHaveBeenCalledTimes(1);
+    expect((result as { draft: unknown }).draft).toMatchObject({
+      attachments: [forwarded, uploaded],
+    });
+  });
+
+  it("keeps two forwarded Gmail files that share a name", async () => {
+    const forwardedPart = (part: string) => ({
+      id: part,
+      filename: "image.png",
+      originalName: "image.png",
+      mimeType: "image/png",
+      size: 10,
+      url: "",
+      source: "gmail",
+      gmailMessageId: "message-1",
+      gmailAttachmentId: part,
+    });
+    const first = forwardedPart("part-1");
+    const second = forwardedPart("part-2");
+    appState.set("compose-same-names", {
+      id: "same-names",
+      to: "recipient@example.com",
+      subject: "Fwd",
+      body: "",
+      mode: "forward",
+      attachments: [first, second],
+    });
+    mocks.attachmentFromUpload.mockResolvedValue(uploaded);
+
+    const result = await action.run({
+      action: "update",
+      id: "same-names",
+      expectedRevision: revisionOf("same-names"),
+      attachments: [
+        { filename: "image.png" },
+        { filename: "image.png" },
+        handle,
+      ],
+    });
+
+    expect((result as { draft: unknown }).draft).toMatchObject({
+      attachments: [first, second, uploaded],
+    });
+  });
+
+  it("keeps the second of two same-named files when its id is passed", async () => {
+    const forwardedPart = (part: string) => ({
+      id: part,
+      filename: "image.png",
+      originalName: "image.png",
+      mimeType: "image/png",
+      size: 10,
+      url: "",
+      source: "gmail",
+      gmailMessageId: "message-1",
+      gmailAttachmentId: part,
+    });
+    const second = forwardedPart("part-2");
+    appState.set("compose-pick-one", {
+      id: "pick-one",
+      to: "recipient@example.com",
+      subject: "Fwd",
+      body: "",
+      mode: "forward",
+      attachments: [forwardedPart("part-1"), second],
+    });
+
+    const result = await action.run({
+      action: "update",
+      id: "pick-one",
+      expectedRevision: revisionOf("pick-one"),
+      attachments: [{ filename: "image.png", id: "part-2" }],
+    });
+
+    expect(
+      (result as { draft: { attachments: unknown } }).draft.attachments,
+    ).toEqual([second]);
+  });
+
+  it("removes every file when an update passes an empty list", async () => {
+    appState.set("compose-clear", {
+      id: "clear",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "",
+      mode: "compose",
+      attachments: [uploaded],
+    });
+
+    const result = await action.run({
+      action: "update",
+      id: "clear",
+      expectedRevision: revisionOf("clear"),
+      attachments: [],
+    });
+
+    expect((result as { draft: unknown }).draft).toMatchObject({
+      attachments: [],
+    });
+  });
+
+  it("applies a repeated attachment update once", async () => {
+    appState.set("compose-repeat", {
+      id: "repeat",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "",
+      mode: "compose",
+      attachments: [uploaded],
+    });
+
+    const result = await action.run({
+      action: "update",
+      id: "repeat",
+      expectedRevision: "stale-revision",
+      attachments: [handle],
+    });
+
+    expect((result as { message: string }).message).toContain(
+      "already has this update",
+    );
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+  });
+});
 
 describe("manage-draft MCP App", () => {
   it("requires an action and IDs for draft operations that target a draft", () => {
@@ -438,6 +649,41 @@ describe("manage-draft local fallback", () => {
       savedDraftId: "local-draft-1",
       savedDraftBackend: "local",
     });
+  });
+
+  it("saves changed attachments to a saved local draft", async () => {
+    const uploaded = {
+      id: "abc123.pdf",
+      filename: "abc123.pdf",
+      originalName: "invoice.pdf",
+      mimeType: "application/pdf",
+      size: 2048,
+      url: "https://cdn.builder.io/o/assets/abc123",
+    };
+    appState.set("compose-local-file", {
+      id: "local-file",
+      savedDraftId: "local-draft-2",
+      savedDraftBackend: "local",
+      to: "old@example.com",
+      subject: "Old",
+      body: "Old body",
+      mode: "compose",
+    });
+    mocks.attachmentFromUpload.mockResolvedValue(uploaded);
+
+    await action.run({
+      action: "update",
+      id: "local-file",
+      expectedRevision: revisionOf("local-file"),
+      attachments: [{ filename: "abc123.pdf" }],
+    });
+
+    expect(mocks.updateLocalSavedDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        draftId: "local-draft-2",
+        attachments: [uploaded],
+      }),
+    );
   });
 
   it("resolves a legacy local draft by mailbox row before updating it", async () => {

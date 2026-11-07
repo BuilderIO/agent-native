@@ -9,6 +9,15 @@ export interface UploadResult {
   size: number;
 }
 
+export class UploadError extends Error {
+  constructor(
+    message: string,
+    readonly storageSetupRequired: boolean,
+  ) {
+    super(message);
+  }
+}
+
 export async function uploadFile(file: File): Promise<UploadResult> {
   const buffer = await file.arrayBuffer();
   const resp = await fetch(
@@ -20,14 +29,19 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   );
   if (!resp.ok) {
     let errorMessage = `Upload failed: ${resp.statusText}`;
+    let storageSetupRequired = false;
     try {
-      const body = (await resp.json()) as { error?: unknown };
+      const body = (await resp.json()) as {
+        error?: unknown;
+        storageSetupRequired?: unknown;
+      };
       if (typeof body.error === "string") errorMessage = body.error;
+      storageSetupRequired = body.storageSetupRequired === true;
     } catch (error) {
       if (!(error instanceof SyntaxError)) throw error;
       // Use the HTTP status when the server did not return JSON.
     }
-    throw new Error(errorMessage);
+    throw new UploadError(errorMessage, storageSetupRequired);
   }
   return resp.json();
 }

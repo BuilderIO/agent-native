@@ -61,6 +61,10 @@ import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { openFilePicker, uploadFile, uploadFiles } from "@/lib/upload";
+import {
+  toastImageUploadFailure,
+  toastUploadFailure,
+} from "@/lib/upload-toast";
 import { cn } from "@/lib/utils";
 
 import { AttachmentStrip } from "./AttachmentStrip";
@@ -782,10 +786,10 @@ export function ComposeModal({
       const existing = activeDraft.attachments ?? [];
       onUpdate(activeId, { attachments: [...existing, ...attachments] });
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t("mail.toasts.failedToAttachFile"),
+      toastUploadFailure(
+        error,
+        t("mail.toasts.failedToAttachFile"),
+        t("mail.draftQueue.openSettings"),
       );
     }
   };
@@ -795,7 +799,11 @@ export function ComposeModal({
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      toast.error(t("mail.toasts.failedToUploadImage"));
+      toastImageUploadFailure(
+        err,
+        t("mail.toasts.failedToUploadImage"),
+        t("mail.draftQueue.openSettings"),
+      );
       throw err;
     }
   };
