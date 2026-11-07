@@ -1363,6 +1363,7 @@ export default {
     drilldownOverByteCap:
       "ये रिकॉर्ड {{gib}} GiB से ज़्यादा पढ़ेंगे, इसलिए लोड नहीं हुए। डैशबोर्ड के फ़िल्टर या तारीख की सीमा छोटी करें और फिर से कोशिश करें।",
     filterSeries: "Filter",
+    noXValue: "कोई मान नहीं",
     chartTimeRangeOverride: "इस चार्ट के लिए समय सीमा ओवरराइड करें",
     chartTimeRangeInherit: "डैशबोर्ड सीमा",
     hide: "Hide",

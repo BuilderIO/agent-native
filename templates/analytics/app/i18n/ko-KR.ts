@@ -1381,6 +1381,7 @@ export default {
     drilldownOverByteCap:
       "이 레코드는 {{gib}}GiB를 넘게 읽게 되어 불러오지 않았습니다. 대시보드 필터나 기간을 좁힌 뒤 다시 시도하세요.",
     filterSeries: "Filter",
+    noXValue: "값 없음",
     chartTimeRangeOverride: "이 차트의 기간 재정의",
     chartTimeRangeInherit: "대시보드 기간",
     hide: "Hide",

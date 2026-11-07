@@ -1420,6 +1420,7 @@ export default {
     drilldownOverByteCap:
       "Estes registros leriam mais de {{gib}} GiB, então não foram carregados. Restrinja os filtros ou o período do painel e tente de novo.",
     filterSeries: "Filter",
+    noXValue: "Sem valor",
     chartTimeRangeOverride: "Substituir o intervalo de tempo deste gráfico",
     chartTimeRangeInherit: "Intervalo do painel",
     hide: "Hide",

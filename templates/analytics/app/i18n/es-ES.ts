@@ -1424,6 +1424,7 @@ export default {
     drilldownOverByteCap:
       "Estos registros leerían más de {{gib}} GiB, así que no se cargaron. Acota los filtros o el intervalo de fechas del panel y vuelve a intentarlo.",
     filterSeries: "Filter",
+    noXValue: "Sin valor",
     chartTimeRangeOverride: "Anular el rango de tiempo de este gráfico",
     chartTimeRangeInherit: "Rango del panel",
     hide: "Hide",
