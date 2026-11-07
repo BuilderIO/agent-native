@@ -72,6 +72,9 @@ forceRefresh?, includeRows?)` — this is what the agent calls to get a
    compact proof-of-result (`rowCount`, `columns`, `sampleRows`) without
    waiting for a panel view. Pass `includeRows: true` only when you need the
    full (capped) row set back in context.
+7. **Read without running** with `get-data-program(programId, includeRows?)`.
+   Its `lastRun` is the newest _finished_ run, never one still queued, and when
+   that run failed, `lastGoodRun` holds the newest successful one.
 
 ## The sandbox surface
 
@@ -117,9 +120,10 @@ happens on each call to `runDataProgram` / a panel view:
 | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Fresh cache hit (younger than `refreshTtlMs`, or `refreshMode: "manual"` with any prior success) | Returns cached rows instantly, `cacheHit: true`                                                                                                                          |
 | Cache is older than the TTL                                                                      | Re-executes synchronously (panel views get a 25s budget; agent/manual calls get 120s), replacing the cache on success                                                    |
-| `refreshMode: "manual"`                                                                          | Never auto-refreshes; only `forceRefresh: true` (or `manual_refresh` from the UI) re-runs it                                                                             |
+| `refreshMode: "manual"`                                                                          | Never auto-refreshes; only `forceRefresh: true` (a panel's Refresh sends it) re-runs it                                                                                  |
 | No cache yet                                                                                     | Executes synchronously like a normal first fetch                                                                                                                         |
 | `background: true` program, no fresh cache                                                       | Serves the last good run immediately with `stale: true` and enqueues a durable background execution (10-minute budget); the _next_ call finalizes it if it has completed |
+| Background run has just finished                                                                 | The call that finalizes it serves its rows as a fresh hit; it doesn't queue another run until the TTL lapses or a refresh is forced                                      |
 | Background program, execution still running, no prior success                                    | `background_pending` failure — the panel shows an explicit "running in background" error card, never a blank chart                                                       |
 | Execution fails (timeout, sandbox error, bad `emit()` shape)                                     | Failure result with a structured error code; if a previous successful run exists, it is attached as `lastGoodRun` so the panel can stale-serve instead of going blank    |
 | Program was archived (`delete-data-program`)                                                     | Explicit `archived` failure — panels show "This data program was archived", never a silent blank                                                                         |
@@ -140,7 +144,7 @@ serves fresh data faster.
 | `emit_missing`         | Script never called `emit(...)`                                         | Add the `emit(rows, schema?)` call at the end                  |
 | `emit_shape_invalid`   | `emit()` args weren't `(array-of-plain-objects, optional-schema-array)` | Fix the shape; check for a stray second `emit()` call          |
 | `result_too_large`     | A single row (or the whole result) exceeds the byte cap                 | Trim large string fields before emitting                       |
-| `sandbox_error`        | Uncaught exception in the script                                        | Read the thrown message; guard optional provider fields        |
+| `sandbox_error`        | Uncaught exception in the script; the message is the thrown error's     | Read the thrown message; guard optional provider fields        |
 | `run_code_unavailable` | The run-code module isn't available in this build                       | Not something a program author can fix                         |
 | `background_pending`   | Background program has no result yet                                    | Wait and retry, or check `lastGoodRun` if present              |
 

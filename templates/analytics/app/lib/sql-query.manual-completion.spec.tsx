@@ -35,7 +35,7 @@ function Probe({
 }: {
   refreshToken: number;
   sql: string;
-  source?: "bigquery" | "first-party";
+  source?: "bigquery" | "first-party" | "program";
 }) {
   const query = useSqlQuery(["sql", sql], sql, source, { refreshToken });
   const confirmed = useRefreshConfirmation({
@@ -66,6 +66,8 @@ describe("useSqlQuery manual refresh completion", () => {
   // Each action call waits for the test to settle it, and ignores aborts the
   // way a response already on the wire does.
   let honorAbort: boolean;
+  // Whether answers say the server served rows it already had.
+  let cachedAnswers: boolean;
 
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
@@ -76,6 +78,7 @@ describe("useSqlQuery manual refresh completion", () => {
     queryClient = new QueryClient();
     calls = [];
     honorAbort = true;
+    cachedAnswers = false;
     mocks.session = {
       email: "a@example.com",
       userId: "user-a",
@@ -93,6 +96,7 @@ describe("useSqlQuery manual refresh completion", () => {
                 rows: [{ value: calls.length }],
                 schema: [],
                 fetchedAt: new Date().toISOString(),
+                ...(cachedAnswers ? { cached: true } : {}),
               }),
             reject,
           };
@@ -119,7 +123,7 @@ describe("useSqlQuery manual refresh completion", () => {
   const render = (
     refreshToken: number,
     sql = "SELECT 1",
-    source: "bigquery" | "first-party" = "bigquery",
+    source: "bigquery" | "first-party" | "program" = "bigquery",
   ) =>
     act(async () => {
       root.render(
@@ -203,6 +207,31 @@ describe("useSqlQuery manual refresh completion", () => {
 
     await act(async () => vi.advanceTimersByTimeAsync(REFRESH_CONFIRMATION_MS));
     expect(confirmed()).toBe("false");
+  });
+
+  it("forces a program panel's refresh but confirms it only with fresh rows", async () => {
+    const descriptor = JSON.stringify({ programId: "dp_collector" });
+    await render(0, descriptor, "program");
+    await waitForCalls(1);
+    await settle(0, "resolve");
+
+    // A background program answers with its last rows while its new run goes on.
+    cachedAnswers = true;
+    await render(1, descriptor, "program");
+    await waitForCalls(2);
+    expect(calls[1].forceRefresh).toBe(true);
+    await settle(1, "resolve");
+    expect(completed()).toBe("undefined");
+    expect(confirmed()).toBe("false");
+
+    // A foreground program runs again and answers with new rows.
+    cachedAnswers = false;
+    await render(2, descriptor, "program");
+    await waitForCalls(3);
+    expect(calls[2].forceRefresh).toBe(true);
+    await settle(2, "resolve");
+    expect(completed()).toBe("2");
+    expect(confirmed()).toBe("true");
   });
 
   it("is not confirmed by an automatic fetch that finishes while the request is cancelled", async () => {

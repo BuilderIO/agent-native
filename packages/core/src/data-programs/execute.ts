@@ -184,6 +184,33 @@ function truncateLogs(stdout: string, stderr: string): string {
   return combined.slice(-LOGS_TAIL_MAX_CHARS);
 }
 
+// How each evaluator reports an error the program threw: the node evaluator
+// prints "Unhandled error: <message>", and the Run evaluator's RunError for a
+// guest throw reads "RUN_ERROR: <message>".
+const THROWN_ERROR_PREFIXES = ["Unhandled error:", "RUN_ERROR:"];
+
+/**
+ * What a program that threw said, read from its stderr. Without a known
+ * prefix, the last line that isn't a stack frame or Node's version footer is
+ * the error.
+ */
+function thrownProgramMessage(stderr: string): string | undefined {
+  let last: string | undefined;
+  for (const line of stderr.split("\n")) {
+    const text = line.trim();
+    if (!text || text.startsWith("at ") || /^Node\.js v\d/.test(text)) {
+      continue;
+    }
+    for (const prefix of THROWN_ERROR_PREFIXES) {
+      if (text.startsWith(prefix)) {
+        return text.slice(prefix.length).trim() || text;
+      }
+    }
+    last = text;
+  }
+  return last;
+}
+
 function lastGoodFromRun(run: {
   rowsJson: string | null;
   schemaJson: string | null;
@@ -303,10 +330,16 @@ async function executeProgramCode(
       maxBytes: MAX_PROGRAM_RESULT_BYTES,
     });
     if (!parsed.ok) {
+      // A program that throws before emit() never prints a result, so report
+      // its own error rather than a missing emit().
+      const thrown =
+        parsed.error.code === "emit_missing" && result.exitCode !== 0
+          ? thrownProgramMessage(result.stderr)
+          : undefined;
       return {
         ok: false,
-        code: parsed.error.code,
-        message: parsed.error.message,
+        code: thrown ? "sandbox_error" : parsed.error.code,
+        message: thrown ?? parsed.error.message,
         logsTail,
       };
     }
@@ -561,6 +594,12 @@ async function runBackgroundProgram(
       execution.status !== "running"
     ) {
       await finalizeBackgroundRun(active.id, execution);
+      // The run that just finished is usually the fresh result this read is
+      // for. Serve it rather than queue another run behind it.
+      if (!args.forceRefresh) {
+        const finished = await resolveCacheHit(program, paramsHash);
+        if (finished) return finished;
+      }
     }
   }
 
@@ -626,7 +665,12 @@ async function runBackgroundProgram(
 
 async function finalizeBackgroundRun(
   runId: string,
-  execution: { status: string; stdout: string; stderr: string },
+  execution: {
+    status: string;
+    stdout: string;
+    stderr: string;
+    error?: string | null;
+  },
 ): Promise<void> {
   const finishedAt = Date.now();
   if (execution.status === "succeeded") {
@@ -658,13 +702,26 @@ async function finalizeBackgroundRun(
     return;
   }
 
+  if (execution.status === "timed_out") {
+    await updateDataProgramRun(runId, {
+      status: "timed_out",
+      errorCode: "timeout",
+      errorMessage: "Background execution timed out.",
+      logsTail: truncateLogs(execution.stdout, execution.stderr),
+      finishedAt,
+    });
+    return;
+  }
+
+  // A set `error` means the executor itself failed; otherwise the program
+  // threw, and its message is the one to show.
   await updateDataProgramRun(runId, {
-    status: execution.status === "timed_out" ? "timed_out" : "failed",
-    errorCode: execution.status === "timed_out" ? "timeout" : "sandbox_error",
+    status: "failed",
+    errorCode: "sandbox_error",
     errorMessage:
-      execution.status === "timed_out"
-        ? "Background execution timed out."
-        : "Background execution failed.",
+      execution.error ??
+      thrownProgramMessage(execution.stderr) ??
+      "Background execution failed.",
     logsTail: truncateLogs(execution.stdout, execution.stderr),
     finishedAt,
   });

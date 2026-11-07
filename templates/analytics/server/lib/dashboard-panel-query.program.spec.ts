@@ -87,7 +87,8 @@ describe("dashboard-panel-query: program source", () => {
   describe("runDashboardPanelQuery dispatch", () => {
     const ctx = { userEmail: "alice@example.com", orgId: "org_1" };
 
-    it("maps an ok:true result to {rows, schema, truncated}", async () => {
+    it("maps an ok:true result to rows, schema, truncated and freshness", async () => {
+      const asOfMs = Date.parse("2026-11-07T14:00:00.000Z");
       mocks.runDataProgram.mockResolvedValue({
         ok: true,
         rows: [{ dealname: "Acme", risk_status: "at_risk" }],
@@ -98,7 +99,7 @@ describe("dashboard-panel-query: program source", () => {
         truncated: true,
         stale: false,
         cacheHit: true,
-        asOfMs: Date.now(),
+        asOfMs,
         runId: "run_1",
       });
 
@@ -119,6 +120,8 @@ describe("dashboard-panel-query: program source", () => {
           { name: "risk_status", type: "string" },
         ],
         truncated: true,
+        cached: true,
+        fetchedAt: "2026-11-07T14:00:00.000Z",
       });
       expect(mocks.runDataProgram).toHaveBeenCalledWith({
         programId: "dp_risk_cohort",
@@ -136,6 +139,10 @@ describe("dashboard-panel-query: program source", () => {
         rows: [{ id: 1 }],
         schema: [{ name: "id", type: "number" }],
         truncated: false,
+        stale: false,
+        cacheHit: false,
+        asOfMs: Date.now(),
+        runId: "run_1",
       });
 
       const query = normalizeDashboardPanelQuery("program", {
@@ -161,6 +168,10 @@ describe("dashboard-panel-query: program source", () => {
         rows: [{ id: 1 }],
         schema: [{ name: "id", type: "number" }],
         truncated: false,
+        stale: false,
+        cacheHit: false,
+        asOfMs: Date.now(),
+        runId: "run_1",
       });
 
       await runDashboardPanelQuery({
@@ -209,7 +220,38 @@ describe("dashboard-panel-query: program source", () => {
         rows: [{ account: "Globex" }],
         schema: [{ name: "account", type: "string" }],
         truncated: true,
+        cached: true,
+        fetchedAt: new Date(asOfMs).toISOString(),
       });
+    });
+
+    it("passes a panel Refresh through as forceRefresh", async () => {
+      mocks.runDataProgram.mockResolvedValue({
+        ok: true,
+        rows: [{ n: 2 }],
+        schema: [{ name: "n", type: "number" }],
+        truncated: false,
+        stale: false,
+        cacheHit: false,
+        asOfMs: Date.now(),
+        runId: "run_2",
+      });
+
+      const result = await runDashboardPanelQuery({
+        source: "program",
+        query: JSON.stringify({ programId: "dp_risk_cohort" }),
+        ctx,
+        forceRefresh: true,
+      });
+
+      expect(mocks.runDataProgram).toHaveBeenCalledWith(
+        expect.objectContaining({
+          programId: "dp_risk_cohort",
+          triggeredBy: "panel_view",
+          forceRefresh: true,
+        }),
+      );
+      expect(result).toMatchObject({ rows: [{ n: 2 }], cached: false });
     });
 
     it("throws a structured error with code prefix when there is no lastGoodRun", async () => {

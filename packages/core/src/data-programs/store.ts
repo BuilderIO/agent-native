@@ -651,6 +651,28 @@ export async function getLatestRun(
   return row ? runRowFromDb(row) : null;
 }
 
+/**
+ * The newest run that has finished, successfully or not. Background programs
+ * record a queued run as soon as they enqueue one, so `getLatestRun` returns
+ * that empty row while it runs; readers that want a result use this.
+ */
+export async function getLatestFinishedRun(
+  programId: string,
+  paramsHash: string,
+): Promise<DataProgramRunRow | null> {
+  await ensureDataProgramTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM data_program_runs
+      WHERE program_id = ? AND params_hash = ? AND status NOT IN ('queued', 'running')
+      ORDER BY COALESCE(finished_at, started_at) DESC
+      LIMIT 1`,
+    args: [programId, paramsHash],
+  });
+  const row = rows[0] as Record<string, unknown> | undefined;
+  return row ? runRowFromDb(row) : null;
+}
+
 export async function getActiveRun(
   programId: string,
   paramsHash: string,

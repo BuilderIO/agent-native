@@ -349,11 +349,14 @@ function flattenAmplitudeResponse(
  * program author's) — the security-load-bearing choice for shared
  * dashboards. Errors carry a structured `code: message` shape so the
  * existing panel error card surfaces something actionable, and a stale
- * `lastGoodRun` is preferred over a broken panel whenever one exists.
+ * `lastGoodRun` is preferred over a broken panel whenever one exists. Rows
+ * carry the time their run finished, so the panel's clock says how old a
+ * cached or stale result is.
  */
 async function runProgramPanel(
   raw: string,
   ctx: CredentialContext,
+  forceRefresh?: boolean,
 ): Promise<DashboardPanelQueryResult> {
   const descriptor = parseProgramDescriptor(raw);
   const result = await runDataProgram({
@@ -368,6 +371,7 @@ async function runProgramPanel(
         : {}),
     },
     triggeredBy: "panel_view",
+    ...(forceRefresh ? { forceRefresh: true } : {}),
   });
 
   if (result.ok) {
@@ -375,6 +379,8 @@ async function runProgramPanel(
       rows: result.rows,
       schema: result.schema,
       truncated: result.truncated,
+      cached: result.cacheHit,
+      fetchedAt: new Date(result.asOfMs).toISOString(),
     };
   }
 
@@ -383,6 +389,8 @@ async function runProgramPanel(
       rows: result.lastGoodRun.rows,
       schema: result.lastGoodRun.schema,
       truncated: result.lastGoodRun.truncated,
+      cached: true,
+      fetchedAt: new Date(result.lastGoodRun.asOfMs).toISOString(),
     };
   }
 
@@ -520,7 +528,7 @@ export async function runDashboardPanelQuery(args: {
   }
 
   if (source === "program") {
-    return await runProgramPanel(query, ctx);
+    return await runProgramPanel(query, ctx, forceRefresh);
   }
 
   throw new Error("Unsupported source");
