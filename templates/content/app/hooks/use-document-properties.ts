@@ -25,6 +25,7 @@ import type {
   UpdateDatabaseItemsRequest,
   UpdateDatabaseItemsResponse,
 } from "@shared/api";
+import type { BlocksFieldFreezeRule } from "@shared/properties";
 import {
   useInfiniteQuery,
   useQueryClient,
@@ -860,4 +861,78 @@ export function useSetBuilderEntryStatus(
       });
     },
   });
+}
+
+export interface SetBlocksFieldFreezeRuleRequest {
+  databaseId: string;
+  propertyId: string;
+  rule: BlocksFieldFreezeRule | null;
+}
+
+/** Sets or clears the rule that freezes a tab while the row has chosen values. */
+export function useSetBlocksFieldFreezeRule(
+  documentId: string,
+  databaseId: string,
+  databaseDocumentId = documentId,
+) {
+  const queryClient = useQueryClient();
+  const queryKey = documentPropertiesQueryKey(documentId, databaseId);
+  return useActionMutation<
+    { ok: true; propertyId: string; rule: BlocksFieldFreezeRule | null },
+    SetBlocksFieldFreezeRuleRequest
+  >("set-blocks-field-freeze-rule", {
+    skipActionQueryInvalidation: true,
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous =
+        queryClient.getQueryData<DocumentPropertiesResponse>(queryKey);
+      queryClient.setQueryData<DocumentPropertiesResponse>(
+        queryKey,
+        (current) =>
+          current && {
+            ...current,
+            properties: current.properties.map((property) =>
+              property.definition.id === variables.propertyId
+                ? {
+                    ...property,
+                    definition: {
+                      ...property.definition,
+                      options: withFreezeRule(
+                        property.definition.options,
+                        variables.rule,
+                      ),
+                    },
+                  }
+                : property,
+            ),
+          },
+      );
+      return { previous };
+    },
+    onError: (error, _variables, context) => {
+      toast.error(dbText("somethingWentWrong"), {
+        description: error.message,
+      });
+      const previous = (
+        context as { previous?: DocumentPropertiesResponse } | undefined
+      )?.previous;
+      if (previous) queryClient.setQueryData(queryKey, previous);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries(
+        contentDatabaseQueryFilter(databaseDocumentId),
+      );
+    },
+  });
+}
+
+function withFreezeRule(
+  options: DocumentPropertyDefinition["options"],
+  rule: BlocksFieldFreezeRule | null,
+): DocumentPropertyDefinition["options"] {
+  return {
+    ...options,
+    blocks: { primary: false, ...(rule ? { freezeWhen: rule } : {}) },
+  };
 }

@@ -18,12 +18,16 @@ const mocks = vi.hoisted(() => ({
   ),
   configurePending: false,
   remove: vi.fn(async (_request: Record<string, unknown>) => ({})),
+  freeze: vi.fn((_request: Record<string, unknown>) => {}),
   toastError: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: { count?: number }) =>
     options?.count === undefined ? key : `${key}:${options.count}`,
+  useFormatters: () => ({
+    formatList: (items: string[]) => items.join(" or "),
+  }),
 }));
 vi.mock("@/hooks/use-document-properties", () => ({
   documentPropertiesPlaceholder: () => undefined,
@@ -39,6 +43,7 @@ vi.mock("@/hooks/use-document-properties", () => ({
   }),
   useDeleteDocumentProperty: () => ({ mutateAsync: mocks.remove }),
   useReorderDocumentProperty: () => ({ mutateAsync: mocks.reorder }),
+  useSetBlocksFieldFreezeRule: () => ({ mutate: mocks.freeze }),
   useSetDocumentProperty: () => ({ mutateAsync: mocks.save }),
 }));
 vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
@@ -187,9 +192,53 @@ function notes(options: FieldOptions = {}) {
   });
 }
 
+/** A Status column with Draft and Approved, holding `value` on this row. */
+function status(value: string | null) {
+  return {
+    definition: {
+      id: "status",
+      databaseId: "db-1",
+      name: "Status",
+      type: "status",
+      visibility: "always_show",
+      options: {
+        options: [
+          { id: "draft", name: "Draft", color: "gray" },
+          { id: "approved", name: "Approved", color: "green" },
+        ],
+      },
+      position: 5,
+      createdAt: "2026-10-18T00:00:00.000Z",
+      updatedAt: "2026-10-18T00:00:00.000Z",
+    },
+    value,
+    editable: true,
+  };
+}
+
+/** The Notes tab, frozen while Status is any of `optionIds`. */
+function frozenNotes(optionIds = ["approved"]) {
+  const tab = notes();
+  return {
+    ...tab,
+    definition: {
+      ...tab.definition,
+      options: {
+        blocks: {
+          primary: false,
+          freezeWhen: { propertyId: "status", optionIds },
+        },
+      },
+    },
+  };
+}
+
 function setFields(
   fields: unknown[],
-  permissions: { canManageSchema?: boolean } = {},
+  permissions: {
+    canManageSchema?: boolean;
+    canManageColumnRules?: boolean;
+  } = {},
 ) {
   mocks.query = {
     data: {
@@ -197,6 +246,7 @@ function setFields(
       databaseId: "db-1",
       canEditValues: true,
       canManageSchema: permissions.canManageSchema ?? true,
+      canManageColumnRules: permissions.canManageColumnRules ?? true,
       properties: fields,
     },
     isError: false,
@@ -228,6 +278,7 @@ describe("DocumentBlockFields tabs", () => {
     mocks.configurePending = false;
     mocks.remove.mockReset();
     mocks.remove.mockImplementation(async () => ({}));
+    mocks.freeze.mockReset();
     mocks.toastError.mockReset();
     primaryLifecycle.mounts = 0;
     primaryLifecycle.unmounts = 0;
@@ -1461,6 +1512,161 @@ describe("DocumentBlockFields tabs", () => {
       await key(tab("content"), "F2");
       expect(menu()).toBeNull();
       expect(nameInput()).toBeNull();
+    });
+  });
+
+  describe("freeze", () => {
+    function menu() {
+      return document.querySelector<HTMLElement>("[data-block-field-menu]");
+    }
+
+    function note() {
+      return panel("notes").querySelector<HTMLElement>(
+        "[data-block-field-frozen-note]",
+      );
+    }
+
+    async function openFreezeMenu() {
+      await click(tab("notes"));
+      await click(tab("notes"));
+      const trigger = document.querySelector<HTMLElement>(
+        "[data-block-field-freeze]",
+      );
+      if (!trigger) throw new Error("No freeze item");
+      await act(async () => {
+        trigger.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+        );
+      });
+      await click(trigger);
+    }
+
+    function option(id: string) {
+      return document.querySelector<HTMLElement>(
+        `[data-block-field-freeze-option="${id}"]`,
+      );
+    }
+
+    it("shows a frozen tab's lock and why, and keeps its text read-only", async () => {
+      setFields([content(), frozenNotes(), status("approved")]);
+      await render();
+
+      expect(
+        tab("notes").querySelector("[data-block-field-frozen]"),
+      ).not.toBeNull();
+      expect(tab("notes").textContent).toContain("editor.blockFieldFrozen");
+      expect(
+        tab("content").querySelector("[data-block-field-frozen]"),
+      ).toBeNull();
+      expect(note()?.textContent).toContain("editor.blockFieldFrozen");
+      expect(note()?.textContent).toContain(
+        "editor.blockFieldFrozenDescription",
+      );
+      expect(mocks.editors.get("Notes text")?.editable).toBe(false);
+      expect(mocks.editors.get("one two three")).toBeUndefined();
+    });
+
+    it("opens the tab again when Status moves off the frozen value", async () => {
+      setFields([content(), frozenNotes(), status("approved")]);
+      await render();
+      expect(mocks.editors.get("Notes text")?.editable).toBe(false);
+
+      setFields([content(), frozenNotes(), status("draft")]);
+      await render();
+      expect(note()).toBeNull();
+      expect(
+        tab("notes").querySelector("[data-block-field-frozen]"),
+      ).toBeNull();
+      expect(mocks.editors.get("Notes text")?.editable).toBe(true);
+
+      setFields([content(), frozenNotes(), status(null)]);
+      await render();
+      expect(mocks.editors.get("Notes text")?.editable).toBe(true);
+    });
+
+    it("lets someone with full access freeze a tab from its menu", async () => {
+      setFields([content(), notes(), status("draft")]);
+      await render();
+      await openFreezeMenu();
+      expect(
+        document.querySelector("[data-block-field-freeze]")?.textContent,
+      ).toBe("editor.freezeBlockField");
+      expect(option("approved")?.getAttribute("aria-checked")).toBe("false");
+
+      await click(option("approved")!);
+      expect(mocks.freeze).toHaveBeenCalledWith({
+        databaseId: "db-1",
+        propertyId: "notes",
+        rule: { propertyId: "status", optionIds: ["approved"] },
+      });
+    });
+
+    it("adds a value to a rule, and lifts it", async () => {
+      setFields([content(), frozenNotes(), status("draft")]);
+      await render();
+      await openFreezeMenu();
+      expect(option("approved")?.getAttribute("aria-checked")).toBe("true");
+
+      await click(option("draft")!);
+      expect(mocks.freeze).toHaveBeenLastCalledWith({
+        databaseId: "db-1",
+        propertyId: "notes",
+        rule: { propertyId: "status", optionIds: ["approved", "draft"] },
+      });
+
+      await click(
+        document.querySelector<HTMLElement>("[data-block-field-unfreeze]")!,
+      );
+      expect(mocks.freeze).toHaveBeenLastCalledWith({
+        databaseId: "db-1",
+        propertyId: "notes",
+        rule: null,
+      });
+    });
+
+    it("shows the rule to editors without letting them change it", async () => {
+      setFields([content(), frozenNotes(), status("draft")], {
+        canManageColumnRules: false,
+      });
+      await render();
+      await click(tab("notes"));
+      await click(tab("notes"));
+      expect(menu()).not.toBeNull();
+      expect(document.querySelector("[data-block-field-freeze]")).toBeNull();
+      expect(
+        document.querySelector("[data-block-field-freeze-summary]")
+          ?.textContent,
+      ).toContain("editor.blockFieldFrozenByManagers");
+    });
+
+    it("offers no freeze on the page body", async () => {
+      setFields([content(), notes(), status("draft")]);
+      await render();
+      await click(tab("content"));
+      expect(menu()).not.toBeNull();
+      expect(document.querySelector("[data-block-field-freeze]")).toBeNull();
+    });
+
+    it("says a save was refused because the tab froze", async () => {
+      mocks.save.mockRejectedValue(
+        Object.assign(new Error("The Notes tab can't change."), {
+          errorCode: "COLUMN_RULE_FROZEN",
+        }),
+      );
+      setFields([content(), notes(), status("approved")]);
+      await render();
+      await click(tab("notes"));
+      await type("Notes text", "Typed as it froze");
+
+      await act(async () => {
+        await expect(
+          flushAllBlockFieldSaveControllersForDocument("doc-1"),
+        ).rejects.toThrow();
+      });
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "editor.blockFieldFrozenSaveRefused",
+        { description: "The Notes tab can't change." },
+      );
     });
   });
 

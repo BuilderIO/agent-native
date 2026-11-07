@@ -1725,6 +1725,17 @@ const overrides = {
       "इससे इस संग्रह की हर पंक्ति से “{{name}}” और उसका टेक्स्ट हट जाएगा। इसे पूर्ववत नहीं किया जा सकता।",
     deleteBlockFieldBodyWarning:
       "“{{name}}” पेज का मुख्य भाग है, इसलिए हर पंक्ति का मुख्य टेक्स्ट भी हट जाएगा।",
+    blockFieldFrozen: "जब तक {{column}} {{value}} है, तब तक फ़्रीज़",
+    blockFieldFrozenDescription:
+      "इस संग्रह का एक नियम किसी को भी, चाहे व्यक्ति हो या एजेंट, इस टैब को बदलने से रोकता है। इसे संपादित करने के लिए {{column}} को {{value}} से बदलें।",
+    blockFieldFrozenByManagers:
+      "जब तक {{column}} {{value}} है, तब तक फ़्रीज़। इसे केवल वही लोग बदल सकते हैं जिनके पास संग्रह की पूरी पहुँच है।",
+    blockFieldFrozenSaveRefused: "यह टैब फ़्रीज़ है, इसलिए आपका बदलाव सहेजा नहीं गया",
+    freezeBlockField: "फ़्रीज़ करें जब…",
+    freezeBlockFieldWhile: "जब {{column}} हो",
+    freezeBlockFieldNoColumns:
+      "इसके अनुसार फ़्रीज़ करने के लिए कोई स्थिति या चयन कॉलम जोड़ें",
+    unfreezeBlockField: "फ़्रीज़ न करें",
   },
   comments: {
     add: "टिप्पणी जोड़ें...",

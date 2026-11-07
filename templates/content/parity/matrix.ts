@@ -548,6 +548,31 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: ["actions/agent-text-lock.db.test.ts"],
   },
   {
+    id: "database.tab-freeze-rule",
+    surface: "database",
+    label: "Freeze a collection's tab while a row's status has chosen values",
+    uiEntrypoints: [
+      "app/components/editor/DocumentBlockFields.tsx",
+      "app/hooks/use-document-properties.ts",
+    ],
+    durableEffect:
+      "The rule is stored on the tab's column. While a row's status or select column has one of its values, every save to that row's tab is refused, from people and agents alike, and the tab's column and the column it keys on can't be deleted or retyped, nor a named value removed, until the rule is lifted.",
+    uiImplementation:
+      "The tab menu's Freeze while submenu calls the set-blocks-field-freeze-rule Action; the frozen tab shows a lock and a read-only note.",
+    status: "action-backed",
+    actions: ["set-blocks-field-freeze-rule"],
+    exception:
+      "set-blocks-field-freeze-rule is hidden with agentTool: false because the rule holds agents to it, so only a person with full access to the collection can set or lift one. Agents meet the rule as a COLUMN_RULE_FROZEN refusal from set-document-property and the block actions.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/column-rules.db.test.ts",
+      "shared/column-rules.test.ts",
+    ],
+  },
+  {
     id: "header.import-markdown-files",
     surface: "header",
     label: "Import Markdown files as pages and undo the import",

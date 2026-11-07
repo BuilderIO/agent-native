@@ -1809,6 +1809,18 @@ const overrides = {
       "Dadurch werden „{{name}}“ und sein Text aus jeder Zeile dieser Sammlung gelöscht. Das lässt sich nicht rückgängig machen.",
     deleteBlockFieldBodyWarning:
       "„{{name}}“ ist der Seiteninhalt, daher wird auch der Haupttext jeder Zeile gelöscht.",
+    blockFieldFrozen: "Eingefroren, solange {{column}} {{value}} ist",
+    blockFieldFrozenDescription:
+      "Eine Regel dieser Sammlung verhindert, dass jemand, ob Person oder Agent, diesen Tab ändert. Setzen Sie {{column}} auf einen anderen Wert als {{value}}, um ihn zu bearbeiten.",
+    blockFieldFrozenByManagers:
+      "Eingefroren, solange {{column}} {{value}} ist. Nur Personen mit Vollzugriff auf die Sammlung können das ändern.",
+    blockFieldFrozenSaveRefused:
+      "Dieser Tab ist eingefroren, Ihre Änderung wurde nicht gespeichert",
+    freezeBlockField: "Einfrieren, solange …",
+    freezeBlockFieldWhile: "Solange {{column}} ist:",
+    freezeBlockFieldNoColumns:
+      "Fügen Sie eine Status- oder Auswahlspalte hinzu, um danach einzufrieren",
+    unfreezeBlockField: "Nicht einfrieren",
   },
   comments: {
     add: "Kommentar hinzufügen...",

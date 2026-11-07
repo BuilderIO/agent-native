@@ -1765,6 +1765,18 @@ const overrides = {
       "このコレクションのすべての行から「{{name}}」とそのテキストが削除されます。元に戻すことはできません。",
     deleteBlockFieldBodyWarning:
       "「{{name}}」はページ本文のため、すべての行の本文も削除されます。",
+    blockFieldFrozen: "{{column}} が {{value}} の間は固定",
+    blockFieldFrozenDescription:
+      "このコレクションのルールにより、人もエージェントもこのタブを変更できません。編集するには {{column}} を {{value}} 以外に変更してください。",
+    blockFieldFrozenByManagers:
+      "{{column}} が {{value}} の間は固定されます。変更できるのは、コレクションへのフルアクセス権を持つユーザーだけです。",
+    blockFieldFrozenSaveRefused:
+      "このタブは固定されているため、編集は保存されませんでした",
+    freezeBlockField: "固定する条件…",
+    freezeBlockFieldWhile: "{{column}} が次の値の間",
+    freezeBlockFieldNoColumns:
+      "固定の条件にするステータス列または選択列を追加してください",
+    unfreezeBlockField: "固定しない",
   },
   comments: {
     add: "コメントを追加...",

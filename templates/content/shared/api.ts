@@ -367,6 +367,8 @@ export interface DocumentPropertiesResponse {
   databaseId: string | null;
   canEditValues?: boolean;
   canManageSchema?: boolean;
+  /** Full access to the collection: column rules, such as a tab's freeze, are theirs to set. */
+  canManageColumnRules?: boolean;
   properties: DocumentProperty[];
 }
 

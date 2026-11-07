@@ -1648,6 +1648,17 @@ const enUS = {
       "This deletes “{{name}}” and its text from every row in this collection. You can't undo this.",
     deleteBlockFieldBodyWarning:
       "“{{name}}” is the page body, so every row's main text is deleted too.",
+    blockFieldFrozen: "Frozen while {{column}} is {{value}}",
+    blockFieldFrozenDescription:
+      "A rule on this collection stops anyone, person or agent, from changing this tab. Move {{column}} off {{value}} to edit it.",
+    blockFieldFrozenByManagers:
+      "Frozen while {{column}} is {{value}}. Only people with full access to the collection can change this.",
+    blockFieldFrozenSaveRefused:
+      "This tab is frozen, so your edit wasn't saved",
+    freezeBlockField: "Freeze while…",
+    freezeBlockFieldWhile: "While {{column}} is",
+    freezeBlockFieldNoColumns: "Add a status or select column to freeze by",
+    unfreezeBlockField: "Don't freeze",
     title: "Title",
     creatingDatabase: "Creating inline collection...",
     databaseCreated: "Collection created",
