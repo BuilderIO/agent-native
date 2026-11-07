@@ -315,7 +315,7 @@ export function resolveMcpClientHostId(
     const host = matchingMcpConnectHosts(
       normalizeMcpConnectQuery(reported ?? ""),
       queryContainsTerm,
-    )[0];
+    ).at(0);
     if (host) return host.id;
   }
   return undefined;
