@@ -13,7 +13,7 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Use Brain actions for ingestion, search, retrieval, distillation, capture, review, and connectors; respect access scopes. For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Call `get-brain-settings` before answering, broad searches, or distilling unless settings are already in context; it defines retrieval and distillation policy.
-- Answers must cite or summarize source evidence and separate facts from inference. Never fabricate source content, dates, people, permissions, or connector health. Copy evidence quotes exactly from `get-capture`.
+- Answers must cite or summarize source evidence and separate facts from inference. Never fabricate source content, dates, people, permissions, or connector health. Copy evidence quotes exactly from `get-capture`. Zoom captures with `withheldPassages > 0`, `withheldPassages === null` (unknown count), or `metadata.zoomPassageQuarantine` are incomplete: disclose withheld passages and never infer what was omitted.
 - Capture durable, useful knowledge only; do not save secrets, transient noise, or unsupported personal data.
 - Supported source providers are exactly `manual`, `generic`, `clips`, `slack`, `granola`, `github`, and `zoom`; `create-source` rejects others. Use `generic` for approved FAQs/docs/handbooks; see `ingestion-and-connectors` for policy and deletion semantics.
 - Gong is queried on demand through provider API actions using organization-scoped credentials; it is not an indexed Brain source, and callers do not need personal Gong seats when the shared keys are configured.
@@ -33,7 +33,9 @@ Use `tool-search` for the full action catalog.
 | `get-brain-settings` | Identity, tone, policy, citation, distillation settings |
 | `search-everything` / `search-knowledge` / `ask-brain` | Search sources/knowledge or give a cited answer; broad search reports `federatedCoverage` |
 | `get-knowledge` / `list-knowledge` / `get-capture` / `list-captures` | Read distilled knowledge or captures |
-| `import-capture` / `import-transcript` / `import-markdown-files` | Ingest captures or bounded Markdown batches |
+| `import-capture` / `import-transcript` / `import-markdown-files` | Ingest captures or bounded Markdown/plain-text batches |
+| `ensure-company-context-source` | Admin-only: get or create the shared org-visible Company Context source; pass its id to `import-markdown-files` for every recurring upload |
+| `get-brain-admin-status` | Whether the current user is a Brain admin (org owner/admin) |
 | `enqueue-distillation` / `mark-capture-distilled` / `write-knowledge` | Queue, finish, or publish knowledge |
 | `review-proposal` / `approve-proposal` / `reject-proposal` / `list-proposals` / `update-proposal` | Legacy proposal records; new writes create none |
 | `set-knowledge-canonical` | Mirror published knowledge to workspace resources |

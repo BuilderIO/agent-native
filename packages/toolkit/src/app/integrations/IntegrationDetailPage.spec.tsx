@@ -116,11 +116,20 @@ describe("IntegrationDetailPage", () => {
     );
   }
 
-  async function render(id: string, context = OWNER) {
+  async function render(
+    id: string,
+    context = OWNER,
+    extensionContent?: ReactNode,
+  ) {
     await act(async () => {
       root.render(
         <Providers>
-          <IntegrationDetailPage id={id} appName="Clips" context={context} />
+          <IntegrationDetailPage
+            id={id}
+            appName="Clips"
+            context={context}
+            extensionContent={extensionContent}
+          />
         </Providers>,
       );
     });
@@ -238,6 +247,23 @@ describe("IntegrationDetailPage", () => {
     expect(
       container.querySelector('[id="documentation"] a')?.getAttribute("href"),
     ).toBe("https://developers.figma.com/docs/figma-mcp-server/");
+  });
+
+  it("renders optional app settings within the shared integration page", async () => {
+    await render(
+      "notion",
+      OWNER,
+      <section data-testid="app-integration-settings">
+        Workspace settings
+      </section>,
+    );
+
+    expect(
+      container.querySelector('[data-testid="app-integration-settings"]')
+        ?.textContent,
+    ).toBe("Workspace settings");
+    expect(container.querySelector("#connection")).not.toBeNull();
+    expect(container.querySelector("#information")).not.toBeNull();
   });
 
   it("asks the agent when a prompt is clicked", async () => {
@@ -493,7 +519,42 @@ describe("IntegrationDetailPage", () => {
     );
     expect(row?.textContent).toContain("Connected");
     expect(row?.textContent).toContain("Personal · 12 tools available");
-    expect(row?.querySelector("button")?.textContent).toBe("Remove");
+    expect(
+      Array.from(
+        row?.querySelectorAll("button") ?? [],
+        (button) => button.textContent,
+      ),
+    ).toEqual(["Reconnect", "Remove"]);
+  });
+
+  it("opens a custom connected server by its slug, with Reconnect and Remove", async () => {
+    // The tile links a custom integration (one added by URL, with no catalog entry) to a
+    // slug of its name; this is that slug resolving back to the server, so the page has
+    // the facts and the actions a built-in's page has.
+    servers([
+      {
+        id: "custom-1",
+        scope: "user",
+        name: "Internal Docs",
+        url: "https://mcp.example.com/mcp",
+        authMode: "headers",
+        createdAt: 1,
+        mergedId: "user:custom-1",
+        status: { state: "error", error: "the server refused the token" },
+      },
+    ]);
+    await render("internal-docs");
+    const detail = container.querySelector("[data-connected-server-detail]");
+    expect(detail).not.toBeNull();
+    expect(detail?.textContent).toContain("Internal Docs");
+    expect(detail?.textContent).toContain("https://mcp.example.com/mcp");
+    expect(detail?.textContent).toContain("Connection error");
+    expect(detail?.textContent).toContain("the server refused the token");
+    const labels = Array.from(detail?.querySelectorAll("button") ?? []).map(
+      (button) => button.textContent?.trim(),
+    );
+    expect(labels).toContain("Reconnect");
+    expect(labels).toContain("Remove");
   });
 
   it("marks a beta integration", async () => {

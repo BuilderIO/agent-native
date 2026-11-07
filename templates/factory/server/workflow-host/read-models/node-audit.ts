@@ -137,6 +137,13 @@ export interface NodeAuditQuery {
   runId?: string;
   mode?: RunMode;
   limit?: number;
+  /**
+   * Sample the newest of the steps read that took items a person can pin, not
+   * just the newest step: a run that found nothing leaves a step test with
+   * nothing to run on, while an older run's items still serve. Falls back to
+   * the newest step when none of them took any.
+   */
+  sampleStepWithItems?: boolean;
 }
 
 export async function getNodeAudit(
@@ -268,33 +275,56 @@ export async function getNodeAudit(
     }
   }
 
-  // Samples: the items that went into and out of the newest step.
-  const newest = records[0];
-  let latest: NodeAudit["latest"] = null;
-  if (newest) {
-    const incoming = graph.edges.filter((edge) => edge.to.node === node.id);
-    const upstreamIds = [...new Set(incoming.map((edge) => edge.from.node))];
-    const upstreamRows =
-      upstreamIds.length === 0
-        ? []
-        : await db
-            .select()
-            .from(steps)
-            .where(
-              and(
-                eq(steps.runId, newest.record.runId),
-                scopeOf(steps, scope),
-                inArray(steps.nodeId, upstreamIds),
-              ),
-            )
-            .limit(upstreamIds.length);
-    const upstream = new Map(
-      upstreamRows.map((row) => [row.nodeId, stepOf(row)]),
-    );
-    const inSamples = incoming.flatMap((edge) => {
-      const port = upstream.get(edge.from.node)?.ports[edge.from.port];
+  // Samples: the items that went into and out of one step, the newest or, when asked, the newest that took items in.
+  const incoming = graph.edges.filter((edge) => edge.to.node === node.id);
+  const upstreamIds = [...new Set(incoming.map((edge) => edge.from.node))];
+  const candidates =
+    input.sampleStepWithItems === true ? records : records.slice(0, 1);
+  const candidateRunIds = candidates.map(({ record }) => record.runId);
+  const upstreamRows =
+    upstreamIds.length === 0 || candidates.length === 0
+      ? []
+      : await db
+          .select()
+          .from(steps)
+          .where(
+            and(
+              inArray(steps.runId, candidateRunIds),
+              scopeOf(steps, scope),
+              inArray(steps.nodeId, upstreamIds),
+            ),
+          )
+          .limit(upstreamIds.length * candidateRunIds.length);
+  const upstreamOf = new Map(
+    upstreamRows.map((row) => [`${row.runId}\u0000${row.nodeId}`, stepOf(row)]),
+  );
+  const inSamplesOf = (runId: string) =>
+    incoming.flatMap((edge) => {
+      const port = upstreamOf.get(`${runId}\u0000${edge.from.node}`)?.ports[
+        edge.from.port
+      ];
       return port ? [{ edge, port }] : [];
     });
+  const sampledIdsOf = (runId: string) =>
+    inSamplesOf(runId).flatMap(({ port }) =>
+      port.itemIds.slice(0, READ_LIMITS.sampleItemsPerPort),
+    );
+  const first = records.length > 0 ? records[0] : undefined;
+  let newest = first;
+  if (input.sampleStepWithItems === true) {
+    const pinnable = await inboxRows(
+      db,
+      scope,
+      candidateRunIds.flatMap(sampledIdsOf),
+    );
+    newest =
+      records.find(({ record }) =>
+        sampledIdsOf(record.runId).some((itemId) => pinnable.has(itemId)),
+      ) ?? first;
+  }
+  let latest: NodeAudit["latest"] = null;
+  if (newest) {
+    const inSamples = inSamplesOf(newest.record.runId);
     const outSamples = Object.entries(newest.record.ports);
     const sampleIds = [
       ...new Set([

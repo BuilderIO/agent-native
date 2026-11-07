@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "auth.logOutFailed": "登出失敗",
   "block.renderUnavailable": "此區塊暫時無法使用。",
   "block.loading": "正在載入區塊。",
   "composer.contextUrlLabel": "網址",
@@ -122,6 +123,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "行銷",
   "onboarding.roleSales": "銷售",
   "onboarding.roleOps": "營運",
+  "onboarding.roleCreator": "內容創作者",
+  "onboarding.roleStudent": "學生",
+  "onboarding.roleEducator": "教育工作者",
   "onboarding.roleIndividual": "個人",
   "onboarding.roleOther": "其他",
   "onboarding.roleOtherInputLabel": "描述你的角色",
@@ -480,7 +484,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "使用 {{integration}} 工具",
   "composer.menu.scheduleTask": "排程工作",
   "composer.menu.scheduleTaskDescription": "依排程執行工作",
-  "composer.menu.uploadFile": "上傳檔案",
+  "composer.menu.uploadFile": "檔案和圖片",
+  "composer.menu.searchWorkspace": "搜尋工作區…",
+  "composer.menu.references": "參照",
+  "composer.menu.referenceFile": "引用檔案",
+  "composer.menu.attachToMessage": "新增內容脈絡",
+  "composer.menu.commands": "命令",
   "composer.menu.uploadFileDescription": "圖片、PDF、文字/程式碼、JSON、CSV",
   "composer.messageAgent": "傳送訊息給代理...",
   "composer.model": "模型",
@@ -1245,6 +1254,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io 提供免費額度，您也可以使用自己的 API 金鑰。",
   "setup.builderOrOwnKeys":
     "使用 Builder.io（含免費額度），或加入您自己的供應商金鑰。",
+  "setup.reconnectBuilder": "重新連線 Builder.io",
   "setup.connectAi": "連線 AI",
   "setup.connectBuilder": "使用 Builder.io",
   "setup.connectionsDescription":
@@ -3121,6 +3131,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "從工作區移除應用",
   "chatFirst.showMore": "顯示更多",
   "chatFirst.showLess": "收合",
+  "chatFirst.showMoreCount": "再顯示 {{count}} 項",
   "chatFirst.appOrderUnavailable": "無法在此裝置上儲存應用順序。",
   "chatFirst.openSideSurfaces": "開啟側邊面板",
   "chatFirst.sideSurfaces": "側邊面板",

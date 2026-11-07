@@ -75,7 +75,10 @@ import { useRollbackCreatedSlashDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
 
-import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
+import {
+  focusMostRecentEmptyToggleSummary,
+  TOGGLE_TITLE_NODE,
+} from "./extensions/NotionExtensions";
 import { createImagePickerId } from "./image-upload";
 import { buildLocalComponentSlashItems } from "./localComponentSlashItems";
 import { MathRenderer } from "./MathRenderer";
@@ -243,11 +246,18 @@ export function insertMediaPlaceholder(
   return editor.chain().focus().insertContent({ type, attrs }).run();
 }
 
+// The menu's commands turn the block it opens in into another, or put blocks
+// there. A Toggle's title is its own line, not a block to turn into another.
+function canOpenSlashMenu(editor: Editor) {
+  const { parent } = editor.state.selection.$from;
+  return parent.isTextblock && parent.type.name !== TOGGLE_TITLE_NODE;
+}
+
 function getActiveSlashCommandRange(editor: Editor) {
   const { state } = editor;
   if (!state.selection.empty) return null;
   const { from, $from } = state.selection;
-  if (!$from.parent.isTextblock) return null;
+  if (!canOpenSlashMenu(editor)) return null;
 
   const blockStart = $from.start();
   const textBefore = state.doc.textBetween(blockStart, from, "\n");
@@ -1551,7 +1561,7 @@ export function SlashCommandMenu({
       const { state } = editor;
       const { from } = state.selection;
       const { $from } = state.selection;
-      if (!$from.parent.isTextblock) {
+      if (!canOpenSlashMenu(editor)) {
         if (isOpen) {
           setIsOpen(false);
           setIsTurnInto(false);

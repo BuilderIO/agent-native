@@ -60,6 +60,13 @@ export function isRecordingTrashedForViewer(input: {
   return Boolean(input.trashedAt) && !input.viewerIsOwner;
 }
 
+export function isRecordingPasswordProtectedForViewer(input: {
+  hasPassword: boolean;
+  viewerIsOwner: boolean;
+}): boolean {
+  return input.hasPassword && !input.viewerIsOwner;
+}
+
 /**
  * Decide whether an authenticated request may use the editor/player route.
  * Public visibility is intentionally a share-link concern; a direct `/r/*`
@@ -73,8 +80,14 @@ export function canOpenDirectRecordingPage(input: {
   hasPassword: boolean;
   hasExplicitShare: boolean;
 }): boolean {
+  if (
+    isRecordingPasswordProtectedForViewer({
+      hasPassword: input.hasPassword,
+      viewerIsOwner: input.role === "owner",
+    })
+  )
+    return false;
   if (input.role === "owner") return true;
-  if (input.hasPassword) return false;
   if (input.visibility === "public") return input.hasExplicitShare;
   return true;
 }
@@ -101,6 +114,9 @@ export function canReceiveRecordingActivity(input: {
       trashedAt: input.trashedAt,
       viewerIsOwner,
     }) &&
-    (!input.hasPassword || viewerIsOwner)
+    !isRecordingPasswordProtectedForViewer({
+      hasPassword: input.hasPassword,
+      viewerIsOwner,
+    })
   );
 }

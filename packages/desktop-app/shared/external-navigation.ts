@@ -32,6 +32,8 @@ export function canOpenDesktopExternalUrl(
       protocol === "https:" ||
       protocol === "mailto:" ||
       protocol === "tel:" ||
+      // Opens one thread in T3 Code. Content's URL properties can hold these.
+      protocol === "t3-thread:" ||
       (platform === "darwin" && isAllowedMacPrivacySettingsUrl(url))
     );
   } catch {

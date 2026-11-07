@@ -38,8 +38,10 @@ function loopScope(
  * that is released only on one path counts the visits that took that path.
  */
 export function buildScope(
-  ctx: Pick<TickContext, "graph" | "run" | "mode" | "window" | "scheduledFor"> &
-    Partial<Pick<TickContext, "loops">>,
+  ctx: Pick<TickContext, "graph" | "mode" | "window" | "scheduledFor"> & {
+    /** All a path reads of the run: a test of one step has no run record, only these. */
+    run: Pick<TickContext["run"], "id" | "startedAt">;
+  } & Partial<Pick<TickContext, "loops">>,
   item: FlowItem | undefined,
   counters: Readonly<Record<string, number>> = {},
   nodeId?: string,

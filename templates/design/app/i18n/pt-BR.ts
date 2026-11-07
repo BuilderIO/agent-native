@@ -343,6 +343,8 @@ export default {
   common: {
     loading: "Carregando...",
     genericError: "Algo deu errado",
+    linkedSourceSizeLimit:
+      "Esta edição do componente vinculado excede o limite de tamanho das fontes.",
   },
   editPanel: {
     colorInputLabel: "cor",
@@ -1046,6 +1048,10 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "Não foi possível carregar esta tela.",
+    writeFailed: "Não foi possível salvar essa alteração.",
+    selectionPublishFailed:
+      "O agente pode não ver sua seleção mais recente. Selecione-a novamente.",
     liveCollaboration: {
       title: "Colaboração ao vivo",
       description:
@@ -2702,6 +2708,7 @@ export default {
   },
   homeContext: {
     websiteReference: "Adicionar site",
+    websiteReferenceMenu: "Adicionar site…",
     websiteUrlLabel: "URL do site",
     websiteUrl: "Cole a URL de um site",
     figmaUrlLabel: "Link do Figma",
@@ -2726,10 +2733,12 @@ export default {
     retry: "Tentar novamente",
     empty: "Nenhuma referência correspondente.",
     none: "Nenhum",
-    design: "Design",
+    design: "Referências de design",
     slides: "Slides",
     referenceDesign: "Usar um design como referência",
-    figmaReference: "Adicionar Figma",
+    connectFigma: "Conectar Figma",
+    figmaDisconnected: "Conecte o Figma para explorar designs.",
+    figmaReference: "Design do Figma",
     referenceDeck: "Usar uma apresentação como referência",
     quickSaas: "Criar uma página de SaaS",
     quickDashboard: "Criar um painel",

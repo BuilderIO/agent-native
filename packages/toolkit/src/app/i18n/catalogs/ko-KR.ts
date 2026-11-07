@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "auth.logOutFailed": "로그아웃하지 못했습니다",
   "block.renderUnavailable": "이 블록은 일시적으로 사용할 수 없습니다.",
   "block.loading": "블록을 불러오는 중입니다.",
   "composer.contextUrlLabel": "URL",
@@ -126,6 +127,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "마케팅",
   "onboarding.roleSales": "영업",
   "onboarding.roleOps": "운영",
+  "onboarding.roleCreator": "콘텐츠 크리에이터",
+  "onboarding.roleStudent": "학생",
+  "onboarding.roleEducator": "교육자",
   "onboarding.roleIndividual": "개인",
   "onboarding.roleOther": "기타",
   "onboarding.roleOtherInputLabel": "역할을 입력해 주세요",
@@ -498,7 +502,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "{{integration}} 도구 사용",
   "composer.menu.scheduleTask": "작업 예약",
   "composer.menu.scheduleTaskDescription": "일정에 따라 실행",
-  "composer.menu.uploadFile": "파일 업로드",
+  "composer.menu.uploadFile": "파일 및 이미지",
+  "composer.menu.searchWorkspace": "워크스페이스 검색…",
+  "composer.menu.references": "참조",
+  "composer.menu.referenceFile": "파일 참조",
+  "composer.menu.attachToMessage": "컨텍스트 추가",
+  "composer.menu.commands": "명령",
   "composer.menu.uploadFileDescription": "이미지, PDF, 텍스트/코드, JSON, CSV",
   "composer.messageAgent": "에이전트에게 메시지 보내기...",
   "composer.model": "모델",
@@ -1321,6 +1330,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io는 무료 크레딧을 제공하며, 직접 API 키를 사용할 수도 있습니다.",
   "setup.builderOrOwnKeys":
     "Builder.io(무료 크레딧)를 사용하거나 직접 제공업체 키를 추가하세요.",
+  "setup.reconnectBuilder": "Builder.io 다시 연결",
   "setup.connectAi": "AI 연결",
   "setup.connectBuilder": "Builder.io 사용",
   "setup.connectionsDescription":
@@ -3352,6 +3362,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "워크스페이스에서 앱 제거",
   "chatFirst.showMore": "더 보기",
   "chatFirst.showLess": "간단히 보기",
+  "chatFirst.showMoreCount": "{{count}}개 더 보기",
   "chatFirst.appOrderUnavailable": "이 기기에 앱 순서를 저장하지 못했습니다.",
   "chatFirst.openSideSurfaces": "측면 패널 열기",
   "chatFirst.sideSurfaces": "측면 패널",

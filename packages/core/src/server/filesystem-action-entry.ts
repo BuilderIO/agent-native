@@ -1,5 +1,10 @@
 import { isMcpReadOnlyTool } from "../action-call-classification.js";
-import { ACTION_EXECUTION_KEY } from "../action.js";
+import {
+  ACTION_EXECUTION_KEY,
+  isActionDefinitionError,
+  namedActionDefinitionError,
+  validateSearchHints,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { carryFrameworkMcpTool } from "../mcp/framework-tools.js";
 
@@ -57,6 +62,7 @@ function isMcpAnnotations(value: unknown): value is Flag<"mcpAnnotations"> {
  */
 export function preserveActionFlags(
   entry: Record<string, unknown>,
+  actionName?: string,
 ): Partial<ActionEntry> {
   const out: Partial<ActionEntry> = {};
   carryFrameworkMcpTool(entry, out);
@@ -88,8 +94,15 @@ export function preserveActionFlags(
   if (typeof entry.deferLoading === "boolean") {
     out.deferLoading = entry.deferLoading;
   }
+  // Not dropped like the flags above: a malformed list would silently leave
+  // the action harder to find, so loading it fails instead.
+  const searchHints = validateSearchHints(entry.searchHints, actionName);
+  if (searchHints) out.searchHints = searchHints;
   if (typeof entry.eagerInputStreaming === "boolean") {
     out.eagerInputStreaming = entry.eagerInputStreaming;
+  }
+  if (typeof entry.emptyListsEraseNothing === "boolean") {
+    out.emptyListsEraseNothing = entry.emptyListsEraseNothing;
   }
   if (typeof entry.requiresAuth === "boolean") {
     out.requiresAuth = entry.requiresAuth;
@@ -108,6 +121,9 @@ export function preserveActionFlags(
   }
   if (typeof entry.persistInBrowser === "boolean") {
     out.persistInBrowser = entry.persistInBrowser;
+  }
+  if (typeof entry.persistInChatHistory === "boolean") {
+    out.persistInChatHistory = entry.persistInChatHistory;
   }
   if (typeof entry.changeResource === "function") {
     out.changeResource = entry.changeResource as Flag<"changeResource">;
@@ -219,4 +235,26 @@ export function filesystemActionEntry(def: Record<string, any>): ActionEntry {
   carryFrameworkMcpTool(def as ActionEntry, out);
   carryExecutionKey(def, out);
   return out;
+}
+
+/**
+ * The real entry for a dev action file, or `null` when the file should run as
+ * a CLI-script wrapper: it does not import (top-level CLI code, syntax Node
+ * cannot parse) or defines no action. A file that imports but defines its
+ * action wrongly throws an `ActionDefinitionError` naming it instead, so an
+ * invalid definition never silently changes how the action runs.
+ */
+export async function importDevActionEntry(
+  filePath: string,
+  actionName: string,
+): Promise<ActionEntry | null> {
+  try {
+    const def = actionDefinition(await import(/* @vite-ignore */ filePath));
+    return def ? filesystemActionEntry(def) : null;
+  } catch (error) {
+    if (isActionDefinitionError(error)) {
+      throw namedActionDefinitionError(error, actionName);
+    }
+    return null;
+  }
 }

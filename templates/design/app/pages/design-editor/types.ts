@@ -69,13 +69,18 @@ export function isDesignLeftPanelEnabled(
 
 export const FOCUSED_SCREEN_ZOOM = 100;
 
-export interface DesignFile {
+export interface DesignFileMetadata {
   id: string;
   filename: string;
   fileType: string;
-  content: string;
+  contentBytes?: number | null;
   createdAt: string | null;
   updatedAt: string;
+}
+
+export interface DesignFile extends DesignFileMetadata {
+  content: string;
+  sourceState?: "unloaded" | "loading" | "deferred" | "ready" | "error";
 }
 
 export type DesignAccessRole =

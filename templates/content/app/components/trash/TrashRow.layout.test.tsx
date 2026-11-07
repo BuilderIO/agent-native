@@ -45,7 +45,7 @@ const item = {
   hasAccessibleTrashedChildren: false,
 } satisfies ContentTrashItem;
 
-function renderRow(row: ContentTrashItem) {
+function renderRow(row: ContentTrashItem, selected = false) {
   return renderToStaticMarkup(
     <DatabaseTableLayout.Provider
       value={{ frozenThroughColumnId: "name", viewportWidth: 1280 }}
@@ -53,7 +53,7 @@ function renderRow(row: ContentTrashItem) {
       <DatabaseTableColumnOrder.Provider value={TRASH_TABLE_COLUMNS}>
         <TrashRow
           item={row}
-          selected={false}
+          selected={selected}
           expanded={false}
           onSelect={() => {}}
           onToggle={() => {}}
@@ -142,6 +142,12 @@ describe("TrashRow responsive expander contract", () => {
     expect(html).toContain("trash.unresolvedActor");
     expect(html).toContain("Display name");
     expect(html).not.toContain("deleter@example.test");
+  });
+
+  it("keeps selected and hover row backgrounds opaque so frozen cells hide scrolled columns", () => {
+    const html = renderRow(item, true);
+
+    expect(html).not.toMatch(/bg-muted\/\d+/);
   });
 
   it("shows a parent chevron below lg and swaps from its icon on desktop", () => {

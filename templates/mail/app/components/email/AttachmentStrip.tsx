@@ -24,7 +24,8 @@ export function AttachmentStrip({
   onRemove,
 }: {
   attachments: ComposeAttachment[];
-  onRemove: (attachmentId: string) => void;
+  // Leave this out to hide the remove buttons.
+  onRemove?: (attachmentId: string) => void;
 }) {
   const [failedPreviews, setFailedPreviews] = useState<Set<string>>(
     () => new Set(),
@@ -86,14 +87,16 @@ export function AttachmentStrip({
                   : formatFileSize(att.size)}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => onRemove(att.id)}
-              aria-label={`Remove ${att.originalName}`}
-              className="ms-0.5 rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
-            >
-              <IconX className="h-3.5 w-3.5" />
-            </button>
+            {onRemove && (
+              <button
+                type="button"
+                onClick={() => onRemove(att.id)}
+                aria-label={`Remove ${att.originalName}`}
+                className="ms-0.5 rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+              >
+                <IconX className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         );
       })}

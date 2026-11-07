@@ -5,6 +5,7 @@ import { getDbExec } from "../db/client.js";
 import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
 import { ForbiddenError } from "../sharing/access.js";
 import { createChatScriptEntries } from "./agent-chat/script-entries.js";
+import { registerAgentContextAgentFilter } from "./agent-context-agents.js";
 
 const mocks = vi.hoisted(() => ({
   ensurePersonalDefaults: vi.fn(async () => undefined),
@@ -55,6 +56,7 @@ const queueDrainHarness = vi.hoisted(() => ({
 const handlerHarness = vi.hoisted(() => ({
   options: [] as Array<{
     actions: Record<string, unknown>;
+    reasoningEffort?: string;
     systemPrompt: (event: unknown) => Promise<string>;
   }>,
 }));
@@ -505,13 +507,15 @@ describe("agent chat thread read route", () => {
 
 async function mountResourceRoutes(options?: {
   appId?: string;
+  actions?: AgentChatPluginOptions["actions"];
+  mentionProviders?: AgentChatPluginOptions["mentionProviders"];
   resolveOrgId?: (
     event: unknown,
   ) => string | null | undefined | Promise<string | null | undefined>;
 }) {
   const h3App = createApp();
   createAgentChatPlugin({
-    actions: () => ({}),
+    actions: options?.actions ?? (() => ({})),
     appId: options?.appId,
     a2aAgentDelegation: false,
     frameworkTools: "minimal",
@@ -1846,6 +1850,105 @@ describe("agent chat thread save route", () => {
     );
   });
 
+  it.each([
+    ["full snapshot", false],
+    ["snapshot delta", true],
+  ] as const)(
+    "redacts private action content and derived metadata from a %s",
+    async (_label, snapshotDelta) => {
+      const body = "private-mail-body-sentinel";
+      const h3App = await mountResourceRoutes({
+        actions: () => ({
+          "get-private-thread": {
+            tool: {
+              description: "Read a message thread",
+              parameters: { type: "object", properties: {} },
+            },
+            persistInChatHistory: false,
+            run: async () => body,
+          },
+        }),
+      });
+      threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+      mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+      const threadData = JSON.stringify({
+        messages: [
+          {
+            message: {
+              id: "assistant-private",
+              role: "assistant",
+              status: "complete",
+              parts: [{ type: "text", text: `Summary: ${body}` }],
+            },
+            parentId: null,
+          },
+        ],
+        agentKit: {
+          ...(snapshotDelta ? { _snapshotDelta: true } : {}),
+          runs: [
+            {
+              id: "run-private",
+              activeMessageId: "assistant-private",
+              status: "completed",
+            },
+          ],
+          toolCalls: [
+            {
+              id: "call-private",
+              name: "get-private-thread",
+              input: { threadId: "thread-id", includeBody: body },
+              output: body,
+              status: "completed",
+              runId: "run-private",
+              messageId: "assistant-private",
+            },
+          ],
+        },
+      });
+
+      const response = await fetchWithRequestContext(
+        h3App,
+        `/_agent-native/agent-chat/threads/${thread.id}`,
+        { userEmail: "user@example.test" },
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            threadData,
+            title: body,
+            preview: body,
+            messageCount: 1,
+          }),
+        },
+      );
+
+      expect(response.status).toBe(200);
+      const [
+        savedThreadId,
+        savedThreadData,
+        savedTitle,
+        savedPreview,
+        ,
+        saveOptions,
+      ] = threadStoreMocks.updateThreadData.mock.calls[0] ?? [];
+      expect(savedThreadId).toBe(thread.id);
+      expect(savedTitle).toBe(thread.title);
+      expect(savedPreview).toBe(thread.preview);
+      expect(saveOptions).toMatchObject({
+        preserveCurrentTitleAndPreview: snapshotDelta,
+      });
+      expect(savedThreadData).not.toContain(body);
+      const saved = JSON.parse(savedThreadData as string);
+      expect(saved.agentKit.toolCalls[0]).toMatchObject({
+        id: "call-private",
+        runId: "run-private",
+        omitFromPersistedHistory: true,
+      });
+      expect(JSON.stringify(saved.messages)).not.toContain(body);
+      expect(JSON.stringify(saved.agentKit)).not.toContain(body);
+    },
+  );
+
   it("returns 404 when the thread disappears before the save reaches storage", async () => {
     const h3App = await mountResourceRoutes();
     threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
@@ -2143,6 +2246,147 @@ describe("agent chat resource route organization scopes", () => {
     );
   });
 
+  it("isolates native reference searches and reports provider failure separately from an empty result", async () => {
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    const search = vi.fn(async () => [
+      {
+        id: "brief",
+        label: "Brief",
+        refType: "dashboard",
+        refId: "brief",
+        refPath: "brief",
+      },
+    ]);
+    const unrelated = vi.fn(async () => []);
+    const app = await mountResourceRoutes({
+      mentionProviders: {
+        dashboards: { label: "Dashboards", search },
+        recordings: { label: "Clips", search: unrelated },
+      },
+    });
+    const request = (source: string) =>
+      fetchWithRequestContext(
+        app,
+        `/_agent-native/agent-chat/mentions?source=${source}&q=brief`,
+        { userEmail: "user@example.test", orgId: "org-active" },
+      );
+    const result = await request("dashboards");
+    expect(result.status).toBe(200);
+    expect(JSON.parse(await result.text()).items).toEqual([
+      expect.objectContaining({
+        source: "dashboards",
+        id: "brief",
+        refType: "dashboard",
+      }),
+    ]);
+    expect(search).toHaveBeenCalledWith("brief", expect.anything());
+    expect(unrelated).not.toHaveBeenCalled();
+    const unknown = await request("unknown");
+    expect(unknown.status).toBe(404);
+    expect(await unknown.json()).toMatchObject({
+      error: { code: "mention_source_not_found", source: "unknown" },
+    });
+    search.mockResolvedValueOnce([]);
+    expect(
+      JSON.parse(await (await request("dashboards")).text()).items,
+    ).toEqual([]);
+    search.mockRejectedValueOnce(new Error("provider unavailable"));
+    const failure = await request("dashboards");
+    expect(failure.status).toBe(503);
+    expect(await failure.json()).toMatchObject({
+      error: {
+        code: "mention_source_unavailable",
+        source: "dashboards",
+        message: expect.any(String),
+      },
+    });
+  });
+
+  it("returns structured source errors for unauthenticated searches", async () => {
+    mocks.getSession.mockResolvedValue(null);
+    const app = await mountResourceRoutes({
+      mentionProviders: {
+        dashboards: { label: "Dashboards", search: async () => [] },
+      },
+    });
+    const response = await fetchWithRequestContext(
+      app,
+      "/_agent-native/agent-chat/mentions?source=dashboards",
+      {},
+    );
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "unauthorized",
+        source: "dashboards",
+        message: expect.any(String),
+      },
+    });
+  });
+
+  it("preserves inherited personal scope for both source-specific and streamed mention searches", async () => {
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    const scopes: unknown[] = [];
+    const app = await mountResourceRoutes({
+      resolveOrgId: () => undefined,
+      mentionProviders: {
+        dashboards: {
+          label: "Dashboards",
+          search: async () => {
+            scopes.push({
+              orgScope: getRequestContext()?.orgScope,
+              orgId: getRequestContext()?.orgId,
+            });
+            return [];
+          },
+        },
+      },
+    });
+    for (const query of ["?source=dashboards", ""]) {
+      const response = await fetchWithRequestContext(
+        app,
+        `/_agent-native/agent-chat/mentions${query}`,
+        { userEmail: "user@example.test", orgScope: "personal" },
+      );
+      expect(response.status).toBe(200);
+      await response.text();
+    }
+    expect(scopes).toEqual([
+      { orgScope: "personal", orgId: undefined },
+      { orgScope: "personal", orgId: undefined },
+    ]);
+  });
+
+  it("reports a failed generic mention source in the stream instead of a clean empty result", async () => {
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    const app = await mountResourceRoutes({
+      mentionProviders: {
+        dashboards: {
+          label: "Dashboards",
+          search: async () => {
+            throw new Error("provider unavailable");
+          },
+        },
+      },
+    });
+    const response = await fetchWithRequestContext(
+      app,
+      "/_agent-native/agent-chat/mentions",
+      { userEmail: "user@example.test", orgId: "org-active" },
+    );
+    const records = (await response.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(records).toContainEqual({
+      error: {
+        code: "mention_source_unavailable",
+        message: "Could not load workspace references.",
+        source: "dashboards",
+      },
+    });
+  });
+
   it("inherits the active request organization when no resolver is configured", async () => {
     const h3App = await mountResourceRoutes();
     expect(mocks.resourceListAllOwners).not.toHaveBeenCalledWith("jobs/");
@@ -2243,6 +2487,38 @@ describe("agent chat resource route organization scopes", () => {
       }),
     );
     expect(items.some((item) => item.refType === "file")).toBe(true);
+  });
+
+  it("applies the app's agent-context filter to Connected Agents mentions", async () => {
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    mocks.resourceListAccessible.mockResolvedValue([]);
+    const h3App = await mountResourceRoutes({ appId: "dispatch" });
+    mocks.discoverAgents.mockResolvedValue([
+      { id: "slides", name: "Slides", url: "https://slides.example.test" },
+      { id: "mail", name: "Mail", url: "https://mail.example.test" },
+    ] as never);
+    const unregister = registerAgentContextAgentFilter("dispatch", (agents) =>
+      agents.filter((agent) => agent.id !== "mail"),
+    );
+    try {
+      const response = await fetchWithRequestContext(
+        h3App,
+        "/_agent-native/agent-chat/mentions",
+        { userEmail: "user@example.test", orgId: "org-active" },
+      );
+      const frames = (await response.text())
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(frames.filter((frame) => frame.error)).toEqual([]);
+      const ids = frames
+        .flatMap((frame) => frame.items)
+        .filter((item) => item.section === "Connected Agents")
+        .map((item) => item.refId);
+      expect(ids).toEqual(["slides"]);
+    } finally {
+      unregister();
+    }
   });
 
   it("inherits the active request organization when a resolver returns undefined", async () => {
@@ -3172,6 +3448,10 @@ describe("compact skills summary and the request registry", () => {
 
   async function mountLeanHandler(
     frameworkTools: AgentChatPluginOptions["frameworkTools"],
+    pluginOptions: Pick<
+      AgentChatPluginOptions,
+      "validateDataWidget" | "reasoningEffort"
+    > = {},
   ) {
     createAgentChatPlugin({
       actions: () => ({}),
@@ -3179,6 +3459,7 @@ describe("compact skills summary and the request registry", () => {
       frameworkTools,
       leanPrompt: true,
       mcp: { enabled: false },
+      ...pluginOptions,
     })({ h3App: createApp(), hooks: { hook: vi.fn() } });
     await routeHarness.initPromises.at(-1);
     const handler = handlerHarness.options[0];
@@ -3192,7 +3473,7 @@ describe("compact skills summary and the request registry", () => {
           new H3Event(new Request("https://app.example.test/chat")),
         ),
     );
-    return { registry: handler.actions, systemPrompt };
+    return { handler, registry: handler.actions, systemPrompt };
   }
 
   function toolsNamedBySkillsSummary(systemPrompt: string): string[] {
@@ -3217,6 +3498,34 @@ describe("compact skills summary and the request registry", () => {
     // The lean prompt omits the compact framework prompt, so it carries the
     // batching rule itself.
     expect(systemPrompt).toContain("emit them in the same step");
+  });
+
+  it("forwards the widget validator and configured reasoning effort to the runtime handler", async () => {
+    const validateDataWidget = vi.fn(() => {
+      throw new Error("Widget rejected by app policy");
+    });
+    const { handler, registry } = await mountLeanHandler("minimal", {
+      validateDataWidget,
+      reasoningEffort: "high",
+    });
+
+    expect(handler.reasoningEffort).toBe("high");
+    const renderDataWidget = registry["render-data-widget"] as
+      | { run: (input: unknown, context?: unknown) => Promise<unknown> }
+      | undefined;
+    expect(renderDataWidget).toBeDefined();
+    const input = {
+      widget: "data-table",
+      table: {
+        columns: [{ key: "category", label: "Category" }],
+        rows: [{ category: "candidate" }],
+      },
+    };
+
+    await expect(renderDataWidget!.run(input)).rejects.toThrow(
+      "Widget rejected by app policy",
+    );
+    expect(validateDataWidget).toHaveBeenCalledWith(input, undefined);
   });
 
   it("drops the skills summary when the registry has no skill-read tool", async () => {

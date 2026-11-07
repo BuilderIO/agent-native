@@ -4,6 +4,10 @@ import { z } from "zod";
 
 import { getAccessibleCapture, serializeCapture } from "../server/lib/brain.js";
 import {
+  parseCaptureMetadata,
+  withheldZoomPassageCount,
+} from "../server/lib/search-index-contracts.js";
+import {
   redactSensitiveText,
   redactSensitiveValue,
 } from "../server/lib/search.js";
@@ -34,7 +38,13 @@ export default defineAction({
   run: async ({ id, includeRawContent }) => {
     const access = await getAccessibleCapture(id);
     if (!access) return { capture: null };
-    const capture = serializeCapture(access.capture);
+    const capture = {
+      ...serializeCapture(access.capture),
+      withheldPassages: withheldZoomPassageCount(
+        parseCaptureMetadata(access.capture.metadataJson),
+        access.source.provider,
+      ),
+    };
     if (includeRawContent) {
       await assertAccess("brain-source", access.capture.sourceId, "editor");
       return {

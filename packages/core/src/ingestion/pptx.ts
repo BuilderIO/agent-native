@@ -303,22 +303,24 @@ export async function parsePptxPresentation(
     );
   }
   const unresolvedSlideIdCount = droppedSlides.length;
-  const theme = await parseTheme(zip, parseXml, slideMasterRelationship);
-  const tableStyles = await parseTableStyles(zip, parseXml);
-  const masterColorInfo = slideMasterRelationship
-    ? await parseMasterColorInfo({
-        zip,
-        target: slideMasterRelationship.target,
-        parseXml,
-      })
-    : {
-        clrMap: {},
-        titleDefaultsByLevel: {},
-        bodyDefaultsByLevel: {},
-        otherDefaultsByLevel: {},
-        placeholderDefaults: [],
-        background: null,
-      };
+  const [theme, tableStyles, masterColorInfo] = await Promise.all([
+    parseTheme(zip, parseXml, slideMasterRelationship),
+    parseTableStyles(zip, parseXml),
+    slideMasterRelationship
+      ? parseMasterColorInfo({
+          zip,
+          target: slideMasterRelationship.target,
+          parseXml,
+        })
+      : {
+          clrMap: {},
+          titleDefaultsByLevel: {},
+          bodyDefaultsByLevel: {},
+          otherDefaultsByLevel: {},
+          placeholderDefaults: [],
+          background: null,
+        },
+  ]);
   const colorContext: ColorContext = {
     themeColorsByName: theme.colorsByName,
     clrMap: masterColorInfo.clrMap,
@@ -644,10 +646,10 @@ async function buildSlideTemplateContext(args: {
   imageBudget: PptxImageByteBudget;
 }): Promise<SlideTemplateContext | undefined> {
   const layoutPath = args.layoutPath;
-  const layoutXml = await args.zip.file(layoutPath)?.async("string");
-  const layoutRelsXml = await args.zip
-    .file(relsPathForPptxPart(layoutPath))
-    ?.async("string");
+  const [layoutXml, layoutRelsXml] = await Promise.all([
+    args.zip.file(layoutPath)?.async("string"),
+    args.zip.file(relsPathForPptxPart(layoutPath))?.async("string"),
+  ]);
   if (!layoutRelsXml) return undefined;
   const layoutRelationships = parseRelationships(args.parseXml(layoutRelsXml));
   const masterRelationship = [...layoutRelationships.values()].find(
