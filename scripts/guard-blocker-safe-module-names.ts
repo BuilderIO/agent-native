@@ -22,8 +22,11 @@
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
+import type * as TypeScript from "typescript";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -88,8 +91,12 @@ const SKIPPED = /(?:\.spec\.|\.test\.|\/__tests__\/|\.d\.ts$)/;
 // followed, as no such import in the repo uses an alias.
 const QUERY_IMPORT =
   /(?:\bfrom|\bimport)\s*\(?\s*["'](\.{1,2}\/[^"'?]+)\?[^"']*["']/g;
-// Where `import.meta.glob` appears. globCallPatterns tells calls from mentions.
-const GLOB_CALL = /\bimport\.meta\.glob\b/g;
+
+// TypeScript parses the files that call `import.meta.glob`. It's loaded on
+// first use, as the CI scope script imports devModuleUrl from here before
+// dependencies are installed.
+const require = createRequire(import.meta.url);
+let ts: typeof TypeScript | undefined;
 
 // Every place a browser loads modules from, with the URL each file gets in dev.
 // Package sources reach apps as their published `dist/*.js` files. `public/`
@@ -220,74 +227,51 @@ function globPattern(glob: string): RegExp {
 }
 
 /**
- * The patterns passed to the `import.meta.glob` call whose name ends at
- * `start` in `source`: undefined when no call follows, as in a mention in a
- * message, and null when its patterns aren't string literals.
+ * The `import.meta.glob` calls in `source`, each with its first line and its
+ * patterns, or null patterns when they aren't string literals. Comments and
+ * strings that only mention it don't count.
  */
-function globCallPatterns(
+function globCalls(
+  file: string,
   source: string,
-  start: number,
-): string[] | null | undefined {
-  let at = start;
-  // Skips whitespace and comments.
-  const skipSpace = () => {
-    for (;;) {
-      while (/\s/.test(source[at] ?? "")) at++;
-      const close = source.startsWith("//", at)
-        ? "\n"
-        : source.startsWith("/*", at)
-          ? "*/"
-          : null;
-      if (close === null) return;
-      const end = source.indexOf(close, at + 2);
-      at = end === -1 ? source.length : end + close.length;
+): { text: string; patterns: string[] | null }[] {
+  if (!source.includes("import.meta.glob")) return [];
+  const parser = (ts ??= require("typescript") as typeof TypeScript);
+  const sourceFile = parser.createSourceFile(
+    file,
+    source,
+    parser.ScriptTarget.Latest,
+  );
+  const calls: { text: string; patterns: string[] | null }[] = [];
+  const visit = (node: TypeScript.Node): void => {
+    if (
+      parser.isCallExpression(node) &&
+      parser.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "glob" &&
+      parser.isMetaProperty(node.expression.expression) &&
+      node.expression.expression.keywordToken ===
+        parser.SyntaxKind.ImportKeyword
+    ) {
+      const [first] = node.arguments;
+      const elements =
+        first && parser.isArrayLiteralExpression(first)
+          ? [...first.elements]
+          : [first];
+      calls.push({
+        text: node.getText(sourceFile).split("\n", 1)[0],
+        patterns: elements.every(
+          (element) => element && parser.isStringLiteralLike(element),
+        )
+          ? elements.map(
+              (element) => (element as TypeScript.StringLiteral).text,
+            )
+          : null,
+      });
     }
+    parser.forEachChild(node, visit);
   };
-  const readString = (): string | null => {
-    const quote = source[at];
-    if (quote !== '"' && quote !== "'" && quote !== "`") return null;
-    const end = source.indexOf(quote, at + 1);
-    if (end === -1) return null;
-    const text = source.slice(at + 1, end);
-    // Escapes, line breaks and `${…}` make a pattern this can't read.
-    if (/[\\\n]|\$\{/.test(text)) return null;
-    at = end + 1;
-    return text;
-  };
-  skipSpace();
-  if (source[at] !== "<" && source[at] !== "(") return undefined;
-  if (source[at] === "<") {
-    // Type arguments can nest, as in `<Record<string, string>>`.
-    let depth = 0;
-    do {
-      if (source[at] === "<") depth++;
-      else if (source[at] === ">" && source[at - 1] !== "=") depth--;
-      at++;
-    } while (depth > 0 && at < source.length);
-    skipSpace();
-  }
-  if (source[at] !== "(") return null;
-  at++;
-  skipSpace();
-  const patterns: string[] = [];
-  if (source[at] === "[") {
-    at++;
-    for (skipSpace(); source[at] !== "]"; skipSpace()) {
-      const pattern = readString();
-      if (pattern === null) return null;
-      patterns.push(pattern);
-      skipSpace();
-      if (source[at] === ",") at++;
-      else if (source[at] !== "]") return null;
-    }
-    at++;
-  } else {
-    const pattern = readString();
-    if (pattern === null) return null;
-    patterns.push(pattern);
-  }
-  skipSpace();
-  return source[at] === "," || source[at] === ")" ? patterns : null;
+  visit(sourceFile);
+  return calls;
 }
 
 interface GlobCall {
@@ -318,25 +302,31 @@ export function browserModules(
     for (const [, spec] of source.matchAll(QUERY_IMPORT)) {
       imported.add(path.posix.join(dir, spec));
     }
-    for (const call of source.matchAll(GLOB_CALL)) {
-      const patterns = globCallPatterns(source, call.index + call[0].length);
-      if (patterns === undefined) continue;
+    for (const { text, patterns } of globCalls(file, source)) {
       // Rather than skip the files, stop at what this can't follow: patterns
       // that aren't string literals, syntax such as `[ab]` or `{1..3}`, and
       // paths from the project root.
       if (patterns === null) {
-        const text = source.slice(call.index).split("\n", 1)[0];
         throw new Error(`${file} imports a glob it can't follow: ${text}`);
       }
       const glob: GlobCall = { include: [], exclude: [] };
       for (const pattern of patterns.flatMap(expandBraces)) {
-        const excluded = pattern.startsWith("!");
-        const relative = excluded ? pattern.slice(1) : pattern;
-        if (!relative.startsWith(".") || /[[\](){}]/.test(relative)) {
+        const followable = (relative: string) =>
+          relative.startsWith(".") && !/[[\](){}]/.test(relative);
+        if (pattern.startsWith("!")) {
+          // An exclusion only narrows the match, so one this can't follow,
+          // such as `!**/*.test.ts`, is left out: it checks more files, not
+          // fewer.
+          if (followable(pattern.slice(1))) {
+            glob.exclude.push(
+              globPattern(path.posix.join(dir, pattern.slice(1))),
+            );
+          }
+        } else if (followable(pattern)) {
+          glob.include.push(globPattern(path.posix.join(dir, pattern)));
+        } else {
           throw new Error(`${file} imports a glob it can't follow: ${pattern}`);
         }
-        const regex = globPattern(path.posix.join(dir, relative));
-        (excluded ? glob.exclude : glob.include).push(regex);
       }
       globs.push(glob);
     }
@@ -476,7 +466,7 @@ function main(): void {
       `guard-blocker-safe-module-names: could not run: ${error instanceof Error ? error.message : String(error)}`,
     );
     console.error(
-      "\nPass import.meta.glob relative string patterns using `*`, `**`, `?`, `{a,b}` and `!`, or teach this guard the new syntax.",
+      "\nPass import.meta.glob relative string patterns using `*`, `**`, `?` and `{a,b}`, or teach this guard the new syntax.",
     );
     process.exit(2);
   }
