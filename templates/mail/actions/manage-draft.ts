@@ -32,9 +32,10 @@ import {
   withLocalEmailMutationLock,
   writeLocalEmails,
 } from "../server/lib/local-email-store.js";
+import { attachmentFromUpload } from "../server/lib/media-upload.js";
 import { resolveExistingSavedDraftOwnership } from "../server/lib/saved-draft-ownership.js";
 import { appendSignatureToBody } from "../shared/signature.js";
-import type { ComposeState } from "../shared/types.js";
+import type { ComposeAttachment, ComposeState } from "../shared/types.js";
 
 // MCP Apps hosts embed the compact draft card; "Open in Mail" keeps the full
 // inbox deep link.
@@ -99,7 +100,68 @@ const draftFields = {
     .string()
     .optional()
     .describe("The 'from' account email address to send from"),
+  attachments: z
+    .array(
+      z.object({
+        filename: z
+          .string()
+          .min(1)
+          .max(255)
+          .describe("The `filename` from the upload's `attachment` object"),
+        originalName: z
+          .string()
+          .min(1)
+          .max(255)
+          .optional()
+          .describe("Name the recipient sees"),
+        mimeType: z.string().max(255).optional().describe("File type"),
+      }),
+    )
+    .max(25)
+    .optional()
+    .describe(
+      "Files on the draft. Pass the `attachment` object from the finished create-attachment-upload PUT. This replaces the draft's whole list, so on update include the files to keep; [] removes them all.",
+    ),
 };
+
+type DraftAttachmentHandle = NonNullable<
+  z.infer<z.ZodObject<typeof draftFields>>["attachments"]
+>[number];
+
+/** Files already on the draft keep their entry, which holds forwarded Gmail parts. */
+async function resolveDraftAttachments(
+  handles: DraftAttachmentHandle[],
+  ownerEmail: string | null | undefined,
+  current: ComposeAttachment[] = [],
+): Promise<ComposeAttachment[]> {
+  if (!ownerEmail) throw new Error("Unauthenticated");
+  const attachments: ComposeAttachment[] = [];
+  for (const handle of handles) {
+    const attachment =
+      current.find((existing) => existing.filename === handle.filename) ??
+      (await attachmentFromUpload(ownerEmail, handle));
+    if (!attachment)
+      fail(
+        `Attachment "${handle.filename}" isn't an upload Mail has for this account. Finish its create-attachment-upload PUT, then use the returned attachment object.`,
+        { errorCode: "draft_attachment_not_found", statusCode: 400 },
+      );
+    attachments.push(attachment);
+  }
+  return attachments;
+}
+
+function hasSameAttachments(
+  current: unknown,
+  handles: DraftAttachmentHandle[],
+): boolean {
+  const filenames = Array.isArray(current)
+    ? current.map((attachment) => attachment?.filename)
+    : [];
+  return isSameRecord(
+    filenames,
+    handles.map((handle) => handle.filename),
+  );
+}
 
 const draftId = z
   .string()
@@ -438,6 +500,9 @@ export default defineAction({
       const signature = await readConfiguredSignature();
       const ownerEmail = getRequestUserEmail();
       const body = appendSignatureToBody(args.body || "", signature);
+      const attachments = args.attachments
+        ? await resolveDraftAttachments(args.attachments, ownerEmail)
+        : undefined;
       const savedGmailDraft = ownerEmail
         ? await beforeFirstWrite(() =>
             saveGmailDraft({
@@ -448,6 +513,7 @@ export default defineAction({
               bcc: args.bcc,
               subject: args.subject || "",
               body,
+              attachments,
               replyToId: args.replyToId,
               replyToThreadId: args.replyToThreadId,
             }),
@@ -469,6 +535,7 @@ export default defineAction({
       };
       if (args.cc) draft.cc = args.cc;
       if (args.bcc) draft.bcc = args.bcc;
+      if (attachments?.length) draft.attachments = attachments;
       if (args.replyToId) draft.replyToId = args.replyToId;
       if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
       const accountEmail = savedGmailDraft?.accountEmail ?? args.accountEmail;
@@ -553,7 +620,9 @@ export default defineAction({
             (key) =>
               changes[key] === undefined ||
               isSameRecord(current[key], changes[key]),
-          ),
+          ) &&
+          (args.attachments === undefined ||
+            hasSameAttachments(current.attachments, args.attachments)),
       });
       if (decision === "already_applied") {
         const draft = storedDraft as unknown as ComposeState;
@@ -632,6 +701,13 @@ export default defineAction({
       for (const key of DRAFT_UPDATE_FIELDS) {
         if ((args as any)[key] !== undefined)
           (draft as any)[key] = (args as any)[key];
+      }
+      if (args.attachments !== undefined) {
+        draft.attachments = await resolveDraftAttachments(
+          args.attachments,
+          ownerEmail,
+          draft.attachments,
+        );
       }
       const accountEmail =
         ownership?.backend === "gmail"
