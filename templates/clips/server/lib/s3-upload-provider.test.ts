@@ -63,6 +63,7 @@ import {
   s3MediaCleanupFingerprint,
   fetchS3OrganizationLogoByLegacyUrl,
   fetchS3ObjectByUrl,
+  openS3Recording,
   isS3ObjectUrlBoundToRecording,
   s3FileUploadProvider,
   s3ObjectSizeBytesByUrl,
@@ -265,6 +266,42 @@ describe("s3FileUploadProvider", () => {
       "R2_PUBLIC_BASE_URL",
     ]) {
       delete process.env[key];
+    }
+  });
+
+  it("binds a range reader to one recording and one resolved storage configuration", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips",
+      S3_ACCESS_KEY_ID: "fake-access",
+      S3_SECRET_ACCESS_KEY: "fake-secret",
+      S3_ENDPOINT: "https://s3.example.test",
+    };
+    mockResolveSecret.mockImplementation(
+      async (key: string) => values[key] ?? null,
+    );
+    mockSsrfSafeFetch.mockImplementation(
+      async () => new Response("x", { status: 206 }),
+    );
+    const url = "https://s3.example.test/clips/clips/rec-1/video.mp4";
+    expect(
+      await openS3Recording(url, { recordingId: "other", storageMode: "own" }),
+    ).toBeNull();
+    const reader = await openS3Recording(url, {
+      recordingId: "rec-1",
+      storageMode: "own",
+    });
+    expect(reader).not.toBeNull();
+    values.S3_ENDPOINT = "https://different.example.test";
+    mockPrefetchSecrets.mockClear();
+    if (!reader) throw new Error("missing scoped reader");
+    await (await reader("bytes=0-0", 1000)).body?.cancel();
+    await (await reader("bytes=2-2", 1000)).body?.cancel();
+    expect(mockPrefetchSecrets).not.toHaveBeenCalled();
+    expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(2);
+    for (const [requestUrl] of mockSsrfSafeFetch.mock.calls) {
+      expect(requestUrl).toBe(
+        "https://s3.example.test/clips/clips/rec-1/video.mp4",
+      );
     }
   });
 

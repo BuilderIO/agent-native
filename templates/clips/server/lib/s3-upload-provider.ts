@@ -889,6 +889,24 @@ export async function isS3ObjectUrlBoundToRecording(
   );
 }
 
+export async function openS3Recording(
+  url: string,
+  options: { recordingId: string; storageMode: ClipsS3StorageMode },
+): Promise<((range: string, timeoutMs: number) => Promise<Response>) | null> {
+  const cfg = await readS3ConfigForMode(options.storageMode);
+  if (!cfg) return null;
+  const key = objectKeyFromUrl(cfg, url);
+  if (
+    !key ||
+    !options.recordingId ||
+    !isCompletedClipObjectKey(key) ||
+    !isRecordingObjectKey(key, options.recordingId)
+  )
+    return null;
+  return (range, timeoutMs) =>
+    s3Request(cfg, key, { method: "GET", range, timeoutMs });
+}
+
 export async function fetchS3ObjectByUrl(
   url: string,
   options: {

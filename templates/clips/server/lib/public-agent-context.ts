@@ -8,6 +8,7 @@ import { isOrgMember } from "@agent-native/core/org";
 import {
   getSession,
   getForwardedRequestURL,
+  runWithRequestContext,
   signScopedAgentAccessToken,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
@@ -51,10 +52,14 @@ import {
 import { resolveTranscriptPresentation } from "../../shared/transcript-status.js";
 import { getDb, schema } from "../db/index.js";
 import { buildAgentEditedTimeline } from "./agent-edited-timeline.js";
+import {
+  openAgentFrameRange,
+  type RemoteFrameInput,
+} from "./agent-frame-range.js";
 import { recordAgentView } from "./agent-views.js";
 import { isSupportedImageMimeType } from "./image-signature.js";
 import { isRecordingExpiredForViewer } from "./recording-page-access.js";
-import { fetchS3ObjectByUrl } from "./s3-upload-provider.js";
+import { fetchS3ObjectByUrl, openS3Recording } from "./s3-upload-provider.js";
 import {
   getRecordingAccessTokenResourceId,
   verifySharePassword,
@@ -1299,7 +1304,12 @@ export async function loadRecordingMediaBytes(
 
 export async function loadRecordingMediaFile(
   recording: PublicAgentRecording,
-): Promise<{ path: string; mimeType: string; cleanup: () => Promise<void> }> {
+): Promise<{
+  path: string;
+  mimeType: string;
+  cleanup: () => Promise<void>;
+  remote?: RemoteFrameInput;
+}> {
   const videoUrl = recording.videoUrl ?? "";
   if (!videoUrl) {
     throw new RecordingMediaFetchError("Recording media is missing.", 404);
@@ -1308,9 +1318,32 @@ export async function loadRecordingMediaFile(
   if (embedProvider) {
     throw new Error(embedFramesUnavailableReason(embedProvider));
   }
-  assertFrameMediaFileSize(recording.videoSizeBytes);
-
   const fallbackMimeType = recordingFallbackMimeType(recording);
+  if (
+    typeof recording.videoSizeBytes === "number" &&
+    recording.videoSizeBytes > maxAgentFrameMediaFileBytes() &&
+    (recording.storageMode === "own" || recording.storageMode === "hosted") &&
+    (recording.videoFormat === "mp4" || recording.videoFormat === "webm") &&
+    !isLocalRecordingBlob(videoUrl)
+  ) {
+    const storageMode = recording.storageMode;
+    const read = await runWithRequestContext(
+      {
+        userEmail: recording.ownerEmail,
+        ...(recording.orgId ? { orgId: recording.orgId } : {}),
+      },
+      () =>
+        openS3Recording(videoUrl, { recordingId: recording.id, storageMode }),
+    );
+    if (read) {
+      const media = await openAgentFrameRange(
+        read,
+        recording.videoFormat === "mp4" ? "mov" : "matroska",
+      );
+      return { ...media, mimeType: fallbackMimeType };
+    }
+  }
+  assertFrameMediaFileSize(recording.videoSizeBytes);
   const dir = await mkdtemp(join(tmpdir(), "clips-agent-frame-"));
   const path = join(
     dir,

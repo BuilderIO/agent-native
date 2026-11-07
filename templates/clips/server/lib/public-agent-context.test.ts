@@ -1,10 +1,14 @@
-import { readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAppStateGet = vi.hoisted(() => vi.fn());
 const mockSsrfSafeFetch = vi.hoisted(() => vi.fn());
 const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
+const mockOpenS3Recording = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockSignScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
@@ -33,10 +37,13 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 }));
 vi.mock("./s3-upload-provider.js", () => ({
   fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
+  openS3Recording: (...args: unknown[]) => mockOpenS3Recording(...args),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
   getForwardedRequestURL: (event: { url: URL | string }) => new URL(event.url),
+  runWithRequestContext: (_context: unknown, callback: () => unknown) =>
+    callback(),
   getSession: (...args: unknown[]) => mockGetSession(...args),
   signScopedAgentAccessToken: (...args: unknown[]) =>
     mockSignScopedAgentAccessToken(...args),
@@ -100,6 +107,12 @@ import {
   RecordingMediaFetchError,
 } from "./public-agent-context";
 import { verifySharePassword } from "./share-password.js";
+import { planFrameSheet } from "./video-frame-sheet.js";
+import {
+  extractJpegFrameFromFile,
+  extractJpegFrameSheetFromFile,
+  probeFrameSheetFpsFromFile,
+} from "./video-frame.js";
 
 const originalMaxMediaBytes = process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES;
 const originalMaxMediaFileBytes =
@@ -600,6 +613,146 @@ describe("loadRecordingMediaBytes", () => {
       }),
     );
     expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["mp4", "webm"])(
+    "extracts real frames from oversized %s storage using bounded ranges",
+    async (format) => {
+      const dir = await mkdtemp(join(tmpdir(), "clips-range-repro-"));
+      try {
+        const file = join(dir, `sample.${format}`);
+        execFileSync("ffmpeg", [
+          "-v",
+          "error",
+          "-f",
+          "lavfi",
+          "-i",
+          "color=red:size=64x64:rate=2",
+          "-t",
+          "2",
+          ...(format === "mp4"
+            ? ["-movflags", "+faststart"]
+            : ["-c:v", "libvpx"]),
+          "-y",
+          file,
+        ]);
+        const bytes = Buffer.concat([
+          await readFile(file),
+          Buffer.alloc(8 * 1024 * 1024),
+        ]);
+        const ranges: string[] = [];
+        mockOpenS3Recording.mockResolvedValue(async (range: string) => {
+          ranges.push(range);
+          const match = /^bytes=(\d+)-(\d+)$/.exec(range);
+          if (!match) throw new Error("Unbounded range");
+          const start = Number(match[1]);
+          const end = Math.min(Number(match[2]), bytes.length - 1);
+          return new Response(bytes.subarray(start, end + 1), {
+            status: 206,
+            headers: {
+              etag: '"stable"',
+              "content-range": `bytes ${start}-${end}/${bytes.length}`,
+            },
+          });
+        });
+        const media = await loadRecordingMediaFile(
+          makeRecording({
+            videoUrl: `https://storage.example.test/clips/rec-1/video.${format}`,
+            videoFormat: format,
+            videoSizeBytes: bytes.length,
+            storageMode: "own",
+          }) as any,
+        );
+        try {
+          const frame = await extractJpegFrameFromFile({
+            mediaPath: media.path,
+            atMs: 500,
+            remote: media.remote,
+          });
+          expect(Buffer.from(frame).subarray(0, 2)).toEqual(
+            Buffer.from([0xff, 0xd8]),
+          );
+          const rgb = execFileSync(
+            "ffmpeg",
+            [
+              "-v",
+              "error",
+              "-i",
+              "pipe:0",
+              "-frames:v",
+              "1",
+              "-f",
+              "rawvideo",
+              "-pix_fmt",
+              "rgb24",
+              "pipe:1",
+            ],
+            { input: frame },
+          );
+          expect(rgb[0]).toBeGreaterThan(200);
+          expect(rgb[1]).toBeLessThan(30);
+          expect(rgb[2]).toBeLessThan(30);
+          const frameRanges = ranges.slice();
+          const fps = await probeFrameSheetFpsFromFile(
+            media.path,
+            media.remote,
+          );
+          const plan = planFrameSheet({
+            request: { startMs: 0, endMs: 1000, fps },
+            fps,
+            durationMs: 2000,
+            width: 64,
+            height: 64,
+          });
+          if (!plan.ok) throw new Error(plan.error);
+          const sheet = await extractJpegFrameSheetFromFile({
+            mediaPath: media.path,
+            remote: media.remote,
+            plan: plan.value,
+          });
+          expect(Buffer.from(sheet).subarray(0, 2)).toEqual(
+            Buffer.from([0xff, 0xd8]),
+          );
+          expect(ranges.length).toBeGreaterThan(1);
+          const sizes = ranges.map((range) => {
+            const match = /^bytes=(\d+)-(\d+)$/.exec(range);
+            if (!match) throw new Error("Unbounded range");
+            return Number(match[2]) - Number(match[1]) + 1;
+          });
+          expect(Math.max(...sizes)).toBeLessThanOrEqual(1024 * 1024);
+          expect(
+            sizes.reduce((sum, size) => sum + size, 0),
+          ).toBeLessThanOrEqual(64 * 1024 * 1024);
+          expect(frameRanges.length).toBeGreaterThan(1);
+        } finally {
+          await media.cleanup();
+        }
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("keeps the size cap for oversized sources not bound to S3", async () => {
+    mockOpenS3Recording.mockReset().mockResolvedValue(null);
+    await expect(
+      loadRecordingMediaFile(
+        makeRecording({
+          videoSizeBytes: 10,
+          storageMode: null,
+        }) as any,
+      ),
+    ).rejects.toThrow(/too large/i);
+    expect(mockOpenS3Recording).not.toHaveBeenCalled();
+    await expect(
+      loadRecordingMediaFile(
+        makeRecording({
+          videoSizeBytes: 10,
+          storageMode: "own",
+        }) as any,
+      ),
+    ).rejects.toThrow(/too large/i);
+    expect(mockOpenS3Recording).toHaveBeenCalledTimes(1);
   });
 
   it("streams large remote frame media to a temporary file", async () => {
