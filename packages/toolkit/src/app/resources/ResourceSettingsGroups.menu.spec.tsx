@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -24,13 +25,20 @@ import { DropdownMenuItem } from "@agent-native/toolkit/ui/dropdown-menu";
 
 import { RowMenuTrigger } from "./ResourceSettingsGroups.js";
 
-function RemoveHarness() {
+function RemoveHarness({ onRemove }: { onRemove: () => Promise<void> }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [removed, setRemoved] = useState(false);
+  const [rowVisible, setRowVisible] = useState(true);
+
+  const remove = async () => {
+    // Resource tree refresh can unmount the row before the delete promise settles.
+    setRowVisible(false);
+    await onRemove();
+    setConfirmOpen(false);
+  };
 
   return (
     <>
-      {!removed ? (
+      {rowVisible ? (
         <RowMenuTrigger>
           <DropdownMenuItem onSelect={() => setConfirmOpen(true)}>
             Remove
@@ -43,13 +51,7 @@ function RemoveHarness() {
           <AlertDialogDescription>
             This action removes the selected skill.
           </AlertDialogDescription>
-          <button
-            type="button"
-            onClick={() => {
-              setRemoved(true);
-              setConfirmOpen(false);
-            }}
-          >
+          <button type="button" onClick={() => void remove()}>
             Confirm removal
           </button>
         </AlertDialogContent>
@@ -64,8 +66,12 @@ afterEach(() => {
 });
 
 describe("resource row removal menu", () => {
-  it("releases page pointer input after removing the row", async () => {
-    render(<RemoveHarness />);
+  it("releases pointer input when a row unmounts before confirmation closes", async () => {
+    let finishRemoval: (() => void) | undefined;
+    const pendingRemoval = new Promise<void>((resolve) => {
+      finishRemoval = resolve;
+    });
+    render(<RemoveHarness onRemove={() => pendingRemoval} />);
 
     fireEvent.pointerDown(
       screen.getByRole("button", {
@@ -82,6 +88,20 @@ describe("resource row removal menu", () => {
     await waitFor(() => expect(screen.getByRole("alertdialog")).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm removal" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", {
+          name: "agentChat.settingsResources.moreActions",
+        }),
+      ).toBeNull(),
+    );
+    // The row has unmounted but the confirmation is still pending.
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
+
+    await act(async () => {
+      finishRemoval?.();
+      await pendingRemoval;
+    });
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     expect(document.body.style.pointerEvents).not.toBe("none");
   });
