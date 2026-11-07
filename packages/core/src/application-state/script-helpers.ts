@@ -185,18 +185,31 @@ async function readUnscopedAppState(
   return appStateGet(sessionId, key);
 }
 
+/**
+ * Reads `key` for the current request's tab (see
+ * resolveCurrentRequestStateTab), falling back to the account-wide row only
+ * when `fallbackToGlobal` is true. A request with no tab at all reads the
+ * account-wide row. An MCP call that found no recently used tab reads it
+ * only when it opted in, and never for the ambient keys: no tab keeps those
+ * rows current.
+ */
 export async function readAppStateForCurrentTab(
   key: string,
   options?: { fallbackToGlobal?: boolean },
 ): Promise<Record<string, unknown> | null> {
   const tab = await resolveCurrentRequestStateTab();
   const tabKey = appStateKeyForBrowserTab(key, tab.tabId);
+  const fallbackToGlobal = options?.fallbackToGlobal === true;
   if (tabKey !== key) {
     const scoped = await readAppState(tabKey);
     if (scoped) return scoped;
-    if (options?.fallbackToGlobal !== true) return null;
+    if (!fallbackToGlobal) return null;
   }
-  if (tab.unavailable && TAB_SCOPED_AMBIENT_KEYS.has(key)) return null;
+  if (
+    tab.unavailable &&
+    (!fallbackToGlobal || TAB_SCOPED_AMBIENT_KEYS.has(key))
+  )
+    return null;
   return readUnscopedAppState(key);
 }
 

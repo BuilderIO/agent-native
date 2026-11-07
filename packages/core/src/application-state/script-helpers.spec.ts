@@ -449,21 +449,47 @@ describe("application-state script-helpers", () => {
       expect(mockAppStateGet).not.toHaveBeenCalled();
     });
 
-    it("keeps other keys and every write on the account-wide rows when no tab was used recently", async () => {
+    it("reads another key's account-wide row only on request when no tab was used recently", async () => {
       const helpers = await import("./script-helpers.js");
       mockAppStateGet.mockResolvedValue({ designId: "selected" });
-      mockAppStatePut.mockResolvedValue(undefined);
 
-      const { result } = await inMcpCall({ kind: "unavailable" }, async () => {
-        await helpers.writeAppStateForCurrentTab("navigate", { view: "x" });
-        return helpers.readAppStateForCurrentTab("design-selection");
-      });
+      const { result } = await inMcpCall({ kind: "unavailable" }, async () => [
+        await helpers.readAppStateForCurrentTab("design-selection"),
+        await helpers.readAppStateForCurrentTab("design-selection", {
+          fallbackToGlobal: true,
+        }),
+      ]);
 
-      expect(result).toEqual({ designId: "selected" });
+      expect(result).toEqual([null, { designId: "selected" }]);
+      expect(mockAppStateGet).toHaveBeenCalledTimes(1);
       expect(mockAppStateGet).toHaveBeenCalledWith(
         "alice@test.com",
         "design-selection",
       );
+    });
+
+    it("still reads the account-wide row for a request that has no tab to look for", async () => {
+      const helpers = await import("./script-helpers.js");
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      mockAppStateGet.mockResolvedValue({ designId: "selected" });
+
+      const result = await runWithRequestContext(
+        { userEmail: "alice@test.com" },
+        () => helpers.readAppStateForCurrentTab("design-selection"),
+      );
+
+      expect(result).toEqual({ designId: "selected" });
+    });
+
+    it("keeps every write on the account-wide rows when no tab was used recently", async () => {
+      const helpers = await import("./script-helpers.js");
+      mockAppStatePut.mockResolvedValue(undefined);
+
+      await inMcpCall({ kind: "unavailable" }, () =>
+        helpers.writeAppStateForCurrentTab("navigate", { view: "x" }),
+      );
+
       expect(mockAppStatePut).toHaveBeenCalledWith(
         "alice@test.com",
         "navigate",
