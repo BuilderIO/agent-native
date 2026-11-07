@@ -278,6 +278,36 @@ describe("@agent-native/skills", () => {
     ).toBeUndefined();
   });
 
+  // oracle-change: a new test, skipped on Windows and as root, where folder permissions can't lock the test out.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "fails when a link's target can't be read",
+    async () => {
+      const repo = tmpDir();
+      const project = tmpDir();
+      const skill = path.join(repo, "skills", "quick-recap");
+      writeSkill(repo, "quick-recap");
+      const locked = path.join(repo, "locked");
+      fs.mkdirSync(path.join(locked, "notes"), { recursive: true });
+      fs.symlinkSync(path.join(locked, "notes"), path.join(skill, "notes"));
+      fs.chmodSync(locked, 0o000);
+      try {
+        await expect(
+          installSkills({
+            source: repo,
+            skillNames: ["quick-recap"],
+            clients: ["codex"],
+            scope: "project",
+            baseDir: project,
+            updateInstructions: false,
+            yes: true,
+          }),
+        ).rejects.toThrow(/EACCES/);
+      } finally {
+        fs.chmodSync(locked, 0o755);
+      }
+    },
+  );
+
   it("refuses a skill folder linked outside the source", async () => {
     const repo = tmpDir();
     const project = tmpDir();

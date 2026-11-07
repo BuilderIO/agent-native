@@ -36,10 +36,8 @@ export function copyFollowingLinks(
       if (path.resolve(source) === top) return true;
       if (options.skip?.(path.basename(source))) return false;
       if (!fs.lstatSync(source).isSymbolicLink()) return true;
-      // `existsSync` follows the link, so it is false for one that no longer
-      // resolves.
-      if (!fs.existsSync(source)) return false;
-      const target = fs.realpathSync(source);
+      const target = resolveLink(source);
+      if (target === undefined) return false;
       if (within) {
         const root = within.find((folder) => isInside(folder, target));
         if (root === undefined) return false;
@@ -51,6 +49,21 @@ export function copyFollowingLinks(
       return !leadsBackIntoCopy(top, source, target);
     },
   });
+}
+
+// The real path a link leads to, or `undefined` when it leads nowhere: its
+// target is gone, or links loop. Any other error, such as a target this user
+// can't read, is thrown rather than leave the copy quietly incomplete.
+function resolveLink(link: string): string | undefined {
+  try {
+    return fs.realpathSync(link);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP") {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 // Whether a link's target is, or holds, a folder the copy is already inside

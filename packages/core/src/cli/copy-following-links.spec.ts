@@ -72,6 +72,26 @@ describe("copyFollowingLinks", () => {
     ).toBeUndefined();
   });
 
+  // oracle-change: a new test, skipped on Windows and as root, where folder permissions can't lock the test out.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "throws for a link whose target can't be read",
+    () => {
+      const root = tmpDir();
+      const skill = writeSkill(root);
+      const locked = path.join(root, "locked");
+      fs.mkdirSync(path.join(locked, "notes"), { recursive: true });
+      linkDir(path.join(locked, "notes"), path.join(skill, "notes"));
+      fs.chmodSync(locked, 0o000);
+      try {
+        expect(() => copyFollowingLinks(skill, path.join(root, "out"))).toThrow(
+          /EACCES/,
+        );
+      } finally {
+        fs.chmodSync(locked, 0o755);
+      }
+    },
+  );
+
   it("leaves out a link outside `within` or through a skipped name", () => {
     const root = tmpDir();
     const workspace = path.join(root, "workspace");

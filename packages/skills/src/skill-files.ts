@@ -24,10 +24,10 @@ export function copySkillFiles(
 ): void {
   const top = path.resolve(from);
   const root = fs.realpathSync(sourceRoot);
-  if (!fs.existsSync(from)) {
+  const real = resolveLink(from);
+  if (real === undefined) {
     throw new Error(`Skill folder not found: ${from}`);
   }
-  const real = fs.realpathSync(from);
   if (!isInside(root, real)) {
     throw new Error(`Skill folder ${from} links outside its source: ${real}`);
   }
@@ -40,11 +40,8 @@ export function copySkillFiles(
       if (path.resolve(source) === top) return true;
       if (isLeftOut(path.basename(source))) return false;
       if (!fs.lstatSync(source).isSymbolicLink()) return true;
-      // `existsSync` follows the link, so it is false for one that no longer
-      // resolves.
-      if (!fs.existsSync(source)) return false;
-      const target = fs.realpathSync(source);
-      if (!isInside(root, target)) return false;
+      const target = resolveLink(source);
+      if (target === undefined || !isInside(root, target)) return false;
       return (
         !path.relative(root, target).split(path.sep).some(isLeftOut) &&
         !leadsBackIntoCopy(top, source, target)
@@ -55,6 +52,21 @@ export function copySkillFiles(
 
 function isLeftOut(name: string): boolean {
   return name === ".git" || name === "node_modules";
+}
+
+// The real path a link leads to, or `undefined` when it leads nowhere: its
+// target is gone, or links loop. Any other error, such as a target this user
+// can't read, is thrown rather than leave the install quietly incomplete.
+function resolveLink(link: string): string | undefined {
+  try {
+    return fs.realpathSync(link);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP") {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 // Whether a link's target is, or holds, a folder the copy is already inside
