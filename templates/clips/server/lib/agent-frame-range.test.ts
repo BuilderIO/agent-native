@@ -115,9 +115,11 @@ describe("recording range broker", () => {
     vi.useFakeTimers();
     try {
       let aborted = false;
+      let rejectPending!: (error: Error) => void;
       const opening = openAgentFrameRange(
         async (_range, _timeout, signal?: AbortSignal) =>
           new Promise<Response>((_resolve, reject) => {
+            rejectPending = reject;
             signal?.addEventListener(
               "abort",
               () => {
@@ -132,8 +134,10 @@ describe("recording range broker", () => {
       );
       const result = opening.catch((error: unknown) => error);
       await vi.advanceTimersByTimeAsync(100);
+      if (!aborted) rejectPending(new Error("test cleanup"));
+      const error = await result;
       expect(aborted).toBe(true);
-      await expect(result).resolves.toMatchObject({ statusCode: 504 });
+      expect(error).toMatchObject({ statusCode: 504 });
     } finally {
       vi.useRealTimers();
     }
