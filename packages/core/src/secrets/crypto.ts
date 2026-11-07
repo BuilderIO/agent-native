@@ -135,6 +135,14 @@ function a2aSharedEncryptionKeyMaterial(): string | undefined {
  * materials: sibling apps normally have different auth secrets but share
  * workspace trust.
  */
+function previousSecretEncryptionKeyMaterials(): string[] {
+  if (typeof process === "undefined") return [];
+  return (process.env.SECRETS_ENCRYPTION_KEYS_PREVIOUS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
 function sharedEncryptionKeyMaterials(): string[] {
   if (typeof process === "undefined") return [];
   const candidates = [
@@ -144,6 +152,7 @@ function sharedEncryptionKeyMaterials(): string[] {
     previousWorkspaceSharedEncryptionKeyMaterial(),
     process.env.BETTER_AUTH_SECRET,
     appScopedEncryptionKey(),
+    ...previousSecretEncryptionKeyMaterials(),
   ].filter((value): value is string => Boolean(value));
   return [...new Set(candidates)];
 }
@@ -281,7 +290,23 @@ export function encryptSecretValue(plaintext: string): string {
 
 /** Decrypt a value produced by `encryptSecretValue`. Throws on tampering. */
 export function decryptSecretValue(encrypted: string): string {
-  return decryptWithKey(encrypted, getSecretEncryptionKey());
+  return decryptWithSecretKeys((key) => decryptWithKey(encrypted, key));
+}
+
+export function decryptWithSecretKeys<T>(decrypt: (key: Buffer) => T): T {
+  const currentKey = getSecretEncryptionKey();
+  try {
+    return decrypt(currentKey);
+  } catch (primaryError) {
+    for (const material of previousSecretEncryptionKeyMaterials()) {
+      try {
+        return decrypt(hashSecretEncryptionKey(material));
+      } catch {
+        // A previous key may belong to another writer sharing this database.
+      }
+    }
+    throw primaryError;
+  }
 }
 
 /** Encrypt a workspace-shared `app_secrets` value. */

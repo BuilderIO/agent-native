@@ -52,6 +52,24 @@ describe("secret crypto", () => {
     process.env.SECRETS_ENCRYPTION_KEY = "crypto-spec-encryption-key";
   });
 
+  it("reads previous keys without using them for new writes", () => {
+    process.env.SECRETS_ENCRYPTION_KEY = "example-old-encryption-root";
+    const old = encryptSecretValue("example-credential");
+    process.env.SECRETS_ENCRYPTION_KEY = "example-new-encryption-root";
+    process.env.SECRETS_ENCRYPTION_KEYS_PREVIOUS =
+      " example-wrong-root, example-old-encryption-root ";
+    try {
+      expect(decryptSecretValue(old)).toBe("example-credential");
+      const fresh = encryptSecretValue("example-credential");
+      delete process.env.SECRETS_ENCRYPTION_KEYS_PREVIOUS;
+      expect(() => decryptSecretValue(old)).toThrow();
+      expect(decryptSecretValue(fresh)).toBe("example-credential");
+    } finally {
+      delete process.env.SECRETS_ENCRYPTION_KEYS_PREVIOUS;
+      process.env.SECRETS_ENCRYPTION_KEY = "crypto-spec-encryption-key";
+    }
+  });
+
   it("rejects payloads that are not v1-tagged ciphertext", () => {
     // A legacy plaintext value (or any non-v1 string) is refused outright so
     // the caller can fall back rather than mis-decrypt arbitrary bytes.

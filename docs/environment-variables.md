@@ -288,3 +288,5 @@ Actions workflows, and `.env.example` manifests. It ignores generated docs and
 tests, then verifies that every static key matches an exact entry or documented
 wildcard above. Add a specific entry when a new variable has semantics that are
 not represented by an existing namespace or suffix family.
+
+`SECRETS_ENCRYPTION_KEYS_PREVIOUS` is a comma-separated list of previous deployment encryption materials retained for decryption during rotation; new writes use the current configured key.

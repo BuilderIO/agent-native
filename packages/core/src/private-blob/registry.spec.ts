@@ -109,6 +109,8 @@ describe("private blob registry", () => {
       recordAsset: false,
     });
 
+    process.env.SECRETS_ENCRYPTION_KEY = "example-new-private-blob-root";
+    process.env.SECRETS_ENCRYPTION_KEYS_PREVIOUS = "private-blob-test";
     const read = await registry.readPrivateBlob(handle!);
     expect(new TextDecoder().decode(read.data)).toBe("secret replay payload");
     await expect(registry.deletePrivateBlob(handle!)).resolves.toMatchObject({

@@ -1,283 +1,47 @@
-name: Publish packages
-
-# npm-package publishing flows through changesets:
-#
-#   1. Contributor PR adds a `.changeset/*.md` declaring which packages
-#      changed and at what bump level (patch / minor / major). The
-#      `changeset-check.yml` workflow blocks PRs that touch publishable
-#      package source without a corresponding changeset.
-#   2. When the PR merges to `main`, this workflow runs. If any unconsumed
-#      changesets exist, `changesets/action` opens (or updates) a
-#      "Version Packages" PR that runs `pnpm changeset version` —
-#      bumping versions + writing changelogs.
-#   3. When the "Version Packages" PR itself merges, this workflow runs
-#      again — this time `changesets/action` finds no pending changesets
-#      and runs the `publish` script, which builds + `pnpm publish`es
-#      every package whose version isn't already on npm.
-#
-# Desktop-app publishing is OUT of changesets — it ships binaries via
-# electron-builder, not npm. Its publish jobs stay path-triggered on
-# `packages/desktop-app/package.json` version changes (see bottom).
-
+name: Publish isolated legacy encryption compatibility
 on:
-  push:
-    branches: [main]
-    paths:
-      # npm-published packages — any source change reaches here via the
-      # Version Packages PR merge bumping their package.json.
-      - "packages/core/**"
-      - "packages/creative-context/**"
-      - "packages/dispatch/**"
-      - "packages/pinpoint/**"
-      - "packages/recap-cli/**"
-      - "packages/scheduling/**"
-      - "packages/skills/**"
-      - "packages/toolkit/**"
-      # Ignored internal packages are not versioned by changesets, but changes
-      # here should still exercise release preflight/publish no-op behavior.
-      - "packages/code-agents-ui/**"
-      - "packages/embedding/**"
-      - "packages/frame/**"
-      - "packages/migrate/**"
-      - "packages/shared-app-config/**"
-      - ".changeset/**"
-      # Release workflow plumbing changes should exercise the npm release job.
-      - ".github/workflows/auto-publish.yml"
-      - "scripts/changeset-publish-sequential.ts"
-      - "scripts/guard-public-packages.ts"
-      - "scripts/prebuild-workspace-packages.ts"
-      # desktop-app stays version-triggered (not changesets-managed).
-      - "packages/desktop-app/package.json"
   workflow_dispatch:
-    inputs:
-      publishDesktop:
-        description: "Also publish desktop binaries"
-        required: false
-        type: boolean
-        default: false
-
 permissions: {}
-
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: legacy-encryption-compatibility-publish
   cancel-in-progress: false
-
 jobs:
-  release:
-    name: Release npm packages
+  publish:
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
       id-token: write
     steps:
-      - name: Generate app token
-        id: app-token
-        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
-        with:
-          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
-          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
-
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-          fetch-depth: 0
-
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      # Node 24 ships with npm 11.6+ — required for Trusted Publishing OIDC
-      # (>= 11.5.1). Node 22 ships npm 10.x; the in-place self-upgrade
-      # (`npm install -g npm@latest`) is broken on the current runner image
-      # (actions/runner-images#13883), so we just use a Node version that
-      # already has the right npm baked in.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: "24"
-          cache: "pnpm"
-          registry-url: "https://registry.npmjs.org"
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Validate changesets
-        run: node scripts/check-changeset.mjs
-
-      # Build everything once so changesets/action's `publish` step doesn't
-      # re-build per package. The `publish` script also re-runs build to be
-      # safe when a single package is published in isolation.
-      - name: Build all packages
-        run: pnpm -r build
-
-      - name: Create Release PR or publish to npm
-        id: changesets
-        uses: changesets/action@63a615b9cd06ba9a3e6d13796c7fbcb080a60a0b # v1
-        with:
-          # When changesets/action finds no pending changesets, it runs
-          # `publish`. @changesets/cli publishes packages concurrently, which
-          # can make several npm OIDC trusted-publishing handshakes race in the
-          # same job. The wrapper keeps changesets' version-PR behavior but
-          # serializes the actual npm publishes.
-          publish: node scripts/changeset-publish-sequential.ts
-          # When pending changesets exist, opens this PR with the version
-          # bumps + changelog updates. Merging it triggers the publish run.
-          title: "chore: version packages [skip netlify]"
-          commit: "chore: version packages [skip netlify]"
-        env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          # `npm publish` (called by `changeset publish`) requests an OIDC
-          # token when --provenance is set. publishConfig.provenance in
-          # package.json isn't honored everywhere, so set the env var —
-          # both npm and pnpm read NPM_CONFIG_PROVENANCE.
-          NPM_CONFIG_PROVENANCE: "true"
-          # Optional one-time escape hatch for brand-new public packages. The
-          # publish wrapper uses this only when npm returns 404 for the package
-          # name itself; existing packages still publish through OIDC/provenance.
-          AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Generate Builder downstream app token
-        if: |
-          steps.changesets.outputs.published == 'true' &&
-          (
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/creative-context') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/dispatch') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
-          )
-        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
-        id: builder-downstream-token
-        with:
-          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
-          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
-          owner: BuilderIO
-          # Consumer workflow lives in the workspace repo. The starter mirror is
-          # dispatched to this repo's own workflow (see below), not from here.
-          repositories: |
-            builder-agent-native-workspace
-
-      - name: Trigger Builder workspace package update
-        if: |
-          steps.changesets.outputs.published == 'true' &&
-          (
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/creative-context') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/dispatch') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
-          )
-        env:
-          GH_TOKEN: ${{ steps.builder-downstream-token.outputs.token }}
-          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
-        run: |
-          gh api repos/BuilderIO/builder-agent-native-workspace/dispatches \
-            --method POST \
-            -f event_type=agent-native-packages-published \
-            -f "client_payload[publishedPackages]=$PUBLISHED_PACKAGES" \
-            -f "client_payload[sourceRepository]=${{ github.repository }}" \
-            -f "client_payload[sourceRunUrl]=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
-      # The starter mirror runs in THIS repo (push-chat-template-to-starter needs
-      # the monorepo source to materialize), so dispatch to ourselves rather than
-      # to the starter. Must use the agent-native-scoped app token, not
-      # GITHUB_TOKEN: repository_dispatch events created with GITHUB_TOKEN don't
-      # trigger workflow runs. Carries the published commit sha so the mirror
-      # materializes exactly what was just published to npm.
-      - name: Trigger starter template mirror
-        if: |
-          steps.changesets.outputs.published == 'true' &&
-          (
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/creative-context') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
-          )
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
-        run: |
-          gh api repos/${{ github.repository }}/dispatches \
-            --method POST \
-            -f event_type=agent-native-packages-published \
-            -f "client_payload[sha]=${{ github.sha }}" \
-            -f "client_payload[publishedPackages]=$PUBLISHED_PACKAGES"
-
-  publish-desktop:
-    name: Publish desktop app
-    needs: []
-    if: |
-      (github.event_name == 'workflow_dispatch' && inputs.publishDesktop) ||
-      contains(github.event.head_commit.modified, 'packages/desktop-app/package.json') ||
-      contains(github.event.head_commit.added, 'packages/desktop-app/package.json')
-    # electron-builder --publish always creates/updates a GitHub release.
-    permissions:
-      contents: write
-    strategy:
-      matrix:
-        include:
-          - os: macos-latest
-            platform: mac
-          - os: windows-latest
-            platform: win
-          - os: ubuntu-latest
-            platform: linux
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
           cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Import signing certificate
-        if: matrix.platform == 'mac'
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Create isolated snapshot versions through changesets
         run: |
-          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
-          rm certificate.p12
-
-      - name: Build and publish
-        working-directory: packages/desktop-app
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: W3PMF2T3MW
-          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
-          SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
-          SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
-          SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
-          SENTRY_DESKTOP_ENVIRONMENT: production
-        run: pnpm build && npx electron-builder --${{ matrix.platform }} --config --publish always
-
-  publish-desktop-release:
-    name: Publish desktop release
-    needs: [publish-desktop]
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      contains(github.event.head_commit.modified, 'packages/desktop-app/package.json') ||
-      contains(github.event.head_commit.added, 'packages/desktop-app/package.json')
-    # gh release edit requires contents:write; workflow default is {}.
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - name: Get version
-        id: version
-        run: echo "version=$(node -p "require('./packages/desktop-app/package.json').version")" >> $GITHUB_OUTPUT
-
-      - name: Publish draft release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "v${{ steps.version.outputs.version }}" --draft=false --latest
+          pnpm changeset version --snapshot incident-legacy-key-rotation
+          pnpm install --lockfile-only --link-workspace-packages --ignore-scripts
+      - name: Use the matching published UI dependency for the legacy build
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/legacy-toolkit" node_modules/@types
+          npm pack @agent-native/toolkit@0.13.8 --pack-destination "$RUNNER_TEMP/legacy-toolkit"
+          tar -xzf "$RUNNER_TEMP/legacy-toolkit/agent-native-toolkit-0.13.8.tgz" -C "$RUNNER_TEMP/legacy-toolkit"
+          cp -R "$RUNNER_TEMP/legacy-toolkit/package/dist/." packages/toolkit/dist/
+          ln -s ../../packages/core/node_modules/@types/react node_modules/@types/react
+      - name: Verify and build the legacy Core package
+        run: |
+          pnpm exec vitest run packages/core/src/secrets/crypto.spec.ts packages/core/src/private-blob/registry.spec.ts
+          pnpm --filter @agent-native/core build
+      - name: Publish only Core under the isolated incident tag
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/legacy-core"
+          pnpm --dir packages/core pack --pack-destination "$RUNNER_TEMP/legacy-core"
+          tarball=$(find "$RUNNER_TEMP/legacy-core" -name '*.tgz' -type f)
+          test -n "$tarball"
+          npm publish "$tarball" --access public --tag dev-incident-legacy-key-rotation --provenance

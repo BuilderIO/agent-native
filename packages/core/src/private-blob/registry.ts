@@ -3,6 +3,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { uploadFile } from "../file-upload/index.js";
 import {
   decryptSecretValue,
+  decryptWithSecretKeys,
   encryptSecretValue,
   getSecretEncryptionKey,
 } from "../secrets/crypto.js";
@@ -74,15 +75,20 @@ function decryptBytes(
   params: EncryptionParams,
   ciphertext: Uint8Array,
 ): Uint8Array {
-  const decipher = createDecipheriv(
-    "aes-256-gcm",
-    getSecretEncryptionKey(),
-    Buffer.from(params.iv, "base64url"),
-  );
-  decipher.setAuthTag(Buffer.from(params.tag, "base64url"));
-  return new Uint8Array(
-    Buffer.concat([decipher.update(Buffer.from(ciphertext)), decipher.final()]),
-  );
+  return decryptWithSecretKeys((key) => {
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      key,
+      Buffer.from(params.iv, "base64url"),
+    );
+    decipher.setAuthTag(Buffer.from(params.tag, "base64url"));
+    return new Uint8Array(
+      Buffer.concat([
+        decipher.update(Buffer.from(ciphertext)),
+        decipher.final(),
+      ]),
+    );
+  });
 }
 
 function encodePublicUploadDescriptor(
