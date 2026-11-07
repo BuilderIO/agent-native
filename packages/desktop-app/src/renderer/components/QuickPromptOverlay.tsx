@@ -184,6 +184,13 @@ export default function QuickPromptOverlay({
     () => normalizeModelSelection(modelSelection, modelOptions),
     [modelOptions, modelSelection],
   );
+  const normalizedSelectionRef = useRef(modelSelection);
+  const modelRefreshGeneration = useRef(0);
+  useEffect(() => {
+    normalizedSelectionRef.current = modelOptions.length
+      ? normalizedModelSelection
+      : modelSelection;
+  }, [modelOptions.length, modelSelection, normalizedModelSelection]);
   const availableModels = useMemo(
     () => groupCodeAgentModelOptions(modelOptions),
     [modelOptions],
@@ -218,84 +225,47 @@ export default function QuickPromptOverlay({
     };
   }, []);
 
-  useEffect(() => {
+  const refreshModels = useCallback(async (force = false) => {
+    const generation = ++modelRefreshGeneration.current;
     const api = window.electronAPI?.codeAgents;
-    if (!api) return;
-    let mounted = true;
-    const refreshModelsOnFocus = () => {
-      void api
-        .listModels()
-        .then((result) => {
-          if (!mounted) return;
-          setModelListUnavailable(result.status !== "ok");
-          const models = result.status === "ok" ? result.models : [];
-          setModelOptions(models);
-          if (result.status === "ok") {
-            setModelSelection((current) =>
-              preferConfiguredModelSelection(current, models, result.selected),
-            );
-          }
-        })
-        .catch(() => {
-          if (!mounted) return;
-          setModelListUnavailable(true);
-          setModelOptions([]);
-        });
-    };
-    window.addEventListener("focus", refreshModelsOnFocus);
-    return () => {
-      mounted = false;
-      window.removeEventListener("focus", refreshModelsOnFocus);
-    };
-  }, []);
-
-  useEffect(() => {
-    let mounted = true;
-    const api = window.electronAPI?.codeAgents;
-    if (!api) {
-      setModelListUnavailable(true);
-      setModelListLoading(false);
-      return;
-    }
-
-    void api
-      .listModels()
-      .then((result) => {
-        if (!mounted) return;
-        if (result.status === "ok") {
-          setModelOptions(result.models);
-          setModelListUnavailable(false);
-          setModelSelection((current) => {
-            if (current.engine && current.model) {
-              return preferConfiguredModelSelection(
-                current,
-                result.models,
-                result.selected,
-              );
-            }
-            return preferConfiguredModelSelection(
-              current,
-              result.models,
-              result.selected,
-            );
-          });
-        } else {
-          setModelOptions([]);
-          setModelListUnavailable(true);
-        }
-        setModelListLoading(false);
-      })
-      .catch(() => {
-        if (!mounted) return;
-        setModelOptions([]);
+    try {
+      const result = api
+        ? await (force ? api.listModels({ refresh: true }) : api.listModels())
+        : null;
+      if (generation !== modelRefreshGeneration.current) return false;
+      if (!result || result.status !== "ok") {
         setModelListUnavailable(true);
         setModelListLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-    };
+        return false;
+      }
+      const selection = preferConfiguredModelSelection(
+        normalizedSelectionRef.current,
+        result.models,
+        result.selected,
+      );
+      setModelOptions(result.models);
+      setModelSelection(selection);
+      setModelListUnavailable(false);
+      setModelListLoading(false);
+      return isCodeAgentModelConfigured(result.models, selection);
+    } catch {
+      if (generation === modelRefreshGeneration.current) {
+        setModelListUnavailable(true);
+        setModelListLoading(false);
+      }
+      return false;
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshModels();
+    const refreshModelsOnFocus = () => void refreshModels();
+    window.addEventListener("focus", refreshModelsOnFocus);
+    return () => {
+      modelRefreshGeneration.current += 1;
+      window.removeEventListener("focus", refreshModelsOnFocus);
+    };
+  }, [refreshModels]);
 
   const setupRequired =
     !modelListLoading &&
@@ -306,33 +276,10 @@ export default function QuickPromptOverlay({
     window.electronAPI?.quickPrompt.setSetupRequired(setupRequired);
   }, [setupRequired]);
 
-  const verifySelectedProvider = useCallback(async () => {
-    const api = window.electronAPI?.codeAgents;
-    if (!api) {
-      setModelListUnavailable(true);
-      return false;
-    }
-
-    try {
-      const result = await api.listModels({ refresh: true });
-      if (result.status !== "ok") {
-        setModelListUnavailable(true);
-        return false;
-      }
-      setModelOptions(result.models);
-      setModelListUnavailable(false);
-      const selectedModel = preferConfiguredModelSelection(
-        normalizedModelSelection,
-        result.models,
-        result.selected,
-      );
-      setModelSelection(selectedModel);
-      return isCodeAgentModelConfigured(result.models, selectedModel);
-    } catch {
-      setModelListUnavailable(true);
-      return false;
-    }
-  }, [normalizedModelSelection.engine, normalizedModelSelection.model]);
+  const verifySelectedProvider = useCallback(
+    () => refreshModels(true),
+    [refreshModels],
+  );
 
   useEffect(() => {
     if (modelListLoading || modelOptions.length === 0) return;
