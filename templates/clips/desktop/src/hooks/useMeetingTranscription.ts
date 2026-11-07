@@ -1189,6 +1189,8 @@ export function useMeetingTranscription({
               });
             })
             .catch((error) => {
+              // The saved lines already hold the earlier speech.
+              if (savedLinesLoadedRef.current) return;
               const message =
                 typeof error === "string"
                   ? error

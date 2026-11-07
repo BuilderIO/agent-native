@@ -405,6 +405,36 @@ describe("meeting transcription pause and resume", () => {
       ]);
     });
 
+    it("doesn't warn when Rewind fails after the saved lines load", async () => {
+      const meeting = deferred<unknown>();
+      mocks.legacyMeeting.mockReturnValue(meeting.promise);
+      const collected = deferred<unknown>();
+      const answer = mocks.invoke.getMockImplementation();
+      mocks.invoke.mockImplementation(async (command: string, args) =>
+        command === "rewind_meeting_history_collect"
+          ? collected.promise
+          : answer?.(command, args),
+      );
+
+      const segments = await restartAndSpeak(async () => {
+        await act(async () => {
+          meeting.resolve(savedMeeting);
+          await settle();
+          collected.reject(new Error("Rewind's index wasn't ready."));
+          await settle();
+        });
+      });
+
+      expect(segments).toEqual([
+        ["first session", undefined],
+        ["second session", undefined],
+      ]);
+      expect(mocks.emit).not.toHaveBeenCalledWith(
+        "meetings:history-error",
+        expect.anything(),
+      );
+    });
+
     it("drops Rewind's lines when the saved lines load after them", async () => {
       const meeting = deferred<unknown>();
       mocks.legacyMeeting.mockReturnValue(meeting.promise);
