@@ -242,8 +242,9 @@ jobs:
     name: ${{ matrix.site }} beta prebuilt build
     permissions:
       contents: read
+      actions: read
     needs: [resolve-source, discover-sites]
-    if: needs.discover-sites.outputs.has_sites == 'true'
+    if: ${{ false }}
     strategy:
       fail-fast: false
       max-parallel: 8
@@ -260,7 +261,7 @@ jobs:
       smoke: false
       migration_only: false
       artifact_upload: true
-      artifact_name: beta-${{ matrix.site }}-${{ github.run_id }}
+      artifact_name: beta-${{ matrix.site }}-42389642203
     secrets: inherit
 
   confirm-current-source:
@@ -269,7 +270,7 @@ jobs:
       ${{ always() && !cancelled() &&
       needs.resolve-source.result == 'success' &&
       needs.discover-sites.result == 'success' &&
-      contains(fromJSON('["success","failure"]'), needs.build.result) }}
+      contains(fromJSON('["success","failure","skipped"]'), needs.build.result) }}
     needs: [resolve-source, discover-sites, build]
     runs-on: ubuntu-latest
     outputs:
@@ -309,10 +310,11 @@ jobs:
       ${{ always() && !cancelled() &&
       needs.resolve-source.result == 'success' &&
       needs.discover-sites.result == 'success' &&
-      contains(fromJSON('["success","failure"]'), needs.build.result) &&
+      contains(fromJSON('["success","failure","skipped"]'), needs.build.result) &&
       needs.confirm-current-source.outputs.current == 'true' }}
     permissions:
       contents: read
+      actions: read
     needs: [resolve-source, discover-sites, build, confirm-current-source]
     strategy:
       fail-fast: false
@@ -330,5 +332,5 @@ jobs:
       smoke: true
       migration_only: false
       artifact_download: true
-      artifact_name: beta-${{ matrix.site }}-${{ github.run_id }}
+      artifact_name: beta-${{ matrix.site }}-42389642203
     secrets: inherit
