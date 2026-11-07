@@ -2217,7 +2217,9 @@ export function buildOnboardingJourneyPersonFollowupSql(
     AND NOT ${testIdentityEmailSql("activity.funnel_user_email")}
   ))
     AND (
-      activity.session_id IN (SELECT session_id FROM terminal_members)
+      activity.session_id IN (
+        SELECT session_id FROM terminal_members WHERE session_id IS NOT NULL
+      )
       OR activity.auth_user_id IN (
         SELECT auth_user_id FROM terminal_members WHERE auth_user_id IS NOT NULL
       )

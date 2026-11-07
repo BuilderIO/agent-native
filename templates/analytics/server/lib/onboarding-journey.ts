@@ -530,6 +530,7 @@ export function parseJourneyEventRow(
     sessionReplayId.length > 0 &&
     sessionReplayStartedAt !== null &&
     sessionReplayId.length <= MAX_SESSION_ID_LENGTH;
+  const sessionEmail = text(raw.session_email);
   return {
     id,
     sessionId,
@@ -537,9 +538,7 @@ export function parseJourneyEventRow(
     tsMs,
     eventName,
     ...(text(raw.auth_user_id) ? { authUserId: text(raw.auth_user_id)! } : {}),
-    ...(text(raw.session_email)
-      ? { sessionEmail: text(raw.session_email)! }
-      : {}),
+    ...(sessionEmail ? { sessionEmail } : {}),
     ...(text(raw.app) ? { app: text(raw.app)! } : {}),
     templateName: text(raw.template_name),
     path: text(raw.path),
@@ -825,10 +824,10 @@ function journeyPagesAgree(
   truncated: boolean,
 ): boolean {
   if (pages <= 1) return true;
+  if (pageTotals.length === 0) return false;
   const first = pageTotals[0];
   return (
     first !== null &&
-    first !== undefined &&
     pageTotals.every((total) => total === first) &&
     (truncated || rowsFetched === first)
   );
@@ -1227,13 +1226,15 @@ function groupPersonFollowupMembers(
     parent.set(key, top);
     return top;
   };
-  const identityKeys = (member: OnboardingJourneyPersonMember) => [
-    ...(member.email ? [`email:${member.email}`] : []),
-    ...(member.authUserId ? [`auth:${member.authUserId}`] : []),
-  ];
+  const emailKey = (email: string) => `email:${email}`;
+  const authKey = (authUserId: string) => `auth:${authUserId}`;
   for (const member of members) {
-    const [first, ...rest] = identityKeys(member);
-    for (const key of rest) parent.set(root(key), root(first!));
+    if (member.email && member.authUserId) {
+      parent.set(
+        root(authKey(member.authUserId)),
+        root(emailKey(member.email)),
+      );
+    }
   }
   const people = new Map<
     string,
@@ -1244,7 +1245,13 @@ function groupPersonFollowupMembers(
     }
   >();
   for (const member of members) {
-    const id = root(identityKeys(member)[0]!);
+    const key = member.email
+      ? emailKey(member.email)
+      : member.authUserId
+        ? authKey(member.authUserId)
+        : null;
+    if (key === null) continue;
+    const id = root(key);
     const person = people.get(id) ?? {
       latest: member,
       emails: new Set<string>(),
@@ -1257,11 +1264,15 @@ function groupPersonFollowupMembers(
   }
   return [...people.values()].map(({ latest, emails, authUserIds }) => ({
     ...latest,
-    email: latest.email ?? (emails.size === 1 ? [...emails][0]! : null),
-    authUserId:
-      latest.authUserId ??
-      (authUserIds.size === 1 ? [...authUserIds][0]! : null),
+    email: latest.email ?? onlyValue(emails),
+    authUserId: latest.authUserId ?? onlyValue(authUserIds),
   }));
+}
+
+function onlyValue(values: ReadonlySet<string>): string | null {
+  if (values.size !== 1) return null;
+  const [value] = values;
+  return value;
 }
 
 interface PersonFollowupStepCohort {
