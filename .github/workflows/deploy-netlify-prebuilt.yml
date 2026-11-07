@@ -180,6 +180,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   # Beta and production lanes share the canonical production site queue so a
@@ -445,6 +446,8 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ inputs.artifact_name }}
+          run-id: 42389642203
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           path: ${{ runner.temp }}/netlify-artifact
 
       - name: Select the deploy directories
@@ -1786,7 +1789,7 @@ jobs:
           inputs.deploy_mode == 'production' &&
           steps.beta_pre_migration_freshness.outputs.current == 'true'
         env:
-          BETA_DATABASE_URL_SECRET: ${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}
+          BETA_DATABASE_URL_SECRET: ${{ steps.target.outputs.source_template == 'chat' && secrets.BETA_DATABASE_URL_CHAT || secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}
           BUILD_CONTEXT: production
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_MIGRATION_SITE_ID: ${{ steps.target.outputs.migration_site_id }}
@@ -1830,7 +1833,7 @@ jobs:
             exit 1
           fi
           export CONTEXT=production
-          export DATABASE_URL="$migration_database_url"
+          export DATABASE_URL="${BETA_DATABASE_URL_SECRET:-$migration_database_url}"
 
           for attempt in 1 2 3; do
             if pnpm --filter "$SOURCE_TEMPLATE" migrate:production; then
