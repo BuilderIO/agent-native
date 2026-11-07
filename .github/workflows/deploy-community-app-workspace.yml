@@ -1,4 +1,4 @@
-name: Prepare community credential rotation artifacts
+name: Prepare community encryption compatibility artifacts
 on: workflow_dispatch
 permissions:
   contents: read
@@ -25,6 +25,15 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Backport the reviewed encryption readers without changing app source
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin c0215ef5ee74192c56ae8f66f5e44bacbf2e55f7 e7389a2d5ac6fa70757560d9919091b552f511fc
+          for file in app-config/auth.ts secrets/crypto.ts private-blob/blob-crypto.ts private-blob/attachment-ref.ts; do
+            git diff --exit-code c0215ef5ee74192c56ae8f66f5e44bacbf2e55f7 -- "packages/core/src/$file"
+            git show "e7389a2d5ac6fa70757560d9919091b552f511fc:packages/core/src/$file" > "packages/core/src/$file"
+          done
+          pnpm --filter @agent-native/core build
       - name: Build unchanged community source
         env:
           A2A_SECRET: example-build-only-placeholder-not-a-real-secret
