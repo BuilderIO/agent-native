@@ -87,4 +87,20 @@ describe("requestAnalytics", () => {
       requestAnalytics("capture-dashboard-panel", {}, schema, 58_000),
     ).resolves.toMatchObject({ ok: false, code: "analytics_invalid_response" });
   });
+
+  it("logs the length, not the text, of an answer cut short", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cut = `{"value": 4, "secret": "acme
+...[truncated — full result was 55,508 chars]`;
+    mocks.invokeAgentAction.mockResolvedValueOnce(answer("completed", cut));
+    await expect(
+      requestAnalytics("capture-dashboard-panel", {}, schema, 58_000),
+    ).resolves.toMatchObject({ ok: false, code: "analytics_invalid_response" });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("isn't JSON"), {
+      action: "capture-dashboard-panel",
+      chars: cut.length,
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("acme");
+    warn.mockRestore();
+  });
 });

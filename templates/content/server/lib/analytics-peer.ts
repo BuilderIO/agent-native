@@ -133,11 +133,24 @@ export async function requestAnalytics<T>(
         "Analytics couldn't read this panel. Check that you can open the dashboard.",
     };
   }
+  const invalid = {
+    ok: false,
+    code: "analytics_invalid_response",
+    message: "Analytics sent back something Content can't read. Try again.",
+  } as const;
   let output: unknown;
   try {
     output = JSON.parse(response.result.output);
   } catch {
-    output = undefined;
+    // An answer cut short at the result limit stops being JSON; its length says so.
+    console.warn(
+      "[content-analytics] Analytics answered with text that isn't JSON",
+      {
+        action,
+        chars: response.result.output.length,
+      },
+    );
+    return invalid;
   }
   const parsed = schema.safeParse(output);
   if (!parsed.success) {
@@ -151,11 +164,7 @@ export async function requestAnalytics<T>(
           .map((issue) => `${issue.path.join(".")}: ${issue.message}`),
       },
     );
-    return {
-      ok: false,
-      code: "analytics_invalid_response",
-      message: "Analytics sent back something Content can't read. Try again.",
-    };
+    return invalid;
   }
   return { ok: true, data: parsed.data };
 }
