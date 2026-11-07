@@ -116,6 +116,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -1509,6 +1510,7 @@ export function PropertyManagementPopover({
   popoverContainer?: HTMLElement | null;
 }) {
   const t = useT();
+  const visibilityScopeId = useId();
   const hasColumnMenu = !!(
     sorts &&
     filters &&
@@ -2106,25 +2108,30 @@ export function PropertyManagementPopover({
                   className="z-[310] w-56"
                   container={popoverContainer}
                 >
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                  <DropdownMenuLabel
+                    id={visibilityScopeId}
+                    className="py-1.5 font-normal"
+                  >
                     {t("editor.properties.visibilityScope")}
-                  </div>
-                  {DOCUMENT_PROPERTY_VISIBILITIES.map((visibility) => (
-                    <DropdownMenuItem
-                      key={visibility}
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        void updateVisibility(visibility);
-                      }}
-                    >
-                      <span className="flex-1">
-                        {t(`editor.propertyVisibility.${visibility}`)}
-                      </span>
-                      {property.definition.visibility === visibility ? (
-                        <IconCheck className="size-4 text-muted-foreground" />
-                      ) : null}
-                    </DropdownMenuItem>
-                  ))}
+                  </DropdownMenuLabel>
+                  <DropdownMenuGroup aria-labelledby={visibilityScopeId}>
+                    {DOCUMENT_PROPERTY_VISIBILITIES.map((visibility) => (
+                      <DropdownMenuItem
+                        key={visibility}
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void updateVisibility(visibility);
+                        }}
+                      >
+                        <span className="flex-1">
+                          {t(`editor.propertyVisibility.${visibility}`)}
+                        </span>
+                        {property.definition.visibility === visibility ? (
+                          <IconCheck className="size-4 text-muted-foreground" />
+                        ) : null}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuGroup>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
 

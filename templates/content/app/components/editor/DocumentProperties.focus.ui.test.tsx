@@ -161,6 +161,44 @@ describe("property management menu", () => {
     await press(moveLeft, "Enter");
     expect(onMoveLeft).toHaveBeenCalledTimes(1);
   });
+
+  it("names the Visibility choices with the caption that explains them", async () => {
+    renderUi(
+      <PropertyManagementPopover
+        property={property("text", "Notes", "")}
+        documentId="document"
+        databaseId="database"
+        icon={TYPE_ICONS.text}
+      />,
+    );
+
+    await click(byLabel("editor.properties.propertyMenuFor(Notes)"));
+    await nextFrame();
+    const visibility = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ].find((item) =>
+      item.textContent?.startsWith("editor.properties.visibility"),
+    );
+    if (!visibility) throw new Error("No Visibility submenu");
+    await focus(visibility);
+    await press(visibility, "ArrowRight");
+    await nextFrame();
+
+    const group = document.querySelector<HTMLElement>('[role="group"]');
+    const caption = document.getElementById(
+      group?.getAttribute("aria-labelledby") ?? "",
+    );
+    expect(caption?.textContent).toBe("editor.properties.visibilityScope");
+    expect(
+      [...(group?.querySelectorAll('[role="menuitem"]') ?? [])].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual([
+      "editor.propertyVisibility.always_show",
+      "editor.propertyVisibility.hide_when_empty",
+      "editor.propertyVisibility.always_hide",
+    ]);
+  });
 });
 
 describe("property value editors", () => {
