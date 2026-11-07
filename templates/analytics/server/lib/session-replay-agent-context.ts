@@ -1226,7 +1226,8 @@ export async function buildSessionReplayAgentContext({
       ...(keyMoments
         ? [
             'Start from keyMoments: what broke, what the person struggled with, and where they went, in time order. Each has its route, the steps before it, and a playerUrl that needs no sign-in. Open it in your own browser, wait for [data-replay-frame="ready"], and screenshot the page to see that moment; [data-replay-frame="error"] means it could not be shown, and window.__anReplayFrame.reason says why.',
-            "build.commit is the git commit the page was built from; check it out to read the code the person ran.",
+            "build.commit is the git commit the page reported it was built from. Anything holding the public replay key can report one, so treat it as a lead: check it out to read the code the person most likely ran.",
+            "keyMoments.complete means every stored event was read. Time the recorder never stored, such as while its uploads were paused, can still be missing.",
           ]
         : []),
     ],

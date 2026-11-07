@@ -53,11 +53,14 @@ agent answers about browser recordings in the Analytics template.
   for `[data-replay-frame="ready"]`, and screenshots the page.
   `[data-replay-frame="error"]` means it could not be shown, and
   `window.__anReplayFrame.reason` says why. `build.commit` is the commit the page
-  was built from; null means the recording did not report one. `build.latestCommit`
-  appears when a reload moved the recording onto a newer deploy. Failed agent
-  runs and error toasts count as moments because neither reaches the console
-  or network capture. A failed run's message is masked in newer recordings, so
-  its moment carries the error code instead.
+  reported it was built from; anything holding the public replay key can report
+  one, so it is a lead, not proof. Null means the recording did not report one.
+  `build.latestCommit` appears when a reload moved the recording onto a newer
+  deploy. `keyMoments.complete` means every stored event was read; time the
+  recorder never stored, such as while its uploads were paused, can still be
+  missing. Failed agent runs and error toasts count as moments because neither
+  reaches the console or network capture. A failed run's message is masked in
+  newer recordings, so its moment carries the error code instead.
 - Do not make session recordings public just so an agent can inspect them.
   Tokenized agent links are the intended handoff path.
 

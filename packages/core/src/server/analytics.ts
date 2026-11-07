@@ -146,18 +146,20 @@ const MAX_SIGNED_LINK_DECODE_DEPTH = 8;
 
 /**
  * True when the page's URL holds a signed link's token, plainly or in the
- * base64url return path the sign-in page carries. Matches the bare name at each
- * level of percent-encoding, since a server decodes the name and a return path
- * can nest the link as a target. A return path it can't read, or encoding deeper
- * than anything real, might hold one. A stray `%` is ordinary, so it can't throw.
+ * base64url return path the sign-in page carries. Looks for a parameter with
+ * exactly that name at each level of percent-encoding, since a server decodes
+ * the name and a return path can nest the link as a target; a longer name such
+ * as Clips' `clip_intake_id` is not one. A return path it can't read, or
+ * encoding deeper than anything real, might hold one. A stray `%` is ordinary,
+ * so it can't throw.
  */
 function getSignedLinkUrlCheck(): string {
-  const names = JSON.stringify(SIGNED_LINK_PARAMS);
+  const param = JSON.stringify(`(^|[^\\w])(${SIGNED_LINK_PARAMS.join("|")})=`);
   const continuation = JSON.stringify(SIGN_IN_CONTINUATION_PARAM);
   return (
-    `(function(s){var n=${names};` +
+    `(function(s){var n=new RegExp(${param});` +
     `function h(t){for(var i=0;i<${MAX_SIGNED_LINK_DECODE_DEPTH};i++){` +
-    `for(var j=0;j<n.length;j++)if(t.indexOf(n[j])>-1)return true;` +
+    `if(n.test(t))return true;` +
     `var d=t.replace(/%([0-9a-f]{2})/gi,function(m,x){return String.fromCharCode(parseInt(x,16))});` +
     `if(d===t)return false;t=d}return true}` +
     `if(h(s))return true;` +

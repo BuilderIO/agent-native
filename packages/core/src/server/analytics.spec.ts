@@ -536,6 +536,8 @@ describe("consent bootstrap", () => {
     it.each([
       ["a stray percent sign", "?utm_term=50%off"],
       ["an encoded ordinary value", "?q=agent%20access"],
+      ["a Clips intake id alone", "?clip_intake_id=i_1"],
+      ["a name that only ends like one", "?my_agent_access=1"],
     ])("still loads tags on a URL with %s", async (_page, search) => {
       const page = await loadPage({ region: "none", search });
 
