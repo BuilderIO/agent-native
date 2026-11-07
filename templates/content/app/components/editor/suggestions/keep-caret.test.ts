@@ -19,8 +19,9 @@ function after(document: ProseMirrorNode, text: string) {
     const index = node.isText ? (node.text?.indexOf(text) ?? -1) : -1;
     if (index >= 0) found.push(position + index + text.length);
   });
-  if (found.length === 0) throw new Error(`No "${text}" in the fixture`);
-  return found[0];
+  const first = found.shift();
+  if (first === undefined) throw new Error(`No "${text}" in the fixture`);
+  return first;
 }
 
 /** What the caret's paragraph reads before and after it. */
