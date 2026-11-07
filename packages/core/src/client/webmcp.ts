@@ -644,12 +644,20 @@ export function createAgentNativeWebMcpClient(
     }
     jsonLength(input, `WebMCP tool "${tool.name}" input`, limits.maxInputChars);
     const { context, tool: nativeTool } = binding;
-    const usesCodexPageAdapter =
-      typeof context.codexExecuteTool === "function" ||
-      typeof context.codexGetTools === "function";
+    const usesPolyfill =
+      (context as { __isWebMCPPolyfill?: unknown }).__isWebMCPPolyfill === true;
+    const userAgent = getDocument(options.document)?.defaultView?.navigator
+      .userAgent;
+    const usesLegacyChrome =
+      typeof context.codexExecuteTool !== "function" &&
+      typeof context.codexGetTools !== "function" &&
+      typeof userAgent === "string" &&
+      /\b(?:HeadlessChrome|Chrome|Chromium)\/(?:149|15[0-4])(?:\.|\s|$)/.test(
+        userAgent,
+      );
     const result = await context.executeTool(
       nativeTool,
-      usesCodexPageAdapter ? input : JSON.stringify(input),
+      usesPolyfill || usesLegacyChrome ? JSON.stringify(input) : input,
       executionOptions,
     );
     return normalizeToolResult(
