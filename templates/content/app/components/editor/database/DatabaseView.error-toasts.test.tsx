@@ -1913,15 +1913,15 @@ describe("DatabaseView UI regressions", () => {
     title: string,
     canComment: boolean,
   ): ContentDatabaseItem {
+    const { database: _database, ...page } = fakeDocument;
     return {
       id: `item-${id}`,
       databaseId: "database-1",
       document: {
-        ...fakeDocument,
+        ...page,
         id: `document-${id}`,
         parentId: "document-1",
         title,
-        database: undefined,
         accessRole: canComment ? "commenter" : "viewer",
         canEdit: false,
         canManage: false,
