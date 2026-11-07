@@ -9173,7 +9173,6 @@ function PageEditorSessionBody({
     setUtilityPanel(null);
     clearCommentFocus();
     setSelectedSuggestionId(null);
-    setFocusPageComposer(false);
   }, [clearCommentFocus, documentId]);
 
   // A comment on the whole Page is written in Discussion's own composer.
@@ -9181,6 +9180,12 @@ function PageEditorSessionBody({
     handleUtilityPanelChange("comments");
     if (canComment) setFocusPageComposer(true);
   }, [canComment, handleUtilityPanelChange]);
+
+  // A request the composer never took lapses when Discussion closes, so it
+  // can't take focus the next time Discussion opens.
+  useEffect(() => {
+    if (utilityPanel !== "comments") setFocusPageComposer(false);
+  }, [utilityPanel]);
 
   useEffect(() => {
     const suggestionId = new URLSearchParams(location.search).get("suggestion");
@@ -9281,8 +9286,10 @@ function PageEditorSessionBody({
     startPropertyComment,
   ]);
 
-  // ...and on the whole Page, as a row's Comment command does.
+  // ...and on the whole Page, as a row's Comment command does. The address is
+  // the routed Page's, so a row previewed beside it leaves it alone.
   useEffect(() => {
+    if (host === "preview") return;
     if (!new URLSearchParams(location.search).has("commentPage")) {
       handledPageCommentLinkRef.current = null;
       return;
@@ -9290,7 +9297,7 @@ function PageEditorSessionBody({
     if (handledPageCommentLinkRef.current === documentId) return;
     handledPageCommentLinkRef.current = documentId;
     startPageComment();
-  }, [documentId, location.search, startPageComment]);
+  }, [documentId, host, location.search, startPageComment]);
 
   const handledCommentIntentRef = useRef<number | null>(null);
   useEffect(() => {

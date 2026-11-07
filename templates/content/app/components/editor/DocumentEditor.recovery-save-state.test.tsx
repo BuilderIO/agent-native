@@ -37,6 +37,10 @@ import type {
 
 const fixture = vi.hoisted(() => ({
   page: null as Document | null,
+  commentsSidebars: [] as {
+    presentation?: "inline" | "history";
+    focusPageComposer?: boolean;
+  }[],
   fields: null as DocumentPropertiesResponse | null,
   realAdditionalEditors: false,
   realPrimaryEditor: false,
@@ -259,7 +263,10 @@ vi.mock("./comment-ai", () => ({
   isCommentAiWorkingOn: () => false,
 }));
 vi.mock("./CommentsSidebar", () => ({
-  CommentsSidebar: () => null,
+  CommentsSidebar: (props: (typeof fixture.commentsSidebars)[number]) => {
+    fixture.commentsSidebars.push(props);
+    return null;
+  },
   preserveCommentComposerEscape: () => {},
   useCommentReplyDrafts: () => ({
     setOpenReply: vi.fn(),
@@ -457,6 +464,7 @@ beforeEach(() => {
     updatedAt: "2026-10-19T12:00:00.000Z",
     canEdit: true,
   } as Document;
+  fixture.commentsSidebars = [];
   fixture.save.mockReset();
   fixture.flushUpdates.mockReset().mockResolvedValue(true);
   fixture.recoverySaveSettled.mockReset();
@@ -513,20 +521,23 @@ afterEach(async () => {
   __resetBlockFieldSaveRegistry();
 });
 
-function renderEditor() {
+function renderEditor({
+  host = "preview",
+  location = "/",
+}: { host?: "page" | "preview"; location?: string } = {}) {
   root.render(
     createElement(
       QueryClientProvider,
       { client: queryClient },
       createElement(
         MemoryRouter,
-        null,
+        { initialEntries: [location] },
         createElement(
           TooltipProvider,
           null,
           createElement(PageEditorSurface, {
             documentId: fixture.page!.id,
-            host: "preview",
+            host,
             onSessionChange: (session) => {
               fixture.session = session;
             },
@@ -2722,5 +2733,41 @@ describe("actual additional field freshness", () => {
     await act(async () => release());
     expect(publishedAcks()).toHaveLength(0);
     expect(fieldState().lastSaved).toBe("Additional body held input");
+  });
+});
+
+describe("a link that starts a comment on the whole page", () => {
+  const link = "/page/recovery-page?commentPage=1";
+  const discussions = () =>
+    fixture.commentsSidebars.filter(
+      (props) => props.presentation === "history",
+    );
+  async function selectTab(name: string) {
+    const tab = [
+      ...document.querySelectorAll<HTMLElement>('[role="tab"]'),
+    ].find((candidate) => candidate.textContent === name);
+    if (!tab) throw new Error(`No "${name}" tab.`);
+    await act(async () => tab.click());
+  }
+
+  beforeEach(() => {
+    fixture.page = { ...fixture.page, canComment: true } as Document;
+  });
+
+  it("opens Discussion on the page it addresses and asks for its composer", async () => {
+    await act(async () => renderEditor({ host: "page", location: link }));
+    expect(discussions().pop()?.focusPageComposer).toBe(true);
+  });
+
+  it("drops the request when Discussion closes before the composer takes it", async () => {
+    await act(async () => renderEditor({ host: "page", location: link }));
+    await selectTab("editor.toolbar.info");
+    await selectTab("comments.discussion");
+    expect(discussions().pop()?.focusPageComposer).toBe(false);
+  });
+
+  it("leaves a row previewed beside that page alone", async () => {
+    await act(async () => renderEditor({ host: "preview", location: link }));
+    expect(discussions()).toEqual([]);
   });
 });
