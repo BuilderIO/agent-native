@@ -1191,6 +1191,7 @@ jobs:
           inputs.deploy_mode == 'production' &&
           steps.target.outputs.source_template == 'crm'
         env:
+          MIGRATION_DATABASE_URL_SECRET: ${{ secrets.NETLIFY_PREVIEW_DATABASE_URL_CRM }}
           BUILD_CONTEXT: ${{ inputs.build_context }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
@@ -1229,6 +1230,7 @@ jobs:
                 < "$migration_environment_file"
             )"
           fi
+          migration_database_url="${MIGRATION_DATABASE_URL_SECRET:-$migration_database_url}"
           if [[ -z "$migration_database_url" ]]; then
             echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
             exit 1
@@ -1302,6 +1304,7 @@ jobs:
           inputs.deploy_mode == 'production' &&
           steps.target.outputs.source_template == 'chat'
         env:
+          MIGRATION_DATABASE_URL_SECRET: ${{ secrets.NETLIFY_PREVIEW_DATABASE_URL_CHAT }}
           BUILD_CONTEXT: ${{ inputs.build_context }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
@@ -1323,6 +1326,7 @@ jobs:
                 BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
             )"
           fi
+          migration_database_url="${MIGRATION_DATABASE_URL_SECRET:-$migration_database_url}"
           if [[ -z "$migration_database_url" ]]; then
             echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
             exit 1
@@ -1773,6 +1777,7 @@ jobs:
           steps.beta_pre_migration_freshness.outputs.current == 'true'
         env:
           BETA_DATABASE_URL_SECRET: ${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}
+          BETA_CHAT_DATABASE_URL_SECRET: ${{ secrets.BETA_DATABASE_URL_CHAT }}
           BUILD_CONTEXT: production
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_MIGRATION_SITE_ID: ${{ steps.target.outputs.migration_site_id }}
@@ -1795,6 +1800,10 @@ jobs:
                 BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
             )"
           fi
+          if [[ "$SOURCE_TEMPLATE" == "chat" && -n "${BETA_CHAT_DATABASE_URL_SECRET:-}" ]]; then
+            BETA_DATABASE_URL_SECRET="$BETA_CHAT_DATABASE_URL_SECRET"
+          fi
+          migration_database_url="${BETA_DATABASE_URL_SECRET:-$migration_database_url}"
           if [[ "$migration_database_url" != postgres://* && "$migration_database_url" != postgresql://* ]]; then
             migration_database_url="$BETA_DATABASE_URL_SECRET"
           fi
