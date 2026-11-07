@@ -198,10 +198,24 @@ const GLOB_WILDCARDS: Record<string, string> = {
   "?": "[^/]",
 };
 
+/**
+ * The patterns a glob's brace alternatives stand for, innermost first, so
+ * `*.{md,mdx}` is `*.md` and `*.mdx`.
+ */
+function expandBraces(glob: string): string[] {
+  const braces = /\{([^{}]*,[^{}]*)\}/.exec(glob);
+  if (!braces) return [glob];
+  const before = glob.slice(0, braces.index);
+  const after = glob.slice(braces.index + braces[0].length);
+  return braces[1]
+    .split(",")
+    .flatMap((alternative) => expandBraces(before + alternative + after));
+}
+
 /** A regex for the repo paths a Vite glob pattern matches. */
 function globPattern(glob: string): RegExp {
   const source = glob
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/[.+^$|\\]/g, "\\$&")
     .replace(/\*\*\/|\*\*|\*|\?/g, (wild) => GLOB_WILDCARDS[wild] ?? wild);
   return new RegExp(`^${source}$`);
 }
@@ -209,7 +223,8 @@ function globPattern(glob: string): RegExp {
 /**
  * The files among `files` that browsers can load as modules: code under a
  * browser root, and files of any type that this code imports as modules.
- * `read` returns a file's source.
+ * `read` returns a file's source. Throws on an `import.meta.glob` pattern it
+ * can't follow.
  */
 export function browserModules(
   files: string[],
@@ -230,8 +245,15 @@ export function browserModules(
     }
     for (const [, specs] of source.matchAll(GLOB_IMPORT)) {
       for (const [, glob] of specs.matchAll(STRING)) {
-        if (glob.startsWith(".")) {
-          globs.push(globPattern(path.posix.join(dir, glob)));
+        for (const pattern of expandBraces(glob)) {
+          // Exclusions only narrow what the other patterns match.
+          if (pattern.startsWith("!")) continue;
+          // Rather than skip the files, stop at syntax this can't follow,
+          // such as `[ab]`, `{1..3}` or a path from the project root.
+          if (!pattern.startsWith(".") || /[[\](){}]/.test(pattern)) {
+            throw new Error(`${file} imports a glob it can't follow: ${glob}`);
+          }
+          globs.push(globPattern(path.posix.join(dir, pattern)));
         }
       }
     }
@@ -348,14 +370,25 @@ function main(): void {
     process.exit(2);
   }
 
-  const modules = browserModules(files, (file) => {
-    try {
-      return readFileSync(path.join(REPO_ROOT, file), "utf8");
-    } catch {
-      // Deleted but not yet staged.
-      return "";
-    }
-  });
+  let modules: string[];
+  try {
+    modules = browserModules(files, (file) => {
+      try {
+        return readFileSync(path.join(REPO_ROOT, file), "utf8");
+      } catch {
+        // Deleted but not yet staged.
+        return "";
+      }
+    });
+  } catch (error) {
+    console.error(
+      `guard-blocker-safe-module-names: could not run: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    console.error(
+      "\nUse `*`, `**`, `?` and `{a,b}` in relative glob patterns, or teach this guard the new syntax.",
+    );
+    process.exit(2);
+  }
   const violations = findBlockedModuleNames(modules);
   if (violations.length === 0) {
     console.log(

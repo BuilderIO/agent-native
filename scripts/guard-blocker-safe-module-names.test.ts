@@ -183,6 +183,45 @@ test("checks the files code imports as modules, whatever their type", () => {
   );
 });
 
+test("expands brace alternatives in glob patterns", () => {
+  const loader = "templates/chat/app/content.ts";
+  const matched = [
+    "templates/chat/app/content/intro.md",
+    "templates/chat/app/content/intro.mdx",
+    "templates/chat/app/notes/2026/plan.md",
+    "templates/chat/app/notes/2027/plan.md",
+  ];
+  assert.deepEqual(
+    browserModules(
+      [
+        loader,
+        ...matched,
+        "templates/chat/app/content/intro.txt",
+        "templates/chat/app/notes/2028/plan.md",
+      ],
+      (file) =>
+        file === loader
+          ? 'import.meta.glob(["./content/*.{md,mdx}", "./notes/{2026,2027}/*.md", "!./content/draft-*.md"]);'
+          : "",
+    ).sort(),
+    [loader, ...matched].sort(),
+  );
+});
+
+test("stops at glob syntax it can't follow, instead of skipping files", () => {
+  for (const glob of ["./content/[ab].md", "./notes/{1..3}.md", "/src/*.md"]) {
+    assert.throws(
+      () =>
+        browserModules(
+          ["templates/chat/app/content.ts"],
+          () => `import.meta.glob("${glob}");`,
+        ),
+      /can't follow/,
+      glob,
+    );
+  }
+});
+
 test("finds the module name that kept apps from loading in Brave", () => {
   assert.deepEqual(
     findBlockedModuleNames([
