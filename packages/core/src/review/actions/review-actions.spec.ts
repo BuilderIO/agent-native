@@ -1183,10 +1183,12 @@ describe("review actions", () => {
 
   it("replays a saved reply after the comment it answered is deleted, but not after its thread is", async () => {
     const ctx = { userEmail: EDITOR_EMAIL, caller: "frontend" } as const;
+    const anchor = { point: { xPct: 40, yPct: 60 } };
     const root = await insertReviewComment({
       resourceType: "doc",
       resourceId: "private",
       body: "Open thread",
+      anchor,
       ownerEmail: OWNER_EMAIL,
     });
     const first = await replyReviewCommentAction.run(
@@ -1206,6 +1208,8 @@ describe("review actions", () => {
       clientOperationId: "00000000-0000-4000-8000-000000000021",
     };
     const saved = await replyReviewCommentAction.run(answer, ctx);
+    expect(saved.anchor).toEqual(anchor);
+    // Deleting the comment clears its anchor, which the retry would copy.
     await deleteReviewComment(first.id, EDITOR_EMAIL);
 
     await expect(
@@ -1229,6 +1233,19 @@ describe("review actions", () => {
     await expect(
       replyReviewCommentAction.run(answer, ctx),
     ).rejects.toMatchObject({ statusCode: 404, errorCode: "not_found" });
+    await expect(
+      replyReviewCommentAction.run(
+        {
+          ...answer,
+          clientOperationId: "00000000-0000-4000-8000-000000000023",
+        },
+        ctx,
+      ),
+    ).rejects.toMatchObject({
+      message: "This thread was deleted.",
+      statusCode: 404,
+      errorCode: "not_found",
+    });
   });
 
   it("answers a 404 when the thread goes before the reply saves", async () => {

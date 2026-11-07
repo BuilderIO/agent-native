@@ -14,6 +14,7 @@ import {
 } from "../registry.js";
 import {
   getReviewCommentById,
+  getReviewThreadRoot,
   insertReviewReply,
   insertReviewReplyIdempotently,
   ReviewThreadNotFoundError,
@@ -89,10 +90,18 @@ export default defineAction({
     // A retry of a reply that already saved goes on to the store, which
     // replays it while the thread is still there.
     if (parent.status === "deleted" && !existingReply) {
+      const root = parent.parentCommentId
+        ? await getReviewThreadRoot(
+            parent.threadId,
+            { resourceType: args.resourceType, resourceId: args.resourceId },
+            scope,
+            { bypassScope: true },
+          )
+        : parent;
       fail(
-        parent.parentCommentId
-          ? "This comment was deleted."
-          : "This thread was deleted.",
+        !root || root.status === "deleted"
+          ? "This thread was deleted."
+          : "This comment was deleted.",
         { statusCode: 404, errorCode: "not_found" },
       );
     }
@@ -116,7 +125,13 @@ export default defineAction({
       parentCommentId: parent.id,
       targetId: parent.targetId,
       kind: parent.kind,
-      anchor: parent.anchor,
+      // A retry rebuilds the reply from its parent, whose anchor may have moved
+      // since, or been cleared when the parent was deleted. The saved reply
+      // keeps the anchor it was sent with.
+      anchor:
+        existingReply?.parentCommentId === parent.id
+          ? existingReply.anchor
+          : parent.anchor,
       body: args.body,
       authorEmail: actionCtx?.userEmail ?? null,
       authorName: args.authorName ?? reviewAuthorNameFromContext(actionCtx),
