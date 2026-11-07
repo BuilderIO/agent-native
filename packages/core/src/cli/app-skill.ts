@@ -792,20 +792,22 @@ function isInsideFolder(folder: string, target: string): boolean {
 }
 
 // Names a pack never includes: build output, dependencies and secrets.
+// Compared in any case, so `Secrets` and `.ENV` are left out too; Windows and
+// macOS treat them as the same names.
 function isLeftOutOfPack(name: string): boolean {
   const lower = name.toLowerCase();
   return (
-    name === "node_modules" ||
-    name === ".git" ||
-    name === "dist" ||
-    name === ".output" ||
-    name === ".react-router" ||
-    name === ".netlify" ||
-    name === "secrets" ||
-    name === "private" ||
-    name.startsWith(".env") ||
-    name === ".dev.vars" ||
-    name === ".npmrc" ||
+    lower === "node_modules" ||
+    lower === ".git" ||
+    lower === "dist" ||
+    lower === ".output" ||
+    lower === ".react-router" ||
+    lower === ".netlify" ||
+    lower === "secrets" ||
+    lower === "private" ||
+    lower.startsWith(".env") ||
+    lower === ".dev.vars" ||
+    lower === ".npmrc" ||
     lower.endsWith(".pem") ||
     lower.endsWith(".key") ||
     lower.endsWith(".crt") ||

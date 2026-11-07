@@ -44,6 +44,31 @@ describe("recursive copy links guard", () => {
     assert.deepEqual(flagged(source), [4, 5, 6, 12, 13]);
   });
 
+  it("flags a copier aliased before the name it copies is assigned", () => {
+    const source = [
+      "let first, second;",
+      "first = second;",
+      "second = fs.cpSync;",
+      "first(src, dest, { recursive: true });",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [4]);
+  });
+
+  it("flags computed access and computed option keys", () => {
+    const source = [
+      'fs["cpSync"](src, dest, { recursive: true });',
+      'const copyTree = fs["cpSync"];',
+      "copyTree(src, dest, { recursive: true });",
+      'fs.cpSync(src, dest, { ["recursive"]: true });',
+      "fs.cpSync(src, dest, { [option]: true });",
+      'fs.cpSync(src, dest, { recursive: true, ["verbatimSymlinks"]: true });',
+      'fs.cpSync(src, dest, { recursive: true, dereference: true, ["filter"]() { return true; } });',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [1, 3, 4, 5]);
+  });
+
   it("accepts a copy that chooses dereference or verbatimSymlinks", () => {
     const source = [
       "fs.cpSync(src, dest, { recursive: true, dereference: true, filter: () => true });",

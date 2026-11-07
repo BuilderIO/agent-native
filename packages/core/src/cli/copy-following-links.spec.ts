@@ -178,6 +178,20 @@ describe("replaceFollowingLinks", () => {
     expect(fs.readdirSync(path.dirname(to))).toEqual(["actions"]);
   });
 
+  it("leaves out a link into what it replaces", () => {
+    const root = tmpDir();
+    const skill = writeSkill(root);
+    const to = earlierInstall(root);
+    linkDir(to, path.join(skill, "earlier"));
+
+    replaceFollowingLinks(skill, to);
+
+    expect(fs.readFileSync(path.join(to, "SKILL.md"), "utf8")).toBe(
+      "# Actions\n",
+    );
+    expect(fs.existsSync(path.join(to, "earlier"))).toBe(false);
+  });
+
   // oracle-change: a new test, skipped on Windows and as root, where folder permissions can't lock the test out.
   it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
     "keeps what was there when the copy fails",

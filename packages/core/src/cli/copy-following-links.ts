@@ -14,8 +14,9 @@ export interface CopyFollowingLinksOptions {
 /**
  * Copies a folder as plain files, following the links inside it, so the copy
  * still works on another machine. A link inside it is left out when it no
- * longer resolves, resolves outside `within`, or leads to a folder the copy
- * is already inside or is writing into, either of which would copy forever.
+ * longer resolves, resolves outside `within`, leads back to a folder the copy
+ * is already inside, or leads into or above `to`; the last two would copy
+ * forever or copy the copy into itself.
  *
  * The filter matters even with nothing to leave out: without one, Node 24's
  * `cpSync` takes a native shortcut that follows only a link at the top of the
@@ -26,9 +27,19 @@ export function copyFollowingLinks(
   to: string,
   options: CopyFollowingLinksOptions = {},
 ): void {
+  copyLeavingOut(from, to, options, [landingPath(to)]);
+}
+
+// `copyFollowingLinks`, leaving out a link into or above any of
+// `destinations` rather than only `to`.
+function copyLeavingOut(
+  from: string,
+  to: string,
+  options: CopyFollowingLinksOptions,
+  destinations: string[],
+): void {
   const top = path.resolve(from);
   const within = options.within?.map((root) => fs.realpathSync(root));
-  const out = landingPath(to);
   fs.cpSync(from, to, {
     recursive: true,
     dereference: true,
@@ -38,7 +49,14 @@ export function copyFollowingLinks(
       if (options.skip?.(path.basename(source))) return false;
       if (!fs.lstatSync(source).isSymbolicLink()) return true;
       const target = resolveLink(source);
-      if (target === undefined || isInside(target, out)) return false;
+      if (
+        target === undefined ||
+        destinations.some(
+          (folder) => isInside(folder, target) || isInside(target, folder),
+        )
+      ) {
+        return false;
+      }
       if (within) {
         const root = within.find((folder) => isInside(folder, target));
         if (root === undefined) return false;
@@ -78,7 +96,8 @@ export function replaceFollowingLinks(
   const aside = path.join(staging, "earlier");
   try {
     const copy = path.join(staging, "copy");
-    copyFollowingLinks(from, copy, options);
+    // A link into `to` would carry what is there now into its replacement.
+    copyLeavingOut(from, copy, options, [landingPath(copy), landing]);
     swapIn(copy, to, aside);
   } finally {
     // Kept when what was at `to` couldn't be put back, as it's the only copy.

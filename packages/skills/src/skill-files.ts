@@ -5,12 +5,13 @@ import path from "node:path";
  * Replaces `to` with a copy of a skill folder as plain files, so the copy
  * still works on another machine. A link is followed only when it resolves
  * inside `sourceRoot`, the folder or repository the skill came from. A link
- * out of it, one that no longer resolves, or one that leads to a folder the
- * copy is already inside or is writing into (either would copy forever) is
- * left out, so a downloaded skill can't copy files from elsewhere on this
- * machine into the
- * project. A `.git` or `node_modules` folder is left out too, and so is a
- * link inside the skill whose target sits under one.
+ * out of it is left out, so a downloaded skill can't copy files from
+ * elsewhere on this machine into the project. So is a link that no longer
+ * resolves, one that leads back to a folder the copy is already inside, and
+ * one that leads into or above the install folder or the copy being made:
+ * those would copy forever or carry the earlier install into the new one. A
+ * `.git` or `node_modules` folder is left out too, and so is a link inside
+ * the skill whose target sits under one.
  *
  * The skill folder itself may be a link to anywhere in the source,
  * `node_modules` included. If it leads out of the source or nowhere, this
@@ -58,10 +59,13 @@ export function copySkillFiles(
         if (isLeftOut(path.basename(source))) return false;
         if (!fs.lstatSync(source).isSymbolicLink()) return true;
         const target = resolveLink(source);
+        if (target === undefined || !isInside(root, target)) return false;
+        // A link above the copy would copy it into itself, and one into the
+        // earlier install would carry it into its replacement.
         if (
-          target === undefined ||
-          !isInside(root, target) ||
-          isInside(target, out)
+          [out, landing].some(
+            (folder) => isInside(folder, target) || isInside(target, folder),
+          )
         ) {
           return false;
         }

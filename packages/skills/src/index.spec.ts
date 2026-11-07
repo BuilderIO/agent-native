@@ -431,6 +431,33 @@ describe("@agent-native/skills", () => {
     expect(fs.existsSync(path.join(installed, "project"))).toBe(false);
   });
 
+  it("leaves out a link into the earlier install", async () => {
+    const repo = tmpDir();
+    const project = path.join(repo, "project");
+    const installed = path.join(project, ".agents", "skills", "quick-recap");
+    fs.mkdirSync(path.join(installed, "notes"), { recursive: true });
+    fs.writeFileSync(path.join(installed, "notes", "old.md"), "Old\n");
+    writeSkill(repo, "quick-recap");
+    fs.symlinkSync(
+      path.join(installed, "notes"),
+      path.join(repo, "skills", "quick-recap", "notes"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await installSkills({
+      source: repo,
+      skillNames: ["quick-recap"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: false,
+      yes: true,
+    });
+
+    expect(fs.existsSync(path.join(installed, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(installed, "notes"))).toBe(false);
+  });
+
   it("refuses to install a skill over the folder it comes from", async () => {
     const project = tmpDir();
     writeSkill(path.join(project, ".agents"), "quick-recap");

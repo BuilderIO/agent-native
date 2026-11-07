@@ -12,10 +12,11 @@
  * doesn't choose what happens to links: `dereference: true` copies what a
  * link points at, and `verbatimSymlinks: true` keeps each link exactly as it
  * is (a whole-app copy, where following a link could pull in a file the copy
- * leaves out). Options the guard can't read, such as a variable or a spread,
- * count as recursive, and a link choice counts only when it is written as
- * `true`. A copier is found by name, including a name the file gives it on
- * import or destructuring, as in `import { cpSync as copyTree } from "node:fs"`.
+ * leaves out). Options the guard can't read, such as a variable, a spread or
+ * a computed key, count as recursive, and a link choice counts only when it
+ * is written as `true`. A copier is found by name, including `fs["cpSync"]`
+ * and a name the file gives it by import, destructuring or assignment, as in
+ * `import { cpSync as copyTree } from "node:fs"`.
  *
  * `dereference` also needs a `filter`. Without one, Node 24's `cpSync` takes
  * a native shortcut that follows only a link at the top of the copy and copies
@@ -73,10 +74,23 @@ function unwrap(node: ts.Expression): ts.Expression {
   return current;
 }
 
+// The member `fs.cpSync` or `fs["cpSync"]` names, when it's written out.
+function memberName(node: ts.Expression): string | undefined {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  if (
+    ts.isElementAccessExpression(node) &&
+    ts.isStringLiteralLike(node.argumentExpression)
+  ) {
+    return node.argumentExpression.text;
+  }
+  return undefined;
+}
+
 function isCopier(call: ts.CallExpression, names: Set<string>): boolean {
   const callee = unwrap(call.expression);
   if (ts.isIdentifier(callee)) return names.has(callee.text);
-  return ts.isPropertyAccessExpression(callee) && COPIERS.has(callee.name.text);
+  const member = memberName(callee);
+  return member !== undefined && COPIERS.has(member);
 }
 
 // `cp` and `cpSync`, plus any other name this file gives them, as in
@@ -88,14 +102,15 @@ function copierNames(sourceFile: ts.SourceFile): Set<string> {
   const isCopierValue = (value: ts.Expression): boolean => {
     const inner = unwrap(value);
     if (ts.isIdentifier(inner)) return names.has(inner.text);
-    if (ts.isPropertyAccessExpression(inner)) {
-      return COPIERS.has(inner.name.text);
-    }
+    const member = memberName(inner);
+    if (member !== undefined) return COPIERS.has(member);
+    if (!ts.isCallExpression(inner)) return false;
+    const callee = unwrap(inner.expression);
     return (
-      ts.isCallExpression(inner) &&
-      ts.isPropertyAccessExpression(inner.expression) &&
-      inner.expression.name.text === "bind" &&
-      isCopierValue(inner.expression.expression)
+      (ts.isPropertyAccessExpression(callee) ||
+        ts.isElementAccessExpression(callee)) &&
+      memberName(callee) === "bind" &&
+      isCopierValue(callee.expression)
     );
   };
   const visit = (node: ts.Node) => {
@@ -127,8 +142,25 @@ function copierNames(sourceFile: ts.SourceFile): Set<string> {
     }
     ts.forEachChild(node, visit);
   };
-  visit(sourceFile);
+  // Repeated until no new name turns up, so an alias of a name assigned
+  // further down the file is found too.
+  let known: number;
+  do {
+    known = names.size;
+    visit(sourceFile);
+  } while (names.size !== known);
   return names;
+}
+
+// A property's name when it's written out: `recursive`, `"recursive"` or
+// `["recursive"]`.
+function propertyName(name: ts.PropertyName): string | undefined {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text;
+  if (ts.isComputedPropertyName(name)) {
+    const key = unwrap(name.expression);
+    if (ts.isStringLiteralLike(key)) return key.text;
+  }
+  return undefined;
 }
 
 /**
@@ -147,7 +179,13 @@ function leavesLinksToDefault(options: ts.Expression | undefined): boolean {
   let filtered = false;
   const chosen = new Set<string>();
   for (const property of inner.properties) {
-    if (ts.isSpreadAssignment(property)) {
+    // A spread, or a key the guard can't read, could set any option.
+    if (
+      ts.isSpreadAssignment(property) ||
+      (property.name !== undefined &&
+        ts.isComputedPropertyName(property.name) &&
+        propertyName(property.name) === undefined)
+    ) {
       recursive = true;
       filtered = false;
       chosen.clear();
@@ -155,8 +193,7 @@ function leavesLinksToDefault(options: ts.Expression | undefined): boolean {
     }
     if (
       ts.isMethodDeclaration(property) &&
-      ts.isIdentifier(property.name) &&
-      property.name.text === "filter"
+      propertyName(property.name) === "filter"
     ) {
       filtered = true;
       continue;
@@ -167,10 +204,7 @@ function leavesLinksToDefault(options: ts.Expression | undefined): boolean {
     ) {
       continue;
     }
-    const name =
-      ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)
-        ? property.name.text
-        : undefined;
+    const name = propertyName(property.name);
     const valueIs = (kind: ts.SyntaxKind) =>
       ts.isPropertyAssignment(property) &&
       unwrap(property.initializer).kind === kind;

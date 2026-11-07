@@ -700,6 +700,30 @@ describe("app skill packaging", () => {
     expect(fs.existsSync(path.join(exported, "keys"))).toBe(false);
   });
 
+  it("leaves out secret names in any case, and links into them", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const secrets = path.join(root, "Secrets");
+    fs.mkdirSync(secrets);
+    fs.writeFileSync(path.join(secrets, "token.txt"), "secret\n", "utf-8");
+    fs.writeFileSync(path.join(root, ".ENV"), "TOKEN=secret\n", "utf-8");
+    const skill = path.join(root, ".agents", "skills", "asset-generation");
+    fs.symlinkSync(
+      secrets,
+      path.join(skill, "vault"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    expect(fs.existsSync(path.join(outDir, "app", "Secrets"))).toBe(false);
+    expect(fs.existsSync(path.join(outDir, "app", ".ENV"))).toBe(false);
+    expect(fs.existsSync(path.join(outDir, "skills", "assets", "vault"))).toBe(
+      false,
+    );
+  });
+
   it("refuses a skill folder linked outside the app and its workspace", () => {
     const root = tmpDir();
     const manifestFile = writeFixture(root);
