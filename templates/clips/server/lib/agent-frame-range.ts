@@ -34,6 +34,11 @@ export function acquireAgentFrameRangeAdmission(): () => void {
   };
 }
 
+function cancelOnAbort(signal: AbortSignal, cancel: () => void): void {
+  signal.addEventListener("abort", cancel, { once: true });
+  if (signal.aborted) cancel();
+}
+
 type RangeReader = (
   range: string,
   timeoutMs: number,
@@ -154,9 +159,7 @@ export async function openAgentFrameRange(
     const cancel = () => {
       void reader.cancel().catch(() => {});
     };
-    signal.addEventListener("abort", cancel, { once: true });
-    // oxlint-disable-next-line typescript/no-unnecessary-condition -- The signal can abort while the stream is acquired.
-    if (signal.aborted) cancel();
+    cancelOnAbort(signal, cancel);
     const chunks: Buffer[] = [];
     let received = 0;
     try {

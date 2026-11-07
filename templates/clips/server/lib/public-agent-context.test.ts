@@ -124,19 +124,25 @@ const originalMaxMediaBytes = process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES;
 const originalMaxMediaFileBytes =
   process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES;
 
-function makeRecording(overrides: Record<string, unknown> = {}) {
+type RecordingFixture = Partial<
+  Omit<PublicAgentRecording, "videoSizeBytes">
+> & {
+  videoSizeBytes?: number | null;
+};
+
+function makeRecording(overrides: RecordingFixture = {}): RecordingFixture {
   return {
     id: "rec-1",
     title: "Clip",
     description: "",
     ownerEmail: "owner@example.com",
-    visibility: "public",
+    visibility: "public" as const,
     password: null,
     archivedAt: null,
     trashedAt: null,
     expiresAt: null,
     videoUrl: "https://media.example.com/clip.webm",
-    videoFormat: "webm",
+    videoFormat: "webm" as const,
     videoSizeBytes: null,
     durationMs: 10_000,
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -530,7 +536,7 @@ const YOUTUBE_RECORDING = {
   sourceWindowTitle: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
   videoUrl: "https://www.youtube.com/embed/jNQXAC9IVRw",
   videoFormat: "mp4",
-};
+} satisfies Partial<PublicAgentRecording>;
 
 describe("loadRecordingMediaBytes", () => {
   beforeEach(() => {
@@ -1058,6 +1064,19 @@ describe("loadRecordingMediaBytes", () => {
       ),
     ).rejects.toThrow(/too large/i);
     expect(mockOpenS3Recording).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not open a signed range for an unsupported stored video format", async () => {
+    const recording = makeRecording({
+      videoSizeBytes: 100,
+      storageMode: "own",
+    }) as PublicAgentRecording;
+    Object.assign(recording, { videoFormat: "unsupported" });
+    mockOpenS3Recording.mockReset();
+    await expect(loadRecordingMediaFile(recording)).rejects.toThrow(
+      /too large/i,
+    );
+    expect(mockOpenS3Recording).not.toHaveBeenCalled();
   });
 
   it.each([null, 2])(

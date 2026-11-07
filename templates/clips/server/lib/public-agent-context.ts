@@ -1312,6 +1312,10 @@ export async function loadRecordingMediaBytes(
   };
 }
 
+function isRangeVideoFormat(format: string | null): format is "mp4" | "webm" {
+  return format === "mp4" || format === "webm";
+}
+
 export async function loadRecordingMediaFile(
   recording: PublicAgentRecording,
 ): Promise<{
@@ -1335,8 +1339,7 @@ export async function loadRecordingMediaFile(
     typeof recording.videoSizeBytes === "number" &&
     recording.videoSizeBytes > maxAgentFrameMediaFileBytes() &&
     (recording.storageMode === "own" || recording.storageMode === "hosted") &&
-    // oxlint-disable-next-line typescript/no-unnecessary-condition -- Database rows can contain formats outside the TypeScript enum.
-    (recording.videoFormat === "mp4" || recording.videoFormat === "webm") &&
+    isRangeVideoFormat(recording.videoFormat) &&
     !isLocalRecordingBlob(videoUrl)
   ) {
     const storageMode = recording.storageMode;
