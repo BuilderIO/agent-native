@@ -1651,9 +1651,15 @@ describe("DocumentBlockFields tabs", () => {
 
     it("says a save was refused because the tab froze", async () => {
       mocks.save.mockRejectedValue(
-        Object.assign(new Error("The Notes tab can't change."), {
-          errorCode: "COLUMN_RULE_FROZEN",
-        }),
+        Object.assign(
+          new Error(
+            "Action set-document-property failed: The Notes tab can't change.",
+          ),
+          {
+            errorCode: "COLUMN_RULE_FROZEN",
+            actionMessage: "The Notes tab can't change.",
+          },
+        ),
       );
       setFields([content(), notes(), status("approved")]);
       await render();

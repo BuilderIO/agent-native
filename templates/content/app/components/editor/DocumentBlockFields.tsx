@@ -1,4 +1,7 @@
-import { tryCallActionKeepalive } from "@agent-native/core/client/hooks";
+import {
+  actionErrorMessage,
+  tryCallActionKeepalive,
+} from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import type {
   DocumentPropertiesResponse,
@@ -2442,7 +2445,9 @@ function AdditionalBlockEditor({
               ? t("editor.blockFieldFrozenSaveRefused")
               : dbText("somethingWentWrong"),
             {
-              description: error instanceof Error ? error.message : undefined,
+              description:
+                actionErrorMessage(error) ??
+                (error instanceof Error ? error.message : undefined),
             },
           );
         }
