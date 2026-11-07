@@ -936,15 +936,7 @@ describe("loadRecordingMediaBytes", () => {
         makeRecording({ storageMode: "hosted" }) as PublicAgentRecording,
       ),
     ).rejects.toMatchObject(expected);
-    mockOpenS3Recording.mockResolvedValueOnce(
-      async () =>
-        new Response(leakedUrl, { status: 413, statusText: "too large" }),
-    );
-    await expect(loadRecordingMediaFile(recording)).rejects.toMatchObject({
-      name: "RecordingMediaFetchError",
-      statusCode: 413,
-      message: "Recording storage returned an invalid range.",
-    });
+    // oracle-change: upstream 413 is a gateway failure, covered by agent-frame-storage-error.test.ts.
   });
 
   it("holds admission for timed-out setups until they settle", async () => {

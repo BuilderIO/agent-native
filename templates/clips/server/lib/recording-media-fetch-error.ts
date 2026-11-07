@@ -15,8 +15,6 @@ export function sanitizeRecordingMediaError(
     typeof error === "object" && error !== null && "statusCode" in error
       ? error.statusCode
       : undefined;
-  if (status === 413)
-    return new RecordingMediaFetchError("Recording media is too large.", 413);
   if (
     status === 504 ||
     (error instanceof Error && /abort|timeout/i.test(error.name))

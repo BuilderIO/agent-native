@@ -143,7 +143,7 @@ export async function openAgentFrameRange(
       (identity && (identity.etag !== etag || identity.size !== size)) ||
       !response.body
     ) {
-      const status = [401, 403, 404, 410, 413, 504].includes(response.status)
+      const status = [401, 403, 404, 410, 504].includes(response.status)
         ? response.status
         : 502;
       const error =
