@@ -4109,8 +4109,13 @@ export async function resolveSkillReferenceContent(
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail || !ref.path) return null;
     try {
-      const { resourceEffectiveContext, resourceGet } =
-        await import("../resources/store.js");
+      const [
+        { resourceEffectiveContext, resourceGet },
+        { readSkillChoices, skillReferenceResource },
+      ] = await Promise.all([
+        import("../resources/store.js"),
+        import("../resources/skill-choices.js"),
+      ]);
       const resourceOptions = {
         userEmail: ownerEmail,
         orgId: getRequestOrgId() ?? null,
@@ -4118,8 +4123,13 @@ export async function resolveSkillReferenceContent(
       const effective = await resourceEffectiveContext(ownerEmail, ref.path, {
         ...resourceOptions,
       });
-      if (!effective.effectiveResource) return null;
-      const full = await resourceGet(effective.effectiveResource.id, {
+      // A Required organization or Dispatch skill beats the person's own.
+      const chosen = skillReferenceResource(
+        effective,
+        await readSkillChoices({ orgId: resourceOptions.orgId }),
+      );
+      if (!chosen) return null;
+      const full = await resourceGet(chosen.id, {
         ...resourceOptions,
       });
       if (

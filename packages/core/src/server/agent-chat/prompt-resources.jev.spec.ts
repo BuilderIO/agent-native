@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   resourceGetByPath: vi.fn(),
   resourceList: vi.fn(),
   resourceListAccessible: vi.fn(),
+  readSkillChoices: vi.fn(),
   requestRunContext: vi.fn((): Record<string, unknown> | null => null),
 }));
 
@@ -71,7 +72,27 @@ vi.mock("../../resources/store.js", () => ({
   resourceList: (...args: unknown[]) => mocks.resourceList(...args),
   resourceListAccessible: (...args: unknown[]) =>
     mocks.resourceListAccessible(...args),
+  // The prompt reads skills by layer; split the flat fixture by owner.
+  resourceListAccessibleLayers: async (...args: unknown[]) => {
+    const rows: Array<{ owner: string }> =
+      (await mocks.resourceListAccessible(...args)) ?? [];
+    const isWorkspace = (owner: string) =>
+      owner === "__workspace__" || owner.startsWith("__workspace__:");
+    return {
+      personal: rows.filter((row) => row.owner === args[0]),
+      organization: rows.filter(
+        (row) => row.owner !== args[0] && !isWorkspace(row.owner),
+      ),
+      workspace: rows.filter((row) => isWorkspace(row.owner)),
+    };
+  },
   ensurePersonalDefaults: vi.fn(),
+}));
+vi.mock("../../resources/skill-choices.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../resources/skill-choices.js")
+  >()),
+  readSkillChoices: (...args: unknown[]) => mocks.readSkillChoices(...args),
 }));
 vi.mock("../../framework-tools.js", () => ({
   frameworkGroupEnabled: (
@@ -124,6 +145,7 @@ describe("preloadJevContextForPrompt", () => {
         userEmail === "disabled@example.test" ? [] : mocks.getRuntimeSkills(),
     );
     mocks.resourceListAccessible.mockResolvedValue([]);
+    mocks.readSkillChoices.mockResolvedValue({ switches: {}, marks: {} });
     mocks.resourceList.mockResolvedValue([]);
     mocks.resourceGetByPath.mockResolvedValue(null);
     mocks.requestOrgId.mockReturnValue(null);
@@ -1987,6 +2009,102 @@ describe("preloadJevContextForPrompt", () => {
     );
     expect(prompt).toContain("Organization version.");
     expect(prompt).not.toContain("Newer shared version.");
+  });
+
+  it("follows the person's switches and lets a Required skill beat their own", async () => {
+    const owner = "user@example.test";
+    const skill = (
+      id: string,
+      skillOwner: string,
+      path: string,
+      name: string,
+      description: string,
+    ) => ({
+      id,
+      owner: skillOwner,
+      path,
+      mimeType: "text/markdown",
+      updatedAt: 1000,
+      content: `---
+name: ${name}
+description: ${description}
+---
+# ${name}`,
+    });
+    const candidates = [
+      skill(
+        "mine",
+        owner,
+        "skills/brand-voice/SKILL.md",
+        "brand-voice",
+        "My own voice.",
+      ),
+      skill(
+        "theirs",
+        "__organization__:org-1",
+        "skills/brand-voice/SKILL.md",
+        "brand-voice",
+        "The organization's voice.",
+      ),
+      skill(
+        "renamed",
+        owner,
+        "skills/brand-voice-2/SKILL.md",
+        "brand-voice",
+        "My renamed voice.",
+      ),
+      skill(
+        "off",
+        "__organization__:org-1",
+        "skills/release-notes/SKILL.md",
+        "release-notes",
+        "Switched off.",
+      ),
+      skill(
+        "optional",
+        "__workspace__",
+        "skills/meeting-notes/SKILL.md",
+        "meeting-notes",
+        "Optional, never switched on.",
+      ),
+    ];
+    mocks.resourceListAccessible.mockResolvedValue(
+      candidates.map(({ content: _content, ...resource }) => resource),
+    );
+    mocks.resourceGet.mockImplementation(
+      async (id: string) =>
+        candidates.find((candidate) => candidate.id === id) ?? null,
+    );
+    mocks.readSkillChoices.mockResolvedValue({
+      switches: {
+        "organization:skills/brand-voice/SKILL.md": { on: false, at: 1 },
+        "organization:skills/release-notes/SKILL.md": { on: false, at: 1 },
+      },
+      marks: {
+        "organization:skills/brand-voice/SKILL.md": "required",
+        "workspace:skills/meeting-notes/SKILL.md": "optional",
+      },
+    });
+
+    const prompt = await loadResourcesForPrompt(
+      owner,
+      false,
+      undefined,
+      "org-1",
+    );
+
+    expect(mocks.readSkillChoices).toHaveBeenCalledWith({
+      email: owner,
+      orgId: "org-1",
+    });
+    expect(prompt).toContain(
+      "`brand-voice` at resource `skills/brand-voice/SKILL.md`",
+    );
+    expect(prompt).toContain("The organization's voice.");
+    expect(prompt).not.toContain("My own voice.");
+    expect(prompt).not.toContain("My renamed voice.");
+    expect(prompt).not.toContain("release-notes");
+    expect(prompt).not.toContain("meeting-notes");
   });
 
   it.each([false, true])(

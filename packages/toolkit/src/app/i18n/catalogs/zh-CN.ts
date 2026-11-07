@@ -2612,6 +2612,48 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "上传技能文件",
   "settingsResources.skills.describePlaceholder":
     "一个检查拉取请求安全问题的技能",
+  "settingsResources.skills.personalHint": "只有你拥有这些技能。",
+  "settingsResources.skills.orgHint":
+    "与 {{org}} 的所有人共享。你的开关只对你生效。",
+  "settingsResources.skills.orgAdminHint":
+    "与 {{org}} 的所有人共享。你是管理员，可以选择每个技能对其他人的默认状态。",
+  "settingsResources.skills.dispatchHint":
+    "Dispatch 是工作区存放所有应用共享技能的地方。在这里关闭某个技能只会影响 {{app}}。",
+  "settingsResources.skills.thisApp": "此应用",
+  "settingsResources.skills.forEveryone": "所有人",
+  "settingsResources.skills.forYou": "你",
+  "settingsResources.skills.markRecommended": "推荐",
+  "settingsResources.skills.markRecommendedHint": "默认开启，除非有人关闭。",
+  "settingsResources.skills.markOptional": "可选",
+  "settingsResources.skills.markOptionalHint": "默认关闭，除非有人开启。",
+  "settingsResources.skills.markRequired": "必需",
+  "settingsResources.skills.markRequiredHint":
+    "对所有人开启。任何人都不能关闭或使用自己的版本。",
+  "settingsResources.skills.recommendedBy": "{{org}} 推荐",
+  "settingsResources.skills.requiredBy": "{{org}} 要求",
+  "settingsResources.skills.optionalOff": "可选：开启前一直关闭",
+  "settingsResources.skills.optionalOn": "可选：你已开启",
+  "settingsResources.skills.switchedOffOn": "你在 {{date}} 关闭了它",
+  "settingsResources.skills.alwaysOn": "始终开启",
+  "settingsResources.skills.requiredLockHint": "{{org}} 要求使用，因此始终开启",
+  "settingsResources.skills.dispatchClash":
+    "Dispatch 中也有 {{name}}。智能体会使用这个，并跳过 Dispatch 中的那个。重命名其中一个即可同时使用两者。",
+  "settingsResources.skills.requireTitle": "将 {{name}} 设为必需？",
+  "settingsResources.skills.makeRequired": "设为必需",
+  "settingsResources.skills.switchFailed": "无法保存你对 {{name}} 的选择。",
+  "settingsResources.skills.markFailed":
+    "无法更改 {{name}} 对其他人的默认状态。",
+  "settingsResources.skills.addForMe": "为我添加",
+  "settingsResources.skills.addForEveryone": "为所有人添加",
+  "settingsResources.skills.offFor_other": "{{count}} 人中有 {{off}} 人关闭",
+  "settingsResources.skills.onFor_other": "{{count}} 人中有 {{on}} 人开启",
+  "settingsResources.skills.ownVersions_other": "{{count}} 人有自己的版本",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "它会为关闭它的 {{count}} 人重新开启。",
+  "settingsResources.skills.requireTurnsOn_other":
+    "它会为尚未开启它的 {{count}} 人开启。",
+  "settingsResources.skills.requireOwnVersions_other":
+    "拥有自己版本的 {{count}} 人将改用 {{org}} 的文本。他们的版本会保留，之后你更改此设置时会恢复。",
   "settingsResources.files.empty": "添加文件，为智能体提供更多上下文。",
   "settingsResources.files.emptyTitle": "还没有文件",
   "settingsResources.files.orgEmpty": "还没有共享文件",

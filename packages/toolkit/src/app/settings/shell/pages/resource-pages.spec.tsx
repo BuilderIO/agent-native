@@ -10,7 +10,31 @@ const orgState = vi.hoisted(() => ({
   value: { orgId: "org-1", orgName: "Acme", role: "member" as string },
 }));
 
+const skillChoices = vi.hoisted(() => ({
+  value: {} as Record<string, unknown>,
+  setSwitch: vi.fn(async () => {}),
+  setMark: vi.fn(async () => {}),
+}));
+
 vi.mock("../../../chat/index.js", () => ({ PromptComposer: () => null }));
+vi.mock(
+  "@agent-native/core/client/resources/use-skill-choices",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/client/resources/use-skill-choices")
+    >()),
+    useSkillChoices: () => ({
+      choices: { switches: {}, marks: {} },
+      canMark: false,
+      isLoaded: true,
+      isError: false,
+      counts: null,
+      setSwitch: skillChoices.setSwitch,
+      setMark: skillChoices.setMark,
+      ...skillChoices.value,
+    }),
+  }),
+);
 vi.mock("../../../resources/ResourceEditor.js", () => ({
   ResourceEditor: () => null,
 }));
@@ -168,6 +192,9 @@ function groupIds() {
 
 beforeEach(() => {
   orgState.value = { orgId: "org-1", orgName: "Acme", role: "member" };
+  skillChoices.value = {};
+  skillChoices.setSwitch.mockClear();
+  skillChoices.setMark.mockClear();
   vi.stubGlobal("fetch", fetchMock);
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -353,13 +380,21 @@ describe("Skills page", () => {
     },
   );
 
-  it("puts Add skill in the page header and lists Dispatch skills", async () => {
+  it("says who each group is for and lists Dispatch skills", async () => {
     await renderPage(SkillsSettingsPage);
 
-    expect(header?.action).toBeTruthy();
+    // Each group adds its own skills, so the page header has no Add.
+    expect(header?.action).toBeFalsy();
     expect(groupIds()).toEqual(["personal", "organization", "from-dispatch"]);
+    expect(group("personal").textContent).toContain("Only you have these.");
     expect(group("personal").textContent).toContain(
       "Save a workflow once and the agent can reuse it.",
+    );
+    expect(group("organization").textContent).toContain(
+      "Shared with everyone at Acme. Your switches are just for you.",
+    );
+    expect(group("from-dispatch").textContent).toContain(
+      "Switching one off here only changes",
     );
     expect(
       group("from-dispatch")
@@ -386,6 +421,140 @@ describe("Skills page", () => {
     expect(
       organization.querySelector('[data-slot="empty"] button')?.textContent,
     ).toContain("Add skill");
+  });
+
+  it("gives a member a switch on each skill that's just for them", async () => {
+    await renderPage(SkillsSettingsPage);
+    const dispatch = group("from-dispatch");
+    const toggle = dispatch.querySelector<HTMLElement>('[role="switch"]');
+
+    expect(toggle?.getAttribute("aria-label")).toBe("release-notes");
+    expect(toggle?.getAttribute("aria-checked")).toBe("true");
+    expect(dispatch.textContent).toContain("Recommended by Acme");
+    // Members don't choose for everyone, and the group explains Dispatch.
+    expect(container.textContent).not.toContain("For everyone");
+    expect(dispatch.textContent).not.toContain("All apps");
+
+    await act(async () => {
+      toggle!.click();
+    });
+    expect(skillChoices.setSwitch).toHaveBeenCalledWith(
+      "workspace",
+      "skills/release-notes/SKILL.md",
+      false,
+    );
+  });
+
+  it("shows a Required skill as always on, with no switch", async () => {
+    skillChoices.value = {
+      choices: {
+        switches: {},
+        marks: { "workspace:skills/release-notes/SKILL.md": "required" },
+      },
+    };
+    await renderPage(SkillsSettingsPage);
+    const dispatch = group("from-dispatch");
+
+    expect(dispatch.querySelector('[role="switch"]')).toBeNull();
+    expect(dispatch.textContent).toContain("Always on");
+    expect(dispatch.textContent).toContain("Required by Acme");
+  });
+
+  it("shows an admin how people chose, never who", async () => {
+    orgState.value = { orgId: "org-1", orgName: "Acme", role: "owner" };
+    skillChoices.value = {
+      canMark: true,
+      counts: {
+        members: 5,
+        counts: {
+          "workspace:skills/release-notes/SKILL.md": {
+            off: 2,
+            on: 0,
+            ownVersions: 0,
+          },
+        },
+      },
+    };
+    await renderPage(SkillsSettingsPage);
+    const dispatch = group("from-dispatch");
+
+    expect(dispatch.textContent).toContain("For everyone");
+    expect(dispatch.textContent).toContain("For you");
+    expect(dispatch.textContent).toContain("Off for 2 of 5 people");
+    expect(
+      dispatch.querySelector('[aria-label="release-notes: For everyone"]')
+        ?.textContent,
+    ).toContain("Recommended");
+    expect(group("organization").textContent).toContain(
+      "You're an admin, so you choose how each one starts for people.",
+    );
+  });
+
+  it("asks before making a skill Required, saying who it changes", async () => {
+    const { RequireSkillDialog } =
+      await import("../../../resources/SkillChoiceControls.js");
+    const state = {
+      choices: { switches: {}, marks: {} },
+      canMark: true,
+      isLoaded: true,
+      isError: false,
+      counts: {
+        members: 5,
+        counts: {
+          "organization:skills/brand-voice/SKILL.md": {
+            off: 2,
+            on: 0,
+            ownVersions: 1,
+          },
+        },
+      },
+      setSwitch: skillChoices.setSwitch,
+      setMark: skillChoices.setMark,
+    };
+    const onOpenChange = vi.fn();
+    await renderPage(() => (
+      <RequireSkillDialog
+        skill={{
+          source: "organization",
+          path: "skills/brand-voice/SKILL.md",
+          name: "brand-voice",
+        }}
+        context={{
+          state,
+          orgName: "Acme",
+          dispatchNames: new Set(),
+          onRequire: () => {},
+        }}
+        onOpenChange={onOpenChange}
+      />
+    ));
+    const dialog = document.body.querySelector<HTMLElement>(
+      '[role="alertdialog"]',
+    );
+
+    expect(dialog?.textContent).toContain("Make brand-voice required?");
+    expect(dialog?.textContent).toContain(
+      "It turns back on for the 2 people who switched it off.",
+    );
+    expect(dialog?.textContent).toContain(
+      "The 1 person with their own version gets Acme's text instead.",
+    );
+    expect(skillChoices.setMark).not.toHaveBeenCalled();
+    // Keyboard users land on Cancel, inside the dialog.
+    expect(document.activeElement?.textContent).toBe("Cancel");
+
+    const confirm = Array.from(dialog!.querySelectorAll("button")).find(
+      (button) => button.textContent === "Make required",
+    );
+    await act(async () => {
+      confirm!.click();
+    });
+    expect(skillChoices.setMark).toHaveBeenCalledWith(
+      "organization",
+      "skills/brand-voice/SKILL.md",
+      "required",
+    );
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("offers Add skill in the empty personal group", async () => {

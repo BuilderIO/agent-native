@@ -13,13 +13,17 @@ import {
   parseFrontmatter,
 } from "../../resources/metadata.js";
 import {
+  applySkillChoices,
+  readSkillChoices,
+} from "../../resources/skill-choices.js";
+import {
   ensurePersonalDefaults,
   isWorkspaceResourceOwner,
   organizationIdFromResourceOwner,
   resourceGet,
   resourceGetByPath,
   resourceList,
-  resourceListAccessible,
+  resourceListAccessibleLayers,
   SHARED_OWNER,
   sharedResourceOwner,
   type Resource,
@@ -770,14 +774,27 @@ async function loadResourceSkillPromptEntries(
   metadataRead: number;
 }> {
   try {
-    const resources =
+    const layers =
       owner === SHARED_OWNER
-        ? [
-            ...(await resourceList(SHARED_OWNER, "skills/")),
-            ...(await resourceList(WORKSPACE_OWNER, "skills/", { orgId })),
-          ]
-        : await resourceListAccessible(owner, "skills/", { orgId });
-    const sorted = sortResourceSkills(resources, { owner, orgId });
+        ? {
+            personal: [],
+            organization: await resourceList(SHARED_OWNER, "skills/"),
+            workspace: await resourceList(WORKSPACE_OWNER, "skills/", {
+              orgId,
+            }),
+          }
+        : await resourceListAccessibleLayers(owner, "skills/", { orgId });
+    // Each person's switches and the organization's marks decide which
+    // skills the agent sees; Required ones come first so they win.
+    const choices = await readSkillChoices({
+      email: owner === SHARED_OWNER ? null : owner,
+      orgId: orgId === undefined ? getRequestOrgId() : orgId,
+    });
+    const { required, rest } = applySkillChoices(layers, choices);
+    const sorted = [
+      ...sortResourceSkills(required, { owner, orgId }),
+      ...sortResourceSkills(rest, { owner, orgId }),
+    ];
     const skillCandidates = sorted.slice(0, PROMPT_SKILL_METADATA_READ_LIMIT);
     const loaded = await Promise.all(
       skillCandidates.map(async (resource) => ({

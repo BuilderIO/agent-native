@@ -2868,6 +2868,53 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "スキルファイルをアップロード",
   "settingsResources.skills.describePlaceholder":
     "プルリクエストのセキュリティ問題をレビューするスキル",
+  "settingsResources.skills.personalHint": "あなただけが持っているスキルです。",
+  "settingsResources.skills.orgHint":
+    "{{org}} の全員と共有されています。スイッチの切り替えはあなたにだけ反映されます。",
+  "settingsResources.skills.orgAdminHint":
+    "{{org}} の全員と共有されています。管理者として、各スキルを他のメンバーにどう適用するかを選べます。",
+  "settingsResources.skills.dispatchHint":
+    "Dispatch は、すべてのアプリで共有するスキルをワークスペースが保管する場所です。ここでオフにしても変わるのは {{app}} だけです。",
+  "settingsResources.skills.thisApp": "このアプリ",
+  "settingsResources.skills.forEveryone": "全員",
+  "settingsResources.skills.forYou": "あなた",
+  "settingsResources.skills.markRecommended": "推奨",
+  "settingsResources.skills.markRecommendedHint":
+    "誰かがオフにしない限りオンです。",
+  "settingsResources.skills.markOptional": "任意",
+  "settingsResources.skills.markOptionalHint":
+    "誰かがオンにしない限りオフです。",
+  "settingsResources.skills.markRequired": "必須",
+  "settingsResources.skills.markRequiredHint":
+    "全員に対してオンです。誰もオフにしたり、自分のバージョンを使ったりできません。",
+  "settingsResources.skills.recommendedBy": "{{org}} の推奨",
+  "settingsResources.skills.requiredBy": "{{org}} の必須スキル",
+  "settingsResources.skills.optionalOff": "任意：オンにするまでオフです",
+  "settingsResources.skills.optionalOn": "任意：あなたがオンにしました",
+  "settingsResources.skills.switchedOffOn": "{{date}} にあなたがオフにしました",
+  "settingsResources.skills.alwaysOn": "常にオン",
+  "settingsResources.skills.requiredLockHint":
+    "{{org}} の必須スキルのため、常にオンです",
+  "settingsResources.skills.dispatchClash":
+    "Dispatch にも {{name}} があります。エージェントはこちらを使い、Dispatch のものはスキップします。両方使うには、どちらかの名前を変更してください。",
+  "settingsResources.skills.requireTitle": "{{name}} を必須にしますか？",
+  "settingsResources.skills.makeRequired": "必須にする",
+  "settingsResources.skills.switchFailed":
+    "{{name}} の選択を保存できませんでした。",
+  "settingsResources.skills.markFailed":
+    "{{name}} の適用方法を変更できませんでした。",
+  "settingsResources.skills.addForMe": "自分用に追加",
+  "settingsResources.skills.addForEveryone": "全員用に追加",
+  "settingsResources.skills.offFor_other": "{{count}} 人中 {{off}} 人がオフ",
+  "settingsResources.skills.onFor_other": "{{count}} 人中 {{on}} 人がオン",
+  "settingsResources.skills.ownVersions_other":
+    "{{count}} 人が自分のバージョンを使用",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "オフにしていた {{count}} 人に対して再びオンになります。",
+  "settingsResources.skills.requireTurnsOn_other":
+    "オンにしていなかった {{count}} 人に対してオンになります。",
+  "settingsResources.skills.requireOwnVersions_other":
+    "自分のバージョンを持つ {{count}} 人には、代わりに {{org}} のテキストが使われます。各自のバージョンは保持され、後で変更すれば元に戻ります。",
   "settingsResources.files.empty":
     "ファイルを追加して、エージェントにより多くのコンテキストを与えましょう。",
   "settingsResources.files.emptyTitle": "ファイルはまだありません",

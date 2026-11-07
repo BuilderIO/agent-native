@@ -74,6 +74,7 @@ export function useOrganizationResourceAccess() {
   return {
     canEditOrg: canEditOrganizationResources(org),
     orgName: org?.orgName ?? null,
+    hasOrg: Boolean(org?.orgId),
   };
 }
 
@@ -204,10 +205,13 @@ export function useSeedResource(onCreated: (resource: ResourceMeta) => void) {
 export function AddSkillMenu({
   scope,
   placement,
+  label,
   onCreated,
 }: {
   scope: EditableResourceScope;
   placement: AddActionPlacement;
+  /** Defaults to "Add skill". */
+  label?: string;
   onCreated: (resource: ResourceMeta) => void;
 }) {
   const t = useT();
@@ -261,7 +265,7 @@ export function AddSkillMenu({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <AddButton
-            label={t("agentChat.settingsResources.skills.add")}
+            label={label ?? t("agentChat.settingsResources.skills.add")}
             placement={placement}
             pending={create.isPending}
             disabled={create.isPending}
