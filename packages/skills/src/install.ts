@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 
+import { copySkillFiles } from "./skill-files.js";
+
 export type AgentId = "codex" | "claude";
 export type Scope = "project" | "user";
 type Command = "add" | "list" | "help";
@@ -84,6 +86,8 @@ export interface GitHubSource {
 
 interface ResolvedSource {
   root: string;
+  /** Where a skill's links may point: the local folder or the whole clone. */
+  linkRoot: string;
   display: string;
   cleanup: () => void;
 }
@@ -394,7 +398,7 @@ async function resolveSource(
 ): Promise<ResolvedSource> {
   const local = path.resolve(options.cwd ?? process.cwd(), source);
   if (fs.existsSync(local)) {
-    return { root: local, display: source, cleanup: () => {} };
+    return { root: local, linkRoot: local, display: source, cleanup: () => {} };
   }
 
   const github = parseGitHubSource(source, parsed.ref);
@@ -422,6 +426,7 @@ async function resolveSource(
   }
   return {
     root,
+    linkRoot: repoDir,
     display: github.display,
     cleanup: () => fs.rmSync(tmpRoot, { recursive: true, force: true }),
   };
@@ -637,18 +642,21 @@ function assertWithin(root: string, target: string): void {
   }
 }
 
-function copySkillDir(from: string, to: string, dryRun: boolean): void {
+function copySkillDir(
+  from: string,
+  to: string,
+  linkRoot: string,
+  dryRun: boolean,
+): void {
   if (dryRun) return;
   fs.rmSync(to, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(to), { recursive: true });
-  fs.cpSync(from, to, {
-    recursive: true,
-    dereference: true,
-    filter(source) {
-      const base = path.basename(source);
-      return base !== ".git" && base !== "node_modules";
-    },
-  });
+  copySkillFiles(
+    from,
+    to,
+    linkRoot,
+    (name) => name === ".git" || name === "node_modules",
+  );
 }
 
 function instructionFilePath(
@@ -771,7 +779,7 @@ export async function installSkills(
       for (const skill of selected) {
         const dest = path.join(root.root, safeSkillName(skill.name));
         assertWithin(root.root, dest);
-        copySkillDir(skill.dir, dest, parsed.dryRun);
+        copySkillDir(skill.dir, dest, source.linkRoot, parsed.dryRun);
         copied.push({
           skillName: skill.name,
           agent: root.agent,

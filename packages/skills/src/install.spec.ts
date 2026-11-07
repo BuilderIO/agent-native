@@ -247,6 +247,50 @@ describe("@agent-native/skills", () => {
     );
   });
 
+  it("leaves out links that point outside the source or nowhere", async () => {
+    const root = tmpDir();
+    const source = path.join(root, "source");
+    const project = path.join(root, "project");
+    const outside = path.join(root, "outside");
+    const gone = path.join(root, "gone");
+    const skill = writeSkill(path.join(source, "skills"), "beta");
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, "private.txt"), "private", "utf-8");
+    fs.mkdirSync(gone, { recursive: true });
+    const linkType = process.platform === "win32" ? "junction" : "dir";
+    fs.symlinkSync(outside, path.join(skill, "outside"), linkType);
+    fs.symlinkSync(gone, path.join(skill, "gone"), linkType);
+    fs.rmSync(gone, { recursive: true });
+
+    await installSkills(
+      parseSkillsCliArgs(
+        [
+          "add",
+          source,
+          "--skill",
+          "beta",
+          "--agent",
+          "codex",
+          "--scope",
+          "project",
+          "--project",
+          project,
+          "--instructions",
+          "none",
+        ],
+        root,
+      ),
+      { isInteractive: () => false },
+    );
+
+    const installed = path.join(project, ".agents", "skills", "beta");
+    expect(fs.existsSync(path.join(installed, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(installed, "outside"))).toBe(false);
+    expect(
+      fs.lstatSync(path.join(installed, "gone"), { throwIfNoEntry: false }),
+    ).toBeUndefined();
+  });
+
   it("prompts for skills when no explicit selection is provided", async () => {
     const root = tmpDir();
     const source = path.join(root, "source");

@@ -13,7 +13,8 @@
  * link points at, and `verbatimSymlinks: true` keeps each link exactly as it
  * is (a whole-app copy, where following a link could pull in a file the copy
  * leaves out). Options the guard can't read, such as a variable or a spread,
- * count as recursive.
+ * count as recursive, and a link choice counts only when it is written as
+ * `true`.
  *
  * A copy that really should write absolute links can say so, on any line of
  * the call or on the line immediately above it:
@@ -103,12 +104,13 @@ function leavesLinksToDefault(options: ts.Expression | undefined): boolean {
       ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)
         ? property.name.text
         : undefined;
-    const isFalse =
+    const valueIs = (kind: ts.SyntaxKind) =>
       ts.isPropertyAssignment(property) &&
-      unwrap(property.initializer).kind === ts.SyntaxKind.FalseKeyword;
+      unwrap(property.initializer).kind === kind;
+    const isFalse = valueIs(ts.SyntaxKind.FalseKeyword);
     if (name !== undefined && LINK_CHOICES.has(name)) {
-      if (isFalse) chosen.delete(name);
-      else chosen.add(name);
+      if (valueIs(ts.SyntaxKind.TrueKeyword)) chosen.add(name);
+      else chosen.delete(name);
     }
     if (name === "recursive") recursive = !isFalse;
   }

@@ -612,6 +612,52 @@ describe("app skill packaging", () => {
       ),
     ).toBe("Keep project context bounded and preserve its provenance.\n");
   });
+
+  it("exports a skill folder linked into the workspace around the app", () => {
+    const workspace = tmpDir();
+    fs.writeFileSync(
+      path.join(workspace, "package.json"),
+      JSON.stringify({ "agent-native": { workspaceCore: "packages/core" } }),
+      "utf-8",
+    );
+    const root = path.join(workspace, "apps", "assets");
+    fs.mkdirSync(root, { recursive: true });
+    const manifestFile = writeFixture(root);
+    const skillLink = path.join(root, ".agents", "skills", "asset-generation");
+    const workspaceSkill = path.join(workspace, "skills", "asset-generation");
+    fs.mkdirSync(path.dirname(workspaceSkill), { recursive: true });
+    fs.renameSync(skillLink, workspaceSkill);
+    fs.symlinkSync(
+      workspaceSkill,
+      skillLink,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    expect(
+      fs.existsSync(path.join(outDir, "skills", "assets", "SKILL.md")),
+    ).toBe(true);
+  });
+
+  it("refuses a skill folder linked outside the app and its workspace", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const skillLink = path.join(root, ".agents", "skills", "asset-generation");
+    const outsideSkill = path.join(tmpDir(), "asset-generation");
+    fs.renameSync(skillLink, outsideSkill);
+    fs.symlinkSync(
+      outsideSkill,
+      skillLink,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    expect(() =>
+      buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir),
+    ).toThrow(/links outside the app and its workspace/);
+  });
 });
 
 describe("app skill launch and ensure", () => {

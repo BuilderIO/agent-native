@@ -791,6 +791,76 @@ describe("agent-native skills", () => {
     },
   );
 
+  it("puts links back as written when MCP setup fails", async ({ skip }) => {
+    const root = tmpDir();
+    const home = path.join(root, "home");
+    const store = path.join(root, "screen-memory");
+    const skillDir = path.join(home, ".claude", "skills", "rewind");
+    const configPath = path.join(home, ".claude.json");
+    const configTarget = path.join("dotfiles", "claude.json");
+    const referencesTarget = path.join("..", "..", "..", "references");
+    fs.mkdirSync(path.join(home, "dotfiles"), { recursive: true });
+    fs.mkdirSync(path.join(home, "references"), { recursive: true });
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.mkdirSync(store, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, "SKILL.md"), "original skill\n");
+    fs.writeFileSync(path.join(home, configTarget), "original config\n");
+    try {
+      fs.symlinkSync(configTarget, configPath, "file");
+      fs.symlinkSync(
+        referencesTarget,
+        path.join(skillDir, "references"),
+        "dir",
+      );
+    } catch (error) {
+      // Windows only lets developer mode or an admin make symlinks.
+      if ((error as NodeJS.ErrnoException).code === "EPERM") return skip();
+      throw error;
+    }
+    const previousHome = process.env.HOME;
+    const previousStore = process.env.CLIPS_SCREEN_MEMORY_DIR;
+    process.env.HOME = home;
+    process.env.CLIPS_SCREEN_MEMORY_DIR = store;
+
+    try {
+      await expect(
+        addAgentNativeSkill(
+          parseSkillsArgs([
+            "add",
+            "rewind",
+            "--client",
+            "claude-code",
+            "--scope",
+            "user",
+            "--yes",
+          ]),
+          {
+            baseDir: root,
+            installScreenMemory: () => {
+              fs.writeFileSync(configPath, "partial config\n");
+              throw new Error("simulated MCP write failure");
+            },
+          },
+        ),
+      ).rejects.toThrow("simulated MCP write failure");
+
+      expect(fs.readlinkSync(configPath)).toBe(configTarget);
+      expect(fs.readFileSync(configPath, "utf-8")).toBe("original config\n");
+      expect(fs.readlinkSync(path.join(skillDir, "references"))).toBe(
+        referencesTarget,
+      );
+      expect(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf-8")).toBe(
+        "original skill\n",
+      );
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousStore === undefined)
+        delete process.env.CLIPS_SCREEN_MEMORY_DIR;
+      else process.env.CLIPS_SCREEN_MEMORY_DIR = previousStore;
+    }
+  });
+
   it("dry-runs Rewind setup without requiring an active local store", async () => {
     const result = await addAgentNativeSkill(
       parseSkillsArgs([

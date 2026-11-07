@@ -1608,6 +1608,8 @@ interface InstallPathSnapshot {
   target: string;
   backup: string;
   existed: boolean;
+  /** Set when the target is itself a link, which is put back as written. */
+  link?: { target: string; type: "file" | "dir" };
 }
 
 function snapshotInstallPaths(
@@ -1616,12 +1618,27 @@ function snapshotInstallPaths(
 ): InstallPathSnapshot[] {
   return [...new Set(targets)].map((target, index) => {
     const backup = path.join(backupRoot, `snapshot-${index}`);
-    const existed = fs.existsSync(target);
-    // The backup is only restored on this machine. Kept as written, a relative
-    // link would dangle in the temp folder, and cpSync can't copy that back.
-    // guard:allow-copy-links — restored on the machine that took the snapshot
-    if (existed) fs.cpSync(target, backup, { recursive: true });
-    return { target, backup, existed };
+    const stat = fs.lstatSync(target, { throwIfNoEntry: false });
+    if (!stat) return { target, backup, existed: false };
+    if (!stat.isSymbolicLink()) {
+      fs.cpSync(target, backup, { recursive: true, verbatimSymlinks: true });
+      return { target, backup, existed: true };
+    }
+    // A link is recreated, not copied: a copy would make a relative target
+    // absolute, and cpSync can't copy back a relative link that dangles in
+    // the backup. A linked file's contents are kept as well, since the
+    // install writes through the link.
+    const resolved = fs.statSync(target, { throwIfNoEntry: false });
+    if (resolved?.isFile()) fs.copyFileSync(target, backup);
+    return {
+      target,
+      backup,
+      existed: true,
+      link: {
+        target: fs.readlinkSync(target),
+        type: resolved?.isDirectory() ? "dir" : "file",
+      },
+    };
   });
 }
 
@@ -1643,8 +1660,21 @@ function restoreInstallPaths(
     fs.rmSync(snapshot.target, { recursive: true, force: true });
     if (snapshot.existed) {
       fs.mkdirSync(path.dirname(snapshot.target), { recursive: true });
-      // guard:allow-copy-links — see snapshotInstallPaths
-      fs.cpSync(snapshot.backup, snapshot.target, { recursive: true });
+      if (snapshot.link) {
+        createAgentSymlink(
+          snapshot.link.target,
+          snapshot.target,
+          snapshot.link.type,
+        );
+        if (fs.existsSync(snapshot.backup)) {
+          fs.copyFileSync(snapshot.backup, snapshot.target);
+        }
+      } else {
+        fs.cpSync(snapshot.backup, snapshot.target, {
+          recursive: true,
+          verbatimSymlinks: true,
+        });
+      }
     }
   }
   for (const snapshot of snapshots) {

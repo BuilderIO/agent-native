@@ -28,17 +28,20 @@ describe("recursive copy links guard", () => {
     const source = [
       "fs.cpSync(src, dest, { recursive: true, dereference: true });",
       "fs.cpSync(backup, target, { recursive: true, verbatimSymlinks: true });",
-      "fs.cpSync(src, dest, { recursive: true, dereference });",
     ].join("\n");
 
     assert.deepEqual(flagged(source), []);
   });
 
-  it("does not count an explicit false as a choice", () => {
-    const source =
-      "fs.cpSync(src, dest, { recursive: true, dereference: false });";
+  it("counts a choice only when it is written as true", () => {
+    const source = [
+      "fs.cpSync(src, dest, { recursive: true, dereference: false });",
+      "fs.cpSync(src, dest, { recursive: true, dereference });",
+      "fs.cpSync(src, dest, { recursive: true, verbatimSymlinks: keepLinks });",
+      "fs.cpSync(src, dest, { recursive: true, dereference: true, dereference: follow });",
+    ].join("\n");
 
-    assert.deepEqual(flagged(source), [1]);
+    assert.deepEqual(flagged(source), [1, 2, 3, 4]);
   });
 
   it("leaves single-file copies alone", () => {

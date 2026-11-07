@@ -10,6 +10,7 @@ import { docsUrl } from "@agent-native/core/shared";
 import { resolveAppForSkill, type BuiltInAppMcp } from "./built-in-apps.js";
 import { registerMcpServer } from "./connect.js";
 import type { ClientId } from "./mcp-config-writers.js";
+import { copySkillFiles } from "./skill-files.js";
 import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
 
 export type SkillClient =
@@ -737,10 +738,7 @@ export async function installSkills(
           if (!options.dryRun) {
             fs.rmSync(destination, { recursive: true, force: true });
             fs.mkdirSync(path.dirname(destination), { recursive: true });
-            fs.cpSync(skill.dir, destination, {
-              recursive: true,
-              dereference: true,
-            });
+            copySkillFiles(skill.dir, destination, source.root);
           }
         }
       }

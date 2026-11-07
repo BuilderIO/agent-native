@@ -19,6 +19,7 @@ import {
   removeSameUrlDuplicatesForClient,
 } from "./mcp-config-writers.js";
 import { openUrlInBrowser } from "./open-url.js";
+import { findWorkspaceRoot } from "../scripts/workspace-root.js";
 
 export type SkillVisibility = "internal" | "exported" | "both";
 export type AppSkillHostAdapter =
@@ -751,14 +752,30 @@ function skillExportName(skill: AppSkillManifestSkill): string {
   return path.basename(normalized);
 }
 
+// A skill folder can be a link into the workspace (an app's
+// `.agents/skills/<name>` usually is), and it is exported as the files it
+// points at. Wherever a link sits on the way, the folder it reaches has to be
+// inside the app or the workspace around it.
+function resolveSkillSourceOnDisk(
+  manifestDir: string,
+  source: string,
+  field: string,
+): string {
+  const target = fs.realpathSync(source);
+  const isInside = (root: string) => {
+    const relative = path.relative(fs.realpathSync(root), target);
+    return !relative.startsWith("..") && !path.isAbsolute(relative);
+  };
+  if (isInside(manifestDir)) return target;
+  const workspaceRoot = findWorkspaceRoot(manifestDir);
+  if (workspaceRoot && isInside(workspaceRoot)) return target;
+  throw new Error(
+    `${field} links outside the app and its workspace: ${target}`,
+  );
+}
+
 function copyDirFiltered(source: string, dest: string): void {
-  // A linked skill folder is copied as its files. Links inside it stay links,
-  // with their targets as written: following them would carry files the
-  // filter below leaves out, such as a link to `.env`.
-  const from = fs.lstatSync(source).isSymbolicLink()
-    ? fs.realpathSync(source)
-    : source;
-  const sourceRoot = path.resolve(from);
+  const sourceRoot = path.resolve(source);
   const destRoot = path.resolve(dest);
   const relativeDest = path.relative(sourceRoot, destRoot);
   const outputRootInsideSource =
@@ -767,7 +784,9 @@ function copyDirFiltered(source: string, dest: string): void {
     !path.isAbsolute(relativeDest)
       ? path.join(sourceRoot, relativeDest.split(path.sep)[0])
       : destRoot;
-  fs.cpSync(from, dest, {
+  // Links stay links, with their targets as written: following them would
+  // carry files the filter below leaves out, such as a link to `.env`.
+  fs.cpSync(source, dest, {
     recursive: true,
     verbatimSymlinks: true,
     filter: (src) => {
@@ -812,13 +831,18 @@ function copySkill(
   if (!fs.existsSync(source)) {
     throw new Error(`Exported skill source not found: ${source}`);
   }
+  const from = resolveSkillSourceOnDisk(
+    manifestDir,
+    source,
+    `Skill path ${skill.path}`,
+  );
   fs.mkdirSync(destRoot, { recursive: true });
-  const stat = fs.statSync(source);
+  const stat = fs.statSync(from);
   if (stat.isDirectory()) {
-    copyDirFiltered(source, dest);
+    copyDirFiltered(from, dest);
   } else {
     fs.mkdirSync(dest, { recursive: true });
-    fs.copyFileSync(source, path.join(dest, "SKILL.md"));
+    fs.copyFileSync(from, path.join(dest, "SKILL.md"));
   }
   rewriteSkillFrontmatterName(path.join(dest, "SKILL.md"), exportName);
   return dest;
