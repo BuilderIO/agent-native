@@ -140,7 +140,7 @@ async function buildAgentDiscoveryScript(
           origin: getForwardedRequestOrigin(event),
           basePath: configuredAppBasePath(),
           token: "",
-          instructions: `Read this session report as JSON at contextUrl. Add the ${AGENT_ACCESS_PARAM} parameter from the link you were given; without it, ask the report's owner for its link from Share > Agents.`,
+          instructions: `Read this session report as JSON at contextUrl. Add the ${AGENT_ACCESS_PARAM} parameter from the link you were given; without it, ask the report's owner for its link from Share > Send to > Copy agent link.`,
         }),
         { id: "analytics-session-report-agent-context" },
       ),

@@ -28,7 +28,7 @@ export default defineEventHandler(async (event) => {
   if (!id || !token) {
     setResponseStatus(event, 400);
     return {
-      error: `id and ${AGENT_ACCESS_PARAM} are required. Ask the report's owner for its link from Share > Agents.`,
+      error: `id and ${AGENT_ACCESS_PARAM} are required. Ask the report's owner for its link from Share > Send to > Copy agent link.`,
     };
   }
 
@@ -45,7 +45,7 @@ export default defineEventHandler(async (event) => {
       return {
         error: (error as Error).message,
         nextStep:
-          "Ask someone who can open the report for a new link from Share > Agents.",
+          "Ask someone who can open the report for a new link from Share > Send to > Copy agent link.",
       };
     }
     console.error("[session-report-agent-context]", error);

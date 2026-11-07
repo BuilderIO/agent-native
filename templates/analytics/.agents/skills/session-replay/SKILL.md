@@ -438,7 +438,7 @@ with `create-session-report`.
   Sharing is the framework `sharing` system (`session-report` type), limited
   like the recording itself: no public links, and people only within the
   organization, because a report's agent context carries its replay.
-- Share > Agents makes a report's agent link (`create-agent-resource-link`).
+- Share > Send to > Copy agent link makes a report's agent link (`create-agent-resource-link`).
   It lasts a year, and every read checks that its maker can still open the
   report, so deleting the report or removing the maker's access ends it.
   `/api/session-report-agent-context.json?id=<reportId>&agent_access=<token>`
