@@ -59,6 +59,13 @@ export interface ShareButtonSharesResponse {
   shares: ShareButtonShare[];
   /** What anyone with the link can do; present while visibility is `public`. */
   linkRole?: ShareButtonRole;
+  /**
+   * How many resources that went public with this one (a page's sub-pages)
+   * are public; present for managers while visibility is `public`.
+   */
+  publicFollowers?: number;
+  /** There are more public followers than `publicFollowers` counts. */
+  publicFollowersMore?: boolean;
   /** Present for managers inside the resource's org. */
   agents?: ShareButtonAgent[];
   /** The org's agents could not be read; distinct from having none. */

@@ -1515,6 +1515,9 @@ const exactEnglish = {
       privateLinkCanView:
         "Seules les personnes autorisées peuvent consulter ce lien",
       publicLinkCanView: "Toute personne disposant du lien peut le consulter",
+      publicSubPagesOne: "Cette page et sa sous-page",
+      publicSubPages: "Cette page et ses {{count}} sous-pages",
+      publicSubPagesMore: "Cette page et plus de {{count}} sous-pages",
       copiedAgentPrompt: "Instructions pour l'agent copiées",
       couldNotCopyAgentPrompt:
         "Impossible de copier les instructions pour l’agent",

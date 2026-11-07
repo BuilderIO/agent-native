@@ -1964,6 +1964,60 @@ describe("ShareButton", () => {
     expect(onCheckedChange).toHaveBeenCalledWith(true);
   });
 
+  it("says how many sub-pages are public with a public resource", async () => {
+    const renderPanel = async () => {
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="document"
+              resourceId="doc-1"
+              publicFollowersLabel={(count, more) =>
+                more
+                  ? `This page and more than ${count} sub-pages`
+                  : `This page and its ${count} sub-pages`
+              }
+            />
+          </QueryClientProvider>,
+        );
+      });
+      return container.textContent ?? "";
+    };
+    const shared = {
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      role: "owner",
+      shares: [],
+    };
+
+    sharesData.current = {
+      ...shared,
+      visibility: "public",
+      publicFollowers: 3,
+    };
+    expect(await renderPanel()).toContain("This page and its 3 sub-pages");
+
+    sharesData.current = {
+      ...shared,
+      visibility: "public",
+      publicFollowers: 500,
+      publicFollowersMore: true,
+    };
+    expect(await renderPanel()).toContain(
+      "This page and more than 500 sub-pages",
+    );
+
+    sharesData.current = {
+      ...shared,
+      visibility: "public",
+      publicFollowers: 0,
+    };
+    expect(await renderPanel()).not.toContain("sub-pages");
+
+    sharesData.current = { ...shared, visibility: "private" };
+    expect(await renderPanel()).not.toContain("sub-pages");
+  });
+
   it("searches org members on the server and selects a suggestion with the keyboard", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

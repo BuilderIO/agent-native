@@ -10,9 +10,11 @@ import {
   assertAccess,
   currentAccess,
   ForbiddenError,
+  resolveAccess,
   resolveRegisteredAccessContext,
 } from "../access.js";
 import {
+  MAX_PUBLIC_FOLLOWERS,
   requireShareableResource,
   type ShareableResourceRegistration,
 } from "../registry.js";
@@ -20,6 +22,7 @@ import {
   LINK_PRINCIPAL_ID,
   LINK_PRINCIPAL_TYPE,
   LINK_ROLES,
+  ROLE_RANK,
   type ShareRole,
 } from "../schema.js";
 import { assertWidgetShareWriteGrant } from "../widget-grant.js";
@@ -33,6 +36,8 @@ type Visibility = "private" | "org" | "public";
 
 /** The most resources one call may change, so a batch stays one bounded request. */
 const MAX_VISIBILITY_BATCH = 100;
+/** Public followers checked and prepared at once. */
+const FOLLOWER_CHECKS_AT_ONCE = 20;
 
 const schema = z
   .object({
@@ -179,7 +184,7 @@ async function readGrants(
 
 export default defineAction({
   description:
-    "Change the coarse visibility of one or more shareable resources: 'private' keeps them owner-only, 'org' shares them with all members of the owner's organization, 'public' makes them accessible to anyone with the link. Pass role to choose what those people can do: with 'org', view, comment, or edit; with 'public', view or comment. Leaving 'org' or 'public' removes its role. Visibility changes require owner or admin role. To change several resources of the same type, pass resourceIds instead of calling once per resource: every resource is checked before any changes, and the result lists each one as changed or unchanged.",
+    "Change the coarse visibility of one or more shareable resources: 'private' keeps them owner-only, 'org' shares them with all members of the owner's organization, 'public' makes them accessible to anyone with the link. Pass role to choose what those people can do: with 'org', view, comment, or edit; with 'public', view or comment. Leaving 'org' or 'public' removes its role. Visibility changes require owner or admin role. Some types carry related resources with them, such as a Content page's sub-pages: they go public with the resource and leave public with it, and `followersChanged` says how many changed. To change several resources of the same type, pass resourceIds instead of calling once per resource: every resource is checked before any changes, and the result lists each one as changed or unchanged.",
   toolCallable: false,
   mcpApp: {
     compactCatalog: true,
@@ -239,9 +244,15 @@ export default defineAction({
     const rawAccess = currentAccess();
     const currentOrgId = resolveRegisteredAccessContext(reg, rawAccess).orgId;
 
-    const prepare = async (resourceId: string): Promise<PreparedChange> => {
-      const access = await assertAccess(args.resourceType, resourceId, "admin");
+    const prepare = async (
+      resourceId: string,
+      follower?: { access: Access },
+    ): Promise<PreparedChange> => {
+      const access =
+        follower?.access ??
+        (await assertAccess(args.resourceType, resourceId, "admin"));
       if (
+        !follower &&
         args.expectedVisibility &&
         access.resource.visibility !== args.expectedVisibility
       ) {
@@ -488,6 +499,88 @@ export default defineAction({
       for (const resourceId of ids) prepared.push(await prepare(resourceId));
     }
 
+    // A resource's public followers, such as a page's sub-pages, go public
+    // with it and leave public with it, in this same all-or-nothing write.
+    // They are what the change does, not what was asked for, so the result
+    // counts them apart. A widget grant pinned to the resource covers taking
+    // them back from public, which only narrows access, but not carrying
+    // them public, which would share more than the one resource it names.
+    const followers: PreparedChange[] = [];
+    const seenFollowers = new Set(ids);
+    // Counted across every resource in the call, so a batch can't carry
+    // more than one resource could.
+    let carried = 0;
+    // The followers that still need this change, prepared. Runs before the
+    // writes and again after them (see below).
+    const collectFollowers = async (): Promise<PreparedChange[]> => {
+      if (!reg.publicFollowers) return [];
+      const found: PreparedChange[] = [];
+      for (const change of prepared) {
+        const from = change.access.resource.visibility as Visibility;
+        if (!change.visibilityChanged) continue;
+        if (args.visibility !== "public" && from !== "public") continue;
+        // Going public carries the followers that aren't public yet; leaving
+        // public carries the ones that still are.
+        const followerIds = await reg.publicFollowers(change.access.resource, {
+          isPublic: args.visibility !== "public",
+        });
+        const fresh: string[] = [];
+        for (const followerId of followerIds) {
+          if (seenFollowers.has(followerId)) continue;
+          seenFollowers.add(followerId);
+          if (++carried > MAX_PUBLIC_FOLLOWERS) {
+            fail(
+              `This change would carry more than ${MAX_PUBLIC_FOLLOWERS} sub-pages with it, which is too many at once. Change some of them on their own first.`,
+              { errorCode: "too_many_followers", statusCode: 409 },
+            );
+          }
+          fresh.push(followerId);
+        }
+        // A few at a time, so hundreds of followers aren't hundreds of
+        // round trips in a row.
+        for (
+          let index = 0;
+          index < fresh.length;
+          index += FOLLOWER_CHECKS_AT_ONCE
+        ) {
+          const checked = await Promise.all(
+            fresh
+              .slice(index, index + FOLLOWER_CHECKS_AT_ONCE)
+              .map(async (followerId) => {
+                // One the caller can't manage stays as it is.
+                const access = await resolveAccess(
+                  args.resourceType,
+                  followerId,
+                );
+                if (!access || ROLE_RANK[access.role] < ROLE_RANK.admin) {
+                  return null;
+                }
+                const current = access.resource.visibility as Visibility;
+                if (current === args.visibility) return null;
+                // Leaving public moves only the followers still public.
+                if (args.visibility !== "public" && current !== "public") {
+                  return null;
+                }
+                return prepare(followerId, { access });
+              }),
+          );
+          for (const follower of checked) if (follower) found.push(follower);
+        }
+      }
+      if (
+        found.length > 0 &&
+        args.visibility === "public" &&
+        ctx?.caller === "mcp-widget-write"
+      ) {
+        fail(
+          "Making this public would make its sub-pages public too. Do it in the app, where the share dialog shows them.",
+          { errorCode: "followers_need_app", statusCode: 403 },
+        );
+      }
+      return found;
+    };
+    followers.push(...(await collectFollowers()));
+
     // Used for the write and for its undo, so a registration's own
     // persistence (for example, a reserved name) runs both ways.
     const persistVisibility = async (
@@ -568,16 +661,21 @@ export default defineAction({
 
     // A batch leaves resources already in this state alone, so a no-op can't
     // trip a registration's own checks or send a change notice; a single
-    // call writes as it always has.
-    const toWrite = args.resourceIds
-      ? prepared.filter((change) => change.resourceChanged)
-      : prepared;
+    // call writes as it always has. Followers come last and only when they
+    // change.
+    const toWrite = [
+      ...(args.resourceIds
+        ? prepared.filter((change) => change.resourceChanged)
+        : prepared),
+      ...followers,
+    ];
+    const followerChanges = new Set(followers);
 
     const beforeExtensionTargets = new Map<
       string,
       Awaited<ReturnType<typeof getExtensionShareChangeTargets>>
     >();
-    for (const change of toWrite) {
+    const noteExtensionTargets = async (change: PreparedChange) => {
       beforeExtensionTargets.set(
         change.resourceId,
         await getExtensionShareChangeTargets(
@@ -585,28 +683,86 @@ export default defineAction({
           change.resourceId,
         ),
       );
-    }
+    };
+    for (const change of toWrite) await noteExtensionTargets(change);
 
     // A failure part-way puts back every resource already written, so a
     // batch changes all of its resources or none. If putting one back fails
     // too, the error names it rather than claiming nothing changed.
     const written: PreparedChange[] = [];
     let failing: PreparedChange | undefined;
+    const write = async (change: PreparedChange) => {
+      failing = change;
+      await persistVisibility(change, args.visibility, change.update);
+      written.push(change);
+      if (change.visibilityChanged) {
+        // The check above runs before the write, so a context item that
+        // commits in between is missed by it. This one runs after the write
+        // and sees it.
+        await reg.assertSharingChange?.({
+          resource: { ...change.access.resource, ...change.update },
+          change: { kind: "visibility", visibility: args.visibility },
+        });
+      }
+      for (const grant of change.grants) await writeGrant(change, grant);
+    };
     try {
-      for (const change of toWrite) {
-        failing = change;
-        await persistVisibility(change, args.visibility, change.update);
-        written.push(change);
-        if (change.visibilityChanged) {
-          // The check above runs before the write, so a context item that
-          // commits in between is missed by it. This one runs after the write
-          // and sees it.
-          await reg.assertSharingChange?.({
-            resource: { ...change.access.resource, ...change.update },
-            change: { kind: "visibility", visibility: args.visibility },
-          });
+      // Leaving public, the followers go first. A request that dies part-way
+      // can't put anything back, but it leaves the resource still public: its
+      // share dialog still counts the followers left, and making the same
+      // change again takes them along.
+      const writeOrder =
+        args.visibility === "public"
+          ? toWrite
+          : [
+              ...followers,
+              ...toWrite.filter((change) => !followerChanges.has(change)),
+            ];
+      for (const change of writeOrder) await write(change);
+      // A follower created while this ran, such as a sub-page added under
+      // the page, copied the old visibility after the walk above. Walking
+      // again once the writes have committed finds it, as long as a create
+      // that copies a resource's visibility refuses when it has changed by
+      // the time the create commits (Content's does).
+      const collectLate = () => {
+        // A refusal found while preparing one isn't the last write's.
+        failing = undefined;
+        return collectFollowers();
+      };
+      for (
+        let late = await collectLate();
+        late.length > 0;
+        late = await collectLate()
+      ) {
+        for (const change of late) {
+          followers.push(change);
+          followerChanges.add(change);
+          toWrite.push(change);
+          await noteExtensionTargets(change);
+          await write(change);
         }
-        for (const grant of change.grants) await writeGrant(change, grant);
+      }
+      // Another change to the same resource may have walked before these
+      // followers were written, so it left them out. Once they're written,
+      // a resource still holding this call's visibility means any later
+      // change walks after them and takes them along; one that has already
+      // moved on undoes this whole call instead, rather than leave its
+      // followers public under a resource that isn't.
+      if (followers.length > 0) {
+        failing = undefined;
+        for (const change of prepared) {
+          if (!change.visibilityChanged) continue;
+          const [current] = await db
+            .select({ visibility: reg.resourceTable.visibility })
+            .from(reg.resourceTable)
+            .where(eq(reg.resourceTable.id, change.resourceId));
+          if (current?.visibility !== args.visibility) {
+            fail(
+              `${reg.displayName} ${change.resourceId} changed visibility while its sub-pages were being saved. Try again.`,
+              { errorCode: "visibility_conflict", statusCode: 409 },
+            );
+          }
+        }
       }
     } catch (error) {
       const stillVisible: string[] = [];
@@ -670,7 +826,8 @@ export default defineAction({
           error,
         );
       }
-      if (change.visibilityChanged) {
+      // A follower's change is part of the change asked for, not another one.
+      if (change.visibilityChanged && !followerChanges.has(change)) {
         track(
           "share_visibility_change",
           {
@@ -697,11 +854,15 @@ export default defineAction({
         )
       : undefined;
     const roleResult = args.role ? { role: args.role } : {};
+    const followerResult = followers.length
+      ? { followersChanged: followers.length }
+      : {};
     if (!args.resourceIds) {
       return {
         ok: true,
         visibility: args.visibility,
         ...roleResult,
+        ...followerResult,
         ...(card ? { change: card } : {}),
       };
     }
@@ -709,6 +870,7 @@ export default defineAction({
       ok: true,
       visibility: args.visibility,
       ...roleResult,
+      ...followerResult,
       results: prepared.map((change) => ({
         resourceId: change.resourceId,
         status: change.resourceChanged

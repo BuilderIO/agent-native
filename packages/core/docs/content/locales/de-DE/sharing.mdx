@@ -125,6 +125,8 @@ Jede gemeinsam nutzbare Ressource erhält in ihrer Kopfzeile eine Schaltfläche 
 
 Sichtbarkeitsänderungen werden sofort gespeichert. Ein Ressourcentyp, dessen Inhalt leicht übersehen wird, kann zuerst nachfragen: Chats setzen `confirmOrgVisibility: true` in ihrer Registrierung, daher wartet das Verschieben eines Chats von `Private` auf `Organization`, bis die Person bestätigt. Mit Abbrechen oder Escape bleibt der aktuelle Zugriff erhalten. Schlägt das Speichern fehl, zeigt der Dialog den Fehler an, und die Person kann es erneut versuchen. Die Bestätigung gibt es nur in der Freigabe-UI, sodass der Agent und jeder andere Aufrufer die Sichtbarkeit weiterhin direkt über `set-resource-visibility` ändern und die Freigaberichtlinie der Ressource weiterhin bestimmt, was erlaubt ist.
 
+Ein Ressourcentyp kann außerdem verwandte Ressourcen mitnehmen, wenn er öffentlich wird oder nicht mehr öffentlich ist. Content registriert `publicFollowers`, das die Unterseiten einer Seite zurückgibt: Wird die Seite öffentlich, werden sie ebenfalls öffentlich, und wird sie wieder privat oder nur für die Organisation freigegeben, nimmt sie die noch öffentlichen mit. Verwandte Ressourcen, die der Aufrufer nicht verwalten darf, behalten ihre eigene Einstellung, die ganze Änderung wird gemeinsam gespeichert oder schlägt gemeinsam fehl, und `set-resource-visibility` gibt in `followersChanged` zurück, wie viele mitgegangen sind. Der Teilen-Dialog zeigt, wie viele mit der Ressource öffentlich sind, wenn die App `publicFollowersLabel` an `ShareButton` übergibt. Eine Änderung, die mehr als `MAX_PUBLIC_FOLLOWERS` (500) mitnehmen würde, wird abgelehnt.
+
 Die Schaltfläche „Teilen“ ist ein einzelner Import:
 
 ```tsx
