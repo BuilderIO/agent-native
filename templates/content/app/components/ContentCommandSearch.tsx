@@ -738,7 +738,7 @@ export function ContentCommandSearchResults({
               id: document.id,
               parentId: document.parentId,
               collectionDocumentId:
-                document.databaseMembership?.databaseDocumentId,
+                document.databaseMembership?.databaseDocumentId ?? null,
             })) ??
               titleEntries ??
               [],

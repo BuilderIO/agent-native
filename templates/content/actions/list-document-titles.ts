@@ -13,11 +13,27 @@ import { documentDiscoveryWhere } from "./_document-discovery-query.js";
 /** Most pages one reply lists; a larger library keeps its latest edited. */
 export const DOCUMENT_TITLE_LIST_LIMIT = 20_000;
 
+const documentTitleSchema = z.object({
+  id: z.string(),
+  parentId: z.string().nullable(),
+  spaceId: z.string().nullable(),
+  title: z.string(),
+  updatedAt: z.string(),
+  sourceKind: z.string().nullable(),
+  sourceUpdatedAt: z.string().nullable(),
+  documentType: z.enum(["page", "database"]),
+  collectionDocumentId: z.string().nullable(),
+});
+
 export default defineAction({
   description:
     "List the title and place of every page the caller can search, latest edited first, for the browser to rank titles on each keystroke. Returns no bodies.",
   agentTool: false,
   schema: z.object({}),
+  outputSchema: z.object({
+    documents: z.array(documentTitleSchema),
+    truncated: z.boolean(),
+  }),
   http: { method: "GET" },
   readOnly: true,
   mcpAnnotations: {

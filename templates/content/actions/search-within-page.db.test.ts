@@ -15,7 +15,7 @@ const OUTSIDER = "within-outsider@example.com";
 const WORD = "quokkaword";
 
 type Schema = typeof import("../server/db/schema.js");
-let getDb: () => any;
+let getDb: typeof import("../server/db/index.js").getDb;
 let schema: Schema;
 let searchDocuments: typeof import("./search-documents.js").default;
 let SEARCH_SUBTREE_LIMIT: number;
@@ -55,7 +55,7 @@ beforeAll(async () => {
   searchDocuments = (await import("./search-documents.js")).default;
   ({ SEARCH_SUBTREE_LIMIT } = await import("./_page-subtree.js"));
   const plugin = (await import("../server/plugins/db.js")).default;
-  await plugin(undefined as any);
+  await plugin(undefined as never);
 
   await getDb()
     .insert(schema.documents)

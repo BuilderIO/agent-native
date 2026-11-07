@@ -14,7 +14,7 @@ const OWNER = "titles-owner@example.com";
 const OUTSIDER = "titles-outsider@example.com";
 
 type Schema = typeof import("../server/db/schema.js");
-let getDb: () => any;
+let getDb: typeof import("../server/db/index.js").getDb;
 let schema: Schema;
 let listDocumentTitles: typeof import("./list-document-titles.js").default;
 
@@ -40,7 +40,7 @@ beforeAll(async () => {
   schema = dbModule.schema;
   listDocumentTitles = (await import("./list-document-titles.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
-  await plugin(undefined as any);
+  await plugin(undefined as never);
 
   await getDb()
     .insert(schema.documents)

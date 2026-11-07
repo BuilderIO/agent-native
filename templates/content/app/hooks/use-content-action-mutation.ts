@@ -291,7 +291,7 @@ export function contentPlacementTargets(
   }: {
     documentIds: readonly string[];
     parentIds?: readonly (string | null)[];
-    databaseId?: string | null;
+    databaseId?: string | null | undefined;
   },
 ): ContentQueryTarget[] {
   const current = branchesListing(queryClient, documentIds);

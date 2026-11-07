@@ -159,31 +159,33 @@ export function indexedSearchSql(
    */
   const everyPlainWordMatch = (): SQL | undefined => {
     if (titleOnlyField || groups.length < 2) return undefined;
-    const tsqueries: string[] = [];
+    const tested: Array<{
+      terms: readonly SearchQueryTerm[];
+      tsquery: string;
+    }> = [];
     for (const group of groups) {
       const terms = bodyTerms(group.terms);
       const tsquery = termsTsquery(terms);
       if (!tsquery || terms.some((term) => isPhraseTerm(term.text))) {
         return undefined;
       }
-      tsqueries.push(tsquery);
+      tested.push({ terms: group.terms, tsquery });
     }
     return or(
-      sql`${docVector} @@ ${allOfTsquery(tsqueries)}::tsquery`,
+      sql`${docVector} @@ ${allOfTsquery(tested.map((group) => group.tsquery))}::tsquery`,
       and(
         or(
-          ...groups.flatMap((group) => [
-            titleAny(group.terms),
-            summaryAny(group.terms),
+          ...tested.flatMap(({ terms }) => [
+            titleAny(terms),
+            summaryAny(terms),
           ]),
         ),
-        ...groups.map(
-          (group, index) =>
-            or(
-              titleAny(group.terms),
-              summaryAny(group.terms),
-              sql`${docVector} @@ ${tsqueries[index]!}::tsquery`,
-            )!,
+        ...tested.map(({ terms, tsquery }) =>
+          or(
+            titleAny(terms),
+            summaryAny(terms),
+            sql`${docVector} @@ ${tsquery}::tsquery`,
+          ),
         ),
       ),
     );

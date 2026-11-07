@@ -33,7 +33,8 @@ function lowerKeepingOffsets(text: string): string {
   return text.replace(/./gsu, (character) => {
     const lower = character.toLowerCase();
     if (lower.length === character.length) return lower;
-    const letter = String.fromCodePoint(lower.codePointAt(0)!);
+    const code = lower.codePointAt(0);
+    const letter = code === undefined ? "" : String.fromCodePoint(code);
     return letter.length === character.length ? letter : character;
   });
 }
@@ -83,21 +84,33 @@ export function findSearchMatch(
   const inPassage = new Array<number>(needles.length).fill(0);
   let distinct = 0;
   let mostDistinct = 0;
-  let best = hits[0]!;
-  let first = 0;
+  let best: (typeof hits)[number] | undefined;
+  // The passage's oldest hit, which trails the current one through `hits`.
+  const passageStart = hits.values();
+  let oldest = passageStart.next();
   for (const hit of hits) {
-    if (inPassage[hit.order]!++ === 0) distinct += 1;
-    while (hit.position - hits[first]!.position > NEARBY_CHARS) {
-      if (--inPassage[hits[first]!.order]! === 0) distinct -= 1;
-      first += 1;
+    const seen = inPassage[hit.order] ?? 0;
+    inPassage[hit.order] = seen + 1;
+    if (seen === 0) distinct += 1;
+    while (
+      !oldest.done &&
+      hit.position - oldest.value.position > NEARBY_CHARS
+    ) {
+      const left = (inPassage[oldest.value.order] ?? 1) - 1;
+      inPassage[oldest.value.order] = left;
+      if (left === 0) distinct -= 1;
+      oldest = passageStart.next();
     }
-    if (distinct > mostDistinct) {
+    if (distinct > mostDistinct && !oldest.done) {
       mostDistinct = distinct;
-      best = hits[first]!;
+      best = oldest.value;
       if (distinct === needles.length) break;
     }
   }
-  return { position: best.position, needle: needles[best.order]! };
+  const needle = best && needles[best.order];
+  return best && needle !== undefined
+    ? { position: best.position, needle }
+    : null;
 }
 
 /**
@@ -217,6 +230,7 @@ export async function loadDocumentSearchPreviews({
   needles: string[];
 }): Promise<Map<string, DocumentSearchPreview>> {
   if (!ids.length) return new Map();
+  // guard:allow-unscoped — `where` is search-documents' access filter for this caller, and `ids` are rows it already returned.
   const rows: Array<{ id: string; body: string }> = await db
     .select({
       id: schema.documents.id,

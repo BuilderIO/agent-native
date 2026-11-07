@@ -279,11 +279,11 @@ export interface DocumentTitlesResponse {
 
 export interface TitleEntryFilters {
   /** Omitted when searching every workspace, or inside a page. */
-  spaceId?: string;
+  spaceId?: string | undefined;
   /** The page being searched and everything loaded inside it. */
   insidePage?: ReadonlySet<string> | null;
-  documentType?: "page" | "database";
-  modifiedAfter?: string;
+  documentType?: "page" | "database" | undefined;
+  modifiedAfter?: string | undefined;
 }
 
 export function titleEntryPassesFilters(
