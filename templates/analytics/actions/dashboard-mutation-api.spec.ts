@@ -478,6 +478,35 @@ describe("dashboard mutation api", () => {
     expect(root.panels.find((p) => p.id === "d")?.width).toBe(1);
   });
 
+  it("names the placed panel's own resize, against the width an insert asked for", () => {
+    const inserted = clone(config());
+    const insert = applyDashboardMutationOperations(
+      inserted,
+      parseDashboardMutationScript(
+        inserted,
+        'dashboard.insertPanel({"id":"new","title":"New","source":"first-party","chartType":"metric","width":2,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).nextTo("b");',
+      ),
+    );
+    expect(renderedRows(inserted)).toEqual([["a", "b", "new"], ["c"], ["d"]]);
+    expect(insert.commandLog).toEqual([
+      "insertPanel(new) -> index 2; also changed dashboard columns 2 to 3, new width 2 to 1, c width 1 to 3",
+    ]);
+
+    const root = {
+      name: "Moved",
+      columns: 2,
+      panels: [{ ...panel("a"), width: 2 }, panel("b"), panel("c")],
+    };
+    const move = applyDashboardMutationOperations(
+      root,
+      parseDashboardMutationScript(root, 'dashboard.panel("a").nextTo("b");'),
+    );
+    expect(renderedRows(root)).toEqual([["b", "a", "c"]]);
+    expect(move.commandLog).toEqual([
+      "movePanels(a) -> index 1; also changed dashboard columns 2 to 3, a width 2 to 1",
+    ]);
+  });
+
   it("pins a section that follows the dashboard's columns when an insert widens them", () => {
     const root = {
       name: "Inherited",

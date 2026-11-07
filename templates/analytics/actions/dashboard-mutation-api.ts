@@ -768,13 +768,17 @@ type LayoutSnapshot = {
   panels: Map<string, PanelLayout>;
 };
 
+function panelLayout(panel: Record<string, unknown>): PanelLayout {
+  return { width: panel.width, columns: panel.columns };
+}
+
 function layoutSnapshot(config: Record<string, unknown>): LayoutSnapshot {
   return {
     columns: config.columns,
     panels: new Map(
       panelsFromConfig(config).map((panel): [string, PanelLayout] => [
         panelId(panel),
-        { width: panel.width, columns: panel.columns },
+        panelLayout(panel),
       ]),
     ),
   };
@@ -783,12 +787,12 @@ function layoutSnapshot(config: Record<string, unknown>): LayoutSnapshot {
 /**
  * A row-aware placement rebalances the row the panel joins or leaves, and a
  * group it widens; the command log names those resizes so the caller sees
- * every panel the op changed, not just the one it placed.
+ * every panel the op changed, the placed one included. An inserted panel is
+ * compared with the layout it asked for.
  */
 function reflowNote(
   before: LayoutSnapshot,
   config: Record<string, unknown>,
-  placedPanelIds: readonly string[],
 ): string {
   const describe = (value: unknown) =>
     value === undefined ? "unset" : JSON.stringify(value);
@@ -801,7 +805,7 @@ function reflowNote(
   for (const panel of panelsFromConfig(config)) {
     const id = panelId(panel);
     const previous = before.panels.get(id);
-    if (placedPanelIds.includes(id) || !previous) continue;
+    if (!previous) continue;
     for (const key of ["columns", "width"] as const) {
       if (!sameJsonValue(previous[key], panel[key])) {
         changes.push(
@@ -986,13 +990,12 @@ function setConfigPath(
   return { field: `config.${segments.join(".")}`, changed: true };
 }
 
-function duplicatePanel(
+function duplicateOfPanel(
   config: Record<string, unknown>,
   panelIdToCopy: string,
   newPanelId: string,
   patch: Record<string, unknown>,
-  target: DashboardPlacementTarget,
-): number {
+): Record<string, unknown> {
   const panels = panelsFromConfig(config);
   const source = requirePanel(panels, panelIdToCopy);
   const duplicate = JSON.parse(JSON.stringify(source)) as Record<
@@ -1001,7 +1004,7 @@ function duplicatePanel(
   >;
   duplicate.id = newPanelId;
   patchPanel(duplicate, patch);
-  return insertPanel(config, duplicate, target);
+  return duplicate;
 }
 
 export function applyDashboardMutationOperations(
@@ -1039,7 +1042,7 @@ export function applyDashboardMutationOperations(
             changedPanelIds.add(op.panelIds[0]);
             movedPanelIds.add(op.panelIds[0]);
             commandLog.push(
-              `movePanels(${op.panelIds[0]}) -> index ${index}${reflowNote(before, config, op.panelIds)}`,
+              `movePanels(${op.panelIds[0]}) -> index ${index}${reflowNote(before, config)}`,
             );
             break;
           }
@@ -1131,26 +1134,28 @@ export function applyDashboardMutationOperations(
           const before = layoutSnapshot(config);
           const index = insertPanel(config, op.panel, targetFromOperation(op));
           const id = assertString(op.panel.id, "panel.id");
+          before.panels.set(id, panelLayout(op.panel));
           changedPanelIds.add(id);
           insertedPanelIds.add(id);
           commandLog.push(
-            `insertPanel(${id}) -> index ${index}${reflowNote(before, config, [id])}`,
+            `insertPanel(${id}) -> index ${index}${reflowNote(before, config)}`,
           );
           break;
         }
         case "duplicatePanel": {
           const before = layoutSnapshot(config);
-          const index = duplicatePanel(
+          const duplicate = duplicateOfPanel(
             config,
             op.panelId,
             op.newPanelId,
             op.patch ?? {},
-            targetFromOperation(op),
           );
+          const index = insertPanel(config, duplicate, targetFromOperation(op));
+          before.panels.set(op.newPanelId, panelLayout(duplicate));
           changedPanelIds.add(op.newPanelId);
           insertedPanelIds.add(op.newPanelId);
           commandLog.push(
-            `duplicatePanel(${op.panelId} -> ${op.newPanelId}) -> index ${index}${reflowNote(before, config, [op.newPanelId])}`,
+            `duplicatePanel(${op.panelId} -> ${op.newPanelId}) -> index ${index}${reflowNote(before, config)}`,
           );
           break;
         }

@@ -245,7 +245,7 @@ pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
 pnpm action navigate --view=adhoc --dashboardId=weekly-metrics
 ```
 
-The save path dry-runs BigQuery panels before persisting. If validation returns a provider error, fix the query and retry. Never work around validation by writing directly to a table.
+The save path dry-runs BigQuery panels before persisting. If validation returns a provider error, fix the query and retry. A `sql_validation_unavailable` error (status 503) means the validator could not run, not that the SQL is wrong: retry the same write, or report the outage, without rewriting the query. Never work around validation by writing directly to a table.
 
 ### Replicating Or Adapting Another Dashboard
 
