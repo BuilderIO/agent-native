@@ -478,6 +478,35 @@ describe("dashboard mutation api", () => {
     expect(root.panels.find((p) => p.id === "d")?.width).toBe(1);
   });
 
+  it("pins a section that follows the dashboard's columns when an insert widens them", () => {
+    const root = {
+      name: "Inherited",
+      columns: 2,
+      panels: [
+        panel("a"),
+        panel("b"),
+        { id: "section", title: "Section", chartType: "section", width: 1 },
+        ...["c", "d", "e", "f"].map((id) => panel(id)),
+      ],
+    };
+    const operations = parseDashboardMutationScript(
+      root,
+      'dashboard.insertPanel({"id":"new","title":"New","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).nextTo("a");',
+    );
+
+    const result = applyDashboardMutationOperations(root, operations);
+
+    expect(root.columns).toBe(3);
+    expect(renderedRows(root)).toEqual([
+      ["a", "new", "b"],
+      ["c", "d"],
+      ["e", "f"],
+    ]);
+    expect(result.commandLog).toEqual([
+      "insertPanel(new) -> index 1; also changed dashboard columns 2 to 3, section columns unset to 2",
+    ]);
+  });
+
   it("resizes only the row a nextTo insert joins and names that resize", () => {
     const root = {
       name: "Nurture",

@@ -877,10 +877,12 @@ For visible placement requests like "second row" or "next to return rates", use
 row-aware placement: `dashboard.insertPanel({...}).nextTo("retention-over-time")`,
 `.atRow(2)`, or `dashboard.panel("panel-a").moveNextTo("panel-b")`. These keep
 panels in the intended rendered row and rebalance the widths of the row the
-panel joins and the row it leaves; a row that needs another column widens its
-section (or, above the first section, the dashboard) and rebalances every row
-there. Other panels keep their widths, and the
-op's `commandLog` entry names every width or column count it changed. In
+panel joins and the row it leaves. A row that needs another column widens its
+section and rebalances every row there; above the first section it widens the
+dashboard, and sections without their own column count are pinned to the one
+they had. Other panels keep their widths unless that would merge their row into
+the next one. The op's `commandLog` entry names every width or column count it
+changed. In
 `operations`, `movePanels`, `insertPanel`, and `duplicatePanel` take the same
 placement as fields: `position`, `index`, `beforePanelId`, `afterPanelId`,
 `nextToPanelId` (same visible row, after that panel), or `rowNumber` (1-based
