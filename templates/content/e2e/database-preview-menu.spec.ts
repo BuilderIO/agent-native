@@ -1,6 +1,13 @@
-import { expect, test, type APIResponse, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIResponse,
+  type Locator,
+  type Page,
+  type Request,
+} from "@playwright/test";
 
-import { presentUiCapability } from "./helpers";
+import { postAction, presentUiCapability } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
 
@@ -9,6 +16,11 @@ const ACTION_HEADERS = {
   "X-Agent-Native-Client-Compatibility": "content-video-block-ids-v1",
   "X-Agent-Native-Build-Id": "development",
 };
+
+// A page's open reads through get-page-open-read and a later refetch through
+// get-document, so a test holding a panel's page read holds both.
+const PAGE_READ_PATTERN =
+  "**/_agent-native/actions/{get-page-open-read,get-document}**";
 
 type ActionResult = Record<string, any>;
 
@@ -129,10 +141,12 @@ async function createDatabaseFixture(
   const rows: PreviewRowFixture[] = [];
   for (let index = 0; index < rowCount; index += 1) {
     const letter = String.fromCharCode(65 + index);
+    const rowTitle = `Preview row ${letter} ${marker}`;
     const row = await runAction(page, "add-database-item", {
       target: contract!.target,
       expectedSchemaRevision: contract!.schemaRevision,
       idempotencyKey: `preview-parity-${marker}-${letter}`,
+      title: rowTitle,
     });
     const itemId = row.receipt?.row?.itemId as string | undefined;
     const documentId = row.receipt?.row?.documentId as string | undefined;
@@ -145,33 +159,21 @@ async function createDatabaseFixture(
     const rowFixture = {
       itemId: itemId as string,
       documentId: documentId as string,
-      title: `Preview row ${letter} ${marker}`,
+      title: rowTitle,
       body: `Distinct preview body ${letter} ${marker}`,
       propertyValue: `Property ${letter} ${marker}`,
     };
-    await runAction(page, "update-document", {
+    // Marked as the editor's, a body write without the editor's session answers
+    // 200 and is held back, so this one isn't marked and is read back.
+    const bodyWrite = await page.request.post(
+      "/_agent-native/actions/update-document",
+      { data: { id: rowFixture.documentId, content: rowFixture.body } },
+    );
+    expect(bodyWrite.ok(), await bodyWrite.text()).toBeTruthy();
+    const written = await readAction(page, "get-document", {
       id: rowFixture.documentId,
-      title: rowFixture.title,
     });
-    // A browser body write without the body it was written over is held for
-    // review instead of saved, so the row would keep an empty body.
-    const emptyRow = await readAction(page, "get-document", {
-      id: rowFixture.documentId,
-      databaseId: databaseId as string,
-      databaseDocumentId: databaseDocumentId as string,
-    });
-    expect(emptyRow.content ?? "").toBe("");
-    const bodySave = await runAction(page, "update-document", {
-      id: rowFixture.documentId,
-      content: rowFixture.body,
-      authoredBaseRevision: emptyRow.revision,
-      authoredBaseContent: "",
-      authoredCandidateContent: rowFixture.body,
-      editorSessionId: `preview-parity-${marker}`,
-      editorEditGeneration: index + 1,
-      browserSaveAttemptId: `preview-parity-body-${marker}-${letter}`,
-    });
-    expect(bodySave.preservationRequired).toBeUndefined();
+    expect(written.content).toContain(rowFixture.body);
     await runAction(page, "set-document-property", {
       documentId: rowFixture.documentId,
       databaseId,
@@ -199,7 +201,7 @@ async function cleanupDatabaseFixture(page: Page, fixture: DatabaseFixture) {
     documentIds: [fixture.databaseDocumentId],
   });
   await presentUiCapability(page);
-  await runAction(page, "permanently-delete-document", {
+  await postAction(page, "permanently-delete-document", {
     id: fixture.databaseDocumentId,
     planId: plan.planId,
     scopeToken: plan.scopeToken,
@@ -227,7 +229,7 @@ async function expectCanonicalPageControls(
     preview.getByRole("button", { name: "Share", exact: true }),
   ).toBeVisible();
   await expect(
-    preview.getByRole("button", { name: "Comments", exact: true }),
+    preview.getByRole("button", { name: "Discussion", exact: true }),
   ).toBeVisible();
   await expect(
     preview.getByRole("button", { name: "More page actions" }),
@@ -280,21 +282,15 @@ for (const theme of ["light", "dark"] as const) {
       });
       await pageActions.click();
       const pageMenu = page.getByRole("menu").filter({
-        has: page.getByRole("menuitem", { name: "Copy page link" }),
+        has: page.getByRole("menuitem", { name: "Version history" }),
       });
-      for (const name of [
-        "Copy page link",
-        "Info",
-        "Version history",
-        "Export",
-        "Delete",
-      ]) {
+      for (const name of ["Info", "Version history", "Export", "Delete"]) {
         await expect(
           pageMenu.getByRole("menuitem", { name, exact: true }),
         ).toBeVisible();
       }
       await page.keyboard.press("Escape");
-      await expect(pageActions).toBeFocused();
+      await expect(pageMenu).toBeHidden();
 
       const databaseAfterMenus = await readAction(
         page,
@@ -371,7 +367,7 @@ test("database Page preview preserves controls, row identity, and dirty handoff"
     });
     await pageActions.click();
     await page.getByRole("menuitem", { name: "Info", exact: true }).click();
-    const infoDialog = page.getByRole("dialog", { name: "Info" });
+    const infoDialog = page.getByRole("complementary", { name: "Info" });
     const info = infoDialog.locator("[data-document-info-panel]");
     await expect(info).toBeVisible();
     await expect(info.getByLabel("Description")).toBeVisible();
@@ -402,13 +398,13 @@ test("database Page preview preserves controls, row identity, and dirty handoff"
     await expect(infoDialog).toBeHidden();
 
     await preview
-      .getByRole("button", { name: "Comments", exact: true })
+      .getByRole("button", { name: "Discussion", exact: true })
       .click();
-    const commentsDialog = page.getByRole("dialog", { name: "Comments" });
+    const commentsDialog = page.getByRole("complementary", {
+      name: "Discussion",
+    });
     await expect(commentsDialog).toBeVisible();
-    await expect(
-      commentsDialog.getByText("No matching comments.", { exact: true }),
-    ).toBeVisible();
+    await expect(commentsDialog.getByText(/^No comments yet/)).toBeVisible();
     const actionComment = `Action comment ${Date.now()}`;
     await runAction(page, "add-comment", {
       documentId: rowA.documentId,
@@ -486,6 +482,7 @@ test("database Page preview preserves controls, row identity, and dirty handoff"
           fixture!.databaseDocumentId
       );
     });
+    await expect(preview).toBeHidden();
     await expect(page.getByLabel("Document title")).toHaveValue(fullPageTitle);
     await expect(page.locator(".ProseMirror")).toContainText(dirtyCloseMarker);
 
@@ -527,7 +524,7 @@ test("database Page preview reflects mocked Page role capabilities and unavailab
 }) => {
   test.setTimeout(240_000);
   let fixture: DatabaseFixture | null = null;
-  const getDocumentPattern = "**/_agent-native/actions/get-document**";
+  const getDocumentPattern = PAGE_READ_PATTERN;
   try {
     await ensureAuthenticatedLocalSession(page);
     fixture = await createDatabaseFixture(page);
@@ -582,10 +579,15 @@ test("database Page preview reflects mocked Page role capabilities and unavailab
           return;
         }
         mockedReads += 1;
+        const document = { ...ownedDocument, ...role };
         await route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify({ ...ownedDocument, ...role }),
+          body: JSON.stringify(
+            url.pathname.endsWith("/get-page-open-read")
+              ? { document }
+              : document,
+          ),
         });
       });
 
@@ -604,7 +606,7 @@ test("database Page preview reflects mocked Page role capabilities and unavailab
       );
 
       const comments = preview.getByRole("button", {
-        name: "Comments",
+        name: "Discussion",
         exact: true,
       });
       if (role.canComment) {
@@ -618,7 +620,7 @@ test("database Page preview reflects mocked Page role capabilities and unavailab
       });
       await pageActions.click();
       const pageMenu = page.getByRole("menu").filter({
-        has: page.getByRole("menuitem", { name: "Copy page link" }),
+        has: page.getByRole("menuitem", { name: "Version history" }),
       });
       const deleteAction = pageMenu.getByRole("menuitem", {
         name: "Delete",
@@ -661,6 +663,545 @@ test("database Page preview reflects mocked Page role capabilities and unavailab
     await page.unroute(getDocumentPattern);
   } finally {
     await page.unroute(getDocumentPattern);
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+type PreviewFrame = {
+  open: boolean;
+  skeleton: boolean;
+  placeholder: boolean;
+  shareTop: number | null;
+  shareLeft: number | null;
+  propertyTop: number | null;
+  bodyTop: number | null;
+};
+
+// Logs where the panel's fixed parts sit on every painted frame, so a switch
+// that only flashes for a frame or two still shows up.
+async function startPreviewFrameLog(page: Page) {
+  await page.evaluate(() => {
+    const log: PreviewFrame[] = [];
+    const scope = window as unknown as { previewFrameLog?: PreviewFrame[] };
+    scope.previewFrameLog = log;
+    const top = (element: Element | null | undefined) =>
+      element ? element.getBoundingClientRect().top : null;
+    const sample = () => {
+      if (scope.previewFrameLog !== log) return;
+      const dialog = [...document.querySelectorAll('[role="dialog"]')].find(
+        (candidate) =>
+          [...candidate.querySelectorAll("button")].some((button) =>
+            button.textContent?.includes("Open page"),
+          ),
+      );
+      const share = [...(dialog?.querySelectorAll("button") ?? [])].find(
+        (button) =>
+          (button.getAttribute("aria-label") ?? button.textContent)?.trim() ===
+          "Share",
+      );
+      const placeholder = dialog?.querySelector(
+        "[data-database-item-preview-placeholder]",
+      );
+      log.push({
+        open: !!dialog,
+        skeleton: !!dialog?.querySelector("[data-startup-anchor]"),
+        placeholder: !!placeholder,
+        shareTop: top(share),
+        shareLeft: share ? share.getBoundingClientRect().left : null,
+        propertyTop: top(dialog?.querySelector("[data-property-row]")),
+        // The live editor mounts hidden behind the page's static copy, so only
+        // the copy on screen counts.
+        bodyTop: top(
+          [...(dialog?.querySelectorAll(".visual-editor-wrapper") ?? [])].find(
+            (wrapper) => wrapper.getClientRects().length > 0,
+          ),
+        ),
+      });
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+}
+
+async function stopPreviewFrameLog(page: Page) {
+  return page.evaluate(() => {
+    const scope = window as unknown as { previewFrameLog?: PreviewFrame[] };
+    const log = scope.previewFrameLog ?? [];
+    delete scope.previewFrameLog;
+    return log;
+  });
+}
+
+function expectSteadySwitch(frames: PreviewFrame[]) {
+  expect(frames.length).toBeGreaterThan(0);
+  expect(frames.filter((frame) => !frame.open)).toEqual([]);
+  expect(frames.filter((frame) => frame.skeleton)).toEqual([]);
+  expect(frames.filter((frame) => frame.shareTop === null)).toEqual([]);
+  expect(frames.filter((frame) => frame.propertyTop === null)).toEqual([]);
+  for (const part of [
+    "shareTop",
+    "shareLeft",
+    "propertyTop",
+    "bodyTop",
+  ] as const) {
+    const positions = new Set(
+      frames.flatMap((frame) => (frame[part] === null ? [] : [frame[part]])),
+    );
+    expect([...positions], `${part} stays put`).toHaveLength(1);
+  }
+}
+
+test("a preview switches rows in place, from a row's title and from the arrows", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await ensureAuthenticatedLocalSession(page);
+    fixture = await createDatabaseFixture(page, 3);
+    const [rowA, rowB, rowC] = fixture.rows;
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const preview = await openPreview(page, rowA.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowA.body);
+
+    const showing = async (row: PreviewRowFixture) => {
+      await expect(preview.getByLabel("Document title")).toHaveValue(row.title);
+      await expect(preview.locator(".ProseMirror")).toContainText(row.body);
+    };
+
+    await startPreviewFrameLog(page);
+    await page
+      .getByRole("button", { name: `Open ${rowC.title} preview` })
+      .click();
+    await showing(rowC);
+    expectSteadySwitch(await stopPreviewFrameLog(page));
+    await expect(
+      page.getByRole("button", { name: `Open ${rowC.title} preview` }),
+    ).toBeFocused();
+
+    await startPreviewFrameLog(page);
+    await preview
+      .getByRole("button", { name: "Previous collection page" })
+      .click();
+    await showing(rowB);
+    await preview
+      .getByRole("button", { name: "Previous collection page" })
+      .click();
+    await showing(rowA);
+    await preview.getByRole("button", { name: "Next collection page" }).click();
+    await showing(rowB);
+    expectSteadySwitch(await stopPreviewFrameLog(page));
+
+    // The row already showing stays showing.
+    await page
+      .getByRole("button", { name: `Open ${rowB.title} preview` })
+      .click();
+    await showing(rowB);
+
+    // Anywhere that doesn't open a row still dismisses.
+    await page.getByText(rowA.propertyValue, { exact: true }).click();
+    await expect(preview).toBeHidden();
+  } finally {
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+test("a preview draws the next row while its slow page read finishes", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  const readPattern = PAGE_READ_PATTERN;
+  let releaseRead = () => {};
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await ensureAuthenticatedLocalSession(page);
+    fixture = await createDatabaseFixture(page, 2);
+    const [rowA, rowB] = fixture.rows;
+    // The panel reads the row its Next arrow leads to as soon as it opens.
+    const readHeld = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    await page.route(readPattern, async (route) => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get("id") === rowB.documentId) await readHeld;
+      await route.fallback();
+    });
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const preview = await openPreview(page, rowA.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowA.body);
+
+    await startPreviewFrameLog(page);
+    await preview.getByRole("button", { name: "Next collection page" }).click();
+    const placeholder = preview.locator(
+      "[data-database-item-preview-placeholder]",
+    );
+    await expect(placeholder).toContainText(rowB.title);
+    await expect(placeholder.getByText("Share", { exact: true })).toBeVisible();
+    await expect(preview.getByLabel("Document title")).toHaveCount(0);
+    await expect(
+      preview.getByRole("button", { name: "Next collection page" }),
+    ).toBeDisabled();
+
+    releaseRead();
+    await expect(preview.getByLabel("Document title")).toHaveValue(rowB.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowB.body);
+    const frames = await stopPreviewFrameLog(page);
+    expect(frames.some((frame) => frame.placeholder)).toBe(true);
+    expectSteadySwitch(frames);
+  } finally {
+    releaseRead();
+    await page.unroute(readPattern);
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+test("a preview's Row menu holds its place, and Duplicate waits for the page's read", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  const readPattern = PAGE_READ_PATTERN;
+  let releaseRead = () => {};
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await ensureAuthenticatedLocalSession(page);
+    fixture = await createDatabaseFixture(page, 2);
+    const [rowA, rowB] = fixture.rows;
+    const readHeld = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    await page.route(readPattern, async (route) => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get("id") === rowB.documentId) await readHeld;
+      await route.fallback();
+    });
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const preview = await openPreview(page, rowA.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowA.body);
+    await preview.getByRole("button", { name: "Next collection page" }).click();
+    await expect(
+      preview.locator("[data-database-item-preview-placeholder]"),
+    ).toContainText(rowB.title);
+
+    const rowActions = preview.getByRole("button", {
+      name: `Preview actions for ${rowB.title}`,
+    });
+    const duplicate = page.getByRole("menuitem", { name: "Duplicate row" });
+    await rowActions.click();
+    await expect(duplicate).toHaveAttribute("aria-disabled", "true");
+    await page.keyboard.press("Escape");
+
+    releaseRead();
+    await expect(preview.getByLabel("Document title")).toHaveValue(rowB.title);
+    await rowActions.click();
+    await expect(duplicate).toBeVisible();
+    await expect(duplicate).not.toHaveAttribute("aria-disabled", "true");
+    await page.keyboard.press("Escape");
+  } finally {
+    releaseRead();
+    await page.unroute(readPattern);
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+test("a preview's page doesn't wait for the row's slow Property read", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  const propertiesPattern =
+    "**/_agent-native/actions/list-document-properties**";
+  let releaseRead = () => {};
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await ensureAuthenticatedLocalSession(page);
+    fixture = await createDatabaseFixture(page, 2);
+    const [rowA, rowB] = fixture.rows;
+    const readHeld = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    await page.route(propertiesPattern, async (route) => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get("documentId") === rowB.documentId) {
+        await readHeld;
+      }
+      await route.fallback();
+    });
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const preview = await openPreview(page, rowA.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowA.body);
+
+    await startPreviewFrameLog(page);
+    await preview.getByRole("button", { name: "Next collection page" }).click();
+    await expect(preview.getByLabel("Document title")).toHaveValue(rowB.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowB.body);
+    await expect(preview.locator(".ProseMirror")).toHaveAttribute(
+      "contenteditable",
+      "true",
+    );
+
+    releaseRead();
+    await expect(
+      preview.getByRole("button", { name: "Edit Acceptance marker" }),
+    ).toBeVisible();
+    expectSteadySwitch(await stopPreviewFrameLog(page));
+  } finally {
+    releaseRead();
+    await page.unroute(propertiesPattern);
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+// Whether the page has no action write out and none finished in the last 750 ms.
+function trackActionWrites(page: Page): () => boolean {
+  let writesOut = 0;
+  let lastChange = Date.now();
+  const count = (request: Request, by: number) => {
+    if (
+      request.method() === "POST" &&
+      request.url().includes("/_agent-native/actions/")
+    ) {
+      writesOut += by;
+      lastChange = Date.now();
+    }
+  };
+  page.on("request", (request) => count(request, 1));
+  page.on("requestfinished", (request) => count(request, -1));
+  page.on("requestfailed", (request) => count(request, -1));
+  return () => writesOut === 0 && Date.now() - lastChange > 750;
+}
+
+test("a row's reads start when the pointer rests on it, and the switch uses them", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  const getDocumentPattern = PAGE_READ_PATTERN;
+  try {
+    await ensureAuthenticatedLocalSession(page);
+    // Three rows, since the row beside the open one is read when the panel opens.
+    fixture = await createDatabaseFixture(page, 3);
+    const [rowA, , rowC] = fixture.rows;
+    let reads = 0;
+    await page.route(getDocumentPattern, async (route) => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get("id") === rowC.documentId) reads += 1;
+      await route.fallback();
+    });
+    const writesSettled = trackActionWrites(page);
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const preview = await openPreview(page, rowA.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowA.body);
+    expect(reads).toBe(0);
+    // A write that lands while a page read is out spoils the read, so the
+    // writes an opening panel sends finish before the pointer rests.
+    await expect.poll(writesSettled, { timeout: 30_000 }).toBe(true);
+
+    const rowCTitle = page.getByRole("button", {
+      name: `Open ${rowC.title} preview`,
+    });
+    await rowCTitle.hover();
+    await expect.poll(() => reads).toBe(1);
+
+    await rowCTitle.click();
+    await expect(preview.getByLabel("Document title")).toHaveValue(rowC.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowC.body);
+    expect(reads).toBe(1);
+  } finally {
+    await page.unroute(getDocumentPattern);
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+test("a row's title saves the preview's edits before it switches", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  try {
+    await ensureAuthenticatedLocalSession(page);
+    fixture = await createDatabaseFixture(page, 2);
+    const [rowA, rowB] = fixture.rows;
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const preview = await openPreview(page, rowA.title);
+    const editor = preview.locator(".ProseMirror");
+    await expect(editor).toContainText(rowA.body);
+
+    const marker = `Row switch edit ${Date.now()}`;
+    await editor.fill(`${rowA.body}\n\n${marker}`);
+    await page
+      .getByRole("button", { name: `Open ${rowB.title} preview` })
+      .click();
+    await expect(preview.getByLabel("Document title")).toHaveValue(rowB.title);
+    await expect(editor).toContainText(rowB.body);
+    await expect(editor).not.toContainText(marker);
+
+    const persisted = await readAction(page, "get-document", {
+      id: rowA.documentId,
+      databaseId: fixture.databaseId,
+      databaseDocumentId: fixture.databaseDocumentId,
+    });
+    expect(String(persisted.content)).toContain(marker);
+  } finally {
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+// Leaves a title edit in the panel saving until the returned release is called.
+async function holdPreviewSave(page: Page, preview: Locator, title: string) {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let saving = false;
+  await page.route(
+    "**/_agent-native/actions/update-document**",
+    async (route) => {
+      saving = true;
+      await held;
+      await route.fallback();
+    },
+  );
+  await preview.getByLabel("Document title").fill(title);
+  return { release, saveStarted: () => expect.poll(() => saving).toBe(true) };
+}
+
+test("choosing the row on show takes back a switch waiting on its save", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  let release = () => {};
+  try {
+    await ensureAuthenticatedLocalSession(page);
+    fixture = await createDatabaseFixture(page, 2);
+    const [rowA, rowB] = fixture.rows;
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const preview = await openPreview(page, rowA.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowA.body);
+
+    const editedTitle = `${rowA.title} edited`;
+    const save = await holdPreviewSave(page, preview, editedTitle);
+    release = save.release;
+    await page
+      .getByRole("button", { name: `Open ${rowB.title} preview` })
+      .click();
+    await save.saveStarted();
+    await page
+      .locator(`button[data-database-row-open="${rowA.documentId}"]`)
+      .click();
+    release();
+
+    await expect
+      .poll(async () => {
+        const saved = await readAction(page, "get-document", {
+          id: rowA.documentId,
+          databaseId: fixture!.databaseId,
+          databaseDocumentId: fixture!.databaseDocumentId,
+        });
+        return saved.title;
+      })
+      .toBe(editedTitle);
+    await page.waitForTimeout(500);
+    await expect(preview.getByLabel("Document title")).toHaveValue(editedTitle);
+  } finally {
+    release();
+    await page.unroute("**/_agent-native/actions/update-document**");
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+test("an arrow pressed while a switch waits on its save steps on from that switch's row", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  let release = () => {};
+  try {
+    await ensureAuthenticatedLocalSession(page);
+    fixture = await createDatabaseFixture(page, 3);
+    const [rowA, , rowC] = fixture.rows;
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const preview = await openPreview(page, rowA.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowA.body);
+
+    const save = await holdPreviewSave(page, preview, `${rowA.title} edited`);
+    release = save.release;
+    const next = preview.getByRole("button", { name: "Next collection page" });
+    await next.click();
+    await save.saveStarted();
+    await next.click();
+    release();
+
+    await expect(preview.getByLabel("Document title")).toHaveValue(rowC.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowC.body);
+  } finally {
+    release();
+    await page.unroute("**/_agent-native/actions/update-document**");
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+test("a switch waiting on its save doesn't follow someone who left the collection", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  let release = () => {};
+  try {
+    await ensureAuthenticatedLocalSession(page);
+    fixture = await createDatabaseFixture(page, 1);
+    const [rowA] = fixture.rows;
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const preview = await openPreview(page, rowA.title);
+    await expect(preview.locator(".ProseMirror")).toContainText(rowA.body);
+
+    const editedTitle = `${rowA.title} edited`;
+    const save = await holdPreviewSave(page, preview, editedTitle);
+    release = save.release;
+    await preview
+      .getByRole("button", { name: "Open page", exact: true })
+      .click();
+    await save.saveStarted();
+    await page.getByRole("link", { name: "Trash" }).click();
+    await expect(page).toHaveURL(/\/trash/);
+    release();
+
+    await expect
+      .poll(async () => {
+        const saved = await readAction(page, "get-document", {
+          id: rowA.documentId,
+          databaseId: fixture!.databaseId,
+          databaseDocumentId: fixture!.databaseDocumentId,
+        });
+        return saved.title;
+      })
+      .toBe(editedTitle);
+    await page.waitForTimeout(500);
+    await expect(page).toHaveURL(/\/trash/);
+  } finally {
+    release();
+    await page.unroute("**/_agent-native/actions/update-document**");
     if (fixture) await cleanupDatabaseFixture(page, fixture);
   }
 });

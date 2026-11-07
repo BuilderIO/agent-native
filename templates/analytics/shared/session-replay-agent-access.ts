@@ -7,6 +7,8 @@ export const SESSION_REPLAY_AGENT_ACCESS_PARAM =
   AGENT_ACCESS_PARAM || "agent_access";
 export const SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX =
   "analytics-session-replay-agent-context";
+/** Opens a session page at this many milliseconds after the recording's start. */
+export const SESSION_REPLAY_AT_MS_PARAM = "atMs";
 
 export const SESSION_REPLAY_AGENT_CONTEXT_ENDPOINT =
   "/api/session-replay/agent-context.json";

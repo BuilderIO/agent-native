@@ -9,6 +9,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import { databaseRowOpenTarget } from "./row-open-target";
+
 /**
  * What a row's Comments open on: one thread, a new comment on one Property,
  * or a new comment on the whole Page. Without one, they open on the list.
@@ -55,6 +57,7 @@ export function DatabaseRowCommentCount({
           className={databaseCommentMarkerClassName}
           aria-label={label}
           data-database-row-comments={count}
+          {...databaseRowOpenTarget(item.document.id)}
           onClick={(event) => {
             event.stopPropagation();
             openComments(item, null);
