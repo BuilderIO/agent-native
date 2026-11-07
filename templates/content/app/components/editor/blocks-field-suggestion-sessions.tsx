@@ -87,8 +87,8 @@ type FieldSession = {
   /** Changed since it was last saved. */
   dirty: boolean;
   /**
-   * Suggesting ended while the draft still had unsaved edits. It's no longer
-   * the tab's session, but it keeps trying to save them.
+   * Suggesting ended with edits unsaved or still saving. It's no longer the
+   * tab's session, but it keeps trying to save them.
    */
   ended: boolean;
   /** The last save failed, so the next failure stays quiet while typing. */
@@ -612,7 +612,8 @@ export function useBlocksFieldSuggestions({
     if (sessions.length === 0) return;
     sessionsRef.current.clear();
     for (const session of sessions) {
-      if (session.dirty || session.unresolved) {
+      // A save under way has cleared `dirty`, and it may yet fail.
+      if (session.dirty || session.saving || session.unresolved) {
         session.ended = true;
         void save(session, { autosave: true });
       } else if (session.timer) clearTimeout(session.timer);

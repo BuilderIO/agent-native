@@ -484,6 +484,52 @@ describe("useBlocksFieldSuggestions", () => {
     }
   });
 
+  it("keeps trying a tab's save that was under way when Suggesting mode ended", async () => {
+    vi.useFakeTimers();
+    try {
+      await render(true, []);
+      await draftInTab();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(mocks.createProposal).toHaveBeenCalledTimes(1);
+
+      let failAmendment: (error: Error) => void = () => {};
+      mocks.updateSuggestion.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            failAmendment = reject;
+          }),
+      );
+      mocks.updateSuggestion.mockImplementation(
+        async (request: { id: string; operations: SuggestionOperation[] }) =>
+          savedSuggestion(
+            request.id,
+            request.operations,
+            "blocks-field:notes:3",
+          ),
+      );
+      await act(async () => {
+        latest.provider.change("notes", "Original notes, revised again.");
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(mocks.updateSuggestion).toHaveBeenCalledTimes(1);
+
+      await render(false, []);
+      expect(latest.provider.sessions.size).toBe(0);
+      await act(async () => {
+        failAmendment(new Error("Network down"));
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      expect(mocks.updateSuggestion).toHaveBeenCalledTimes(2);
+      expect(onSaved).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("waits longer between retries while a tab's saves keep failing", async () => {
     vi.useFakeTimers();
     try {
