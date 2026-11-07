@@ -6,6 +6,7 @@ const recording = vi.hoisted(() => ({
   videoUrl: "https://cdn.example.com/original.webm",
   videoFormat: "webm",
   storageMode: null as "own" | "hosted" | null,
+  editsJson: null as string | null,
   sourceAppName: null,
 }));
 const repairedBytes = vi.hoisted(() => new Uint8Array([9, 8, 7, 6]));
@@ -18,6 +19,7 @@ const mockQueueCompression = vi.hoisted(() => vi.fn());
 const mockDeleteRecordingMediaObjects = vi.hoisted(() => vi.fn());
 const mockDeleteSupersededHostedMedia = vi.hoisted(() => vi.fn());
 const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
+const mockIsUrlInS3Storage = vi.hoisted(() => vi.fn());
 const mockClearSeekableRepairPending = vi.hoisted(() => vi.fn());
 const mockReturning = vi.hoisted(() => vi.fn());
 const mockUpdateWhere = vi.hoisted(() =>
@@ -46,6 +48,7 @@ vi.mock("../../server/lib/upload-recording-media.js", () => ({
 }));
 vi.mock("../../server/lib/s3-upload-provider.js", () => ({
   fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
+  isUrlInS3Storage: (...args: unknown[]) => mockIsUrlInS3Storage(...args),
 }));
 
 vi.mock("@shared/upload-limits.js", () => ({
@@ -67,6 +70,7 @@ vi.mock("../../server/db/index.js", () => ({
       videoUrl: "recordings.videoUrl",
       videoFormat: "recordings.videoFormat",
       storageMode: "recordings.storageMode",
+      editsJson: "recordings.editsJson",
       sourceAppName: "recordings.sourceAppName",
     },
   },
@@ -113,6 +117,8 @@ describe("ensureRecordingSeekable timeline normalization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     recording.storageMode = null;
+    recording.editsJson = null;
+    mockIsUrlInS3Storage.mockResolvedValue(false);
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -267,6 +273,345 @@ describe("ensureRecordingSeekable timeline normalization", () => {
       }),
     );
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("reads own storage through the signed reader too, and skips the plain fetch", async () => {
+    recording.storageMode = "own";
+
+    const result = await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(result.status).toBe("already-optimized");
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      recording.videoUrl,
+      expect.objectContaining({
+        recordingId: recording.id,
+        storageMode: "own",
+      }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the plain fetch when own storage refuses the signed read", async () => {
+    recording.storageMode = "own";
+    const cancel = vi.fn(async () => undefined);
+    mockFetchS3ObjectByUrl.mockResolvedValue({
+      ok: false,
+      status: 401,
+      body: { cancel },
+    } as unknown as Response);
+
+    const result = await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(cancel).toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledWith(
+      recording.videoUrl,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(result.status).toBe("already-optimized");
+    expect(mockMakeSeekable).toHaveBeenCalledWith({
+      mediaBytes: new Uint8Array([1, 2, 3]),
+      videoFormat: "webm",
+    });
+  });
+
+  it("falls back to the plain fetch when the signed read throws on own storage", async () => {
+    recording.storageMode = "own";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockFetchS3ObjectByUrl.mockRejectedValue(new Error("S3 request timed out"));
+
+    try {
+      const result = await ensureRecordingSeekable({
+        recordingId: recording.id,
+        ownerEmail: "owner@example.com",
+      });
+
+      expect(fetch).toHaveBeenCalledWith(
+        recording.videoUrl,
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+      expect(result.status).toBe("already-optimized");
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("lets the signed reader accept a legacy unscoped key for the persisted media", async () => {
+    recording.storageMode = "own";
+
+    await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      recording.videoUrl,
+      expect.objectContaining({ allowLegacyObjectKey: true }),
+    );
+  });
+
+  it("treats a legacy row with no storage mode as own storage and falls back on a refusal", async () => {
+    recording.storageMode = null;
+    mockFetchS3ObjectByUrl.mockResolvedValue({
+      ok: false,
+      status: 401,
+      body: { cancel: vi.fn(async () => undefined) },
+    } as unknown as Response);
+
+    const result = await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      recording.videoUrl,
+      expect.objectContaining({ storageMode: "own" }),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      recording.videoUrl,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(result.status).toBe("already-optimized");
+  });
+
+  it("gives up on a signed body that stalls instead of hanging the job", async () => {
+    vi.useFakeTimers();
+    recording.storageMode = "own";
+    const cancel = vi.fn();
+    const stalled = new ReadableStream<Uint8Array>({
+      pull: () => new Promise<void>(() => {}),
+      cancel,
+    });
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response(stalled, {
+        status: 200,
+        headers: { "content-length": "3" },
+      }),
+    );
+
+    try {
+      const pending = ensureRecordingSeekable({
+        recordingId: recording.id,
+        ownerEmail: "owner@example.com",
+      });
+      await vi.advanceTimersByTimeAsync(60_001);
+      const result = await pending;
+
+      expect(cancel).toHaveBeenCalled();
+      expect(result).toEqual({
+        recordingId: recording.id,
+        status: "skipped-fetch-failed",
+        changed: false,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not allow a legacy key when the persisted media uses an external layout", async () => {
+    recording.storageMode = "own";
+    recording.editsJson = JSON.stringify({ mediaStorageLayout: "external" });
+
+    await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+    });
+
+    const [, options] = mockFetchS3ObjectByUrl.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(options).not.toHaveProperty("allowLegacyObjectKey");
+  });
+
+  it("never allows a legacy key on hosted storage", async () => {
+    recording.storageMode = "hosted";
+
+    await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+    });
+
+    const [, options] = mockFetchS3ObjectByUrl.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(options).toMatchObject({ storageMode: "hosted" });
+    expect(options).not.toHaveProperty("allowLegacyObjectKey");
+  });
+
+  it("gives up on a body that trickles for too long even though it never stalls", async () => {
+    vi.useFakeTimers();
+    recording.storageMode = "own";
+    let cancelled = false;
+    const cancel = vi.fn(() => {
+      cancelled = true;
+    });
+    const trickle = new ReadableStream<Uint8Array>({
+      pull: (controller) =>
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            if (!cancelled) controller.enqueue(new Uint8Array([1]));
+            resolve();
+          }, 30_000);
+        }),
+      cancel,
+    });
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response(trickle, {
+        status: 200,
+        headers: { "content-length": "3" },
+      }),
+    );
+
+    try {
+      const started = Date.now();
+      let settledAt = 0;
+      const pending = ensureRecordingSeekable({
+        recordingId: recording.id,
+        ownerEmail: "owner@example.com",
+      }).then((outcome) => {
+        settledAt = Date.now();
+        return outcome;
+      });
+      await vi.advanceTimersByTimeAsync(90_000);
+      const result = await pending;
+
+      expect(cancel).toHaveBeenCalled();
+      // Two bytes in the first minute is far under the floor; the idle
+      // timer alone would never have fired.
+      expect(settledAt - started).toBeLessThanOrEqual(61_000);
+      expect(result).toEqual({
+        recordingId: recording.id,
+        status: "skipped-fetch-failed",
+        changed: false,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not read unsigned a key that is in the bucket but not this recording's", async () => {
+    recording.storageMode = "own";
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
+    mockIsUrlInS3Storage.mockResolvedValue(true);
+
+    const result = await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      recordingId: recording.id,
+      status: "skipped-fetch-failed",
+      changed: false,
+    });
+  });
+
+  it("refuses after a thrown signed read when the URL is in the bucket", async () => {
+    recording.storageMode = "own";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockFetchS3ObjectByUrl.mockRejectedValue(
+      new Error("app_secret_unreadable"),
+    );
+    mockIsUrlInS3Storage.mockResolvedValue(true);
+
+    try {
+      const result = await ensureRecordingSeekable({
+        recordingId: recording.id,
+        ownerEmail: "owner@example.com",
+      });
+
+      expect(fetch).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        recordingId: recording.id,
+        status: "skipped-fetch-failed",
+        changed: false,
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("refuses rather than reading unsigned when the bucket check itself fails", async () => {
+    recording.storageMode = "own";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
+    mockIsUrlInS3Storage.mockRejectedValue(new Error("app_secret_unreadable"));
+
+    try {
+      const result = await ensureRecordingSeekable({
+        recordingId: recording.id,
+        ownerEmail: "owner@example.com",
+      });
+
+      expect(fetch).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        recordingId: recording.id,
+        status: "skipped-fetch-failed",
+        changed: false,
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("falls back to the plain fetch when no storage is configured at all", async () => {
+    recording.storageMode = null;
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
+    mockIsUrlInS3Storage.mockResolvedValue(null);
+
+    const result = await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(fetch).toHaveBeenCalled();
+    expect(result.status).toBe("already-optimized");
+  });
+
+  it("falls back to the plain fetch when the stored URL is not in the configured bucket", async () => {
+    recording.storageMode = null;
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
+
+    const result = await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      recording.videoUrl,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(result.status).toBe("already-optimized");
+  });
+
+  it("does not fall back to an unsigned read of hosted storage", async () => {
+    recording.storageMode = "hosted";
+    mockFetchS3ObjectByUrl.mockResolvedValue({
+      ok: false,
+      status: 403,
+      body: { cancel: vi.fn(async () => undefined) },
+    } as unknown as Response);
+
+    const result = await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      recordingId: recording.id,
+      status: "skipped-fetch-failed",
+      changed: false,
+    });
   });
 
   it("leaves the original untouched when normalization cannot verify output", async () => {

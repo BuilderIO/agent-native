@@ -7,12 +7,16 @@ import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { queueBuilderMediaCompression } from "../../server/lib/builder-media-compression.js";
+import { allowsLegacyS3ObjectForPersistedMedia } from "../../server/lib/media-storage-provenance.js";
 import {
   deleteRecordingMediaObjects,
   deleteSupersededHostedMedia,
 } from "../../server/lib/recording-media-cleanup.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
-import { fetchS3ObjectByUrl } from "../../server/lib/s3-upload-provider.js";
+import {
+  fetchS3ObjectByUrl,
+  isUrlInS3Storage,
+} from "../../server/lib/s3-upload-provider.js";
 import { clearSeekableRepairPending } from "../../server/lib/seekable-media-state.js";
 import { uploadRecordingMedia } from "../../server/lib/upload-recording-media.js";
 import {
@@ -22,8 +26,15 @@ import {
 } from "../../server/lib/video-remux.js";
 import { isLoomRecordingSource } from "../../shared/loom.js";
 import { isYouTubeEmbedBackedRecording } from "../../shared/youtube.js";
+import {
+  readResponseBytesWithLimit,
+  VideoDownloadTooLargeError,
+} from "./video-download-limits.js";
 
 const PROVIDER_FETCH_TIMEOUT_MS = 60_000;
+// A body that trickles a few bytes a minute resets an idle timer forever;
+// below this rate it is treated as stalled.
+const PROVIDER_FETCH_MIN_BYTES_PER_MINUTE = 1024 * 1024;
 
 export type EnsureSeekableStatus =
   | "optimized"
@@ -82,50 +93,116 @@ export function isRemoteProviderUrl(
 
 export async function fetchProviderBytes(
   videoUrl: string,
-  options: { recordingId?: string; storageMode?: "own" | "hosted" | null } = {},
+  options: {
+    recordingId?: string;
+    storageMode?: "own" | "hosted" | null;
+    allowLegacyObjectKey?: boolean;
+  } = {},
 ): Promise<
   | { ok: true; bytes: Uint8Array }
   | { ok: false; reason: "skipped-fetch-failed" | "skipped-too-large" }
 > {
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    PROVIDER_FETCH_TIMEOUT_MS,
-  );
+  // A private own bucket answers an unsigned read of the stored URL with
+  // 401, so own storage is read signed first; hosted must never fall back
+  // to an unsigned read.
+  const hosted = options.storageMode === "hosted";
+  let res: Response | null = null;
+  if (options.recordingId) {
+    try {
+      res = await fetchS3ObjectByUrl(videoUrl, {
+        recordingId: options.recordingId,
+        storageMode: hosted ? "hosted" : "own",
+        timeoutMs: PROVIDER_FETCH_TIMEOUT_MS,
+        ...(options.allowLegacyObjectKey && !hosted
+          ? { allowLegacyObjectKey: true }
+          : {}),
+      });
+    } catch (err) {
+      console.warn("[ensure-seekable-video] signed storage read failed", {
+        recordingId: options.recordingId,
+        storageMode: hosted ? "hosted" : "own",
+        error: err instanceof Error ? err.message : String(err),
+      });
+      if (hosted) return { ok: false, reason: "skipped-fetch-failed" };
+    }
+    if (res && !res.ok) {
+      console.warn("[ensure-seekable-video] signed storage read refused", {
+        recordingId: options.recordingId,
+        storageMode: hosted ? "hosted" : "own",
+        status: res.status,
+      });
+      await res.body?.cancel().catch(() => {});
+      if (hosted) return { ok: false, reason: "skipped-fetch-failed" };
+      res = null;
+    } else if (res === null && !hosted) {
+      // The signed reader answers null both for a URL outside the bucket and
+      // for a key inside it that is not this recording's, and a thrown read
+      // says nothing either way. An in-bucket key stays refused, and so does
+      // a bucket check that fails; a URL outside the bucket, or a deployment
+      // with no own storage configured, is read as stored.
+      let inBucket: boolean | null;
+      try {
+        inBucket = await isUrlInS3Storage(videoUrl, { storageMode: "own" });
+      } catch (err) {
+        console.warn(
+          "[ensure-seekable-video] could not tell whether the stored URL is in the bucket",
+          {
+            recordingId: options.recordingId,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+        return { ok: false, reason: "skipped-fetch-failed" };
+      }
+      if (inBucket) {
+        console.warn(
+          "[ensure-seekable-video] stored object is not this recording's",
+          {
+            recordingId: options.recordingId,
+          },
+        );
+        return { ok: false, reason: "skipped-fetch-failed" };
+      }
+    }
+  }
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let phase = "stored URL fetch";
   try {
-    const res =
-      options.storageMode === "hosted"
-        ? options.recordingId
-          ? await fetchS3ObjectByUrl(videoUrl, {
-              recordingId: options.recordingId,
-              storageMode: "hosted",
-              timeoutMs: PROVIDER_FETCH_TIMEOUT_MS,
-            })
-          : null
-        : await fetch(videoUrl, { signal: controller.signal });
-    if (!res) return { ok: false, reason: "skipped-fetch-failed" };
-    if (!res.ok) {
-      await res.body?.cancel().catch(() => {});
-      return { ok: false, reason: "skipped-fetch-failed" };
+    if (!res) {
+      if (hosted) return { ok: false, reason: "skipped-fetch-failed" };
+      const controller = new AbortController();
+      timeout = setTimeout(() => controller.abort(), PROVIDER_FETCH_TIMEOUT_MS);
+      res = await fetch(videoUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+      timeout = undefined;
+      if (!res.ok) {
+        await res.body?.cancel().catch(() => {});
+        return { ok: false, reason: "skipped-fetch-failed" };
+      }
     }
 
-    const declaredLength = Number(res.headers.get("content-length") ?? "0");
-    if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
-      await res.body?.cancel().catch(() => {});
-      return { ok: false, reason: "skipped-too-large" };
-    }
-
-    const buf = new Uint8Array(await res.arrayBuffer());
+    // The signed reader's timeout covers the headers only, so the body is
+    // paced here: a stall or a trickle cancels the read instead of hanging
+    // the job.
+    phase = "body read";
+    const buf = await readResponseBytesWithLimit(res, MAX_UPLOAD_BYTES, {
+      idleMs: PROVIDER_FETCH_TIMEOUT_MS,
+      minBytesPerIdleWindow: PROVIDER_FETCH_MIN_BYTES_PER_MINUTE,
+    });
     if (buf.byteLength === 0)
       return { ok: false, reason: "skipped-fetch-failed" };
-    if (buf.byteLength > MAX_UPLOAD_BYTES) {
+    return { ok: true, bytes: buf };
+  } catch (err) {
+    if (err instanceof VideoDownloadTooLargeError) {
       return { ok: false, reason: "skipped-too-large" };
     }
-    return { ok: true, bytes: buf };
-  } catch {
+    console.warn("[ensure-seekable-video] media read failed", {
+      recordingId: options.recordingId,
+      phase,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return { ok: false, reason: "skipped-fetch-failed" };
   } finally {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
   }
 }
 
@@ -151,6 +228,7 @@ async function ensureRecordingSeekableInternal(params: {
       videoFormat: schema.recordings.videoFormat,
       storageMode: schema.recordings.storageMode,
       sourceAppName: schema.recordings.sourceAppName,
+      editsJson: schema.recordings.editsJson,
     })
     .from(schema.recordings)
     .where(
@@ -197,6 +275,11 @@ async function ensureRecordingSeekableInternal(params: {
   const fetched = await fetchProviderBytes(rec.videoUrl, {
     recordingId,
     storageMode: rec.storageMode,
+    allowLegacyObjectKey: allowsLegacyS3ObjectForPersistedMedia({
+      requestedUrl: rec.videoUrl,
+      persistedUrl: rec.videoUrl,
+      editsJson: rec.editsJson,
+    }),
   });
   if (!fetched.ok) {
     return { recordingId, status: fetched.reason, changed: false };
