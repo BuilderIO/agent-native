@@ -370,6 +370,11 @@ export function createReplayNodeLabels() {
     observe(event: Record<string, unknown>): ReplayShownError[] {
       const data = record(event.data);
       if (event.type === RRWEB_FULL_SNAPSHOT) {
+        // A snapshot is the whole page, and a reload numbers its nodes afresh.
+        nodes.clear();
+        textParents.clear();
+        toastTextIds.clear();
+        toastTexts.clear();
         addTree(data.node, null);
         return [];
       }

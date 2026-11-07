@@ -496,6 +496,38 @@ describe("createReplayNodeLabels", () => {
       ).toEqual([{ kind: "error-toast", label: "Error toast", detail: null }]);
     });
 
+    it("forgets an earlier page's toast text when a reload reuses its ids", () => {
+      const labels = labelsFor(element(2, "ol"));
+      labels.observe(toastWithText("loading"));
+      labels.observe(
+        fullSnapshot({
+          type: 0,
+          id: 1,
+          childNodes: [
+            element(2, "ol", {}, [
+              element(3, "li", { "data-sonner-toast": "" }, [
+                text(8, "Couldn't save the deck."),
+              ]),
+            ]),
+          ],
+        }) as Record<string, unknown>,
+      );
+
+      expect(
+        labels.observe(
+          mutation({
+            attributes: [{ id: 3, attributes: { "data-type": "error" } }],
+          }),
+        ),
+      ).toEqual([
+        {
+          kind: "error-toast",
+          label: "Error toast",
+          detail: "Couldn't save the deck.",
+        },
+      ]);
+    });
+
     it("ignores other toasts until one turns into an error", () => {
       const labels = labelsFor(element(2, "ol"));
 
