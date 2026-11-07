@@ -244,13 +244,16 @@ export function reviewUnitOperations(
 /**
  * A proposal's pending pieces after a refresh. An exact set is one decision on
  * what the reviewer saw, so it gives null once any of its pieces was decided or
- * changed elsewhere, not a smaller set or a version they haven't seen.
+ * changed elsewhere, not a smaller set or a version they haven't seen. Accepting
+ * a whole proposal gives null once a piece has gone stale, since the rest of its
+ * unit would land half of a sentence.
  */
 export function refreshedProposalMembers(
   suggestions: readonly ResourceSuggestion[],
   proposalId: string,
   members: readonly ResourceSuggestion[],
   exactMembers: boolean,
+  decision: "accepted" | "rejected",
 ) {
   const pending = suggestions.filter(
     (suggestion) =>
@@ -258,7 +261,13 @@ export function refreshedProposalMembers(
       suggestion.status === "pending" &&
       (!exactMembers || members.some((member) => member.id === suggestion.id)),
   );
-  if (!exactMembers) return pending;
+  if (!exactMembers) {
+    const staleUnitPieces = piecesOfStaleUnits(suggestions);
+    return decision === "accepted" &&
+      pending.some(({ id }) => staleUnitPieces.has(id))
+      ? null
+      : pending;
+  }
   return pending.length === members.length &&
     pending.every((piece) =>
       members.some(

@@ -314,7 +314,9 @@ describe("refreshedProposalMembers", () => {
       piece("x", "pending", "q"),
     ];
     expect(
-      refreshedProposalMembers(refreshed, "p", unit, true)?.map(({ id }) => id),
+      refreshedProposalMembers(refreshed, "p", unit, true, "accepted")?.map(
+        ({ id }) => id,
+      ),
     ).toEqual(["a", "b"]);
   });
 
@@ -326,8 +328,12 @@ describe("refreshedProposalMembers", () => {
     const changed = drawn.map((member) =>
       member.id === "b" ? { ...member, revision: 2 } : member,
     );
-    expect(refreshedProposalMembers(changed, "p", drawn, true)).toBeNull();
-    expect(refreshedProposalMembers(drawn, "p", drawn, true)).toEqual(drawn);
+    expect(
+      refreshedProposalMembers(changed, "p", drawn, true, "accepted"),
+    ).toBeNull();
+    expect(
+      refreshedProposalMembers(drawn, "p", drawn, true, "accepted"),
+    ).toEqual(drawn);
   });
 
   it("refuses an exact set once one of its pieces was decided", () => {
@@ -337,6 +343,7 @@ describe("refreshedProposalMembers", () => {
         "p",
         unit,
         true,
+        "accepted",
       ),
     ).toBeNull();
   });
@@ -348,7 +355,25 @@ describe("refreshedProposalMembers", () => {
         "p",
         unit,
         false,
+        "accepted",
       )?.map(({ id }) => id),
+    ).toEqual(["b", "c"]);
+  });
+
+  it("won't accept a whole proposal once a unit's piece has gone stale", () => {
+    const labeled = (id: string, status?: string) =>
+      ({
+        ...piece(id, status),
+        metadata: { reviewUnit: "k:0" },
+      }) as ResourceSuggestion;
+    const refreshed = [labeled("a", "stale"), labeled("b"), piece("c")];
+    expect(
+      refreshedProposalMembers(refreshed, "p", unit, false, "accepted"),
+    ).toBeNull();
+    expect(
+      refreshedProposalMembers(refreshed, "p", unit, false, "rejected")?.map(
+        ({ id }) => id,
+      ),
     ).toEqual(["b", "c"]);
   });
 });
