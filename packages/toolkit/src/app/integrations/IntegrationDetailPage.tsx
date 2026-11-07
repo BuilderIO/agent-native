@@ -311,10 +311,12 @@ function ConnectedRow({
   server,
   canRemove,
   onRemove,
+  onReconnect,
 }: {
   server: McpServer;
   canRemove: boolean;
   onRemove: () => void;
+  onReconnect: () => void;
 }) {
   const t = useT();
   const scope =
@@ -350,16 +352,26 @@ function ConnectedRow({
             : scope
       }
       control={
-        canRemove ? (
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
-            variant="outline-destructive"
+            variant="outline"
             size="sm"
-            onClick={onRemove}
+            onClick={onReconnect}
           >
-            {t("agentChat.settingsShell.integrations.remove")}
+            {t("mcpIntegrations.reconnect")}
           </Button>
-        ) : null
+          {canRemove ? (
+            <Button
+              type="button"
+              variant="outline-destructive"
+              size="sm"
+              onClick={onRemove}
+            >
+              {t("agentChat.settingsShell.integrations.remove")}
+            </Button>
+          ) : null}
+        </div>
       }
     />
   );
@@ -474,7 +486,7 @@ function CustomServerDetail({
     mcp.serversQuery.data?.role === "owner" ||
     mcp.serversQuery.data?.role === "admin";
   const reconnect = () => {
-    if (server.authMode === "oauth" && server.status.state === "error") {
+    if (server.authMode === "oauth") {
       startMcpOAuthReconnect(server);
       return;
     }
@@ -490,12 +502,8 @@ function CustomServerDetail({
         server={server}
         canRemove={canRemove}
         onRemove={() => setRemoving(true)}
+        onReconnect={reconnect}
       />
-      {server.status.state === "error" ? (
-        <Button type="button" variant="outline" size="sm" onClick={reconnect}>
-          {t("mcpIntegrations.reconnect")}
-        </Button>
-      ) : null}
       <RemoveServerDialog
         server={removing ? server : null}
         onOpenChange={(open) => {
@@ -824,6 +832,10 @@ function IntegrationDetail({
               server.scope === "user" || role === "owner" || role === "admin"
             }
             onRemove={() => setRemoving(server)}
+            onReconnect={() => {
+              if (server.authMode === "oauth") startMcpOAuthReconnect(server);
+              else void mcp.reconnect(server);
+            }}
           />
         ))}
         {whoRow}
