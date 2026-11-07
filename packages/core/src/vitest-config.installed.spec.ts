@@ -95,6 +95,15 @@ it("uses the mocked migration guide in the real error", () => {
         inheritedEnv.has(key.toUpperCase()),
       ),
     );
+    // The child loads instrumented Core in a separate process, without Vitest's Stryker global.
+    const activeMutant = (
+      globalThis as typeof globalThis & {
+        __stryker__?: { activeMutant?: string };
+      }
+    ).__stryker__?.activeMutant;
+    if (activeMutant !== undefined) {
+      env.__STRYKER_ACTIVE_MUTANT__ = activeMutant;
+    }
     const child = spawnSync(
       process.execPath,
       [
