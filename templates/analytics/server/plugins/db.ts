@@ -1902,6 +1902,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       },
     },
     BIGQUERY_JOB_USAGE_MIGRATION,
+    {
+      version: 184,
+      name: "analytics-bigquery-usage-expiry-index",
+      sql: `CREATE INDEX IF NOT EXISTS analytics_bigquery_usage_started_idx
+        ON analytics_bigquery_usage (started_at, project_id, job_id)`,
+    },
   ],
   { table: "analytics_migrations" },
 );
@@ -1928,7 +1934,9 @@ export default async (nitroApp: any): Promise<void> => {
       globalThis as typeof globalThis & {
         __AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__?: boolean;
       }
-    ).__AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__ === true;
+    ).__AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__ === true ||
+    globalThis.__AGENT_NATIVE_BIGQUERY_USAGE_RETENTION_SCHEDULED_RUNTIME__ ===
+      true;
   if (isInBackgroundFunctionRuntime() && !isScheduledSchemaRuntime) {
     // Most durable workers execute signed internal routes against a schema
     // owned by the regular server. A second migration runner only adds a Neon

@@ -1245,6 +1245,11 @@ export const analyticsBigqueryUsage = table(
   },
   (t) => ({
     jobKey: primaryKey({ columns: [t.projectId, t.jobId] }),
+    started: index("analytics_bigquery_usage_started_idx").on(
+      t.startedAt,
+      t.projectId,
+      t.jobId,
+    ),
     orgStarted: index("analytics_bigquery_usage_org_started_idx").on(
       t.orgId,
       t.startedAt,

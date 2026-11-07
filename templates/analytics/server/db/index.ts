@@ -23,7 +23,7 @@ registerIdentityColumns([
     emailChange: "rekey",
     offboard: "retain",
     reason:
-      "Historical query-submitter attribution is retained on offboarding, including personal rows; it is not transferred to a successor.",
+      "Query-submitter attribution stays with the original job on offboarding, including personal rows, until the daily 90-day expiry sweep removes it; it is not transferred to a successor. Outages or backlog may extend retention.",
   },
   {
     table: "bi_migration_external_dashboards",
