@@ -44,6 +44,7 @@ import {
 } from "../../shared/comment-reanchor.js";
 import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
 import { canonicalizeNfm } from "../../shared/nfm.js";
+import { PRIVATE_MEDIA_PATH_PREFIX } from "../../shared/private-media.js";
 import {
   applyMarkdownSuggestionOperation,
   applyMarkdownSuggestionWithSiblings,
@@ -843,9 +844,12 @@ async function commitAcceptedContent(input: {
       return updated.rowsAffected === 1;
     },
     afterWrite: async () => {
+      // Callouts can carry private icons, and the body private images; both
+      // need their references on this page.
       if (
         currentContent.includes("<callout") ||
-        nextContent.includes("<callout")
+        nextContent.includes("<callout") ||
+        nextContent.includes(PRIVATE_MEDIA_PATH_PREFIX)
       ) {
         const actorEmail = input.ctx?.userEmail;
         if (typeof actorEmail !== "string" || !actorEmail) {
