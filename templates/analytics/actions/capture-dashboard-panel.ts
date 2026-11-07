@@ -3,7 +3,10 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
-import { analyticsPanelCaptureRequestSchema } from "@agent-native/core/shared";
+import {
+  analyticsPanelCaptureRequestSchema,
+  analyticsPanelCaptureSchema,
+} from "@agent-native/core/shared";
 import { track } from "@agent-native/core/tracking";
 
 import {
@@ -17,6 +20,7 @@ export default defineAction({
   description:
     "Read-only. Run one saved dashboard panel as the signed-in user, with the dashboard page's filters and key dates, and return its numbers as labeled rows for another app to keep, such as a chart in a Content page. Also returns who can open the dashboard and a fingerprint that changes when the panel's query or chart settings change. Supports line, area, bar, combo, pie, funnel, metric and table panels.",
   schema: analyticsPanelCaptureRequestSchema,
+  outputSchema: analyticsPanelCaptureSchema,
   http: { method: "POST" },
   readOnly: true,
   agentTool: false,

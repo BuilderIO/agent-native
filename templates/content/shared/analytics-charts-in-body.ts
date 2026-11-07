@@ -38,6 +38,7 @@ export async function analyticsChartsInBody(
         return parsed?.type === ANALYTICS_CHART_BLOCK_TYPE
           ? readAnalyticsChartData(parsed.data)
           : null;
+        // coercion-ok: a tag that doesn't parse draws no chart, so it has no numbers to check
       } catch {
         return null;
       }

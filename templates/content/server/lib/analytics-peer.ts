@@ -74,6 +74,7 @@ function peerMessage(output: string): string | null {
       const record = parsed as Record<string, unknown>;
       message = record.error ?? record.message;
     }
+    // coercion-ok: Analytics answered in plain text, which is the message itself
   } catch {
     // Plain text is the message.
   }

@@ -3,7 +3,10 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
-import { analyticsPanelStatusRequestSchema } from "@agent-native/core/shared";
+import {
+  analyticsPanelStatusRequestSchema,
+  analyticsPanelStatusSchema,
+} from "@agent-native/core/shared";
 
 import {
   dashboardPanelStatus,
@@ -14,6 +17,7 @@ export default defineAction({
   description:
     "Read-only. Who can open a dashboard (invited people, the organization, or anyone with the link) and a fingerprint for each named panel that changes when its query or chart settings change. Runs no query. Another app keeping a panel's numbers uses it to mark a kept copy as changed and to check its readers against the dashboard's.",
   schema: analyticsPanelStatusRequestSchema,
+  outputSchema: analyticsPanelStatusSchema,
   http: { method: "POST" },
   readOnly: true,
   agentTool: false,

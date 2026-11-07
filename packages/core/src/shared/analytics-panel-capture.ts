@@ -238,6 +238,7 @@ export function parseAnalyticsPanelLink(
   let dashboardId: string;
   try {
     dashboardId = decodeURIComponent(match[1] ?? "");
+    // coercion-ok: a malformed escape isn't a panel link, and null is this parser's "not a panel link"
   } catch {
     return null;
   }
