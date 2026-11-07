@@ -262,6 +262,65 @@ describe("SuggestionReviewCard", () => {
     expect(button("editor.rejectSuggestion")!.disabled).toBe(false);
   });
 
+  it("turns off Accept on a unit the server refused, and leaves the rest", async () => {
+    const [first = null, second = null] = proposal();
+    if (!first || !second) throw new Error("The proposal has two edits");
+    const labeled = (
+      suggestion: ResourceSuggestion,
+      id: string,
+      reviewUnit: string,
+    ) => ({ ...suggestion, id, metadata: { reviewUnit } });
+    review.suggestions = [
+      labeled(first, "edit-0", "key:0"),
+      labeled(second, "edit-1", "key:0"),
+      labeled(second, "edit-2", "key:1"),
+    ];
+    review.decideProposal.mockRejectedValue({
+      errorCode: "suggestion_stale",
+    });
+    render(["edit-0"]);
+
+    await act(async () => button("editor.acceptSuggestion")?.click());
+
+    expect(
+      [...host.querySelectorAll('[role="alert"]')].map(
+        (alert) => alert.textContent,
+      ),
+    ).toContain("editor.suggestionUnplaceable");
+    expect(button("editor.acceptSuggestion", 0)?.disabled).toBe(true);
+    expect(button("editor.rejectSuggestion", 0)?.disabled).toBe(false);
+    expect(button("editor.acceptSuggestion", 1)?.disabled).toBe(false);
+    expect(button("comments.acceptAll")?.disabled).toBe(true);
+  });
+
+  it("doesn't blame any one unit when a whole group is refused", async () => {
+    const [first = null, second = null] = proposal();
+    if (!first || !second) throw new Error("The proposal has two edits");
+    const labeled = (
+      suggestion: ResourceSuggestion,
+      id: string,
+      reviewUnit: string,
+    ) => ({ ...suggestion, id, metadata: { reviewUnit } });
+    review.suggestions = [
+      labeled(first, "edit-0", "key:0"),
+      labeled(second, "edit-1", "key:1"),
+    ];
+    review.decideProposal.mockRejectedValue({
+      errorCode: "suggestion_stale",
+    });
+    render(["edit-0"]);
+
+    await act(async () => button("comments.acceptAll")?.click());
+
+    expect(
+      [...host.querySelectorAll('[role="alert"]')].map(
+        (alert) => alert.textContent,
+      ),
+    ).toContain("editor.proposalUnplaceable");
+    expect(button("editor.acceptSuggestion", 0)?.disabled).toBe(false);
+    expect(button("editor.acceptSuggestion", 1)?.disabled).toBe(false);
+  });
+
   it("drops the conflict once the changed edit is rejected", async () => {
     review.decide.mockRejectedValueOnce({ errorCode: "suggestion_stale" });
     render();

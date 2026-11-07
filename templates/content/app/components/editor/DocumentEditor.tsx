@@ -9485,17 +9485,25 @@ function PageEditorSessionBody({
     collabEditorEnabled &&
     !!ydoc &&
     suggestionEditorIsolation.bindCanonicalYDoc;
+  // Turns off Accept on an edit the server refused and shows why. A group's
+  // refusal doesn't say which of its edits failed, so it marks nothing.
+  const showUnplaceableEdit = (members: readonly ResourceSuggestion[]) => {
+    const [first = null] = members;
+    if (!first || !reviewedAsOne(members)) return;
+    setUnplaceableSuggestionRevisions((current) => {
+      const next = new Map(current);
+      for (const { id, revision } of members) next.set(id, revision);
+      return next;
+    });
+    setSelectedSuggestionId(first.id);
+    setUtilityPanel("comments");
+    setCommentsBrowseOpen(true);
+  };
   useSuggestionDecisionView(documentId, {
     failed: (entry, error) => {
       void suggestionsQuery.refetch();
-      const member = singleDecisionMember(entry);
-      if (!member || !isSuggestionStaleActionError(error)) return;
-      setUnplaceableSuggestionRevisions((revisions) =>
-        new Map(revisions).set(member.id, member.revision),
-      );
-      setSelectedSuggestionId(member.id);
-      setUtilityPanel("comments");
-      setCommentsBrowseOpen(true);
+      if (isSuggestionStaleActionError(error))
+        showUnplaceableEdit(entry.members);
     },
     decided: (entry, decided) => {
       if (
@@ -9760,14 +9768,7 @@ function PageEditorSessionBody({
       setDecisionRefreshFailed(false);
       suggestionDecisionInFlightRef.current = false;
       const unplaceable = isSuggestionStaleActionError(error);
-      if (unplaceable) {
-        setUnplaceableSuggestionRevisions((current) =>
-          new Map(current).set(decided.id, decided.revision),
-        );
-        setSelectedSuggestionId(decided.id);
-        setUtilityPanel("comments");
-        setCommentsBrowseOpen(true);
-      }
+      if (unplaceable) showUnplaceableEdit([decided]);
       toast.error(
         t(unplaceable ? "editor.toolbar.conflict" : "empty.genericError"),
         {
@@ -9974,8 +9975,8 @@ function PageEditorSessionBody({
           readbackContent: null,
         });
         let awaitingReadback = false;
+        let currentMembers = members;
         try {
-          let currentMembers = members;
           if (continueSuggesting) {
             const persisted = await flushSuggestionDraft({ keepMode: true });
             if (!persisted) return;
@@ -10092,6 +10093,7 @@ function PageEditorSessionBody({
             return;
           void suggestionsQuery.refetch();
           const unplaceable = isSuggestionStaleActionError(error);
+          if (unplaceable) showUnplaceableEdit(currentMembers);
           toast.error(
             t(unplaceable ? "editor.toolbar.conflict" : "empty.genericError"),
             {
