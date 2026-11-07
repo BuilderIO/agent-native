@@ -23,6 +23,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import {
   useCreateResourceSuggestionProposal,
   useDecideResourceSuggestion,
@@ -8645,6 +8646,7 @@ function PageEditorSessionBody({
   // A row preview's sheet covers the page's panel, so the agent stays there
   // and the preview's own panel holds Discussion and Info.
   const agent = useAgentPanelState();
+  const inWidget = useIsMcpAppWidgetEmbed();
   const showAgentTab = useAgentPanelSlot(agentSlotRef, host === "page");
   const agentInPanel = showAgentTab && agent.inPanel;
   const utilityPanelTab = documentPagePanelTab({
@@ -9223,10 +9225,13 @@ function PageEditorSessionBody({
         );
         return;
       }
-      if (!next) window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      // A row preview's panel closing leaves the page's agent where it is.
+      if (!next && showAgentTab) {
+        window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      }
       handleUtilityPanelChange(next);
     },
-    [handleUtilityPanelChange],
+    [handleUtilityPanelChange, showAgentTab],
   );
 
   const pagePanelClaims = useRef({
@@ -9248,7 +9253,7 @@ function PageEditorSessionBody({
 
   const openPanelTab = showAgentTab && agent.open ? "agent" : requestedPanelTab;
   const showCommentsTab = canComment && !isLocalFileDocument;
-  usePagePanelShortcuts(!mcpDirectoryWidgetReadOnly, (shortcut, event) => {
+  usePagePanelShortcuts(!inWidget, (shortcut, event) => {
     const owner = documentEditorEventOwner(event);
     if (owner ? owner !== pageEditorOwner : host !== "page") return;
     const tab =

@@ -2589,10 +2589,12 @@ audio.media-block__content {
 
   [data-document-print-root] {
     position: absolute !important;
-    inset: 0 !important;
+    inset: 0 0 auto !important;
     display: block !important;
     width: 100% !important;
+    height: auto !important;
     min-height: auto !important;
+    overflow: visible !important;
     background: #fff !important;
     color: #111 !important;
   }

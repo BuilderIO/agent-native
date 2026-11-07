@@ -1342,6 +1342,35 @@ describe("document editor layout", () => {
     ).toBe(true);
   });
 
+  it("leaves the page's agent open when a row preview's panel closes", () => {
+    const source = readFileSync("app/components/editor/DocumentEditor.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toMatch(
+      /if \(!next && showAgentTab\) \{\s+window\.dispatchEvent\(new CustomEvent\("agent-panel:close"\)\);/,
+    );
+  });
+
+  it("gives a widget none of the panel keys, as it has none of the tabs", () => {
+    const source = readFileSync("app/components/editor/DocumentEditor.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("usePagePanelShortcuts(!inWidget,");
+  });
+
+  it("does not clip a printed page at the root's screen height", () => {
+    const css = readFileSync("app/global.css", { encoding: "utf8" });
+    const printRoot = css.match(
+      /@media print[\s\S]*?\n  \[data-document-print-root\] \{([^}]*)\}/,
+    )?.[1];
+
+    expect(printRoot).toContain("overflow: visible !important");
+    expect(printRoot).toContain("height: auto !important");
+    expect(printRoot).toContain("inset: 0 0 auto !important");
+  });
+
   describe("documentPagePanelTab", () => {
     const closed = {
       agentInPanel: false,
