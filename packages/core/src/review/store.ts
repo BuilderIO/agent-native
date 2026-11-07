@@ -1644,36 +1644,58 @@ export async function resolveReviewThreadWithClient(
       : resolutionNote === undefined
         ? undefined
         : { ...(rootMetadata ?? {}), resolutionNote };
-  const metadataAssignment =
-    nextRootMetadata === undefined
-      ? ""
-      : ", metadata_json = CASE WHEN parent_comment_id IS NULL THEN ? ELSE metadata_json END";
-  // raw-sql-ok: the clauses are constant text; every value is bound.
-  const result = await client.execute({
-    sql: `UPDATE agent_review_comments
-        SET status = ?,
-            resolved_by = CASE WHEN ? = 'resolved' THEN ? ELSE NULL END,
-            resolved_at = CASE WHEN ? = 'resolved' THEN ? ELSE NULL END,
-            revision = revision + 1,
-            updated_at = ?
-            ${metadataAssignment}
+  const noteChanges =
+    nextRootMetadata !== undefined &&
+    stringifyOptionalJson(nextRootMetadata) !==
+      stringifyOptionalJson(rootMetadata);
+  // Only comments not already in this state change, so resolving a resolved
+  // thread again moves no revision and fires no hook; a new resolution note
+  // still rewrites the first comment.
+  // raw-sql-ok: the resource clause is constant text; the ids are bound.
+  const counts = await client.execute({
+    sql: `SELECT COUNT(*) AS live,
+            COALESCE(SUM(CASE WHEN status <> ? THEN 1 ELSE 0 END), 0) AS changing
+       FROM agent_review_comments
       WHERE thread_id = ? AND deleted_at IS NULL ${resourceClause}`,
     args: [
       status,
-      status,
-      resolvedBy ?? null,
-      status,
-      status === "resolved" ? now : null,
-      now,
-      ...(nextRootMetadata === undefined
-        ? []
-        : [stringifyOptionalJson(nextRootMetadata)]),
       threadId,
       ...(resource ? [resource.resourceType, resource.resourceId] : []),
     ],
   });
-  const updated = result.rowsAffected;
-  if (updated > 0) {
+  const live = Number(counts.rows[0]?.live ?? 0);
+  const changing = Number(counts.rows[0]?.changing ?? 0);
+  if (changing > 0 || noteChanges) {
+    const metadataAssignment = noteChanges
+      ? ", metadata_json = CASE WHEN parent_comment_id IS NULL THEN ? ELSE metadata_json END"
+      : "";
+    // raw-sql-ok: the clauses are constant text; every value is bound.
+    await client.execute({
+      sql: `UPDATE agent_review_comments
+          SET status = ?,
+              resolved_by = CASE WHEN ? = 'resolved' THEN ? ELSE NULL END,
+              resolved_at = CASE WHEN ? = 'resolved' THEN ? ELSE NULL END,
+              revision = revision + 1,
+              updated_at = ?
+              ${metadataAssignment}
+        WHERE thread_id = ? AND deleted_at IS NULL
+          AND (status <> ?${noteChanges ? " OR parent_comment_id IS NULL" : ""})
+          ${resourceClause}`,
+      args: [
+        status,
+        status,
+        resolvedBy ?? null,
+        status,
+        status === "resolved" ? now : null,
+        now,
+        ...(noteChanges ? [stringifyOptionalJson(nextRootMetadata)] : []),
+        threadId,
+        status,
+        ...(resource ? [resource.resourceType, resource.resourceId] : []),
+      ],
+    });
+  }
+  if (changing > 0) {
     const resourceType = String(root.rows[0].resource_type);
     await runReviewCommentWriteHook(
       resourceType,
@@ -1687,7 +1709,7 @@ export async function resolveReviewThreadWithClient(
       client,
     );
   }
-  return updated;
+  return live;
 }
 
 function withoutResolutionNote(

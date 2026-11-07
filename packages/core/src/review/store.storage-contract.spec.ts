@@ -294,6 +294,36 @@ describe.sequential("the review kit's storage contract", () => {
     expect(resolved).toMatchObject({ body: "Edited", revision: 3 });
   });
 
+  it("leaves a thread already in that state alone", async () => {
+    const root = await insertReviewComment(comment(PLAIN, "doc-again"));
+    const read = async () =>
+      (
+        await queryReviewComments({
+          resourceType: PLAIN,
+          resourceId: "doc-again",
+          scope: {},
+          bypassScope: true,
+          includeResolved: true,
+        })
+      )[0];
+    await expect(resolveReviewThread(root.threadId, OWNER)).resolves.toBe(1);
+    // Resolving it again still finds the thread but changes nothing.
+    await expect(resolveReviewThread(root.threadId, VIEWER)).resolves.toBe(1);
+    expect(await read()).toMatchObject({ revision: 2, resolvedBy: OWNER });
+
+    // A new resolution note still rewrites the first comment, once.
+    await resolveReviewThread(root.threadId, OWNER, undefined, "Done");
+    expect(await read()).toMatchObject({ revision: 3, resolutionNote: "Done" });
+    await resolveReviewThread(root.threadId, OWNER, undefined, "Done");
+    expect(await read()).toMatchObject({ revision: 3 });
+
+    const reopen = () =>
+      resolveReviewThread(root.threadId, OWNER, undefined, undefined, "open");
+    await expect(reopen()).resolves.toBe(1);
+    await expect(reopen()).resolves.toBe(1);
+    expect(await read()).toMatchObject({ status: "open", revision: 4 });
+  });
+
   it("returns a moved anchor's new revision from the action", async () => {
     const created = await insertReviewComment(
       comment(PINNED, "deck-move", {
@@ -337,14 +367,16 @@ describe.sequential("the review kit's storage contract", () => {
       actorEmail: OWNER,
     });
     await updateReviewComment(root.id, { anchor: { at: 3 } });
-    await resolveReviewThread(root.threadId, OWNER);
-    await resolveReviewThread(
-      root.threadId,
-      OWNER,
-      undefined,
-      undefined,
-      "open",
-    );
+    // Repeating a resolve or reopen fires no second event.
+    for (const status of ["resolved", "resolved", "open", "open"] as const) {
+      await resolveReviewThread(
+        root.threadId,
+        OWNER,
+        undefined,
+        undefined,
+        status,
+      );
+    }
     await deleteReviewComment(root.id, OWNER);
 
     expect(hookEvents.map((event) => event.type)).toEqual([

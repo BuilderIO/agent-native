@@ -104,8 +104,10 @@ registerReviewableResource({
   every resource accepts.
 - `onCommentWrite` runs inside the comment's own database transaction for
   `created`, `edited`, `anchor-moved`, `resolved`, `reopened` and `deleted`.
-  Throwing refuses the write. Use the `tx` handle for database work there. A
-  database client without transactions refuses a hooked write.
+  Resolving a thread that is already resolved, or reopening an open one,
+  changes nothing and fires no event. Throwing refuses the write. Use the `tx`
+  handle for database work there. A database client without transactions
+  refuses a hooked write.
 
 Every comment also carries a `surfaceId` (the slide, page or screen a thread
 sits on; `list-review-comments` filters by it) and a `revision` that goes up
