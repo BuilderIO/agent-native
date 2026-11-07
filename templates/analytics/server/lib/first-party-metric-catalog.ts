@@ -1712,7 +1712,29 @@ function buildOnboardingJourneyEventCtes(
 )
 `;
 }
-const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `
+/**
+ * A number from the first six hex digits of an md5, written with functions
+ * both engines share. Summed over a read, it fingerprints the read's rows.
+ */
+function sqlMd5Prefix24(hashSql: string): string {
+  return [20, 16, 12, 8, 4, 0]
+    .map(
+      (shift, index) =>
+        `(strpos('0123456789abcdef', substr(${hashSql}, ${index + 1}, 1)) - 1) * ${2 ** shift}`,
+    )
+    .join("\n    + ");
+}
+
+// Every page also counts and fingerprints the whole read, so the caller can
+// tell whether separate OFFSET pages read the same rows in the same order. The
+// fingerprint covers the sort key and the session's email hash.
+const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, fingerprinted_journey_events AS (
+  SELECT e.*,
+    md5(COALESCE(e.journey_kind, '') || '|' || COALESCE(e.session_id, '')
+      || '|' || e.timestamp::text || '|' || e.id
+      || '|' || COALESCE(e.session_email_hash, '')) AS journey_row_hash
+  FROM journey_events e
+)
 SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
   e.journey_kind,
   NULLIF(e.properties::jsonb ->> 'auth_user_id', '') AS auth_user_id,
@@ -1754,8 +1776,11 @@ SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
   NULLIF(e.properties::jsonb ->> 'sessionReplayId', '') AS session_replay_id,
   NULLIF(e.properties::jsonb ->> 'sessionReplayStartedAt', '') AS session_replay_started_at,
   e.session_email_hash,
-  COUNT(*) OVER () AS journey_total_rows
-FROM journey_events e
+  COUNT(*) OVER () AS journey_total_rows,
+  SUM(
+    ${sqlMd5Prefix24("e.journey_row_hash")}
+  ) OVER () AS journey_rows_fingerprint
+FROM fingerprinted_journey_events e
 ORDER BY e.journey_kind, e.session_id, e.timestamp, e.id
 LIMIT {{journeyLimit}} OFFSET {{journeyOffset}}`;
 

@@ -655,7 +655,7 @@ async function readJourneyEvents(
   let overflowSessionId: string | null = null;
   let pages = 0;
   let rowsFetched = 0;
-  const pageTotals: Array<number | null> = [];
+  const pageTotals: JourneyPageTotal[] = [];
   const deadline = new AbortController();
   const deadlineTimer = setTimeout(
     () =>
@@ -729,7 +729,10 @@ async function readJourneyEvents(
       raw.push(...page.rows);
       rowsFetched += page.rows.length;
       if (page.rows.length) {
-        pageTotals.push(integer(page.rows[0]?.journey_total_rows));
+        pageTotals.push({
+          rows: integer(page.rows[0]?.journey_total_rows),
+          fingerprint: integer(page.rows[0]?.journey_rows_fingerprint),
+        });
       }
       if (page.truncated) {
         truncated = true;
@@ -811,26 +814,28 @@ async function readJourneyEvents(
   };
 }
 
+type JourneyPageTotal = { rows: number | null; fingerprint: number | null };
+
 /**
  * OFFSET pages are separate queries, so an event that arrives between them can
- * move a page boundary. Every page also counts the whole read. Events are only
- * appended, so pages that saw the same total read the same rows, and a read
- * that ran to its end must have returned exactly that many.
+ * move a page boundary. A matching row count alone does not rule that out: a
+ * late duplicate can drop one event and settle another's ambiguous link. So
+ * every page also fingerprints the whole read's sort keys, and pages agree
+ * only when every count and fingerprint matches and a read that ran to its end
+ * returned exactly that many rows.
  */
 function journeyPagesAgree(
   pages: number,
-  pageTotals: readonly (number | null)[],
+  pageTotals: readonly JourneyPageTotal[],
   rowsFetched: number,
   truncated: boolean,
 ): boolean {
   if (pages <= 1) return true;
-  if (pageTotals.length === 0) return false;
-  const first = pageTotals[0];
-  return (
-    first !== null &&
-    pageTotals.every((total) => total === first) &&
-    (truncated || rowsFetched === first)
-  );
+  const rows = new Set(pageTotals.map((total) => total.rows));
+  const fingerprints = new Set(pageTotals.map((total) => total.fingerprint));
+  if (rows.size !== 1 || fingerprints.size !== 1) return false;
+  if (rows.has(null) || fingerprints.has(null)) return false;
+  return truncated || rows.has(rowsFetched);
 }
 
 function groupSessions(rows: readonly JourneyEventRow[]): {

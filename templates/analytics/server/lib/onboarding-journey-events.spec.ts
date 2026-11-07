@@ -930,6 +930,31 @@ describe("onboarding journey events SQL", () => {
     expect([...first, ...second].map((row) => row.journey_total_rows)).toEqual(
       Array(first.length + second.length).fill(all.length),
     );
+    const fingerprint = all[0]!.journey_rows_fingerprint;
+    expect(Number.isSafeInteger(fingerprint)).toBe(true);
+    expect(
+      [...all, ...first, ...second].every(
+        (row) => row.journey_rows_fingerprint === fingerprint,
+      ),
+    ).toBe(true);
+
+    // One event leaves the read and another joins it: the same total, but a
+    // different set of rows.
+    const leaving = all.find(
+      (row) =>
+        row.session_id === "normal" &&
+        row.event_name === "onboarding_step_viewed",
+    );
+    await client.query("DELETE FROM analytics_events WHERE id = $1", [
+      leaving!.id,
+    ]);
+    await insert("normal", "onboarding_step_viewed", 9, {
+      email: "alice@example.com",
+      properties: { flow: "first_run", step_id: "goal" },
+    });
+    const changed = await run({}, { limit: 2, offset: 2 });
+    expect(changed[0]?.journey_total_rows).toBe(all.length);
+    expect(changed[0]?.journey_rows_fingerprint).not.toBe(fingerprint);
   });
 
   it("selects renderable Design output events for onboarding sessions", async () => {
@@ -1717,6 +1742,7 @@ describe("onboarding journey events SQL", () => {
       "flow",
       "id",
       "journey_kind",
+      "journey_rows_fingerprint",
       "journey_total_rows",
       "method_id",
       "outcome",

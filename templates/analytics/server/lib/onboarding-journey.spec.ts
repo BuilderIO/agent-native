@@ -1283,89 +1283,107 @@ describe("getOnboardingJourney", () => {
     ).toEqual({ startDate: "2026-10-08", endDate: "2026-10-09" });
   });
 
-  it("marks multi-page reads incomplete when an event arrives between pages", async () => {
-    const firstPage = Array.from({ length: 4000 }, (_, index) =>
-      eventRow(`page-${String(index).padStart(4, "0")}`, "signup", index, {
-        journey_total_rows: 4001,
-      }),
-    );
-    const pageQueue = [
-      firstPage,
-      [
-        eventRow("last-page", "signup", 4000, { journey_total_rows: 4002 }),
-        eventRow("late-arrival", "signup", 4001, { journey_total_rows: 4002 }),
-      ],
-    ];
-    const querySql: string[] = [];
-    const now = vi
-      .spyOn(Date, "now")
-      .mockReturnValue(Date.parse("2026-10-09T12:00:00.000Z"));
-    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
-      querySql.push(sql);
-      if (sql.includes("terminal_steps AS (")) {
-        return {
-          rows: [
-            {
-              terminal_step_key: "signup",
-              cohort_sessions: 0,
-              later_recorded_activity: 0,
-            },
-          ],
-          schema: [],
-        };
-      }
-      return { rows: pageQueue.shift() ?? [], schema: [] };
-    });
-    mocks.listJourneyRecordings.mockResolvedValue({
-      recordings: [],
-      complete: true,
-    });
+  it.each([
+    {
+      name: "an event arrives between pages",
+      firstTotals: { journey_total_rows: 4001, journey_rows_fingerprint: 7 },
+      lastTotals: { journey_total_rows: 4002, journey_rows_fingerprint: 9 },
+    },
+    {
+      // A late duplicate can drop one event and settle another's link.
+      name: "pages count the same total over different rows",
+      firstTotals: { journey_total_rows: 4002, journey_rows_fingerprint: 7 },
+      lastTotals: { journey_total_rows: 4002, journey_rows_fingerprint: 9 },
+    },
+  ])(
+    "marks multi-page reads incomplete when $name",
+    async ({ firstTotals, lastTotals }) => {
+      const firstPage = Array.from({ length: 4000 }, (_, index) =>
+        eventRow(
+          `page-${String(index).padStart(4, "0")}`,
+          "signup",
+          index,
+          firstTotals,
+        ),
+      );
+      const pageQueue = [
+        firstPage,
+        [
+          eventRow("last-page", "signup", 4000, lastTotals),
+          eventRow("late-arrival", "signup", 4001, lastTotals),
+        ],
+      ];
+      const querySql: string[] = [];
+      const now = vi
+        .spyOn(Date, "now")
+        .mockReturnValue(Date.parse("2026-10-09T12:00:00.000Z"));
+      mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
+        querySql.push(sql);
+        if (sql.includes("terminal_steps AS (")) {
+          return {
+            rows: [
+              {
+                terminal_step_key: "signup",
+                cohort_sessions: 0,
+                later_recorded_activity: 0,
+              },
+            ],
+            schema: [],
+          };
+        }
+        return { rows: pageQueue.shift() ?? [], schema: [] };
+      });
+      mocks.listJourneyRecordings.mockResolvedValue({
+        recordings: [],
+        complete: true,
+      });
 
-    const tree = (await getOnboardingJourney(scope, {
-      ...ARGS,
-      maxEventRows: 5000,
-    })) as JourneyTree;
-    const cutoff = "2026-10-03T00:00:00.000Z";
-    const eventSql = querySql.filter(
-      (sql) => !sql.includes("terminal_steps AS ("),
-    );
-    const followupSql = querySql.filter((sql) =>
-      sql.includes("terminal_steps AS ("),
-    );
+      const tree = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        maxEventRows: 5000,
+      })) as JourneyTree;
+      const cutoff = "2026-10-03T00:00:00.000Z";
+      const eventSql = querySql.filter(
+        (sql) => !sql.includes("terminal_steps AS ("),
+      );
+      const followupSql = querySql.filter((sql) =>
+        sql.includes("terminal_steps AS ("),
+      );
 
-    expect(now).toHaveBeenCalledTimes(1);
-    expect(eventSql).toHaveLength(2);
-    expect(followupSql).toHaveLength(0);
-    expect(querySql.every((sql) => sql.includes(cutoff))).toBe(true);
-    expect(tree.notes?.join(" ")).toMatch(
-      /2 OFFSET pages.*late-arriving events.*in any window.*incomplete/,
-    );
-    expect(tree.followUp).toMatchObject({
-      status: "incomplete",
-      observationCutoff: cutoff,
-      rightCensoredAtWindowEnd: true,
-      coverage: {
-        journeyEventRead: {
-          rows: 4002,
-          pages: 2,
-          truncated: false,
-          paginationConsistency: "may_have_shifted",
+      expect(now).toHaveBeenCalledTimes(1);
+      expect(eventSql).toHaveLength(2);
+      expect(followupSql).toHaveLength(0);
+      expect(querySql.every((sql) => sql.includes(cutoff))).toBe(true);
+      expect(tree.notes?.join(" ")).toMatch(
+        /2 OFFSET pages.*late-arriving events.*in any window.*incomplete/,
+      );
+      expect(tree.followUp).toMatchObject({
+        status: "incomplete",
+        observationCutoff: cutoff,
+        rightCensoredAtWindowEnd: true,
+        coverage: {
+          journeyEventRead: {
+            rows: 4002,
+            pages: 2,
+            truncated: false,
+            paginationConsistency: "may_have_shifted",
+          },
+          followupAggregateRead: { rows: null, queries: 0, truncated: false },
+          cohortSessions: null,
         },
-        followupAggregateRead: { rows: null, queries: 0, truncated: false },
-        cohortSessions: null,
-      },
-      laterRecordedActivityWithinWindow: {
-        total: null,
-        byTerminalStepKey: null,
-      },
-      noLaterRecordedActivityWithinWindow: {
-        total: null,
-        byTerminalStepKey: null,
-      },
-      observationFollowupDurationMs: null,
-    });
-    now.mockRestore();
-  });
+        laterRecordedActivityWithinWindow: {
+          total: null,
+          byTerminalStepKey: null,
+        },
+        noLaterRecordedActivityWithinWindow: {
+          total: null,
+          byTerminalStepKey: null,
+        },
+        observationFollowupDurationMs: null,
+      });
+      now.mockRestore();
+    },
+  );
 
   it("runs follow-up on a multi-page read whose pages counted the same rows", async () => {
     // 1,001 sessions of four signup events each: two pages, under the
@@ -1375,7 +1393,7 @@ describe("getOnboardingJourney", () => {
         `cohort-${String(Math.floor(index / 4)).padStart(4, "0")}`,
         "signup",
         index,
-        { journey_total_rows: 4004 },
+        { journey_total_rows: 4004, journey_rows_fingerprint: 7 },
       ),
     );
     const pageQueue = [allRows.slice(0, 4000), allRows.slice(4000)];

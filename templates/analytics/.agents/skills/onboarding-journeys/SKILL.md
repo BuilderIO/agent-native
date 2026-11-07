@@ -137,12 +137,14 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   no later event was recorded before the cutoff; this is not an abandonment or
   churn outcome. The aggregate contains counts only and does not expose the
   session IDs or member identity keys used internally. Every `OFFSET` page also
-  counts the whole read. The consistency field is `stable` for one page, or
-  for several pages that all counted the same total and together returned
-  exactly that many rows, or stopped at the row budget (then
-  `coverage.truncated` says so); otherwise it reports `may_have_shifted`, because an
-  event that arrived between pages can change page membership inside a
-  historical window too. The action reads 4,000-row pages up to `maxEventRows` (at most 200,000),
+  counts the whole read and fingerprints its rows (a sum of hashes of each
+  row's sort key and session email hash). The consistency field is `stable` for
+  one page, or for several pages that all saw the same count and fingerprint
+  and together returned exactly that many rows, or stopped at the row budget
+  (then `coverage.truncated` says so); otherwise it reports `may_have_shifted`,
+  because an event that arrived between pages can change page membership inside
+  a historical window too. A matching count alone is not enough: a late
+  duplicate can drop one event and settle another's ambiguous link. The action reads 4,000-row pages up to `maxEventRows` (at most 200,000),
   plus one overflow row to detect truncation. Each BigQuery page keeps a 25 GB
   billed-byte cap; by default, `maxTotalBytesBilled` reserves that cap for 11
   pages (275 GB), and can be raised deliberately to 1.275 TB (51 pages). Event
