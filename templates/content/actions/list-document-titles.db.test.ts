@@ -56,6 +56,10 @@ beforeAll(async () => {
       page("deleted-collection"),
       page("files-collection"),
       page("files-row"),
+      page("outsiders-parent", { ownerEmail: OUTSIDER }),
+      page("under-outsiders", { parentId: "outsiders-parent" }),
+      page("outsiders-collection", { ownerEmail: OUTSIDER }),
+      page("row-in-outsiders"),
     ]);
   const collection = (
     id: string,
@@ -79,6 +83,9 @@ beforeAll(async () => {
         spaceId: "titles-space",
         systemRole: "files",
       }),
+      collection("outsiders-database", "outsiders-collection", {
+        ownerEmail: OUTSIDER,
+      }),
     ]);
   const row = (databaseId: string, documentId: string) => ({
     id: `${databaseId}-${documentId}`,
@@ -93,6 +100,7 @@ beforeAll(async () => {
     .values([
       row("database", "collection-row"),
       row("files-database", "files-row"),
+      row("outsiders-database", "row-in-outsiders"),
     ]);
 }, 60_000);
 
@@ -117,7 +125,9 @@ describe("list-document-titles", () => {
     expect(ids.indexOf("child")).toBeLessThan(ids.indexOf("newer"));
 
     const outsider = await asUser(OUTSIDER, () => listDocumentTitles.run({}));
-    expect(outsider.documents.map((document) => document.id)).toEqual([
+    expect(outsider.documents.map((document) => document.id).sort()).toEqual([
+      "outsiders-collection",
+      "outsiders-parent",
       "someone-elses",
     ]);
   });
@@ -138,5 +148,13 @@ describe("list-document-titles", () => {
     const byId = new Map(documents.map((document) => [document.id, document]));
 
     expect(byId.get("files-row")?.collectionDocumentId).toBeNull();
+  });
+
+  it("names no parent or collection the caller can't open", async () => {
+    const { documents } = await asUser(OWNER, () => listDocumentTitles.run({}));
+    const byId = new Map(documents.map((document) => [document.id, document]));
+
+    expect(byId.get("under-outsiders")?.parentId).toBeNull();
+    expect(byId.get("row-in-outsiders")?.collectionDocumentId).toBeNull();
   });
 });

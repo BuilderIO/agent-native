@@ -678,12 +678,15 @@ export function ContentCommandSearchResults({
   // Instant title lane: the titles of everything the caller can search, or,
   // in local-file mode, the complete list the sidebar loads for
   // `useDocuments()` (`enabled: false` returns its cached data, if any).
-  // Filtering and indexing are memoized separately from ranking, which reruns
-  // on every keystroke.
+  // Elsewhere that cache can hold just a page created a moment ago, so only
+  // local-file mode reads it. Filtering and indexing are memoized separately
+  // from ranking, which reruns on every keystroke.
+  const localFileMode = spaces.data?.sourceMode === "local-files";
   const documentsQuery = useDocuments({ enabled: false });
-  const documents = documentsQuery.data;
-  const titleEntries = useDocumentTitles({ enabled: !documents }).data
-    ?.documents;
+  const documents = localFileMode ? documentsQuery.data : undefined;
+  const titleEntries = useDocumentTitles({
+    enabled: Boolean(spaces.data) && !localFileMode,
+  }).data?.documents;
   const rootIndex = useMemo(
     () => buildDocumentSpaceRootIndex(documents ?? []),
     [documents],

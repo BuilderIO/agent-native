@@ -80,7 +80,7 @@ export default defineAction({
         .min(1)
         .optional()
         .describe(
-          "Search only this document and everything inside it: its sub-pages, its collections and their rows",
+          "Search only this document and everything inside it: its sub-pages, its collections and their rows. Past 5,000 pages, only the nearest are searched and withinSubtreeTruncated is true",
         ),
       documentType: z
         .enum(["page", "database"])
@@ -196,9 +196,12 @@ export default defineAction({
         : [args.excludeSubtreeOf];
     }
     let withinIds: string[] | null = null;
+    let withinSubtreeTruncated = false;
     if (args.withinSubtreeOf) {
       await assertAccess("document", args.withinSubtreeOf, "viewer");
-      withinIds = await searchSubtreeDocumentIds(db, args.withinSubtreeOf);
+      const subtree = await searchSubtreeDocumentIds(db, args.withinSubtreeOf);
+      withinIds = subtree.ids;
+      withinSubtreeTruncated = subtree.truncated;
     }
     // The core index answers when it is complete and current and the query
     // fits it; otherwise this request scans documents directly, as search
@@ -392,6 +395,7 @@ export default defineAction({
         totalItems,
         returnedItems: docs.length,
       }),
+      ...(args.withinSubtreeOf ? { withinSubtreeTruncated } : {}),
     };
   },
 });

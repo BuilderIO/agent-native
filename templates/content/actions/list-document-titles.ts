@@ -93,8 +93,17 @@ export default defineAction({
       )
       .orderBy(desc(schema.documents.updatedAt), schema.documents.id)
       .limit(DOCUMENT_TITLE_LIST_LIMIT + 1);
+    const listed = documents.slice(0, DOCUMENT_TITLE_LIST_LIMIT);
+    // A parent or collection outside the list may be one the caller can't
+    // open, so its id stays out, as search leaves out such a parent.
+    const listedIds = new Set(listed.map((document) => document.id));
+    const inList = (id: string | null) => (id && listedIds.has(id) ? id : null);
     return {
-      documents: documents.slice(0, DOCUMENT_TITLE_LIST_LIMIT),
+      documents: listed.map((document) => ({
+        ...document,
+        parentId: inList(document.parentId),
+        collectionDocumentId: inList(document.collectionDocumentId),
+      })),
       truncated: documents.length > DOCUMENT_TITLE_LIST_LIMIT,
     };
   },

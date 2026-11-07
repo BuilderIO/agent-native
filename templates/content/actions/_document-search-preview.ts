@@ -27,11 +27,14 @@ interface FoundMatch {
 function lowerKeepingOffsets(text: string): string {
   const lowered = text.toLowerCase();
   if (lowered.length === text.length) return lowered;
-  // A few characters change length in lower case ("İ"). Those stay as they
-  // are, so a position in the lowered text is still one in the page.
+  // A few characters grow in lower case ("İ" becomes "i" and a dot above).
+  // Those keep only the letter, as the database's lower case does, so a
+  // position in the lowered text is still one in the page.
   return text.replace(/./gsu, (character) => {
     const lower = character.toLowerCase();
-    return lower.length === character.length ? lower : character;
+    if (lower.length === character.length) return lower;
+    const letter = String.fromCodePoint(lower.codePointAt(0)!);
+    return letter.length === character.length ? letter : character;
   });
 }
 
@@ -122,10 +125,41 @@ function characterCount(text: string): number {
   return count;
 }
 
-/** Moves an offset off the second half of a character. */
-function onCharacterStart(text: string, offset: number): number {
-  const unit = text.charCodeAt(offset);
-  return unit >= 0xdc00 && unit <= 0xdfff ? offset - 1 : offset;
+function isHighSurrogate(unit: number): boolean {
+  return unit >= 0xd800 && unit <= 0xdbff;
+}
+
+function isLowSurrogate(unit: number): boolean {
+  return unit >= 0xdc00 && unit <= 0xdfff;
+}
+
+/** The offset `count` characters before `offset`, or the top of the text. */
+function charactersBefore(text: string, offset: number, count: number) {
+  let at = offset;
+  for (let left = count; left > 0 && at > 0; left -= 1) {
+    at -= 1;
+    if (
+      at > 0 &&
+      isLowSurrogate(text.charCodeAt(at)) &&
+      isHighSurrogate(text.charCodeAt(at - 1))
+    ) {
+      at -= 1;
+    }
+  }
+  return at;
+}
+
+/** The offset `count` characters after `offset`, or the end of the text. */
+function charactersAfter(text: string, offset: number, count: number) {
+  let at = offset;
+  for (let left = count; left > 0 && at < text.length; left -= 1) {
+    at +=
+      isHighSurrogate(text.charCodeAt(at)) &&
+      isLowSurrogate(text.charCodeAt(at + 1))
+        ? 2
+        : 1;
+  }
+  return at;
 }
 
 export function documentSearchPreview(
@@ -135,7 +169,7 @@ export function documentSearchPreview(
   const contentLength = characterCount(body);
   const match = needles.length ? findSearchMatch(body, needles) : null;
   if (!match) {
-    const end = onCharacterStart(body, MAX_WINDOW_CHARS);
+    const end = charactersAfter(body, 0, MAX_WINDOW_CHARS);
     return {
       snippet: searchSnippet(body.slice(0, end), "", {
         clippedEnd: end < body.length,
@@ -143,17 +177,15 @@ export function documentSearchPreview(
       contentLength,
     };
   }
-  const start = onCharacterStart(
+  // Window sizes count characters, not UTF-16 units, as the database did.
+  const start = charactersBefore(body, match.position, SNIPPET_WINDOW_CONTEXT);
+  const end = charactersAfter(
     body,
-    Math.max(0, match.position - SNIPPET_WINDOW_CONTEXT),
-  );
-  const end = onCharacterStart(
-    body,
-    start +
-      Math.min(
-        MAX_WINDOW_CHARS,
-        2 * SNIPPET_WINDOW_CONTEXT + match.needle.length,
-      ),
+    start,
+    Math.min(
+      MAX_WINDOW_CHARS,
+      2 * SNIPPET_WINDOW_CONTEXT + characterCount(match.needle),
+    ),
   );
   return {
     snippet: searchSnippet(body.slice(start, end), match.needle, {

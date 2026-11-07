@@ -228,14 +228,16 @@ export const SEARCH_SUBTREE_LIMIT = 5_000;
  * A page and everything inside it, nearest first: sub-pages, the collections
  * on it, and their rows. Ids only, for search to scope itself to; search still
  * applies its own access rule to each page, so this reveals nothing.
+ * `truncated` says the page holds more than `SEARCH_SUBTREE_LIMIT`.
  */
 export async function searchSubtreeDocumentIds(
   db: ContentDb,
   rootId: string,
-): Promise<string[]> {
+): Promise<{ ids: string[]; truncated: boolean }> {
   const seen = new Set([rootId]);
   let frontier = [rootId];
-  while (frontier.length > 0 && seen.size < SEARCH_SUBTREE_LIMIT) {
+  let truncated = false;
+  while (frontier.length > 0 && !truncated) {
     const found: string[] = [];
     for (const idGroup of groups(frontier)) {
       // guard:allow-unscoped — ids only; search-documents filters every result by access.
@@ -247,7 +249,8 @@ export async function searchSubtreeDocumentIds(
             inArray(schema.documents.parentId, idGroup),
             isNull(schema.documents.trashedAt),
           ),
-        );
+        )
+        .limit(SEARCH_SUBTREE_LIMIT);
       // guard:allow-unscoped — ids only; search-documents filters every result by access.
       const collections: Array<{ id: string; documentId: string }> = await db
         .select({
@@ -264,7 +267,8 @@ export async function searchSubtreeDocumentIds(
             isNull(schema.contentDatabases.systemRole),
             isNull(schema.contentDatabases.deletedAt),
           ),
-        );
+        )
+        .limit(SEARCH_SUBTREE_LIMIT);
       found.push(
         ...children.map((child) => child.id),
         ...collections.map((collection) => collection.documentId),
@@ -274,18 +278,21 @@ export async function searchSubtreeDocumentIds(
         const rows: Array<{ documentId: string }> = await db
           .select({ documentId: schema.contentDatabaseItems.documentId })
           .from(schema.contentDatabaseItems)
-          .where(
-            inArray(schema.contentDatabaseItems.databaseId, collectionIds),
-          );
+          .where(inArray(schema.contentDatabaseItems.databaseId, collectionIds))
+          .limit(SEARCH_SUBTREE_LIMIT);
         found.push(...rows.map((row) => row.documentId));
       }
     }
     frontier = [];
     for (const id of found) {
-      if (seen.has(id) || seen.size >= SEARCH_SUBTREE_LIMIT) continue;
+      if (seen.has(id)) continue;
+      if (seen.size >= SEARCH_SUBTREE_LIMIT) {
+        truncated = true;
+        break;
+      }
       seen.add(id);
       frontier.push(id);
     }
   }
-  return [...seen];
+  return { ids: [...seen], truncated };
 }

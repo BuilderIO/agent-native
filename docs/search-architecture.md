@@ -376,8 +376,8 @@ Instead:
 Built: `indexedSearchSql({ registration, query, fields })` returns Drizzle SQL
 that the app composes into its own statement: a lookup in `search_resources` for
 each row the app's query keeps, the match condition, and the ranking terms. The
-app keeps its own access condition, filters, snippets, parents, paging, and
-totals, all in the same statement.
+app keeps its own access condition, filters, paging, and totals in that
+statement, and reads snippets and parents for the returned page afterwards.
 
 The match reads `doc_vector` only for rows the access condition and filters
 keep, not through its GIN index across the table. The table holds every user's

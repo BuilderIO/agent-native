@@ -18,6 +18,7 @@ type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
 let searchDocuments: typeof import("./search-documents.js").default;
+let SEARCH_SUBTREE_LIMIT: number;
 
 const asUser = <T>(userEmail: string, run: () => Promise<T>) =>
   runWithRequestContext({ userEmail }, run);
@@ -52,6 +53,7 @@ beforeAll(async () => {
   getDb = dbModule.getDb;
   schema = dbModule.schema;
   searchDocuments = (await import("./search-documents.js")).default;
+  ({ SEARCH_SUBTREE_LIMIT } = await import("./_page-subtree.js"));
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 
@@ -130,6 +132,17 @@ beforeAll(async () => {
   await getDb()
     .insert(schema.documentShares)
     .values([share("shared-root", OUTSIDER), share("shared-child", OUTSIDER)]);
+  await getDb()
+    .insert(schema.documents)
+    .values([
+      page("crowded-root", { content: "crowded" }),
+      ...Array.from({ length: SEARCH_SUBTREE_LIMIT }, (_, index) =>
+        page(`crowded-${index}`, {
+          parentId: "crowded-root",
+          content: "crowded",
+        }),
+      ),
+    ]);
 }, 60_000);
 
 afterAll(async () => {
@@ -176,6 +189,23 @@ describe("search within a page", () => {
       "deep-page",
     ]);
     expect(result.pagination.totalItems).toBe(1);
+  });
+
+  it("says when a page holds more than it can search", async () => {
+    const search = (withinSubtreeOf: string) =>
+      asUser(OWNER, () =>
+        searchDocuments.run({
+          query: "crowded",
+          limit: 1,
+          offset: 0,
+          withinSubtreeOf,
+        }),
+      );
+
+    const crowded = await search("crowded-root");
+    expect(crowded.withinSubtreeTruncated).toBe(true);
+    expect(crowded.pagination.totalItems).toBe(SEARCH_SUBTREE_LIMIT);
+    expect((await search("root")).withinSubtreeTruncated).toBe(false);
   });
 
   it("refuses a page the caller can't read", async () => {

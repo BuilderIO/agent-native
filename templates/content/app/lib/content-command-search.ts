@@ -323,8 +323,10 @@ export function titleEntryToInstantSearchResult(
 
 /**
  * A page and everything inside it, among the pages loaded: its sub-pages and
- * the rows of collections, however deep. Memoize per list and page; the result
- * is reused for every keystroke.
+ * the rows of collections, however deep. A page reached only through one the
+ * list leaves out, such as a page hidden from search, is missed here, and the
+ * server's results bring it in. Memoize per list and page; the result is
+ * reused for every keystroke.
  */
 export function pagesInsidePage(
   pages: readonly {

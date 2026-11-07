@@ -94,6 +94,13 @@ describe("findSearchMatch", () => {
 
     expect(findSearchMatch(body, ["alpha"])?.position).toBe(4);
   });
+
+  it("finds a word whose capital grows in lower case", () => {
+    expect(findSearchMatch("Visit İstanbul", ["istanbul"])).toEqual({
+      position: 6,
+      needle: "istanbul",
+    });
+  });
 });
 
 describe("documentSearchPreview", () => {
@@ -127,6 +134,14 @@ describe("documentSearchPreview", () => {
     expect(snippet).toContain("marker");
     expect(snippet).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
     expect(snippet).not.toMatch(/(?<![\ud800-\udbff])[\udc00-\udfff]/);
+  });
+
+  it("measures the passage around a match in characters", () => {
+    // 250 emoji are 500 UTF-16 units, past the window's 400, but only 250
+    // characters, so the window still starts at the top, inside the comment.
+    const body = `<!-- ${"🙂".repeat(250)} --> marker end`;
+
+    expect(documentSearchPreview(body, ["marker"]).snippet).toBe("marker end");
   });
 
   it("drops the rest of a comment the match window starts inside", () => {
