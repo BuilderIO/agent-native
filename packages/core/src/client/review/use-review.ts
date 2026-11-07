@@ -36,7 +36,11 @@ export interface ListReviewCommentsParams {
 
 export interface ListReviewCommentsResult {
   comments: ReviewComment[];
-  /** Set when more comments follow; pass it back as `cursor`. */
+  /**
+   * Oldest first: the next page's cursor, to pass back as `cursor`, or null on
+   * the last page. A newest-first list isn't paged and leaves it out; its
+   * `summary` still counts every open thread.
+   */
   nextCursor?: string | null;
   discussion: ReviewDiscussionState;
   reviewStatus: ReviewStatusEntry | null;

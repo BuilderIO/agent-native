@@ -814,13 +814,31 @@ function normalizeReviewCommentInput(
 }
 
 /** Writes an already normalized comment, then runs the resource's hook. */
+let lastReviewCommentWrittenAt = 0;
+
+/**
+ * When a new comment is written. Comments written in the same millisecond
+ * list by their random ids, so on one server each new comment is stamped at
+ * least a millisecond after the last, keeping them in the order they were
+ * written. A clock that moved back a second or more, such as a test's fake
+ * clock, is taken as it is.
+ */
+function reviewCommentWriteTime(): string {
+  const now = Date.now();
+  lastReviewCommentWrittenAt =
+    now > lastReviewCommentWrittenAt || lastReviewCommentWrittenAt - now >= 1000
+      ? now
+      : lastReviewCommentWrittenAt + 1;
+  return new Date(lastReviewCommentWrittenAt).toISOString();
+}
+
 async function writeReviewCommentWithClient(
   input: InsertReviewCommentInput,
   client: DbExec,
   onConflictDoNothing = false,
 ): Promise<InsertReviewCommentResult> {
   const id = input.id ?? createReviewId("comment");
-  const now = new Date().toISOString();
+  const now = reviewCommentWriteTime();
   const comment: ReviewComment = {
     id,
     resourceType: input.resourceType,
@@ -1510,10 +1528,13 @@ async function writeReviewCommentChange(
     // the caller says otherwise.
     const anchor = normalizeReviewAnchor(current.resourceType, {
       anchor: input.anchor,
+      // Clearing the anchor clears its kind too; null isn't parsed as one.
       anchorKind:
         input.anchorKind !== undefined
           ? input.anchorKind
-          : (current.anchorKind ?? null),
+          : input.anchor === null
+            ? null
+            : (current.anchorKind ?? null),
       anchorVersion: input.anchorVersion ?? null,
     });
     assignments.push(

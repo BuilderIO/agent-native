@@ -89,7 +89,8 @@ export default defineAction({
       args.newestFirst && !args.cursor
         ? queryReviewComments(query).then((comments) => ({
             comments,
-            nextCursor: null,
+            // Not paged, so no cursor; null would claim the list is complete.
+            nextCursor: undefined,
           }))
         : queryReviewCommentPage({ ...query, cursor: args.cursor }),
       getReviewStatus(args.resourceType, args.resourceId, scope, {
@@ -132,6 +133,7 @@ export default defineAction({
     const canComment = canCommentOnReviewableResource(
       args.resourceType,
       access,
+      Boolean(actionCtx?.userEmail),
     );
     // Only a commenter's own threads can turn on who else wrote in them: an
     // editor may delete any, and nobody else may delete one they did not start.

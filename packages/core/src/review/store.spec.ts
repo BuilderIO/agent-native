@@ -1513,3 +1513,49 @@ describe("review writes on a client without transactions", () => {
     ).toMatchObject({ body: "Review", revision: 2 });
   });
 });
+
+describe("comment write times", () => {
+  it("keep comments in the order they were written", async () => {
+    const written: string[] = [];
+    for (let index = 0; index < 20; index += 1) {
+      written.push(
+        (
+          await insertReviewComment({
+            resourceType: "doc",
+            resourceId: "doc-order",
+            body: `Comment ${index}`,
+          })
+        ).id,
+      );
+    }
+    const listed = await queryReviewComments({
+      resourceType: "doc",
+      resourceId: "doc-order",
+      scope: {},
+      bypassScope: true,
+    });
+    expect(listed.map((comment) => comment.id)).toEqual(written);
+    const times = listed.map((comment) => comment.createdAt);
+    expect(new Set(times).size).toBe(times.length);
+  });
+
+  it("follow a clock that moved back", async () => {
+    await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "doc-clock",
+      body: "Now",
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2020-01-01T00:00:00.000Z"));
+      const earlier = await insertReviewComment({
+        resourceType: "doc",
+        resourceId: "doc-clock",
+        body: "Then",
+      });
+      expect(earlier.createdAt).toBe("2020-01-01T00:00:00.000Z");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

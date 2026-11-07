@@ -159,6 +159,16 @@ describe("review comment rules", () => {
     );
     expect(canCommentOnReviewableResource("deck", access("viewer"))).toBe(true);
     expect(canCommentOnReviewableResource("deck", null)).toBe(false);
+    // Signed out, a viewer-level policy still asks for the commenter role.
+    expect(
+      canCommentOnReviewableResource("deck", access("viewer"), false),
+    ).toBe(false);
+    expect(
+      canCommentOnReviewableResource("deck", access("commenter"), false),
+    ).toBe(true);
+    expect(
+      canCommentOnReviewableResource("doc", access("commenter"), false),
+    ).toBe(true);
 
     await expect(
       assertReviewCommentAccess("doc", "d1", { userEmail: "bob@example.com" }),
@@ -166,6 +176,9 @@ describe("review comment rules", () => {
     await expect(
       assertReviewCommentAccess("deck", "d1", { userEmail: "bob@example.com" }),
     ).resolves.toMatchObject({ role: "viewer" });
+    await expect(assertReviewCommentAccess("deck", "d1", {})).rejects.toThrow(
+      "Not allowed to comment on deck:d1",
+    );
   });
 
   it("keeps untyped anchors on a resource that declares no kinds", () => {

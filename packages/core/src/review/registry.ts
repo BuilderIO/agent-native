@@ -124,15 +124,19 @@ export function reviewCommentPolicy(
 
 /**
  * Whether this access lets its holder comment, reply and react, and edit or
- * delete their own comments.
+ * delete their own comments. A viewer-level policy opens that to signed-in
+ * viewers only: a caller who isn't signed in, such as a visitor to a public
+ * resource, still needs the commenter role.
  */
 export function canCommentOnReviewableResource(
   resourceType: string,
   access: ReviewResourceAccess | null | undefined,
+  signedIn = true,
 ): access is ReviewResourceAccess {
   return Boolean(
     access &&
-    roleSatisfies(access.role, reviewCommentPolicy(resourceType).minimumRole),
+    roleSatisfies(access.role, reviewCommentPolicy(resourceType).minimumRole) &&
+    (signedIn || roleSatisfies(access.role, "commenter")),
   );
 }
 
@@ -147,7 +151,13 @@ export async function assertReviewCommentAccess(
     resourceId,
     ctx,
   );
-  if (!canCommentOnReviewableResource(resourceType, access)) {
+  if (
+    !canCommentOnReviewableResource(
+      resourceType,
+      access,
+      Boolean(ctx?.userEmail),
+    )
+  ) {
     throw new ForbiddenError(
       `Not allowed to comment on ${resourceType}:${resourceId}`,
     );

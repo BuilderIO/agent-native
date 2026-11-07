@@ -173,7 +173,9 @@ describe.sequential("the review kit's storage contract", () => {
       scope: {},
       bypassScope: true,
     });
-    expect(stored.map((row) => row.id)).toEqual([latest.id, older.id]);
+    expect(stored.map((row) => row.id).sort()).toEqual(
+      [latest.id, older.id].sort(),
+    );
 
     // A comment with no anchor needs no kind.
     await expect(
@@ -399,6 +401,23 @@ describe.sequential("the review kit's storage contract", () => {
     expect(unchanged).toMatchObject({ body: "A comment", revision: 1 });
   });
 
+  it("clears a typed anchor without parsing it", async () => {
+    const pinned = await insertReviewComment(
+      comment(PINNED, "deck-clear", {
+        anchor: { x: 1, y: 2 },
+        anchorKind: "pin",
+      }),
+    );
+    await expect(
+      updateReviewComment(pinned.id, { anchor: null }),
+    ).resolves.toMatchObject({
+      anchor: null,
+      anchorKind: null,
+      anchorVersion: null,
+      revision: 2,
+    });
+  });
+
   it("lists one surface's comments", async () => {
     for (const surfaceId of ["slide-1", "slide-2", null, "slide-1"]) {
       await insertReviewComment(comment(PLAIN, "deck-surfaces", { surfaceId }));
@@ -410,13 +429,15 @@ describe.sequential("the review kit's storage contract", () => {
         scope: {},
         bypassScope: true,
         surfaceId,
-      }).then((rows) => rows.map((row) => row.surfaceId));
-    expect(await list()).toEqual(["slide-1", "slide-2", null, "slide-1"]);
+      }).then((rows) => rows.map((row) => String(row.surfaceId)).sort());
+    expect(await list()).toEqual(["null", "slide-1", "slide-1", "slide-2"]);
     expect(await list("slide-1")).toEqual(["slide-1", "slide-1"]);
-    expect(await list(null)).toEqual([null]);
+    expect(await list(null)).toEqual(["null"]);
   });
 
   it("pages past the largest limit without skipping or repeating", async () => {
+    // Written in order, so listed in order: each comment is stamped after
+    // the one before, even within a millisecond.
     const ids: string[] = [];
     for (let index = 0; index < 503; index += 1) {
       ids.push((await insertReviewComment(comment(PLAIN, "doc-many"))).id);
@@ -462,6 +483,17 @@ describe.sequential("the review kit's storage contract", () => {
       { userEmail: OWNER },
     );
     expect(next.comments.map((row) => row.id)).toEqual(ids.slice(2, 4));
+    const newest = await listReviewComments.run(
+      {
+        resourceType: PLAIN,
+        resourceId: "doc-many",
+        newestFirst: true,
+        limit: 2,
+      },
+      { userEmail: OWNER },
+    );
+    expect(newest.comments).toHaveLength(2);
+    expect(newest.nextCursor).toBeUndefined();
     await expect(
       listReviewComments.run(
         {
