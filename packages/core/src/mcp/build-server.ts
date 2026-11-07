@@ -587,7 +587,7 @@ function callToolTarget(
     };
   }
   const target = input.arguments ?? {};
-  if (typeof target !== "object" || target === null || Array.isArray(target)) {
+  if (typeof target !== "object" || Array.isArray(target)) {
     return {
       errorType: "invalid_arguments",
       error:
