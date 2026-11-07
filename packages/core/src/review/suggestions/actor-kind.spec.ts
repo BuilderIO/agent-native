@@ -4,9 +4,10 @@ import {
   suggestionAuthorClient,
   suggestionAuthorSource,
 } from "./actor-kind.js";
+import type { SuggestionAuthorSource } from "./types.js";
 
 describe("suggestion authors", () => {
-  it.each([
+  it.each<[string | undefined, SuggestionAuthorSource | null]>([
     ["mcp", "mcp"],
     ["webmcp", "mcp"],
     ["a2a", "a2a"],
