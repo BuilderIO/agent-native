@@ -21,6 +21,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -35,7 +36,7 @@ interface BrowserRoot {
   pathspec: string | string[];
   pattern: RegExp;
   url: (match: RegExpExecArray) => string;
-  // The file types it serves as modules, when not MODULE.
+  // The file types that count as its code, when not MODULE.
   modules?: RegExp;
   // Static files or docs, which can't stand in for a package's or app's own
   // code.
@@ -75,11 +76,21 @@ const BLOCKED_WORDS: BlockedWords[] = [
   },
 ];
 
-// Vite serves imported CSS and JSON as modules too, so a blocked one breaks
-// startup the same way.
+// Script, style and JSON files, which Vite serves as modules. They're also the
+// code a root, package or template must still hold to count as checked.
 const MODULE = /\.(?:[cm]?[jt]sx?|css|json)$/;
 const SCRIPT = /\.(?:[cm]?[jt]sx?)$/;
 const SKIPPED = /(?:\.spec\.|\.test\.|\/__tests__\/|\.d\.ts$)/;
+
+// Imports that make a module of a file of any type: one with a query, such as
+// `?raw`, `?url` or `?worker`, and `import.meta.glob` patterns. Each template's
+// settings page imports its CHANGELOG.md this way. Only relative paths are
+// followed, as no such import in the repo uses an alias.
+const QUERY_IMPORT =
+  /(?:\bfrom|\bimport)\s*\(?\s*["'](\.{1,2}\/[^"'?]+)\?[^"']*["']/g;
+const GLOB_IMPORT =
+  /import\.meta\.glob\s*(?:<[^>]*>)?\(\s*(\[[^\]]*\]|["'][^"']+["'])/g;
+const STRING = /["']([^"']+)["']/g;
 
 // Every place a browser loads modules from, with the URL each file gets in dev.
 // Package sources reach apps as their published `dist/*.js` files. `public/`
@@ -153,7 +164,7 @@ const NO_BROWSER_MODULES = new Set([
 
 /**
  * The browser root a repo file is served from, with its match, or null when
- * the file never reaches a browser.
+ * it's a test or type declaration, or outside every root.
  */
 function servingRoot(
   file: string,
@@ -161,36 +172,99 @@ function servingRoot(
   if (SKIPPED.test(file)) return null;
   for (const root of BROWSER_ROOTS) {
     const match = root.pattern.exec(file);
-    if (match && (root.modules ?? MODULE).test(file)) return { root, match };
+    if (match) return { root, match };
   }
   return null;
 }
 
+/** Whether `file` is code, rather than a static file, in the root serving it. */
+function isCode(file: string, root: BrowserRoot): boolean {
+  return (root.modules ?? MODULE).test(file);
+}
+
 /**
- * The URL path a repo file is served at in dev, or null when the file never
- * reaches a browser.
+ * The URL path a repo file is served at in dev, or null when it's a test or
+ * type declaration, or outside every browser root.
  */
 export function devModuleUrl(file: string): string | null {
   const served = servingRoot(file);
   return served ? served.root.url(served.match) : null;
 }
 
+const GLOB_WILDCARDS: Record<string, string> = {
+  "**/": "(?:.*/)?",
+  "**": ".*",
+  "*": "[^/]*",
+  "?": "[^/]",
+};
+
+/** A regex for the repo paths a Vite glob pattern matches. */
+function globPattern(glob: string): RegExp {
+  const source = glob
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*\/|\*\*|\*|\?/g, (wild) => GLOB_WILDCARDS[wild] ?? wild);
+  return new RegExp(`^${source}$`);
+}
+
 /**
- * The pathspecs of browser roots that serve no modules among `files`. A root
+ * The files among `files` that browsers can load as modules: code under a
+ * browser root, and files of any type that this code imports as modules.
+ * `read` returns a file's source.
+ */
+export function browserModules(
+  files: string[],
+  read: (file: string) => string,
+): string[] {
+  const modules = new Set<string>();
+  const imported = new Set<string>();
+  const globs: RegExp[] = [];
+  for (const file of files) {
+    const served = servingRoot(file);
+    if (!served || !isCode(file, served.root)) continue;
+    modules.add(file);
+    if (!SCRIPT.test(file)) continue;
+    const dir = path.posix.dirname(file);
+    const source = read(file);
+    for (const [, spec] of source.matchAll(QUERY_IMPORT)) {
+      imported.add(path.posix.join(dir, spec));
+    }
+    for (const [, specs] of source.matchAll(GLOB_IMPORT)) {
+      for (const [, glob] of specs.matchAll(STRING)) {
+        if (glob.startsWith(".")) {
+          globs.push(globPattern(path.posix.join(dir, glob)));
+        }
+      }
+    }
+  }
+  for (const file of files) {
+    if (SKIPPED.test(file)) continue;
+    if (imported.has(file) || globs.some((glob) => glob.test(file))) {
+      modules.add(file);
+    }
+  }
+  return [...modules];
+}
+
+/**
+ * The pathspecs of browser roots that serve no code among `files`. A root
  * that stops matching, say after a folder moves, would otherwise pass
  * unchecked. Only the root a file is served from counts, so `public/` files
  * can't stand in for the rest of an app.
  */
 export function emptyBrowserRoots(files: string[]): string[] {
-  const served = new Set(files.map((file) => servingRoot(file)?.root));
+  const served = new Set<BrowserRoot>();
+  for (const file of files) {
+    const root = servingRoot(file)?.root;
+    if (root && isCode(file, root)) served.add(root);
+  }
   return BROWSER_ROOTS.filter((root) => !served.has(root)).map(({ pathspec }) =>
     [pathspec].flat().join(", "),
   );
 }
 
 /**
- * Packages and templates with no modules among `files` other than static
- * files and docs, leaving out those in NO_BROWSER_MODULES.
+ * Packages and templates with no code among `files` outside the roots for
+ * static files and docs, leaving out those in NO_BROWSER_MODULES.
  */
 export function uncheckedUnits(files: string[]): string[] {
   const checked = new Map<string, boolean>();
@@ -202,7 +276,8 @@ export function uncheckedUnits(files: string[]): string[] {
     const served = servingRoot(file);
     checked.set(
       unit,
-      checked.get(unit) === true || (served !== null && !served.root.assets),
+      checked.get(unit) === true ||
+        (served !== null && !served.root.assets && isCode(file, served.root)),
     );
   }
   return [...checked]
@@ -211,11 +286,15 @@ export function uncheckedUnits(files: string[]): string[] {
     .sort();
 }
 
-export function findBlockedModuleNames(files: string[]): BlockedModuleName[] {
+/**
+ * The modules whose URLs hold a blocked word pair. A module outside every
+ * browser root, like the CHANGELOG.md dispatch's settings page imports, is
+ * served from the file system.
+ */
+export function findBlockedModuleNames(modules: string[]): BlockedModuleName[] {
   const violations: BlockedModuleName[] = [];
-  for (const file of files) {
-    const url = devModuleUrl(file)?.toLowerCase();
-    if (!url) continue;
+  for (const file of modules) {
+    const url = (devModuleUrl(file) ?? `/@fs/${file}`).toLowerCase();
     for (const { pattern, list } of BLOCKED_WORDS) {
       const match = pattern.exec(url);
       if (match) {
@@ -269,11 +348,18 @@ function main(): void {
     process.exit(2);
   }
 
-  const violations = findBlockedModuleNames(files);
+  const modules = browserModules(files, (file) => {
+    try {
+      return readFileSync(path.join(REPO_ROOT, file), "utf8");
+    } catch {
+      // Deleted but not yet staged.
+      return "";
+    }
+  });
+  const violations = findBlockedModuleNames(modules);
   if (violations.length === 0) {
-    const checked = files.filter((file) => devModuleUrl(file)).length;
     console.log(
-      `guard-blocker-safe-module-names: OK (${checked} browser modules checked)`,
+      `guard-blocker-safe-module-names: OK (${modules.length} browser modules checked)`,
     );
     process.exit(0);
   }

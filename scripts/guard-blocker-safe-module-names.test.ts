@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  browserModules,
   devModuleUrl,
   emptyBrowserRoots,
   findBlockedModuleNames,
@@ -52,27 +53,38 @@ test("maps every browser root to the URL it is served at", () => {
     ["packages/docs/lib/docs-nav.ts", "/lib/docs-nav.ts"],
     ["packages/docs/public/search.js", "/search.js"],
     ["packages/frame/client/main.ts", "/client/main.ts"],
+    ["templates/chat/CHANGELOG.md", "/CHANGELOG.md"],
+    [
+      "packages/docs/app/legal-policies/privacy.md",
+      "/app/legal-policies/privacy.md",
+    ],
+    [
+      "packages/toolkit/src/app/shared/ocean/noise.wgsl",
+      "/@fs/node_modules/@agent-native/toolkit/dist/app/shared/ocean/noise.wgsl",
+    ],
+    [
+      "templates/clips/public/mediapipe/selfie_segmenter.tflite",
+      "/mediapipe/selfie_segmenter.tflite",
+    ],
   ] as const) {
     assert.equal(devModuleUrl(file), url, file);
   }
 });
 
-test("ignores tests, type declarations and files outside the browser", () => {
+test("ignores tests, type declarations and files outside every root", () => {
   for (const file of [
     "packages/core/src/localization/consent-banner-messages.spec.ts",
     "packages/core/src/consent-banner-types.d.ts",
     "templates/chat/server/consent-banner-route.spec.ts",
-    "templates/chat/CHANGELOG.md",
     "packages/mobile-app/app/consent-banner-screen.tsx",
     "packages/core/README.md",
-    "packages/core/docs/content/assets/diagram.png",
-    "templates/chat/AGENTS.md",
+    "scripts/consent-banner-check.ts",
   ]) {
     assert.equal(devModuleUrl(file), null, file);
   }
 });
 
-test("reports every browser root that has no modules to check", () => {
+test("reports every browser root that has no code to check", () => {
   assert.equal(emptyBrowserRoots([]).length, 8);
   assert.deepEqual(
     emptyBrowserRoots([
@@ -132,6 +144,45 @@ test("reports a package or template whose modules moved out of every root", () =
   );
 });
 
+test("checks the files code imports as modules, whatever their type", () => {
+  const sources: Record<string, string> = {
+    "templates/chat/app/routes/settings.tsx":
+      'import changelog from "../../CHANGELOG.md?raw";',
+    "packages/docs/app/legal-policy-content.ts":
+      'import privacy from "./legal-policies/privacy.md?raw";',
+    "packages/docs/app/components/docs-source-loaders.ts":
+      'import.meta.glob("../../../core/docs/content/locales/*/*.mdx", {});',
+    "packages/docs/lib/site-content.server.ts":
+      'import.meta.glob<string>(\n  ["../content/articles/**/*.md"],\n);',
+    "packages/dispatch/src/routes/pages/settings.tsx":
+      'void import("../../../CHANGELOG.md?raw");',
+    "templates/clips/desktop/src/lib/person-cutout.ts":
+      'import modelUrl from "../../../public/mediapipe/model.tflite?url";',
+  };
+  const imported = [
+    "templates/chat/CHANGELOG.md",
+    "packages/docs/app/legal-policies/privacy.md",
+    "packages/core/docs/content/locales/ja-JP/actions.mdx",
+    "packages/docs/content/articles/2026/launch.md",
+    "packages/dispatch/CHANGELOG.md",
+    "templates/clips/public/mediapipe/model.tflite",
+  ];
+  assert.deepEqual(
+    browserModules(
+      [
+        ...Object.keys(sources),
+        ...imported,
+        "templates/chat/changelog/2026-08-07-cookie-banner-fix.md",
+        "templates/chat/README.md",
+        "packages/docs/app/legal-policies/README.txt",
+        "packages/dispatch/README.md",
+      ],
+      (file) => sources[file] ?? "",
+    ).sort(),
+    [...Object.keys(sources), ...imported].sort(),
+  );
+});
+
 test("finds the module name that kept apps from loading in Brave", () => {
   assert.deepEqual(
     findBlockedModuleNames([
@@ -185,6 +236,8 @@ test("matches rules in any letter case, in every browser root", () => {
     "packages/docs/public/click-tracking.js",
     "packages/toolkit/src/app/analytics-events-client.ts",
     "packages/core/docs/content/Cookie-Consent.mdx",
+    "packages/docs/app/legal-policies/Cookie-Policy.md",
+    "packages/dispatch/Cookie_Banner.md",
   ];
   assert.deepEqual(
     findBlockedModuleNames(files).map(({ words }) => words),
@@ -195,6 +248,8 @@ test("matches rules in any letter case, in every browser root", () => {
       "click-tracking",
       "analytics-events-",
       "cookie-consent",
+      "cookie-policy",
+      "cookie_banner",
     ],
   );
 });
