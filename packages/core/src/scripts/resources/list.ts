@@ -14,6 +14,25 @@ import {
 } from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
 
+const DEFAULT_LIMIT = 200;
+const MAX_LIMIT = 1000;
+
+function parseNonNegativeInt(
+  name: string,
+  value: string | undefined,
+  fallback: number,
+): number {
+  if (value === undefined) return fallback;
+  if (!/^\d+$/.test(value)) fail(`--${name} must be a non-negative integer.`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) fail(`--${name} is too large.`);
+  return parsed;
+}
+
+function compareCodeUnits(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 export default async function resourceListScript(
   args: string[],
 ): Promise<void> {
@@ -28,17 +47,30 @@ Options:
                                Scope to list (default: all)
   --format json|text           Output format (default: text)
   --include-agent-scratch true Include hidden agent scratch files
+  --limit <n>                  Page size (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT})
+  --offset <n>                 Number of resources to skip (default 0)
   --help                       Show this help message`);
     return;
   }
 
   const prefix = parsed.prefix;
   const scope = parsed.scope ?? "all";
+  if (!["personal", "shared", "workspace", "all"].includes(scope)) {
+    fail("--scope must be one of: personal, shared, workspace, all.");
+  }
   const format = parsed.format ?? "text";
   const includeAgentScratch =
     parsed["include-agent-scratch"] === "true" ||
     parsed.includeAgentScratch === "true" ||
     parsed.includeScratch === "true";
+  const requestedLimit = parseNonNegativeInt(
+    "limit",
+    parsed.limit,
+    DEFAULT_LIMIT,
+  );
+  if (requestedLimit < 1) fail("--limit must be at least 1.");
+  const limit = Math.min(requestedLimit, MAX_LIMIT);
+  const offset = parseNonNegativeInt("offset", parsed.offset, 0);
   const owner = getRequestUserEmail() ?? getAmbientUserEmail();
   if (!owner) {
     fail(
@@ -95,19 +127,45 @@ Options:
       : await resourceListAccessible(owner, prefix, { orgId });
   }
 
+  const sorted = [...resources].sort(
+    (a, b) =>
+      compareCodeUnits(a.path, b.path) || compareCodeUnits(a.owner, b.owner),
+  );
+  const total = sorted.length;
+  const page = sorted.slice(offset, offset + limit);
+  const nextOffset = offset + page.length < total ? offset + page.length : null;
+
   if (format === "json") {
-    console.log(JSON.stringify(resources, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          resources: page,
+          total,
+          offset,
+          limit,
+          hasMore: nextOffset !== null,
+          nextOffset,
+        },
+        null,
+        2,
+      ),
+    );
     return;
   }
 
-  if (resources.length === 0) {
+  if (total === 0) {
     console.log("No resources found.");
     return;
   }
 
-  console.log(`Resources: ${resources.length}\n`);
+  if (page.length === 0) {
+    console.log(`No resources at offset ${offset} (total ${total}).`);
+    return;
+  }
 
-  for (const r of resources) {
+  console.log(`Resources ${offset + 1}-${offset + page.length} of ${total}\n`);
+
+  for (const r of page) {
     const ownerLabel = isWorkspaceResourceOwner(r.owner)
       ? "[workspace]"
       : r.owner === SHARED_OWNER
@@ -115,5 +173,18 @@ Options:
         : `[${r.owner}]`;
     const sizeLabel = r.size != null ? ` (${r.size} bytes)` : "";
     console.log(`  ${r.path}  ${ownerLabel}${sizeLabel}  ${r.mimeType}`);
+  }
+
+  if (nextOffset !== null) {
+    const filters = [
+      prefix ? `--prefix '${prefix.replace(/'/g, "'\\''")}'` : "",
+      `--scope ${scope}`,
+      includeAgentScratch ? "--include-agent-scratch true" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    console.log(
+      `\nMore resources remain (${total - nextOffset}). Next page: ${filters} --offset ${nextOffset} --limit ${limit}`,
+    );
   }
 }
