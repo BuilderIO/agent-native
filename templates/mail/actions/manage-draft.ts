@@ -734,6 +734,7 @@ export default defineAction({
           body: draft.body || "",
           replyToId: draft.replyToId,
           replyToThreadId: draft.replyToThreadId,
+          attachments: args.attachments ? draft.attachments : undefined,
         });
         draft.savedDraftBackend = "local";
         delete draft.savedDraftAccountEmail;

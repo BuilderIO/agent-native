@@ -156,6 +156,16 @@ describe("storeMediaUpload", () => {
       await expect(storeMediaUpload(upload)).rejects.toBe(failure);
     });
 
+    it("doesn't blame Builder for another storage provider's refusal", async () => {
+      const failure = Object.assign(new Error("Access denied"), {
+        status: 403,
+      });
+      uploadFile.mockRejectedValue(failure);
+      const { storeMediaUpload } = await import("./media-upload.js");
+
+      await expect(storeMediaUpload(upload)).rejects.toBe(failure);
+    });
+
     it("passes other failures through unchanged", async () => {
       const failure = Object.assign(
         new Error("Builder.io upload failed (500)"),

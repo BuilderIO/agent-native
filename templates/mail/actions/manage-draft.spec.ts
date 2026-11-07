@@ -617,6 +617,41 @@ describe("manage-draft local fallback", () => {
     });
   });
 
+  it("saves changed attachments to a saved local draft", async () => {
+    const uploaded = {
+      id: "abc123.pdf",
+      filename: "abc123.pdf",
+      originalName: "invoice.pdf",
+      mimeType: "application/pdf",
+      size: 2048,
+      url: "https://cdn.builder.io/o/assets/abc123",
+    };
+    appState.set("compose-local-file", {
+      id: "local-file",
+      savedDraftId: "local-draft-2",
+      savedDraftBackend: "local",
+      to: "old@example.com",
+      subject: "Old",
+      body: "Old body",
+      mode: "compose",
+    });
+    mocks.attachmentFromUpload.mockResolvedValue(uploaded);
+
+    await action.run({
+      action: "update",
+      id: "local-file",
+      expectedRevision: revisionOf("local-file"),
+      attachments: [{ filename: "abc123.pdf" }],
+    });
+
+    expect(mocks.updateLocalSavedDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        draftId: "local-draft-2",
+        attachments: [uploaded],
+      }),
+    );
+  });
+
   it("resolves a legacy local draft by mailbox row before updating it", async () => {
     mocks.readLocalEmails.mockResolvedValue([
       { id: "legacy-local-1", isDraft: true },

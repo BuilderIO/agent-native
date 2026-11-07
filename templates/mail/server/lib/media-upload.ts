@@ -53,8 +53,8 @@ export class MediaStorageSetupError extends Error {
 
 /**
  * Builder refused the credential itself, so retrying can't help until someone
- * reconnects. A 401 or 403 from the signed storage URL is about that URL, not
- * the connection.
+ * reconnects. A 401 or 403 only counts when Builder's own API sent it: one from
+ * the signed storage URL or another provider isn't about this connection.
  */
 function isBuilderReconnectFailure(error: unknown): boolean {
   const details = (error ?? {}) as {
@@ -67,7 +67,7 @@ function isBuilderReconnectFailure(error: unknown): boolean {
     details.errorCode === "builder_credentials_rejected" ||
     details.errorCode === "builder_oauth_reauthorization_required" ||
     ((details.status === 401 || details.status === 403) &&
-      !message.startsWith("GCS upload failed")) ||
+      message.startsWith("Builder.io")) ||
     /sign in to builder\.io again/i.test(message)
   );
 }
