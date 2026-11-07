@@ -4927,7 +4927,8 @@ function SuggestionThreadView({
               source={suggestion.authorSource === "mcp" ? "mcp" : "agent"}
               authorName={
                 suggestion.authorEmail
-                  ? (thread.comments[0]?.author_name ?? suggestion.authorEmail)
+                  ? (thread.comments[0]?.author_name ??
+                    suggestion.authorEmail.replace(/@.*$/, ""))
                   : ""
               }
               client={suggestion.authorClient}

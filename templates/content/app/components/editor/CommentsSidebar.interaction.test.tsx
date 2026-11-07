@@ -92,8 +92,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useFormatters: () => ({
     formatDate: (date: Date | string) => new Date(date).toISOString(),
   }),
-  useT: () => (key: string, params?: { count?: number }) =>
-    key === "comments.proposalEditCount" ? `${key}:${params?.count}` : key,
+  useT: () => (key: string, params?: { count?: number; name?: string }) =>
+    key === "comments.proposalEditCount"
+      ? `${key}:${params?.count}`
+      : key === "comments.aiAttribution"
+        ? `${key}:${params?.name}`
+        : key,
 }));
 vi.mock("@agent-native/toolkit/app/review", () => ({
   CommentBody: ({ body }: { body: string }) => body,
@@ -830,7 +834,8 @@ describe("comment review interactions", () => {
   it("tells an MCP agent's suggestion from the app agent's, by client", () => {
     const agent = (
       id: string,
-      author: Pick<ResourceSuggestion, "authorSource" | "authorClient">,
+      author: Pick<ResourceSuggestion, "authorSource" | "authorClient"> &
+        Partial<Pick<ResourceSuggestion, "authorEmail">>,
     ): ResourceSuggestion => ({
       ...proposalSuggestion(id),
       proposalId: id,
@@ -839,7 +844,11 @@ describe("comment review interactions", () => {
     });
     render(null, [], "inline", {
       suggestions: [
-        agent("one", { authorSource: "mcp", authorClient: "codex" }),
+        agent("one", {
+          authorSource: "mcp",
+          authorClient: "codex",
+          authorEmail: "writer@example.test",
+        }),
         agent("two", { authorSource: "agent", authorClient: null }),
       ],
     });
@@ -852,6 +861,9 @@ describe("comment review interactions", () => {
     );
     expect(badge("one")?.getAttribute("data-comment-ai-client")).toBe("codex");
     expect(badge("one")?.textContent).toContain("Codex");
+    expect(
+      badge("one")?.querySelector("[aria-label]")?.getAttribute("aria-label"),
+    ).toContain("comments.aiAttribution:writer.");
     expect(badge("two")?.getAttribute("data-comment-ai-attribution")).toBe(
       "agent",
     );
