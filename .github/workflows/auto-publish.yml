@@ -28,11 +28,13 @@ jobs:
       - name: Use the matching published UI dependency for the legacy build
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/legacy-toolkit" node_modules/@types
+          mkdir -p "$RUNNER_TEMP/legacy-toolkit" node_modules/@types packages/toolkit/dist
           npm pack @agent-native/toolkit@0.13.8 --pack-destination "$RUNNER_TEMP/legacy-toolkit"
           tar -xzf "$RUNNER_TEMP/legacy-toolkit/agent-native-toolkit-0.13.8.tgz" -C "$RUNNER_TEMP/legacy-toolkit"
           cp -R "$RUNNER_TEMP/legacy-toolkit/package/dist/." packages/toolkit/dist/
           ln -s ../../packages/core/node_modules/@types/react node_modules/@types/react
+      - name: Build legacy Core prerequisites
+        run: pnpm --filter @agent-native/recap-cli --filter @agent-native/shared-app-config build
       - name: Verify and build the legacy Core package
         run: |
           pnpm exec vitest run packages/core/src/secrets/crypto.spec.ts packages/core/src/private-blob/registry.spec.ts
