@@ -16,6 +16,11 @@ const rawClient = {
     if (/^\s*(select|with)\b/i.test(input.sql)) {
       return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
+    // A write that returns rows reports them, as the real clients do.
+    if (/\breturning\b/i.test(input.sql)) {
+      const rows = await stmt.all(...args);
+      return { rows, rowsAffected: rows.length };
+    }
     const info = await stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),
@@ -26,6 +31,8 @@ vi.mock("../db/client.js", () => ({
   isProductionServerlessFunctionRuntime: () => false,
 }));
 
+const { __resetReviewableResourcesForTests, registerReviewableResource } =
+  await import("./registry.js");
 const {
   __resetReviewInitForTests,
   consumeReviewFeedback,
@@ -37,6 +44,7 @@ const {
   insertReviewComment,
   insertReviewReply,
   listReviewThreadParticipantEmails,
+  updateReviewComment,
   queryReviewComments,
   resolveReviewThread,
   sendReviewThreadToAgent,
@@ -57,6 +65,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  __resetReviewableResourcesForTests();
   await pglite.close();
   vi.clearAllMocks();
 });
@@ -1359,6 +1368,60 @@ describe("review store", () => {
     ).toMatchObject({ status: "deleted", deletedBy: "carol@example.com" });
   });
 
+  it("tells the hook only of the comments a thread delete cleared", async () => {
+    const onCommentWrite = vi.fn();
+    registerReviewableResource({ type: "hooked-doc", onCommentWrite });
+    Object.assign(rawClient, {
+      transaction: <T>(run: (tx: typeof rawClient) => Promise<T>) =>
+        run(rawClient),
+    });
+    const at = { resourceType: "hooked-doc", resourceId: "d-hook-race" };
+    try {
+      const root = await insertReviewComment({ ...at, body: "Root" });
+      const [gone, kept] = [
+        await insertReviewComment({
+          ...at,
+          threadId: root.threadId,
+          parentCommentId: root.id,
+          body: "Deleted on its own",
+        }),
+        await insertReviewComment({
+          ...at,
+          threadId: root.threadId,
+          parentCommentId: root.id,
+          body: "Deleted with the thread",
+        }),
+      ];
+      const run = rawClient.execute.getMockImplementation();
+      if (!run) throw new Error("The test client has no implementation");
+      rawClient.execute.mockImplementation(async (input) => {
+        if (typeof input !== "string" && /RETURNING id/.test(input.sql)) {
+          // One reply is deleted on its own after the thread was read.
+          const write = await pglite.prepare(
+            `UPDATE agent_review_comments
+                SET status = 'deleted', deleted_at = ?
+              WHERE id = ?`,
+          );
+          await write.run("2026-01-01T00:00:00.000Z", gone.id);
+        }
+        return run(input);
+      });
+      onCommentWrite.mockClear();
+      try {
+        expect(await deleteReviewComment(root.id, "carol@example.com")).toBe(2);
+      } finally {
+        rawClient.execute.mockImplementation(run);
+      }
+      expect(onCommentWrite).toHaveBeenCalledTimes(1);
+      expect(onCommentWrite.mock.calls[0]?.[0]).toMatchObject({
+        type: "deleted",
+        commentIds: [root.id, kept.id],
+      });
+    } finally {
+      Reflect.deleteProperty(rawClient, "transaction");
+    }
+  });
+
   it("keeps metadata another write adds while a comment is being deleted", async () => {
     const root = await insertReviewComment({
       resourceType: "doc",
@@ -1418,5 +1481,170 @@ describe("review store", () => {
       metadata: { source: "pin", label: "kept" },
     });
     expect(stored?.metadata).not.toHaveProperty("attachments");
+  });
+});
+
+describe("review writes on a client without transactions", () => {
+  it("refuses a hooked write before changing anything", async () => {
+    const onCommentWrite = vi.fn();
+    registerReviewableResource({ type: "hooked-doc", onCommentWrite });
+    await expect(
+      insertReviewComment({
+        resourceType: "hooked-doc",
+        resourceId: "doc-1",
+        body: "Review",
+      }),
+    ).rejects.toThrow("no transactions");
+    expect(onCommentWrite).not.toHaveBeenCalled();
+    expect(
+      await queryReviewComments({
+        resourceType: "hooked-doc",
+        resourceId: "doc-1",
+        scope: {},
+        bypassScope: true,
+        includeDeleted: true,
+      }),
+    ).toEqual([]);
+
+    // A resource with no hook still writes and deletes.
+    const plain = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "doc-1",
+      body: "Review",
+    });
+    await expect(deleteReviewComment(plain.id, null)).resolves.toBe(1);
+    await expect(deleteReviewComment("missing", null)).resolves.toBe(0);
+  });
+
+  it("refuses deleting a hooked comment before changing anything", async () => {
+    const hooked = await insertReviewComment({
+      resourceType: "hooked-doc",
+      resourceId: "doc-1",
+      body: "Review",
+    });
+    registerReviewableResource({ type: "hooked-doc", onCommentWrite: vi.fn() });
+    await expect(deleteReviewComment(hooked.id, null)).rejects.toThrow(
+      "no transactions",
+    );
+    expect(
+      (await getReviewCommentById(hooked.id, {}, { bypassScope: true }))
+        ?.status,
+    ).toBe("open");
+  });
+
+  it("checks a write that names no resource against its own", async () => {
+    const hooked = await insertReviewComment({
+      resourceType: "hooked-doc",
+      resourceId: "doc-1",
+      body: "Review",
+    });
+    const plain = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "doc-1",
+      body: "Review",
+    });
+    registerReviewableResource({ type: "hooked-doc", onCommentWrite: vi.fn() });
+
+    await expect(resolveReviewThread(hooked.threadId, null)).rejects.toThrow(
+      "no transactions",
+    );
+    await expect(
+      updateReviewComment(hooked.id, { body: "Edited" }),
+    ).rejects.toThrow("no transactions");
+    expect(
+      await getReviewCommentById(hooked.id, {}, { bypassScope: true }),
+    ).toMatchObject({ status: "open", body: "Review" });
+
+    // Another resource's hook doesn't stop this one's writes.
+    await expect(resolveReviewThread(plain.threadId, null)).resolves.toBe(1);
+    await expect(
+      updateReviewComment(plain.id, { body: "Edited" }),
+    ).resolves.toMatchObject({ body: "Edited", status: "resolved" });
+  });
+
+  it("refuses an edit whose revision changed after it was read", async () => {
+    const comment = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "doc-1",
+      body: "Review",
+    });
+    const execute = rawClient.execute.getMockImplementation();
+    if (!execute) throw new Error("the test client has no implementation");
+    rawClient.execute.mockImplementation(async (input) => {
+      if (
+        typeof input !== "string" &&
+        /^\s*UPDATE agent_review_comments\s+SET body/.test(input.sql)
+      ) {
+        // Another writer changes the comment between this edit's read and
+        // its write.
+        await (
+          await pglite.prepare(
+            "UPDATE agent_review_comments SET revision = revision + 1 WHERE id = ?",
+          )
+        ).run(comment.id);
+      }
+      return execute(input);
+    });
+    try {
+      await expect(
+        updateReviewComment(comment.id, { body: "Edited" }, undefined, {
+          expectedRevision: 1,
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "revision_conflict",
+        currentRevision: 2,
+      });
+    } finally {
+      rawClient.execute.mockImplementation(execute);
+    }
+    expect(
+      await getReviewCommentById(comment.id, {}, { bypassScope: true }),
+    ).toMatchObject({ body: "Review", revision: 2 });
+  });
+});
+
+describe("comment write times", () => {
+  it("keep comments in the order they were written", async () => {
+    const written: string[] = [];
+    for (let index = 0; index < 20; index += 1) {
+      written.push(
+        (
+          await insertReviewComment({
+            resourceType: "doc",
+            resourceId: "doc-order",
+            body: `Comment ${index}`,
+          })
+        ).id,
+      );
+    }
+    const listed = await queryReviewComments({
+      resourceType: "doc",
+      resourceId: "doc-order",
+      scope: {},
+      bypassScope: true,
+    });
+    expect(listed.map((comment) => comment.id)).toEqual(written);
+    const times = listed.map((comment) => comment.createdAt);
+    expect(new Set(times).size).toBe(times.length);
+  });
+
+  it("follow a clock that moved back", async () => {
+    await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "doc-clock",
+      body: "Now",
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2020-01-01T00:00:00.000Z"));
+      const earlier = await insertReviewComment({
+        resourceType: "doc",
+        resourceId: "doc-clock",
+        body: "Then",
+      });
+      expect(earlier.createdAt).toBe("2020-01-01T00:00:00.000Z");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

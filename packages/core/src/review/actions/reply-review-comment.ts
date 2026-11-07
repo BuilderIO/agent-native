@@ -9,7 +9,7 @@ import {
   notifyReviewCommentWithReceipt,
 } from "../notifications.js";
 import {
-  assertReviewableResourceAccess,
+  assertReviewCommentAccess,
   normalizeReviewVisibility,
 } from "../registry.js";
 import {
@@ -57,11 +57,10 @@ export default defineAction({
       userEmail: actionCtx?.userEmail ?? null,
       orgId: actionCtx?.orgId ?? null,
     };
-    const access = await assertReviewableResourceAccess(
+    const access = await assertReviewCommentAccess(
       args.resourceType,
       args.resourceId,
       actionCtx,
-      "commenter",
     );
     const clientOperationCommentId = args.clientOperationId
       ? reviewCommentIdForClientOperation(args.clientOperationId)
@@ -97,8 +96,11 @@ export default defineAction({
       threadId: parent.threadId,
       parentCommentId: parent.id,
       targetId: parent.targetId,
+      surfaceId: parent.surfaceId,
       kind: parent.kind,
       anchor: parent.anchor,
+      anchorKind: parent.anchorKind,
+      anchorVersion: parent.anchorVersion,
       body: args.body,
       authorEmail: actionCtx?.userEmail ?? null,
       authorName: args.authorName ?? reviewAuthorNameFromContext(actionCtx),
