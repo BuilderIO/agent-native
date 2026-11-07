@@ -117,6 +117,7 @@ import {
   extractJpegFrameSheetFromFile,
   probeFrameSheetFpsFromFile,
 } from "./video-frame.js";
+import { resolveFfmpegCommand } from "./video-remux.js";
 
 const originalMaxMediaBytes = process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES;
 const originalMaxMediaFileBytes =
@@ -627,7 +628,7 @@ describe("loadRecordingMediaBytes", () => {
         delete process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES;
         const isMp4 = format.startsWith("mp4");
         const source = join(dir, isMp4 ? "source.mp4" : "source.webm");
-        execFileSync("ffmpeg", [
+        execFileSync(resolveFfmpegCommand(), [
           "-v",
           "error",
           "-f",
@@ -856,6 +857,26 @@ describe("loadRecordingMediaBytes", () => {
       );
     },
   );
+
+  it("suggests smaller requests when the range-read budget is exceeded", () => {
+    const error = new RecordingMediaFetchError(
+      "Recording range budget exceeded.",
+      413,
+    );
+    expect(
+      describeFrameFailure(error, frameFailureStatus(error)),
+    ).toMatchObject({
+      failureKind: "processing",
+      nextStep: expect.stringContaining("shorter frame-sheet range"),
+    });
+    expect(describeFrameFailure(error, 413).nextStep).toContain(
+      "individual frames",
+    );
+    expect(
+      describeFrameFailure(new RecordingMediaFetchError("too large", 413), 413)
+        .nextStep,
+    ).toContain("stored media is too large");
+  });
 
   it("sanitizes signed range setup, header and body failures", async () => {
     const leakedUrl = "https://storage.example.test/clips/private/video.mp4";
