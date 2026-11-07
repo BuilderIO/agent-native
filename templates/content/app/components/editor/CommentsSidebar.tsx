@@ -3557,9 +3557,6 @@ export function CommentsSidebar({
         unplaceable={unit.members.some(
           (member) => isUnplaceable(member) || staleUnitPieces.has(member.id),
         )}
-        acceptDisabled={unit.members.some((member) =>
-          staleUnitPieces.has(member.id),
-        )}
         canComment={canComment}
         canDecide={canDecideSuggestions}
         deciding={unit.members.some(suggestionBusy)}
@@ -4651,7 +4648,6 @@ function SuggestionThreadView({
   onFocused,
   anchorUnavailable,
   unplaceable,
-  acceptDisabled,
   canComment,
   canDecide,
   deciding,
@@ -4686,7 +4682,6 @@ function SuggestionThreadView({
   onFocused?: () => void;
   anchorUnavailable: boolean;
   unplaceable: boolean;
-  acceptDisabled: boolean;
   canComment: boolean;
   canDecide: boolean;
   deciding: boolean;
@@ -4993,7 +4988,7 @@ function SuggestionThreadView({
           canDecide && suggestion.status === "pending" ? (
             <SuggestionDecisionButtons
               disabled={deciding}
-              acceptDisabled={acceptDisabled}
+              acceptDisabled={unplaceable}
               onDecide={onDecide}
             />
           ) : null

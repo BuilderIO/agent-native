@@ -501,6 +501,33 @@ describe("comment review interactions", () => {
       );
     });
 
+    it("turns off Accept on a card the server refused", () => {
+      const pieces = [
+        piece("one", "k:0", "Teh"),
+        piece("two", "k:0", "recieve"),
+        piece("three", "k:1", "files"),
+      ];
+      const [first = null, second = null] = pieces;
+      if (!first || !second) throw new Error("The unit has two pieces");
+      render(null, [], "inline", {
+        suggestions: pieces,
+        activeSuggestionId: "one",
+        alignToAnchors: false,
+        unplaceableSuggestionRevisions: new Map([
+          [first.id, first.revision],
+          [second.id, second.revision],
+        ]),
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      expect(acceptIn("one").disabled).toBe(true);
+      expect(acceptIn("three").disabled).toBe(false);
+      expect(
+        container.querySelector<HTMLButtonElement>(
+          "[data-suggestion-id='one'] [data-suggestion-decision='rejected']",
+        )?.disabled,
+      ).toBe(false);
+    });
+
     it("gives each unit of a proposal its own card, counted once", () => {
       const onDecideSuggestionProposal = vi.fn();
       const members = [
