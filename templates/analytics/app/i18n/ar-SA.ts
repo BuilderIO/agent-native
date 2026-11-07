@@ -1,4 +1,12 @@
 export default {
+  composerSources: {
+    uploadFailed: "تعذّر رفع الملف المحدد.",
+    reference: "الإشارة إلى لوحة بيانات…",
+    group: "لوحات البيانات",
+    authentication: "سجّل الدخول لإضافة مرجع.",
+    invalid: "اختر مرجعًا صالحًا قبل الإرسال.",
+    unavailable: "لم يعد المرجع المحدد متاحًا. أزله أو اختره مرة أخرى.",
+  },
   root: {
     whatsNew: "ما الجديد",
   },

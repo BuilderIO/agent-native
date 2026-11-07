@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "Não foi possível fazer upload do arquivo selecionado.",
+    reference: "Referenciar um painel…",
+    group: "Painéis",
+    authentication: "Entre para adicionar uma referência.",
+    invalid: "Escolha uma referência válida antes de enviar.",
+    unavailable:
+      "Uma referência selecionada não está mais disponível. Remova-a ou selecione-a novamente.",
+  },
   root: {
     whatsNew: "Novidades",
   },

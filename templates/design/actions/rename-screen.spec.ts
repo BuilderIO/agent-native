@@ -1,3 +1,4 @@
+import { isNoWriteError } from "@agent-native/core/action";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const localDb = vi.hoisted(() => ({
@@ -192,6 +193,15 @@ async function rename(
   } as never);
 }
 
+async function rejectionFrom(run: () => Promise<unknown>): Promise<unknown> {
+  try {
+    await run();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("Expected run to reject");
+}
+
 beforeEach(async () => {
   collab.applyText.mockClear();
   collab.seedFromText.mockClear();
@@ -309,6 +319,57 @@ describe("rename-screen with real PostgreSQL", () => {
     await expect(rename("Dashboard")).rejects.toThrow(
       /Dashboard\.html.*already exists/,
     );
+    expect(await persistedFiles()).toEqual(before);
+    expect(collab.applyText).not.toHaveBeenCalled();
+  });
+
+  it("rejects a name that collides with another screen as a typed 409 and changes no row", async () => {
+    await insertFile("duplicate", "Dashboard.html", "<main>duplicate</main>");
+    const before = await persistedFiles();
+
+    const error = await rejectionFrom(() => rename("Dashboard"));
+
+    expect(isNoWriteError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "filename_taken",
+      statusCode: 409,
+      message: `File "Dashboard.html" already exists in design ${DESIGN_ID}`,
+    });
+    expect(await persistedFiles()).toEqual(before);
+    expect(collab.applyText).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown screen id as a typed 404", async () => {
+    const before = await persistedFiles();
+
+    const error = await rejectionFrom(() =>
+      renameScreenAction.run({
+        id: "screen_missing",
+        name: "Dashboard",
+        requestSource: "test-tab",
+        contentOverrides: [],
+      } as never),
+    );
+
+    expect(isNoWriteError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "screen_not_found",
+      statusCode: 404,
+      message: "Screen not found: screen_missing",
+    });
+    expect(await persistedFiles()).toEqual(before);
+  });
+
+  it("rejects a name with a path separator as a typed 400 and changes no row", async () => {
+    const before = await persistedFiles();
+
+    const error = await rejectionFrom(() => rename("marketing/home"));
+
+    expect(isNoWriteError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "invalid_filename",
+      statusCode: 400,
+    });
     expect(await persistedFiles()).toEqual(before);
     expect(collab.applyText).not.toHaveBeenCalled();
   });

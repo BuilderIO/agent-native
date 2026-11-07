@@ -4,7 +4,7 @@ import {
   useEagerFileUploads,
 } from "@agent-native/toolkit/app/chat/composer/index";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
-import { IconCopy, IconSquarePlus, IconX } from "@tabler/icons-react";
+import { IconX } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -76,7 +76,7 @@ function describeUploadedFilesForAgent(
     fileList,
     "",
     "File handling rules:",
-    `- PPTX files: call \`import-pptx --filePath "<path>" --deckId ${deckId}\` when the user wants the deck/slides imported, or to extract slide source from a presentation.`,
+    `- PPTX files: call \`import-pptx --filePath "<path>" --deckId ${deckId} --replaceExisting true\` only when the user explicitly wants the whole deck replaced by the presentation, because it replaces all slides and the title. To use a presentation as source material, call \`import-file --filePath "<path>" --format pptx --deckId ${deckId}\` instead.`,
     `- PDF and DOCX files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned extracted text as source material. For a visual PDF whose original layout should be preserved, pass \`--importIntoDeck true\` instead of rebuilding the pages from extracted text.`,
     "- If the user's message does not say what to do with an attached file (for example, use it as design inspiration, or build slides from its content), do not create or edit slides yet. Call `ask-question` once to ask how they want to use the file, offering the likely uses as options, then end the turn; their answer arrives as the next message.",
     "- Text-like files are chat attachments. Read their attachment context and use read-attachment to page through any truncated source before generating; do not call import-file for them.",
@@ -94,8 +94,6 @@ export function AddSlidePopover({
   slideCount,
   activeSlideIndex,
   agentSubmit,
-  onDuplicateCurrent,
-  onAddEmpty,
   placement = "below",
   targetSlideId,
 }: {
@@ -112,8 +110,6 @@ export function AddSlidePopover({
     context: string,
     options: PromptChatSubmissionOptions,
   ) => Promise<boolean>;
-  onDuplicateCurrent?: () => void;
-  onAddEmpty?: () => void;
   placement?: "below" | "right";
   targetSlideId?: string;
 }) {
@@ -403,45 +399,6 @@ export function AddSlidePopover({
           <IconX className="size-3.5" />
         </button>
       </div>
-      {(onAddEmpty || (onDuplicateCurrent && slideCount > 0)) && (
-        <>
-          {onAddEmpty && (
-            <button
-              type="button"
-              onClick={() => {
-                onAddEmpty();
-                onOpenChange(false);
-              }}
-              disabled={submitting}
-              className="w-full mb-1 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
-            >
-              <IconSquarePlus className="w-4 h-4 text-muted-foreground" />
-              <span>{t("editorSidebar.addEmptySlide")}</span>
-              <span className="ml-auto text-[11px] text-muted-foreground">
-                {t("editorSidebar.noAi")}
-              </span>
-            </button>
-          )}
-          {onDuplicateCurrent && slideCount > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                onDuplicateCurrent();
-                onOpenChange(false);
-              }}
-              disabled={submitting}
-              className="w-full mb-2 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
-            >
-              <IconCopy className="w-4 h-4 text-muted-foreground" />
-              <span>{t("editorSidebar.duplicateCurrentSlide")}</span>
-              <span className="ml-auto text-[11px] text-muted-foreground">
-                {t("editorSidebar.noAi")}
-              </span>
-            </button>
-          )}
-          <div className="-mx-3 mb-2 h-px bg-border" />
-        </>
-      )}
       <PromptComposer
         autoFocus
         requireAgentEngine

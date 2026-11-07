@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
+import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import type {
   ContentDatabaseView,
   DocumentPropertySystemRole,
@@ -701,6 +702,10 @@ export default defineAction({
         createdAt: now,
         updatedAt: now,
       });
+      await syncPrivateMediaReferences(
+        tx as unknown as ReturnType<typeof getDb>,
+        { documentId, after: documentContent, userEmail: actor },
+      );
       await tx.insert(schema.contentDatabaseItems).values({
         id: itemId,
         ownerEmail: database.ownerEmail,

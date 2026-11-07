@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "Impossible de télécharger le fichier sélectionné.",
+    reference: "Référencer un tableau de bord…",
+    group: "Tableaux de bord",
+    authentication: "Connectez-vous pour ajouter une référence.",
+    invalid: "Choisissez une référence valide avant l’envoi.",
+    unavailable:
+      "Une référence sélectionnée n’est plus disponible. Supprimez-la ou sélectionnez-la à nouveau.",
+  },
   root: {
     whatsNew: "Nouveautés",
   },

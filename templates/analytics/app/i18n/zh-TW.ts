@@ -1,4 +1,12 @@
 export default {
+  composerSources: {
+    uploadFailed: "無法上傳所選檔案。",
+    reference: "引用儀表板…",
+    group: "儀表板",
+    authentication: "登入以新增引用。",
+    invalid: "傳送前請選擇有效的引用。",
+    unavailable: "所選引用已無法使用。請移除或重新選擇。",
+  },
   creativeContext: {
     title: "資料庫",
     description: "可重複使用的創意脈絡，協助代理在不同工作中保持一致。",

@@ -120,10 +120,10 @@ Jede gemeinsam nutzbare Ressource erhält in ihrer Kopfzeile eine Schaltfläche 
 
 - Ein Einladungsfeld für Personen, Organisationsgruppen und die Agents der Organisation, mit Rollenauswahl und „Einladen“. Eine eingegebene E-Mail erhält zusätzlich das Kontrollkästchen `Notify people`.
 - Personen mit Zugriff: Eigentümer, Personen, Gruppen und Agents in einer Liste. Die Rollen lauten „Kann ansehen“, „Kann kommentieren“, „Kann bearbeiten“ und „Kann Zugriff verwalten“. „Zugriff entfernen“ ist der letzte Eintrag im Rollenmenü jeder Zeile.
-- Allgemeiner Zugriff: Nur eingeladene Personen / Alle in der Organisation / Alle mit dem Link.
+- Allgemeiner Zugriff: Nur eingeladene Personen / Alle in der Organisation / Alle mit dem Link. Für „Alle in der Organisation“ gibt es eine Rollenauswahl („Kann ansehen“, „Kann kommentieren“, „Kann bearbeiten“), ebenso für „Alle mit dem Link“ („Kann ansehen“, „Kann kommentieren“).
 - Link kopieren und ein Menü „Senden an“: In Claude, Claude Code oder Codex öffnen, Agent-Prompt kopieren, Agent-Link kopieren, MCP-Servereinstellungen und weitere Ziele der App.
 
-Wenn eine Ressource von `Private` auf `Organization` gestellt wird, wird zuerst um Bestätigung gebeten. Bis zur Bestätigung ändert sich nichts. Mit Abbrechen oder Escape bleibt der aktuelle Zugriff erhalten. Schlägt das Speichern fehl, zeigt der Dialog den Fehler an, und die Person kann es erneut versuchen. Andere Sichtbarkeitsänderungen werden sofort gespeichert. Die Bestätigung gibt es nur in der Freigabe-UI. `set-resource-visibility` bleibt unverändert, sodass der Agent und jeder andere Aufrufer die Sichtbarkeit weiterhin direkt ändern und die Freigaberichtlinie der Ressource weiterhin bestimmt, was erlaubt ist.
+Sichtbarkeitsänderungen werden sofort gespeichert. Ein Ressourcentyp, dessen Inhalt leicht übersehen wird, kann zuerst nachfragen: Chats setzen `confirmOrgVisibility: true` in ihrer Registrierung, daher wartet das Verschieben eines Chats von `Private` auf `Organization`, bis die Person bestätigt. Mit Abbrechen oder Escape bleibt der aktuelle Zugriff erhalten. Schlägt das Speichern fehl, zeigt der Dialog den Fehler an, und die Person kann es erneut versuchen. Die Bestätigung gibt es nur in der Freigabe-UI, sodass der Agent und jeder andere Aufrufer die Sichtbarkeit weiterhin direkt über `set-resource-visibility` ändern und die Freigaberichtlinie der Ressource weiterhin bestimmt, was erlaubt ist.
 
 Die Schaltfläche „Teilen“ ist ein einzelner Import:
 
@@ -180,13 +180,13 @@ Anheftungen sind persönlich: `pinnedAt` bezeichnet die Anheftung des Aufrufers,
 
 Das Framework mountet diese actions automatisch in jeder Vorlage – der Agent nennt sie als Tools und der UI ruft sie über `useActionQuery` / `useActionMutation` auf:
 
-| Aktion                       | Was es tut                                                                                                                                   |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `share-resource`             | Gewähren Sie einem Benutzer oder einer Organisation Zugriff für eine bestimmte Rolle. Optionales `notify` steuert E-Mail-Benachrichtigungen. |
-| `unshare-resource`           | Zugriff für einen Benutzer oder eine Organisation widerrufen.                                                                                |
-| `list-resource-shares`       | Aktuelle Sichtbarkeit sowie alle expliziten Gewährungen anzeigen.                                                                            |
-| `set-resource-visibility`    | Wechseln Sie zu `private`, `org` oder `public`.                                                                                              |
-| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                      |
+| Aktion                       | Was es tut                                                                                                                                                                                          |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `share-resource`             | Gewähren Sie einem Benutzer oder einer Organisation Zugriff für eine bestimmte Rolle. Optionales `notify` steuert E-Mail-Benachrichtigungen.                                                        |
+| `unshare-resource`           | Zugriff für einen Benutzer oder eine Organisation widerrufen.                                                                                                                                       |
+| `list-resource-shares`       | Aktuelle Sichtbarkeit sowie alle expliziten Gewährungen anzeigen.                                                                                                                                   |
+| `set-resource-visibility`    | Wechseln Sie zu `private`, `org` oder `public`. Das optionale `role` legt fest, was die Organisation (ansehen, kommentieren, bearbeiten) oder alle mit dem Link (ansehen, kommentieren) tun können. |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                                                                             |
 
 Sagen Sie dem Agenten: „Teilen Sie dieses Design mit dem Marketingteam als Redakteuren“, und er ruft `share-resource` für denselben Endpunkt auf, den UI verwendet. Das Ergebnis wird beim nächsten Rendern im Freigabedialog angezeigt.
 
