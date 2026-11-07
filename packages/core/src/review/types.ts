@@ -174,8 +174,9 @@ export interface ReviewComment {
   anchorKind?: string | null;
   anchorVersion?: number | null;
   /**
-   * Goes up whenever the comment or its thread changes (its text, anchor,
-   * status, routing, agent pickup or deletion), so a write can check nothing
+   * Goes up whenever this comment changes: its text, anchor, status or
+   * deletion, and on a thread's first comment, which holds the thread's
+   * routing, its routing and agent pickup. So a write can check nothing
    * changed under it. Notification bookkeeping leaves it alone, so a new
    * comment's author can edit it at the revision they got back.
    */

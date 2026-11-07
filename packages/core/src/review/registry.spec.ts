@@ -24,6 +24,7 @@ const {
   canCommentOnReviewableResource,
   hasReviewCommentWriteHook,
   normalizeReviewAnchor,
+  REVIEW_SUGGESTION_ANCHOR_KIND,
   registerReviewableResource,
   resolveReviewableResourceAccess,
   reviewCommentPolicy,
@@ -282,5 +283,38 @@ describe("review comment rules", () => {
       runReviewCommentWriteHook("doc", event, tx),
     ).resolves.toBeUndefined();
     expect(onCommentWrite).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the kit's suggestion anchor kind", () => {
+  it("is accepted on every resource and declared by none", () => {
+    registerReviewableResource({ type: "doc" });
+    registerReviewableResource({
+      type: "deck",
+      anchorKinds: { pin: { version: 1, parse: (anchor) => anchor } },
+    });
+    for (const type of ["doc", "deck"]) {
+      expect(
+        normalizeReviewAnchor(type, {
+          anchor: [null, { at: 1 }],
+          anchorKind: REVIEW_SUGGESTION_ANCHOR_KIND,
+        }),
+      ).toEqual({
+        anchor: [null, { at: 1 }],
+        anchorKind: "review-suggestion",
+        anchorVersion: 1,
+      });
+    }
+    expect(() =>
+      registerReviewableResource({
+        type: "deck",
+        anchorKinds: {
+          [REVIEW_SUGGESTION_ANCHOR_KIND]: {
+            version: 1,
+            parse: (anchor) => anchor,
+          },
+        },
+      }),
+    ).toThrow('Anchor kind "review-suggestion" belongs to the review kit');
   });
 });

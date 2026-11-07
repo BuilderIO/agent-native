@@ -5,6 +5,7 @@ import type { ResourceSuggestion } from "../../review/suggestions/types.js";
 import type { ReviewComment } from "../../review/types.js";
 import {
   ReviewOptimisticCache,
+  addOptimisticComment,
   insertOptimisticComment,
   markCommentDeleted,
   proposalDecisionOverlay,
@@ -577,5 +578,43 @@ describe("markCommentDeleted", () => {
     expect(
       statusById(markCommentDeleted([root, reply, other], "reply")),
     ).toEqual({ root: "open", reply: "deleted", other: "open" });
+  });
+});
+
+describe("addOptimisticComment", () => {
+  it("adds a new comment only to the last page of a paged list", () => {
+    const first = {
+      ...commentsResult([comment("a", "A")]),
+      nextCursor: "c1~x~a",
+    };
+    const last = { ...commentsResult([comment("b", "B")]), nextCursor: null };
+    const created = comment("c", "C");
+
+    expect(addOptimisticComment(first, resource, created)).toBe(first);
+    expect(
+      (
+        addOptimisticComment(
+          last,
+          { ...resource, cursor: "c1~x~a" },
+          created,
+        ) as ListReviewCommentsResult
+      ).comments.map((item) => item.id),
+    ).toEqual(["b", "c"]);
+    expect(
+      (
+        addOptimisticComment(
+          commentsResult([]),
+          resource,
+          created,
+        ) as ListReviewCommentsResult
+      ).comments.map((item) => item.id),
+    ).toEqual(["c"]);
+    expect(
+      addOptimisticComment(
+        last,
+        { ...resource, targetId: "elsewhere" },
+        created,
+      ),
+    ).toBe(last);
   });
 });

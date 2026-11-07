@@ -39,6 +39,7 @@ const {
   insertReviewComment,
   insertReviewReply,
   listReviewThreadParticipantEmails,
+  updateReviewComment,
   queryReviewComments,
   resolveReviewThread,
   sendReviewThreadToAgent,
@@ -1446,18 +1447,69 @@ describe("review writes on a client without transactions", () => {
       }),
     ).toEqual([]);
 
-    // A resource with no hook still writes, but a delete, which can't tell
-    // its resource before it reads the row, waits for a transaction.
+    // A resource with no hook still writes and deletes.
     const plain = await insertReviewComment({
       resourceType: "doc",
       resourceId: "doc-1",
       body: "Review",
     });
-    await expect(deleteReviewComment(plain.id, null)).rejects.toThrow(
+    await expect(deleteReviewComment(plain.id, null)).resolves.toBe(1);
+    await expect(deleteReviewComment("missing", null)).resolves.toBe(0);
+  });
+
+  it("refuses deleting a hooked comment before changing anything", async () => {
+    const hooked = await insertReviewComment({
+      resourceType: "hooked-doc",
+      resourceId: "doc-1",
+      body: "Review",
+    });
+    registerReviewableResource({ type: "hooked-doc", onCommentWrite: vi.fn() });
+    await expect(deleteReviewComment(hooked.id, null)).rejects.toThrow(
       "no transactions",
     );
     expect(
-      (await getReviewCommentById(plain.id, {}, { bypassScope: true }))?.status,
+      (await getReviewCommentById(hooked.id, {}, { bypassScope: true }))
+        ?.status,
     ).toBe("open");
+  });
+
+  it("refuses an edit whose revision changed after it was read", async () => {
+    const comment = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "doc-1",
+      body: "Review",
+    });
+    const execute = rawClient.execute.getMockImplementation();
+    if (!execute) throw new Error("the test client has no implementation");
+    rawClient.execute.mockImplementation(async (input) => {
+      if (
+        typeof input !== "string" &&
+        /^\s*UPDATE agent_review_comments\s+SET body/.test(input.sql)
+      ) {
+        // Another writer changes the comment between this edit's read and
+        // its write.
+        await (
+          await pglite.prepare(
+            "UPDATE agent_review_comments SET revision = revision + 1 WHERE id = ?",
+          )
+        ).run(comment.id);
+      }
+      return execute(input);
+    });
+    try {
+      await expect(
+        updateReviewComment(comment.id, { body: "Edited" }, undefined, {
+          expectedRevision: 1,
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "revision_conflict",
+        currentRevision: 2,
+      });
+    } finally {
+      rawClient.execute.mockImplementation(execute);
+    }
+    expect(
+      await getReviewCommentById(comment.id, {}, { bypassScope: true }),
+    ).toMatchObject({ body: "Review", revision: 2 });
   });
 });

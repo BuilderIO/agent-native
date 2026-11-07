@@ -491,9 +491,9 @@ function inReviewWrite<T>(
 
 /**
  * A write hook refuses a write by throwing, which only a transaction can
- * undo. A client without transactions (Neon's HTTP mode, some test doubles)
- * is refused a hooked write before anything changes. With no resource type
- * to check, any registered hook counts.
+ * undo. Every client core ships has transactions; one without them, such as a
+ * test double, is refused a hooked write before anything changes. With no
+ * resource type to check, any registered hook counts.
  */
 function assertReviewWriteCanRollBack(resourceType: string | undefined): void {
   const hooked = resourceType
@@ -1523,11 +1523,22 @@ async function writeReviewCommentChange(
     );
   }
   if (!assignments.length) return current;
-  await client.execute(sql`UPDATE agent_review_comments
+  // The row lock holds the revision inside a transaction. The update checks
+  // it again, so a client without one can't write over a change made after
+  // its read.
+  const conditions = [sql`id = ${sql.value(id)}`];
+  if (options.expectedRevision !== undefined) {
+    conditions.push(sql`revision = ${sql.value(options.expectedRevision)}`);
+  }
+  const result = await client.execute(sql`UPDATE agent_review_comments
         SET ${sql.join(assignments, sql`, `)},
             revision = revision + 1,
             updated_at = ${sql.value(new Date().toISOString())}
-      WHERE id = ${sql.value(id)}`);
+      WHERE ${sql.join(conditions, sql` AND `)}`);
+  if (options.expectedRevision !== undefined && result.rowsAffected < 1) {
+    const latest = await getReviewCommentByIdWithClient(client, id);
+    throw new ReviewCommentRevisionConflictError(id, latest?.revision ?? 1);
+  }
   const updated = await getReviewCommentByIdWithClient(client, id);
   if (!updated) throw new Error("Review comment not found after update");
   const changesContent =
@@ -1885,8 +1896,21 @@ export async function deleteReviewComment(
     return deleted + deletedReplies;
   };
   if (client.transaction) return client.transaction(deleteIn);
-  assertReviewWriteCanRollBack(undefined);
+  // A comment's resource never changes, so it can be read ahead of the delete.
+  const resourceType = await getReviewCommentResourceType(client, id);
+  if (resourceType !== null) assertReviewWriteCanRollBack(resourceType);
   return deleteIn(client);
+}
+
+async function getReviewCommentResourceType(
+  client: DbExec,
+  id: string,
+): Promise<string | null> {
+  const { rows } = await client.execute(
+    sql`SELECT resource_type FROM agent_review_comments WHERE id = ${sql.value(id)} LIMIT 1`,
+  );
+  const row = rows[0] as { resource_type: unknown } | undefined;
+  return row ? String(row.resource_type) : null;
 }
 
 interface DeletedCommentRow {

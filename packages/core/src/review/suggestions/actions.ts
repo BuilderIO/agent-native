@@ -3,7 +3,10 @@ import { z } from "zod";
 import { defineAction, fail } from "../../action.js";
 import { getDbExec, type DbExec } from "../../db/client.js";
 import { notifyReviewComment } from "../notifications.js";
-import { assertReviewableResourceAccess } from "../registry.js";
+import {
+  assertReviewableResourceAccess,
+  REVIEW_SUGGESTION_ANCHOR_KIND,
+} from "../registry.js";
 import {
   ensureReviewTables,
   insertReviewCommentWithClient,
@@ -319,6 +322,7 @@ export const createResourceSuggestion = defineAction({
           targetId: created.id,
           kind: "correction",
           anchor: created.operations.map((item) => item.anchor ?? null),
+          anchorKind: REVIEW_SUGGESTION_ANCHOR_KIND,
           body: created.summary,
           authorEmail: created.authorEmail,
           createdBy: actorKind,
@@ -1007,6 +1011,7 @@ export const createResourceSuggestionProposal = defineAction({
                 targetId: created.id,
                 kind: "correction",
                 anchor: created.operations.map((part) => part.anchor ?? null),
+                anchorKind: REVIEW_SUGGESTION_ANCHOR_KIND,
                 body: created.summary,
                 authorEmail,
                 createdBy: actorKind,

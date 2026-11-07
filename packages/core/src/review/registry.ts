@@ -8,6 +8,7 @@ import { getShareableResource } from "../sharing/registry.js";
 import { roleSatisfies, type Visibility } from "../sharing/schema.js";
 import { ReviewAnchorError } from "./errors.js";
 import type {
+  ReviewAnchorKind,
   ReviewCommentPolicy,
   ReviewCommentWriteEvent,
   ReviewResourceAccess,
@@ -31,6 +32,9 @@ export function registerReviewableResource(
       throw new Error(
         `Anchor kind "${name}" on ${registration.type} needs a name and a whole version from 1`,
       );
+    }
+    if (ownAnchorKind(KIT_ANCHOR_KINDS, name)) {
+      throw new Error(`Anchor kind "${name}" belongs to the review kit`);
     }
   }
   registrations.set(registration.type, registration);
@@ -151,6 +155,26 @@ export async function assertReviewCommentAccess(
   return access;
 }
 
+/**
+ * The kit's own anchor kind, on the thread a suggestion opens: the anchors of
+ * its operations, in order. Every resource accepts it, and none may declare it.
+ */
+export const REVIEW_SUGGESTION_ANCHOR_KIND = "review-suggestion";
+
+const KIT_ANCHOR_KINDS: Readonly<Record<string, ReviewAnchorKind>> = {
+  [REVIEW_SUGGESTION_ANCHOR_KIND]: { version: 1, parse: (anchor) => anchor },
+};
+
+function ownAnchorKind(
+  kinds: Readonly<Record<string, ReviewAnchorKind>> | undefined,
+  name: string,
+): ReviewAnchorKind | null {
+  const kind = kinds?.[name];
+  return kind && Object.prototype.hasOwnProperty.call(kinds, name)
+    ? kind
+    : null;
+}
+
 export interface ReviewAnchorInput {
   anchor?: unknown;
   anchorKind?: string | null;
@@ -187,9 +211,7 @@ export function normalizeReviewAnchor(
     return { anchor, anchorKind: null, anchorVersion: null };
   }
   const kind =
-    kinds && Object.prototype.hasOwnProperty.call(kinds, kindName)
-      ? kinds[kindName]
-      : null;
+    ownAnchorKind(KIT_ANCHOR_KINDS, kindName) ?? ownAnchorKind(kinds, kindName);
   if (!kind) {
     throw new ReviewAnchorError(
       `${resourceType} comments have no anchor kind "${kindName}".`,

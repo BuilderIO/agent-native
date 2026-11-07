@@ -46,6 +46,7 @@ export {
   getReviewableResource,
   listReviewableResources,
   normalizeReviewAnchor,
+  REVIEW_SUGGESTION_ANCHOR_KIND,
   registerReviewableResource,
   resolveReviewableResourceAccess,
   reviewCommentPolicy,

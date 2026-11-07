@@ -560,6 +560,25 @@ describe.sequential("the review kit's storage contract", () => {
   });
 });
 
+describe("suggestion threads", () => {
+  it("store on a resource that declares its own anchor kinds", async () => {
+    const { REVIEW_SUGGESTION_ANCHOR_KIND } = await import("./registry.js");
+    await expect(
+      insertReviewComment({
+        ...comment(PINNED, "doc-suggested", {
+          anchor: [null, { x: 0.2, y: 0.4 }],
+          anchorKind: REVIEW_SUGGESTION_ANCHOR_KIND,
+        }),
+        kind: "correction",
+      }),
+    ).resolves.toMatchObject({
+      anchor: [null, { x: 0.2, y: 0.4 }],
+      anchorKind: "review-suggestion",
+      anchorVersion: 1,
+    });
+  });
+});
+
 describe("the kit's entry point", () => {
   it("exports the storage contract", async () => {
     const kit = await import("./index.js");

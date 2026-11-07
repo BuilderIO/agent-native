@@ -718,6 +718,22 @@ function replaceComment(
   );
 }
 
+/**
+ * Adds a new comment to a cached list. Oldest first, it lists last, so a page
+ * with more after it is left alone; the comment shows on the last page.
+ */
+export function addOptimisticComment(
+  data: unknown,
+  params: unknown,
+  comment: ReviewComment,
+): unknown {
+  if (!matchesCommentQuery(params, comment)) return data;
+  if (isReviewCommentsResult(data) && data.nextCursor) return data;
+  return updateComments(data, (comments) =>
+    insertOptimisticComment(comments, comment, params),
+  );
+}
+
 export function insertOptimisticComment(
   comments: ReviewComment[],
   comment: ReviewComment,
@@ -902,11 +918,7 @@ export function useCreateReviewComment() {
         action: "list-review-comments",
         resource: input,
         transform: (data, params) =>
-          matchesCommentQuery(params, comment)
-            ? updateComments(data, (comments) =>
-                insertOptimisticComment(comments, comment, params),
-              )
-            : data,
+          addOptimisticComment(data, params, comment),
         onSuccess: (result) => (data) =>
           updateComments(data, (comments) =>
             replaceComment(comments, id, result as ReviewComment),
