@@ -1589,6 +1589,24 @@ export function pageEditorSessionKey({
   return `${documentId}:${databaseId ?? ""}:${databaseDocumentId ?? ""}`;
 }
 
+// A link to a named view opens on the collection's own page. Links the
+// agent's view and setup actions return carry only `viewId`, so a missing
+// `databaseId` means the page's own collection; one naming another collection
+// is a stale link.
+export function namedViewLinkMatchesPage({
+  viewId,
+  databaseId,
+  pageDatabaseId,
+}: {
+  viewId: string | null | undefined;
+  databaseId: string | null | undefined;
+  pageDatabaseId: string | null | undefined;
+}) {
+  if (!viewId) return true;
+  if (!pageDatabaseId) return false;
+  return !databaseId || databaseId === pageDatabaseId;
+}
+
 export function suggestionModeCapability(args: {
   permission: boolean;
   bodyReady: boolean;
@@ -1815,9 +1833,12 @@ export function PageEditorSurface({
   }
 
   if (
-    viewId &&
     document &&
-    (!document.database || document.database.id !== databaseId)
+    !namedViewLinkMatchesPage({
+      viewId,
+      databaseId,
+      pageDatabaseId: document.database?.id,
+    })
   ) {
     return host === "page" ? (
       <Navigate to="/home" replace />
