@@ -34,6 +34,23 @@ const rawLiterals = {
     restoreDatabaseNamed: "還原 {{title}}",
     trash: "垃圾桶",
   },
+  publicDocument: {
+    chat: "聊天",
+    freeAndOpenSource: "在 GitHub 上免費開源",
+    pagePath: "頁面路徑",
+    privateDescription:
+      "開啟此連結前，請要求擁有者將其分享給你的帳戶或工作區。",
+    privateTitle: "此文件為私人文件",
+    signIn: "登入",
+    signUp: "註冊",
+    signUpFree: "免費註冊",
+    subPages: "子頁面",
+    tryContentFree: "免費試用 Content",
+    updated: "更新於 {{date}}",
+    writtenIn: "使用 Agent-Native Content 撰寫。",
+    writtenInDescription:
+      "撰寫並發佈你自己的頁面，AI 代理就在你的文件中協助工作。",
+  },
 };
 
 const landing = {
@@ -459,7 +476,7 @@ const overrides = {
     previewDraftUseSaved: "使用已儲存版本",
     previewDraftSaveSeparately: "將我的版本另存為頁面",
     previewDraftSavedToHistory: "你的編輯已儲存到版本記錄",
-    previewDraftSavedSeparately: "你的編輯已另存為頁面",
+    previewDraftSavedSeparately: "你的編輯已儲存為你空間中的私人頁面",
     previewDraftOpenSavedPage: "開啟頁面",
     previewDraftMoreOptions: "更多選項",
     previewDraftViewFullVersions: "檢視完整版本",
@@ -761,6 +778,7 @@ const overrides = {
         video: "影片",
       },
       fromSource: "從 {{name}}",
+      hiddenInThisView: "在此檢視中隱藏",
       hiddenProperties: "隱藏屬性",
       imageUploaded_zero: "圖片已上傳",
       imageUploaded_one: "圖片已上傳",
@@ -1079,7 +1097,6 @@ const overrides = {
     mentionPeopleLoadFailed: "無法載入成員。",
     mentionAgents: "代理程式",
     identityPerson: "使用者",
-    identityModel: "模型",
     identityEffort: "推理強度",
     identityRan: "執行時間",
     identityNotRecorded: "未記錄",
@@ -1128,6 +1145,22 @@ const overrides = {
     discardEditDescription: "你的留言會維持原樣。",
     discard: "捨棄",
     keepEditing: "繼續編輯",
+    deleteComment: "刪除留言",
+    deleteThread: "刪除留言串",
+    deleteCommentQuestion: "要刪除留言嗎？",
+    deleteCommentDescription: "將為所有人刪除，且無法復原。",
+    deleteThreadQuestion: "要刪除留言串嗎？",
+    deleteThreadDescription: "留言串及其回覆將為所有人刪除，且無法復原。",
+    deleteThreadAiChangeDescription:
+      "留言串及其回覆將為所有人刪除，且無法復原。AI 對頁面所做的變更會保留，但你將無法從留言串中復原它。",
+    delete: "刪除",
+    deleting: "正在刪除…",
+    deleteRefusedReplied: "已有其他人回覆，只有編輯者可以刪除此留言串。",
+    deleteRefusedNotion: "此留言已與 Notion 同步。請在 Notion 中刪除。",
+    deleteRefusedAiWorking: "AI 正在處理此留言串。刪除留言串前請先停止它。",
+    deleteRefusedAiSuggestion:
+      "此留言串中的 AI 建議正在等待審閱。刪除留言串前請先接受或拒絕它。",
+    deleteRefusedBusy: "此留言串正在被修改。請稍後再試著刪除。",
     submit: "評論",
     askAi: "詢問 AI",
     aiSuggestChanges: "建議變更",
@@ -1139,7 +1172,6 @@ const overrides = {
     aiPromptApplyResolve: "請套用此留言中的變更並將其解決。",
     aiWorking: "AI 正在處理…",
     aiReplied: "AI 已回覆",
-    aiSuggestionReady: "檢視建議",
     aiChangesApplied: "已套用變更",
     aiAppliedAndResolved: "已套用並解決",
     aiChangeUndone: "已復原變更",
@@ -1189,6 +1221,9 @@ const overrides = {
     rejectRemaining: "拒絕其餘編輯",
     acceptAll: "全部接受",
     rejectAll: "全部拒絕",
+    acceptAllAndResolve: "全部接受並解決",
+    acceptAndResolve: "接受並解決",
+    suggestionLoadFailed: "無法載入此建議",
     suggestionReviewReadOnly:
       "只有可以編輯此頁面的人才能接受或拒絕其中的建議。",
     moreActions: "更多操作",
@@ -1220,13 +1255,6 @@ const overrides = {
     agentRegardingText: "關於這段文字：“{{text}}”",
     agentThreadHeader: "評論對話串：",
     agentHelp: "請幫忙處理這個。",
-  },
-  publicDocument: {
-    chat: "Chat",
-    privateDescription:
-      "Pide al propietario que lo comparta con tu cuenta o espacio de trabajo antes de abrir este enlace.",
-    privateTitle: "Este documento es privado",
-    updated: "Actualizado {{date}}",
   },
   database: {
     githubLinkTitle: "連結 GitHub 資料夾",

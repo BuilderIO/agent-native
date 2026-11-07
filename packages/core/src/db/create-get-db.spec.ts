@@ -2,6 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { inArray } from "drizzle-orm";
+import { PgDialect, pgTable, QueryBuilder, text } from "drizzle-orm/pg-core";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 describe("createGetDb pooled transaction scoping", () => {
@@ -1057,35 +1059,35 @@ describe("createGetDb — lazy proxy before init resolves", () => {
     return createGetDb({});
   }
 
-  it("fails loudly instead of masquerading as a resolved SQL entity when probed via getSQL/shouldOmitSQLParens", async () => {
+  const meetings = pgTable("meetings", {
+    id: text("id"),
+    recordingId: text("recording_id"),
+  });
+  const clips = pgTable("clips", { id: text("id") });
+
+  it("builds a select subquery's SQL from the cold proxy, matching a connection-less builder", async () => {
     const getDb = await getLazyDbFactory();
     const db = getDb();
+    const cold = db.select({ id: meetings.recordingId }).from(meetings);
+    const expected = new QueryBuilder()
+      .select({ id: meetings.recordingId })
+      .from(meetings);
 
-    const subqueryChain = db.select({ id: "recordingId" }).from("meetings");
-
-    for (const prop of ["getSQL", "shouldOmitSQLParens"] as const) {
-      expect(() => subqueryChain[prop]).toThrow(/unresolved|await/i);
-    }
+    const cases = [inArray(clips.id, cold), inArray(clips.id, expected)].map(
+      (cond) => new PgDialect().sqlToQuery(cond),
+    );
+    expect(cases[0]).toEqual(cases[1]);
+    expect(cases[0].sql).toContain('select "recording_id" from "meetings"');
   });
 
-  it("does not recurse forever when duck-typed the way SQL.buildQueryFromSourceParams does", async () => {
+  it("still fails loudly for chains that cannot be built offline", async () => {
     const getDb = await getLazyDbFactory();
     const db = getDb();
-    const subqueryChain = db.select({ id: "recordingId" }).from("meetings");
+    const insertChain = db.insert(meetings).values({ id: "1" });
 
-    function isSQLWrapper(value: any): boolean {
-      return (
-        value !== null &&
-        value !== undefined &&
-        typeof value.getSQL === "function"
-      );
+    for (const prop of ["getSQL", "shouldOmitSQLParens"] as const) {
+      expect(() => insertChain[prop]).toThrow(/unresolved|await/i);
     }
-    function drainAsSql(value: any): any {
-      if (isSQLWrapper(value)) return drainAsSql(value.getSQL());
-      return value;
-    }
-
-    expect(() => drainAsSql(subqueryChain)).toThrow(/unresolved|await/i);
   });
 });
 

@@ -8,6 +8,7 @@ import {
   parseQueueMessageInput,
   persistableFilePart,
   fingerprintAgentSubmissionAttachment,
+  isPersistableAttachmentUrl,
   submissionAttachmentsMatch,
   type AgentQueuedMessage,
   type AgentRequestAttachment,
@@ -28,8 +29,8 @@ import {
 } from "h3";
 import type { EventHandler as H3EventHandler } from "h3";
 
-import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
+import "../authorization/check-action.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
   actionCallIsRetrySafe,
@@ -67,6 +68,7 @@ import {
   type WriteReceipt,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
+import { resolveAgentKitIntegrationReferences } from "../agentkit/capabilities.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
@@ -300,6 +302,7 @@ import {
   isContextOverflowMessage,
   isInvalidAttachmentProviderMessage,
   isProviderConnectionErrorMessage,
+  isRejectedRequestErrorCode,
   PROVIDER_RATE_LIMITED_ERROR_CODE,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./engine/error-detail.js";
@@ -392,6 +395,13 @@ import {
   hasObservationalMemory,
   serializeObservationalMemoryBlock,
 } from "./observational-memory/index.js";
+import {
+  AmbiguousToolPlaceholdersError,
+  discriminatedBranchIndex,
+  normalizeOptionalToolPlaceholders,
+  schemaAcceptsToolValue,
+  type ToolInputRepair,
+} from "./optional-placeholders.js";
 import {
   ProcessorChain,
   TripWire,
@@ -1372,7 +1382,11 @@ export interface ActionEntry {
    *  decision, so they never count as the action declaring its hints. */
   mcpAnnotationDefaults?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
+  /** See `searchHints` in `defineAction`. Read only by `tool-search`. */
+  searchHints?: readonly string[];
   eagerInputStreaming?: boolean;
+  /** See `emptyListsEraseNothing` in `defineAction`. */
+  emptyListsEraseNothing?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
   /** Bookkeeping writes still need replay protection, but cannot confirm automation work. */
@@ -2574,27 +2588,6 @@ function isDataUrlReference(value: unknown): boolean {
   return typeof value === "string" && /^\s*data:/i.test(value);
 }
 
-function hasDurableAttachmentUrl(value: unknown): boolean {
-  if (typeof value !== "string") return false;
-  const normalized = value.trim();
-  if (
-    !normalized ||
-    isDataUrlReference(normalized) ||
-    isRawBase64Payload(normalized) ||
-    !URL.canParse(normalized)
-  ) {
-    return false;
-  }
-  const url = new URL(normalized);
-  return (
-    url.protocol === "https:" &&
-    !url.username &&
-    !url.password &&
-    !url.search &&
-    !url.hash
-  );
-}
-
 const OMIT_DURABLE_DISPATCH_VALUE = Symbol("omit-durable-dispatch-value");
 const DURABLE_ATTACHMENT_PAYLOAD_FIELDS =
   /^(?:base64|bytes|body|data|dataurl|image|payload)$/i;
@@ -2738,7 +2731,7 @@ function sanitizeDurableAttachment(
       (attachmentReferenceField &&
         typeof value === "string" &&
         (isInlineBase64Payload(value) ||
-          (value.trim().length > 0 && !hasDurableAttachmentUrl(value)))))
+          (value.trim().length > 0 && !isPersistableAttachmentUrl(value)))))
   ) {
     return OMIT_DURABLE_DISPATCH_VALUE;
   }
@@ -2772,14 +2765,14 @@ function sanitizeDurableAttachment(
     isAttachment && containsDurableAttachmentPayload(item, true);
   const hasDurableReference =
     item.type === "image"
-      ? hasDurableAttachmentUrl(item.url)
-      : hasDurableAttachmentUrl(item.url) ||
-        hasDurableAttachmentUrl(item.referenceUrl);
+      ? isPersistableAttachmentUrl(item.url)
+      : isPersistableAttachmentUrl(item.url) ||
+        isPersistableAttachmentUrl(item.referenceUrl);
   const hasInlineReference = [item.url, item.referenceUrl].some(
     (reference) =>
       typeof reference === "string" &&
       reference.trim().length > 0 &&
-      !hasDurableAttachmentUrl(reference),
+      !isPersistableAttachmentUrl(reference),
   );
   if (
     (requiredAttachment || typedAttachment) &&
@@ -4407,7 +4400,9 @@ async function enrichMessage(
   const fileRefs = references.filter((r) => r.type === "file");
   const skillRefs = references.filter((r) => r.type === "skill");
   const customAgentRefs = references.filter((r) => r.type === "custom-agent");
-  const mentionRefs = references.filter((r) => r.type === "mention");
+  const mentionRefs = references.filter(
+    (r) => r.type === "mention" && r.refType !== "integration",
+  );
 
   const parts: string[] = [];
   if (fileRefs.length > 0) {
@@ -4875,8 +4870,7 @@ export function isResumableEngineError(err: unknown): boolean {
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (
     (err instanceof EngineError && err.providerRetryable === false) ||
-    code === "invalid_request" ||
-    code === "invalid_request_error"
+    isRejectedRequestErrorCode(code)
   ) {
     return false;
   }
@@ -7104,209 +7098,6 @@ const rawToolInputValidatorCache = new WeakMap<
   Map<boolean, ValidateFunction>
 >();
 
-const optionalPlaceholderAjv = new Ajv({
-  strict: false,
-  allErrors: false,
-  coerceTypes: false,
-  useDefaults: false,
-  removeAdditional: false,
-});
-
-const optionalPlaceholderValidatorCache = new WeakMap<
-  object,
-  ValidateFunction
->();
-
-function isStructurallyEmptyToolValue(value: unknown): boolean {
-  if (value === false) return true;
-  if (value === null) return true;
-  if (typeof value === "string") return value.trim().length === 0;
-  if (Array.isArray(value)) {
-    return (
-      value.length === 0 ||
-      value.every(
-        (item) =>
-          item !== null &&
-          typeof item === "object" &&
-          !Array.isArray(item) &&
-          Object.keys(item).length === 0,
-      )
-    );
-  }
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    Object.keys(value).length === 0
-  );
-}
-
-function compileToolValueValidator(schema: object): ValidateFunction | null {
-  const cached = optionalPlaceholderValidatorCache.get(schema);
-  if (cached) return cached;
-  try {
-    const validator = optionalPlaceholderAjv.compile(schema);
-    optionalPlaceholderValidatorCache.set(schema, validator);
-    return validator;
-  } catch {
-    return null;
-  }
-}
-
-function schemaAcceptsToolValue(schema: object, value: unknown): boolean {
-  const validator = compileToolValueValidator(schema);
-  return validator ? Boolean(validator(value)) : false;
-}
-
-function schemaRejectsToolValue(schema: object, value: unknown): boolean {
-  const validator = compileToolValueValidator(schema);
-  return validator ? !validator(value) : false;
-}
-
-function schemaDiscriminatorValue(
-  schema: AgentNativeJsonSchema | undefined,
-): unknown {
-  if (!schema) return undefined;
-  if (schema.const !== undefined) return schema.const;
-  if (Array.isArray(schema.enum) && schema.enum.length === 1) {
-    return schema.enum[0];
-  }
-  return undefined;
-}
-
-function discriminatedBranchIndex(
-  branches: readonly AgentNativeJsonSchema[],
-  value: unknown,
-): number {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return -1;
-  const record = value as Record<string, unknown>;
-  return branches.findIndex((branch) => {
-    const properties = branch.properties;
-    if (!properties) return false;
-    const discriminators = Object.entries(properties).filter(
-      ([, spec]) => schemaDiscriminatorValue(spec) !== undefined,
-    );
-    if (discriminators.length === 0) return false;
-    return discriminators.every(
-      ([key, spec]) => record[key] === schemaDiscriminatorValue(spec),
-    );
-  });
-}
-
-function resolveObjectSchemaBranch(
-  schema: RawJsonSchema,
-  value: unknown,
-): RawJsonSchema | undefined {
-  const branches = schema.oneOf ?? schema.anyOf;
-  if (!branches?.length) return schema;
-  const index = discriminatedBranchIndex(branches, value);
-  return index >= 0 ? branches[index] : undefined;
-}
-
-function stripOptionalToolPlaceholders(
-  schema: RawJsonSchema | undefined,
-  value: unknown,
-  emptyValues: { valid: boolean; invalid: boolean },
-): { value: unknown; changed: boolean } {
-  if (!schema) return { value, changed: false };
-
-  if (Array.isArray(value)) {
-    const itemSchema = schema.items;
-    if (!itemSchema) return { value, changed: false };
-    let changed = false;
-    const items = value.map((item) => {
-      const result = stripOptionalToolPlaceholders(
-        itemSchema,
-        item,
-        emptyValues,
-      );
-      if (result.changed) changed = true;
-      return result.value;
-    });
-    return changed
-      ? { value: items, changed: true }
-      : { value, changed: false };
-  }
-
-  if (!value || typeof value !== "object") return { value, changed: false };
-
-  const objectSchema = resolveObjectSchemaBranch(schema, value);
-  const properties = objectSchema?.properties;
-  if (!properties) return { value, changed: false };
-
-  const required = new Set(
-    Array.isArray(objectSchema.required) ? objectSchema.required : [],
-  );
-  const record = value as Record<string, unknown>;
-  const placeholders: string[] = [];
-  let normalized: Record<string, unknown> | null = null;
-
-  for (const [key, entry] of Object.entries(record)) {
-    const propertySchema = Object.hasOwn(properties, key)
-      ? properties[key]
-      : undefined;
-    if (!propertySchema) {
-      // Root unions are flattened by providers; an unused branch can arrive as null.
-      const branches = schema.oneOf ?? schema.anyOf;
-      if (
-        entry === null &&
-        objectSchema.additionalProperties === false &&
-        branches?.some((branch) =>
-          branch.properties ? Object.hasOwn(branch.properties, key) : false,
-        )
-      ) {
-        placeholders.push(key);
-      }
-      continue;
-    }
-    if (!required.has(key) && isStructurallyEmptyToolValue(entry)) {
-      if (schemaRejectsToolValue(propertySchema, entry)) {
-        emptyValues.invalid = true;
-        placeholders.push(key);
-        continue;
-      }
-      if (schemaAcceptsToolValue(propertySchema, entry))
-        emptyValues.valid = true;
-    }
-    const nested = stripOptionalToolPlaceholders(
-      propertySchema,
-      entry,
-      emptyValues,
-    );
-    if (nested.changed) {
-      normalized ??= { ...record };
-      normalized[key] = nested.value;
-    }
-  }
-
-  if (placeholders.length > 0) {
-    normalized ??= { ...record };
-    for (const key of placeholders) delete normalized[key];
-  }
-
-  return normalized
-    ? { value: normalized, changed: true }
-    : { value, changed: false };
-}
-
-class AmbiguousToolPlaceholdersError extends Error {
-  readonly errorCode = "ambiguous_tool_placeholders";
-
-  constructor() {
-    super(
-      "Tool input mixes invalid placeholders with valid empty values, so it is unclear which fields should be cleared. " +
-        "No action was run. Retry the native tool with sparse JSON containing only the intended changes. " +
-        "If the transport keeps adding unused fields, use a dedicated operation that expresses the intended change or report this error. Mutating actions cannot run through run-code.",
-    );
-    this.name = "AmbiguousToolPlaceholdersError";
-  }
-}
-
-interface ToolInputRepair {
-  input: unknown;
-  changed: boolean;
-  error?: AmbiguousToolPlaceholdersError;
-}
-
 /** The repairs the loop makes to a model's tool input before anything reads it. */
 function repairToolCallInput(
   entry: ActionEntry | undefined,
@@ -7315,16 +7106,17 @@ function repairToolCallInput(
   if (!entry || getStrictToolInputValidator(entry)) {
     return { input, changed: false };
   }
+  const json = coerceStringifiedJsonToolValues(entry.tool.parameters, input);
   const placeholders = normalizeOptionalToolPlaceholders(
     entry.tool.parameters,
-    input,
+    json.input,
+    entry,
   );
   if (placeholders.error) return placeholders;
-  const json = coerceStringifiedJsonToolValues(
-    entry.tool.parameters,
-    placeholders.input,
-  );
-  return { input: json.input, changed: placeholders.changed || json.changed };
+  return {
+    input: placeholders.input,
+    changed: json.changed || placeholders.changed,
+  };
 }
 
 /**
@@ -7425,26 +7217,6 @@ function isBoundedTaskWait(toolName: string, input: unknown): boolean {
     args.waitMs > 0 &&
     args.waitMs <= 20_000
   );
-}
-
-function normalizeOptionalToolPlaceholders(
-  schema: RawJsonSchema | undefined,
-  input: unknown,
-): ToolInputRepair {
-  if (!schema || !input || typeof input !== "object") {
-    return { input, changed: false };
-  }
-  if (Array.isArray(input)) return { input, changed: false };
-  const emptyValues = { valid: false, invalid: false };
-  const result = stripOptionalToolPlaceholders(schema, input, emptyValues);
-  if (emptyValues.valid && emptyValues.invalid) {
-    return {
-      input,
-      changed: false,
-      error: new AmbiguousToolPlaceholdersError(),
-    };
-  }
-  return { input: result.value, changed: result.changed };
 }
 
 function coerceStringifiedJsonToolValues(
@@ -12088,8 +11860,7 @@ export function isRecoverableContinuationError(event: {
     event.providerRetryable === false ||
     event.recoverable === false ||
     code === "builder_gateway_error" ||
-    code === "invalid_request" ||
-    code === "invalid_request_error"
+    isRejectedRequestErrorCode(code)
   ) {
     return false;
   }
@@ -12997,13 +12768,14 @@ async function queueableAttachments(
           ? { fileId: record.id }
           : {}),
     });
+    let uploadAttempted = false;
     if (
-      !part.fileId &&
       inlineData &&
       (!part.url || !record.uploadProvider || record.storageUploadFailed)
     ) {
       const parsedData = parseBase64DataUrl(inlineData);
       if (parsedData) {
+        uploadAttempted = true;
         const uploaded = await uploadFile({
           data: new Uint8Array(Buffer.from(parsedData.data, "base64")),
           filename: attachment.name,
@@ -13018,14 +12790,16 @@ async function queueableAttachments(
             name: attachment.name,
             ...(mediaType ? { mediaType } : {}),
             url: uploaded.url,
+            ...(part.fileId ? { fileId: part.fileId } : {}),
           });
         }
       }
     }
     if (requestAttachmentIndexes.has(index)) {
-      if (!part.url || !hasDurableAttachmentUrl(part.url)) return null;
+      if (!part.url || !isPersistableAttachmentUrl(part.url)) return null;
       const referenceUrl = attachment.referenceUrl;
-      if (referenceUrl && !hasDurableAttachmentUrl(referenceUrl)) return null;
+      if (referenceUrl && !isPersistableAttachmentUrl(referenceUrl))
+        return null;
       requestFiles.push({
         type: "image",
         name: attachment.name,
@@ -13035,7 +12809,12 @@ async function queueableAttachments(
       });
       continue;
     }
-    if (!part.url && !part.fileId) return null;
+    if (!part.url) {
+      // A failed upload is transient (null -> retryable); an id with no
+      // uploadable bytes can never become a reference.
+      if (uploadAttempted) return null;
+      throw new DurableAttachmentReferenceRequiredError();
+    }
     files.push(part);
   }
   return { attachments: files, requestAttachments: requestFiles };
@@ -13093,12 +12872,12 @@ function validateQueuedPromotionRequestAttachments(
       }
     }
     if (
-      (typeof url === "string" && !hasDurableAttachmentUrl(url)) ||
+      (typeof url === "string" && !isPersistableAttachmentUrl(url)) ||
       (typeof attachment.referenceUrl === "string" &&
-        !hasDurableAttachmentUrl(attachment.referenceUrl)) ||
+        !isPersistableAttachmentUrl(attachment.referenceUrl)) ||
       (typeof data !== "string" &&
-        !hasDurableAttachmentUrl(url) &&
-        !hasDurableAttachmentUrl(attachment.referenceUrl))
+        !isPersistableAttachmentUrl(url) &&
+        !isPersistableAttachmentUrl(attachment.referenceUrl))
     ) {
       return null;
     }
@@ -14405,19 +14184,26 @@ export function createProductionAgentHandler(
     }
     let requestMessage = hasMessageText ? message : "Use the attached context.";
     let requestAttachments = Array.isArray(attachments) ? attachments : [];
-    const submissionAttachmentsAreConsistent =
-      submissionPayload !== undefined &&
-      submissionAttachmentsMatch(submissionPayload, requestAttachments);
-    if (submissionPayload && !submissionAttachmentsAreConsistent) {
+    // The worker's body is the foreground's server-built dispatch payload, whose
+    // attachments were sanitized after the client fingerprints were validated, so
+    // they can no longer match those fingerprints.
+    const validateSubmissionAttachments =
+      submissionPayload !== undefined && !isBackgroundWorker;
+    if (
+      submissionPayload &&
+      validateSubmissionAttachments &&
+      !submissionAttachmentsMatch(submissionPayload, requestAttachments)
+    ) {
       setResponseStatus(event, 400);
       return {
         error: "submissionPayload does not match this message",
         code: "submission_payload_attachments_mismatch",
       };
     }
-    const submissionRequestAttachmentIndexes = submissionPayload
-      ? requestAttachmentIndexes(submissionPayload, requestAttachments)
-      : new Set<number>();
+    const submissionRequestAttachmentIndexes =
+      submissionPayload && validateSubmissionAttachments
+        ? requestAttachmentIndexes(submissionPayload, requestAttachments)
+        : new Set<number>();
     if (!submissionRequestAttachmentIndexes) {
       setResponseStatus(event, 400);
       return {
@@ -14687,11 +14473,24 @@ export function createProductionAgentHandler(
         setResponseStatus(event, 404);
         return { error: "Thread not found" };
       }
-      const attachmentsForQueue = await queueableAttachments(
-        requestAttachments,
-        ownerEmail,
-        submissionRequestAttachmentIndexes,
-      );
+      let attachmentsForQueue: Awaited<ReturnType<typeof queueableAttachments>>;
+      try {
+        attachmentsForQueue = await queueableAttachments(
+          requestAttachments,
+          ownerEmail,
+          submissionRequestAttachmentIndexes,
+        );
+      } catch (error) {
+        if (!(error instanceof DurableAttachmentReferenceRequiredError)) {
+          throw error;
+        }
+        setResponseStatus(event, 503);
+        return {
+          error: error.message,
+          code: error.code,
+          retryable: false,
+        };
+      }
       if (!attachmentsForQueue) {
         if (
           requestAttachments.some(
@@ -15341,6 +15140,18 @@ export function createProductionAgentHandler(
         retryable: false,
       };
     }
+    const integrationCredentialScope = getRequestContext()?.credentialScope;
+    const integrationIntents = await resolveAgentKitIntegrationReferences(
+      options.appId ?? "",
+      requestReferences,
+      {
+        userEmail: getRequestUserEmail() ?? ownerEmail ?? "",
+        orgId: getRequestOrgId() ?? null,
+        ...(integrationCredentialScope
+          ? { credentialScope: integrationCredentialScope }
+          : {}),
+      },
+    );
     const contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
       event,
@@ -15909,8 +15720,11 @@ export function createProductionAgentHandler(
 
     setupMark("prepDone");
     workerStep("env_config");
+    const integrationMessage = [...integrationIntents, requestMessage].join(
+      "\n\n",
+    );
     const enrichedMessageThunk = () =>
-      enrichMessage(requestMessage, requestReferences);
+      enrichMessage(integrationMessage, requestReferences);
     const loopSettingsThunk = () =>
       readAgentLoopSettings({
         userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
@@ -16307,7 +16121,12 @@ export function createProductionAgentHandler(
       ),
       presendCap("files", filesContextThunk, "", 12000),
       presendCap("loopSettings", loopSettingsThunk, fallbackLoopSettings, 9000),
-      presendCap("enrichedMessage", enrichedMessageThunk, requestMessage, 9000),
+      presendCap(
+        "enrichedMessage",
+        enrichedMessageThunk,
+        integrationMessage,
+        9000,
+      ),
       presendCap(
         "jevContextCredentials",
         () => getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),

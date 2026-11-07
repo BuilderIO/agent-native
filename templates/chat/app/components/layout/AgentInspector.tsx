@@ -5,6 +5,7 @@ import { AgentSidebar } from "@agent-native/toolkit/app/chat";
 import { type ReactNode } from "react";
 import { useNavigate } from "react-router";
 
+import { ChatComposerContextProvider } from "@/components/ChatComposerContext";
 import { chatThreadPath } from "@/lib/chat-paths";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -30,6 +31,7 @@ export function AgentInspector({
 
   return (
     <AgentSidebar
+      composerContextProvider={ChatComposerContextProvider}
       position="right"
       chatViewTransition
       chatViewTransitionHandoff={chatHomeHandoffPending}

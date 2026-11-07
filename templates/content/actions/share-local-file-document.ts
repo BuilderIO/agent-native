@@ -16,7 +16,7 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import {
-  syncPrivateCalloutReferences,
+  syncPrivateBodyReferences,
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
@@ -220,7 +220,7 @@ export default defineAction({
             orgId,
           },
         );
-        await syncPrivateCalloutReferences(
+        await syncPrivateBodyReferences(
           tx as unknown as ReturnType<typeof getDb>,
           {
             documentId: existing.id,
@@ -300,7 +300,7 @@ export default defineAction({
               orgId,
             },
           );
-          await syncPrivateCalloutReferences(
+          await syncPrivateBodyReferences(
             tx as unknown as ReturnType<typeof getDb>,
             {
               documentId,

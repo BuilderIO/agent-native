@@ -13,9 +13,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
+import {
+  readTrafficEnvironment,
+  type TrafficEnvironment,
+} from "../../../../shared/traffic-environment";
 import { fmt, useErrorsT } from "./i18n";
 import { Sparkline } from "./Sparkline";
 import type { ErrorIssueSummary, StatusFilter } from "./types";
@@ -66,6 +77,8 @@ export function IssueList({
   onStatusChange,
   search,
   onSearchChange,
+  environment,
+  onEnvironmentChange,
   onRefresh,
   isFetching,
   onSelect,
@@ -79,6 +92,8 @@ export function IssueList({
   onStatusChange: (status: StatusFilter) => void;
   search: string;
   onSearchChange: (value: string) => void;
+  environment: TrafficEnvironment | undefined;
+  onEnvironmentChange: (environment: TrafficEnvironment | null) => void;
   onRefresh: () => void;
   isFetching: boolean;
   onSelect: (id: string) => void;
@@ -127,6 +142,24 @@ export function IssueList({
           ))}
         </div>
         <div className="flex items-center gap-2">
+          <Select
+            value={environment ?? "all"}
+            onValueChange={(value) =>
+              onEnvironmentChange(readTrafficEnvironment(value) ?? null)
+            }
+          >
+            <SelectTrigger
+              className="h-8 w-auto min-w-28 gap-2 bg-transparent"
+              aria-label={t.traffic}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t.allTraffic}</SelectItem>
+              <SelectItem value="production">{t.productionTraffic}</SelectItem>
+              <SelectItem value="beta">{t.betaTraffic}</SelectItem>
+            </SelectContent>
+          </Select>
           <div className="relative sm:w-64">
             <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/60" />
             <Input
@@ -150,6 +183,11 @@ export function IssueList({
         </div>
       </div>
 
+      {environment ? (
+        <p className="text-xs text-muted-foreground">
+          {t.countsAllEnvironments}
+        </p>
+      ) : null}
       {error ? (
         <Card>
           <CardContent className="p-6 text-sm text-destructive">
@@ -160,7 +198,11 @@ export function IssueList({
         <IssueListSkeleton />
       ) : issues.length === 0 ? (
         <EmptyState
-          filtered={status !== "unresolved" || search.trim().length > 0}
+          filtered={
+            status !== "unresolved" ||
+            search.trim().length > 0 ||
+            environment !== undefined
+          }
           onSendTestError={onSendTestError}
           sendingTest={sendingTest}
         />

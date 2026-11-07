@@ -163,6 +163,55 @@ describe("agent-frame.jpg route", () => {
     );
   });
 
+  it("cuts the frame from the trimmed timeline, never from trimmed-out footage", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          id: "trimmed",
+          editsJson: JSON.stringify({
+            trims: [{ startMs: 2_000, endMs: 6_000, excluded: true }],
+          }),
+        },
+      }),
+    });
+
+    const event = makeEvent({ id: "trimmed", atMs: "2000" });
+    await handler(event as unknown as Parameters<typeof handler>[0]);
+
+    expect(mockExtractJpegFrameFromFile).toHaveBeenCalledWith(
+      expect.objectContaining({ atMs: 6_000 }),
+    );
+    expect(mockLoadStoredAgentFrame).toHaveBeenCalledWith(
+      expect.anything(),
+      6_000,
+    );
+  });
+
+  it("clamps frame requests to the trimmed duration", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          id: "trimmed-end",
+          editsJson: JSON.stringify({
+            trims: [{ startMs: 2_000, endMs: 6_000, excluded: true }],
+          }),
+        },
+      }),
+    });
+
+    await handler(
+      makeEvent({ id: "trimmed-end", atMs: "99000" }) as unknown as Parameters<
+        typeof handler
+      >[0],
+    );
+
+    expect(mockExtractJpegFrameFromFile).toHaveBeenCalledWith(
+      expect.objectContaining({ atMs: 9_999 }),
+    );
+  });
+
   it("holds the frame back while redactions are drawn but not burned", async () => {
     mockLoadPublicAgentAccess.mockResolvedValue({
       ok: true,
@@ -186,7 +235,9 @@ describe("agent-frame.jpg route", () => {
     });
 
     const event = makeEvent({ id: "pending-redaction", atMs: "1000" });
-    const result = (await handler(event as any)) as Record<string, unknown>;
+    const result = (await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    )) as Record<string, unknown>;
 
     expect(result.redactionPending).toBe(true);
     expect(result).toMatchObject({
@@ -222,7 +273,9 @@ describe("agent-frame.jpg route", () => {
     });
 
     const event = makeEvent({ id: "pending-owner", atMs: "1000" });
-    const result = await handler(event as any);
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
 
     expect(Buffer.from(result as Buffer)).toEqual(Buffer.from([1, 2, 3]));
     expect(mockLoadRecordingMediaFile).toHaveBeenCalled();
@@ -237,7 +290,9 @@ describe("agent-frame.jpg route", () => {
       });
 
       const event = makeEvent({ id: `clip-${status}`, atMs: "1000" });
-      const result = await handler(event as any);
+      const result = await handler(
+        event as unknown as Parameters<typeof handler>[0],
+      );
 
       expect(event.status).toBe(409);
       expect(headerValue(event, "Retry-After")).toBe("15");
@@ -261,7 +316,9 @@ describe("agent-frame.jpg route", () => {
     });
 
     const event = makeEvent({ id: "failed-clip", atMs: "1000" });
-    const result = await handler(event as any);
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
 
     expect(event.status).toBe(409);
     expect(result).toMatchObject({
@@ -286,7 +343,9 @@ describe("agent-frame.jpg route", () => {
     });
 
     const event = makeEvent({ id: "rec-1", atMs: "1000" });
-    const result = await handler(event as any);
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
 
     expect(event.status).toBe(422);
     expect(result).toMatchObject({
@@ -311,7 +370,9 @@ describe("agent-frame.jpg route", () => {
     });
 
     const event = makeEvent({ id: "processing-screenshot", atMs: "0" });
-    const result = await handler(event as any);
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
 
     expect(event.status).toBe(409);
     expect(result).toMatchObject({ failureKind: "processing" });
@@ -602,7 +663,9 @@ describe("agent-frame.jpg route", () => {
     );
 
     const event = makeEvent({ id: "rec-1", atMs: "1000" });
-    const result = await handler(event as any);
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
 
     expect(event.status).toBe(404);
     expect(result).toEqual({
@@ -624,7 +687,9 @@ describe("agent-frame.jpg route", () => {
     );
 
     const event = makeEvent({ id: "rec-1", atMs: "1000" });
-    const result = await handler(event as any);
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
 
     expect(event.status).toBe(403);
     expect(result).toMatchObject({
@@ -646,7 +711,9 @@ describe("agent-frame.jpg route", () => {
     );
 
     const event = makeEvent({ id: "rec-1", atMs: "1000" });
-    const result = await handler(event as any);
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
 
     expect(event.status).toBe(401);
     expect(result).toMatchObject({
@@ -668,7 +735,9 @@ describe("agent-frame.jpg route", () => {
     );
 
     const event = makeEvent({ id: "rec-1", atMs: "1000" });
-    const result = await handler(event as any);
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
 
     expect(event.status).toBe(503);
     expect(result).toMatchObject({
@@ -687,7 +756,9 @@ describe("agent-frame.jpg route", () => {
     );
 
     const event = makeEvent({ id: "audio-only", atMs: "1000" });
-    const result = await handler(event as any);
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
 
     expect(event.status).toBe(422);
     expect(result).toMatchObject({
@@ -709,7 +780,9 @@ describe("agent-frame.jpg route", () => {
     );
 
     const event = makeEvent({ id: "empty-recording", atMs: "1000" });
-    const result = await handler(event as any);
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
 
     expect(event.status).toBe(422);
     expect(result).toMatchObject({ failureKind: "processing" });
@@ -731,7 +804,9 @@ describe("agent-frame.jpg route", () => {
     );
 
     const event = makeEvent({ id: "rec-1", atMs: "1000" });
-    const result = await handler(event as any);
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
 
     expect(event.status).toBe(502);
     expect(result).toMatchObject({
@@ -753,7 +828,9 @@ describe("agent-frame.jpg route", () => {
     );
 
     const event = makeEvent({ id: "rec-1", atMs: "0" });
-    const result = await handler(event as any);
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
 
     expect(event.status).toBe(404);
     expect(result).toMatchObject({

@@ -949,6 +949,7 @@ const editor = {
       video: "Video [de-DE]",
     },
     fromSource: "Von {{name}}",
+    hiddenInThisView: "In dieser Ansicht ausgeblendet",
     hiddenProperties: "Versteckte Eigenschaften",
     imageUploaded_zero: "Bilder hochgeladen",
     imageUploaded_one: "Bild hochgeladen",
@@ -1211,7 +1212,7 @@ const rawLiterals = {
     previewDraftSavedToHistory:
       "Deine Änderungen wurden im Versionsverlauf gespeichert",
     previewDraftSavedSeparately:
-      "Deine Änderungen wurden als separate Seite gespeichert",
+      "Deine Änderungen wurden als private Seite in deinem Bereich gespeichert",
     previewDraftOpenSavedPage: "Seite öffnen",
     previewDraftMoreOptions: "Weitere Optionen",
     previewDraftViewFullVersions: "Vollständige Versionen anzeigen",
@@ -1293,6 +1294,23 @@ const rawLiterals = {
     restoreDatabase: "Wiederherstellen",
     restoreDatabaseNamed: "{{title}} wiederherstellen",
     trash: "Papierkorb",
+  },
+  publicDocument: {
+    chat: "Chat",
+    freeAndOpenSource: "Kostenlos und Open Source auf GitHub",
+    pagePath: "Seitenpfad",
+    privateDescription:
+      "Bitte den Eigentümer, es mit deinem Konto oder Arbeitsbereich zu teilen, bevor du diesen Link öffnest.",
+    privateTitle: "Dieses Dokument ist privat",
+    signIn: "Anmelden",
+    signUp: "Registrieren",
+    signUpFree: "Kostenlos registrieren",
+    subPages: "Unterseiten",
+    tryContentFree: "Content kostenlos testen",
+    updated: "Aktualisiert am {{date}}",
+    writtenIn: "Geschrieben in Agent-Native Content.",
+    writtenInDescription:
+      "Schreibe und veröffentliche eigene Seiten, mit einem KI-Agenten, der direkt in deinen Dokumenten arbeitet.",
   },
 };
 
@@ -1820,6 +1838,28 @@ const overrides = {
     discardEditDescription: "Ihr Kommentar bleibt unverändert.",
     discard: "Verwerfen",
     keepEditing: "Weiter bearbeiten",
+    deleteComment: "Kommentar löschen",
+    deleteThread: "Thread löschen",
+    deleteCommentQuestion: "Kommentar löschen?",
+    deleteCommentDescription:
+      "Er wird für alle gelöscht. Das lässt sich nicht rückgängig machen.",
+    deleteThreadQuestion: "Thread löschen?",
+    deleteThreadDescription:
+      "Der Thread und seine Antworten werden für alle gelöscht. Das lässt sich nicht rückgängig machen.",
+    deleteThreadAiChangeDescription:
+      "Der Thread und seine Antworten werden für alle gelöscht. Das lässt sich nicht rückgängig machen. Die Änderung der KI an der Seite bleibt, aber über den Thread kannst du sie dann nicht mehr rückgängig machen.",
+    delete: "Löschen",
+    deleting: "Wird gelöscht…",
+    deleteRefusedReplied:
+      "Jemand anderes hat geantwortet, daher kann nur ein Bearbeiter diesen Thread löschen.",
+    deleteRefusedNotion:
+      "Dieser Kommentar ist mit Notion synchronisiert. Lösche ihn in Notion.",
+    deleteRefusedAiWorking:
+      "Die KI arbeitet an diesem Thread. Stoppe sie, bevor du den Thread löschst.",
+    deleteRefusedAiSuggestion:
+      "Der Vorschlag der KI in diesem Thread wartet auf Prüfung. Nimm ihn an oder lehne ihn ab, bevor du den Thread löschst.",
+    deleteRefusedBusy:
+      "Dieser Thread wird gerade geändert. Versuche gleich noch einmal, ihn zu löschen.",
     submit: "Kommentieren",
     askAi: "KI fragen",
     aiBadge: "KI",
@@ -1830,8 +1870,10 @@ const overrides = {
     mentionPeopleLoadFailed: "Personen konnten nicht geladen werden.",
     mentionAgents: "Agenten",
     identityPerson: "Person",
-    identityModel: "Modell",
     identityEffort: "Denkaufwand",
+    acceptAllAndResolve: "Alle annehmen und erledigen",
+    acceptAndResolve: "Annehmen und erledigen",
+    suggestionLoadFailed: "Dieser Vorschlag konnte nicht geladen werden",
     identityRan: "Ausgeführt",
     identityNotRecorded: "Nicht erfasst",
     identityOpenRun: "Lauf öffnen",
@@ -1865,7 +1907,6 @@ const overrides = {
       "Wende die Änderungen für diesen Kommentar an und erledige ihn.",
     aiWorking: "KI arbeitet…",
     aiReplied: "KI hat geantwortet",
-    aiSuggestionReady: "Vorschlag prüfen",
     aiChangesApplied: "Änderungen angewendet",
     aiAppliedAndResolved: "Angewendet und erledigt",
     aiChangeUndone: "Änderung rückgängig gemacht",

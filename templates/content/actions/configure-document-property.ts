@@ -127,6 +127,7 @@ const legacyConfigureDocumentPropertySchema = z
   .strict();
 
 export default defineAction({
+  searchHints: ["add a column", "table column", "database field"],
   description:
     "Create an ordinary Content collection property (a `blocks` property adds a tab to every row's page) or safely update its metadata, select options, and natural-key role using an exact target, fresh schema revision, and idempotency key.",
   mcpTool: true,

@@ -258,6 +258,7 @@ import {
   useDeleteDocument,
   useDocument,
   seedDatabaseItemDocumentCaches,
+  startDatabaseItemPreviewReads,
   useUpdateDocument,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
@@ -359,6 +360,12 @@ import {
   DATABASE_VIEW_TABS_ROW_CLASS_NAME,
   DatabaseViewSkeleton,
 } from "./DatabaseViewSkeleton";
+import {
+  databaseFilterChipToReopen,
+  databaseFilterEncodeSelectedValues,
+  databaseFilterSelectedValues,
+  foldDatabaseFilterChips,
+} from "./filter-chips";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
 import type { GitHubCollectionPlace } from "./github-availability";
@@ -378,6 +385,12 @@ import {
   databaseItemHasViewerAccess,
   databaseItemIsSourceBacked,
 } from "./row-access";
+import {
+  DATABASE_ROW_NESTED_CONTROL_SELECTOR,
+  databaseRowOpenTarget,
+  databaseRowOpenTargetAt,
+} from "./row-open-target";
+import type { DatabaseRowView } from "./row-view-layout";
 import { scopedDatabaseRowTitleUpdateRequest } from "./scoped-row-write";
 import { DatabaseTimelineView } from "./TimelineView";
 import {
@@ -930,9 +943,7 @@ export function openDatabaseItemOnClick(onOpen: () => void) {
     const target = event.target;
     if (!(target instanceof Element)) return;
     if (!event.currentTarget.contains(target)) return;
-    if (target.closest("a, button, input, textarea, [role='menuitem']")) {
-      return;
-    }
+    if (target.closest(DATABASE_ROW_NESTED_CONTROL_SELECTOR)) return;
     onOpen();
   };
 }
@@ -1143,16 +1154,38 @@ function DatabaseTable({
   const previewCommentIntentSequenceRef = useRef(0);
   const previewSessionRef = useRef<PageEditorSession | null>(null);
   const previewTransitionRef = useRef(false);
+  const queuedPreviewTransitionRef = useRef<(() => void) | null>(null);
+  const previewTransitionsEndedRef = useRef(false);
+  useEffect(() => {
+    previewTransitionsEndedRef.current = false;
+    return () => {
+      previewTransitionsEndedRef.current = true;
+    };
+  }, []);
   const [previewTransitionPending, setPreviewTransitionPending] =
     useState(false);
+  // The row a switch waiting on the save will show, so the arrows step on
+  // from it rather than from the row still on show.
+  const [previewDestinationId, setPreviewDestinationId] = useState<
+    string | null
+  >(null);
   const handlePreviewSessionChange = useCallback(
     (session: PageEditorSession | null) => {
       previewSessionRef.current = session;
     },
     [],
   );
-  function runPreviewTransition(action: () => void) {
-    if (previewTransitionRef.current) return;
+  function runPreviewTransition(
+    action: () => void,
+    destinationId: string | null = null,
+  ) {
+    // The save in progress holds the switch, and the latest choice is the one
+    // that runs once it lands.
+    if (previewTransitionRef.current) {
+      queuedPreviewTransitionRef.current = action;
+      setPreviewDestinationId(destinationId);
+      return;
+    }
     const session = previewSessionRef.current;
     if (!session) {
       action();
@@ -1160,16 +1193,24 @@ function DatabaseTable({
     }
     previewTransitionRef.current = true;
     setPreviewTransitionPending(true);
+    setPreviewDestinationId(destinationId);
     void session
       .flush()
       .then(() => {
         previewTransitionRef.current = false;
         setPreviewTransitionPending(false);
-        action();
+        setPreviewDestinationId(null);
+        const queued = queuedPreviewTransitionRef.current;
+        queuedPreviewTransitionRef.current = null;
+        // Someone who left the collection while it saved has gone elsewhere.
+        if (previewTransitionsEndedRef.current) return;
+        (queued ?? action)();
       })
       .catch((error: unknown) => {
         previewTransitionRef.current = false;
+        queuedPreviewTransitionRef.current = null;
         setPreviewTransitionPending(false);
+        setPreviewDestinationId(null);
         toast.error(dbText("failedToSavePagePreview"), {
           description:
             error instanceof Error
@@ -1178,13 +1219,23 @@ function DatabaseTable({
         });
       });
   }
+  // Choosing the row already showing takes back a choice waiting on the save.
+  function keepPreviewedRow() {
+    if (previewTransitionRef.current) {
+      queuedPreviewTransitionRef.current = () => {};
+      setPreviewDestinationId(null);
+    }
+  }
   function setPreviewDocumentId(id: string | null) {
-    if (id === previewDocumentId) return;
+    if (id === previewDocumentId) {
+      keepPreviewedRow();
+      return;
+    }
     runPreviewTransition(() => {
       previewSessionRef.current = null;
       setPreviewCommentIntent(null);
       setPreviewDocumentIdState(id);
-    });
+    }, id);
   }
   const [createdPreviewItem, setCreatedPreviewItem] =
     useState<ContentDatabaseItem | null>(null);
@@ -1587,17 +1638,20 @@ function DatabaseTable({
   useEffect(() => {
     lastPreviewItemRef.current = previewItem;
   }, [previewItem]);
-  const previousPreviewItem = previewItem
+  const previewNeighborsOf = previewItem
+    ? (previewDestinationId ?? previewItem.document.id)
+    : null;
+  const previousPreviewItem = previewNeighborsOf
     ? databaseItemPreviewNeighbor(
         screenVisibleItems,
-        previewItem.document.id,
+        previewNeighborsOf,
         "prev",
       )
     : null;
-  const nextPreviewItem = previewItem
+  const nextPreviewItem = previewNeighborsOf
     ? databaseItemPreviewNeighbor(
         screenVisibleItems,
-        previewItem.document.id,
+        previewNeighborsOf,
         "next",
       )
     : null;
@@ -2034,8 +2088,25 @@ function DatabaseTable({
       openItemPage(item);
       return;
     }
+    if (item.document.id !== previewDocumentId) {
+      startDatabaseItemPreviewReads(queryClient, item, document.id);
+    }
     setPreviewDocumentId(item.document.id);
   }
+
+  // A press or a rest on another row, or on an arrow: the switch is likely, so
+  // the reads it draws from start now rather than after it.
+  const prepareRowForPreview = useStableCallback((documentId: string) => {
+    if (documentId === previewDocumentId) return;
+    const item = screenVisibleItems.find(
+      (candidate) => candidate.document.id === documentId,
+    );
+    if (item) {
+      startDatabaseItemPreviewReads(queryClient, item, document.id, {
+        reviewReads: false,
+      });
+    }
+  });
 
   // Opens the row with its Comments showing, from a count or a cell marker.
   // Every table cell reads this through context, so it keeps one identity.
@@ -2049,6 +2120,7 @@ function DatabaseTable({
           item.document.id,
           databaseId,
           document.id,
+          activeView.id,
         );
         const link = threadId
           ? `${path}&comment=${encodeURIComponent(threadId)}`
@@ -2065,6 +2137,7 @@ function DatabaseTable({
         ...(propertyId ? { propertyId } : {}),
       };
       if (item.document.id === previewDocumentId) {
+        keepPreviewedRow();
         setPreviewCommentIntent(intent);
         return;
       }
@@ -2072,18 +2145,24 @@ function DatabaseTable({
         previewSessionRef.current = null;
         setPreviewCommentIntent(intent);
         setPreviewDocumentIdState(item.document.id);
-      });
+      }, item.document.id);
     },
   );
+
+  function previewRowAfterDelete(item: ContentDatabaseItem | null | undefined) {
+    if (item) startDatabaseItemPreviewReads(queryClient, item, document.id);
+    setPreviewDocumentId(item?.document.id ?? null);
+  }
 
   function handleDeletedPreviewItem(item: ContentDatabaseItem) {
     const previewState = previewStateRef.current;
     if (previewState.documentId !== item.document.id) return false;
-    const nextPreviewItem = databaseItemPreviewFallbackAfterDelete(
-      previewState.visibleItems,
-      item.document.id,
+    previewRowAfterDelete(
+      databaseItemPreviewFallbackAfterDelete(
+        previewState.visibleItems,
+        item.document.id,
+      ),
     );
-    setPreviewDocumentId(nextPreviewItem?.document.id ?? null);
     return true;
   }
 
@@ -2096,12 +2175,13 @@ function DatabaseTable({
     ) {
       return false;
     }
-    const nextPreviewItem = databaseItemPreviewFallbackAfterBulkDelete(
-      previewState.visibleItems,
-      previewState.documentId,
-      deletedDocumentIds,
+    previewRowAfterDelete(
+      databaseItemPreviewFallbackAfterBulkDelete(
+        previewState.visibleItems,
+        previewState.documentId,
+        deletedDocumentIds,
+      ),
     );
-    setPreviewDocumentId(nextPreviewItem?.document.id ?? null);
     return true;
   }
 
@@ -2114,7 +2194,12 @@ function DatabaseTable({
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
     void navigate(
-      databaseItemPagePath(item.document.id, databaseId, document.id),
+      databaseItemPagePath(
+        item.document.id,
+        databaseId,
+        document.id,
+        activeView.id,
+      ),
     );
   }
 
@@ -2131,29 +2216,34 @@ function DatabaseTable({
       spaces: spacesResponse.spaces,
     });
     if (!space) return false;
-    void workspaceSelectionQueueRef
-      .current(async () => {
-        await selectContentSpace({
-          space,
-          syncApplicationState: (selected) =>
-            setClientAppState(
-              "content-space",
-              {
-                spaceId: selected.id,
-                name: selected.name,
-                kind: selected.kind,
-                filesDatabaseId: selected.filesDatabaseId,
-              },
-              { requestSource: "content-workspaces-database" },
-            ),
-          persistSelection: setStoredSpaceId,
-          openSpace: (spaceId) =>
-            navigate(`/home?spaceId=${encodeURIComponent(spaceId)}`),
+    // Opening the workspace leaves the collection, so an open panel saves
+    // its edits first, as a switch would.
+    runPreviewTransition(() => {
+      void workspaceSelectionQueueRef
+        .current(async () => {
+          await selectContentSpace({
+            space,
+            syncApplicationState: (selected) =>
+              setClientAppState(
+                "content-space",
+                {
+                  spaceId: selected.id,
+                  name: selected.name,
+                  kind: selected.kind,
+                  filesDatabaseId: selected.filesDatabaseId,
+                },
+                { requestSource: "content-workspaces-database" },
+              ),
+            persistSelection: setStoredSpaceId,
+            openSpace: (spaceId) => {
+              void navigate(`/home?spaceId=${encodeURIComponent(spaceId)}`);
+            },
+          });
+        })
+        .catch((error) => {
+          toast.error(error instanceof Error ? error.message : String(error));
         });
-      })
-      .catch((error) => {
-        toast.error(error instanceof Error ? error.message : String(error));
-      });
+    });
     return true;
   }
 
@@ -3365,14 +3455,22 @@ function DatabaseTable({
               open={toolbarFilterOpen}
               onOpenChange={setToolbarFilterOpen}
               onAddFilter={(key, label) => {
-                setActiveFilters([
-                  ...filters,
-                  createDatabaseFilterForField(key, label, orderedProperties),
-                ]);
+                const reopenIndex = databaseFilterChipToReopen(
+                  filters,
+                  key,
+                  filterMode,
+                  orderedProperties,
+                );
+                if (reopenIndex === null) {
+                  setActiveFilters([
+                    ...filters,
+                    createDatabaseFilterForField(key, label, orderedProperties),
+                  ]);
+                }
                 setInlineFilterControlsOpen(true);
                 constraintMenus.set({
                   addFilter: false,
-                  filterIndex: filters.length,
+                  filterIndex: reopenIndex ?? filters.length,
                 });
                 setToolbarFilterOpen(false);
               }}
@@ -3957,6 +4055,8 @@ function DatabaseTable({
 
       <DatabaseItemPreviewSheet
         item={previewItem}
+        rowView={activeView}
+        collectionEditable={document.canEdit === true}
         transitionPending={previewTransitionPending}
         onSessionChange={handlePreviewSessionChange}
         previousItem={previousPreviewItem}
@@ -3979,8 +4079,10 @@ function DatabaseTable({
         }}
         onPreviewItem={(item) => {
           prioritizeBuilderBodyHydrationForItem(item);
+          startDatabaseItemPreviewReads(queryClient, item, document.id);
           setPreviewDocumentId(item.document.id);
         }}
+        onPrepareRow={prepareRowForPreview}
         onTitleFocused={() => setPreviewTitleFocusDocumentId(null)}
         onOpenPage={(item) => {
           runPreviewTransition(() => openItemPageNow(item));
@@ -4239,8 +4341,10 @@ export function databaseItemPagePath(
   documentId: string,
   databaseId: string,
   databaseDocumentId: string,
+  fromViewId?: string,
 ) {
   const search = new URLSearchParams({ databaseId, databaseDocumentId });
+  if (fromViewId) search.set("fromViewId", fromViewId);
   return `/page/${documentId}?${search.toString()}`;
 }
 
@@ -5278,6 +5382,8 @@ export function databaseItemPreviewPosition(
 
 function DatabaseItemPreviewSheet({
   item,
+  rowView,
+  collectionEditable,
   previousItem,
   nextItem,
   position,
@@ -5286,6 +5392,7 @@ function DatabaseItemPreviewSheet({
   focusTitle,
   onOpenChange,
   onPreviewItem,
+  onPrepareRow,
   onTitleFocused,
   onOpenPage,
   transitionPending,
@@ -5293,6 +5400,8 @@ function DatabaseItemPreviewSheet({
   commentIntent,
 }: {
   item: ContentDatabaseItem | null;
+  rowView: DatabaseRowView;
+  collectionEditable: boolean;
   previousItem: ContentDatabaseItem | null;
   nextItem: ContentDatabaseItem | null;
   position: { index: number; total: number } | null;
@@ -5304,10 +5413,33 @@ function DatabaseItemPreviewSheet({
   onSessionChange: (session: PageEditorSession | null) => void;
   onOpenChange: (open: boolean) => void;
   onPreviewItem?: (item: ContentDatabaseItem) => void;
+  onPrepareRow: (documentId: string) => void;
   onTitleFocused?: () => void;
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let restingOn: string | null = null;
+    let timer: number | undefined;
+    function handlePointerOver(event: PointerEvent) {
+      const documentId =
+        databaseRowOpenTargetAt(event.target)?.documentId ?? null;
+      if (documentId === restingOn) return;
+      restingOn = documentId;
+      window.clearTimeout(timer);
+      if (!documentId) return;
+      timer = window.setTimeout(
+        () => onPrepareRow(documentId),
+        DATABASE_ROW_REST_BEFORE_READ_MS,
+      );
+    }
+    window.document.addEventListener("pointerover", handlePointerOver);
+    return () => {
+      window.clearTimeout(timer);
+      window.document.removeEventListener("pointerover", handlePointerOver);
+    };
+  }, [onPrepareRow, open]);
   return (
     <Sheet open={open} onOpenChange={onOpenChange} modal={false}>
       <SheetContent
@@ -5328,16 +5460,24 @@ function DatabaseItemPreviewSheet({
           if (
             transitionPending ||
             isDatabasePreviewPortalInteraction(event.target)
-          )
+          ) {
             event.preventDefault();
+            return;
+          }
+          const rowOpenTarget = databaseRowOpenTargetAt(event.target);
+          if (!rowOpenTarget) return;
+          event.preventDefault();
+          returnFocusRef.current = rowOpenTarget.element;
+          onPrepareRow(rowOpenTarget.documentId);
         }}
         className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:w-[min(72vw,720px)] sm:!max-w-none lg:w-[50vw] lg:!max-w-[860px]"
       >
         {item ? (
           <DatabaseItemPreview
-            key={`${item.databaseId}:${item.id}:${item.document.id}`}
             item={item}
             databaseDocumentId={databaseDocumentId}
+            rowView={rowView}
+            collectionEditable={collectionEditable}
             previousItem={previousItem}
             nextItem={nextItem}
             position={position}
@@ -5347,6 +5487,7 @@ function DatabaseItemPreviewSheet({
             transitionPending={transitionPending}
             onSessionChange={onSessionChange}
             onPreviewItem={onPreviewItem}
+            onPrepareRow={onPrepareRow}
             onClose={() => onOpenChange(false)}
             onOpenPage={() => onOpenPage(item)}
           />
@@ -5363,6 +5504,8 @@ function DatabaseItemPreviewSheet({
   );
 }
 
+const DATABASE_ROW_REST_BEFORE_READ_MS = 80;
+
 function isDatabasePreviewPortalInteraction(target: EventTarget | null) {
   if (!(target instanceof Element)) return false;
   return !!target.closest(
@@ -5372,12 +5515,15 @@ function isDatabasePreviewPortalInteraction(target: EventTarget | null) {
 
 function DatabaseItemPreview({
   item,
+  rowView,
+  collectionEditable,
   previousItem,
   nextItem,
   position,
   databaseDocumentId,
   focusTitle,
   onPreviewItem,
+  onPrepareRow,
   onTitleFocused,
   onClose,
   onOpenPage,
@@ -5386,6 +5532,8 @@ function DatabaseItemPreview({
   commentIntent,
 }: {
   item: ContentDatabaseItem;
+  rowView: DatabaseRowView;
+  collectionEditable: boolean;
   previousItem: ContentDatabaseItem | null;
   nextItem: ContentDatabaseItem | null;
   position: { index: number; total: number } | null;
@@ -5395,6 +5543,7 @@ function DatabaseItemPreview({
   transitionPending: boolean;
   onSessionChange: (session: PageEditorSession | null) => void;
   onPreviewItem?: (item: ContentDatabaseItem) => void;
+  onPrepareRow: (documentId: string) => void;
   onTitleFocused?: () => void;
   onClose: () => void;
   onOpenPage: () => void;
@@ -5404,12 +5553,34 @@ function DatabaseItemPreview({
   const deleteDocument = useDeleteDocument();
   const deleteContentSpace = useDeleteContentSpace();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
-  const { data: document } = useDocument(item.document.id, {
-    databaseId: item.databaseId,
-    databaseDocumentId,
-  });
+  // Takes the surface's answer rather than asking again: a second read would
+  // hold the surface's page back behind it.
+  const { data: document } = useDocument(
+    item.document.id,
+    { databaseId: item.databaseId, databaseDocumentId },
+    { enabled: false },
+  );
   const previewTitle = document?.title || databaseItemPreviewTitle(item);
+  // The list's answer holds the Row menu's place through a switch. Writing waits
+  // for this page's own answer.
   const canEdit = document?.canEdit === true;
+  const canEditExpected = (document ?? item.document).canEdit === true;
+  const previousButtonRef = useRef<HTMLButtonElement | null>(null);
+  const nextButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previousDocumentId = previousItem?.document.id;
+  const nextDocumentId = nextItem?.document.id;
+  // After a switch the pointer is still on the arrow, and the row it now leads
+  // to is the likely next one.
+  useEffect(() => {
+    for (const [button, documentId] of [
+      [previousButtonRef.current, previousDocumentId],
+      [nextButtonRef.current, nextDocumentId],
+    ] as const) {
+      if (documentId && button?.matches(":hover, :focus-visible")) {
+        onPrepareRow(documentId);
+      }
+    }
+  }, [nextDocumentId, onPrepareRow, previousDocumentId]);
   const sessionRef = useRef<PageEditorSession | null>(null);
   const handleSessionChange = useCallback(
     (session: PageEditorSession | null) => {
@@ -5478,11 +5649,18 @@ function DatabaseItemPreview({
               </span>
             ) : null}
             <Button
+              ref={previousButtonRef}
               type="button"
               variant="ghost"
               size="icon-sm"
-              disabled={!previousItem || transitionPending}
+              disabled={!previousItem}
               aria-label={dbText("previousDatabasePage")}
+              onPointerEnter={() => {
+                if (previousDocumentId) onPrepareRow(previousDocumentId);
+              }}
+              onFocus={() => {
+                if (previousDocumentId) onPrepareRow(previousDocumentId);
+              }}
               onClick={() => {
                 if (previousItem) onPreviewItem?.(previousItem);
               }}
@@ -5490,11 +5668,18 @@ function DatabaseItemPreview({
               <IconArrowLeft className="size-3.5" />
             </Button>
             <Button
+              ref={nextButtonRef}
               type="button"
               variant="ghost"
               size="icon-sm"
-              disabled={!nextItem || transitionPending}
+              disabled={!nextItem}
               aria-label={dbText("nextDatabasePage")}
+              onPointerEnter={() => {
+                if (nextDocumentId) onPrepareRow(nextDocumentId);
+              }}
+              onFocus={() => {
+                if (nextDocumentId) onPrepareRow(nextDocumentId);
+              }}
               onClick={() => {
                 if (nextItem) onPreviewItem?.(nextItem);
               }}
@@ -5512,7 +5697,8 @@ function DatabaseItemPreview({
               <IconExternalLink className="size-3.5" />
               {dbText("openPage")}
             </Button>
-            {(canEdit && !isWorkspaceCatalog) || removesFavoriteMembership ? (
+            {(canEditExpected && !isWorkspaceCatalog) ||
+            removesFavoriteMembership ? (
               <DropdownMenu
                 modal={false}
                 open={actionsMenuOpen}
@@ -5534,10 +5720,12 @@ function DatabaseItemPreview({
                   align="end"
                   data-database-preview-portal=""
                 >
-                  {canEdit &&
+                  {canEditExpected &&
                   databaseItemCanDuplicate(item, isWorkspaceCatalog) ? (
                     <DropdownMenuItem
-                      disabled={duplicateItem.isPending || transitionPending}
+                      disabled={
+                        !canEdit || duplicateItem.isPending || transitionPending
+                      }
                       onSelect={(event) => {
                         event.preventDefault();
                         void duplicatePreviewRow();
@@ -5575,9 +5763,13 @@ function DatabaseItemPreview({
       >
         <SidebarTriggerContext.Provider value={null}>
           <PageEditorSurface
+            // Each row mounts its own surface, inside a frame that stays put.
+            key={`${item.databaseId}:${item.id}:${item.document.id}`}
             documentId={item.document.id}
             databaseId={item.databaseId}
             databaseDocumentId={databaseDocumentId}
+            rowView={rowView}
+            previewRow={{ item, collectionEditable }}
             host="preview"
             focusTitle={focusTitle}
             onTitleFocused={onTitleFocused}
@@ -6982,7 +7174,18 @@ export function DatabaseActiveConstraintsBar({
           properties={properties}
           open={openFilterIndex === index}
           showUnsavedIndicator={hasPersonalQueryChanges}
-          onOpenChange={(open) => onFilterOpenIndexChange(open ? index : null)}
+          onOpenChange={(open) => {
+            onFilterOpenIndexChange(open ? index : null);
+            if (open) return;
+            // A closed chip that says the same as another on its property,
+            // such as a second "is not" under All, folds into that one.
+            const folded = foldDatabaseFilterChips(
+              filters,
+              filterMode,
+              properties,
+            );
+            if (folded !== filters) onFiltersChange(folded);
+          }}
           onFiltersChange={onFiltersChange}
           onRemove={() => onRemoveFilter(index)}
         />
@@ -6993,12 +7196,20 @@ export function DatabaseActiveConstraintsBar({
         properties={properties}
         onOpenChange={onAddFilterOpenChange}
         onAddFilter={(key, label) => {
-          onFiltersChange([
-            ...filters,
-            createDatabaseFilterForField(key, label, properties),
-          ]);
+          const reopenIndex = databaseFilterChipToReopen(
+            filters,
+            key,
+            filterMode,
+            properties,
+          );
+          if (reopenIndex === null) {
+            onFiltersChange([
+              ...filters,
+              createDatabaseFilterForField(key, label, properties),
+            ]);
+          }
           onAddFilterOpenChange(false);
-          onFilterOpenIndexChange(filters.length);
+          onFilterOpenIndexChange(reopenIndex ?? filters.length);
         }}
         onAddAdvancedFilter={(key, label) => {
           onFiltersChange([
@@ -13146,6 +13357,7 @@ function DatabaseCalendarCard({
   return (
     <div
       className="group/card cursor-pointer rounded border border-border bg-background px-2 py-1.5 text-xs shadow-sm transition-colors hover:bg-accent/60"
+      {...databaseRowOpenTarget(item.document.id)}
       onClick={openDatabaseItemOnClick(onPreview)}
     >
       <div className="flex min-w-0 items-start gap-1">
@@ -13153,6 +13365,7 @@ function DatabaseCalendarCard({
           <button
             type="button"
             className="flex min-w-0 items-center gap-1.5 rounded text-left font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            {...databaseRowOpenTarget(item.document.id)}
             onClick={onPreview}
           >
             <DatabaseItemPageIcon
@@ -13860,6 +14073,7 @@ function DatabaseBoardCard({
       )}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
+      {...databaseRowOpenTarget(item.document.id)}
       onClick={openDatabaseItemOnClick(onPreview)}
     >
       <div className="flex min-w-0 items-start gap-1">
@@ -13867,6 +14081,7 @@ function DatabaseBoardCard({
           <button
             type="button"
             className="flex min-w-0 items-center gap-1.5 rounded text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            {...databaseRowOpenTarget(item.document.id)}
             onClick={onPreview}
           >
             <DatabaseItemPageIcon
@@ -19234,39 +19449,11 @@ function databaseFilterValueLabel(
   return values[0] || dbText("filterChooseOption");
 }
 
-function databaseFilterSelectedValues(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return [];
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (!Array.isArray(parsed)) return [trimmed];
-    return [
-      ...new Set(
-        parsed
-          .filter((item): item is string => typeof item === "string")
-          .map((item) => item.trim())
-          .filter(Boolean),
-      ),
-    ];
-  } catch {
-    return [trimmed];
-  }
-}
-
 function databaseFilterEncodeDateRangeValues(start: string, end: string) {
   const normalizedStart = start.trim();
   const normalizedEnd = end.trim();
   if (!normalizedStart && !normalizedEnd) return "";
   return JSON.stringify([normalizedStart, normalizedEnd]);
-}
-
-function databaseFilterEncodeSelectedValues(values: string[]) {
-  const normalized = [
-    ...new Set(values.map((value) => value.trim()).filter(Boolean)),
-  ];
-  if (normalized.length === 0) return "";
-  if (normalized.length === 1) return normalized[0];
-  return JSON.stringify(normalized);
 }
 
 function databaseFilterOptionIsSelected(
@@ -20152,6 +20339,7 @@ function RowNameCell({
             "flex min-w-0 flex-1 items-center rounded-sm px-1 text-left text-sm hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             databaseTitleButtonDensityClass(rowDensity, wrapCells),
           )}
+          {...databaseRowOpenTarget(item.document.id)}
           onClick={onPreview}
           aria-label={`Open ${item.document.title || "Untitled"} preview`}
         >

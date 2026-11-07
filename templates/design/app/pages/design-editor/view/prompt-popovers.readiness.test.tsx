@@ -37,7 +37,9 @@ function renderPromptProps(
       clearGenerationCompleteTimer: noop,
       generationModelRef: { current: {} },
       setHasPendingGeneration: noop,
-      generationOutputBaselineRef: { current: outputBaselineFiles },
+      generationOutputBaselineRef: {
+        current: outputBaselineFiles && (() => outputBaselineFiles),
+      },
       agentSubmit,
       setGenerationChatTabId: noop,
       generating: false,

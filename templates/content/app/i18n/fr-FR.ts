@@ -951,6 +951,7 @@ const editor = {
       video: "Vidéo",
     },
     fromSource: "À partir de {{name}}",
+    hiddenInThisView: "Masquées dans cette vue",
     hiddenProperties: "Propriétés cachées",
     imageUploaded_zero: "Images téléchargées",
     imageUploaded_one: "Image téléchargée",
@@ -1208,7 +1209,7 @@ const rawLiterals = {
     previewDraftSavedToHistory:
       "Vos modifications ont été enregistrées dans l’historique",
     previewDraftSavedSeparately:
-      "Vos modifications ont été enregistrées dans une autre page",
+      "Vos modifications ont été enregistrées dans une page privée de votre espace",
     previewDraftOpenSavedPage: "Ouvrir la page",
     previewDraftMoreOptions: "Plus d’options",
     previewDraftViewFullVersions: "Afficher les versions complètes",
@@ -1292,6 +1293,23 @@ const rawLiterals = {
     restoreDatabase: "Restaurer",
     restoreDatabaseNamed: "Restaurer {{title}}",
     trash: "Corbeille",
+  },
+  publicDocument: {
+    chat: "Chat",
+    freeAndOpenSource: "Gratuit et open source sur GitHub",
+    pagePath: "Chemin de la page",
+    privateDescription:
+      "Demandez au propriétaire de le partager avec votre compte ou votre espace de travail avant d’ouvrir ce lien.",
+    privateTitle: "Ce document est privé",
+    signIn: "Connexion",
+    signUp: "S’inscrire",
+    signUpFree: "Inscription gratuite",
+    subPages: "Sous-pages",
+    tryContentFree: "Essayer Content gratuitement",
+    updated: "Mis à jour le {{date}}",
+    writtenIn: "Rédigé dans Agent-Native Content.",
+    writtenInDescription:
+      "Rédigez et publiez vos propres pages, avec un agent IA qui travaille dans vos documents.",
   },
 };
 
@@ -1825,6 +1843,28 @@ const overrides = {
     discardEditDescription: "Votre commentaire restera tel quel.",
     discard: "Abandonner",
     keepEditing: "Continuer à modifier",
+    deleteComment: "Supprimer le commentaire",
+    deleteThread: "Supprimer le fil",
+    deleteCommentQuestion: "Supprimer le commentaire ?",
+    deleteCommentDescription:
+      "Il sera supprimé pour tout le monde. Cette action est irréversible.",
+    deleteThreadQuestion: "Supprimer le fil ?",
+    deleteThreadDescription:
+      "Le fil et ses réponses seront supprimés pour tout le monde. Cette action est irréversible.",
+    deleteThreadAiChangeDescription:
+      "Le fil et ses réponses seront supprimés pour tout le monde. Cette action est irréversible. La modification de l'IA reste dans la page, mais vous ne pourrez pas l'annuler depuis le fil.",
+    delete: "Supprimer",
+    deleting: "Suppression…",
+    deleteRefusedReplied:
+      "Quelqu'un d'autre a répondu : seul un éditeur peut supprimer ce fil.",
+    deleteRefusedNotion:
+      "Ce commentaire est synchronisé avec Notion. Supprimez-le dans Notion.",
+    deleteRefusedAiWorking:
+      "L'IA travaille sur ce fil. Arrêtez-la avant de supprimer le fil.",
+    deleteRefusedAiSuggestion:
+      "La suggestion de l'IA dans ce fil attend votre examen. Acceptez-la ou refusez-la avant de supprimer le fil.",
+    deleteRefusedBusy:
+      "Ce fil est en cours de modification. Réessayez de le supprimer dans un instant.",
     submit: "Commenter",
     askAi: "Demander à l'IA",
     aiBadge: "IA",
@@ -1835,8 +1875,10 @@ const overrides = {
     mentionPeopleLoadFailed: "Impossible de charger les personnes.",
     mentionAgents: "Agents",
     identityPerson: "Personne",
-    identityModel: "Modèle",
     identityEffort: "Effort",
+    acceptAllAndResolve: "Tout accepter et résoudre",
+    acceptAndResolve: "Accepter et résoudre",
+    suggestionLoadFailed: "Impossible de charger cette suggestion",
     identityRan: "Exécuté",
     identityNotRecorded: "Non enregistré",
     identityOpenRun: "Ouvrir l’exécution",
@@ -1870,7 +1912,6 @@ const overrides = {
       "Applique les modifications de ce commentaire et résous-le.",
     aiWorking: "L’IA travaille…",
     aiReplied: "L’IA a répondu",
-    aiSuggestionReady: "Examiner la suggestion",
     aiChangesApplied: "Modifications appliquées",
     aiAppliedAndResolved: "Appliqué et résolu",
     aiChangeUndone: "Modification annulée",

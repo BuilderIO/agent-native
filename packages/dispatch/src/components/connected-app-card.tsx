@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 import type { MouseEvent } from "react";
 
@@ -8,15 +9,21 @@ import {
 } from "../lib/workspace-apps";
 import { AppIcon } from "./app-icon";
 import { AppListRow } from "./app-list-row";
-import { AppOpenActions } from "./app-open-actions";
+import { AppOpenActions, appOpenActionLabels } from "./app-open-actions";
+import { AppPinButton } from "./app-pin-button";
 
 export function ConnectedAppCard({
   app,
   className,
+  isPinned = false,
+  onTogglePinned,
 }: {
   app: ConnectedAppSummary;
   className?: string;
+  isPinned?: boolean;
+  onTogglePinned?: () => void;
 }) {
+  const t = useT();
   const launchUrl = app.homeUrl ?? app.url;
   const trackedLaunchUrl = withBuilderUtmTrackingParams(launchUrl, {
     campaign: "product",
@@ -55,12 +62,22 @@ export function ConnectedAppCard({
           {app.description || app.url}
         </div>
       </div>
+      {onTogglePinned ? (
+        <AppPinButton
+          appId={app.id}
+          name={app.name}
+          pinned={isPinned}
+          onToggle={onTogglePinned}
+        />
+      ) : null}
       <div className="flex shrink-0" onClickCapture={handleActionClick}>
         <AppOpenActions
           name={app.name}
           href={trackedLaunchUrl}
           rel="noopener noreferrer"
           showNewTabOption
+          external={app.source === "builtin"}
+          labels={appOpenActionLabels(t, app.name)}
         />
       </div>
     </AppListRow>

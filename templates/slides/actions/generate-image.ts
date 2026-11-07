@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 
 import { parseArgs } from "@agent-native/core";
-import { fail } from "@agent-native/core/action";
+import { fail, noteExternalWrite } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import pLimit from "p-limit";
 
@@ -34,6 +34,7 @@ async function saveDelegatedImages(
     );
     throw new Error("Script failed");
   }
+  noteExternalWrite("local-disk");
   mkdirSync(dirname(outputPrefix), { recursive: true });
   let failures = 0;
   for (const [i, url] of urls.entries()) {
@@ -274,6 +275,7 @@ Options:
   }
 
   if (outputPrefix) {
+    noteExternalWrite("local-disk");
     mkdirSync(dirname(outputPrefix), { recursive: true });
   }
 
@@ -305,6 +307,7 @@ Options:
     successfulVariations++;
     if (outputPrefix) {
       const filePath = `${outputPrefix}-v${i + 1}.png`;
+      noteExternalWrite("local-disk");
       writeFileSync(filePath, result.imageData);
       generatedFiles.push(filePath);
       console.log(

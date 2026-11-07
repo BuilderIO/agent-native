@@ -16,7 +16,7 @@ import {
   isLocalFileLinkRefused,
 } from "../server/lib/live-body-writer.js";
 import {
-  syncPrivateCalloutReferences,
+  syncPrivateBodyReferences,
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
@@ -618,7 +618,7 @@ export default defineAction({
             );
           }
           if (lockedContentChanged) {
-            await syncPrivateCalloutReferences(
+            await syncPrivateBodyReferences(
               tx as unknown as ReturnType<typeof getDb>,
               {
                 documentId: id,
@@ -722,7 +722,7 @@ export default defineAction({
                 orgId: currentOrgId,
               },
             );
-            await syncPrivateCalloutReferences(
+            await syncPrivateBodyReferences(
               tx as unknown as ReturnType<typeof getDb>,
               {
                 documentId: id,
