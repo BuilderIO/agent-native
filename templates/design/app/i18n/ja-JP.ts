@@ -344,6 +344,8 @@ export default {
   common: {
     loading: "読み込み中...",
     genericError: "何か問題が発生しました",
+    linkedSourceSizeLimit:
+      "このリンクされたコンポーネントの編集はソースのサイズ制限を超えています。",
   },
   editPanel: {
     colorInputLabel: "色",
@@ -443,6 +445,7 @@ export default {
       font: "フォント",
       baseSize: "ベースサイズ",
       size: "サイズ",
+      fontSizes: "タイプスケール",
       weight: "重さ",
       color: "色",
       align: "整列",
@@ -894,6 +897,9 @@ export default {
       bottom: "B",
       left: "L",
     },
+    fontPicker: {
+      catalogUnavailable: "フォントライブラリ全体を読み込めませんでした。",
+    },
     fontFamilies: {
       inherit: "継承する",
       sansSerif: "サンセリフ",
@@ -1044,6 +1050,10 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "この画面を読み込めませんでした。",
+    writeFailed: "変更を保存できませんでした。",
+    selectionPublishFailed:
+      "エージェントが最新の選択範囲を認識していない可能性があります。もう一度選択してください。",
     liveCollaboration: {
       title: "ライブコラボレーション",
       description:
@@ -2701,6 +2711,7 @@ export default {
   },
   homeContext: {
     websiteReference: "ウェブサイトを追加",
+    websiteReferenceMenu: "ウェブサイトを追加…",
     websiteUrlLabel: "ウェブサイトのURL",
     websiteUrl: "ウェブサイトのURLを貼り付け",
     figmaUrlLabel: "Figmaリンク",
@@ -2726,10 +2737,12 @@ export default {
     retry: "再試行",
     empty: "一致する参照がありません。",
     none: "なし",
-    design: "デザイン",
+    design: "デザインの参照",
     slides: "スライド",
     referenceDesign: "デザインを参照",
-    figmaReference: "Figmaを追加",
+    connectFigma: "Figma を接続",
+    figmaDisconnected: "デザインを探すには Figma を接続してください。",
+    figmaReference: "Figma デザイン",
     referenceDeck: "プレゼンテーションを参照",
     quickSaas: "SaaS ランディングページを作成",
     quickDashboard: "ダッシュボードを作成",
@@ -2893,8 +2906,6 @@ export default {
       dismiss: "閉じる",
     },
     import: "インポート",
-    importOptions: "インポートオプション",
-    figmaLink: "Figmaリンク",
     importFromFigma: "Figma からインポート",
     figmaFile: "Figma ファイル (.fig)",
     figmaFileMaxSize: "最大 {{max}} GB",
@@ -3429,6 +3440,7 @@ export default {
     updateFailed: "コメントを更新できませんでした",
     commentsInCluster: "クラスター内のコメント: {{count}}",
     moreActions: "その他の操作",
+    moreActionsFor: "{{author}} のその他の操作",
     copyLink: "リンクをコピー",
     linkCopied: "リンクをコピーしました",
     copyLinkFailed: "リンクをコピーできませんでした",
@@ -3448,6 +3460,7 @@ export default {
     addEmoji: "絵文字を追加",
     mention: "メンションする",
     noMentions: "該当するユーザーがいません",
+    mentionsFailed: "ユーザーを読み込めませんでした",
     reopen: "再開",
     reopening: "再開中…",
     undo: "元に戻す",
@@ -3493,7 +3506,6 @@ export default {
     },
     filtersActive: "絞り込みを適用中",
     suggestChanges: "変更を提案",
-    replyInThread: "スレッドで返信",
     applyChangesAndResolve: "変更を適用して解決",
     agent: {
       sectionLabel: "エージェント",

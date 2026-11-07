@@ -64,7 +64,10 @@ function statusResponse(body: unknown) {
 
 let queryClient: QueryClient;
 
-function renderMenu(onExportGoogleSlides = vi.fn()) {
+function renderMenu(
+  onExportGoogleSlides = vi.fn(),
+  flushInlineEdit?: () => void,
+) {
   return render(
     <QueryClientProvider client={queryClient}>
       <ExportMenu
@@ -75,6 +78,7 @@ function renderMenu(onExportGoogleSlides = vi.fn()) {
         onExportPdf={vi.fn()}
         onExportPptx={vi.fn()}
         onExportGoogleSlides={onExportGoogleSlides}
+        flushInlineEdit={flushInlineEdit}
       />
     </QueryClientProvider>,
   );
@@ -105,7 +109,7 @@ afterEach(() => {
 });
 
 describe("<ExportMenu> Google Slides availability", () => {
-  it("disables and badges the item when Google refuses the OAuth request", async () => {
+  it("badges the item but keeps it clickable when Google refuses the OAuth request", async () => {
     globalThis.fetch = vi.fn(async () =>
       statusResponse({
         googleSlidesExport: { available: false, reason: "oauth-rejected" },
@@ -116,10 +120,8 @@ describe("<ExportMenu> Google Slides availability", () => {
     openExportMenu();
 
     const item = await googleSlidesItem();
-    await vi.waitFor(() =>
-      expect(item.getAttribute("data-disabled")).not.toBeNull(),
-    );
-    expect(item.textContent).toContain("Unavailable");
+    await vi.waitFor(() => expect(item.textContent).toContain("Unavailable"));
+    expect(item.getAttribute("data-disabled")).toBeNull();
   });
 
   it("does not send the user to a broken Google consent screen", async () => {
@@ -134,11 +136,14 @@ describe("<ExportMenu> Google Slides availability", () => {
     openExportMenu();
 
     const item = await googleSlidesItem();
-    await vi.waitFor(() =>
-      expect(item.getAttribute("data-disabled")).not.toBeNull(),
-    );
+    await vi.waitFor(() => expect(item.textContent).toContain("Unavailable"));
     fireEvent.click(item);
 
+    await vi.waitFor(() =>
+      expect(
+        screen.getByText("Google Slides export is unavailable right now."),
+      ).toBeTruthy(),
+    );
     expect(onExportGoogleSlides).not.toHaveBeenCalled();
     expect(startWorkspaceProviderOAuth).not.toHaveBeenCalled();
   });
@@ -160,6 +165,26 @@ describe("<ExportMenu> Google Slides availability", () => {
     await vi.waitFor(() =>
       expect(onExportGoogleSlides).toHaveBeenCalledTimes(1),
     );
+  });
+
+  it("commits the open inline draft before the Google Slides export starts", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      statusResponse({ googleSlidesExport: { available: true } }),
+    ) as typeof fetch;
+    const order: string[] = [];
+    const flushInlineEdit = vi.fn(() => {
+      order.push("inline");
+    });
+    const onExportGoogleSlides = vi.fn(async () => {
+      order.push("export");
+      return { url: "https://docs.google.com/presentation/d/x" };
+    });
+
+    renderMenu(onExportGoogleSlides, flushInlineEdit);
+    openExportMenu();
+    fireEvent.click(await googleSlidesItem());
+
+    await vi.waitFor(() => expect(order).toEqual(["inline", "export"]));
   });
 
   it("keeps the export usable when the status probe itself fails", async () => {

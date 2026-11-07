@@ -55,6 +55,9 @@ export function NodeDetailsParameters({
   dirty,
   starting,
   onTestStep,
+  onTestRequest,
+  testingRequest = false,
+  onAskAgent,
 }: {
   sectionRef: RefObject<HTMLDivElement | null>;
   editor: WorkflowEditor;
@@ -79,6 +82,12 @@ export function NodeDetailsParameters({
   starting: boolean;
   /** Resolves to whether the run started. */
   onTestStep: (nodeId: string, sampleItemIds: string[]) => Promise<boolean>;
+  /** Set for an API request tested in the window: Test step sends it and the Output column shows the answer, instead of starting a run. */
+  onTestRequest?: () => void;
+  /** That test is running. */
+  testingRequest?: boolean;
+  /** Runs just before the History tab hands the step to the agent. */
+  onAskAgent: () => void;
 }) {
   const ws = useWorkflowStrings();
   const pickerScope = useMemo(() => ({ factoryId }), [factoryId]);
@@ -133,10 +142,15 @@ export function NodeDetailsParameters({
               node={node}
               onServer={serverNodeIds.has(node.id)}
               dirty={dirty}
-              busy={starting}
-              onTest={(nodeId, sampleItemIds) =>
-                void testStep(nodeId, sampleItemIds)
-              }
+              busy={starting || testingRequest}
+              onTest={(nodeId, sampleItemIds) => {
+                if (onTestRequest) {
+                  onEngage();
+                  onTestRequest();
+                } else {
+                  void testStep(nodeId, sampleItemIds);
+                }
+              }}
             />
           </div>
         </div>
@@ -163,6 +177,7 @@ export function NodeDetailsParameters({
               title={title}
               runId={runId ?? undefined}
               onClose={() => setTab("parameters")}
+              onAskAgent={onAskAgent}
             />
           )}
         </TabsContent>

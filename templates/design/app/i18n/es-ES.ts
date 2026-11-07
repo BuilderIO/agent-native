@@ -342,6 +342,8 @@ export default {
   common: {
     loading: "Cargando...",
     genericError: "algo salió mal",
+    linkedSourceSizeLimit:
+      "Esta edición del componente vinculado supera el límite de tamaño del código fuente.",
   },
   editPanel: {
     colorInputLabel: "color",
@@ -440,6 +442,7 @@ export default {
       font: "Fuente",
       baseSize: "Tamaño básico",
       size: "Tamaño",
+      fontSizes: "Escala tipográfica",
       weight: "Peso",
       color: "Color",
       align: "Alinear",
@@ -894,6 +897,10 @@ export default {
       bottom: "B",
       left: "l",
     },
+    fontPicker: {
+      catalogUnavailable:
+        "No se pudo cargar la biblioteca completa de fuentes.",
+    },
     fontFamilies: {
       inherit: "Heredar",
       sansSerif: "Sin serifa",
@@ -1044,6 +1051,10 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "No se pudo cargar esta pantalla.",
+    writeFailed: "No se pudo guardar ese cambio.",
+    selectionPublishFailed:
+      "Es posible que el agente no vea tu selección más reciente. Vuelve a seleccionarla.",
     liveCollaboration: {
       title: "Colaboración en directo",
       description:
@@ -2702,6 +2713,7 @@ export default {
   },
   homeContext: {
     websiteReference: "Añadir sitio web",
+    websiteReferenceMenu: "Añadir sitio web…",
     websiteUrlLabel: "URL del sitio web",
     websiteUrl: "Pega la URL de un sitio web",
     figmaUrlLabel: "Enlace de Figma",
@@ -2727,10 +2739,12 @@ export default {
     retry: "Reintentar",
     empty: "No hay referencias coincidentes.",
     none: "Ninguno",
-    design: "Diseño",
+    design: "Referencias de diseño",
     slides: "Diapositivas",
     referenceDesign: "Usar un diseño como referencia",
-    figmaReference: "Añadir Figma",
+    connectFigma: "Conectar Figma",
+    figmaDisconnected: "Conecta Figma para explorar diseños.",
+    figmaReference: "Diseño de Figma",
     referenceDeck: "Usar una presentación como referencia",
     quickSaas: "Crear una página de SaaS",
     quickDashboard: "Crear un panel",
@@ -2894,8 +2908,6 @@ export default {
       dismiss: "Descartar",
     },
     import: "Importar",
-    importOptions: "Opciones de importación",
-    figmaLink: "Enlace de Figma",
     importFromFigma: "Importar desde Figma",
     figmaFile: "Archivo de Figma (.fig)",
     figmaFileMaxSize: "Hasta {{max}} GB",
@@ -3435,6 +3447,7 @@ export default {
     updateFailed: "No se pudo actualizar el comentario",
     commentsInCluster: "Comentarios en el grupo: {{count}}",
     moreActions: "Más acciones",
+    moreActionsFor: "Más acciones para {{author}}",
     copyLink: "Copiar enlace",
     linkCopied: "Enlace copiado",
     copyLinkFailed: "No se pudo copiar el enlace",
@@ -3454,6 +3467,7 @@ export default {
     addEmoji: "Añadir emoji",
     mention: "Mencionar a alguien",
     noMentions: "No se encontraron personas",
+    mentionsFailed: "No se pudo cargar a las personas",
     reopen: "Reabrir",
     reopening: "Reabriendo…",
     undo: "Deshacer",
@@ -3509,7 +3523,6 @@ export default {
     },
     filtersActive: "Filtros aplicados",
     suggestChanges: "Sugerir cambios",
-    replyInThread: "Responder en el hilo",
     applyChangesAndResolve: "Aplicar cambios y resolver",
     agent: {
       sectionLabel: "Agentes",

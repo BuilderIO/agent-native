@@ -14,6 +14,7 @@ import {
   finalizeContrastAudit,
 } from "../shared/contrast-audit.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import { withUniqueSlideIds } from "../shared/slide-ids.js";
 import {
   projectRenderingDesignSystemData,
   readDeckLinkedDesignSystem,
@@ -51,7 +52,10 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
 
-    const data = JSON.parse(access.resource.data) as {
+    const data = withUniqueSlideIds(
+      deckId,
+      JSON.parse(access.resource.data),
+    ) as {
       tweaks?: unknown;
       aspectRatio?: string | null;
       slides?: Array<{
@@ -132,6 +136,19 @@ export default defineAction({
       },
       { timeoutMs: AUDIT_TIMEOUT_MS },
     );
-    return finalizeContrastAudit(request, raw);
+    const report = finalizeContrastAudit(request, raw);
+    // An all-stale result is a failed audit, not a clean one: returning it as a
+    // success lets the agent treat it as a finished check and replay it as a duplicate.
+    if (
+      report.auditedSlideCount === 0 &&
+      report.skipped.length > 0 &&
+      report.skipped.every((entry) => entry.reason === "stale-render")
+    ) {
+      fail(
+        "The open editor has not caught up to the deck's latest slide content, so nothing was audited. Wait a moment, then run audit-contrast again.",
+        { errorCode: "contrast_audit_stale_render", statusCode: 409 },
+      );
+    }
+    return report;
   },
 });

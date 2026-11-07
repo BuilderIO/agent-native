@@ -1,5 +1,100 @@
 # @agent-native/scheduling
 
+## 0.2.55
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5e251c0]
+- Updated dependencies [5ee10e8]
+- Updated dependencies [9aabcfb]
+- Updated dependencies
+  - @agent-native/toolkit@0.226.0
+
+## 0.2.54
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.225.1
+
+## 0.2.53
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 78305f8: Stop offering times when a selected calendar can't be checked. If a calendar's busy lookup fails, its provider isn't registered, or its credential needs reconnecting, availability and booking now fail with `CalendarAvailabilityUnavailableError` ("Couldn't check <calendar>") instead of treating that calendar as free. Google Calendar busy lookups also fail when Google reports an error for a calendar, and Outlook busy times are now read from each selected calendar instead of a lookup that never returned them.
+- Updated dependencies [9108a0b]
+- Updated dependencies [59b8c47]
+- Updated dependencies
+- Updated dependencies [7557e39]
+- Updated dependencies [aeb3d12]
+- Updated dependencies [bce674a]
+  - @agent-native/toolkit@0.225.0
+
+## 0.2.52
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [6552f04]
+- Updated dependencies [aa0b323]
+- Updated dependencies
+- Updated dependencies [810b9e0]
+- Updated dependencies [7abe86d]
+  - @agent-native/toolkit@0.224.0
+
+## 0.2.51
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [0d88792]
+- Updated dependencies [10735e3]
+- Updated dependencies [70c5c8f]
+- Updated dependencies
+- Updated dependencies [110efd1]
+  - @agent-native/toolkit@0.223.1
+
+## 0.2.50
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [3a2fa31]
+- Updated dependencies [92d54bb]
+- Updated dependencies [23cf2ea]
+- Updated dependencies [92d54bb]
+- Updated dependencies [92d54bb]
+- Updated dependencies
+- Updated dependencies [8cdee8a]
+- Updated dependencies [033d9ad]
+- Updated dependencies [7138000]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [2428fde]
+- Updated dependencies [2428fde]
+- Updated dependencies [eacd478]
+- Updated dependencies [95841d4]
+- Updated dependencies [92d54bb]
+- Updated dependencies [f527363]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [d795784]
+- Updated dependencies [4699487]
+  - @agent-native/toolkit@0.223.0
+
+## 0.2.49
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [39cb8ce]
+  - @agent-native/toolkit@0.222.2
+
 ## 0.2.48
 
 ### Patch Changes
@@ -1166,58 +1261,5 @@
 - Updated dependencies [f0da2e0]
 - Updated dependencies [f0da2e0]
   - @agent-native/toolkit@0.10.0
-
-## 0.1.31
-
-### Patch Changes
-
-- Updated dependencies [0341a7d]
-  - @agent-native/toolkit@0.9.0
-
-## 0.1.30
-
-### Patch Changes
-
-- 8453025: Add manifest-driven feature ejection with dry-run planning, committed provenance, import rewrites, drift inspection, hash-gated restore, protected-runtime guidance, and complete first-party coverage guards.
-- Updated dependencies [8453025]
-  - @agent-native/toolkit@0.8.0
-
-## 0.1.29
-
-### Patch Changes
-
-- Updated dependencies [e53a34e]
-  - @agent-native/toolkit@0.7.0
-
-## 0.1.28
-
-### Patch Changes
-
-- Updated dependencies [01a3f27]
-  - @agent-native/toolkit@0.6.0
-
-## 0.1.27
-
-### Patch Changes
-
-- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
-- Updated dependencies [079e19a]
-  - @agent-native/toolkit@0.5.1
-
-## 0.1.26
-
-### Patch Changes
-
-- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
-- Updated dependencies [b6d7f87]
-  - @agent-native/toolkit@0.5.0
-
-## 0.1.25
-
-### Patch Changes
-
-- 38ca6fa: Require host identity (or the booking's capability token) before mutating bookings, revoking private links, duplicating event types, and returning reschedule tokens, closing cross-tenant write/disclosure gaps.
-- Updated dependencies [38ca6fa]
-  - @agent-native/toolkit@0.4.7
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

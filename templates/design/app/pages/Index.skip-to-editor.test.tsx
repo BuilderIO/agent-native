@@ -520,15 +520,8 @@ it("does not query or apply a default system when workflows are disabled", async
   expect(mocks.systemsQuery).toHaveBeenLastCalledWith(false);
   expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
   expect(
-    mocks.promptProps?.contextMenuItems[0].children.map(
-      (item: { id: string }) => item.id,
-    ),
-  ).toEqual([
-    "design-reference",
-    "figma-reference",
-    "website-reference",
-    "integrations",
-  ]);
+    mocks.promptProps?.contextMenuItems.map((item: { id: string }) => item.id),
+  ).toEqual(["figma-reference", "design-reference", "website-reference"]);
   await act(async () => mocks.promptProps?.onSubmit("New design", [], {}));
   expect(mocks.createDesign).toHaveBeenCalledWith(
     expect.objectContaining({ designSystemId: null }),
@@ -740,13 +733,11 @@ describe("Index skip to editor", () => {
     expect(mocks.createDesign).not.toHaveBeenCalled();
   });
 
-  it("retains the feature-gated design-or-app choice", async () => {
-    expect(mocks.promptProps?.creationMode).toBeUndefined();
+  it("does not offer a full-app mode when the lab is enabled", async () => {
     mocks.fullAppBuilding = true;
     await act(async () => root.render(<Index />));
-    expect(mocks.promptProps?.creationMode).toBe("design");
-    await act(async () => mocks.promptProps?.onCreationModeChange("app"));
-    expect(mocks.promptProps?.creationMode).toBe("app");
+    expect(mocks.promptProps?.creationMode).toBeUndefined();
+    expect(mocks.promptProps?.onCreationModeChange).toBeUndefined();
     expect(mocks.createDesign).not.toHaveBeenCalled();
   });
 
@@ -1100,82 +1091,7 @@ describe("Index skip to editor", () => {
     expect(mocks.promptProps?.selectedDesignSystemId).toBe("linked-system");
   });
 
-  it("resolves the linked template system before creating an app while systems load", async () => {
-    mocks.fullAppBuilding = true;
-    mocks.systemsLoading = true;
-    mocks.refetchSystems.mockResolvedValue({
-      isSuccess: true,
-      data: {
-        designSystems: [{ id: "linked-system" }],
-      },
-    });
-    await act(async () => root.render(<Index />));
-    await act(async () => mocks.promptProps?.onCreationModeChange("app"));
-    await act(async () =>
-      mocks.promptProps?.onTemplateChange("saved-template"),
-    );
-
-    await act(async () => {
-      await mocks.promptProps?.onSubmit("Build an app", [], {});
-    });
-
-    expect(mocks.refetchSystems).toHaveBeenCalledOnce();
-    expect(mocks.createDesign).toHaveBeenCalledWith(
-      expect.objectContaining({ designSystemId: "linked-system" }),
-    );
-    expect(mocks.createFromTemplate).not.toHaveBeenCalled();
-  });
-
-  it("retries systems lookup before app creation when the initial query failed", async () => {
-    mocks.fullAppBuilding = true;
-    mocks.systemsError = new Error("systems query failed");
-    mocks.refetchSystems.mockResolvedValue({
-      isSuccess: true,
-      data: {
-        designSystems: [{ id: "linked-system" }],
-      },
-    });
-    await act(async () => root.render(<Index />));
-    await act(async () => mocks.promptProps?.onCreationModeChange("app"));
-    await act(async () =>
-      mocks.promptProps?.onTemplateChange("saved-template"),
-    );
-
-    await act(async () => {
-      await mocks.promptProps?.onSubmit("Build an app", [], {});
-    });
-
-    expect(mocks.refetchSystems).toHaveBeenCalledOnce();
-    expect(mocks.createDesign).toHaveBeenCalledWith(
-      expect.objectContaining({ designSystemId: "linked-system" }),
-    );
-  });
-
-  it("resolves a template system before skipping to a blank app after query failure", async () => {
-    mocks.fullAppBuilding = true;
-    mocks.systemsError = new Error("systems query failed");
-    mocks.refetchSystems.mockResolvedValue({
-      isSuccess: true,
-      data: {
-        designSystems: [{ id: "linked-system" }],
-      },
-    });
-    await act(async () => root.render(<Index />));
-    await act(async () => mocks.promptProps?.onCreationModeChange("app"));
-    await act(async () =>
-      mocks.promptProps?.onTemplateChange("saved-template"),
-    );
-
-    await act(async () => {
-      await mocks.promptProps?.onSkip();
-    });
-
-    expect(mocks.refetchSystems).toHaveBeenCalledOnce();
-    expect(mocks.createDesign).toHaveBeenCalledWith(
-      expect.objectContaining({ designSystemId: "linked-system" }),
-    );
-  });
-
+  // oracle-change: home no longer creates full apps from template selections.
   it("clears an inaccessible linked system after loading before template copy", async () => {
     mocks.systemsLoading = true;
     await act(async () => root.render(<Index />));

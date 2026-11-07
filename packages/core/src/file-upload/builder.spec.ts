@@ -327,7 +327,7 @@ describe("builderFileUploadProvider", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("does not resend the same token when the refresh could not change it", async () => {
+  it("marks a 401 as rejected credentials without resending when the refresh could not change the token", async () => {
     fetchMock.mockResolvedValue(errorResponse(401, "Unauthorized"));
 
     await expect(
@@ -336,7 +336,10 @@ describe("builderFileUploadProvider", () => {
         "video/webm",
         1024,
       ),
-    ).rejects.toMatchObject({ status: 401 });
+    ).rejects.toMatchObject({
+      status: 401,
+      errorCode: "builder_credentials_rejected",
+    });
     expect(resolveBuilderApiAuthorizationMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

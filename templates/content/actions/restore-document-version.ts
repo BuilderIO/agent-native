@@ -304,6 +304,12 @@ function restoreResult(updated: DocumentRow, softDeletedDatabaseIds: string[]) {
 }
 
 export default defineAction({
+  searchHints: [
+    "revert a page",
+    "previous version",
+    "roll back",
+    "page history",
+  ],
   description:
     "Restore a document to a saved version, snapshotting the current state first.",
   schema: z.object({

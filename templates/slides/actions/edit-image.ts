@@ -1,4 +1,5 @@
 import { parseArgs } from "@agent-native/core";
+import { noteExternalWrite } from "@agent-native/core/action";
 import { resolveGeminiApiKey } from "@agent-native/core/server";
 
 const config = async () => {
@@ -48,6 +49,7 @@ export default async function main(args: string[]) {
   console.log(`Generating ${count} variation(s)...\n`);
 
   if (outputPrefix) {
+    noteExternalWrite("local-disk");
     mkdirSync(dirname(outputPrefix), { recursive: true });
   }
 
@@ -99,6 +101,7 @@ Keep everything else about the image the same - same style, same composition, sa
 
               if (outputPrefix) {
                 const filePath = `${outputPrefix}-v${i + 1}.${ext}`;
+                noteExternalWrite("local-disk");
                 writeFileSync(filePath, buffer);
                 generatedFiles.push(filePath);
                 console.log(

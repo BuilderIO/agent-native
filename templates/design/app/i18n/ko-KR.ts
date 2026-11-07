@@ -336,6 +336,8 @@ export default {
   common: {
     loading: "불러오는 중...",
     genericError: "문제가 발생했습니다.",
+    linkedSourceSizeLimit:
+      "이 연결된 구성 요소 편집은 소스 크기 제한을 초과합니다.",
   },
   editPanel: {
     colorInputLabel: "색상",
@@ -434,6 +436,7 @@ export default {
       font: "세례반",
       baseSize: "기본 크기",
       size: "크기",
+      fontSizes: "타입 스케일",
       weight: "무게",
       color: "색상",
       align: "맞추다",
@@ -882,6 +885,9 @@ export default {
       bottom: "비",
       left: "엘",
     },
+    fontPicker: {
+      catalogUnavailable: "전체 글꼴 라이브러리를 불러오지 못했습니다.",
+    },
     fontFamilies: {
       inherit: "상속",
       sansSerif: "산세리프체",
@@ -1032,6 +1038,10 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "이 화면을 불러올 수 없습니다.",
+    writeFailed: "변경 사항을 저장하지 못했습니다.",
+    selectionPublishFailed:
+      "에이전트가 최신 선택 영역을 보지 못할 수 있습니다. 다시 선택해 주세요.",
     liveCollaboration: {
       title: "실시간 협업",
       description:
@@ -2673,6 +2683,7 @@ export default {
   },
   homeContext: {
     websiteReference: "웹사이트 추가",
+    websiteReferenceMenu: "웹사이트 추가…",
     websiteUrlLabel: "웹사이트 URL",
     websiteUrl: "웹사이트 URL 붙여넣기",
     figmaUrlLabel: "Figma 링크",
@@ -2697,10 +2708,12 @@ export default {
     retry: "다시 시도",
     empty: "일치하는 참조가 없습니다.",
     none: "없음",
-    design: "디자인",
+    design: "디자인 참조",
     slides: "슬라이드",
     referenceDesign: "디자인 참조",
-    figmaReference: "Figma 추가",
+    connectFigma: "Figma 연결",
+    figmaDisconnected: "디자인을 찾아보려면 Figma를 연결하세요.",
+    figmaReference: "Figma 디자인",
     referenceDeck: "프레젠테이션 참조",
     quickSaas: "SaaS 랜딩 페이지 만들기",
     quickDashboard: "대시보드 만들기",
@@ -2864,8 +2877,6 @@ export default {
       dismiss: "닫기",
     },
     import: "가져오기",
-    importOptions: "가져오기 옵션",
-    figmaLink: "Figma 링크",
     importFromFigma: "Figma에서 가져오기",
     figmaFile: "Figma 파일 (.fig)",
     figmaFileMaxSize: "최대 {{max}}GB",
@@ -3393,6 +3404,7 @@ export default {
     updateFailed: "댓글을 업데이트할 수 없습니다",
     commentsInCluster: "클러스터의 댓글: {{count}}",
     moreActions: "추가 작업",
+    moreActionsFor: "{{author}}에 대한 추가 작업",
     copyLink: "링크 복사",
     linkCopied: "링크 복사됨",
     copyLinkFailed: "링크를 복사할 수 없습니다",
@@ -3412,6 +3424,7 @@ export default {
     addEmoji: "이모지 추가",
     mention: "사람 멘션",
     noMentions: "사용자를 찾을 수 없음",
+    mentionsFailed: "사용자를 불러오지 못했습니다",
     reopen: "다시 열기",
     reopening: "다시 여는 중…",
     undo: "실행 취소",
@@ -3457,7 +3470,6 @@ export default {
     },
     filtersActive: "필터 적용됨",
     suggestChanges: "변경 제안",
-    replyInThread: "스레드에 답글 달기",
     applyChangesAndResolve: "변경 사항 적용 후 해결",
     agent: {
       sectionLabel: "에이전트",

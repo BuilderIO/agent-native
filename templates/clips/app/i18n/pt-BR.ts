@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Referenciar uma gravação…",
+    group: "Gravações",
+    authentication: "Entre para adicionar uma referência.",
+    invalid: "Escolha uma referência válida antes de enviar.",
+    unavailable:
+      "Uma referência selecionada não está mais disponível. Remova-a ou selecione-a novamente.",
+  },
   meetingAsk: {
     resizeOrDismissAnswers: "Redimensionar ou fechar as respostas",
   },
@@ -318,6 +326,55 @@ const messages = {
     clipsRestoreFailed: "{{count}} clipes não puderam ser restaurados",
     clipsPermanentlyDeleted: "{{count}} clipes excluídos permanentemente",
     clipsDeleteFailed: "{{count}} clipes não puderam ser excluídos",
+    deletedMediaPending:
+      "Vídeo removido do Clips. As verificações de exclusão estão em andamento.",
+    deletedMediaBlocked:
+      "Vídeo removido do Clips. Não foi possível confirmar a exclusão dos arquivos.",
+    deletedMediaRetained:
+      "Gravação excluída. Os arquivos de mídia que outras gravações ainda usam foram mantidos.",
+    clipsDeletedMediaPending:
+      "Vídeos removidos do Clips: {{count}}. As verificações de exclusão estão em andamento.",
+    clipsDeletedMediaBlocked:
+      "Vídeos removidos do Clips: {{count}}. Não foi possível confirmar a exclusão dos arquivos.",
+    clipsDeletedMediaRetained:
+      "Gravações excluídas: {{count}}. Os arquivos de mídia que outras gravações ainda usam foram mantidos.",
+    deletedMediaFinalizing:
+      "Vídeo removido do Clips. A atualização do uso de armazenamento precisa ser repetida.",
+    clipsDeletedMediaFinalizing:
+      "Vídeos removidos do Clips: {{count}}. A atualização do uso de armazenamento precisa ser repetida.",
+    mediaCleanupFinalizing:
+      "A atualização do uso de armazenamento precisa ser repetida",
+    mediaCleanupFinalizingHelp:
+      "As verificações de remoção dos arquivos terminaram, mas este vídeo ainda pode contar para seu limite de armazenamento. Tente atualizar o uso novamente para atualizar seu total de armazenamento.",
+    mediaCleanupListLabel: "Remoção de mídia",
+    mediaCleanupPending: "Verificações de exclusão em andamento",
+    mediaCleanupPendingHelp:
+      "O Clips continua verificando em segundo plano. Você pode sair desta página e conferir as atualizações na Lixeira.",
+    mediaCleanupBlocked:
+      "Não foi possível confirmar a exclusão dos arquivos de vídeo",
+    mediaCleanupBlockedHelp:
+      "Os arquivos de vídeo armazenados ainda podem existir. Tentar remover novamente inicia outra tentativa. Você pode sair desta página e conferir o resultado na Lixeira.",
+    mediaCleanupReconnect:
+      "Reconecte o armazenamento para remover os arquivos de mídia de gravações excluídas",
+    mediaCleanupRetained:
+      "Os arquivos de mídia compartilhados de gravações excluídas são mantidos enquanto outras gravações os usarem",
+    mediaCleanupHelp: "Mais informações",
+    mediaCleanupRetryFiles: "Tentar remover novamente",
+    mediaCleanupRetryingFiles:
+      "Tentando excluir os arquivos de vídeo novamente",
+    mediaCleanupRetryUsage: "Tentar atualizar o uso novamente",
+    mediaCleanupRetryingUsage:
+      "Tentando atualizar o uso de armazenamento novamente",
+    mediaCleanupRemoved: "Arquivos de mídia removidos",
+    mediaCleanupUsageUpdated: "Uso de armazenamento atualizado",
+    mediaCleanupStillBlocked:
+      "Ainda não foi possível confirmar a exclusão dos arquivos de vídeo",
+    mediaCleanupStillFinalizing:
+      "A atualização do uso de armazenamento ainda precisa ser repetida",
+    mediaCleanupRetryFailed:
+      "Não foi possível iniciar a nova tentativa. Tente novamente.",
+    mediaCleanupLoadFailed:
+      "Não foi possível carregar o status da remoção de mídia",
   },
   recordingRoute: {
     pageTitle: "Gravação de clip · Clips",
@@ -606,6 +663,18 @@ const messages = {
     desktopHint:
       "Para iniciar notas, abra o Clips Desktop na barra de menus e escolha Start Meeting Notes, ou clique em Start notes quando o lembrete aparecer. O Clips captura o microfone e o áudio do sistema e escreve a transcrição aqui.",
     getDesktopApp: "Obtenha o aplicativo para desktop",
+    earlierAudioAdded_one:
+      "{{count}} minuto de antes de você começar foi adicionado",
+    earlierAudioAdded_other:
+      "{{count}} minutos de antes de você começar foram adicionados",
+    earlierAudioAdded_many:
+      "{{count}} minutos de antes de você começar foram adicionados",
+    earlierAudioUnreadable:
+      "Não foi possível verificar se esta transcrição inclui áudio anterior",
+    removeEarlierAudioTitle: "Remover o áudio anterior?",
+    removeEarlierAudioDescription:
+      "Ele será retirado da transcrição, e o resumo, os itens de ação e a descrição do clipe serão recriados, mesmo que você tenha escrito essa descrição. Um título gerado também será recriado; o que você escolheu permanece. Os capítulos também serão excluídos.",
+    couldNotRemoveEarlierAudio: "Não foi possível remover o áudio anterior",
     generateNotesFailed: "Não foi possível gerar o resumo. Tente novamente.",
     attendee_one: "participante {{count}}",
     attendee_other: "participantes {{count}}",
@@ -658,6 +727,8 @@ const messages = {
     noMatches: "Nenhuma correspondência.",
     noTranscript: "Nenhuma transcrição ainda.",
     noTranscriptCaptured: "Nenhuma transcrição foi capturada.",
+    partialTranscript:
+      "Transcrição parcial: a gravação foi cortada, então parte pode estar faltando.",
     backupFailed:
       "Nenhuma fala foi capturada localmente e a transcrição de backup não foi concluída. Tente novamente ou verifique as permissões de microfone e fala.",
     backupNotSetup:
@@ -764,7 +835,7 @@ const messages = {
     openInCodex: "Abrir no Codex",
     copyAgentPrompt: "Copiar prompt para agente",
     agentPrompt:
-      "Leia esta URL de contexto para agentes do Clips: {{agentContextUrl}}. Leia a transcrição completa em apis.transcript e busque recommendedFrames[].url (ou apis.frame.urlTemplate com atMs) como imagens. Preserve id e agent_access exatamente como fornecidos. Em qualquer erro, confira failureKind, error e nextStep no JSON. Se failureKind=access, explique que o link não dá acesso; para um clipe privado, peça ao proprietário que escolha {{shareWithAgents}} no menu Compartilhar do Clips e envie o link gerado. Se failureKind=media enquanto a transcrição funciona, explique que não foi possível recuperar a mídia armazenada e que outro link não resolverá. Se failureKind=processing, siga nextStep; isso não significa que o clipe esteja ausente ou que o link seja inválido. Se failureKind=expired, peça ao proprietário que amplie ou remova a expiração do clipe no menu Compartilhar, salve e então escolha {{shareWithAgents}} e envie o novo link. Use browserDiagnostics quando disponível para relatar um problema. Se sua ferramenta não conseguir retornar imagens ou abrir estes links, diga que a ferramenta tem essa limitação; não é um erro do Clips.",
+      "Leia esta URL de contexto para agentes do Clips: {{agentContextUrl}}. Leia a transcrição completa em apis.transcript e busque recommendedFrames[].url (ou apis.frame.urlTemplate com atMs) como imagens. Preserve id e agent_access exatamente como fornecidos. Em qualquer erro, confira failureKind, error e nextStep no JSON. Se failureKind=access, explique que o link não dá acesso; para um clipe privado, peça ao proprietário que escolha {{shareWithAgents}} no menu Compartilhar do Clips e envie o link gerado. Se failureKind=media enquanto a transcrição funciona, explique que não foi possível recuperar a mídia armazenada e que outro link não resolverá. Se failureKind=processing, siga nextStep; isso não significa que o clipe esteja ausente ou que o link seja inválido. Se failureKind=expired, peça ao proprietário que amplie ou remova a expiração do clipe no menu Compartilhar, salve e então escolha {{shareWithAgents}} e envie o novo link. Use browserDiagnostics quando disponível para relatar um problema. Se você não conseguir abrir as URLs dos frames como imagens, chame a ferramenta get-recording-frames do Clips com o ID da gravação desta URL de contexto, se ela estiver disponível. Se não, diga ao usuário que conectar o Clips em {{connectUrl}} permite que você veja os frames.",
     agentTokenDescription:
       "Link temporário somente leitura para agentes, porque este clipe não é público. Expira em 2 horas.",
     agentPublicDescription:
@@ -1502,6 +1573,7 @@ const messages = {
   transcriptBubbles: {
     listening: "Ouvindo…",
     noTranscript: "Ainda não há transcrição.",
+    unreadable: "Não foi possível ler esta transcrição.",
     liveTranscriptDescription:
       "A transcrição ao vivo aparecerá aqui quando as notas começarem.",
     me: "Eu",

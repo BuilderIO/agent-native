@@ -24,6 +24,7 @@
 
 import { createHash } from "node:crypto";
 
+import { withoutWriteObservation } from "../action-frame.js";
 import {
   getStoredModelForEngine,
   normalizeModelForEngine,
@@ -154,12 +155,9 @@ export async function evaluateCondition(
       if (cached !== undefined) return cached;
     }
 
-    const result = await callClassifier(
-      condition,
-      payload,
-      engine,
-      model,
-      controller.signal,
+    // A classification is an answer, not a write of the call that emitted the event.
+    const result = await withoutWriteObservation(() =>
+      callClassifier(condition, payload, engine, model, controller.signal),
     );
     if (controller.signal.aborted) {
       throw new Error(

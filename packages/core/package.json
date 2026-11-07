@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.222.1",
+  "version": "0.226.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -96,6 +96,7 @@
       "browser": "./dist/index.browser.js",
       "default": "./dist/index.js"
     },
+    "./native": "./dist/native/index.js",
     "./vite": "./dist/vite/index.js",
     "./vitest-config": "./dist/vitest-config.js",
     "./server": "./dist/server/index.js",
@@ -138,6 +139,14 @@
       "types": "./dist/action-ui.d.ts",
       "default": "./dist/action-ui.js"
     },
+    "./save-conflict": {
+      "types": "./dist/save-conflict/index.d.ts",
+      "default": "./dist/save-conflict/index.js"
+    },
+    "./save-conflict/server": {
+      "types": "./dist/save-conflict/server.d.ts",
+      "default": "./dist/save-conflict/server.js"
+    },
     "./authorization": {
       "types": "./dist/authorization/index.d.ts",
       "default": "./dist/authorization/index.js"
@@ -163,6 +172,7 @@
     "./client/agent-chat": "./dist/client/agent-chat/index.js",
     "./client/agent-engine-readiness": "./dist/client/agent-engine-readiness.js",
     "./client/agent-sidebar-state": "./dist/client/agent-sidebar-state.js",
+    "./client/auth/builder-signup": "./dist/client/auth/builder-signup.js",
     "./client/auth/auth-page-helpers": "./dist/client/auth/auth-page-helpers.js",
     "./client/assistant-chat-history-version": "./dist/client/chat/assistant-chat-history-version.js",
     "./client/agentkit-chat/integrity": "./dist/client/agentkit-chat/integrity.js",
@@ -255,6 +265,9 @@
       "default": "./dist/guards/index.js"
     },
     "./application-state": "./dist/application-state/index.js",
+    "./client/experience-profiles": "./dist/client/experience-profiles.js",
+    "./experience-profiles": "./dist/experience-profiles/index.js",
+    "./experience-profiles/server": "./dist/experience-profiles/server.js",
     "./settings": "./dist/settings/index.js",
     "./user-profile": "./dist/user-profile/index.js",
     "./user-profile/server": "./dist/user-profile/store.js",
@@ -407,6 +420,10 @@
     "./client/transcription/use-live-transcription": "./dist/client/transcription/use-live-transcription.js",
     "./transcription/builder": "./dist/transcription/builder-transcription.js",
     "./adapters/cli": "./dist/adapters/cli/index.js",
+    "./cli/telemetry": {
+      "types": "./dist/cli/telemetry.d.ts",
+      "default": "./dist/cli/telemetry.js"
+    },
     "./cli/skills": {
       "types": "./dist/cli/skills.d.ts",
       "default": "./dist/cli/skills.js"
@@ -423,6 +440,7 @@
     "./collab": "./dist/collab/index.js",
     "./collab/bounded-task-bundle": "./dist/collab/bounded-task-bundle.js",
     "./collab/live-copy-tasks": "./dist/collab/live-copy-tasks.js",
+    "./collab/outbox-keys": "./dist/collab/outbox-keys.js",
     "./a2a": "./dist/a2a/index.js",
     "./state-machine": "./dist/state-machine/index.js",
     "./action-properties": "./dist/action-properties.js",
@@ -608,6 +626,7 @@
     "./integrations/channel-settings": "./dist/integrations/channel-settings.js",
     "./jobs/actions/get-scheduled-trigger-status": "./dist/jobs/actions/get-scheduled-trigger-status.js",
     "./labs/core-labs": "./dist/labs/core-labs.js",
+    "./localization/workspace-integration-messages": "./dist/localization/workspace-integration-messages.js",
     "./localization/mcp-settings-messages": "./dist/localization/mcp-settings-messages.js",
     "./localization/shared": "./dist/localization/shared.js",
     "./navigation/settings-redirects": "./dist/navigation/settings-redirects.js",
@@ -624,6 +643,7 @@
     "./org/workspace-url": "./dist/org/workspace-url.js",
     "./progress/types": "./dist/progress/types.js",
     "./resources/pack-constants": "./dist/resources/pack-constants.js",
+    "./review/plain-text": "./dist/review/plain-text.js",
     "./review/types": "./dist/review/types.js",
     "./secrets/api-keys": "./dist/secrets/api-keys.js",
     "./secrets/key-aliases": "./dist/secrets/key-aliases.js",
@@ -741,6 +761,9 @@
     "jose": "^6.2.2",
     "linkedom": "catalog:",
     "magic-string": "^1.4.3",
+    "mdast-util-from-markdown": "^2.0.0",
+    "mdast-util-gfm": "^3.0.0",
+    "micromark-extension-gfm": "^3.0.0",
     "minimatch": "^10.0.0",
     "nitro": "3.0.260903-beta",
     "parse5": "8.0.1",
@@ -788,6 +811,7 @@
     "@tanstack/react-query": "^5.101.2",
     "@types/diff-match-patch": "^1.0.36",
     "@types/express": "^5.0.6",
+    "@types/mdast": "^4.0.4",
     "@types/node": "^24.2.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

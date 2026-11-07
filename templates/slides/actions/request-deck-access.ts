@@ -27,9 +27,13 @@ import {
   findDeckAccessRequest,
   isGrantedAccessRequest,
   normalizeEmail,
+  requestedRoleOf,
   type AccessRequestPayload,
 } from "../server/lib/deck-access-requests.js";
 import {
+  DECK_ACCESS_REQUEST_ROLES,
+  deckRoleCovers,
+  type DeckAccessRequestRole,
   SLIDES_ACCESS_REQUEST_FALLBACK_TOKEN_PREFIX,
   SLIDES_ACCESS_REQUEST_NOTE_MAX_LENGTH,
   SLIDES_ACCESS_REQUEST_TOKEN_PREFIX,
@@ -100,6 +104,47 @@ async function refundAnonymousAccessRequestSlot(
       ),
     )
     .returning({ deckId: limits.deckId });
+}
+
+type RecordedAccessRequest = Awaited<ReturnType<typeof findDeckAccessRequest>>;
+
+/**
+ * A pending request asks for the higher of its recorded role and `role`, so a
+ * viewer who asked to view and now asks to edit is not left with the smaller
+ * request. A concurrent write to the row fails the request rather than
+ * leaving the owner the smaller one.
+ */
+async function raiseRequestedRole(
+  db: ReturnType<typeof getDb>,
+  request: RecordedAccessRequest,
+  role: DeckAccessRequestRole,
+): Promise<RecordedAccessRequest> {
+  if (
+    !request?.parsed ||
+    isGrantedAccessRequest(request.parsed) ||
+    deckRoleCovers(requestedRoleOf(request.parsed), role)
+  ) {
+    return request;
+  }
+  const parsed: AccessRequestPayload = {
+    ...request.parsed,
+    requestedRole: role,
+  };
+  const payload = JSON.stringify(parsed);
+  const raised = await db
+    .update(schema.deckEvents)
+    .set({ payload })
+    .where(
+      and(
+        eq(schema.deckEvents.id, request.id),
+        eq(schema.deckEvents.payload, request.payload ?? ""),
+      ),
+    )
+    .returning({ id: schema.deckEvents.id });
+  if (raised.length === 0) {
+    throw httpError("Your access request changed. Try again.", 409);
+  }
+  return { ...request, payload, parsed };
 }
 
 function httpError(message: string, statusCode: number): Error {
@@ -192,12 +237,14 @@ async function notifyAccessRequestOwner(input: {
   requesterEmail: string;
   requesterName: string;
   note?: string;
+  requestedRole: DeckAccessRequestRole;
   state: AccessRequestNotificationState;
 }): Promise<AccessRequestNotificationState> {
   const ownerEmail = input.ownerEmail;
   if (!ownerEmail || !input.state.ownerCanNotify) return input.state;
 
   let state = input.state;
+  const access = input.requestedRole === "editor" ? "edit access" : "access";
 
   if (!state.inAppNotified) {
     try {
@@ -206,12 +253,13 @@ async function notifyAccessRequestOwner(input: {
           severity: "info",
           title: "Deck access requested",
           body: input.note
-            ? `${input.requesterName} requested access to “${input.deckTitle}”: “${input.note}”`
-            : `${input.requesterName} requested access to “${input.deckTitle}”.`,
+            ? `${input.requesterName} requested ${access} to “${input.deckTitle}”: “${input.note}”`
+            : `${input.requesterName} requested ${access} to “${input.deckTitle}”.`,
           channels: ["inbox"],
           metadata: {
             deckId: input.deckId,
             requesterEmail: input.requesterEmail,
+            requestedRole: input.requestedRole,
             link: getDeckUrl(input.deckId),
           },
         },
@@ -249,6 +297,7 @@ async function notifyAccessRequestOwner(input: {
             approvalToken,
           ),
           note: input.note,
+          requestedRole: input.requestedRole,
         }),
         to: ownerEmail,
         replyTo: input.requesterEmail,
@@ -271,7 +320,7 @@ async function notifyAccessRequestOwner(input: {
 
 export default defineAction({
   description:
-    "Request access to a private Agent-Native Slides deck. Signed-in viewers use their account email; anonymous viewers may provide an email address. Records an access-request event and notifies the owner in-app and by email when configured.",
+    "Request view or edit access to an Agent-Native Slides deck. Without access, only private decks take requests; a signed-in viewer of any deck may ask for edit access. Signed-in viewers use their account email; anonymous viewers may provide an email address. Records an access-request event and notifies the owner in-app and by email when configured.",
   schema: z.object({
     deckId: z.string().min(1).describe("Deck ID to request access to."),
     accessRequestToken: z
@@ -295,6 +344,12 @@ export default defineAction({
       .optional()
       .transform((value) => value || undefined)
       .describe("Optional note for the deck owner explaining the request."),
+    role: z
+      .enum(DECK_ACCESS_REQUEST_ROLES)
+      .default("editor")
+      .describe(
+        "Role to ask for. Editor from the editor link, viewer from the presentation link. The owner picks the granted role when approving.",
+      ),
   }),
   requiresAuth: false,
   agentTool: false,
@@ -303,6 +358,7 @@ export default defineAction({
     accessRequestToken,
     requesterEmail: requesterEmailInput,
     note,
+    role,
   }) => {
     const sessionEmail = getRequestUserEmail();
     let requestToken = accessRequestToken
@@ -506,7 +562,7 @@ export default defineAction({
     const access = accessProbeWasUnavailable
       ? null
       : await resolveAccess("deck", deckId, currentAccess());
-    if (access) {
+    if (access && deckRoleCovers(access.role, role)) {
       return {
         ok: true as const,
         alreadyHasAccess: true,
@@ -514,7 +570,9 @@ export default defineAction({
         message: "You already have access. Refreshing the deck...",
       };
     }
-    if ((deck.visibility ?? "private") !== "private") {
+    // Someone who can open the deck may ask for more access whatever its
+    // visibility; without access, only a private deck takes requests.
+    if (!access && deck.visibility !== "private") {
       return {
         ok: true as const,
         alreadyHasAccess: false,
@@ -527,13 +585,14 @@ export default defineAction({
     const requesterName =
       getRequestUserName()?.trim() || displayNameForEmail(requesterEmail);
     const ownerEmail = deck.ownerEmail?.trim() || null;
-    const [emailConfigured, previousRequest] = await Promise.all([
+    const [emailConfigured, recordedRequest] = await Promise.all([
       isEmailConfigured(),
       findDeckAccessRequest(db, deckId, requesterEmail),
     ]);
-    // The viewer has no access (checked above), so reopen a granted request
-    // as a fresh one instead of reporting it as still with the owner. An
-    // unreadable row is rewritten the same way.
+    const previousRequest = await raiseRequestedRole(db, recordedRequest, role);
+    // The viewer lacks the role they ask for (checked above), so reopen a
+    // granted request as a fresh one instead of reporting it as still with
+    // the owner. An unreadable row is rewritten the same way.
     const reopenedRequest =
       previousRequest &&
       (!previousRequest.parsed ||
@@ -600,6 +659,7 @@ export default defineAction({
             requesterName:
               previousPayload?.requesterName?.trim() || requesterName,
             note: previousPayload.note ?? note,
+            requestedRole: requestedRoleOf(previousPayload),
             state: previousState,
           }),
       );
@@ -636,6 +696,7 @@ export default defineAction({
       requesterName,
       requestedAt,
       ...(note ? { note } : {}),
+      requestedRole: role,
       notifiedOwner: false,
       inAppNotified: false,
       emailNotified: false,
@@ -663,7 +724,7 @@ export default defineAction({
               id: requestId,
               deckId,
               type: DECK_ACCESS_REQUESTED_EVENT,
-              message: `${requesterEmail} requested access to this deck.`,
+              message: `${requesterEmail} requested ${role === "editor" ? "edit access" : "access"} to this deck.`,
               payload: initialPayloadJson,
               createdBy: "human",
               createdAt: requestedAt,
@@ -715,6 +776,7 @@ export default defineAction({
           requesterEmail,
           requesterName,
           note,
+          requestedRole: role,
           state: initialState,
         }),
     );

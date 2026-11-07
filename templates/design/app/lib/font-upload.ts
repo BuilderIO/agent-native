@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 
 export interface UploadedFont {
   family: string;
@@ -65,7 +65,7 @@ export async function uploadFont(
   form.append("style", metadata.style);
   form.append("file", file, file.name);
 
-  const response = await fetch(`${appBasePath()}/api/fonts`, {
+  const response = await fetch(appApiPath("/api/fonts"), {
     method: "POST",
     credentials: "include",
     body: form,

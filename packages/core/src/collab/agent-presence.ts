@@ -1,3 +1,4 @@
+import { withoutWriteObservation } from "../action-frame.js";
 import { AGENT_CLIENT_ID, DEFAULT_AGENT_IDENTITY } from "./agent-identity.js";
 import { deleteAwarenessRow, upsertAwarenessRow } from "./awareness-store.js";
 import {
@@ -25,8 +26,14 @@ function reportPresencePersistenceFailure(
   console.error(`Failed to ${action} agent collaboration presence`, error);
 }
 
-function persistAgentPresence(action: string, operation: Promise<void>): void {
-  void operation.catch((error: unknown) =>
+// Presence rows are bookkeeping, and the heartbeat timer keeps the calling
+// action's async scope alive long after the call, so none of it may count as a
+// write of that call.
+function persistAgentPresence(
+  action: string,
+  operation: () => Promise<void>,
+): void {
+  void withoutWriteObservation(operation).catch((error: unknown) =>
     reportPresencePersistenceFailure(action, error),
   );
 }
@@ -46,8 +53,7 @@ function removeAgentPresence(docId: string): void {
   const map = getDocAwareness(docId);
   map.delete(AGENT_CLIENT_ID);
   emitAwarenessChange(docId, currentAwarenessStates(map));
-  persistAgentPresence(
-    "clear",
+  persistAgentPresence("clear", () =>
     deleteAwarenessRow(docId, AGENT_CLIENT_ID, clearedAt),
   );
 
@@ -83,8 +89,7 @@ function ensureHeartbeat(docId: string): void {
     const existing = m.get(AGENT_CLIENT_ID);
     if (existing) {
       existing.lastSeen = Date.now();
-      persistAgentPresence(
-        "persist",
+      persistAgentPresence("persist", () =>
         upsertAwarenessRow(
           docId,
           AGENT_CLIENT_ID,
@@ -137,8 +142,7 @@ function writeAgentState(docId: string, state: Record<string, unknown>): void {
   const map = getDocAwareness(docId);
   map.set(AGENT_CLIENT_ID, entry);
   emitAwarenessChange(docId, currentAwarenessStates(map));
-  persistAgentPresence(
-    "persist",
+  persistAgentPresence("persist", () =>
     upsertAwarenessRow(docId, AGENT_CLIENT_ID, entry.state, entry.lastSeen),
   );
 }

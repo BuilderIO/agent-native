@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { countPendingRedactions } from "../server/lib/pending-redactions";
 import { nextScreenshotEdits } from "./save-screenshot-edits";
@@ -91,3 +91,11 @@ describe("nextScreenshotEdits", () => {
     expect((removed as any).crop).toBeUndefined();
   });
 });
+vi.mock("../server/lib/recording-media-lifecycle.js", () => ({
+  beginMediaProduction: vi.fn(async () => "fake-producer"),
+  finishMediaProduction: vi.fn(async () => undefined),
+  withRecordingMediaProduction: async (
+    _input: unknown,
+    produce: () => Promise<unknown>,
+  ) => produce(),
+}));

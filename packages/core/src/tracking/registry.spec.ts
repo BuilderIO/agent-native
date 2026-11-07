@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   resetAppConfigForTests,
@@ -61,6 +61,11 @@ function captureEvents(): TrackingEvent[] {
 }
 
 describe("tracking registry", () => {
+  beforeEach(() => {
+    setAppConfigLayer("app", {
+      onboarding: { firstRunCreditsExperiment: "v2" },
+    });
+  });
   afterEach(() => {
     unregisterTrackingProvider("qa-throwing-track");
     unregisterTrackingProvider("qa-rejecting-flush");
@@ -247,6 +252,26 @@ describe("tracking registry", () => {
 
     expect(mockExperimentAssignments.getAssignment).not.toHaveBeenCalled();
     expect(mockExperimentAssignments.upsertAssignment).not.toHaveBeenCalled();
+    expect(events[0]?.properties).not.toHaveProperty("experiment_id");
+  });
+
+  it("does not stamp a stored v2 assignment when v1 is configured", async () => {
+    setAppConfigLayer("app", {
+      onboarding: { firstRunCreditsExperiment: "v1" },
+    });
+    const events = captureEvents();
+    const authUserId = "better-auth-user-2";
+    const expected = assignFirstRunBuilderCreditsV2(authUserId);
+    mockExperimentAssignments.getAssignment.mockResolvedValue({
+      experimentId: "first_run_builder_credits_v2",
+      userId: authUserId,
+      variantId: expected?.experiment_variant,
+      assignedAt: 123,
+    });
+    await runWithRequestContext({ authUserId }, async () => {
+      await loadFirstRunBuilderCreditsV2Assignment();
+      track("run_started", {});
+    });
     expect(events[0]?.properties).not.toHaveProperty("experiment_id");
   });
 

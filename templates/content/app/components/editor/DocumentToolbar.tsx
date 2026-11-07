@@ -14,11 +14,7 @@ import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
-  AgentDestinationActions,
   buildAgentShareDeepLink,
-  ClaudeCodeLogo,
-  ClaudeLogo,
-  CodexLogo,
   JoinedShareControl,
   ShareTrigger,
   type AgentShareDestination,
@@ -70,11 +66,6 @@ const ShareButton = lazy(() =>
     default: m.ShareButton,
   })),
 );
-const McpInstallActions = lazy(() =>
-  import("@agent-native/toolkit/app/sharing").then((m) => ({
-    default: m.McpInstallActions,
-  })),
-);
 
 import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import {
@@ -105,7 +96,6 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -119,6 +109,8 @@ import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { useElementWidthValue } from "@/hooks/use-element-width-value";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
+  resolveNotionSetupTarget,
+  isDocumentSyncStatusCurrent,
   useNotionConnection,
   useDocumentSyncStatus,
   useLinkDocumentToNotion,
@@ -1044,10 +1036,28 @@ export function DocumentToolbar({
     `notion-auto-sync:${documentId}`,
     false,
   );
-  const { data: connection } = useNotionConnection();
-  const { data: syncStatus } = useDocumentSyncStatus(
-    !inWidget && canEdit && !isLocalFileDocument ? documentId : null,
-  );
+  const {
+    data: connection,
+    status: connectionStatus,
+    isError: connectionFailed,
+    isFetching: connectionFetching,
+    refetch: refetchConnection,
+  } = useNotionConnection();
+  // The sync status loads after the page settles, or as soon as the page
+  // actions open, since the Notion item there depends on it.
+  const [pageActionsOpened, setPageActionsOpened] = useState(false);
+  const notionStatusApplies = !inWidget && canEdit && !isLocalFileDocument;
+  const {
+    data: syncStatus,
+    isError: syncStatusFailed,
+    isFetching: syncStatusFetching,
+    isFetchedAfterMount: syncStatusReadSinceMount,
+    status: syncStatusState,
+    dataUpdatedAt: syncStatusAnsweredAt,
+    refetch: refetchSyncStatus,
+  } = useDocumentSyncStatus(notionStatusApplies ? documentId : null, {
+    now: pageActionsOpened,
+  });
   const linkDocument = useLinkDocumentToNotion(documentId);
   const unlinkDocument = useUnlinkDocumentFromNotion(documentId);
   const pullDocument = usePullDocumentFromNotion(documentId);
@@ -1116,6 +1126,29 @@ export function DocumentToolbar({
 
   const isConnected = connection?.connected ?? false;
   const isLinked = !!syncStatus?.pageId;
+  // Until the connection and sync reads succeed the toolbar can't tell a
+  // linked page from an unlinked one, so it waits instead of offering setup or a link. A
+  // failed read counts as waiting too, even with an earlier answer cached:
+  // linking a page that's already linked pulls Notion over local edits. So
+  // does an old answer cached by an earlier visit (see
+  // isDocumentSyncStatusCurrent).
+  const notionStatusPending =
+    notionStatusApplies &&
+    (connectionStatus !== "success" ||
+      typeof connection.connected !== "boolean" ||
+      (isConnected &&
+        !isDocumentSyncStatusCurrent({
+          status: syncStatusState,
+          isFetchedAfterMount: syncStatusReadSinceMount,
+          dataUpdatedAt: syncStatusAnsweredAt,
+        })));
+  const notionStatusChecking =
+    notionStatusPending && (connectionFetching || syncStatusFetching);
+  // A read that fails while the Notion popover is open closes it, so its link
+  // form can't act on the stale answer (and it doesn't reopen on a retry).
+  useEffect(() => {
+    if (notionStatusPending) setOpen(false);
+  }, [notionStatusPending]);
   const hasConflict = syncStatus?.hasConflict ?? false;
   const isWorking =
     linkDocument.isPending ||
@@ -1301,17 +1334,6 @@ export function DocumentToolbar({
     void navigate(mcpSettingsRoute);
   }, [mcpSettingsRoute, navigate]);
 
-  const handleMcpInstall = useCallback(
-    (client: string) => {
-      trackEvent("mcp_install_link_opened", {
-        resource_type: "document",
-        resource_id: documentId,
-        client,
-      });
-    },
-    [documentId],
-  );
-
   const handleRevealLocalPath = useCallback(async () => {
     try {
       const result = await revealLinkedLocalSourceFile(source);
@@ -1483,8 +1505,28 @@ export function DocumentToolbar({
     [createAndLink, documentId, t],
   );
 
-  const handleSetup = () => {
+  const handleSetup = async () => {
     setOpen(false);
+    try {
+      const target = await resolveNotionSetupTarget(
+        connectionStatus === "success" ? connection : undefined,
+      );
+      if (target.kind === "unavailable") {
+        toast.error(t("empty.genericError"));
+        return;
+      }
+      if (target.kind === "oauth") {
+        window.location.href = target.url;
+        return;
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("editor.toolbar.setUpNotionFirst"),
+      );
+      return;
+    }
     void navigate(`${buildSettingsRoute("integrations")}?q=Notion`);
   };
 
@@ -1668,7 +1710,6 @@ export function DocumentToolbar({
                     // ShareButton wraps the label in a span gapped from its
                     // icon; the gap goes with the label.
                     triggerClassName="[&>span]:gap-0 @min-[40rem]/toolbar:[&>span]:gap-2"
-                    agentShareLabel={t("editor.toolbar.temporaryAgentLink")}
                     showShareLinks={false}
                     quickCopy={{
                       label: t("editor.toolbar.copyPageLink"),
@@ -1677,55 +1718,15 @@ export function DocumentToolbar({
                       size: inWidget ? WIDGET_SHARE_CONTROL_SIZE : undefined,
                     }}
                     basicSharingOnly={inWidget}
-                    peopleTabLabel={t("editor.toolbar.sharePeople")}
-                    agentsTabLabel={t("editor.toolbar.shareAgents")}
                     peopleAccessLabel={t("editor.toolbar.whoHasAccess")}
-                    agentTabContent={
-                      inWidget ? undefined : (
-                        <div className="space-y-3">
-                          <AgentDestinationActions
-                            labels={{
-                              copy: t("editor.toolbar.copyAgentPrompt"),
-                              claude: t("editor.toolbar.openInClaude"),
-                              claudeCode: t("editor.toolbar.openInClaudeCode"),
-                              codex: t("editor.toolbar.openInCodex"),
-                            }}
-                            icons={{
-                              claude: <ClaudeLogo className="size-4" />, // i18n-ignore: destination identifiers in this icon map
-                              "claude-code": (
-                                <ClaudeCodeLogo className="size-4" />
-                              ), // i18n-ignore: destination identifier
-                              codex: <CodexLogo className="size-4" />,
-                            }}
-                            onCopy={handleCopyAgentPrompt}
-                            onOpen={handleOpenAgentDestination}
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            {t("editor.toolbar.agentCopyAccessNote")}
-                          </p>
-                          <Suspense
-                            fallback={
-                              <div className="space-y-1 border-t border-border pt-3">
-                                <div className="text-xs font-medium text-muted-foreground">
-                                  {t("editor.toolbar.connectContent")}
-                                </div>
-                                <Skeleton className="h-28 w-full" />
-                              </div>
-                            }
-                          >
-                            <McpInstallActions
-                              className="border-t border-border pt-3"
-                              heading={t("editor.toolbar.connectContent")}
-                              otherClients={{
-                                label: t("editor.toolbar.otherAgents"),
-                                href: appPath(mcpSettingsRoute),
-                                onNavigate: handleOpenMcpSettings,
-                              }}
-                              onInstall={handleMcpInstall}
-                            />
-                          </Suspense>
-                        </div>
-                      )
+                    sendTo={
+                      inWidget
+                        ? undefined
+                        : {
+                            openInAgent: handleOpenAgentDestination,
+                            copyAgentPrompt: handleCopyAgentPrompt,
+                            openMcpSettings: handleOpenMcpSettings,
+                          }
                     }
                     defaultOpen={shareRequested || openShareOnLoad}
                     onOpenChange={handleDbShareOpenChange}
@@ -1892,6 +1893,10 @@ export function DocumentToolbar({
             onOpenChange={(nextOpen) => {
               pageActionsOpenRef.current = nextOpen;
               if (nextOpen) {
+                setPageActionsOpened(true);
+                // Reopening the menu retries a status read that failed.
+                if (connectionFailed) void refetchConnection();
+                if (syncStatusFailed) void refetchSyncStatus();
                 flushPendingPageActionsRestore();
                 pageActionsPreservationFrameRef.current = requestAnimationFrame(
                   () => {
@@ -2174,20 +2179,30 @@ export function DocumentToolbar({
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
                 {canEdit && !isLocalFileDocument ? (
-                  <Popover open={open} onOpenChange={setOpen}>
+                  <Popover
+                    open={open && !notionStatusPending}
+                    onOpenChange={setOpen}
+                  >
                     <PopoverTrigger asChild>
                       <button
                         type="button"
-                        className="flex min-h-7 w-full items-center gap-2 rounded-[8px] px-2 py-1 text-sm leading-5 text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+                        disabled={notionStatusPending}
+                        aria-busy={notionStatusChecking || undefined}
+                        className="flex min-h-7 w-full items-center gap-2 rounded-[8px] px-2 py-1 text-sm leading-5 text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                       >
                         <span className="min-w-0 flex-1 truncate text-start">
-                          {isLinked
+                          {isLinked || notionStatusPending
                             ? t("editor.toolbar.notionSync")
                             : isConnected
                               ? t("editor.toolbar.linkToNotion")
                               : t("editor.toolbar.connectNotion")}
                         </span>
-                        {hasConflict ? (
+                        {notionStatusChecking ? (
+                          <IconLoader2
+                            size={14}
+                            className="shrink-0 animate-spin text-muted-foreground"
+                          />
+                        ) : hasConflict ? (
                           <IconAlertTriangle
                             size={16}
                             className="shrink-0 text-destructive"
@@ -2513,6 +2528,16 @@ export function DocumentToolbar({
                       )}
                     </PopoverContent>
                   </Popover>
+                ) : null}
+                {notionStatusApplies && connectionFailed ? (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void refetchConnection();
+                    }}
+                  >
+                    {t("database.retry")}
+                  </DropdownMenuItem>
                 ) : null}
               </DropdownMenuGroup>
               {canDelete && onDelete ? (

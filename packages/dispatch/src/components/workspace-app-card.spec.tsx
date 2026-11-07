@@ -29,6 +29,7 @@ vi.mock("../../../core/dist/client/use-action.js", () => ({
 }));
 
 vi.mock("../../../core/dist/client/i18n.js", () => ({
+  useOptionalLocale: () => null,
   useT: () => (key: string, values?: Record<string, unknown>) =>
     String(values?.defaultValue ?? key),
 }));
@@ -51,6 +52,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
+  useOptionalLocale: () => null,
   useFormatters: () => ({
     formatDate: (value: string) => value,
   }),
@@ -339,29 +341,27 @@ describe("WorkspaceAppCard", () => {
       ".app-open-actions__primary",
     );
     expect(openButton).not.toBeNull();
-    expect(openButton?.textContent).toContain("Open app");
+    expect(openButton?.textContent).toContain("Open");
     expect(container.querySelector('a[href="/analytics"]')).toBeNull();
 
-    expect(
-      container.querySelector(
-        'button[aria-label="Open options for Analytics"]',
-      ),
-    ).not.toBeNull();
-    expect(document.body.textContent).not.toContain("Open in new tab");
+    expect(container.querySelector(".app-open-actions__menu")).not.toBeNull();
+    expect(document.body.textContent).not.toContain(
+      "dispatch.pages.chatFirstOpenInNewTab",
+    );
     expect(document.body.textContent).not.toContain("Add app");
 
     await act(async () => {
       container
-        .querySelector<HTMLButtonElement>(
-          'button[aria-label="Open options for Analytics"]',
-        )
+        .querySelector<HTMLButtonElement>(".app-open-actions__menu")
         ?.dispatchEvent(
           new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
         );
     });
     const newTabItem = Array.from(
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("Open in new tab"));
+    ).find((item) =>
+      item.textContent?.includes("dispatch.pages.chatFirstOpenInNewTab"),
+    );
     expect(newTabItem).not.toBeUndefined();
     expect(newTabItem?.getAttribute("href")).toBe(
       "https://analytics.agent-native.com/home",
@@ -429,7 +429,7 @@ describe("WorkspaceAppCard", () => {
         ".app-open-actions__primary",
       );
       expect(openButton).not.toBeNull();
-      expect(openButton?.textContent).toContain("Open app");
+      expect(openButton?.textContent).toContain("Open");
       expect(
         container.querySelector(
           'a[href="https://agent-workspace.builder.io/feedback-leaderboard/leaderboard"]',
@@ -684,7 +684,7 @@ describe("WorkspaceAppCard", () => {
     expect(document.activeElement).toBe(settingsButton);
   });
 
-  it("keeps pinning in the app open menu", async () => {
+  it("pins from a pressed button beside Open, not from the open menu", async () => {
     const onTogglePinned = vi.fn();
     await act(async () => {
       root.render(
@@ -705,24 +705,32 @@ describe("WorkspaceAppCard", () => {
       );
     });
 
-    const optionsButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Open options for Analytics"]',
+    const pinButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="dispatch.pages.unpinApp"]',
     );
-    expect(optionsButton).not.toBeNull();
+    expect(pinButton?.getAttribute("aria-pressed")).toBe("true");
+    // The button stays visible while this is set, and on hover otherwise.
+    expect(pinButton?.getAttribute("data-pinned")).toBe("true");
+    const openActions = container.querySelector(".app-open-actions");
+    expect(
+      pinButton!.compareDocumentPosition(openActions!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    await act(async () => pinButton?.click());
+    expect(onTogglePinned).toHaveBeenCalledOnce();
 
     await act(async () => {
-      optionsButton?.dispatchEvent(
-        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
-      );
+      container
+        .querySelector<HTMLButtonElement>(".app-open-actions__menu")
+        ?.dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
     });
-
-    const pinItem = Array.from(
+    const menuItems = Array.from(
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("Unpin this app"));
-    expect(pinItem).not.toBeUndefined();
-
-    await act(async () => pinItem?.click());
-    expect(onTogglePinned).toHaveBeenCalledOnce();
+    ).map((item) => item.textContent);
+    expect(menuItems.length).toBeGreaterThan(0);
+    expect(menuItems.join(" ")).not.toMatch(/pin/i);
   });
 
   it("labels per-app context as agent resources while preserving workspace scope", async () => {
@@ -806,9 +814,7 @@ describe("WorkspaceAppCard", () => {
     expect(container.textContent).toContain("Open in Builder");
     expect(container.textContent).not.toContain("pending-branch-id");
     expect(container.querySelector(".app-open-actions")).toBeNull();
-    expect(
-      container.querySelector('button[aria-label="Open options for New app"]'),
-    ).toBeNull();
+    expect(container.querySelector(".app-open-actions__menu")).toBeNull();
   });
 
   it("shows ownership metadata in the settings menu", async () => {

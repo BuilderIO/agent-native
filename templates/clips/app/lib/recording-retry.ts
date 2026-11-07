@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { chunkUploadUrl, UPLOAD_SLICE_BYTES } from "@shared/recording-core";
 
 import {
@@ -66,7 +66,9 @@ async function replayLocalCopy(
   }
 
   const attemptId = crypto.randomUUID();
-  const resumeUrl = `${appBasePath()}/api/uploads/${recordingId}/resume?attemptId=${encodeURIComponent(attemptId)}`;
+  const resumeUrl = appApiPath(
+    `/api/uploads/${recordingId}/resume?attemptId=${encodeURIComponent(attemptId)}`,
+  );
   const resumeRes = await fetch(resumeUrl, { method: "GET" });
   if (!resumeRes.ok) {
     // coercion-ok: response text only enriches an already-failing claim error.
@@ -95,7 +97,7 @@ async function replayLocalCopy(
       ? resume.uploadGenerationId
       : undefined;
 
-  const resetUrl = `${appBasePath()}/api/uploads/${recordingId}/reset-chunks`;
+  const resetUrl = appApiPath(`/api/uploads/${recordingId}/reset-chunks`);
   const resetRes = await fetch(resetUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -133,7 +135,7 @@ async function replayLocalCopy(
   }
   const uploadGenerationId = reset.uploadGenerationId;
 
-  const chunkBaseUrl = `${appBasePath()}/api/uploads/${recordingId}/chunk`;
+  const chunkBaseUrl = appApiPath(`/api/uploads/${recordingId}/chunk`);
   const recordingBlob = new Blob(
     chunks.map((chunk) => chunk.blob),
     { type: meta.mimeType },

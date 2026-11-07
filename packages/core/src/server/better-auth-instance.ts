@@ -91,6 +91,7 @@ import {
   isBootstrapAdmin,
 } from "../org/signup-admission.js";
 import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
+import { normalizeCorsOrigin } from "../shared/cors-origin.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
@@ -112,6 +113,7 @@ import {
 } from "./attribution.js";
 import { requestAllowsConsentCategoryFromHeaders } from "./consent-route.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
+import { readCorsAllowedOrigins } from "./cors-origins.js";
 import {
   getMissingAuthSecretKey,
   MissingAuthSecretError,
@@ -1431,6 +1433,7 @@ export interface BetterAuthInternalAdapter {
       image?: string | null;
       emailVerified?: boolean;
       onboardingRole?: string | null;
+      createdAt?: Date | string;
     };
     accounts: Array<{ id: string; providerId: string; accountId: string }>;
   } | null>;
@@ -2180,7 +2183,14 @@ async function createBetterAuthInstance(
   const secret = resolveAuthSecret();
 
   const appUrl = getAppProductionUrl();
-  const configuredOrigins = [...getConfiguredOriginAllowlist()];
+  // A UI served from another origin calls auth endpoints with credentials
+  // once CORS admits it, so Better Auth's origin check must admit it too.
+  const configuredOrigins = [
+    ...new Set([
+      ...getConfiguredOriginAllowlist(),
+      ...readCorsAllowedOrigins().map(normalizeCorsOrigin),
+    ]),
+  ];
   const cookieNamespace = resolveAuthCookieNamespace();
   const emailReadiness = getDeploymentEmailReadiness();
   const { requireEmailVerification, disableSignUp } =

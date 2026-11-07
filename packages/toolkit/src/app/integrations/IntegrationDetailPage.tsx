@@ -61,6 +61,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type ReactNode,
 } from "react";
 import { toast } from "sonner";
 
@@ -74,6 +75,7 @@ import {
 } from "../settings/shell/context.js";
 import type { SettingsPageContext } from "../settings/shell/registry.js";
 import { submitToAgent } from "../shared/index.js";
+import { connectedServerIntegrationId } from "./connected-server-id.js";
 import {
   BrandMark,
   BreadcrumbTitle,
@@ -87,7 +89,10 @@ import {
   catalogWithoutBuilderPublish,
   RemoveServerDialog,
 } from "./IntegrationsPage.js";
-import { useMcpIntegrationsController } from "./IntegrationsPanel.js";
+import {
+  startMcpOAuthReconnect,
+  useMcpIntegrationsController,
+} from "./IntegrationsPanel.js";
 
 const K = "agentChat.settingsShell.integrationDetail";
 const CH = "agentChat.settingsShell.channels";
@@ -383,6 +388,8 @@ export interface IntegrationDetailPageProps {
   id: string;
   appName: string;
   context: SettingsPageContext;
+  /** App-owned settings for this integration, kept within its shared page. */
+  extensionContent?: ReactNode;
 }
 
 /**
@@ -395,9 +402,21 @@ export function IntegrationDetailPage({
   id,
   appName,
   context,
+  extensionContent,
 }: IntegrationDetailPageProps) {
   const catalog = useMemo(catalogWithoutBuilderPublish, []);
   const integration = catalog.find((entry) => entry.id === id);
+  // A connected server that has no catalog entry (a custom integration added by URL) is
+  // still openable: the tile links to its slug, and this resolves the same slug back to
+  // the server, so every connected tile has a detail page rather than only the built-ins.
+  const mcp = useMcpIntegrationsController({ integrations: catalog });
+  const customServer = integration
+    ? undefined
+    : // Every server, not only the connected ones: an ERRORED connection still needs a
+      // page — that is exactly when a person goes looking for Reconnect.
+      mcp.servers.find(
+        (server) => connectedServerIntegrationId(server, catalog) === id,
+      );
   const { navigate } = useSettingsShell();
   const channelId = CHANNEL_ALIASES[id] ?? id;
   const isChannel =
@@ -409,6 +428,15 @@ export function IntegrationDetailPage({
   }, [channelId, isChannel, navigate]);
 
   if (isChannel) return null;
+  if (!integration && customServer) {
+    return (
+      <CustomServerDetail
+        server={customServer}
+        catalog={catalog}
+        integrationId={id}
+      />
+    );
+  }
   if (!integration) return <NotFound />;
   return (
     <IntegrationDetail
@@ -417,7 +445,68 @@ export function IntegrationDetailPage({
       catalog={catalog}
       appName={appName}
       context={context}
+      extensionContent={extensionContent}
     />
+  );
+}
+
+/**
+ * The detail page for a CONNECTED server that has no catalog entry — a custom
+ * integration added by URL. It shows the same facts as a built-in's page (status, scope,
+ * tools, error reason) and the same actions (Reconnect when the connection errored,
+ * Remove), so every connected tile in the grid opens a page worth opening.
+ */
+function CustomServerDetail({
+  server,
+  catalog,
+  integrationId,
+}: {
+  server: McpServer;
+  catalog: DefaultMcpIntegration[];
+  integrationId: string;
+}) {
+  const t = useT();
+  const { navigate } = useSettingsShell();
+  const mcp = useMcpIntegrationsController({ integrations: catalog });
+  const [removing, setRemoving] = useState(false);
+  const canRemove =
+    server.scope === "user" ||
+    mcp.serversQuery.data?.role === "owner" ||
+    mcp.serversQuery.data?.role === "admin";
+  const reconnect = () => {
+    if (server.authMode === "oauth" && server.status.state === "error") {
+      startMcpOAuthReconnect(server);
+      return;
+    }
+    void mcp.reconnect(server);
+  };
+  return (
+    <div className="space-y-6" data-connected-server-detail={integrationId}>
+      <header className="space-y-1">
+        <h2 className="text-base font-medium text-foreground">{server.name}</h2>
+        <p className="truncate text-xs text-muted-foreground">{server.url}</p>
+      </header>
+      <ConnectedRow
+        server={server}
+        canRemove={canRemove}
+        onRemove={() => setRemoving(true)}
+      />
+      {server.status.state === "error" ? (
+        <Button type="button" variant="outline" size="sm" onClick={reconnect}>
+          {t("mcpIntegrations.reconnect")}
+        </Button>
+      ) : null}
+      <RemoveServerDialog
+        server={removing ? server : null}
+        onOpenChange={(open) => {
+          if (!open) setRemoving(false);
+        }}
+        onRemove={async (target) => {
+          await mcp.removeServer(target);
+          navigate("integrations");
+        }}
+      />
+    </div>
   );
 }
 
@@ -426,11 +515,13 @@ function IntegrationDetail({
   catalog,
   appName,
   context,
+  extensionContent,
 }: {
   integration: DefaultMcpIntegration;
   catalog: DefaultMcpIntegration[];
   appName: string;
   context: SettingsPageContext;
+  extensionContent?: ReactNode;
 }) {
   const t = useT();
   const org = useOrg();
@@ -752,6 +843,8 @@ function IntegrationDetail({
           }
         />
       </SettingsGroup>
+
+      {extensionContent}
 
       <SettingsGroup id="information" title={t(`${CH}.information`)}>
         <SettingsRow

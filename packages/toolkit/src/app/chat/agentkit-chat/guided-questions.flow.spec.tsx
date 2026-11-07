@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { resetAgentEngineReadinessForTests } from "@agent-native/core/client/agent-engine-readiness";
 import { bumpChangeVersion } from "@agent-native/core/client/hooks";
+import { invalidateClientStatusRequests } from "@agent-native/core/client/status-requests";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -96,6 +98,8 @@ describe("useGuidedQuestionFlow scoped reads", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    resetAgentEngineReadinessForTests();
+    invalidateClientStatusRequests();
     sendToAgentChatMock.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);

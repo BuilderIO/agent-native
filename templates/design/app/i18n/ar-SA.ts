@@ -334,6 +334,7 @@ export default {
   common: {
     loading: "جارٍ التحميل...",
     genericError: "حدث خطأ ما",
+    linkedSourceSizeLimit: "يتجاوز تعديل المكوّن المرتبط حد حجم المصدر.",
   },
   editPanel: {
     colorInputLabel: "لون",
@@ -430,6 +431,7 @@ export default {
       font: "الخط",
       baseSize: "حجم القاعدة",
       size: "مقاس",
+      fontSizes: "مقياس الخطوط",
       weight: "وزن",
       color: "لون",
       align: "محاذاة",
@@ -878,6 +880,9 @@ export default {
       bottom: "ب",
       left: "ل",
     },
+    fontPicker: {
+      catalogUnavailable: "تعذّر تحميل مكتبة الخطوط الكاملة.",
+    },
     fontFamilies: {
       inherit: "يرث",
       sansSerif: "بلا شريف",
@@ -1028,6 +1033,9 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "تعذر تحميل هذه الشاشة.",
+    writeFailed: "تعذّر حفظ هذا التغيير.",
+    selectionPublishFailed: "قد لا يرى الوكيل تحديدك الأخير. حدِّده مرة أخرى.",
     liveCollaboration: {
       title: "التعاون المباشر",
       description:
@@ -2644,6 +2652,7 @@ export default {
   },
   homeContext: {
     websiteReference: "إضافة موقع ويب",
+    websiteReferenceMenu: "إضافة موقع ويب…",
     websiteUrlLabel: "عنوان URL لموقع الويب",
     websiteUrl: "الصق عنوان URL لموقع ويب",
     figmaUrlLabel: "رابط Figma",
@@ -2668,10 +2677,12 @@ export default {
     retry: "إعادة المحاولة",
     empty: "لا توجد مراجع مطابقة.",
     none: "بلا",
-    design: "التصميم",
+    design: "مراجع التصميم",
     slides: "الشرائح",
     referenceDesign: "استخدام تصميم كمرجع",
-    figmaReference: "إضافة Figma",
+    connectFigma: "ربط Figma",
+    figmaDisconnected: "اربط Figma لتصفح التصاميم.",
+    figmaReference: "تصميم Figma",
     referenceDeck: "استخدام عرض تقديمي كمرجع",
     quickSaas: "إنشاء صفحة هبوط لخدمة SaaS",
     quickDashboard: "إنشاء لوحة معلومات",
@@ -2835,8 +2846,6 @@ export default {
       dismiss: "إغلاق",
     },
     import: "استيراد",
-    importOptions: "خيارات الاستيراد",
-    figmaLink: "رابط Figma",
     importFromFigma: "الاستيراد من Figma",
     figmaFile: "ملف Figma (.fig)",
     figmaFileMaxSize: "حتى {{max}} غيغابايت",
@@ -3360,6 +3369,7 @@ export default {
     updateFailed: "تعذر تحديث التعليق",
     commentsInCluster: "التعليقات في المجموعة: {{count}}",
     moreActions: "مزيد من الإجراءات",
+    moreActionsFor: "مزيد من الإجراءات لـ {{author}}",
     copyLink: "نسخ الرابط",
     linkCopied: "تم نسخ الرابط",
     copyLinkFailed: "تعذر نسخ الرابط",
@@ -3379,6 +3389,7 @@ export default {
     addEmoji: "إضافة رمز تعبيري",
     mention: "الإشارة إلى شخص",
     noMentions: "لم يتم العثور على أشخاص",
+    mentionsFailed: "تعذّر تحميل الأشخاص",
     reopen: "إعادة الفتح",
     reopening: "جارٍ إعادة الفتح…",
     undo: "تراجع",
@@ -3444,7 +3455,6 @@ export default {
     },
     filtersActive: "تم تطبيق التصفية",
     suggestChanges: "اقتراح تعديلات",
-    replyInThread: "الرد في المحادثة",
     applyChangesAndResolve: "تطبيق التعديلات وحل المحادثة",
     agent: {
       sectionLabel: "الوكلاء",

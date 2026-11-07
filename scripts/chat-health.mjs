@@ -299,6 +299,11 @@ if (asJson) {
         fleet: { ...fleet, badRate: fleetRate },
         apps: scored,
         unreachable,
+        budgets: {
+          badRate: BAD_TURN_BUDGET,
+          stallRate: STALL_BUDGET,
+          a2aFailRate: A2A_FAIL_BUDGET,
+        },
       },
       null,
       2,
