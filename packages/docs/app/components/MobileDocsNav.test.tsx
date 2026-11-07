@@ -152,7 +152,9 @@ describe("MobileDocsNav", () => {
 
   it("marks both sections for a page listed twice", () => {
     const sections = getDocsNavSections("en-US");
-    const integrations = sections.find((section) => section.id === "integrations");
+    const integrations = sections.find(
+      (section) => section.id === "integrations",
+    );
     const toolkit = sections.find((section) => section.id === "toolkits");
     const toolkitGroup = toolkit?.items.find((item) =>
       item.children?.some((child) => child.to === "/docs/notifications/"),

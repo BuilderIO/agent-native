@@ -110,7 +110,9 @@ export default function MobileDocsNav() {
                       type="button"
                       className="docs-sidebar-section-trigger"
                       data-active-descendant={
-                        sectionContainsActive(section, location.pathname) ? "true" : undefined
+                        sectionContainsActive(section, location.pathname)
+                          ? "true"
+                          : undefined
                       }
                       aria-expanded={isOpen}
                       aria-controls={sectionId}
@@ -153,7 +155,9 @@ export default function MobileDocsNav() {
                                 type="button"
                                 className="sidebar-link sidebar-group-trigger mobile-docs-nav-group-trigger"
                                 data-active-descendant={
-                                  groupContainsActive(item, location.pathname) ? "true" : undefined
+                                  groupContainsActive(item, location.pathname)
+                                    ? "true"
+                                    : undefined
                                 }
                                 aria-expanded={groupOpen}
                                 aria-controls={groupClipId}

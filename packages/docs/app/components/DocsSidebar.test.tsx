@@ -280,7 +280,8 @@ describe("DocsSidebar", () => {
     expect(activeLink).toContain("is-active");
     expect(activeLink).toContain('data-an-prefetch="viewport"');
   });
-  it("marks the current page\'s parent section and group", () => {
+
+  it("marks the current page's parent section and group", () => {
     const html = renderSidebar("/docs/docker/");
     const buttonForLabel = (label: string) => {
       const labelPosition = html.indexOf(`<span>${label}</span>`);
@@ -316,7 +317,10 @@ describe("DocsSidebar", () => {
       item.children?.some((child) => child.to === "/docs/notifications/"),
     );
     expect(toolkitGroup).toBeDefined();
-    for (const title of [...sections.map((section) => section.title), toolkitGroup!.label]) {
+    for (const title of [
+      ...sections.map((section) => section.title),
+      toolkitGroup!.label,
+    ]) {
       const label = `<span>${title}</span>`;
       const start = html.indexOf(label);
       expect(start).toBeGreaterThan(-1);
