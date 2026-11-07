@@ -726,6 +726,7 @@ describe("app skill packaging", () => {
     fs.mkdirSync(secrets);
     fs.writeFileSync(path.join(secrets, "token.txt"), "secret\n", "utf-8");
     fs.writeFileSync(path.join(root, ".ENV"), "TOKEN=secret\n", "utf-8");
+    fs.writeFileSync(path.join(root, "signing.PFX"), "secret", "utf-8");
     const skill = path.join(root, ".agents", "skills", "asset-generation");
     fs.symlinkSync(
       secrets,
@@ -738,9 +739,45 @@ describe("app skill packaging", () => {
 
     expect(fs.existsSync(path.join(outDir, "app", "Secrets"))).toBe(false);
     expect(fs.existsSync(path.join(outDir, "app", ".ENV"))).toBe(false);
+    expect(fs.existsSync(path.join(outDir, "app", "signing.PFX"))).toBe(false);
     expect(fs.existsSync(path.join(outDir, "skills", "assets", "vault"))).toBe(
       false,
     );
+  });
+
+  it("makes the packed app fresh rather than adding to the last build", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+    // As a build before secret names matched in any case would have left it.
+    fs.mkdirSync(path.join(outDir, "app", "Secrets"));
+    fs.writeFileSync(
+      path.join(outDir, "app", "Secrets", "token.txt"),
+      "secret\n",
+      "utf-8",
+    );
+    fs.writeFileSync(path.join(outDir, "app", "removed.txt"), "old", "utf-8");
+
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    expect(fs.existsSync(path.join(outDir, "app", "package.json"))).toBe(true);
+    expect(fs.existsSync(path.join(outDir, "app", "Secrets"))).toBe(false);
+    expect(fs.existsSync(path.join(outDir, "app", "removed.txt"))).toBe(false);
+    expect(
+      fs.readdirSync(outDir).filter((name) => name.startsWith(".app-")),
+    ).toEqual([]);
+  });
+
+  it("packs an app whose own folder has a name left out inside it", () => {
+    const root = path.join(tmpDir(), "private");
+    fs.mkdirSync(root);
+    const manifestFile = writeFixture(root);
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    expect(fs.existsSync(path.join(outDir, "app", "package.json"))).toBe(true);
   });
 
   it("refuses a skill folder linked outside the app and its workspace", () => {

@@ -14,7 +14,11 @@ import {
   supportsRemoteMcpOAuth,
   writeConfigs,
 } from "./connect.js";
-import { linkKind, replaceFollowingLinks } from "./copy-following-links.js";
+import {
+  linkKind,
+  replaceFolder,
+  replaceFollowingLinks,
+} from "./copy-following-links.js";
 import {
   type ClientId,
   buildHttpMcpEntry,
@@ -819,7 +823,8 @@ function isLeftOutOfPack(name: string): boolean {
     lower.endsWith(".pem") ||
     lower.endsWith(".key") ||
     lower.endsWith(".crt") ||
-    lower.endsWith(".p12")
+    lower.endsWith(".p12") ||
+    lower.endsWith(".pfx")
   );
 }
 
@@ -849,6 +854,9 @@ function copyDirFiltered(
     verbatimSymlinks: true,
     filter: (src) => {
       const resolved = path.resolve(src);
+      // The names below are left out inside the app; the app's own folder
+      // name, such as `private`, isn't part of what it ships.
+      if (resolved === sourceRoot) return true;
       if (
         resolved === outputRootInsideSource ||
         resolved.startsWith(`${outputRootInsideSource}${path.sep}`)
@@ -1295,7 +1303,11 @@ export function buildAppSkillPack(
     standardAgentPluginMcpConfig(manifest),
   );
   if (appSource) {
-    copyDirFiltered(appSource, path.join(target, "app"));
+    // Made fresh rather than copied over the last build's, which `cpSync`
+    // would only add to: files since removed, or now left out, would stay.
+    replaceFolder(path.join(target, "app"), (folder) =>
+      copyDirFiltered(appSource, folder),
+    );
   }
   const exportedSkillNames = skills.map(skillExportName);
   for (const skill of skills)

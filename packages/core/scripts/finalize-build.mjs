@@ -153,7 +153,12 @@ function swapTemplatesDirIntoPlace(tempDir) {
 }
 
 rmSync(templatesTempDir, { recursive: true, force: true });
-cpSync("src/templates", templatesTempDir, { recursive: true });
+// The templates' links, such as `.claude/skills`, are relative and stay so;
+// by default they'd point at this checkout by full path.
+cpSync("src/templates", templatesTempDir, {
+  recursive: true,
+  verbatimSymlinks: true,
+});
 pruneSpecArtifacts(templatesTempDir);
 swapTemplatesDirIntoPlace(templatesTempDir);
 const wsPath = join("..", "..", "pnpm-workspace.yaml");

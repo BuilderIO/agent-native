@@ -12,11 +12,12 @@
  * doesn't choose what happens to links: `dereference: true` copies what a
  * link points at, and `verbatimSymlinks: true` keeps each link exactly as it
  * is (a whole-app copy, where following a link could pull in a file the copy
- * leaves out). Options the guard can't read, such as a variable, a spread or
- * a computed key, count as recursive, and a link choice counts only when it
- * is written as `true`. A copier is found by name, including `fs["cpSync"]`
- * and a name the file gives it by import, destructuring or assignment, as in
- * `import { cpSync as copyTree } from "node:fs"`.
+ * leaves out). Options the guard can't read, such as a variable, a spread, a
+ * computed key or arguments spread into the call, count as recursive, and a
+ * link choice counts only when it is written as `true`. A copier is found by
+ * name, including `fs["cpSync"]` and a name the file gives it by import,
+ * destructuring or assignment, as in `import { cpSync as copyTree } from
+ * "node:fs"`.
  *
  * `dereference` also needs a `filter`. Without one, Node 24's `cpSync` takes
  * a native shortcut that follows only a link at the top of the copy and copies
@@ -163,6 +164,14 @@ function propertyName(name: ts.PropertyName): string | undefined {
   return undefined;
 }
 
+// Arguments spread into the call before the options could hold them, so
+// they count as options the guard can't read.
+function callLeavesLinksToDefault(args: ts.NodeArray<ts.Expression>): boolean {
+  const spread = args.findIndex((arg) => ts.isSpreadElement(arg));
+  if (spread !== -1 && spread <= 2) return true;
+  return args.length >= 2 && leavesLinksToDefault(args[2]);
+}
+
 /**
  * Whether a copy's options leave links to Node's default: copied as links,
  * with relative targets made absolute. A copy without options, or with
@@ -251,8 +260,7 @@ export function findRecursiveCopies(
     if (
       ts.isCallExpression(node) &&
       isCopier(node, names) &&
-      node.arguments.length >= 2 &&
-      leavesLinksToDefault(node.arguments[2])
+      callLeavesLinksToDefault(node.arguments)
     ) {
       const start =
         sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))

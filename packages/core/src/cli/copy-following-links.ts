@@ -89,6 +89,21 @@ export function replaceFollowingLinks(
       `${from} and ${to} overlap, so replacing ${to} would delete it`,
     );
   }
+  replaceFolder(to, (copy) =>
+    // A link into `to` would carry what is there now into its replacement.
+    copyLeavingOut(from, copy, options, [landingPath(copy), landing]),
+  );
+}
+
+/**
+ * Replaces `to` with the folder `write` makes at the path it's given, beside
+ * `to`. It's swapped in only once `write` returns, so a write that fails
+ * leaves what was at `to` in place.
+ */
+export function replaceFolder(
+  to: string,
+  write: (folder: string) => void,
+): void {
   fs.mkdirSync(path.dirname(to), { recursive: true });
   const staging = fs.mkdtempSync(
     path.join(path.dirname(to), `.${path.basename(to)}-`),
@@ -96,8 +111,7 @@ export function replaceFollowingLinks(
   const aside = path.join(staging, "earlier");
   try {
     const copy = path.join(staging, "copy");
-    // A link into `to` would carry what is there now into its replacement.
-    copyLeavingOut(from, copy, options, [landingPath(copy), landing]);
+    write(copy);
     swapIn(copy, to, aside);
   } finally {
     // Kept when what was at `to` couldn't be put back, as it's the only copy.
