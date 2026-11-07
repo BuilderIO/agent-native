@@ -1617,7 +1617,9 @@ function snapshotInstallPaths(
   return [...new Set(targets)].map((target, index) => {
     const backup = path.join(backupRoot, `snapshot-${index}`);
     const existed = fs.existsSync(target);
-    if (existed) fs.cpSync(target, backup, { recursive: true });
+    if (existed) {
+      fs.cpSync(target, backup, { recursive: true, verbatimSymlinks: true });
+    }
     return { target, backup, existed };
   });
 }
@@ -1640,7 +1642,10 @@ function restoreInstallPaths(
     fs.rmSync(snapshot.target, { recursive: true, force: true });
     if (snapshot.existed) {
       fs.mkdirSync(path.dirname(snapshot.target), { recursive: true });
-      fs.cpSync(snapshot.backup, snapshot.target, { recursive: true });
+      fs.cpSync(snapshot.backup, snapshot.target, {
+        recursive: true,
+        verbatimSymlinks: true,
+      });
     }
   }
   for (const snapshot of snapshots) {
@@ -1819,6 +1824,7 @@ function bundledScaffoldSkillsDir(templateName: string): string {
   const skillsDir = path.join(root, ".agents", "skills");
   fs.cpSync(bundledScaffoldSkillsDir(layer.base), skillsDir, {
     recursive: true,
+    dereference: true,
   });
   applyTemplateLayer(templateDir, layer, root, { only: ".agents/skills" });
   layeredScaffoldSkillsDirs.set(templateName, skillsDir);
@@ -2197,18 +2203,34 @@ function copyScaffoldGuidanceSkills(
     allowedSkills,
   )) {
     if (existing && !existing.has(skill)) continue;
+    const sourceSkillDir = path.join(sourceRoot, skill);
     const targetSkillDir = path.join(targetRoot, skill);
     if (
       fs.existsSync(targetSkillDir) &&
-      fs.lstatSync(targetSkillDir).isSymbolicLink()
+      fs.lstatSync(targetSkillDir).isSymbolicLink() &&
+      !isMachineOnlyLinkTo(targetSkillDir, sourceSkillDir)
     ) {
       continue;
     }
     fs.rmSync(targetSkillDir, { recursive: true, force: true });
-    fs.cpSync(path.join(sourceRoot, skill), targetSkillDir, {
+    fs.cpSync(sourceSkillDir, targetSkillDir, {
       recursive: true,
       dereference: true,
     });
+  }
+}
+
+// Before 0.221, refreshing a copied skill could write an absolute link to its
+// source instead of a copy (#8231). That link only resolves on the machine
+// that wrote it, so it is copied again; links that point anywhere else stay.
+function isMachineOnlyLinkTo(linkPath: string, sourceDir: string): boolean {
+  try {
+    return (
+      path.isAbsolute(fs.readlinkSync(linkPath)) &&
+      fs.realpathSync(linkPath) === fs.realpathSync(sourceDir)
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -2264,7 +2286,10 @@ function ensureWorkspaceRootSkillsLink(
     createAgentSymlink(target, linkPath, "dir");
   } catch {
     try {
-      fs.cpSync(sharedSkillsDir, linkPath, { recursive: true });
+      fs.cpSync(sharedSkillsDir, linkPath, {
+        recursive: true,
+        dereference: true,
+      });
     } catch {}
   }
 }

@@ -763,6 +763,7 @@ function copyDirFiltered(source: string, dest: string): void {
       : destRoot;
   fs.cpSync(source, dest, {
     recursive: true,
+    dereference: true,
     filter: (src) => {
       const resolved = path.resolve(src);
       if (

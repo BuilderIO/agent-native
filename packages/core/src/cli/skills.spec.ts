@@ -66,7 +66,110 @@ describe("copy scaffold guidance skills", () => {
       ),
     ).toBe("Action reference\n");
   });
+
+  it("turns an absolute link to the source skill back into a copy", () => {
+    const root = tmpDir();
+    const sourceRoot = path.join(root, "source", ".agents", "skills");
+    const targetRoot = path.join(root, "app", ".claude", "skills");
+    const sourceSkill = path.join(sourceRoot, "actions");
+    fs.mkdirSync(sourceSkill, { recursive: true });
+    fs.writeFileSync(path.join(sourceSkill, "SKILL.md"), "# Actions\n");
+    fs.mkdirSync(targetRoot, { recursive: true });
+    linkDir(sourceSkill, path.join(targetRoot, "actions"));
+
+    _copyScaffoldGuidanceSkills([sourceRoot], targetRoot, ["actions"], false);
+
+    const copiedSkill = path.join(targetRoot, "actions");
+    expect(fs.lstatSync(copiedSkill).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(path.join(copiedSkill, "SKILL.md"), "utf8")).toBe(
+      "# Actions\n",
+    );
+    expect(fs.readFileSync(path.join(sourceSkill, "SKILL.md"), "utf8")).toBe(
+      "# Actions\n",
+    );
+  });
+
+  it("copies over an absolute link that no longer resolves", () => {
+    const root = tmpDir();
+    const sourceRoot = path.join(root, "source", ".agents", "skills");
+    const targetRoot = path.join(root, "app", ".claude", "skills");
+    const goneSkill = path.join(root, "other-machine", "actions");
+    fs.mkdirSync(path.join(sourceRoot, "actions"), { recursive: true });
+    fs.writeFileSync(
+      path.join(sourceRoot, "actions", "SKILL.md"),
+      "# Actions\n",
+    );
+    fs.mkdirSync(goneSkill, { recursive: true });
+    fs.mkdirSync(targetRoot, { recursive: true });
+    linkDir(goneSkill, path.join(targetRoot, "actions"));
+    fs.rmSync(goneSkill, { recursive: true });
+
+    _copyScaffoldGuidanceSkills([sourceRoot], targetRoot, ["actions"], false);
+
+    const copiedSkill = path.join(targetRoot, "actions");
+    expect(fs.lstatSync(copiedSkill).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(path.join(copiedSkill, "SKILL.md"), "utf8")).toBe(
+      "# Actions\n",
+    );
+  });
+
+  it("keeps a link that points somewhere other than the source skill", () => {
+    const root = tmpDir();
+    const sourceRoot = path.join(root, "source", ".agents", "skills");
+    const targetRoot = path.join(root, "app", ".claude", "skills");
+    const customSkill = path.join(root, "custom", "actions");
+    fs.mkdirSync(path.join(sourceRoot, "actions"), { recursive: true });
+    fs.writeFileSync(
+      path.join(sourceRoot, "actions", "SKILL.md"),
+      "# Actions\n",
+    );
+    fs.mkdirSync(customSkill, { recursive: true });
+    fs.writeFileSync(path.join(customSkill, "SKILL.md"), "# Custom\n");
+    fs.mkdirSync(targetRoot, { recursive: true });
+    linkDir(customSkill, path.join(targetRoot, "actions"));
+
+    _copyScaffoldGuidanceSkills([sourceRoot], targetRoot, ["actions"], false);
+
+    const linkedSkill = path.join(targetRoot, "actions");
+    expect(fs.lstatSync(linkedSkill).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(path.join(linkedSkill, "SKILL.md"), "utf8")).toBe(
+      "# Custom\n",
+    );
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "keeps a relative link to the source skill",
+    () => {
+      const root = tmpDir();
+      const sourceRoot = path.join(root, ".agents", "skills");
+      const targetRoot = path.join(root, ".claude", "skills");
+      const relativeTarget = path.join("..", "..", ".agents", "skills", "actions");
+      fs.mkdirSync(path.join(sourceRoot, "actions"), { recursive: true });
+      fs.writeFileSync(
+        path.join(sourceRoot, "actions", "SKILL.md"),
+        "# Actions\n",
+      );
+      fs.mkdirSync(targetRoot, { recursive: true });
+      fs.symlinkSync(relativeTarget, path.join(targetRoot, "actions"), "dir");
+
+      _copyScaffoldGuidanceSkills([sourceRoot], targetRoot, ["actions"], false);
+
+      expect(fs.readlinkSync(path.join(targetRoot, "actions"))).toBe(
+        relativeTarget,
+      );
+    },
+  );
 });
+
+// An absolute directory link like the ones `skills update` wrote before 0.221.
+// Windows junctions always store an absolute target.
+function linkDir(target: string, linkPath: string): void {
+  fs.symlinkSync(
+    target,
+    linkPath,
+    process.platform === "win32" ? "junction" : "dir",
+  );
+}
 
 afterEach(() => {
   for (const root of tmpRoots.splice(0)) {
@@ -3478,6 +3581,64 @@ describe("agent-native skills", () => {
         .lstatSync(path.join(app, ".agents", "skills", "actions"))
         .isSymbolicLink(),
     ).toBe(true);
+  });
+
+  it("turns Claude skill links left by older upgrades back into copies", async () => {
+    const root = tmpDir();
+    const shared = path.join(root, "packages", "shared");
+    const app = path.join(root, "apps", "mail");
+    const sharedActions = path.join(shared, ".agents", "skills", "actions");
+    fs.mkdirSync(app, { recursive: true });
+    fs.cpSync(
+      path.join(
+        workspaceRoot(),
+        "packages",
+        "core",
+        "src",
+        "templates",
+        "workspace-core",
+        ".agents",
+        "skills",
+      ),
+      path.join(shared, ".agents", "skills"),
+      { recursive: true },
+    );
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify(
+        {
+          name: "my-workspace",
+          "agent-native": { workspaceCore: "@my/shared" },
+        },
+        null,
+        2,
+      ),
+    );
+    fs.writeFileSync(
+      path.join(shared, "package.json"),
+      JSON.stringify({ name: "@my/shared" }, null, 2),
+    );
+    fs.writeFileSync(
+      path.join(app, "package.json"),
+      JSON.stringify({ name: "mail" }, null, 2),
+    );
+    fs.cpSync(sharedActions, path.join(app, ".agents", "skills", "actions"), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(app, ".claude", "skills"), { recursive: true });
+    linkDir(sharedActions, path.join(app, ".claude", "skills", "actions"));
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["update", "scaffold", "--scope", "project", "--json"], {
+      baseDir: root,
+      runCommand: async () => 0,
+    });
+
+    const claudeActions = path.join(app, ".claude", "skills", "actions");
+    expect(fs.lstatSync(claudeActions).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(path.join(claudeActions, "SKILL.md"), "utf8")).toBe(
+      fs.readFileSync(path.join(sharedActions, "SKILL.md"), "utf8"),
+    );
   });
 
   it("refreshes Chat workspace skills without restoring omitted defaults", async () => {

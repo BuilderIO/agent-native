@@ -643,6 +643,7 @@ function copySkillDir(from: string, to: string, dryRun: boolean): void {
   fs.mkdirSync(path.dirname(to), { recursive: true });
   fs.cpSync(from, to, {
     recursive: true,
+    dereference: true,
     filter(source) {
       const base = path.basename(source);
       return base !== ".git" && base !== "node_modules";

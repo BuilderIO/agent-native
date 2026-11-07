@@ -1,0 +1,208 @@
+/**
+ * guard-recursive-copy-links.ts
+ *
+ * `fs.cp` and `fs.cpSync` copy a symlink as a symlink by default, and rewrite
+ * a relative link target as an absolute path unless `verbatimSymlinks` is
+ * set. `agent-native upgrade` copied skill folders that way, so an app's
+ * `.claude/skills` filled with links to paths on the machine that ran the
+ * upgrade, which broke on every other machine once committed (issue #8231).
+ *
+ * This guard scans the published packages' source (`packages/<name>/src`,
+ * not specs or tests) and flags a recursive `cp` or `cpSync` call that
+ * doesn't choose what happens to links: `dereference: true` copies what a
+ * link points at, and `verbatimSymlinks: true` keeps each link exactly as it
+ * is (a backup restored in place). Options the guard can't read, such as a
+ * variable or a spread, count as recursive.
+ *
+ * A copy that really should write absolute links can say so, on any line of
+ * the call or on the line immediately above it:
+ *
+ *   // guard:allow-copy-links — <why>
+ */
+
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+import ts from "typescript";
+
+const GUARD_NAME = "guard:recursive-copy-links";
+const rootDir = path.resolve(import.meta.dirname, "..");
+
+const PRAGMA = /(?:\/\/|\/\*)\s*guard:allow-copy-links\b/;
+// Above a call, the pragma must be the whole line, not another call's comment.
+const PRAGMA_LINE = /^\s*(?:\/\/|\/\*)\s*guard:allow-copy-links\b/;
+const PACKAGE_SOURCE = /^packages\/[^/]+\/src\/.+\.[cm]?[jt]sx?$/;
+const TEST_FILE = /\.(?:spec|test)\.[cm]?[jt]sx?$|(?:^|\/)__tests__\//;
+const SKIPPED = /(?:^|\/)(?:node_modules|dist|build)\//;
+const COPIERS = new Set(["cp", "cpSync"]);
+const LINK_CHOICES = new Set(["dereference", "verbatimSymlinks"]);
+
+export interface CopyLinksFinding {
+  file: string;
+  line: number;
+  snippet: string;
+}
+
+export function isGuardedSourcePath(relPath: string): boolean {
+  return (
+    PACKAGE_SOURCE.test(relPath) &&
+    !TEST_FILE.test(relPath) &&
+    !SKIPPED.test(relPath)
+  );
+}
+
+function unwrap(node: ts.Expression): ts.Expression {
+  let current = node;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isSatisfiesExpression(current) ||
+    ts.isNonNullExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function isCopier(call: ts.CallExpression): boolean {
+  const callee = unwrap(call.expression);
+  if (ts.isIdentifier(callee)) return COPIERS.has(callee.text);
+  return ts.isPropertyAccessExpression(callee) && COPIERS.has(callee.name.text);
+}
+
+/**
+ * Whether a copy's options leave links to Node's default: copied as links,
+ * with relative targets made absolute. A copy without options, or with
+ * `recursive: false`, copies one file and is left alone.
+ */
+function leavesLinksToDefault(options: ts.Expression | undefined): boolean {
+  if (!options) return false;
+  const inner = unwrap(options);
+  // `fs.cp(src, dest, callback)` has no options.
+  if (ts.isArrowFunction(inner) || ts.isFunctionExpression(inner)) return false;
+  if (!ts.isObjectLiteralExpression(inner)) return true;
+  let recursive = false;
+  for (const property of inner.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      recursive = true;
+      continue;
+    }
+    if (
+      !ts.isPropertyAssignment(property) &&
+      !ts.isShorthandPropertyAssignment(property)
+    ) {
+      continue;
+    }
+    const name =
+      ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)
+        ? property.name.text
+        : undefined;
+    const isFalse =
+      ts.isPropertyAssignment(property) &&
+      unwrap(property.initializer).kind === ts.SyntaxKind.FalseKeyword;
+    if (name !== undefined && LINK_CHOICES.has(name) && !isFalse) return false;
+    if (name === "recursive") recursive = !isFalse;
+  }
+  return recursive;
+}
+
+export function findRecursiveCopies(
+  file: string,
+  source: string,
+): CopyLinksFinding[] {
+  const kind = /\.[cm]?[jt]sx$/.test(file)
+    ? ts.ScriptKind.TSX
+    : ts.ScriptKind.TS;
+  const sourceFile = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    kind,
+  );
+  const lines = source.split(/\r?\n/);
+  const findings: CopyLinksFinding[] = [];
+
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isCallExpression(node) &&
+      isCopier(node) &&
+      node.arguments.length >= 2 &&
+      leavesLinksToDefault(node.arguments[2])
+    ) {
+      const start =
+        sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
+          .line + 1;
+      const end = sourceFile.getLineAndCharacterOfPosition(node.end).line + 1;
+      const opted =
+        lines.slice(start - 1, end).some((line) => PRAGMA.test(line)) ||
+        PRAGMA_LINE.test(lines[start - 2] ?? "");
+      if (!opted) {
+        findings.push({
+          file,
+          line: start,
+          snippet: node.getText(sourceFile).replace(/\s+/g, " ").slice(0, 120),
+        });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return findings;
+}
+
+function trackedPackageFiles(): string[] {
+  const listed = execFileSync("git", ["ls-files", "-z", "--", "packages"], {
+    cwd: rootDir,
+    encoding: "utf8",
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  return listed.split("\0").filter(isGuardedSourcePath);
+}
+
+function main() {
+  const files = trackedPackageFiles();
+  const findings: CopyLinksFinding[] = [];
+  for (const rel of files) {
+    let source: string;
+    try {
+      source = readFileSync(path.join(rootDir, rel), "utf8");
+    } catch {
+      continue;
+    }
+    if (!/\bcp(?:Sync)?\s*\(/.test(source)) continue;
+    findings.push(...findRecursiveCopies(rel, source));
+  }
+
+  if (findings.length === 0) {
+    console.log(`${GUARD_NAME}: OK (${files.length} source file(s) inspected)`);
+    return;
+  }
+
+  console.error(
+    `${GUARD_NAME}: ${findings.length} recursive copy(ies) that leave symlinks to Node's default.`,
+  );
+  console.error(
+    "\nBy default fs.cp and fs.cpSync copy a link as a link and make its target\n" +
+      "absolute, so the copy only works on the machine that made it (#8231).\n" +
+      "Choose what happens to links:\n\n" +
+      "  fs.cpSync(src, dest, { recursive: true, dereference: true });\n" +
+      "  fs.cpSync(backup, target, { recursive: true, verbatimSymlinks: true });\n\n" +
+      "A copy that really should write absolute links can say so on the call or\n" +
+      "the line above it:\n\n" +
+      "  // guard:allow-copy-links — <why>\n",
+  );
+  for (const finding of findings) {
+    console.error(`  ${finding.file}:${finding.line} — ${finding.snippet}`);
+  }
+  process.exit(1);
+}
+
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  main();
+}

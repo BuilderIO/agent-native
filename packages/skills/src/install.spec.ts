@@ -198,6 +198,55 @@ describe("@agent-native/skills", () => {
     );
   });
 
+  it("copies linked folders inside a skill as files", async () => {
+    const root = tmpDir();
+    const source = path.join(root, "source");
+    const project = path.join(root, "project");
+    const sharedReferences = path.join(source, "shared", "references");
+    const skill = writeSkill(path.join(source, "skills"), "beta");
+    fs.rmSync(path.join(skill, "references"), { recursive: true });
+    fs.mkdirSync(sharedReferences, { recursive: true });
+    fs.writeFileSync(path.join(sharedReferences, "notes.md"), "Notes", "utf-8");
+    fs.symlinkSync(
+      sharedReferences,
+      path.join(skill, "references"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await installSkills(
+      parseSkillsCliArgs(
+        [
+          "add",
+          source,
+          "--skill",
+          "beta",
+          "--agent",
+          "codex",
+          "--scope",
+          "project",
+          "--project",
+          project,
+          "--instructions",
+          "none",
+        ],
+        root,
+      ),
+      { isInteractive: () => false },
+    );
+
+    const references = path.join(
+      project,
+      ".agents",
+      "skills",
+      "beta",
+      "references",
+    );
+    expect(fs.lstatSync(references).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(path.join(references, "notes.md"), "utf-8")).toBe(
+      "Notes",
+    );
+  });
+
   it("prompts for skills when no explicit selection is provided", async () => {
     const root = tmpDir();
     const source = path.join(root, "source");

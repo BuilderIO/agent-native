@@ -210,6 +210,42 @@ describe("@agent-native/skills", () => {
     ).toBe(false);
   });
 
+  it("copies linked folders inside a local skill as files", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    const sharedReferences = path.join(repo, "shared", "references");
+    writeSkill(repo, "quick-recap");
+    fs.mkdirSync(sharedReferences, { recursive: true });
+    fs.writeFileSync(path.join(sharedReferences, "notes.md"), "Notes\n");
+    fs.symlinkSync(
+      sharedReferences,
+      path.join(repo, "skills", "quick-recap", "references"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await installSkills({
+      source: repo,
+      skillNames: ["quick-recap"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: false,
+      yes: true,
+    });
+
+    const references = path.join(
+      project,
+      ".agents",
+      "skills",
+      "quick-recap",
+      "references",
+    );
+    expect(fs.lstatSync(references).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(path.join(references, "notes.md"), "utf8")).toBe(
+      "Notes\n",
+    );
+  });
+
   it("forwards scaffold update commands through the shared core flow", async () => {
     await runSkillsCli(["update", "scaffold", "--project"], {
       isInteractive: () => false,

@@ -737,7 +737,10 @@ export async function installSkills(
           if (!options.dryRun) {
             fs.rmSync(destination, { recursive: true, force: true });
             fs.mkdirSync(path.dirname(destination), { recursive: true });
-            fs.cpSync(skill.dir, destination, { recursive: true });
+            fs.cpSync(skill.dir, destination, {
+              recursive: true,
+              dereference: true,
+            });
           }
         }
       }
