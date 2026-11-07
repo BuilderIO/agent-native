@@ -88,6 +88,19 @@ test("reports every browser root that has no modules to check", () => {
   );
 });
 
+test("doesn't count public files as the rest of an app", () => {
+  assert.deepEqual(
+    emptyBrowserRoots([
+      "packages/core/src/index.ts",
+      "packages/shared-app-config/index.ts",
+      "templates/clips/public/sw.js",
+      "packages/docs/public/search.js",
+      "packages/frame/client/main.ts",
+    ]),
+    ["templates/*/**, community-templates/*/**", "packages/docs/**"],
+  );
+});
+
 test("reports a package or template whose modules moved out of every root", () => {
   assert.deepEqual(
     uncheckedUnits([
@@ -95,11 +108,13 @@ test("reports a package or template whose modules moved out of every root", () =
       "packages/toolkit/src/index.ts",
       "packages/core-corpus/README.md",
       "packages/mobile-app/app/index.tsx",
+      "packages/docs/public/search.js",
       "packages/README.md",
       "templates/chat/app/root.tsx",
+      "templates/clips/public/sw.js",
       "templates/mail/README.md",
     ]),
-    ["packages/core", "templates/mail"],
+    ["packages/core", "packages/docs", "templates/clips", "templates/mail"],
   );
 });
 

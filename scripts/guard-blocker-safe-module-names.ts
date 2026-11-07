@@ -35,6 +35,8 @@ interface BrowserRoot {
   pathspec: string | string[];
   pattern: RegExp;
   url: (match: RegExpExecArray) => string;
+  // Static files, which can't stand in for an app's own modules.
+  assets?: true;
 }
 
 export interface BlockedModuleName {
@@ -103,6 +105,7 @@ const BROWSER_ROOTS: BrowserRoot[] = [
     pathspec: ["templates/*/public/**", "community-templates/*/public/**"],
     pattern: /^(?:community-)?templates\/[^/]+\/public\/(.+)$/,
     url: servedAt,
+    assets: true,
   },
   {
     pathspec: ["templates/*/**", "community-templates/*/**"],
@@ -113,6 +116,7 @@ const BROWSER_ROOTS: BrowserRoot[] = [
     pathspec: "packages/docs/public/**",
     pattern: /^packages\/docs\/public\/(.+)$/,
     url: servedAt,
+    assets: true,
   },
   // The docs site is an app too; its components import from `lib/` as well.
   {
@@ -136,32 +140,45 @@ const NO_BROWSER_MODULES = new Set([
 ]);
 
 /**
- * The URL path a repo file is served at in dev, or null when the file never
- * reaches a browser.
+ * The browser root a repo file is served from, with its match, or null when
+ * the file never reaches a browser.
  */
-export function devModuleUrl(file: string): string | null {
+function servingRoot(
+  file: string,
+): { root: BrowserRoot; match: RegExpExecArray } | null {
   if (!MODULE.test(file) || SKIPPED.test(file)) return null;
   for (const root of BROWSER_ROOTS) {
     const match = root.pattern.exec(file);
-    if (match) return root.url(match);
+    if (match) return { root, match };
   }
   return null;
 }
 
 /**
- * The pathspecs of browser roots with no modules among `files`. A root that
- * stops matching, say after a folder moves, would otherwise pass unchecked.
+ * The URL path a repo file is served at in dev, or null when the file never
+ * reaches a browser.
  */
-export function emptyBrowserRoots(files: string[]): string[] {
-  return BROWSER_ROOTS.filter(
-    (root) =>
-      !files.some((file) => root.pattern.test(file) && devModuleUrl(file)),
-  ).map(({ pathspec }) => [pathspec].flat().join(", "));
+export function devModuleUrl(file: string): string | null {
+  const served = servingRoot(file);
+  return served ? served.root.url(served.match) : null;
 }
 
 /**
- * Packages and templates with no modules among `files`, other than those in
- * NO_BROWSER_MODULES.
+ * The pathspecs of browser roots that serve no modules among `files`. A root
+ * that stops matching, say after a folder moves, would otherwise pass
+ * unchecked. Only the root a file is served from counts, so `public/` files
+ * can't stand in for the rest of an app.
+ */
+export function emptyBrowserRoots(files: string[]): string[] {
+  const served = new Set(files.map((file) => servingRoot(file)?.root));
+  return BROWSER_ROOTS.filter((root) => !served.has(root)).map(({ pathspec }) =>
+    [pathspec].flat().join(", "),
+  );
+}
+
+/**
+ * Packages and templates with no modules among `files` outside `public/`,
+ * other than those in NO_BROWSER_MODULES.
  */
 export function uncheckedUnits(files: string[]): string[] {
   const checked = new Map<string, boolean>();
@@ -170,9 +187,10 @@ export function uncheckedUnits(files: string[]): string[] {
       file,
     )?.[0];
     if (!unit || NO_BROWSER_MODULES.has(unit)) continue;
+    const served = servingRoot(file);
     checked.set(
       unit,
-      checked.get(unit) === true || devModuleUrl(file) !== null,
+      checked.get(unit) === true || (served !== null && !served.root.assets),
     );
   }
   return [...checked]
