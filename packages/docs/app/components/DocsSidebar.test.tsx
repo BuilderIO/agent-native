@@ -316,10 +316,10 @@ describe("DocsSidebar", () => {
     const toolkitGroup = toolkit?.items.find((item) =>
       item.children?.some((child) => child.to === "/docs/notifications/"),
     );
-    expect(toolkitGroup).toBeDefined();
+    if (!toolkitGroup) throw new Error("Missing Toolkit notifications group");
     for (const title of [
       ...sections.map((section) => section.title),
-      toolkitGroup!.label,
+      toolkitGroup.label,
     ]) {
       const label = `<span>${title}</span>`;
       const start = html.indexOf(label);

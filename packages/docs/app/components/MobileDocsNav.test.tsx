@@ -166,14 +166,14 @@ describe("MobileDocsNav", () => {
     renderMobileNav("/docs/notifications/");
     openNav();
     expect(
-      screen.getByRole("button", { name: integrations.title }).getAttribute(
-        "data-active-descendant",
-      ),
+      screen
+        .getByRole("button", { name: integrations.title })
+        .getAttribute("data-active-descendant"),
     ).toBe("true");
     expect(
-      screen.getByRole("button", { name: toolkit.title }).getAttribute(
-        "data-active-descendant",
-      ),
+      screen
+        .getByRole("button", { name: toolkit.title })
+        .getAttribute("data-active-descendant"),
     ).toBe("true");
     const toolkitButton = screen.getByRole("button", {
       name: toolkit.title,
@@ -182,9 +182,9 @@ describe("MobileDocsNav", () => {
       fireEvent.click(toolkitButton);
     }
     expect(
-      screen.getByRole("button", { name: toolkitGroup.label }).getAttribute(
-        "data-active-descendant",
-      ),
+      screen
+        .getByRole("button", { name: toolkitGroup.label })
+        .getAttribute("data-active-descendant"),
     ).toBe("true");
   });
 
