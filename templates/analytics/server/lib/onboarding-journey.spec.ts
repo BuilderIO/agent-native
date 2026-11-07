@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -817,7 +819,9 @@ describe("getOnboardingJourney", () => {
     const now = vi
       .spyOn(Date, "now")
       .mockReturnValue(Date.parse("2026-11-05T00:00:56.789Z"));
-    const grace = { session_email: "grace@example.com" };
+    const hash = (email: string) =>
+      createHash("md5").update(email).digest("hex");
+    const grace = { session_email_hash: hash("grace@example.com") };
     const rows = [
       eventRow("s1", "signup", 0, grace),
       eventRow("s1", "onboarding_step_viewed", 5, {
@@ -827,7 +831,9 @@ describe("getOnboardingJourney", () => {
       eventRow("s2", "signup", 0, { auth_user_id: "person-g" }),
       eventRow("s3", "signup", 0, { ...grace, auth_user_id: "person-g" }),
       eventRow("s4", "signup", 0),
-      eventRow("s5", "signup", 0, { session_email: "heidi@example.com" }),
+      eventRow("s5", "signup", 0, {
+        session_email_hash: hash("heidi@example.com"),
+      }),
     ];
     const personRow = (
       stepKey: string,
@@ -902,17 +908,17 @@ describe("getOnboardingJourney", () => {
     // Grace's latest session has only her email; her sign-in ID comes from
     // the sessions that share it.
     expect(personSql).toContain(
-      '"sessionId":"s1","stepKey":"step:role","app":"clips","timestamp":"2026-10-01T12:00:05.000Z","authUserId":"person-g","email":"grace@example.com"',
+      `"sessionId":"s1","stepKey":"step:role","app":"clips","timestamp":"2026-10-01T12:00:05.000Z","authUserId":"person-g","emailHash":"${hash("grace@example.com")}"`,
     );
     expect(personSql).toContain(
-      '"authUserId":null,"email":"heidi@example.com"',
+      `"authUserId":null,"emailHash":"${hash("heidi@example.com")}"`,
     );
     // Later activity matches every email and sign-in ID Grace's sessions carried.
     expect(personSql).toContain(
-      '{"sessionId":"s1","authUserId":"person-g","email":null}',
+      '{"sessionId":"s1","authUserId":"person-g","emailHash":null}',
     );
     expect(personSql).toContain(
-      '{"sessionId":"s1","authUserId":null,"email":"grace@example.com"}',
+      `{"sessionId":"s1","authUserId":null,"emailHash":"${hash("grace@example.com")}"}`,
     );
     expect(personSql).not.toContain('"sessionId":"s2"');
     expect(personSql).not.toContain('"sessionId":"s3"');

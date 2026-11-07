@@ -171,9 +171,11 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   direct `properties.auth_user_id`. Sessions that share either one are one
   person, counted once and assigned to that person's latest terminal selected
   step in the requested cohort. Later events match the person by any email or
-  auth ID its sessions carried. An unmatched event in the person's own terminal
-  session counts only when it carries no sign-in ID, and no email when the
-  person has one. `coverage.identityJoin` reports `sessionsIdentifiedByEmail` and
+  auth ID its sessions carried. Emails are compared as MD5 hashes computed in
+  the warehouse, so no address appears in query text, query results or the
+  query cache. An unmatched event in the person's own terminal session counts
+  only when it carries neither a sign-in ID nor an email.
+  `coverage.identityJoin` reports `sessionsIdentifiedByEmail` and
   `sessionsIdentifiedBySignInIdOnly`. No anonymous, user-key, or organization
   pseudo-ID fallback is used for cross-session matching. The query searches
   later events across first-party apps under the same authenticated org,

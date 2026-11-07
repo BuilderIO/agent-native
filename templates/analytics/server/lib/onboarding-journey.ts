@@ -23,7 +23,7 @@ import {
   buildOnboardingJourneyPersonFollowupSql,
   onboardingJourneyEventDateRange,
   onboardingJourneyPersonFollowupDateRange,
-  onboardingPersonFollowupEmail,
+  onboardingPersonFollowupEmailHash,
   MAX_ONBOARDING_PERSON_FOLLOWUP_MEMBERS,
   ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS,
   type OnboardingJourneyEventsFilters,
@@ -530,7 +530,7 @@ export function parseJourneyEventRow(
     sessionReplayId.length > 0 &&
     sessionReplayStartedAt !== null &&
     sessionReplayId.length <= MAX_SESSION_ID_LENGTH;
-  const sessionEmail = text(raw.session_email);
+  const sessionEmailHash = text(raw.session_email_hash);
   return {
     id,
     sessionId,
@@ -538,7 +538,7 @@ export function parseJourneyEventRow(
     tsMs,
     eventName,
     ...(text(raw.auth_user_id) ? { authUserId: text(raw.auth_user_id)! } : {}),
-    ...(sessionEmail ? { sessionEmail } : {}),
+    ...(sessionEmailHash ? { sessionEmailHash } : {}),
     ...(text(raw.app) ? { app: text(raw.app)! } : {}),
     templateName: text(raw.template_name),
     path: text(raw.path),
@@ -864,8 +864,8 @@ function groupSessions(rows: readonly JourneyEventRow[]): {
         tsMs: terminal.tsMs,
         app: terminal.app ?? "",
         authUserId: terminal.authUserId ?? null,
-        email: onboardingPersonFollowupEmail(
-          sessionRows.find((row) => row.sessionEmail)?.sessionEmail,
+        emailHash: onboardingPersonFollowupEmailHash(
+          sessionRows.find((row) => row.sessionEmailHash)?.sessionEmailHash,
         ),
       });
     } else sessionsWithoutSteps += 1;
@@ -1183,7 +1183,7 @@ function canonicalPersonId(value: string | null | undefined): string | null {
   return value;
 }
 
-/** The email and direct auth ID a terminal session can be matched on. */
+/** The email hash and direct auth ID a terminal session can be matched on. */
 function personFollowupMember(
   terminal: OnboardingJourneyPersonMember,
 ): OnboardingJourneyPersonMember {
@@ -1191,7 +1191,7 @@ function personFollowupMember(
     ...terminal,
     app: terminal.app.toLowerCase(),
     authUserId: canonicalPersonId(terminal.authUserId),
-    email: onboardingPersonFollowupEmail(terminal.email),
+    emailHash: onboardingPersonFollowupEmailHash(terminal.emailHash),
   };
 }
 
@@ -1226,13 +1226,13 @@ function groupPersonFollowupMembers(
     parent.set(key, top);
     return top;
   };
-  const emailKey = (email: string) => `email:${email}`;
+  const emailKey = (emailHash: string) => `email:${emailHash}`;
   const authKey = (authUserId: string) => `auth:${authUserId}`;
   for (const member of members) {
-    if (member.email && member.authUserId) {
+    if (member.emailHash && member.authUserId) {
       parent.set(
         root(authKey(member.authUserId)),
-        root(emailKey(member.email)),
+        root(emailKey(member.emailHash)),
       );
     }
   }
@@ -1240,13 +1240,13 @@ function groupPersonFollowupMembers(
     string,
     {
       latest: OnboardingJourneyPersonMember;
-      emails: Set<string>;
+      emailHashes: Set<string>;
       authUserIds: Set<string>;
     }
   >();
   for (const member of members) {
-    const key = member.email
-      ? emailKey(member.email)
+    const key = member.emailHash
+      ? emailKey(member.emailHash)
       : member.authUserId
         ? authKey(member.authUserId)
         : null;
@@ -1254,22 +1254,22 @@ function groupPersonFollowupMembers(
     const id = root(key);
     const person = people.get(id) ?? {
       latest: member,
-      emails: new Set<string>(),
+      emailHashes: new Set<string>(),
       authUserIds: new Set<string>(),
     };
-    if (member.email) person.emails.add(member.email);
+    if (member.emailHash) person.emailHashes.add(member.emailHash);
     if (member.authUserId) person.authUserIds.add(member.authUserId);
     if (isLaterTerminal(member, person.latest)) person.latest = member;
     people.set(id, person);
   }
-  return [...people.values()].map(({ latest, emails, authUserIds }) => {
+  return [...people.values()].map(({ latest, emailHashes, authUserIds }) => {
     const aliases = {
-      emails: [...emails].sort(),
+      emailHashes: [...emailHashes].sort(),
       authUserIds: [...authUserIds].sort(),
     };
     return {
       ...latest,
-      email: latest.email ?? firstValue(aliases.emails),
+      emailHash: latest.emailHash ?? firstValue(aliases.emailHashes),
       authUserId: latest.authUserId ?? firstValue(aliases.authUserIds),
       aliases,
     };
@@ -1449,14 +1449,14 @@ async function readPersonFollowup(
 
   const terminalMembers = terminals.map(personFollowupMember);
   const isIdentified = (member: OnboardingJourneyPersonMember) =>
-    member.email !== null || member.authUserId !== null;
+    member.emailHash !== null || member.authUserId !== null;
   const identifiedMembers = terminalMembers.filter(isIdentified);
   const identityUnavailableMembers = terminalMembers.filter(
     (member) => !isIdentified(member),
   );
   const canonicalSessions = identifiedMembers.length;
   const sessionsIdentifiedByEmail = identifiedMembers.filter(
-    (member) => member.email !== null,
+    (member) => member.emailHash !== null,
   ).length;
   const personMembers = groupPersonFollowupMembers(identifiedMembers);
   const members = [...personMembers, ...identityUnavailableMembers];
