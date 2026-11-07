@@ -280,7 +280,7 @@ describe("DocsSidebar", () => {
     expect(activeLink).toContain("is-active");
     expect(activeLink).toContain('data-an-prefetch="viewport"');
   });
-  it("marks the active section and group even while their content is collapsed", () => {
+  it("marks the current page\'s parent section and group", () => {
     const html = renderSidebar("/docs/docker/");
     const buttonForLabel = (label: string) => {
       const labelPosition = html.indexOf(`<span>${label}</span>`);
@@ -299,7 +299,7 @@ describe("DocsSidebar", () => {
     expect(buttonForLabel("Hosting Providers")).toContain(
       'data-active-descendant="true"',
     );
-    expect(buttonForLabel("Database Providers")).not.toContain(
+    expect(buttonForLabel("Database providers")).not.toContain(
       "data-active-descendant",
     );
   });
