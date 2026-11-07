@@ -52,9 +52,11 @@ function CommandPanel() {
     : "dispatch:overview";
   const {
     availableModels,
+    catalogUnavailable,
     isLoading: modelListLoading,
     onEffortChange,
     onModelChange,
+    refreshEngines,
     selectedEffort,
     selectedEngine,
     selectedModel,
@@ -121,6 +123,22 @@ function CommandPanel() {
             onSubmit={(text) => send(text)}
           />
         </PromptBar>
+        {catalogUnavailable ? (
+          <div
+            className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+            role="status"
+          >
+            <span>{t("agentChat.setup.modelListUnavailable")}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={refreshEngines}
+            >
+              {t("agentChat.common.retry")}
+            </Button>
+          </div>
+        ) : null}
         <div className="mt-3 flex flex-wrap justify-center gap-2">
           {promptSuggestions.map((suggestion) => (
             <button

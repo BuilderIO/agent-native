@@ -16,8 +16,11 @@ const clientState = vi.hoisted(() => ({
   workspaceAppsError: null as Error | null,
   connectedApps: [] as Array<Record<string, unknown>>,
   curatedTemplates: [] as Array<Record<string, unknown>>,
+  catalogUnavailable: false,
+  refreshEngines: vi.fn(),
   useChatModels: vi.fn(() => ({
     availableModels: [],
+    catalogUnavailable: clientState.catalogUnavailable,
     defaultModel: "auto",
     selectedModel: "auto",
     selectedEngine: "",
@@ -25,7 +28,7 @@ const clientState = vi.hoisted(() => ({
     isLoading: false,
     onModelChange: vi.fn(),
     onEffortChange: vi.fn(),
-    refreshEngines: vi.fn(),
+    refreshEngines: clientState.refreshEngines,
   })),
   activeOrgId: "org-a" as string | null,
 }));
@@ -151,6 +154,8 @@ describe("DispatchControlPlane", () => {
     clientState.connectedApps = [];
     clientState.curatedTemplates = [];
     clientState.activeOrgId = "org-a";
+    clientState.catalogUnavailable = false;
+    clientState.refreshEngines.mockClear();
     clientState.useChatModels.mockClear();
     queryClient = new QueryClient({
       defaultOptions: {
@@ -234,6 +239,32 @@ describe("DispatchControlPlane", () => {
           }),
         },
       }),
+    );
+  });
+
+  it("shows a model loading failure and retries from the overview", async () => {
+    clientState.catalogUnavailable = true;
+    await renderHome();
+
+    expect(container.textContent).toContain(
+      "agentChat.setup.modelListUnavailable",
+    );
+    expect(container.textContent).not.toContain(
+      "agentChat.setup.connectToStart",
+    );
+    const retry = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "agentChat.common.retry",
+    );
+    expect(retry).toBeDefined();
+    await act(async () => {
+      retry?.click();
+    });
+    expect(clientState.refreshEngines).toHaveBeenCalledTimes(1);
+
+    clientState.catalogUnavailable = false;
+    await renderHome();
+    expect(container.textContent).not.toContain(
+      "agentChat.setup.modelListUnavailable",
     );
   });
 

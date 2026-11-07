@@ -88,6 +88,10 @@ function ChatModelsProbe({
           )
           .join(",")}
       </span>
+      <span data-testid={`${id}-catalog-unavailable`}>
+        {String(models.catalogUnavailable)}
+      </span>
+      <span data-testid={`${id}-loading`}>{String(models.isLoading)}</span>
       <span data-testid={`${id}-selection-ready`}>
         {String(models.selectionReady)}
       </span>
@@ -1095,6 +1099,148 @@ describe("useChatModels", () => {
 
     expect(catalog?.textContent).toBe("anthropic:true");
   });
+
+  it("reports an initially unavailable catalog and recovers on refresh", async () => {
+    vi.useFakeTimers();
+    try {
+      stubCatalog({ engines: [] });
+      actionMocks.callAction.mockRejectedValue(new Error("unavailable"));
+      await act(async () => {
+        root.render(<ChatModelsProbe enabled />);
+        await Promise.resolve();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1250);
+      });
+      expect(
+        container.querySelector('[data-testid="probe-catalog-unavailable"]')
+          ?.textContent,
+      ).toBe("true");
+      expect(
+        container.querySelector('[data-testid="probe-catalog-state"]')
+          ?.textContent,
+      ).toBe("");
+
+      stubCatalog({ engines: [] });
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>("button")?.click();
+        await Promise.resolve();
+      });
+      expect(
+        container.querySelector('[data-testid="probe-catalog-unavailable"]')
+          ?.textContent,
+      ).toBe("false");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["engine", "empty"],
+    ["readiness", "populated"],
+  ])(
+    "reports exhausted %s discovery failures and retains the last catalog until %s recovery",
+    async (failure, recovery) => {
+      vi.useFakeTimers();
+      try {
+        stubCatalog({
+          engines: [
+            {
+              name: "anthropic",
+              label: "Claude",
+              supportedModels: ["claude-sonnet-5"],
+              requiredEnvVars: ["ANTHROPIC_API_KEY"],
+            },
+          ],
+          configuredKeys: ["ANTHROPIC_API_KEY"],
+        });
+        await act(async () => {
+          root.render(<ChatModelsProbe enabled />);
+          await Promise.resolve();
+        });
+        const unavailable = container.querySelector(
+          '[data-testid="probe-catalog-unavailable"]',
+        );
+        const loading = container.querySelector(
+          '[data-testid="probe-loading"]',
+        );
+        const catalog = container.querySelector(
+          '[data-testid="probe-catalog-state"]',
+        );
+        expect(catalog?.textContent).toBe("anthropic:true");
+        expect(unavailable?.textContent).toBe("false");
+
+        invalidateClientStatusRequests();
+        if (failure === "engine") {
+          actionMocks.callAction.mockRejectedValue(new Error("unavailable"));
+        } else {
+          vi.stubGlobal(
+            "fetch",
+            vi.fn(async () => new Response("unavailable", { status: 503 })),
+          );
+        }
+        await act(async () => {
+          container.querySelector<HTMLButtonElement>("button")?.click();
+          await Promise.resolve();
+        });
+        expect(loading?.textContent).toBe("true");
+        expect(unavailable?.textContent).toBe("false");
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(250);
+        });
+        expect(loading?.textContent).toBe("true");
+        expect(unavailable?.textContent).toBe("false");
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1000);
+        });
+        expect(loading?.textContent).toBe("false");
+        expect(unavailable?.textContent).toBe("true");
+        expect(catalog?.textContent).toBe("anthropic:true");
+
+        invalidateClientStatusRequests();
+        let resolveEngines: (value: { engines: unknown[] }) => void = () => {};
+        const recoveredEngines =
+          recovery === "empty"
+            ? []
+            : [
+                {
+                  name: "anthropic",
+                  label: "Claude",
+                  supportedModels: ["claude-sonnet-5"],
+                  requiredEnvVars: ["ANTHROPIC_API_KEY"],
+                },
+              ];
+        stubCatalog({
+          engines: recoveredEngines,
+          configuredKeys: ["ANTHROPIC_API_KEY"],
+        });
+        actionMocks.callAction.mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              resolveEngines = resolve;
+            }),
+        );
+        await act(async () => {
+          container.querySelector<HTMLButtonElement>("button")?.click();
+          await Promise.resolve();
+        });
+        expect(unavailable?.textContent).toBe("false");
+        expect(loading?.textContent).toBe("true");
+        expect(catalog?.textContent).toBe("anthropic:true");
+        await act(async () => {
+          resolveEngines({ engines: recoveredEngines });
+          await Promise.resolve();
+        });
+        expect(loading?.textContent).toBe("false");
+        expect(unavailable?.textContent).toBe("false");
+        expect(catalog?.textContent).toBe(
+          recovery === "empty" ? "" : "anthropic:true",
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("retries model discovery after a transient readiness failure", async () => {
     vi.useFakeTimers();
