@@ -277,6 +277,176 @@ describe("fetchS3WithTimeout", () => {
     ssrfSafeFetchMock.mockReset();
   });
 
+  it("does not start DNS or fetch for a pre-aborted signal", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      fetchS3WithTimeout(
+        "https://storage.example.test/bucket/a",
+        { signal: controller.signal },
+        5_000,
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(isBlockedMock).not.toHaveBeenCalled();
+    expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("aborts while DNS is pending and never starts fetch afterward", async () => {
+    let finishDns!: (blocked: boolean) => void;
+    isBlockedMock.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        finishDns = resolve;
+      }),
+    );
+    const controller = new AbortController();
+    const request = fetchS3WithTimeout(
+      "https://storage.example.test/bucket/a",
+      { signal: controller.signal },
+      5_000,
+    );
+    const rejected = expect(request).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    controller.abort();
+    await rejected;
+    finishDns(false);
+    await Promise.resolve();
+    expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not sign or fetch a pre-aborted signed request", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      signedS3Request(r2, "a", {
+        method: "GET",
+        timeoutMs: 5_000,
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(isBlockedMock).not.toHaveBeenCalled();
+    expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("aborts promptly during signing without starting fetch", async () => {
+    const digest = vi
+      .spyOn(crypto.subtle, "digest")
+      .mockImplementationOnce(() => new Promise<ArrayBuffer>(() => {}));
+    try {
+      const controller = new AbortController();
+      const request = signedS3Request(r2, "a", {
+        method: "GET",
+        timeoutMs: 5_000,
+        signal: controller.signal,
+      });
+      const rejected = expect(request).rejects.toMatchObject({
+        name: "AbortError",
+      });
+      expect(digest).toHaveBeenCalled();
+      controller.abort();
+      await rejected;
+      expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
+    } finally {
+      digest.mockRestore();
+    }
+  });
+
+  it("forwards a signed request's cancellation to an in-flight fetch", async () => {
+    isBlockedMock.mockResolvedValue(false);
+    let started!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let upstreamSignal: AbortSignal | null | undefined;
+    ssrfSafeFetchMock.mockImplementation((_url: string, init: RequestInit) => {
+      upstreamSignal = init.signal;
+      started();
+      return new Promise((_resolve, reject) =>
+        init.signal?.addEventListener(
+          "abort",
+          () => reject(init.signal?.reason),
+          { once: true },
+        ),
+      );
+    });
+    const controller = new AbortController();
+    const request = signedS3Request(r2, "a", {
+      method: "GET",
+      timeoutMs: 5_000,
+      signal: controller.signal,
+    });
+    const rejected = expect(request).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await fetchStarted;
+    controller.abort();
+    await rejected;
+    expect(upstreamSignal?.aborted).toBe(true);
+  });
+
+  it("aborts a response body after headers", async () => {
+    isBlockedMock.mockResolvedValue(false);
+    let upstreamSignal: AbortSignal | null | undefined;
+    let canceled = false;
+    ssrfSafeFetchMock.mockImplementation(
+      async (_url: string, init: RequestInit) => {
+        upstreamSignal = init.signal;
+        return new Response(
+          new ReadableStream({
+            cancel() {
+              canceled = true;
+            },
+          }),
+        );
+      },
+    );
+    const controller = new AbortController();
+    const response = await fetchS3WithTimeout(
+      "https://storage.example.test/bucket/a",
+      { signal: controller.signal },
+      5_000,
+    );
+    const reading = response.text();
+    const rejected = expect(reading).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    controller.abort();
+    await rejected;
+    expect(upstreamSignal?.aborted).toBe(true);
+    expect(canceled).toBe(true);
+  });
+
+  it("retains the idle timeout after response headers", async () => {
+    vi.useFakeTimers();
+    isBlockedMock.mockResolvedValue(false);
+    let canceled = false;
+    let upstreamSignal: AbortSignal | null | undefined;
+    ssrfSafeFetchMock.mockImplementation(
+      async (_url: string, init: RequestInit) => {
+        upstreamSignal = init.signal;
+        return new Response(
+          new ReadableStream({
+            cancel() {
+              canceled = true;
+            },
+          }),
+        );
+      },
+    );
+    const response = await fetchS3WithTimeout(
+      "https://storage.example.test/bucket/a",
+      {},
+      1_000,
+    );
+    const rejected = expect(response.text()).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await rejected;
+    expect(canceled).toBe(true);
+    expect(upstreamSignal?.aborted).toBe(true);
+  });
+
   it("gives an upload time to send its body before waiting on headers", async () => {
     vi.useFakeTimers();
     isBlockedMock.mockResolvedValue(false);

@@ -305,6 +305,48 @@ describe("s3FileUploadProvider", () => {
     }
   });
 
+  it("forwards recording range cancellation to the storage request", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips",
+      S3_ACCESS_KEY_ID: "fake-access",
+      S3_SECRET_ACCESS_KEY: "fake-secret",
+      S3_ENDPOINT: "https://s3.example.test",
+    };
+    mockResolveSecret.mockImplementation(
+      async (key: string) => values[key] ?? null,
+    );
+    let started!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let upstreamSignal: AbortSignal | null | undefined;
+    mockSsrfSafeFetch.mockImplementation((_url: string, init: RequestInit) => {
+      upstreamSignal = init.signal;
+      started();
+      return new Promise((_resolve, reject) =>
+        init.signal?.addEventListener(
+          "abort",
+          () => reject(init.signal?.reason),
+          { once: true },
+        ),
+      );
+    });
+    const reader = await openS3Recording(
+      "https://s3.example.test/clips/clips/rec-1/video.mp4",
+      { recordingId: "rec-1", storageMode: "own" },
+    );
+    if (!reader) throw new Error("missing scoped reader");
+    const controller = new AbortController();
+    const request = reader("bytes=0-0", 5_000, controller.signal);
+    const rejected = expect(request).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await fetchStarted;
+    controller.abort();
+    await rejected;
+    expect(upstreamSignal?.aborted).toBe(true);
+  });
+
   it("does not start credential lookups after a stalled prefetch passes the deadline", async () => {
     vi.useFakeTimers();
     try {

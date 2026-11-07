@@ -34,7 +34,11 @@ export function acquireAgentFrameRangeAdmission(): () => void {
   };
 }
 
-type RangeReader = (range: string, timeoutMs: number) => Promise<Response>;
+type RangeReader = (
+  range: string,
+  timeoutMs: number,
+  signal: AbortSignal,
+) => Promise<Response>;
 
 export type RemoteFrameInput = {
   format: "mov" | "matroska";
@@ -60,6 +64,7 @@ export async function openAgentFrameRange(
   let requestCount = 0;
   let activeRequests = 0;
   let identity: { etag: string; size: number } | undefined;
+  const deadlineController = new AbortController();
   const readers = new Set<ReadableStreamDefaultReader<Uint8Array>>();
   const tasks = new Set<Promise<void>>();
   const sockets = new Set<Socket>();
@@ -78,7 +83,7 @@ export async function openAgentFrameRange(
   const timer = setTimeout(
     () => {
       if (closed) return;
-      fail("Recording range deadline exceeded.", 504);
+      deadlineController.abort(fail("Recording range deadline exceeded.", 504));
       cancelReaders();
       for (const socket of sockets) socket.destroy();
     },
@@ -86,6 +91,7 @@ export async function openAgentFrameRange(
   );
 
   function assertActive(signal: AbortSignal): void {
+    if (!closed && deadlineController.signal.aborted && failure) throw failure;
     if (closed || signal.aborted) {
       throw new Error("Recording range client disconnected.");
     }
@@ -103,6 +109,7 @@ export async function openAgentFrameRange(
       response = await readRange(
         `bytes=${start}-${end}`,
         Math.min(remaining(), MAX_HEADER_WAIT_MS),
+        signal,
       );
     } catch (error) {
       assertActive(signal);
@@ -187,7 +194,7 @@ export async function openAgentFrameRange(
   }
 
   try {
-    await read(0, 0, new AbortController().signal);
+    await read(0, 0, deadlineController.signal);
     if (!identity) throw fail("Recording storage did not return an identity.");
     const size = identity.size;
     const path = `/${randomBytes(32).toString("hex")}`;
@@ -242,7 +249,11 @@ export async function openAgentFrameRange(
           let offset = start;
           while (offset <= end && !isDisconnected()) {
             const last = Math.min(offset + RANGE_BYTES - 1, end);
-            const bytes = await read(offset, last, controller.signal);
+            const bytes = await read(
+              offset,
+              last,
+              AbortSignal.any([controller.signal, deadlineController.signal]),
+            );
             if (!response.headersSent) {
               response.writeHead(206, {
                 "Content-Type": "application/octet-stream",
@@ -306,6 +317,7 @@ export async function openAgentFrameRange(
       cleanup: () =>
         (cleanupPromise ??= (async () => {
           closed = true;
+          deadlineController.abort();
           cancelReaders();
           for (const socket of sockets) socket.destroy();
           const stopped = new Promise<void>((resolve, reject) =>
@@ -322,6 +334,7 @@ export async function openAgentFrameRange(
     };
   } catch (error) {
     clearTimeout(timer);
+    deadlineController.abort();
     cancelReaders();
     release();
     throw error;

@@ -69,6 +69,76 @@ describe("recording range broker", () => {
     },
   );
 
+  it("aborts upstream headers promptly when the client disconnects without poisoning health", async () => {
+    let started!: () => void;
+    let release!: () => void;
+    const headersStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let count = 0;
+    const media = await openAgentFrameRange(
+      async (_range, _timeout, signal?: AbortSignal) => {
+        if (++count === 1) return response(Buffer.from("a"), "bytes 0-0/4");
+        started();
+        return new Promise<Response>((_resolve, reject) => {
+          release = () => reject(new Error("test cleanup"));
+          signal?.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        });
+      },
+      "mov",
+    );
+    const controller = new AbortController();
+    const request = fetch(media.path, { signal: controller.signal }).catch(
+      () => null,
+    );
+    try {
+      await headersStarted;
+      controller.abort();
+      await request;
+      await expect(
+        Promise.race([
+          media.remote.assertHealthy().then(() => "healthy"),
+          new Promise<string>((resolve) =>
+            setTimeout(() => resolve("stalled"), 500),
+          ),
+        ]),
+      ).resolves.toBe("healthy");
+    } finally {
+      release();
+      await media.cleanup();
+    }
+  });
+
+  it("aborts a preflight waiting for headers at the overall deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      let aborted = false;
+      const opening = openAgentFrameRange(
+        async (_range, _timeout, signal?: AbortSignal) =>
+          new Promise<Response>((_resolve, reject) => {
+            signal?.addEventListener(
+              "abort",
+              () => {
+                aborted = true;
+                reject(signal.reason);
+              },
+              { once: true },
+            );
+          }),
+        "mov",
+        Date.now() + 100,
+      );
+      const result = opening.catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(aborted).toBe(true);
+      await expect(result).resolves.toMatchObject({ statusCode: 504 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("cancels a body that resolves after its client disconnects and waits for the request", async () => {
     let release: ((response: Response) => void) | undefined;
     let canceled = false;

@@ -913,7 +913,14 @@ export async function openS3Recording(
     storageMode: ClipsS3StorageMode;
     deadline?: number;
   },
-): Promise<((range: string, timeoutMs: number) => Promise<Response>) | null> {
+): Promise<
+  | ((
+      range: string,
+      timeoutMs: number,
+      signal?: AbortSignal,
+    ) => Promise<Response>)
+  | null
+> {
   assertS3ReadDeadline(options.deadline);
   const cfg = await readS3ConfigForMode(options.storageMode, options.deadline);
   assertS3ReadDeadline(options.deadline);
@@ -926,8 +933,8 @@ export async function openS3Recording(
     !isRecordingObjectKey(key, options.recordingId)
   )
     return null;
-  return (range, timeoutMs) =>
-    s3Request(cfg, key, { method: "GET", range, timeoutMs });
+  return (range, timeoutMs, signal) =>
+    s3Request(cfg, key, { method: "GET", range, timeoutMs, signal });
 }
 
 export async function fetchS3ObjectByUrl(
