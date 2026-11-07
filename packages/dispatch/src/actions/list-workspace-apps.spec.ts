@@ -7,7 +7,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../server/lib/app-creation-store.js", () => ({
   listWorkspaceApps: mocks.listWorkspaceApps,
-  listWorkspaceAppsForOrgAccessInventory: mocks.listWorkspaceAppsForOrgAccessInventory,
+  listWorkspaceAppsForOrgAccessInventory:
+    mocks.listWorkspaceAppsForOrgAccessInventory,
 }));
 
 import type { ActionRunContext } from "@agent-native/core/action";

@@ -641,9 +641,9 @@ describe("isWorkspaceAppAccessAllowed", () => {
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
       "https://dispatch.example.test",
     );
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response("Unavailable", { status: 503 }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response("Unavailable", { status: 503 }));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
@@ -651,7 +651,9 @@ describe("isWorkspaceAppAccessAllowed", () => {
         email: "admin@example.com",
         orgId: null,
       }),
-    ).rejects.toThrow("Workspace app inventory unavailable: registry-http-error");
+    ).rejects.toThrow(
+      "Workspace app inventory unavailable: registry-http-error",
+    );
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
       "orgAccessInventory=true",
@@ -665,10 +667,13 @@ describe("isWorkspaceAppAccessAllowed", () => {
       "https://dispatch.example.test",
     );
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify([
-        { id: "disabled-mounted", orgEnabled: false },
-        { id: "live-mounted", orgEnabled: true },
-      ]), { headers: { "content-type": "application/json" } }),
+      new Response(
+        JSON.stringify([
+          { id: "disabled-mounted", orgEnabled: false },
+          { id: "live-mounted", orgEnabled: true },
+        ]),
+        { headers: { "content-type": "application/json" } },
+      ),
     );
     vi.stubGlobal("fetch", fetchMock);
 

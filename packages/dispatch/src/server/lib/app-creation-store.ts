@@ -1921,7 +1921,10 @@ async function filterOrgAccessInventory(
       .where(
         and(
           eq(workspaceApps.orgId, orgId),
-          inArray(workspaceApps.id, batch.map((app) => app.id)),
+          inArray(
+            workspaceApps.id,
+            batch.map((app) => app.id),
+          ),
         ),
       );
     for (const row of rows) ids.add(row.id);

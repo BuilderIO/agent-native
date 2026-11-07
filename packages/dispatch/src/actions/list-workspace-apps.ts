@@ -62,7 +62,7 @@ export default defineAction({
       .default(false)
       .describe("Include archived workspace apps in the result."),
     orgAccessInventory: httpBoolean
-      .default(false)
+      .optional()
       .describe(
         "Admin-only mounted-app inventory for organization access settings.",
       ),
