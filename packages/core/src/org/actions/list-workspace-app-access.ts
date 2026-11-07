@@ -33,20 +33,20 @@ export default defineAction({
             activeAppIds === null || activeAppIds.has(String(row.id ?? "")),
         )
         .map((row) => ({
-        id: String(row.id ?? ""),
-        name: String(row.name ?? row.id ?? ""),
-        description:
-          typeof row.description === "string" ? row.description : null,
-        path: String(row.path ?? ""),
-        mode:
-          row.org_enabled === false ||
-          row.org_enabled === 0 ||
-          row.org_enabled === "false" ||
-          row.org_enabled === "0"
-            ? "disabled"
-            : row.visibility === "private"
-              ? "restricted"
-              : "all",
+          id: String(row.id ?? ""),
+          name: String(row.name ?? row.id ?? ""),
+          description:
+            typeof row.description === "string" ? row.description : null,
+          path: String(row.path ?? ""),
+          mode:
+            row.org_enabled === false ||
+            row.org_enabled === 0 ||
+            row.org_enabled === "false" ||
+            row.org_enabled === "0"
+              ? "disabled"
+              : row.visibility === "private"
+                ? "restricted"
+                : "all",
         })),
     };
   },
