@@ -232,6 +232,7 @@ describe("AnalyticsChart for editors", () => {
     renderEdit(chart());
     expect(container.textContent).toContain("analyticsChart.changedRefresh");
     expect(hooks.options["get-analytics-chart-status"]).toMatchObject({
+      method: "POST",
       enabled: true,
       retry: false,
     });

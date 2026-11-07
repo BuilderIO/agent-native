@@ -224,6 +224,8 @@ function usePanelChanged(
       ],
     },
     {
+      // The action answers POST only, which keeps its list of dashboards in the body.
+      method: "POST",
       enabled: Boolean(documentId && data.dashboard.id && data.panel.id),
       retry: false,
       staleTime: STATUS_STALE_MS,
