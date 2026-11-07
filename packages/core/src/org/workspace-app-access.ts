@@ -242,6 +242,30 @@ export function workspaceAppsFromManifest(
   return apps;
 }
 
+/**
+ * The Access settings list follows the runtime gateway registry, not only
+ * the startup manifest. Unavailable discovery must not hide a live app.
+ */
+export async function currentWorkspaceAppIdsForAccessList(
+  context: WorkspaceAppAccessContext,
+): Promise<ReadonlySet<string> | null> {
+  const directory = configuredWorkspaceDirectory();
+  if (directory) {
+    const auth = await resolveHostedWorkspaceAppAuth(
+      directory,
+      context,
+      normalizedEmail(context.email),
+    );
+    if (isWorkspaceAppAccessUnavailable(auth)) return null;
+    const registry = await getHostedWorkspaceAppRegistry(auth);
+    if (registry.status !== "available") return null;
+    return new Set(registry.apps.map((app) => app.id.trim()));
+  }
+
+  const manifest = workspaceAppsFromManifest(getAppConfig().workspace.appsJson);
+  return manifest ? new Set(manifest.map((app) => app.id.trim())) : null;
+}
+
 function workspaceAppIsDisabled(app: WorkspaceAppRegistryEntry): boolean {
   const value = app.orgEnabled ?? app.org_enabled;
   return value === false || value === 0 || value === "false" || value === "0";

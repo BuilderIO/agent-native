@@ -1,10 +1,9 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
-import { getAppConfig } from "../../app-config/index.js";
 import { getDbExec } from "../../db/client.js";
 import { requireOrgMember } from "../actions.js";
-import { workspaceAppsFromManifest } from "../workspace-app-access.js";
+import { currentWorkspaceAppIdsForAccessList } from "../workspace-app-access.js";
 
 export default defineAction({
   description:
@@ -13,12 +12,10 @@ export default defineAction({
   schema: z.object({}),
   run: async (_args, ctx) => {
     const caller = await requireOrgMember(ctx, true);
-    const manifestApps = workspaceAppsFromManifest(
-      getAppConfig().workspace.appsJson,
-    );
-    const activeAppIds = manifestApps
-      ? new Set(manifestApps.map((app) => app.id.trim()))
-      : null;
+    const activeAppIds = await currentWorkspaceAppIdsForAccessList({
+      email: ctx.userEmail ?? "",
+      orgId: caller.orgId,
+    });
     const result = await getDbExec().execute({
       sql: `SELECT id, name, description, path, visibility, org_enabled
             FROM workspace_apps
