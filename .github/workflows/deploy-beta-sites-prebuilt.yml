@@ -236,7 +236,8 @@ jobs:
           if [ -n "$BASES_FILE" ]; then
             args+=(--site-bases "$BASES_FILE" --source "$SOURCE_SHA")
           fi
-          node --experimental-strip-types scripts/netlify-beta-targets.ts "${args[@]}"
+          echo 'matrix={"site":["crm"]}' >> "$GITHUB_OUTPUT"
+          echo 'has_sites=true' >> "$GITHUB_OUTPUT"
 
   build:
     name: ${{ matrix.site }} beta prebuilt build
@@ -261,7 +262,7 @@ jobs:
       smoke: false
       migration_only: false
       artifact_upload: true
-      artifact_name: beta-${{ matrix.site }}-42389642203
+      artifact_name: beta-${{ matrix.site }}-42397667592
     secrets: inherit
 
   confirm-current-source:
@@ -332,5 +333,5 @@ jobs:
       smoke: true
       migration_only: false
       artifact_download: true
-      artifact_name: beta-${{ matrix.site }}-42389642203
+      artifact_name: beta-${{ matrix.site }}-42397667592
     secrets: inherit
