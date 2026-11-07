@@ -31,7 +31,7 @@ import {
   CONTEXT_XRAY_SKILL_MD,
   installLocalContextXray,
 } from "./context-xray-local.js";
-import { copyFollowingLinks } from "./copy-following-links.js";
+import { copyFollowingLinks, linkKind } from "./copy-following-links.js";
 import {
   detectInstalledClients,
   isHomeDirectory,
@@ -1638,20 +1638,6 @@ function snapshotInstallPaths(
       link: { target: fs.readlinkSync(target), type: linkKind(target) },
     };
   });
-}
-
-// Whether a link was made for a folder or a file. Only Windows tells the two
-// apart, and its links keep the kind after their target is gone: opening a
-// dangling folder link as a folder fails with ENOENT, a file link with ENOTDIR.
-function linkKind(linkPath: string): "file" | "dir" {
-  const resolved = fs.statSync(linkPath, { throwIfNoEntry: false });
-  if (resolved) return resolved.isDirectory() ? "dir" : "file";
-  try {
-    fs.opendirSync(linkPath).closeSync();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOTDIR") return "file";
-  }
-  return "dir";
 }
 
 function removeEmptyParents(start: string, boundary: string): void {

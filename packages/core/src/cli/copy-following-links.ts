@@ -83,3 +83,17 @@ function isInside(root: string, target: string): boolean {
     !path.isAbsolute(relative)
   );
 }
+
+// Whether a link was made for a folder or a file. Only Windows tells the two
+// apart, and its links keep the kind after their target is gone: opening a
+// dangling folder link as a folder fails with ENOENT, a file link with ENOTDIR.
+export function linkKind(linkPath: string): "file" | "dir" {
+  const resolved = fs.statSync(linkPath, { throwIfNoEntry: false });
+  if (resolved) return resolved.isDirectory() ? "dir" : "file";
+  try {
+    fs.opendirSync(linkPath).closeSync();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOTDIR") return "file";
+  }
+  return "dir";
+}

@@ -30,6 +30,22 @@ function tmpDir(): string {
   return root;
 }
 
+// Windows makes a file or relative link only with Developer Mode or admin
+// rights, so a test that needs one runs only where this machine can make it.
+function canMakeLinks(): boolean {
+  if (process.platform !== "win32") return true;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-app-skill-probe-"));
+  try {
+    fs.symlinkSync("missing", path.join(dir, "probe"));
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EPERM") return false;
+    throw error;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 function writeFixture(root: string): string {
   fs.writeFileSync(
     path.join(root, "package.json"),
@@ -744,8 +760,8 @@ describe("app skill packaging", () => {
 });
 
 describe("app skill launch and ensure", () => {
-  // oracle-change: a new test, skipped on Windows, where making a file link needs extra rights.
-  it.skipIf(process.platform === "win32")(
+  // oracle-change: a new test, skipped where Windows won't make a relative link without extra rights.
+  it.skipIf(!canMakeLinks())(
     "points a launched app's links out of the app at their targets",
     async () => {
       const workspace = tmpDir();
@@ -764,6 +780,8 @@ describe("app skill launch and ensure", () => {
         path.join(root, "shared.md"),
       );
       fs.symlinkSync("notes.md", path.join(root, "notes-link.md"));
+      // A folder link whose target isn't there yet.
+      fs.symlinkSync(path.join("..", "later"), path.join(root, "later"), "dir");
 
       const into = path.join(tmpDir(), "editable");
       await launchAppSkill(loadAppSkillManifest(manifestFile), {
@@ -783,6 +801,10 @@ describe("app skill launch and ensure", () => {
       expect(fs.readlinkSync(path.join(into, "notes-link.md"))).toBe(
         "notes.md",
       );
+      // It stays a folder link, so it lists once the folder exists.
+      fs.mkdirSync(path.join(workspace, "later"));
+      fs.writeFileSync(path.join(workspace, "later", "plan.md"), "Plan\n");
+      expect(fs.readdirSync(path.join(into, "later"))).toEqual(["plan.md"]);
     },
   );
 

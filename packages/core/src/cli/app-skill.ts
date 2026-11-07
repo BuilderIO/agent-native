@@ -14,7 +14,7 @@ import {
   supportsRemoteMcpOAuth,
   writeConfigs,
 } from "./connect.js";
-import { copyFollowingLinks } from "./copy-following-links.js";
+import { copyFollowingLinks, linkKind } from "./copy-following-links.js";
 import {
   type ClientId,
   buildHttpMcpEntry,
@@ -831,7 +831,7 @@ function copyDirFiltered(
     !path.isAbsolute(relativeDest)
       ? path.join(sourceRoot, relativeDest.split(path.sep)[0])
       : destRoot;
-  const pinned: { link: string; target: string }[] = [];
+  const pinned: { link: string; target: string; type: "file" | "dir" }[] = [];
   // Links stay links, with their targets as written: following them would
   // carry files the filter below leaves out, such as a link to `.env`.
   fs.cpSync(source, dest, {
@@ -853,6 +853,8 @@ function copyDirFiltered(
           pinned.push({
             link: path.join(destRoot, path.relative(sourceRoot, resolved)),
             target,
+            // Windows makes a link to a missing target a file link otherwise.
+            type: linkKind(src),
           });
           return false;
         }
@@ -860,9 +862,9 @@ function copyDirFiltered(
       return true;
     },
   });
-  for (const { link, target } of pinned) {
+  for (const { link, target, type } of pinned) {
     fs.rmSync(link, { force: true });
-    fs.symlinkSync(target, link);
+    fs.symlinkSync(target, link, type);
   }
 }
 
