@@ -2416,6 +2416,9 @@ const messages: ToolkitAgentChatTranslation = {
     "에이전트가 추가한 액세스 토큰을 사용하므로 그 토큰이 볼 수 있는 것을 봅니다.",
   "settingsShell.integrationDetail.accessToken": "액세스 토큰",
   "settingsShell.integrationDetail.addAccessToken": "액세스 토큰 추가",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "저장된 액세스 토큰을 확인하지 못했습니다.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "다시 시도",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "관리자가 설정해야 합니다",
   "settingsShell.integrationDetail.callout.adminNeededBody":

@@ -2461,6 +2461,9 @@ const messages: ToolkitAgentChatTranslation = {
     "エージェントは追加されたアクセストークンを使うため、そのトークンで参照できるものを参照します。",
   "settingsShell.integrationDetail.accessToken": "アクセストークン",
   "settingsShell.integrationDetail.addAccessToken": "アクセストークンを追加",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "保存済みのアクセストークンを確認できませんでした。",
+  "settingsShell.integrationDetail.tokenCheckRetry": "再試行",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "管理者による設定が必要です",
   "settingsShell.integrationDetail.callout.adminNeededBody":

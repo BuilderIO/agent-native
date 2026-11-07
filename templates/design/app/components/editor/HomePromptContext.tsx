@@ -48,6 +48,7 @@ import {
   figmaReferenceContext,
   isFigmaReferenceKey,
   readFigmaClipboardSource,
+  FIGMA_REFERENCE_CONTEXT_BUDGET,
   readFigmaReference,
   type FigmaReference,
   type FigmaReferenceSource,
@@ -188,12 +189,44 @@ export function useHomePromptContext({
         source: FigmaReferenceSource;
         revision: number;
         images?: FigmaReference["images"];
+        /** Set once decoded; its context is rebuilt when the chip count changes. */
+        resolved?: { reference: FigmaReference; title: string };
       }
     >(),
   );
   // Images of a chip that never reached a sent prompt are deleted, not kept.
   const discardFigmaImages = (key: string) => {
     void figmaSources.current.get(key)?.images?.discard();
+  };
+  /**
+   * Figma chips share one context budget: the composer refuses a send past
+   * its total, so each decoded chip gets an even share, recomputed whenever
+   * one is added or removed. Frames past a share stay attached and placeable.
+   */
+  const rebudgetFigmaChips = () => {
+    const share = Math.floor(
+      FIGMA_REFERENCE_CONTEXT_BUDGET /
+        Math.max(
+          1,
+          [...figmaSources.current.values()].filter((entry) => entry.resolved)
+            .length,
+        ),
+    );
+    setItems((items) =>
+      items.map((item) => {
+        const resolved = figmaSources.current.get(item.key)?.resolved;
+        return resolved && item.status === "ready"
+          ? {
+              ...item,
+              context: figmaReferenceContext(
+                resolved.reference,
+                `"${resolved.title}"`,
+                share,
+              ),
+            }
+          : item;
+      }),
+    );
   };
   const [figmaDialogOpen, setFigmaDialogOpen] = useState(false);
   const mounted = useRef(true);
@@ -336,21 +369,20 @@ export function useHomePromptContext({
           void reference.images?.discard();
           return;
         }
-        const entry = figmaSources.current.get(key);
-        if (entry) entry.images = reference.images;
         const title = figmaTitle(source, reference);
+        const entry = figmaSources.current.get(key);
+        if (entry) {
+          entry.images = reference.images;
+          entry.resolved = { reference, title };
+        }
         setItems((items) =>
           items.map((item) =>
             item.key === key
-              ? {
-                  key,
-                  title,
-                  context: figmaReferenceContext(reference, `"${title}"`),
-                  status: "ready",
-                }
+              ? { key, title, context: "", status: "ready" }
               : item,
           ),
         );
+        rebudgetFigmaChips();
       })
       .catch((error: unknown) => {
         if (!current()) return;
@@ -717,8 +749,9 @@ export function useHomePromptContext({
     }
     requests.current.delete(key);
     discardFigmaImages(key);
-    figmaSources.current.delete(key);
+    const wasFigma = figmaSources.current.delete(key);
     setItems((current) => current.filter((item) => item.key !== key));
+    if (wasFigma) rebudgetFigmaChips();
   };
   const retry = (key: string) => {
     const figma = figmaSources.current.get(key);
@@ -834,11 +867,25 @@ export function useHomePromptContext({
     if (!mounted.current || identityRef.current !== submittedIdentity)
       throw new Error(loadFailed);
     const prepared = snapshotComposerContextItems(refreshed);
-    // The submitted prompt may place these frames later; keep their images.
-    for (const item of submitted) {
-      if (isFigmaReferenceKey(item.key))
-        void figmaSources.current.get(item.key)?.images?.release();
-    }
+    // The submitted prompt may place these frames later, so their images are
+    // kept before it sends; a release that fails blocks the send instead.
+    const releases = await Promise.all(
+      submitted.flatMap((item) => {
+        const entry = isFigmaReferenceKey(item.key)
+          ? figmaSources.current.get(item.key)
+          : undefined;
+        const images = entry?.images;
+        if (!entry || !images) return [];
+        return [
+          images.release().then((failed) => {
+            if (failed === 0) entry.images = undefined;
+            return failed;
+          }),
+        ];
+      }),
+    );
+    if (releases.some((failed) => failed > 0))
+      throw new Error(t("homeContext.figmaImagesNotKept"));
     submissionReceipts.current.set(prepared, {
       identity: submittedIdentity,
       references: new Map(
@@ -875,11 +922,17 @@ export function useHomePromptContext({
     )
       onSystemChange(null);
   };
-  const readFigmaLink = async (url: string) => {
+  const readFigmaLink = async (url: string, pagesOnly = false) => {
     const result = figmaLinkSchema.parse(
       await callAction(
         "get-figma-design-context",
-        { figmaUrl: url, depth: 1, maxNodes: 10, includeScreenshot: false },
+        {
+          figmaUrl: url,
+          depth: 1,
+          maxNodes: 10,
+          includeScreenshot: false,
+          ...(pagesOnly ? { pagesOnly } : {}),
+        },
         { method: "GET" },
       ),
     );
@@ -935,9 +988,11 @@ export function useHomePromptContext({
       };
     }
     // Figma's "Copy link" names the page in view, so a page link still lists
-    // the whole file, with that page open and checked.
+    // the whole file, with that page open and checked. The other pages load
+    // their frames when opened, which keeps a large file to two small reads.
     const file = await readFigmaLink(
       `https://www.figma.com/design/${result.fileKey}`,
+      true,
     );
     const filePages = file.pages.some((page) => page.id === linked.id)
       ? file.pages.map((page) => (page.id === linked.id ? linked : page))

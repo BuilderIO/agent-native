@@ -165,6 +165,18 @@ export function FigmaAttachDialog({
     }
   };
 
+  // The linked page can sit far down a long file: bring it to the top of the
+  // list once per load, then leave the scroll position to the user.
+  const pageList = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!scrollTo) return;
+    const list = pageList.current;
+    const row = list?.querySelector<HTMLElement>(
+      `[data-figma-page-id="${CSS.escape(scrollTo)}"]`,
+    );
+    if (list && row) list.scrollTop = row.offsetTop;
+    setScrollTo(null);
+  }, [scrollTo, tree]);
   // The parent's loader is a new function every render; only the link and
   // the connection should start a load.
   const loadRef = useRef(load);
@@ -499,7 +511,7 @@ export function FigmaAttachDialog({
                 </div>
               ) : null}
               <div
-                data-figma-page-list
+                ref={pageList}
                 className="relative -mx-2 max-h-72 min-w-0 overflow-y-auto px-2"
               >
                 {visiblePages.length ? (
@@ -510,7 +522,6 @@ export function FigmaAttachDialog({
                       open={Boolean(search) || expanded.has(page.id)}
                       onOpenChange={(isOpen) => toggleExpanded(page, isOpen)}
                       loadingFrames={loadingPages.has(page.id)}
-                      scrollIntoView={page.id === scrollTo}
                       state={pageState(page)}
                       onPageChange={(checked) => togglePage(page, checked)}
                       isSelected={(id) => selected.has(id)}
@@ -553,7 +564,6 @@ function FigmaPageRow({
   open,
   onOpenChange,
   loadingFrames,
-  scrollIntoView,
   state,
   onPageChange,
   isSelected,
@@ -563,8 +573,6 @@ function FigmaPageRow({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   loadingFrames: boolean;
-  /** The linked page can sit far down a long file; bring it into view. */
-  scrollIntoView: boolean;
   state: boolean | "indeterminate";
   onPageChange: (checked: boolean) => void;
   isSelected: (id: string) => boolean;
@@ -586,17 +594,7 @@ function FigmaPageRow({
   return (
     <Collapsible open={open} onOpenChange={onOpenChange}>
       <div
-        ref={
-          scrollIntoView
-            ? (element) => {
-                // Scroll only the list: scrollIntoView also moves the dialog.
-                const list = element?.closest<HTMLElement>(
-                  "[data-figma-page-list]",
-                );
-                if (element && list) list.scrollTop = element.offsetTop;
-              }
-            : undefined
-        }
+        data-figma-page-id={page.id}
         className="flex h-8 min-w-0 items-center gap-1 rounded-md pe-2 hover:bg-accent"
       >
         {page.frames === null || page.frames.length ? (

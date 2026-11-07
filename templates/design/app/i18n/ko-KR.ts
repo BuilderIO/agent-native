@@ -2726,6 +2726,8 @@ export default {
     figmaSelectedCount: "{{count}}개 선택됨",
     figmaShowFrames: "{{name}}의 프레임 보기",
     figmaLinkNotFrame: "Figma 페이지나 프레임 링크를 사용하세요.",
+    figmaImagesNotKept:
+      "이 Figma 첨부 파일의 일부 이미지를 저장하지 못했습니다. 다시 보내 보세요.",
     referenceDeck: "프레젠테이션 참조",
     quickSaas: "SaaS 랜딩 페이지 만들기",
     quickDashboard: "대시보드 만들기",

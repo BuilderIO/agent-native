@@ -2694,6 +2694,8 @@ export default {
     figmaSelectedCount: "تم تحديد {{count}}",
     figmaShowFrames: "إظهار الإطارات في {{name}}",
     figmaLinkNotFrame: "استخدم رابطًا إلى صفحة أو إطار في Figma.",
+    figmaImagesNotKept:
+      "تعذّر حفظ بعض الصور في مرفق Figma هذا. حاول الإرسال مرة أخرى.",
     referenceDeck: "استخدام عرض تقديمي كمرجع",
     quickSaas: "إنشاء صفحة هبوط لخدمة SaaS",
     quickDashboard: "إنشاء لوحة معلومات",

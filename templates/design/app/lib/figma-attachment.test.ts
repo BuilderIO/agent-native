@@ -1,5 +1,6 @@
 import { gunzipSync } from "node:zlib";
 
+import { COMPOSER_CONTEXT_MAX_BYTES } from "@agent-native/toolkit/composer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -263,6 +264,29 @@ describe("figmaReferenceContext", () => {
     expect(context).toContain("Never retype a frame's HTML");
     expect(context).toContain("<main/>");
     expect(context).toContain("2 image fill(s)");
+  });
+
+  it("keeps Figma's share under the composer's context cap, in bytes", () => {
+    expect(FIGMA_REFERENCE_CONTEXT_BUDGET).toBeLessThan(
+      COMPOSER_CONTEXT_MAX_BYTES,
+    );
+    const context = figmaReferenceContext(
+      {
+        frames: Array.from({ length: 40 }, (_, index) => ({
+          name: `画面 ${index + 1}`,
+          html: `<main>${"日本語".repeat(2_000)}</main>`,
+        })),
+        frameCount: 40,
+        unresolvedImages: 0,
+        ref: "attachment:v1:abc",
+      },
+      '"App.fig"',
+      10_000,
+    );
+    expect(new TextEncoder().encode(context).length).toBeLessThanOrEqual(
+      10_000,
+    );
+    expect(context).toMatch(/\d+ more\.$|画面 \d+.*\.$/s);
   });
 
   it("marks frame content as data and fences HTML so it cannot break out", () => {

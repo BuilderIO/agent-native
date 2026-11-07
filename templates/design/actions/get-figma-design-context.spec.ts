@@ -62,43 +62,34 @@ describe("get-figma-design-context", () => {
     expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(2);
   });
 
-  it("lists a page too large to fetch whole from a two-level outline", async () => {
-    mocks.executeProviderApiRequest.mockImplementation(
-      async ({ query }: { query: { depth?: number } }) =>
-        query.depth === 2
-          ? jsonEnvelope({
-              nodes: {
-                "6913:4184": {
-                  document: {
-                    id: "6913:4184",
-                    name: "One pager",
-                    type: "CANVAS",
-                    children: [
-                      { id: "1:2", name: "Cover", type: "FRAME", children: [] },
-                      {
-                        id: "1:3",
-                        name: "Group",
-                        type: "SECTION",
-                        children: [{ id: "1:4", name: "Back", type: "FRAME" }],
-                      },
-                    ],
-                  },
+  it("lists a page link's frames from one bounded request without geometry", async () => {
+    mocks.executeProviderApiRequest.mockImplementation(async () =>
+      jsonEnvelope({
+        nodes: {
+          "6913:4184": {
+            document: {
+              id: "6913:4184",
+              name: "One pager",
+              type: "CANVAS",
+              children: [
+                { id: "1:2", name: "Cover", type: "FRAME", children: [] },
+                {
+                  id: "1:3",
+                  name: "Group",
+                  type: "SECTION",
+                  children: [{ id: "1:4", name: "Back", type: "FRAME" }],
                 },
-              },
-            })
-          : {
-              response: {
-                ok: true,
-                status: 200,
-                truncated: true,
-                size: 4_202_448,
-              },
+              ],
             },
+          },
+        },
+      }),
     );
 
     const result = await action.run({
       figmaUrl:
         "https://www.figma.com/design/abcDEF12345/Campaigns?node-id=6913-4184",
+      depth: 1,
     } as never);
 
     expect(result).toMatchObject({
@@ -114,6 +105,36 @@ describe("get-figma-design-context", () => {
         },
       ],
     });
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(1);
+    expect(mocks.executeProviderApiRequest.mock.calls[0]?.[0]).toMatchObject({
+      query: { ids: "6913:4184", depth: 2 },
+    });
+    expect(
+      mocks.executeProviderApiRequest.mock.calls[0]?.[0]?.query,
+    ).not.toHaveProperty("geometry");
+  });
+
+  it("lists only pages when asked, in one shallow request", async () => {
+    mocks.executeProviderApiRequest.mockImplementation(
+      async ({ query }: { query: { depth: number } }) => {
+        expect(query.depth).toBe(1);
+        return jsonEnvelope({
+          document: {
+            children: [{ id: "0:1", name: "Launch", type: "CANVAS" }],
+          },
+        });
+      },
+    );
+
+    const result = await action.run({
+      figmaUrl: "https://www.figma.com/design/abcDEF12345/Campaigns",
+      pagesOnly: true,
+    } as never);
+
+    expect(result).toMatchObject({
+      pages: [{ id: "0:1", name: "Launch", frames: null }],
+    });
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(1);
   });
 
   it("returns a pages/frames overview when no nodeId is given", async () => {

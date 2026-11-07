@@ -2584,6 +2584,9 @@ const messages: ToolkitAgentChatTranslation = {
     "Der Agent nutzt das Zugriffstoken, das du hinzufügst, und sieht daher, was dieses Token sehen kann.",
   "settingsShell.integrationDetail.accessToken": "Zugriffstoken",
   "settingsShell.integrationDetail.addAccessToken": "Zugriffstoken hinzufügen",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Gespeichertes Zugriffstoken konnte nicht geprüft werden.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Erneut versuchen",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "Ein Admin muss das einrichten",
   "settingsShell.integrationDetail.callout.adminNeededBody":

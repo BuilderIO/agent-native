@@ -34,6 +34,14 @@ describe("stripExecutableMarkup", () => {
     expect(stripExecutableMarkup(html)).toBe(html);
   });
 
+  it("removes a script xlink:href beside a safe href, and keeps the safe one", () => {
+    expect(
+      stripExecutableMarkup(
+        '<svg><a href="#" xlink:href="javascript:alert(1)"><text>x</text></a></svg>',
+      ),
+    ).toBe('<svg><a href="#"  ><text>x</text></a></svg>');
+  });
+
   it("keeps an svg open when its handler sat right after a slash", () => {
     expect(stripExecutableMarkup("<svg/onload=x><rect/></svg>")).toBe(
       "<svg/ ><rect/></svg>",

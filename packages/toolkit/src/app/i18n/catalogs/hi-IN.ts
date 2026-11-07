@@ -2411,6 +2411,9 @@ const messages: ToolkitAgentChatTranslation = {
     "एजेंट आपके जोड़े गए एक्सेस टोकन का इस्तेमाल करता है, इसलिए वह वही देखता है जो वह टोकन देख सकता है।",
   "settingsShell.integrationDetail.accessToken": "एक्सेस टोकन",
   "settingsShell.integrationDetail.addAccessToken": "एक्सेस टोकन जोड़ें",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "सेव किए गए एक्सेस टोकन की जाँच नहीं हो सकी।",
+  "settingsShell.integrationDetail.tokenCheckRetry": "फिर से कोशिश करें",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "इसे किसी एडमिन को सेट अप करना होगा",
   "settingsShell.integrationDetail.callout.adminNeededBody":

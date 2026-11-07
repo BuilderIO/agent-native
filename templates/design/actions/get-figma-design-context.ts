@@ -11,7 +11,7 @@ import {
   isFigmaPayloadTooLargeError,
 } from "../server/lib/figma-import-errors.js";
 import {
-  fetchFigmaNodeOrPageOutline,
+  fetchFigmaNodes,
   fetchFileStructure,
   type FigmaFileDepthNode,
 } from "../server/lib/figma-node-import.js";
@@ -64,6 +64,12 @@ const schemaInput = z
         "Also fetch a rendered screenshot URL for the requested node via the Figma images REST endpoint.",
       ),
     screenshotFormat: z.enum(["png", "svg"]).default("png"),
+    pagesOnly: z
+      .boolean()
+      .optional()
+      .describe(
+        "With no nodeId, list only the file's pages (frames: null), one small request even for very large files. Call again with a page id to list its frames.",
+      ),
   })
   .refine((value) => value.figmaUrl || value.fileKey, {
     message: "Pass figmaUrl or fileKey.",
@@ -109,12 +115,7 @@ export default defineAction({
       parseFigmaNodeId(args.nodeId) ?? parseFigmaNodeId(args.figmaUrl);
 
     if (!nodeId) {
-      let document: FigmaFileDepthNode;
-      try {
-        document = await fetchFileStructure(fileKey, 3);
-      } catch (error) {
-        if (!isFigmaPayloadTooLargeError(error)) throw error;
-        // A large file's frames outgrow one response; its pages alone fit.
+      const listPages = async () => {
         const pagesOnly = await fetchFileStructure(fileKey, 1);
         return {
           source: "figma",
@@ -127,8 +128,17 @@ export default defineAction({
             frames: null,
           })),
           guidance:
-            "This file is too large to list every page's frames at once, so only its pages are listed (frames: null means not listed, not empty). Call get-figma-design-context again with a page id as nodeId to list that page's frames.",
+            "Only the file's pages are listed (frames: null means not listed, not empty). Call get-figma-design-context again with a page id as nodeId to list that page's frames.",
         };
+      };
+      if (args.pagesOnly) return listPages();
+      let document: FigmaFileDepthNode;
+      try {
+        document = await fetchFileStructure(fileKey, 3);
+      } catch (error) {
+        if (!isFigmaPayloadTooLargeError(error)) throw error;
+        // A large file's frames outgrow one response; its pages alone fit.
+        return listPages();
       }
       return {
         source: "figma",
@@ -140,7 +150,24 @@ export default defineAction({
       };
     }
 
-    const { node } = await fetchFigmaNodeOrPageOutline(fileKey, nodeId);
+    // One bounded request serves both a page (its frames, sections opened)
+    // and a frame (the summary reads `depth` levels; one more shows where it
+    // was truncated). The summary needs no vector geometry.
+    const node = Object.values(
+      await fetchFigmaNodes(
+        fileKey,
+        [nodeId],
+        false,
+        Math.max(2, args.depth + 1),
+      ),
+    ).find((candidate) => candidate.id === nodeId);
+    if (!node) {
+      failFigmaImport(
+        `Figma node ${nodeId} was not found in file ${fileKey}.`,
+        FIGMA_IMPORT_ERROR_CODES.nodeNotFound,
+        { statusCode: 404 },
+      );
+    }
     if (node.type === "CANVAS") {
       // A page link (Figma's "Copy link" with nothing selected) names a page,
       // which has no geometry to summarize; list its frames instead.

@@ -15,8 +15,16 @@ import {
 
 const FIGMA_REFERENCE_KEY_PREFIX = "figma-reference:";
 
-/** Keeps one attachment's frames from crowding out the rest of the prompt. */
-export const FIGMA_REFERENCE_CONTEXT_BUDGET = 60_000;
+/**
+ * What every Figma chip in one prompt may use together, in UTF-8 bytes. The
+ * composer refuses a send past its 64 KiB `COMPOSER_CONTEXT_MAX_BYTES` (a test
+ * pins the relation), so Figma takes three quarters and leaves the rest for
+ * other references. Kept a literal: the composer module loads lazily.
+ */
+export const FIGMA_REFERENCE_CONTEXT_BUDGET = 48 * 1024;
+// Room for the closing notes about omitted and undecoded frames.
+const CONTEXT_NOTES_RESERVE_BYTES = 600;
+const utf8Bytes = (text: string) => new TextEncoder().encode(text).length;
 
 /**
  * A .fig is decoded in the browser with no progress shown; past this size
@@ -41,7 +49,11 @@ export interface FigmaReference {
    * A .fig's uploaded images stay staged until the prompt is sent (`release`)
    * or the chip is dropped (`discard`), so an unsent chip leaves no images.
    */
-  images?: { release: () => Promise<unknown>; discard: () => Promise<unknown> };
+  images?: {
+    /** Resolves with how many images could not be kept. */
+    release: () => Promise<number>;
+    discard: () => Promise<unknown>;
+  };
 }
 
 export function isFigmaReferenceKey(key: string): boolean {
@@ -185,7 +197,7 @@ async function readFileReference(file: File): Promise<FigmaReference> {
       ...payload,
       ref,
       images: {
-        release: async () => converted.finalize?.(),
+        release: async () => (await converted.finalize?.()) ?? 0,
         discard: async () => converted.cleanup?.(),
       },
     };
@@ -235,6 +247,8 @@ function frameLabel(frame: FigmaReferenceFrame, index: number): string {
 export function figmaReferenceContext(
   reference: FigmaReference,
   sourceLabel: string,
+  /** This chip's share when several Figma chips are attached. */
+  budgetBytes = FIGMA_REFERENCE_CONTEXT_BUDGET,
 ): string {
   const parts = [
     `The user attached a Figma design as reference: ${sourceLabel}, ${reference.frameCount} frame${reference.frameCount === 1 ? "" : "s"}, decoded from Figma with layout, text, and styles as HTML.`,
@@ -248,21 +262,32 @@ export function figmaReferenceContext(
       `${reference.unresolvedImages} image fill(s) did not come through and render as placeholders.`,
     );
   }
-  let used = parts.join("\n\n").length;
+  const limit = budgetBytes - CONTEXT_NOTES_RESERVE_BYTES;
+  let used = utf8Bytes(parts.join("\n\n"));
   const omitted: string[] = [];
   reference.frames.forEach((frame, index) => {
     const fence = codeFence(frame.html);
     const block = `## Frame ${index + 1}: ${frameLabel(frame, index)}\n${fence}html\n${frame.html}\n${fence}`;
-    if (used + block.length + 2 > FIGMA_REFERENCE_CONTEXT_BUDGET) {
+    const blockBytes = utf8Bytes(block) + 2;
+    if (omitted.length || used + blockBytes > limit) {
       omitted.push(frameLabel(frame, index));
       return;
     }
     parts.push(block);
-    used += block.length + 2;
+    used += blockBytes;
   });
   if (omitted.length) {
+    // The names count against the budget too; past it, say how many remain.
+    const named: string[] = [];
+    for (const label of omitted) {
+      const labelBytes = utf8Bytes(label) + 2;
+      if (used + labelBytes > limit) break;
+      named.push(label);
+      used += labelBytes;
+    }
+    const unnamed = omitted.length - named.length;
     parts.push(
-      `These frames are attached too, and place-figma-frames places them like the rest; their HTML is left out here to keep the prompt short: ${omitted.join(", ")}.`,
+      `These frames are attached too, and place-figma-frames places them like the rest; their HTML is left out here to keep the prompt short: ${named.join(", ")}${unnamed ? `${named.length ? ", and " : ""}${unnamed} more` : ""}.`,
     );
   }
   const undecoded = reference.frameCount - reference.frames.length;

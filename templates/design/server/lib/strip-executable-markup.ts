@@ -36,7 +36,7 @@ type Range = { start: number; end: number; replacement: string };
 type Location = { startOffset: number; endOffset: number };
 type ParsedNode = {
   nodeName?: string;
-  attrs?: Array<{ name: string; value: string }>;
+  attrs?: Array<{ name: string; value: string; prefix?: string }>;
   childNodes?: ParsedNode[];
   content?: { childNodes?: ParsedNode[] };
   sourceCodeLocation?: Location & { attrs?: Record<string, Location> };
@@ -109,8 +109,13 @@ export function stripExecutableMarkup(html: string): string {
       return;
     }
     for (const attribute of node.attrs ?? []) {
-      if (!isExecutableAttribute(attribute.name, attribute.value)) continue;
-      const attributeLocation = location?.attrs?.[attribute.name];
+      // `xlink:href` parses as name `href` with prefix `xlink`, beside a plain
+      // `href`; check and locate it by its qualified name, not the bare one.
+      const qualifiedName = attribute.prefix
+        ? `${attribute.prefix}:${attribute.name}`
+        : attribute.name;
+      if (!isExecutableAttribute(qualifiedName, attribute.value)) continue;
+      const attributeLocation = location?.attrs?.[qualifiedName];
       if (!attributeLocation) {
         throw new Error("Could not locate an executable attribute to remove.");
       }

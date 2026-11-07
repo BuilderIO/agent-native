@@ -59,6 +59,7 @@ import {
   IconPlugConnected,
 } from "@tabler/icons-react";
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -377,6 +378,9 @@ function useFallbackToken(secretKey: string | undefined) {
     key: string;
     secret: SecretStatus | undefined;
   } | null>(null);
+  const [failedKey, setFailedKey] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt((value) => value + 1), []);
   useEffect(() => {
     if (!secretKey) return;
     let controller: AbortController | undefined;
@@ -387,6 +391,7 @@ function useFallbackToken(secretKey: string | undefined) {
       listRegisteredSecrets({ signal: current.signal })
         .then((secrets) => {
           if (current.signal.aborted) return;
+          setFailedKey(null);
           setState({
             key: secretKey,
             secret: secrets.find((entry) => entry.key === secretKey),
@@ -394,8 +399,11 @@ function useFallbackToken(secretKey: string | undefined) {
         })
         .catch(() => {
           // An unreadable store stays unknown: never offer "Add access
-          // token" over a token that may already be saved.
-          if (!current.signal.aborted) setState(null);
+          // token" over a token that may already be saved. Say so, with a
+          // retry, instead of leaving the page with no action at all.
+          if (current.signal.aborted) return;
+          setState(null);
+          setFailedKey(secretKey);
         });
     };
     load();
@@ -404,9 +412,11 @@ function useFallbackToken(secretKey: string | undefined) {
       controller?.abort();
       window.removeEventListener("agent-engine:configured-changed", load);
     };
-  }, [secretKey]);
+  }, [secretKey, attempt]);
   const secret = state?.key === secretKey ? state?.secret : undefined;
   return {
+    failed: Boolean(secretKey) && failedKey === secretKey,
+    retry,
     known:
       !secretKey || (state?.key === secretKey && secret?.status !== "unknown"),
     secret:
@@ -625,9 +635,23 @@ function IntegrationDetail({
   const connected =
     servers.length > 0 || fallbackToken.secret?.status === "set";
   const isAdmin = context.isAdmin;
+  const tokenCheckFailed = fallbackToken.failed;
+  const retryTokenCheck = fallbackToken.retry;
+  useEffect(() => {
+    if (tokenCheckFailed) toast.error(t(`${K}.tokenCheckFailed`));
+  }, [tokenCheckFailed, t]);
   const header = useMemo(() => {
     const action =
-      !serversKnown || connected || unavailable ? null : gate ===
+      tokenCheckFailed && !connected && !unavailable ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={retryTokenCheck}
+        >
+          {t(`${K}.tokenCheckRetry`)}
+        </Button>
+      ) : !serversKnown || connected || unavailable ? null : gate ===
         "workspace" ? (
         isAdmin ? (
           <Button type="button" size="sm" onClick={() => setSetupOpen(true)}>
@@ -674,9 +698,11 @@ function IntegrationDetail({
     isAdmin,
     logoUrl,
     name,
+    retryTokenCheck,
     serversKnown,
     signIn,
     t,
+    tokenCheckFailed,
     unavailable,
   ]);
   useSettingsPageHeader(header);

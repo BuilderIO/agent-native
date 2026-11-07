@@ -9,6 +9,8 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { FIGMA_REFERENCE_CONTEXT_BUDGET } from "@/lib/figma-attachment";
+
 import { DesignComposerContextProvider } from "./DesignComposerContextProvider";
 import { useHomePromptContext } from "./HomePromptContext";
 
@@ -889,6 +891,62 @@ describe("home prompt context", () => {
       );
     });
     expect(figImages.finalize).toHaveBeenCalledOnce();
+  });
+
+  it("splits one context budget across Figma chips so several still send", async () => {
+    mocks.call.mockImplementation(async (action) =>
+      action === "read-figma-clipboard"
+        ? {
+            frames: Array.from({ length: 4 }, (_, index) => ({
+              name: `Frame ${index + 1}`,
+              html: `<main>${"x".repeat(15_000)}</main>`,
+            })),
+            unresolvedImages: 0,
+            ref: "attachment:v1:clip",
+          }
+        : { id: "x", title: "x", context: "x" },
+    );
+    const { result } = renderHook(() => useHomePromptContext(defaults));
+    for (const pasteID of [1, 2]) {
+      act(() => {
+        result.current.onPasteContext(
+          figmaClipboard(
+            `<span data-metadata="<!--(figmeta)${btoa(
+              JSON.stringify({ fileKey: "abc", pasteID }),
+            )}(/figmeta)-->"></span>`,
+          ),
+        );
+      });
+    }
+    await waitFor(() => {
+      expect(result.current.contextItems.map((item) => item.status)).toEqual([
+        "ready",
+        "ready",
+      ]);
+    });
+    const bytes = result.current.contextItems.map(
+      (item) => new TextEncoder().encode(item.context).length,
+    );
+    expect(bytes.reduce((total, size) => total + size, 0)).toBeLessThanOrEqual(
+      FIGMA_REFERENCE_CONTEXT_BUDGET,
+    );
+    expect(() =>
+      snapshotComposerContextItems(result.current.contextItems),
+    ).not.toThrow();
+
+    act(() => result.current.remove("figma-reference:clipboard:abc:2"));
+    // With one chip left, it gets the whole budget back.
+    expect(
+      result.current.contextItems.map(
+        (item) => new TextEncoder().encode(item.context).length,
+      ),
+    ).toEqual([expect.any(Number)]);
+    expect(
+      result.current.contextItems.every(
+        (item) =>
+          new TextEncoder().encode(item.context).length > Math.max(...bytes),
+      ),
+    ).toBe(true);
   });
 
   it("shows a failed Figma decode on its chip and retries it", async () => {

@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 
-import React, { act, type ReactNode } from "react";
+import React, { act, type ReactElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import englishMessages from "../i18n/catalogs/en-US.js";
@@ -332,11 +333,26 @@ describe("IntegrationDetailPage", () => {
     expect(keys.removeApiKeyValue).toHaveBeenCalledWith("FIGMA_ACCESS_TOKEN");
   });
 
-  it("offers no token while the saved-token status is unreadable", async () => {
+  it("offers a retry, never a token, while the saved-token status is unreadable", async () => {
     vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template: "design" });
     secrets.listRegisteredSecrets.mockRejectedValueOnce(new Error("down"));
     await render("figma");
-    expect(lastHeader()?.action).toBeNull();
+    const action = lastHeader()?.action as ReactElement<{
+      children: ReactNode;
+      onClick: () => void;
+    }>;
+    expect(action.props.children).toBe("Try again");
+    expect(toast.error).toHaveBeenCalledWith(
+      "Couldn't check for a saved access token.",
+    );
+
+    secrets.listRegisteredSecrets.mockResolvedValueOnce([]);
+    await act(async () => action.props.onClick());
+    expect(secrets.listRegisteredSecrets).toHaveBeenCalledTimes(2);
+    const retried = lastHeader()?.action as ReactElement<{
+      children: ReactNode;
+    }>;
+    expect(retried.props.children).toBe("Add access token");
   });
 
   it.each(["slides", undefined])(
