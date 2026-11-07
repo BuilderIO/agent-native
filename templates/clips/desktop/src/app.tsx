@@ -6909,6 +6909,7 @@ function Setup({
   const updateStatus = useUpdateStatus();
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
   const voiceCleanupEnabled = featureConfig?.voiceCleanupEnabled !== false;
+  const voiceDimAudioEnabled = featureConfig?.voiceDimAudioEnabled !== false;
   const [cameraCutout, setCameraCutout] = useCameraCutoutPreference();
   const meetingsEnabled = featureConfig?.meetingsEnabled !== false;
   const showMeetingWidgetEnabled =
@@ -7068,6 +7069,15 @@ function Setup({
     if (!featureConfig) return;
     invoke("set_feature_config", {
       config: { ...featureConfig, voiceEnabled: enabled },
+    }).catch((err) =>
+      console.error("[settings] set_feature_config failed", err),
+    );
+  }
+
+  function setVoiceDimAudioEnabled(enabled: boolean) {
+    if (!featureConfig) return;
+    invoke("set_feature_config", {
+      config: { ...featureConfig, voiceDimAudioEnabled: enabled },
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
@@ -9087,6 +9097,17 @@ function Setup({
                       { value: "push-to-talk", label: "Hold to dictate" },
                       { value: "toggle", label: "Press to start and stop" },
                     ]}
+                  />
+                }
+              />
+              <SettingsRow
+                label="Mute sound while dictating"
+                description="Mutes music and videos while you speak"
+                control={
+                  <SettingsSwitch
+                    checked={voiceDimAudioEnabled}
+                    onCheckedChange={setVoiceDimAudioEnabled}
+                    label="Mute sound while dictating"
                   />
                 }
               />

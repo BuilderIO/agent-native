@@ -670,6 +670,8 @@ pub fn set_dictation_escape_active(app: AppHandle, active: bool) -> Result<(), S
 
 fn sync_dictation_escape_shortcut(app: AppHandle, active: bool) {
     DICTATION_ESCAPE_SHORTCUT_ACTIVE.store(active, Ordering::SeqCst);
+    // Same edge that arms Escape: mute the Mac's sound while dictation is live.
+    crate::dictation_duck::set_active(&app, active);
     thread::spawn(move || {
         sync_escape_with_flag(&app, &DICTATION_ESCAPE_SHORTCUT_ACTIVE, "dictation-cancel");
     });

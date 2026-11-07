@@ -115,6 +115,10 @@ pub struct FeatureConfig {
     pub voice_enabled: bool,
     #[serde(default = "default_voice_cleanup_enabled")]
     pub voice_cleanup_enabled: bool,
+    // Mute the Mac's output while dictation is live, so music or a video does
+    // not talk over you (and into the mic). On by default.
+    #[serde(default = "default_voice_dim_audio_enabled")]
+    pub voice_dim_audio_enabled: bool,
     #[serde(default = "default_launch_at_login_enabled")]
     pub launch_at_login_enabled: bool,
     #[serde(default = "default_auto_hide_popover_enabled")]
@@ -159,6 +163,10 @@ fn default_launch_at_login_enabled() -> bool {
 }
 
 fn default_auto_hide_popover_enabled() -> bool {
+    true
+}
+
+fn default_voice_dim_audio_enabled() -> bool {
     true
 }
 
@@ -231,6 +239,7 @@ impl Default for FeatureConfig {
             meetings_enabled: true,
             voice_enabled: true,
             voice_cleanup_enabled: default_voice_cleanup_enabled(),
+            voice_dim_audio_enabled: default_voice_dim_audio_enabled(),
             launch_at_login_enabled: true,
             auto_hide_popover_enabled: default_auto_hide_popover_enabled(),
             meeting_transcription_mode: default_meeting_transcription_mode(),
@@ -382,6 +391,9 @@ pub async fn set_feature_config(
     }
     let capture_changed = previous.show_in_screen_capture != config.show_in_screen_capture;
     save_config(&app, &config)?;
+    if previous.voice_dim_audio_enabled != config.voice_dim_audio_enabled {
+        crate::dictation_duck::setting_changed(config.voice_dim_audio_enabled);
+    }
     if capture_changed {
         crate::util::reapply_capture_exclusion_to_overlays(&app);
     }
@@ -454,6 +466,7 @@ mod tests {
 
         assert_eq!(config.whisper_model_id, "base");
         assert!(config.voice_cleanup_enabled);
+        assert!(config.voice_dim_audio_enabled);
         assert!(config.auto_hide_popover_enabled);
 
         let opt_out: FeatureConfig = serde_json::from_value(serde_json::json!({
