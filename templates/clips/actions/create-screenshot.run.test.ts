@@ -98,6 +98,12 @@ describe("create-screenshot", () => {
     );
   });
 
+  it("returns the media revision an edit has to name", async () => {
+    const result = await run();
+    expect(result.mediaUpdatedAt).toBe(mocks.rows[0]?.mediaUpdatedAt);
+    expect(result.mediaUpdatedAt).toEqual(expect.any(String));
+  });
+
   it("passes explicit visibility to the resolver", async () => {
     await run({ visibility: "org" });
 

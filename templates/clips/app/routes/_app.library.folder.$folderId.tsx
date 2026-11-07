@@ -1,13 +1,16 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { IconListNumbers } from "@tabler/icons-react";
 import { useMemo } from "react";
-import { useParams } from "react-router";
+import { Link, useParams } from "react-router";
 
 import { LibraryGrid } from "@/components/library/library-grid";
 import { LibraryPrimaryActions } from "@/components/library/library-primary-actions";
+import { Button } from "@/components/ui/button";
 import {
   getFolderAncestorPath,
   useFolders,
   useOrganizations,
+  useRecordingsCount,
 } from "@/hooks/use-library";
 import enMessages from "@/i18n/en-US";
 
@@ -30,6 +33,12 @@ export default function LibraryFolderRoute() {
     [folders, folderId],
   );
   const folder = folderPath[folderPath.length - 1];
+  // A step capture lands here as numbered screenshots; any folder holding
+  // screenshots can be read as one guide.
+  const { data: screenshotCount } = useRecordingsCount(
+    { view: "library", kind: "image", folderId },
+    { enabled: Boolean(folderId) },
+  );
 
   return (
     <LibraryGrid
@@ -49,7 +58,21 @@ export default function LibraryFolderRoute() {
         })),
         { label: folder?.name ?? t("navigation.folder") },
       ]}
-      extraActions={<LibraryPrimaryActions folderId={folderId} />}
+      extraActions={
+        <>
+          {folderId && (screenshotCount ?? 0) > 0 ? (
+            <Button variant="outline" size="sm" asChild>
+              <Link
+                to={`/library/folder/${encodeURIComponent(folderId)}/guide`}
+              >
+                <IconListNumbers />
+                {t("stepGuide.viewAsGuide")}
+              </Link>
+            </Button>
+          ) : null}
+          <LibraryPrimaryActions folderId={folderId} />
+        </>
+      }
     />
   );
 }
