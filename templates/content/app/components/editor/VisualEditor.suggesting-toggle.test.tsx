@@ -216,9 +216,7 @@ describe("Toggles while suggesting", () => {
       ].join("\n"),
     );
     await act(async () => {
-      container
-        .querySelector<HTMLElement>(".content-toggle__chevron")
-        ?.click();
+      container.querySelector<HTMLElement>(".content-toggle__chevron")?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(storedOpen(editor)).toBe(false);
