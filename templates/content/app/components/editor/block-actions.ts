@@ -137,7 +137,7 @@ function turnToggleInto(
   } else if (target === "codeBlock") {
     const code = schema.nodes.codeBlock as NodeType | undefined;
     if (!code) return false;
-    const text = title.textContent;
+    const text = title.textBetween(0, title.content.size, undefined, "\n");
     blocks = Fragment.from(
       code.create(null, text ? schema.text(text) : null),
     ).append(body);
@@ -154,6 +154,13 @@ function turnToggleInto(
   return true;
 }
 
+/** Code holds only text and line breaks, so anything else on a line would go. */
+function fitsInCode(line: ProseMirrorNode): boolean {
+  return line.content.content.every(
+    (node) => node.isText || node.type.name === "hardBreak",
+  );
+}
+
 /**
  * Turns the paragraph, heading or Toggle at `pos` into `target`, keeping its
  * text. Returns false when it can't, after which `tr` must be dropped.
@@ -165,6 +172,9 @@ export function turnBlockInto(
 ): boolean {
   const node = tr.doc.nodeAt(pos);
   if (!node || !canTurnInto(node)) return false;
+  if (target === "codeBlock" && !fitsInCode(toggleTitleNode(node) ?? node)) {
+    return false;
+  }
   if (isTitledToggle(node)) return turnToggleInto(tr, pos, node, target);
   const { schema } = tr.doc.type;
   if (target === "toggle" || TOGGLE_HEADINGS[target]) {

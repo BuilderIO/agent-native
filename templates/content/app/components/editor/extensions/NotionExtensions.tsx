@@ -421,19 +421,20 @@ function pastClosedOldToggle(
 }
 
 /**
- * Where the last line a reader can see in a block ends: the end of an open
- * Toggle's body, or the title of a closed one. Null when the block ends in
- * something without text.
+ * The last thing a reader can see in a block: the end of an open Toggle's
+ * body, or a closed Toggle. Null when the block ends in something without
+ * text.
  */
-function endOfVisibleText(doc: ProseMirrorNode, pos: number): number | null {
+function lastVisibleBlock(doc: ProseMirrorNode, pos: number) {
   let at = pos;
   let node = doc.nodeAt(pos);
   while (node) {
-    if (node.isTextblock) return at + 1 + node.content.size;
-    const title =
-      node.type.name === "notionToggle" ? toggleTitleNode(node) : null;
-    if (title && (!node.attrs.open || node.childCount === 1)) {
-      return at + 2 + title.content.size;
+    if (node.isTextblock) return { node, at };
+    if (
+      node.type.name === "notionToggle" &&
+      (!node.attrs.open || (toggleTitleNode(node) && node.childCount === 1))
+    ) {
+      return { node, at };
     }
     const last = node.isAtom ? null : node.lastChild;
     if (!last) return null;
@@ -444,10 +445,22 @@ function endOfVisibleText(doc: ProseMirrorNode, pos: number): number | null {
 }
 
 /**
+ * Where the last line a reader can see in a block ends. Null when it has no
+ * such line, as when it ends in a closed old Toggle.
+ */
+function endOfVisibleText(doc: ProseMirrorNode, pos: number): number | null {
+  const block = lastVisibleBlock(doc, pos);
+  if (!block) return null;
+  if (block.node.isTextblock) return block.at + 1 + block.node.content.size;
+  const title = toggleTitleNode(block.node);
+  return title ? block.at + 2 + title.content.size : null;
+}
+
+/**
  * Backspace at the start of the block below a Toggle joins it to the last line
  * a reader can see above it, as in Notion. ProseMirror's own join would move
- * it into the body, which a closed Toggle hides, so a closed old Toggle takes
- * its title as page text first.
+ * it into the body, which a closed Toggle hides, so a closed old Toggle there
+ * takes its title as page text first.
  */
 export function joinBlockToToggleAbove(editor: Editor): boolean {
   const { doc, selection } = editor.state;
@@ -462,16 +475,16 @@ export function joinBlockToToggleAbove(editor: Editor): boolean {
   const blockPos = $from.before();
   const above = doc.resolve(blockPos).nodeBefore;
   if (above?.type.name !== "notionToggle") return false;
+  if (above.attrs.open && !toggleTitleNode(above)) return false;
   const abovePos = blockPos - above.nodeSize;
   const tr = editor.state.tr;
-  if (!toggleTitleNode(above)) {
+  const last = lastVisibleBlock(doc, abovePos);
+  if (last?.node.type.name === "notionToggle" && !toggleTitleNode(last.node)) {
     const titleType = editor.schema.nodes[TOGGLE_TITLE_NODE] as
       | NodeType
       | undefined;
-    if (above.attrs.open || !titleType || isSuggestingEdits(editor.state)) {
-      return false;
-    }
-    addToggleTitle(tr, abovePos, above, titleType);
+    if (!titleType || isSuggestingEdits(editor.state)) return false;
+    addToggleTitle(tr, last.at, last.node, titleType);
   }
   const end = endOfVisibleText(tr.doc, abovePos);
   if (end === null) return false;

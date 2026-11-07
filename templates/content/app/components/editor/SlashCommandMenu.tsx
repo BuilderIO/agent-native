@@ -1659,7 +1659,12 @@ export function SlashCommandMenu({
         const blockHasOtherContent =
           parentNode.textContent.length > textBefore.length - slashIndex;
         const slashAtBlockStart = offsetInParent === 0;
-        setIsTurnInto(slashAtBlockStart && blockHasOtherContent);
+        // A command from a title makes its block below the Toggle instead.
+        setIsTurnInto(
+          slashAtBlockStart &&
+            blockHasOtherContent &&
+            parentNode.type.name !== TOGGLE_TITLE_NODE,
+        );
 
         setPosition(getSlashMenuPosition(editor));
         setIsOpen(true);

@@ -264,6 +264,45 @@ describe("block actions", () => {
       expect(page.state.doc.child(0).type.name).not.toBe("notionToggle");
     });
 
+    it("won't make code of a line with something only text could lose", () => {
+      const atom = {
+        type: "notionInlineAtom",
+        attrs: { tagName: "math", attrsJson: "{}", label: "x^2" },
+      };
+      const page = mount([
+        {
+          type: "notionToggle",
+          attrs: { open: false },
+          content: [
+            { type: "notionToggleSummary", content: [text("Plan "), atom] },
+            paragraph("Body"),
+          ],
+        },
+        { type: "paragraph", content: [text("Line "), atom] },
+      ]);
+
+      expect(turnBlockInto(page.state.tr, 0, "codeBlock")).toBe(false);
+      const below = page.state.doc.child(0).nodeSize;
+      expect(turnBlockInto(page.state.tr, below, "codeBlock")).toBe(false);
+    });
+
+    it("keeps a title's line breaks in code", () => {
+      const page = mount([
+        {
+          type: "notionToggle",
+          attrs: { open: false },
+          content: [
+            {
+              type: "notionToggleSummary",
+              content: [text("One"), { type: "hardBreak" }, text("Two")],
+            },
+          ],
+        },
+      ]);
+
+      expect(turn(page, "codeBlock").textContent).toBe("One\nTwo");
+    });
+
     it("keeps the body inside a list item or quote", () => {
       const list = turn(mount([toggle()]), "bulletedList");
       expect(list.child(0).childCount).toBe(2);

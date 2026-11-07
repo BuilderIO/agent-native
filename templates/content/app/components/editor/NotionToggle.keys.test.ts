@@ -374,6 +374,22 @@ describe("Backspace at the start of the block below a Toggle", () => {
   });
 });
 
+describe("Backspace below a Toggle that ends in a closed old Toggle", () => {
+  it("joins the line to that Toggle's title, not its hidden body", () => {
+    const editor = createEditor([
+      toggle("Outer", true, [oldToggle("Old", false, [paragraph("Hidden")])]),
+      paragraph("Below"),
+    ]);
+    caretIn(editor, "Below", "start");
+    press(editor, { key: "Backspace" });
+
+    expect(editor.getJSON().content).toEqual([
+      toggle("Outer", true, [toggle("OldBelow", false, [paragraph("Hidden")])]),
+    ]);
+    expect(caret(editor)).toEqual({ line: "OldBelow", offset: 3 });
+  });
+});
+
 describe("Backspace below a closed old Toggle", () => {
   it("joins the line to the Toggle's title, which becomes page text", () => {
     const body = [paragraph("Hidden")];
@@ -448,6 +464,24 @@ describe("Backspace in a Toggle's body", () => {
 });
 
 describe("Delete at the end of a line", () => {
+  it("joins a closed title below to a closed title, with its body left in view", () => {
+    const content = [
+      toggle("Title", false, [paragraph("Body")]),
+      toggle("Second", false, [paragraph("Inside")]),
+    ];
+    const editor = createEditor(content);
+    caretIn(editor, "Title");
+    press(editor, { key: "Delete" });
+
+    expect(editor.getJSON().content).toEqual([
+      toggle("TitleSecond", false, [paragraph("Body")]),
+      paragraph("Inside"),
+    ]);
+
+    editor.commands.undo();
+    expect(editor.getJSON().content).toEqual(content);
+  });
+
   it("joins a closed title to the line above, with its body left in view", () => {
     const content = [
       paragraph("Above"),
@@ -1184,6 +1218,21 @@ describe("deleting a selection from a closed Toggle's title to below it", () => 
     press(editor, { key: "Backspace" });
 
     expect(JSON.stringify(editor.getJSON())).not.toContain("Body");
+  });
+
+  it("keeps the Toggle and its body when Enter replaces its whole title", () => {
+    const editor = createEditor([
+      toggle("Title", false, [paragraph("Body")]),
+      paragraph("After"),
+    ]);
+    editor.commands.setTextSelection({ from: 2, to: 7 });
+    press(editor, { key: "Enter" });
+
+    expect(editor.getJSON().content).toEqual([
+      toggle("", false, [paragraph("Body")]),
+      toggle("", false),
+      paragraph("After"),
+    ]);
   });
 
   it("deletes a whole closed Toggle the selection crosses, as a line would", () => {

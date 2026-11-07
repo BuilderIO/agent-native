@@ -284,6 +284,26 @@ describe("/toggle on an empty line", () => {
 });
 
 describe("slash menu in a Toggle's title", () => {
+  it("doesn't offer to turn the line into anything, since the block goes below", async () => {
+    const { container, editor, unmount } = await mountSlashMenu(
+      [
+        '<details markdown="1">',
+        "<summary>Plan</summary>",
+        "\tBody",
+        "</details>",
+      ].join("\n"),
+    );
+    try {
+      typeAt(editor, 2, "/");
+      await act(async () => Promise.resolve());
+      const menu = container.querySelector(".slash-command-menu");
+      expect(menu?.textContent).toContain("Basic blocks");
+      expect(menu?.textContent).not.toContain("Turn into");
+    } finally {
+      await unmount();
+    }
+  });
+
   it("makes the command's block below the Toggle and leaves the title", async () => {
     const { container, editor, unmount } = await mountSlashMenu(
       [
