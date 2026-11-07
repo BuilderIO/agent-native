@@ -677,11 +677,21 @@ export async function fetchFigmaNodeOrPageOutline(
     return { node: await fetchFigmaNode(fileKey, nodeId), outline: false };
   } catch (error) {
     if (!isFigmaPayloadTooLargeError(error)) throw error;
-    const outline = Object.values(
-      await fetchFigmaNodes(fileKey, [nodeId], false, 2),
-    ).find((candidate) => candidate.type === "CANVAS");
-    if (!outline) throw error;
-    return { node: outline, outline: true };
+    // Two levels opens sections; one level still lists the page's frames.
+    for (const depth of [2, 1]) {
+      let outline: FigmaNode | undefined;
+      try {
+        outline = Object.values(
+          await fetchFigmaNodes(fileKey, [nodeId], false, depth),
+        ).find((candidate) => candidate.type === "CANVAS");
+      } catch (outlineError) {
+        if (isFigmaPayloadTooLargeError(outlineError)) continue;
+        throw outlineError;
+      }
+      if (outline) return { node: outline, outline: true };
+      break;
+    }
+    throw error;
   }
 }
 

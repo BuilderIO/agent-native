@@ -168,14 +168,28 @@ export default defineAction({
     }
     if (node.type === "CANVAS") {
       // A page link (Figma's "Copy link" with nothing selected) names a page,
-      // which has no geometry to summarize; list its frames instead.
+      // which has no geometry to summarize; list its frames instead, up to
+      // the same `maxNodes` cap a node summary honors.
+      const summarized = summarizeStructure({ children: [node] });
+      const pages = summarized.map((page) => ({
+        ...page,
+        frames: page.frames.slice(0, args.maxNodes),
+      }));
+      const total = summarized.reduce(
+        (sum, page) => sum + page.frames.length,
+        0,
+      );
+      const listed = pages.reduce((sum, page) => sum + page.frames.length, 0);
       return {
         source: "figma",
         fileKey,
         mode: "overview" as const,
-        pages: summarizeStructure({ children: [node] }),
+        pages,
+        ...(total > listed ? { truncated: true, totalFrames: total } : {}),
         guidance:
-          "This link names a page, so this lists its top-level frames, with sections opened. Call get-figma-design-context again with a frame id for its structural summary and screenshot.",
+          total > listed
+            ? `This link names a page with ${total} top-level layers; the first ${listed} are listed (maxNodes). Call again with a larger maxNodes to see more, or with a frame id for its structural summary and screenshot.`
+            : "This link names a page, so this lists its top-level frames, with sections opened. Call get-figma-design-context again with a frame id for its structural summary and screenshot.",
       };
     }
     const {

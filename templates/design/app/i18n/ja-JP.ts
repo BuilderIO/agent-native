@@ -2756,8 +2756,6 @@ export default {
     figmaShowFrames: "{{name}} のフレームを表示",
     figmaLinkNotFrame:
       "Figma のページまたはフレームへのリンクを指定してください。",
-    figmaImagesNotKept:
-      "この Figma 添付ファイルの一部の画像を保存できませんでした。もう一度送信してください。",
     referenceDeck: "プレゼンテーションを参照",
     quickSaas: "SaaS ランディングページを作成",
     quickDashboard: "ダッシュボードを作成",

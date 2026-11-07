@@ -2785,8 +2785,6 @@ export default {
     figmaSelectedCount: "{{count}} ausgewählt",
     figmaShowFrames: "Frames in {{name}} anzeigen",
     figmaLinkNotFrame: "Verlinke eine Figma-Seite oder einen Frame.",
-    figmaImagesNotKept:
-      "Einige Bilder in diesem Figma-Anhang konnten nicht gespeichert werden. Versuche es erneut.",
     referenceDeck: "Eine Präsentation als Referenz verwenden",
     quickSaas: "SaaS-Landingpage erstellen",
     quickDashboard: "Dashboard erstellen",

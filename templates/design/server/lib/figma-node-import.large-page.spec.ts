@@ -60,6 +60,36 @@ describe("resolveImportTargets on a page too large to fetch whole", () => {
     expect(targets).toMatchObject({ name: "One pager", truncated: false });
   });
 
+  it("falls back to a one-level outline when two levels is still too large", async () => {
+    provider.request.mockImplementation(
+      async ({ query }: { query: { ids: string; depth?: number } }) => {
+        if (query.ids === "6913:4184") {
+          return query.depth === 1
+            ? ok({
+                nodes: {
+                  "6913:4184": {
+                    document: {
+                      id: "6913:4184",
+                      name: "One pager",
+                      type: "CANVAS",
+                      children: [{ id: "1:2", name: "Cover", type: "FRAME" }],
+                    },
+                  },
+                },
+              })
+            : tooLarge;
+        }
+        return ok({
+          nodes: { "1:2": { document: frame("1:2", "Cover") } },
+        });
+      },
+    );
+
+    const targets = await resolveImportTargets("abcDEF12345", "6913:4184");
+
+    expect(Object.keys(targets.nodesById)).toEqual(["1:2"]);
+  });
+
   it("keeps a frame too large to fetch as an error", async () => {
     provider.request.mockImplementation(
       async ({ query }: { query: { depth?: number } }) =>

@@ -34,6 +34,15 @@ describe("import design file helpers", () => {
     );
   });
 
+  it("strips a handler the document wrapper would complete", () => {
+    const html = normalizeImportedHtmlDocument(
+      "<main>Hi</main><img src=x onerror=alert(1)",
+      "test",
+    );
+    expect(html).toContain("<main>Hi</main>");
+    expect(html).not.toMatch(/onerror/i);
+  });
+
   it("strips executable HTML before persistence", () => {
     const html = normalizeImportedHtmlDocument(
       `<main onclick="alert(1)">

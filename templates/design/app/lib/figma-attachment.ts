@@ -1,6 +1,7 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import type { FigmaReferenceFrame } from "@shared/figma-reference";
 
+import { getFigmaClipboardContent } from "@/lib/design-import";
 import {
   browserImageUploader,
   browserImportId,
@@ -83,9 +84,10 @@ export function figmaReferenceDirectives(
 export function readFigmaClipboardSource(
   clipboard: Pick<DataTransfer, "getData">,
 ): { key: string; source: FigmaReferenceSource } | null {
-  const html = clipboard.getData("text/html");
+  // Same detection as the canvas: Figma's payload can sit in text/plain.
+  const html = getFigmaClipboardContent(clipboard);
   const figmeta = extractFigmeta(html);
-  if (!figmeta) return null;
+  if (!html || !figmeta) return null;
   return {
     key: `${FIGMA_REFERENCE_KEY_PREFIX}clipboard:${figmeta.fileKey}:${figmeta.pasteID ?? Date.now()}`,
     source: { kind: "clipboard", html },
@@ -228,16 +230,23 @@ function codeFence(html: string): string {
   return "`".repeat(Math.max(3, longest + 1));
 }
 
+/**
+ * File names and frame names are Figma content; in prompt prose they stay on
+ * one bounded line so a crafted name cannot start a new instruction.
+ */
+function oneLine(text: string): string {
+  return text
+    .replace(/[\s`]+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
 function frameLabel(frame: FigmaReferenceFrame, index: number): string {
   const size =
     frame.width !== undefined && frame.height !== undefined
       ? ` (${Math.round(frame.width)}×${Math.round(frame.height)})`
       : "";
-  // A frame name is file content; keep it to one line inside its quotes.
-  const name = (frame.name ?? `Frame ${index + 1}`)
-    .replace(/[\s`"]+/g, " ")
-    .trim();
-  return `"${name}"${size}`;
+  return `"${oneLine(frame.name ?? `Frame ${index + 1}`).replace(/"/g, "'")}"${size}`;
 }
 
 /**
@@ -251,7 +260,7 @@ export function figmaReferenceContext(
   budgetBytes = FIGMA_REFERENCE_CONTEXT_BUDGET,
 ): string {
   const parts = [
-    `The user attached a Figma design as reference: ${sourceLabel}, ${reference.frameCount} frame${reference.frameCount === 1 ? "" : "s"}, decoded from Figma with layout, text, and styles as HTML.`,
+    `The user attached a Figma design as reference: ${oneLine(sourceLabel)}, ${reference.frameCount} frame${reference.frameCount === 1 ? "" : "s"}, decoded from Figma with layout, text, and styles as HTML.`,
     "Use it as reference for the request, and do not put it on the canvas unless the request asks for that.",
     `To make, recreate, or import this design, call place-figma-frames with ref "${reference.ref}" (frames are numbered as below; omit frames to place all). It saves each frame exactly. Never retype a frame's HTML yourself: it is too long to copy and comes out truncated.`,
     "When building something new from it, copy its SVG markup for logos, icons, and other vectors verbatim; never redraw a vector with CSS shapes or new paths.",

@@ -117,11 +117,11 @@ export default defineAction({
               errorCode: "composer_reference_required",
             });
           }
-          const name = page.name ?? page.id;
+          // Page and layer names are Figma content: one bounded line each.
+          const name = figmaName(page.name ?? page.id);
           const url = `https://www.figma.com/design/${fileKey}?node-id=${encodeURIComponent(page.id)}`;
           const frameNames = page.frames
-            ?.map((frame) => frame.name)
-            .filter(Boolean)
+            ?.flatMap((frame) => (frame.name ? [figmaName(frame.name)] : []))
             .join(", ");
           return composerSourceResultSchema.parse({
             id: page.id,
@@ -261,3 +261,10 @@ export default defineAction({
     });
   },
 });
+
+function figmaName(value: string): string {
+  return value
+    .replace(/[\s`"]+/g, " ")
+    .trim()
+    .slice(0, 200);
+}

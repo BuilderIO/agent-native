@@ -2660,8 +2660,6 @@ export default {
     figmaSelectedCount: "{{count}} selected",
     figmaShowFrames: "Show frames in {{name}}",
     figmaLinkNotFrame: "Link to a Figma page or frame.",
-    figmaImagesNotKept:
-      "Some images in this Figma attachment could not be saved. Try sending again.",
     referenceDeck: "Reference a presentation",
     quickSaas: "Create a SaaS landing page",
     quickDashboard: "Create a dashboard",

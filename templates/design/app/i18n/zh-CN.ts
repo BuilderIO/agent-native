@@ -2635,7 +2635,6 @@ export default {
     figmaSelectedCount: "已选择 {{count}} 项",
     figmaShowFrames: "显示 {{name}} 中的框架",
     figmaLinkNotFrame: "请链接到 Figma 页面或框架。",
-    figmaImagesNotKept: "此 Figma 附件中的部分图片无法保存。请重新发送。",
     referenceDeck: "参考演示文稿",
     quickSaas: "创建 SaaS 落地页",
     quickDashboard: "创建仪表盘",

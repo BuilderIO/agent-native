@@ -889,19 +889,25 @@ describe("home prompt context", () => {
 
     attachFile();
     await untilReady();
+    let prepared!: Awaited<ReturnType<typeof result.current.prepareSubmission>>;
     await act(async () => {
-      await result.current.prepareSubmission(
+      prepared = await result.current.prepareSubmission(
         snapshotComposerContextItems(result.current.contextItems),
       );
     });
-    expect(figImages.finalize).toHaveBeenCalledOnce();
-    // Once sent, the agent may still place it: removing the chip keeps it.
+    // Nothing is kept until the chat accepts the message.
+    expect(figImages.finalize).not.toHaveBeenCalled();
     const discards = () =>
       mocks.call.mock.calls.filter(
         ([action]) => action === "discard-figma-reference",
       ).length;
     const before = discards();
-    act(() => result.current.remove(result.current.contextItems[0]?.key ?? ""));
+    if (!prepared) throw new Error("Submission was not prepared");
+    const accepted = prepared;
+    act(() => result.current.submissionAccepted(accepted));
+    expect(figImages.finalize).toHaveBeenCalledOnce();
+    expect(result.current.contextItems).toEqual([]);
+    // Once accepted, the agent may still place it: nothing is deleted.
     expect(discards()).toBe(before);
   });
 

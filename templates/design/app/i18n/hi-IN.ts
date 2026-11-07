@@ -2703,8 +2703,6 @@ export default {
     figmaSelectedCount: "{{count}} चुने गए",
     figmaShowFrames: "{{name}} के फ़्रेम दिखाएँ",
     figmaLinkNotFrame: "किसी Figma पेज या फ़्रेम का लिंक दें।",
-    figmaImagesNotKept:
-      "इस Figma अटैचमेंट की कुछ इमेज सेव नहीं हो सकीं। फिर से भेजकर देखें।",
     referenceDeck: "प्रस्तुति को संदर्भ बनाएँ",
     quickSaas: "SaaS लैंडिंग पेज बनाएँ",
     quickDashboard: "डैशबोर्ड बनाएँ",

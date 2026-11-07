@@ -82,20 +82,18 @@ type FigmaChip = {
   images?: FigmaReference["images"];
   /** Set once decoded; its context is rebuilt when the chip count changes. */
   resolved?: { reference: FigmaReference; title: string };
-  /** Sent with a prompt: the agent may still place it, so it is kept. */
-  sent?: boolean;
 };
 
 /**
- * A chip dropped before its prompt was sent leaves nothing behind: its staged
- * images and its attachment are deleted. A sent chip keeps both (a discard
- * after its images were released is a no-op).
+ * A chip dropped before its prompt was accepted leaves nothing behind: its
+ * staged images and its attachment are deleted. An accepted chip leaves the
+ * composer through `submissionAccepted`, which keeps both, and never here.
  */
 function discardFigmaChip(chip: FigmaChip | undefined) {
   if (!chip) return;
   void chip.images?.discard();
   const ref = chip.resolved?.reference.ref;
-  if (!ref || chip.sent) return;
+  if (!ref) return;
   void callAction("discard-figma-reference", { ref }).catch(
     (error: unknown) => {
       // Best effort: a failed delete only leaves the owner's own blob behind.
@@ -887,32 +885,6 @@ export function useHomePromptContext({
     if (!mounted.current || identityRef.current !== submittedIdentity)
       throw new Error(loadFailed);
     const prepared = snapshotComposerContextItems(refreshed);
-    // The submitted prompt may place these frames later, so their images are
-    // kept before it sends; a release that fails blocks the send instead.
-    const releases = await Promise.all(
-      submitted.flatMap((item) => {
-        const entry = isFigmaReferenceKey(item.key)
-          ? figmaSources.current.get(item.key)
-          : undefined;
-        const images = entry?.images;
-        if (!entry || !images) return [];
-        return [
-          images.release().then((failed) => {
-            if (failed === 0) entry.images = undefined;
-            return failed;
-          }),
-        ];
-      }),
-    );
-    if (releases.some((failed) => failed > 0))
-      throw new Error(t("homeContext.figmaImagesNotKept"));
-    // A sent attachment may still be placed, so it is never deleted later.
-    for (const item of submitted) {
-      const entry = isFigmaReferenceKey(item.key)
-        ? figmaSources.current.get(item.key)
-        : undefined;
-      if (entry) entry.sent = true;
-    }
     submissionReceipts.current.set(prepared, {
       identity: submittedIdentity,
       references: new Map(
@@ -939,6 +911,17 @@ export function useHomePromptContext({
       removed.add(key);
     }
     for (const key of receipt.figmaKeys) {
+      // Sent: the agent may place these frames, so keep their images. A
+      // staged image still serves its URL, so a failed release breaks nothing.
+      void figmaSources.current
+        .get(key)
+        ?.images?.release()
+        .then((failed) => {
+          if (failed > 0)
+            console.warn(
+              `Could not keep ${failed} image(s) from a sent Figma attachment; they stay staged.`,
+            );
+        });
       figmaSources.current.delete(key);
       removed.add(key);
     }
@@ -956,7 +939,8 @@ export function useHomePromptContext({
         {
           figmaUrl: url,
           depth: 1,
-          maxNodes: 10,
+          // A page lists every frame for the picker, up to the action's cap.
+          maxNodes: 1000,
           includeScreenshot: false,
           ...(pagesOnly ? { pagesOnly } : {}),
         },

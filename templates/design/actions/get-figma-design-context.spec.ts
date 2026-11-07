@@ -114,6 +114,39 @@ describe("get-figma-design-context", () => {
     ).not.toHaveProperty("geometry");
   });
 
+  it("caps a page link's frame list at maxNodes and says so", async () => {
+    mocks.executeProviderApiRequest.mockImplementation(async () =>
+      jsonEnvelope({
+        nodes: {
+          "6913:4184": {
+            document: {
+              id: "6913:4184",
+              name: "One pager",
+              type: "CANVAS",
+              children: Array.from({ length: 30 }, (_, index) => ({
+                id: `1:${index}`,
+                name: `Frame ${index}`,
+                type: "FRAME",
+              })),
+            },
+          },
+        },
+      }),
+    );
+
+    const result = await action.run({
+      figmaUrl:
+        "https://www.figma.com/design/abcDEF12345/Campaigns?node-id=6913-4184",
+      depth: 1,
+      maxNodes: 10,
+    } as never);
+
+    expect(result).toMatchObject({ truncated: true, totalFrames: 30 });
+    expect(
+      (result as { pages: Array<{ frames: unknown[] }> }).pages[0]?.frames,
+    ).toHaveLength(10);
+  });
+
   it("falls back to a shallower outline for a page too large to read", async () => {
     const page = {
       id: "6913:4184",

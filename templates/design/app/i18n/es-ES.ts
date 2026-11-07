@@ -2758,8 +2758,6 @@ export default {
     figmaSelectedCount: "{{count}} seleccionados",
     figmaShowFrames: "Mostrar los marcos de {{name}}",
     figmaLinkNotFrame: "Enlaza a una página o un marco de Figma.",
-    figmaImagesNotKept:
-      "No se pudieron guardar algunas imágenes de este adjunto de Figma. Vuelve a intentar enviarlo.",
     referenceDeck: "Usar una presentación como referencia",
     quickSaas: "Crear una página de SaaS",
     quickDashboard: "Crear un panel",
