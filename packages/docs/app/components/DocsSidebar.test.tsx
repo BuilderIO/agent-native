@@ -302,10 +302,21 @@ describe("DocsSidebar", () => {
     expect(buttonForLabel("Database providers")).not.toContain(
       "data-active-descendant",
     );
-  });  it("marks every section and group containing a shared page", () => {
+  });
+
+  it("marks every section and group containing a shared page", () => {
     const html = renderSidebar("/docs/notifications/");
-    const sections = ["Integrations", "Agent Native Toolkit"];
-    for (const title of sections) {
+    const navSections = getDocsNavSections("en-US");
+    const sections = navSections.filter((section) =>
+      ["integrations", "toolkits"].includes(section.id),
+    );
+    expect(sections).toHaveLength(2);
+    const toolkit = sections.find((section) => section.id === "toolkits");
+    const toolkitGroup = toolkit?.items.find((item) =>
+      item.children?.some((child) => child.to === "/docs/notifications/"),
+    );
+    expect(toolkitGroup).toBeDefined();
+    for (const title of [...sections.map((section) => section.title), toolkitGroup!.label]) {
       const label = `<span>${title}</span>`;
       const start = html.indexOf(label);
       expect(start).toBeGreaterThan(-1);
