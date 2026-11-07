@@ -108,6 +108,14 @@ const draftFields = {
           .min(1)
           .max(255)
           .describe("The `filename` from the upload's `attachment` object"),
+        id: z
+          .string()
+          .min(1)
+          .max(255)
+          .optional()
+          .describe(
+            "The `id` of a file already on the draft. Pass it to pick one of two files that share a filename.",
+          ),
         originalName: z
           .string()
           .min(1)
@@ -128,6 +136,15 @@ type DraftAttachmentHandle = NonNullable<
   z.infer<z.ZodObject<typeof draftFields>>["attachments"]
 >[number];
 
+function handleNames(
+  handle: DraftAttachmentHandle,
+  attachment: Partial<ComposeAttachment> | undefined,
+): boolean {
+  return handle.id
+    ? attachment?.id === handle.id
+    : attachment?.filename === handle.filename;
+}
+
 /** Files already on the draft keep their entry, which holds forwarded Gmail parts. */
 async function resolveDraftAttachments(
   handles: DraftAttachmentHandle[],
@@ -139,8 +156,8 @@ async function resolveDraftAttachments(
   // Forwarded parts keep their display name, so two can share a filename.
   const unmatched = [...current];
   for (const handle of handles) {
-    const match = unmatched.findIndex(
-      (existing) => existing.filename === handle.filename,
+    const match = unmatched.findIndex((existing) =>
+      handleNames(handle, existing),
     );
     const attachment =
       match >= 0
@@ -160,12 +177,10 @@ function hasSameAttachments(
   current: unknown,
   handles: DraftAttachmentHandle[],
 ): boolean {
-  const filenames = Array.isArray(current)
-    ? current.map((attachment) => attachment?.filename)
-    : [];
-  return isSameRecord(
-    filenames,
-    handles.map((handle) => handle.filename),
+  const attachments = Array.isArray(current) ? current : [];
+  return (
+    attachments.length === handles.length &&
+    handles.every((handle, index) => handleNames(handle, attachments[index]))
   );
 }
 

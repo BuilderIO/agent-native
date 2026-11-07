@@ -6,6 +6,13 @@ function inboxSource(): string {
   return readFileSync(new URL("./InboxPage.tsx", import.meta.url), "utf8");
 }
 
+function savedDraftSource(): string {
+  return readFileSync(
+    new URL("../lib/saved-draft.ts", import.meta.url),
+    "utf8",
+  );
+}
+
 function emailListSource(): string {
   return readFileSync(
     new URL("../components/email/EmailList.tsx", import.meta.url),
@@ -169,11 +176,13 @@ describe("Inbox navigation commands", () => {
 describe("Inbox draft opening", () => {
   it("preserves Gmail attachment metadata without deleting the backing draft immediately", () => {
     const source = inboxSource();
+    const savedDraft = savedDraftSource();
 
-    expect(source).toContain("attachments: email.attachments?.map");
-    expect(source).toContain('source: "gmail"');
-    expect(source).toContain("gmailMessageId: email.id");
-    expect(source).toContain("gmailAttachmentId: attachment.id");
+    expect(source).toContain("attachments: savedEmailDraftAttachments(email)");
+    expect(savedDraft).toContain("email.attachments?.map");
+    expect(savedDraft).toContain('source: "gmail"');
+    expect(savedDraft).toContain("gmailMessageId: email.id");
+    expect(savedDraft).toContain("gmailAttachmentId: attachment.id");
     expect(source).not.toContain("deleteDraft.mutate(email.id)");
   });
 });

@@ -23,7 +23,7 @@ describe("toastUploadFailure", () => {
       "Open settings",
     );
 
-    const [message, options] = mocks.error.mock.calls[0];
+    const [message, options] = mocks.error.mock.lastCall ?? [];
     expect(message).toBe("Builder.io rejected the connection.");
     expect(options.action.label).toBe("Open settings");
     options.action.onClick();
@@ -67,7 +67,7 @@ describe("toastUploadFailure", () => {
       "Open settings",
     );
 
-    const [message, options] = mocks.error.mock.calls[0];
+    const [message, options] = mocks.error.mock.lastCall ?? [];
     expect(message).toBe("Builder.io rejected the connection.");
     expect(options.action.label).toBe("Open settings");
   });

@@ -156,6 +156,10 @@ export async function storeMediaUpload(input: {
   if (storedSize !== input.data.byteLength) {
     throw new Error("Uploaded file did not persist completely");
   }
+  await putStoredUpload(input.ownerEmail, {
+    ...payload,
+    createdAt: Date.now(),
+  });
   return payload;
 }
 
@@ -165,33 +169,19 @@ export async function storeMediaUpload(input: {
  */
 export async function attachmentFromUpload(
   ownerEmail: string,
-  handle: { filename: string; originalName?: string; mimeType?: string },
+  handle: { filename: string; originalName?: string | undefined },
 ): Promise<ComposeAttachment | null> {
   const { filename } = handle;
   if (/[\\/]/.test(filename) || filename.includes("..")) return null;
 
   const stored = await getStoredUpload(ownerEmail, filename);
-  if (stored) {
-    return {
-      id: filename,
-      filename,
-      originalName: handle.originalName || stored.originalName,
-      mimeType: stored.mimeType,
-      size: stored.size,
-      url: stored.url ?? `/api/media/${filename}`,
-    };
-  }
-
-  if (process.env.NODE_ENV === "production") return null;
-  const filePath = path.join(UPLOADS_DIR, filename);
-  if (!fs.existsSync(filePath)) return null;
-  const originalName = handle.originalName || filename;
+  if (!stored) return null;
   return {
     id: filename,
     filename,
-    originalName,
-    mimeType: handle.mimeType || mimeTypeForUpload(originalName),
-    size: fs.statSync(filePath).size,
-    url: `/api/media/${filename}`,
+    originalName: handle.originalName || stored.originalName,
+    mimeType: stored.mimeType,
+    size: stored.size,
+    url: stored.url ?? `/api/media/${filename}`,
   };
 }

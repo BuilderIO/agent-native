@@ -261,6 +261,40 @@ describe("manage-draft attachments", () => {
     });
   });
 
+  it("keeps the second of two same-named files when its id is passed", async () => {
+    const forwardedPart = (part: string) => ({
+      id: part,
+      filename: "image.png",
+      originalName: "image.png",
+      mimeType: "image/png",
+      size: 10,
+      url: "",
+      source: "gmail",
+      gmailMessageId: "message-1",
+      gmailAttachmentId: part,
+    });
+    const second = forwardedPart("part-2");
+    appState.set("compose-pick-one", {
+      id: "pick-one",
+      to: "recipient@example.com",
+      subject: "Fwd",
+      body: "",
+      mode: "forward",
+      attachments: [forwardedPart("part-1"), second],
+    });
+
+    const result = await action.run({
+      action: "update",
+      id: "pick-one",
+      expectedRevision: revisionOf("pick-one"),
+      attachments: [{ filename: "image.png", id: "part-2" }],
+    });
+
+    expect(
+      (result as { draft: { attachments: unknown } }).draft.attachments,
+    ).toEqual([second]);
+  });
+
   it("removes every file when an update passes an empty list", async () => {
     appState.set("compose-clear", {
       id: "clear",

@@ -210,7 +210,9 @@ the same time can lose each other's records.
 
 Pass the `attachment` object to `manage-draft` in `attachments`, on `create` or
 `update`. That list replaces the draft's files, so on `update` include the ones
-to keep, and `[]` removes them all. The upload Authorization header is a
+to keep, and `[]` removes them all. Forwarded files can share a filename: to
+keep just one of them, pass its `id` from the draft too. The upload
+Authorization header is a
 short-lived bearer credential: do not log, persist, reuse, or share it. Creating
 or consuming it does not send mail. Keep `send-email` behind its normal
 explicit-intent and human-approval gate.

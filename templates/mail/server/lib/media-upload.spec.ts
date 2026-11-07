@@ -1,3 +1,5 @@
+import fs from "node:fs";
+
 import {
   getRequestContext,
   runWithRequestContext,
@@ -91,6 +93,31 @@ describe("storeMediaUpload", () => {
         originalName: "note.txt",
       }),
     ).rejects.toBeInstanceOf(MediaStorageSetupError);
+  });
+
+  it("records a file kept on local disk for its owner", async () => {
+    process.env.NODE_ENV = "development";
+    uploadFile.mockResolvedValue(null);
+    vi.spyOn(fs, "mkdirSync").mockReturnValue(undefined);
+    vi.spyOn(fs, "writeFileSync").mockReturnValue(undefined);
+    vi.spyOn(fs, "statSync").mockReturnValue({ size: 1 } as fs.Stats);
+    const { storeMediaUpload } = await import("./media-upload.js");
+
+    await storeMediaUpload({
+      ownerEmail: "owner@example.com",
+      data: new Uint8Array([1]),
+      filename: "upload-1.txt",
+      originalName: "note.txt",
+    });
+
+    expect(uploadStore.put).toHaveBeenCalledWith(
+      "owner@example.com",
+      expect.objectContaining({
+        filename: "upload-1.txt",
+        originalName: "note.txt",
+        size: 1,
+      }),
+    );
   });
 
   describe("when the provider refuses the upload", () => {
@@ -214,10 +241,7 @@ describe("attachmentFromUpload", () => {
     const { attachmentFromUpload } = await import("./media-upload.js");
 
     await expect(
-      attachmentFromUpload("owner@example.com", {
-        filename: "abc.pdf",
-        mimeType: "text/html",
-      }),
+      attachmentFromUpload("owner@example.com", { filename: "abc.pdf" }),
     ).resolves.toEqual({
       id: "abc.pdf",
       filename: "abc.pdf",
@@ -232,14 +256,18 @@ describe("attachmentFromUpload", () => {
     );
   });
 
-  it("finds nothing for a file this owner never uploaded", async () => {
-    uploadStore.get.mockResolvedValue(null);
-    const { attachmentFromUpload } = await import("./media-upload.js");
+  it.each(["production", "development"])(
+    "finds nothing in %s for a file this owner never uploaded",
+    async (nodeEnv) => {
+      process.env.NODE_ENV = nodeEnv;
+      uploadStore.get.mockResolvedValue(null);
+      const { attachmentFromUpload } = await import("./media-upload.js");
 
-    await expect(
-      attachmentFromUpload("owner@example.com", { filename: "other.pdf" }),
-    ).resolves.toBeNull();
-  });
+      await expect(
+        attachmentFromUpload("owner@example.com", { filename: "other.pdf" }),
+      ).resolves.toBeNull();
+    },
+  );
 
   it.each(["../secrets.env", "a/b.pdf", "a\\b.pdf"])(
     "refuses the path %s without looking it up",
