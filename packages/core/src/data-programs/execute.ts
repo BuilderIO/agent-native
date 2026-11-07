@@ -595,16 +595,25 @@ async function runBackgroundProgram(
 
   const active = await getActiveRun(program.id, paramsHash);
   if (active?.executionId && args.ctx.userEmail) {
-    const execution = await getSandboxExecutionForOwner(
-      active.executionId,
-      args.ctx.userEmail,
-    );
-    if (
-      execution &&
-      execution.status !== "queued" &&
-      execution.status !== "running"
-    ) {
-      await finalizeBackgroundRun(active.id, execution);
+    // A failed check leaves the run for the next read to finish, rather than
+    // failing a read the cache can still answer.
+    try {
+      const execution = await getSandboxExecutionForOwner(
+        active.executionId,
+        args.ctx.userEmail,
+      );
+      if (
+        execution &&
+        execution.status !== "queued" &&
+        execution.status !== "running"
+      ) {
+        await finalizeBackgroundRun(active.id, execution);
+      }
+    } catch (err) {
+      console.error(
+        `[data-programs] couldn't check background run ${active.id}:`,
+        err,
+      );
     }
   }
 
