@@ -688,6 +688,7 @@ const editor = {
     "보기 전용. 이 페이지는 GitHub의 파일을 따르며 푸시할 때마다 업데이트됩니다.",
   githubSourceOpenFile: "GitHub에서 열기",
   textColor: "텍스트 색상",
+  resizeColumns: "열 너비 조절",
   backgroundColor: "배경색",
   defaultColor: "기본값",
   color: {
@@ -1029,6 +1030,10 @@ const editor = {
     bulletedListDescription: "순서가 없는 목록",
     callout: "설명선",
     calloutDescription: "강조표시된 정보 블록",
+    columnsDescription: "블록을 나란히 배치",
+    twoColumns: "2열",
+    threeColumns: "3열",
+    fourColumns: "4열",
     codeBlock: "코드 블록",
     codeBlockDescription: "코드 조각",
     collapsibleBlockDescription: "접이식 블록",

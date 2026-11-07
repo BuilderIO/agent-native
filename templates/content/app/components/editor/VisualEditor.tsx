@@ -126,6 +126,7 @@ import {
   holdDroppedClipFile,
   watchClipUploadBlocks,
 } from "./clip-embed/clip-uploads";
+import { ColumnResizeControls } from "./ColumnResizeControls";
 import {
   buildDocText,
   resolveAnchor,
@@ -5461,6 +5462,9 @@ export function VisualEditor({
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
       {editable && !suggesting ? <TableHoverControls editor={editor} /> : null}
+      {editable && !suggesting ? (
+        <ColumnResizeControls editor={editor} />
+      ) : null}
       {editable ? (
         <BlockActionsMenu
           editor={editor}

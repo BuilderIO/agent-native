@@ -652,6 +652,7 @@ const editor = {
     "仅查看。此页面跟随 GitHub 中的文件，每次推送后都会更新。",
   githubSourceOpenFile: "在 GitHub 中打开",
   textColor: "文本颜色",
+  resizeColumns: "调整列宽",
   backgroundColor: "背景颜色",
   defaultColor: "默认",
   color: {
@@ -984,6 +985,10 @@ const editor = {
     bulletedListDescription: "无序列表",
     callout: "标注",
     calloutDescription: "突出显示的信息块",
+    columnsDescription: "将块并排放置",
+    twoColumns: "2 列",
+    threeColumns: "3 列",
+    fourColumns: "4 列",
     codeBlock: "代码块",
     codeBlockDescription: "代码片段",
     collapsibleBlockDescription: "可折叠块",

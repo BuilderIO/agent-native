@@ -704,6 +704,7 @@ const editor = {
     "Solo lectura. Esta página sigue un archivo de GitHub y se actualiza después de cada push.",
   githubSourceOpenFile: "Abrir en GitHub",
   textColor: "Color de texto",
+  resizeColumns: "Cambiar el ancho de las columnas",
   backgroundColor: "Color de fondo",
   defaultColor: "Predeterminado",
   color: {
@@ -1047,6 +1048,10 @@ const editor = {
     bulletedListDescription: "lista desordenada",
     callout: "Llamada",
     calloutDescription: "Bloque de información resaltado",
+    columnsDescription: "Colocar bloques uno al lado del otro",
+    twoColumns: "2 columnas",
+    threeColumns: "3 columnas",
+    fourColumns: "4 columnas",
     codeBlock: "Bloque de código",
     codeBlockDescription: "Fragmento de código",
     collapsibleBlockDescription: "bloque plegable",

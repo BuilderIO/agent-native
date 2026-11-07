@@ -397,6 +397,7 @@ const overrides = {
     strikethrough: "刪除線",
     code: "程式碼",
     textColor: "文字顏色",
+    resizeColumns: "調整欄寬",
     backgroundColor: "背景顏色",
     defaultColor: "預設",
     color: {
@@ -887,6 +888,10 @@ const overrides = {
       bulletedListDescription: "無序清單",
       callout: "標注",
       calloutDescription: "突出顯示的資訊塊",
+      columnsDescription: "將區塊並排放置",
+      twoColumns: "2 欄",
+      threeColumns: "3 欄",
+      fourColumns: "4 欄",
       codeBlock: "程式碼塊",
       codeBlockDescription: "程式碼片段",
       collapsibleBlockDescription: "可折疊塊",

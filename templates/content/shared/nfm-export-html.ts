@@ -7,6 +7,7 @@ import { icons } from "@tabler/icons-react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { formatColumnRatio, parseColumnRatio } from "./column-ratios.js";
 import { splitGfmPipeRow } from "./nfm.js";
 
 export interface NfmExportRenderers {
@@ -453,8 +454,17 @@ const renderDetailsContainer: ContainerRenderer = ({
 const renderColumnsContainer: ContainerRenderer = ({ inner, renderers }) =>
   `<div class="nfm-columns">${renderers.renderBlocks(dedentChildren(inner))}</div>`;
 
-const renderColumnContainer: ContainerRenderer = ({ inner, renderers }) =>
-  `<div class="nfm-column">${renderers.renderBlocks(dedentChildren(inner))}</div>`;
+// A column with a ratio takes that share of the row; one without, an equal one.
+const renderColumnContainer: ContainerRenderer = ({
+  attrs,
+  inner,
+  renderers,
+}) => {
+  const ratio = parseColumnRatio(attrs.ratio);
+  const style =
+    ratio === null ? "" : ` style="flex-grow: ${formatColumnRatio(ratio)}"`;
+  return `<div class="nfm-column"${style}>${renderers.renderBlocks(dedentChildren(inner))}</div>`;
+};
 
 const renderSyncedContainer: ContainerRenderer = ({ inner, renderers }) =>
   `<div class="nfm-synced">${renderers.renderBlocks(dedentChildren(inner))}</div>`;
