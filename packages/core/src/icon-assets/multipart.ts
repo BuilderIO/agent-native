@@ -55,7 +55,9 @@ export async function readBoundedMultipartFormData(
   }
   const reader = request.body?.getReader();
   if (!reader) throw createError(400);
-  const body = new Uint8Array(maxBytes);
+  // Keep the chunks and copy them once at the end, so memory follows the
+  // upload's size rather than reserving `maxBytes` for every request.
+  const chunks: Uint8Array[] = [];
   let size = 0;
   try {
     while (true) {
@@ -63,15 +65,21 @@ export async function readBoundedMultipartFormData(
       if (done) break;
       if (value.byteLength > maxBytes - size)
         await rejectOversized(() => reader.cancel(), createError);
-      body.set(value, size);
+      chunks.push(value);
       size += value.byteLength;
     }
   } finally {
     reader.releaseLock();
   }
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
   // Parse the bounded buffer, never a clone that tees and queues the live body.
   try {
-    return await new Response(body.subarray(0, size), {
+    return await new Response(body, {
       headers: { "content-type": request.headers.get("content-type") ?? "" },
     }).formData();
   } catch {
