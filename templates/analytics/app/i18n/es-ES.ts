@@ -1432,7 +1432,7 @@ export default {
     unknownTraffic: "Desconocido {{count}}",
     unknownTrafficUnavailable: "Recuento de desconocidos no disponible",
     unknownTrafficTip:
-      "Eventos de los últimos {{days}} días sin host ni entorno registrado. Cuentan como producción.",
+      "Eventos de los últimos {{days}} días sin host ni entorno reconocido. Cuentan como producción.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",

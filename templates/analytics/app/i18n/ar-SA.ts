@@ -1386,7 +1386,7 @@ export default {
     unknownTraffic: "غير معروف {{count}}",
     unknownTrafficUnavailable: "عدد غير المعروف غير متاح",
     unknownTrafficTip:
-      "أحداث آخر {{days}} يوم بلا مضيف وبلا بيئة مسجلة. تُحتسب ضمن الإنتاج.",
+      "أحداث آخر {{days}} يوم بلا مضيف وبلا بيئة معروفة. تُحتسب ضمن الإنتاج.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",

@@ -1420,7 +1420,7 @@ export default {
     unknownTraffic: "未知 {{count}}",
     unknownTrafficUnavailable: "無法取得未知數量",
     unknownTrafficTip:
-      "過去 {{days}} 天內沒有主機也沒有記錄環境的事件。它們計入正式環境。",
+      "過去 {{days}} 天內沒有主機、也沒有可辨識環境的事件。它們計入正式環境。",
     viewNameRecentPlaceholder: "檢視名稱（例如「僅最近文章」）",
     to: "至",
     on: "On",

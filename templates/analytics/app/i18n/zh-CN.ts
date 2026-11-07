@@ -1334,7 +1334,7 @@ export default {
     unknownTraffic: "未知 {{count}}",
     unknownTrafficUnavailable: "未知数量不可用",
     unknownTrafficTip:
-      "过去 {{days}} 天内没有主机也没有记录环境的事件。它们计入生产环境。",
+      "过去 {{days}} 天内没有主机、也没有可识别环境的事件。它们计入生产环境。",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",

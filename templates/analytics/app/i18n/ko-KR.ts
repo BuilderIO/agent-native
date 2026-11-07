@@ -1389,7 +1389,7 @@ export default {
     unknownTraffic: "알 수 없음 {{count}}",
     unknownTrafficUnavailable: "알 수 없음 개수를 불러올 수 없음",
     unknownTrafficTip:
-      "최근 {{days}}일 이벤트 중 호스트와 기록된 환경이 모두 없는 이벤트입니다. 프로덕션으로 집계됩니다.",
+      "최근 {{days}}일 이벤트 중 호스트가 없고 인식된 환경도 없는 이벤트입니다. 프로덕션으로 집계됩니다.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",

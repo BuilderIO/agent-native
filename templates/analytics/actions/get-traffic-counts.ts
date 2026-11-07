@@ -15,7 +15,7 @@ const DEFAULT_DAYS = 7;
 
 export default defineAction({
   description:
-    "Count first-party events from recent days by traffic: `production`, `beta` (including PR previews and local runs), and `unknown`, the events with no host and no recorded environment. Unknown events are also inside `production`, because they count as production when a read filters by traffic. Excludes `http.response` events.",
+    "Count first-party events from recent days by traffic: `production`, `beta` (including PR previews and local runs), and `unknown`, the events with no host and no recognized environment (a value such as `staging` is not one). Unknown events are also inside `production`, because they count as production when a read filters by traffic. Excludes `http.response` events.",
   schema: z.object({
     days: z
       .number()

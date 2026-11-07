@@ -1413,7 +1413,7 @@ export default {
     unknownTraffic: "不明 {{count}}",
     unknownTrafficUnavailable: "不明の件数を取得できません",
     unknownTrafficTip:
-      "過去 {{days}} 日間のイベントのうち、ホストも環境も記録されていないもの。本番としてカウントされます。",
+      "過去 {{days}} 日間のイベントのうち、ホストがなく、既知の環境も記録されていないもの。本番としてカウントされます。",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",

@@ -991,7 +991,7 @@ export default {
     unknownTraffic: "Unknown {{count}}",
     unknownTrafficUnavailable: "Unknown count unavailable",
     unknownTrafficTip:
-      "Events from the last {{days}} days with no host and no recorded environment. They count as production.",
+      "Events from the last {{days}} days with no host and no recognized environment. They count as production.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",

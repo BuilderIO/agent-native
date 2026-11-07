@@ -1371,7 +1371,7 @@ export default {
     unknownTraffic: "अज्ञात {{count}}",
     unknownTrafficUnavailable: "अज्ञात की गिनती उपलब्ध नहीं",
     unknownTrafficTip:
-      "पिछले {{days}} दिनों के ऐसे इवेंट जिनमें न होस्ट है और न दर्ज परिवेश। इन्हें प्रोडक्शन में गिना जाता है।",
+      "पिछले {{days}} दिनों के ऐसे इवेंट जिनमें न होस्ट है और न कोई पहचाना गया परिवेश। इन्हें प्रोडक्शन में गिना जाता है।",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
