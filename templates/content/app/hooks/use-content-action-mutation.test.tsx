@@ -99,6 +99,7 @@ const keys = {
   trashedDatabases: ["action", "list-trashed-content-databases", {}],
   trash: ["action", "list-content-trash", {}],
   search: ["action", "search-documents", { query: "page" }],
+  titles: ["action", "list-document-titles", {}],
 } satisfies Record<string, QueryKey>;
 
 type ReadName = keyof typeof keys;
@@ -309,6 +310,7 @@ describe("sidebar writes refresh only the affected branch", () => {
       "search",
       "sectionChildren",
       "sectionChildrenPage2",
+      "titles",
       "trackerTable",
     ]);
     expect(queryClient.getQueryData<any>(keys.recent).entries[0].title).toBe(
@@ -316,7 +318,7 @@ describe("sidebar writes refresh only the affected branch", () => {
     );
   });
 
-  it("create refreshes the parent's children, the parent's row, and the new page's path", async () => {
+  it("create refreshes the parent's children, the parent's row, the new page's path, and search", async () => {
     await mountReads();
     actionResponses["create-document"] = {
       id: "new-page",
@@ -333,7 +335,9 @@ describe("sidebar writes refresh only the affected branch", () => {
     expect(await refetched()).toEqual([
       "newPath",
       "pageChildren",
+      "search",
       "sectionChildren",
+      "titles",
     ]);
   });
 
@@ -358,7 +362,7 @@ describe("sidebar writes refresh only the affected branch", () => {
     expect(await refetched()).toEqual(["root", "rootPage2"]);
   });
 
-  it("move refreshes the old branch, the new parent's children and row, and the Files collection", async () => {
+  it("move refreshes the old branch, the new parent's children and row, the Files collection, and search", async () => {
     await mountReads();
     actionResponses["move-document"] = { id: "sibling", parentId: "other" };
     const move = await renderHook(() => useMoveDocument());
@@ -372,9 +376,11 @@ describe("sidebar writes refresh only the affected branch", () => {
       "files",
       "otherChildren",
       "root",
+      "search",
       "sectionChildren",
       "sectionChildrenPage2",
       "siblingDoc",
+      "titles",
     ]);
   });
 
@@ -397,10 +403,12 @@ describe("sidebar writes refresh only the affected branch", () => {
       "files",
       "recent",
       "root",
+      "search",
       "sectionChildren",
       "sectionChildrenPage2",
       "siblingDoc",
       "space2Root",
+      "titles",
       "tracker",
     ]);
   });
@@ -428,6 +436,7 @@ describe("Trash writes", () => {
         "sectionChildrenPage2",
         "siblingDoc",
         "spaces",
+        "titles",
         "tracker",
         ...trashLists,
       ].sort(),
@@ -465,6 +474,7 @@ describe("Trash writes", () => {
           "sectionChildrenPage2",
           "siblingDoc",
           "space2Root",
+          "titles",
           "tracker",
           "trackerTable",
           ...trashLists,

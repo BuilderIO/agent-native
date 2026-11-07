@@ -849,6 +849,16 @@ export function useDocuments(options?: { enabled?: boolean }) {
 const DOCUMENT_TITLES_ACTION = "list-document-titles";
 
 /**
+ * What search reads: its results and the titles it ranks at once. A write that
+ * changes a page's title or place makes both stale. Same-tab writes don't sync,
+ * so the write names them; the titles then reload when the menu next opens.
+ */
+export const SEARCH_QUERY_KEYS = [
+  ["action", "search-documents"],
+  ["action", DOCUMENT_TITLES_ACTION],
+] as const;
+
+/**
  * The titles search ranks in the browser. One read fills it, however large the
  * library, so it stays across closing and reopening the command menu rather
  * than making the next search wait for it again.
@@ -1392,16 +1402,16 @@ export function useCreateDocument() {
     {
       skipActionQueryInvalidation: true,
       onSuccess: (created) =>
-        invalidateContentQueries(
-          queryClient,
-          contentPlacementTargets(queryClient, {
+        invalidateContentQueries(queryClient, [
+          ...contentPlacementTargets(queryClient, {
             documentIds: [created.id],
             parentIds: [created.parentId ?? null],
             databaseId: created.parentId
               ? undefined
               : contentSpaceFilesDatabaseId(queryClient, created.spaceId),
           }),
-        ),
+          ...SEARCH_QUERY_KEYS,
+        ]),
     },
   );
 }
@@ -1783,7 +1793,7 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
             contentDatabaseConstrainedQueryFilter(),
             contentDatabaseExcerptContainingDocumentFilter(variables.id),
             ...contentRowTargets(queryClient, [variables.id]),
-            ["action", "search-documents"],
+            ...SEARCH_QUERY_KEYS,
           ]);
         }
         if (renamedContentSpace) {
@@ -1938,7 +1948,7 @@ export function useDeleteDocument() {
       ["action", "get-content-database"],
       ["action", "list-content-spaces"],
       ["action", "get-content-recent"],
-      ["action", "search-documents"],
+      ...SEARCH_QUERY_KEYS,
       ...TRASH_LIST_QUERY_KEYS,
     ],
   });
@@ -1984,7 +1994,7 @@ export function useImportContent() {
                 parentIds: [parentId ?? null],
               }),
               ["action", "list-documents"],
-              ["action", "search-documents"],
+              ...SEARCH_QUERY_KEYS,
             ],
     },
   );
@@ -2000,7 +2010,7 @@ export function useUndoContentImport() {
       ...contentPlacementTargets(queryClient, { documentIds: trashedIds }),
       ...trashedIds.map((id) => documentQueryFilter(id)),
       ["action", "list-documents"],
-      ["action", "search-documents"],
+      ...SEARCH_QUERY_KEYS,
       ...TRASH_LIST_QUERY_KEYS,
     ],
   });
@@ -2026,7 +2036,7 @@ export function restoredDocumentTargets(
     ["action", "list-documents"],
     ["action", "get-content-database"],
     ["action", "get-content-recent"],
-    ["action", "search-documents"],
+    ...SEARCH_QUERY_KEYS,
     ...TRASH_LIST_QUERY_KEYS,
   ];
 }
@@ -2084,6 +2094,7 @@ export function useMoveDocument() {
       documentQueryFilter(variables.id),
       contentFilesCollectionFilter(),
       ["action", "list-documents"],
+      ...SEARCH_QUERY_KEYS,
       ...(variables.spaceId
         ? [
             ["action", "get-content-database"],
