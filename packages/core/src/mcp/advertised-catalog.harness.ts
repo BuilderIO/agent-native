@@ -7,6 +7,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { createApp } from "h3";
 import { vi } from "vitest";
 
+import { isActionExposedToExternalAgents } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   coreActionLoaderEntries,
@@ -110,6 +111,41 @@ export interface AppCatalog {
 /** The default catalog of a plain production deployment (code execution off). */
 export function defaultProductionTools(app: AppCatalog): AdvertisedTool[] {
   return app.surfaces[0]!.catalogs.default;
+}
+
+/**
+ * Where a checked-in baseline keys an action: under the app for the template's
+ * own actions and the files its dev server discovers under the app, under
+ * "core" for everything the framework composes, which every app shares.
+ */
+export function baselineSection(app: AppCatalog, name: string): string {
+  return app.templateActionNames.has(name) || app.devDiscoveredTools.has(name)
+    ? app.appId
+    : "core";
+}
+
+/**
+ * Actions the app's own agent can call that only a missing decision keeps off
+ * a plain production deployment's default MCP catalog: not served there, no
+ * `mcpTool` either way, not ending the in-app agent's turn, and allowed on
+ * the full catalog, so no framework rule rules them out either.
+ */
+export function undecidedMcpActions(app: AppCatalog): string[] {
+  const { config, catalogs } = app.surfaces[0]!;
+  const served = new Set(catalogs.default.map((tool) => tool.name));
+  const allowed = new Set(catalogs.full.map((tool) => tool.name));
+  return Object.entries(config.actions)
+    .filter(
+      ([name, entry]) =>
+        entry.uiOnly !== true &&
+        entry.agentTool !== false &&
+        typeof entry.mcpTool !== "boolean" &&
+        isActionExposedToExternalAgents(entry) &&
+        !served.has(name) &&
+        allowed.has(name),
+    )
+    .map(([name]) => name)
+    .sort();
 }
 
 export function templateIdsWithAgentChat(): string[] {

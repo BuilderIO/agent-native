@@ -118,6 +118,8 @@ for interrupted-run recovery.
 
 An action that hands control back to the user (question form, intake dialog) sets `endsTurn: true`; that hides it from MCP/WebMCP/A2A unless `mcpTool: true` is explicit — `references/action-fields.md`. For external-agent integrations, use the external-agents documentation slug listed by `agent-native-docs`.
 
+An action the app's agent can call that the app's MCP catalog doesn't already serve needs a decision: `mcpTool: true` serves it to outside agents (add a test that calls it over MCP), and `mcpTool: false` keeps it in-app, with a comment on that line saying why. Core's `agent-mcp-parity.spec.ts` fails on an action with neither, and its baseline of older undecided actions only shrinks (`guard:no-new-mcp-parity-gaps`).
+
 Every new action declares `outputSchema`: it types the action's return and is enforced strictly by default (`guard:action-output-schema`). Declare its failure codes with `defineActionErrors` and fail through them. Reach for `_agentImages` (attach images the agent can see), `authorize` (gate who may call it), or `needsApproval` (require human sign-off per call) only when the action needs that guarantee — examples in `references/action-fields.md`.
 
 To test an action, start with `checkActionProperties(action, { context })` from `@agent-native/core/action-properties`. It generates inputs from the zod `schema`, and fails on any throw that is not an action contract error, on a return its `outputSchema` rejects, and on an invalid input that reaches `run`. It needs `fast-check` as a devDependency, and it throws `UnsupportedSchemaError` for a schema shape it cannot generate unless you pass an override.
