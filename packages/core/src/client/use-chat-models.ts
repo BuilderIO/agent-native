@@ -637,6 +637,7 @@ export function useChatModels({
         retryTimerRef.current = null;
       }
       setIsLoading(false);
+      setCatalogUnavailable(false);
       return;
     }
     refreshEngines();

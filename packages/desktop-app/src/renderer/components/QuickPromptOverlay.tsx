@@ -490,6 +490,7 @@ export default function QuickPromptOverlay({
             window.electronAPI?.quickPrompt.openProviderSettings()
           }
           statusUnavailable={modelListUnavailable}
+          onRetry={() => void verifySelectedProvider()}
         />
       ) : null}
       <PromptComposer

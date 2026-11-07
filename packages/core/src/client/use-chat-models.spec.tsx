@@ -1246,6 +1246,36 @@ describe("useChatModels", () => {
     },
   );
 
+  it("clears unavailable status when discovery is disabled", async () => {
+    vi.useFakeTimers();
+    try {
+      actionMocks.callAction.mockRejectedValue(new Error("unavailable"));
+      await act(async () => {
+        root.render(<ChatModelsProbe enabled />);
+        await Promise.resolve();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1250);
+      });
+      expect(
+        container.querySelector('[data-testid="probe-catalog-unavailable"]')
+          ?.textContent,
+      ).toBe("true");
+      await act(async () => {
+        root.render(<ChatModelsProbe enabled={false} />);
+      });
+      expect(
+        container.querySelector('[data-testid="probe-catalog-unavailable"]')
+          ?.textContent,
+      ).toBe("false");
+      expect(
+        container.querySelector('[data-testid="probe-loading"]')?.textContent,
+      ).toBe("false");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reports malformed catalog processing without treating it as a transient fetch failure", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
