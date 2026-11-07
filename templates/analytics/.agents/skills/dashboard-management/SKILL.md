@@ -434,8 +434,9 @@ is that dashboard's choice, so ask before showing it.
 
 To explain a spike or dip, read `keyDateSets` and `dataNotes` from
 `get-sql-dashboard` or `view-screen` first and cite what they say. They are the
-organization's records, not part of the dashboard's saved config, so a config
-write neither needs nor changes them. If
+organization's records, not part of the dashboard's saved config: a config
+write needn't carry them and can't change them, though its `annotations` field
+picks which ones this dashboard hides. If
 `annotationsError` is there instead, say the markers could not be read rather
 than that there are none. `omittedKeyDateSetCount` or `omittedDataNoteCount`
 means the list was cut to fit, so read `list-key-dates` or `list-data-notes`
