@@ -22,6 +22,7 @@ describe("screen deletion metadata history", () => {
     const restoredId = "restored-screen";
     const frame = { x: 620, y: 340, width: 390, height: 844, z: 7 };
     const sourceMetadata = {
+      frameType: "hubspot-email",
       sourceType: "localhost",
       connectionId: "conn_1",
       routeId: "route-settings",
@@ -306,7 +307,11 @@ describe("screen deletion metadata history", () => {
 
     await vi.waitFor(() =>
       expect(cancelQueries).toHaveBeenCalledWith({
-        queryKey: ["action", "get-design", { id: "design" }],
+        queryKey: [
+          "action",
+          "get-design",
+          { id: "design", includeFileContent: false },
+        ],
         exact: true,
       }),
     );

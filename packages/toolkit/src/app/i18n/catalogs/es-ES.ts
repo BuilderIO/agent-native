@@ -1008,6 +1008,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io incluye créditos gratuitos, o puedes usar tu propia clave de API.",
   "setup.builderOrOwnKeys":
     "Usa Builder.io (créditos gratuitos) o añade las claves de tu propio proveedor.",
+  "setup.reconnectBuilder": "Reconectar Builder.io",
   "setup.connectAi": "Conectar IA",
   "setup.connectBuilder": "Usar Builder.io",
   "setup.connectionsDescription":
@@ -1211,7 +1212,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "Usar las herramientas de {{integration}}",
   "composer.menu.scheduleTask": "Programar tarea",
   "composer.menu.scheduleTaskDescription": "Ejecutar algo según un horario",
-  "composer.menu.uploadFile": "Cargar archivo",
+  "composer.menu.uploadFile": "Archivos e imágenes",
+  "composer.menu.searchWorkspace": "Buscar en el espacio de trabajo…",
+  "composer.menu.references": "Referencias",
+  "composer.menu.referenceFile": "Referenciar un archivo",
+  "composer.menu.attachToMessage": "Añadir contexto",
+  "composer.menu.commands": "Comandos",
   "composer.menu.uploadFileDescription":
     "Imágenes, PDFs, texto/código, JSON, CSV",
   "composer.messageAgent": "Escribe al agente...",

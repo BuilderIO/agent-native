@@ -1290,10 +1290,13 @@ describe("document editor layout", () => {
     );
     expect(source).not.toContain('result.suggestion.status === "stale"');
     expect(source).toMatch(
-      /isSuggestionStaleActionError\(error\)[\s\S]*?setUnplaceableSuggestionRevisions[\s\S]*?setCommentsBrowseOpen\(true\)[\s\S]*?toast\.error[\s\S]*?t\("editor\.suggestionUnplaceable"\)/,
+      /const showUnplaceableEdit =[\s\S]*?setUnplaceableSuggestionRevisions[\s\S]*?setCommentsBrowseOpen\(true\)/,
     );
     expect(source).toMatch(
-      /decideSuggestionProposal\.mutateAsync[\s\S]*?catch \(error\)[\s\S]*?isSuggestionStaleActionError\(error\)[\s\S]*?t\("editor\.proposalUnplaceable"\)[\s\S]*?void decideSingleSuggestion\(suggestion, decision\)/,
+      /isSuggestionStaleActionError\(error\);\s+if \(unplaceable\) showUnplaceableEdit\(\[decided\]\);\s+toast\.error[\s\S]*?t\("editor\.suggestionUnplaceable"\)/,
+    );
+    expect(source).toMatch(
+      /decideSuggestionProposal\.mutateAsync[\s\S]*?catch \(error\)[\s\S]*?isSuggestionStaleActionError\(error\)[\s\S]*?showUnplaceableEdit\(currentMembers\)[\s\S]*?t\("editor\.proposalUnplaceable"\)[\s\S]*?void decideSingleSuggestion\(suggestion, decision\)/,
     );
   });
   it("dismisses mobile comment focus without closing Info", () => {
@@ -3620,7 +3623,7 @@ describe("document editor layout", () => {
       source.match(
         /setUtilityPanel\("comments"\);\s+setCommentsBrowseOpen\(true\)/g,
       ),
-    ).toHaveLength(3);
+    ).toHaveLength(2);
     expect(source).not.toMatch(
       /setIsSuggesting\(false\);[\s\S]{0,240}setUtilityPanel\("comments"\)/,
     );

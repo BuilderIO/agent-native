@@ -100,6 +100,7 @@ const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
 export type PromptComposerFile = File;
 
 export interface PromptComposerSubmitOptions {
+  references?: Reference[];
   intent?: ComposerSubmitIntent;
   steer?: boolean;
   /** Clear the submitted draft once the host owns the message and its failure recovery. */
@@ -1119,6 +1120,7 @@ function PromptComposerInner({
         inlineTextAttachments,
       });
       await onSubmit(finalText, files, references, {
+        references,
         intent: submitOptions?.intent ?? "immediate",
         ...(submitOptions?.steer ? { steer: true } : {}),
         onLocalSubmit: submitOptions?.onLocalSubmit,
@@ -1181,7 +1183,9 @@ function PromptComposerInner({
             : undefined
         }
       >
-        {engineState === "unavailable" && !engineNoticeDismissed ? (
+        {engineState === "unavailable" &&
+        !setupCardVisible &&
+        !engineNoticeDismissed ? (
           <ComposerNotice
             noticeId="provider-status-unavailable"
             actions={

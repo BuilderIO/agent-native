@@ -135,7 +135,7 @@ export function renderPromptPopovers({
             return;
           }
           if (!canEditDesign) return;
-          const outputBaselineFiles = generationOutputBaselineRef.current;
+          const outputBaselineFiles = generationOutputBaselineRef.current?.();
           if (outputBaselineFiles === undefined) {
             throw new Error(t("promptDialog.failedToSubmitPrompt"));
           }
@@ -319,7 +319,7 @@ export function renderPromptPopovers({
           canRestore={canEditDesign}
           onRestored={() => {
             void queryClient.invalidateQueries({
-              queryKey: ["action", "get-design", { id }],
+              queryKey: ["action", "get-design"],
             });
           }}
         />

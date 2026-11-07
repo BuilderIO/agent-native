@@ -1275,7 +1275,10 @@ export function CommentsSidebar({
     currentUserEmail,
     currentUserOrgId,
   );
-  const createComment = useCreateComment({ email: currentUserEmail });
+  const createComment = useCreateComment({
+    email: currentUserEmail ?? null,
+    name: currentUserName ?? null,
+  });
   const clipWrites = useClipCommentWrites(documentId, {
     email: currentUserEmail,
     name: currentUserName,
@@ -3360,6 +3363,7 @@ export function CommentsSidebar({
         onClose={onClose}
         threadActions={thread.clip ? undefined : renderThreadActions?.(thread)}
         currentUserEmail={currentUserEmail}
+        currentUserName={currentUserName}
         quote={
           threadQuotes.get(thread.threadId) ?? commentThreadQuote(thread, t)
         }
@@ -3381,6 +3385,7 @@ export function CommentsSidebar({
             comment={thread.comments.find((comment) => comment.id === id)!}
             documentId={documentId}
             currentUserEmail={currentUserEmail}
+            currentUserName={currentUserName}
             // A Clip's comments are kept in Clips, so the page doesn't edit,
             // delete, or react to them.
             canComment={canComment && !thread.clip}
@@ -3551,9 +3556,6 @@ export function CommentsSidebar({
         anchorUnavailable={anchorUnavailable}
         unplaceable={unit.members.some(
           (member) => isUnplaceable(member) || staleUnitPieces.has(member.id),
-        )}
-        acceptDisabled={unit.members.some((member) =>
-          staleUnitPieces.has(member.id),
         )}
         canComment={canComment}
         canDecide={canDecideSuggestions}
@@ -3892,6 +3894,7 @@ export function CommentsSidebar({
         <DiscussionComposer
           ref={pageComposerRef}
           currentUserEmail={currentUserEmail}
+          currentUserName={currentUserName}
           value={pageDraft.draft.text}
           onChange={pageDraft.setText}
           mentions={pageDraft.draft.mentions}
@@ -4092,7 +4095,7 @@ export function CommentsSidebar({
               <div className="flex h-9.5 shrink-0 items-center">
                 <CommentAvatar
                   email={currentUserEmail}
-                  name={currentUserEmail}
+                  name={currentUserName?.trim() || currentUserEmail}
                 />
               </div>
               <div className="min-w-0 flex-1">
@@ -4570,6 +4573,7 @@ function DraftSuggestionThreadView({
         surface={surface}
         onClose={onClose}
         currentUserEmail={currentUserEmail}
+        currentUserName={currentUserName}
         popoverTitle={t("comments.suggestionTitle")}
         thread={thread}
         marginTop={marginTop}
@@ -4644,7 +4648,6 @@ function SuggestionThreadView({
   onFocused,
   anchorUnavailable,
   unplaceable,
-  acceptDisabled,
   canComment,
   canDecide,
   deciding,
@@ -4679,7 +4682,6 @@ function SuggestionThreadView({
   onFocused?: () => void;
   anchorUnavailable: boolean;
   unplaceable: boolean;
-  acceptDisabled: boolean;
   canComment: boolean;
   canDecide: boolean;
   deciding: boolean;
@@ -4787,6 +4789,7 @@ function SuggestionThreadView({
         surface={surface}
         onClose={onClose}
         currentUserEmail={currentUserEmail}
+        currentUserName={currentUserName}
         popoverTitle={t("comments.suggestionTitle")}
         replyDrafts={replyDrafts}
         documentId={documentId}
@@ -4985,7 +4988,7 @@ function SuggestionThreadView({
           canDecide && suggestion.status === "pending" ? (
             <SuggestionDecisionButtons
               disabled={deciding}
-              acceptDisabled={acceptDisabled}
+              acceptDisabled={unplaceable}
               onDecide={onDecide}
             />
           ) : null
@@ -5016,6 +5019,7 @@ function ThreadView({
   onClose,
   popoverTitle,
   currentUserEmail,
+  currentUserName,
   resolved = false,
   replyDrafts,
   documentId,
@@ -5065,6 +5069,7 @@ function ThreadView({
   onClose?: () => void;
   popoverTitle?: string;
   currentUserEmail?: string;
+  currentUserName?: string;
   resolved?: boolean;
   replyDrafts?: ReturnType<typeof useCommentReplyDrafts>;
   documentId?: string;
@@ -5493,7 +5498,11 @@ function ThreadView({
           <div className="flex h-9.5 shrink-0 items-center">
             <CommentAvatar
               email={currentUserEmail ?? thread.comments[0]?.author_email}
-              name={currentUserEmail ?? thread.comments[0]?.author_name}
+              name={
+                currentUserEmail
+                  ? currentUserName?.trim() || currentUserEmail
+                  : thread.comments[0]?.author_name
+              }
             />
           </div>
           <CommentComposer

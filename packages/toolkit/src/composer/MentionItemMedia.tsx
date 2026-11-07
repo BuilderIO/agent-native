@@ -7,6 +7,7 @@ import {
   IconMail,
   IconMessageChatbot,
   IconPresentation,
+  IconPlugConnected,
   IconStack2,
   IconUser,
 } from "@tabler/icons-react";
@@ -41,6 +42,8 @@ function LegacyMentionIcon({
     );
   }
   switch (icon) {
+    case "integration":
+      return <IconPlugConnected {...iconProps} />;
     case "folder":
       return <IconFolder {...iconProps} />;
     case "document":

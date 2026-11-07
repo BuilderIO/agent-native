@@ -5,8 +5,10 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
 import { drizzleOverExec } from "../server/live-copy/exec-db.js";
@@ -527,6 +529,11 @@ async function writeMarkdown(
         { propertyId: target.propertyId },
       );
     }
+    await syncPrivateMediaReferences(db, {
+      documentId: target.rowDocumentId,
+      after: markdown,
+      userEmail: documentAttributionActor(),
+    });
     return;
   }
   await compareAndSwapAdditionalBlocksField({

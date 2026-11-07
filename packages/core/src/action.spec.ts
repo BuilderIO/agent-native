@@ -388,6 +388,66 @@ describe("defineAction", () => {
     expect(plain.deferLoading).toBeUndefined();
   });
 
+  it("keeps searchHints off the model-facing tool and through registry loading", () => {
+    const hinted = defineAction({
+      description: "Create, list, update, or delete inbox rules.",
+      parameters: { id: { type: "string" } },
+      searchHints: ["auto-archive rule"],
+      run: async () => "ok",
+    });
+
+    expect(hinted.searchHints).toEqual(["auto-archive rule"]);
+    expect(JSON.stringify(hinted.tool)).not.toContain("auto-archive");
+    expect(
+      loadActionsFromStaticRegistry({ rules: { default: hinted } }).rules
+        ?.searchHints,
+    ).toEqual(["auto-archive rule"]);
+  });
+
+  it("rejects searchHints that are not a short list of short strings", () => {
+    const define = (searchHints: unknown) =>
+      defineAction({
+        description: "d",
+        parameters: {},
+        searchHints: searchHints as string[],
+        run: async () => "ok",
+      });
+
+    const twelve = Array.from({ length: 12 }, (_, i) => `h${i}`);
+    expect(define(twelve).searchHints).toEqual(twelve);
+    expect(define(["x".repeat(60)]).searchHints).toEqual(["x".repeat(60)]);
+
+    expect(() => define(["ok", ""])).toThrow(TypeError);
+    expect(() => define(["   "])).toThrow(TypeError);
+    expect(() => define([7])).toThrow(TypeError);
+    expect(() => define(["x".repeat(61)])).toThrow(TypeError);
+    expect(() => define([...twelve, "h12"])).toThrow(TypeError);
+    expect(() => define("auto-archive")).toThrow(TypeError);
+  });
+
+  it("fails loading a module whose searchHints are malformed, naming the action", () => {
+    // oracle-change: malformed hints used to be dropped silently; loading now fails loudly
+    const loaded = (searchHints: unknown) =>
+      loadActionsFromStaticRegistry({
+        "manage-rules": {
+          default: {
+            tool: { description: "d", parameters: { type: "object" } },
+            run: async () => "ok",
+            searchHints,
+          },
+        },
+      })["manage-rules"]?.searchHints;
+
+    expect(loaded(["inbox rule"])).toEqual(["inbox rule"]);
+    expect(loaded(undefined)).toBeUndefined();
+    expect(() => loaded(["inbox rule", 7])).toThrow(
+      /Action "manage-rules": searchHints/,
+    );
+    expect(() => loaded("inbox rule")).toThrow(
+      /Action "manage-rules": searchHints/,
+    );
+  });
+
   it("resolves external exposure from mcpTool, falling back to agentTool", () => {
     expect(isActionExposedToExternalAgents({})).toBe(true);
     expect(isActionExposedToExternalAgents({ agentTool: false })).toBe(false);
@@ -2711,16 +2771,26 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       expect(intent.valid).toBe(true);
     });
 
-    it.each([
-      { id: "a", title: null, label: "" },
-      { id: "a", title: null, note: null },
-    ])("refuses a padded call that could clear data: %j", async (input) => {
-      const intent = await actionCallIntent(update, input);
-      expect(intent).toMatchObject({
-        valid: false,
-        error: { errorCode: "ambiguous_tool_placeholders" },
+    it("treats null on a nullable optional field as omitted beside other nulls", async () => {
+      const intent = await actionCallIntent(update, {
+        id: "a",
+        title: null,
+        note: null,
       });
+      if (!intent.valid) throw intent.error;
+      expect(preparedCallArguments(intent)).not.toHaveProperty("note");
     });
+
+    it.each([{ id: "a", title: null, label: "" }])(
+      "refuses a padded call that could clear data: %j",
+      async (input) => {
+        const intent = await actionCallIntent(update, input);
+        expect(intent).toMatchObject({
+          valid: false,
+          error: { errorCode: "ambiguous_tool_placeholders" },
+        });
+      },
+    );
 
     it("refuses a padded call whose dynamic plan-mode effect defaults to a write", async () => {
       const publish = defineAction({

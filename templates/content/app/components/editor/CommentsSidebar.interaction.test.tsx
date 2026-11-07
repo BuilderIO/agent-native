@@ -34,6 +34,7 @@ import {
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const actions = vi.hoisted(() => ({
+  authors: [] as unknown[],
   create: vi.fn(),
   realMutation: false,
   reconcile: vi.fn(),
@@ -45,7 +46,8 @@ const actions = vi.hoisted(() => ({
 vi.mock("@/hooks/use-comments", async () => {
   const { useMutation } = await import("@tanstack/react-query");
   return {
-    useCreateComment: () => {
+    useCreateComment: (author: unknown) => {
+      actions.authors.push(author);
       const mutation = useMutation({ mutationFn: actions.create });
       return {
         ...(actions.realMutation
@@ -227,6 +229,7 @@ function SidebarOwner({
       unplaceableSuggestionRevisions={options.unplaceableSuggestionRevisions}
       selectedThreadId={selected}
       currentUserEmail="reviewer@example.test"
+      currentUserName="Rae Viewer"
       canComment
       canResolve
       canDecideSuggestions
@@ -252,6 +255,7 @@ describe("comment review interactions", () => {
   let queryClient: QueryClient;
   let resolveCreate: (result: { id: string; threadId: string }) => void;
   beforeEach(() => {
+    actions.authors = [];
     actions.realMutation = false;
     actions.modelsReady = false;
     queryClient = new QueryClient({
@@ -495,6 +499,33 @@ describe("comment review interactions", () => {
         rest,
         true,
       );
+    });
+
+    it("turns off Accept on a card the server refused", () => {
+      const pieces = [
+        piece("one", "k:0", "Teh"),
+        piece("two", "k:0", "recieve"),
+        piece("three", "k:1", "files"),
+      ];
+      const [first = null, second = null] = pieces;
+      if (!first || !second) throw new Error("The unit has two pieces");
+      render(null, [], "inline", {
+        suggestions: pieces,
+        activeSuggestionId: "one",
+        alignToAnchors: false,
+        unplaceableSuggestionRevisions: new Map([
+          [first.id, first.revision],
+          [second.id, second.revision],
+        ]),
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      expect(acceptIn("one").disabled).toBe(true);
+      expect(acceptIn("three").disabled).toBe(false);
+      expect(
+        container.querySelector<HTMLButtonElement>(
+          "[data-suggestion-id='one'] [data-suggestion-decision='rejected']",
+        )?.disabled,
+      ).toBe(false);
     });
 
     it("gives each unit of a proposal its own card, counted once", () => {
@@ -1388,6 +1419,34 @@ describe("comment review interactions", () => {
       );
     },
   );
+
+  it("writes new comments under the signed-in person's profile name", () => {
+    render("one");
+    expect(actions.authors.length).toBeGreaterThan(1);
+    for (const author of actions.authors) {
+      expect(author).toEqual({
+        email: "reviewer@example.test",
+        name: "Rae Viewer",
+      });
+    }
+  });
+
+  it("shows the profile name on the reply and page comment boxes", () => {
+    render("one");
+    expect(
+      container
+        .querySelector("[data-comment-reply-composer] [title]")
+        ?.getAttribute("title"),
+    ).toBe("Rae Viewer");
+    act(() => root.unmount());
+    root = createRoot(container);
+    render(null, [thread("one")], "history");
+    expect(
+      container
+        .querySelector("[data-discussion-composer] [title]")
+        ?.getAttribute("title"),
+    ).toBe("Rae Viewer");
+  });
 
   it("prevents duplicate submits in a pending thread", async () => {
     render("one");

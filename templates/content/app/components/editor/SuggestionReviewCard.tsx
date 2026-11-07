@@ -93,11 +93,13 @@ export function SuggestionReviewCard({
   ) => {
     const key = groupKey(group);
     if (actionErrorCode(error) === "suggestion_stale") {
-      if (decided.length === 1) {
-        const [suggestion] = decided;
-        setUnplaceable((current) =>
-          new Map(current).set(suggestion!.id, suggestion!.revision),
-        );
+      // A group's refusal doesn't say which of its edits failed.
+      if (reviewedAsOne(decided)) {
+        setUnplaceable((current) => {
+          const next = new Map(current);
+          for (const { id, revision } of decided) next.set(id, revision);
+          return next;
+        });
       }
       setProblem({
         groupKey: key,
