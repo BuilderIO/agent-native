@@ -1,75 +1,126 @@
+import {
+  type SavedRecord,
+  type SaveOverlap,
+  type SaveWithMergeOptions,
+} from "@agent-native/core/save-conflict";
 import { mergePlanBlocks } from "@shared/plan-blocks-merge";
 import type { PlanBlock } from "@shared/plan-content";
+import { diffWordsWithSpace } from "diff";
 
-/** The saved plan content at one revision. */
-export type PlanBlocksRevision = {
-  updatedAt: string;
-  blocks: PlanBlock[];
-};
+/** A plan's saved blocks at one revision. */
+export type SavedPlanBlocks = SavedRecord<PlanBlock[]>;
 
-// Each conflict means another writer saved while this one was merging, so a
-// plan under heavy concurrent editing can need a few rounds. Past the cap the
-// 409 reaches the caller instead of looping.
-const MAX_CONFLICT_MERGES = 3;
+export type PlanBlocksOverlapResolver = NonNullable<
+  SaveWithMergeOptions<PlanBlock[]>["resolveOverlap"]
+>;
 
-/**
- * The pending edit and another writer's edit changed the same thing. Nothing
- * was saved; retrying on a timer would only overwrite their work, so this one
- * waits for the person to decide.
- */
-export class PlanBlocksOverlapError extends Error {
-  constructor(readonly conflict: unknown) {
-    super("Another writer changed the same part of this plan.");
-    this.name = "PlanBlocksOverlapError";
-  }
+const MARKDOWN_PATH = ".data.markdown";
+
+function markdownOf(blocks: PlanBlock[], id: string): string | null {
+  const block = blocks.find((candidate) => candidate.id === id);
+  return block?.type === "rich-text" ? block.data.markdown : null;
 }
 
-export function isPlanRevisionConflict(error: unknown): boolean {
+/** What a writer added and removed, leaving out spacing, which a diff can align either way. */
+function changedText(before: string, after: string) {
+  let added = "";
+  let removed = "";
+  for (const change of diffWordsWithSpace(before, after)) {
+    if (change.added) added += change.value;
+    if (change.removed) removed += change.value;
+  }
+  return {
+    added: added.replace(/\s/g, ""),
+    removed: removed.replace(/\s/g, ""),
+  };
+}
+
+function containsInOrder(text: string, characters: string): boolean {
+  let found = 0;
+  for (let i = 0; i < text.length && found < characters.length; i += 1) {
+    if (text[i] === characters[found]) found += 1;
+  }
+  return found === characters.length;
+}
+
+/**
+ * Whether `live` has the change that turned `base` into `theirs`. Their copy can
+ * hold part of what this tab typed, with the rest landing in between, so their
+ * change only has to appear in order among what `live` changed.
+ */
+function holdsChange(base: string, live: string, theirs: string): boolean {
+  const their = changedText(base, theirs);
+  const held = changedText(base, live);
   return (
-    !!error &&
-    typeof error === "object" &&
-    (error as { errorCode?: unknown }).errorCode === "plan_revision_conflict"
+    containsInOrder(held.added, their.added) &&
+    containsInOrder(held.removed, their.removed)
   );
 }
 
 /**
- * Saves `blocks` against `base`. When another writer got there first, merges
- * the pending edit onto the content they saved and saves again, so a concurrent
- * edit is never overwritten and never dropped. Throws `PlanBlocksOverlapError`
- * when the edits overlap and rethrows the original conflict when the retry
- * budget runs out.
+ * Whether the live document already has the other writer's side of this overlap.
+ * A save from someone typing in the same document overlaps with a copy that has
+ * their text, so there's nothing to ask. An agent's write isn't in the document,
+ * and only prose is merged there, so anything else is a real overlap.
  */
-export async function saveBlocksMergingConflicts({
-  base,
-  blocks,
-  save,
-  readLatest,
-}: {
-  base: PlanBlocksRevision | null;
-  blocks: PlanBlock[];
-  save: (
-    blocks: PlanBlock[],
-    expectedUpdatedAt: string,
-  ) => Promise<PlanBlocksRevision>;
-  readLatest: () => Promise<PlanBlocksRevision>;
-}): Promise<PlanBlocksRevision> {
-  if (!base) throw new Error("A plan revision is required to save blocks.");
-  let attempt = { base, blocks };
-  for (let merges = 0; ; merges += 1) {
-    try {
-      return await save(attempt.blocks, attempt.base.updatedAt);
-    } catch (error) {
-      if (!isPlanRevisionConflict(error) || merges >= MAX_CONFLICT_MERGES) {
-        throw error;
-      }
-      const latest = await readLatest();
-      const merged = mergePlanBlocks(
-        attempt.base.blocks,
-        attempt.blocks,
-        latest.blocks,
-      );
-      if (!merged) throw new PlanBlocksOverlapError(error);
-      attempt = { base: latest, blocks: merged };
-    }
+export function documentHoldsTheirChanges(
+  { fields, base, theirs }: SaveOverlap<PlanBlock[]>,
+  live: PlanBlock[],
+): boolean {
+  return fields.every((path) => {
+    if (!path.endsWith(MARKDOWN_PATH)) return false;
+    const id = path.slice(0, -MARKDOWN_PATH.length);
+    const before = markdownOf(base, id);
+    const held = markdownOf(live, id);
+    const other = markdownOf(theirs, id);
+    return (
+      before !== null &&
+      held !== null &&
+      other !== null &&
+      holdsChange(before, held, other)
+    );
+  });
+}
+
+/** This tab's last save: what it was given, and what came back. */
+export interface OwnBlockSave {
+  planId: string;
+  /** The revision that save started from, which the plan has since moved past. */
+  startedFrom: string | null;
+  sent: PlanBlock[];
+  saved: SavedPlanBlocks;
+}
+
+/**
+ * What the next save starts from: the newer of what this tab last saved and what
+ * the document was last brought up to. A merged save holds more than this tab
+ * sent, and the document may not have that yet, so it comes in here instead of
+ * being written over. Once the document has it, later edits were made on top of
+ * it, so taking it out again is an edit like any other.
+ */
+export function startBlockSave(
+  own: OwnBlockSave | null,
+  documentBase: SavedPlanBlocks | null | undefined,
+  planAsLoaded: SavedPlanBlocks | null,
+  blocks: PlanBlock[],
+): { base: SavedPlanBlocks; mine: PlanBlock[] } {
+  if (documentBase?.revision && documentBase.revision === own?.saved.revision) {
+    return { base: documentBase, mine: blocks };
   }
+  const loaded = documentBase ?? planAsLoaded;
+  if (
+    own &&
+    (!loaded || (own.saved.revision ?? "") >= (loaded.revision ?? ""))
+  ) {
+    const rebased = mergePlanBlocks(own.sent, blocks, own.saved.value);
+    if (rebased.ok) return { base: own.saved, mine: rebased.merged };
+    // The document changed something that save's merge brought in. Sent from a
+    // revision the plan has moved past, this comes back as a conflict, which asks.
+    return {
+      base: { value: own.sent, revision: own.startedFrom },
+      mine: blocks,
+    };
+  }
+  if (!loaded) throw new Error("A plan revision is required to save blocks.");
+  return { base: loaded, mine: blocks };
 }
