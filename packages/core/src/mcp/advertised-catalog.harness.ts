@@ -131,7 +131,13 @@ export function baselineSection(app: AppCatalog, name: string): string {
  * the full catalog, so no framework rule rules them out either.
  */
 export function undecidedMcpActions(app: AppCatalog): string[] {
-  const { config, catalogs } = app.surfaces[0]!;
+  const production = app.surfaces.find(
+    ({ surface }) => !surface.dev && surface.codeExecution === "off",
+  );
+  if (!production) {
+    throw new Error(`${app.appId} has no plain production catalog to check.`);
+  }
+  const { config, catalogs } = production;
   const served = new Set(catalogs.default.map((tool) => tool.name));
   const allowed = new Set(catalogs.full.map((tool) => tool.name));
   return Object.entries(config.actions)
