@@ -668,7 +668,11 @@ describe("home prompt context", () => {
       brief,
     ]);
     expect(result.current.briefsFor([])).toEqual([]);
-    act(() => result.current.remove(result.current.contextItems[0].key));
+    const attached = result.current.contextItems.find(
+      (item) => item.title === "Launch brief",
+    );
+    if (!attached) throw new Error("Missing attached page");
+    act(() => result.current.remove(attached.key));
     expect(
       result.current.briefsFor([
         { key: "design-home-reference:content::page-one" },

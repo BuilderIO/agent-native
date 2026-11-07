@@ -38,11 +38,14 @@ export function contentPageUrl(documentId: string) {
 
 export default defineAction({
   description:
-    "List or read Content pages as prompt references for Design or Slides. Lists recently updated pages, or search results, under the caller's access; a read returns one page's title, link, and bounded text as reference data. Never changes the page or records a view.",
+    "List or read Content pages as prompt references for Design or Slides: the most recently updated, or search results, limited to what the caller can open. A read returns the title, link, and bounded text as reference data, and changes nothing, not even view counts.",
   schema: composerSourceRequestSchema,
   outputSchema: composerSourceResultSchema,
   http: { method: "GET" },
   readOnly: true,
+  agentTool: false,
+  // Design's and Slides' prompt boxes read pages through this over A2A, which
+  // only reaches MCP tools. Content's own agent reads pages with get-document.
   mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args) => {

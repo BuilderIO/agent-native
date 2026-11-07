@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { isActionExposedToExternalAgents } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -211,9 +212,11 @@ describe("Content read-composer-source", () => {
     ).rejects.toMatchObject({ statusCode: 401, errorCode: "unauthorized" });
   });
 
-  it("is exposed to peers as an authenticated read", () => {
+  it("is exposed to peer apps as an authenticated read, not to Content's own agent", () => {
     expect(action.readOnly).toBe(true);
     expect(action.mcpTool).toBe(true);
+    expect(action.agentTool).toBe(false);
+    expect(isActionExposedToExternalAgents(action)).toBe(true);
     expect(action.publicAgent).toEqual({
       expose: true,
       readOnly: true,

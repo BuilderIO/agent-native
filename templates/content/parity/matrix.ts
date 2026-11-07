@@ -542,16 +542,21 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "export-document",
+      "read-composer-source",
       "reveal-local-source-file",
       "set-document-discoverability",
       "share-local-file-document",
     ],
-    exception: null,
+    exception:
+      "read-composer-source is MCP-only (agentTool: false, mcpTool: true): Design's and Slides' prompt boxes call it over A2A to attach a page as a reference, under the caller's own access. Content's own UI has no entry point for it, and its agent reads pages with list-documents, search-documents and get-document.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
     followUpPR: null,
-    coverageRefs: ["actions/_local-file-documents.test.ts"],
+    coverageRefs: [
+      "actions/_local-file-documents.test.ts",
+      "actions/read-composer-source.db.test.ts",
+    ],
     evalScenarioIds: ["local-file-source-truth"],
   },
   {

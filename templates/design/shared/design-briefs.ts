@@ -18,6 +18,7 @@ export function designBriefsFromData(data: unknown): DesignBrief[] {
   if (typeof data === "string") {
     try {
       parsed = JSON.parse(data);
+      // coercion-ok: unreadable design data names no brief; the file menu only omits its "Built from" links.
     } catch {
       return [];
     }

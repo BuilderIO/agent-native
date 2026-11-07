@@ -1,7 +1,7 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { designBriefsFromData } from "@shared/design-briefs";
 import { IconChevronDown, IconExternalLink } from "@tabler/icons-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -132,7 +132,10 @@ function ProjectTitleControl({
     t,
   ]);
 
-  const briefs = designBriefsFromData(design.data);
+  const briefs = useMemo(
+    () => designBriefsFromData(design.data),
+    [design.data],
+  );
 
   if (titleEditing && canEditDesign) {
     return (
