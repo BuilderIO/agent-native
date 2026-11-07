@@ -426,6 +426,38 @@ describe("durable warehouse ledger", () => {
     },
   );
 
+  it("skips metadata for a confirmed rejection and persists it without inferred bytes", async () => {
+    const usage = { ...makeUsage(), submissionState: "rejected" as const };
+    await persistBigQueryJobUsage(usage);
+    const background: Promise<unknown>[] = [];
+    getRunContext.mockReturnValue({
+      waitUntil: (work) => {
+        background.push(work);
+      },
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () => new Response("not found", { status: 404 }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await finalizeBigQueryJobUsage(usage, "fake", true);
+    expect(await background[0]).toMatchObject({
+      status: "recorded",
+      usageStatus: "unavailable",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(
+      (
+        await client.query(
+          "SELECT submission_state, usage_status, bytes_billed FROM analytics_bigquery_usage",
+        )
+      ).rows[0],
+    ).toMatchObject({
+      submission_state: "rejected",
+      usage_status: "unavailable",
+      bytes_billed: null,
+    });
+  });
+
   it("bounds follow-up observations and preserves unresolved usage as unknown", async () => {
     const usage = makeUsage();
     await persistBigQueryJobUsage(usage);

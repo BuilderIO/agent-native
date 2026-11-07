@@ -193,6 +193,45 @@ export class BigQueryMaximumBytesBilledError extends Error {
   }
 }
 
+// Only documented input/authorization rejections prove no job was created.
+// Other 4xx reasons can describe already-created jobs; 5xx/transport errors are ambiguous.
+// https://docs.cloud.google.com/bigquery/docs/error-messages
+function isDefiniteJobSubmissionRejection(
+  status: number,
+  body: string,
+): boolean {
+  const expectedStatus: Readonly<Record<string, number>> = {
+    invalid: 400,
+    invalidQuery: 400,
+    accessDenied: 403,
+    billingNotEnabled: 403,
+  };
+  try {
+    const parsed = JSON.parse(body) as {
+      jobReference?: unknown;
+      error?: { code?: unknown; errors?: unknown };
+    };
+    if (parsed.jobReference !== undefined) return false;
+    if (parsed.error?.code !== undefined && parsed.error.code !== status)
+      return false;
+    const errors = parsed.error?.errors;
+    return (
+      Array.isArray(errors) &&
+      errors.length > 0 &&
+      errors.every(
+        (entry: unknown) =>
+          entry !== null &&
+          typeof entry === "object" &&
+          "reason" in entry &&
+          typeof entry.reason === "string" &&
+          expectedStatus[entry.reason] === status,
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
 function isMaximumBytesBilledError(status: number, responseText: string) {
   if (status !== 400) return false;
   if (hasMaximumBytesBilledMessage([responseText])) return true;
@@ -1506,6 +1545,10 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
           usage.submissionState = "rejected";
           jobId = null;
           throw new BigQueryMaximumBytesBilledError(res.status);
+        }
+        if (isDefiniteJobSubmissionRejection(res.status, text)) {
+          usage.submissionState = "rejected";
+          jobId = null;
         }
         throw new BigQueryBackendError(
           "submit",

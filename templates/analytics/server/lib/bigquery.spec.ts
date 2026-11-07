@@ -593,14 +593,57 @@ describe("runQuery cancellation", () => {
     );
   });
 
-  it.each([409, 503])(
-    "keeps HTTP %s submission failures unknown without resubmitting the query",
-    async (status) => {
+  it.each([
+    [400, "invalid"],
+    [400, "invalidQuery"],
+    [403, "accessDenied"],
+    [403, "billingNotEnabled"],
+  ] as const)(
+    "records definite submission rejection %s/%s without job probes",
+    async (status, reason) => {
+      const fetchMock = vi.fn<typeof globalThis.fetch>(
+        async () =>
+          new Response(
+            JSON.stringify({ error: { code: status, errors: [{ reason }] } }),
+            { status },
+          ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      await expect(
+        runQuery("SELECT 1 AS definite_rejection_" + reason),
+      ).rejects.toBeInstanceOf(BigQueryBackendError);
+      expect(present(finalizeUsage.mock.calls[0])[0]).toMatchObject({
+        submissionState: "rejected",
+        bytesBilled: null,
+        outcome: null,
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([
+    { status: 409, reasons: ["duplicate"] },
+    { status: 503, reasons: ["backendError"] },
+    { status: 503, reasons: ["accessDenied"] },
+    { status: 400, reasons: ["jobBackendError"] },
+    { status: 400, reasons: ["jobRateLimitExceeded"] },
+    { status: 429, reasons: ["rateLimitExceeded"] },
+    { status: 403, reasons: ["unrecognized"] },
+    { status: 400, reasons: [] },
+    { status: 400, reasons: ["invalid", "jobBackendError"] },
+  ])(
+    "keeps HTTP $status/$reasons submission failures unknown without resubmitting the query",
+    async ({ status, reasons }) => {
       const fetchMock = vi.fn<typeof globalThis.fetch>(async (input) => {
         const url = String(input);
         if (url.endsWith("/jobs"))
           return new Response(
-            JSON.stringify({ error: { message: "Ambiguous submission" } }),
+            JSON.stringify({
+              error: {
+                message: "Ambiguous submission",
+                errors: reasons.map((reason) => ({ reason })),
+              },
+            }),
             { status },
           );
         if (url.includes("/jobs?")) return jsonResponse({ jobs: [] });

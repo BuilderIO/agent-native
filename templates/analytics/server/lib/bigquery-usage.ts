@@ -244,16 +244,20 @@ export async function finalizeBigQueryJobUsage(
   // Accounting must outlive a cancelled query, but never hold its response open.
   const work = retainRequestDbPoolScope(
     (async (): Promise<BigQueryUsageAccounting> => {
-      const deadline = AbortSignal.timeout(2_500);
       let observed = { ...usage };
-      for (let attempt = 0; attempt < 3 && !deadline.aborted; attempt++) {
-        observed = await observeBigQueryJobUsage(observed, token, deadline);
-        if (observed.usageStatus === "complete") break;
-        if (attempt < 2) {
-          try {
-            await delay(100, undefined, { signal: deadline });
-          } catch {
-            break;
+      if (usage.submissionState === "rejected") {
+        observed.usageStatus = "unavailable";
+      } else {
+        const deadline = AbortSignal.timeout(2_500);
+        for (let attempt = 0; attempt < 3 && !deadline.aborted; attempt++) {
+          observed = await observeBigQueryJobUsage(observed, token, deadline);
+          if (observed.usageStatus === "complete") break;
+          if (attempt < 2) {
+            try {
+              await delay(100, undefined, { signal: deadline });
+            } catch {
+              break;
+            }
           }
         }
       }
