@@ -1181,7 +1181,8 @@ const rawLiterals = {
     previewDraftUseSaved: "保存済みバージョンを使用",
     previewDraftSaveSeparately: "自分のバージョンを別ページとして保存",
     previewDraftSavedToHistory: "編集内容をバージョン履歴に保存しました",
-    previewDraftSavedSeparately: "編集内容を別ページとして保存しました",
+    previewDraftSavedSeparately:
+      "編集内容をあなたのスペースに非公開ページとして保存しました",
     previewDraftOpenSavedPage: "ページを開く",
     previewDraftMoreOptions: "その他のオプション",
     previewDraftViewFullVersions: "全文を表示",
