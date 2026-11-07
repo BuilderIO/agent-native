@@ -1,9 +1,9 @@
+import { runWithoutExecutionFence } from "@factory-test/core-internals/agent/execution-fence.js";
+import { executeAgentToolCall } from "@factory-test/core-internals/agent/production-agent.js";
+import { withMigrationRuntime } from "@factory-test/core-internals/db/migrations.js";
+import { settingsStore } from "@factory-test/core-internals/settings/store.js";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { runWithoutExecutionFence } from "../../../packages/core/src/agent/execution-fence.js";
-import { executeAgentToolCall } from "../../../packages/core/src/agent/production-agent.js";
-import { withMigrationRuntime } from "../../../packages/core/src/db/migrations.js";
-import { settingsStore } from "../../../packages/core/src/settings/store.js";
 import { FACTORY_ALIGNMENT_REVISION } from "../server/triage/review-skill-alignment.js";
 
 const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
