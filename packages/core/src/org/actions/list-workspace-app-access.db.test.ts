@@ -1,4 +1,12 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 
 import { createTestPglite } from "../../a2a/test-pglite.js";
 import {
@@ -73,7 +81,7 @@ async function listApps(appsJson?: string) {
 }
 
 describe("list-workspace-app-access", () => {
-  it("hides retired apps from the active manifest without deleting rows", async () => {
+  it("hides retired apps without deleting rows", async () => {
     const result = await listApps(
       JSON.stringify([{ id: "programs", path: "/programs" }]),
     );
