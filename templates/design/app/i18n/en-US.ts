@@ -1773,6 +1773,7 @@ export default {
         "Apply or discard your pending visual edits before duplicating.",
       allDesigns: "All designs",
       rename: "Rename",
+      builtFrom: "Built from {{title}}",
       duplicate: "Duplicate",
       versionHistory: "Version history",
       import: "Import…",
@@ -2631,6 +2632,7 @@ export default {
     searchFrames: "Search Figma frames…",
     searchDesigns: "Search designs…",
     searchPresentations: "Search presentations…",
+    searchPages: "Search pages…",
     searchDesign: "Search design…",
     useDesignSystem: "Use a design system",
     notReady:
@@ -2645,6 +2647,7 @@ export default {
     design: "Design references",
     slides: "Slides",
     referenceDesign: "Reference a design",
+    contentPage: "Content page",
     connectFigma: "Connect Figma",
     figmaDisconnected: "Connect Figma to browse designs.",
     figmaReference: "Figma design",

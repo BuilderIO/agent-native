@@ -1865,6 +1865,7 @@ export default {
         "Wende deine ausstehenden visuellen Änderungen an oder verwirf sie, bevor du dupliziert.",
       allDesigns: "Alle Designs",
       rename: "Umbenennen",
+      builtFrom: "Erstellt aus {{title}}",
       duplicate: "Duplizieren",
       versionHistory: "Versionsverlauf",
       import: "Importieren…",
@@ -2756,6 +2757,7 @@ export default {
     searchFrames: "Figma-Frames suchen…",
     searchDesigns: "Designs suchen…",
     searchPresentations: "Präsentationen suchen…",
+    searchPages: "Seiten suchen…",
     searchDesign: "Design suchen…",
     useDesignSystem: "Ein Designsystem verwenden",
     notReady:
@@ -2770,6 +2772,7 @@ export default {
     design: "Designreferenzen",
     slides: "Folien",
     referenceDesign: "Ein Design als Referenz verwenden",
+    contentPage: "Content-Seite",
     connectFigma: "Figma verbinden",
     figmaDisconnected: "Verbinde Figma, um Designs zu durchsuchen.",
     figmaReference: "Figma-Design",

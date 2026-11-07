@@ -1852,6 +1852,7 @@ export default {
         "Aplique ou descarte suas edições visuais pendentes antes de duplicar.",
       allDesigns: "Todos os designs",
       rename: "Renomear",
+      builtFrom: "Criado a partir de {{title}}",
       duplicate: "Duplicar",
       versionHistory: "Histórico de versões",
       import: "Importar…",
@@ -2722,6 +2723,7 @@ export default {
     searchFrames: "Buscar quadros do Figma…",
     searchDesigns: "Buscar designs…",
     searchPresentations: "Buscar apresentações…",
+    searchPages: "Buscar páginas…",
     searchDesign: "Buscar design…",
     useDesignSystem: "Usar um sistema de design",
     notReady:
@@ -2736,6 +2738,7 @@ export default {
     design: "Referências de design",
     slides: "Slides",
     referenceDesign: "Usar um design como referência",
+    contentPage: "Página do Content",
     connectFigma: "Conectar Figma",
     figmaDisconnected: "Conecte o Figma para explorar designs.",
     figmaReference: "Design do Figma",

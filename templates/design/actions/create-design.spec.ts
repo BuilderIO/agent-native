@@ -110,3 +110,36 @@ describe("create-design org visibility", () => {
     expect(migrationSource).not.toContain("UPDATE designs SET visibility");
   });
 });
+
+describe("create-design briefs", () => {
+  const brief = {
+    source: "content" as const,
+    id: "page-one",
+    title: "Launch brief",
+    url: "https://content.example.com/_agent-native/open?documentId=page-one",
+  };
+
+  it("stores the Content pages a design is built from in its data", async () => {
+    await action.run({ title: "Signup page", briefs: [brief] });
+
+    expect(JSON.parse(testState.insertedValues?.data as string)).toEqual({
+      briefs: [brief],
+    });
+  });
+
+  it("starts with empty data when no brief is given", async () => {
+    await action.run({ title: "Signup page" });
+
+    expect(testState.insertedValues?.data).toBe("{}");
+  });
+
+  it("rejects a brief link that is not http(s)", async () => {
+    await expect(
+      action.run({
+        title: "Signup page",
+        briefs: [{ ...brief, url: "javascript:alert(1)" }],
+      }),
+    ).rejects.toThrow();
+    expect(testState.insertedValues).toBeNull();
+  });
+});

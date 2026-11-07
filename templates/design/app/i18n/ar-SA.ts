@@ -1820,6 +1820,7 @@ export default {
         "طبّق تعديلاتك المرئية المعلّقة أو تجاهلها قبل التكرار.",
       allDesigns: "كل التصاميم",
       rename: "إعادة التسمية",
+      builtFrom: "مبني على {{title}}",
       duplicate: "تكرار",
       versionHistory: "سجل الإصدارات",
       import: "استيراد…",
@@ -2666,6 +2667,7 @@ export default {
     searchFrames: "البحث في إطارات Figma…",
     searchDesigns: "البحث في التصاميم…",
     searchPresentations: "البحث في العروض التقديمية…",
+    searchPages: "البحث في الصفحات…",
     searchDesign: "البحث في التصميم…",
     useDesignSystem: "استخدام نظام تصميم",
     notReady:
@@ -2680,6 +2682,7 @@ export default {
     design: "مراجع التصميم",
     slides: "الشرائح",
     referenceDesign: "استخدام تصميم كمرجع",
+    contentPage: "صفحة Content",
     connectFigma: "ربط Figma",
     figmaDisconnected: "اربط Figma لتصفح التصاميم.",
     figmaReference: "تصميم Figma",

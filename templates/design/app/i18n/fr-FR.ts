@@ -1866,6 +1866,7 @@ export default {
         "Appliquez ou annulez vos modifications visuelles en attente avant de dupliquer.",
       allDesigns: "Tous les designs",
       rename: "Renommer",
+      builtFrom: "Créé à partir de {{title}}",
       duplicate: "Dupliquer",
       versionHistory: "Historique des versions",
       import: "Importer…",
@@ -2746,6 +2747,7 @@ export default {
     searchFrames: "Rechercher des cadres Figma…",
     searchDesigns: "Rechercher des designs…",
     searchPresentations: "Rechercher des présentations…",
+    searchPages: "Rechercher des pages…",
     searchDesign: "Rechercher un design…",
     useDesignSystem: "Utiliser un système de design",
     notReady:
@@ -2760,6 +2762,7 @@ export default {
     design: "Références de design",
     slides: "Diapositives",
     referenceDesign: "Utiliser un design comme référence",
+    contentPage: "Page Content",
     connectFigma: "Connecter Figma",
     figmaDisconnected: "Connectez Figma pour parcourir les designs.",
     figmaReference: "Design Figma",

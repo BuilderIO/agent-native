@@ -45,6 +45,7 @@ import {
 import { useFirstRunOnboardingGateOwnsSurface } from "@agent-native/toolkit/app/onboarding";
 import { ClientOnly } from "@agent-native/toolkit/app/shared";
 import { OwnershipFilter } from "@agent-native/toolkit/app/sharing/OwnershipFilter";
+import type { DesignBrief } from "@shared/design-briefs";
 import { designTemplateRetryKey } from "@shared/design-template-retry";
 import { FULL_APP_BUILDING_LAB } from "@shared/labs";
 import { derivePromptTitle } from "@shared/prompt-title";
@@ -691,6 +692,7 @@ export default function Index() {
     systemsError: designSystemsError,
     retrySystems: () => void refetchDesignSystems(),
   });
+  const { briefsFor: homeBriefsFor } = homeContext;
 
   const resolveAppDesignSystemId = useCallback(async () => {
     const linkedSystemId = selectedTemplate?.designSystemId;
@@ -819,6 +821,7 @@ export default function Index() {
       title: string,
       designSystemId: string | null | undefined,
       creationMethod: "prompt" | "blank",
+      briefs: readonly DesignBrief[] = [],
     ): { id: string; title: string; ready: Promise<void> } => {
       const id = nanoid();
       const projectType: ProjectType = "prototype";
@@ -867,6 +870,7 @@ export default function Index() {
           projectType,
           ...(designSystemId !== undefined ? { designSystemId } : {}),
           creationMethod,
+          ...(briefs.length ? { briefs } : {}),
         } as any)
         .then(() => {
           void queryClient.invalidateQueries({
@@ -1051,6 +1055,7 @@ export default function Index() {
         derivedTitle,
         designSystemId,
         "prompt",
+        homeBriefsFor(options.contextItems),
       );
       // The title action needs the saved design, and create-design is still in flight.
       void ready.then(
@@ -1144,6 +1149,7 @@ export default function Index() {
       designSystems,
       fullAppBuildingEnabled,
       handleGenerateDesignTitle,
+      homeBriefsFor,
       navigate,
       newDesignMode,
       newDesignSystemId,

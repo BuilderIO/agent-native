@@ -1,5 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
-import { IconChevronDown } from "@tabler/icons-react";
+import { designBriefsFromData } from "@shared/design-briefs";
+import { IconChevronDown, IconExternalLink } from "@tabler/icons-react";
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -131,6 +132,8 @@ function ProjectTitleControl({
     t,
   ]);
 
+  const briefs = designBriefsFromData(design.data);
+
   if (titleEditing && canEditDesign) {
     return (
       <Input
@@ -173,6 +176,17 @@ function ProjectTitleControl({
             suppressFileMenuReturnFocusRef.current = false;
           }}
         >
+          {briefs.map((brief) => (
+            <DropdownMenuItem key={`${brief.source}:${brief.id}`} asChild>
+              <a href={brief.url} target="_blank" rel="noopener noreferrer">
+                <IconExternalLink className="size-3.5 shrink-0" />
+                <span className="truncate">
+                  {t("designEditor.fileMenu.builtFrom", { title: brief.title })}
+                </span>
+              </a>
+            </DropdownMenuItem>
+          ))}
+          {briefs.length > 0 ? <DropdownMenuSeparator /> : null}
           <DropdownMenuItem
             onClick={() => {
               suppressFileMenuReturnFocusRef.current = true;

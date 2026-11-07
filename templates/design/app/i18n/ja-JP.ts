@@ -1856,6 +1856,7 @@ export default {
         "複製する前に、保留中のビジュアル編集を適用または破棄してください。",
       allDesigns: "すべてのデザイン",
       rename: "名前を変更",
+      builtFrom: "{{title}} から作成",
       duplicate: "複製",
       versionHistory: "バージョン履歴",
       import: "インポート…",
@@ -2726,6 +2727,7 @@ export default {
     searchFrames: "Figmaフレームを検索…",
     searchDesigns: "デザインを検索…",
     searchPresentations: "プレゼンテーションを検索…",
+    searchPages: "ページを検索…",
     searchDesign: "デザインを検索…",
     useDesignSystem: "デザインシステムを使用",
     notReady:
@@ -2740,6 +2742,7 @@ export default {
     design: "デザインの参照",
     slides: "スライド",
     referenceDesign: "デザインを参照",
+    contentPage: "Content のページ",
     connectFigma: "Figma を接続",
     figmaDisconnected: "デザインを探すには Figma を接続してください。",
     figmaReference: "Figma デザイン",

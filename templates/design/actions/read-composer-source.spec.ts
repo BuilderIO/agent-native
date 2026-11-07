@@ -97,6 +97,9 @@ describe("Design composer references", () => {
     await expect(
       action.run({ ...input, source: "slides" }, { caller: "a2a" }),
     ).rejects.toMatchObject({ errorCode: "composer_source_wrong_app" });
+    await expect(
+      action.run({ ...input, source: "content" }, { caller: "a2a" }),
+    ).rejects.toMatchObject({ errorCode: "composer_source_wrong_app" });
     expect(mocks.peer).not.toHaveBeenCalled();
   });
 
@@ -204,6 +207,21 @@ describe("Design composer references", () => {
     });
     const args = { ...input, source: "slides", id: "deck-example" } as const;
     await action.run(args);
+    expect(mocks.peer).toHaveBeenCalledWith(args, "design");
+    expect(mocks.snapshot).not.toHaveBeenCalled();
+  });
+
+  it("forwards Content pages to the authenticated peer reader", async () => {
+    mocks.peer.mockResolvedValue({
+      id: "page-example",
+      title: "Launch brief",
+      url: "https://content.example.com/page",
+      context: "Brief",
+    });
+    const args = { ...input, source: "content", id: "page-example" } as const;
+    await expect(action.run(args)).resolves.toMatchObject({
+      id: "page-example",
+    });
     expect(mocks.peer).toHaveBeenCalledWith(args, "design");
     expect(mocks.snapshot).not.toHaveBeenCalled();
   });

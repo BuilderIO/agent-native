@@ -24,8 +24,14 @@ import {
   type ComposerContextPickerItem,
   type ComposerContextPickerRequest,
 } from "@agent-native/toolkit/app/chat/composer/index";
+import { designBriefSchema, type DesignBrief } from "@shared/design-briefs";
 import { parseFigmaFileKey } from "@shared/figma-url";
-import { IconLayoutGrid, IconPalette, IconWorld } from "@tabler/icons-react";
+import {
+  IconFileText,
+  IconLayoutGrid,
+  IconPalette,
+  IconWorld,
+} from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { z } from "zod";
@@ -45,6 +51,7 @@ type SourceItem = { id: string; title: string; url?: string | undefined };
 const sourceSchema = z.enum([
   "design",
   "slides",
+  "content",
   "figma",
   "website",
   "integration",
@@ -61,6 +68,20 @@ function referenceKey(reference: Reference) {
         ? reference.url
         : "";
   return `design-home-reference:${reference.source}:${scope ?? ""}:${reference.id}`;
+}
+
+function contentBrief(
+  reference: Reference,
+  result: { id: string; title: string; url?: string | undefined },
+): DesignBrief | undefined {
+  if (reference.source !== "content") return undefined;
+  const brief = designBriefSchema.safeParse({
+    source: "content",
+    id: result.id,
+    title: result.title,
+    url: result.url,
+  });
+  return brief.success ? brief.data : undefined;
 }
 
 export function useHomePromptContext({
@@ -133,12 +154,16 @@ export function useHomePromptContext({
   const requests = useRef(
     new Map<string, { reference: Reference; revision: number }>(),
   );
+  // Content pages read for this prompt, by context key, so the new design can
+  // link back to its brief.
+  const contentBriefs = useRef(new Map<string, DesignBrief>());
   const requestRevision = useRef(0);
   const mounted = useRef(true);
   useEffect(() => {
     if (previousIdentity.current === identity) return;
     previousIdentity.current = identity;
     requests.current.clear();
+    contentBriefs.current.clear();
     ++requestRevision.current;
     setItems([]);
     setSystemState(undefined);
@@ -184,6 +209,8 @@ export function useHomePromptContext({
             requests.current.get(key)?.revision !== revision
           )
             return;
+          const brief = contentBrief(reference, result);
+          if (brief) contentBriefs.current.set(key, brief);
           setItems((current) =>
             current.map((item) =>
               item.key === key
@@ -407,7 +434,9 @@ export function useHomePromptContext({
           ? "homeContext.searchFrames"
           : source === "slides"
             ? "homeContext.searchPresentations"
-            : "homeContext.searchDesigns",
+            : source === "content"
+              ? "homeContext.searchPages"
+              : "homeContext.searchDesigns",
       ),
       emptyMessage: t("homeContext.empty"),
       selectedIds: [...requests.current.values()]
@@ -583,6 +612,15 @@ export function useHomePromptContext({
       },
     },
   ];
+  menuItems.push({
+    id: "content-reference",
+    referenceType: "content",
+    order: 25,
+    icon: <IconFileText />,
+    label: t("homeContext.contentPage"),
+    intent: "add-context",
+    picker: referencePicker("content"),
+  });
   if (systemsEnabled)
     menuItems.push({
       id: "system",
@@ -668,6 +706,7 @@ export function useHomePromptContext({
       return;
     }
     requests.current.delete(key);
+    contentBriefs.current.delete(key);
     setItems((current) => current.filter((item) => item.key !== key));
   };
   const retry = (key: string) => {
@@ -729,6 +768,8 @@ export function useHomePromptContext({
             if (!("context" in result) || !result.context.trim())
               throw new Error(loadFailed);
             context = result.context;
+            const brief = contentBrief(reference, result);
+            if (brief) contentBriefs.current.set(item.key, brief);
           }
           if (identityRef.current !== submittedIdentity)
             throw new Error(loadFailed);
@@ -805,9 +846,19 @@ export function useHomePromptContext({
     )
       onSystemChange(null);
   };
+  /** The Content pages among submitted context items, for the new design. */
+  const briefsFor = useCallback(
+    (submitted: readonly { key: string }[] | undefined) =>
+      (submitted ?? []).flatMap((item) => {
+        const brief = contentBriefs.current.get(item.key);
+        return brief ? [brief] : [];
+      }),
+    [],
+  );
   return {
     contextItems,
     menuItems: active ? menuItems : [],
+    briefsFor,
     remove,
     retry,
     prepareSubmission,

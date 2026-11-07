@@ -1,0 +1,31 @@
+import { composerWebsiteUrlSchema } from "@agent-native/core/shared";
+import { z } from "zod";
+
+/** A Content page a design was started from, kept in `designs.data.briefs`. */
+export const designBriefSchema = z.object({
+  source: z.literal("content"),
+  id: z.string().trim().min(1).max(200),
+  title: z.string().trim().min(1).max(2000),
+  url: composerWebsiteUrlSchema,
+});
+export const designBriefsSchema = z.array(designBriefSchema).max(5);
+
+export type DesignBrief = z.infer<typeof designBriefSchema>;
+
+/** The valid briefs in serialized or parsed design data; drops anything else. */
+export function designBriefsFromData(data: unknown): DesignBrief[] {
+  let parsed = data;
+  if (typeof data === "string") {
+    try {
+      parsed = JSON.parse(data);
+    } catch {
+      return [];
+    }
+  }
+  const briefs = (parsed as { briefs?: unknown } | null | undefined)?.briefs;
+  if (!Array.isArray(briefs)) return [];
+  return briefs.flatMap((brief) => {
+    const result = designBriefSchema.safeParse(brief);
+    return result.success ? [result.data] : [];
+  });
+}

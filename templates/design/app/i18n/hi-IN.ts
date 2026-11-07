@@ -1826,6 +1826,7 @@ export default {
       pendingEditsBlocked: "डुप्लिकेट करने से पहले लंबित विज़ुअल संपादन लागू करें या छोड़ दें।",
       allDesigns: "सभी डिज़ाइन",
       rename: "नाम बदलें",
+      builtFrom: "{{title}} से बनाया गया",
       duplicate: "डुप्लिकेट करें",
       versionHistory: "संस्करण इतिहास",
       import: "आयात करें…",
@@ -2675,6 +2676,7 @@ export default {
     searchFrames: "Figma फ़्रेम खोजें…",
     searchDesigns: "डिज़ाइन खोजें…",
     searchPresentations: "प्रस्तुतियाँ खोजें…",
+    searchPages: "पेज खोजें…",
     searchDesign: "डिज़ाइन खोजें…",
     useDesignSystem: "डिज़ाइन सिस्टम का उपयोग करें",
     notReady:
@@ -2689,6 +2691,7 @@ export default {
     design: "डिज़ाइन संदर्भ",
     slides: "स्लाइड",
     referenceDesign: "डिज़ाइन को संदर्भ बनाएँ",
+    contentPage: "Content पेज",
     connectFigma: "Figma कनेक्ट करें",
     figmaDisconnected: "डिज़ाइन ब्राउज़ करने के लिए Figma कनेक्ट करें।",
     figmaReference: "Figma डिज़ाइन",

@@ -1837,6 +1837,7 @@ export default {
         "복제하기 전에 보류 중인 시각적 편집을 적용하거나 취소하세요.",
       allDesigns: "모든 디자인",
       rename: "이름 바꾸기",
+      builtFrom: "{{title}}에서 만듦",
       duplicate: "복제",
       versionHistory: "버전 기록",
       import: "가져오기…",
@@ -2697,6 +2698,7 @@ export default {
     searchFrames: "Figma 프레임 검색…",
     searchDesigns: "디자인 검색…",
     searchPresentations: "프레젠테이션 검색…",
+    searchPages: "페이지 검색…",
     searchDesign: "디자인 검색…",
     useDesignSystem: "디자인 시스템 사용",
     notReady:
@@ -2711,6 +2713,7 @@ export default {
     design: "디자인 참조",
     slides: "슬라이드",
     referenceDesign: "디자인 참조",
+    contentPage: "Content 페이지",
     connectFigma: "Figma 연결",
     figmaDisconnected: "디자인을 찾아보려면 Figma를 연결하세요.",
     figmaReference: "Figma 디자인",
