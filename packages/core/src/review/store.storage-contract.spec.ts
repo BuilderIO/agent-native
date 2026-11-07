@@ -589,6 +589,28 @@ describe.sequential("the review kit's storage contract", () => {
       [...first.comments, ...second.comments].map((row) => row.id),
     ).toEqual(ids);
 
+    // A cursor resumes the list it came from at any page size, and no other.
+    const resumed = await queryReviewCommentPage({
+      ...query,
+      limit: 1,
+      cursor: first.nextCursor,
+    });
+    expect(resumed.comments.map((row) => row.id)).toEqual([ids[500]]);
+    for (const other of [
+      { surfaceId: null },
+      { targetId: null },
+      { includeResolved: true },
+      { resourceId: "doc-other" },
+      { bypassScope: false, scope: { userEmail: OWNER } },
+    ]) {
+      await expect(
+        queryReviewCommentPage({
+          ...query,
+          ...other,
+          cursor: first.nextCursor,
+        }),
+      ).rejects.toMatchObject({ errorCode: "invalid_cursor" });
+    }
     await expect(
       queryReviewCommentPage({ ...query, cursor: "not-a-cursor" }),
     ).rejects.toMatchObject({ errorCode: "invalid_cursor" });

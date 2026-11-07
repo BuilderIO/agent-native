@@ -1354,11 +1354,12 @@ export async function queryReviewCommentPage(
     throw new ReviewCursorError("Comment lists page oldest first only.");
   }
   const limit = clampLimit(query.limit);
+  const queryKey = await reviewCommentQueryKey(query);
   // One more than the page, to know whether another follows.
   const rows = await selectReviewComments(
     {
       ...query,
-      after: cursor ? decodeReviewCommentCursor(cursor) : undefined,
+      after: cursor ? decodeReviewCommentCursor(cursor, queryKey) : undefined,
       limit,
     },
     1,
@@ -1367,20 +1368,79 @@ export async function queryReviewCommentPage(
   const last = rows.length > limit ? comments[comments.length - 1] : undefined;
   return {
     comments,
-    nextCursor: last ? encodeReviewCommentCursor(last) : null,
+    nextCursor: last ? encodeReviewCommentCursor(queryKey, last) : null,
   };
 }
 
 const REVIEW_CURSOR_PREFIX = "c1~";
 
-/** A cursor names the last comment of a page: its time and its ID. */
-function encodeReviewCommentCursor(position: ReviewCommentPosition): string {
-  return `${REVIEW_CURSOR_PREFIX}${position.createdAt}~${position.id}`;
+/**
+ * Names a list by what it holds: its resource, filters and reader, but not
+ * its page size. A cursor carries it, so one from another list is refused
+ * rather than silently skipping what that list holds before its position.
+ */
+async function reviewCommentQueryKey(
+  query: Omit<QueryReviewCommentsInput, "after">,
+): Promise<string> {
+  const identity = JSON.stringify({
+    resourceType: query.resourceType,
+    resourceId: query.resourceId,
+    scope: query.bypassScope
+      ? null
+      : {
+          userEmail: query.scope.userEmail ?? null,
+          orgId: query.scope.orgId ?? null,
+        },
+    includeResolved: query.includeResolved === true,
+    includeDeleted: query.includeDeleted === true,
+    // A filter left out drops its key, so "any" differs from `null`.
+    targetId: query.targetId,
+    surfaceId: query.surfaceId,
+    rootOnly: query.rootOnly === true,
+    unconsumedOnly: query.unconsumedOnly === true,
+    resolutionTargets: query.resolutionTargets
+      ? [
+          ...new Set(
+            query.resolutionTargets.map((target) => JSON.stringify(target)),
+          ),
+        ].sort()
+      : undefined,
+  });
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(identity),
+  );
+  return Array.from(new Uint8Array(digest).slice(0, 8), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 }
 
-function decodeReviewCommentCursor(cursor: string): ReviewCommentPosition {
-  const rest = cursor.startsWith(REVIEW_CURSOR_PREFIX)
-    ? cursor.slice(REVIEW_CURSOR_PREFIX.length)
+/**
+ * A cursor names its list, then the last comment of a page: its time and its
+ * ID.
+ */
+function encodeReviewCommentCursor(
+  queryKey: string,
+  position: ReviewCommentPosition,
+): string {
+  return `${REVIEW_CURSOR_PREFIX}${queryKey}~${position.createdAt}~${position.id}`;
+}
+
+function decodeReviewCommentCursor(
+  cursor: string,
+  queryKey: string,
+): ReviewCommentPosition {
+  const listPrefix = `${REVIEW_CURSOR_PREFIX}${queryKey}~`;
+  if (
+    cursor.startsWith(REVIEW_CURSOR_PREFIX) &&
+    !cursor.startsWith(listPrefix)
+  ) {
+    throw new ReviewCursorError(
+      "This cursor is from another comment list. Start the list again.",
+    );
+  }
+  const rest = cursor.startsWith(listPrefix)
+    ? cursor.slice(listPrefix.length)
     : "";
   // The time never holds a `~`, so the first one after it starts the ID.
   const split = rest.indexOf("~");

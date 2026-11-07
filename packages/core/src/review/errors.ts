@@ -59,7 +59,10 @@ export class ReviewCommentLinkConflictError extends ReviewStorageError {
   }
 }
 
-/** A list cursor this kit didn't hand out, or one used with another order. */
+/**
+ * A list cursor this kit didn't hand out, one from another list, or one used
+ * with another order.
+ */
 export class ReviewCursorError extends ReviewStorageError {
   constructor(message: string) {
     super(message, "invalid_cursor", 400);
