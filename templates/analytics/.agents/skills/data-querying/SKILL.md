@@ -86,7 +86,8 @@ property names a beta one (`beta`, `preview`, `local`, `development` or
 `test`). With
 it set, `analytics_event_daily_rollups` and `analytics_user_days` are rebuilt
 from raw events, because they have no host: include an `event_date` condition
-in the same query level, or the whole event table is read. The content tables
+in the same query level, or the read is refused rather than scanning every
+event. A panel with no date range reads all traffic instead. The content tables
 ignore it.
 
 First-party reads exclude test identities (QA/E2E accounts): ingest never

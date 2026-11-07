@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveFilterVars } from "../../app/pages/adhoc/sql-dashboard/filter-vars";
 import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
+import { newDashboardTrafficFilter } from "../../shared/traffic-environment";
 
 const mocks = vi.hoisted(() => ({
   resolve: vi.fn(),
@@ -43,6 +44,7 @@ const {
   formatVerificationFailure,
   isAgentCaller,
   pageDashboardConfig,
+  resolveDashboardPanelQueries,
   resolveVerificationVars,
   touchedPanelIds,
   touchedVisualPanels,
@@ -154,6 +156,33 @@ describe("resolveVerificationVars", () => {
     expect(
       resolveVerificationVars(config, { timeRange: "7d", f_app: "clips" }),
     ).toEqual(browser);
+  });
+});
+
+describe("resolveDashboardPanelQueries", () => {
+  const panels = [
+    { id: "events", source: "first-party", chartType: "line", sql: "SELECT 1" },
+    { id: "spend", source: "bigquery", chartType: "line", sql: "SELECT 2" },
+  ];
+  const trafficOf = (filters: unknown[], overrides?: Record<string, string>) =>
+    resolveDashboardPanelQueries({ panels, filters }, overrides).map((panel) =>
+      "trafficEnvironment" in panel ? panel.trafficEnvironment : undefined,
+    );
+
+  it("carries the traffic a fresh tab shows to first-party panels only", () => {
+    const traffic = newDashboardTrafficFilter();
+
+    expect(trafficOf([traffic])).toEqual(["production", undefined]);
+    expect(trafficOf([traffic], { traffic_environment: "all" })).toEqual([
+      undefined,
+      undefined,
+    ]);
+    // An older dashboard shows the filter without storing it.
+    expect(trafficOf([], { f_traffic_environment: "beta" })).toEqual([
+      "beta",
+      undefined,
+    ]);
+    expect(trafficOf([])).toEqual([undefined, undefined]);
   });
 });
 

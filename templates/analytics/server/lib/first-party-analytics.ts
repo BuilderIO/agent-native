@@ -1264,6 +1264,14 @@ function scopedTableSource(
   }
   if (FIRST_PARTY_ROLLUP_TABLES.has(tableName)) {
     if (trafficEnvironment) {
+      // Rebuilt from raw events, a rollup with no date range would read every
+      // event the tenant ever sent on each uncached refresh.
+      if (eventPushdownPredicates.length === 0) {
+        throw new FirstPartyAnalyticsValidationError(
+          "invalid_shape",
+          `Reading ${trafficEnvironment} traffic from ${tableName} rebuilds it from raw events, so the query needs an event_date range on ${tableName} in the same query level. Add one, or read all traffic.`,
+        );
+      }
       const events = scopedTableSource(
         "analytics_events",
         scope,

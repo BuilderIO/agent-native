@@ -194,6 +194,18 @@ describe("first-party reads filtered by traffic", () => {
     );
   });
 
+  it("refuses a filtered rollup read with no dates, rather than reading every event", () => {
+    const allTime =
+      "SELECT SUM(event_count) AS events FROM analytics_event_daily_rollups";
+
+    expect(() =>
+      scopedAnalyticsSql(allTime, scope, today, {
+        trafficEnvironment: "production",
+      }),
+    ).toThrow(/needs an event_date range on analytics_event_daily_rollups/);
+    expect(() => scopedAnalyticsSql(allTime, scope, today)).not.toThrow();
+  });
+
   it("filters recordings by host and leaves content tables alone", () => {
     const recordings = scopedAnalyticsSql(
       "SELECT id FROM session_recordings",

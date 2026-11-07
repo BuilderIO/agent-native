@@ -12,6 +12,10 @@ import type {
 import { dataNotesForPanel } from "../../shared/data-notes";
 import { keyDateEvents } from "../../shared/key-dates";
 import {
+  ALL_TRAFFIC,
+  TRAFFIC_FILTER_PARAM,
+} from "../../shared/traffic-environment";
+import {
   fetchReportPanelData,
   renderReportEmail,
   type ReportSnapshot,
@@ -162,8 +166,15 @@ export async function collectReportSnapshot(
   }
 
   const config = dashboardConfigFromRecord(dashboard.config);
+  // A report reads only the traffic it was saved with, so a dashboard default
+  // set later can't move it, and its link opens on the traffic it read.
+  const { [TRAFFIC_FILTER_PARAM]: dashboardTraffic, ...defaults } =
+    defaultFilterValues(config);
   const linkFilters = {
-    ...defaultFilterValues(config),
+    ...defaults,
+    ...(dashboardTraffic && dashboardTraffic !== ALL_TRAFFIC
+      ? { [TRAFFIC_FILTER_PARAM]: ALL_TRAFFIC }
+      : {}),
     ...sub.filters,
   };
   // Links keep a cleared multi-select's marker, because a link without it reopens with the default selected. The query and filter line read the normalized map.

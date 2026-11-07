@@ -33,6 +33,7 @@ import {
 import {
   readTrafficEnvironment,
   TRAFFIC_FILTER_ID,
+  type TrafficEnvironment,
 } from "../../shared/traffic-environment";
 import { dryRunQuerySchema, type DryRunQueryResult } from "./bigquery";
 import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
@@ -409,7 +410,13 @@ function interpolationFailure(
 }
 
 export type ResolvedDashboardPanelQuery =
-  | { panelId: string; title: string; source: string; query: string }
+  | {
+      panelId: string;
+      title: string;
+      source: string;
+      query: string;
+      trafficEnvironment?: TrafficEnvironment;
+    }
   | { panelId: string; title: string; source: string; error: string };
 
 /**
@@ -423,6 +430,13 @@ export function resolveDashboardPanelQueries(
 ): ResolvedDashboardPanelQuery[] {
   const config = normalizeDashboardConfig(rawConfig);
   const vars = resolveVerificationVars(config, filters);
+  // A dashboard from before the traffic filter shows it without storing it, so
+  // a choice made there arrives only as an override.
+  const trafficEnvironment = readTrafficEnvironment(
+    vars[TRAFFIC_FILTER_ID] ||
+      filters?.[TRAFFIC_FILTER_ID] ||
+      filters?.[FILTER_PARAM_PREFIX + TRAFFIC_FILTER_ID],
+  );
   return panelsOf(config)
     .filter((panel) => typeof panel.id === "string" && hasSqlToRun(panel))
     .map((panel) => {
@@ -432,8 +446,9 @@ export function resolveDashboardPanelQueries(
       try {
         const query = buildPanelQuery(panel as unknown as SqlPanel, vars);
         const failure = interpolationFailure(query, panel.sql, vars);
-        return failure
-          ? { panelId, title, source, error: failure }
+        if (failure) return { panelId, title, source, error: failure };
+        return source === "first-party" && trafficEnvironment
+          ? { panelId, title, source, query, trafficEnvironment }
           : { panelId, title, source, query };
       } catch (error) {
         return {
