@@ -1,4 +1,5 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { readClientAppState } from "@agent-native/core/client/application-state";
 import {
   isReconcileLeadClient,
@@ -36,6 +37,7 @@ import type {
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
+import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import type {
   ContentNavigationPathEntry,
   Document,
@@ -63,7 +65,7 @@ import {
   suggestionMarkedSourceRanges,
 } from "@shared/suggestion-formatting";
 import { resolveMarkdownSuggestionRange } from "@shared/suggestion-rebase";
-import { IconDatabase, IconLoader2, IconX } from "@tabler/icons-react";
+import { IconDatabase, IconLoader2 } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
 import {
   hashKey,
@@ -94,16 +96,17 @@ import {
   contentBlockRegistry,
   createContentBlockRenderContext,
 } from "@/blocks/contentBlockRegistry";
+import { useAgentPanelSlot } from "@/components/layout/agent-panel-host";
 import {
   type ContentCommentSurfaces,
+  type ContentPanelLayout,
   resolveCommentSurfaces,
+  resolveContentPanel,
   sameContentCommentSurfaces,
+  sameContentPanelLayout,
 } from "@/components/layout/content-layout";
 import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
-import {
-  useContentLayout,
-  useContentUtilityRail,
-} from "@/components/layout/use-content-layout";
+import { useContentLayout } from "@/components/layout/use-content-layout";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   createContentSpaceSelectionQueue,
@@ -111,12 +114,6 @@ import {
   selectContentSpace,
 } from "@/components/sidebar/select-content-space";
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { flushDocumentPropertyWrites } from "@/hooks/document-property-persistence";
 import { useComments, type CommentThread } from "@/hooks/use-comments";
 import {
@@ -283,6 +280,13 @@ import {
 } from "./document-flush-participant";
 import { createHistorySession } from "./document-history-session";
 import {
+  type DocumentPagePanelTab,
+  escapeWasHandled,
+  useAgentPanelState,
+  usePagePanelMotion,
+  usePagePanelShortcuts,
+} from "./document-page-panel-state";
+import {
   saveDocumentWithRebase,
   type DocumentContentBase,
 } from "./document-save-rebase";
@@ -295,6 +299,7 @@ import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
+import { DocumentPagePanel } from "./DocumentPagePanel";
 import { DocumentProperties } from "./DocumentProperties";
 import { DocumentReconcileRecovery } from "./DocumentReconcileRecovery";
 import {
@@ -2574,10 +2579,17 @@ function commentSurfacesForEditorWidth(
 ) {
   const next = resolveCommentSurfaces({
     pageWidth: width,
-    viewportWidth: window.innerWidth,
     previous: current,
   });
   return sameContentCommentSurfaces(next, current) ? current : next;
+}
+
+function panelLayoutForEditorWidth(width: number, current: ContentPanelLayout) {
+  const next = resolveContentPanel({
+    rowWidth: width,
+    viewportWidth: window.innerWidth,
+  });
+  return sameContentPanelLayout(next, current) ? current : next;
 }
 
 export function positionAnchoredCommentCard({
@@ -2687,22 +2699,58 @@ export function positionUnanchoredCommentCard({
 
 export function documentEditorShowsInlineComments(args: {
   showIndicators: boolean;
-  hasUtilityRailSpace: boolean;
-  commentsHistoryDrawerOpen: boolean;
-  utilityPanel: DocumentUtilityPanel;
+  hasInlineCommentSpace: boolean;
   hasOpenCommentThreads: boolean;
   hasSelectedCommentThread: boolean;
   hasPendingComment: boolean;
 }) {
   return (
     args.showIndicators &&
-    args.hasUtilityRailSpace &&
-    !args.commentsHistoryDrawerOpen &&
-    args.utilityPanel !== "info" &&
+    args.hasInlineCommentSpace &&
     (args.hasOpenCommentThreads ||
       args.hasSelectedCommentThread ||
       args.hasPendingComment)
   );
+}
+
+/**
+ * What the page panel shows. `utilityPanel === "comments"` alone only means a
+ * comment is in focus, which the margin or a card on the text shows; the panel
+ * takes it when Discussion was asked for, or for a suggestion with no margin to
+ * open beside.
+ */
+export function documentPagePanelTab(args: {
+  agentInPanel: boolean;
+  commentsHistoryDrawerOpen: boolean;
+  utilityPanel: DocumentUtilityPanel;
+  selectedSuggestionId: string | null;
+  hasInlineCommentSpace: boolean;
+}): DocumentPagePanelTab | null {
+  if (args.agentInPanel) return "agent";
+  if (args.commentsHistoryDrawerOpen) return "comments";
+  if (args.utilityPanel === "info") return "info";
+  return args.utilityPanel === "comments" &&
+    args.selectedSuggestionId &&
+    !args.hasInlineCommentSpace
+    ? "comments"
+    : null;
+}
+
+/** The page editor an event belongs to, by its path or else by focus. */
+function documentEditorEventOwner(event: KeyboardEvent) {
+  const pathOwner = event
+    .composedPath()
+    .find(
+      (node): node is HTMLElement =>
+        node instanceof HTMLElement && !!node.dataset.pageEditorOwner,
+    );
+  const activeElement = window.document.activeElement;
+  const owner =
+    pathOwner ??
+    (activeElement instanceof HTMLElement
+      ? activeElement.closest<HTMLElement>("[data-page-editor-owner]")
+      : null);
+  return owner?.dataset.pageEditorOwner ?? null;
 }
 
 export function utilityPanelAfterCommentFocusDismissal(
@@ -2713,16 +2761,11 @@ export function utilityPanelAfterCommentFocusDismissal(
 
 type DocumentCommentSurfaceLayout = {
   commentsHistoryDrawerOpen: boolean;
-  hasUtilityRailSpace: boolean;
   hasInlineCommentSpace: boolean;
 };
 
-function documentEditorHasDesktopCommentSurface(
-  args: DocumentCommentSurfaceLayout,
-) {
-  return args.commentsHistoryDrawerOpen
-    ? args.hasUtilityRailSpace
-    : args.hasInlineCommentSpace;
+function documentEditorHasCommentSurface(args: DocumentCommentSurfaceLayout) {
+  return args.commentsHistoryDrawerOpen || args.hasInlineCommentSpace;
 }
 
 export function dismissDocumentCommentFocus(
@@ -2734,34 +2777,7 @@ export function dismissDocumentCommentFocus(
 ) {
   args.closeReply();
   args.clearFocus();
-  if (!documentEditorHasDesktopCommentSurface(args)) args.closePanel();
-}
-
-export function documentEditorShowsUtilityPanelSheet(
-  args: DocumentCommentSurfaceLayout & {
-    utilityPanel: DocumentUtilityPanel;
-    selectedSuggestionId: string | null;
-    agentPanelOverlay?: boolean;
-  },
-) {
-  if (args.utilityPanel === "comments") {
-    return (
-      args.agentPanelOverlay ||
-      (!documentEditorHasDesktopCommentSurface(args) &&
-        (args.commentsHistoryDrawerOpen || !!args.selectedSuggestionId))
-    );
-  }
-  return args.utilityPanel === "info" && !args.hasUtilityRailSpace;
-}
-
-export function utilityPanelRegionShouldReceiveFocus({
-  openerConnected,
-  focusOnBody,
-}: {
-  openerConnected: boolean;
-  focusOnBody: boolean;
-}) {
-  return !openerConnected || focusOnBody;
+  if (!documentEditorHasCommentSurface(args)) args.closePanel();
 }
 
 export {
@@ -3288,11 +3304,7 @@ function PageEditorSessionBody({
     ResourceSuggestion[]
   >([]);
   const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
-  const [lastUtilityPanel, setLastUtilityPanel] =
-    useState<Exclude<DocumentUtilityPanel, null>>("comments");
   const [commentsBrowseOpen, setCommentsBrowseOpen] = useState(false);
-  const [commentsHistoryRailMounted, setCommentsHistoryRailMounted] =
-    useState(false);
   const [showCommentIndicators, setShowCommentIndicators] = useState(true);
   const [primaryFieldAvailability, setPrimaryFieldAvailability] = useState<{
     scope: string;
@@ -8378,15 +8390,20 @@ function PageEditorSessionBody({
   } = usePendingCommentDraft(documentId);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
-  const [utilityPanelSheetContainer, setUtilityPanelSheetContainer] =
-    useState<HTMLElement | null>(null);
-  const utilityPanelSheetCloseRef = useRef<HTMLButtonElement>(null);
-  const utilityPanelRegionRef = useRef<HTMLElement>(null);
-  const utilityPanelSheetTriggerRef = useRef<HTMLElement | null>(null);
+  const pagePanelRef = useRef<HTMLElement>(null);
+  const pagePanelSpacerRef = useRef<HTMLDivElement>(null);
+  const pagePanelHeadingRef = useRef<HTMLHeadingElement>(null);
+  const agentSlotRef = useRef<HTMLDivElement>(null);
+  const pagePanelOpenRef = useRef(false);
+  const pagePanelLastTabRef = useRef<DocumentPagePanelTab | null>(null);
+  const pagePanelReturnFocusRef = useRef<HTMLElement | null>(null);
+  const pagePanelFocusInsideRef = useRef(false);
+  // A row preview's panel sits in the same document as its collection's.
+  const pagePanelId = host === "page" ? undefined : "document-row-panel";
+  const pagePanelComposerRef = useRef<TiptapComposerHandle>(null);
+  const pagePanelEscapeRef = useRef(false);
   const commentsHistoryTriggerRef = useRef<HTMLButtonElement>(null);
   const utilityPanelFocusFallbackRef = useRef<HTMLButtonElement>(null);
-  const utilityPanelFocusGenerationRef = useRef(0);
-  const utilityPanelRegionWasOpenRef = useRef(false);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const replyDrafts = useCommentReplyDrafts(documentId, session?.email);
   const [pendingCommentTargetValid, setPendingCommentTargetValid] =
@@ -8613,24 +8630,31 @@ function PageEditorSessionBody({
   const measuredCommentSurfaces = useElementWidthValue(
     documentLayoutRef,
     commentSurfacesForEditorWidth,
-    resolveCommentSurfaces({ pageWidth: 0, viewportWidth: window.innerWidth }),
+    resolveCommentSurfaces({ pageWidth: 0 }),
     !shellCommentSurfaces,
   );
   const commentSurfaces = shellCommentSurfaces ?? measuredCommentSurfaces;
-  const hasUtilityRailSpace = commentSurfaces.list === "rail";
   const hasInlineCommentSpace = commentSurfaces.margin === "lane";
   const showCommentsHistoryDrawer =
     utilityPanel === "comments" && commentsBrowseOpen;
-  useContentUtilityRail(
-    host === "page" && (showCommentsHistoryDrawer || utilityPanel === "info"),
+  const pagePanelLayout = useElementWidthValue(
+    documentLayoutRef,
+    panelLayoutForEditorWidth,
+    resolveContentPanel({ rowWidth: 0, viewportWidth: window.innerWidth }),
   );
-  const showDesktopCommentsHistory =
-    showCommentsHistoryDrawer &&
-    documentEditorHasDesktopCommentSurface({
-      commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
-      hasUtilityRailSpace,
-      hasInlineCommentSpace,
-    });
+  // A row preview's sheet covers the page's panel, so the agent stays there
+  // and the preview's own panel holds Discussion and Info.
+  const agent = useAgentPanelState();
+  const showAgentTab = useAgentPanelSlot(agentSlotRef, host === "page");
+  const agentInPanel = showAgentTab && agent.inPanel;
+  const utilityPanelTab = documentPagePanelTab({
+    agentInPanel: false,
+    commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
+    utilityPanel,
+    selectedSuggestionId,
+    hasInlineCommentSpace,
+  });
+  const requestedPanelTab = agentInPanel ? "agent" : utilityPanelTab;
   // A comment on the whole page lives in Discussion, not the margin, so it
   // must not hold open an otherwise empty margin either.
   const hasOpenCommentThreads =
@@ -8656,15 +8680,20 @@ function PageEditorSessionBody({
           thread.threadId === selectedThreadId && !isPageCommentThread(thread),
       ) ??
         false));
-  const showInlineComments = documentEditorShowsInlineComments({
+  const marginWanted = documentEditorShowsInlineComments({
     showIndicators: showCommentIndicators,
-    hasUtilityRailSpace: hasInlineCommentSpace,
-    commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
-    utilityPanel,
+    hasInlineCommentSpace,
     hasOpenCommentThreads: hasOpenCommentThreads || hasOpenSuggestions,
     hasSelectedCommentThread,
     hasPendingComment: !!pendingComment,
   });
+  const pagePanel = usePagePanelMotion(requestedPanelTab, marginWanted);
+  // The margin gives its space back with the panel's arrival and takes it again
+  // as the panel leaves, so the page moves once; its comments wait until the
+  // panel has gone.
+  const marginReserved = marginWanted && !pagePanel.tab;
+  const showInlineComments = marginReserved && !pagePanel.closing;
+  if (pagePanel.tab) pagePanelLastTabRef.current = pagePanel.tab;
   // A failed read says nothing about whether the page still has open review,
   // so the remembered margin holds until both reads answer.
   const reviewReadsSettled = documentEditorReviewReadsSettled({
@@ -8681,10 +8710,10 @@ function PageEditorSessionBody({
     [documentId, host],
   );
   const reserveInlineReviewSpace = documentEditorReservesInlineReviewSpace({
-    showInlineComments,
+    showInlineComments: marginReserved,
     preserveInlineReviewSpace:
       preserveInlineReviewSpace || (pageHadOpenReview && !reviewReadsSettled),
-    hasInlineCommentSpace,
+    hasInlineCommentSpace: hasInlineCommentSpace && !pagePanel.tab,
     isDatabasePage: Boolean(document.database),
   });
   const scrollContentRef = useRef<HTMLDivElement>(null);
@@ -8694,8 +8723,10 @@ function PageEditorSessionBody({
       scroller: scrollContainerRef,
       content: scrollContentRef,
       column: pageColumnRef,
+      panelSpacer: pagePanelSpacerRef,
     },
     reserveInlineReviewSpace,
+    !!pagePanel.tab && pagePanelLayout.mode === "dock",
   );
   const hasOpenReview = hasOpenCommentThreads || hasOpenSuggestions;
   useEffect(() => {
@@ -8734,7 +8765,10 @@ function PageEditorSessionBody({
       setPendingComment(null, { keepWritten: true });
       setHoveredThreadId(null);
       setSelectedThreadId(threadId);
-      setCommentsBrowseOpen(preserveBrowseContext || !!pageThread);
+      // With the panel open there is no margin to open beside.
+      setCommentsBrowseOpen(
+        preserveBrowseContext || !!pageThread || pagePanelOpenRef.current,
+      );
       setUtilityPanel("comments");
     },
     [],
@@ -8843,81 +8877,63 @@ function PageEditorSessionBody({
     () => commentRailThreads(clipThreads, blockFieldComments.openFieldId),
     [blockFieldComments.openFieldId, clipThreads],
   );
-  const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
-  const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;
   const showAnchoredCommentPopover =
     !showCommentsHistoryDrawer &&
     utilityPanel === "comments" &&
-    !hasInlineCommentSpace &&
+    (!hasInlineCommentSpace || !!pagePanel.tab) &&
     !blockFieldComments.tabSwitchPending &&
     ((!!pendingComment && blockFieldComments.pendingVisible) ||
       !!selectedThreadId);
-  // A panel without a docked rail opens over the page. Only a phone gets
-  // the modal Sheet: wider, the Sheet would cover a docked agent panel.
-  const showUtilityPanelOffColumn = documentEditorShowsUtilityPanelSheet({
-    utilityPanel,
-    commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
-    hasUtilityRailSpace,
-    hasInlineCommentSpace,
-    selectedSuggestionId,
-  });
-  const showUtilityPanelSheet =
-    showUtilityPanelOffColumn &&
-    (commentSurfaces.list === "sheet" ||
-      (utilityPanel === "comments" && shellLayout?.agentPanel === "overlay"));
-  const showUtilityPanelRegion =
-    showUtilityPanelOffColumn && commentSurfaces.list === "region-list";
-  const hasFocusedCommentReply =
-    replyDrafts.focus.current?.documentId === documentId;
+  // Escape closes what is innermost, so a reply box or a card goes first.
+  const { openReply } = replyDrafts;
+  pagePanelEscapeRef.current =
+    !!pagePanel.tab &&
+    !openReply?.threadId &&
+    !openReply?.suggestionId &&
+    !showAnchoredCommentPopover;
 
+  const pagePanelTab = pagePanel.tab;
   useEffect(() => {
-    if (showUtilityPanelRegion) {
-      if (
-        !utilityPanelRegionWasOpenRef.current &&
-        utilityPanelRegionShouldReceiveFocus({
-          openerConnected: !!utilityPanelSheetTriggerRef.current?.isConnected,
-          focusOnBody:
-            globalThis.document.activeElement === globalThis.document.body,
-        })
-      ) {
-        utilityPanelRegionRef.current?.focus();
+    const wasOpen = pagePanelOpenRef.current;
+    pagePanelOpenRef.current = !!pagePanelTab;
+    const panel = pagePanelRef.current;
+    if (pagePanelTab) {
+      if (!pagePanelFocusInsideRef.current) return;
+      pagePanelFocusInsideRef.current = false;
+      const composer =
+        pagePanelTab === "comments" ? pagePanelComposerRef.current : null;
+      if (composer) {
+        composer.focus();
+        return;
       }
-      utilityPanelRegionWasOpenRef.current = true;
+      // The agent's own open event moves on to its composer once the chat loads.
+      if (
+        pagePanelTab === "agent" &&
+        panel?.contains(globalThis.document.activeElement)
+      ) {
+        return;
+      }
+      pagePanelHeadingRef.current?.focus({ preventScroll: true });
       return;
     }
-    if (!utilityPanelRegionWasOpenRef.current) return;
-
-    const transferredToRail =
-      showDesktopCommentsHistory || showDesktopInfoPanel;
-    if (utilityPanel && !transferredToRail) return;
-    utilityPanelRegionWasOpenRef.current = false;
-
-    const focusGeneration = utilityPanelFocusGenerationRef.current;
-    const restoreTarget = utilityPanelSheetTriggerRef.current;
-    const fallbackTarget =
-      utilityPanel === "comments" &&
-      commentsHistoryTriggerRef.current?.isConnected
-        ? commentsHistoryTriggerRef.current
-        : utilityPanelFocusFallbackRef.current;
-    globalThis.setTimeout(() => {
-      if (utilityPanelFocusGenerationRef.current !== focusGeneration) return;
-      (restoreTarget?.isConnected ? restoreTarget : fallbackTarget)?.focus();
-      utilityPanelSheetTriggerRef.current = null;
-    }, 0);
-  }, [
-    showDesktopCommentsHistory,
-    showDesktopInfoPanel,
-    showUtilityPanelRegion,
-    utilityPanel,
-  ]);
-
-  useEffect(() => {
-    if (utilityPanel) setLastUtilityPanel(utilityPanel);
-  }, [utilityPanel]);
-
-  useEffect(() => {
-    if (showDesktopCommentsHistory) setCommentsHistoryRailMounted(true);
-  }, [showDesktopCommentsHistory]);
+    if (!wasOpen) return;
+    const target = pagePanelReturnFocusRef.current;
+    pagePanelReturnFocusRef.current = null;
+    const activeElement = globalThis.document.activeElement;
+    if (
+      activeElement !== globalThis.document.body &&
+      !panel?.contains(activeElement)
+    ) {
+      return;
+    }
+    const lastTab = globalThis.document.querySelector<HTMLElement>(
+      `[data-page-editor-owner="${CSS.escape(pageEditorOwner)}"] [data-document-panel-tab="${pagePanelLastTabRef.current}"]`,
+    );
+    (target?.isConnected
+      ? target
+      : (lastTab ?? utilityPanelFocusFallbackRef.current)
+    )?.focus({ preventScroll: true });
+  }, [pageEditorOwner, pagePanelTab]);
 
   useLayoutEffect(() => {
     if (!showInlineComments) {
@@ -8940,7 +8956,6 @@ function PageEditorSessionBody({
   const dismissCommentFocus = useCallback(() => {
     dismissDocumentCommentFocus({
       commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
-      hasUtilityRailSpace,
       hasInlineCommentSpace,
       closeReply: () => replyDrafts.setOpenReply(null),
       clearFocus: clearCommentFocus,
@@ -8952,7 +8967,6 @@ function PageEditorSessionBody({
   }, [
     clearCommentFocus,
     hasInlineCommentSpace,
-    hasUtilityRailSpace,
     replyDrafts.setOpenReply,
     showCommentsHistoryDrawer,
   ]);
@@ -9168,15 +9182,6 @@ function PageEditorSessionBody({
 
   const handleUtilityPanelChange = useCallback(
     (nextPanel: DocumentUtilityPanel) => {
-      ++utilityPanelFocusGenerationRef.current;
-      const activeElement = globalThis.document.activeElement;
-      if (
-        nextPanel &&
-        activeElement instanceof HTMLElement &&
-        activeElement !== globalThis.document.body
-      ) {
-        utilityPanelSheetTriggerRef.current = activeElement;
-      }
       if (!nextPanel) replyDrafts.setOpenReply(null);
       setUtilityPanel(nextPanel);
       if (nextPanel === "comments") {
@@ -9189,6 +9194,79 @@ function PageEditorSessionBody({
     },
     [clearCommentFocus, replyDrafts.setOpenReply],
   );
+
+  const handlePagePanelChange = useCallback(
+    (next: DocumentPagePanelTab | null) => {
+      const activeElement = globalThis.document.activeElement;
+      if (
+        next &&
+        activeElement instanceof HTMLElement &&
+        activeElement !== globalThis.document.body &&
+        !pagePanelRef.current?.contains(activeElement)
+      ) {
+        pagePanelReturnFocusRef.current = activeElement;
+      }
+      if (next) {
+        trackEvent("document_utility_panel_opened", {
+          app_name: "content",
+          template_name: "content",
+          panel: next,
+        });
+      }
+      // One panel: the side that opens closes the other, in the effect below,
+      // so the panel stays open across a switch between the agent and the rest.
+      if (next === "agent") {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open", {
+            detail: { focus: pagePanelFocusInsideRef.current },
+          }),
+        );
+        return;
+      }
+      if (!next) window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      handleUtilityPanelChange(next);
+    },
+    [handleUtilityPanelChange],
+  );
+
+  const pagePanelClaims = useRef({
+    agent: agentInPanel,
+    utility: !!utilityPanelTab,
+  });
+  useEffect(() => {
+    const claims = pagePanelClaims.current;
+    pagePanelClaims.current = {
+      agent: agentInPanel,
+      utility: !!utilityPanelTab,
+    };
+    if (agentInPanel && !claims.agent && utilityPanelTab) {
+      handleUtilityPanelChange(null);
+    } else if (utilityPanelTab && !claims.utility && agentInPanel) {
+      window.dispatchEvent(new CustomEvent("agent-panel:close"));
+    }
+  }, [agentInPanel, handleUtilityPanelChange, utilityPanelTab]);
+
+  const openPanelTab = showAgentTab && agent.open ? "agent" : requestedPanelTab;
+  const showCommentsTab = canComment && !isLocalFileDocument;
+  usePagePanelShortcuts(!mcpDirectoryWidgetReadOnly, (shortcut, event) => {
+    const owner = documentEditorEventOwner(event);
+    if (owner ? owner !== pageEditorOwner : host !== "page") return;
+    const tab =
+      shortcut === "last"
+        ? (pagePanelLastTabRef.current ??
+          (showAgentTab ? "agent" : showCommentsTab ? "comments" : "info"))
+        : shortcut;
+    if (
+      (tab === "agent" && !showAgentTab) ||
+      (tab === "comments" && !showCommentsTab)
+    ) {
+      return;
+    }
+    event.preventDefault();
+    const closing = shortcut === "last" ? !!openPanelTab : openPanelTab === tab;
+    pagePanelFocusInsideRef.current = !closing;
+    handlePagePanelChange(closing ? null : tab);
+  });
 
   useEffect(() => {
     setPendingComment(null);
@@ -9342,24 +9420,17 @@ function PageEditorSessionBody({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      const path = event.composedPath();
-      const pathOwner = path.find(
-        (node) => node instanceof HTMLElement && node.dataset.pageEditorOwner,
-      );
-      const activeElement = window.document.activeElement;
-      const activeOwner =
-        activeElement instanceof HTMLElement
-          ? activeElement.closest<HTMLElement>("[data-page-editor-owner]")
-          : null;
-      const eventOwner =
-        pathOwner instanceof HTMLElement ? pathOwner : activeOwner;
-      const ownsEvent = eventOwner?.dataset.pageEditorOwner === pageEditorOwner;
-      if (ownsEvent) dismissCommentFocus();
+      if (event.key !== "Escape" || escapeWasHandled(event)) return;
+      const owner = documentEditorEventOwner(event);
+      if (owner ? owner !== pageEditorOwner : host !== "page") return;
+      const closePanel = pagePanelEscapeRef.current;
+      dismissCommentFocus();
+      const composerKeepsEscape = preserveCommentComposerEscape(event);
+      if (closePanel && !composerKeepsEscape) handlePagePanelChange(null);
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [dismissCommentFocus, pageEditorOwner]);
+  }, [dismissCommentFocus, handlePagePanelChange, host, pageEditorOwner]);
 
   useEffect(() => {
     if (!showAnchoredCommentPopover) {
@@ -10069,6 +10140,7 @@ function PageEditorSessionBody({
     <CommentsSidebar
       compact={!hasInlineCommentSpace}
       replyDrafts={replyDrafts}
+      pageComposerRef={pagePanelComposerRef}
       documentId={documentId}
       highlightsVisible={showCommentIndicators}
       onHighlightsVisibleChange={
@@ -10382,86 +10454,30 @@ function PageEditorSessionBody({
   const exportContent = isInitializedRef.current
     ? localContent
     : document.content;
-  const renderUtilityPanelContent = (
-    panel: Exclude<DocumentUtilityPanel, null>,
-    inSheet = false,
-    popoverContainer?: HTMLElement | null,
-  ) => {
-    const utilityPanelTitle =
-      panel === "info" ? t("editor.toolbar.info") : t("comments.discussion");
-    return (
-      <div
-        className="flex min-h-full w-full min-w-0 flex-col bg-background"
-        data-document-utility-panel
-        data-page-editor-owner={pageEditorOwner}
-      >
-        <div className="sticky top-0 z-10 flex h-12 items-center border-b border-border bg-background px-4">
-          <h2 className="sr-only" aria-hidden={inSheet || undefined}>
-            {utilityPanelTitle}
-          </h2>
-          <div
-            role="tablist"
-            aria-label={t("comments.panelTabs")}
-            className="flex h-full items-stretch gap-5"
-            data-utility-panel-tabs
-          >
-            {(["comments", "info"] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                role="tab"
-                aria-selected={panel === tab}
-                onClick={() => {
-                  if (panel !== tab) handleUtilityPanelChange(tab);
-                }}
-                className={cn(
-                  "relative inline-flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                  "after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full",
-                  panel === tab && "text-foreground after:bg-foreground",
-                )}
-              >
-                {tab === "comments"
-                  ? t("comments.discussion")
-                  : t("editor.toolbar.info")}
-              </button>
-            ))}
-          </div>
-          <button
-            ref={inSheet ? utilityPanelSheetCloseRef : undefined}
-            type="button"
-            className="ms-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={t("editor.toolbar.closeUtilityPanel")}
-            onClick={() => handleUtilityPanelChange(null)}
-          >
-            <IconX size={16} />
-          </button>
-        </div>
-        {panel === "info" ? (
-          <PropertyCommentsContext.Provider value={propertyComments}>
-            <DocumentInfoPanel
-              document={document}
-              documentContent={exportContent}
-              additionalBlockContents={additionalBlockContents}
-              databaseId={databaseId}
-              databaseDocumentId={databaseDocumentId}
-              rowView={rowView}
-              rowViewPending={addressRowView.pending}
-              canEdit={editorCanEdit}
-              popoverContainer={popoverContainer}
-              onSaveDescription={(description) =>
-                persistDocumentUpdates({ description })
-              }
-            />
-          </PropertyCommentsContext.Provider>
-        ) : (
-          renderCommentsSidebar(undefined, false, "history")
-        )}
+  const pagePanelBody =
+    pagePanel.rendered === "info" ? (
+      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+        <PropertyCommentsContext.Provider value={propertyComments}>
+          <DocumentInfoPanel
+            document={document}
+            documentContent={exportContent}
+            additionalBlockContents={additionalBlockContents}
+            databaseId={databaseId}
+            databaseDocumentId={databaseDocumentId}
+            rowView={rowView}
+            rowViewPending={addressRowView.pending}
+            canEdit={editorCanEdit}
+            onSaveDescription={(description) =>
+              persistDocumentUpdates({ description })
+            }
+          />
+        </PropertyCommentsContext.Provider>
       </div>
-    );
-  };
-  const utilityPanelContent = utilityPanel
-    ? renderUtilityPanelContent(utilityPanel)
-    : null;
+    ) : pagePanel.rendered === "comments" ? (
+      <CommentHistoryScrollContainer className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+        {renderCommentsSidebar(undefined, false, "history")}
+      </CommentHistoryScrollContainer>
+    ) : null;
 
   return (
     <BlockRegistryProvider
@@ -10477,7 +10493,7 @@ function PageEditorSessionBody({
       ) : null}
       <div
         ref={documentLayoutRef}
-        className="relative flex min-h-0 min-w-0 flex-1"
+        className="relative grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_minmax(0,1fr)] overflow-hidden"
         data-document-print-root
         data-page-editor-owner={pageEditorOwner}
         onClickCapture={(event) => {
@@ -10508,7 +10524,7 @@ function PageEditorSessionBody({
           setHoveredThreadId,
         )}
       >
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="col-span-2 min-w-0">
           <DocumentToolbar
             compact={host === "preview"}
             documentId={documentId}
@@ -10552,11 +10568,12 @@ function PageEditorSessionBody({
             onDelete={handleDeleteDocument}
             isFavorite={document.isFavorite}
             onToggleFavorite={handleToggleFavorite}
-            utilityPanel={utilityPanel}
-            commentsHistoryOpen={showCommentsHistoryDrawer}
+            utilityPanel={openPanelTab}
             openCommentCount={openCommentCount}
-            onUtilityPanelChange={handleUtilityPanelChange}
-            showCommentsControl={canComment && !isLocalFileDocument}
+            onUtilityPanelChange={handlePagePanelChange}
+            showAgentTab={showAgentTab}
+            panelId={pagePanelId}
+            showCommentsControl={showCommentsTab}
             commentsTriggerRef={commentsHistoryTriggerRef}
             utilityPanelFocusFallbackRef={utilityPanelFocusFallbackRef}
             onOpenBreadcrumbItem={
@@ -10585,6 +10602,8 @@ function PageEditorSessionBody({
             }}
             onImport={canImportPages ? openImport : undefined}
           />
+        </div>
+        <div className="col-start-1 row-start-2 flex min-h-0 min-w-0 flex-col">
           <ContentImportDialog
             request={importRequest}
             parentId={documentId}
@@ -10750,17 +10769,13 @@ function PageEditorSessionBody({
           >
             <div
               ref={scrollContentRef}
-              className={cn(
-                "relative flex min-h-full w-full min-w-0",
-                showDesktopInfoPanel ? "justify-center" : "flex-col",
-              )}
+              className="relative flex min-h-full w-full min-w-0 flex-col"
               data-document-scroll-content
             >
               <div
                 ref={pageColumnRef}
                 className={cn(
-                  "min-w-0",
-                  showDesktopInfoPanel ? "flex-1" : "w-full",
+                  "w-full min-w-0",
                   reserveInlineReviewSpace && "pr-80",
                   !isDatabasePage &&
                     DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
@@ -11354,31 +11369,26 @@ function PageEditorSessionBody({
                 ) : null}
               </div>
 
-              {showDesktopRightRail ? (
-                showInlineComments ? (
-                  blockFieldComments.tabSwitchPending ? null : (
-                    <aside
-                      ref={commentLaneRef}
-                      className="absolute right-0 top-0 w-80"
-                      aria-label={t("comments.title")}
-                      data-comments-flow-lane
-                    >
-                      <div
-                        style={{
-                          transform: `translateX(${commentLaneOffset}px)`,
-                        }}
-                      >
-                        <div className="relative min-h-full translate-x-4">
-                          {renderCommentsSidebar()}
-                        </div>
-                      </div>
-                    </aside>
-                  )
-                ) : (
-                  <aside className="w-80 shrink-0 border-s border-border">
-                    {utilityPanelContent}
-                  </aside>
-                )
+              {showInlineComments && !blockFieldComments.tabSwitchPending ? (
+                <aside
+                  ref={commentLaneRef}
+                  className={cn(
+                    "absolute right-0 top-0 w-80 transition-opacity duration-[80ms] motion-reduce:transition-none",
+                    pagePanel.marginFading && "opacity-0",
+                  )}
+                  aria-label={t("comments.title")}
+                  data-comments-flow-lane
+                >
+                  <div
+                    style={{
+                      transform: `translateX(${commentLaneOffset}px)`,
+                    }}
+                  >
+                    <div className="relative min-h-full translate-x-4">
+                      {renderCommentsSidebar()}
+                    </div>
+                  </div>
+                </aside>
               ) : null}
 
               {showAnchoredCommentPopover ? (
@@ -11418,155 +11428,20 @@ function PageEditorSessionBody({
           </div>
         </div>
 
-        <aside
-          className={cn(
-            "min-h-0 shrink-0 overflow-hidden border-s bg-background transition-[width] duration-[260ms] ease-[var(--ease-drawer)]",
-            showDesktopCommentsHistory
-              ? "w-80 border-border"
-              : "pointer-events-none w-0 border-transparent",
-          )}
-          aria-hidden={!showDesktopCommentsHistory || undefined}
-          inert={!showDesktopCommentsHistory || undefined}
-          data-comments-history-rail
-          onTransitionEnd={(event) => {
-            if (event.propertyName === "width" && !showDesktopCommentsHistory) {
-              setCommentsHistoryRailMounted(false);
-            }
-          }}
+        <DocumentPagePanel
+          open={!!pagePanel.tab}
+          tab={pagePanel.rendered}
+          layout={pagePanelLayout}
+          panelId={pagePanelId}
+          pageEditorOwner={pageEditorOwner}
+          panelRef={pagePanelRef}
+          spacerRef={pagePanelSpacerRef}
+          headingRef={pagePanelHeadingRef}
+          agentSlotRef={host === "page" ? agentSlotRef : undefined}
+          onClose={() => handlePagePanelChange(null)}
         >
-          <CommentHistoryScrollContainer className="h-full w-80 overflow-x-hidden overflow-y-auto">
-            {commentsHistoryRailMounted
-              ? renderUtilityPanelContent("comments")
-              : null}
-          </CommentHistoryScrollContainer>
-        </aside>
-
-        {showUtilityPanelRegion && utilityPanel ? (
-          <aside
-            ref={utilityPanelRegionRef}
-            tabIndex={-1}
-            className="absolute inset-y-0 end-0 z-40 flex w-80 max-w-full flex-col border-s border-border bg-background shadow-[var(--agent-kit-drawer-elevation)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-right-8 motion-safe:duration-[260ms] motion-safe:ease-[var(--ease-drawer)]"
-            aria-label={
-              utilityPanel === "info"
-                ? t("editor.toolbar.info")
-                : t("comments.discussion")
-            }
-            data-document-utility-region
-          >
-            {utilityPanel === "comments" ? (
-              <CommentHistoryScrollContainer className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {renderUtilityPanelContent(utilityPanel)}
-              </CommentHistoryScrollContainer>
-            ) : (
-              <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {renderUtilityPanelContent(utilityPanel)}
-              </div>
-            )}
-          </aside>
-        ) : null}
-
-        <Sheet
-          modal
-          open={showUtilityPanelSheet}
-          onOpenChange={(open) => {
-            if (!open) handleUtilityPanelChange(null);
-          }}
-        >
-          <SheetContent
-            ref={setUtilityPanelSheetContainer}
-            side="right"
-            inert={!showUtilityPanelSheet || undefined}
-            onOpenAutoFocus={(event) => {
-              const activeElement = globalThis.document.activeElement;
-              if (
-                !utilityPanelSheetTriggerRef.current &&
-                activeElement instanceof HTMLElement &&
-                activeElement !== globalThis.document.body &&
-                !utilityPanelSheetContainer?.contains(activeElement)
-              ) {
-                utilityPanelSheetTriggerRef.current = activeElement;
-              }
-              event.preventDefault();
-              const focusedReply = hasFocusedCommentReply
-                ? utilityPanelSheetContainer?.querySelector<HTMLElement>(
-                    "[data-comment-reply-composer] [contenteditable=true]",
-                  )
-                : null;
-              (focusedReply ?? utilityPanelSheetCloseRef.current)?.focus();
-            }}
-            onCloseAutoFocus={(event) => {
-              event.preventDefault();
-              if (hasInlineCommentSpace && hasFocusedCommentReply) return;
-              const focusGeneration = utilityPanelFocusGenerationRef.current;
-              const restoreTarget = utilityPanelSheetTriggerRef.current;
-              const fallbackTarget = commentsHistoryTriggerRef.current
-                ?.isConnected
-                ? commentsHistoryTriggerRef.current
-                : utilityPanelFocusFallbackRef.current;
-              globalThis.setTimeout(() => {
-                if (utilityPanelFocusGenerationRef.current !== focusGeneration)
-                  return;
-                (restoreTarget?.isConnected
-                  ? restoreTarget
-                  : fallbackTarget
-                )?.focus();
-                utilityPanelSheetTriggerRef.current = null;
-              }, 0);
-            }}
-            overlayClassName={
-              shellLayout?.agentPanel === "overlay" ? "z-[79]" : undefined
-            }
-            className={cn(
-              "flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0 data-[state=closed]:duration-[260ms] data-[state=open]:duration-[260ms] data-[state=closed]:ease-[var(--ease-drawer)] data-[state=open]:ease-[var(--ease-drawer)]",
-              shellLayout?.agentPanel === "overlay" && "z-[80]",
-            )}
-            aria-describedby={undefined}
-            onEscapeKeyDown={(event) => {
-              preserveCommentComposerEscape(event);
-              if (event.defaultPrevented) return;
-              const target = event.target;
-              const nestedPopper =
-                target instanceof Element
-                  ? target.closest("[data-radix-popper-content-wrapper]")
-                  : null;
-              if (
-                nestedPopper &&
-                utilityPanelSheetContainer?.contains(nestedPopper)
-              ) {
-                event.preventDefault();
-              }
-            }}
-          >
-            <SheetHeader className="sr-only">
-              <SheetTitle>
-                {lastUtilityPanel === "info"
-                  ? t("editor.toolbar.info")
-                  : t("comments.discussion")}
-              </SheetTitle>
-            </SheetHeader>
-            {lastUtilityPanel === "comments" ? (
-              <CommentHistoryScrollContainer className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {showUtilityPanelSheet
-                  ? renderUtilityPanelContent(
-                      lastUtilityPanel,
-                      true,
-                      utilityPanelSheetContainer,
-                    )
-                  : null}
-              </CommentHistoryScrollContainer>
-            ) : (
-              <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {showUtilityPanelSheet
-                  ? renderUtilityPanelContent(
-                      lastUtilityPanel,
-                      true,
-                      utilityPanelSheetContainer,
-                    )
-                  : null}
-              </div>
-            )}
-          </SheetContent>
-        </Sheet>
+          {pagePanelBody}
+        </DocumentPagePanel>
       </div>
     </BlockRegistryProvider>
   );

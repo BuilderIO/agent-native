@@ -73,7 +73,7 @@ import React, {
   lazy,
   Suspense,
 } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 
 import { setComposerReferenceEventTarget } from "../../composer/runtime-adapters.js";
 import { Skeleton } from "../../ui/skeleton.js";
@@ -296,6 +296,12 @@ export interface AgentSidebarProps {
   forceOverlay?: boolean;
   defaultOpen?: boolean;
   disableChatShortcut?: boolean;
+  /**
+   * Draws the panel inside this element instead of beside the page, for an app
+   * whose own sidebar holds the agent. The app then owns the panel's width,
+   * motion and close button, and the key that toggles the sidebar.
+   */
+  panelHost?: HTMLElement | null;
   showCollapseButton?: boolean;
   animateMobile?: boolean;
   animateDesktop?: boolean;
@@ -376,6 +382,7 @@ export function AgentSidebar({
   forceOverlay = false,
   defaultOpen,
   disableChatShortcut = false,
+  panelHost,
   showCollapseButton = true,
   animateMobile = true,
   animateDesktop = true,
@@ -644,9 +651,18 @@ export function AgentSidebar({
     !isPerAppChatHosted &&
     !presentationMode &&
     (!frameCodeMode || !shouldParentFrameOwnAgentPanel());
+  const hostedPanel = ownsPanel && panelHost ? panelHost : null;
+  // A host switches between the agent and its other sections, so the chat
+  // stays mounted behind them once it has opened.
+  const [hostedPanelOpened, setHostedPanelOpened] = useState(false);
+  useEffect(() => {
+    if (!hostedPanel) setHostedPanelOpened(false);
+    else if (open) setHostedPanelOpened(true);
+  }, [hostedPanel, open]);
   const shouldMountPanel =
     ownsPanel &&
     (open ||
+      hostedPanelOpened ||
       backgroundPanelActive ||
       runningTabIds.size > 0 ||
       hasPendingPanelEvents);
@@ -978,10 +994,12 @@ export function AgentSidebar({
           : !presentationMode && (frameOwned ? frameSidebarOpen : open)),
       source: frameOwned ? "frame" : "app",
       mode: frameOwned ? "code" : "app",
+      hosted: Boolean(hostedPanel),
     });
   }, [
     frameCodeMode,
     frameSidebarOpen,
+    hostedPanel,
     open,
     presentationMode,
     hasFrameSidebarState,
@@ -1468,14 +1486,20 @@ export function AgentSidebar({
   useEffect(() => {
     if (!enabled) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (isAgentSidebarToggleShortcut(e)) {
+      if (!panelHost && isAgentSidebarToggleShortcut(e)) {
         e.preventDefault();
         window.dispatchEvent(
           new CustomEvent("agent-panel:toggle", { detail: { focus: true } }),
         );
         return;
       }
-      if (!disableChatShortcut && isAgentPanelChatShortcut(e)) {
+      // A Mac reports ⇧⌘I with a lowercase key, and a hosting page's panel
+      // owns that key.
+      if (
+        !disableChatShortcut &&
+        isAgentPanelChatShortcut(e) &&
+        !(panelHost && e.shiftKey)
+      ) {
         e.preventDefault();
         let selectionText = "";
         try {
@@ -1500,7 +1524,7 @@ export function AgentSidebar({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [disableChatShortcut, enabled]);
+  }, [disableChatShortcut, enabled, panelHost]);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -1602,12 +1626,12 @@ export function AgentSidebar({
   }, [persistWidth]);
 
   const isLeft = effectivePosition === "left";
-  const isOverlay = isMobile || forceOverlay;
-  const wideDrawerEnabled = isWideDrawer && !isOverlay;
+  const isOverlay = !hostedPanel && (isMobile || forceOverlay);
+  const wideDrawerEnabled = isWideDrawer && !isOverlay && !hostedPanel;
   const mobileAnimationEnabled =
     !presentationMode && isOverlay && animateMobile;
   const desktopAnimationEnabled =
-    !presentationMode && !isOverlay && effectiveAnimateDesktop;
+    !presentationMode && !isOverlay && !hostedPanel && effectiveAnimateDesktop;
   const sidebarAnimationEnabled =
     mobileAnimationEnabled || desktopAnimationEnabled;
   const [renderAnimatedPanel, setRenderAnimatedPanel] =
@@ -1713,7 +1737,119 @@ export function AgentSidebar({
     };
   }
 
-  const sidebar = shouldRenderPanel ? (
+  const panelBody = (
+    <LazyChunkErrorBoundary
+      fallback={<LazyChunkRetryFallback />}
+      shouldHandleError={isPanelImportError}
+      onError={onPanelLoadFailed}
+    >
+      <Suspense
+        fallback={
+          <div
+            aria-hidden="true"
+            className="flex min-h-0 flex-1 flex-col gap-3 p-3"
+          >
+            <Skeleton className="h-8 w-full" />
+            <div className="flex-1" />
+            <Skeleton className="h-28 w-full rounded-xl" />
+          </div>
+        }
+      >
+        <AgentSidebarPanel
+          onReadyChange={onPanelReadyChange}
+          onReferenceTargetChange={onReferenceTargetChange}
+          onNavigationChange={onNavigationChange}
+          onTabsClosing={onTabsClosing}
+          emptyStateText={emptyStateText}
+          mcpSuggestionExcludedIntegrationIds={
+            mcpSuggestionExcludedIntegrationIds
+          }
+          suggestions={suggestions}
+          dynamicSuggestions={dynamicSuggestions}
+          suggestionPlacement="context-chips"
+          composerToolbarSlot={composerToolbarSlot}
+          composerSlot={composerSlot}
+          // A host's tab opens the chat without taking focus from the tab.
+          composerAutoFocus={hostedPanel ? false : undefined}
+          composerContextProvider={composerContextProvider}
+          onComposerTextChange={onComposerTextChange}
+          imageModelMenu={imageModelMenu}
+          availableAgents={effectiveAvailableAgents}
+          availableModels={availableModels}
+          modelListLoading={modelListLoading}
+          selectedAgent={effectiveSelectedAgent}
+          onAgentChange={effectiveOnAgentChange}
+          hostedHarness={hostedHarnessEnabled}
+          onConnectProvider={onConnectProvider}
+          builderConnectTransport={builderConnectTransport}
+          onConnectLocalRuntime={onConnectLocalRuntime}
+          runtime={runtime}
+          adapterReloadKey={adapterReloadKey}
+          threadFooterSlot={threadFooterSlot}
+          apiUrl={apiUrl}
+          agentChatSurface={agentChatSurface}
+          desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
+          desktopIdentityAuthenticated={desktopIdentityAuthenticated}
+          showTabBar={effectiveShowTabBar}
+          suppressInlineOpenApp={suppressInlineOpenApp}
+          composerPlaceholder={composerPlaceholder}
+          showMissingApiKeySetup={showMissingApiKeySetup}
+          setupCardOwner={setupCardOwner}
+          showGuidedQuestions={showGuidedQuestions}
+          missingApiKeySetupLayout="sidebar"
+          defaultMode={defaultMode}
+          onCollapse={() => setOpenPersisted(false)}
+          showCollapseButton={!hostedPanel && showCollapseButton}
+          onSnapTo75Percent={
+            isOverlay || hostedPanel ? undefined : snapTo75Percent
+          }
+          isWideDrawer={wideDrawerEnabled}
+          onExitWideDrawer={
+            isOverlay || hostedPanel ? undefined : exitWideDrawer
+          }
+          onFullViewRequest={onFullscreenRequest}
+          onOpenSettings={onOpenSettings}
+          onNewCliTab={onNewCliTab}
+          onNewUiTab={onNewUiTab}
+          renderCliTab={renderCliTab}
+          newTabMode={newTabMode}
+          newCliTabLabel={newCliTabLabel}
+          newUiTabLabel={newUiTabLabel}
+          storageKey={storageKey}
+          restoreActiveThread={restoreActiveThread}
+          scope={scope}
+          chatHistory={chatHistory}
+          isolateHistoryByScope={isolateHistoryByScope}
+          showScopeBadge={showScopeBadge}
+          browserTabId={resolvedBrowserTabId}
+          threadUrlSync={threadUrlSync}
+          agentPageHref={agentPageHref}
+          thinkingDisplay={thinkingDisplay}
+          showModelSelector={showModelSelector}
+          chatOnly={chatOnly}
+        />
+      </Suspense>
+    </LazyChunkErrorBoundary>
+  );
+
+  const sidebar = !shouldRenderPanel ? null : hostedPanel ? (
+    createPortal(
+      <div
+        className="agent-sidebar-panel agent-kit-density flex min-h-0 flex-1 flex-col overflow-hidden"
+        data-agent-sidebar-layout="hosted"
+        data-agent-sidebar-state={panelOpen ? "open" : "closed"}
+        inert={!panelOpen || undefined}
+      >
+        <div
+          ref={panelElementRef}
+          className="agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col"
+        >
+          {panelBody}
+        </div>
+      </div>,
+      hostedPanel,
+    )
+  ) : (
     <>
       {showResizeHandle && !isLeft && (
         <ResizeHandle
@@ -1766,92 +1902,7 @@ export function AgentSidebar({
           ref={panelElementRef}
           className="agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col"
         >
-          <LazyChunkErrorBoundary
-            fallback={<LazyChunkRetryFallback />}
-            shouldHandleError={isPanelImportError}
-            onError={onPanelLoadFailed}
-          >
-            <Suspense
-              fallback={
-                <div
-                  aria-hidden="true"
-                  className="flex min-h-0 flex-1 flex-col gap-3 p-3"
-                >
-                  <Skeleton className="h-8 w-full" />
-                  <div className="flex-1" />
-                  <Skeleton className="h-28 w-full rounded-xl" />
-                </div>
-              }
-            >
-              <AgentSidebarPanel
-                onReadyChange={onPanelReadyChange}
-                onReferenceTargetChange={onReferenceTargetChange}
-                onNavigationChange={onNavigationChange}
-                onTabsClosing={onTabsClosing}
-                emptyStateText={emptyStateText}
-                mcpSuggestionExcludedIntegrationIds={
-                  mcpSuggestionExcludedIntegrationIds
-                }
-                suggestions={suggestions}
-                dynamicSuggestions={dynamicSuggestions}
-                suggestionPlacement="context-chips"
-                composerToolbarSlot={composerToolbarSlot}
-                composerSlot={composerSlot}
-                composerContextProvider={composerContextProvider}
-                onComposerTextChange={onComposerTextChange}
-                imageModelMenu={imageModelMenu}
-                availableAgents={effectiveAvailableAgents}
-                availableModels={availableModels}
-                modelListLoading={modelListLoading}
-                selectedAgent={effectiveSelectedAgent}
-                onAgentChange={effectiveOnAgentChange}
-                hostedHarness={hostedHarnessEnabled}
-                onConnectProvider={onConnectProvider}
-                builderConnectTransport={builderConnectTransport}
-                onConnectLocalRuntime={onConnectLocalRuntime}
-                runtime={runtime}
-                adapterReloadKey={adapterReloadKey}
-                threadFooterSlot={threadFooterSlot}
-                apiUrl={apiUrl}
-                agentChatSurface={agentChatSurface}
-                desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
-                desktopIdentityAuthenticated={desktopIdentityAuthenticated}
-                showTabBar={effectiveShowTabBar}
-                suppressInlineOpenApp={suppressInlineOpenApp}
-                composerPlaceholder={composerPlaceholder}
-                showMissingApiKeySetup={showMissingApiKeySetup}
-                setupCardOwner={setupCardOwner}
-                showGuidedQuestions={showGuidedQuestions}
-                missingApiKeySetupLayout="sidebar"
-                defaultMode={defaultMode}
-                onCollapse={() => setOpenPersisted(false)}
-                showCollapseButton={showCollapseButton}
-                onSnapTo75Percent={isOverlay ? undefined : snapTo75Percent}
-                isWideDrawer={isOverlay ? false : isWideDrawer}
-                onExitWideDrawer={isOverlay ? undefined : exitWideDrawer}
-                onFullViewRequest={onFullscreenRequest}
-                onOpenSettings={onOpenSettings}
-                onNewCliTab={onNewCliTab}
-                onNewUiTab={onNewUiTab}
-                renderCliTab={renderCliTab}
-                newTabMode={newTabMode}
-                newCliTabLabel={newCliTabLabel}
-                newUiTabLabel={newUiTabLabel}
-                storageKey={storageKey}
-                restoreActiveThread={restoreActiveThread}
-                scope={scope}
-                chatHistory={chatHistory}
-                isolateHistoryByScope={isolateHistoryByScope}
-                showScopeBadge={showScopeBadge}
-                browserTabId={resolvedBrowserTabId}
-                threadUrlSync={threadUrlSync}
-                agentPageHref={agentPageHref}
-                thinkingDisplay={thinkingDisplay}
-                showModelSelector={showModelSelector}
-                chatOnly={chatOnly}
-              />
-            </Suspense>
-          </LazyChunkErrorBoundary>
+          {panelBody}
         </div>
       </div>
       {showResizeHandle && isLeft && (
@@ -1866,7 +1917,7 @@ export function AgentSidebar({
         />
       )}
     </>
-  ) : null;
+  );
 
   const drawerPlaceholder =
     wideDrawerEnabled && !presentationMode && panelOpen ? (
@@ -1928,7 +1979,9 @@ export function AgentSidebar({
           className="agent-sidebar-main-surface flex flex-1 flex-col overflow-auto min-w-0"
           data-agent-sidebar-main-position={effectivePosition}
           data-agent-sidebar-main-state={
-            !isOverlay && !presentationMode && panelOpen ? "open" : "closed"
+            !isOverlay && !hostedPanel && !presentationMode && panelOpen
+              ? "open"
+              : "closed"
           }
           data-agent-sidebar-resizing={isResizing ? "true" : undefined}
         >

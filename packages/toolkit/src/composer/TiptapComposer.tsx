@@ -4807,6 +4807,8 @@ function TiptapComposerSurface({
         (e.metaKey || e.ctrlKey) &&
         !e.altKey;
       if (isToggleCombo) {
+        // A page that has already used the key keeps it.
+        if (e.defaultPrevented) return;
         e.preventDefault();
         if (voiceChatActiveRef.current) return;
         if (voice.state === "recording" || voice.state === "starting") {

@@ -30,8 +30,7 @@ import {
   documentEditorReservesInlineReviewSpace,
   documentEditorReviewReadsSettled,
   documentEditorShowsInlineComments,
-  documentEditorShowsUtilityPanelSheet,
-  utilityPanelRegionShouldReceiveFocus,
+  documentPagePanelTab,
   dismissDocumentCommentFocus,
   documentEditorLoadState,
   collabDocHasText,
@@ -1252,7 +1251,7 @@ describe("document editor layout", () => {
       "utf8",
     );
     expect(source).toContain(
-      'if (event.key !== "Escape" || event.defaultPrevented) return;',
+      'if (event.key !== "Escape" || escapeWasHandled(event)) return;',
     );
   });
   it("measures an untransformed comment lane without an offset feedback loop", () => {
@@ -1307,26 +1306,19 @@ describe("document editor layout", () => {
   });
 
   it.each([
-    [959, true, true],
-    [960, true, false],
-    [1040, true, false],
-    [1087, true, false],
-    [1088, true, false],
-    [959, false, true],
-    [960, false, true],
-    [1040, false, true],
-    [1087, false, true],
-    [1088, false, false],
+    [true, true, false],
+    [true, false, false],
+    [false, true, false],
+    [false, false, true],
   ] as const)(
-    "dismisses comment focus at width %i with history=%s without closing a desktop owner: closes=%s",
-    (width, commentsHistoryDrawerOpen, closesPanel) => {
+    "dismisses comment focus with history=%s and margin=%s without closing what still shows it: closes=%s",
+    (commentsHistoryDrawerOpen, hasInlineCommentSpace, closesPanel) => {
       const closeReply = vi.fn();
       const clearFocus = vi.fn();
       const closePanel = vi.fn();
       dismissDocumentCommentFocus({
         commentsHistoryDrawerOpen,
-        hasUtilityRailSpace: width >= 960,
-        hasInlineCommentSpace: width >= 1088,
+        hasInlineCommentSpace,
         closeReply,
         clearFocus,
         closePanel,
@@ -1334,15 +1326,6 @@ describe("document editor layout", () => {
       expect(closeReply).toHaveBeenCalledOnce();
       expect(clearFocus).toHaveBeenCalledOnce();
       expect(closePanel).toHaveBeenCalledTimes(closesPanel ? 1 : 0);
-      expect(
-        documentEditorShowsUtilityPanelSheet({
-          utilityPanel: "comments",
-          commentsHistoryDrawerOpen,
-          hasUtilityRailSpace: width >= 960,
-          hasInlineCommentSpace: width >= 1088,
-          selectedSuggestionId: "saved-suggestion",
-        }),
-      ).toBe(closesPanel);
     },
   );
 
@@ -1350,9 +1333,7 @@ describe("document editor layout", () => {
     expect(
       documentEditorShowsInlineComments({
         showIndicators: true,
-        hasUtilityRailSpace: true,
-        commentsHistoryDrawerOpen: false,
-        utilityPanel: "comments",
+        hasInlineCommentSpace: true,
         hasOpenCommentThreads: false,
         hasSelectedCommentThread: true,
         hasPendingComment: false,
@@ -1360,107 +1341,63 @@ describe("document editor layout", () => {
     ).toBe(true);
   });
 
-  it("keeps history activation in browse mode instead of replacing the desktop list", () => {
-    expect(
-      documentEditorShowsInlineComments({
-        showIndicators: true,
-        hasUtilityRailSpace: true,
-        commentsHistoryDrawerOpen: true,
-        utilityPanel: "comments",
-        hasOpenCommentThreads: true,
-        hasSelectedCommentThread: true,
-        hasPendingComment: false,
-      }),
-    ).toBe(false);
-  });
-
-  it("keeps desktop comments history as the sole surface when deciding a draft selects its saved suggestion", () => {
-    const state = {
-      utilityPanel: "comments" as const,
-      commentsHistoryDrawerOpen: true,
-      hasUtilityRailSpace: true,
-      hasInlineCommentSpace: false,
+  describe("documentPagePanelTab", () => {
+    const closed = {
+      agentInPanel: false,
+      commentsHistoryDrawerOpen: false,
+      utilityPanel: null,
       selectedSuggestionId: null,
+      hasInlineCommentSpace: true,
     };
 
-    expect(documentEditorShowsUtilityPanelSheet(state)).toBe(false);
-    expect(
-      documentEditorShowsUtilityPanelSheet({
-        ...state,
-        selectedSuggestionId: "materialized-suggestion",
-      }),
-    ).toBe(false);
-  });
-
-  it("moves comments above a forced agent overlay", () => {
-    expect(
-      documentEditorShowsUtilityPanelSheet({
-        utilityPanel: "comments",
-        commentsHistoryDrawerOpen: true,
-        hasUtilityRailSpace: true,
-        hasInlineCommentSpace: false,
-        selectedSuggestionId: null,
-        agentPanelOverlay: true,
-      }),
-    ).toBe(true);
-  });
-
-  it("enters a utility region when the menu opener unmounts", () => {
-    expect(
-      utilityPanelRegionShouldReceiveFocus({
-        openerConnected: false,
-        focusOnBody: false,
-      }),
-    ).toBe(true);
-    expect(
-      utilityPanelRegionShouldReceiveFocus({
-        openerConnected: true,
-        focusOnBody: false,
-      }),
-    ).toBe(false);
-  });
-
-  it.each([
-    [940, true, null, true],
-    [940, true, "saved-suggestion", true],
-    [1040, true, "saved-suggestion", false],
-    [1120, true, "saved-suggestion", false],
-    [940, false, "saved-suggestion", true],
-    [1040, false, "saved-suggestion", true],
-    [1120, false, "saved-suggestion", false],
-    [1040, false, null, false],
-  ] as const)(
-    "chooses the comments Sheet at layout width %i with history=%s and selection=%s: %s",
-    (width, commentsHistoryDrawerOpen, selectedSuggestionId, expected) => {
+    it("leaves a comment in focus to the margin", () => {
       expect(
-        documentEditorShowsUtilityPanelSheet({
+        documentPagePanelTab({ ...closed, utilityPanel: "comments" }),
+      ).toBeNull();
+    });
+
+    it("opens for Discussion, Info and the agent, the agent first", () => {
+      expect(
+        documentPagePanelTab({
+          ...closed,
           utilityPanel: "comments",
-          commentsHistoryDrawerOpen,
-          hasUtilityRailSpace: width >= 960,
-          hasInlineCommentSpace: width >= 1088,
-          selectedSuggestionId,
+          commentsHistoryDrawerOpen: true,
         }),
-      ).toBe(expected);
-    },
-  );
-
-  it.each([
-    [940, true],
-    [1040, false],
-  ] as const)(
-    "preserves the Info Sheet at layout width %i: %s",
-    (width, expected) => {
+      ).toBe("comments");
+      expect(documentPagePanelTab({ ...closed, utilityPanel: "info" })).toBe(
+        "info",
+      );
       expect(
-        documentEditorShowsUtilityPanelSheet({
+        documentPagePanelTab({
+          ...closed,
+          agentInPanel: true,
           utilityPanel: "info",
-          commentsHistoryDrawerOpen: false,
-          hasUtilityRailSpace: width >= 960,
-          hasInlineCommentSpace: width >= 1088,
-          selectedSuggestionId: "saved-suggestion",
         }),
-      ).toBe(expected);
-    },
-  );
+      ).toBe("agent");
+    });
+
+    it("shows a selected suggestion that has no margin to open beside", () => {
+      const selected = {
+        ...closed,
+        utilityPanel: "comments" as const,
+        selectedSuggestionId: "saved-suggestion",
+      };
+      expect(documentPagePanelTab(selected)).toBeNull();
+      expect(
+        documentPagePanelTab({ ...selected, hasInlineCommentSpace: false }),
+      ).toBe("comments");
+    });
+
+    it("does not open merely because a draft changed", () => {
+      expect(
+        documentPagePanelTab({
+          ...closed,
+          utilityPanel: "comments",
+          hasInlineCommentSpace: false,
+        }),
+      ).toBeNull();
+    });
+  });
 
   it("rejects a pending comment target when its exact rendered text disappears or changes", () => {
     expect(
@@ -3015,9 +2952,6 @@ describe("document editor layout", () => {
     );
     expect(infoPanel).toContain("<DescriptionField");
     expect(infoPanel).toContain("<DocumentProperties");
-    expect(source).toContain("ref={setUtilityPanelSheetContainer}");
-    expect(source).toContain("utilityPanelSheetContainer,");
-    expect(infoPanel).toContain("popoverContainer={popoverContainer}");
     expect(properties).toMatch(
       /<PropertyValuePopover[\s\S]*?container=\{popoverContainer\}/,
     );
@@ -3138,12 +3072,12 @@ describe("document editor layout", () => {
       "utf8",
     );
 
-    expect(source).toContain("const pathOwner = path.find(");
+    expect(source).toContain("const pathOwner = event\n    .composedPath()");
     expect(source).toContain(
       'activeElement.closest<HTMLElement>("[data-page-editor-owner]")',
     );
     expect(source).toContain(
-      "eventOwner?.dataset.pageEditorOwner === pageEditorOwner",
+      'if (owner ? owner !== pageEditorOwner : host !== "page") return;',
     );
     expect(source).not.toContain("path.includes(editorRoot)");
   });
@@ -3299,8 +3233,8 @@ describe("document editor layout", () => {
     expect(activationStart).toBeGreaterThan(-1);
     expect(activation).toContain("setSelectedThreadId(threadId)");
     // A comment on the whole page opens in the Discussion panel.
-    expect(activation).toContain(
-      "setCommentsBrowseOpen(preserveBrowseContext || !!pageThread)",
+    expect(activation).toMatch(
+      /setCommentsBrowseOpen\(\s+preserveBrowseContext \|\| !!pageThread \|\| pagePanelOpenRef\.current,\s+\)/,
     );
     expect(activation).toContain("isPageCommentThread(thread)");
     expect(activation).toContain('setUtilityPanel("comments")');
@@ -3671,18 +3605,6 @@ describe("document editor layout", () => {
     expect(source).toContain("suggestionSessionVisuals(");
     expect(source).toContain("byId.set(suggestion.id");
     expect(source).toContain("suggestions={visualSuggestions}");
-  });
-
-  it("does not open the narrow suggestion Sheet merely because a draft changed", () => {
-    expect(
-      documentEditorShowsUtilityPanelSheet({
-        utilityPanel: "comments",
-        commentsHistoryDrawerOpen: false,
-        hasUtilityRailSpace: false,
-        hasInlineCommentSpace: false,
-        selectedSuggestionId: null,
-      }),
-    ).toBe(false);
   });
 
   it("opens comments for deep links and conflicts without coupling mode exit to navigation", () => {

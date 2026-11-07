@@ -124,6 +124,8 @@ export interface ShareButtonProps {
     copiedLabel: string;
     onCopy: () => Promise<boolean | void> | boolean | void;
     size?: "default" | "sm";
+    /** `plain` draws Share as text, set apart from Copy link. */
+    appearance?: "joined" | "plain";
     className?: string;
   };
   /** Tooltip for the Copy link button: which link it copies. */
@@ -407,10 +409,11 @@ export function ShareButton(props: ShareButtonProps) {
     controller.handleShareTabChange,
   ]);
   const triggerLabel = t("agentChat.share.share", { defaultValue: "Share" });
+  const plainQuickCopy = props.quickCopy?.appearance === "plain";
   const trigger = (
     <ShareTrigger
       label={
-        props.quickCopy ? (
+        props.quickCopy && !plainQuickCopy ? (
           <span className="flex items-center gap-2">
             <IconUserPlus aria-hidden="true" />
             <span>{props.triggerContent ?? triggerLabel}</span>
@@ -422,8 +425,10 @@ export function ShareButton(props: ShareButtonProps) {
       className={props.triggerClassName}
       aria-label={triggerLabel}
       title={triggerLabel}
-      intent={props.quickCopy ? "primary" : undefined}
-      emphasis={props.quickCopy ? "solid" : undefined}
+      intent={props.quickCopy && !plainQuickCopy ? "primary" : undefined}
+      emphasis={
+        plainQuickCopy ? "ghost" : props.quickCopy ? "solid" : undefined
+      }
     />
   );
   if (isSmallScreen) {
@@ -436,6 +441,7 @@ export function ShareButton(props: ShareButtonProps) {
             copiedLabel={props.quickCopy.copiedLabel}
             onCopy={props.quickCopy.onCopy}
             size={props.quickCopy.size}
+            appearance={props.quickCopy.appearance}
             className={props.quickCopy.className}
           />
         ) : (
@@ -476,6 +482,7 @@ export function ShareButton(props: ShareButtonProps) {
             copiedLabel={props.quickCopy.copiedLabel}
             onCopy={props.quickCopy.onCopy}
             size={props.quickCopy.size}
+            appearance={props.quickCopy.appearance}
             className={props.quickCopy.className}
           />
         </PopoverAnchor>

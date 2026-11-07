@@ -498,39 +498,26 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
     expect(dismiss).toHaveBeenCalledTimes(1);
   });
 
-  it("wires the capture boundary on the production document Sheet", () => {
+  it("lets the comment composer take Escape before the page panel closes", () => {
     const source = readFileSync(
       new NodeURL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
     );
     expect(source).toMatch(
-      /<SheetContent\s+ref=\{setUtilityPanelSheetContainer\}[\s\S]*?onEscapeKeyDown=\{\(event\) => \{\s+preserveCommentComposerEscape\(event\);\s+if \(event\.defaultPrevented\) return;\s+const target = event\.target;\s+const nestedPopper =/,
+      /const closePanel = pagePanelEscapeRef\.current;\s+dismissCommentFocus\(\);\s+const composerKeepsEscape = preserveCommentComposerEscape\(event\);\s+if \(closePanel && !composerKeepsEscape\) handlePagePanelChange\(null\);/,
     );
   });
 
-  it("keeps keyboard focus inside the mobile comments Sheet and restores its trigger", () => {
+  it("gives focus back when the page panel closes around it", () => {
     const source = readFileSync(
       new NodeURL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
     );
     expect(source).toContain(
-      "ref={inSheet ? utilityPanelSheetCloseRef : undefined}",
-    );
-    expect(source).toMatch(
-      /onOpenAutoFocus=\{\(event\) => \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?\(focusedReply \?\? utilityPanelSheetCloseRef\.current\)\?\.focus\(\);/,
-    );
-    expect(source).toContain(
-      "const restoreTarget = utilityPanelSheetTriggerRef.current;",
-    );
-    expect(source).toContain("utilityPanelFocusFallbackRef.current");
-    expect(source).toContain("utilityPanelRegionWasOpenRef.current");
-    expect(source).toContain(
       "utilityPanelFocusFallbackRef={utilityPanelFocusFallbackRef}",
     );
-    expect(source).toContain(
-      "utilityPanelFocusGenerationRef.current !== focusGeneration",
+    expect(source).toMatch(
+      /\(target\?\.isConnected\s+\? target\s+: \(lastTab \?\? utilityPanelFocusFallbackRef\.current\)\s+\)\?\.focus\(/,
     );
-    expect(source).toContain("restoreTarget?.isConnected");
-    expect(source).toContain(": fallbackTarget");
   });
 });
