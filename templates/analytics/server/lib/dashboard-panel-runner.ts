@@ -59,15 +59,17 @@ function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
   message: string,
+  onTimeout: (error: PanelTimeoutError) => void,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
     promise,
     new Promise<never>((_, reject) => {
-      timer = setTimeout(
-        () => reject(new PanelTimeoutError(message)),
-        timeoutMs,
-      );
+      timer = setTimeout(() => {
+        const error = new PanelTimeoutError(message);
+        reject(error);
+        onTimeout(error);
+      }, timeoutMs);
       timer.unref?.();
     }),
   ]).finally(() => {
@@ -106,6 +108,10 @@ export async function runResolvedPanel(args: {
 }): Promise<ReportPanelData> {
   const { source, query, ctx, timeoutMs, signal, forceRefresh } = args;
   const { trafficEnvironment } = args;
+  const deadline = new AbortController();
+  const sourceSignal = signal
+    ? AbortSignal.any([signal, deadline.signal])
+    : deadline.signal;
   const startedAt = Date.now();
   try {
     const result = await withTimeout(
@@ -119,13 +125,14 @@ export async function runResolvedPanel(args: {
               ...(trafficEnvironment ? { trafficEnvironment } : {}),
               timeoutMs,
               ...(forceRefresh ? { forceRefresh: true } : {}),
-              ...(signal ? { signal } : {}),
+              signal: sourceSignal,
             },
             ctx,
           ),
       ),
       timeoutMs,
       `Panel query timed out after ${Math.round(timeoutMs / 1000)}s`,
+      (error) => deadline.abort(error),
     );
     const failure = panelFailureError(result);
     if (failure === "missing_api_key") {

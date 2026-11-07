@@ -122,6 +122,8 @@ export interface DashboardVerification {
 }
 
 export interface VerifyOptions {
+  /** Access-checked dashboard identity supplied by the server caller. */
+  dashboardId?: string;
   signal?: AbortSignal;
   /** Execution deadline shared by every panel in one call. */
   budgetMs?: number;
@@ -741,7 +743,11 @@ async function verifyOne(
     timeoutMs: remainingMs(),
     signal: budgetSignal(),
     forceRefresh: opts.forceRefresh,
-    usageAttribution: { workload: "panel-verification", panelId },
+    usageAttribution: {
+      workload: "panel-verification",
+      panelId,
+      ...(opts.dashboardId ? { dashboardId: opts.dashboardId } : {}),
+    },
     ...(trafficEnvironment ? { trafficEnvironment } : {}),
   });
   if (opts.signal?.aborted) throw cancelled();
@@ -1331,6 +1337,7 @@ export async function verifyPanelWrite(
     [...direct, ...affected, ...visualIds],
     {
       signal: options.signal,
+      ...(options.dashboardId ? { dashboardId: options.dashboardId } : {}),
       base,
       memo: options.memo,
       serverAuthoredPanelIds: options.serverAuthoredPanelIds,
