@@ -19,7 +19,8 @@ import { getAppConfig } from "../app-config/index.js";
 import { createGitHubRepoToolEntries } from "../provider-api/github-repo.js";
 import { loadCliBootstrap } from "../scripts/cli-bootstrap.js";
 import {
-  resolveDevOrgId,
+  devOrgChoiceFromEnv,
+  resolveDevOrgScope,
   resolveDevUserEmail,
 } from "../scripts/dev-session.js";
 import { loadEnv, serializeCliArgs } from "../scripts/utils.js";
@@ -209,14 +210,15 @@ export async function runAgent(
 
   const ownerEmail =
     parsed.userEmail ?? env.AGENT_USER_EMAIL ?? (await resolveDevUserEmail());
-  const orgId = await resolveDevOrgId(
-    ownerEmail,
-    parsed.orgId ?? env.AGENT_ORG_ID ?? undefined,
-  );
+  const envChoice = devOrgChoiceFromEnv(env);
+  const orgScope = await resolveDevOrgScope(ownerEmail, {
+    orgId: parsed.orgId ?? envChoice.orgId,
+    personal: envChoice.personal,
+  });
 
   try {
     const result = await runWithRequestContext(
-      { userEmail: ownerEmail, orgId },
+      { userEmail: ownerEmail, ...orgScope },
       () => runLocalAgentLoop(parsed),
     );
     if (parsed.json) {

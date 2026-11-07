@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 describe("resolveDevUserEmail", () => {
@@ -138,13 +142,25 @@ describe("resolveDevUserEmail", () => {
   });
 });
 
-describe("resolveDevOrgId", () => {
+describe("resolveDevOrgScope", () => {
+  const dataDirs: string[] = [];
+
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.resetModules();
     vi.restoreAllMocks();
+    for (const dir of dataDirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   function mockOrgLookup(lookup: (email: string) => Promise<string | null>) {
+    // The resolveDevUserEmail tests mock the database client; use the real one.
+    vi.doUnmock("../db/client.js");
+    // An existing local database, so the lookup runs.
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-dev-org-"));
+    dataDirs.push(dataDir);
+    vi.stubEnv("DATABASE_URL", `pglite:${dataDir}`);
     const resolveOrgIdForEmail = vi.fn(lookup);
     vi.doMock("../org/context.js", () => ({ resolveOrgIdForEmail }));
     return resolveOrgIdForEmail;
@@ -153,10 +169,13 @@ describe("resolveDevOrgId", () => {
   it("keeps an explicit org without looking up the user's", async () => {
     const lookup = mockOrgLookup(async () => "org_from_ui");
 
-    const { resolveDevOrgId } = await import("./dev-session.js");
-    expect(await resolveDevOrgId("alice@example.test", "org_explicit")).toBe(
-      "org_explicit",
-    );
+    const { resolveDevOrgScope } = await import("./dev-session.js");
+    expect(
+      await resolveDevOrgScope("alice@example.test", {
+        orgId: "org_explicit",
+        personal: true,
+      }),
+    ).toEqual({ orgId: "org_explicit" });
     expect(lookup).not.toHaveBeenCalled();
   });
 
@@ -166,49 +185,74 @@ describe("resolveDevOrgId", () => {
     // user's personal ones.
     const lookup = mockOrgLookup(async () => "org_from_ui");
 
-    const { resolveDevOrgId } = await import("./dev-session.js");
-    expect(await resolveDevOrgId("alice@example.test", undefined)).toBe(
-      "org_from_ui",
-    );
+    const { resolveDevOrgScope } = await import("./dev-session.js");
+    expect(await resolveDevOrgScope("alice@example.test", {})).toEqual({
+      orgId: "org_from_ui",
+    });
     expect(lookup).toHaveBeenCalledWith("alice@example.test");
   });
 
   it("stays personal when the user has no org or chose personal", async () => {
     mockOrgLookup(async () => null);
 
-    const { resolveDevOrgId } = await import("./dev-session.js");
+    const { resolveDevOrgScope } = await import("./dev-session.js");
+    expect(await resolveDevOrgScope("alice@example.test", {})).toEqual({});
+  });
+
+  it("keeps a caller's personal scope instead of finding the user an org", async () => {
+    // A personal agent request that runs `pnpm action` in its shell must not
+    // reach the user's org data through the child process.
+    const lookup = mockOrgLookup(async () => "org_from_ui");
+
+    const { resolveDevOrgScope } = await import("./dev-session.js");
     expect(
-      await resolveDevOrgId("alice@example.test", undefined),
-    ).toBeUndefined();
+      await resolveDevOrgScope("alice@example.test", { personal: true }),
+    ).toEqual({ orgScope: "personal" });
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it("does not create the local database just to look for an org", async () => {
+    const lookup = mockOrgLookup(async () => "org_from_ui");
+    const missing = path.join(os.tmpdir(), `an-dev-org-missing-${Date.now()}`);
+    vi.stubEnv("DATABASE_URL", `pglite:${missing}`);
+
+    const { resolveDevOrgScope } = await import("./dev-session.js");
+    expect(await resolveDevOrgScope("alice@example.test", {})).toEqual({});
+    expect(lookup).not.toHaveBeenCalled();
+    expect(fs.existsSync(missing)).toBe(false);
   });
 
   it("has no org to look up without a user", async () => {
     const lookup = mockOrgLookup(async () => "org_from_ui");
 
-    const { resolveDevOrgId } = await import("./dev-session.js");
-    expect(await resolveDevOrgId(undefined, undefined)).toBeUndefined();
+    const { resolveDevOrgScope } = await import("./dev-session.js");
+    expect(await resolveDevOrgScope(undefined, {})).toEqual({});
     expect(lookup).not.toHaveBeenCalled();
   });
 
-  it("stays personal before the org tables exist", async () => {
-    mockOrgLookup(async () => {
-      throw new Error('relation "org_members" does not exist');
-    });
-
-    const { resolveDevOrgId } = await import("./dev-session.js");
-    expect(
-      await resolveDevOrgId("alice@example.test", undefined),
-    ).toBeUndefined();
-  });
-
-  it("surfaces any other lookup failure instead of acting without the org", async () => {
+  it("surfaces a lookup failure instead of acting without the org", async () => {
     mockOrgLookup(async () => {
       throw new Error("connection refused");
     });
 
-    const { resolveDevOrgId } = await import("./dev-session.js");
-    await expect(
-      resolveDevOrgId("alice@example.test", undefined),
-    ).rejects.toThrow("connection refused");
+    const { resolveDevOrgScope } = await import("./dev-session.js");
+    await expect(resolveDevOrgScope("alice@example.test", {})).rejects.toThrow(
+      "connection refused",
+    );
+  });
+});
+
+describe("devOrgChoiceFromEnv", () => {
+  it("reads the named org and the personal marker", async () => {
+    const { devOrgChoiceFromEnv } = await import("./dev-session.js");
+    expect(
+      devOrgChoiceFromEnv({
+        AGENT_ORG_ID: "org_1",
+        AGENT_ORG_SCOPE: "personal",
+      }),
+    ).toEqual({ orgId: "org_1", personal: true });
+    expect(
+      devOrgChoiceFromEnv({ AGENT_ORG_ID: "", AGENT_ORG_SCOPE: "org" }),
+    ).toEqual({ orgId: undefined, personal: false });
   });
 });

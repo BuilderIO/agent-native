@@ -41,7 +41,8 @@ import { getAppConfig } from "../app-config/index.js";
 import { runApprovedCliAction } from "../cli/action-approval.js";
 import { getRuntimeDatabaseUrl } from "../db/client.js";
 import {
-  resolveDevOrgId,
+  type DevOrgChoice,
+  resolveDevOrgScope,
   resolveDevUserEmail,
 } from "../scripts/dev-session.js";
 import { notifyActionChange } from "./action-change.js";
@@ -65,8 +66,17 @@ export const DEV_DB_MIGRATE_ROUTE = "/_agent-native/dev/db-migrate";
 export const DEV_ACTION_TOKEN_HEADER = "x-agent-native-dev-token";
 export const DEV_ACTION_USER_HEADER = "x-agent-native-dev-user";
 export const DEV_ACTION_ORG_HEADER = "x-agent-native-dev-org";
+/** "personal" when the CLI caller acts in no org; see AGENT_ORG_SCOPE_ENV. */
+export const DEV_ACTION_ORG_SCOPE_HEADER = "x-agent-native-dev-org-scope";
 
 export { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
+
+function devOrgChoiceFromHeaders(event: H3Event): DevOrgChoice {
+  return {
+    orgId: getHeader(event, DEV_ACTION_ORG_HEADER) || undefined,
+    personal: getHeader(event, DEV_ACTION_ORG_SCOPE_HEADER) === "personal",
+  };
+}
 
 export function hashDatabaseKey(databaseUrl: string): string {
   return crypto.createHash("sha256").update(databaseUrl).digest("hex");
@@ -355,14 +365,14 @@ export function mountDevActionForwardRoute(
       const userEmail =
         getHeader(event, DEV_ACTION_USER_HEADER) ||
         (await resolveDevUserEmail());
-      const orgId = await resolveDevOrgId(
+      const orgScope = await resolveDevOrgScope(
         userEmail,
-        getHeader(event, DEV_ACTION_ORG_HEADER) || undefined,
+        devOrgChoiceFromHeaders(event),
       );
 
       const context = {
         userEmail,
-        orgId,
+        ...orgScope,
         requestOrigin: getForwardedRequestOrigin(event),
       };
       return runWithRequestContext(context, async () => {
@@ -501,12 +511,12 @@ export function mountDevDbQueryForwardRoute(nitroApp: any): void {
       const userEmail =
         getHeader(event, DEV_ACTION_USER_HEADER) ||
         (await resolveDevUserEmail());
-      const orgId = await resolveDevOrgId(
+      const orgScope = await resolveDevOrgScope(
         userEmail,
-        getHeader(event, DEV_ACTION_ORG_HEADER) || undefined,
+        devOrgChoiceFromHeaders(event),
       );
 
-      return runWithRequestContext({ userEmail, orgId }, async () => {
+      return runWithRequestContext({ userEmail, ...orgScope }, async () => {
         try {
           const { runDbQuery } = await import("../scripts/db/query.js");
           const databaseUrl = getRuntimeDatabaseUrl("pglite:./data/pglite");

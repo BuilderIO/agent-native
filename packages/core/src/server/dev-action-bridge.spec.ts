@@ -87,6 +87,7 @@ import {
   DEV_DB_MIGRATE_ROUTE,
   DEV_DB_QUERY_ROUTE,
   DEV_ACTION_ORG_HEADER,
+  DEV_ACTION_ORG_SCOPE_HEADER,
   DEV_ACTION_TOKEN_HEADER,
   DEV_ACTION_USER_HEADER,
   getDevActionToken,
@@ -257,6 +258,7 @@ describe("mountDevActionForwardRoute", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     removeDevActionDiscoveryFile(tmpDir);
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -899,6 +901,8 @@ describe("mountDevActionForwardRoute", () => {
     // see the rows the user sees in the app, which are scoped to their org.
     writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
     const token = getDevActionToken()!;
+    // The org lookup only runs against a local database that exists.
+    vi.stubEnv("DATABASE_URL", `pglite:${tmpDir}`);
     mockResolveOrgIdForEmail.mockClear();
     mockResolveOrgIdForEmail.mockResolvedValueOnce("org_ui");
     const run = vi.fn(async (_params: unknown, ctx: unknown) => ctx);
@@ -918,6 +922,34 @@ describe("mountDevActionForwardRoute", () => {
       orgId: "org_ui",
     });
     expect(mockResolveOrgIdForEmail).toHaveBeenCalledWith("owner@example.test");
+  });
+
+  it("keeps a personal caller out of the user's org", async () => {
+    // A personal agent request's shell runs `pnpm action` with
+    // AGENT_ORG_SCOPE=personal, which the CLI forwards as this header.
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const token = getDevActionToken()!;
+    mockResolveOrgIdForEmail.mockClear();
+    mockResolveOrgIdForEmail.mockResolvedValue("org_ui");
+    const run = vi.fn(async () => ({
+      orgId: getRequestOrgId() ?? null,
+      orgScope: getRequestContext()?.orgScope ?? null,
+    }));
+    const handler = mountedHandler({ "do-thing": { run } as any });
+
+    const response = await handler({
+      _headers: {
+        [DEV_ACTION_TOKEN_HEADER]: token,
+        [DEV_ACTION_USER_HEADER]: "owner@example.test",
+        [DEV_ACTION_ORG_SCOPE_HEADER]: "personal",
+      },
+      _body: { name: "do-thing" },
+    });
+
+    expect(response.ok).toBe(true);
+    expect(response.result).toEqual({ orgId: null, orgScope: "personal" });
+    expect(mockResolveOrgIdForEmail).not.toHaveBeenCalled();
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
   });
 
   it("returns 500 with the thrown message when the action fails, without notifying a change", async () => {
@@ -1097,6 +1129,8 @@ describe("mountDevDbQueryForwardRoute", () => {
   it("runs the query in the org the app would use for the user when no org header is sent", async () => {
     writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
     const token = getDevActionToken()!;
+    // The org lookup only runs against a local database that exists.
+    vi.stubEnv("DATABASE_URL", `pglite:${tmpDir}`);
     mockResolveOrgIdForEmail.mockClear();
     mockResolveOrgIdForEmail.mockResolvedValueOnce("org_ui");
     mockRunDbQuery.mockImplementation(async () => ({
@@ -1117,6 +1151,36 @@ describe("mountDevDbQueryForwardRoute", () => {
       { userEmail: "owner@example.test", orgId: "org_ui" },
     ]);
     expect(mockResolveOrgIdForEmail).toHaveBeenCalledWith("owner@example.test");
+  });
+
+  it("keeps a personal query out of the user's org", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const token = getDevActionToken()!;
+    mockResolveOrgIdForEmail.mockClear();
+    mockResolveOrgIdForEmail.mockResolvedValue("org_ui");
+    mockRunDbQuery.mockImplementation(async () => ({
+      rows: [
+        {
+          orgId: getRequestOrgId() ?? null,
+          orgScope: getRequestContext()?.orgScope ?? null,
+        },
+      ],
+      sql: "SELECT 1",
+    }));
+    const handler = mountedDbQueryHandler();
+
+    const response = await handler({
+      _headers: {
+        [DEV_ACTION_TOKEN_HEADER]: token,
+        [DEV_ACTION_USER_HEADER]: "owner@example.test",
+        [DEV_ACTION_ORG_SCOPE_HEADER]: "personal",
+      },
+      _body: { sql: "SELECT 1" },
+    });
+
+    expect(response.rows).toEqual([{ orgId: null, orgScope: "personal" }]);
+    expect(mockResolveOrgIdForEmail).not.toHaveBeenCalled();
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
   });
 
   it("returns 500 with the thrown message when runDbQuery rejects the query", async () => {
