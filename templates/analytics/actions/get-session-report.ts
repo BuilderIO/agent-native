@@ -13,7 +13,7 @@ export default defineAction({
   schema: z.object({
     id: z.string().min(1).describe("The session report id (srep_...)"),
   }),
-  outputSchema: sessionReportSchema.extend({ role: z.string() }),
+  outputSchema: z.object({ ...sessionReportSchema.shape, role: z.string() }),
   http: { method: "GET" },
   readOnly: true,
   mcpTool: true,

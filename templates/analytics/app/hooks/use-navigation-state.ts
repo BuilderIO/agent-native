@@ -77,7 +77,7 @@ export function useNavigationState() {
       } else if (pathname.startsWith("/sessions/reports/")) {
         state.view = "session-report";
         const match = pathname.match(/^\/sessions\/reports\/([^/]+)/);
-        if (match) state.reportId = decodeURIComponent(match[1]);
+        if (match?.[1]) state.reportId = decodeURIComponent(match[1]);
       } else if (pathname.startsWith("/sessions/")) {
         state.view = "sessions";
         const match = pathname.match(/\/sessions\/([^/]+)/);

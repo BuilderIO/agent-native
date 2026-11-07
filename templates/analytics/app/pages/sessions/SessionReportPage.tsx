@@ -196,7 +196,7 @@ function ReportView({ report }: { report: SessionReport & { role: string } }) {
             allowedRoles={["viewer", "editor", "admin"]}
             resourceTitle={report.title}
             variant="compact"
-            shareUrl={shareUrl}
+            {...(shareUrl ? { shareUrl } : {})}
           />
           {canManage ? (
             <AlertDialog>

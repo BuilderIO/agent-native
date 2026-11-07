@@ -246,9 +246,11 @@ describe("session reports", () => {
         token: "t",
       });
 
-      expect(context.session).toBeNull();
-      expect(context.sessionUnavailable).toMatch(/no longer stored/);
-      expect(context.report.summary).toBe(input.summary);
+      expect(context).toMatchObject({
+        session: null,
+        sessionUnavailable: expect.stringMatching(/no longer stored/),
+        report: { summary: input.summary },
+      });
     });
   });
 });

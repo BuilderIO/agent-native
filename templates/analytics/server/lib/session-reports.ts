@@ -11,6 +11,7 @@ import {
   accessFilter,
   assertAccess,
   resolveAccess,
+  type AccessContext,
 } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 
@@ -63,8 +64,10 @@ function reportError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });
 }
 
-function accessContext(scope: ReplayScope) {
-  return { userEmail: scope.userEmail, orgId: scope.orgId ?? undefined };
+function accessContext(scope: ReplayScope): AccessContext {
+  return scope.orgId
+    ? { userEmail: scope.userEmail, orgId: scope.orgId }
+    : { userEmail: scope.userEmail };
 }
 
 // These columns are written only by this file, so a value that doesn't parse
@@ -86,7 +89,9 @@ function parseStoredJson(row: { id: string }, column: string, raw: unknown) {
   }
 }
 
-function rowToReport(row: any): SessionReport {
+type SessionReportRow = typeof schema.sessionReports.$inferSelect;
+
+function rowToReport(row: SessionReportRow): SessionReport {
   const keyMoments = sessionReportKeyMomentSchema
     .array()
     .safeParse(parseStoredJson(row, "key_moments", row.keyMoments));
@@ -174,7 +179,7 @@ export async function createSessionReport(
     // session can see what was found in it.
     visibility: scope.orgId ? ("org" as const) : ("private" as const),
   };
-  await (getDb() as any).insert(schema.sessionReports).values(row);
+  await getDb().insert(schema.sessionReports).values(row);
   const report = rowToReport(row);
   recordReportChange("change", report);
   return report;
@@ -216,11 +221,12 @@ export async function updateSessionReport(
   if (patch.errorIssueId !== undefined) {
     update.errorIssueId = patch.errorIssueId;
   }
-  const [row] = await (getDb() as any)
+  const updated = await getDb()
     .update(schema.sessionReports)
     .set(update)
     .where(eq(schema.sessionReports.id, reportId))
     .returning();
+  const row = updated[0] as SessionReportRow | undefined;
   if (!row) throw reportError("Session report not found", 404);
   const report = rowToReport(row);
   recordReportChange("change", report);
@@ -238,7 +244,7 @@ export async function deleteSessionReport(
     accessContext(scope),
   );
   const report = rowToReport(access.resource);
-  const db = getDb() as any;
+  const db = getDb();
   await db
     .delete(schema.sessionReportShares)
     .where(eq(schema.sessionReportShares.resourceId, reportId));
@@ -250,7 +256,7 @@ export async function deleteSessionReport(
 }
 
 export async function listSessionReports(
-  options: { recordingId?: string; limit: number },
+  options: { recordingId?: string | undefined; limit: number },
   scope: ReplayScope,
 ): Promise<SessionReport[]> {
   const access = accessFilter(
@@ -258,7 +264,7 @@ export async function listSessionReports(
     schema.sessionReportShares,
     accessContext(scope),
   );
-  const rows = await (getDb() as any)
+  const rows = await getDb()
     .select()
     .from(schema.sessionReports)
     .where(
@@ -287,13 +293,14 @@ async function resolveReportForAgentLink(
     resourceId: reportId,
   });
   if (!verified.ok || !verified.viewerEmail) return null;
-  const db = getDb() as any;
+  const db = getDb();
   // guard:allow-unscoped -- reads one row by id only to learn its org; the resolveAccess call below decides whether the link's maker may still open it.
-  const [row] = await db
+  const rows = await db
     .select({ orgId: schema.sessionReports.orgId })
     .from(schema.sessionReports)
     .where(eq(schema.sessionReports.id, reportId))
     .limit(1);
+  const row = rows[0] as (typeof rows)[number] | undefined;
   if (!row) return null;
   const makerScope = {
     userEmail: verified.viewerEmail,
@@ -315,7 +322,7 @@ export async function buildSessionReportAgentContext({
 }: {
   reportId: string;
   token: string;
-  origin?: string;
+  origin?: string | undefined;
 }) {
   const resolved = await resolveReportForAgentLink(reportId, token);
   if (!resolved) {
@@ -334,7 +341,7 @@ export async function buildSessionReportAgentContext({
     session = await buildSessionReplayAgentContext({
       recordingId: report.recordingId,
       token: grant.token,
-      origin,
+      ...(origin ? { origin } : {}),
     });
   } catch (error) {
     if ((error as { statusCode?: number }).statusCode !== 404) throw error;
