@@ -11,8 +11,9 @@
  * not specs or tests) and flags a recursive `cp` or `cpSync` call that
  * doesn't choose what happens to links: `dereference: true` copies what a
  * link points at, and `verbatimSymlinks: true` keeps each link exactly as it
- * is (a backup restored in place). Options the guard can't read, such as a
- * variable or a spread, count as recursive.
+ * is (a whole-app copy, where following a link could pull in a file the copy
+ * leaves out). Options the guard can't read, such as a variable or a spread,
+ * count as recursive.
  *
  * A copy that really should write absolute links can say so, on any line of
  * the call or on the line immediately above it:
@@ -83,10 +84,13 @@ function leavesLinksToDefault(options: ts.Expression | undefined): boolean {
   // `fs.cp(src, dest, callback)` has no options.
   if (ts.isArrowFunction(inner) || ts.isFunctionExpression(inner)) return false;
   if (!ts.isObjectLiteralExpression(inner)) return true;
+  // Read in order, so a later property or spread wins.
   let recursive = false;
+  const chosen = new Set<string>();
   for (const property of inner.properties) {
     if (ts.isSpreadAssignment(property)) {
       recursive = true;
+      chosen.clear();
       continue;
     }
     if (
@@ -102,10 +106,13 @@ function leavesLinksToDefault(options: ts.Expression | undefined): boolean {
     const isFalse =
       ts.isPropertyAssignment(property) &&
       unwrap(property.initializer).kind === ts.SyntaxKind.FalseKeyword;
-    if (name !== undefined && LINK_CHOICES.has(name) && !isFalse) return false;
+    if (name !== undefined && LINK_CHOICES.has(name)) {
+      if (isFalse) chosen.delete(name);
+      else chosen.add(name);
+    }
     if (name === "recursive") recursive = !isFalse;
   }
-  return recursive;
+  return recursive && chosen.size === 0;
 }
 
 export function findRecursiveCopies(
@@ -189,7 +196,7 @@ function main() {
       "absolute, so the copy only works on the machine that made it (#8231).\n" +
       "Choose what happens to links:\n\n" +
       "  fs.cpSync(src, dest, { recursive: true, dereference: true });\n" +
-      "  fs.cpSync(backup, target, { recursive: true, verbatimSymlinks: true });\n\n" +
+      "  fs.cpSync(appDir, bundleDir, { recursive: true, verbatimSymlinks: true });\n\n" +
       "A copy that really should write absolute links can say so on the call or\n" +
       "the line above it:\n\n" +
       "  // guard:allow-copy-links — <why>\n",

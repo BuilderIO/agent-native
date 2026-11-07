@@ -1617,9 +1617,10 @@ function snapshotInstallPaths(
   return [...new Set(targets)].map((target, index) => {
     const backup = path.join(backupRoot, `snapshot-${index}`);
     const existed = fs.existsSync(target);
-    if (existed) {
-      fs.cpSync(target, backup, { recursive: true, verbatimSymlinks: true });
-    }
+    // The backup is only restored on this machine. Kept as written, a relative
+    // link would dangle in the temp folder, and cpSync can't copy that back.
+    // guard:allow-copy-links — restored on the machine that took the snapshot
+    if (existed) fs.cpSync(target, backup, { recursive: true });
     return { target, backup, existed };
   });
 }
@@ -1642,10 +1643,8 @@ function restoreInstallPaths(
     fs.rmSync(snapshot.target, { recursive: true, force: true });
     if (snapshot.existed) {
       fs.mkdirSync(path.dirname(snapshot.target), { recursive: true });
-      fs.cpSync(snapshot.backup, snapshot.target, {
-        recursive: true,
-        verbatimSymlinks: true,
-      });
+      // guard:allow-copy-links — see snapshotInstallPaths
+      fs.cpSync(snapshot.backup, snapshot.target, { recursive: true });
     }
   }
   for (const snapshot of snapshots) {

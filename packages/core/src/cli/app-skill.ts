@@ -752,7 +752,13 @@ function skillExportName(skill: AppSkillManifestSkill): string {
 }
 
 function copyDirFiltered(source: string, dest: string): void {
-  const sourceRoot = path.resolve(source);
+  // A linked skill folder is copied as its files. Links inside it stay links,
+  // with their targets as written: following them would carry files the
+  // filter below leaves out, such as a link to `.env`.
+  const from = fs.lstatSync(source).isSymbolicLink()
+    ? fs.realpathSync(source)
+    : source;
+  const sourceRoot = path.resolve(from);
   const destRoot = path.resolve(dest);
   const relativeDest = path.relative(sourceRoot, destRoot);
   const outputRootInsideSource =
@@ -761,9 +767,9 @@ function copyDirFiltered(source: string, dest: string): void {
     !path.isAbsolute(relativeDest)
       ? path.join(sourceRoot, relativeDest.split(path.sep)[0])
       : destRoot;
-  fs.cpSync(source, dest, {
+  fs.cpSync(from, dest, {
     recursive: true,
-    dereference: true,
+    verbatimSymlinks: true,
     filter: (src) => {
       const resolved = path.resolve(src);
       if (

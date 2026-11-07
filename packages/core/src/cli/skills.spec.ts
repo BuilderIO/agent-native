@@ -143,7 +143,13 @@ describe("copy scaffold guidance skills", () => {
       const root = tmpDir();
       const sourceRoot = path.join(root, ".agents", "skills");
       const targetRoot = path.join(root, ".claude", "skills");
-      const relativeTarget = path.join("..", "..", ".agents", "skills", "actions");
+      const relativeTarget = path.join(
+        "..",
+        "..",
+        ".agents",
+        "skills",
+        "actions",
+      );
       fs.mkdirSync(path.join(sourceRoot, "actions"), { recursive: true });
       fs.writeFileSync(
         path.join(sourceRoot, "actions", "SKILL.md"),

@@ -561,6 +561,57 @@ describe("app skill packaging", () => {
     expect(fs.existsSync(path.join(outDir, "app", ".npmrc"))).toBe(false);
     expect(fs.existsSync(path.join(outDir, "app", "cert.pem"))).toBe(false);
   });
+
+  // Windows needs extra rights to make a file link.
+  it.skipIf(process.platform === "win32")(
+    "keeps links in packed app source as links instead of following them",
+    () => {
+      const root = tmpDir();
+      const manifestFile = writeFixture(root);
+      fs.mkdirSync(path.join(root, "private"));
+      fs.writeFileSync(path.join(root, "private", "notes.txt"), "private");
+      fs.symlinkSync(
+        path.join("private", "notes.txt"),
+        path.join(root, "reference.txt"),
+      );
+
+      const outDir = path.join(tmpDir(), "packed-assets");
+      buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+      const reference = path.join(outDir, "app", "reference.txt");
+      expect(fs.lstatSync(reference).isSymbolicLink()).toBe(true);
+      expect(fs.readlinkSync(reference)).toBe(
+        path.join("private", "notes.txt"),
+      );
+      expect(fs.existsSync(path.join(outDir, "app", "private"))).toBe(false);
+    },
+  );
+
+  it("exports a linked skill folder as files", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const skillLink = path.join(root, ".agents", "skills", "asset-generation");
+    const sharedSkill = path.join(root, "shared", "asset-generation");
+    fs.mkdirSync(path.dirname(sharedSkill), { recursive: true });
+    fs.renameSync(skillLink, sharedSkill);
+    fs.symlinkSync(
+      sharedSkill,
+      skillLink,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    const exported = path.join(outDir, "skills", "assets");
+    expect(fs.lstatSync(exported).isSymbolicLink()).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(exported, "references", "project-context.md"),
+        "utf-8",
+      ),
+    ).toBe("Keep project context bounded and preserve its provenance.\n");
+  });
 });
 
 describe("app skill launch and ensure", () => {

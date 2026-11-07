@@ -56,9 +56,11 @@ describe("recursive copy links guard", () => {
     const source = [
       "fs.cpSync(src, dest, copyOptions);",
       "fs.cpSync(src, dest, { ...copyOptions });",
+      "fs.cpSync(src, dest, { recursive: true, dereference: true, ...copyOptions });",
+      "fs.cpSync(src, dest, { ...copyOptions, recursive: true, dereference: true });",
     ].join("\n");
 
-    assert.deepEqual(flagged(source), [1, 2]);
+    assert.deepEqual(flagged(source), [1, 2, 3]);
   });
 
   it("accepts the pragma on the call or the line above it", () => {
