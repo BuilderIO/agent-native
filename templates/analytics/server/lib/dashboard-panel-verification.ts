@@ -673,7 +673,10 @@ async function verifyOne(
         trafficEnvironment: shownTraffic,
       });
     } catch (error) {
-      return finish({ status: "query-error", error });
+      return finish({
+        status: "query-error",
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
