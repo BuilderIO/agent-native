@@ -177,7 +177,7 @@ describe("property management menu", () => {
     const visibility = [
       ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
     ].find((item) =>
-      item.textContent?.startsWith("editor.properties.visibility"),
+      item.textContent.startsWith("editor.properties.visibility"),
     );
     if (!visibility) throw new Error("No Visibility submenu");
     await focus(visibility);
