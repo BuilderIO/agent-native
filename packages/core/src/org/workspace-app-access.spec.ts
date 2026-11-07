@@ -613,12 +613,14 @@ describe("isWorkspaceAppAccessAllowed", () => {
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
       "https://dispatch.example.test",
     );
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify([{ id: "programs" }, { id: "new-live-app" }]),
-        { headers: { "content-type": "application/json" } },
-      ),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify([{ id: "programs" }, { id: "new-live-app" }]),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     const ids = await currentWorkspaceAppIdsForAccessList({
