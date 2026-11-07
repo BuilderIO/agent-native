@@ -95,17 +95,28 @@ const FIXTURES = [
   { id: "literal-typo", title: "Scratch", content: "a note about roadmpa" },
   { id: "pre-launch", title: "Pre-launch checklist", content: "" },
   { id: "kickoff-agenda", title: "Kickoff-agenda v2", content: "" },
+  // A body can hold one of two mistyped words as typed.
+  { id: "lantern", title: "Lantern", content: "the lantren-harbor log" },
+  { id: "harbor", title: "Harbor", content: "" },
   // Text stored in forms the index normalizes and the fallback scan matches
   // as stored: full-width letters, circled letters, and a separate accent.
   { id: "fullwidth-gazebo", title: "Ｇａｚｅｂｏ plan", content: "" },
   { id: "fullwidth-compound", title: "pre-Ｍｅｅｔｉｎｇ notes", content: "" },
   { id: "circled-kiosk", title: "Ⓚⓘⓞⓢⓚ hours", content: "" },
   { id: "decomposed-cafeteria", title: "Caféteria menu", content: "" },
+  // Only a description outside the "billing" filter says "gondola"; a body
+  // inside it does too.
+  {
+    id: "gondola",
+    title: "Transit",
+    description: "Gondola schedule",
+    content: "",
+  },
   {
     id: "billing-archive",
     parentId: "billing",
     title: "Archive index",
-    content: "",
+    content: "Includes the gondola invoices.",
   },
   ...Array.from({ length: 5 }, (_, index) => ({
     id: `quarterly-${index + 1}`,
@@ -281,6 +292,14 @@ describe.each([
       { term: "kikcoff", replacements: ["kickoff"] },
       { term: "agneda", replacements: ["agenda"] },
     ]);
+
+    // Each of two mistyped words is also kept as typed.
+    const partly = await search("lantren-harbro", { fallback });
+    expect(ids(partly)).toEqual(["lantern"]);
+    expect(partly.spellingCorrections).toEqual([
+      { term: "lantren", replacements: ["lantern"] },
+      { term: "harbro", replacements: ["harbor"] },
+    ]);
   });
 
   it("finds a correction taken from text stored in another form", async () => {
@@ -303,7 +322,14 @@ describe.each([
       ids(await search("archve", { fallback, parentId: "billing" })),
     ).toEqual(["billing-archive"]);
 
-    const outside = await search("hnagar", { fallback, parentId: "billing" });
+    // Unfiltered, "gondloa" is corrected and finds both pages.
+    expect(ids(await search("gondloa", { fallback })).sort()).toEqual([
+      "billing-archive",
+      "gondola",
+    ]);
+    // Under "billing", no title or description says "gondola", so a
+    // correction would have to come from the page outside the filter.
+    const outside = await search("gondloa", { fallback, parentId: "billing" });
     expect(ids(outside)).toEqual([]);
     expect(outside.spellingCorrections).toBeUndefined();
   });

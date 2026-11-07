@@ -47,18 +47,13 @@ import {
 } from "./_document-search-ranking.js";
 import {
   correctSearchQueryTypos,
+  hasCorrectableWord,
   searchVocabulary,
   type SpellingCorrection,
+  TYPO_VOCABULARY_LIMIT,
 } from "./_document-search-typo.js";
 import { loadPageSubtree } from "./_page-subtree.js";
 import { SNIPPET_WINDOW_CONTEXT, searchSnippet } from "./_search-snippet.js";
-
-/**
- * Most distinct title and description words read for the typo pass. A
- * library with more keeps its most-used words, so every request of a search
- * reads the same ones.
- */
-const TYPO_VOCABULARY_LIMIT = 50_000;
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -538,7 +533,8 @@ export default defineAction({
       totalItems === 0 &&
       parsedQuery &&
       !parsedQuery.empty &&
-      !args.exactTitle
+      !args.exactTitle &&
+      hasCorrectableWord(parsedQuery)
     ) {
       const corrected = correctSearchQueryTypos(
         parsedQuery,
