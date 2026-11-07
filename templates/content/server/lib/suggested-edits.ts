@@ -405,6 +405,28 @@ function suggestionStaleError(message: string) {
   return error;
 }
 
+/**
+ * A page conversion can leave one piece of a review unit stale. Accepting the
+ * rest would land half of a sentence, whatever the reviewer's screen last showed.
+ */
+async function refuseHalfOfStaleUnit(
+  tx: DbExec,
+  suggestion: ResourceSuggestion,
+) {
+  const unit = suggestion.metadata?.reviewUnit;
+  if (!suggestion.proposalId || typeof unit !== "string") return;
+  const stale = (
+    await tx.execute({
+      sql: "SELECT metadata_json FROM agent_review_suggestions WHERE proposal_id = ? AND status = 'stale'",
+      args: [suggestion.proposalId],
+    })
+  ).rows;
+  const isSameUnit = (row: { metadata_json?: unknown }) =>
+    (JSON.parse(String(row.metadata_json)) as { reviewUnit?: unknown } | null)
+      ?.reviewUnit === unit;
+  if (stale.some(isSameUnit)) throw suggestionStaleError(STALE_ACCEPT_MESSAGE);
+}
+
 function failBeforeStateConflict(): never {
   fail(
     "The suggestion before-state does not match the Page; refresh before saving this suggestion",
@@ -1134,6 +1156,10 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     });
   },
   async apply(context) {
+    await refuseHalfOfStaleUnit(
+      context.transaction as DbExec,
+      context.suggestion,
+    );
     if (isLiveCopyDecision(context.coordination))
       return applyOnLiveCopy(context, context.coordination);
     const operations = validateOperations(context.operations);

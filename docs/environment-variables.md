@@ -388,28 +388,28 @@ GitHub issues. `QA_SLACK_BOT_TOKEN` is a bot token for the Slack app; store it
 only as a GitHub Actions secret. If a report is due but Slack is not configured
 or delivery fails, the reporter job fails visibly instead of opening an issue.
 
-| Variable                          | Purpose                                                                                                                                                             |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `QA_SLACK_BOT_TOKEN`              | Slack bot token (`chat:write`) for the scheduled reporters. Store it as a GitHub Actions secret.                                                                    |
-| `SLACK_CHANNEL`                   | Slack channel id the reporters post to: `#qa-agent-native`, or `#dev-agent-native-alerts` for deploy-path alerts. Workflow-internal.                                |
-| `REPORT_DIR`                      | Scratch directory the Beta E2E reporter uses for jobs, artifacts, logs, and its digest. Workflow-internal.                                                          |
-| `UPDATE_BASELINE`                 | Whether the Beta E2E report covers the full suite and may replace shared notification state. Scoped reports preserve the prior full-suite state. Workflow-internal. |
-| `COLLECT_OUTCOME`                 | Result of collecting the Beta E2E run's jobs, artifacts, and logs; a failed collection produces a degraded report. Workflow-internal.                               |
-| `METADATA_INCOMPLETE`             | Whether the Beta E2E reporter could not collect complete run metadata or restore prior state. Workflow-internal.                                                    |
-| `PREVIOUS_STATE_ARTIFACT_MISSING` | Whether the latest prior Beta E2E run lacks a readable state artifact; the reporter preserves unknown state to avoid a false recovery. Workflow-internal.           |
-| `SHOULD_NOTIFY`                   | Whether the Beta E2E digest found a report-worthy transition and should post its single consolidated Slack message. Workflow-internal.                              |
-| `HEALTH_OUTCOME`                  | Result of the production health audit passed to its reporting step. Workflow-internal.                                                                              |
-| `HEALTH_REPORT_ARTIFACT_OUTCOME`  | Result of uploading the production health report artifact; acknowledgement requires a successful upload. Workflow-internal.                                         |
-| `HISTORY_READ`                    | Whether the production health reporter recovered prior run state from its artifact history. `unavailable` means recovery must not be inferred. Workflow-internal.   |
-| `STATE_READ_OUTCOME`              | Result of reading the prior production health reporter state artifact; a failure produces a degraded report. Workflow-internal.                                     |
-| `PREVIOUS_CONCLUSION`             | Conclusion of the prior production health run used to gate recovery notifications. Workflow-internal.                                                               |
-| `REPORT_PLAN_OUTCOME`             | Result of the production health report planning step. A failure keeps the reporter visibly red. Workflow-internal.                                                  |
-| `PAGERDUTY_TRIGGER_OUTCOME`       | Result of sending a production health PagerDuty trigger. Workflow-internal.                                                                                         |
-| `PAGERDUTY_RESOLVE_OUTCOME`       | Result of sending a production health PagerDuty recovery. Workflow-internal.                                                                                        |
-| `PUBLISH_OUTCOME`                 | Result of publishing the signup agent's consolidated report artifact. Workflow-internal.                                                                            |
-| `REVIEW_OUTCOME`                  | Result of the signup agent review step. Workflow-internal.                                                                                                          |
-| `EVIDENCE_OUTCOME`                | Result of preserving the signup agent's report and evidence artifact. Workflow-internal.                                                                            |
-| `REPORT_INCOMPLETE`               | Whether the signup agent's consolidated report could not include complete findings. The workflow posts the degraded report, then fails visibly. Workflow-internal.  |
+| Variable                          | Purpose                                                                                                                                                                              |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `QA_SLACK_BOT_TOKEN`              | Slack bot token (`chat:write`) for the scheduled reporters. Store it as a GitHub Actions secret.                                                                                     |
+| `SLACK_CHANNEL`                   | Slack channel id the reporters post to: `#qa-agent-native`, or `#dev-agent-native-alerts` for deploy-path alerts. Workflow-internal.                                                 |
+| `REPORT_DIR`                      | Scratch directory the Beta E2E reporter uses for jobs, artifacts, logs, and its digest, and the folder the Content convergence job merges its group reports into. Workflow-internal. |
+| `UPDATE_BASELINE`                 | Whether the Beta E2E report covers the full suite and may replace shared notification state. Scoped reports preserve the prior full-suite state. Workflow-internal.                  |
+| `COLLECT_OUTCOME`                 | Result of collecting the Beta E2E run's jobs, artifacts, and logs; a failed collection produces a degraded report. Workflow-internal.                                                |
+| `METADATA_INCOMPLETE`             | Whether the Beta E2E reporter could not collect complete run metadata or restore prior state. Workflow-internal.                                                                     |
+| `PREVIOUS_STATE_ARTIFACT_MISSING` | Whether the latest prior Beta E2E run lacks a readable state artifact; the reporter preserves unknown state to avoid a false recovery. Workflow-internal.                            |
+| `SHOULD_NOTIFY`                   | Whether the Beta E2E digest found a report-worthy transition and should post its single consolidated Slack message. Workflow-internal.                                               |
+| `HEALTH_OUTCOME`                  | Result of the production health audit passed to its reporting step. Workflow-internal.                                                                                               |
+| `HEALTH_REPORT_ARTIFACT_OUTCOME`  | Result of uploading the production health report artifact; acknowledgement requires a successful upload. Workflow-internal.                                                          |
+| `HISTORY_READ`                    | Whether the production health reporter recovered prior run state from its artifact history. `unavailable` means recovery must not be inferred. Workflow-internal.                    |
+| `STATE_READ_OUTCOME`              | Result of reading the prior production health reporter state artifact; a failure produces a degraded report. Workflow-internal.                                                      |
+| `PREVIOUS_CONCLUSION`             | Conclusion of the prior production health run used to gate recovery notifications. Workflow-internal.                                                                                |
+| `REPORT_PLAN_OUTCOME`             | Result of the production health report planning step. A failure keeps the reporter visibly red. Workflow-internal.                                                                   |
+| `PAGERDUTY_TRIGGER_OUTCOME`       | Result of sending a production health PagerDuty trigger. Workflow-internal.                                                                                                          |
+| `PAGERDUTY_RESOLVE_OUTCOME`       | Result of sending a production health PagerDuty recovery. Workflow-internal.                                                                                                         |
+| `PUBLISH_OUTCOME`                 | Result of publishing the signup agent's consolidated report artifact. Workflow-internal.                                                                                             |
+| `REVIEW_OUTCOME`                  | Result of the signup agent review step. Workflow-internal.                                                                                                                           |
+| `EVIDENCE_OUTCOME`                | Result of preserving the signup agent's report and evidence artifact. Workflow-internal.                                                                                             |
+| `REPORT_INCOMPLETE`               | Whether the signup agent's consolidated report could not include complete findings. The workflow posts the degraded report, then fails visibly. Workflow-internal.                   |
 
 ### Scheduled signup E2E canary
 
@@ -473,8 +473,13 @@ runtime code:
 | `DESIGN_CANVAS_LANDING_PAGE_WORKFLOW` | Set to `1` only in the dedicated Design landing-page CI lane so its serial workflow remains selected there and is excluded from generic changed-spec shards.                          |
 | `DOCS_ONLY`                           | Whether change-scope selected a docs-only change; the required Build gate requires the build job to succeed when this is true. Do not set manually.                                   |
 | `E2E_LOG_TEST_PROGRESS`               | Set to `1` in Design E2E to add Playwright's line reporter alongside the configured reporters, keeping test progress visible in CI logs.                                              |
+| `FAILED_GROUPS`                       | Content convergence regular groups that did not pass, checked by the Content convergence job. Workflow-internal.                                                                      |
+| `GROUP_DIR`                           | Report folder of one Content convergence group. Workflow-internal.                                                                                                                    |
+| `GROUPS_DIR`                          | Folder the Content convergence job downloads the group reports into. Workflow-internal.                                                                                               |
 | `GUARDS_REQUIRED`                     | Whether change-scope selected the Security guards job; the required Build gate checks the corresponding job result.                                                                   |
 | `GUARDS_RESULT`                       | Result of the Security guards job, checked by the required Build gate.                                                                                                                |
+| `JOBS_OUTCOME`                        | Result of reading the run's job list for the Content convergence merge. Workflow-internal.                                                                                            |
+| `MERGE_OUTCOME`                       | Result of merging the Content convergence group reports. Workflow-internal.                                                                                                           |
 | `PRE_AUTH_REPLAY_E2E`                 | Whether change-scope selected the pre-auth session replay smoke; the required Fast tests gate validates the matching job result.                                                      |
 | `PRE_AUTH_REPLAY_RESULT`              | Result of the pre-auth session replay smoke job, checked by the required Fast tests gate.                                                                                             |
 | `POSTGRES_DB`                         | Database name for the PostgreSQL service container used in CI integration tests.                                                                                                      |
