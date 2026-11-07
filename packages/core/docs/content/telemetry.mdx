@@ -86,6 +86,29 @@ Some events are also sent under a second, newer name, with `canonical_event_name
 
 `error` is the short message hint described under [Crash reports](#crash-reports).
 
+### Project activity
+
+These events show how many machines that ran `create` went on to start a dev server and finish a production build, and from which templates.
+
+| Event                 | When                                                                                                                                           | Properties                                          |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `cli_create_finished` | `create` finishes, is cancelled or fails.                                                                                                      | `outcome`, `templates`, `projectKind`, `failedStep` |
+| `cli_dev_ready`       | The dev server first starts listening in a run of `dev`. A restart doesn't send it again, and in a workspace only the first app to start does. | `workspace`, `appCount`, `readySeconds`             |
+| `cli_deploy_finished` | `build` or `deploy` finishes or fails.                                                                                                         | `outcome`, `preset`, `failedStep`                   |
+
+| Property       | What it is                                                                                                                                                                                     |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `outcome`      | `completed` or `failed`. `create` can also send `cancelled`.                                                                                                                                   |
+| `templates`    | The templates chosen, separated by commas. Agent-Native's own templates are sent by name. A community template is sent as `community` and any other name as `unknown`, so a URL is never sent. |
+| `projectKind`  | What `create` made: `workspace`, `standalone`, `headless` or `workspace-add` (an app added to a workspace).                                                                                    |
+| `failedStep`   | Where a failed run stopped. `create`: `choose`, `scaffold` or `finish`. `build`: `doctor`, `react-router-build`, `vite-build` or `deploy-build`. `deploy`: `prepare`, `build` or `package`.    |
+| `workspace`    | Whether `dev` is running in a workspace.                                                                                                                                                       |
+| `appCount`     | How many apps the workspace has, or 1 outside a workspace.                                                                                                                                     |
+| `readySeconds` | Seconds from `dev` starting to the server listening.                                                                                                                                           |
+| `preset`       | The host a build targets: `aws`, `azure`, `bun`, `cloudflare`, `deno`, `firebase`, `netlify`, `node` or `vercel`. A preset for any other host is sent as `other`.                              |
+
+`deploy` builds your app and prints the command that publishes it, so `completed` means the build finished, not that anything went live. The two finished events go out as the command exits, through a short-lived helper process the exit waits for, for at most 1.5 seconds. That wait comes on top of any earlier wait for other events. Ctrl+C at a `create` prompt counts as `cancelled`. Stopping `build` or `deploy` with Ctrl+C sends no finished event.
+
 ### Installing skills
 
 These events follow `skills add` and `npx @agent-native/skills`, so we can see where an install stops. Skills from Agent-Native's own catalog are sent by name. A skill from anywhere else, such as a local manifest or another repository, is sent as `custom`.

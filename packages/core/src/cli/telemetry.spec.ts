@@ -1,9 +1,19 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { spawnSyncMock } = vi.hoisted(() => ({ spawnSyncMock: vi.fn() }));
+
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+  spawnSync: spawnSyncMock,
+}));
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const userHome = os.homedir();
@@ -260,6 +270,71 @@ describe("CLI telemetry", () => {
     });
   });
 
+  describe("sending as the process exits", () => {
+    beforeEach(() => {
+      spawnSyncMock.mockClear();
+    });
+
+    function senderBodies() {
+      return spawnSyncMock.mock.calls.flatMap(([, , options]) =>
+        JSON.parse(options.input).map((body: string) => JSON.parse(body)),
+      );
+    }
+
+    it("hands the event to a child the exit waits for, at most 1.5 seconds", async () => {
+      vi.stubEnv("NODE_OPTIONS", "--inspect");
+
+      (await newRun("create")).trackAtExit("cli_create_finished", {
+        outcome: "completed",
+      });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      const [file, args, options] = spawnSyncMock.mock.calls[0];
+      expect(file).toBe(process.execPath);
+      expect(args[0]).toBe("-e");
+      expect(options.timeout).toBe(1500);
+      expect(options.env.NODE_OPTIONS).toBeUndefined();
+      expect(senderBodies()).toMatchObject([
+        {
+          event: "cli_create_finished",
+          properties: { command: "create", outcome: "completed" },
+        },
+      ]);
+    });
+
+    it("applies the property allowlist", async () => {
+      (await newRun("create")).trackAtExit("cli_create_finished", {
+        templates: "chat,calendar",
+        projectPath: "/home/someone/secret-project",
+      });
+
+      const [body] = senderBodies();
+      expect(body.properties.templates).toBe("chat,calendar");
+      expect(JSON.stringify(body)).not.toContain("secret-project");
+    });
+
+    it("sends nothing when telemetry is off", async () => {
+      vi.stubEnv("DO_NOT_TRACK", "1");
+
+      (await newRun()).trackAtExit("cli_deploy_finished", {
+        outcome: "failed",
+      });
+
+      expect(spawnSyncMock).not.toHaveBeenCalled();
+    });
+
+    it("prints instead of sending in debug mode", async () => {
+      vi.stubEnv("AGENT_NATIVE_TELEMETRY_DEBUG", "1");
+
+      (await newRun()).trackAtExit("cli_deploy_finished", {
+        outcome: "failed",
+      });
+
+      expect(spawnSyncMock).not.toHaveBeenCalled();
+      expect(stderr).toContain('[telemetry] {"event":"cli_deploy_finished"');
+    });
+  });
+
   describe("properties", () => {
     it("drops anything off the allowlist", async () => {
       (await newRun()).track("skills_cli_completed", {
@@ -494,6 +569,57 @@ describe("CLI telemetry", () => {
   });
 });
 
+describe("the exit sender script", () => {
+  // Spawned without waiting: spawnSync would block this process's own server.
+  async function runSender(url: string, bodies: string[]) {
+    const { EXIT_SENDER_SCRIPT }: TelemetryModule =
+      await import("./telemetry.js");
+    const child = spawn(process.execPath, ["-e", EXIT_SENDER_SCRIPT, url], {
+      stdio: ["pipe", "ignore", "ignore"],
+    });
+    child.stdin.end(JSON.stringify(bodies));
+    return new Promise((resolve) => child.once("exit", resolve));
+  }
+
+  async function listen(server: http.Server) {
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}/track`;
+  }
+
+  it("posts every body and exits", async () => {
+    const received: string[] = [];
+    const server = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        received.push(`${req.method} ${body}`);
+        res.end("ok");
+      });
+    });
+    const url = await listen(server);
+
+    try {
+      expect(await runSender(url, ["first", "second"])).toBe(0);
+    } finally {
+      server.close();
+    }
+
+    expect(received.sort()).toEqual(["POST first", "POST second"]);
+  });
+
+  it("exits cleanly when the connection is refused", async () => {
+    const server = http.createServer();
+    const url = await listen(server);
+    await new Promise((resolve) => server.close(resolve));
+
+    expect(await runSender(url, ["lost"])).toBe(0);
+  });
+});
+
 describe("the telemetry docs page", () => {
   const docsPage = fs.readFileSync(
     path.resolve(here, "../../docs/content/telemetry.mdx"),
@@ -517,6 +643,19 @@ describe("the telemetry docs page", () => {
     );
 
     expect(undocumented).toEqual([]);
+  });
+
+  it("names each project activity event", async () => {
+    const { CREATE_FINISHED_EVENT, DEPLOY_FINISHED_EVENT, DEV_READY_EVENT } =
+      await import("./activation-telemetry.js");
+
+    for (const event of [
+      CREATE_FINISHED_EVENT,
+      DEPLOY_FINISHED_EVENT,
+      DEV_READY_EVENT,
+    ]) {
+      expect(docsPage).toContain(`\`${event}\``);
+    }
   });
 
   it("names each off switch and the debug variable", () => {
