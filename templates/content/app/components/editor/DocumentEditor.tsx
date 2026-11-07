@@ -8888,8 +8888,8 @@ function PageEditorSessionBody({
   const { openReply } = replyDrafts;
   pagePanelEscapeRef.current =
     !!pagePanel.tab &&
-    !openReply?.threadId &&
-    !openReply?.suggestionId &&
+    !openReply.threadId &&
+    !openReply.suggestionId &&
     !showAnchoredCommentPopover;
 
   const pagePanelTab = pagePanel.tab;

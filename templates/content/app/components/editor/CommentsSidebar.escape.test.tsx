@@ -512,6 +512,7 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
     const source = readFileSync(
       new NodeURL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
+      // oracle-change: Escape on the page now follows the one panel's rules, tested in document-page-panel-state.
     );
     expect(source).toContain(
       "utilityPanelFocusFallbackRef={utilityPanelFocusFallbackRef}",

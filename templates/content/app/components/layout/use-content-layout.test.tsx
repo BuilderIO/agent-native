@@ -224,6 +224,7 @@ describe("useContentShellLayout", () => {
     });
     expect(latestLayout().agentPanel).toBe("closed");
   });
+  // oracle-change: the sidebar no longer gives way to a page's panel, so its rail hold is gone.
 
   it("re-renders only when a mode changes", async () => {
     const before = layouts.length;

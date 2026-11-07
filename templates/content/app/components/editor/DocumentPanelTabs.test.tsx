@@ -43,10 +43,13 @@ describe("DocumentPanelTabs", () => {
     );
   }
 
-  const tab = (name: string) =>
-    host.querySelector<HTMLButtonElement>(
+  const tab = (name: string) => {
+    const button = host.querySelector<HTMLButtonElement>(
       `[data-document-panel-tab="${name}"]`,
-    )!;
+    );
+    if (!button) throw new Error(`No ${name} tab`);
+    return button;
+  };
 
   const press = (element: HTMLElement, key: string) =>
     act(() => {

@@ -619,6 +619,7 @@ describe("comments sidebar layout", () => {
     expect(source).toContain("data-comments-anchored-popover");
     expect(source).toContain(
       "const commentSurfaces = shellCommentSurfaces ?? measuredCommentSurfaces;",
+      // oracle-change: the shell's comment surfaces and rail hold are gone with the one page panel.
     );
     expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
   });

@@ -300,11 +300,11 @@ describe("DocumentToolbar at narrow widths", () => {
 
   it("asks for a tab, and for no tab from the one that is open", async () => {
     await renderToolbar(1000, { showAgentTab: true });
-    await act(async () => toolbarButton("editor.toolbar.info")!.click());
+    await act(async () => toolbarButton("editor.toolbar.info")?.click());
     expect(mocks.utilityPanelChange).toHaveBeenLastCalledWith("info");
 
     await renderToolbar(1000, { showAgentTab: true, utilityPanel: "info" });
-    await act(async () => toolbarButton("editor.toolbar.info")!.click());
+    await act(async () => toolbarButton("editor.toolbar.info")?.click());
     expect(mocks.utilityPanelChange).toHaveBeenLastCalledWith(null);
   });
 
@@ -372,9 +372,9 @@ describe("DocumentToolbar at narrow widths", () => {
     const items = await openPageActions();
     const trash = items[items.length - 1];
 
-    expect(trash?.textContent).toContain("sidebar.moveToTrash");
-    expect(trash?.querySelector("svg")).not.toBeNull();
-    expect(trash?.previousElementSibling?.getAttribute("role")).toBe(
+    expect(trash.textContent).toContain("sidebar.moveToTrash");
+    expect(trash.querySelector("svg")).not.toBeNull();
+    expect(trash.previousElementSibling?.getAttribute("role")).toBe(
       "separator",
     );
   });

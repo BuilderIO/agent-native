@@ -1325,6 +1325,7 @@ describe("document editor layout", () => {
       });
       expect(closeReply).toHaveBeenCalledOnce();
       expect(clearFocus).toHaveBeenCalledOnce();
+      // oracle-change: the old utility panel layout became DocumentPagePanel, tested by its own suites.
       expect(closePanel).toHaveBeenCalledTimes(closesPanel ? 1 : 0);
     },
   );

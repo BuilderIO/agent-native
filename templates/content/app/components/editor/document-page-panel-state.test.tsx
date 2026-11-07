@@ -202,7 +202,11 @@ describe("usePagePanelMotion", () => {
   const render = (requested: DocumentPagePanelTab | null, margin = false) =>
     act(() => root.render(<Probe requested={requested} margin={margin} />));
 
-  const wait = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+  const wait = (ms: number) => {
+    act(() => {
+      vi.advanceTimersByTime(ms);
+    });
+  };
 
   beforeEach(() => {
     vi.useFakeTimers();

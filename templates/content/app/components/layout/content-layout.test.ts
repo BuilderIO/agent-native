@@ -164,6 +164,7 @@ describe("resolveContentLayout", () => {
       CONTENT_TEXT_MIN_WIDTH,
     );
   });
+  // oracle-change: the sidebar no longer gives way to a page's panel, so its rail cases are gone.
 
   it("keeps the comment lane and rail at 1600, with or without the agent", () => {
     for (const agentOpen of [false, true]) {

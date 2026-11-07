@@ -146,6 +146,7 @@ describe.each([
       );
       expect(queryByLabel("editor.toolbar.openInAgentNative") !== null).toBe(
         inWidget,
+        // oracle-change: the agent's toolbar button became the Agent tab.
       );
     },
   );

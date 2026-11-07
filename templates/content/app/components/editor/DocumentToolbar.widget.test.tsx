@@ -314,6 +314,7 @@ describe("DocumentToolbar in an MCP App widget", () => {
     });
 
     expect(byLabel(AI_AGENT_LABEL)).not.toBeNull();
+    // oracle-change: the agent's toolbar button became the Agent tab.
     expect(byLabel("navigation.agent")).not.toBeNull();
     expect(byLabel("comments.discussion")).not.toBeNull();
     expect(byLabel("editor.toolbar.openInAgentNative")).toBeNull();
