@@ -79,6 +79,22 @@ describe("blob encryption", () => {
     }
   });
 
+  it("reports missing production key configuration separately from corrupt bytes", () => {
+    const encrypted = encryptBlobBytes(plain);
+    vi.stubEnv("NODE_ENV", "production");
+    for (const name of [
+      "APP_NAME",
+      "SECRETS_ENCRYPTION_KEY",
+      "BETTER_AUTH_SECRET",
+      "A2A_SECRET",
+    ]) {
+      vi.stubEnv(name, "");
+    }
+    expect(() => decryptBlobBytes(encrypted, encrypted.ciphertext)).toThrow(
+      "Refusing to start in production without an encryption key",
+    );
+  });
+
   it("can't decrypt under a different key", () => {
     const encrypted = encryptBlobBytes(plain);
     vi.stubEnv("SECRETS_ENCRYPTION_KEY", "another-deployment-key");
@@ -87,5 +103,21 @@ describe("blob encryption", () => {
       decryptError(() => decryptBlobBytes(encrypted, encrypted.ciphertext))
         .kind,
     ).toBe("corrupt");
+  });
+
+  it("reads existing bytes with a previous key while new blobs require the current key", () => {
+    const encrypted = encryptBlobBytes(plain);
+    vi.stubEnv("SECRETS_ENCRYPTION_KEY", "blob-rotation-current");
+    vi.stubEnv(
+      "SECRETS_ENCRYPTION_KEYS_PREVIOUS",
+      "wrong-key,blob-crypto-test-key",
+    );
+    expect(decryptBlobBytes(encrypted, encrypted.ciphertext)).toEqual(plain);
+    const fresh = encryptBlobBytes(plain);
+    vi.stubEnv("SECRETS_ENCRYPTION_KEYS_PREVIOUS", undefined);
+    expect(decryptBlobBytes(fresh, fresh.ciphertext)).toEqual(plain);
+    expect(() => decryptBlobBytes(encrypted, encrypted.ciphertext)).toThrow(
+      PrivateBlobError,
+    );
   });
 });
