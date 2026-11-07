@@ -485,6 +485,11 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX 파일을 생성할 수 없습니다.",
     exportFailed: "내보내기 실패",
+    exportFinishedWithWarnings: "경고와 함께 내보냈습니다",
+    imagesDropped:
+      "이미지 {{count}}개를 불러오지 못해 PowerPoint 파일에서 제외되었습니다(슬라이드 {{slides}}).",
+    pdfSidecarSkipped:
+      "편집 가능한 원본 없이 내보낸 PDF입니다. 다시 가져오면 페이지 내용으로 슬라이드를 다시 만듭니다.",
     exporting: "내보내는 중...",
     exportPptxError: "PPTX로 내보내는 중 문제가 발생했습니다.",
     googleSlidesDownloaded: "Google Slides용으로 다운로드됨",
