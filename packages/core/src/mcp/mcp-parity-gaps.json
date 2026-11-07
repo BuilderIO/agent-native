@@ -214,6 +214,7 @@
     "get-review-feedback",
     "get-session-replay-events",
     "get-status-page",
+    "get-traffic-counts",
     "get-usage-alerts",
     "get-usage-insights",
     "get-usage-metrics",

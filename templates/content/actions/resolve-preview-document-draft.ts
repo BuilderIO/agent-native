@@ -108,8 +108,16 @@ export default defineAction({
       ...exactDraft,
       expectedDocumentUpdatedAt: z.string().min(1),
     }),
+    // Nobody chose: History for the page's owner, a private page of their own
+    // for anyone else. Decided here, since the role a client holds can be out
+    // of date and a claim outside the page's History is one they can't reach.
+    z.object({
+      choice: z.literal("automatic"),
+      ...exactDraft,
+      expectedDocumentUpdatedAt: z.string().min(1),
+    }),
   ]),
-  run: async (args, ctx) => {
+  run: async (input, ctx) => {
     const userEmail = getRequestUserEmail();
     const orgId = getRequestOrgId() ?? "";
     if (!userEmail) {
@@ -118,8 +126,18 @@ export default defineAction({
         statusCode: 401,
       });
     }
-    const access = await assertAccess("document", args.documentId, "editor");
+    const access = await assertAccess("document", input.documentId, "editor");
     const ownerEmail = access.resource.ownerEmail as string;
+    const args =
+      input.choice === "automatic"
+        ? {
+            ...input,
+            choice:
+              ownerEmail === userEmail
+                ? ("use_saved" as const)
+                : ("save_separately" as const),
+          }
+        : input;
     const db = getDb();
     type ClaimTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
     let recoveryId = await recoveryDocumentId({
