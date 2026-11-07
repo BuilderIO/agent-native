@@ -485,6 +485,22 @@ describe("IntegrationsPage", () => {
         id: "shared-docs",
         scope: "org",
       });
+      if (!hasError) {
+        mutateAsync.mockRejectedValueOnce(
+          new Error("Reconnect service unavailable"),
+        );
+        await act(async () => {
+          trigger?.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+          );
+        });
+        const reconnect =
+          document.querySelector<HTMLElement>('[role="menuitem"]');
+        await act(async () => reconnect?.click());
+        expect(tile?.textContent).toContain(
+          "Reconnect failed: Reconnect service unavailable",
+        );
+      }
     },
   );
 

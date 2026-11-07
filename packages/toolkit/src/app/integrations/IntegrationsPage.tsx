@@ -273,10 +273,14 @@ function ConnectedServerTile({
   onRemove: () => void;
 }) {
   const t = useT();
-  // A connected server can carry an error too: the tools it held back.
-  const hasError =
-    server.status.state === "error" ||
-    (server.status.state !== "unknown" && Boolean(server.status.error));
+  const serverError =
+    server.status.state !== "unknown" ? server.status.error : null;
+  const error = reconnectError
+    ? t("mcpIntegrations.reconnectFailed", { error: reconnectError })
+    : serverError
+      ? t("mcpIntegrations.connectionErrorReason", { reason: serverError })
+      : null;
+  const hasError = server.status.state === "error" || Boolean(error);
   const scope =
     server.scope === "user"
       ? t("mcpIntegrations.personal")
@@ -316,18 +320,12 @@ function ConnectedServerTile({
           <span className="block truncate text-xs leading-5 text-muted-foreground">
             {detail}
           </span>
-          {server.status.state !== "unknown" && server.status.error ? (
+          {error ? (
             <span
               className="block truncate text-xs leading-5 text-muted-foreground"
-              title={server.status.error}
+              title={error}
             >
-              {reconnectError
-                ? t("mcpIntegrations.reconnectFailed", {
-                    error: reconnectError,
-                  })
-                : t("mcpIntegrations.connectionErrorReason", {
-                    reason: server.status.error,
-                  })}
+              {error}
             </span>
           ) : null}
         </span>
