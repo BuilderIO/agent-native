@@ -129,11 +129,11 @@ export default defineAction({
       resourceId: args.resourceId,
     };
     const result = await (
-      args.clientOperationId
+      clientOperationCommentId
         ? insertReviewReplyIdempotently(
             {
               ...input,
-              id: clientOperationCommentId!,
+              id: clientOperationCommentId,
             },
             routeTarget,
             resource,
