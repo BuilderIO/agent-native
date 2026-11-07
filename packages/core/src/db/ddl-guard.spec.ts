@@ -534,6 +534,16 @@ describe("ddl-guard", () => {
             }),
             { code: "ECONNRESET" },
           );
+          let deep: Error = error as Error;
+          for (let depth = 0; depth < 8; depth++) {
+            deep = new Error(`wrapper: ${deep.message}`, { cause: deep });
+          }
+          let beyondLimit: Error = error as Error;
+          for (let depth = 0; depth < 65; depth++) {
+            beyondLimit = new Error(`wrapper: ${beyondLimit.message}`, {
+              cause: beyondLimit,
+            });
+          }
           const unreadableMessage = Object.assign(
             new Error("outer connection error", { cause: error }),
             { code: "ECONNRESET" },
@@ -569,6 +579,23 @@ describe("ddl-guard", () => {
           });
           Object.assign(cyclicError, { cause: cyclicError });
           expect(isConnectionError(cyclicError)).toBe(true);
+          let ordinary: Error = new Error("ordinary failure");
+          for (let depth = 0; depth < 8; depth++) {
+            ordinary = new Error(`wrapper: ${ordinary.message}`, {
+              cause: ordinary,
+            });
+          }
+          expect(isConnectionError(Object.assign(ordinary, { code }))).toBe(
+            true,
+          );
+          for (let depth = 0; depth < 64; depth++) {
+            ordinary = new Error(`wrapper: ${ordinary.message}`, {
+              cause: ordinary,
+            });
+          }
+          expect(isConnectionError(Object.assign(ordinary, { code }))).toBe(
+            false,
+          );
           expect(
             isConnectionError(new Error(`could not probe service: ${code}`)),
           ).toBe(true);
@@ -576,6 +603,8 @@ describe("ddl-guard", () => {
           expect(isConnectionError(wrapped)).toBe(false);
           expect(isConnectionError(causeOnly)).toBe(false);
           expect(isConnectionError(nested)).toBe(false);
+          expect(isConnectionError(deep)).toBe(false);
+          expect(isConnectionError(beyondLimit)).toBe(false);
           expect(isConnectionError(unreadableMessage)).toBe(false);
           expect(isConnectionError(unreadableMarker)).toBe(false);
           expect(error).toMatchObject({ schemaProbeFailure: true });

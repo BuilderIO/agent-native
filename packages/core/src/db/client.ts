@@ -1226,7 +1226,11 @@ const CONNECTION_ERROR_CODES = new Set([
 export function isConnectionError(err: any): boolean {
   if (!err) return false;
   let current: unknown = err;
-  for (let depth = 0; depth < 4 && current; depth++) {
+  const seen = new Set<unknown>();
+  while (current && !seen.has(current)) {
+    // An unfinished scan cannot rule out a nested schema-probe failure.
+    if (seen.size === 64) return false;
+    seen.add(current);
     const link = current as { schemaProbeFailure?: unknown; cause?: unknown };
     try {
       if (link.schemaProbeFailure === true) return false;
