@@ -70,9 +70,9 @@ function resolveDefault(raw: string | undefined, type: FilterType): string {
   return raw;
 }
 
-function defaultFilterValues(
-  config: SqlDashboardConfig,
-): Record<string, string> {
+function defaultFilterValues(config: {
+  filters?: DashboardFilter[] | undefined;
+}): Record<string, string> {
   const values: Record<string, string> = {};
   const filters = Array.isArray(config.filters) ? config.filters : [];
   for (const f of filters as DashboardFilter[]) {
