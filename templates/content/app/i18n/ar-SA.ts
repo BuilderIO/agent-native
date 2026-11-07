@@ -1155,7 +1155,7 @@ const rawLiterals = {
     previewDraftUseSaved: "استخدام الإصدار المحفوظ",
     previewDraftSaveSeparately: "حفظ إصداري كصفحة منفصلة",
     previewDraftSavedToHistory: "تم حفظ تعديلاتك في سجل الإصدارات",
-    previewDraftSavedSeparately: "تم حفظ تعديلاتك كصفحة منفصلة",
+    previewDraftSavedSeparately: "تم حفظ تعديلاتك كصفحة خاصة في مساحتك",
     previewDraftOpenSavedPage: "فتح الصفحة",
     previewDraftMoreOptions: "خيارات إضافية",
     previewDraftViewFullVersions: "عرض النسختين كاملتين",

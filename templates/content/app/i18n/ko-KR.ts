@@ -1176,7 +1176,8 @@ const rawLiterals = {
     previewDraftUseSaved: "저장된 버전 사용",
     previewDraftSaveSeparately: "내 버전을 별도 페이지로 저장",
     previewDraftSavedToHistory: "편집 내용이 버전 기록에 저장되었습니다",
-    previewDraftSavedSeparately: "편집 내용이 별도 페이지로 저장되었습니다",
+    previewDraftSavedSeparately:
+      "편집 내용이 내 스페이스에 비공개 페이지로 저장되었습니다",
     previewDraftOpenSavedPage: "페이지 열기",
     previewDraftMoreOptions: "추가 옵션",
     previewDraftViewFullVersions: "전체 버전 보기",

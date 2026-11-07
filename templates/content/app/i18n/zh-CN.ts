@@ -1185,7 +1185,7 @@ const rawLiterals = {
     previewDraftUseSaved: "使用已保存版本",
     previewDraftSaveSeparately: "将我的版本另存为页面",
     previewDraftSavedToHistory: "你的编辑已保存到版本历史",
-    previewDraftSavedSeparately: "你的编辑已另存为页面",
+    previewDraftSavedSeparately: "你的编辑已保存为你空间中的私密页面",
     previewDraftOpenSavedPage: "打开页面",
     previewDraftMoreOptions: "更多选项",
     previewDraftViewFullVersions: "查看完整版本",

@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => {
   });
   return {
     response: undefined as unknown as DocumentPropertiesResponse,
+    dataUpdatedAt: 1,
+    isError: false,
     configure: mutation(),
     setValue: mutation(),
   };
@@ -37,7 +39,12 @@ vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
   useConfigureDocumentProperty: () => mocks.configure,
   useDuplicateDocumentProperty: () => mocks.configure,
   useDeleteDocumentProperty: () => mocks.configure,
-  useDocumentProperties: () => ({ data: mocks.response, isLoading: false }),
+  useDocumentProperties: () => ({
+    data: mocks.response,
+    isLoading: false,
+    isError: mocks.isError,
+    dataUpdatedAt: mocks.dataUpdatedAt,
+  }),
 }));
 
 import { DocumentProperties } from "./DocumentProperties";
@@ -95,6 +102,7 @@ function propertiesElement(
     documentId?: string;
     rowViewPending?: boolean;
     canEdit?: boolean;
+    schemaRowsExpected?: boolean;
     comments?: Partial<PropertyCommentsValue>;
   } = {},
 ) {
@@ -106,6 +114,7 @@ function propertiesElement(
       rowView={rowView}
       rowViewPending={options.rowViewPending ?? false}
       canEdit={options.canEdit ?? true}
+      schemaRowsExpected={options.schemaRowsExpected}
     />
   );
   return options.comments ? (
@@ -136,6 +145,8 @@ function renderProperties(
 }
 
 beforeEach(() => {
+  mocks.dataUpdatedAt = 1;
+  mocks.isError = false;
   mocks.response = {
     documentId: "row",
     databaseId: "database",
@@ -180,6 +191,72 @@ describe("a row's Properties in its view", () => {
     expect(rowIds()).toEqual(["c", "a", "b"]);
     expect(mocks.configure.mutateAsync).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { schemaRowsExpected: true, dataUpdatedAt: 0, drawn: true, usable: false },
+    {
+      schemaRowsExpected: true,
+      dataUpdatedAt: 0,
+      noAnswer: true,
+      drawn: true,
+      usable: false,
+    },
+    {
+      schemaRowsExpected: false,
+      dataUpdatedAt: 0,
+      noAnswer: true,
+      drawn: false,
+    },
+    { schemaRowsExpected: true, dataUpdatedAt: 1, drawn: false },
+    { schemaRowsExpected: false, dataUpdatedAt: 0, drawn: false },
+    { schemaRowsExpected: true, dataUpdatedAt: 0, isError: true, drawn: false },
+    {
+      schemaRowsExpected: true,
+      dataUpdatedAt: 1,
+      canManageSchema: true,
+      canEdit: false,
+      drawn: true,
+      usable: false,
+    },
+    {
+      schemaRowsExpected: true,
+      dataUpdatedAt: 1,
+      canManageSchema: true,
+      drawn: true,
+      usable: true,
+    },
+    {
+      schemaRowsExpected: false,
+      dataUpdatedAt: 1,
+      canManageSchema: true,
+      canEdit: false,
+      drawn: false,
+    },
+  ])(
+    "holds the Add property row, unusable until confirmed, only until the row's own read refuses it: %o",
+    ({
+      schemaRowsExpected,
+      dataUpdatedAt,
+      isError = false,
+      canManageSchema = false,
+      canEdit = true,
+      noAnswer = false,
+      drawn,
+      usable,
+    }) => {
+      mocks.response = noAnswer
+        ? (undefined as unknown as DocumentPropertiesResponse)
+        : { ...mocks.response, canManageSchema };
+      mocks.dataUpdatedAt = dataUpdatedAt;
+      mocks.isError = isError;
+      renderProperties(null, { schemaRowsExpected, canEdit });
+      const addProperty = document.querySelector(
+        '[aria-label="editor.properties.addProperty"]',
+      );
+      expect(!!addProperty).toBe(drawn);
+      if (drawn) expect(!addProperty?.closest("[inert]")).toBe(usable);
+    },
+  );
 
   it("shows the line to someone who can only read the row", async () => {
     renderProperties(

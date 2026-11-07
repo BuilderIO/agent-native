@@ -1212,7 +1212,7 @@ const rawLiterals = {
     previewDraftSavedToHistory:
       "Deine Änderungen wurden im Versionsverlauf gespeichert",
     previewDraftSavedSeparately:
-      "Deine Änderungen wurden als separate Seite gespeichert",
+      "Deine Änderungen wurden als private Seite in deinem Bereich gespeichert",
     previewDraftOpenSavedPage: "Seite öffnen",
     previewDraftMoreOptions: "Weitere Optionen",
     previewDraftViewFullVersions: "Vollständige Versionen anzeigen",
