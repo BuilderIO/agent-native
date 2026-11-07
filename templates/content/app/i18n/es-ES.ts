@@ -1906,6 +1906,7 @@ const overrides = {
     commandSearchHeading: "Buscar",
     searchScope: "Ámbito",
     searchAllWorkspaces: "Todos los espacios",
+    searchThisPage: "Esta página",
     searchFields: "Campos de búsqueda",
     searchAllText: "Todo el texto",
     searchTitleOnly: "Solo título",

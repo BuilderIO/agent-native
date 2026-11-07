@@ -77,6 +77,7 @@ import {
   contentPlacementTargets,
   contentSpaceFilesDatabaseId,
   invalidateContentQueries,
+  SEARCH_QUERY_KEYS,
   useContentActionMutation,
   type ContentQueryTarget,
 } from "./use-content-action-mutation";
@@ -1157,7 +1158,7 @@ export function useUpdateDatabaseItem(documentId: string) {
     UpdateDatabaseItemRequest
   >("update-database-item", {
     skipActionQueryInvalidation: true,
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
@@ -1170,6 +1171,8 @@ export function useUpdateDatabaseItem(documentId: string) {
       invalidateContentDatabaseNavigationQueries(queryClient, {
         databaseId: data.receipt.target.databaseId,
       });
+      if (variables.title !== undefined)
+        invalidateContentQueries(queryClient, SEARCH_QUERY_KEYS);
     },
   });
 }
