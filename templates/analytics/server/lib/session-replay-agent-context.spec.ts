@@ -23,6 +23,15 @@ const mockCompactSessionRecordingSummary = vi.hoisted(() =>
   }),
 );
 
+const mockIsSessionsTriageLabEnabled = vi.hoisted(() => vi.fn());
+
+vi.mock("./sessions-triage-lab.js", () => ({
+  isSessionsTriageLabEnabled: (...args: unknown[]) =>
+    mockIsSessionsTriageLabEnabled(...args),
+  sessionsTriageReadFailure: () =>
+    "Couldn't read the Sessions triage Lab state.",
+}));
+
 vi.mock("@agent-native/core/server", () => ({
   buildAgentAccessApiUrl: ({
     endpoint,
@@ -62,7 +71,12 @@ vi.mock("./session-replay.js", () => ({
     mockGetSessionReplayTokenizedEvents(...args),
 }));
 
-import { SESSION_REPLAY_ANALYTICS_EVENT_TAG } from "../../shared/session-events";
+import { isSessionlessAnalyticsRoute } from "../../app/lib/sessionless-route";
+import {
+  SESSION_REPLAY_AGENT_CHAT_EVENT_TAG,
+  SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+  SESSION_REPLAY_NAVIGATION_EVENT_TAG,
+} from "../../shared/session-events";
 import {
   SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
   SESSION_REPLAY_VITALS_EVENT_TAG,
@@ -137,9 +151,660 @@ function makeRecording(overrides: Record<string, unknown> = {}) {
   };
 }
 
+describe("session replay key moments", () => {
+  const STARTED_AT = Date.parse("2026-01-01T00:00:00.000Z");
+  const FIRST_EVENT_AT = STARTED_AT + 500;
+  const COMMIT = "a".repeat(40);
+  const at = (ms: number) => FIRST_EVENT_AT + ms;
+
+  const meta = (ms: number, path: string) => ({
+    type: 4,
+    timestamp: at(ms),
+    data: { href: `https://app.example.com${path}?secret=1` },
+  });
+  const routeChange = (ms: number, path: string) => ({
+    type: 5,
+    timestamp: at(ms),
+    data: { tag: SESSION_REPLAY_NAVIGATION_EVENT_TAG, payload: { path } },
+  });
+  const namedEvent = (ms: number, name: string) => ({
+    type: 5,
+    timestamp: at(ms),
+    data: { tag: SESSION_REPLAY_ANALYTICS_EVENT_TAG, payload: { name } },
+  });
+  const click = (ms: number, id = 2) => ({
+    type: 3,
+    timestamp: at(ms),
+    data: { source: 2, type: 2, id, x: 10, y: 10 },
+  });
+  const answer = (ms: number) => ({
+    type: 3,
+    timestamp: at(ms),
+    data: { source: 0, adds: [], removes: [], texts: [], attributes: [] },
+  });
+  const typed = (ms: number, id = 3) => ({
+    type: 3,
+    timestamp: at(ms),
+    data: { source: 5, id, text: "a private draft" },
+  });
+  const snapshot = {
+    type: 2,
+    timestamp: FIRST_EVENT_AT,
+    data: {
+      node: {
+        type: 0,
+        id: 1,
+        childNodes: [
+          {
+            type: 2,
+            id: 2,
+            tagName: "button",
+            attributes: {},
+            childNodes: [{ type: 3, id: 4, textContent: "Send" }],
+          },
+          {
+            type: 2,
+            id: 3,
+            tagName: "input",
+            attributes: { placeholder: "Prompt" },
+            childNodes: [],
+          },
+        ],
+      },
+    },
+  };
+
+  function serve(
+    events: unknown[],
+    response: { truncated?: boolean; unavailableChunks?: number } = {},
+    recording: Record<string, unknown> = {},
+  ) {
+    const summary = makeRecording({ metadata: {}, ...recording });
+    mockGetSessionReplayTokenizedSummary.mockResolvedValue(summary);
+    mockGetSessionReplayTokenizedEvents.mockResolvedValue({
+      recording: summary,
+      chunks: [{ seq: 0, events }],
+      eventCount: events.length,
+      truncated: response.truncated ?? false,
+      unavailableChunks: response.unavailableChunks ?? 0,
+    });
+  }
+
+  const readContext = (options: { includeTimeline?: boolean } = {}) =>
+    buildSessionReplayAgentContext({
+      recordingId: "sr_1",
+      token: "signed-token",
+      origin: "https://analytics.example.com",
+      ...options,
+    }) as Promise<any>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetRequestContext.mockReturnValue({
+      requestOrigin: "https://analytics.example.com",
+    });
+    mockCreateScopedAgentAccessGrant.mockReturnValue({
+      token: "signed-token",
+      expiresAt: "2026-01-01T02:00:00.000Z",
+      ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
+    });
+    mockVerifyScopedAgentAccessToken.mockReturnValue({
+      ok: true,
+      agentLabel: "sessions-triage",
+    });
+    mockGetSessionReplaySummary.mockResolvedValue(makeRecording());
+    mockIsSessionsTriageLabEnabled.mockResolvedValue(true);
+    serve([meta(0, "/start")]);
+  });
+
+  it("marks a new link only when its creator's Lab is on, and never names them", async () => {
+    const scope = { userEmail: "owner@example.com", orgId: "org_1" };
+
+    mockIsSessionsTriageLabEnabled.mockResolvedValue(false);
+    await createSessionReplayAgentLink({ recordingId: "sr_1", scope });
+    expect(mockCreateScopedAgentAccessGrant).toHaveBeenLastCalledWith({
+      resourceKind: "analytics-session-replay-agent-context",
+      resourceId: "sr_1",
+      ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
+    });
+
+    mockIsSessionsTriageLabEnabled.mockResolvedValue(true);
+    await createSessionReplayAgentLink({ recordingId: "sr_1", scope });
+    expect(mockCreateScopedAgentAccessGrant).toHaveBeenLastCalledWith({
+      resourceKind: "analytics-session-replay-agent-context",
+      resourceId: "sr_1",
+      ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
+      agentLabel: "sessions-triage",
+    });
+  });
+
+  it("still makes a link when the Lab state can't be read, and says so", async () => {
+    mockIsSessionsTriageLabEnabled.mockRejectedValue(new Error("db down"));
+
+    const link = await createSessionReplayAgentLink({
+      recordingId: "sr_1",
+      scope: { userEmail: "owner@example.com", orgId: "org_1" },
+    });
+
+    expect(link.url).toContain("agent_access=signed-token");
+    expect(link.labStateError).toBe(
+      "Couldn't read the Sessions triage Lab state.",
+    );
+    expect(
+      mockCreateScopedAgentAccessGrant.mock.calls[0]?.[0],
+    ).not.toHaveProperty("agentLabel");
+  });
+
+  it("keeps the old shape on a link made with the Lab off", async () => {
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+    serve([meta(0, "/start"), routeChange(10, "/deck"), click(20)]);
+
+    const context = await readContext();
+
+    expect(context).not.toHaveProperty("keyMoments");
+    expect(context).not.toHaveProperty("build");
+    expect(context.instructions.join(" ")).not.toContain("keyMoments");
+    expect(context.timeline.markers.map((marker: any) => marker.kind)).toEqual([
+      "navigation",
+      "click",
+    ]);
+  });
+
+  it("takes the Lab from the link, so opening it reads no one's settings", async () => {
+    const context = await readContext();
+
+    expect(context).toHaveProperty("keyMoments");
+    expect(mockIsSessionsTriageLabEnabled).not.toHaveBeenCalled();
+  });
+
+  it("returns nothing it did not read when the timeline is skipped", async () => {
+    const context = await readContext({ includeTimeline: false });
+
+    expect(context).not.toHaveProperty("keyMoments");
+    expect(context.build.commit).toBeNull();
+  });
+
+  it("finds every kind of moment, in time order", async () => {
+    serve([
+      snapshot,
+      meta(0, "/start"),
+      routeChange(0, "/start"),
+      namedEvent(100, "deck_created"),
+      namedEvent(110, "pageview"),
+      consoleEvent(at(200), {
+        level: "error",
+        message: "Boom",
+        url: "https://app.example.com/start?secret=1",
+      }),
+      consoleEvent(at(210), { level: "warn", message: "Careful" }),
+      networkEvent(at(300), {
+        method: "POST",
+        url: "https://app.example.com/api/uploads?secret=1",
+        status: 503,
+      }),
+      networkEvent(at(310), {
+        method: "GET",
+        url: "https://app.example.com/api/ok",
+        status: 200,
+      }),
+      networkEvent(at(320), {
+        method: "GET",
+        url: "https://app.example.com/api/left",
+        status: 0,
+        pageLeaving: true,
+      }),
+      networkEvent(at(400), {
+        method: "POST",
+        url: "https://app.example.com/_agent-native/actions/create-deck",
+        status: 500,
+      }),
+      routeChange(500, "/deck/1"),
+      click(10_000),
+      click(10_100),
+      click(10_200),
+      answer(10_250),
+      click(20_000),
+      answer(22_000),
+    ]);
+
+    const { keyMoments } = await readContext();
+
+    expect(
+      keyMoments.moments.map((moment: any) => [
+        moment.kind,
+        moment.label,
+        moment.detail,
+        moment.route,
+      ]),
+    ).toEqual([
+      ["navigation", "/start", null, "/start"],
+      ["event", "deck_created", null, "/start"],
+      ["console-error", "Console error", "Boom", "/start"],
+      ["network-error", "Network error", "POST /api/uploads → 503", "/start"],
+      [
+        "failed-action",
+        "Action failed: create-deck",
+        "POST /_agent-native/actions/create-deck → 500",
+        "/start",
+      ],
+      ["navigation", "/deck/1", null, "/deck/1"],
+      ["rage-click", "Rage click", 'button "Send"', "/deck/1"],
+      ["dead-click", "Dead click", 'button "Send"', "/deck/1"],
+    ]);
+    expect(keyMoments).toMatchObject({
+      total: 8,
+      omitted: 0,
+      truncated: false,
+      complete: true,
+    });
+    expect(keyMoments).not.toHaveProperty("routeNote");
+  });
+
+  describe("errors the person saw", () => {
+    const failedRun = (ms: number, payload: Record<string, unknown> = {}) => ({
+      type: 5,
+      timestamp: at(ms),
+      data: {
+        tag: SESSION_REPLAY_AGENT_CHAT_EVENT_TAG,
+        payload: { phase: "run-failed", surface: "app", ...payload },
+      },
+    });
+    const runStarted = (ms: number) => ({
+      type: 5,
+      timestamp: at(ms),
+      data: {
+        tag: SESSION_REPLAY_AGENT_CHAT_EVENT_TAG,
+        payload: { phase: "run-observed", surface: "app" },
+      },
+    });
+    const addedText = (ms: number, heading: string, message: string) => ({
+      type: 3,
+      timestamp: at(ms),
+      data: {
+        source: 0,
+        attributes: [],
+        adds: [
+          { parentId: 1, node: { type: 2, id: 90, tagName: "div" } },
+          { parentId: 90, node: { type: 2, id: 91, tagName: "div" } },
+          { parentId: 91, node: { type: 3, id: 92, textContent: heading } },
+          { parentId: 90, node: { type: 2, id: 93, tagName: "p" } },
+          { parentId: 93, node: { type: 3, id: 94, textContent: message } },
+        ],
+      },
+    });
+    const errorMoments = (keyMoments: any) =>
+      keyMoments.moments
+        .filter((moment: any) => moment.kind === "agent-error")
+        .map((moment: any) => [moment.label, moment.detail]);
+
+    it("names a failed run from the recorder's mark, with its code", async () => {
+      serve([
+        snapshot,
+        runStarted(100),
+        failedRun(200, { errorCode: "provider_rejected" }),
+        failedRun(10_000, { errorCode: "http_429", recoverable: true }),
+      ]);
+
+      const { keyMoments } = await readContext();
+
+      expect(errorMoments(keyMoments)).toEqual([
+        ["Agent run failed", "provider_rejected"],
+        ["Agent run stopped before finishing", "http_429"],
+      ]);
+      expect(keyMoments.moments[0].stepsBefore).toEqual([
+        { offsetMs: 100, kind: "agent", label: "Agent run started" },
+      ]);
+    });
+
+    it("reads a failed run off the screen in an older recording", async () => {
+      serve([
+        snapshot,
+        addedText(100, "The agent hit an error", "Unsupported parameter"),
+      ]);
+
+      const { keyMoments } = await readContext();
+
+      expect(errorMoments(keyMoments)).toEqual([
+        ["The agent hit an error", "Unsupported parameter"],
+      ]);
+    });
+
+    it("does not count a failed run twice when it is both marked and shown", async () => {
+      serve([
+        snapshot,
+        addedText(100, "The agent run failed before it finished.", "*****"),
+        failedRun(100, { errorCode: "provider_rejected" }),
+      ]);
+
+      const { keyMoments } = await readContext();
+
+      expect(errorMoments(keyMoments)).toEqual([
+        ["Agent run failed", "provider_rejected"],
+      ]);
+    });
+  });
+
+  it("measures atMs from the recording's start, as the player does", async () => {
+    serve([
+      meta(0, "/start"),
+      consoleEvent(at(1_000), { level: "error", message: "Boom" }),
+    ]);
+
+    const context = await readContext();
+    const moment = context.keyMoments.moments.find(
+      (found: any) => found.kind === "console-error",
+    );
+
+    expect(moment.offsetMs).toBe(1_000);
+    expect(moment.atMs).toBe(1_500);
+  });
+
+  describe("playerUrl", () => {
+    const boom = (ms: number) =>
+      consoleEvent(at(ms), { level: "error", message: "Boom" });
+    const playerUrlOf = async () => {
+      const context = await readContext();
+      return new URL(
+        context.keyMoments.moments.find(
+          (found: any) => found.kind === "console-error",
+        ).playerUrl,
+      );
+    };
+
+    it("opens without a session, since an agent holds only the link", async () => {
+      serve([meta(0, "/start"), boom(1_000), click(9_000)]);
+
+      const playerUrl = await playerUrlOf();
+
+      expect(playerUrl.pathname).toBe("/sessions/sr_1");
+      expect(playerUrl.searchParams.get("agent_access")).toBe("signed-token");
+      expect(
+        isSessionlessAnalyticsRoute(playerUrl.pathname, playerUrl.search),
+      ).toBe(true);
+    });
+
+    it("stops just after the moment, so its effect is on screen", async () => {
+      serve([meta(0, "/start"), boom(1_000), click(9_000)]);
+
+      const playerUrl = await playerUrlOf();
+
+      expect(playerUrl.searchParams.get("atMs")).toBe("2500");
+      expect(playerUrl.searchParams.get("capture_through_ms")).toBe("2500");
+    });
+
+    it("stops at the last event for a moment near the recording's end", async () => {
+      serve([meta(0, "/start"), boom(1_000), click(1_300)]);
+
+      const playerUrl = await playerUrlOf();
+
+      expect(playerUrl.searchParams.get("atMs")).toBe("1800");
+    });
+
+    it("gives no link for a moment past what the frame will open", async () => {
+      const eightDays = 8 * 24 * 60 * 60 * 1_000;
+      serve([meta(0, "/start"), boom(eightDays)]);
+
+      const { keyMoments } = await readContext();
+
+      expect(keyMoments.moments.at(-1)).toMatchObject({
+        kind: "console-error",
+        playerUrl: null,
+      });
+    });
+  });
+
+  it("gives no time or link when the recording's start can't be read", async () => {
+    serve(
+      [consoleEvent(at(1_000), { level: "error", message: "Boom" })],
+      {},
+      { startedAt: "not a date" },
+    );
+
+    const { keyMoments } = await readContext();
+
+    expect(keyMoments.moments[0]).toMatchObject({
+      offsetMs: 0,
+      atMs: null,
+      playerUrl: null,
+    });
+  });
+
+  it("says what the person did before a moment, without what they typed", async () => {
+    serve([
+      snapshot,
+      routeChange(0, "/start"),
+      typed(100),
+      typed(200),
+      click(1_000),
+      namedEvent(2_000, "prompt_sent"),
+      answer(2_100),
+      click(30_000, 99),
+      answer(30_100),
+      routeChange(40_000, "/deck/1"),
+      consoleEvent(at(50_000), { level: "error", message: "Boom" }),
+    ]);
+
+    const { keyMoments } = await readContext();
+    const moment = keyMoments.moments.find(
+      (found: any) => found.kind === "console-error",
+    );
+
+    expect(moment.stepsBefore.map((step: any) => step.label)).toEqual([
+      'Type in input "Prompt"',
+      'Click button "Send"',
+      "prompt_sent",
+      "Click",
+      "/deck/1",
+    ]);
+    expect(JSON.stringify(keyMoments)).not.toContain("a private draft");
+  });
+
+  it("keeps the last five steps and folds a burst of the same step", async () => {
+    serve([
+      snapshot,
+      routeChange(0, "/start"),
+      typed(100),
+      typed(200),
+      typed(300),
+      answer(301),
+      namedEvent(1_000, "one"),
+      namedEvent(2_000, "two"),
+      namedEvent(3_000, "three"),
+      namedEvent(4_000, "four"),
+      consoleEvent(at(5_000), { level: "error", message: "Boom" }),
+    ]);
+
+    const { keyMoments } = await readContext();
+    const moment = keyMoments.moments.find(
+      (found: any) => found.kind === "console-error",
+    );
+
+    expect(moment.stepsBefore.map((step: any) => step.label)).toEqual([
+      'Type in input "Prompt"',
+      "one",
+      "two",
+      "three",
+      "four",
+    ]);
+
+    const burst = keyMoments.moments.find(
+      (found: any) => found.label === "one",
+    );
+    expect(burst.stepsBefore).toEqual([
+      { offsetMs: 0, kind: "navigation", label: "/start" },
+      { offsetMs: 100, kind: "input", label: 'Type in input "Prompt"' },
+    ]);
+  });
+
+  it("folds the same failure repeating within a few seconds", async () => {
+    const failed = (ms: number) =>
+      networkEvent(at(ms), {
+        method: "POST",
+        url: "https://app.example.com/api/run",
+        status: 500,
+      });
+    serve([
+      failed(1_000),
+      failed(4_000),
+      failed(8_000),
+      failed(20_000),
+      consoleEvent(at(9_000), { level: "error", message: "Boom", repeat: 4 }),
+    ]);
+
+    const { keyMoments } = await readContext();
+
+    expect(
+      keyMoments.moments.map((moment: any) => [
+        moment.kind,
+        moment.offsetMs,
+        moment.repeatCount,
+      ]),
+    ).toEqual([
+      ["network-error", 0, 3],
+      ["console-error", 8_000, 4],
+      ["network-error", 19_000, 1],
+    ]);
+  });
+
+  it("does not repeat a page load's route when the recorder restarts", async () => {
+    serve([meta(0, "/start"), meta(60_000, "/start"), meta(70_000, "/next")]);
+
+    const { keyMoments } = await readContext();
+
+    expect(keyMoments.moments.map((moment: any) => moment.label)).toEqual([
+      "/start",
+      "/next",
+    ]);
+  });
+
+  it("keeps what broke over navigation when it has to cut", async () => {
+    const events: unknown[] = [];
+    for (let i = 0; i < 40; i += 1) {
+      events.push(routeChange(i * 10_000, `/page/${i}`));
+    }
+    events.push(namedEvent(5, "deck_created"));
+    events.push(
+      consoleEvent(at(500_000), { level: "error", message: "Late boom" }),
+    );
+    serve(events);
+
+    const { keyMoments } = await readContext();
+    const kinds = keyMoments.moments.map((moment: any) => moment.kind);
+
+    expect(keyMoments.moments).toHaveLength(40);
+    expect(keyMoments).toMatchObject({
+      total: 42,
+      omitted: 2,
+      truncated: true,
+    });
+    expect(kinds).toContain("console-error");
+    expect(kinds).toContain("event");
+    const offsets = keyMoments.moments.map((moment: any) => moment.offsetMs);
+    expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
+  });
+
+  it.each([
+    ["the events were cut short", { truncated: true }],
+    ["a chunk could not be read", { unavailableChunks: 1 }],
+  ])("is not complete when %s", async (_label, response) => {
+    serve([meta(0, "/start")], response);
+
+    const { keyMoments } = await readContext();
+
+    expect(keyMoments.complete).toBe(false);
+  });
+
+  it("is not complete when the recorder stopped capturing failures", async () => {
+    serve([
+      meta(0, "/start"),
+      networkEvent(at(100), {
+        message: "session replay network capture truncated",
+        truncated: true,
+      }),
+    ]);
+
+    const { keyMoments } = await readContext();
+
+    expect(keyMoments.complete).toBe(false);
+    expect(keyMoments.moments.map((moment: any) => moment.kind)).toEqual([
+      "navigation",
+    ]);
+  });
+
+  it("leaves a route unknown in a recording from before route tracking", async () => {
+    serve([
+      meta(0, "/home"),
+      networkEvent(at(100), {
+        method: "POST",
+        url: "https://app.example.com/api/run",
+        status: 500,
+      }),
+      consoleEvent(at(200), {
+        level: "error",
+        message: "Boom",
+        url: "https://app.example.com/deck/1",
+      }),
+    ]);
+
+    const { keyMoments } = await readContext();
+
+    expect(keyMoments.moments.map((moment: any) => moment.route)).toEqual([
+      "/home",
+      null,
+      "/deck/1",
+    ]);
+    expect(keyMoments.routeNote).toContain("null route means unknown");
+  });
+
+  it("names the commit only when the recording reported a real one", async () => {
+    serve([], {}, { metadata: { commit_sha: COMMIT.toUpperCase() } });
+    expect((await readContext()).build).toEqual({ commit: COMMIT });
+
+    serve([], {}, { metadata: { commit_sha: "not-a-commit" } });
+    const invalid = (await readContext()).build;
+    expect(invalid.commit).toBeNull();
+    expect(invalid.note).toContain("did not report a commit");
+
+    serve([], {}, { metadata: {} });
+    expect((await readContext()).build.commit).toBeNull();
+  });
+
+  it("names both commits when a recording spans a deploy", async () => {
+    const later = "b".repeat(40);
+    serve(
+      [],
+      {},
+      {
+        metadata: {
+          commit_sha: COMMIT.toUpperCase(),
+          commit_sha_latest: later,
+        },
+      },
+    );
+
+    const { build } = await readContext();
+
+    expect(build.commit).toBe(COMMIT);
+    expect(build.latestCommit).toBe(later);
+    expect(build.note).toContain("spans a deploy");
+  });
+
+  it("names a later commit without guessing an unknown start", async () => {
+    const later = "b".repeat(40);
+    serve([], {}, { metadata: { commit_sha_latest: later } });
+
+    const { build } = await readContext();
+
+    expect(build.commit).toBeNull();
+    expect(build.latestCommit).toBe(later);
+    expect(build.note).toContain("reported no commit");
+  });
+});
+
 describe("session replay agent context links", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIsSessionsTriageLabEnabled.mockResolvedValue(false);
     mockGetRequestContext.mockReturnValue({
       requestOrigin: "https://analytics.example.com",
     });

@@ -238,4 +238,59 @@ describe("editor-adjacent activity", () => {
       expect(after.bodyRevision).toBe(original.bodyRevision + 2);
     });
   });
+
+  it("takes an editor save of a suggestion already accepted on a blank-line page", async () => {
+    await asOwner(async () => {
+      const original = await createPage("Opening line.\n\nShared passage.");
+      const proposed = await suggestDocumentEdit.run(
+        {
+          id: original.id,
+          baseRevision: original.revision,
+          idempotencyKey: `held-suggest-${original.id}`,
+          find: "Shared passage.",
+          replace: "Revised shared passage.",
+        },
+        ctx,
+      );
+      const suggestion = await getResourceSuggestion.run(
+        { id: proposed.suggestionId },
+        ctx,
+      );
+      await decideResourceSuggestion.run(
+        {
+          id: suggestion.id,
+          decision: "accepted",
+          idempotencyKey: `held-accept-${suggestion.id}`,
+          observedBase: suggestion.baseRevision,
+          observedRevision: suggestion.revision,
+        },
+        ctx,
+      );
+      const accepted = await getDocument.run({ id: original.id }, ctx);
+      // The editor gets the accepted text over collaboration and saves it one
+      // block per line, authored on the body it loaded before the accept.
+      const editorBody = "Opening line.\nRevised shared passage.";
+      const saved = await updateDocument.run(
+        {
+          id: original.id,
+          content: editorBody,
+          baseRevision: original.revision,
+          authoredBaseRevision: original.revision,
+          authoredBaseContent: original.content,
+          authoredCandidateContent: editorBody,
+          editorSessionId: `held-edit-${original.id}`,
+          editorEditGeneration: 1,
+          editorSnapshotTitle: original.title,
+          editorSnapshotContent: editorBody,
+          browserSaveAttemptId: `held-edit-${original.id}`,
+          historySessionId: "held-browser-edit",
+        },
+        ctx,
+      );
+      expect(saved).not.toHaveProperty("preservationRequired");
+      const after = await getDocument.run({ id: original.id }, ctx);
+      expect(after.content).toBe(accepted.content);
+      expect(after.bodyRevision).toBe(accepted.bodyRevision);
+    });
+  });
 });

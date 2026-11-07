@@ -273,9 +273,14 @@ function ConnectedServerTile({
   onRemove: () => void;
 }) {
   const t = useT();
-  // A connected server can carry an error too: the tools it held back.
-  const hasError =
-    server.status.state !== "unknown" && Boolean(server.status.error);
+  const serverError =
+    server.status.state !== "unknown" ? server.status.error : null;
+  const error = reconnectError
+    ? t("mcpIntegrations.reconnectFailed", { error: reconnectError })
+    : serverError
+      ? t("mcpIntegrations.connectionErrorReason", { reason: serverError })
+      : null;
+  const hasError = server.status.state === "error" || Boolean(error);
   const scope =
     server.scope === "user"
       ? t("mcpIntegrations.personal")
@@ -315,59 +320,61 @@ function ConnectedServerTile({
           <span className="block truncate text-xs leading-5 text-muted-foreground">
             {detail}
           </span>
-          {server.status.state !== "unknown" && server.status.error ? (
+          {error ? (
             <span
-              className="block truncate text-xs leading-5 text-destructive"
-              title={server.status.error}
+              className="block truncate text-xs leading-5 text-muted-foreground"
+              title={error}
             >
-              {reconnectError
-                ? t("mcpIntegrations.reconnectFailed", {
-                    error: reconnectError,
-                  })
-                : t("mcpIntegrations.connectionErrorReason", {
-                    reason: server.status.error,
-                  })}
+              {error}
             </span>
           ) : null}
         </span>
       </a>
-      {hasError || canRemove ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              disabled={reconnecting}
-              aria-label={t(`${K}.moreActions`, { name: server.name })}
-            >
-              {reconnecting ? (
-                <Spinner aria-hidden="true" />
-              ) : (
-                <IconDots aria-hidden="true" />
-              )}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
-            {hasError ? (
-              <DropdownMenuItem onSelect={onReconnect}>
-                <IconRefresh className="size-4" aria-hidden="true" />
-                {t("mcpIntegrations.reconnect")}
-              </DropdownMenuItem>
-            ) : null}
-            {hasError && canRemove ? <DropdownMenuSeparator /> : null}
-            {canRemove ? (
-              <DropdownMenuItem
-                onSelect={onRemove}
-                className="text-destructive focus:text-destructive"
-              >
-                <IconTrash className="size-4" aria-hidden="true" />
-                {t(`${K}.remove`)}
-              </DropdownMenuItem>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
+      {hasError ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onReconnect}
+          disabled={reconnecting}
+        >
+          {reconnecting ? <Spinner aria-hidden="true" /> : null}
+          {t("mcpIntegrations.reconnect")}
+        </Button>
       ) : null}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            disabled={reconnecting}
+            aria-label={t(`${K}.moreActions`, { name: server.name })}
+          >
+            {reconnecting ? (
+              <Spinner aria-hidden="true" />
+            ) : (
+              <IconDots aria-hidden="true" />
+            )}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem onSelect={onReconnect}>
+            <IconRefresh className="size-4" aria-hidden="true" />
+            {t("mcpIntegrations.reconnect")}
+          </DropdownMenuItem>
+          {canRemove ? <DropdownMenuSeparator /> : null}
+          {canRemove ? (
+            <DropdownMenuItem
+              onSelect={onRemove}
+              className="text-destructive focus:text-destructive"
+            >
+              <IconTrash className="size-4" aria-hidden="true" />
+              {t(`${K}.remove`)}
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

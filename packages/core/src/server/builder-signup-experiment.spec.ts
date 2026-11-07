@@ -129,6 +129,94 @@ beforeEach(() => {
 });
 
 describe("pre-signup Builder experiment", () => {
+  it.each(["old", "invalid"])(
+    "does not enroll a %s identity during signup binding",
+    async (kind) => {
+      mocks.settings.clear();
+      mocks.identity.user.createdAt =
+        kind === "old" ? new Date(testTime - 86400000) : new Date(Number.NaN);
+      const result = await bindRequest(
+        encodeBuilderSignupAssignment(accepted()),
+        ATTEMPT,
+        "password",
+        "new@example.com",
+      );
+      expect(await result.json()).toEqual({ bound: false });
+      expect(mocks.track).not.toHaveBeenCalled();
+      expect(mocks.settings.size).toBe(0);
+      expect(activate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("links signup enrollment without granting provisioning consent when acceptance is absent", async () => {
+    mocks.settings.delete("design_builder_signup_v1:consent:new-user");
+    const assignment = {
+      id: "a".repeat(32),
+      variant: "automatic" as const,
+      issuedAt: testTime - 2000,
+      policy: BUILDER_SIGNUP_POLICY,
+    };
+    const result = await bindRequest(
+      encodeBuilderSignupAssignment(assignment),
+      ATTEMPT,
+      "password",
+      "new@example.com",
+    );
+    expect(await result.json()).toEqual({ bound: false });
+    expect(
+      mocks.settings.has("design_builder_signup_v1:consent:new-user"),
+    ).toBe(false);
+    expect(mocks.track).toHaveBeenCalledWith(
+      "builder_signup_experiment_enrolled",
+      expect.objectContaining({
+        assignment_id: assignment.id,
+        experiment_variant: "automatic",
+        method: "password",
+      }),
+      { authUserId: "new-user", userId: "new@example.com" },
+    );
+    expect(activate).not.toHaveBeenCalled();
+  });
+
+  it("reports an early unbound fallback with its assignment and authenticated identity", async () => {
+    mocks.settings.delete("design_builder_signup_v1:consent:new-user");
+    session = signedSession();
+    await request(
+      { operation: "activate" },
+      encodeBuilderSignupAssignment(accepted()),
+    );
+    expect(mocks.track).toHaveBeenCalledWith(
+      "builder_signup_experiment_outcome",
+      expect.objectContaining({
+        assignment_id: "a".repeat(32),
+        code: "signup_attempt_unbound",
+        status: "fallback",
+        replayed: false,
+      }),
+      { authUserId: "new-user", userId: "new@example.com" },
+    );
+    expect(activate).not.toHaveBeenCalled();
+  });
+
+  it("does not invent an experiment arm when the assignment is missing", async () => {
+    session = signedSession();
+    expect(await (await request({ operation: "activate" })).json()).toEqual({
+      status: "fallback",
+      code: "assignment_missing",
+    });
+    expect(mocks.track).toHaveBeenCalledWith(
+      "builder_signup_experiment_unattributed",
+      {
+        app_name: "design",
+        template_name: "design",
+        experiment_id: "design_builder_signup_v1",
+        code: "assignment_missing",
+      },
+      { authUserId: "new-user", userId: "new@example.com" },
+    );
+    expect(activate).not.toHaveBeenCalled();
+  });
+
   it("binds acceptance to the submitted email and auth attempt, not a later login", async () => {
     mocks.settings.delete("design_builder_signup_v1:consent:new-user");
     const acceptedResponse = await request(
@@ -416,7 +504,7 @@ describe("pre-signup Builder experiment", () => {
     mocks.identity.user.createdAt = new Date(Date.now() - 86400000);
     expect(
       await (await request({ operation: "activate" }, cookie)).json(),
-    ).toEqual({ status: "fallback" });
+    ).toEqual({ status: "fallback", code: "identity_ineligible" });
     expect(activate).not.toHaveBeenCalled();
   });
   it("never provisions control accounts", async () => {
@@ -429,7 +517,14 @@ describe("pre-signup Builder experiment", () => {
       (await (await request({ operation: "activate" }, cookie)).json()).status,
     ).toBe("fallback");
     expect(activate).not.toHaveBeenCalled();
-    expect(mocks.track).not.toHaveBeenCalled();
+    expect(mocks.track).toHaveBeenCalledWith(
+      "builder_signup_experiment_outcome",
+      expect.objectContaining({
+        code: "control",
+        experiment_variant: "control",
+      }),
+      expect.objectContaining({ authUserId: "new-user" }),
+    );
   });
   it("activates once and persists the acceptance and outcome", async () => {
     session = signedSession();
