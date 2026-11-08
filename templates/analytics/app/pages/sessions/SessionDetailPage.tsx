@@ -338,7 +338,7 @@ export default function SessionDetailPage() {
           </Button>
           {recording ? (
             <div className="min-w-0 border-l pl-3 text-xs text-muted-foreground">
-              <span className="truncate">
+              <span className="block truncate">
                 {recording.app ||
                   recording.template ||
                   t("sessions.unknownApp")}{" "}
