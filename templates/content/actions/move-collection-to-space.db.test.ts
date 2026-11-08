@@ -316,6 +316,67 @@ describe("moving a collection between Content spaces", () => {
     expect(await scores(seed.scoreId, seed.rows)).toEqual(["10", "20", "30"]);
   });
 
+  it("gives a collection to the editor who moves it to their own space, who can then add rows to it", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const memberSpaceId = personalContentSpaceId(MEMBER);
+    const seed = await seedCollection("Handoff");
+    await asOwner(() =>
+      moveDocument.run({ id: seed.documentId, spaceId: orgSpaceId }),
+    );
+    for (const id of [seed.documentId, ...seed.rows]) {
+      await getDb()
+        .insert(schema.documentShares)
+        .values({
+          id: `share-${id}-${MEMBER}`,
+          resourceId: id,
+          principalType: "user",
+          principalId: MEMBER,
+          role: "editor",
+          createdBy: OWNER,
+          createdAt: new Date().toISOString(),
+        });
+    }
+
+    await as(MEMBER, () =>
+      moveDocument.run({ id: seed.documentId, spaceId: memberSpaceId }),
+    );
+
+    expect(await collectionRow(seed.databaseId)).toMatchObject({
+      spaceId: memberSpaceId,
+      ownerEmail: MEMBER,
+      orgId: null,
+    });
+    for (const membership of await memberships(seed.databaseId)) {
+      expect(membership).toMatchObject({ ownerEmail: MEMBER, orgId: null });
+    }
+    const [property] = await getDb()
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, seed.scoreId));
+    expect(property).toMatchObject({ ownerEmail: MEMBER, orgId: null });
+    expect(await scores(seed.scoreId, seed.rows)).toEqual(["10", "20", "30"]);
+    await expect(
+      asOwner(() => getContentDatabase.run({ databaseId: seed.databaseId })),
+    ).rejects.toThrow();
+
+    const read = await as(MEMBER, () =>
+      getContentDatabase.run({ databaseId: seed.databaseId }),
+    );
+    if (!("database" in read) || !read.mutationContract)
+      throw new Error("The moved collection has no mutation contract.");
+    const added = await as(MEMBER, () =>
+      addDatabaseItem.run({
+        target: read.mutationContract.target,
+        expectedSchemaRevision: read.mutationContract.schemaRevision,
+        idempotencyKey: "Handoff-Fourth",
+        title: "Fourth",
+      }),
+    );
+    expect(
+      (await memberships(seed.databaseId)).map(({ documentId }) => documentId),
+    ).toEqual([...seed.rows, added.receipt.row.documentId]);
+  });
+
   it("moves an inline collection with its host page, and refuses it without the host", async () => {
     const orgSpaceId = organizationContentSpaceId(ORG_ID);
     const host = await asOwner(() => createDocument.run({ title: "Host" }));
