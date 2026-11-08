@@ -34,7 +34,7 @@ const asJson = (value: unknown, status = 200) =>
 let nextDraft = 0;
 
 /** A mounted compose hook over a server that holds each save until released. */
-async function mounted() {
+async function mounted(mailboxCopyId = "saved") {
   nextDraft += 1;
   const id = `refetched-${nextDraft}`;
   const stored: ComposeState = {
@@ -66,7 +66,7 @@ async function mounted() {
       }
       if (url.endsWith("/application-state/compose")) return asJson([stored]);
       if (init?.method === "POST") posted.push(JSON.parse(String(init.body)));
-      return asJson({ draftId: "saved", backend: "local" });
+      return asJson({ draftId: mailboxCopyId, backend: "local" });
     }),
   );
 
@@ -258,6 +258,33 @@ describe("useComposeState", () => {
     await waitFor(() => expect(posted).toHaveLength(1));
     expect(posted[0]).toMatchObject({ subject: "Mine", draftId: "saved" });
     expect(mocks.callAction).not.toHaveBeenCalled();
+  });
+
+  it("stores the new copy's ID after saving the text on screen to the mailbox", async () => {
+    const { id, sent, posted, drop, answer, result, stored } =
+      await mounted("new-copy");
+
+    act(() => result.current.update(id, { subject: "Mine" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await act(async () => {
+      drop(0);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toMatchObject({
+      subject: "Mine",
+      savedDraftId: "new-copy",
+    });
+    await act(async () => {
+      answer(
+        1,
+        asJson({ ...stored, subject: "Mine", savedDraftId: "new-copy" }),
+      );
+    });
   });
 
   it("waits for a queued write before choosing how to save the mailbox copy", async () => {

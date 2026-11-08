@@ -286,15 +286,21 @@ async function saveDraftToEmails(
   };
 }
 
+type DraftSaved = { status: "saved" } & SavedDraftMetadata & {
+    // The text on screen went to the mailbox with no sync, so nothing has stored
+    // this copy's ID on the draft yet.
+    idNotStored?: boolean;
+  };
+
 export type DraftSaveResult =
-  | ({ status: "saved" } & SavedDraftMetadata)
+  | DraftSaved
   | { status: "unavailable" }
   | { status: "failed"; error: unknown }
   // Mail no longer stores the draft, so there was nothing to copy.
   | { status: "gone" };
 
 export type DraftSaveQueueResult =
-  | ({ status: "saved" } & SavedDraftMetadata)
+  | DraftSaved
   | { status: "unavailable"; savedDraft?: SavedDraftMetadata }
   | {
       status: "failed";
@@ -548,9 +554,11 @@ export async function keepMailboxCopyCurrent(
   draft: ComposeState,
 ): Promise<DraftSaveResult> {
   await pendingMutations.get(draft.id)?.catch(() => undefined);
-  return unstoredDrafts.has(draft.id)
-    ? saveDraftToEmailsBestEffort(draft)
-    : syncDraftToMailboxBestEffort(pendingMutations, draft.id);
+  if (!unstoredDrafts.has(draft.id)) {
+    return syncDraftToMailboxBestEffort(pendingMutations, draft.id);
+  }
+  const result = await saveDraftToEmailsBestEffort(draft);
+  return result.status === "saved" ? { ...result, idNotStored: true } : result;
 }
 
 export function useComposeState() {
@@ -778,14 +786,18 @@ export function useComposeState() {
         );
         if (!updatedDraft) return;
 
-        // The sync stored this on the draft already. Saving the draft again
-        // could store text newer than what the sync copied, with no sync after.
         qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
           (old ?? []).map((draft) => (draft.id === id ? updatedDraft : draft)),
         );
+        // A sync stored this on the draft already, and saving the draft again
+        // could store text newer than what it copied, with no sync after.
+        if (result.status !== "saved" || !result.idNotStored) return;
+        void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
+          putMutation.mutateAsync(updatedDraft),
+        ).catch((error) => reportDraftWriteFailed(id, error));
       });
     },
-    [qc, reportDraftSaveResult],
+    [qc, putMutation, reportDraftSaveResult],
   );
 
   const update = useCallback(

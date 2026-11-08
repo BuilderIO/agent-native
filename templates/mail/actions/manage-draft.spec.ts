@@ -792,6 +792,34 @@ describe("manage-draft Gmail budget refusals", () => {
     consoleError.mockRestore();
   });
 
+  it("reports a delete that lands while Gmail's copy is pending", async () => {
+    appState.set("compose-deleted", {
+      id: "deleted",
+      to: "",
+      subject: "",
+      body: "v1",
+      savedDraftId: "gmail-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+    });
+    mocks.saveGmailDraft.mockImplementation(async () => {
+      appState.delete("compose-deleted");
+      throw new GmailQuotaRefusedError(5_000);
+    });
+
+    const result = await action.run({
+      action: "update",
+      id: "deleted",
+      expectedRevision: revisionOf("deleted"),
+      body: "v2",
+    });
+
+    expect(result.mailboxSync).toEqual({ status: "gone" });
+    expect(result.message).toContain("It has since been deleted.");
+    expect(result.message).not.toContain("isn't updated yet");
+  });
+
   it("doesn't warn about a stale result when the draft reads back", async () => {
     appState.set("compose-readable", {
       id: "readable",

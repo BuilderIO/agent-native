@@ -347,22 +347,21 @@ async function storeComposeDraft(
 }
 
 /**
- * The draft as stored now, or `known` if it's gone or can't be read. `unconfirmed`
- * means it couldn't be read, so `known` may not be the newest version.
+ * The draft as stored now, or `known` if it's gone or can't be read. `reread` says
+ * which: when it `failed`, `known` may not be the newest version.
  */
 async function latestStoredDraft(
   id: string,
   known: ComposeState,
-): Promise<{ draft: ComposeState; unconfirmed: boolean }> {
+): Promise<{ draft: ComposeState; reread: "found" | "gone" | "failed" }> {
   try {
     const stored = await readAppState(`compose-${id}`);
-    return {
-      draft: stored ? (stored as unknown as ComposeState) : known,
-      unconfirmed: false,
-    };
+    return stored
+      ? { draft: stored as unknown as ComposeState, reread: "found" }
+      : { draft: known, reread: "gone" };
   } catch (error) {
     console.error(`[manage-draft] draft ${id} reread failed:`, error);
-    return { draft: known, unconfirmed: true };
+    return { draft: known, reread: "failed" };
   }
 }
 
@@ -381,24 +380,27 @@ async function updatedDraftResult(
   const sync = ownerEmail
     ? await syncDraftToMailbox({ ownerEmail, id })
     : ({ status: "unavailable" } as const);
-  const { draft: current, unconfirmed } =
+  const { draft: current, reread } =
     sync.status === "synced"
-      ? { draft: sync.draft, unconfirmed: false }
+      ? { draft: sync.draft, reread: "found" as const }
       : await latestStoredDraft(id, draft);
+  // A delete that landed while the copy was pending outranks the pending copy.
+  const mailbox = reread === "gone" ? ({ status: "gone" } as const) : sync;
   const deepLink = composeDeepLink(current);
   const note =
-    sync.status === "pending"
-      ? ` Its copy in the mailbox's drafts isn't updated yet: ${sync.message} Mail's copy is the one that sends.`
-      : sync.status === "gone"
+    mailbox.status === "pending"
+      ? ` Its copy in the mailbox's drafts isn't updated yet: ${mailbox.message} Mail's copy is the one that sends.`
+      : mailbox.status === "gone"
         ? " It has since been deleted."
         : "";
   const leftovers =
     "leftoverDraftIds" in sync && sync.leftoverDraftIds
       ? ` A spare copy Mail made (${sync.leftoverDraftIds.join(", ")}) couldn't be removed and stays in the mailbox's drafts.`
       : "";
-  const staleness = unconfirmed
-    ? " Mail couldn't read the draft back, so this shows what this update stored; a newer save may have landed since."
-    : "";
+  const staleness =
+    reread === "failed"
+      ? " Mail couldn't read the draft back, so this shows what this update stored; a newer save may have landed since."
+      : "";
   return {
     id,
     draft: current,
@@ -406,14 +408,14 @@ async function updatedDraftResult(
     ...draftCardEmbed(current, deepLink),
     revision: saveRevisionOf(current),
     mailboxSync:
-      sync.status === "synced"
+      mailbox.status === "synced"
         ? {
-            status: sync.status,
-            ...(sync.leftoverDraftIds
-              ? { leftoverDraftIds: sync.leftoverDraftIds }
+            status: mailbox.status,
+            ...(mailbox.leftoverDraftIds
+              ? { leftoverDraftIds: mailbox.leftoverDraftIds }
               : {}),
           }
-        : sync,
+        : mailbox,
     message: `${message}.${note}${leftovers}${staleness}`,
     change: draftChange("updated", current, deepLink),
   };
