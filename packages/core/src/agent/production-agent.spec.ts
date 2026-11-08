@@ -20343,6 +20343,8 @@ describe("runAgentLoop", () => {
       const examples = {
         note: "The literal prefix data:, has no payload.",
         urls: ["data:,", "data:;base64,", "data:image/png;base64,"],
+        brokenLink: "![chart](data:image/png;broken),following prose",
+        brokenReference: "[data:text/plain;broken],following prose",
       };
       const actual = await toolResultFor(async () => examples);
       if (typeof actual !== "string") throw new Error("Missing tool result");

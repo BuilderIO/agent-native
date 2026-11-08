@@ -66,7 +66,7 @@ const IMAGE_BYTE_FIELD_KEYS = new Set([
 // URL schemes are case-insensitive: `DATA:image/png;base64,...` is still bytes.
 const DATA_SCHEME = /data:/i;
 const EMBEDDED_DATA_URL_START = /\bdata:((?:[\w.+-]+\/[\w.+-]+)?)(?=[;,])/gi;
-const DATA_URL_HEADER_END = /[,\s"'<>]/g;
+const DATA_URL_HEADER_BOUNDARY = /[,\s"'<>]/;
 const DATA_URL_PAYLOAD = /[^\s"'<>)\]]+/y;
 
 function hasInlineByteProperty(json: string): boolean {
@@ -153,6 +153,35 @@ function inlineMediaType(
   return undefined;
 }
 
+function findDataUrlHeaderEnd(
+  value: string,
+  start: number,
+  opening: string,
+): number {
+  const closing = opening === "(" ? ")" : opening === "[" ? "]" : "";
+  let depth = 1;
+  let escaped = false;
+  for (let index = start; index < value.length; index += 1) {
+    const char = value.charAt(index);
+    if (DATA_URL_HEADER_BOUNDARY.test(char)) return index;
+    if (!closing) continue;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === opening) depth += 1;
+    if (char === closing) {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
 function scrubString(value: string): string {
   const parts: string[] = [];
   let copiedThrough = 0;
@@ -163,13 +192,16 @@ function scrubString(value: string): string {
       match !== null;
       match = EMBEDDED_DATA_URL_START.exec(value)
     ) {
-      DATA_URL_HEADER_END.lastIndex = EMBEDDED_DATA_URL_START.lastIndex;
-      const headerEnd = DATA_URL_HEADER_END.exec(value);
-      if (headerEnd === null) break;
+      const headerEnd = findDataUrlHeaderEnd(
+        value,
+        EMBEDDED_DATA_URL_START.lastIndex,
+        value.charAt(match.index - 1),
+      );
+      if (headerEnd === -1) break;
       // Skip inspected header spans so nested prefixes cannot trigger rescans.
-      EMBEDDED_DATA_URL_START.lastIndex = headerEnd.index + 1;
-      if (headerEnd[0] !== ",") continue;
-      DATA_URL_PAYLOAD.lastIndex = headerEnd.index + 1;
+      EMBEDDED_DATA_URL_START.lastIndex = headerEnd + 1;
+      if (value.charAt(headerEnd) !== ",") continue;
+      DATA_URL_PAYLOAD.lastIndex = headerEnd + 1;
       const payload = DATA_URL_PAYLOAD.exec(value);
       if (payload === null) continue;
 

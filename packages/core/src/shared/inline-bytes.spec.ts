@@ -291,6 +291,42 @@ describe("stripInlineBytes", () => {
     30_000,
   );
 
+  it.each([
+    "![chart](data:image/png;broken),following prose",
+    "[file](data:text/plain;name=broken),following prose",
+    "[data:text/plain;broken],following prose",
+  ])("preserves text after a closing Markdown header delimiter: %s", (text) => {
+    expect(stripInlineBytes({ text }, "reject")).toEqual({ text });
+  });
+
+  it("keeps raw, balanced and escaped closing characters in parameter values", () => {
+    expect(
+      stripInlineBytes(
+        {
+          raw: "data:image/png;name=a)b;base64,QQ==",
+          balanced: "![chart](data:image/png;name=(a);base64,QQ==),after",
+          escaped: "![chart](data:image/png;name=a\\)b;base64,QQ==),after",
+        },
+        "reject",
+      ),
+    ).toEqual({
+      raw: "[inline image/png data omitted]",
+      balanced: "![chart]([inline image/png data omitted]),after",
+      escaped: "![chart]([inline image/png data omitted]),after",
+    });
+  });
+
+  it.each(["(data:;broken)", "[data:;broken]"])(
+    "preserves repeated wrapped %s headers without rescanning the remaining text",
+    (prefix) => {
+      const text = prefix.repeat(32_000) + ",following";
+      const started = performance.now();
+      expect(stripInlineBytes({ text }, "reject")).toEqual({ text });
+      expect(performance.now() - started).toBeLessThan(1_000);
+    },
+    30_000,
+  );
+
   it("scrubs data URLs whatever the case of the scheme", () => {
     const upper = PIXELS.replace(/^data:/, "DATA:");
     const mixed = PIXELS.replace(/^data:/, "Data:");
