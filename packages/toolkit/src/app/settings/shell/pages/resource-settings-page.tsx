@@ -211,7 +211,7 @@ export function AddSkillMenu({
   scope: EditableResourceScope;
   placement: AddActionPlacement;
   /** Defaults to "Add skill". */
-  label?: string;
+  label?: string | undefined;
   onCreated: (resource: ResourceMeta) => void;
 }) {
   const t = useT();

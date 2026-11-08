@@ -774,26 +774,26 @@ async function loadResourceSkillPromptEntries(
   metadataRead: number;
 }> {
   try {
+    // Without an orgId, each read falls back to the request's organization.
+    const inOrg = orgId === undefined ? {} : { orgId };
     const layers =
       owner === SHARED_OWNER
         ? {
             personal: [],
             organization: await resourceList(SHARED_OWNER, "skills/"),
-            workspace: await resourceList(WORKSPACE_OWNER, "skills/", {
-              orgId,
-            }),
+            workspace: await resourceList(WORKSPACE_OWNER, "skills/", inOrg),
           }
-        : await resourceListAccessibleLayers(owner, "skills/", { orgId });
+        : await resourceListAccessibleLayers(owner, "skills/", inOrg);
     // Each person's switches and the organization's marks decide which
     // skills the agent sees; Required ones come first so they win.
     const choices = await readSkillChoices({
       email: owner === SHARED_OWNER ? null : owner,
-      orgId: orgId === undefined ? getRequestOrgId() : orgId,
+      orgId: orgId === undefined ? (getRequestOrgId() ?? null) : orgId,
     });
     const { required, rest } = applySkillChoices(layers, choices);
     const sorted = [
-      ...sortResourceSkills(required, { owner, orgId }),
-      ...sortResourceSkills(rest, { owner, orgId }),
+      ...sortResourceSkills(required, { owner, ...inOrg }),
+      ...sortResourceSkills(rest, { owner, ...inOrg }),
     ];
     const skillCandidates = sorted.slice(0, PROMPT_SKILL_METADATA_READ_LIMIT);
     const loaded = await Promise.all(

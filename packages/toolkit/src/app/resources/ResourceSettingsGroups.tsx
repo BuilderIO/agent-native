@@ -86,7 +86,7 @@ export interface ResourceSettingsGroupConfig {
   /** Defaults to Personal, the organization name, or From Dispatch. */
   title?: string;
   /** A line under the heading saying who the group is for. */
-  description?: string;
+  description?: string | undefined;
   emptyIcon: Icon;
   emptyTitle: string;
   emptyDescription?: string;
