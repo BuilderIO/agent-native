@@ -57,6 +57,7 @@ vi.mock("@shared/upload-limits.js", () => ({
   MAX_UPLOAD_BYTES: 1024 * 1024,
 }));
 
+// raw-sql-ok: a mock that records the template parts; no SQL is built
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args: unknown[]) => args),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),

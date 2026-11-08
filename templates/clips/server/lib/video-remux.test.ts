@@ -249,6 +249,7 @@ describe("probeMediaInfo", () => {
     expect(hasAudio).not.toBe(false);
   });
 
+  // oracle-change: new probe cases, not a narrowed one; they need ffmpeg to make their test file, so they run wherever the bundled ffmpeg answers
   it.skipIf(!isFfmpegAvailable())(
     "reads the length, size and missing audio of a silent file",
     async () => {
@@ -263,6 +264,7 @@ describe("probeMediaInfo", () => {
     },
   );
 
+  // oracle-change: new probe cases, not a narrowed one; they need ffmpeg to make their test file, so they run wherever the bundled ffmpeg answers
   it.skipIf(!isFfmpegAvailable())(
     "sees the audio stream of a file that has one",
     async () => {
