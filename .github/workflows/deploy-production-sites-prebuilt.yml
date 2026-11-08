@@ -1,29 +1,51 @@
-name: Stage encryption readers on production sites
+name: Prepare authentication rotation candidates
 on: workflow_dispatch
 permissions:
   contents: read
   actions: read
 jobs:
-  build:
-    name: Build ${{ matrix.site }} production artifact
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       max-parallel: 8
       matrix:
-        site: [plan]
-    uses: ./.github/workflows/deploy-netlify-prebuilt.yml
-    with:
-      target: production
-      site: ${{ matrix.site }}
-      caller: manual
-      source_ref: 32037392301280b203e61f692c690fba1328c4ea
-      build_context: production
-      deploy: true
-      deploy_mode: production
-      smoke: true
-      migration_only: false
-      artifact_upload: false
-      artifact_download: true
-      checkout_ref: 32037392301280b203e61f692c690fba1328c4ea
-      artifact_name: incident-encryption-prod-${{ matrix.site }}-42423863070
-    secrets: inherit
+        app: ["assets", "brain", "design", "clips", "crm", "starter", "slides", "mail", "forms", "plan", "dispatch", "content", "calendar", "analytics", "factory", "fw"]
+    concurrency:
+      group: ${{ (matrix.app == 'design' || matrix.app == 'slides') && 'agent-native-production-site-design-slides' || format('agent-native-production-site-{0}', matrix.app) }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.0"
+      - uses: actions/download-artifact@v7
+        with:
+          name: incident-encryption-prod-${{ matrix.app }}-42423863070
+          run-id: 42423863070
+          github-token: ${{ github.token }}
+          path: bundle
+      - name: Prepare installed deploy tool and candidate helper
+        run: |
+          npm install --global netlify-cli@27.16.1
+          node <<'NODE'
+          require('node:fs').writeFileSync('candidate.cts',"const fs=require('node:fs'),path=require('node:path'),{createRequire}=require('node:module'),{pathToFileURL}=require('node:url');\n(async()=>{const token=process.env.NETLIFY_AUTH_TOKEN,sid=process.env.SITE_ID,base=process.cwd(),output=process.env.CANDIDATE_OUTPUT;\nif(!token||!sid||!output)throw Error('Missing candidate preparation configuration');\nconst roots=JSON.parse(process.env.INCIDENT_AUTH_ROOT_MAP||'{}')[sid];if(!Array.isArray(roots)||!roots.length||roots.some(r=>!['A2A_SECRET','BETTER_AUTH_SECRET'].includes(r.key)||!/^[a-f0-9]{64}$/.test(r.value)))throw Error('Invalid prepared authentication targets');\nconst headers={Authorization:'Bearer '+token,'Content-Type':'application/json'};\nasync function req(p,method='GET',body){const r=await fetch('https://api.netlify.com/api/v1/'+p,{headers,method,body:body===undefined?undefined:JSON.stringify(body)});if(!r.ok)throw Error('Candidate API HTTP '+r.status);return r.status===204?null:r.json()}\nconst site=await req('sites/'+sid),previous=site.published_deploy?.id,previousLocked=!!site.published_deploy?.locked;\nif(!previous)throw Error('Previous published deployment is required');\nif(!previousLocked&&process.env.ALLOW_OWNED_TEMPORARY_LOCK!=='1')throw Error('Existing workflow-owned publication lock is required');\nconst state={siteId:sid,previous_deploy_id:previous,previous_locked:previousLocked,owned_temporary_lock:!previousLocked,published:false,ready:false};fs.writeFileSync(output,JSON.stringify(state),{mode:0o600});\nif(!previousLocked){await req('deploys/'+previous+'/lock','POST',{});const locked=await req('sites/'+sid);if(locked.published_deploy.id!==previous||!locked.published_deploy.locked)throw Error('Temporary publication lock verification failed');}\nconst cli=process.env.NETLIFY_CLI_ROOT||path.join(require('node:child_process').execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'netlify-cli'),local=createRequire(cli+'/package.json'),{NetlifyAPI}=local('@netlify/api'),{deploySite}=await import(pathToFileURL(cli+'/dist/utils/deploy/deploy-site.js').href);\nconst command={project:{frameworks:new Map()},workspacePackage:'',getPathInProject:p=>path.join(base,p)};\nconst created=await req('sites/'+sid+'/deploys?title=Prepared%20authentication%20rotation%20candidate','POST',{draft:false});\nconst candidate={...state,deploy_id:created.id};fs.writeFileSync(output,JSON.stringify(candidate),{mode:0o600});\nconst result=await deploySite(command,new NetlifyAPI(token),sid,path.resolve(process.env.PUBLISH_DIRECTORY),{deployId:created.id,draft:false,config:{},fnDir:[path.resolve(process.env.FUNCTIONS_DIRECTORY)],functionsConfig:{'*':{nodeVersion:'nodejs22.x'}},siteRoot:base,workingDir:base,environment:roots.map(r=>({...r,is_secret:true,scopes:['functions']})),skipFunctionsCache:true,serverEnabled:false,deployTimeout:600000});\nconst current=await req('sites/'+sid);if(current.published_deploy.id!==previous||!current.published_deploy.locked)throw Error('Published deployment changed during candidate preparation');if(result.deploy.context!=='production')throw Error('Unexpected candidate runtime context');\nconst response=await fetch(result.deploy.deploy_ssl_url+'/.netlify/functions/incident-key-recovery',{headers:{Authorization:'Bearer '+process.env.INCIDENT_RECOVERY_NONCE}});if(!response.ok)throw Error('Candidate encrypted verification failed');\nfs.writeFileSync(output+'.enc.json',JSON.stringify(await response.json()),{mode:0o600});\nconst hp=process.env.HEALTH_PATH||'/_agent-native/health',hr=await fetch(result.deploy.deploy_ssl_url+hp);if(!hr.ok)throw Error('Candidate health HTTP '+hr.status);const health=await hr.json();if(!health.ready)throw Error('Candidate database is not ready');\nObject.assign(candidate,{ready:true,context:result.deploy.context,deploy_url:result.deploy.deploy_ssl_url});fs.writeFileSync(output,JSON.stringify(candidate),{mode:0o600});console.log('Prepared healthy production-context authentication candidate; current publication unchanged.');\n})().catch(()=>{console.error('Authentication candidate preparation failed; inspect metadata before retrying.');process.exitCode=1});\n");
+          NODE
+      - name: Upload a locked production-context candidate
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          INCIDENT_AUTH_ROOT_MAP: ${{ secrets.INCIDENT_AUTH_ROOT_MAP }}
+          INCIDENT_RECOVERY_NONCE: ${{ secrets.INCIDENT_RECOVERY_NONCE }}
+          APP: ${{ matrix.app }}
+          PUBLISH_DIRECTORY: bundle/publish
+          FUNCTIONS_DIRECTORY: bundle/functions
+          CANDIDATE_OUTPUT: candidate.json
+        run: |
+          export SITE_ID="$(node -e 'console.log({"assets": "5868670b-649a-4a45-9e34-45ef3e75f3fd", "brain": "af978d13-aa58-44f3-9b5c-f12568467079", "design": "1e6bd63d-2972-4272-86bd-7b33f493606d", "clips": "7e3f4fee-258d-4d16-9aaf-154a714e87e2", "crm": "2636c74c-ce64-4dc5-8028-2f45b511e52b", "starter": "864ab6ba-0889-4265-99c0-7a18d1888585", "slides": "fd5deb5b-5539-47e1-830c-e5fb5e105efd", "mail": "dee98bb0-6143-4205-8c04-afe7bf83d5b5", "forms": "aa0b2020-9983-4d6c-8fb0-65462f960fc4", "plan": "9d0d7a73-385d-4da1-ba10-1581ffc4d413", "dispatch": "1171ef84-ed50-418b-bced-e19470475e49", "content": "5c2198f5-bee4-41c3-8a6d-4869f400eec2", "calendar": "954fe53b-052e-4401-aac2-2e973e498af8", "analytics": "ba983662-dac4-478d-a481-5079e67e4d33", "factory": "6bffaa23-ad14-480c-8954-99f53ecabf05", "fw": "33249da7-8dca-47f9-b61f-3a5eba3116e2"}[process.env.APP])')"
+          node candidate.cts
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: incident-auth-candidate-${{ matrix.app }}-${{ github.run_id }}
+          path: candidate.json*
+          retention-days: 1
