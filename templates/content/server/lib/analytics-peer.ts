@@ -109,8 +109,8 @@ export async function requestAnalytics<T>(
       action,
       input,
       userEmail: auth.userEmail,
-      orgDomain: auth.orgDomain,
-      orgSecret: auth.orgSecret,
+      ...(auth.orgDomain !== undefined ? { orgDomain: auth.orgDomain } : {}),
+      ...(auth.orgSecret !== undefined ? { orgSecret: auth.orgSecret } : {}),
       requestTimeoutMs,
     });
   } catch (error) {

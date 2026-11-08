@@ -278,7 +278,7 @@ export async function captureDashboardPanel(
   const outcome = capturePanelNumbers({
     panel,
     rows: data.rows,
-    truncated: data.truncated,
+    truncated: data.truncated === true,
     vars,
     keyDates: keyDateEvents(
       await listKeyDateSets(dashboard.annotationScope),

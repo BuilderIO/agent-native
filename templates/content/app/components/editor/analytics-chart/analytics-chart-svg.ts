@@ -66,10 +66,16 @@ export function analyticsChartSvg(
   return renderReportChartSvg({
     type,
     labels,
-    series: (data.series ?? []).map((series, index) => ({
-      ...series,
-      data: data.rows.map((row) => numberOrNull(row[index + 1])),
-    })),
+    series: (data.series ?? []).map(
+      ({ label, color, axis, formatter, mark }, index) => ({
+        label,
+        ...(color ? { color } : {}),
+        ...(axis ? { axis } : {}),
+        ...(formatter ? { formatter } : {}),
+        ...(mark ? { mark } : {}),
+        data: data.rows.map((row) => numberOrNull(row[index + 1])),
+      }),
+    ),
     width,
     height: ANALYTICS_CHART_HEIGHT,
     ...(data.stacked ? { stacked: true } : {}),

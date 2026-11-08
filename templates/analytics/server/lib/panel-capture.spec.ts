@@ -144,7 +144,8 @@ describe("captureDashboardPanel", () => {
     });
     expect(capture.rows.map((row) => row[1])).toEqual([10, 12]);
     expect(capture.panel.fingerprint).toMatch(/^[a-f0-9]{12}$/);
-    expect(mocks.resolvePanel.mock.calls[0][0].query).toContain("r = '90d'");
+    const [call] = mocks.resolvePanel.mock.calls;
+    expect(call?.[0].query).toContain("r = '90d'");
   });
 
   it("runs the panel as the caller", async () => {
@@ -157,7 +158,8 @@ describe("captureDashboardPanel", () => {
       email: "alice@example.com",
       orgId: "org-1",
     });
-    expect(mocks.resolvePanel.mock.calls[0][1]).toEqual({
+    const [call] = mocks.resolvePanel.mock.calls;
+    expect(call?.[1]).toEqual({
       userEmail: "alice@example.com",
       orgId: "org-1",
     });
