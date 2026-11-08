@@ -17,6 +17,7 @@ import { createHash } from "node:crypto";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { SandboxCodeEvaluator } from "../coding-tools/run-code.js";
+import type { SandboxExecutionRow } from "../coding-tools/sandbox/index.js";
 import { resolveAccess, type AccessContext } from "../sharing/access.js";
 import {
   buildDataProgramPrelude,
@@ -598,17 +599,19 @@ async function runBackgroundProgram(
   if (active?.executionId && args.ctx.userEmail) {
     // A failed check leaves the run for the next read to finish, rather than
     // failing a read the cache can still answer.
-    const execution = await getSandboxExecutionForOwner(
-      active.executionId,
-      args.ctx.userEmail,
-    ).catch((err: unknown) => {
+    let execution: SandboxExecutionRow | null = null;
+    try {
+      execution = await getSandboxExecutionForOwner(
+        active.executionId,
+        args.ctx.userEmail,
+      );
+    } catch (err) {
       console.error(
         `[data-programs] couldn't check background run ${active.id}:`,
         err,
       );
       statusUnknown = true;
-      return null;
-    });
+    }
     if (
       execution &&
       execution.status !== "queued" &&
