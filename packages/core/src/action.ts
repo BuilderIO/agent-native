@@ -1808,6 +1808,11 @@ export function defineAction(options: any) {
     tool,
     run: wrapRunWithExecutionBoundary(trackedRun, executionKey),
     ...(hasSchema ? { schema: options.schema } : {}),
+    ...(hasSchema &&
+    options.agentInputSchema &&
+    "~standard" in options.agentInputSchema
+      ? { agentInputSchema: options.agentInputSchema }
+      : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
     ...(typeof options.requiresAuth === "boolean"
       ? { requiresAuth: options.requiresAuth }
@@ -2310,6 +2315,39 @@ function schemaToJsonSchema(
     // cards, the manifest and tool search still read `anyObject`.
     return { parameters: anyObject, verdict: unusableVerdict(error) };
   }
+}
+
+/**
+ * An action's input schema as its schema library emits it, before
+ * `schemaToJsonSchema` strips what providers reject and rewrites non-string
+ * enums, so it says what validation accepts. The MCP script tools type
+ * their declarations from it, because a script's arguments go to the action
+ * without passing through a provider. Undefined when it cannot be emitted.
+ */
+export function semanticInputSchema(schema: unknown): unknown {
+  if (!isPlainRecord(schema)) return undefined;
+  try {
+    const standard = schema["~standard"];
+    const jsonSchema = isPlainRecord(standard)
+      ? standard.jsonSchema
+      : undefined;
+    if (isPlainRecord(jsonSchema) && typeof jsonSchema.input === "function") {
+      return plainJsonSnapshot(jsonSchema.input({ target: "draft-2020-12" }));
+    }
+    const zod = schema._zod;
+    if (isPlainRecord(zod) && zod.def !== undefined) {
+      return plainJsonSnapshot(zodDefToJsonSchema(zod.def));
+    }
+    return undefined;
+  } catch {
+    // coercion-ok: a schema that cannot be emitted leaves the declaration to
+    // the parameters every caller already sees.
+    return undefined;
+  }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function zodDefToJsonSchema(def: any): any {

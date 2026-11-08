@@ -1359,6 +1359,9 @@ export interface ActionEntry {
   access?: import("../authorization/check-action.js").ActionAccessConfig;
   fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;
   schema?: unknown;
+  /** The input schema agents are shown, when `defineAction` was given one
+   *  narrower than `schema`. */
+  agentInputSchema?: unknown;
   http?: import("../action.js").ActionHttpConfig | false;
   requiresAuth?: boolean;
   maxBodyBytes?: number;

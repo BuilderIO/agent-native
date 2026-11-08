@@ -324,11 +324,12 @@ describe("script types", () => {
     expect(
       flat({
         type: "array",
-        prefixItems: [{ type: "string" }],
+        prefixItems: [{ type: "string" }, nullableObject],
+        minItems: 1,
         items: nullableObject,
       }),
     ).toBe(
-      "[string, ...({ /** Unbalanced ( | & in a comment */ a?: string; } | null)[]]",
+      "[string, ({ /** Unbalanced ( | & in a comment */ a?: string; } | null)?, ...({ /** Unbalanced ( | & in a comment */ a?: string; } | null)[]]",
     );
     // A union nested inside braces needs no parentheses of its own.
     expect(
@@ -338,6 +339,43 @@ describe("script types", () => {
         nullable: true,
       }),
     ).toBe('{ kind?: "a" | "b"; } | null');
+  });
+
+  it("types a real action from its own schema, not the copy providers see", () => {
+    const action = defineAction({
+      description: "Pick a pair",
+      schema: z.object({
+        n: z.literal([1, 2]),
+        pair: z.tuple([z.string(), z.number()]),
+        kind: z.enum(["a", "b"]).optional(),
+      }),
+      readOnly: true,
+      mcpScript: "read",
+      run: async () => ({}),
+    }) as unknown as ActionEntry;
+    const declaration = mcpScriptDeclaration("pick-pair", action).replace(
+      /\s+/g,
+      " ",
+    );
+    expect(declaration).toContain("n: 1 | 2;");
+    // zod's JSON Schema for a tuple sets neither `minItems` nor `items`, so
+    // the declaration says what that schema allows.
+    expect(declaration).toContain("pair: [string?, number?, ...unknown[]];");
+    expect(declaration).toContain('kind?: "a" | "b";');
+  });
+
+  it("types the input agents are shown when an action narrows it", () => {
+    const action = defineAction({
+      description: "Read a doc",
+      schema: z.object({ id: z.string(), internal: z.boolean().optional() }),
+      agentInputSchema: z.object({ id: z.string() }),
+      readOnly: true,
+      mcpScript: "read",
+      run: async () => ({}),
+    }) as unknown as ActionEntry;
+    const declaration = mcpScriptDeclaration("read-doc", action);
+    expect(declaration).toContain("id: string;");
+    expect(declaration).not.toContain("internal");
   });
 
   it("resolves local references and fails visibly on the rest", () => {
@@ -725,11 +763,118 @@ describe("runMcpScript", () => {
     const thrown = await run(`const a = 1;\nthrow new TypeError("bad " + a);`);
     expect(thrown).toMatchObject({
       ok: false,
-      error: { code: "script_error", name: "TypeError", message: "bad 1" },
+      error: {
+        code: "script_error",
+        name: "TypeError",
+        message: expect.stringMatching(/^bad 1 \(line 2, column \d+\)$/),
+      },
     });
     const syntax = await run(`return (;`);
     expect(syntax.ok).toBe(false);
     expect(syntax.error?.code).toBe("script_error");
+    const located = await run(`const a = 1;\n  null.x;`);
+    expect(located.error?.message).toMatch(/ \(line 2, column \d+\)$/);
+  });
+
+  it("refuses a result or arguments that repeat one part past the copy budget", async () => {
+    const { run, calls } = runner({ "get-document": entry() });
+    const doubled = `
+      let a = { leaf: true };
+      for (let i = 0; i < 24; i++) a = [a, a];
+    `;
+    const result = await run(`${doubled} return a;`);
+    expect(result.error?.code).toBe("script_result_too_large");
+    const args = await run(`${doubled}
+      try { await api.getDocument({ a }); } catch (error) {
+        return [error.code, error.message];
+      }
+    `);
+    expect(args.result).toEqual([
+      "invalid_arguments",
+      `api.getDocument takes at most ${MCP_SCRIPT_LIMITS.argumentChars} characters of arguments.`,
+    ]);
+    expect(calls).toEqual([]);
+  });
+
+  it("holds console limits the script cannot reach around", async () => {
+    const { run } = runner({});
+    const empty = await run(
+      `for (let i = 0; i < 5000; i++) console.log(); return 1;`,
+    );
+    expect(empty.logs).toHaveLength(MCP_SCRIPT_LIMITS.logLines);
+    expect(empty.logsDropped).toBe(5000 - MCP_SCRIPT_LIMITS.logLines);
+    const pushed = await run(`
+      for (let i = 0; i < 3000; i++) __console.lines.push("x".repeat(50));
+      return typeof __logChars;
+    `);
+    expect(pushed.result).toBe("undefined");
+    const kept = pushed.logs ?? [];
+    expect(kept.join("\n").length).toBeLessThanOrEqual(
+      MCP_SCRIPT_LIMITS.logChars,
+    );
+    expect(kept.length + (pushed.logsDropped ?? 0)).toBe(3000);
+  });
+
+  it("lists a call the script was still waiting on when it was cancelled", async () => {
+    const controller = new AbortController();
+    let entered!: () => void;
+    const inCall = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: (outcome: McpActionCallOutcome) => void;
+    const gate = new Promise<McpActionCallOutcome>((resolve) => {
+      release = resolve;
+    });
+    const catalog = buildMcpScriptCatalog({ "get-document": entry() });
+    const running = runMcpScript({
+      code: `return await api.getDocument({ id: "doc_1" });`,
+      catalog,
+      known: { "get-document": entry() },
+      signal: controller.signal,
+      callAction: async () => {
+        entered();
+        return gate;
+      },
+      recordDenial: async () => {},
+    });
+    await inCall;
+    controller.abort();
+    const payload = await running;
+    release(completed({ id: "doc_1" }));
+    expect(payload.error?.code).toBe("script_aborted");
+    expect(payload.calls).toEqual([
+      {
+        function: "getDocument",
+        action: "get-document",
+        status: "unfinished",
+        ms: 0,
+      },
+    ]);
+  });
+
+  it("returns a typed failure when the runner cannot start", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("RUN_CONTINUATION_SECRET", "x");
+    vi.resetModules();
+    try {
+      const fresh = await import("./script-tools.js");
+      const payload = await fresh.runMcpScript({
+        code: "return 1;",
+        catalog: fresh.buildMcpScriptCatalog({}),
+        known: {},
+        callAction: async () => completed(null),
+        recordDenial: async () => {},
+      });
+      expect(payload).toMatchObject({
+        ok: false,
+        error: { code: "script_failed" },
+        calls: [],
+      });
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+      quiet.mockRestore();
+    }
   });
 
   it("gives the script no network, timers, imports or host globals", async () => {

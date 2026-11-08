@@ -2,7 +2,7 @@ import type { HostFunctions, Runner, RunError as RunErrorClass } from "run";
 
 import { isMcpReadOnlyTool } from "../action-call-classification.js";
 import { runOutsideActionInvocation } from "../action-frame.js";
-import type { ActionRunContext } from "../action.js";
+import { type ActionRunContext, semanticInputSchema } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { describeThrownForLog } from "./embed-redaction.js";
 import {
@@ -46,8 +46,16 @@ export const MCP_SCRIPT_LIMITS = Object.freeze({
   readBytes: 8 * 1024 * 1024,
   /** The JSON bytes of one value delivered into the script. */
   callResultBytes: 3 * 1024 * 1024,
-  /** Characters of console output kept; later lines are counted, not kept. */
+  /** Characters of console output kept, each line's newline included;
+   *  later lines are counted, not kept. */
   logChars: 16_000,
+  /** Lines of console output kept. */
+  logLines: 1_000,
+  /** Characters of the value a script returns, as the server copies it out
+   *  of the sandbox, where a part the value repeats counts each time. */
+  returnChars: 4 * 1024 * 1024,
+  /** The same for the arguments of one call. */
+  argumentChars: 1024 * 1024,
   /** Characters of the text `run-script` returns. */
   resultChars: 30_000,
   /** Scripts running at once in this process; another gets a busy error. */
@@ -451,9 +459,13 @@ function structuralType(
           ? "unknown"
           : schemaType(schema.items, scope, depth + 1, indent);
       if (Array.isArray(schema.prefixItems)) {
-        const head = schema.prefixItems.map((member) =>
-          schemaType(member, scope, depth + 1, indent),
-        );
+        // A position past `minItems` may be missing.
+        const required =
+          typeof schema.minItems === "number" ? schema.minItems : 0;
+        const head = schema.prefixItems.map((member, index) => {
+          const type = schemaType(member, scope, depth + 1, indent);
+          return index < required ? type : `${parenthesize(type)}?`;
+        });
         return schema.items === false
           ? `[${head.join(", ")}]`
           : `[${[...head, `...${parenthesize(element)}[]`].join(", ")}]`;
@@ -544,10 +556,13 @@ export function mcpScriptDeclaration(
 ): string {
   const fn = mcpScriptFunctionName(actionName);
   const notes: string[] = [];
+  // The action's own schema says what it accepts. Its parameters are the
+  // copy providers are shown, with what they reject taken out.
+  const parameters =
+    semanticInputSchema(entry.agentInputSchema ?? entry.schema) ??
+    entry.tool.parameters;
   const input =
-    entry.tool.parameters === undefined
-      ? { type: "{}" }
-      : typeOrReason(entry.tool.parameters, "  ");
+    parameters === undefined ? { type: "{}" } : typeOrReason(parameters, "  ");
   if ("reason" in input)
     notes.push(`input types unavailable: the schema ${input.reason}`);
   const semantic = entry.mcpOutputContract?.semantic;
@@ -739,7 +754,14 @@ export type McpScriptErrorCode =
   | "script_result_unserializable"
   | "script_failed";
 
-export type McpScriptCallStatus = "completed" | "failed" | "denied" | "refused";
+/** `unfinished`: the script stopped before the call settled. A read can still
+ * finish on the server after that. */
+export type McpScriptCallStatus =
+  | "completed"
+  | "failed"
+  | "denied"
+  | "refused"
+  | "unfinished";
 
 export interface McpScriptCallRecord {
   function: string;
@@ -821,36 +843,44 @@ function loadRuntime() {
 
 function guestPrelude(functionNames: readonly string[]): string {
   return `const __names = ${JSON.stringify(functionNames)};
-const __logs = [];
-let __logChars = 0;
-let __logsDropped = 0;
-function __format(value) {
-  if (typeof value === "string") return value;
-  try {
-    const text = JSON.stringify(value, (_key, item) =>
-      typeof item === "bigint" ? item.toString() + "n" : item,
-    );
-    return text === undefined ? String(value) : text;
-  } catch {
-    return String(value);
-  }
-}
-function __log(level, values) {
-  const line = (level === "log" ? "" : "[" + level + "] ") + values.map(__format).join(" ");
-  if (__logChars + line.length > ${MCP_SCRIPT_LIMITS.logChars}) {
-    __logsDropped += 1;
-    return;
-  }
-  __logChars += line.length;
-  __logs.push(line);
-}
-const console = Object.freeze({
-  log: (...values) => __log("log", values),
-  info: (...values) => __log("info", values),
-  warn: (...values) => __log("warn", values),
-  error: (...values) => __log("error", values),
-  debug: (...values) => __log("debug", values),
-});
+const __console = (() => {
+  const lines = [];
+  let chars = 0;
+  let dropped = 0;
+  const format = (value) => {
+    if (typeof value === "string") return value;
+    try {
+      const text = JSON.stringify(value, (_key, item) =>
+        typeof item === "bigint" ? item.toString() + "n" : item,
+      );
+      return text === undefined ? String(value) : text;
+    } catch {
+      return String(value);
+    }
+  };
+  // A line costs its newline too, so empty lines run out as well.
+  const write = (level, values) => {
+    const line = (level === "log" ? "" : "[" + level + "] ") + values.map(format).join(" ");
+    if (lines.length >= ${MCP_SCRIPT_LIMITS.logLines} || chars + line.length + 1 > ${MCP_SCRIPT_LIMITS.logChars}) {
+      dropped += 1;
+      return;
+    }
+    chars += line.length + 1;
+    lines.push(line);
+  };
+  return Object.freeze({
+    console: Object.freeze({
+      log: (...values) => write("log", values),
+      info: (...values) => write("info", values),
+      warn: (...values) => write("warn", values),
+      error: (...values) => write("error", values),
+      debug: (...values) => write("debug", values),
+    }),
+    lines,
+    dropped: () => dropped,
+  });
+})();
+const console = __console.console;
 async function __call(name, args) {
   const reply = await __host.call(name, args === undefined ? {} : args);
   if (reply && reply.ok === true) return reply.value;
@@ -883,7 +913,7 @@ function guestSource(prelude: string, code: string): string {
   const __value = await (async () => {
 ${code}
   })();
-  return { ok: true, value: __value, logs: __logs, logsDropped: __logsDropped };
+  return { ok: true, value: __value, logs: __console.lines, logsDropped: __console.dropped() };
 } catch (__error) {
   // The sandbox stops a script with this error. Inside an async function it
   // becomes an ordinary rejection, so it is thrown on for the runner to see.
@@ -895,9 +925,10 @@ ${code}
     error: {
       name: String(__error && __error.name ? __error.name : "Error"),
       message: String(__error && __error.message !== undefined ? __error.message : __error),
+      stack: __error && typeof __error.stack === "string" ? __error.stack.slice(0, 4000) : "",
     },
-    logs: __logs,
-    logsDropped: __logsDropped,
+    logs: __console.lines,
+    logsDropped: __console.dropped(),
   };
 }
 `;
@@ -916,6 +947,22 @@ function rebaseLines(message: string, offset: number): string {
       return own > 0 ? `line ${own}, column ${col}` : `run.js:${line}:${col}`;
     },
   );
+}
+
+/**
+ * Where in the model's own code an error was thrown, from the first stack
+ * frame that falls inside it, such as ` (line 2, column 11)`. A syntax error
+ * has no stack, and an error thrown inside the prelude, such as a refused
+ * call, is placed at the script's line that made the call.
+ */
+function ownPosition(stack: string, offset: number, codeLines: number): string {
+  for (const match of stack.matchAll(/run\.js:(\d+):(\d+)/g)) {
+    const line = Number(match[1]) - offset;
+    if (line > 0 && line <= codeLines) {
+      return ` (line ${line}, column ${match[2]})`;
+    }
+  }
+  return "";
 }
 
 function utf8Bytes(text: string): number {
@@ -970,28 +1017,19 @@ export async function runMcpScript(
   let callCount = 0;
   let readBytes = 0;
   try {
-    const { runner, RunError } = await loadRuntime();
-    const record = (call: McpScriptCallRecord) => {
-      if (!stopped) calls.push(call);
-    };
-    const refuse = (
-      fn: string,
-      action: string | undefined,
-      status: "denied" | "refused" | "failed",
-      replyCode: string,
-      message: string,
-      startedAt: number,
-    ) => {
-      record({
-        function: fn,
-        ...(action ? { action } : {}),
-        status,
-        ms: Date.now() - startedAt,
-        code: replyCode,
-        message: oneLine(message, 300),
-      });
-      return { ok: false, code: replyCode, message };
-    };
+    let loaded: Awaited<ReturnType<typeof loadRuntime>>;
+    try {
+      loaded = await loadRuntime();
+    } catch (error) {
+      console.error(
+        `[mcp] The script runner could not start: ${describeThrownForLog(error)}`,
+      );
+      return fail(
+        "script_failed",
+        "The script runner could not start on this server. Call the tools directly.",
+      );
+    }
+    const { runner, RunError } = loaded;
 
     const hostFunctions: HostFunctions = {
       __host: {
@@ -1003,6 +1041,32 @@ export async function runMcpScript(
               : String(rawName),
             120,
           );
+          // A call is listed when it starts, so a script that stops while
+          // waiting on one still shows it, as unfinished.
+          const slot = stopped
+            ? -1
+            : calls.push({ function: fn, status: "unfinished", ms: 0 }) - 1;
+          const record = (call: McpScriptCallRecord) => {
+            if (!stopped && slot >= 0) calls[slot] = call;
+          };
+          const refuse = (
+            functionName: string,
+            action: string | undefined,
+            status: "denied" | "refused" | "failed",
+            replyCode: string,
+            message: string,
+            callStartedAt: number,
+          ) => {
+            record({
+              function: functionName,
+              ...(action ? { action } : {}),
+              status,
+              ms: Date.now() - callStartedAt,
+              code: replyCode,
+              message: oneLine(message, 300),
+            });
+            return { ok: false, code: replyCode, message };
+          };
           if (stopped || input.signal?.aborted) {
             return refuse(
               fn,
@@ -1062,18 +1126,24 @@ export async function runMcpScript(
           }
           let args: unknown;
           try {
+            // Measured before the copy, which spells out every part the
+            // sandbox sent once and pointed to again.
+            plainResultValue(rawArgs, MCP_SCRIPT_LIMITS.argumentChars);
             args = toJsonData(rawArgs === undefined ? {} : rawArgs);
             if (!isSchemaObject(args)) throw new TypeError("not an object");
-          } catch {
+          } catch (error) {
             return refuse(
               fn,
               action,
               "failed",
               "invalid_arguments",
-              `api.${fn} takes one object of JSON data.`,
+              error instanceof McpScriptValueTooLargeError
+                ? `api.${fn} takes at most ${MCP_SCRIPT_LIMITS.argumentChars} characters of arguments.`
+                : `api.${fn} takes one object of JSON data.`,
               startedAt,
             );
           }
+          record({ function: fn, action, status: "unfinished", ms: 0 });
           const outcome = await input.callAction(action, args);
           switch (outcome.status) {
             case "completed": {
@@ -1175,7 +1245,8 @@ export async function runMcpScript(
     };
 
     const prelude = guestPrelude([...input.catalog.byFunction.keys()]);
-    const offset = lineCount(prelude) + 2;
+    // The wrapper puts two lines before the code, and the runner two more.
+    const offset = lineCount(prelude) + 4;
     const timedOut = () =>
       fail(
         "script_timeout",
@@ -1225,10 +1296,7 @@ export async function runMcpScript(
           );
         case "RUN_SERIALIZATION_ERROR":
           return /exceeds/i.test(error.message)
-            ? fail(
-                "script_result_too_large",
-                "The script returned more data than it may. Return less: pick the fields you need, or fewer items.",
-              )
+            ? fail("script_result_too_large", RESULT_TOO_LARGE)
             : fail("script_result_unserializable", error.message);
         default:
           return fail("script_error", rebaseLines(error.message, offset));
@@ -1242,11 +1310,29 @@ export async function runMcpScript(
       return fail("script_failed", "The script stopped before it completed.");
     }
     const envelope = isSchemaObject(result.value) ? result.value : {};
-    const logs = Array.isArray(envelope.logs)
+    // The script can reach its own log buffer, so the limits hold here too.
+    const lines = Array.isArray(envelope.logs)
       ? envelope.logs.filter((line): line is string => typeof line === "string")
       : [];
-    const logsDropped =
-      typeof envelope.logsDropped === "number" ? envelope.logsDropped : 0;
+    const logs: string[] = [];
+    let logChars = 0;
+    for (const line of lines) {
+      if (
+        logs.length >= MCP_SCRIPT_LIMITS.logLines ||
+        logChars + line.length + 1 > MCP_SCRIPT_LIMITS.logChars
+      ) {
+        break;
+      }
+      logs.push(line);
+      logChars += line.length + 1;
+    }
+    const counted =
+      typeof envelope.logsDropped === "number" &&
+      Number.isSafeInteger(envelope.logsDropped) &&
+      envelope.logsDropped > 0
+        ? envelope.logsDropped
+        : 0;
+    const logsDropped = counted + lines.length - logs.length;
     const shared = {
       runId,
       ...(logs.length > 0 ? { logs } : {}),
@@ -1254,7 +1340,18 @@ export async function runMcpScript(
       calls: [...calls],
     };
     if (envelope.ok === true) {
-      return { ok: true, ...shared, result: plainResultValue(envelope.value) };
+      let value: unknown;
+      try {
+        value = plainResultValue(envelope.value);
+      } catch (error) {
+        return error instanceof McpScriptValueTooLargeError
+          ? fail("script_result_too_large", RESULT_TOO_LARGE)
+          : fail(
+              "script_result_unserializable",
+              `The script's result could not be read: ${describeThrownForLog(error)}`,
+            );
+      }
+      return { ok: true, ...shared, result: value };
     }
     const thrown = isSchemaObject(envelope.error) ? envelope.error : {};
     return {
@@ -1263,11 +1360,19 @@ export async function runMcpScript(
       error: {
         code: "script_error",
         name: oneLine(thrown.name, 80) || "Error",
-        message: rebaseLines(
-          typeof thrown.message === "string"
-            ? thrown.message
-            : "The script threw.",
-          offset,
+        message: clip(
+          rebaseLines(
+            typeof thrown.message === "string"
+              ? thrown.message
+              : "The script threw.",
+            offset,
+          ) +
+            ownPosition(
+              typeof thrown.stack === "string" ? thrown.stack : "",
+              offset,
+              lineCount(code) + 1,
+            ),
+          ERROR_MESSAGE_CHARS,
         ),
       },
     };
@@ -1278,6 +1383,21 @@ export async function runMcpScript(
 }
 
 const MAX_RESULT_DEPTH = 64;
+const ERROR_MESSAGE_CHARS = 4_000;
+const RESULT_TOO_LARGE =
+  "The script returned more data than it may. Return less: pick the fields you need, or fewer items.";
+
+function clip(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+}
+
+/** A guest value larger than the server will copy out of the sandbox. */
+export class McpScriptValueTooLargeError extends Error {
+  constructor(maxChars: number) {
+    super(`The value is larger than ${maxChars} characters.`);
+    this.name = "McpScriptValueTooLargeError";
+  }
+}
 
 /**
  * A guest value as JSON data. The sandbox hands back BigInt, cycles, `Map`,
@@ -1285,10 +1405,24 @@ const MAX_RESULT_DEPTH = 64;
  * something it can: a BigInt is its digits and `n`, a cycle is marked, a
  * `Map` is an object (or entries when a key is not a string), a `Set` an
  * array, a `Date` its ISO string, and binary data a byte count.
+ *
+ * The sandbox sends a part a value repeats once, and JSON spells out every
+ * copy, so a short script can return something enormous. Each node and
+ * string is charged as often as it appears, and past `maxChars` this
+ * throws `McpScriptValueTooLargeError`.
  */
-export function plainResultValue(value: unknown): unknown {
+export function plainResultValue(
+  value: unknown,
+  maxChars: number = MCP_SCRIPT_LIMITS.returnChars,
+): unknown {
   const onPath = new Set<object>();
+  let spent = 0;
+  const charge = (chars: number) => {
+    spent += chars;
+    if (spent > maxChars) throw new McpScriptValueTooLargeError(maxChars);
+  };
   const walk = (item: unknown, depth: number): unknown => {
+    charge(typeof item === "string" ? item.length + 2 : 1);
     if (typeof item === "bigint") return `${item.toString()}n`;
     if (typeof item === "number") return Number.isFinite(item) ? item : null;
     if (item === undefined) return null;
@@ -1328,6 +1462,7 @@ export function plainResultValue(value: unknown): unknown {
       const out: Record<string, unknown> = {};
       for (const [key, member] of Object.entries(item)) {
         if (member === undefined) continue;
+        charge(key.length + 3);
         out[key] = walk(member, depth + 1);
       }
       return out;
@@ -1352,15 +1487,32 @@ export function formatMcpScriptPayload(
   if (text.length <= maxChars) return text;
   const trimmed: Record<string, unknown> = { ...payload };
   if (payload.logs) {
-    const logs = [...payload.logs];
-    let dropped = payload.logsDropped ?? 0;
-    while (logs.length > 0 && text.length > maxChars) {
-      logs.pop();
-      dropped += 1;
-      trimmed.logs = logs.length > 0 ? logs : undefined;
-      trimmed.logsDropped = dropped;
-      text = JSON.stringify(trimmed);
+    // The first lines that fit, measured once rather than by serializing
+    // the payload again for every line dropped.
+    const allLogs = payload.logs;
+    const before = payload.logsDropped ?? 0;
+    const withLogs = (count: number) =>
+      JSON.stringify({
+        ...trimmed,
+        logs: count > 0 ? allLogs.slice(0, count) : undefined,
+        logsDropped: before + allLogs.length - count,
+      });
+    // `,"logs":[` and `]` around lines joined by commas.
+    let used = withLogs(0).length + 9;
+    let kept = 0;
+    for (const line of allLogs) {
+      const cost = JSON.stringify(line).length + 1;
+      if (used + cost > maxChars) break;
+      used += cost;
+      kept += 1;
     }
+    // A shorter dropped count can leave room for one more line.
+    if (kept < allLogs.length && withLogs(kept + 1).length <= maxChars) {
+      kept += 1;
+    }
+    trimmed.logs = kept > 0 ? allLogs.slice(0, kept) : undefined;
+    trimmed.logsDropped = before + allLogs.length - kept;
+    text = JSON.stringify(trimmed);
   }
   if (text.length > maxChars && "result" in payload) {
     const resultText = jsonText(payload.result);
