@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq, inArray } from "drizzle-orm";
@@ -278,6 +279,14 @@ async function cleanupAfterDelete(
 }
 
 export default defineAction({
+  mcpApp: { compactCatalog: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  // Deleting for good can't be undone, so an outside agent asks a person first.
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   description:
     "Permanently remove one or more owned recordings and their access rows, atomically retaining a durable media cleanup intent for each. Returns recordingRemoved separately from mediaCleanup: pending or blocked does not mean stored media is gone. Context footage moves to Trash. Repeating the call returns the retained cleanup state. With ids, every recording must be yours (or already deleted) before any is deleted; a batch that runs long lists the recordings it didn't reach as skipped, to send again.",
   schema: z

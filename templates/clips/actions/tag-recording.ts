@@ -78,6 +78,12 @@ async function tagOne(recordingId: string, tag: string, op: "add" | "remove") {
 }
 
 export default defineAction({
+  mcpApp: { compactCatalog: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Add or remove a tag on one or more recordings. Use op='add' or op='remove'.",
   schema: z

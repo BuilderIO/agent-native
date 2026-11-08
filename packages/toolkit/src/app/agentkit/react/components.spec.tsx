@@ -1765,6 +1765,166 @@ describe("AgentKitChat", () => {
     expect(html).toContain("&quot;kind&quot;:&quot;connect-builder-card&quot;");
   });
 
+  // A live run whose result also arrives as a widget on a message, as the
+  // record-change card of set-resource-visibility does.
+  async function renderLiveResultWithWidget({
+    widgetMessageId,
+    widgetSlot,
+  }: {
+    widgetMessageId: string;
+    widgetSlot: boolean;
+  }) {
+    const transport: AgentTransport = {
+      async startRun() {
+        return { runId: "run-change" };
+      },
+      async *subscribeToRun() {
+        const base = {
+          threadId: "thread-change",
+          runId: "run-change",
+          occurredAt: "2026-11-07T00:00:00.000Z",
+        };
+        const toolCall = {
+          id: "tool-change",
+          name: "set-resource-visibility",
+          output: "Made 7 clips private.",
+          metadata: { chatUI: { renderer: "core.record-change" } },
+        } as const;
+        yield {
+          ...base,
+          id: "event-0",
+          sequence: 1,
+          type: "message.created",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "streaming",
+            parts: [{ type: "text", text: "Making them private." }],
+          },
+        } as const;
+        yield {
+          ...base,
+          id: "event-1",
+          sequence: 2,
+          type: "tool.started",
+          toolCall: { ...toolCall, status: "running" },
+        } as const;
+        yield {
+          ...base,
+          id: "event-2",
+          sequence: 3,
+          type: "tool.updated",
+          toolCall: { ...toolCall, status: "completed" },
+        } as const;
+        yield {
+          ...base,
+          id: "event-3",
+          sequence: 4,
+          type: "widget.created",
+          messageId: widgetMessageId,
+          widget: {
+            id: "tool-change:chat-ui",
+            kind: "core.record-change",
+            data: {
+              toolCallId: "tool-change",
+              toolName: "set-resource-visibility",
+            },
+          },
+        } as const;
+        yield {
+          ...base,
+          id: "event-4",
+          sequence: 5,
+          type: "message.completed",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "Making them private." }],
+          },
+        } as const;
+        yield {
+          ...base,
+          id: "event-5",
+          sequence: 6,
+          type: "run.completed",
+        } as const;
+      },
+      async cancelRun() {},
+    };
+    function ToolResult({ value }: { value: { id: string } }) {
+      return <output data-tool-result={value.id} />;
+    }
+    function Widget({ value }: { value: { id: string } }) {
+      return <output data-widget={value.id} />;
+    }
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
+    const run = await client.sendMessage({
+      threadId: "thread-change",
+      text: "Make my clips private",
+    });
+    await run.completed;
+
+    return renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-change"
+        slots={
+          widgetSlot
+            ? { tool: ToolResult, widget: Widget }
+            : { tool: ToolResult }
+        }
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+  }
+
+  it("draws a live result that has a message widget once, as after a reload", async () => {
+    const html = await renderLiveResultWithWidget({
+      widgetMessageId: "assistant-1",
+      widgetSlot: true,
+    });
+
+    // The card shows once, on the message; the call itself stays listed in
+    // the collapsed work details, as a reloaded chat lists it.
+    expect(html.split('data-widget="tool-change:chat-ui"')).toHaveLength(2);
+    expect(html.split('data-tool-result="tool-change"')).toHaveLength(2);
+    const hiddenDetails = html.indexOf(
+      'class="agentkit-disclosure-content" hidden=""',
+    );
+    expect(hiddenDetails).toBeGreaterThan(-1);
+    expect(html.indexOf('data-tool-result="tool-change"')).toBeGreaterThan(
+      hiddenDetails,
+    );
+  });
+
+  it.each([
+    ["is on a message the chat doesn't have", "assistant-gone", true],
+    ["has nothing to draw it", "assistant-1", false],
+  ] as const)(
+    "keeps a live result's card when its widget %s",
+    async (_case, widgetMessageId, widgetSlot) => {
+      const html = await renderLiveResultWithWidget({
+        widgetMessageId,
+        widgetSlot,
+      });
+
+      expect(html).not.toContain('data-widget="tool-change:chat-ui"');
+      expect(html.split('data-tool-result="tool-change"')).toHaveLength(2);
+      const hiddenDetails = html.indexOf(
+        'class="agentkit-disclosure-content" hidden=""',
+      );
+      if (hiddenDetails > -1) {
+        expect(html.indexOf('data-tool-result="tool-change"')).toBeLessThan(
+          hiddenDetails,
+        );
+      }
+    },
+  );
+
   it("passes product slots, labels, and registries through the AgentChat facade", async () => {
     const transport: AgentTransport = {
       capabilities: {

@@ -1146,6 +1146,16 @@ interface DefineActionWithSchema<
         args: StandardSchemaV1.InferOutput<TSchema>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /**
+   * The question the approval card asks for this call, such as "Make 5
+   * recordings public?". Read only when `needsApproval` asks, and kept
+   * synchronous so wording can't hold up the approval. Without it, or when it
+   * throws, the card asks a generic question.
+   */
+  approvalLabel?: (
+    args: StandardSchemaV1.InferOutput<TSchema>,
+    ctx?: ActionRunContext,
+  ) => string;
   allowPersistentApproval?: boolean;
   /**
    * Authorization gate that runs before `run()` on **every** caller — agent
@@ -1244,6 +1254,16 @@ interface DefineActionWithParams<
         args: InferParams<TParams>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /**
+   * The question the approval card asks for this call, such as "Make 5
+   * recordings public?". Read only when `needsApproval` asks, and kept
+   * synchronous so wording can't hold up the approval. Without it, or when it
+   * throws, the card asks a generic question.
+   */
+  approvalLabel?: (
+    args: InferParams<TParams>,
+    ctx?: ActionRunContext,
+  ) => string;
   allowPersistentApproval?: boolean;
   authorize?: ActionAuthorize<InferParams<TParams>>;
   access?: ActionAccessConfig;
@@ -1303,6 +1323,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly needsApproval?:
     | boolean
     | ((args: TInput, ctx?: ActionRunContext) => boolean | Promise<boolean>);
+  readonly approvalLabel?: (args: TInput, ctx?: ActionRunContext) => string;
   readonly allowPersistentApproval?: boolean;
   readonly audit?: ActionAuditConfig;
   readonly access?: ActionAccessConfig;
@@ -1852,6 +1873,9 @@ export function defineAction(options: any) {
     ...(typeof options.needsApproval === "boolean" ||
     typeof options.needsApproval === "function"
       ? { needsApproval: options.needsApproval }
+      : {}),
+    ...(typeof options.approvalLabel === "function"
+      ? { approvalLabel: options.approvalLabel }
       : {}),
     ...(typeof options.allowPersistentApproval === "boolean"
       ? { allowPersistentApproval: options.allowPersistentApproval }
@@ -2975,6 +2999,33 @@ export async function preparedCallNeedsApproval(
   } catch {
     // coercion-ok: a predicate that cannot decide fails closed and asks.
     return true;
+  }
+}
+
+/**
+ * The question the approval card asks for `call`, by the action's
+ * `approvalLabel`. A label that fails leaves the card's generic question, so
+ * wording can never stop the approval from being asked.
+ */
+export function preparedCallApprovalLabel(
+  entry: {
+    // A method, so an action's label typed for its own arguments still fits.
+    approvalLabel?(args: unknown, ctx?: ActionRunContext): string;
+  },
+  call: PreparedActionCall,
+  ctx: ActionRunContext,
+): string | undefined {
+  if (!entry.approvalLabel) return undefined;
+  try {
+    const label: unknown = entry.approvalLabel(
+      preparedCallArguments(call),
+      ctx,
+    );
+    // coercion-ok: anything but text, a promise included, keeps the generic question.
+    return typeof label === "string" ? label.trim() || undefined : undefined;
+  } catch {
+    // coercion-ok: the approval still runs, with the generic question.
+    return undefined;
   }
 }
 

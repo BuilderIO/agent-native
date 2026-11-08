@@ -214,6 +214,17 @@ export default defineAction({
     }
     return false;
   },
+  approvalLabel: (args) => {
+    const name = requireShareableResource(
+      args.resourceType,
+    ).displayName.toLowerCase();
+    const count = requestedIds(args).length;
+    const what =
+      count === 1 ? `this ${name}` : `${count} ${pluralResourceName(name)}`;
+    return args.role && args.role !== "viewer"
+      ? `Make ${what} public, so anyone with the link can comment?`
+      : `Make ${what} public?`;
+  },
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,
@@ -722,7 +733,14 @@ export default defineAction({
   },
 });
 
-/** One card for the whole call: the first resource's title, then how many more. */
+function pluralResourceName(name: string): string {
+  return name.endsWith("y") ? `${name.slice(0, -1)}ies` : `${name}s`;
+}
+
+/**
+ * One card for the whole call: the first resource's title, then how many more.
+ * The detail repeats the count, because a long title can cut off its end.
+ */
 function sharingChangeFor(
   reg: ShareableResourceRegistration,
   firstChanged: PreparedChange,
@@ -742,7 +760,11 @@ function sharingChangeFor(
     first.title.length <= room
       ? first.title
       : `${first.title.slice(0, room - 1).trimEnd()}…`;
-  return { ...first, title: `${title}${suffix}` };
+  return {
+    ...first,
+    title: `${title}${suffix}`,
+    detail: `${detail} · ${changedCount} changed`,
+  };
 }
 
 function batchRefusal(

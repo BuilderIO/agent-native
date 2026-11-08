@@ -764,6 +764,54 @@ describe("runAgentLoop — one prepared invocation", () => {
     });
   });
 
+  it("asks the action's question for the arguments that run", async () => {
+    const labelled = defineAction({
+      description: "Publish several drafts.",
+      schema: z.object({ ids: z.array(z.string()).default(["a", "b"]) }),
+      needsApproval: true,
+      approvalLabel: (args) => `Publish ${args.ids.length} drafts?`,
+      run: async () => ({ ok: true }),
+    }) as unknown as ActionEntry;
+    const failing = defineAction({
+      description: "Publish the draft.",
+      schema: z.object({}),
+      needsApproval: true,
+      approvalLabel: () => {
+        throw new Error("no wording");
+      },
+      run: async () => ({ ok: true }),
+    }) as unknown as ActionEntry;
+
+    const promised = defineAction({
+      description: "Publish the draft later.",
+      schema: z.object({}),
+      needsApproval: true,
+      // A label that answers later must not hold up the approval.
+      approvalLabel: (() =>
+        new Promise<string>(() => {})) as unknown as () => string,
+      run: async () => ({ ok: true }),
+    }) as unknown as ActionEntry;
+
+    const asked = await runOneCall({ publish: labelled }, "publish");
+    // Wording that fails still asks, with the card's generic question.
+    const fallback = await runOneCall({ publish: failing }, "publish");
+    const pending = await runOneCall({ publish: promised }, "publish");
+
+    expect(
+      asked.find((event) => event.type === "approval_required"),
+    ).toMatchObject({ label: "Publish 2 drafts?" });
+    const generic = fallback.find(
+      (event) => event.type === "approval_required",
+    );
+    expect(generic).toBeDefined();
+    expect(generic).not.toHaveProperty("label");
+    const unworded = pending.find(
+      (event) => event.type === "approval_required",
+    );
+    expect(unworded).toBeDefined();
+    expect(unworded).not.toHaveProperty("label");
+  });
+
   it("runs an approval only for the arguments it was bound to", async () => {
     let stamp = 0;
     const ran: unknown[] = [];
