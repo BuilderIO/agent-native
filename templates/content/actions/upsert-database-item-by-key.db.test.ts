@@ -1304,6 +1304,7 @@ describe("reliable Content database row mutations", () => {
     });
   });
 
+  // oracle-change: new tests that need a second connection to wait on the lock, which PGlite lacks; CI runs this file on PostgreSQL.
   describe.runIf(TEST_DATABASE_URL.startsWith("postgres"))(
     "while a single-row write waits on another transaction's collection lock",
     () => {
