@@ -28,7 +28,7 @@ type ResolvedAttachments = Awaited<
 
 function localAttachments(
   attachments: ResolvedAttachments,
-): EmailMessage["attachments"] {
+): NonNullable<EmailMessage["attachments"]> {
   return attachments.map((attachment) => ({
     id: attachment.filename,
     filename: attachment.originalName,
@@ -46,13 +46,13 @@ export async function updateLocalSavedDraft(args: {
   ownerEmail: string;
   draftId: string;
   to: string;
-  cc?: string;
-  bcc?: string;
+  cc?: string | undefined;
+  bcc?: string | undefined;
   subject: string;
   body: string;
   attachments?: ComposeAttachment[];
-  replyToId?: string;
-  replyToThreadId?: string;
+  replyToId?: string | undefined;
+  replyToThreadId?: string | undefined;
 }): Promise<void> {
   const attachments =
     args.attachments &&
@@ -115,13 +115,13 @@ export async function updateLocalSavedDraft(args: {
 export async function createLocalSavedDraft(args: {
   ownerEmail: string;
   to: string;
-  cc?: string;
-  bcc?: string;
+  cc?: string | undefined;
+  bcc?: string | undefined;
   subject: string;
   body: string;
   attachments?: ComposeAttachment[];
-  replyToId?: string;
-  replyToThreadId?: string;
+  replyToId?: string | undefined;
+  replyToThreadId?: string | undefined;
 }): Promise<string> {
   const settings = await readSettings(args.ownerEmail);
   const attachments = await resolveComposeAttachments(

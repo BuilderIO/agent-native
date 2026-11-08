@@ -152,8 +152,8 @@ const MAX_DELETE_ATTEMPTS = 3;
 async function deletePersistedDraft(args: {
   ownerEmail: string;
   savedDraftId: string;
-  savedDraftBackend?: "gmail" | "local";
-  accountEmail?: string;
+  savedDraftBackend?: "gmail" | "local" | undefined;
+  accountEmail?: string | undefined;
 }): Promise<void> {
   const ownership = await resolveExistingSavedDraftOwnership(args);
 

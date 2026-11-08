@@ -103,7 +103,9 @@ function fakeGmail() {
     async land(body: string) {
       await waitFor(body);
       const index = waiting.findIndex((save) => save.body === body);
-      waiting.splice(index, 1)[0].release();
+      const [save] = waiting.splice(index, 1);
+      if (!save) throw new Error(`No Gmail write is carrying "${body}"`);
+      save.release();
     },
   };
 }

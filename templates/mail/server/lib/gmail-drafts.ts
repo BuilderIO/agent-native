@@ -73,13 +73,18 @@ async function resolveAccount(
   );
   if (match) return match;
 
-  let managedError: unknown;
-  const managed = await getManagedGmailAccountEmail(ownerEmail).catch(
-    (error: unknown) => {
-      managedError = error;
-      return null;
-    },
-  );
+  let managed: string | null = null;
+  let managedError: Error | undefined;
+  try {
+    managed = await getManagedGmailAccountEmail(ownerEmail);
+  } catch (error) {
+    managedError =
+      error instanceof Error
+        ? error
+        : new Error(
+            `Could not look up the workspace's Gmail connection: ${String(error)}`,
+          );
+  }
   if (managed && sameEmail(managed, wanted)) {
     return { accountId: managed, tokens: {} };
   }
@@ -96,7 +101,8 @@ async function resolveAccountEmail(
   ownerEmail: string,
   use: GmailScopeUse = "write",
 ): Promise<string | null> {
-  return (await resolveAccount(requested, ownerEmail, use))?.accountId ?? null;
+  const account = await resolveAccount(requested, ownerEmail, use);
+  return account ? account.accountId : null;
 }
 
 /**
@@ -171,16 +177,16 @@ export async function findGmailDraftAccount(args: {
 
 export async function saveGmailDraft(args: {
   ownerEmail: string;
-  accountEmail?: string;
+  accountEmail?: string | undefined;
   draftId?: string;
   to: string;
-  cc?: string;
-  bcc?: string;
+  cc?: string | undefined;
+  bcc?: string | undefined;
   subject: string;
   body: string;
   attachments?: ComposeAttachment[];
-  replyToId?: string;
-  replyToThreadId?: string;
+  replyToId?: string | undefined;
+  replyToThreadId?: string | undefined;
   /**
    * A reply draft normally needs to read the message it answers, for its reply
    * headers and thread. With this, one that can't is saved outside the thread
@@ -316,7 +322,7 @@ export async function saveGmailDraft(args: {
 
 export async function deleteGmailDraft(args: {
   ownerEmail: string;
-  accountEmail?: string;
+  accountEmail?: string | undefined;
   draftId: string;
 }): Promise<void> {
   const accountEmail = await resolveAccountEmail(

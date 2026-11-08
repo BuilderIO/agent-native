@@ -134,7 +134,8 @@ async function resolveManagedGmailClientForOwner(
 export async function getManagedGmailAccountEmail(
   ownerEmail: string,
 ): Promise<string | null> {
-  return (await resolveManagedGmailClientForOwner(ownerEmail))?.email ?? null;
+  const client = await resolveManagedGmailClientForOwner(ownerEmail);
+  return client ? client.email : null;
 }
 
 async function resolveManagedGmailClientWithError(
