@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const recording = vi.hoisted(() => ({
   id: "recording-example",
@@ -7,8 +7,13 @@ const recording = vi.hoisted(() => ({
   videoFormat: "webm",
   storageMode: null as "own" | "hosted" | null,
   sourceAppName: null,
+  durationMs: 1000,
+  width: 1280,
+  height: 720,
+  hasAudio: true,
 }));
 const repairedBytes = vi.hoisted(() => new Uint8Array([9, 8, 7, 6]));
+const mockProbeMediaInfo = vi.hoisted(() => vi.fn());
 const mockUploadRecordingMedia = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
@@ -68,6 +73,10 @@ vi.mock("../../server/db/index.js", () => ({
       videoFormat: "recordings.videoFormat",
       storageMode: "recordings.storageMode",
       sourceAppName: "recordings.sourceAppName",
+      durationMs: "recordings.durationMs",
+      width: "recordings.width",
+      height: "recordings.height",
+      hasAudio: "recordings.hasAudio",
     },
   },
 }));
@@ -101,6 +110,7 @@ vi.mock("../../server/lib/video-remux.js", () => ({
   makeSeekable: (...args: unknown[]) => mockMakeSeekable(...args),
   normalizeTimelineToMp4: (...args: unknown[]) =>
     mockNormalizeTimelineToMp4(...args),
+  probeMediaInfo: (...args: unknown[]) => mockProbeMediaInfo(...args),
 }));
 
 vi.mock("../../shared/loom.js", () => ({
@@ -127,6 +137,12 @@ describe("ensureRecordingSeekable timeline normalization", () => {
     mockReadAppState.mockResolvedValue(null);
     mockWriteAppState.mockResolvedValue(undefined);
     mockClearSeekableRepairPending.mockResolvedValue(undefined);
+    mockProbeMediaInfo.mockResolvedValue({
+      durationMs: 1000,
+      width: 1280,
+      height: 720,
+      hasAudio: true,
+    });
     mockMakeSeekable.mockResolvedValue({
       bytes: new Uint8Array([1, 2, 3]),
       changed: false,
@@ -339,5 +355,115 @@ describe("ensureRecordingSeekable timeline normalization", () => {
         detail: "Recording changed while repaired media was uploading.",
       }),
     );
+  });
+
+  describe("measuring a streamed upload", () => {
+    const given = {
+      durationMs: 1000,
+      width: 1280,
+      height: 720,
+      hasAudio: true,
+    };
+    const run = () =>
+      ensureRecordingSeekable({
+        recordingId: recording.id,
+        ownerEmail: "owner@example.com",
+      });
+
+    afterEach(() => {
+      Object.assign(recording, given);
+    });
+
+    it("saves what the upload left out and clears an audio claim the file doesn't back up", async () => {
+      Object.assign(recording, {
+        durationMs: 0,
+        width: 0,
+        height: 0,
+        hasAudio: true,
+      });
+      mockProbeMediaInfo.mockResolvedValue({
+        durationMs: 4200,
+        width: 320,
+        height: 240,
+        hasAudio: false,
+      });
+
+      await run();
+
+      // An exact match: `mediaUpdatedAt` stays, since transcripts are tied to it.
+      expect(mockUpdateSet).toHaveBeenCalledWith({
+        durationMs: 4200,
+        width: 320,
+        height: 240,
+        hasAudio: false,
+        updatedAt: expect.any(String),
+      });
+      expect(mockUpdateWhere).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          { column: "recordings.videoUrl", value: recording.videoUrl },
+        ]),
+      );
+      expect(mockWriteAppState).toHaveBeenCalledWith(
+        "refresh-signal",
+        expect.anything(),
+      );
+    });
+
+    it("keeps the numbers the upload gave", async () => {
+      Object.assign(recording, { durationMs: 9000, width: 0, height: 0 });
+      mockProbeMediaInfo.mockResolvedValue({
+        durationMs: 4200,
+        width: 320,
+        height: 240,
+        hasAudio: true,
+      });
+
+      await run();
+
+      expect(mockUpdateSet).toHaveBeenCalledWith(
+        expect.objectContaining({ durationMs: 9000, width: 320, height: 240 }),
+      );
+    });
+
+    it("writes nothing when the file agrees with the row", async () => {
+      await run();
+
+      expect(mockProbeMediaInfo).toHaveBeenCalled();
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+    });
+
+    it("doesn't read a file with nothing left to learn from it", async () => {
+      Object.assign(recording, { hasAudio: false });
+
+      await run();
+
+      expect(mockProbeMediaInfo).not.toHaveBeenCalled();
+    });
+
+    it("keeps an audio claim the probe couldn't settle", async () => {
+      Object.assign(recording, { durationMs: 0 });
+      mockProbeMediaInfo.mockResolvedValue({
+        durationMs: 4200,
+        width: null,
+        height: null,
+        hasAudio: null,
+      });
+
+      await run();
+
+      expect(mockUpdateSet).toHaveBeenCalledWith(
+        expect.objectContaining({ durationMs: 4200, hasAudio: true }),
+      );
+    });
+
+    it("still finishes the job when the probe fails", async () => {
+      Object.assign(recording, { durationMs: 0 });
+      mockProbeMediaInfo.mockRejectedValue(new Error("ffmpeg went away"));
+
+      const result = await run();
+
+      expect(result.status).toBe("already-optimized");
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+    });
   });
 });

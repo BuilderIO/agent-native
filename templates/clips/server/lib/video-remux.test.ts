@@ -1,4 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -8,6 +11,7 @@ import {
   makeSeekable,
   normalizeTimelineToMp4,
   probeHasAudioStream,
+  probeMediaInfo,
   resolveFfmpegCommand,
   remuxWebmToSeekable,
   timelineNormalizationFfmpegArgs,
@@ -196,6 +200,76 @@ describe("timeline normalization", () => {
     expect(result.changed).toBe(false);
     expect(result.bytes).toBe(input);
   });
+});
+
+describe("probeMediaInfo", () => {
+  function makeClip(withAudio: boolean): Uint8Array {
+    const dir = mkdtempSync(join(tmpdir(), "clips-probe-test-"));
+    const output = join(dir, "clip.mp4");
+    try {
+      execFileSync(
+        resolveFfmpegCommand(),
+        [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-f",
+          "lavfi",
+          "-i",
+          "color=c=black:s=320x240:r=10:d=2",
+          ...(withAudio
+            ? ["-f", "lavfi", "-i", "sine=frequency=440:duration=2"]
+            : []),
+          "-c:v",
+          "mpeg4",
+          ...(withAudio ? ["-c:a", "aac"] : []),
+          "-shortest",
+          output,
+        ],
+        { stdio: "ignore" },
+      );
+      return new Uint8Array(readFileSync(output));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("says nothing about empty input", async () => {
+    expect(await probeMediaInfo(new Uint8Array(), "mp4")).toEqual({
+      durationMs: null,
+      width: null,
+      height: null,
+      hasAudio: null,
+    });
+  });
+
+  it("doesn't call garbage bytes silent", async () => {
+    const garbage = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
+    const { hasAudio } = await probeMediaInfo(garbage, "mp4");
+    expect(hasAudio).not.toBe(false);
+  });
+
+  it.skipIf(!isFfmpegAvailable())(
+    "reads the length, size and missing audio of a silent file",
+    async () => {
+      const probed = await probeMediaInfo(makeClip(false), "mp4");
+      expect(probed.durationMs).toBeGreaterThanOrEqual(1900);
+      expect(probed.durationMs).toBeLessThanOrEqual(2100);
+      expect(probed).toMatchObject({
+        width: 320,
+        height: 240,
+        hasAudio: false,
+      });
+    },
+  );
+
+  it.skipIf(!isFfmpegAvailable())(
+    "sees the audio stream of a file that has one",
+    async () => {
+      const probed = await probeMediaInfo(makeClip(true), "mp4");
+      expect(probed.hasAudio).toBe(true);
+    },
+  );
 });
 
 describe("probeHasAudioStream", () => {

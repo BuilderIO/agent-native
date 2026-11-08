@@ -11,6 +11,10 @@ import {
   deleteRecordingMediaObjects,
   deleteSupersededHostedMedia,
 } from "../../server/lib/recording-media-cleanup.js";
+import {
+  fillMediaFacts,
+  isMissingMediaFacts,
+} from "../../server/lib/recording-media-facts.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
 import { fetchS3ObjectByUrl } from "../../server/lib/s3-upload-provider.js";
 import { clearSeekableRepairPending } from "../../server/lib/seekable-media-state.js";
@@ -18,6 +22,7 @@ import { uploadRecordingMedia } from "../../server/lib/upload-recording-media.js
 import {
   makeSeekable,
   normalizeTimelineToMp4,
+  probeMediaInfo,
   type VideoFormat,
 } from "../../server/lib/video-remux.js";
 import { isLoomRecordingSource } from "../../shared/loom.js";
@@ -129,6 +134,58 @@ export async function fetchProviderBytes(
   }
 }
 
+/**
+ * A streamed upload goes straight to storage, past finalize's look at the
+ * file, so this job is the first to hold its bytes. Fills in what the upload
+ * left out and clears an audio claim the file doesn't back up. Leaves
+ * `mediaUpdatedAt` alone: the media hasn't changed, and transcripts are tied
+ * to it.
+ */
+async function saveMeasuredMedia(
+  rec: {
+    id: string;
+    videoUrl: string;
+    durationMs: number;
+    width: number;
+    height: number;
+    hasAudio: boolean;
+  },
+  ownerEmail: string,
+  mediaBytes: Uint8Array,
+  videoFormat: VideoFormat,
+): Promise<void> {
+  const given = {
+    durationMs: rec.durationMs,
+    width: rec.width,
+    height: rec.height,
+  };
+  if (!rec.hasAudio && !isMissingMediaFacts(given)) return;
+
+  const probed = await probeMediaInfo(mediaBytes, videoFormat);
+  const measured = fillMediaFacts(given, probed);
+  const hasAudio = rec.hasAudio && probed.hasAudio !== false;
+  if (
+    hasAudio === rec.hasAudio &&
+    measured.durationMs === given.durationMs &&
+    measured.width === given.width &&
+    measured.height === given.height
+  ) {
+    return;
+  }
+
+  await getDb()
+    .update(schema.recordings)
+    .set({ ...measured, hasAudio, updatedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(schema.recordings.id, rec.id),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        eq(schema.recordings.videoUrl, rec.videoUrl),
+      ),
+    );
+  await writeAppState("refresh-signal", { ts: Date.now() });
+}
+
 async function ensureRecordingSeekableInternal(params: {
   recordingId: string;
   ownerEmail: string;
@@ -151,6 +208,10 @@ async function ensureRecordingSeekableInternal(params: {
       videoFormat: schema.recordings.videoFormat,
       storageMode: schema.recordings.storageMode,
       sourceAppName: schema.recordings.sourceAppName,
+      durationMs: schema.recordings.durationMs,
+      width: schema.recordings.width,
+      height: schema.recordings.height,
+      hasAudio: schema.recordings.hasAudio,
     })
     .from(schema.recordings)
     .where(
@@ -212,6 +273,19 @@ async function ensureRecordingSeekableInternal(params: {
         mediaBytes: fetched.bytes,
         videoFormat,
       });
+  const outputFormat: VideoFormat = normalizeTimeline ? "mp4" : videoFormat;
+
+  await saveMeasuredMedia(
+    { ...rec, videoUrl: rec.videoUrl },
+    ownerEmail,
+    seekable.bytes,
+    outputFormat,
+  ).catch((err) => {
+    console.warn("[ensure-seekable-video] saving measured media failed", {
+      recordingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 
   if (!seekable.changed) {
     if (normalizeTimeline) {
@@ -233,7 +307,6 @@ async function ensureRecordingSeekableInternal(params: {
     };
   }
 
-  const outputFormat: VideoFormat = normalizeTimeline ? "mp4" : videoFormat;
   const mimeType = outputFormat === "mp4" ? "video/mp4" : "video/webm";
   const upload = await uploadRecordingMedia({
     recordingId,

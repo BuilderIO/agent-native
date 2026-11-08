@@ -45,6 +45,10 @@ import {
   trackRecordingFailure,
 } from "../server/lib/recording-failures.js";
 import {
+  fillMediaFacts,
+  isMissingMediaFacts,
+} from "../server/lib/recording-media-facts.js";
+import {
   beginMediaProduction,
   finishMediaProduction,
   withRecordingMediaProduction,
@@ -81,6 +85,7 @@ import {
 } from "../server/lib/upload-lease.js";
 import {
   probeHasAudioStream,
+  probeMediaInfo,
   remuxWebmToSeekable,
 } from "../server/lib/video-remux.js";
 import {
@@ -2507,6 +2512,18 @@ export default defineAction({
         }
       }
 
+      const givenMedia = {
+        durationMs: finalDurationMs,
+        width: finalWidth,
+        height: finalHeight,
+      };
+      const measuredMedia = fillMediaFacts(
+        givenMedia,
+        isMissingMediaFacts(givenMedia)
+          ? await probeMediaInfo(assembled, videoFormat)
+          : null,
+      );
+
       let correctedHasAudio = finalHasAudio;
       if (finalHasAudio) {
         const assembledHasAudio = await probeHasAudioStream(
@@ -2871,9 +2888,9 @@ export default defineAction({
             videoSizeBytes: uploadData.byteLength,
             sourceSizeBytes: assembled.byteLength,
             videoFormat,
-            finalDurationMs,
-            finalWidth,
-            finalHeight,
+            finalDurationMs: measuredMedia.durationMs,
+            finalWidth: measuredMedia.width,
+            finalHeight: measuredMedia.height,
             finalHasAudio: correctedHasAudio,
             finalHasCamera,
             seekableApplied,
@@ -2887,6 +2904,9 @@ export default defineAction({
       }
       const result = await markRecordingReady({
         ...readyParams,
+        finalDurationMs: measuredMedia.durationMs,
+        finalWidth: measuredMedia.width,
+        finalHeight: measuredMedia.height,
         finalHasAudio: correctedHasAudio,
         videoUrl: upload.url,
         videoSizeBytes: servedBytes ?? uploadData.byteLength,
