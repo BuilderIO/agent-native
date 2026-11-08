@@ -1,3 +1,4 @@
+import { getRequestOrgId } from "@agent-native/core/server";
 import { ForbiddenError } from "@agent-native/core/sharing";
 
 import { isSessionRecordingOpenToOrg } from "./session-replay.js";
@@ -18,9 +19,14 @@ export async function assertSessionReportSharingChange(
   change: SharingChange,
 ): Promise<void> {
   if (change.kind === "visibility" && change.visibility === "private") return;
+  // Opening a report that has no organization to one attaches the caller's
+  // active organization, and this check first sees the row from before that.
+  const orgId =
+    resource.orgId ??
+    (change.kind === "visibility" ? getRequestOrgId() : undefined);
   if (
-    !resource.orgId ||
-    !(await isSessionRecordingOpenToOrg(resource.recordingId, resource.orgId))
+    !orgId ||
+    !(await isSessionRecordingOpenToOrg(resource.recordingId, orgId))
   ) {
     throw new ForbiddenError(
       "A session report can be shared only while its recording is open to the whole organization.",

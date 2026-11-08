@@ -10,6 +10,8 @@ vi.mock("../db/index.js", async () => ({
   getDb: getDbMock,
 }));
 
+import { runWithRequestContext } from "@agent-native/core/server";
+
 import { assertSessionReportSharingChange } from "./session-report-sharing";
 
 const { PGlite } = createRequire(
@@ -101,6 +103,31 @@ describe("session report sharing", () => {
     await expect(
       assertSessionReportSharingChange(report, grant),
     ).rejects.toThrow(refusal);
+  });
+
+  it("opens a report with no organization to the caller's, by that organization's recording", async () => {
+    await recording({});
+    const unattached = { orgId: null, recordingId: "rec-1" };
+
+    await runWithRequestContext(
+      { userEmail: "maker@example.test", orgId: "org-1" },
+      async () => {
+        await expect(
+          assertSessionReportSharingChange(unattached, toOrg),
+        ).resolves.toBeUndefined();
+        await expect(
+          assertSessionReportSharingChange(unattached, grant),
+        ).rejects.toThrow(refusal);
+      },
+    );
+    await runWithRequestContext(
+      { userEmail: "maker@example.test", orgId: "org-2" },
+      async () => {
+        await expect(
+          assertSessionReportSharingChange(unattached, toOrg),
+        ).rejects.toThrow(refusal);
+      },
+    );
   });
 
   it("always lets a report go private", async () => {
