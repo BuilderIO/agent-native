@@ -203,11 +203,14 @@ export default defineAction({
       );
     }
 
-    const [transcript] = await db
+    const transcriptRows = await db
       .select()
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
+    // A recording can have no transcript row, which indexing alone wouldn't type.
+    const transcript =
+      transcriptRows.length > 0 ? transcriptRows[0] : undefined;
     const canEditRecording =
       access.role === "owner" ||
       access.role === "admin" ||
@@ -333,7 +336,6 @@ export default defineAction({
       durationMs: rec.durationMs,
     });
     const segmentsUnreadable = storedSegmentsUnreadable(
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- a recording can have no transcript row; the destructured type hides that
       transcript?.segmentsJson,
     );
     // Saved lines that can't be read aren't "no speech": the panel says the
