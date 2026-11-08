@@ -13,8 +13,8 @@ import {
   readBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
 import { reconcileInlineDatabasesForDocumentWithDb } from "../../actions/_content-database-lifecycle.js";
-import { assertAgentsMayEditPageText } from "../../actions/_document-agent-lock.js";
 import { lockDatabaseMemberships } from "../../actions/_database-membership-lock.js";
+import { assertAgentsMayEditPageText } from "../../actions/_document-agent-lock.js";
 import {
   documentContentHash,
   documentRevisionToken,
