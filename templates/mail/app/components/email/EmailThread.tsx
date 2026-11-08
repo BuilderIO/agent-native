@@ -1977,6 +1977,8 @@ export const ExpandedMessageCard = forwardRef<
     onContactSelect?: (email: string) => void;
     searchTerm?: string;
     activeLocalIdx?: number | null;
+    // Lists attachments without links, for a session that can't fetch them.
+    attachmentNamesOnly?: boolean;
   }
 >(function ExpandedMessageCard(
   {
@@ -1991,6 +1993,7 @@ export const ExpandedMessageCard = forwardRef<
     onContactSelect,
     searchTerm,
     activeLocalIdx,
+    attachmentNamesOnly,
   },
   ref,
 ) {
@@ -2218,95 +2221,116 @@ export const ExpandedMessageCard = forwardRef<
       </div>
 
       {/* Attachments */}
-      {email.attachments && email.attachments.length > 0 && (
-        <div data-an-block className="px-3 sm:px-4 pb-4">
-          {/* Image thumbnails */}
-          {email.attachments.some((a) => a.mimeType.startsWith("image/")) && (
-            <div className="flex flex-wrap gap-2 mb-2">
-              {email.attachments
-                .filter((a) => a.mimeType.startsWith("image/"))
-                .map((att) => {
-                  const url = att.url
-                    ? appApiPath(att.url)
-                    : appApiPath(
-                        `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}&mimeType=${encodeURIComponent(att.mimeType)}`,
-                      );
-                  return (
-                    <Tooltip key={att.id}>
-                      <TooltipTrigger asChild>
-                        <a
-                          href={url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="block rounded-lg overflow-hidden border border-border/40 hover:border-border bg-accent/30 hover:bg-accent/50"
-                        >
-                          <img
-                            src={url}
-                            alt={att.filename}
-                            className="h-32 max-w-[200px] object-cover"
-                            loading="lazy"
-                          />
-                        </a>
-                      </TooltipTrigger>
-                      <TooltipContent data-an-block>
-                        {att.filename}
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-            </div>
-          )}
-          {/* Non-image files + download all */}
-          <div className="flex flex-wrap items-center gap-2">
-            {email.attachments
-              .filter((a) => !a.mimeType.startsWith("image/"))
-              .map((att) => (
-                <a
-                  key={att.id}
-                  href={
-                    att.url
+      {attachmentNamesOnly && email.attachments?.length ? (
+        <ul data-an-block className="flex flex-wrap gap-2 px-3 sm:px-4 pb-4">
+          {email.attachments.map((att) => (
+            <li
+              key={att.id}
+              className="flex items-center gap-2 rounded-lg bg-accent/60 px-3 py-2 text-xs"
+            >
+              <IconPaperclip className="h-3 w-3 text-muted-foreground shrink-0" />
+              <span className="text-foreground/80 truncate max-w-[180px]">
+                {att.filename}
+              </span>
+              <span className="text-muted-foreground">
+                {formatFileSize(att.size)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {!attachmentNamesOnly &&
+        email.attachments &&
+        email.attachments.length > 0 && (
+          <div data-an-block className="px-3 sm:px-4 pb-4">
+            {/* Image thumbnails */}
+            {email.attachments.some((a) => a.mimeType.startsWith("image/")) && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {email.attachments
+                  .filter((a) => a.mimeType.startsWith("image/"))
+                  .map((att) => {
+                    const url = att.url
                       ? appApiPath(att.url)
                       : appApiPath(
-                          `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`,
-                        )
-                  }
-                  download={att.filename}
-                  className="flex items-center gap-2 rounded-lg bg-accent/60 px-3 py-2 text-xs hover:bg-accent cursor-pointer"
-                >
-                  <IconPaperclip className="h-3 w-3 text-muted-foreground shrink-0" />
-                  <span className="text-foreground/80 truncate max-w-[180px]">
-                    {att.filename}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {formatFileSize(att.size)}
-                  </span>
-                </a>
-              ))}
-            {email.attachments.length > 1 && (
-              <button
-                type="button"
-                aria-label={t("mail.thread.downloadAll")}
-                onClick={() => {
-                  for (const att of email.attachments!) {
-                    const a = document.createElement("a");
-                    a.href = att.url
-                      ? appApiPath(att.url)
-                      : appApiPath(
-                          `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`,
+                          `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}&mimeType=${encodeURIComponent(att.mimeType)}`,
                         );
-                    a.download = att.filename;
-                    a.click();
-                  }
-                }}
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-              >
-                <IconDownload className="h-3 w-3" />
-                {t("mail.thread.downloadAll")}
-              </button>
+                    return (
+                      <Tooltip key={att.id}>
+                        <TooltipTrigger asChild>
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block rounded-lg overflow-hidden border border-border/40 hover:border-border bg-accent/30 hover:bg-accent/50"
+                          >
+                            <img
+                              src={url}
+                              alt={att.filename}
+                              className="h-32 max-w-[200px] object-cover"
+                              loading="lazy"
+                            />
+                          </a>
+                        </TooltipTrigger>
+                        <TooltipContent data-an-block>
+                          {att.filename}
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+              </div>
             )}
+            {/* Non-image files + download all */}
+            <div className="flex flex-wrap items-center gap-2">
+              {email.attachments
+                .filter((a) => !a.mimeType.startsWith("image/"))
+                .map((att) => (
+                  <a
+                    key={att.id}
+                    href={
+                      att.url
+                        ? appApiPath(att.url)
+                        : appApiPath(
+                            `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`,
+                          )
+                    }
+                    download={att.filename}
+                    className="flex items-center gap-2 rounded-lg bg-accent/60 px-3 py-2 text-xs hover:bg-accent cursor-pointer"
+                  >
+                    <IconPaperclip className="h-3 w-3 text-muted-foreground shrink-0" />
+                    <span className="text-foreground/80 truncate max-w-[180px]">
+                      {att.filename}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {formatFileSize(att.size)}
+                    </span>
+                  </a>
+                ))}
+              {email.attachments.length > 1 && (
+                <button
+                  type="button"
+                  aria-label={t("mail.thread.downloadAll")}
+                  onClick={() => {
+                    for (const att of email.attachments ?? []) {
+                      const a = document.createElement("a");
+                      a.href = att.url
+                        ? appApiPath(att.url)
+                        : appApiPath(
+                            `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`,
+                          );
+                      a.download = att.filename;
+                      a.click();
+                    }
+                  }}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <IconDownload className="h-3 w-3" />
+                  {t("mail.thread.downloadAll")}
+                </button>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {isFromMe && <TrackingFooter messageId={email.id} />}
     </div>

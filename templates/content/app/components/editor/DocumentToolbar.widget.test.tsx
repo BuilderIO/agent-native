@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { appPath } from "@agent-native/core/client/api-path";
+import { isClientAppStateMutationPending } from "@agent-native/core/client/application-state";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -26,6 +27,17 @@ vi.mock("@agent-native/core/client/analytics", async (importOriginal) => ({
   >()),
   trackEvent: vi.fn(),
 }));
+// Background reads wait until the page is 3 s old; a fresh test worker may
+// not be.
+vi.mock(
+  "@agent-native/core/client/use-after-paint",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/client/use-after-paint")
+    >()),
+    useAfterStartup: () => true,
+  }),
+);
 vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/mcp-app-host")
@@ -185,6 +197,14 @@ describe("DocumentToolbar in an MCP App widget", () => {
 
   afterEach(async () => {
     await act(async () => root.unmount());
+    // A toolbar outside a widget clears its history state when it unmounts.
+    // Application-state writes leave a tick after they're made, so let them go
+    // here, against this test's fetch, rather than inside the next test.
+    await vi.waitFor(() =>
+      expect(
+        isClientAppStateMutationPending("content-history:widget-fixture"),
+      ).toBe(false),
+    );
     queryClient.clear();
     container.remove();
     vi.restoreAllMocks();

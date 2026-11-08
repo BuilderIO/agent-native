@@ -1,7 +1,11 @@
 import fs from "fs";
 import path from "path";
 
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  noteExternalWrite,
+} from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -325,11 +329,10 @@ export function assertServerPptxExportable(
   if (html.includes('data-imported-pptx="true"')) return;
   if (!hasPersistedFreeformObject) return;
 
-  const error = new Error(
+  fail(
     `Slide ${slideNumber} contains freeform positioned objects. Export this deck from the Slides editor with Export > PowerPoint so browser-rendered geometry is preserved. The server export stopped instead of silently reflowing those objects.`,
+    { errorCode: "unsupported_positioned_slide_export", statusCode: 422 },
   );
-  error.name = "UnsupportedPositionedSlideExportError";
-  throw error;
 }
 
 interface ParsedSlide {
@@ -1982,6 +1985,7 @@ export default defineAction({
 
     const exportDir = tenantExportDir(userEmail);
     if (persistExport) {
+      noteExternalWrite("local-disk");
       fs.mkdirSync(exportDir, { recursive: true });
       fs.writeFileSync(path.join(exportDir, filename), buffer);
       fs.writeFileSync(
