@@ -35,10 +35,18 @@ export function useBuilderSignupActivation(
       });
     }
   }, [eligibility.error, userId]);
-  const [settledUserId, setSettledUserId] = useState<string>();
+  const [activation, setActivation] = useState<{
+    userId: string;
+    status: "running" | "settled";
+  }>();
   useEffect(() => {
-    if (!userId || eligibility.data !== "eligible") return;
-    let disposed = false;
+    if (
+      !userId ||
+      eligibility.data !== "eligible" ||
+      activation?.userId === userId
+    )
+      return;
+    setActivation({ userId, status: "running" });
     let attempt = attempts.get(userId);
     if (!attempt) {
       // The server checks durable signup consent even when callback cookies
@@ -48,28 +56,25 @@ export function useBuilderSignupActivation(
       });
       attempts.set(userId, attempt);
     }
-    void attempt.then(
-      () => {
-        if (!disposed) setSettledUserId(userId);
-      },
-      (error: unknown) => {
-        if (attempts.get(userId) === attempt) attempts.delete(userId);
-        void track("builder_signup_experiment_client_failed", {
-          experiment_id: "design_builder_signup_v1",
-          auth_user_id: userId,
-          reason: error instanceof Error ? error.message : "unknown_error",
-        });
-        if (!disposed) setSettledUserId(userId);
-      },
-    );
-    return () => {
-      disposed = true;
-    };
-  }, [eligibility.data, queryClient, userId]);
+    const settle = () =>
+      setActivation((current) =>
+        current?.userId === userId ? { userId, status: "settled" } : current,
+      );
+    void attempt.then(settle, (error: unknown) => {
+      if (attempts.get(userId) === attempt) attempts.delete(userId);
+      void track("builder_signup_experiment_client_failed", {
+        experiment_id: "design_builder_signup_v1",
+        auth_user_id: userId,
+        reason: error instanceof Error ? error.message : "unknown_error",
+      });
+      settle();
+    });
+  }, [activation?.userId, eligibility.data, queryClient, userId]);
   return (
     userId !== undefined &&
-    settledUserId !== userId &&
-    eligibility.data === "eligible"
+    (activation?.userId === userId
+      ? activation.status === "running"
+      : eligibility.data === "eligible")
   );
 }
 

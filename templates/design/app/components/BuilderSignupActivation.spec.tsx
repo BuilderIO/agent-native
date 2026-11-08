@@ -112,6 +112,18 @@ describe("BuilderSignupActivation", () => {
     ).not.toBeNull();
 
     mocks.status.mockResolvedValue("disabled");
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["builder-signup-eligibility", "user-2"],
+      });
+    });
+    await vi.waitFor(() =>
+      expect(
+        queryClient.getQueryData(["builder-signup-eligibility", "user-2"]),
+      ).toBe("disabled"),
+    );
+    await render("user-2");
+    expect(container.querySelector("[role='status']")).not.toBeNull();
     await act(async () => finish("connected"));
 
     expect(container.querySelector("[role='status']")).toBeNull();
