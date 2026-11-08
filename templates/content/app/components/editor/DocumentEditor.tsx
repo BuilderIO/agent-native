@@ -1271,23 +1271,38 @@ export function metadataUpdatesWithPendingTitle<
   return { ...updates, title: currentTitle };
 }
 
+// Typing writes each unsaved title into the cached page, and it stays there
+// until a save carrying it answers. A cached title this editor wrote is no sign
+// the server has it, however new the cached page is: a save of any other field
+// moves its updatedAt too.
 export function titleMatchConfirmsSave(args: {
   serverTitle: string;
-  serverUpdatedAt: string | null;
   localTitle: string;
-  lastSaved: FieldSaveWatermark;
+  lastSavedTitle: string;
   pendingTitle: string | null;
+  unansweredTitle: string | null;
 }) {
   if (args.serverTitle !== args.localTitle) return false;
-  if (args.localTitle === args.lastSaved.title) return true;
-  if (args.pendingTitle === args.localTitle) return false;
-  // Typing writes each unsaved title into the cached page, and it stays there
-  // while the save is in flight or after it fails. Only a server copy newer
-  // than the last confirmed save shows the title was saved.
-  return Boolean(
-    args.serverUpdatedAt &&
-    (!args.lastSaved.updatedAt ||
-      args.serverUpdatedAt > args.lastSaved.updatedAt),
+  if (args.localTitle === args.lastSavedTitle) return true;
+  return (
+    args.pendingTitle !== args.localTitle &&
+    args.unansweredTitle !== args.localTitle
+  );
+}
+
+export function shouldAdoptServerTitle(args: {
+  serverTitle: string;
+  localTitle: string;
+  lastSavedTitle: string;
+  serverIsNewer: boolean;
+  titleFocused: boolean;
+  unansweredTitle: string | null;
+}) {
+  if (args.localTitle === args.lastSavedTitle) return true;
+  return (
+    args.serverIsNewer &&
+    !args.titleFocused &&
+    args.serverTitle !== args.unansweredTitle
   );
 }
 
@@ -3572,6 +3587,9 @@ function PageEditorSessionBody({
   const lastSavedTitleRef = useRef<{ title: string; updatedAt: string | null }>(
     { title: "", updatedAt: null },
   );
+  // The newest title this editor wrote into the cached page that no save
+  // carrying it has answered yet.
+  const unansweredTitleRef = useRef<string | null>(null);
   const lastSavedContentRef = useRef<ContentSaveWatermark>({
     content: "",
     updatedAt: null,
@@ -4100,6 +4118,7 @@ function PageEditorSessionBody({
       historySessionRef.current.reset();
       ownContentSaveLineageRef.current.clear();
       authoredContentBaseRef.current.reset();
+      unansweredTitleRef.current = null;
       prevDocIdRef.current = documentId;
       isInitializedRef.current = false;
       if (saveTimeoutRef.current) {
@@ -4146,9 +4165,14 @@ function PageEditorSessionBody({
       });
       return;
     }
-    const adopt =
-      localTitle === lastSaved.title ||
-      (titleExternalIsNewer && !titleFocusedRef.current);
+    const adopt = shouldAdoptServerTitle({
+      serverTitle,
+      localTitle,
+      lastSavedTitle: lastSaved.title,
+      serverIsNewer: titleExternalIsNewer,
+      titleFocused: titleFocusedRef.current,
+      unansweredTitle: unansweredTitleRef.current,
+    });
     if (adopt) {
       localTitleRef.current = serverTitle;
       setLocalTitle(serverTitle);
@@ -4212,10 +4236,10 @@ function PageEditorSessionBody({
     if (isLinkedLocalSourceDocument) return;
     const titleMatchesLocal = titleMatchConfirmsSave({
       serverTitle: document.title,
-      serverUpdatedAt: document.updatedAt ?? null,
       localTitle,
-      lastSaved: lastSavedTitleRef.current,
+      lastSavedTitle: lastSavedTitleRef.current.title,
       pendingTitle: pendingDocumentSaveRef.current?.title ?? null,
+      unansweredTitle: unansweredTitleRef.current,
     });
     const contentMatchesLocal = document.content === localContent;
 
@@ -4443,6 +4467,13 @@ function PageEditorSessionBody({
           queryKey: ["action", "list-documents"],
         });
         return fileFirstDocument;
+      } finally {
+        if (
+          updates.title !== undefined &&
+          updates.title === unansweredTitleRef.current
+        ) {
+          unansweredTitleRef.current = null;
+        }
       }
     },
     [document, documentId, queryClient, updateDocument],
@@ -6447,6 +6478,7 @@ function PageEditorSessionBody({
         return;
       }
       patchDocumentCaches(queryClient, documentId, { title: newTitle });
+      unansweredTitleRef.current = newTitle;
       if (host === "page") {
         refreshLandingTitleHintCache(queryClient, documentId, newTitle);
         void rememberContentLandingDocument(documentId, newTitle).catch(

@@ -69,6 +69,7 @@ import {
   refreshUnchangedTitleSaveWatermark,
   resizeDocumentTitleTextarea,
   retainThenAdoptDisplacedWinner,
+  shouldAdoptServerTitle,
   shouldAttestUnchangedEditorSave,
   shouldSubmitDocumentContent,
   subscribeToAuthoritativeQuerySuccess,
@@ -2933,46 +2934,83 @@ describe("document editor layout", () => {
   });
 
   it("does not mistake an optimistic title cache patch for a confirmed save", () => {
-    const lastSaved = {
-      title: "Untitled",
-      updatedAt: "2026-11-07T12:00:00.000Z",
+    const renamed = {
+      serverTitle: "Renamed page",
+      localTitle: "Renamed page",
+      lastSavedTitle: "Untitled",
     };
     expect(
       titleMatchConfirmsSave({
-        serverTitle: "Renamed page",
-        serverUpdatedAt: lastSaved.updatedAt,
-        localTitle: "Renamed page",
-        lastSaved,
+        ...renamed,
         pendingTitle: "Renamed page",
+        unansweredTitle: "Renamed page",
       }),
     ).toBe(false);
-    // The save is in flight or has failed: the cached title is still the
-    // optimistic one, and the server copy is no newer.
+    // The save is in flight: the cached title is still the one typed.
     expect(
       titleMatchConfirmsSave({
-        serverTitle: "Renamed page",
-        serverUpdatedAt: lastSaved.updatedAt,
-        localTitle: "Renamed page",
-        lastSaved,
+        ...renamed,
         pendingTitle: null,
+        unansweredTitle: "Renamed page",
       }),
     ).toBe(false);
+    // Another writer gave the page the same name.
     expect(
       titleMatchConfirmsSave({
-        serverTitle: "Renamed page",
-        serverUpdatedAt: "2026-11-07T12:00:05.000Z",
-        localTitle: "Renamed page",
-        lastSaved,
+        ...renamed,
         pendingTitle: null,
+        unansweredTitle: null,
       }),
     ).toBe(true);
     expect(
       titleMatchConfirmsSave({
         serverTitle: "Untitled",
-        serverUpdatedAt: lastSaved.updatedAt,
         localTitle: "Untitled",
-        lastSaved,
+        lastSavedTitle: "Untitled",
         pendingTitle: null,
+        unansweredTitle: "Untitled",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not adopt this editor's unanswered title from a newer page copy", () => {
+    // A save of another field, such as the favorite star, made the cached page
+    // newer while the title typed into it is still waiting for its save.
+    const newerPage = {
+      serverTitle: "Renamed page",
+      localTitle: "Renamed page",
+      lastSavedTitle: "Untitled",
+      serverIsNewer: true,
+      titleFocused: false,
+    };
+    expect(
+      shouldAdoptServerTitle({ ...newerPage, unansweredTitle: "Renamed page" }),
+    ).toBe(false);
+    expect(
+      shouldAdoptServerTitle({ ...newerPage, unansweredTitle: null }),
+    ).toBe(true);
+    expect(
+      shouldAdoptServerTitle({
+        ...newerPage,
+        serverTitle: "Renamed elsewhere",
+        unansweredTitle: "Renamed page",
+      }),
+    ).toBe(true);
+    expect(
+      shouldAdoptServerTitle({
+        ...newerPage,
+        serverTitle: "Renamed elsewhere",
+        titleFocused: true,
+        unansweredTitle: "Renamed page",
+      }),
+    ).toBe(false);
+    expect(
+      shouldAdoptServerTitle({
+        ...newerPage,
+        serverTitle: "Renamed elsewhere",
+        localTitle: "Untitled",
+        serverIsNewer: false,
+        unansweredTitle: null,
       }),
     ).toBe(true);
   });
