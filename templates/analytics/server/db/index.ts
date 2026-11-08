@@ -12,7 +12,6 @@ import {
   ANALYTICS_SESSION_REPORT_AGENT_RESOURCE_KIND,
 } from "../../shared/resource-agent-access.js";
 import { SESSION_REPORT_AGENT_LINK_TTL_SECONDS } from "../../shared/session-reports.js";
-import { assertSessionReportSharingChange } from "../lib/session-report-sharing.js";
 import * as schema from "./schema.js";
 
 export const getDb = createGetDb(schema);
@@ -156,8 +155,13 @@ registerShareableResource({
   // further than the recording itself can.
   allowPublic: false,
   requireOrgMemberForUserShares: true,
-  assertSharingChange: ({ resource, change }) =>
-    assertSessionReportSharingChange(getDb(), resource, change),
+  // Loaded on use: the check reads recordings through session-replay, which
+  // imports this module.
+  assertSharingChange: async ({ resource, change }) => {
+    const { assertSessionReportSharingChange } =
+      await import("../lib/session-report-sharing.js");
+    await assertSessionReportSharingChange(resource, change);
+  },
   agentReadable: {
     resourceKind: ANALYTICS_SESSION_REPORT_AGENT_RESOURCE_KIND,
     getContextPath: () => ANALYTICS_SESSION_REPORT_AGENT_CONTEXT_ENDPOINT,

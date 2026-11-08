@@ -70,37 +70,40 @@ export function SessionReportsButton({
   }
 
   const reports = query.data?.reports ?? [];
+  const createButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={createReport}
+          disabled={isGenerating || query.isLoading}
+        >
+          <IconFileDescription className="h-4 w-4" />
+          {t("sessions.createReport")}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{t("sessions.createReportTooltip")}</TooltipContent>
+    </Tooltip>
+  );
+  // Writing a report doesn't need the list, so a failed list keeps Create.
   if (query.isError && !query.data) {
     return (
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => void query.refetch()}
-        disabled={query.isFetching}
-      >
-        <IconRefresh className={cn(query.isFetching && "animate-spin")} />
-        {t("sessions.reportsUnavailable")}
-      </Button>
+      <>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => void query.refetch()}
+          disabled={query.isFetching}
+        >
+          <IconRefresh className={cn(query.isFetching && "animate-spin")} />
+          {t("sessions.reportsUnavailable")}
+        </Button>
+        {createButton}
+      </>
     );
   }
-  if (!reports.length) {
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={createReport}
-            disabled={isGenerating || query.isLoading}
-          >
-            <IconFileDescription className="h-4 w-4" />
-            {t("sessions.createReport")}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>{t("sessions.createReportTooltip")}</TooltipContent>
-      </Tooltip>
-    );
-  }
+  if (!reports.length) return createButton;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>

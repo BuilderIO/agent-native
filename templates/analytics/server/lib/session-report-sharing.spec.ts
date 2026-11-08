@@ -1,7 +1,14 @@
 import { createRequire } from "node:module";
 
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const getDbMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../db/index.js", async () => ({
+  ...(await vi.importActual<typeof import("../db/index.js")>("../db/index.js")),
+  getDb: getDbMock,
+}));
 
 import { assertSessionReportSharingChange } from "./session-report-sharing";
 
@@ -12,70 +19,93 @@ const { PGlite } = createRequire(
 const report = { orgId: "org-1", recordingId: "rec-1" };
 const toOrg = { kind: "visibility", visibility: "org" } as const;
 const grant = { kind: "grant" } as const;
+const refusal = "open to the whole organization";
 
 describe("session report sharing", () => {
   type Client = Awaited<ReturnType<typeof PGlite.create>>;
   let client: Client;
-  let db: Parameters<typeof assertSessionReportSharingChange>[0];
 
   beforeEach(async () => {
     client = await PGlite.create();
-    await client.exec(
-      "CREATE TABLE session_recordings (id TEXT PRIMARY KEY, org_id TEXT, visibility TEXT NOT NULL)",
-    );
-    db = drizzle(client) as unknown as typeof db;
+    await client.exec(`
+      CREATE TABLE session_recordings (
+        id TEXT PRIMARY KEY, org_id TEXT, visibility TEXT NOT NULL,
+        user_id TEXT, user_key TEXT, anonymous_id TEXT,
+        chunk_count INTEGER NOT NULL DEFAULT 0, event_count INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    getDbMock.mockReturnValue(drizzle(client));
   });
 
   afterEach(async () => {
+    vi.clearAllMocks();
     await client.close();
   });
 
-  async function recording(orgId: string | null, visibility: string) {
+  async function recording(row: {
+    orgId?: string | null;
+    visibility?: string;
+    userId?: string | null;
+    chunkCount?: number;
+  }) {
     await client.query(
-      "INSERT INTO session_recordings (id, org_id, visibility) VALUES ('rec-1', $1, $2)",
-      [orgId, visibility],
+      "INSERT INTO session_recordings (id, org_id, visibility, user_id, chunk_count, event_count) VALUES ('rec-1', $1, $2, $3, $4, 5)",
+      [
+        row.orgId === undefined ? "org-1" : row.orgId,
+        row.visibility ?? "org",
+        row.userId === undefined ? "person@example.test" : row.userId,
+        row.chunkCount ?? 1,
+      ],
     );
   }
 
   it("shares a report whose recording the whole organization can open", async () => {
-    await recording("org-1", "org");
+    await recording({});
 
     await expect(
-      assertSessionReportSharingChange(db, report, grant),
+      assertSessionReportSharingChange(report, grant),
     ).resolves.toBeUndefined();
     await expect(
-      assertSessionReportSharingChange(db, report, toOrg),
+      assertSessionReportSharingChange(report, toOrg),
     ).resolves.toBeUndefined();
   });
 
   it("refuses to share a report on a private recording", async () => {
-    await recording("org-1", "private");
+    await recording({ visibility: "private" });
 
     await expect(
-      assertSessionReportSharingChange(db, report, grant),
-    ).rejects.toThrow("open to the whole organization");
+      assertSessionReportSharingChange(report, grant),
+    ).rejects.toThrow(refusal);
     await expect(
-      assertSessionReportSharingChange(db, report, toOrg),
-    ).rejects.toThrow("open to the whole organization");
+      assertSessionReportSharingChange(report, toOrg),
+    ).rejects.toThrow(refusal);
   });
 
   it("refuses to share a report on another organization's recording", async () => {
-    await recording("org-2", "org");
+    await recording({ orgId: "org-2" });
 
     await expect(
-      assertSessionReportSharingChange(db, report, grant),
-    ).rejects.toThrow("open to the whole organization");
+      assertSessionReportSharingChange(report, grant),
+    ).rejects.toThrow(refusal);
+  });
+
+  it("refuses to share a report on a recording Sessions wouldn't open", async () => {
+    await recording({ chunkCount: 0 });
+
+    await expect(
+      assertSessionReportSharingChange(report, grant),
+    ).rejects.toThrow(refusal);
   });
 
   it("refuses to share a report whose recording is gone", async () => {
     await expect(
-      assertSessionReportSharingChange(db, report, grant),
-    ).rejects.toThrow("open to the whole organization");
+      assertSessionReportSharingChange(report, grant),
+    ).rejects.toThrow(refusal);
   });
 
   it("always lets a report go private", async () => {
     await expect(
-      assertSessionReportSharingChange(db, report, {
+      assertSessionReportSharingChange(report, {
         kind: "visibility",
         visibility: "private",
       }),
