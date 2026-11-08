@@ -86,9 +86,8 @@ export function createDocumentFlushParticipant(input: {
     if (checkingBack.has(key)) return;
     checkingBack.add(key);
     try {
-      while (true) {
+      while (answered.expiresAt > Date.now()) {
         const remaining = answered.expiresAt - Date.now();
-        if (remaining <= 0) return;
         await new Promise<void>((resolve) =>
           setTimeout(resolve, Math.min(CHECK_BACK_INTERVAL_MS, remaining)),
         );

@@ -233,7 +233,8 @@ describe("fresh document flush participant", () => {
     vi.useFakeTimers();
     request.expiresAt = Date.now() + 20_000;
     await participant()(request);
-    const prepared = acks()[0];
+    const prepared = acks().find((ack) => ack.status === "prepared");
+    expect(prepared).toBeDefined();
     request = { ...request, phase: "verify", phaseToken: "after-S" };
     await vi.advanceTimersByTimeAsync(499);
     expect(acks()).toHaveLength(1);
@@ -241,7 +242,7 @@ describe("fresh document flush participant", () => {
     expect(acks()[1]).toMatchObject({
       status: "verified",
       phaseToken: "after-S",
-      stabilityToken: prepared.stabilityToken,
+      stabilityToken: prepared?.stabilityToken,
     });
   });
   it("checks back for a prepare asked again after a changed answer", async () => {
@@ -251,7 +252,7 @@ describe("fresh document flush participant", () => {
       local.generation++;
     });
     await participant()(request);
-    expect(acks()[0].status).toBe("changed");
+    expect(acks()[0]).toMatchObject({ status: "changed" });
     request = { ...request, phaseToken: "again", prepareToken: "again" };
     await vi.advanceTimersByTimeAsync(500);
     expect(acks()[1]).toMatchObject({
