@@ -1455,6 +1455,63 @@ describe("EmailList keyboard navigation interactions", () => {
     ]);
   });
 
+  it("selects and deselects the focused conversation with x", () => {
+    render(<Harness />);
+    press("j");
+    press("x");
+    expect(rows().map((row) => row.getAttribute("aria-selected"))).toEqual([
+      "false",
+      "true",
+      "false",
+    ]);
+
+    press("x");
+    expect(rows().map((row) => row.getAttribute("aria-selected"))).toEqual([
+      "false",
+      "false",
+      "false",
+    ]);
+  });
+
+  it("pages focus down with Space and back up with Shift+Space", () => {
+    render(<Harness />);
+    const scroller = rows()[0].closest(".overflow-y-auto") as HTMLElement;
+    Object.defineProperty(scroller, "clientHeight", {
+      configurable: true,
+      value: 3 * 38,
+    });
+
+    press(" ");
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      null,
+      null,
+      "true",
+    ]);
+    press(" ", true);
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      "true",
+      null,
+      null,
+    ]);
+  });
+
+  it("leaves Shift+I and Shift+U to the app shell instead of marking mail", () => {
+    render(<Harness />);
+    const before = rows().map((row) => row.getAttribute("aria-selected"));
+    for (const key of ["I", "U"]) {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        shiftKey: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(rows().map((row) => row.getAttribute("aria-selected"))).toEqual(
+      before,
+    );
+  });
+
   it.each(["Enter", "o"])("opens the focused thread with %s", (key) => {
     render(<Harness />);
     press("ArrowDown");
