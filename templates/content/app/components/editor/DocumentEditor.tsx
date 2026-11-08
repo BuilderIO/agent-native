@@ -1306,6 +1306,27 @@ export function shouldAdoptServerTitle(args: {
   );
 }
 
+// A save settles the title it carried when the server accepts it or the
+// request fails (`answer` is null). A conflict, superseded or preservation
+// answer leaves it unanswered: the save behind it may send the title again,
+// and that attempt writes it back into the cached page before its own answer.
+export function unansweredTitleAfterSave(args: {
+  unansweredTitle: string | null;
+  sentTitle: string | undefined;
+  answer: DocumentUpdateResult | null;
+}) {
+  if (args.sentTitle === undefined || args.sentTitle !== args.unansweredTitle)
+    return args.unansweredTitle;
+  if (
+    args.answer &&
+    (isDocumentUpdateConflict(args.answer) ||
+      isDocumentUpdateSuperseded(args.answer) ||
+      isDocumentUpdatePreservationRequired(args.answer))
+  )
+    return args.unansweredTitle;
+  return null;
+}
+
 export function refreshUnchangedTitleSaveWatermark(args: {
   serverTitle: string;
   serverUpdatedAt: string | null;
@@ -4386,6 +4407,7 @@ function PageEditorSessionBody({
         setLocalContentUpdatedAt(nextSavedAt);
       }
 
+      let answer: DocumentUpdateResult | null = null;
       try {
         if (!isLinkedLocalSource) requireActiveEditorSession();
         const baseUpdatedAt =
@@ -4397,7 +4419,7 @@ function PageEditorSessionBody({
           updates.content !== undefined
             ? (options.contentBase ?? lastSavedContentRef.current).revision
             : undefined;
-        return await updateDocument.mutateAsync(
+        answer = await updateDocument.mutateAsync(
           withContentSaveOrigin(
             {
               id: documentId,
@@ -4449,6 +4471,7 @@ function PageEditorSessionBody({
             options.telemetryOrigin,
           ),
         );
+        return answer;
       } catch (error) {
         if (updates.title !== undefined) {
           patchDocumentCaches(queryClient, documentId, {
@@ -4468,12 +4491,11 @@ function PageEditorSessionBody({
         });
         return fileFirstDocument;
       } finally {
-        if (
-          updates.title !== undefined &&
-          updates.title === unansweredTitleRef.current
-        ) {
-          unansweredTitleRef.current = null;
-        }
+        unansweredTitleRef.current = unansweredTitleAfterSave({
+          unansweredTitle: unansweredTitleRef.current,
+          sentTitle: updates.title,
+          answer,
+        });
       }
     },
     [document, documentId, queryClient, updateDocument],

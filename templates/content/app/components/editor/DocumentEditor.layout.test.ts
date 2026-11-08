@@ -5,6 +5,7 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import type { DocumentUpdateResult } from "@/hooks/use-documents";
 import { documentQueryKey } from "@/lib/document-query";
 import {
   documentReadFailure,
@@ -74,6 +75,7 @@ import {
   shouldSubmitDocumentContent,
   subscribeToAuthoritativeQuerySuccess,
   titleMatchConfirmsSave,
+  unansweredTitleAfterSave,
   updateAdditionalBlockContents,
   updateDocumentLoadFailureState,
   utilityPanelAfterCommentFocusDismissal,
@@ -3015,6 +3017,30 @@ describe("document editor layout", () => {
     ).toBe(true);
   });
 
+  it("keeps a title unanswered through an answer that may send it again", () => {
+    // A conflict answer puts the server's page back in the cache, and the
+    // rebased retry writes the same title into it again before it answers.
+    const page = { id: "page", title: "Renamed page" } as DocumentUpdateResult;
+    const sent = { unansweredTitle: "Renamed page", sentTitle: "Renamed page" };
+    expect(unansweredTitleAfterSave({ ...sent, answer: page })).toBeNull();
+    expect(unansweredTitleAfterSave({ ...sent, answer: null })).toBeNull();
+    for (const answer of [
+      { conflict: true, document: page },
+      { superseded: true, document: page },
+      { preservationRequired: true, document: page },
+    ] as DocumentUpdateResult[]) {
+      expect(unansweredTitleAfterSave({ ...sent, answer })).toBe(
+        "Renamed page",
+      );
+    }
+    expect(
+      unansweredTitleAfterSave({ ...sent, sentTitle: "Renamed", answer: page }),
+    ).toBe("Renamed page");
+    expect(
+      unansweredTitleAfterSave({ ...sent, sentTitle: undefined, answer: page }),
+    ).toBe("Renamed page");
+  });
+
   it("keeps prose titles on the reading column", () => {
     expect(documentEditorTitleRegionClassName(false)).toContain("max-w-3xl");
     expect(documentEditorTitleRegionClassName(false)).toContain("pb-8");
@@ -3480,7 +3506,7 @@ describe("document editor layout", () => {
     const bounds = [
       source.indexOf("const sendKeepaliveSave"),
       source.indexOf("const onVisibilityChange"),
-      source.indexOf("return await updateDocument.mutateAsync("),
+      source.indexOf("answer = await updateDocument.mutateAsync("),
       source.indexOf("editorSnapshotTitle: options.editorSnapshotTitle"),
     ];
     expect(bounds).not.toContain(-1);
