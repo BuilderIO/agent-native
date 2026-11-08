@@ -270,7 +270,7 @@ async function importFigFile(
     });
   } catch (localError) {
     if (
-      localError instanceof FigFileRefusedError ||
+      !isFigWorkerFailure(localError) ||
       file.size > MAX_FIG_UPLOAD_BYTES ||
       remoteMutationStarted(localError) ||
       !(await deps.isUploadStorageConfigured())
@@ -278,7 +278,7 @@ async function importFigFile(
       throw localError;
     }
     console.warn(
-      "[fig-import] in-browser conversion failed; falling back to the upload route.",
+      "[fig-import] decode worker failed; falling back to the upload route.",
       localError,
     );
     report({ phase: "uploading", progress: 0, saved: null, total: null });

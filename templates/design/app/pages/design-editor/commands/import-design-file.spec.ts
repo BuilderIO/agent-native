@@ -58,6 +58,13 @@ function prepared(frameCount: number): PreparedFigImport {
   };
 }
 
+function workerCrash() {
+  return Object.assign(
+    new Error("The .fig import worker failed: out of memory."),
+    { workerFailed: true },
+  );
+}
+
 const imported: ImportResult = {
   designId: "design-1",
   files: [
@@ -220,10 +227,10 @@ describe("runImportDesignFile", () => {
     );
   });
 
-  it("falls back to the upload route when a small file fails to decode in the browser", async () => {
+  it("falls back to the upload route when the decode worker crashes on a small file", async () => {
     const { deps, args } = setup({
       prepareFigImport: vi.fn(async () => {
-        throw new Error("schema changed");
+        throw workerCrash();
       }),
     });
 
@@ -236,7 +243,7 @@ describe("runImportDesignFile", () => {
   it("offers no retry when the upload fallback fails, since it may have saved screens", async () => {
     const { deps, args } = setup({
       prepareFigImport: vi.fn(async () => {
-        throw new Error("schema changed");
+        throw workerCrash();
       }),
       uploadDesignFile: vi.fn(async () => {
         throw new Error("Seeding collaboration failed");
@@ -259,9 +266,7 @@ describe("runImportDesignFile", () => {
     await expect(
       runImportDesignFile({
         ...args(kiwiFile(1024)),
-        browserDecodeError: new Error(
-          "The .fig import worker failed: out of memory.",
-        ),
+        browserDecodeError: workerCrash(),
       }),
     ).resolves.toMatchObject({ status: "imported" });
 
@@ -269,10 +274,31 @@ describe("runImportDesignFile", () => {
     expect(deps.uploadDesignFile).toHaveBeenCalledOnce();
   });
 
-  it("reports a decode failure with a retry when no upload fallback is available", async () => {
+  it("does not upload a file the decoder rejected, since the server runs the same decoder", async () => {
     const { deps, onRetry, args } = setup({
       prepareFigImport: vi.fn(async () => {
-        throw new Error("schema changed");
+        throw new Error("Invalid Zstandard frame");
+      }),
+    });
+
+    await expect(
+      runImportDesignFile(args(kiwiFile(1024))),
+    ).resolves.toMatchObject({ status: "failed" });
+    expect(deps.uploadDesignFile).not.toHaveBeenCalled();
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.importFailed",
+      {
+        id: FIG_IMPORT_TOAST_ID,
+        description: "Invalid Zstandard frame",
+        action: { label: "homeContext.retry", onClick: onRetry },
+      },
+    );
+  });
+
+  it("reports a worker crash with a retry when no upload fallback is available", async () => {
+    const { deps, onRetry, args } = setup({
+      prepareFigImport: vi.fn(async () => {
+        throw workerCrash();
       }),
       isUploadStorageConfigured: vi.fn(async () => false),
     });
@@ -285,7 +311,7 @@ describe("runImportDesignFile", () => {
       "designEditor.import.errors.importFailed",
       {
         id: FIG_IMPORT_TOAST_ID,
-        description: "schema changed",
+        description: "The .fig import worker failed: out of memory.",
         action: { label: "homeContext.retry", onClick: onRetry },
       },
     );
