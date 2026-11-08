@@ -241,6 +241,7 @@ export function planStitch(probes: readonly StitchSourceProbe[]): StitchPlan {
     return reencode("not every source is an mp4 file");
   }
   const first: StitchVideoStream | undefined = videos[0];
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- strict typecheck needs this guard for an empty list
   if (!first) {
     return reencode("no video sources");
   }
@@ -264,6 +265,7 @@ export function planStitch(probes: readonly StitchSourceProbe[]): StitchPlan {
   if (audio === "all") {
     const audios = probes.flatMap((p) => (p.audio ? [p.audio] : []));
     const a0: StitchAudioStream | undefined = audios[0];
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- strict typecheck needs this guard for an empty list
     if (!a0) {
       return reencode("no audio sources");
     }
