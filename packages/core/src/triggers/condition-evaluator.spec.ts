@@ -406,6 +406,28 @@ describe("evaluateCondition", () => {
     expect(streams).toBe(1);
   });
 
+  it("stops waiting for a usage write that never finishes", async () => {
+    vi.useFakeTimers();
+    async function* meteredStream() {
+      yield { type: "usage", inputTokens: 40, outputTokens: 1 } as {
+        type: string;
+        text?: string;
+      };
+      yield { type: "text-delta", text: "yes" };
+    }
+    recordUsageMock.mockReturnValueOnce(new Promise<undefined>(() => {}));
+
+    const evaluation = evaluateCondition(
+      "is this urgent?",
+      { messageId: "hung-usage-write" },
+      IDENTITY,
+      { engine: fakeEngine(meteredStream), resolvedModel: "automation-model" },
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await expect(evaluation).resolves.toBe(true);
+  });
+
   it("saves a timed-out check's usage before reporting the timeout", async () => {
     vi.useFakeTimers();
     async function* meteredThenHanging(opts: {
