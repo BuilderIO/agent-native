@@ -146,8 +146,25 @@ describe("pre-signup Builder experiment", () => {
       code: "already_completed",
     });
     expect(activate).not.toHaveBeenCalled();
+    mocks.settings.set("design_builder_signup_v1:new-user", {
+      status: "started",
+      startedAt: testTime - 60000,
+    });
+    const uncertain = await request({ operation: "status" });
+    expect(await uncertain.json()).toEqual({
+      status: "disabled",
+      code: "activation_in_progress",
+    });
+    expect(uncertain.headers.get("set-cookie")).toContain(
+      "an_builder_signup_pending=",
+    );
+    expect(activate).not.toHaveBeenCalled();
     mocks.settings.clear();
-    expect(await (await request({ operation: "status" })).json()).toEqual({
+    const skipped = await request({ operation: "status" });
+    expect(skipped.headers.get("set-cookie")).toContain(
+      "an_builder_signup_pending=",
+    );
+    expect(await skipped.json()).toEqual({
       status: "disabled",
       code: "not_enrolled",
     });
@@ -494,6 +511,14 @@ describe("pre-signup Builder experiment", () => {
     const response = await request();
     expect(await response.json()).toEqual({ status: "disabled" });
     expect(response.headers.get("set-cookie")).toBeNull();
+    const staleHint = await request(
+      { operation: "status" },
+      "unused; an_builder_signup_pending=1",
+    );
+    expect(await staleHint.json()).toEqual({ status: "disabled" });
+    expect(staleHint.headers.get("set-cookie")).toContain(
+      "an_builder_signup_pending=",
+    );
   });
   it("assigns anonymously and keeps the same arm across requests", async () => {
     const response = await request();

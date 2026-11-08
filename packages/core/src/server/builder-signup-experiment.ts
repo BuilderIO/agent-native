@@ -299,8 +299,11 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       setResponseStatus(event, status);
       return { status: "unavailable" as const, code };
     };
-    if (!isBuilderSignupExperimentEnabled())
+    if (!isBuilderSignupExperimentEnabled()) {
+      if (getCookie(event, "an_builder_signup_pending"))
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
       return { status: "disabled" as const };
+    }
     const method = getMethod(event);
     if (method !== "GET" && method !== "POST")
       return refuse(405, "method_not_allowed");
@@ -372,13 +375,26 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     if (body.data.operation === "status") {
       if (!session?.emailVerified || !session.userId)
         return refuse(401, "verified_session_required");
-      if (!consent)
+      if (!consent) {
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "not_enrolled" };
+      }
       const existing = await getSetting(
         `${BUILDER_SIGNUP_EXPERIMENT}:${session.userId}`,
       );
-      if (existing && existing.status !== "started")
-        return { status: "disabled" as const, code: "already_completed" };
+      if (existing) {
+        const status = z
+          .enum(["started", "connected", "fallback"])
+          .parse(existing.status);
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+        return {
+          status: "disabled" as const,
+          code:
+            status === "started"
+              ? "activation_in_progress"
+              : "already_completed",
+        };
+      }
       return { status: "eligible" as const };
     }
     if (
