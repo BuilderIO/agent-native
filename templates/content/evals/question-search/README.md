@@ -45,6 +45,9 @@ SEARCH_QUESTION_BAKEOFF=1 OPENAI_API_KEY=... \
   `BUILDER_PUBLIC_KEY` are set, else OpenAI (`text-embedding-3-small`, or
   `SEARCH_BAKEOFF_EMBEDDING_MODEL`).
 - Chat goes to OpenAI (`gpt-6-luna`, or `SEARCH_BAKEOFF_CHAT_MODEL`).
+- With `SEARCH_BAKEOFF_PROVIDER=openrouter` and `OPENROUTER_API_KEY`, chat and
+  embeddings go through OpenRouter instead (`openai/gpt-6-luna` and
+  `openai/text-embedding-3-small`). It's never chosen on its own.
 - `SEARCH_QUESTION_BAKEOFF_REPORT=<dir>` writes the report as JSON and
   Markdown.
 

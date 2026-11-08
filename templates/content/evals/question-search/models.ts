@@ -39,8 +39,43 @@ export interface BakeoffModels {
   chat(system: string, user: string, usage: ModelUsage): Promise<string>;
 }
 
-const OPENAI_URL = "https://api.openai.com/v1";
 const OPENAI_EMBEDDING_BATCH = 64;
+
+/** An OpenAI-compatible API: OpenAI's own, or OpenRouter's. */
+interface ChatProvider {
+  name: "openai" | "openrouter";
+  url: string;
+  headers: Record<string, string>;
+  /** The provider's id for an OpenAI model. */
+  model(id: string): string;
+}
+
+/**
+ * OpenAI with OPENAI_API_KEY, or OpenRouter when
+ * SEARCH_BAKEOFF_PROVIDER=openrouter and OPENROUTER_API_KEY are set. OpenRouter
+ * is only used when asked for, so a run never moves to a second account's
+ * spending on its own.
+ */
+function chatProviderFromEnv(env: NodeJS.ProcessEnv): ChatProvider | null {
+  if (env.SEARCH_BAKEOFF_PROVIDER?.trim() === "openrouter") {
+    const key = env.OPENROUTER_API_KEY?.trim();
+    if (!key) return null;
+    return {
+      name: "openrouter",
+      url: "https://openrouter.ai/api/v1",
+      headers: { Authorization: `Bearer ${key}` },
+      model: (id) => (id.includes("/") ? id : `openai/${id}`),
+    };
+  }
+  const key = env.OPENAI_API_KEY?.trim();
+  if (!key) return null;
+  return {
+    name: "openai",
+    url: "https://api.openai.com/v1",
+    headers: { Authorization: `Bearer ${key}` },
+    model: (id) => id,
+  };
+}
 
 async function postWithRetry(
   url: string,
@@ -60,11 +95,13 @@ async function postWithRetry(
     });
     if (response?.ok) return (await response.json()) as Record<string, any>;
     if (response) {
-      const retryable = response.status === 429 || response.status >= 500;
-      if (!retryable || attempt === 4) {
-        const detail = (await response.text().catch(() => "")).slice(0, 300);
+      const detail = (await response.text().catch(() => "")).slice(0, 300);
+      // An account out of quota answers 429 too, but waiting won't help.
+      const retryable =
+        (response.status === 429 && !detail.includes("insufficient_quota")) ||
+        response.status >= 500;
+      if (!retryable || attempt === 4)
         throw new Error(`${url} answered ${response.status}: ${detail}`);
-      }
     }
     await new Promise((resolve) => setTimeout(resolve, attempt * 2_000));
   }
@@ -82,18 +119,18 @@ async function timed<T>(usage: ModelUsage, run: () => Promise<T>) {
 
 /**
  * Embeddings through Builder's gateway when its key pair is set (what hosted
- * Agent Native ships), else OpenAI's. Chat always goes to OpenAI.
+ * Agent Native ships), else the chat provider's. Chat goes to OpenAI, or to
+ * OpenRouter when asked for.
  */
 export function bakeoffModelsFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): BakeoffModels | null {
-  const openaiKey = env.OPENAI_API_KEY?.trim();
+  const provider = chatProviderFromEnv(env);
   const builderKey = env.BUILDER_PRIVATE_KEY?.trim();
   const builderSpace = env.BUILDER_PUBLIC_KEY?.trim();
   const chatModel = env.SEARCH_BAKEOFF_CHAT_MODEL?.trim() || "gpt-6-luna";
   const openaiEmbeddingModel =
     env.SEARCH_BAKEOFF_EMBEDDING_MODEL?.trim() || "text-embedding-3-small";
-  const openaiHeaders = { Authorization: `Bearer ${openaiKey}` };
 
   let embeddingLabel: string;
   let embed: BakeoffModels["embed"];
@@ -112,15 +149,16 @@ export function bakeoffModelsFromEnv(
           purpose,
         );
       });
-  } else if (openaiKey) {
-    embeddingLabel = `openai/${openaiEmbeddingModel}`;
+  } else if (provider) {
+    const model = provider.model(openaiEmbeddingModel);
+    embeddingLabel = `${provider.name}/${model}`;
     embed = async (texts, _purpose, usage) => {
       const vectors: number[][] = [];
       for (let at = 0; at < texts.length; at += OPENAI_EMBEDDING_BATCH) {
         const batch = texts.slice(at, at + OPENAI_EMBEDDING_BATCH);
         const data = await timed(usage, () =>
-          postWithRetry(`${OPENAI_URL}/embeddings`, openaiHeaders, {
-            model: openaiEmbeddingModel,
+          postWithRetry(`${provider.url}/embeddings`, provider.headers, {
+            model,
             input: batch,
           }),
         );
@@ -146,13 +184,15 @@ export function bakeoffModelsFromEnv(
 
   return {
     embeddingLabel,
-    chatLabel: openaiKey ? `openai/${chatModel}` : null,
+    chatLabel: provider
+      ? `${provider.name}/${provider.model(chatModel)}`
+      : null,
     embed,
     chat: async (system, user, usage) => {
-      if (!openaiKey) throw new Error("No chat model is configured.");
+      if (!provider) throw new Error("No chat model is configured.");
       const data = await timed(usage, () =>
-        postWithRetry(`${OPENAI_URL}/chat/completions`, openaiHeaders, {
-          model: chatModel,
+        postWithRetry(`${provider.url}/chat/completions`, provider.headers, {
+          model: provider.model(chatModel),
           messages: [
             { role: "system", content: system },
             { role: "user", content: user },
