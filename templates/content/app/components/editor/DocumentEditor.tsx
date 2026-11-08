@@ -1273,14 +1273,21 @@ export function metadataUpdatesWithPendingTitle<
 
 export function titleMatchConfirmsSave(args: {
   serverTitle: string;
+  serverUpdatedAt: string | null;
   localTitle: string;
-  lastSavedTitle: string;
+  lastSaved: FieldSaveWatermark;
   pendingTitle: string | null;
 }) {
   if (args.serverTitle !== args.localTitle) return false;
-  return !(
-    args.pendingTitle === args.localTitle &&
-    args.localTitle !== args.lastSavedTitle
+  if (args.localTitle === args.lastSaved.title) return true;
+  if (args.pendingTitle === args.localTitle) return false;
+  // Typing writes each unsaved title into the cached page, and it stays there
+  // while the save is in flight or after it fails. Only a server copy newer
+  // than the last confirmed save shows the title was saved.
+  return Boolean(
+    args.serverUpdatedAt &&
+    (!args.lastSaved.updatedAt ||
+      args.serverUpdatedAt > args.lastSaved.updatedAt),
   );
 }
 
@@ -4205,8 +4212,9 @@ function PageEditorSessionBody({
     if (isLinkedLocalSourceDocument) return;
     const titleMatchesLocal = titleMatchConfirmsSave({
       serverTitle: document.title,
+      serverUpdatedAt: document.updatedAt ?? null,
       localTitle,
-      lastSavedTitle: lastSavedTitleRef.current.title,
+      lastSaved: lastSavedTitleRef.current,
       pendingTitle: pendingDocumentSaveRef.current?.title ?? null,
     });
     const contentMatchesLocal = document.content === localContent;

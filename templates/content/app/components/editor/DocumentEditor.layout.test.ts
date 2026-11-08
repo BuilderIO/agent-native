@@ -2933,19 +2933,45 @@ describe("document editor layout", () => {
   });
 
   it("does not mistake an optimistic title cache patch for a confirmed save", () => {
+    const lastSaved = {
+      title: "Untitled",
+      updatedAt: "2026-11-07T12:00:00.000Z",
+    };
     expect(
       titleMatchConfirmsSave({
         serverTitle: "Renamed page",
+        serverUpdatedAt: lastSaved.updatedAt,
         localTitle: "Renamed page",
-        lastSavedTitle: "Untitled",
+        lastSaved,
         pendingTitle: "Renamed page",
+      }),
+    ).toBe(false);
+    // The save is in flight or has failed: the cached title is still the
+    // optimistic one, and the server copy is no newer.
+    expect(
+      titleMatchConfirmsSave({
+        serverTitle: "Renamed page",
+        serverUpdatedAt: lastSaved.updatedAt,
+        localTitle: "Renamed page",
+        lastSaved,
+        pendingTitle: null,
       }),
     ).toBe(false);
     expect(
       titleMatchConfirmsSave({
         serverTitle: "Renamed page",
+        serverUpdatedAt: "2026-11-07T12:00:05.000Z",
         localTitle: "Renamed page",
-        lastSavedTitle: "Untitled",
+        lastSaved,
+        pendingTitle: null,
+      }),
+    ).toBe(true);
+    expect(
+      titleMatchConfirmsSave({
+        serverTitle: "Untitled",
+        serverUpdatedAt: lastSaved.updatedAt,
+        localTitle: "Untitled",
+        lastSaved,
         pendingTitle: null,
       }),
     ).toBe(true);
