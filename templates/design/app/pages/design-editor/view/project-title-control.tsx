@@ -48,14 +48,19 @@ import { ExportSubmenuContent } from "./export-submenu-content";
 /**
  * The title of a Content page the design started from. The design keeps only
  * the page's id and link, so the title is read under the viewer's own Content
- * access, and is empty for anyone who can't open the page.
+ * access, and is empty for anyone who can't open the page. A failed read hides
+ * the title even when an earlier read is still cached.
  */
-function useBriefPageTitle(brief: DesignBrief) {
+function useBriefPageTitle(
+  brief: DesignBrief,
+  refetchOnMount: boolean | "always" = true,
+) {
   const page = useActionQuery(
     "read-composer-source",
     { source: "content", operation: "read", id: brief.id, page: 1 },
-    { method: "GET", staleTime: 5 * 60_000, retry: false },
+    { method: "GET", staleTime: 5 * 60_000, retry: false, refetchOnMount },
   );
+  if (page.isError) return "";
   const read = composerSourceReferenceSchema.safeParse(page.data);
   return read.success ? read.data.title.trim() : "";
 }
@@ -68,7 +73,9 @@ function BriefTitlePrefetch({ brief }: { brief: DesignBrief }) {
 
 export function BuiltFromItem({ brief }: { brief: DesignBrief }) {
   const t = useT();
-  const title = useBriefPageTitle(brief);
+  // Opening the menu reads the page again, so access removed since the editor
+  // opened takes the title away instead of showing it from the cache.
+  const title = useBriefPageTitle(brief, "always");
   return (
     <DropdownMenuItem asChild className="items-start">
       <a href={brief.url} target="_blank" rel="noopener noreferrer">

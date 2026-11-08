@@ -89,6 +89,7 @@ export async function readPeerComposerSource(
 }
 
 // A peer may return app-relative links; anchor them to the peer, not the caller.
+// A peer reached through its explicit A2A endpoint is anchored to its app base.
 function withAbsoluteUrls(
   result: ComposerSourceResult,
   peerUrl: string,
@@ -97,7 +98,9 @@ function withAbsoluteUrls(
     if (!url || !url.startsWith("/") || url.startsWith("//")) return url;
     if (!URL.canParse(peerUrl)) return url;
     const peer = new URL(peerUrl);
-    const base = peer.pathname.replace(/\/+$/, "");
+    const base = peer.pathname
+      .replace(/\/+$/, "")
+      .replace(/\/(?:_agent-native\/)?a2a$/, "");
     const path =
       base && (url === base || url.startsWith(`${base}/`)) ? url : base + url;
     return `${peer.origin}${path}`;

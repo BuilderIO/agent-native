@@ -967,11 +967,13 @@ export default function Index() {
         const title = trimmedPrompt
           ? derivePromptTitle(trimmedPrompt)
           : selectedTemplate.title;
+        const templateBriefs = homeBriefsFor(options.contextItems);
         const retryKey = designTemplateRetryKey({
           templateId: selectedTemplate.id,
           title,
           designSystemId,
           prompt,
+          briefs: templateBriefs,
         });
         const previousRetry = templateCopyIdsRef.current.get(
           selectedTemplate.id,
@@ -982,7 +984,6 @@ export default function Index() {
           key: retryKey,
           id: newId,
         });
-        const templateBriefs = homeBriefsFor(options.contextItems);
         try {
           const result = await createFromTemplateMutation.mutateAsync({
             templateId: selectedTemplate.id,

@@ -134,6 +134,39 @@ describe("readPeerComposerSource", () => {
     });
   });
 
+  it.each([
+    [
+      "https://apps.example.com/content/_agent-native/a2a",
+      "https://apps.example.com/content/_agent-native/open?documentId=page-example",
+    ],
+    [
+      "https://content.example.com/a2a/",
+      "https://content.example.com/_agent-native/open?documentId=page-example",
+    ],
+  ])(
+    "anchors app-relative links to the app when the peer is an A2A endpoint (%s)",
+    async (peerUrl, expected) => {
+      mocks.invoke.mockResolvedValue({
+        target: { kind: "url", name: peerUrl, url: peerUrl },
+        result: {
+          status: "completed",
+          output: JSON.stringify({
+            id: "page-example",
+            title: "Launch brief",
+            url: "/_agent-native/open?documentId=page-example",
+            context: "Brief",
+          }),
+        },
+      });
+      expect(
+        await readPeerComposerSource(
+          { source: "content", operation: "read", id: "page-example", page: 1 },
+          "design",
+        ),
+      ).toMatchObject({ url: expected });
+    },
+  );
+
   it("keeps absolute peer links as they are", async () => {
     mocks.invoke.mockResolvedValue({
       target: {

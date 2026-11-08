@@ -528,6 +528,54 @@ describe("create-design-from-template", () => {
     });
     expect(retryKey.length).toBeLessThanOrEqual(128);
   });
+
+  it("does not reuse a copy for a retry with different Content pages", async () => {
+    const brief = (id: string) => ({
+      source: "content" as const,
+      id,
+      url: `https://content.example.com/_agent-native/open?documentId=${id}`,
+    });
+    const first = await action.run({
+      templateId: "saved-template",
+      newId: "retry-id",
+      briefs: [brief("page-one")],
+    });
+    expect(first.id).toBe("retry-id");
+    const stored = testState.insertedDesign;
+    const lookUp = testState.resolveAccess.getMockImplementation();
+    testState.resolveAccess.mockImplementation(
+      async (type: string, id: string) =>
+        type === "design" && id === "retry-id"
+          ? { role: "owner", resource: stored }
+          : lookUp?.(type, id),
+    );
+
+    const retried = await action.run({
+      templateId: "saved-template",
+      newId: "retry-id",
+      briefs: [brief("page-one")],
+    });
+    expect(retried.id).toBe("retry-id");
+    await expect(
+      action.run({
+        templateId: "saved-template",
+        newId: "retry-id",
+        briefs: [brief("page-two")],
+      }),
+    ).rejects.toThrow(/cannot be reused/i);
+    expect(
+      designTemplateRetryKey({
+        templateId: "saved-template",
+        title: "Saved campaign",
+        briefs: [],
+      }),
+    ).toBe(
+      designTemplateRetryKey({
+        templateId: "saved-template",
+        title: "Saved campaign",
+      }),
+    );
+  });
   describe("design_created", () => {
     const createdEvents = () =>
       track.mock.calls.filter(([name]) => name === "design_created");

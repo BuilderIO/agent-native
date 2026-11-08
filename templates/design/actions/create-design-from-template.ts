@@ -310,6 +310,7 @@ export default defineAction({
       title: createdTitle,
       designSystemId,
       prompt,
+      briefs,
     });
     if (retryKey !== undefined && retryKey !== expectedRetryKey) {
       return templateCopyConflict();

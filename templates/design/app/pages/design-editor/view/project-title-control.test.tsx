@@ -13,6 +13,7 @@ import { BuiltFromItem } from "./project-title-control";
 
 const query = vi.hoisted(() => ({
   data: undefined as unknown,
+  isError: false,
   useActionQuery: vi.fn(),
 }));
 
@@ -20,7 +21,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useActionQuery: (...args: unknown[]) => {
     query.useActionQuery(...args);
-    return { data: query.data };
+    return { data: query.data, isError: query.isError };
   },
 }));
 
@@ -43,6 +44,7 @@ const brief = {
 let cleanup: (() => Promise<void>) | undefined;
 beforeEach(() => {
   query.data = undefined;
+  query.isError = false;
   query.useActionQuery.mockClear();
 });
 afterEach(async () => {
@@ -86,7 +88,7 @@ describe("Built from link", () => {
     expect(query.useActionQuery).toHaveBeenCalledWith(
       "read-composer-source",
       { source: "content", operation: "read", id: "page-one", page: 1 },
-      expect.objectContaining({ method: "GET" }),
+      expect.objectContaining({ method: "GET", refetchOnMount: "always" }),
     );
     expect(link.textContent).toBe(
       "designEditor.fileMenu.builtFrom: Spring launch brief",
@@ -101,5 +103,18 @@ describe("Built from link", () => {
 
     expect(link.textContent).toBe("designEditor.fileMenu.builtFromPage");
     expect(link.getAttribute("href")).toBe(brief.url);
+  });
+
+  it("drops a cached title when reading the page again fails", async () => {
+    query.data = {
+      id: "page-one",
+      title: "Spring launch brief",
+      url: brief.url,
+      context: "Content page: the brief",
+    };
+    query.isError = true;
+    const link = await openMenu();
+
+    expect(link.textContent).toBe("designEditor.fileMenu.builtFromPage");
   });
 });
