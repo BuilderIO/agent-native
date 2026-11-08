@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getDbExec } from "@agent-native/core/db";
+import { getDbExec, withDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
 import {
@@ -454,6 +454,38 @@ ${table}
     );
   });
 
+  it("checks the bodies it moves as they are under its locks, not as first read", async () => {
+    const table = await privateDashboardTable();
+    const page = await as(OWNER, () =>
+      createDocument.run({ title: "Forecast" }),
+    );
+    // The table is saved after the move first read the page.
+    titleSave.after = async () => {
+      await getDb()
+        .update(schema.documents)
+        .set({
+          content: `${table}
+`,
+        })
+        .where(eq(schema.documents.id, page.id));
+    };
+    try {
+      await expect(
+        as(OWNER, () =>
+          moveDocument.run({
+            id: page.id,
+            spaceId: organizationContentSpaceId(ORG_ID),
+          }),
+        ),
+      ).rejects.toThrow("A table can't reach more people than its dashboard");
+    } finally {
+      titleSave.after = undefined;
+    }
+    expect(await documentRows([page.id])).toEqual([
+      expect.objectContaining({ spaceId: personalContentSpaceId(OWNER) }),
+    ]);
+  });
+
   it("refuses to move a subtree with a child the mover cannot read", async () => {
     const page = await as(OWNER, () => createDocument.run({ title: "Parent" }));
     const child = await as(OWNER, () =>
@@ -881,6 +913,74 @@ describe("moving a page that takes body writes through its live copy", () => {
 
     expect(moved).toMatchObject({ spaceId: orgSpaceId });
     expect(moved).not.toHaveProperty("titleFlush");
+  });
+});
+
+describe("sharing a page that holds a table", () => {
+  it("checks the page as saved now, not the row the change loaded", async () => {
+    const { assertAnalyticsTablesFitSharingChange } =
+      await import("../server/lib/analytics-chart-sharing.js");
+    const page = await as(OWNER, () => createDocument.run({ title: "Churn" }));
+    const loaded = { id: page.id, content: "", visibility: "private" };
+    await getDb()
+      .update(schema.documents)
+      .set({
+        content: `${await privateDashboardTable()}
+`,
+      })
+      .where(eq(schema.documents.id, page.id));
+
+    await expect(
+      assertAnalyticsTablesFitSharingChange({
+        resource: loaded,
+        change: { kind: "grant" },
+      }),
+    ).rejects.toThrow("A table can't reach more people than its dashboard");
+    // An approved access request grants inside a transaction.
+    const exec = getDbExec();
+    if (!exec.transaction)
+      throw new Error("The test database runs no transactions");
+    await expect(
+      exec.transaction((tx) =>
+        withDbExec(tx, () =>
+          assertAnalyticsTablesFitSharingChange({
+            resource: loaded,
+            change: { kind: "grant" },
+          }),
+        ),
+      ),
+    ).rejects.toThrow("A table can't reach more people than its dashboard");
+  });
+
+  it("refuses to share it with someone, and leaves no share behind", async () => {
+    const shareResource = (
+      await import("@agent-native/core/sharing/actions/share-resource")
+    ).default as { run: (args: unknown) => Promise<unknown> };
+    const table = await privateDashboardTable();
+    const page = await as(OWNER, () =>
+      createDocument.run({
+        title: "Accounts at risk",
+        content: `${table}
+`,
+      }),
+    );
+    await expect(
+      as(OWNER, () =>
+        shareResource.run({
+          resourceType: "document",
+          resourceId: page.id,
+          principalType: "user",
+          principalId: EDITOR,
+          role: "viewer",
+          notify: false,
+        }),
+      ),
+    ).rejects.toThrow("A table can't reach more people than its dashboard");
+    const shares = await getDb()
+      .select()
+      .from(schema.documentShares)
+      .where(eq(schema.documentShares.resourceId, page.id));
+    expect(shares).toEqual([]);
   });
 });
 

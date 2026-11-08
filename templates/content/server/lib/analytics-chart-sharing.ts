@@ -1,4 +1,5 @@
 import { fail } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
 import type { EmbedVisibility } from "@agent-native/core/shared";
 
 import { analyticsChartsWiderThan } from "../../shared/analytics-chart-block.js";
@@ -26,22 +27,43 @@ export async function assertAnalyticsTablesFitAudience(
   );
 }
 
+type SharingChangeResource =
+  | { id?: unknown; content?: unknown; visibility?: unknown }
+  | null
+  | undefined;
+
 /**
- * The page sharing hook's check. A share with a person or group can reach
- * people the dashboard doesn't, so it counts as at least the whole
- * organization.
+ * The page's body as saved now. The row a sharing change loaded can be
+ * older, and a table saved since would slip past it. Read through the
+ * caller's transaction when there is one, as core's share writes are.
+ */
+async function savedBody(resource: SharingChangeResource): Promise<unknown> {
+  if (typeof resource?.id !== "string") return resource?.content;
+  // guard:allow-unscoped — reads the body of the page whose sharing is changing, after that change's own admin check.
+  const { rows } = await getDbExec().execute({
+    sql: "SELECT content FROM documents WHERE id = $1",
+    args: [resource.id],
+  });
+  const row = rows[0];
+  return row ? row.content : resource.content;
+}
+
+/**
+ * The page sharing hook's check, against the page's current body. A share
+ * with a person or group can reach people the dashboard doesn't, so it
+ * counts as at least the whole organization.
  */
 export async function assertAnalyticsTablesFitSharingChange({
   resource,
   change,
 }: {
-  resource: { content?: unknown; visibility?: unknown } | null | undefined;
+  resource: SharingChangeResource;
   change:
     | { kind: "visibility"; visibility: EmbedVisibility }
     | { kind: "grant" };
 }): Promise<void> {
   await assertAnalyticsTablesFitAudience(
-    resource?.content,
+    await savedBody(resource),
     change.kind === "visibility"
       ? change.visibility
       : resource?.visibility === "public"

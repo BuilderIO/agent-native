@@ -315,7 +315,7 @@ async function lockMoveBetweenSpaces(args: {
     if (moverEmail && ownerEmail === moverEmail) continue;
     await assertDocumentMutationAccess(id, "editor", "id");
   }
-  if (!parentId) return { parent: null, files };
+  if (!parentId) return { parent: null, files, pages: lockedPages };
   const [parent] = await tx
     .select({
       spaceId: schema.documents.spaceId,
@@ -342,7 +342,7 @@ async function lockMoveBetweenSpaces(args: {
       "DOCUMENT_MOVE_SCOPE_CHANGED",
     );
   }
-  return { parent, files };
+  return { parent, files, pages: lockedPages };
 }
 
 export async function movePageToSpace(args: {
@@ -436,7 +436,7 @@ export async function movePageToSpace(args: {
     documentsPositionScope(userEmail, parentId),
     async () => {
       await db.transaction(async (tx) => {
-        const { parent, files } = await lockMoveBetweenSpaces({
+        const { parent, files, pages } = await lockMoveBetweenSpaces({
           tx: tx as unknown as ContentDb,
           root,
           ids,
@@ -459,12 +459,13 @@ export async function movePageToSpace(args: {
         }
         // The pages take the space's sharing, and a table copied from an
         // Analytics dashboard never reaches more people than the dashboard.
+        // Their bodies are read under the locks, so a save can't slip past.
         const audience =
           visibility === "private" && parentShares.length > 0
             ? "org"
             : visibility;
-        for (const document of subtree) {
-          await assertAnalyticsTablesFitAudience(document.content, audience);
+        for (const page of pages) {
+          await assertAnalyticsTablesFitAudience(page.content, audience);
         }
         // Under the mover's page-tree lock, which every move into the
         // mover's pages takes, so two appends can't take one position.
