@@ -38,6 +38,9 @@ static DOWNLOADING: AtomicBool = AtomicBool::new(false);
 static DOWNLOADED_BYTES: AtomicU64 = AtomicU64::new(0);
 static CANCEL_DOWNLOAD: AtomicBool = AtomicBool::new(false);
 static PREPARING: AtomicBool = AtomicBool::new(false);
+/// Held while a prepare is claimed and while a release cancels, so a release
+/// can't land between a claim's steps and be cleared by it.
+static CLAIM: Mutex<()> = Mutex::new(());
 static LAST_ERROR: Mutex<Option<String>> = Mutex::new(None);
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 static AUTO_RETRY: Mutex<AutoRetry> = Mutex::new(AutoRetry { last: None });
@@ -294,7 +297,7 @@ pub(crate) async fn meeting_lease(
 /// For quitting: stops a download (its partial file is deleted) and lets a
 /// prepare end at its next step.
 pub(crate) fn shutdown() {
-    CANCEL_DOWNLOAD.store(true, Ordering::SeqCst);
+    cancel_prepare(&CANCEL_DOWNLOAD);
 }
 
 #[cfg(target_os = "macos")]
@@ -387,14 +390,26 @@ pub async fn parakeet_model_prepare(app: AppHandle) -> Result<(), String> {
 /// Whether this request starts the one prepare. Only a prepare that starts
 /// clears the cancel flag: one already running must still see a release that
 /// came before this request, or it reports ready on a copy the release has
-/// unloaded. It then ends cancelled, and Settings prepares again.
+/// unloaded. It then ends cancelled, and Settings prepares again. `keep` runs
+/// once the claim is won, before any release can follow it.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn claim_prepare(preparing: &AtomicBool, cancel: &AtomicBool) -> bool {
+fn claim_prepare(preparing: &AtomicBool, cancel: &AtomicBool, keep: impl FnOnce()) -> bool {
+    let _claim = CLAIM
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if preparing.swap(true, Ordering::SeqCst) {
         return false;
     }
     cancel.store(false, Ordering::SeqCst);
+    keep();
     true
+}
+
+fn cancel_prepare(cancel: &AtomicBool) {
+    let _claim = CLAIM
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    cancel.store(true, Ordering::SeqCst);
 }
 
 /// `reclaim` is for a dictation that found the resident copy held by an
@@ -403,7 +418,14 @@ fn claim_prepare(preparing: &AtomicBool, cancel: &AtomicBool) -> bool {
 /// ready.
 #[cfg(target_os = "macos")]
 fn start_prepare(app: AppHandle, reclaim: bool) -> Result<(), String> {
-    if !claim_prepare(&PREPARING, &CANCEL_DOWNLOAD) {
+    // A release still waiting on a meeting's runs would unload the copy
+    // this prepare is about to report ready.
+    let keep = || {
+        if let Ok(path) = model_path(&app) {
+            crate::transcribe_engine::LOCAL_MODEL.keep(&path);
+        }
+    };
+    if !claim_prepare(&PREPARING, &CANCEL_DOWNLOAD, keep) {
         return Ok(());
     }
     if !reclaim && is_ready(&app) {
@@ -447,7 +469,7 @@ fn start_prepare(app: AppHandle, reclaim: bool) -> Result<(), String> {
 /// another engine. The file stays on disk.
 #[tauri::command]
 pub async fn parakeet_model_release(app: AppHandle) -> Result<(), String> {
-    CANCEL_DOWNLOAD.store(true, Ordering::SeqCst);
+    cancel_prepare(&CANCEL_DOWNLOAD);
     // Release waits for a load in progress, which can take a second.
     #[cfg(target_os = "macos")]
     {
@@ -736,14 +758,23 @@ mod tests {
     fn a_running_prepare_still_sees_a_release_from_before_parakeet_was_picked_again() {
         let preparing = AtomicBool::new(false);
         let cancel = AtomicBool::new(false);
-        assert!(claim_prepare(&preparing, &cancel));
-        cancel.store(true, Ordering::SeqCst);
+        assert!(claim_prepare(&preparing, &cancel, || {}));
+        cancel_prepare(&cancel);
 
-        assert!(!claim_prepare(&preparing, &cancel), "one prepare at a time");
+        let mut kept = false;
+        assert!(
+            !claim_prepare(&preparing, &cancel, || kept = true),
+            "one prepare at a time"
+        );
         assert!(cancel.load(Ordering::SeqCst));
+        assert!(
+            !kept,
+            "a request that doesn't start a prepare keeps nothing"
+        );
 
         preparing.store(false, Ordering::SeqCst);
-        assert!(claim_prepare(&preparing, &cancel));
+        assert!(claim_prepare(&preparing, &cancel, || kept = true));
+        assert!(kept);
         assert!(
             !cancel.load(Ordering::SeqCst),
             "the next prepare starts uncancelled"
