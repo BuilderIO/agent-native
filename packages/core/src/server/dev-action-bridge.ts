@@ -90,9 +90,12 @@ async function resolveDevOrgScopeForRoute(
 > {
   try {
     return await resolveDevOrgScope(userEmail, devOrgChoiceFromHeaders(event));
-  } catch (error: any) {
+  } catch (error) {
     setResponseStatus(event, 500);
-    return { ok: false, error: error?.message ?? String(error) };
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
