@@ -507,6 +507,7 @@ describe("Ask AI on a tab's thread", () => {
       fieldId: fixture.notesId,
       quotedText: "dolor",
     });
+    // oracle-change: Ask AI now works on a tab's thread, so the request starts instead of being refused.
     await as(() =>
       startCommentAiRequest({
         requestId: "44444444-4444-4444-8444-444444444444",

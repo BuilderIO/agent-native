@@ -584,8 +584,12 @@ export function useBlocksFieldSuggestions({
         }
         const quiet = autosave && session.failed;
         session.failed = true;
-        if (refused || error instanceof SuggestionFormattingMappingError)
+        if (refused || error instanceof SuggestionFormattingMappingError) {
           session.refused = true;
+          // No retry follows a refusal, so typing saves again, with its max
+          // wait started over; past the old one, every keystroke would save.
+          session.dirtySince = Date.now();
+        }
         if (error instanceof SuggestionFormattingMappingError) {
           if (!autosave)
             toast.error(tRef.current("editor.suggestionFormattingUnsupported"));
@@ -1004,8 +1008,8 @@ export function useBlocksFieldSuggestions({
    * as one of `sessions` is still its tab's. Reports whether it was read.
    * With `comments`, the page's comments are asked for in the same run, so
    * the two reads share a batch and land together: a tab never shows its
-   * new text with a thread's old quote. Comments that fail to load are
-   * asked for once more, and hold nothing up.
+   * new text with a thread's old quote. It waits for both. Comments that
+   * fail to load are asked for once more, and don't fail the read.
    */
   const reread = useCallback(
     async (sessions: FieldSession[], comments: boolean) => {
@@ -1020,15 +1024,17 @@ export function useBlocksFieldSuggestions({
           { queryKey: ["action", "list-document-properties", { documentId }] },
           { throwOnError: true },
         );
-        if (comments)
-          void queryClient
-            .refetchQueries({ queryKey: commentsKey }, { throwOnError: true })
-            .catch(() =>
-              queryClient.invalidateQueries({ queryKey: commentsKey }),
-            )
-            .catch(() => undefined);
+        const quotes = comments
+          ? queryClient
+              .refetchQueries({ queryKey: commentsKey }, { throwOnError: true })
+              .catch(() =>
+                queryClient.invalidateQueries({ queryKey: commentsKey }),
+              )
+              .catch(() => undefined)
+          : undefined;
         try {
           await text;
+          await quotes;
           return true;
         } catch (error) {
           if (!current()) return false;
@@ -1051,8 +1057,9 @@ export function useBlocksFieldSuggestions({
    * Holds what tabs show of their saved suggestions as it is now. A tab
    * still holding an earlier decision's view, because the text with that
    * decision is unread, keeps it, with any suggestion shown since added.
-   * Returns what lets this hold go, and the tabs that kept an earlier view.
-   * A later hold on a tab replaces this one there.
+   * Returns what lets this hold go, what drops suggestions from it, and the
+   * tabs that kept an earlier view. A later hold on a tab replaces this one
+   * there.
    */
   const holdViews = useCallback(
     (fieldIds: string[]) => {
@@ -1086,7 +1093,19 @@ export function useBlocksFieldSuggestions({
           if (kept.size === views.size) return views;
           return kept.size > 0 ? kept : NO_VIEWS;
         });
-      return { release, carried };
+      const drop = (ids: ReadonlySet<string>) =>
+        changeViews((views) => {
+          let next = views;
+          for (const [fieldId, view] of held) {
+            if (views.get(fieldId) !== view) continue;
+            const kept = view.filter((suggestion) => !ids.has(suggestion.id));
+            if (kept.length === view.length) continue;
+            held.set(fieldId, kept);
+            next = new Map([...next, [fieldId, kept]]);
+          }
+          return next;
+        });
+      return { release, drop, carried };
     },
     [changeViews],
   );
@@ -1107,7 +1126,7 @@ export function useBlocksFieldSuggestions({
           const read = query.state.data as
             | DocumentPropertiesResponse
             | undefined;
-          const revision = read?.properties?.find(
+          const revision = read?.properties.find(
             (property) => property.definition.id === fieldId,
           )?.blocksField?.revision;
           return revision === undefined ? [] : [revision];
@@ -1172,8 +1191,18 @@ export function useBlocksFieldSuggestions({
           const session = sessionsRef.current.get(fieldId);
           if (session && !(await save(session, { autosave: false }))) return;
         }
-        const accepted = (await run()).filter(
+        const outcomes = await run();
+        const accepted = outcomes.filter(
           (suggestion) => suggestion.status === "accepted",
+        );
+        // A suggestion decided any other way left the text as it was, so the
+        // tabs stop showing it now rather than when their text is read.
+        views.drop(
+          new Set(
+            outcomes
+              .filter((suggestion) => suggestion.status !== "accepted")
+              .map((suggestion) => suggestion.id),
+          ),
         );
         movedQuotes = accepted.some((suggestion) =>
           suggestionSourceThreadId(suggestion),

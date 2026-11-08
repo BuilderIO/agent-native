@@ -515,11 +515,9 @@ export async function reanchorSourceComment(
     return;
   const root = (
     await tx.execute({
-      sql: `SELECT id,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset FROM document_comments WHERE document_id = ? AND thread_id = ? AND parent_id IS NULL AND ${fieldId === null ? "field_id IS NULL" : "field_id = ?"} ORDER BY created_at ASC LIMIT 1`,
-      args:
-        fieldId === null
-          ? [documentId, threadId]
-          : [documentId, threadId, fieldId],
+      // The page body's comments have no field.
+      sql: "SELECT id,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset FROM document_comments WHERE document_id = ? AND thread_id = ? AND parent_id IS NULL AND COALESCE(field_id, '') = ? ORDER BY created_at ASC LIMIT 1",
+      args: [documentId, threadId, fieldId ?? ""],
     })
   ).rows[0];
   if (!root || root.quoted_text == null) return;

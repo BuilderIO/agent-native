@@ -106,14 +106,17 @@ vi.mock("../server/lib/comment-ai.js", () => ({
     state.request.status = "running";
     return state.retainedPayload;
   },
-  readCommentAiText: async (_db: unknown, document: Record<string, any>) =>
+  readCommentAiText: async (_db: unknown, document: BodyDocument) =>
     bodyText(document),
   serializeCommentAiRequest: () => receipt(),
   updateCommentAiRequest: (...args: unknown[]) => mocks.updateRequest(...args),
 }));
 
+/** The document fields Ask AI's body text comes from. */
+type BodyDocument = { content: string; updatedAt: string };
+
 /** The page body as Ask AI reads it, following the document's current text. */
-function bodyText(document: Record<string, any>) {
+function bodyText(document: BodyDocument) {
   return {
     fieldId: "body",
     fieldName: null,

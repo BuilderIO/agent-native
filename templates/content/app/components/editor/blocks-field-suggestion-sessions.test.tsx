@@ -874,8 +874,8 @@ describe("useBlocksFieldSuggestions", () => {
     await render(false, [{ ...accepted, status: "accepted" }, rejected]);
     expect(highlighted()).toEqual(["saved-0", "saved-1"]);
 
-    // Rejecting the other changes no text; the tab still shows the accepted
-    // one until its edit is on screen.
+    // Rejecting the other changes no text, so the tab stops showing it at
+    // once, and still shows the accepted one until its edit is on screen.
     await act(async () => {
       await latest.decide(rejected, "rejected");
     });
@@ -883,7 +883,7 @@ describe("useBlocksFieldSuggestions", () => {
       { ...accepted, status: "accepted" },
       { ...rejected, status: "rejected" },
     ]);
-    expect(highlighted()).toContain("saved-0");
+    expect(highlighted()).toEqual(["saved-0"]);
 
     refetchQueries.mockRestore();
     await act(async () => {
@@ -963,6 +963,52 @@ describe("useBlocksFieldSuggestions", () => {
     stopElsewhere();
   });
 
+  it("restarts a tab on its new text only once the moved quote is read too", async () => {
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const asked = {
+      ...first(firstSaved()),
+      metadata: { sourceThreadId: "thread-1", commentAiRequestId: "request-1" },
+    };
+    mocks.decideSuggestion.mockResolvedValue({
+      suggestion: { ...asked, status: "accepted" },
+    });
+    await render(true, [asked]);
+    let land: () => void = () => {};
+    const landed = new Promise<void>((resolve) => {
+      land = resolve;
+    });
+    // The tab's text arrives, and the comments come after it.
+    vi.spyOn(queryClient, "refetchQueries").mockImplementation(
+      async (filters) => {
+        if (filters?.queryKey?.[1] === "list-comments") await landed;
+      },
+    );
+
+    let decision = Promise.resolve();
+    await act(async () => {
+      decision = latest.decide(asked, "accepted");
+    });
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(mocks.decideSuggestion).toHaveBeenCalledTimes(1),
+      );
+      await Promise.resolve();
+    });
+    expect(latest.deciding).toBe(true);
+    expect(latest.provider.sessions.has("notes")).toBe(true);
+
+    await act(async () => {
+      land();
+      await decision;
+    });
+    expect(latest.deciding).toBe(false);
+    expect(latest.provider.sessions.has("notes")).toBe(false);
+  });
+
   it("restarts a tab on its new text even when the moved quote can't be read", async () => {
     await render(true, []);
     await draftInTab();
@@ -1023,6 +1069,39 @@ describe("useBlocksFieldSuggestions", () => {
 
       await type("Original notes, still typing.");
       expect(mocks.createProposal).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("doesn't save a refused tab draft on every keystroke past the max wait", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.createProposal.mockRejectedValue(
+        Object.assign(new Error("The tab changed"), {
+          status: 409,
+          errorCode: "suggestion_conflict",
+        }),
+      );
+      await render(true, []);
+      await act(async () => {
+        latest.provider.start("notes", {
+          content: "Original notes.",
+          revision: 3,
+        });
+      });
+      const type = async (markdown: string) => {
+        await act(async () => {
+          latest.provider.change("notes", markdown);
+          await vi.advanceTimersByTimeAsync(250);
+        });
+      };
+      // Twelve seconds of typing a character every quarter second: the
+      // first save after five seconds is refused, and the next waits five
+      // seconds more.
+      for (let count = 1; count <= 48; count += 1)
+        await type(`Original notes${"!".repeat(count)}`);
+      expect(mocks.createProposal).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }

@@ -417,7 +417,8 @@ export async function readCommentAiText(
       suggestionBase: document.updatedAt,
     };
   }
-  const [contents] = await db
+  // A tab that was never written has no rows yet: it is empty, at revision 0.
+  const contents = await db
     .select({ content: schema.documentBlockFieldContents.content })
     .from(schema.documentBlockFieldContents)
     .where(
@@ -427,18 +428,18 @@ export async function readCommentAiText(
       ),
     )
     .limit(1);
-  const [stored] = await db
+  const stored = await db
     .select({ revision: schema.documentBlockFields.revision })
     .from(schema.documentBlockFields)
     .where(
       eq(schema.documentBlockFields.id, blocksFieldId(document.id, fieldId)),
     )
     .limit(1);
-  const content = contents?.content ?? "";
+  const content = contents.length > 0 ? contents[0].content : "";
   // The revision the tab's own suggestions are made at, as its editor reads it.
   const suggestionBase = blocksFieldSuggestionRevision(
     fieldId,
-    stored?.revision ?? 0,
+    stored.length > 0 ? stored[0].revision : 0,
   );
   return {
     fieldId,

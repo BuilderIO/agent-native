@@ -543,6 +543,7 @@ describe("comments across Blocks field tabs", () => {
       commentAi,
     });
     expect(richEditor(container)).not.toBeNull();
+    // oracle-change: a tab's thread now offers Ask AI, so it is enabled rather than disabled everywhere.
     expect(actions.aiEnabled).toContain(true);
 
     actions.aiEnabled.length = 0;

@@ -453,7 +453,8 @@ describe("CommentComposer rich recipient", () => {
 
     const send = container.querySelector<HTMLButtonElement>(
       "[data-comment-ai-send-mode]",
-    )!;
+    );
+    if (!send) throw new Error("Expected the AI send button.");
     expect(send.dataset.commentAiSendMode).toBe("auto");
     await act(async () => send.click());
     expect(aiSubmit).toHaveBeenCalledWith(
