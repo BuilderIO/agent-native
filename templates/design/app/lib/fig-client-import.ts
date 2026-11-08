@@ -81,12 +81,16 @@ function startFigImportWorker(): FigImportWorker {
       dispose: () => {},
     };
   }
-  const worker = new Worker(
-    new URL("./fig-import-worker.ts", import.meta.url),
-    {
+  let worker: Worker;
+  try {
+    worker = new Worker(new URL("./fig-import-worker.ts", import.meta.url), {
       type: "module",
-    },
-  );
+    });
+  } catch (error) {
+    throw new FigImportWorkerError(
+      `The .fig import worker failed: ${error instanceof Error ? error.message : "it could not start"}.`,
+    );
+  }
   const pending = new Map<
     number,
     { resolve: (result: unknown) => void; reject: (error: Error) => void }
@@ -228,6 +232,7 @@ export async function importFigInBrowser(
     onProgress?.({ phase: "rendering" });
     rendered = await prepared.render();
   } catch (error) {
+    if (error instanceof FigImportWorkerError) throw error;
     const message = error instanceof Error ? error.message : String(error);
     throw new FigClientImportError(message, false);
   } finally {

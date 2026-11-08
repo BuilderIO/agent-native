@@ -57,8 +57,6 @@ export interface ImportDesignFileArgs {
   onImported: (result: ImportResult) => Promise<void>;
   /** A whole-file decode the home page already ran; skips decoding again. */
   prepared?: PreparedFigImport;
-  /** The home page's decode worker failed; go straight to the upload route. */
-  browserDecodeError?: Error;
   /** Offered on the failure toast; not for refused files or partial saves. */
   onRetry?: () => void;
   deps: ImportDesignFileDepsOverrides;
@@ -254,7 +252,6 @@ async function importFigFile(
 ): Promise<ImportResult> {
   const { designId, file, t } = args;
   try {
-    if (args.browserDecodeError) throw args.browserDecodeError;
     const prepared = args.prepared ?? (await prepareWholeFigImport(file, deps));
     return await deps.importFigInBrowser({
       designId,

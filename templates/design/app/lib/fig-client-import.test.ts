@@ -28,6 +28,7 @@ vi.mock("../../shared/fig-to-frames.js", async (importOriginal) => ({
 
 import {
   FigClientImportError,
+  FigImportWorkerError,
   importFigInBrowser,
   MAX_CLIENT_FIG_BYTES,
   MAX_CLIENT_IMAGE_BYTES,
@@ -519,5 +520,46 @@ describe("prepareFigImport worker failures", () => {
     const rejected = await prepareFigImport(file).catch((error) => error);
     expect(rejected).toBeInstanceOf(Error);
     expect(rejected).not.toHaveProperty("workerFailed");
+  });
+
+  it("marks a worker that cannot be constructed as a crash", async () => {
+    vi.stubGlobal(
+      "Worker",
+      class {
+        constructor() {
+          throw new Error("blocked by CSP");
+        }
+      },
+    );
+
+    await expect(prepareFigImport(file)).rejects.toMatchObject({
+      workerFailed: true,
+      message: "The .fig import worker failed: blocked by CSP.",
+    });
+  });
+
+  it("keeps the crash mark when the worker dies while rendering", async () => {
+    const crash = new FigImportWorkerError("The .fig import worker failed.");
+
+    await expect(
+      importFigInBrowser({
+        designId: "design-1",
+        file,
+        prepared: {
+          file,
+          summary: {
+            pageCount: 1,
+            frameCount: 1,
+            nodeCount: 1,
+            imageCount: 0,
+            pages: [],
+          },
+          render: vi.fn(async () => {
+            throw crash;
+          }),
+          dispose: vi.fn(),
+        },
+      }),
+    ).rejects.toBe(crash);
   });
 });

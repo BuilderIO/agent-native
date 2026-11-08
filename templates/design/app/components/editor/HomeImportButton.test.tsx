@@ -256,36 +256,13 @@ describe("home Figma import", () => {
     );
   });
 
-  it("hands a file to the upload route when the decode worker itself crashes", async () => {
-    const crash = Object.assign(
-      new Error("The .fig import worker failed: out of memory."),
-      {
-        workerFailed: true,
-      },
-    );
-    mocks.prepare.mockRejectedValueOnce(crash);
-    const file = new File(["fixture"], "Brand.fig");
-
-    await chooseFile(file);
-
-    await vi.waitFor(() =>
-      expect(mocks.navigate).toHaveBeenCalledWith("/design/file-design"),
-    );
-    expect(readPendingDesignImport("file-design")).toEqual({
-      kind: "file",
-      file,
-      browserDecodeError: crash,
-    });
-  });
-
-  it("creates no design when the worker crashes on a file too large to upload", async () => {
+  it("creates no design when the decode worker crashes, since nothing shows the upload route would accept the file", async () => {
     mocks.prepare.mockRejectedValueOnce(
       Object.assign(new Error("The .fig import worker failed."), {
         workerFailed: true,
       }),
     );
-    const file = new File(["fixture"], "Huge.fig");
-    Object.defineProperty(file, "size", { value: 1024 ** 3 });
+    const file = new File(["fixture"], "Brand.fig");
 
     await chooseFile(file);
 
