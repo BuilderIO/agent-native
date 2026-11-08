@@ -37,12 +37,18 @@ export async function openDashboard(
   return builtin ? { builtin } : null;
 }
 
-/** Who can open `opened`: a saved dashboard's sharing, or how its built-in was installed. */
+/**
+ * Who in the reader's organization can open `opened`: a saved dashboard's
+ * sharing, or how its built-in was installed. Sharing with an organization
+ * reaches only the dashboard's own, so another organization's dashboard,
+ * opened by its owner or through a share, reads as private here.
+ */
 export async function openedDashboardVisibility(
   opened: OpenedDashboard,
   scope: Scope,
 ): Promise<DashboardRecord["visibility"]> {
-  return opened.saved
-    ? opened.saved.visibility
-    : builtinDashboardVisibility(opened.builtin.id, scope);
+  if (!opened.saved)
+    return builtinDashboardVisibility(opened.builtin.id, scope);
+  const { visibility, orgId } = opened.saved;
+  return visibility === "org" && orgId !== scope.orgId ? "private" : visibility;
 }

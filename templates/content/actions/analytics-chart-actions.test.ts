@@ -361,6 +361,36 @@ describe("capture-analytics-chart", () => {
     expect(fits.status).toBe("captured");
   });
 
+  it("counts an organization's dashboard as private on a page from another organization", async () => {
+    const elsewhere = page("org");
+    elsewhere.resource.orgId = "org_2";
+    mocks.resolveDocumentAccess.mockResolvedValue(elsewhere);
+    mocks.requestAnalytics.mockResolvedValue({
+      ok: true,
+      data: chart({ visibility: "org" }),
+    });
+    const held = await captureAnalyticsChart.run({
+      documentId: "doc_1",
+      link: LINK,
+      purpose: "insert",
+    });
+    expect(held.status).toBe("needs_confirmation");
+    mocks.requestAnalytics.mockResolvedValue({
+      ok: true,
+      data: chart({ visibility: "org", type: "table" }),
+    });
+    await expect(
+      captureAnalyticsChart.run({
+        documentId: "doc_1",
+        link: LINK,
+        purpose: "insert",
+        acknowledgeWiderAudience: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "analytics_chart_wider_than_dashboard",
+    });
+  });
+
   it("counts a page shared with someone outside the organization as open to everyone", async () => {
     mocks.resolveDocumentAccess.mockResolvedValue(page("org"));
     mocks.shares = [

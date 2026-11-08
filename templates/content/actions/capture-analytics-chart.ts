@@ -26,6 +26,7 @@ import { isRegistryBlockId } from "../shared/nfm-registry.js";
 import {
   analyticsChartDocumentIdSchema,
   authorizeAnalyticsChartPage,
+  chartForPageOrganization,
 } from "./_analytics-chart-access.js";
 
 // Analytics answers within 55 seconds; leave room for the hop.
@@ -166,7 +167,7 @@ export default defineAction({
               : 502,
       });
     }
-    const chart = answer.data;
+    const chart = chartForPageOrganization(answer.data, page.orgId);
     const audience = analyticsChartAudience("insert", page.visibility, chart);
     const blockId = args.blockId ?? newBlockId();
     const forEditor = isEditorCall(ctx);
