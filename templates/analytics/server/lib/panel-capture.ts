@@ -17,6 +17,7 @@ import type {
 } from "../../app/pages/adhoc/sql-dashboard/types";
 import { axisDirection } from "../../shared/chart-axis-labels";
 import { keyDateEvents } from "../../shared/key-dates";
+import { stableStringify } from "../../shared/panel-render-contract";
 import {
   readTrafficFilterValue,
   TRAFFIC_FILTER_ID,
@@ -121,10 +122,31 @@ function panelsOf(config: Record<string, unknown>): SqlPanel[] {
     : [];
 }
 
-/** Changes when the panel's saved query or chart settings change. */
-export function panelFingerprint(panel: SqlPanel): string {
+/**
+ * Changes when the panel's saved query or chart settings change, or the
+ * dashboard's filters or variables its query is built from: a filter's
+ * default decides what a copy's Refresh runs. Labels are left out, as the
+ * panel's title is, since they don't change the numbers.
+ */
+export function panelFingerprint(
+  panel: SqlPanel,
+  config: Record<string, unknown>,
+): string {
+  const filters = Array.isArray(config.filters)
+    ? (config.filters as ReadonlyArray<DashboardFilter | null>).map(
+        (filter) =>
+          filter && {
+            id: filter.id,
+            type: filter.type,
+            default: filter.default,
+            customRange: filter.customRange,
+            options: filter.options?.map((option) => option.value),
+          },
+      )
+    : null;
   return createHash("sha256")
     .update(renderFingerprint(panel as unknown as Record<string, unknown>))
+    .update(stableStringify({ filters, variables: config.variables }))
     .digest("hex")
     .slice(0, 12);
 }
@@ -308,7 +330,7 @@ export async function captureDashboardPanel(
       id: panel.id,
       title: (panel.title || panel.id).slice(0, 300),
       type,
-      fingerprint: panelFingerprint(panel),
+      fingerprint: panelFingerprint(panel, dashboard.config),
       url: panelUrl,
     },
     filters,
@@ -406,7 +428,7 @@ export async function dashboardPanelStatus(
       return panel
         ? {
             id,
-            fingerprint: panelFingerprint(panel),
+            fingerprint: panelFingerprint(panel, dashboard.config),
             type: String(panel.chartType).slice(0, 40),
           }
         : { id, fingerprint: null, type: null };

@@ -395,6 +395,11 @@ describe("fitting a capture to the result limit", () => {
 describe("dashboardPanelStatus", () => {
   it("reports the sharing and each panel's fingerprint without running a query", async () => {
     mocks.getDashboard.mockResolvedValue(dashboard([SIGNUPS], "private"));
+    const capture = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "signups", filters: {} },
+      CTX,
+    );
+    mocks.resolvePanel.mockClear();
 
     const status = await dashboardPanelStatus(
       { dashboardId: "growth", panelIds: ["signups", "gone"] },
@@ -406,7 +411,7 @@ describe("dashboardPanelStatus", () => {
       panels: [
         {
           id: "signups",
-          fingerprint: panelFingerprint(SIGNUPS as never),
+          fingerprint: capture.panel.fingerprint,
           type: "line",
         },
         { id: "gone", fingerprint: null, type: null },
@@ -416,12 +421,29 @@ describe("dashboardPanelStatus", () => {
   });
 
   it("changes a panel's fingerprint when its query changes, not its title", () => {
-    const base = panelFingerprint(SIGNUPS as never);
-    expect(panelFingerprint({ ...SIGNUPS, title: "Renamed" } as never)).toBe(
-      base,
-    );
-    expect(panelFingerprint({ ...SIGNUPS, sql: "SELECT 2" } as never)).not.toBe(
-      base,
-    );
+    const config = dashboard().config;
+    const base = panelFingerprint(SIGNUPS as never, config);
+    expect(
+      panelFingerprint({ ...SIGNUPS, title: "Renamed" } as never, config),
+    ).toBe(base);
+    expect(
+      panelFingerprint({ ...SIGNUPS, sql: "SELECT 2" } as never, config),
+    ).not.toBe(base);
+  });
+
+  it("changes a panel's fingerprint when a filter default or variable it's built from changes, not a label", () => {
+    const config = dashboard().config;
+    const base = panelFingerprint(SIGNUPS as never, config);
+    const withFilter = (filter: Record<string, unknown>) =>
+      panelFingerprint(SIGNUPS as never, { ...config, filters: [filter] });
+
+    expect(withFilter({ ...TIME_RANGE, label: "Period" })).toBe(base);
+    expect(withFilter({ ...TIME_RANGE, default: "90d" })).not.toBe(base);
+    expect(
+      panelFingerprint(SIGNUPS as never, {
+        ...config,
+        variables: { region: "eu" },
+      }),
+    ).not.toBe(base);
   });
 });
