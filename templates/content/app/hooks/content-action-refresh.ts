@@ -329,11 +329,14 @@ function isDocumentListQuery(query: ActionQuery): boolean {
   );
 }
 
+// The Files tree and its breadcrumb menus carry no role: they read Files pages
+// by navigation, which only the Files collection answers.
 function isActiveFilesDatabaseQuery(query: ActionQuery): boolean {
   return (
     isDatabaseQuery(query) &&
     query.isActive?.() === true &&
-    query.meta?.contentDatabaseSystemRole === "files"
+    (query.meta?.contentDatabaseSystemRole === "files" ||
+      queryReadsFilesNavigation(query))
   );
 }
 

@@ -1,6 +1,10 @@
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  filesNavigationPageParams,
+  filesNavigationQueryKey,
+} from "../lib/files-navigation";
 import { adoptPageOpenRead, startPageOpenRead } from "../lib/page-open-reads";
 import {
   contentActionInvalidatePredicate,
@@ -597,6 +601,22 @@ describe("contentActionInvalidatePredicate", () => {
         expect(predicate({ ...filesQuery, isActive: () => false }, event)).toBe(
           false,
         );
+      }
+      // The sidebar's Files tree, keyed as the sidebar keys it.
+      for (const parentId of [null, "folder-1"]) {
+        const filesTreeQuery = {
+          queryKey: filesNavigationQueryKey(
+            filesNavigationPageParams({
+              databaseId: "workspace-files",
+              parentId,
+            }),
+          ),
+          isActive: () => true,
+        };
+        expect(predicate(filesTreeQuery, event)).toBe(true);
+        expect(
+          predicate({ ...filesTreeQuery, isActive: () => false }, event),
+        ).toBe(false);
       }
       expect(
         predicate(
