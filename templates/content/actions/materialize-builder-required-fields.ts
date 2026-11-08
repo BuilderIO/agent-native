@@ -150,7 +150,6 @@ export async function readBuilderReferenceSnapshot(args: {
     model: args.sourceTable,
     fieldPaths: [sourceFieldKey],
     rawData: true,
-    requirePrivateKey: true,
     limit: 10_000,
     maxPages: 100,
   });

@@ -542,7 +542,6 @@ describe("execute Builder source execution", () => {
       request: plan.payload.request,
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
-      requireSourceBinding: true,
     });
     expect(deps.markExecutionSucceeded).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -614,7 +613,6 @@ describe("execute Builder source execution", () => {
     expect(deps.readLiveEntry).toHaveBeenCalledWith({
       model: BUILDER_CMS_SAFE_WRITE_MODEL,
       entryId: "builder-entry-1",
-      fieldPaths: ["data.title", BUILDER_CMS_ENTRY_NAME_KEY],
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
     });
@@ -1051,7 +1049,6 @@ describe("execute Builder source execution", () => {
       }),
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
-      requireSourceBinding: true,
     });
   });
 
@@ -1180,7 +1177,6 @@ describe("execute Builder source execution", () => {
       }),
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
-      requireSourceBinding: true,
     });
   });
 
@@ -1345,7 +1341,6 @@ describe("execute Builder source execution", () => {
       }),
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
-      requireSourceBinding: true,
     });
   });
 
@@ -1372,7 +1367,6 @@ describe("execute Builder source execution", () => {
     expect(deps.readLiveEntry).toHaveBeenCalledWith({
       model: BUILDER_CMS_SAFE_WRITE_MODEL,
       entryId: "builder-entry-1",
-      fieldPaths: ["data.title", BUILDER_CMS_ENTRY_NAME_KEY],
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
     });

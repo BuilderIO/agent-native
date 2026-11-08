@@ -116,7 +116,6 @@ describe("safe Builder required-field materialization", () => {
         model: "agent-native-blog-article-test",
         fieldPaths: ["data.author"],
         rawData: true,
-        requirePrivateKey: true,
       }),
     );
     expect(snapshot.bySourceRowId.get("article-1")).toMatchObject({

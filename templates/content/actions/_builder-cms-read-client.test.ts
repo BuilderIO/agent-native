@@ -1,8 +1,5 @@
 import { ActionContractError } from "@agent-native/core/action";
-import {
-  resolveBuilderCredential,
-  resolveBuilderRequestAuthorization,
-} from "@agent-native/core/server";
+import { resolveBuilderRequestAuthorization } from "@agent-native/core/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { builderBlocksHash, builderEntryBlocks } from "../shared/builder-mdx";
@@ -21,15 +18,26 @@ import {
 vi.mock("@agent-native/core/server", () => ({
   BUILDER_CONTENT_READ_SCOPE: "builder:content:read",
   BUILDER_OAUTH_RESOURCE: "https://api.builder.io",
-  resolveBuilderCredential: vi.fn(),
   resolveBuilderRequestAuthorization: vi.fn(),
   BUILDER_PUBLISH_MCP_RESOURCE: "https://mcp.builder.io/mcp/publish",
 }));
 
-const resolveBuilderCredentialMock = vi.mocked(resolveBuilderCredential);
 const resolveBuilderRequestAuthorizationMock = vi.mocked(
   resolveBuilderRequestAuthorization,
 );
+
+function usePublishAuthorization(token = "publish-oauth-token") {
+  resolveBuilderRequestAuthorizationMock.mockImplementation(async (input) =>
+    input?.oauthResource === "publish"
+      ? {
+          token,
+          authorization: `Bearer ${token}`,
+          source: "oauth",
+          oauthResource: "publish",
+        }
+      : null,
+  );
+}
 
 describe("Builder CMS read client", () => {
   beforeEach(() => {
@@ -39,21 +47,17 @@ describe("Builder CMS read client", () => {
     delete process.env.BUILDER_CMS_MCP_ENDPOINT;
     delete process.env.BUILDER_CMS_MCP_SEARCH_TEXT;
     delete process.env.BUILDER_CMS_READ_LIMIT;
-    resolveBuilderRequestAuthorizationMock.mockImplementation(async (input) => {
-      for (const key of input?.legacyCredentialKeys ?? [
-        "BUILDER_PRIVATE_KEY",
-      ]) {
-        const token = await resolveBuilderCredentialMock(key);
-        if (token) {
-          return {
-            token,
-            authorization: `Bearer ${token}`,
+    // Like core, a caller that leaves room for deploy keys gets one, so a
+    // Source read that stops passing legacyCredentialKeys: [] fails here.
+    resolveBuilderRequestAuthorizationMock.mockImplementation(async (input) =>
+      input?.legacyCredentialKeys?.length === 0
+        ? null
+        : {
+            token: "deploy-key",
+            authorization: "Bearer deploy-key",
             source: "legacy",
-          };
-        }
-      }
-      return null;
-    });
+          },
+    );
   });
 
   it("summarizes bounded rich-content fidelity without returning article text", () => {
@@ -159,7 +163,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("does not call Builder when the public key is not configured", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     const fetchImpl = vi.fn();
 
     await expect(
@@ -175,7 +178,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("does not call Builder when model discovery credentials are not configured", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     const fetchImpl = vi.fn();
 
     await expect(
@@ -191,7 +193,6 @@ describe("Builder CMS read client", () => {
 
   it("lists Builder models with OAuth-only request authorization", async () => {
     process.env.BUILDER_CMS_MCP_ENDPOINT = "https://attacker.example.com/mcp";
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
       authorization: "Bearer oauth-access-token",
@@ -244,9 +245,9 @@ describe("Builder CMS read client", () => {
       state: "live",
       models: [{ id: "model-test" }],
     });
-    expect(resolveBuilderCredentialMock).not.toHaveBeenCalledWith(
-      "BUILDER_PRIVATE_KEY",
-    );
+    for (const [input] of resolveBuilderRequestAuthorizationMock.mock.calls) {
+      expect(input).toMatchObject({ legacyCredentialKeys: [] });
+    }
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(
       fetchImpl.mock.calls.every(
@@ -261,7 +262,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("lists models through the scoped general API grant", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
       authorization: "Bearer general-oauth-token",
@@ -331,7 +331,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("leaves archived models out of general API discovery", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
       authorization: "Bearer general-oauth-token",
@@ -376,7 +375,6 @@ describe("Builder CMS read client", () => {
   it.each([null, { data: [] }, { models: "not-an-array" }, { models: [{}] }])(
     "rejects malformed general API model responses: %j",
     async (payload) => {
-      resolveBuilderCredentialMock.mockResolvedValue(null);
       resolveBuilderRequestAuthorizationMock.mockResolvedValue({
         token: "general-oauth-token",
         authorization: "Bearer general-oauth-token",
@@ -402,7 +400,6 @@ describe("Builder CMS read client", () => {
   );
 
   it("preserves a valid empty general API model catalog", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
       authorization: "Bearer general-oauth-token",
@@ -422,7 +419,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("enumerates raw draft-inclusive entries through query-data", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
       authorization: "Bearer general-oauth-token",
@@ -536,7 +532,6 @@ describe("Builder CMS read client", () => {
 
   it("rejects a later page when an entry before it was replaced between pages", async () => {
     let queryCalls = 0;
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
       authorization: "Bearer general-oauth-token",
@@ -587,7 +582,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("rejects a refresh continuation when an entry is inserted before its saved cursor", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
       authorization: "Bearer general-oauth-token",
@@ -664,7 +658,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("rejects a refresh continuation when an entry is removed before its saved cursor while another is appended", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
       authorization: "Bearer general-oauth-token",
@@ -738,7 +731,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("requires a saved source binding before an unbound OAuth refresh", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
       authorization: "Bearer general-oauth-token",
@@ -791,7 +783,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("rejects a query-data page that ignores the stable cursor", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
       authorization: "Bearer general-oauth-token",
@@ -841,7 +832,6 @@ describe("Builder CMS read client", () => {
   it.each([null, false, ""])(
     "rejects a coerced general query-data totalCount (%j)",
     async (totalCount) => {
-      resolveBuilderCredentialMock.mockResolvedValue(null);
       resolveBuilderRequestAuthorizationMock.mockResolvedValue({
         token: "general-oauth-token",
         authorization: "Bearer general-oauth-token",
@@ -877,7 +867,6 @@ describe("Builder CMS read client", () => {
   );
 
   it("fails closed before a general API read when the token has no selected space", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "opaque-general-token",
       authorization: "Bearer opaque-general-token",
@@ -899,7 +888,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("does not read a Source through a different OAuth credential lane", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
       authorization: "Bearer general-oauth-token",
@@ -925,7 +913,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("does not downgrade an OAuth-bound Source read to Publish or legacy access", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue("legacy-public-key");
     resolveBuilderRequestAuthorizationMock
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
@@ -962,7 +949,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("rejects a connection-only Source binding", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue("legacy-public-key");
     const fetchImpl = vi.fn();
 
     await expect(
@@ -1028,7 +1014,6 @@ describe("Builder CMS read client", () => {
   it("sends every OAuth read to cdn.builder.io even when both host overrides are set", async () => {
     process.env.BUILDER_CONTENT_API_HOST = "https://attacker.example.com";
     process.env.BUILDER_CMS_API_HOST = "https://attacker-cms.example.com";
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
       authorization: "Bearer general-oauth-token",
@@ -1091,7 +1076,6 @@ describe("Builder CMS read client", () => {
     );
 
     beforeEach(() => {
-      resolveBuilderCredentialMock.mockResolvedValue(null);
       resolveBuilderRequestAuthorizationMock.mockImplementation(
         async (input) => {
           if (input?.oauthResource === "general") throw reauthorizationRequired;
@@ -1208,7 +1192,6 @@ describe("Builder CMS read client", () => {
   ])(
     "classifies $name during a general entry read",
     async ({ modelsStatus, expected }) => {
-      resolveBuilderCredentialMock.mockResolvedValue(null);
       resolveBuilderRequestAuthorizationMock.mockResolvedValue({
         token: "general-oauth-token",
         authorization: "Bearer general-oauth-token",
@@ -1234,7 +1217,6 @@ describe("Builder CMS read client", () => {
   );
 
   it("keeps a credential lane mismatch retryable for after the source reconnects", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
       authorization: "Bearer general-oauth-token",
@@ -1259,48 +1241,6 @@ describe("Builder CMS read client", () => {
       retryable: true,
     });
     expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
-  it("keeps the endpoint override for intentional legacy credentials", async () => {
-    process.env.BUILDER_CMS_MCP_ENDPOINT = "https://legacy.example.com/mcp";
-    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
-      token: "legacy-private-key",
-      authorization: "Bearer legacy-private-key",
-      source: "legacy",
-      legacyCredentialKey: "BUILDER_PRIVATE_KEY",
-    });
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
-          status: 200,
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
-          status: 200,
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            result: { content: [{ type: "text", text: '{"models":[]}' }] },
-          }),
-          { status: 200 },
-        ),
-      );
-
-    await expect(
-      listBuilderCmsModels({
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-      }),
-    ).resolves.toMatchObject({ state: "live", models: [] });
-    expect(
-      fetchImpl.mock.calls.every(
-        ([input]) => String(input) === "https://legacy.example.com/mcp",
-      ),
-    ).toBe(true);
   });
 
   it("reports an expired OAuth grant as an error instead of unconfigured", async () => {
@@ -1335,7 +1275,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("keeps unconfigured model-field discovery as an empty-field fallback", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     const fetchImpl = vi.fn();
 
     await expect(
@@ -1348,9 +1287,7 @@ describe("Builder CMS read client", () => {
   });
 
   it("throws when production model discovery returns an error state", async () => {
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
-    );
+    usePublishAuthorization();
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response("Builder unavailable", {
         status: 503,
@@ -1367,9 +1304,7 @@ describe("Builder CMS read client", () => {
   });
 
   it("lists Builder models through the MCP read endpoint", async () => {
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
-    );
+    usePublishAuthorization();
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
@@ -1462,9 +1397,7 @@ describe("Builder CMS read client", () => {
   });
 
   it("rejects malformed Builder model discovery instead of reporting a live empty catalog", async () => {
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
-    );
+    usePublishAuthorization();
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
@@ -1500,9 +1433,7 @@ describe("Builder CMS read client", () => {
   });
 
   it("returns Builder model fields for a selected model", async () => {
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
-    );
+    usePublishAuthorization();
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
@@ -1590,159 +1521,47 @@ describe("Builder CMS read client", () => {
     ]);
   });
 
-  it("reads Builder content through the Content API when credentials exist", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
-    );
-    const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
-      expect(input.href).toContain(
-        "https://cdn.test.builder.io/api/v3/content/blog_article",
-      );
-      expect(input.searchParams.get("apiKey")).toBe("public-key");
-      expect(input.searchParams.get("includeUnpublished")).toBe("true");
-      expect(input.searchParams.get("cachebust")).toBe("true");
-      expect(input.searchParams.get("limit")).toBe("100");
-      expect(input.searchParams.get("offset")).toBe("0");
-      expect(input.searchParams.get("fields")).toContain("data.title");
-      expect(input.searchParams.get("fields")).toContain("data.topics");
-      expect(input.searchParams.get("fields")).toContain("data.tags");
-      expect(input.searchParams.get("fields")).toContain(
-        "data.customModelField",
-      );
-      expect(input.searchParams.get("fields")).not.toContain("data.blocks");
-      expect(init?.headers).toMatchObject({
-        accept: "application/json",
-      });
-      expect(init?.headers).not.toHaveProperty("authorization");
-      return new Response(
-        JSON.stringify({
-          results: [
-            {
-              id: "builder-entry-1",
-              published: "draft",
-              lastUpdated: "2026-06-08T12:00:00.000Z",
-              data: {
-                title: "Builder title",
-                url: "/blog/builder-title",
-                topics: ["AI", "CMS"],
-                tags: ["Agents"],
-                customModelField: "Preserved",
-                Status: "Editorial",
-                status: "published",
-              },
-            },
-          ],
+  it("can project Builder bodies in paged Publish MCP list reads for bulk hydration", async () => {
+    usePublishAuthorization();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+          headers: { "mcp-session-id": "session-1" },
         }),
-        { status: 200 },
-      );
-    });
-
-    await expect(
-      readBuilderCmsContentEntries({
-        model: "blog_article",
-        fieldPaths: [
-          "data.topics",
-          "data.tags",
-          "data.customModelField",
-          "data.Status",
-          "data.status",
-          "data.optionalField",
-          "data.blocks",
-        ],
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-      }),
-    ).resolves.toMatchObject({
-      state: "live",
-      entries: [
-        {
-          id: "builder-entry-1",
-          model: "blog_article",
-          title: "Builder title",
-          urlPath: "/blog/builder-title",
-          updatedAt: "2026-06-08T12:00:00.000Z",
-          rawEntry: { published: "draft" },
-          sourceValues: {
-            "data.topics": ["AI", "CMS"],
-            "data.tags": ["Agents"],
-            "data.customModelField": "Preserved",
-            "data.Status": "Editorial",
-            "data.status": "published",
-            "data.optionalField": null,
-          },
-        },
-      ],
-    });
-  });
-
-  it("allows the read-only attach preview to use Builder's cached projection", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
-    );
-    const fetchImpl = vi.fn(async (input: URL) => {
-      expect(input.searchParams.get("noCache")).toBeNull();
-      expect(input.searchParams.get("cachebust")).toBeNull();
-      expect(input.searchParams.get("includeUnpublished")).toBe("true");
-      expect(input.searchParams.get("fields")).toContain("data.title");
-      return new Response(
-        JSON.stringify({
-          results: [
-            {
-              id: "builder-preview-entry",
-              data: { title: "Cached preview" },
-            },
-          ],
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
         }),
-        { status: 200 },
-      );
-    });
-
-    await expect(
-      readBuilderCmsContentEntries({
-        model: "blog_article",
-        fieldPaths: ["data.title"],
-        allowCached: true,
-        maxPages: 1,
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-      }),
-    ).resolves.toMatchObject({
-      state: "live",
-      entries: [{ id: "builder-preview-entry", title: "Cached preview" }],
-      progress: { partial: false },
-    });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-  });
-
-  it("can project Builder bodies in paged list reads for bulk hydration", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
-    );
-    const fetchImpl = vi.fn(async (input: URL) => {
-      expect(input.searchParams.get("enrich")).toBe("true");
-      expect(input.searchParams.get("fields")?.split(",")).toEqual(
-        expect.arrayContaining([
-          "data.title",
-          "data.blocks",
-          "data.blocksString",
-        ]),
-      );
-      return new Response(
-        JSON.stringify({
-          results: [
-            {
-              id: "builder-entry-with-body",
-              data: {
-                title: "Builder body",
-                blocks: [{ id: "block-1" }],
-              },
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    content: [
+                      {
+                        id: "builder-entry-with-body",
+                        data: {
+                          title: "Builder body",
+                          blocks: [{ id: "block-1" }],
+                        },
+                      },
+                    ],
+                  }),
+                },
+              ],
             },
-          ],
-        }),
-        { status: 200 },
+          }),
+          { status: 200 },
+        ),
       );
-    });
 
     const result = await readBuilderCmsContentEntries({
       model: "blog-article",
@@ -1753,122 +1572,25 @@ describe("Builder CMS read client", () => {
     expect(result.entries[0]?.rawEntry?.data).toMatchObject({
       blocks: [{ id: "block-1" }],
     });
-  });
-
-  it("performs authenticated, cachebusted raw fidelity reads without projection or enrichment", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockImplementation(async (key) => {
-      if (key === "BUILDER_PUBLIC_KEY") return "public-key";
-      if (key === "BUILDER_PRIVATE_KEY") return "private-key";
-      return null;
-    });
-    const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
-      expect(input.searchParams.get("includeUnpublished")).toBe("true");
-      expect(input.searchParams.get("noCache")).toBe("true");
-      expect(Number(input.searchParams.get("cachebust"))).toBeGreaterThan(0);
-      expect(input.searchParams.get("enrich")).toBe("false");
-      expect(input.searchParams.has("fields")).toBe(false);
-      expect(init?.headers).toMatchObject({
-        accept: "application/json",
-        authorization: "Bearer private-key",
-      });
-      return new Response(
-        JSON.stringify({
-          results: [
-            {
-              id: "builder-entry-raw",
-              published: "draft",
-              data: {
-                title: "Raw title",
-                blocks: [{ id: "block-1" }],
-                author: {
-                  "@type": "@builder.io/core:Reference",
-                  id: "author-1",
-                },
-              },
-            },
-          ],
-        }),
-        { status: 200 },
-      );
-    });
-
-    const result = await readBuilderCmsContentEntries({
-      model: "blog-article",
-      rawData: true,
-      requirePrivateKey: true,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-
-    expect(result.entries[0]?.rawEntry?.data).toEqual({
-      title: "Raw title",
-      blocks: [{ id: "block-1" }],
-      author: {
-        "@type": "@builder.io/core:Reference",
-        id: "author-1",
-      },
-    });
-  });
-
-  it("fails closed before a required authenticated fidelity read", async () => {
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    const [, request] = fetchImpl.mock.calls[2] as [string, RequestInit];
+    const fields = JSON.parse(
+      typeof request.body === "string"
+        ? request.body
+        : (JSON.stringify(request.body) ?? ""),
+    ).params.arguments.fields;
+    expect(fields.split(",")).toEqual(
+      expect.arrayContaining([
+        "data.title",
+        "data.blocks",
+        "data.blocksString",
+      ]),
     );
-    const fetchImpl = vi.fn();
-
-    await expect(
-      readBuilderCmsContentEntries({
-        model: "blog-article",
-        rawData: true,
-        requirePrivateKey: true,
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-      }),
-    ).resolves.toMatchObject({
-      state: "unconfigured",
-      entries: [],
-      progress: { readMode: "none" },
+    expect(request.headers).toMatchObject({
+      authorization: "Bearer publish-oauth-token",
     });
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
-  it("keeps an empty unpublished-inclusive Content API result authoritative", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockImplementation(async (key) => {
-      if (key === "BUILDER_PUBLIC_KEY") return "public-key";
-      if (key === "BUILDER_PRIVATE_KEY") return "private-key";
-      return null;
-    });
-    const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
-      expect(input.pathname).toBe(
-        "/api/v3/content/agent-native-blog-article-test",
-      );
-      expect(input.searchParams.get("includeUnpublished")).toBe("true");
-      expect(init?.headers).toMatchObject({
-        accept: "application/json",
-        authorization: "Bearer private-key",
-      });
-      return new Response(JSON.stringify({ results: [] }), { status: 200 });
-    });
-
-    await expect(
-      readBuilderCmsContentEntries({
-        model: "agent-native-blog-article-test",
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-      }),
-    ).resolves.toMatchObject({
-      state: "live",
-      entries: [],
-      progress: {
-        readMode: "builder-api",
-        partial: false,
-        hasMore: false,
-      },
-    });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("requests mapped model fields through OAuth-only Builder MCP reads", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
       authorization: "Bearer oauth-access-token",
@@ -1949,11 +1671,8 @@ describe("Builder CMS read client", () => {
     });
   });
 
-  it("never sends Publish OAuth authorization to the Content API fast path", async () => {
+  it("never sends Publish OAuth authorization to a configured content host", async () => {
     process.env.BUILDER_CONTENT_API_HOST = "https://attacker.example.com";
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "legacy-public-key" : null,
-    );
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
       authorization: "Bearer oauth-access-token",
@@ -2009,68 +1728,7 @@ describe("Builder CMS read client", () => {
     }
   });
 
-  it("preserves the offset-capable legacy Builder content tool", async () => {
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
-    );
-    const toolResponse = (content: unknown[]) =>
-      new Response(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          result: {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({ content, totalCount: content.length }),
-              },
-            ],
-          },
-        }),
-        { status: 200 },
-      );
-    const entry = {
-      id: "legacy-entry",
-      lastUpdated: "2026-08-26T12:00:00.000Z",
-      data: { title: "Legacy test entry", url: "/legacy-test-entry" },
-    };
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
-          status: 200,
-          headers: { "mcp-session-id": "session-1" },
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
-          status: 200,
-        }),
-      )
-      .mockResolvedValueOnce(toolResponse([entry]));
-
-    const result = await readBuilderCmsContentEntries({
-      model: "agent-native-blog-article-test",
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-
-    expect(result.entries).toMatchObject([
-      { id: "legacy-entry", title: "Legacy test entry" },
-    ]);
-    const browseBody = JSON.parse(
-      String((fetchImpl.mock.calls[2]?.[1] as RequestInit).body),
-    );
-    expect(browseBody.params).toMatchObject({
-      name: "get_builder_content",
-      arguments: {
-        modelName: "agent-native-blog-article-test",
-        enrich: true,
-      },
-    });
-    expect(browseBody.params.arguments).not.toHaveProperty("offset");
-  });
-
   it("caps Builder MCP browse reads at the provider page limit", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
       authorization: "Bearer oauth-access-token",
@@ -2138,7 +1796,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("continues Builder Publish MCP reads beyond the first 100 entries", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
       authorization: "Bearer oauth-access-token",
@@ -2222,7 +1879,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("advances MCP pagination by the provider window when entries are invalid", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
       authorization: "Bearer oauth-access-token",
@@ -2288,7 +1944,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("rejects malformed Builder MCP tool content instead of accepting an empty source", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
       authorization: "Bearer oauth-access-token",
@@ -2330,7 +1985,6 @@ describe("Builder CMS read client", () => {
   });
 
   it("surfaces Builder MCP JSON-RPC errors instead of returning an empty read", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
       authorization: "Bearer oauth-access-token",
@@ -2415,265 +2069,12 @@ describe("Builder CMS read client", () => {
     });
   });
 
-  it("paginates Builder content through the Content API up to the read limit", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
-    );
-    const entries = Array.from({ length: 120 }, (_, index) => ({
-      id: `builder-entry-${index + 1}`,
-      lastUpdated: "2026-06-08T12:00:00.000Z",
-      data: {
-        title: `Builder title ${index + 1}`,
-        url: `/blog/builder-title-${index + 1}`,
-      },
-    }));
-    const fetchImpl = vi.fn(async (input: URL) => {
-      const limit = Number(input.searchParams.get("limit"));
-      const offset = Number(input.searchParams.get("offset"));
-      return new Response(
-        JSON.stringify({
-          results: entries.slice(offset, offset + limit),
-        }),
-        { status: 200 },
-      );
-    });
-
-    const result = await readBuilderCmsContentEntries({
-      model: "blog_article",
-      limit: 120,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-    expect(result.state).toBe("live");
-    expect(result.entries).toHaveLength(120);
-    expect(result.entries[0]).toMatchObject({ id: "builder-entry-1" });
-    expect(result.entries[119]).toMatchObject({ id: "builder-entry-120" });
-    expect(
-      fetchImpl.mock.calls.map(([input]) =>
-        (input as URL).searchParams.get("offset"),
-      ),
-    ).toEqual(["0", "100"]);
-    for (const [input] of fetchImpl.mock.calls) {
-      const fields = (input as URL).searchParams.get("fields") ?? "";
-      expect(fields).toContain("data.title");
-      expect(fields).not.toContain("data.blocks");
-      expect(fields).not.toContain("data.blocksString");
-    }
-  });
-
-  it("keeps row-list reads metadata-only but fetches blocks for single-entry hydration", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
-    );
-    const fetchImpl = vi.fn(async (input: URL) => {
-      const fields = input.searchParams.get("fields") ?? "";
-      const isSingleEntry = input.pathname.endsWith(
-        "/api/v3/content/blog_article/builder-entry-1",
-      );
-      if (isSingleEntry) {
-        expect(fields).toContain("data.blocks");
-        return new Response(
-          JSON.stringify({
-            id: "builder-entry-1",
-            lastUpdated: "2026-06-08T12:00:00.000Z",
-            data: {
-              title: "Builder title",
-              url: "/blog/builder-title",
-              blocks: [
-                {
-                  "@type": "@builder.io/sdk:Element",
-                  "@version": 2,
-                  id: "text-1",
-                  component: {
-                    name: "Text",
-                    options: { text: "<p>Hydrated body.</p>" },
-                  },
-                },
-              ],
-            },
-          }),
-          { status: 200 },
-        );
-      }
-      expect(fields).toContain("data.title");
-      expect(fields).not.toContain("data.blocks");
-      expect(fields).not.toContain("data.blocksString");
-      return new Response(
-        JSON.stringify({
-          results: [
-            {
-              id: "builder-entry-1",
-              lastUpdated: "2026-06-08T12:00:00.000Z",
-              data: {
-                title: "Builder title",
-                url: "/blog/builder-title",
-              },
-            },
-          ],
-        }),
-        { status: 200 },
-      );
-    });
-
-    const listResult = await readBuilderCmsContentEntries({
-      model: "blog_article",
-      limit: 1,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-    const entryResult = await readBuilderCmsContentEntry({
-      model: "blog_article",
-      entryId: "builder-entry-1",
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-
-    expect(listResult.entries[0]?.rawEntry?.data?.blocks).toBeUndefined();
-    expect(entryResult?.rawEntry?.data?.blocks).toHaveLength(1);
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-  });
-
-  it("uses the hydration body representation for uncached live preflight hashes", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
-    );
-    const canonicalBlocks = [
-      {
-        "@type": "@builder.io/sdk:Element",
-        "@version": 2,
-        id: "text-1",
-        component: {
-          name: "Text",
-          options: { text: "<p>Canonical enriched body.</p>" },
-        },
-      },
-    ];
-    const fetchImpl = vi.fn(async (input: URL) => {
-      const fields = input.searchParams.get("fields") ?? "";
-      const hasCanonicalBodyProjection =
-        input.searchParams.get("enrich") === "true" &&
-        input.searchParams.get("noCache") === "true" &&
-        fields.includes("data.blocks") &&
-        fields.includes("data.blocksString");
-      return new Response(
-        JSON.stringify({
-          id: "builder-entry-1",
-          published: "draft",
-          lastUpdated: 1_786_000_000_000,
-          data: {
-            title: "Builder title",
-            blocks: hasCanonicalBodyProjection
-              ? canonicalBlocks
-              : [
-                  {
-                    ...canonicalBlocks[0],
-                    component: {
-                      name: "Text",
-                      options: { text: "<p>Alternate default projection.</p>" },
-                    },
-                  },
-                ],
-          },
-        }),
-        { status: 200 },
-      );
-    });
-
-    const hydrated = await readBuilderCmsContentEntry({
-      model: "blog_article",
-      entryId: "builder-entry-1",
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-    const live = await readBuilderCmsEntryLiveState({
-      model: "blog_article",
-      entryId: "builder-entry-1",
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-
-    expect(hydrated).not.toBeNull();
-    const baselineHash = builderBlocksHash(
-      builderEntryBlocks(hydrated!.rawEntry!),
-    );
-    expect(live).toMatchObject({
-      exists: true,
-      published: "draft",
-      lastUpdated: 1_786_000_000_000,
-      blocksHash: baselineHash,
-      id: "builder-entry-1",
-      values: expect.objectContaining({ "data.title": "Builder title" }),
-      hasAutosaves: null,
-    });
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-    for (const [input] of fetchImpl.mock.calls) {
-      expect(input.searchParams.get("enrich")).toBe("true");
-      expect(input.searchParams.get("noCache")).toBe("true");
-      expect(input.searchParams.get("cachebust")).toMatch(/^\d+$/);
-      expect(input.searchParams.get("fields")).toContain("data.blocks");
-      expect(input.searchParams.get("fields")).toContain("data.blocksString");
-    }
-  });
-
-  it("asks the public-key live read for the fields a save writes", async () => {
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
-    );
-    // Builder leaves out every data field a projected read doesn't name.
-    const fetchImpl = vi.fn(async (input: URL) => {
-      const fields = (input.searchParams.get("fields") ?? "").split(",");
-      const data = {
-        title: "Builder title",
-        blurb: "Builder blurb",
-        blocks: [],
-      };
-      return new Response(
-        JSON.stringify({
-          id: "builder-entry-1",
-          published: "published",
-          lastUpdated: 1_786_000_000_000,
-          data: Object.fromEntries(
-            Object.entries(data).filter(([name]) =>
-              fields.includes(`data.${name}`),
-            ),
-          ),
-        }),
-        { status: 200 },
-      );
-    });
-
-    const live = await readBuilderCmsEntryLiveState({
-      model: "blog_article",
-      entryId: "builder-entry-1",
-      fieldPaths: ["data.blurb", "__builder.entry.name"],
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-
-    expect(live.values).toMatchObject({
-      "data.title": "Builder title",
-      "data.blurb": "Builder blurb",
-      // An empty body Builder returned, which the save records as such.
-      "__builder.body.blockCount": 0,
-    });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    const fields = (
-      fetchImpl.mock.lastCall?.[0].searchParams.get("fields") ?? ""
-    ).split(",");
-    expect(fields).toEqual(
-      expect.arrayContaining([
-        "data.blurb",
-        "data.blocks",
-        "data.blocksString",
-      ]),
-    );
-    expect(fields).not.toContain("__builder.entry.name");
-  });
-
   it("hydrates an exact entry through MCP with OAuth-only authorization", async () => {
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
       authorization: "Bearer oauth-access-token",
       source: "oauth",
     });
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
@@ -2751,7 +2152,6 @@ describe("Builder CMS read client", () => {
       oauthResource: "general",
       oauthSelectedPublicKey: "selected-space-key",
     });
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
       if (input.pathname === "/api/v1/models") {
         return new Response(
@@ -2812,7 +2212,6 @@ describe("Builder CMS read client", () => {
       oauthResource: "general",
       oauthSelectedPublicKey: "selected-space-key",
     });
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     let modelReads = 0;
     const fetchImpl = vi.fn(async (input: URL) => {
       if (input.pathname === "/api/v1/models") {
@@ -2870,7 +2269,6 @@ describe("Builder CMS read client", () => {
       oauthResource: "general",
       oauthSelectedPublicKey: "selected-space-key",
     });
-    resolveBuilderCredentialMock.mockResolvedValue(null);
 
     await expect(
       readBuilderCmsContentEntryResult({
@@ -3003,13 +2401,12 @@ describe("Builder CMS read client", () => {
     });
   });
 
-  it("does not bypass expired OAuth custody with a public key during hydration", async () => {
+  it("does not bypass expired OAuth custody during hydration", async () => {
     resolveBuilderRequestAuthorizationMock.mockRejectedValue(
       new Error(
         "Builder.io access expired. Re-authorize Builder.io in Settings to continue.",
       ),
     );
-    resolveBuilderCredentialMock.mockResolvedValue("public-key");
     const fetchImpl = vi.fn();
 
     await expect(
@@ -3022,13 +2419,12 @@ describe("Builder CMS read client", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("keeps OAuth hydration on Publish MCP when a legacy public key exists", async () => {
+  it("keeps OAuth hydration on Publish MCP", async () => {
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
       authorization: "Bearer oauth-access-token",
       source: "oauth",
     });
-    resolveBuilderCredentialMock.mockResolvedValue("legacy-public-key");
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
@@ -3086,7 +2482,6 @@ describe("Builder CMS read client", () => {
       authorization: "Bearer oauth-access-token",
       source: "oauth",
     });
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
@@ -3158,71 +2553,12 @@ describe("Builder CMS read client", () => {
     expect(secondPageBody.params.arguments.offset).toBe(100);
   });
 
-  it("uses the legacy content tool for private-key-only hydration", async () => {
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
-    );
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
-          status: 200,
-          headers: { "mcp-session-id": "session-1" },
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
-          status: 200,
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            result: {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    content: [
-                      {
-                        id: "legacy-entry",
-                        data: { title: "Legacy", blocks: [] },
-                      },
-                    ],
-                    totalCount: 1,
-                  }),
-                },
-              ],
-            },
-          }),
-          { status: 200 },
-        ),
-      );
-
-    await expect(
-      readBuilderCmsContentEntryResult({
-        model: "blog_article",
-        entryId: "legacy-entry",
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-      }),
-    ).resolves.toMatchObject({ state: "found" });
-    const body = JSON.parse(
-      String((fetchImpl.mock.calls[2]?.[1] as RequestInit).body),
-    );
-    expect(body.params).toMatchObject({
-      name: "get_builder_content",
-      arguments: { enrich: true },
-    });
-  });
-
   it("classifies transient MCP hydration failures as retryable", async () => {
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
       authorization: "Bearer oauth-access-token",
       source: "oauth",
     });
-    resolveBuilderCredentialMock.mockResolvedValue(null);
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
@@ -3249,347 +2585,8 @@ describe("Builder CMS read client", () => {
     });
   });
 
-  it("distinguishes a provider-confirmed empty entry from a missing entry", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockResolvedValue("public-key");
-
-    const found = await readBuilderCmsContentEntryResult({
-      model: "blog_article",
-      entryId: "empty-entry",
-      fetchImpl: vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              id: "empty-entry",
-              data: { title: "Intentionally empty", blocks: [] },
-            }),
-            { status: 200 },
-          ),
-      ) as unknown as typeof fetch,
-    });
-    const missing = await readBuilderCmsContentEntryResult({
-      model: "blog_article",
-      entryId: "missing-entry",
-      fetchImpl: vi.fn(
-        async () => new Response(null, { status: 404 }),
-      ) as unknown as typeof fetch,
-    });
-
-    expect(found).toMatchObject({ state: "found", providerStatus: "http_200" });
-    expect(found.entry?.rawEntry?.data?.blocks).toEqual([]);
-    expect(missing).toEqual({
-      state: "not_found",
-      entry: null,
-      providerStatus: "http_404",
-    });
-  });
-
-  it("preserves actionable retry evidence for Builder read failures", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockResolvedValue("public-key");
-
-    await expect(
-      readBuilderCmsContentEntryResult({
-        model: "blog_article",
-        entryId: "rate-limited-entry",
-        fetchImpl: vi.fn(
-          async () => new Response(null, { status: 429 }),
-        ) as unknown as typeof fetch,
-      }),
-    ).rejects.toMatchObject<Partial<BuilderCmsContentEntryReadError>>({
-      reason: "transient_read_failure",
-      providerStatus: "http_429",
-      retryable: true,
-    });
-  });
-
-  it("can return an initial partial Builder Content API page for fast refresh", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
-    );
-    const entries = Array.from({ length: 250 }, (_, index) => ({
-      id: `builder-entry-${index + 1}`,
-      lastUpdated: "2026-06-08T12:00:00.000Z",
-      data: {
-        title: `Builder title ${index + 1}`,
-        url: `/blog/builder-title-${index + 1}`,
-      },
-    }));
-    const fetchImpl = vi.fn(async (input: URL) => {
-      const limit = Number(input.searchParams.get("limit"));
-      const offset = Number(input.searchParams.get("offset"));
-      return new Response(
-        JSON.stringify({
-          results: entries.slice(offset, offset + limit),
-        }),
-        { status: 200 },
-      );
-    });
-
-    const result = await readBuilderCmsContentEntries({
-      model: "blog_article",
-      limit: 250,
-      maxPages: 1,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-
-    expect(result.state).toBe("live");
-    expect(result.entries).toHaveLength(100);
-    expect(result.progress).toMatchObject({
-      requestedLimit: 250,
-      startOffset: 0,
-      nextOffset: 100,
-      fetchedEntryCount: 100,
-      hasMore: true,
-      partial: true,
-      readMode: "builder-api",
-    });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-  });
-
-  it("continues a 597-entry Content API source from offset 500 without a zero-sized request", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
-    );
-    const entries = Array.from({ length: 597 }, (_, index) => ({
-      id: `builder-entry-${index + 1}`,
-      data: { title: `Builder title ${index + 1}` },
-    }));
-    const requests: Array<{ limit: number; offset: number }> = [];
-    const fetchImpl = vi.fn(async (input: URL) => {
-      const limit = Number(input.searchParams.get("limit"));
-      const offset = Number(input.searchParams.get("offset"));
-      requests.push({ limit, offset });
-      return new Response(
-        JSON.stringify({ results: entries.slice(offset, offset + limit) }),
-        { status: 200 },
-      );
-    });
-
-    const result = await readBuilderCmsContentEntries({
-      model: "blog_article",
-      limit: 500,
-      offset: 500,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-
-    expect(requests).toEqual([{ limit: 100, offset: 500 }]);
-    expect(result.entries).toHaveLength(97);
-    expect(result.progress).toMatchObject({
-      startOffset: 500,
-      nextOffset: 597,
-      fetchedEntryCount: 597,
-      hasMore: false,
-      partial: false,
-    });
-  });
-
-  it("reads all 597 Content API entries across six non-empty pages", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
-    );
-    const entries = Array.from({ length: 597 }, (_, index) => ({
-      id: `builder-entry-${index + 1}`,
-      data: { title: `Builder title ${index + 1}` },
-    }));
-    const requests: Array<{ limit: number; offset: number }> = [];
-    const fetchImpl = vi.fn(async (input: URL) => {
-      const limit = Number(input.searchParams.get("limit"));
-      const offset = Number(input.searchParams.get("offset"));
-      requests.push({ limit, offset });
-      return new Response(
-        JSON.stringify({ results: entries.slice(offset, offset + limit) }),
-        { status: 200 },
-      );
-    });
-
-    const result = await readBuilderCmsContentEntries({
-      model: "blog_article",
-      limit: 1_000,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-
-    expect(requests.map((request) => request.offset)).toEqual([
-      0, 100, 200, 300, 400, 500, 600, 700, 800,
-    ]);
-    expect(requests.every((request) => request.limit > 0)).toBe(true);
-    expect(result.entries).toHaveLength(597);
-    expect(result.progress).toMatchObject({
-      nextOffset: 597,
-      fetchedEntryCount: 597,
-      hasMore: false,
-      partial: false,
-    });
-  });
-
-  it("reads projected Content API pages in bounded parallel windows and preserves offset order", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
-    );
-    let activeRequests = 0;
-    let maxActiveRequests = 0;
-    const resolvers = new Map<number, () => void>();
-    const fetchImpl = vi.fn(async (input: URL) => {
-      const offset = Number(input.searchParams.get("offset"));
-      activeRequests += 1;
-      maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
-      return await new Promise<Response>((resolve) => {
-        resolvers.set(offset, () => {
-          resolvers.delete(offset);
-          activeRequests -= 1;
-          resolve(
-            new Response(
-              JSON.stringify({
-                results: Array.from({ length: 100 }, (_, index) => ({
-                  id: `builder-entry-${offset + index + 1}`,
-                  data: { title: `Builder title ${offset + index + 1}` },
-                })),
-              }),
-              { status: 200 },
-            ),
-          );
-        });
-      });
-    });
-
-    const read = readBuilderCmsContentEntries({
-      model: "blog_article",
-      limit: 900,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-
-    await vi.waitFor(() => expect(resolvers.size).toBe(1));
-    resolvers.get(0)?.();
-    await vi.waitFor(() => expect(resolvers.size).toBe(8));
-    expect(maxActiveRequests).toBe(8);
-    for (const offset of [800, 700, 600, 500, 400, 300, 200, 100]) {
-      resolvers.get(offset)?.();
-    }
-
-    const result = await read;
-
-    expect(result.entries.map((entry) => entry.id)).toEqual(
-      Array.from({ length: 900 }, (_, index) => `builder-entry-${index + 1}`),
-    );
-    expect(maxActiveRequests).toBeLessThanOrEqual(8);
-  });
-
-  it("stops at the first short projected page and ignores later in-flight pages", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
-    );
-    const requestedOffsets: number[] = [];
-    const fetchImpl = vi.fn(async (input: URL) => {
-      const offset = Number(input.searchParams.get("offset"));
-      requestedOffsets.push(offset);
-      const resultCount = offset === 100 ? 10 : 100;
-      return new Response(
-        JSON.stringify({
-          results: Array.from({ length: resultCount }, (_, index) => ({
-            id: `builder-entry-${offset + index + 1}`,
-            data: { title: `Builder title ${offset + index + 1}` },
-          })),
-        }),
-        { status: 200 },
-      );
-    });
-
-    const result = await readBuilderCmsContentEntries({
-      model: "blog_article",
-      limit: 400,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-
-    expect(requestedOffsets).toEqual([0, 100, 200, 300]);
-    expect(result.entries.map((entry) => entry.id)).toEqual(
-      Array.from({ length: 110 }, (_, index) => `builder-entry-${index + 1}`),
-    );
-    expect(result.progress).toMatchObject({
-      nextOffset: 110,
-      fetchedEntryCount: 110,
-      hasMore: false,
-      partial: false,
-    });
-  });
-
-  it("keeps stable-ID deduplication across projected Content API windows", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
-    );
-    const fetchImpl = vi.fn(async (input: URL) => {
-      const offset = Number(input.searchParams.get("offset"));
-      const ids =
-        offset === 0
-          ? Array.from({ length: 100 }, (_, index) => index + 1)
-          : offset === 100
-            ? Array.from({ length: 100 }, (_, index) => index + 51)
-            : Array.from({ length: 50 }, (_, index) => index + 151);
-      return new Response(
-        JSON.stringify({
-          results: ids.map((id) => ({
-            id: `builder-entry-${id}`,
-            data: { title: `Builder title ${id}` },
-          })),
-        }),
-        { status: 200 },
-      );
-    });
-
-    const result = await readBuilderCmsContentEntries({
-      model: "blog_article",
-      limit: 200,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-
-    expect(result.entries.map((entry) => entry.id)).toEqual(
-      Array.from({ length: 200 }, (_, index) => `builder-entry-${index + 1}`),
-    );
-  });
-
-  it("returns a typed error when a required projected page fails", async () => {
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
-    );
-    const fetchImpl = vi.fn(async (input: URL) => {
-      if (input.searchParams.get("offset") === "100") {
-        return new Response("bad request", { status: 400 });
-      }
-      return new Response(
-        JSON.stringify({
-          results: Array.from({ length: 100 }, (_, index) => ({
-            id: `builder-entry-${index + 1}`,
-            data: { title: `Builder title ${index + 1}` },
-          })),
-        }),
-        { status: 200 },
-      );
-    });
-
-    await expect(
-      readBuilderCmsContentEntries({
-        model: "blog_article",
-        limit: 400,
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-      }),
-    ).resolves.toMatchObject({
-      state: "error",
-      entries: [],
-      message: "Builder CMS read failed with HTTP 400.",
-      progress: { readMode: "builder-api" },
-    });
-  });
-
-  it("preserves legacy MCP offset continuation", async () => {
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
-    );
+  it("continues Publish MCP reads from a saved offset", async () => {
+    usePublishAuthorization();
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
@@ -3632,15 +2629,13 @@ describe("Builder CMS read client", () => {
       String((fetchImpl.mock.calls[2]?.[1] as RequestInit).body),
     );
     expect(body.params).toMatchObject({
-      name: "get_builder_content",
+      name: "browse_model_content",
       arguments: { offset: 500 },
     });
   });
 
   it("falls back to the 2024 MCP protocol when 2025 initialize is rejected", async () => {
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
-    );
+    usePublishAuthorization();
     const initializeVersions: string[] = [];
     const fetchImpl = vi.fn(async (_input: string, init?: RequestInit) => {
       const body = JSON.parse(
@@ -3707,42 +2702,5 @@ describe("Builder CMS read client", () => {
       }),
     ).resolves.toMatchObject({ state: "live", models: [] });
     expect(initializeVersions).toEqual(["2025-11-25", "2024-11-05"]);
-  });
-
-  it("retries transient Content API failures", async () => {
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
-    );
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
-      .mockResolvedValueOnce(new Response("bad gateway", { status: 502 }))
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            results: [
-              {
-                id: "builder-entry-1",
-                lastUpdated: "2026-06-08T12:00:00.000Z",
-                data: {
-                  title: "Builder title",
-                  url: "/blog/builder-title",
-                },
-              },
-            ],
-          }),
-          { status: 200 },
-        ),
-      );
-
-    const result = await readBuilderCmsContentEntries({
-      model: "blog_article",
-      limit: 1,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-
-    expect(result.state).toBe("live");
-    expect(result.entries).toHaveLength(1);
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 });
