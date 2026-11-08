@@ -1306,36 +1306,43 @@ export function shouldAdoptServerTitle(args: {
   );
 }
 
-// A save settles the title it carried when the server accepts it or the
-// request fails (`answer` is null). A conflict, superseded or preservation
-// answer leaves it unanswered: the save behind it may send the title again,
-// and that attempt writes it back into the cached page before its own answer.
+// Each typed title gets its own mark, so a save can tell the title it carried
+// from the same text typed again after it was sent.
+export type UnansweredTitle = { readonly title: string };
+
+// A save settles the typed title it was sent with (`sent`) when the server
+// accepts it or the request fails (`answer` is null). A conflict, superseded
+// or preservation answer leaves it unanswered: the save behind it may send the
+// title again, and that attempt writes it back into the cached page before its
+// own answer.
 export function unansweredTitleAfterSave(args: {
-  unansweredTitle: string | null;
-  sentTitle: string | undefined;
+  unanswered: UnansweredTitle | null;
+  sent: UnansweredTitle | null;
   answer: DocumentUpdateResult | null;
 }) {
-  if (args.sentTitle === undefined || args.sentTitle !== args.unansweredTitle)
-    return args.unansweredTitle;
+  if (args.sent === null || args.sent !== args.unanswered)
+    return args.unanswered;
   if (
     args.answer &&
     (isDocumentUpdateConflict(args.answer) ||
       isDocumentUpdateSuperseded(args.answer) ||
       isDocumentUpdatePreservationRequired(args.answer))
   )
-    return args.unansweredTitle;
+    return args.unanswered;
   return null;
 }
 
 // A failed save puts the last saved title back into the cached page, unless a
-// newer typed title is waiting for its own save, whose answer settles it.
+// title typed after it was sent is waiting for its own save, whose answer
+// settles it.
 export function failedSaveRestoresSavedTitle(args: {
   sentTitle: string | undefined;
-  unansweredTitle: string | null;
+  unanswered: UnansweredTitle | null;
+  sent: UnansweredTitle | null;
 }) {
   return (
     args.sentTitle !== undefined &&
-    (args.unansweredTitle === null || args.unansweredTitle === args.sentTitle)
+    (args.unanswered === null || args.unanswered === args.sent)
   );
 }
 
@@ -3620,9 +3627,9 @@ function PageEditorSessionBody({
   const lastSavedTitleRef = useRef<{ title: string; updatedAt: string | null }>(
     { title: "", updatedAt: null },
   );
-  // The newest title this editor wrote into the cached page that no save
-  // carrying it has answered yet.
-  const unansweredTitleRef = useRef<string | null>(null);
+  // The newest title this editor typed into the cached page that no save
+  // carrying it has settled yet.
+  const unansweredTitleRef = useRef<UnansweredTitle | null>(null);
   const lastSavedContentRef = useRef<ContentSaveWatermark>({
     content: "",
     updatedAt: null,
@@ -4204,7 +4211,7 @@ function PageEditorSessionBody({
       lastSavedTitle: lastSaved.title,
       serverIsNewer: titleExternalIsNewer,
       titleFocused: titleFocusedRef.current,
-      unansweredTitle: unansweredTitleRef.current,
+      unansweredTitle: unansweredTitleRef.current?.title ?? null,
     });
     if (adopt) {
       localTitleRef.current = serverTitle;
@@ -4272,7 +4279,7 @@ function PageEditorSessionBody({
       localTitle,
       lastSavedTitle: lastSavedTitleRef.current.title,
       pendingTitle: pendingDocumentSaveRef.current?.title ?? null,
-      unansweredTitle: unansweredTitleRef.current,
+      unansweredTitle: unansweredTitleRef.current?.title ?? null,
     });
     const contentMatchesLocal = document.content === localContent;
 
@@ -4419,6 +4426,11 @@ function PageEditorSessionBody({
         setLocalContentUpdatedAt(nextSavedAt);
       }
 
+      const sentTitleMark =
+        updates.title !== undefined &&
+        unansweredTitleRef.current?.title === updates.title
+          ? unansweredTitleRef.current
+          : null;
       let answer: DocumentUpdateResult | null = null;
       try {
         if (!isLinkedLocalSource) requireActiveEditorSession();
@@ -4488,7 +4500,8 @@ function PageEditorSessionBody({
         if (
           failedSaveRestoresSavedTitle({
             sentTitle: updates.title,
-            unansweredTitle: unansweredTitleRef.current,
+            unanswered: unansweredTitleRef.current,
+            sent: sentTitleMark,
           })
         ) {
           patchDocumentCaches(queryClient, documentId, {
@@ -4509,8 +4522,8 @@ function PageEditorSessionBody({
         return fileFirstDocument;
       } finally {
         unansweredTitleRef.current = unansweredTitleAfterSave({
-          unansweredTitle: unansweredTitleRef.current,
-          sentTitle: updates.title,
+          unanswered: unansweredTitleRef.current,
+          sent: sentTitleMark,
           answer,
         });
       }
@@ -6517,7 +6530,7 @@ function PageEditorSessionBody({
         return;
       }
       patchDocumentCaches(queryClient, documentId, { title: newTitle });
-      unansweredTitleRef.current = newTitle;
+      unansweredTitleRef.current = { title: newTitle };
       if (host === "page") {
         refreshLandingTitleHintCache(queryClient, documentId, newTitle);
         void rememberContentLandingDocument(documentId, newTitle).catch(

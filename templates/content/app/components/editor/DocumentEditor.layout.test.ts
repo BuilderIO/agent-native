@@ -3022,7 +3022,8 @@ describe("document editor layout", () => {
     // A conflict answer puts the server's page back in the cache, and the
     // rebased retry writes the same title into it again before it answers.
     const page = { id: "page", title: "Renamed page" } as DocumentUpdateResult;
-    const sent = { unansweredTitle: "Renamed page", sentTitle: "Renamed page" };
+    const typed = { title: "Renamed page" };
+    const sent = { unanswered: typed, sent: typed };
     expect(unansweredTitleAfterSave({ ...sent, answer: page })).toBeNull();
     expect(unansweredTitleAfterSave({ ...sent, answer: null })).toBeNull();
     for (const answer of [
@@ -3030,41 +3031,70 @@ describe("document editor layout", () => {
       { superseded: true, document: page },
       { preservationRequired: true, document: page },
     ] as DocumentUpdateResult[]) {
-      expect(unansweredTitleAfterSave({ ...sent, answer })).toBe(
-        "Renamed page",
-      );
+      expect(unansweredTitleAfterSave({ ...sent, answer })).toBe(typed);
     }
     expect(
-      unansweredTitleAfterSave({ ...sent, sentTitle: "Renamed", answer: page }),
-    ).toBe("Renamed page");
+      unansweredTitleAfterSave({ unanswered: typed, sent: null, answer: page }),
+    ).toBe(typed);
+  });
+
+  it("keeps a title typed after a save was sent through that save's answer", () => {
+    // Typing "A", then "B", then "A" again while the first save of "A" is out
+    // makes a new mark, so the old save's answer settles neither.
+    const page = { id: "page", title: "A" } as DocumentUpdateResult;
+    const first = { title: "A" };
+    const retyped = { title: "A" };
     expect(
-      unansweredTitleAfterSave({ ...sent, sentTitle: undefined, answer: page }),
-    ).toBe("Renamed page");
+      unansweredTitleAfterSave({
+        unanswered: retyped,
+        sent: first,
+        answer: page,
+      }),
+    ).toBe(retyped);
+    expect(
+      unansweredTitleAfterSave({
+        unanswered: retyped,
+        sent: first,
+        answer: null,
+      }),
+    ).toBe(retyped);
   });
 
   it("keeps a newer typed title in the cache when an older save fails", () => {
+    const typed = { title: "Renamed page" };
     expect(
       failedSaveRestoresSavedTitle({
         sentTitle: "Renamed page",
-        unansweredTitle: "Renamed page",
+        unanswered: typed,
+        sent: typed,
       }),
     ).toBe(true);
     expect(
       failedSaveRestoresSavedTitle({
         sentTitle: "Renamed page",
-        unansweredTitle: null,
+        unanswered: null,
+        sent: null,
       }),
     ).toBe(true);
     expect(
       failedSaveRestoresSavedTitle({
         sentTitle: "Renamed",
-        unansweredTitle: "Renamed page",
+        unanswered: typed,
+        sent: { title: "Renamed" },
+      }),
+    ).toBe(false);
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: "Renamed page",
+        unanswered: typed,
+        sent: { title: "Renamed page" },
       }),
     ).toBe(false);
     expect(
       failedSaveRestoresSavedTitle({
         sentTitle: undefined,
-        unansweredTitle: null,
+        unanswered: null,
+        sent: null,
       }),
     ).toBe(false);
   });
