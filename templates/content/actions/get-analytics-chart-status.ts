@@ -6,6 +6,7 @@ import { requestAnalytics } from "../server/lib/analytics-peer.js";
 import {
   analyticsChartDocumentIdSchema,
   authorizeAnalyticsChartPage,
+  chartForPageOrganization,
 } from "./_analytics-chart-access.js";
 
 const STATUS_TIMEOUT_MS = 15_000;
@@ -55,7 +56,7 @@ export default defineAction({
           page.authorityOrgId,
         );
         return answer.ok
-          ? { dashboardId, status: answer.data }
+          ? { dashboardId, status: chartForPageOrganization(answer.data, page) }
           : { dashboardId, error: answer.message };
       }),
     );

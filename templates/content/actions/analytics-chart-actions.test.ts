@@ -509,6 +509,26 @@ describe("get-analytics-chart-status", () => {
     );
   });
 
+  it("reports an organization's dashboard as private for a page from another organization, as capture does", async () => {
+    const elsewhere = page("org");
+    elsewhere.resource.orgId = "org_2";
+    mocks.resolveDocumentAccess.mockResolvedValue(elsewhere);
+    mocks.requestAnalytics.mockResolvedValue({
+      ok: true,
+      data: {
+        dashboard: { id: "growth", title: "Growth", visibility: "org" },
+        panels: [],
+      },
+    });
+    const result = await getAnalyticsChartStatus.run({
+      documentId: "doc_1",
+      dashboards: [{ dashboardId: "growth", panelIds: [] }],
+    });
+    expect(result.dashboards[0]).toMatchObject({
+      status: { dashboard: { visibility: "private" } },
+    });
+  });
+
   it("asks Analytics nothing for someone who can only read the page", async () => {
     mocks.resolveDocumentAccess.mockResolvedValue(page("org", "viewer"));
     await expect(
