@@ -5,6 +5,16 @@ const mocks = vi.hoisted(() => ({
   resolveDocumentAccess: vi.fn(),
   requestAnalytics: vi.fn(),
   track: vi.fn(),
+  shares: [] as { id: string }[],
+}));
+
+vi.mock("../server/db/index.js", () => ({
+  schema: { documentShares: { id: "id", resourceId: "resource_id" } },
+  getDb: () => ({
+    select: () => ({
+      from: () => ({ where: () => ({ limit: async () => mocks.shares }) }),
+    }),
+  }),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -104,6 +114,7 @@ async function failureOf(promise: Promise<unknown>) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.userEmail = "editor@example.test";
+  mocks.shares = [];
   mocks.resolveDocumentAccess.mockResolvedValue(page("private"));
   mocks.requestAnalytics.mockResolvedValue({ ok: true, data: chart() });
 });
@@ -139,6 +150,34 @@ describe("capture-analytics-chart", () => {
       }),
       undefined,
     );
+  });
+
+  it("hands the editor the numbers and an agent the tag, never both", async () => {
+    const forEditor = await captureAnalyticsChart.run(
+      { documentId: "doc_1", link: LINK, purpose: "insert" },
+      { caller: "frontend" },
+    );
+    expect(forEditor).toMatchObject({ status: "captured", chart: chart() });
+    expect(forEditor).not.toHaveProperty("analyticsChartTag");
+
+    const forAgent = await captureAnalyticsChart.run(
+      { documentId: "doc_1", link: LINK, purpose: "insert" },
+      { caller: "tool", maxResultChars: 75_000 },
+    );
+    expect(forAgent).not.toHaveProperty("chart");
+    expect(forAgent).toHaveProperty("analyticsChartTag");
+  });
+
+  it("fails clearly when the tag won't fit what the agent keeps", async () => {
+    await expect(
+      captureAnalyticsChart.run(
+        { documentId: "doc_1", link: LINK, purpose: "insert" },
+        { caller: "tool", maxResultChars: 200 },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "analytics_chart_too_large",
+      statusCode: 413,
+    });
   });
 
   it("accepts a link from the other Analytics lane", async () => {
@@ -293,6 +332,20 @@ describe("capture-analytics-chart", () => {
     expect(confirmed.status).toBe("captured");
   });
 
+  it("counts a private page shared with anyone as open to the organization", async () => {
+    mocks.shares = [{ id: "share_1" }];
+    mocks.requestAnalytics.mockResolvedValue({
+      ok: true,
+      data: chart({ visibility: "private" }),
+    });
+    const held = await captureAnalyticsChart.run({
+      documentId: "doc_1",
+      link: LINK,
+      purpose: "insert",
+    });
+    expect(held.status).toBe("needs_confirmation");
+  });
+
   it("never puts a narrower dashboard's panel in a public page", async () => {
     mocks.resolveDocumentAccess.mockResolvedValue(page("public"));
     await expect(
@@ -330,8 +383,8 @@ describe("capture-analytics-chart", () => {
 });
 
 describe("get-analytics-chart-status", () => {
-  it("lets a reader see each dashboard's sharing and panel fingerprints", async () => {
-    mocks.resolveDocumentAccess.mockResolvedValue(page("org", "viewer"));
+  it("lets an editor see each dashboard's sharing and panel fingerprints", async () => {
+    mocks.resolveDocumentAccess.mockResolvedValue(page("org"));
     const status = {
       dashboard: { id: "growth", title: "Growth", visibility: "org" },
       panels: [{ id: "wau", fingerprint: "ba9876543210", type: "line" }],
@@ -363,6 +416,19 @@ describe("get-analytics-chart-status", () => {
       expect.anything(),
       15_000,
     );
+  });
+
+  it("asks Analytics nothing for someone who can only read the page", async () => {
+    mocks.resolveDocumentAccess.mockResolvedValue(page("org", "viewer"));
+    await expect(
+      failureOf(
+        getAnalyticsChartStatus.run({
+          documentId: "doc_1",
+          dashboards: [{ dashboardId: "growth", panelIds: [] }],
+        }),
+      ),
+    ).resolves.toMatchObject({ statusCode: 403 });
+    expect(mocks.requestAnalytics).not.toHaveBeenCalled();
   });
 
   it("asks Analytics nothing for someone who can't open the page", async () => {

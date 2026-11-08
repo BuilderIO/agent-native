@@ -15,7 +15,7 @@ const idSchema = z.string().regex(/^[A-Za-z0-9._-]{1,128}$/);
 
 export default defineAction({
   description:
-    "For the Analytics charts in a page: who can open each chart's dashboard now, and each panel's current fingerprint, so a chart whose panel changed since it was copied can say so. Runs no query. Only dashboards you can open answer; the rest come back with an error.",
+    "For the Analytics charts in a page you can edit: who can open each chart's dashboard now, and each panel's current fingerprint, so a chart whose panel changed since it was copied can say so. Runs no query. Only dashboards you can open answer; the rest come back with an error.",
   schema: z.object({
     documentId: analyticsChartDocumentIdSchema,
     dashboards: z
@@ -43,7 +43,8 @@ export default defineAction({
   readOnly: true,
   agentTool: false,
   run: async (args) => {
-    await authorizeAnalyticsChartPage(args.documentId, "viewer");
+    // Only editors see the changed-panel note, so readers never reach Analytics.
+    await authorizeAnalyticsChartPage(args.documentId, "editor");
     const dashboards = await Promise.all(
       args.dashboards.map(async ({ dashboardId, panelIds }) => {
         const answer = await requestAnalytics(

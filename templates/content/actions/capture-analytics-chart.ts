@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import {
   analyticsPanelCaptureRequestSchema,
   parseAnalyticsPanelLink,
@@ -27,6 +31,15 @@ import {
 // Analytics answers within 55 seconds; leave room for the hop.
 const CAPTURE_TIMEOUT_MS = 58_000;
 
+// Analytics fits a copy to 49,000 characters of pretty-printed JSON. As one
+// escaped string inside this result it can grow, so allow more room here.
+const CAPTURE_MAX_RESULT_CHARS = 75_000;
+
+/** The editor draws the chart from its numbers; agents place the tag. */
+function isEditorCall(ctx: ActionRunContext | undefined): boolean {
+  return ctx?.caller === "frontend" || ctx?.caller === "http";
+}
+
 function newBlockId(): string {
   return `${ANALYTICS_CHART_BLOCK_TYPE}-${crypto.randomUUID().slice(0, 8)}`;
 }
@@ -50,19 +63,20 @@ const audienceSchema = z.object({
   reason: z.enum(["public-page", "wider", "unknown-source"]).nullable(),
 });
 
+// The copy goes out once: as numbers to the editor, or as the tag to agents.
 const outputSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("captured"),
     blockId: z.string(),
-    chart: analyticsChartSchema,
+    chart: analyticsChartSchema.optional(),
     audience: audienceSchema,
-    analyticsChartTag: z.string(),
+    analyticsChartTag: z.string().optional(),
     next: z.string(),
   }),
   z.object({
     status: z.literal("needs_confirmation"),
     blockId: z.string(),
-    chart: analyticsChartSchema,
+    chart: analyticsChartSchema.optional(),
     audience: audienceSchema,
     message: z.string(),
     next: z.string(),
@@ -76,7 +90,7 @@ export default defineAction({
     openWorldHint: true,
   },
   description:
-    'Copy one Analytics dashboard panel (line, area, bar, combo, pie, funnel, metric or table) into a page as a chart block. Pass the panel\'s copied link from Analytics, or its dashboardId, panelId and filters. Checks you can edit the page, then has Analytics run the panel as you, with your access, and returns its numbers with the AnalyticsChart tag to put in the page with edit-document. To refresh a chart already in the page, pass purpose "refresh" and its blockId, then replace the old tag with the new one. A chart from a dashboard fewer people can open than the page comes back as needs_confirmation: ask the person first, then call again with acknowledgeWiderAudience. Tables, and any panel going into a page anyone with the link can open, never go wider than their dashboard.',
+    'Copy one Analytics dashboard panel (line, area, bar, combo, pie, funnel, metric or table) into a page as a chart block. Pass the panel\'s copied link from Analytics, or its dashboardId, panelId and filters. Checks you can edit the page, then has Analytics run the panel as you, with your access, and returns the AnalyticsChart tag, holding its numbers, to put in the page with edit-document. To refresh a chart already in the page, pass purpose "refresh" and its blockId, then replace the old tag with the new one. A chart from a dashboard fewer people can open than the page comes back as needs_confirmation: ask the person first, then call again with acknowledgeWiderAudience. Tables, and any panel going into a page anyone with the link can open, never go wider than their dashboard.',
   schema: z.object({
     documentId: analyticsChartDocumentIdSchema,
     link: z
@@ -112,6 +126,7 @@ export default defineAction({
   }),
   outputSchema,
   http: { method: "POST" },
+  maxResultChars: CAPTURE_MAX_RESULT_CHARS,
   readOnly: true,
   run: async (args, ctx) => {
     const page = await authorizeAnalyticsChartPage(args.documentId, "editor");
@@ -154,6 +169,7 @@ export default defineAction({
     const chart = answer.data;
     const audience = analyticsChartAudience("insert", page.visibility, chart);
     const blockId = args.blockId ?? newBlockId();
+    const forEditor = isEditorCall(ctx);
 
     track(
       args.purpose === "refresh"
@@ -188,16 +204,24 @@ export default defineAction({
       return {
         status: "needs_confirmation" as const,
         blockId,
-        chart,
+        ...(forEditor ? { chart } : {}),
         audience,
         message: audienceMessage(audience.reason, chart),
         next: "Tell the person who can open the page and the dashboard, and call again with acknowledgeWiderAudience only if they agree.",
       };
     }
-    return {
+    if (forEditor) {
+      return {
+        status: "captured" as const,
+        blockId,
+        chart,
+        audience,
+        next: "Draw the chart in the page.",
+      };
+    }
+    const result = {
       status: "captured" as const,
       blockId,
-      chart,
       audience,
       analyticsChartTag: analyticsChartBlockRaw(blockId, chart),
       next:
@@ -205,5 +229,16 @@ export default defineAction({
           ? "Replace the chart's old AnalyticsChart tag (same id) with analyticsChartTag using edit-document."
           : "Put analyticsChartTag in the page where the chart belongs with edit-document, as its own block, and leave the tag as it is.",
     };
+    // A cut-off tag can't be placed, so say so rather than hand over half.
+    if (
+      ctx?.maxResultChars !== undefined &&
+      JSON.stringify(result, null, 2).length > ctx.maxResultChars
+    ) {
+      fail(
+        "This chart is too large for the agent to place. Paste the panel's link into the page instead.",
+        { errorCode: "analytics_chart_too_large", statusCode: 413 },
+      );
+    }
+    return result;
   },
 });
