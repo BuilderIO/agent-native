@@ -67,6 +67,8 @@ export interface TranscriptPanelProps {
   onSeek: (ms: number) => void;
   status?: "pending" | "ready" | "failed";
   failureReason?: string | null;
+  /** Saved lines that can't be read, which isn't having no transcript. */
+  unreadable?: boolean;
   recordingTitle?: string;
   audience?: "creator" | "viewer";
   onRetry?: () => void;
@@ -174,6 +176,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     onSeek,
     status,
     failureReason,
+    unreadable = false,
     recordingTitle,
     audience = "creator",
     onRetry,
@@ -524,7 +527,9 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
               <EmptyTitle className="text-sm font-medium text-muted-foreground">
                 {query
                   ? t("transcriptPanel.noMatches")
-                  : t("transcriptPanel.noTranscript")}
+                  : unreadable
+                    ? t("transcriptBubbles.unreadable")
+                    : t("transcriptPanel.noTranscript")}
               </EmptyTitle>
             </EmptyHeader>
           </Empty>

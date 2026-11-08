@@ -370,6 +370,57 @@ describe("/api/public-meeting route", () => {
     expect(db.select).toHaveBeenCalledTimes(4);
   });
 
+  it.each([
+    { fullText: "Me: Hello team.\n\nThem: We are ready." },
+    { fullText: null },
+  ])(
+    "says saved lines can't be read instead of building them from the text ($fullText)",
+    async ({ fullText }) => {
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: makeMeeting({ shareTranscript: true }),
+      });
+      mockGetDb.mockReturnValue(
+        createDbWithSelectResults([
+          [],
+          [],
+          [{ status: "ready", language: "en", fullText, segmentsJson: "[{" }],
+        ]),
+      );
+
+      const result = await handler({} as any);
+
+      expect(result).toMatchObject({
+        meeting: {
+          transcript: { fullText, segments: [], segmentsUnreadable: true },
+        },
+      });
+    },
+  );
+
+  it("does not call a transcript without saved lines unreadable", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: makeMeeting({ shareTranscript: true }),
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [],
+        [],
+        [{ status: "ready", fullText: "Hello team.", segmentsJson: null }],
+      ]),
+    );
+
+    const result = (await handler({} as any)) as {
+      meeting: { transcript: Record<string, unknown> };
+    };
+
+    expect(result.meeting.transcript).not.toHaveProperty("segmentsUnreadable");
+    expect(result.meeting.transcript.segments).toMatchObject([
+      { text: "Hello team." },
+    ]);
+  });
+
   // Meetings created before transcripts defaulted on must not start showing them.
   it.each([false, null, undefined])(
     "omits the transcript when shareTranscript is %s",

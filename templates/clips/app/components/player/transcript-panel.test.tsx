@@ -156,6 +156,48 @@ describe("TranscriptPanel no-audio failures", () => {
     expect(container.querySelector(".text-destructive")).not.toBeNull();
   });
 
+  it("says a transcript whose saved lines can't be read couldn't be read, not that there is none", () => {
+    for (const audience of ["creator", "viewer"] as const) {
+      act(() => {
+        root.render(
+          <TooltipProvider>
+            <TranscriptPanel
+              segments={[]}
+              currentMs={0}
+              onSeek={vi.fn()}
+              status="ready"
+              unreadable
+              audience={audience}
+            />
+          </TooltipProvider>,
+        );
+      });
+
+      expect(container.textContent).toContain("transcriptBubbles.unreadable");
+      expect(container.textContent).not.toContain(
+        "transcriptPanel.noTranscript",
+      );
+    }
+  });
+
+  it("still says there is no transcript yet when there is none", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <TranscriptPanel
+            segments={[]}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="ready"
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("transcriptPanel.noTranscript");
+    expect(container.textContent).not.toContain("transcriptBubbles.unreadable");
+  });
+
   it("insets the active segment highlight within the panel frame", () => {
     act(() => {
       root.render(

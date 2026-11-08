@@ -90,6 +90,7 @@ import { parseStoredChapters } from "../shared/stored-chapters.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
+  storedSegmentsUnreadable,
 } from "../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../shared/transcript-status.js";
 import { boundTranscriptForAgent } from "./lib/transcript-preview.js";
@@ -331,8 +332,14 @@ export default defineAction({
       fullText: transcript?.fullText,
       durationMs: rec.durationMs,
     });
+    const segmentsUnreadable = storedSegmentsUnreadable(
+      transcript?.segmentsJson,
+    );
+    // Saved lines that can't be read aren't "no speech": the panel says the
+    // transcript couldn't be read instead.
     const transcriptReadyButEmpty =
       transcript?.status === "ready" &&
+      !segmentsUnreadable &&
       !transcript.fullText?.trim() &&
       transcriptSegments.length === 0;
     const transcriptPresentation = resolveTranscriptPresentation(transcript);
@@ -502,6 +509,9 @@ export default defineAction({
               ? "No speech was detected by transcription. Check microphone and speech permissions, then retry transcription."
               : transcriptPresentation.failureReason,
             segments: agentTranscript?.segments ?? transcriptSegments,
+            ...(segmentsUnreadable
+              ? { segmentsUnreadable: true as const }
+              : {}),
             ...(transcriptVersions ? { versions: transcriptVersions } : {}),
             cleanup: cleanupState
               ? {

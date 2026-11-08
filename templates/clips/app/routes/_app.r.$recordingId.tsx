@@ -1181,6 +1181,8 @@ export default function RecordingPage() {
   const transcriptFullText = playerDataQ.data?.transcript?.fullText ?? null;
   const transcriptStatus = playerDataQ.data?.transcript?.status;
   const transcriptFailureReason = playerDataQ.data?.transcript?.failureReason;
+  const transcriptUnreadable =
+    playerDataQ.data?.transcript?.segmentsUnreadable === true;
   useEffect(() => {
     if (!recording?.id || !transcriptStatus) return;
     if (transcriptLifecycleRecordingIdRef.current !== recording.id) {
@@ -3100,6 +3102,7 @@ export default function RecordingPage() {
                   : transcriptStatus
               }
               failureReason={transcriptFailureReason}
+              unreadable={transcriptUnreadable}
               recordingTitle={recording.title}
               onRetry={
                 canTranscribe

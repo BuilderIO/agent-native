@@ -129,7 +129,10 @@ vi.mock("../../../shared/agent-context.js", () => ({
   CLIPS_AGENT_ACCESS_PARAM: "agent_access",
 }));
 
-vi.mock("../../../shared/transcript-segments.js", () => ({
+vi.mock("../../../shared/transcript-segments.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../../shared/transcript-segments.js")
+  >()),
   normalizeTranscriptSegments: vi.fn(() => []),
   parseTranscriptSegments: vi.fn(() => []),
 }));
@@ -951,6 +954,37 @@ describe("/api/public-recording route", () => {
       },
     });
   });
+
+  it.each([
+    { segmentsJson: "[{", unreadable: true },
+    { segmentsJson: "[]", unreadable: false },
+    { segmentsJson: null, unreadable: false },
+  ])(
+    "tells the share page when saved transcript lines can't be read ($segmentsJson)",
+    async ({ segmentsJson, unreadable }) => {
+      const event = { setCookies: [] as unknown[] };
+      mockGetQuery.mockReturnValue({ id: "rec-1" });
+      mockGetDb.mockReturnValue(
+        createDbWithSelectResults([
+          [makeRecording({ visibility: "public", password: null })],
+          [{ status: "ready", language: "en", fullText: "", segmentsJson }],
+          [],
+          [],
+          [],
+        ]),
+      );
+
+      const result = (await handler(event as any)) as {
+        transcript: Record<string, unknown>;
+      };
+
+      if (unreadable) {
+        expect(result.transcript).toMatchObject({ segmentsUnreadable: true });
+      } else {
+        expect(result.transcript).not.toHaveProperty("segmentsUnreadable");
+      }
+    },
+  );
 
   it.each([
     "2020-01-01T00:00:00.000Z",
