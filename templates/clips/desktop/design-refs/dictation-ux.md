@@ -10,8 +10,10 @@ text available quickly in the focused app.
 - Keep the recording indicator compact and visible above the current desktop
   app. Use the same color, type, spacing, and motion tokens as Clips recording.
 - Show clear listening, processing, delivered, and recoverable-error states.
-- Finalize and insert the transcript as soon as it is ready. Do not wait for
-  optional history persistence or later cleanup before delivering text.
+- With AI polish off, insert the transcript as soon as it is final. With
+  polish on, show a cleanup step and insert the polished text; if polish fails
+  or takes longer than 2.5 s, insert the raw transcript. Never wait for history
+  persistence before delivering text.
 - Make cancellation explicit. A canceled or empty recording must not look like
   a successful insertion.
 
