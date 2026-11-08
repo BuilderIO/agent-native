@@ -415,6 +415,34 @@ describe("suggest-document-edit", () => {
           ),
         ).rejects.toMatchObject({ errorCode: "not_found" });
 
+        // Nor does another author's suggestion: only its author can append.
+        const collaborator = "wrong-id-collaborator@example.com";
+        await getDb()
+          .insert(schema.documentShares)
+          .values({
+            id: `wrong-id-share-${id}`,
+            resourceId: id,
+            principalType: "user",
+            principalId: collaborator,
+            role: "commenter",
+            createdBy: ctx.userEmail,
+            createdAt: Date.now(),
+          });
+        await runWithRequestContext(
+          { userEmail: collaborator, orgId: null },
+          () =>
+            expect(
+              suggestDocumentEdit.run(
+                {
+                  ...second,
+                  idempotencyKey: `wrong-id-collaborator-${id}`,
+                  proposalId: first.suggestionId,
+                },
+                { ...ctx, userEmail: collaborator },
+              ),
+            ).rejects.toMatchObject({ errorCode: "not_found" }),
+        );
+
         const retried = (await suggestDocumentEdit.run(
           { ...second, proposalId: first.proposalId },
           ctx,

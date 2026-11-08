@@ -942,14 +942,17 @@ export const createResourceSuggestionProposal = defineAction({
         if (!proposal) {
           // A first call returns both a suggestion ID and a proposal ID, and
           // agents appending a second edit often pass the suggestion's. Name
-          // the proposal when that suggestion is on this same resource.
+          // the proposal when that suggestion is the caller's own, on this
+          // same resource: only its author can append to it.
           const suggestion = args.proposalId
             ? await getSuggestion(args.proposalId, tx)
             : null;
           if (
             suggestion &&
             suggestion.resourceType === args.resourceType &&
-            suggestion.resourceId === args.resourceId
+            suggestion.resourceId === args.resourceId &&
+            suggestion.authorEmail === authorEmail &&
+            suggestion.actorKind === actorKind
           ) {
             fail(
               suggestion.proposalId
