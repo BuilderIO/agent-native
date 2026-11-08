@@ -198,7 +198,9 @@ async function supersedeSuggestions(
 
 // So a suggestion's change event reaches everyone who can read the resource,
 // not only the actor: their open page shows it without a reload.
-function suggestionChangeResource(suggestion: ResourceSuggestion | undefined) {
+function suggestionChangeResource(
+  suggestion: ResourceSuggestion | null | undefined,
+) {
   return suggestion
     ? {
         resourceType: suggestion.resourceType,
@@ -409,8 +411,6 @@ export const updateResourceSuggestion = defineAction({
     openWorldHint: false,
     idempotentHint: true,
   },
-  changeResource: (_input, result) =>
-    suggestionChangeResource(result as ResourceSuggestion),
   run: async (args, ctx) => {
     const initial = await getSuggestion(args.id);
     if (!initial)
@@ -515,6 +515,7 @@ export const updateResourceSuggestion = defineAction({
       };
     },
   },
+  changeResource: (_input, result) => suggestionChangeResource(result),
 });
 
 export const listResourceSuggestions = defineAction({
@@ -612,10 +613,6 @@ export const decideResourceSuggestion = defineAction({
     openWorldHint: false,
     idempotentHint: true,
   },
-  changeResource: (_input, result) =>
-    suggestionChangeResource(
-      (result as { suggestion?: ResourceSuggestion }).suggestion,
-    ),
   run: async (args, ctx) => {
     const suggestion = await getSuggestion(args.id);
     if (!suggestion) throw new Error("Suggestion not found");
@@ -784,6 +781,8 @@ export const decideResourceSuggestion = defineAction({
         : undefined;
     },
   },
+  changeResource: (_input, result) =>
+    suggestionChangeResource(result.suggestion),
 });
 
 const proposalCreationSchema = z.object({
@@ -1111,10 +1110,6 @@ export const decideResourceSuggestionProposal = defineAction({
     openWorldHint: false,
     idempotentHint: true,
   },
-  changeResource: (_input, result) =>
-    suggestionChangeResource(
-      (result as { suggestions: ResourceSuggestion[] }).suggestions[0],
-    ),
   run: async (args, ctx) => {
     await ensureSuggestionTables();
     const db = getDbExec();
@@ -1373,4 +1368,6 @@ export const decideResourceSuggestionProposal = defineAction({
         : undefined;
     },
   },
+  changeResource: (_input, result) =>
+    suggestionChangeResource(result.suggestions[0]),
 });
