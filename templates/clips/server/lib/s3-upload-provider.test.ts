@@ -51,6 +51,41 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
     mockIsBlockedExtensionUrlWithDns(...args),
   ssrfSafeFetch: (...args: any[]) => mockSsrfSafeFetch(...args),
 }));
+// In-memory stand-in for the database staging table.
+const stagedRows = vi.hoisted(
+  () => new Map<string, Map<number, Uint8Array>>(),
+);
+vi.mock("./multipart-staging.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./multipart-staging.js")>();
+  const rowsFor = (key: string) => {
+    let rows = stagedRows.get(key);
+    if (!rows) stagedRows.set(key, (rows = new Map()));
+    return rows;
+  };
+  return {
+    ...real,
+    stageChunk: async (key: string, offset: number, bytes: Uint8Array) => {
+      rowsFor(key).set(offset, bytes.slice());
+    },
+    readStagedRange: async (key: string, from: number, to: number) =>
+      real.joinContiguous(
+        [...rowsFor(key)]
+          .filter(([offset]) => offset >= from && offset < to)
+          .map(([offset, bytes]) => ({ offset, bytes })),
+        from,
+        to,
+      ),
+    clearStaged: async (key: string) => {
+      stagedRows.delete(key);
+    },
+    clearStagedBefore: async (key: string, offset: number) => {
+      for (const o of [...rowsFor(key).keys()]) {
+        if (o < offset) rowsFor(key).delete(o);
+      }
+    },
+    clearStaleStaged: async () => {},
+  };
+});
 
 import {
   withMediaUploadCheckpoint,
@@ -1682,6 +1717,25 @@ describe("s3FileUploadProvider", () => {
     });
     session = { ...session, meta: { ...session.meta, ...second.updatedMeta } };
 
+    // Pending bytes are staged in the database, never in the bucket.
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          String(url).includes(".multipart/") &&
+          (init as RequestInit | undefined)?.method !== "DELETE",
+      ),
+    ).toEqual([]);
+    const partBody = new Uint8Array(
+      fetchMock.mock.calls.find(([url]) =>
+        String(url).includes("partNumber=1&uploadId=upload-example"),
+      )?.[1]?.body as ArrayBuffer,
+    );
+    expect(partBody.byteLength).toBe(
+      firstChunk.byteLength + secondChunk.byteLength,
+    );
+    expect(partBody[0]).toBe(1);
+    expect(partBody[partBody.byteLength - 1]).toBe(2);
+
     await expect(
       resumable.completeSession(session, "recording-example.webm"),
     ).resolves.toBe(
@@ -1703,6 +1757,131 @@ describe("s3FileUploadProvider", () => {
     expect(
       new TextDecoder().decode(completeCall?.[1]?.body as ArrayBuffer),
     ).toContain("<ETag>&quot;part-1-example&quot;</ETag>");
+  });
+
+  it("rebuilds the same part when a retried chunk follows a lost session write", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const mib = 1024 * 1024;
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (url.endsWith("?uploads=")) {
+        return new Response(
+          "<InitiateMultipartUploadResult><UploadId>upload-retry</UploadId></InitiateMultipartUploadResult>",
+        );
+      }
+      if (url.includes("partNumber=1&uploadId=upload-retry")) {
+        return new Response(null, { headers: { ETag: '"p1"' } });
+      }
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const resumable = s3FileUploadProvider.resumable!;
+    let session = await resumable.startSession(
+      "recording-retry.webm",
+      "video/webm",
+      20 * mib,
+    );
+    for (let i = 0; i < 4; i++) {
+      const res = await resumable.relayChunk(
+        session,
+        `bytes ${i * mib}-${(i + 1) * mib - 1}/*`,
+        new Uint8Array(mib).fill(i + 1),
+      );
+      session = { ...session, meta: { ...session.meta, ...res.updatedMeta } };
+    }
+    const fifth = new Uint8Array(mib).fill(5);
+    const range = `bytes ${4 * mib}-${5 * mib - 1}/*`;
+    const first = await resumable.relayChunk(session, range, fifth);
+    // The session write for `first` is lost; the client retries the chunk.
+    const retried = await resumable.relayChunk(session, range, fifth);
+    expect(retried.updatedMeta).toEqual(first.updatedMeta);
+    const parts = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("partNumber=1&uploadId=upload-retry"),
+    );
+    expect(parts).toHaveLength(2);
+    for (const [, init] of parts) {
+      const body = new Uint8Array((init as RequestInit).body as ArrayBuffer);
+      expect(body.byteLength).toBe(5 * mib);
+      expect(body[0]).toBe(1);
+      expect(body[5 * mib - 1]).toBe(5);
+    }
+  });
+
+  it("finishes uploads that staged pending bytes in the bucket before database staging", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const legacy = new Uint8Array([7, 7, 7]);
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("?uploads=")) {
+        return new Response(
+          "<InitiateMultipartUploadResult><UploadId>upload-legacy</UploadId></InitiateMultipartUploadResult>",
+        );
+      }
+      if (init?.method === "GET" && url.includes(".multipart/")) {
+        return new Response(legacy);
+      }
+      if (url.includes("partNumber=1&uploadId=upload-legacy")) {
+        return new Response(null, { headers: { ETag: '"legacy"' } });
+      }
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const resumable = s3FileUploadProvider.resumable!;
+    let session = await resumable.startSession(
+      "recording-legacy.webm",
+      "video/webm",
+      1024,
+    );
+    session = {
+      ...session,
+      meta: { ...session.meta, pendingBytes: legacy.byteLength },
+    };
+    const next = await resumable.relayChunk(
+      session,
+      "bytes 3-4/*",
+      new Uint8Array([8, 8]),
+    );
+    expect(next.updatedMeta).toEqual({ pendingBytes: 5 });
+    session = { ...session, meta: { ...session.meta, ...next.updatedMeta } };
+    const closed = await resumable.relayChunk(
+      session,
+      "bytes */5",
+      new Uint8Array(0),
+    );
+    expect(closed.updatedMeta).toEqual({
+      pendingBytes: 0,
+      parts: [{ partNumber: 1, etag: '"legacy"', sizeBytes: 5 }],
+    });
+    const partBody = new Uint8Array(
+      fetchMock.mock.calls.find(([url]) =>
+        String(url).includes("partNumber=1&uploadId=upload-legacy"),
+      )?.[1]?.body as ArrayBuffer,
+    );
+    expect([...partBody]).toEqual([7, 7, 7, 8, 8]);
+    // Only the first chunk after deploy read the bucket staging object.
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          String(url).includes(".multipart/") &&
+          (init as RequestInit | undefined)?.method === "GET",
+      ),
+    ).toHaveLength(1);
   });
 
   it("commits a staged final part and aborts incomplete multipart uploads", async () => {

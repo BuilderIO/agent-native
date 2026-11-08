@@ -13,6 +13,10 @@ import { z } from "zod";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { orderMigrationsByVersion } from "../lib/migration-order.js";
+import {
+  MULTIPART_STAGING_INDEX_SQL,
+  MULTIPART_STAGING_TABLE_SQL,
+} from "../lib/multipart-staging.js";
 import { recordingMediaCleanupMigration } from "../lib/recording-media-cleanup-schema.js";
 import {
   uploadLeaseExpiry,
@@ -1415,6 +1419,18 @@ export const migrations = runMigrations(
       version: 102,
       name: "recording-transcript-earlier-audio-removed-at",
       sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS earlier_audio_removed_at TEXT`,
+    },
+    {
+      version: 103,
+      name: "multipart-staging-chunks",
+      // Bytes waiting for a 5 MiB S3 multipart part live in the database
+      // instead of a staging object that every chunk downloaded and re-uploaded.
+      sql: MULTIPART_STAGING_TABLE_SQL,
+    },
+    {
+      version: 104,
+      name: "multipart-staging-updated-at-index",
+      sql: MULTIPART_STAGING_INDEX_SQL,
     },
   ]),
   { table: "clips_migrations" },

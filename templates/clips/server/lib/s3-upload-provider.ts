@@ -25,6 +25,13 @@ import {
   legacyOrganizationLogoObjectKey,
   ORGANIZATION_LOGO_PURPOSE,
 } from "../../shared/organization-logo.js";
+import {
+  clearStaged,
+  clearStagedBefore,
+  clearStaleStaged,
+  readStagedRange,
+  stageChunk,
+} from "./multipart-staging.js";
 import { checkpointMediaUpload } from "./recording-media-production-context.js";
 
 interface S3Config {
@@ -761,6 +768,14 @@ function readBoundMultipartMeta(
   return meta;
 }
 
+/** Start offset of a data range ("bytes a-b/*"); null for "bytes *\/N". */
+function contentRangeStart(contentRange: string): number | null {
+  const dataRange = contentRange.match(/^bytes (\d+)-\d+\/(?:\*|\d+)$/);
+  if (!dataRange) return null;
+  const start = Number(dataRange[1]);
+  return Number.isSafeInteger(start) && start >= 0 ? start : null;
+}
+
 function contentRangeEndExclusive(contentRange: string): number | null {
   const dataRange = contentRange.match(/^bytes (\d+)-(\d+)\/(?:\*|\d+)$/);
   if (dataRange) {
@@ -1043,6 +1058,7 @@ function createS3FileUploadProvider(
         if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
           throw new Error("S3 resumable upload requires a positive byte limit");
         }
+        void clearStaleStaged();
         const objectKey = `clips/${safeFilename}`;
         const stagingKey = `clips/.multipart/${safeFilename}.pending`;
         const res = await s3Request(cfg, objectKey, {
@@ -1092,12 +1108,33 @@ function createS3FileUploadProvider(
           );
         }
 
+        // Pending bytes below one part live in the
+        // database (see multipart-staging.ts), not in a bucket object.
+        const chunkStart = contentRangeStart(contentRange) ?? rangeEnd;
+        const pendingStart = chunkStart - meta.pendingBytes;
+        if (pendingStart < 0) {
+          throw new Error(
+            "S3 resumable upload has more pending bytes than its range",
+          );
+        }
         let pending: Uint8Array = new Uint8Array(0);
+        let pendingFromBucket = false;
         if (meta.pendingBytes > 0) {
-          pending = await getObject(cfg, meta.stagingKey);
+          const staged = await readStagedRange(
+            meta.stagingKey,
+            pendingStart,
+            chunkStart,
+          );
+          if (staged) {
+            pending = staged;
+          } else {
+            // Sessions started before the database staging table used the bucket.
+            pending = await getObject(cfg, meta.stagingKey);
+            pendingFromBucket = true;
+          }
           if (pending.byteLength !== meta.pendingBytes) {
             throw new Error(
-              `S3 resumable staging object has ${pending.byteLength} bytes; expected ${meta.pendingBytes}`,
+              `S3 resumable staging has ${pending.byteLength} bytes; expected ${meta.pendingBytes}`,
             );
           }
         }
@@ -1108,7 +1145,14 @@ function createS3FileUploadProvider(
         }
 
         if (!isFinal && combined.byteLength < S3_MULTIPART_MIN_PART_BYTES) {
-          await putObject(cfg, meta.stagingKey, combined, meta.mimeType);
+          if (pendingFromBucket) {
+            await stageChunk(meta.stagingKey, pendingStart, combined);
+          } else {
+            await stageChunk(meta.stagingKey, chunkStart, bytes);
+          }
+          if (meta.pendingBytes === 0) {
+            await clearStagedBefore(meta.stagingKey, chunkStart);
+          }
           return {
             ok: true,
             status: 200,
@@ -1122,6 +1166,10 @@ function createS3FileUploadProvider(
           meta,
           combined,
         );
+        // Keep this part's own rows until the session records it, so a retry
+        // after a failed session write can rebuild the same part. Rows before
+        // it already belong to parts the session has recorded.
+        await clearStagedBefore(meta.stagingKey, pendingStart);
         return {
           ok: true,
           status: 200,
@@ -1181,6 +1229,7 @@ function createS3FileUploadProvider(
         } catch (error) {
           try {
             if (await verifyCompletedMultipartObject(cfg, meta)) {
+              await clearStaged(meta.stagingKey);
               await deleteObject(cfg, meta.stagingKey).catch((cleanupError) => {
                 console.warn(
                   "[s3-upload] failed to delete multipart staging object:",
@@ -1206,6 +1255,7 @@ function createS3FileUploadProvider(
             xmlElement(body, "Code") === "NoSuchUpload" &&
             (await verifyCompletedMultipartObject(cfg, meta))
           ) {
+            await clearStaged(meta.stagingKey);
             await deleteObject(cfg, meta.stagingKey).catch((err) => {
               console.warn(
                 "[s3-upload] failed to delete multipart staging object:",
@@ -1218,6 +1268,7 @@ function createS3FileUploadProvider(
             `S3 CompleteMultipartUpload failed (${res.status}): ${body || res.statusText}`,
           );
         }
+        await clearStaged(meta.stagingKey);
         await deleteObject(cfg, meta.stagingKey).catch((err) => {
           console.warn(
             "[s3-upload] failed to delete multipart staging object:",
@@ -1251,6 +1302,7 @@ function createS3FileUploadProvider(
         ) {
           await deleteObject(cfg, meta.objectKey);
         }
+        await clearStaged(meta.stagingKey);
         await deleteObject(cfg, meta.stagingKey).catch((err) => {
           console.warn(
             "[s3-upload] failed to delete aborted multipart staging object:",
