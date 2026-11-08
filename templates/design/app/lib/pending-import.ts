@@ -7,6 +7,9 @@ export type PendingDesignImport = {
   file: File;
   /** The home page decodes the whole file before creating the design. */
   prepared?: PreparedFigImport;
+  /** The decode worker failed on the home page; import through the upload
+   * route instead of decoding again. */
+  browserDecodeError?: Error;
 };
 
 // Shared by the home picker and the editor's File → Import so one loading toast

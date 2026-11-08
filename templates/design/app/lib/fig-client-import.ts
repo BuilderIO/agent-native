@@ -51,6 +51,16 @@ export class FigClientImportError extends Error {
   }
 }
 
+/** The worker crashed or never started; the file itself may be fine, so the
+ * server upload route can still decode it. */
+export class FigImportWorkerError extends Error {
+  readonly workerFailed = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "FigImportWorkerError";
+  }
+}
+
 export interface PreparedFigImport {
   file: File;
   summary: FigImportSummary;
@@ -100,14 +110,16 @@ function startFigImportWorker(): FigImportWorker {
   worker.onerror = (event) => {
     event.preventDefault();
     stop(
-      new Error(
+      new FigImportWorkerError(
         `The .fig import worker failed: ${event.message || "it could not start"}.`,
       ),
     );
   };
   worker.onmessageerror = () =>
     stop(
-      new Error("The .fig import worker sent a result that could not be read."),
+      new FigImportWorkerError(
+        "The .fig import worker sent a result that could not be read.",
+      ),
     );
   const call = <T>(
     request:

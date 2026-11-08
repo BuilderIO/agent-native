@@ -478,3 +478,46 @@ describe("prepareFigImport in a Worker", () => {
     expect(worker.terminate).toHaveBeenCalled();
   });
 });
+
+describe("prepareFigImport worker failures", () => {
+  class FakeWorker {
+    static reply: "crash" | "decode-error" = "crash";
+    onmessage: ((event: { data: unknown }) => void) | null = null;
+    onerror:
+      | ((event: { message: string; preventDefault: () => void }) => void)
+      | null = null;
+    onmessageerror: (() => void) | null = null;
+    postMessage(request: { id: number }) {
+      queueMicrotask(() => {
+        if (FakeWorker.reply === "crash") {
+          this.onerror?.({ message: "out of memory", preventDefault() {} });
+        } else {
+          this.onmessage?.({
+            data: {
+              id: request.id,
+              ok: false,
+              error: "Invalid Zstandard frame",
+            },
+          });
+        }
+      });
+    }
+    terminate() {}
+  }
+
+  beforeEach(() => vi.stubGlobal("Worker", FakeWorker));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("marks a crashed worker apart from a file the decoder rejects", async () => {
+    FakeWorker.reply = "crash";
+    await expect(prepareFigImport(file)).rejects.toMatchObject({
+      workerFailed: true,
+      message: "The .fig import worker failed: out of memory.",
+    });
+
+    FakeWorker.reply = "decode-error";
+    const rejected = await prepareFigImport(file).catch((error) => error);
+    expect(rejected).toBeInstanceOf(Error);
+    expect(rejected).not.toHaveProperty("workerFailed");
+  });
+});

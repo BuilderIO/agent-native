@@ -41,8 +41,10 @@ import {
   DESIGN_IMPORT_FORMATS,
   requestImportFile,
 } from "@/lib/design-import-file-picker";
-import type { PreparedFigImport } from "@/lib/fig-client-import";
-import { claimPendingDesignImport } from "@/lib/pending-import";
+import {
+  claimPendingDesignImport,
+  type PendingDesignImport,
+} from "@/lib/pending-import";
 
 import {
   collectCodeLayerAncestors,
@@ -838,10 +840,16 @@ export function useEditorSourceAndSync({
   // before the file picker reports its change event.
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const startImportFile = useCallback(
-    (file: File, prepared?: PreparedFigImport) => {
+    (
+      file: File,
+      handoff: Pick<
+        PendingDesignImport,
+        "prepared" | "browserDecodeError"
+      > = {},
+    ) => {
       if (!id) return;
       if (importBusyRef.current) {
-        prepared?.dispose();
+        handoff.prepared?.dispose();
         toast.error(t("designEditor.import.errors.importBusy"));
         return;
       }
@@ -849,7 +857,10 @@ export function useEditorSourceAndSync({
       void runImportDesignFile({
         designId: id,
         file,
-        ...(prepared ? { prepared } : {}),
+        ...(handoff.prepared ? { prepared: handoff.prepared } : {}),
+        ...(handoff.browserDecodeError
+          ? { browserDecodeError: handoff.browserDecodeError }
+          : {}),
         t,
         formatNumber: (value) => formatters.formatNumber(value),
         formatList: (items) =>
@@ -885,7 +896,7 @@ export function useEditorSourceAndSync({
   useEffect(() => {
     if (!canEditDesign || !id) return;
     const pending = claimPendingDesignImport(id);
-    if (pending) startImportFile(pending.file, pending.prepared);
+    if (pending) startImportFile(pending.file, pending);
   }, [canEditDesign, id, startImportFile]);
   const openImportFilePicker = useCallback(() => {
     requestImportFile({

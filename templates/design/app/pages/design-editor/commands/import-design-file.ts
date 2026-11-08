@@ -57,6 +57,8 @@ export interface ImportDesignFileArgs {
   onImported: (result: ImportResult) => Promise<void>;
   /** A whole-file decode the home page already ran; skips decoding again. */
   prepared?: PreparedFigImport;
+  /** The home page's decode worker failed; go straight to the upload route. */
+  browserDecodeError?: Error;
   /** Offered on the failure toast; not for refused files or partial saves. */
   onRetry?: () => void;
   deps: ImportDesignFileDepsOverrides;
@@ -231,6 +233,13 @@ class FigUploadFallbackError extends Error {
   }
 }
 
+/** A decode worker that crashed or never started, as opposed to a file the
+ * decoder rejected. Only the first can succeed on the upload route, which
+ * runs the same decoder. */
+export function isFigWorkerFailure(error: unknown): boolean {
+  return (error as { workerFailed?: unknown } | null)?.workerFailed === true;
+}
+
 function remoteMutationStarted(error: unknown): boolean {
   return (
     (error as { remoteMutationStarted?: unknown } | null)
@@ -245,6 +254,7 @@ async function importFigFile(
 ): Promise<ImportResult> {
   const { designId, file, t } = args;
   try {
+    if (args.browserDecodeError) throw args.browserDecodeError;
     const prepared = args.prepared ?? (await prepareWholeFigImport(file, deps));
     return await deps.importFigInBrowser({
       designId,

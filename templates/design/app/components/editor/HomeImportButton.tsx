@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   MAX_BROWSER_FIG_BYTES,
+  MAX_FIG_UPLOAD_BYTES,
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
 import {
@@ -35,6 +36,7 @@ import {
 import {
   FigFileRefusedError,
   figFileRefusalMessage,
+  isFigWorkerFailure,
   prepareWholeFigImport,
 } from "@/pages/design-editor/commands/import-design-file";
 
@@ -86,31 +88,41 @@ export function HomeImportButton() {
       file.name,
     );
     let prepared: PreparedFigImport | undefined;
+    let browserDecodeError: Error | undefined;
     try {
       // Refuse before creating a design the import could never fill.
       try {
         prepared = await prepareWholeFigImport(file);
       } catch (decodeError) {
-        releaseFigImportToast(toastOwner);
-        if (decodeError instanceof FigFileRefusedError) {
-          toast.error(figFileRefusalMessage(decodeError.refusal, t), {
-            id: FIG_IMPORT_TOAST_ID,
-            description: file.name,
-          });
+        if (
+          isFigWorkerFailure(decodeError) &&
+          decodeError instanceof Error &&
+          file.size <= MAX_FIG_UPLOAD_BYTES
+        ) {
+          // The worker failed, not the file: the upload route can decode it.
+          browserDecodeError = decodeError;
         } else {
-          toast.error(t("designEditor.import.errors.importFailed"), {
-            id: FIG_IMPORT_TOAST_ID,
-            description:
-              decodeError instanceof Error
-                ? decodeError.message
-                : t("common.genericError"),
-            action: {
-              label: t("homeContext.retry"),
-              onClick: () => void importFile(file),
-            },
-          });
+          releaseFigImportToast(toastOwner);
+          if (decodeError instanceof FigFileRefusedError) {
+            toast.error(figFileRefusalMessage(decodeError.refusal, t), {
+              id: FIG_IMPORT_TOAST_ID,
+              description: file.name,
+            });
+          } else {
+            toast.error(t("designEditor.import.errors.importFailed"), {
+              id: FIG_IMPORT_TOAST_ID,
+              description:
+                decodeError instanceof Error
+                  ? decodeError.message
+                  : t("common.genericError"),
+              action: {
+                label: t("homeContext.retry"),
+                onClick: () => void importFile(file),
+              },
+            });
+          }
+          return;
         }
-        return;
       }
       const result = await create.mutateAsync({
         title: file.name.replace(/\.fig$/i, "") || t("home.untitledDesign"),
@@ -119,7 +131,12 @@ export function HomeImportButton() {
         creationMethod: "import_figma",
       });
       if (!result.id) throw new Error(t("home.failedToCreateDesign"));
-      setPendingDesignImport(result.id, { kind: "file", file, prepared });
+      setPendingDesignImport(result.id, {
+        kind: "file",
+        file,
+        ...(prepared ? { prepared } : {}),
+        ...(browserDecodeError ? { browserDecodeError } : {}),
+      });
       prepared = undefined;
       void navigate(`/design/${result.id}`);
     } catch (cause) {

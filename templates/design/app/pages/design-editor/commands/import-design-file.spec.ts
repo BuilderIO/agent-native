@@ -253,6 +253,22 @@ describe("runImportDesignFile", () => {
     );
   });
 
+  it("sends a file whose home-page decode worker crashed straight to the upload route", async () => {
+    const { deps, args } = setup();
+
+    await expect(
+      runImportDesignFile({
+        ...args(kiwiFile(1024)),
+        browserDecodeError: new Error(
+          "The .fig import worker failed: out of memory.",
+        ),
+      }),
+    ).resolves.toMatchObject({ status: "imported" });
+
+    expect(deps.prepareFigImport).not.toHaveBeenCalled();
+    expect(deps.uploadDesignFile).toHaveBeenCalledOnce();
+  });
+
   it("reports a decode failure with a retry when no upload fallback is available", async () => {
     const { deps, onRetry, args } = setup({
       prepareFigImport: vi.fn(async () => {
