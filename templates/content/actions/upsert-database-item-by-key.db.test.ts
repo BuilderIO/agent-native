@@ -1308,7 +1308,17 @@ describe("reliable Content database row mutations", () => {
   describe.runIf(TEST_DATABASE_URL.startsWith("postgres"))(
     "while a single-row write waits on another transaction's collection lock",
     () => {
-      /** Takes the collection lock in another transaction until released. */
+      function firstRow(result: unknown) {
+        const rows = Array.isArray(result)
+          ? result
+          : (result as { rows: unknown[] }).rows;
+        return rows[0] as Record<string, unknown>;
+      }
+
+      /**
+       * Takes the collection lock in another transaction until released.
+       * Returns that transaction's backend so waits can be scoped to it.
+       */
       async function holdCollectionLock(databaseId: string) {
         const { lockContentDatabaseMutation } =
           await import("./_content-database-mutation-lock.js");
@@ -1316,38 +1326,51 @@ describe("reliable Content database row mutations", () => {
         const released = new Promise<void>((resolve) => {
           release = resolve;
         });
-        let held!: () => void;
-        const holding = new Promise<void>((resolve) => {
+        let held!: (pid: number) => void;
+        const holding = new Promise<number>((resolve) => {
           held = resolve;
         });
         const done = getDb().transaction(
           async (tx: Parameters<typeof lockContentDatabaseMutation>[0]) => {
+            const backend = firstRow(
+              await tx.execute(sql`SELECT pg_backend_pid() AS pid`),
+            );
             await lockContentDatabaseMutation(tx, databaseId);
-            held();
+            held(Number(backend.pid));
             await released;
           },
         );
-        await Promise.race([
+        const pid = await Promise.race([
           holding,
           done.then(() => {
             throw new Error("The holder ended before it held the lock.");
           }),
         ]);
-        return async () => {
-          release();
-          await done;
+        return {
+          pid,
+          release: async () => {
+            release();
+            await done;
+          },
         };
       }
 
-      async function waitUntilWaitingOnLocks(sessions: number) {
+      /**
+       * Waits until `sessions` backends wait on the holder. A second writer on
+       * the same row queues behind the first, so it counts sessions blocked by
+       * the holder or by a session already counted.
+       */
+      async function waitUntilWaitingOn(holderPid: number, sessions: number) {
         await expect
-          .poll(async () => {
-            const result = await getDb().execute(
-              sql`SELECT count(*)::int AS waiting FROM pg_stat_activity WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0`,
-            );
-            const rows = Array.isArray(result) ? result : result.rows;
-            return rows[0].waiting;
-          })
+          .poll(
+            async () =>
+              firstRow(
+                await getDb().execute(
+                  sql`WITH RECURSIVE waiting(pid) AS (SELECT pid FROM pg_stat_activity WHERE ${holderPid} = ANY(pg_blocking_pids(pid)) UNION SELECT activity.pid FROM pg_stat_activity activity JOIN waiting ON waiting.pid = ANY(pg_blocking_pids(activity.pid))) SELECT count(*)::int AS waiting FROM waiting`,
+                ),
+              ).waiting,
+            { timeout: 15_000 },
+          )
           .toBe(sessions);
       }
 
@@ -1357,15 +1380,15 @@ describe("reliable Content database row mutations", () => {
           receipt: { receiptId: string; idempotency: { result: string } };
         },
       >(databaseId: string, write: () => Promise<T>) {
-        const release = await holdCollectionLock(databaseId);
+        const holder = await holdCollectionLock(databaseId);
         const settled = Promise.allSettled([
           write(),
           instances.other.run(true, write),
         ]);
         try {
-          await waitUntilWaitingOnLocks(2);
+          await waitUntilWaitingOn(holder.pid, 2);
         } finally {
-          await release();
+          await holder.release();
         }
         const receipts = (await settled).map((outcome) => {
           if (outcome.status === "rejected") throw outcome.reason;
@@ -1385,16 +1408,16 @@ describe("reliable Content database row mutations", () => {
         documentId: string,
         write: () => Promise<unknown>,
       ) {
-        const release = await holdCollectionLock(databaseId);
+        const holder = await holdCollectionLock(databaseId);
         const outcome = write().then(
           () => undefined,
           (error: unknown) => error,
         );
         try {
-          await waitUntilWaitingOnLocks(1);
+          await waitUntilWaitingOn(holder.pid, 1);
           await revokeDocumentShare(documentId);
         } finally {
-          await release();
+          await holder.release();
         }
         return outcome;
       }
