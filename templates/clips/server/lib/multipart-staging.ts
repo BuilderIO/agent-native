@@ -13,7 +13,6 @@
  */
 import { getDbExec } from "@agent-native/core/db";
 
-const TABLE = "multipart_staging_chunks";
 const STALE_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
 
 export type StagedChunk = { offset: number; bytes: Uint8Array };
@@ -33,7 +32,7 @@ export async function stageChunk(
   bytes: Uint8Array,
 ): Promise<void> {
   await getDbExec().execute({
-    sql: `INSERT INTO ${TABLE} (staging_key, byte_offset, byte_length, data, updated_at)
+    sql: `INSERT INTO multipart_staging_chunks (staging_key, byte_offset, byte_length, data, updated_at)
       VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (staging_key, byte_offset) DO UPDATE SET
         byte_length = excluded.byte_length,
@@ -59,7 +58,7 @@ export async function readStagedRange(
   toOffset: number,
 ): Promise<Uint8Array | null> {
   const { rows } = await getDbExec().execute({
-    sql: `SELECT byte_offset, data FROM ${TABLE}
+    sql: `SELECT byte_offset, data FROM multipart_staging_chunks
       WHERE staging_key = $1 AND byte_offset >= $2 AND byte_offset < $3
       ORDER BY byte_offset`,
     args: [stagingKey, fromOffset, toOffset],
@@ -102,7 +101,7 @@ export function joinContiguous(
 export async function clearStaged(stagingKey: string): Promise<void> {
   try {
     await getDbExec().execute({
-      sql: `DELETE FROM ${TABLE} WHERE staging_key = $1`,
+      sql: `DELETE FROM multipart_staging_chunks WHERE staging_key = $1`,
       args: [stagingKey],
     });
   } catch (error) {
@@ -120,7 +119,7 @@ export async function clearStagedBefore(
 ): Promise<void> {
   try {
     await getDbExec().execute({
-      sql: `DELETE FROM ${TABLE} WHERE staging_key = $1 AND byte_offset < $2`,
+      sql: `DELETE FROM multipart_staging_chunks WHERE staging_key = $1 AND byte_offset < $2`,
       args: [stagingKey, offset],
     });
   } catch (error) {
@@ -139,7 +138,7 @@ export async function clearStagedBefore(
 export async function clearStaleStaged(now = Date.now()): Promise<void> {
   try {
     await getDbExec().execute({
-      sql: `DELETE FROM ${TABLE} WHERE updated_at < $1`,
+      sql: `DELETE FROM multipart_staging_chunks WHERE updated_at < $1`,
       args: [new Date(now - STALE_AFTER_MS).toISOString()],
     });
   } catch (error) {
@@ -149,14 +148,3 @@ export async function clearStaleStaged(now = Date.now()): Promise<void> {
     );
   }
 }
-
-export const MULTIPART_STAGING_TABLE_SQL = `CREATE TABLE IF NOT EXISTS ${TABLE} (
-  staging_key TEXT NOT NULL,
-  byte_offset BIGINT NOT NULL,
-  byte_length INTEGER NOT NULL,
-  data TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  PRIMARY KEY (staging_key, byte_offset)
-)`;
-
-export const MULTIPART_STAGING_INDEX_SQL = `CREATE INDEX IF NOT EXISTS multipart_staging_updated_at_idx ON ${TABLE} (updated_at)`;

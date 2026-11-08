@@ -13,10 +13,6 @@ import { z } from "zod";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { orderMigrationsByVersion } from "../lib/migration-order.js";
-import {
-  MULTIPART_STAGING_INDEX_SQL,
-  MULTIPART_STAGING_TABLE_SQL,
-} from "../lib/multipart-staging.js";
 import { recordingMediaCleanupMigration } from "../lib/recording-media-cleanup-schema.js";
 import {
   uploadLeaseExpiry,
@@ -1425,12 +1421,19 @@ export const migrations = runMigrations(
       name: "multipart-staging-chunks",
       // Bytes waiting for a 5 MiB S3 multipart part live in the database
       // instead of a staging object that every chunk downloaded and re-uploaded.
-      sql: MULTIPART_STAGING_TABLE_SQL,
+      sql: `CREATE TABLE IF NOT EXISTS multipart_staging_chunks (
+        staging_key TEXT NOT NULL,
+        byte_offset BIGINT NOT NULL,
+        byte_length INTEGER NOT NULL,
+        data TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (staging_key, byte_offset)
+      )`,
     },
     {
       version: 104,
       name: "multipart-staging-updated-at-index",
-      sql: MULTIPART_STAGING_INDEX_SQL,
+      sql: `CREATE INDEX IF NOT EXISTS multipart_staging_updated_at_idx ON multipart_staging_chunks (updated_at)`,
     },
   ]),
   { table: "clips_migrations" },

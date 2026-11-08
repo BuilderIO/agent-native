@@ -52,9 +52,7 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
   ssrfSafeFetch: (...args: any[]) => mockSsrfSafeFetch(...args),
 }));
 // In-memory stand-in for the database staging table.
-const stagedRows = vi.hoisted(
-  () => new Map<string, Map<number, Uint8Array>>(),
-);
+const stagedRows = vi.hoisted(() => new Map<string, Map<number, Uint8Array>>());
 vi.mock("./multipart-staging.js", async (importOriginal) => {
   const real = await importOriginal<typeof import("./multipart-staging.js")>();
   const rowsFor = (key: string) => {
