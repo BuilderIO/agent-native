@@ -4112,7 +4112,12 @@ export async function resolveSkillReferenceContent(
     try {
       const [
         { resourceEffectiveContext, resourceGet },
-        { readSkillChoices, readSkillReference, skillReferenceResource },
+        {
+          readSkillChoices,
+          readSkillReference,
+          requiredSkillResource,
+          skillReferenceResource,
+        },
         { getSkillNameFromPath },
       ] = await Promise.all([
         import("../resources/store.js"),
@@ -4130,12 +4135,10 @@ export async function resolveSkillReferenceContent(
       // The copy the prompt would use at a path: a Required organization or
       // Dispatch skill, then the first one the person has on.
       const readSkill = async (path: string) => {
-        const chosen = skillReferenceResource(
-          await resourceEffectiveContext(ownerEmail, path, {
-            ...resourceOptions,
-          }),
-          choices,
-        );
+        const effective = await resourceEffectiveContext(ownerEmail, path, {
+          ...resourceOptions,
+        });
+        const chosen = skillReferenceResource(effective, choices);
         const full = chosen
           ? await resourceGet(chosen.id, { ...resourceOptions })
           : null;
@@ -4155,6 +4158,7 @@ export async function resolveSkillReferenceContent(
           owner: chosen.owner,
           path: chosen.path,
           updatedAt: chosen.updatedAt,
+          required: chosen.id === requiredSkillResource(effective, choices)?.id,
         };
       };
       // Same-named Required skills in the order the prompt keeps them.

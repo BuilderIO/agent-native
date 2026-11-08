@@ -7,6 +7,7 @@ import {
   getUserSettings,
   mutateUserSetting,
 } from "../settings/user-settings.js";
+import { mapWithConcurrency } from "./actions/map-with-concurrency.js";
 import {
   isSkillMark,
   isSkillOn,
@@ -238,7 +239,35 @@ export function skillReferenceResource(
   >,
   choices: SkillChoices,
 ): ResourceMeta | null {
-  const copies = (
+  return (
+    requiredSkillResource(effective, choices) ??
+    skillCopies(effective).find(({ source }) =>
+      isSkillOn(choices, source, effective.path),
+    )?.resource ??
+    effective.effectiveResource
+  );
+}
+
+/**
+ * The organization or Dispatch skill marked Required at a path, or null when
+ * none is there, such as when only a mark is left after a delete.
+ */
+export function requiredSkillResource(
+  effective: Pick<EffectiveResourceContext, "path" | "layers">,
+  choices: SkillChoices,
+): ResourceMeta | null {
+  return (
+    skillCopies(effective).find(
+      ({ source }) =>
+        skillMarkFor(choices, source, effective.path) === "required",
+    )?.resource ?? null
+  );
+}
+
+function skillCopies(
+  effective: Pick<EffectiveResourceContext, "layers">,
+): Array<{ resource: ResourceMeta; source: SkillSource }> {
+  return (
     [
       ["personal", "personal"],
       ["shared", "organization"],
@@ -250,13 +279,6 @@ export function skillReferenceResource(
     )?.resource;
     return resource ? [{ resource, source }] : [];
   });
-  const chosen =
-    copies.find(
-      ({ source }) =>
-        skillMarkFor(choices, source, effective.path) === "required",
-    ) ??
-    copies.find(({ source }) => isSkillOn(choices, source, effective.path));
-  return chosen?.resource ?? effective.effectiveResource;
 }
 
 /** Paths of the organization and Dispatch skills marked Required. */
@@ -275,12 +297,17 @@ export interface ReferencedSkill extends Pick<
 > {
   name: string;
   content: string;
+  /** Whether it is the copy `requiredSkillResource` finds at its path. */
+  required: boolean;
 }
+
+/** How many Required skills a reference reads at once. */
+const REQUIRED_SKILL_READS_AT_ONCE = 4;
 
 /**
  * The text a reference to one skill path reads. `readSkill` reads the copy
- * at a path that `skillReferenceResource` picks, or null when it can't. The
- * prompt knows skills by name and keeps the first Required one with a name,
+ * at a path that `skillReferenceResource` picks, or null when it can't, and
+ * says whether it is the Required one there. The prompt knows skills by name and keeps the first Required one with a name,
  * so a Required skill also replaces a same-named one at another path, such
  * as the person's own. `orderSkills` puts same-named Required skills in the
  * prompt's order (`sortResourceSkills`), so the reference reads the one the
@@ -294,11 +321,13 @@ export async function readSkillReference<T extends ReferencedSkill>(
 ): Promise<string | null> {
   const skill = await readSkill(path);
   if (!skill) return null;
-  const sameName = await Promise.all(
-    requiredSkillPaths(choices).map(async (required) => {
+  const sameName = await mapWithConcurrency(
+    requiredSkillPaths(choices),
+    REQUIRED_SKILL_READS_AT_ONCE,
+    async (required) => {
       const found = required === path ? skill : await readSkill(required);
-      return found?.name === skill.name ? found : null;
-    }),
+      return found?.required && found.name === skill.name ? found : null;
+    },
   );
   const replacement = orderSkills(
     sameName.filter((other) => other !== null),

@@ -75,6 +75,7 @@ const {
   readSkillChoices,
   readSkillReference,
   requiredSkillPaths,
+  requiredSkillResource,
   setSkillMark,
   setSkillSwitch,
   skillMarkFor,
@@ -362,6 +363,18 @@ describe("skillReferenceResource", () => {
     ).toBe("dispatch");
   });
 
+  it("finds the Required copy at a path, and none when only a mark is left", () => {
+    const required = {
+      switches: {},
+      marks: { [`organization:${path}`]: "required" as const },
+    };
+    expect(requiredSkillResource(effective, required)?.id).toBe("org");
+    expect(requiredSkillResource(effective, NO_SKILL_CHOICES)).toBeNull();
+    const ownOnly = { ...effective, layers: [layer("personal", "mine")] };
+    expect(requiredSkillResource(ownOnly, required)).toBeNull();
+    expect(skillReferenceResource(ownOnly, required)?.id).toBe("mine");
+  });
+
   it("lets a Required Dispatch skill beat the organization's", () => {
     const shared = {
       ...effective,
@@ -418,13 +431,22 @@ describe("readSkillReference", () => {
   const OTHER = "skills/brand-voice/SKILL.md";
   const DISPATCH = "skills/dispatch-release-notes/SKILL.md";
   const NEWER = "skills/release-notes-v2/SKILL.md";
+  const STALE = "skills/old-release-notes/SKILL.md";
+  // Every copy here but the person's own is the Required one at its path.
   const skillAt = (
     path: string,
     owner: string,
     name: string,
     content: string,
     updatedAt: number,
-  ): ReferencedSkill => ({ path, owner, name, content, updatedAt });
+  ): ReferencedSkill => ({
+    path,
+    owner,
+    name,
+    content,
+    updatedAt,
+    required: owner !== "ana@x.com",
+  });
   const files: Record<string, ReferencedSkill> = {
     [MINE]: skillAt(MINE, "ana@x.com", "release-notes", "Mine.", 5),
     [ORG]: skillAt(ORG, "org", "release-notes", "The organization's.", 1),
@@ -437,6 +459,8 @@ describe("readSkillReference", () => {
       9,
     ),
     [NEWER]: skillAt(NEWER, "org", "release-notes", "The newer one.", 2),
+    // The organization's skill here was deleted; its mark and Ana's copy stay.
+    [STALE]: skillAt(STALE, "ana@x.com", "release-notes", "Ana's old one.", 7),
   };
   const readSkill = vi.fn(async (path: string) => files[path] ?? null);
   const asListed = (skills: ReferencedSkill[]) => skills;
@@ -509,6 +533,35 @@ describe("readSkillReference", () => {
         [DISPATCH, NEWER, ORG].sort(),
       );
     }
+  });
+
+  it("ignores a person's own skill left at a Required path", async () => {
+    await expect(
+      readSkillReference(MINE, requiring(STALE), readSkill, asListed),
+    ).resolves.toBe("Mine.");
+    await expect(
+      readSkillReference(STALE, requiring(STALE, ORG), readSkill, asListed),
+    ).resolves.toBe("The organization's.");
+  });
+
+  it("reads Required skills a few at a time", async () => {
+    const paths = Array.from(
+      { length: 12 },
+      (_, index) => `skills/required-${index}/SKILL.md`,
+    );
+    let reading = 0;
+    let most = 0;
+    const slowRead = async (path: string) => {
+      reading += 1;
+      most = Math.max(most, reading);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      reading -= 1;
+      return files[path] ?? skillAt(path, "org", "other", "Other.", 1);
+    };
+    await expect(
+      readSkillReference(MINE, requiring(...paths), slowRead, asListed),
+    ).resolves.toBe("Mine.");
+    expect(most).toBeLessThanOrEqual(4);
   });
 
   it("finds the paths of Required skills from either place, each once", () => {

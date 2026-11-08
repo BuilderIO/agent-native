@@ -772,6 +772,13 @@ class SkillChoicesReadError extends Error {
   }
 }
 
+class RequiredSkillReadError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = "RequiredSkillReadError";
+  }
+}
+
 async function loadResourceSkillPromptEntries(
   owner: string,
   orgId?: string | null,
@@ -806,12 +813,20 @@ async function loadResourceSkillPromptEntries(
       ...sortResourceSkills(required, { owner, ...inOrg }),
       ...sortResourceSkills(rest, { owner, ...inOrg }),
     ];
+    const requiredIds = new Set(required.map((resource) => resource.id));
     const skillCandidates = sorted.slice(0, PROMPT_SKILL_METADATA_READ_LIMIT);
     const loaded = await Promise.all(
       skillCandidates.map(async (resource) => ({
         resource,
-        // coercion-ok: an unreadable optional skill is absent from Jev's catalog, not a required prompt failure.
-        full: await resourceGet(resource.id, { orgId }).catch(() => null),
+        full: await resourceGet(resource.id, inOrg).catch((error) => {
+          // Without a Required skill's name, someone's same-named skill could
+          // stand in for it, so it fails the prompt, as choices do.
+          if (requiredIds.has(resource.id)) {
+            throw new RequiredSkillReadError(error);
+          }
+          // coercion-ok: an unreadable optional skill is absent from Jev's catalog, not a required prompt failure.
+          return null;
+        }),
       })),
     );
     const parsed = loaded.map(({ resource, full }) => ({
@@ -836,7 +851,6 @@ async function loadResourceSkillPromptEntries(
             throw new RequiredSkillLabsReadError(error);
           })
       : new Set<string>();
-    const requiredIds = new Set(required.map((resource) => resource.id));
     const seen = new Set<string>();
     const entries: ResourceSkillPromptEntry[] = [];
     for (const { resource, full, meta } of parsed) {
@@ -864,7 +878,8 @@ async function loadResourceSkillPromptEntries(
   } catch (error) {
     if (
       error instanceof RequiredSkillLabsReadError ||
-      error instanceof SkillChoicesReadError
+      error instanceof SkillChoicesReadError ||
+      error instanceof RequiredSkillReadError
     ) {
       throw error;
     }

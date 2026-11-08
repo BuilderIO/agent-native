@@ -2170,6 +2170,41 @@ description: Meeting notes.
     expect(prompt).not.toContain("The organization's voice.");
   });
 
+  it("fails the prompt when a Required skill can't be read, but not an optional one", async () => {
+    const resources = [
+      {
+        id: "required",
+        owner: "__organization__:org-1",
+        path: "skills/brand-voice/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+      },
+      {
+        id: "recommended",
+        owner: "__organization__:org-1",
+        path: "skills/meeting-notes/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+      },
+    ];
+    mocks.resourceListAccessible.mockResolvedValue(resources);
+    mocks.resourceGet.mockRejectedValue(new Error("read failed"));
+    mocks.readSkillChoices.mockResolvedValue({
+      switches: {},
+      marks: { "organization:skills/brand-voice/SKILL.md": "required" },
+    });
+
+    // Its name is unknown, so a same-named skill could stand in for it.
+    await expect(
+      loadResourcesForPrompt("user@example.test", false, undefined, "org-1"),
+    ).rejects.toThrow("read failed");
+
+    mocks.readSkillChoices.mockResolvedValue({ switches: {}, marks: {} });
+    await expect(
+      loadResourcesForPrompt("user@example.test", false, undefined, "org-1"),
+    ).resolves.not.toContain("brand-voice");
+  });
+
   it("fails the prompt when it can't read who chose which skills", async () => {
     mocks.resourceListAccessible.mockResolvedValue([
       {
