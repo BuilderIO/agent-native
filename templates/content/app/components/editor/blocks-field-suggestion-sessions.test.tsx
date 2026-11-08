@@ -565,6 +565,31 @@ describe("useBlocksFieldSuggestions", () => {
     }
   });
 
+  it("keeps trying a tab's draft after a save the page asked for fails", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.createProposal.mockRejectedValueOnce(new Error("Network down"));
+      await render(true, []);
+      await draftInTab();
+
+      // The page's save replaces the draft's queued autosave, then fails.
+      let saved = true;
+      await act(async () => {
+        saved = await latest.flushAll();
+      });
+      expect(saved).toBe(false);
+      expect(mocks.createProposal).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(mocks.createProposal).toHaveBeenCalledTimes(2);
+      expect(onSaved).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("marks a tab as deciding until a decision on its suggestions ends", async () => {
     let finish: ((value: unknown) => void) | undefined;
     mocks.decideSuggestion.mockImplementation(

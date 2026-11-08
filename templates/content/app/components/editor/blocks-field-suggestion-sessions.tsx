@@ -554,9 +554,10 @@ export function useBlocksFieldSuggestions({
             toast.error(tRef.current("editor.suggestionFormattingUnsupported"));
           return false;
         }
-        if (autosave && !refused) {
+        if (!refused) {
           // A save that failed on the server, or never reached it, is tried
-          // again, less often the longer it keeps failing.
+          // again, less often the longer it keeps failing. That includes a
+          // decision's or the leaving save, which cleared any retry waiting.
           session.retryDelay = nextSuggestionAutosaveRetryDelay(
             session.retryDelay,
           );
