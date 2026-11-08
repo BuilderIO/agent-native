@@ -2,7 +2,6 @@ import { track } from "@agent-native/core/client/analytics";
 import {
   activateBuilderSignupAssignment,
   getBuilderSignupActivationStatus,
-  hasPendingBuilderSignupAssignment,
 } from "@agent-native/core/client/auth/builder-signup";
 import { useT } from "@agent-native/core/client/i18n";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -70,8 +69,7 @@ export function useBuilderSignupActivation(
   return (
     userId !== undefined &&
     settledUserId !== userId &&
-    (eligibility.data === "eligible" ||
-      (eligibility.isPending && hasPendingBuilderSignupAssignment()))
+    eligibility.data === "eligible"
   );
 }
 
