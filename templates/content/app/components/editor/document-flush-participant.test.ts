@@ -282,7 +282,7 @@ describe("fresh document flush participant", () => {
     expect(acks()).toHaveLength(1);
     expect(vi.getTimerCount()).toBe(0);
   });
-  it("does not check back when its answer was never published", async () => {
+  it("does not check back when its answer was refused", async () => {
     vi.useFakeTimers();
     request.expiresAt = Date.now() + 20_000;
     compare.mockResolvedValue(false);
@@ -292,5 +292,35 @@ describe("fresh document flush participant", () => {
     await vi.advanceTimersByTimeAsync(1_000);
     expect(read.mock.calls.length).toBe(reads);
     error.mockRestore();
+  });
+  it("checks back when the phase moves on before its answer goes out", async () => {
+    vi.useFakeTimers();
+    request.expiresAt = Date.now() + 20_000;
+    const asked = request;
+    drain.mockImplementationOnce(async () => {
+      request = { ...request, phaseToken: "again", prepareToken: "again" };
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await participant()(asked);
+    expect(acks()).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(acks()).toHaveLength(1);
+    expect(acks()[0]).toMatchObject({
+      status: "prepared",
+      phaseToken: "again",
+    });
+    error.mockRestore();
+  });
+  it("says once when it cannot read its mailbox", async () => {
+    vi.useFakeTimers();
+    request.expiresAt = Date.now() + 20_000;
+    await participant()(request);
+    const reads = read.mock.calls.length;
+    read.mockRejectedValue(new Error("Offline"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(read.mock.calls.length).toBe(reads + 4);
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
   });
 });

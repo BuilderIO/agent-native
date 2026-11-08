@@ -85,6 +85,7 @@ export function createDocumentFlushParticipant(input: {
   ): Promise<void> {
     if (checkingBack.has(key)) return;
     checkingBack.add(key);
+    let readFailed = false;
     try {
       while (answered.expiresAt > Date.now()) {
         const remaining = answered.expiresAt - Date.now();
@@ -109,8 +110,16 @@ export function createDocumentFlushParticipant(input: {
             `flush-request-${answered.id}`,
             { signal: abort.signal },
           );
-        } catch {
-          // A failed read is no news; the next one may succeed.
+        } catch (error) {
+          // A failed read is no news; the next one may succeed. Say so once,
+          // so a restore that still times out can be told from a slow server.
+          if (!readFailed && !abort.signal.aborted) {
+            readFailed = true;
+            console.warn("Document flush check-back could not read", {
+              error,
+              requestId: answered.requestId,
+            });
+          }
           continue;
         } finally {
           clearTimeout(timer);
@@ -208,9 +217,12 @@ export function createDocumentFlushParticipant(input: {
         input.identity()?.clientId === identity!.clientId
       );
     };
+    const phase = { movedOn: false };
     async function publish(ack: DocumentFlushAck) {
-      if (!(await stillCurrent()))
+      if (!(await stillCurrent())) {
+        phase.movedOn = true;
         throw new Error("Document flush phase changed before acknowledgment");
+      }
       if (!(await bounded(compare(key, null, ack, { signal: abort.signal })))) {
         throw new Error("Document flush acknowledgment CAS was refused");
       }
@@ -316,7 +328,8 @@ export function createDocumentFlushParticipant(input: {
       clearTimeout(timer);
       running.delete(key);
     }
-    if (published) void checkBack(request, identity, key);
+    // A phase that moved on before this answer went out is already waiting.
+    if (published || phase.movedOn) void checkBack(request, identity, key);
   }
 
   return respond;
