@@ -161,6 +161,65 @@ describe("runImportDesignFile", () => {
     );
   });
 
+  it("refuses a file it cannot read as a .fig before decoding it, with no retry", async () => {
+    const { deps, onRetry, args } = setup();
+
+    await expect(
+      runImportDesignFile(args(new File(["not a fig"], "Broken.fig"))),
+    ).resolves.toEqual({ status: "refused", reason: "unreadable" });
+
+    expect(deps.prepareFigImport).not.toHaveBeenCalled();
+    expect(deps.uploadDesignFile).not.toHaveBeenCalled();
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.importFailed",
+      {
+        id: FIG_IMPORT_TOAST_ID,
+        description: "designEditor.import.errors.figFileUnreadable",
+      },
+    );
+    expect(onRetry).not.toHaveBeenCalled();
+  });
+
+  it("imports a file the home page already decoded without decoding it again", async () => {
+    const { deps, args } = setup();
+    const ready = prepared(24);
+    const file = kiwiFile(1024);
+
+    await expect(
+      runImportDesignFile({ ...args(file), prepared: ready }),
+    ).resolves.toMatchObject({ status: "imported" });
+
+    expect(deps.prepareFigImport).not.toHaveBeenCalled();
+    expect(vi.mocked(deps.importFigInBrowser).mock.calls[0]?.[0]).toMatchObject(
+      { prepared: ready },
+    );
+  });
+
+  it("offers no retry after a failure that already saved part of the file", async () => {
+    const partial = Object.assign(
+      new Error(
+        "Saving failed. Cleanup failed for 3 partially imported screens.",
+      ),
+      { remoteMutationStarted: true },
+    );
+    const { deps, args } = setup({
+      importFigInBrowser: vi.fn(async () => {
+        throw partial;
+      }),
+    });
+
+    await expect(runImportDesignFile(args(kiwiFile(1024)))).resolves.toEqual({
+      status: "failed",
+      error: partial,
+    });
+
+    expect(deps.uploadDesignFile).not.toHaveBeenCalled();
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.importFailed",
+      { id: FIG_IMPORT_TOAST_ID, description: partial.message },
+    );
+  });
+
   it("falls back to the upload route when a small file fails to decode in the browser", async () => {
     const { deps, args } = setup({
       prepareFigImport: vi.fn(async () => {

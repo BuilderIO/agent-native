@@ -41,6 +41,7 @@ import {
   DESIGN_IMPORT_FORMATS,
   requestImportFile,
 } from "@/lib/design-import-file-picker";
+import type { PreparedFigImport } from "@/lib/fig-client-import";
 import { claimPendingDesignImport } from "@/lib/pending-import";
 
 import {
@@ -837,9 +838,10 @@ export function useEditorSourceAndSync({
   // before the file picker reports its change event.
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const startImportFile = useCallback(
-    (file: File) => {
+    (file: File, prepared?: PreparedFigImport) => {
       if (!id) return;
       if (importBusyRef.current) {
+        prepared?.dispose();
         toast.error(t("designEditor.import.errors.importBusy"));
         return;
       }
@@ -847,6 +849,7 @@ export function useEditorSourceAndSync({
       void runImportDesignFile({
         designId: id,
         file,
+        ...(prepared ? { prepared } : {}),
         t,
         formatNumber: (value) => formatters.formatNumber(value),
         formatList: (items) =>
@@ -882,14 +885,14 @@ export function useEditorSourceAndSync({
   useEffect(() => {
     if (!canEditDesign || !id) return;
     const pending = claimPendingDesignImport(id);
-    if (pending) startImportFile(pending.file);
+    if (pending) startImportFile(pending.file, pending.prepared);
   }, [canEditDesign, id, startImportFile]);
   const openImportFilePicker = useCallback(() => {
     requestImportFile({
       formats: DESIGN_IMPORT_FORMATS,
       allSupportedLabel: t("designEditor.import.allSupportedFiles"),
       openFallbackInput: () => importFileInputRef.current?.click(),
-      onFile: startImportFile,
+      onFile: (file) => startImportFile(file),
       onError: (error) =>
         toast.error(t("designEditor.import.errors.uploadFailed"), {
           description:

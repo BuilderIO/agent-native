@@ -1,6 +1,13 @@
 import { toast } from "sonner";
 
-export type PendingDesignImport = { kind: "file"; file: File };
+import type { PreparedFigImport } from "@/lib/fig-client-import";
+
+export type PendingDesignImport = {
+  kind: "file";
+  file: File;
+  /** The home page decodes the whole file before creating the design. */
+  prepared?: PreparedFigImport;
+};
 
 // Shared by the home picker and the editor's File → Import so one loading toast
 // spans creating the design, opening the editor, and the import itself.
@@ -56,6 +63,7 @@ export function claimPendingDesignImport(id: string) {
 }
 
 export function clearPendingDesignImport(id: string) {
+  pendingImports.get(id)?.prepared?.dispose();
   pendingImports.delete(id);
 }
 
@@ -63,6 +71,7 @@ export function clearPendingDesignImport(id: string) {
 // toast nothing took over is stale; a running import owns its own toast and
 // keeps it.
 export function discardPendingDesignImports() {
+  for (const pending of pendingImports.values()) pending.prepared?.dispose();
   pendingImports.clear();
   if (toastOwner?.handoff) dismissFigImportToast(toastOwner);
 }

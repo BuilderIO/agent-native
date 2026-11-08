@@ -1735,6 +1735,8 @@ export default {
           "Outra importação está em andamento. Tente novamente quando ela terminar.",
         figFileTooLarge:
           "Este arquivo é grande demais para importar aqui. Cole um link para a página ou o frame do Figma.",
+        figFileUnreadable:
+          "Não é possível ler este arquivo como um arquivo .fig. Salve uma nova cópia local no Figma e importe-a.",
       },
     },
     generationMayHaveStopped:

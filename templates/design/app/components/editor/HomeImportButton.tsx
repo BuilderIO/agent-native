@@ -23,7 +23,7 @@ import {
   importFormatsAccept,
   requestImportFile,
 } from "@/lib/design-import-file-picker";
-import { preflightFigArchive } from "@/lib/fig-archive-preflight";
+import type { PreparedFigImport } from "@/lib/fig-client-import";
 import {
   claimFigImportToast,
   discardPendingDesignImports,
@@ -32,6 +32,11 @@ import {
   setPendingDesignImport,
   updateFigImportToast,
 } from "@/lib/pending-import";
+import {
+  FigFileRefusedError,
+  figFileRefusalMessage,
+  prepareWholeFigImport,
+} from "@/pages/design-editor/commands/import-design-file";
 
 const HOME_IMPORT_FORMATS = [FIGMA_IMPORT_FORMAT];
 
@@ -80,15 +85,22 @@ export function HomeImportButton() {
       t("designEditor.import.figImportAnalyzing"),
       file.name,
     );
+    let prepared: PreparedFigImport | undefined;
     try {
       // Refuse before creating a design the import could never fill.
-      if ((await preflightFigArchive(file)).status === "too-large") {
-        releaseFigImportToast(toastOwner);
-        toast.error(t("designEditor.import.errors.figFileTooLarge"), {
-          id: FIG_IMPORT_TOAST_ID,
-          description: file.name,
-        });
-        return;
+      try {
+        prepared = await prepareWholeFigImport(file);
+      } catch (decodeError) {
+        if (decodeError instanceof FigFileRefusedError) {
+          releaseFigImportToast(toastOwner);
+          toast.error(figFileRefusalMessage(decodeError.refusal, t), {
+            id: FIG_IMPORT_TOAST_ID,
+            description: file.name,
+          });
+          return;
+        }
+        // The editor decodes again and can fall back to the upload route.
+        console.warn("[fig-import] home decode failed", decodeError);
       }
       const result = await create.mutateAsync({
         title: file.name.replace(/\.fig$/i, "") || t("home.untitledDesign"),
@@ -97,7 +109,12 @@ export function HomeImportButton() {
         creationMethod: "import_figma",
       });
       if (!result.id) throw new Error(t("home.failedToCreateDesign"));
-      setPendingDesignImport(result.id, { kind: "file", file });
+      setPendingDesignImport(result.id, {
+        kind: "file",
+        file,
+        ...(prepared ? { prepared } : {}),
+      });
+      prepared = undefined;
       void navigate(`/design/${result.id}`);
     } catch (cause) {
       releaseFigImportToast(toastOwner);
@@ -110,6 +127,7 @@ export function HomeImportButton() {
         },
       });
     } finally {
+      prepared?.dispose();
       pending.current = false;
       setBusy(false);
     }

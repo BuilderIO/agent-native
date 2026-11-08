@@ -24,6 +24,7 @@ const EOCD_SCAN_BYTES = 65_557;
 const ZSTD_MAGIC = 0xfd2fb528;
 const MAX_ZSTD_HEADER_BYTES = 18;
 const MAX_KIWI_CHUNKS = 4_096;
+const DIRECTORY_WINDOW_BYTES = 128 * 1024;
 
 class UnreadableArchive extends Error {}
 
@@ -36,6 +37,30 @@ async function readBytes(
     throw new UnreadableArchive(`Range ${start}-${end} is outside the file.`);
   }
   return new Uint8Array(await blob.slice(start, end).arrayBuffer());
+}
+
+/** Reads a range through a bounded window, so a size the archive declares
+ * never decides how much memory preflight allocates. */
+function windowedReader(blob: Blob, start: number, end: number) {
+  let windowStart = start;
+  let window: Uint8Array = new Uint8Array(0);
+  return async (position: number, length: number): Promise<Uint8Array> => {
+    const from = start + position;
+    if (from + length > end) {
+      throw new UnreadableArchive(
+        "Zip directory entry extends past the directory.",
+      );
+    }
+    if (from < windowStart || from + length > windowStart + window.length) {
+      windowStart = from;
+      window = await readBytes(
+        blob,
+        from,
+        Math.min(end, from + Math.max(length, DIRECTORY_WINDOW_BYTES)),
+      );
+    }
+    return window.subarray(from - windowStart, from - windowStart + length);
+  };
 }
 
 /** The content size a Zstandard frame header declares, or null when the
@@ -82,7 +107,9 @@ async function readKiwiChunkSizes(
   };
   let offset = 12;
   for (let index = 0; offset < length; index += 1) {
-    if (index >= MAX_KIWI_CHUNKS) break;
+    if (index >= MAX_KIWI_CHUNKS) {
+      throw new UnreadableArchive(".fig file has too many binary chunks.");
+    }
     if (offset + 4 > length) {
       throw new UnreadableArchive("Truncated kiwi chunk header.");
     }
@@ -138,7 +165,10 @@ async function readZipSizes(
   if (entries > limits.zipEntries) return { tooManyEntries: true };
   const directorySize = readU32LE(tail, eocd + 12);
   const directoryOffset = readU32LE(tail, eocd + 16);
-  const directory = await readBytes(
+  if (directoryOffset + directorySize > tailStart + eocd) {
+    throw new UnreadableArchive("Zip directory overlaps its end record.");
+  }
+  const readDirectory = windowedReader(
     blob,
     directoryOffset,
     directoryOffset + directorySize,
@@ -153,21 +183,17 @@ async function readZipSizes(
   let canvas: { localHeaderOffset: number; size: number } | null = null;
   let position = 0;
   for (let entry = 0; entry < entries; entry += 1) {
-    if (
-      position + 46 > directory.length ||
-      readU32LE(directory, position) !== CENTRAL_ENTRY_SIGNATURE
-    ) {
+    const header = await readDirectory(position, 46);
+    if (readU32LE(header, 0) !== CENTRAL_ENTRY_SIGNATURE) {
       throw new UnreadableArchive("Bad zip directory entry.");
     }
-    const compressionMethod = readU16LE(directory, position + 10);
-    const uncompressedSize = readU32LE(directory, position + 24);
-    const nameLength = readU16LE(directory, position + 28);
-    const extraLength = readU16LE(directory, position + 30);
-    const commentLength = readU16LE(directory, position + 32);
-    const localHeaderOffset = readU32LE(directory, position + 42);
-    const name = readUtf8(
-      directory.subarray(position + 46, position + 46 + nameLength),
-    );
+    const compressionMethod = readU16LE(header, 10);
+    const uncompressedSize = readU32LE(header, 24);
+    const nameLength = readU16LE(header, 28);
+    const extraLength = readU16LE(header, 30);
+    const commentLength = readU16LE(header, 32);
+    const localHeaderOffset = readU32LE(header, 42);
+    const name = readUtf8(await readDirectory(position + 46, nameLength));
     position += 46 + nameLength + extraLength + commentLength;
 
     if (compressionMethod !== 0) {

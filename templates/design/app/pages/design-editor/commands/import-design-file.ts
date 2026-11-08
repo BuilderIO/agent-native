@@ -25,10 +25,7 @@ import {
   type FigImportToastOwner,
 } from "@/lib/pending-import";
 
-import {
-  BROWSER_FIG_LIMITS,
-  type FigImportLimits,
-} from "../../../../server/lib/fig-file-limits.js";
+import { BROWSER_FIG_LIMITS } from "../../../../server/lib/fig-file-limits.js";
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
@@ -58,7 +55,9 @@ export interface ImportDesignFileArgs {
   formatList: (items: string[]) => string;
   /** Refreshes the editor onto the imported screens. */
   onImported: (result: ImportResult) => Promise<void>;
-  /** Offered on the failure toast; not for files refused as too large. */
+  /** A whole-file decode the home page already ran; skips decoding again. */
+  prepared?: PreparedFigImport;
+  /** Offered on the failure toast; not for refused files or partial saves. */
   onRetry?: () => void;
   deps: ImportDesignFileDepsOverrides;
 }
@@ -69,15 +68,27 @@ interface ImportDesignFileDepsOverrides extends Partial<ImportDesignFileDeps> {
 
 export type ImportDesignFileOutcome =
   | { status: "imported"; result: ImportResult }
-  | { status: "refused"; reason: "too-large" | "unsupported" | "not-html" }
+  | {
+      status: "refused";
+      reason: FigFileRefusal | "unsupported" | "not-html";
+    }
   | { status: "failed"; error: unknown };
 
-/** A .fig over the browser decoder's limits. The whole file is refused rather
- * than imported in part. */
-export class FigFileTooLargeError extends Error {
-  constructor(readonly limit: keyof FigImportLimits) {
-    super(`.fig file exceeds the browser import limit (${limit}).`);
-    this.name = "FigFileTooLargeError";
+export type FigFileRefusal = "too-large" | "unreadable";
+
+/** A .fig the browser decoder would refuse: over its limits, or not a .fig it
+ * can read. The whole file is refused rather than imported in part. */
+export class FigFileRefusedError extends Error {
+  constructor(
+    readonly refusal: FigFileRefusal,
+    detail: string,
+  ) {
+    super(
+      refusal === "too-large"
+        ? `.fig file exceeds the browser import limit (${detail}).`
+        : `.fig file is unreadable: ${detail}`,
+    );
+    this.name = "FigFileRefusedError";
   }
 }
 
@@ -170,9 +181,49 @@ function fidelityWarnings(
   return warnings;
 }
 
+export function figFileRefusalMessage(
+  refusal: FigFileRefusal,
+  t: Translate,
+): string {
+  return refusal === "too-large"
+    ? t("designEditor.import.errors.figFileTooLarge")
+    : t("designEditor.import.errors.figFileUnreadable");
+}
+
 /** Replaces the progress toast in place while this import still owns it. */
 function settledToast(owner: FigImportToastOwner): { id?: string } {
   return releaseFigImportToast(owner) ? { id: FIG_IMPORT_TOAST_ID } : {};
+}
+
+/** Checks a .fig against the browser limits and decodes it whole, refusing
+ * it before anything is written when it cannot be imported in full. */
+export async function prepareWholeFigImport(
+  file: File,
+  deps: Pick<
+    ImportDesignFileDeps,
+    "preflightFigArchive" | "prepareFigImport"
+  > = defaultDeps,
+): Promise<PreparedFigImport> {
+  const preflight = await deps.preflightFigArchive(file, BROWSER_FIG_LIMITS);
+  if (preflight.status === "too-large") {
+    throw new FigFileRefusedError("too-large", preflight.limit);
+  }
+  if (preflight.status === "unreadable") {
+    throw new FigFileRefusedError("unreadable", preflight.reason);
+  }
+  const prepared = await deps.prepareFigImport(file);
+  if (prepared.summary.frameCount > BROWSER_FIG_LIMITS.frames) {
+    prepared.dispose();
+    throw new FigFileRefusedError("too-large", "frames");
+  }
+  return prepared;
+}
+
+function remoteMutationStarted(error: unknown): boolean {
+  return (
+    (error as { remoteMutationStarted?: unknown } | null)
+      ?.remoteMutationStarted === true
+  );
 }
 
 async function importFigFile(
@@ -181,16 +232,8 @@ async function importFigFile(
   report: (update: Partial<FigProgress>) => void,
 ): Promise<ImportResult> {
   const { designId, file, t } = args;
-  const preflight = await deps.preflightFigArchive(file, BROWSER_FIG_LIMITS);
-  if (preflight.status === "too-large") {
-    throw new FigFileTooLargeError(preflight.limit);
-  }
   try {
-    const prepared = await deps.prepareFigImport(file);
-    if (prepared.summary.frameCount > BROWSER_FIG_LIMITS.frames) {
-      prepared.dispose();
-      throw new FigFileTooLargeError("frames");
-    }
+    const prepared = args.prepared ?? (await prepareWholeFigImport(file, deps));
     return await deps.importFigInBrowser({
       designId,
       file,
@@ -205,10 +248,9 @@ async function importFigFile(
     });
   } catch (localError) {
     if (
-      localError instanceof FigFileTooLargeError ||
+      localError instanceof FigFileRefusedError ||
       file.size > MAX_FIG_UPLOAD_BYTES ||
-      (localError as { remoteMutationStarted?: unknown })
-        .remoteMutationStarted === true ||
+      remoteMutationStarted(localError) ||
       !(await deps.isUploadStorageConfigured())
     ) {
       throw localError;
@@ -305,20 +347,22 @@ export async function runImportDesignFile(
     }
     return { status: "imported", result };
   } catch (error) {
-    const tooLarge = error instanceof FigFileTooLargeError;
+    const refusal = error instanceof FigFileRefusedError ? error.refusal : null;
+    // Retrying after a partial save would duplicate the screens it kept.
+    const retryable = !refusal && !remoteMutationStarted(error);
     toast.error(t("designEditor.import.errors.importFailed"), {
       ...settledToast(owner),
-      description: tooLarge
-        ? t("designEditor.import.errors.figFileTooLarge")
+      description: refusal
+        ? figFileRefusalMessage(refusal, t)
         : error instanceof Error
           ? error.message
           : t("common.genericError"),
-      ...(!tooLarge && args.onRetry
+      ...(retryable && args.onRetry
         ? { action: { label: t("homeContext.retry"), onClick: args.onRetry } }
         : {}),
     });
-    return tooLarge
-      ? { status: "refused", reason: "too-large" }
+    return refusal
+      ? { status: "refused", reason: refusal }
       : { status: "failed", error };
   } finally {
     dismissFigImportToast(owner);

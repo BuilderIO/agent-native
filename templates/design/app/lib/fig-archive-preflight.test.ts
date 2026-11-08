@@ -146,6 +146,39 @@ describe("preflightFigArchive", () => {
     expect(bytesRead).toBeLessThan(128 * 1024);
   });
 
+  it("refuses a kiwi file with more chunks than the decoder reads instead of scanning part of it", async () => {
+    const chunks = Array.from({ length: 4_097 }, () => new Uint8Array(1));
+    const file = asFile(kiwi(...chunks));
+
+    await expect(preflightFigArchive(file)).resolves.toEqual({
+      status: "unreadable",
+      reason: ".fig file has too many binary chunks.",
+    });
+  });
+
+  it("never allocates the directory size an archive declares", async () => {
+    const bytes = figZip(kiwi(schema, zstdChunk(MB)), {
+      a: new Uint8Array(MB),
+    });
+    const view = new DataView(bytes.buffer);
+    const eocd = bytes.length - 22;
+    // Claims everything before the end record is directory.
+    view.setUint32(eocd + 12, eocd, true);
+    view.setUint32(eocd + 16, 0, true);
+    const file = asFile(bytes);
+    let largestRead = 0;
+    const slice = file.slice.bind(file);
+    file.slice = (start?: number, end?: number) => {
+      largestRead = Math.max(largestRead, (end ?? file.size) - (start ?? 0));
+      return slice(start, end);
+    };
+
+    await expect(preflightFigArchive(file)).resolves.toMatchObject({
+      status: "unreadable",
+    });
+    expect(largestRead).toBeLessThanOrEqual(128 * 1024);
+  });
+
   it("reports a file it cannot parse as unreadable, not as fitting", async () => {
     await expect(
       preflightFigArchive(asFile(new TextEncoder().encode("not a fig file"))),

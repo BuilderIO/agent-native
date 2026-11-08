@@ -1736,6 +1736,8 @@ export default {
           "別のインポートを実行中です。完了してからもう一度お試しください。",
         figFileTooLarge:
           "このファイルは大きすぎるため、ここではインポートできません。代わりに Figma のページまたはフレームのリンクを貼り付けてください。",
+        figFileUnreadable:
+          "このファイルは .fig ファイルとして読み取れません。Figma で新しいローカルコピーを保存して、それをインポートしてください。",
       },
     },
     generationMayHaveStopped:

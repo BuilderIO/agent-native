@@ -1681,6 +1681,8 @@ export default {
         importBusy: "另一个导入正在进行。请在其完成后重试。",
         figFileTooLarge:
           "此文件太大，无法在此导入。请改为粘贴 Figma 页面或画框的链接。",
+        figFileUnreadable:
+          "无法将此文件读取为 .fig 文件。请从 Figma 保存新的本地副本并导入。",
       },
     },
     generationMayHaveStopped:

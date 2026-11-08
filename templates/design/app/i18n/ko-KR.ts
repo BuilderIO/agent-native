@@ -1719,6 +1719,8 @@ export default {
         importBusy: "다른 가져오기가 진행 중입니다. 완료된 후 다시 시도하세요.",
         figFileTooLarge:
           "이 파일은 너무 커서 여기서 가져올 수 없습니다. 대신 Figma 페이지나 프레임 링크를 붙여넣으세요.",
+        figFileUnreadable:
+          "이 파일을 .fig 파일로 읽을 수 없습니다. Figma에서 새 로컬 사본을 저장한 후 가져오세요.",
       },
     },
     generationMayHaveStopped:

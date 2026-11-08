@@ -24,7 +24,32 @@ const mocks = vi.hoisted(() => ({
   error: vi.fn(),
   loading: vi.fn(),
   dismiss: vi.fn(),
+  preflight: vi.fn(),
+  prepare: vi.fn(),
+  dispose: vi.fn(),
 }));
+vi.mock("@/lib/fig-archive-preflight", async (importOriginal) => {
+  const real =
+    await importOriginal<typeof import("@/lib/fig-archive-preflight")>();
+  mocks.preflight.mockImplementation(real.preflightFigArchive);
+  return { preflightFigArchive: mocks.preflight };
+});
+vi.mock("@/lib/fig-client-import", () => ({
+  prepareFigImport: mocks.prepare,
+}));
+function preparedWith(frameCount: number) {
+  return {
+    summary: {
+      pageCount: 1,
+      frameCount,
+      nodeCount: 1,
+      imageCount: 0,
+      pages: [],
+    },
+    render: vi.fn(),
+    dispose: mocks.dispose,
+  };
+}
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: () => ({ mutateAsync: mocks.create }),
   actionErrorMessage: (error: unknown) =>
@@ -82,6 +107,13 @@ beforeEach(async () => {
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
   mocks.create.mockResolvedValue({ id: "file-design" });
+  // Fixture bytes are not a real .fig; each test that needs the real
+  // preflight asks for it.
+  mocks.preflight.mockResolvedValue({ status: "fits" });
+  mocks.prepare.mockImplementation(async (file: File) => ({
+    file,
+    ...preparedWith(3),
+  }));
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -148,6 +180,10 @@ describe("home Figma import", () => {
     view.setUint32(17, document.length, true);
     bytes.set(document, 21);
 
+    const { preflightFigArchive } = await vi.importActual<
+      typeof import("@/lib/fig-archive-preflight")
+    >("@/lib/fig-archive-preflight");
+    mocks.preflight.mockImplementationOnce(preflightFigArchive);
     await chooseFile(new File([bytes], "Big.fig"));
 
     await vi.waitFor(() =>
@@ -158,6 +194,52 @@ describe("home Figma import", () => {
     );
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("refuses a file it cannot read as a .fig before creating a design", async () => {
+    const { preflightFigArchive } = await vi.importActual<
+      typeof import("@/lib/fig-archive-preflight")
+    >("@/lib/fig-archive-preflight");
+    mocks.preflight.mockImplementationOnce(preflightFigArchive);
+
+    await chooseFile(new File(["not a fig"], "Broken.fig"));
+
+    await vi.waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith(
+        "designEditor.import.errors.figFileUnreadable",
+        { id: FIG_IMPORT_TOAST_ID, description: "Broken.fig" },
+      ),
+    );
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("counts frames before creating a design and refuses a file over the frame limit", async () => {
+    mocks.prepare.mockImplementationOnce(async (file: File) => ({
+      file,
+      ...preparedWith(2_001),
+    }));
+
+    await chooseFile(new File(["fixture"], "Campaigns.fig"));
+
+    await vi.waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith(
+        "designEditor.import.errors.figFileTooLarge",
+        { id: FIG_IMPORT_TOAST_ID, description: "Campaigns.fig" },
+      ),
+    );
+    expect(mocks.dispose).toHaveBeenCalledOnce();
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("frees the decoded file when creating the design fails", async () => {
+    mocks.create.mockRejectedValueOnce(new Error("Sign in required"));
+
+    await chooseFile(new File(["fixture"], "Brand.fig"));
+
+    await vi.waitFor(() => expect(mocks.dispose).toHaveBeenCalledOnce());
+    expect(readPendingDesignImport("file-design")).toBeUndefined();
   });
 
   it("opens the .fig picker straight from the button, with no menu", async () => {
@@ -240,6 +322,7 @@ describe("home Figma import", () => {
   it("hands the exact selected file to the new design's editor", async () => {
     const file = new File(["test fixture"], "example.fig");
     await chooseFile(file);
+    await vi.waitFor(() => expect(mocks.navigate).toHaveBeenCalled());
     expect(mocks.loading).toHaveBeenCalledExactlyOnceWith(
       "designEditor.import.figImportAnalyzing",
       { id: "design-fig-import-progress", description: "example.fig" },
@@ -250,10 +333,12 @@ describe("home Figma import", () => {
       designSystemId: null,
       creationMethod: "import_figma",
     });
-    expect(readPendingDesignImport("file-design")).toEqual({
+    expect(readPendingDesignImport("file-design")).toMatchObject({
       kind: "file",
       file,
+      prepared: { file, summary: { frameCount: 3 } },
     });
+    expect(mocks.dispose).not.toHaveBeenCalled();
     expect(mocks.navigate).toHaveBeenCalledWith("/design/file-design");
   });
   it("rejects non-.fig files before creation and offers an explicit retry after an authenticated create failure", async () => {
@@ -265,6 +350,9 @@ describe("home Figma import", () => {
     mocks.create.mockRejectedValueOnce(new Error("Sign in required"));
     const file = new File(["fixture"], "example.fig");
     await chooseFile(file);
+    await vi.waitFor(() =>
+      expect(mocks.error.mock.lastCall?.[1]?.action).toBeDefined(),
+    );
     expect(mocks.navigate).not.toHaveBeenCalled();
     expect(readPendingDesignImport("file-design")).toBeUndefined();
     expect(mocks.error.mock.lastCall?.[1]).toMatchObject({
@@ -273,7 +361,9 @@ describe("home Figma import", () => {
     const retry = mocks.error.mock.lastCall?.[1]?.action.onClick;
     expect(retry).toBeTypeOf("function");
     await act(async () => retry());
-    expect(readPendingDesignImport("file-design")?.file).toBe(file);
+    await vi.waitFor(() =>
+      expect(readPendingDesignImport("file-design")?.file).toBe(file),
+    );
     expect(mocks.navigate).toHaveBeenCalledExactlyOnceWith(
       "/design/file-design",
     );

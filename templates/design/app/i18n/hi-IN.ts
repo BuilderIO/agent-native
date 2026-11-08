@@ -1713,6 +1713,8 @@ export default {
         importBusy: "एक और आयात जारी है। उसके पूरा होने पर फिर से कोशिश करें।",
         figFileTooLarge:
           "यह फ़ाइल यहाँ आयात करने के लिए बहुत बड़ी है। इसके बजाय Figma पेज या frame का लिंक paste करें।",
+        figFileUnreadable:
+          "यह फ़ाइल .fig फ़ाइल के रूप में पढ़ी नहीं जा सकती। Figma से नई लोकल कॉपी सेव करें और उसे आयात करें।",
       },
     },
     generationMayHaveStopped:

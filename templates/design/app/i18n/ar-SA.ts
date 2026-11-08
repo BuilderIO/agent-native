@@ -1705,6 +1705,8 @@ export default {
         importBusy: "هناك استيراد آخر قيد التنفيذ. حاول مرة أخرى عند انتهائه.",
         figFileTooLarge:
           "هذا الملف كبير جدًا لاستيراده هنا. الصق رابط صفحة Figma أو الإطار بدلاً من ذلك.",
+        figFileUnreadable:
+          "تعذّرت قراءة هذا الملف كملف ‎.fig. احفظ نسخة محلية جديدة من Figma واستوردها.",
       },
     },
     generationMayHaveStopped:
