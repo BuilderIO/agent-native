@@ -209,6 +209,17 @@ function suggestionChangeResource(
     : null;
 }
 
+// A failed call reaches changeResource with no result, whatever its type says.
+function decisionChangeResource(
+  result:
+    | { suggestion?: ResourceSuggestion; suggestions?: ResourceSuggestion[] }
+    | undefined,
+) {
+  return suggestionChangeResource(
+    result?.suggestion ?? result?.suggestions?.[0],
+  );
+}
+
 export const createResourceSuggestion = defineAction({
   description:
     "Create a typed pending suggestion without changing the canonical resource. Pass supersedes to replace your own earlier pending suggestions on the same resource in the same step.",
@@ -781,8 +792,7 @@ export const decideResourceSuggestion = defineAction({
         : undefined;
     },
   },
-  changeResource: (_input, result) =>
-    suggestionChangeResource(result?.suggestion),
+  changeResource: (_input, result) => decisionChangeResource(result),
 });
 
 const proposalCreationSchema = z.object({
@@ -1368,6 +1378,5 @@ export const decideResourceSuggestionProposal = defineAction({
         : undefined;
     },
   },
-  changeResource: (_input, result) =>
-    suggestionChangeResource(result?.suggestions[0]),
+  changeResource: (_input, result) => decisionChangeResource(result),
 });
