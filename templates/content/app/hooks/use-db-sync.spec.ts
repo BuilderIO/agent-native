@@ -696,8 +696,11 @@ describe("contentActionInvalidatePredicate", () => {
   it.each([
     "create-document",
     "delete-document",
+    "import-content-source",
     "move-document",
     "restore-document",
+    "sync-local-folder-source",
+    "undo-content-import",
     "update-content-database-view",
   ])("refreshes the open path when %s runs elsewhere", (key) => {
     const predicate = contentActionInvalidatePredicate("/page/page-1");

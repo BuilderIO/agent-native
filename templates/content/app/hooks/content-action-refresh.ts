@@ -130,13 +130,13 @@ const DOCUMENT_DISCOVERY_MUTATIONS = new Set([
 ]);
 
 // A path entry's `hasChildren` reads the same rows and view as the Files tree,
-// and a move changes the path itself.
+// and any document write can add, move, or trash the pages a path counts.
 const NAVIGATION_CONTEXT_MUTATIONS = new Set([
+  ...DOCUMENT_MUTATIONS,
   ...DATABASE_RESULT_MUTATIONS,
   ...DATABASE_PRESENTATION_MUTATIONS,
   ...DATABASE_LIFECYCLE_MUTATIONS,
   ...DOCUMENT_DISCOVERY_MUTATIONS,
-  "move-document",
 ]);
 
 const PREVIEW_DRAFT_MUTATIONS = new Set([
