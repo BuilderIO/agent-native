@@ -10,7 +10,7 @@ jobs:
       fail-fast: false
       max-parallel: 8
       matrix:
-        site: [assets, brain, design, clips, crm, starter, slides, mail, forms, plan, dispatch, content, calendar, analytics, factory, fw]
+        site: [clips]
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
       target: production
