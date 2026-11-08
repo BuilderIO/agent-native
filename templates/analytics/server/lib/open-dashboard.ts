@@ -3,6 +3,7 @@ import {
   builtinDashboardIdFor,
 } from "../../shared/builtin-dashboard-ids.js";
 import {
+  builtinDashboardVisibility,
   loadBuiltinDashboard,
   type BuiltinDashboard,
 } from "./builtin-dashboards.js";
@@ -34,4 +35,14 @@ export async function openDashboard(
     ? await loadBuiltinDashboard(builtinId, scope)
     : null;
   return builtin ? { builtin } : null;
+}
+
+/** Who can open `opened`: a saved dashboard's sharing, or how its built-in was installed. */
+export async function openedDashboardVisibility(
+  opened: OpenedDashboard,
+  scope: Scope,
+): Promise<DashboardRecord["visibility"]> {
+  return opened.saved
+    ? opened.saved.visibility
+    : builtinDashboardVisibility(opened.builtin.id, scope);
 }

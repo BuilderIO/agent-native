@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
   loadBuiltin: vi.fn(),
+  builtinVisibility: vi.fn(),
   resolvePanel: vi.fn(),
   listKeyDateSets: vi.fn(),
 }));
@@ -15,6 +16,9 @@ vi.mock("./open-dashboard", () => ({
     const config = mocks.loadBuiltin(id);
     return config ? { builtin: { id, title: id, version: 1, config } } : null;
   },
+  openedDashboardVisibility: async (opened: {
+    saved?: { visibility: string };
+  }) => opened.saved?.visibility ?? mocks.builtinVisibility(),
 }));
 vi.mock("./dashboard-panel-source-resolver", () => ({
   resolveAnalyticsPanelSource: mocks.resolvePanel,
@@ -93,6 +97,8 @@ beforeEach(() => {
   mocks.getDashboard.mockResolvedValue(dashboard());
   mocks.loadBuiltin.mockReset();
   mocks.loadBuiltin.mockReturnValue(null);
+  mocks.builtinVisibility.mockReset();
+  mocks.builtinVisibility.mockReturnValue("org");
   mocks.resolvePanel.mockReset();
   mocks.resolvePanel.mockResolvedValue(
     result([
@@ -170,16 +176,17 @@ describe("captureDashboardPanel", () => {
     expect(capture.filters).toEqual({ timeRange: "90d" });
   });
 
-  it("counts a built-in dashboard as open to the organization", async () => {
+  it("takes a built-in dashboard's audience from how it was installed", async () => {
     mocks.getDashboard.mockResolvedValue(null);
     mocks.loadBuiltin.mockReturnValue(dashboard().config);
+    mocks.builtinVisibility.mockReturnValue("private");
 
     const capture = await captureDashboardPanel(
       { dashboardId: "growth", panelId: "signups" },
       CTX,
     );
 
-    expect(capture.dashboard.visibility).toBe("org");
+    expect(capture.dashboard.visibility).toBe("private");
   });
 
   it("refuses a dashboard the caller can't open", async () => {
@@ -323,6 +330,26 @@ describe("fitting a capture to the result limit", () => {
       full.rows[full.rows.length - 1],
     );
     expect(fitCaptureToChars(full, sizeOf(full))).toBe(full);
+  });
+
+  it("keeps the newest points of a chart whose query sorts newest first", async () => {
+    const day = Date.parse("2026-11-01T00:00:00.000Z");
+    mocks.resolvePanel.mockResolvedValue(
+      result(
+        Array.from({ length: 120 }, (_, index) => ({
+          week: new Date(day - index * 86_400_000).toISOString().slice(0, 10),
+          signups: index + 0.5,
+        })),
+      ),
+    );
+    const full = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "signups" },
+      CTX,
+    );
+    const fitted = fitCaptureToChars(full, Math.floor(sizeOf(full) / 2));
+    expect(fitted.truncated).toBe(true);
+    expect(fitted.rows[0]).toEqual(full.rows[0]);
+    expect(fitted.rows[0]?.[0]).toBe("2026-11-01");
   });
 
   it("keeps a table's first rows", async () => {

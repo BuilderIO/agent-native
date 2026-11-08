@@ -15,6 +15,7 @@ import type {
   DashboardFilter,
   SqlPanel,
 } from "../../app/pages/adhoc/sql-dashboard/types";
+import { axisDirection } from "../../shared/chart-axis-labels";
 import { keyDateEvents } from "../../shared/key-dates";
 import {
   readTrafficFilterValue,
@@ -40,7 +41,11 @@ import {
   type AccessCtx,
 } from "./dashboard-report-subscriptions";
 import { listKeyDateSets } from "./key-dates-store";
-import { openDashboard, type OpenedDashboard } from "./open-dashboard";
+import {
+  openDashboard,
+  openedDashboardVisibility,
+  type OpenedDashboard,
+} from "./open-dashboard";
 
 const FILTER_PARAM_PREFIX = "f_";
 const FILTER_SUMMARY_CHARS = 500;
@@ -65,10 +70,7 @@ type OpenedSqlDashboard = {
   annotationScope: AnnotationScope;
 };
 
-/**
- * A dashboard as the caller opens it. Built-in dashboards open for everyone
- * in the organization, so they count as organization-wide.
- */
+/** A dashboard as the caller opens it, with who else can open it. */
 async function openSqlDashboard(
   dashboardId: string,
   ctx: AccessCtx,
@@ -105,7 +107,7 @@ async function openSqlDashboard(
     opened,
     id: report.id,
     title: (name || report.title).slice(0, 300),
-    visibility: opened.saved?.visibility ?? "org",
+    visibility: await openedDashboardVisibility(opened, ctx),
     config,
     annotationScope: report.annotationScope,
   };
@@ -347,13 +349,19 @@ export function fitCaptureToChars(
     JSON.stringify(value, null, 2).length;
   if (size(capture) <= maxChars) return capture;
   const type = capture.panel.type;
-  const keepsLatest = type !== "table" && type !== "pie" && type !== "funnel";
+  // A chart keeps its newest points, which open the rows when the query
+  // sorts newest first (ORDER BY date DESC).
+  const keepsEnd =
+    type !== "table" &&
+    type !== "pie" &&
+    type !== "funnel" &&
+    axisDirection(capture.rows.map((row) => row[0])) !== "descending";
   for (
     let keep = Math.floor(capture.rows.length * 0.8);
     keep >= 1;
     keep = Math.floor(keep * 0.8)
   ) {
-    const rows = keepsLatest
+    const rows = keepsEnd
       ? capture.rows.slice(capture.rows.length - keep)
       : capture.rows.slice(0, keep);
     const labels = new Set(rows.map((row) => String(row[0])));
