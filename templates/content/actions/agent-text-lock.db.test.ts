@@ -1105,6 +1105,60 @@ describe("Agents set to Can comment on a page", () => {
     });
   });
 
+  it("refuses an agent renaming or hiding a Blocks tab on locked rows, not another column", async () => {
+    await asOwner(async () => {
+      const row = await collectionRow();
+      const discovered = await contract(row.databaseId);
+      const documentId = discovered.target.databaseDocumentId;
+      const agentCall = { caller: "http", userEmail: OWNER } as const;
+      const field = async (name: string, type: "blocks" | "text") => {
+        const configured = (await configureProperty.run(
+          { documentId, databaseId: row.databaseId, name, type },
+          person,
+        )) as {
+          properties: Array<{ definition: { id: string; name: string } }>;
+        };
+        const property = configured.properties.find(
+          (candidate) => candidate.definition.name === name,
+        );
+        if (!property) throw new Error(`Fixture has no ${name} field.`);
+        return property.definition.id;
+      };
+      const notes = {
+        documentId,
+        databaseId: row.databaseId,
+        id: await field("Notes", "blocks"),
+        type: "blocks" as const,
+      };
+      const status = await field("Status", "text");
+
+      await expect(
+        configureProperty.run({ ...notes, name: "Agent's notes" }, agentCall),
+      ).rejects.toMatchObject(locked);
+      await expect(
+        configureProperty.run(
+          { ...notes, name: "Notes", visibility: "always_hide" },
+          agentCall,
+        ),
+      ).rejects.toMatchObject(locked);
+      await configureProperty.run(
+        {
+          documentId,
+          databaseId: row.databaseId,
+          id: status,
+          name: "State",
+          type: "text",
+        },
+        agentCall,
+      );
+
+      await configureProperty.run(
+        { ...notes, name: "Renamed notes", visibility: "always_hide" },
+        person,
+      );
+    });
+  });
+
   it("checks the lock again after a block edit has waited its turn", async () => {
     await asOwner(async () => {
       const row = await collectionRow();
