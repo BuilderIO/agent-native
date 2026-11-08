@@ -140,8 +140,8 @@ describe("Skills CLI Funnel seed panels", () => {
   );
 
   it("rates completed installs against started runs", async () => {
-    const [row] = await run(panelSql("skills-cli-completion-rate"));
-    expect(Number(row.rate)).toBe(25);
+    const rows = await run(panelSql("skills-cli-completion-rate"));
+    expect(rows.map((row) => Number(row.rate))).toEqual([25]);
   });
 
   it("lists each step's runs and their share of starts", async () => {
