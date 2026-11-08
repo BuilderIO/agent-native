@@ -9,6 +9,7 @@ import {
   actionCallReadOnly,
   actionOutputEffect,
   classifyActionCall,
+  isMcpReadOnlyTool,
   type ActionCallClassification,
 } from "./action-call-classification.js";
 import {
@@ -1065,6 +1066,12 @@ interface DefineActionWithSchema<
    *  external caller is not on. */
   mcpTool?: boolean;
   mcpAnnotations?: ActionMcpToolAnnotations;
+  /** Lets an MCP connection on the script catalog call this action from
+   *  `run-script`. Nothing is scriptable by default. `"read"` is the only
+   *  value, and `defineAction` throws when the action is not read-only by
+   *  `isMcpReadOnlyTool` or asks for approval, so the declaration can never
+   *  loosen what the action really does. */
+  mcpScript?: "read";
   deferLoading?: boolean;
   /** Words and short phrases a user says for this action that its name and
    *  description do not: "auto-archive rule", "canned reply", "reschedule".
@@ -1207,6 +1214,8 @@ interface DefineActionWithParams<
   agentTool?: boolean;
   mcpTool?: boolean;
   mcpAnnotations?: ActionMcpToolAnnotations;
+  /** See `mcpScript` on the schema form above. */
+  mcpScript?: "read";
   deferLoading?: boolean;
   /** See `searchHints` on the schema form above. */
   searchHints?: readonly string[];
@@ -1264,6 +1273,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly agentTool?: boolean;
   readonly mcpTool?: boolean;
   readonly mcpAnnotations?: ActionMcpToolAnnotations;
+  readonly mcpScript?: "read";
   readonly deferLoading?: boolean;
   readonly searchHints?: readonly string[];
   readonly eagerInputStreaming?: boolean;
@@ -1696,6 +1706,33 @@ export function defineAction(options: any) {
               "mcpAnnotations must define boolean readOnlyHint, destructiveHint, and openWorldHint values; idempotentHint is an optional boolean.",
             );
           })();
+  const mcpScript = (() => {
+    if (options.mcpScript === undefined) return undefined;
+    if (options.mcpScript !== "read") {
+      throw new TypeError('mcpScript must be "read" when it is set.');
+    }
+    if (
+      !isMcpReadOnlyTool({
+        readOnly,
+        planMode: options.planMode,
+        mcpAnnotations,
+      })
+    ) {
+      throw new TypeError(
+        'mcpScript: "read" requires a read-only action: readOnly: true, no planMode effect other than "read", and no readOnlyHint: false.',
+      );
+    }
+    if (
+      (options.needsApproval !== undefined &&
+        options.needsApproval !== false) ||
+      options.publicAgent?.isConsequential === true
+    ) {
+      throw new TypeError(
+        'mcpScript: "read" cannot be set on an action that asks for approval or is consequential.',
+      );
+    }
+    return "read" as const;
+  })();
   const deferLoading: boolean | undefined =
     typeof options.deferLoading === "boolean"
       ? options.deferLoading
@@ -1782,6 +1819,7 @@ export function defineAction(options: any) {
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
     ...(mcpAnnotations ? { mcpAnnotations } : {}),
+    ...(mcpScript ? { mcpScript } : {}),
     ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
     ...(searchHints ? { searchHints } : {}),
     ...(typeof options.eagerInputStreaming === "boolean"

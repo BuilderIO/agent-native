@@ -103,6 +103,7 @@ import { mcpApprovalAppId } from "./approval-store.js";
 export { isAutoReadExcludedActionName } from "./action-eligibility.js";
 import { isMcpAppsInlineEnabled } from "./app-cards-lab.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
+import { mcpCallAttribution } from "./call-attribution.js";
 import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
   MCP_CONNECT_SCOPE,
@@ -122,6 +123,7 @@ import {
   type McpActionCallContext,
   type McpApprovalReview,
   canonicalJson,
+  executeMcpActionCall,
   isActionVisibleForOAuthScope,
   redactEmbedCredentials,
   sha256Base64Url,
@@ -135,6 +137,17 @@ import {
   parseMcpOAuthOrgIdClaim,
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import {
+  MCP_SCRIPT_SEARCH_TOOL,
+  MCP_SCRIPT_TOOL_NAMES,
+  buildMcpScriptCatalog,
+  mcpScriptCallResult,
+  mcpScriptInstructions,
+  mcpScriptToolDescriptors,
+  recordMcpScriptDenial,
+  runMcpScript,
+  searchMcpScriptActions,
+} from "./script-tools.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
 
 export const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
@@ -429,6 +442,11 @@ export interface MCPRequestMeta {
   fullCatalog?: boolean;
   fullSurface?: boolean;
   inlineMcpApps?: boolean;
+  /**
+   * The connection asked for the script catalog. It takes effect only when
+   * the app turns on `mcp.scriptTools`, and never in directory mode.
+   */
+  scriptCatalog?: boolean;
   transport?: "http" | "stdio";
 }
 
@@ -3010,6 +3028,14 @@ export async function createMCPServerForRequest(
         orgId: orgId ?? null,
       }),
   );
+  // A connection that asks for the script catalog, on an app that turned the
+  // script tools on, is offered only `search-actions` and `run-script`, and
+  // every other tool name is unknown to it. Directory mode keeps its own
+  // closed catalog.
+  const scriptCatalog =
+    requestMeta.scriptCatalog === true &&
+    !directoryCatalog &&
+    getAppConfig().mcp.scriptTools === true;
   // The compact catalog is the default for every caller. Directory mode is a
   // separate closed catalog; the full catalog still needs an explicit opt-in.
   const compactMcpAppCatalog =
@@ -3113,6 +3139,7 @@ export async function createMCPServerForRequest(
     }
   }
   const supportsMcpApps =
+    !scriptCatalog &&
     mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity) &&
     (compactMcpAppCatalog ||
       directoryCatalog ||
@@ -3125,7 +3152,9 @@ export async function createMCPServerForRequest(
   const server = new Server(mcpServerInfo(config, requestMeta), {
     instructions: directoryCatalog
       ? config.directoryProfile?.instructions
-      : agentNativeMcpInstructions(config.instructions, servedKeyToolNames),
+      : scriptCatalog
+        ? mcpScriptInstructions()
+        : agentNativeMcpInstructions(config.instructions, servedKeyToolNames),
     capabilities: {
       tools: {},
       ...(supportsMcpApps
@@ -3366,6 +3395,19 @@ export async function createMCPServerForRequest(
     const startedAt = Date.now();
     const { allowedActions } = await resolveServiceGrant("mcp:tools/list");
     const result = await withCallerContext(async () => {
+      if (scriptCatalog) {
+        return {
+          tools: hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:read")
+            ? (mcpScriptToolDescriptors(
+                scriptCatalogFor(allowedActions),
+              ).filter(
+                (tool) =>
+                  isActionGranted(allowedActions, tool.name) &&
+                  !deniedToolNames.has(tool.name),
+              ) as Tool[])
+            : [],
+        };
+      }
       const tools: Tool[] = await Promise.all(
         Object.entries(advertisedActions)
           .filter(
@@ -3582,6 +3624,106 @@ export async function createMCPServerForRequest(
     requestMcpActionApproval,
   });
 
+  // A script reaches what this caller can find directly: `visibleActions`
+  // already leaves out what the OAuth scope, discovery and the operator's
+  // deny list remove, and the service grant comes off here.
+  function scriptCatalogFor(allowedActions: string[] | null) {
+    return buildMcpScriptCatalog(
+      allowedActions === null
+        ? visibleActions
+        : Object.fromEntries(
+            Object.entries(visibleActions).filter(([name]) =>
+              isActionGranted(allowedActions, name),
+            ),
+          ),
+    );
+  }
+
+  /**
+   * `tools/call` on a script-catalog connection. Only the two script tools
+   * exist, and both need `mcp:read`. A script's calls go through
+   * `executeMcpActionCall` in this call's request context, captured here
+   * and entered again for each call, because the sandbox answers its bridge
+   * from a worker's message events rather than from this call's stack.
+   */
+  async function callScriptTool(
+    call: {
+      name: string;
+      args: unknown;
+      allowedActions: string[] | null;
+      request: unknown;
+      ctx: ServerContext;
+    },
+    onFailure: (failure: { errorType: string; errorMessage: string }) => void,
+  ): Promise<CallToolResult> {
+    const { name, args, allowedActions, request, ctx } = call;
+    if (!MCP_SCRIPT_TOOL_NAMES.has(name)) {
+      onFailure({
+        errorType: "unknown_tool",
+        errorMessage: `Unknown tool: ${name}`,
+      });
+      return {
+        content: [{ type: "text", text: `Unknown tool: ${name}` }],
+        isError: true,
+      };
+    }
+    if (!hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:read")) {
+      const message = `OAuth scope does not allow ${name}`;
+      onFailure({ errorType: "forbidden_scope", errorMessage: message });
+      return {
+        content: [{ type: "text", text: `Forbidden: ${message}` }],
+        isError: true,
+      };
+    }
+    const catalog = scriptCatalogFor(allowedActions);
+    if (name === MCP_SCRIPT_SEARCH_TOOL) {
+      return {
+        content: [
+          { type: "text", text: searchMcpScriptActions(catalog, args) },
+        ],
+      };
+    }
+    const callerContext = getRequestContext();
+    const attribution = mcpCallAttribution({
+      request,
+      envelope: ctx.mcpReq.envelope,
+      oauthClientId: effectiveIdentity?.oauthClientId,
+    });
+    const runId = crypto.randomUUID();
+    const payload = await runMcpScript({
+      code: metadataObject(args).code,
+      catalog,
+      known: actions,
+      runId,
+      signal: ctx.mcpReq.signal,
+      callAction: async (action, callArgs) => {
+        const run = () =>
+          executeMcpActionCall(actionCallContext, {
+            name: action,
+            args: callArgs,
+            callable: catalog.actions,
+            actionRunContext: { ...attribution, runId },
+          });
+        return callerContext
+          ? runWithRequestContext(callerContext, run)
+          : run();
+      },
+      recordDenial: (denial) =>
+        recordMcpScriptDenial(denial, {
+          userEmail: effectiveIdentity?.userEmail,
+          orgId: callerContext?.orgId,
+          ...attribution,
+        }),
+    });
+    if (!payload.ok && payload.error) {
+      onFailure({
+        errorType: payload.error.code,
+        errorMessage: payload.error.message,
+      });
+    }
+    return mcpScriptCallResult(payload);
+  }
+
   server.setRequestHandler(
     "tools/call",
     async (request: any, ctx: ServerContext) => {
@@ -3618,8 +3760,9 @@ export async function createMCPServerForRequest(
           };
         }
 
+        let allowedActions: string[] | null = null;
         try {
-          const { allowedActions } = await resolveServiceGrant();
+          ({ allowedActions } = await resolveServiceGrant());
           assertServicePrincipalMayCall(allowedActions, name);
         } catch (error) {
           if (!(error instanceof ServicePrincipalRefusedError)) throw error;
@@ -3639,6 +3782,15 @@ export async function createMCPServerForRequest(
             content: [{ type: "text", text: error.message }],
             isError: true,
           };
+        }
+
+        if (scriptCatalog) {
+          return callScriptTool(
+            { name, args, allowedActions, request, ctx },
+            (error) => {
+              failure = error;
+            },
+          );
         }
 
         if (name === "ask-agent" && config.askAgent) {

@@ -81,6 +81,7 @@ export function preserveActionFlags(
   if (isMcpAnnotations(entry.mcpAnnotations)) {
     out.mcpAnnotations = entry.mcpAnnotations;
   }
+  if (entry.mcpScript === "read") out.mcpScript = "read";
   const outputContract = entry.mcpOutputContract;
   if (
     outputContract &&
