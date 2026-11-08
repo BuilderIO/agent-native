@@ -26,6 +26,13 @@ vi.mock("./google-auth.js", () => ({
 
 import { findGmailDraftAccount, saveGmailDraft } from "./gmail-drafts.js";
 
+/** An error as google-api.ts throws it, with its HTTP status. */
+function googleError(status: number, detail: string) {
+  return Object.assign(new Error(`Google API error (${status}): ${detail}`), {
+    status,
+  });
+}
+
 describe("findGmailDraftAccount", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -554,15 +561,29 @@ describe("saveGmailDraft", () => {
           tokens: { scope: "https://mail.google.com/" },
         },
       ]);
-      mocks.gmailGetMessage.mockRejectedValue(
-        new Error("Google API error (404): Not Found"),
-      );
+      mocks.gmailGetMessage.mockRejectedValue(googleError(404, "Not Found"));
 
       const result = await saveGmailDraft(reply);
 
       expect(result?.draftId).toBe("gmail-draft-1");
       expect(sentMessage().threadId).toBeUndefined();
       expect(sentMessage().raw).not.toContain("In-Reply-To");
+    });
+
+    it("saves a reply Gmail won't let it read outside the thread", async () => {
+      mocks.listOAuthAccountsByOwner.mockResolvedValue([
+        {
+          accountId: "owner@example.com",
+          displayName: null,
+          tokens: { scope: "https://mail.google.com/" },
+        },
+      ]);
+      mocks.gmailGetMessage.mockRejectedValue(googleError(403, "Forbidden"));
+
+      await expect(saveGmailDraft(reply)).resolves.toMatchObject({
+        draftId: "gmail-draft-1",
+      });
+      expect(sentMessage().threadId).toBeUndefined();
     });
 
     it("still threads a reply whose message it can read", async () => {
@@ -590,8 +611,9 @@ describe("saveGmailDraft", () => {
           tokens: { scope: "https://mail.google.com/" },
         },
       ]);
+      // The status decides, not a number somewhere in the message.
       mocks.gmailGetMessage.mockRejectedValue(
-        new Error("Google API error (500): Backend Error"),
+        googleError(500, "upstream returned 404"),
       );
 
       await expect(saveGmailDraft(reply)).rejects.toThrow("500");

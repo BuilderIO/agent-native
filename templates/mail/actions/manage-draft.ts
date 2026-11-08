@@ -3,7 +3,6 @@ import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
 import {
   readAppState,
   compareAndSetAppState,
-  deleteAppState,
   deleteAppStateByPrefix,
   listAppState,
 } from "@agent-native/core/application-state";
@@ -432,7 +431,7 @@ export default defineAction({
       // the draft goes only if it's still the one read here. If it changed,
       // the copy it points at now goes too, on the next pass.
       const removedCopies = new Set<string>();
-      for (let attempt = 1; ; attempt += 1) {
+      for (let attempt = 1; attempt <= MAX_DELETE_ATTEMPTS; attempt += 1) {
         const storedDraft = await readAppState(key);
         if (!storedDraft) {
           if (attempt === 1) notFound();
@@ -463,15 +462,16 @@ export default defineAction({
           });
           removedCopies.add(savedDraftId);
         }
-        // Still changing after these: delete it as it stands now.
-        if (attempt === MAX_DELETE_ATTEMPTS) {
-          if (!(await deleteAppState(key))) notFound();
-          return `Deleted draft ${safeId}`;
-        }
         if (await compareAndSetAppState(key, storedDraft, null)) {
           return `Deleted draft ${safeId}`;
         }
       }
+      // Deleting a version this never read could leave behind a mailbox copy
+      // a sync just made.
+      fail(
+        `Draft "${safeId}" kept changing while it was being deleted, so it's still there. Delete it again.`,
+        { errorCode: "draft_busy", statusCode: 409 },
+      );
     }
 
     if (action === "delete-saved") {

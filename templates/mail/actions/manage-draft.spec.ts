@@ -253,24 +253,35 @@ describe("manage-draft saved mailbox deletion", () => {
     expect(appState.get("compose-1") ?? null).toBeNull();
   });
 
-  it("deletes a draft that keeps changing as it stands after three tries", async () => {
+  it("leaves a draft that keeps changing, and says so", async () => {
     appState.set("compose-1", {
       id: "1",
       savedDraftId: "local-1",
       savedDraftBackend: "local",
     });
     mocks.compareAndSetAppState.mockResolvedValue(false);
-    mocks.deleteAppState.mockResolvedValue(true);
+
+    await expect(action.run({ action: "delete", id: "1" })).rejects.toThrow(
+      "kept changing",
+    );
+
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledTimes(3);
+    expect(mocks.deleteAppState).not.toHaveBeenCalled();
+    expect(appState.get("compose-1")).toBeTruthy();
+    // The same copy is removed once, not once per try.
+    expect(mocks.withLocalEmailMutationLock).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts a draft deleted elsewhere meanwhile as deleted", async () => {
+    appState.set("compose-1", { id: "1", body: "b" });
+    mocks.compareAndSetAppState.mockImplementation((key: string) => {
+      appState.delete(key);
+      return false;
+    });
 
     await expect(action.run({ action: "delete", id: "1" })).resolves.toBe(
       "Deleted draft 1",
     );
-
-    expect(mocks.compareAndSetAppState).toHaveBeenCalledTimes(2);
-    expect(mocks.deleteAppState).toHaveBeenCalledWith("compose-1");
-    // The same copy is removed once, not once per try.
-    expect(mocks.writeLocalEmails).not.toHaveBeenCalled();
-    expect(mocks.withLocalEmailMutationLock).toHaveBeenCalledTimes(1);
   });
 
   it("deletes a legacy local saved draft even after Gmail is connected", async () => {

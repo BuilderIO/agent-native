@@ -112,13 +112,8 @@ async function readRepliedMessage(
   try {
     return await gmailGetMessage(accessToken, messageId, "metadata");
   } catch (error) {
-    if (
-      optional &&
-      error instanceof Error &&
-      /\b(403|404)\b/.test(error.message)
-    ) {
-      return null;
-    }
+    const status = (error as { status?: unknown } | null)?.status;
+    if (optional && (status === 403 || status === 404)) return null;
     throw error;
   }
 }
