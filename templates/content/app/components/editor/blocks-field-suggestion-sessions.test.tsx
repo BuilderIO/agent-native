@@ -1046,6 +1046,102 @@ describe("useBlocksFieldSuggestions", () => {
     );
   });
 
+  it("keeps showing a decided tab's suggestions until the moved quote is read after the page shows its new text", async () => {
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const asked = {
+      ...first(firstSaved()),
+      metadata: { sourceThreadId: "thread-1", commentAiRequestId: "request-1" },
+    };
+    mocks.decideSuggestion.mockResolvedValue({
+      suggestion: { ...asked, status: "accepted" },
+    });
+    await render(false, [asked]);
+    await act(async () => {
+      showNotes(3);
+    });
+    // Outside Suggesting mode, the decision can't read the text or the
+    // comments itself, and the comments come some time after they're asked.
+    vi.spyOn(queryClient, "refetchQueries").mockRejectedValue(
+      new Error("Network down"),
+    );
+    let land: () => void = () => {};
+    const landed = new Promise<void>((resolve) => {
+      land = resolve;
+    });
+    const invalidateQueries = vi
+      .spyOn(queryClient, "invalidateQueries")
+      .mockImplementation(() => landed);
+
+    await act(async () => {
+      await latest.decide(asked, "accepted");
+    });
+    await render(false, [{ ...asked, status: "accepted" }]);
+    expect(highlighted()).toEqual(["saved-0"]);
+
+    // The page shows the new text, and the comments are asked for again.
+    invalidateQueries.mockClear();
+    await act(async () => {
+      showNotes(4);
+    });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["action", "list-comments", { documentId: "doc-1" }],
+    });
+    expect(highlighted()).toEqual(["saved-0"]);
+
+    await act(async () => {
+      land();
+      await landed;
+    });
+    expect(highlighted()).toEqual([]);
+  });
+
+  it("reads an earlier decision's moved quote with the text when the tab decides again first", async () => {
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const asked = {
+      ...first(firstSaved()),
+      metadata: { sourceThreadId: "thread-1", commentAiRequestId: "request-1" },
+    };
+    const rejected = {
+      ...asked,
+      id: "saved-1",
+      threadId: "suggestion-saved-1",
+    };
+    await render(false, [asked, rejected]);
+    await act(async () => {
+      showNotes(3);
+    });
+    mocks.decideSuggestion.mockResolvedValueOnce({
+      suggestion: { ...asked, status: "accepted" },
+    });
+    // Accepting can't read the tab's text, so the tab keeps its view.
+    const refetchQueries = vi
+      .spyOn(queryClient, "refetchQueries")
+      .mockRejectedValueOnce(new Error("Network down"));
+    await act(async () => {
+      await latest.decide(asked, "accepted");
+    });
+    await render(false, [{ ...asked, status: "accepted" }, rejected]);
+
+    // Rejecting moves no quote itself, but the text it reads has the
+    // accepted edit, so the comments are read with it.
+    refetchQueries.mockClear();
+    await act(async () => {
+      await latest.decide(rejected, "rejected");
+    });
+    expect(refetchQueries).toHaveBeenCalledWith(
+      { queryKey: ["action", "list-comments", { documentId: "doc-1" }] },
+      { throwOnError: true },
+    );
+  });
+
   it("saves a tab's draft within five seconds of typing without a pause", async () => {
     vi.useFakeTimers();
     try {
@@ -1102,6 +1198,54 @@ describe("useBlocksFieldSuggestions", () => {
       for (let count = 1; count <= 48; count += 1)
         await type(`Original notes${"!".repeat(count)}`);
       expect(mocks.createProposal).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts the max wait over for typing during a slow save", async () => {
+    vi.useFakeTimers();
+    try {
+      // Every save takes two seconds.
+      const creation = mocks.createProposal.getMockImplementation();
+      mocks.createProposal.mockImplementation(
+        async (request: Parameters<NonNullable<typeof creation>>[0]) => {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          return creation?.(request);
+        },
+      );
+      mocks.updateSuggestion.mockImplementation(
+        async (request: { id: string; operations: SuggestionOperation[] }) => {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          return savedSuggestion(
+            request.id,
+            request.operations,
+            "blocks-field:notes:3",
+          );
+        },
+      );
+      await render(true, []);
+      await act(async () => {
+        latest.provider.start("notes", {
+          content: "Original notes.",
+          revision: 3,
+        });
+      });
+      const type = async (markdown: string) => {
+        await act(async () => {
+          latest.provider.change("notes", markdown);
+          await vi.advanceTimersByTimeAsync(250);
+        });
+      };
+      // Twelve seconds of typing a character every quarter second: the first
+      // save starts after five seconds, and the typing it misses waits five
+      // seconds more, rather than saving again as soon as it ends.
+      for (let count = 1; count <= 48; count += 1)
+        await type(`Original notes${"!".repeat(count)}`);
+      expect(
+        mocks.createProposal.mock.calls.length +
+          mocks.updateSuggestion.mock.calls.length,
+      ).toBe(2);
     } finally {
       vi.useRealTimers();
     }

@@ -413,6 +413,10 @@ export function useBlocksFieldSuggestions({
     async (session: FieldSession, autosave: boolean): Promise<boolean> => {
       const draft = session.draft;
       session.dirty = false;
+      // Typing from here on isn't in this save, so its max wait starts with
+      // its first edit. Counted from the edits this save has, every keystroke
+      // past five seconds would queue another save behind it.
+      session.dirtySince = null;
       session.saving = true;
       const savedNow: ResourceSuggestion[] = [];
       const record = (
@@ -566,9 +570,6 @@ export function useBlocksFieldSuggestions({
         session.failed = false;
         session.refused = false;
         session.retryDelay = 0;
-        // Typing during the save keeps the old start, so the max wait still
-        // counts from the first edit this save missed.
-        if (session.draft === draft) session.dirtySince = null;
         return true;
       } catch (error) {
         session.dirty = true;
@@ -584,12 +585,8 @@ export function useBlocksFieldSuggestions({
         }
         const quiet = autosave && session.failed;
         session.failed = true;
-        if (refused || error instanceof SuggestionFormattingMappingError) {
+        if (refused || error instanceof SuggestionFormattingMappingError)
           session.refused = true;
-          // No retry follows a refusal, so typing saves again, with its max
-          // wait started over; past the old one, every keystroke would save.
-          session.dirtySince = Date.now();
-        }
         if (error instanceof SuggestionFormattingMappingError) {
           if (!autosave)
             toast.error(tRef.current("editor.suggestionFormattingUnsupported"));
@@ -1204,9 +1201,11 @@ export function useBlocksFieldSuggestions({
               .map((suggestion) => suggestion.id),
           ),
         );
-        movedQuotes = accepted.some((suggestion) =>
-          suggestionSourceThreadId(suggestion),
-        );
+        // An earlier decision whose view a tab kept may have moved quotes too,
+        // still unread with its text.
+        movedQuotes =
+          views.carried.size > 0 ||
+          accepted.some((suggestion) => suggestionSourceThreadId(suggestion));
         // Accepting changed the tabs' text, and a tab that kept an earlier
         // decision's view has that decision's change still to read.
         unread = [
@@ -1242,8 +1241,9 @@ export function useBlocksFieldSuggestions({
         // Changed text that couldn't be read now, outside Suggesting mode or
         // after it ended, comes with the page's next read of it, which its
         // sync makes after a decision. Its tabs keep their views until the
-        // page shows it, and the moved quotes are read after it. A page left
-        // meanwhile waits on nothing.
+        // page shows it and, when quotes moved, until the comments are read
+        // again after it, so no highlight is shown over text it isn't on. A
+        // page left meanwhile waits on nothing.
         if (unread.length === 0 || pagesLeft !== pageLeftRef.current)
           views.release();
         else
@@ -1255,11 +1255,16 @@ export function useBlocksFieldSuggestions({
               ]),
             ),
             () => {
-              views.release();
-              if (movedQuotes)
-                void queryClient.invalidateQueries({
+              if (!movedQuotes) {
+                views.release();
+                return;
+              }
+              void queryClient
+                .invalidateQueries({
                   queryKey: ["action", "list-comments", { documentId }],
-                });
+                })
+                .catch(() => undefined)
+                .finally(views.release);
             },
           );
       }
