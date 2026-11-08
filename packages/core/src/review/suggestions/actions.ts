@@ -782,7 +782,7 @@ export const decideResourceSuggestion = defineAction({
     },
   },
   changeResource: (_input, result) =>
-    suggestionChangeResource(result.suggestion),
+    suggestionChangeResource(result?.suggestion),
 });
 
 const proposalCreationSchema = z.object({
@@ -1369,5 +1369,5 @@ export const decideResourceSuggestionProposal = defineAction({
     },
   },
   changeResource: (_input, result) =>
-    suggestionChangeResource(result.suggestions[0]),
+    suggestionChangeResource(result?.suggestions[0]),
 });

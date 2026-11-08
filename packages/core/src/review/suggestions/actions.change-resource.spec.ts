@@ -60,4 +60,16 @@ describe("suggestion change events", () => {
       ),
     ).toBeNull();
   });
+
+  it("name nothing, without throwing, when a failed call has no result", () => {
+    for (const action of [
+      updateResourceSuggestion,
+      decideResourceSuggestion,
+      decideResourceSuggestionProposal,
+    ]) {
+      expect(
+        action.changeResource?.({} as never, undefined as never),
+      ).toBeNull();
+    }
+  });
 });
