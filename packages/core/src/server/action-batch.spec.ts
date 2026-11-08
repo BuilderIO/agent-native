@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { bindActionBatch, runActionBatch } from "./action-batch.js";
 import batchAction from "./get-actions-batch.js";
-import { isLoopbackRequest } from "./loopback.js";
+import { isDirectLoopbackRequest, isLoopbackRequest } from "./loopback.js";
 import { runWithRequestContext } from "./request-context.js";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
@@ -99,6 +99,49 @@ describe("get-actions-batch dispatch", () => {
 
     expect(isLoopbackRequest(new H3Event(seen[0]))).toBe(true);
     expect(isLoopbackRequest(new H3Event(seen[1]))).toBe(false);
+    expect(isDirectLoopbackRequest(new H3Event(seen[0]))).toBe(false);
+    expect(isDirectLoopbackRequest(new H3Event(seen[1]))).toBe(false);
+  });
+
+  it("propagates direct loopback to items only when the batch request is direct loopback on 127.0.0.1", async () => {
+    const seen: Request[] = [];
+    bindActionBatch({
+      fetch: async (request) => {
+        seen.push(request);
+        return jsonResponse({ ok: true });
+      },
+      actions,
+    });
+    const run = (
+      requestOrigin: string,
+      isLoopback: boolean,
+      isDirectLoopback: boolean,
+      headers: Headers = callerHeaders(),
+    ) =>
+      runWithRequestContext(
+        {
+          requestOrigin,
+          isLoopbackRequest: isLoopback,
+          isDirectLoopbackRequest: isDirectLoopback,
+        },
+        () =>
+          runActionBatch(
+            { requests: [{ action: "list-designs", query: "" }] },
+            { caller: "http", requestHeaders: headers } as any,
+          ),
+      );
+
+    await run("http://127.0.0.1:3107", true, true);
+    await run("http://127.0.0.1:3107", true, false);
+    await run("http://localhost:3107", true, true);
+    const forwardedHeaders = callerHeaders();
+    forwardedHeaders.set("x-forwarded-for", "203.0.113.10");
+    await run("http://127.0.0.1:3107", true, true, forwardedHeaders);
+
+    expect(isDirectLoopbackRequest(new H3Event(seen[0]))).toBe(true);
+    expect(isDirectLoopbackRequest(new H3Event(seen[1]))).toBe(false);
+    expect(isDirectLoopbackRequest(new H3Event(seen[2]))).toBe(false);
+    expect(isDirectLoopbackRequest(new H3Event(seen[3]))).toBe(false);
   });
 
   it("keeps one item's 403 from failing the other items", async () => {

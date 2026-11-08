@@ -65,4 +65,39 @@ describe("isDirectLoopbackRequest", () => {
       false,
     );
   });
+
+  it("accepts an in-process Web Request marked directLoopback on http://127.0.0.1", () => {
+    const req = new Request(
+      "http://127.0.0.1:3000/_agent-native/actions/get-chatgpt-subscription-status",
+    ) as Request & { context?: Record<string, unknown> };
+    req.context = { clientAddress: "127.0.0.1", directLoopback: true };
+    expect(isDirectLoopbackRequest({ req } as unknown as H3Event)).toBe(true);
+  });
+
+  it("rejects an in-process Web Request without directLoopback, with forwarded headers, or on non-127.0.0.1 origins", () => {
+    const withoutFlag = new Request(
+      "http://127.0.0.1:3000/_agent-native/actions/get-chatgpt-subscription-status",
+    ) as Request & { context?: Record<string, unknown> };
+    withoutFlag.context = { clientAddress: "127.0.0.1" };
+    expect(
+      isDirectLoopbackRequest({ req: withoutFlag } as unknown as H3Event),
+    ).toBe(false);
+
+    const localhostReq = new Request(
+      "http://localhost:3000/_agent-native/actions/get-chatgpt-subscription-status",
+    ) as Request & { context?: Record<string, unknown> };
+    localhostReq.context = { clientAddress: "127.0.0.1", directLoopback: true };
+    expect(
+      isDirectLoopbackRequest({ req: localhostReq } as unknown as H3Event),
+    ).toBe(false);
+
+    const forwardedReq = new Request(
+      "http://127.0.0.1:3000/_agent-native/actions/get-chatgpt-subscription-status",
+      { headers: { "x-forwarded-host": "evil.example.com" } },
+    ) as Request & { context?: Record<string, unknown> };
+    forwardedReq.context = { clientAddress: "127.0.0.1", directLoopback: true };
+    expect(
+      isDirectLoopbackRequest({ req: forwardedReq } as unknown as H3Event),
+    ).toBe(false);
+  });
 });
