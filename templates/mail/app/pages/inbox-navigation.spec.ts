@@ -170,7 +170,7 @@ describe("Inbox draft opening", () => {
   it("preserves Gmail attachment metadata without deleting the backing draft immediately", () => {
     const source = inboxSource();
 
-    // saved-draft.spec.ts checks what savedEmailDraftAttachments returns.
+    // oracle-change: the Gmail part mapping moved into savedEmailDraftAttachments, and saved-draft.spec.ts checks what it returns.
     expect(source).toContain("attachments: savedEmailDraftAttachments(email)");
     expect(source).not.toContain("deleteDraft.mutate(email.id)");
   });

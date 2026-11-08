@@ -154,15 +154,22 @@ async function resolveDraftAttachments(
   if (!ownerEmail) throw new Error("Unauthenticated");
   const attachments: ComposeAttachment[] = [];
   // Forwarded parts keep their display name, so two can share a filename.
+  // An id names one exact entry, so those claim theirs before names do.
   const unmatched = [...current];
-  for (const handle of handles) {
+  const claimed = new Map<DraftAttachmentHandle, ComposeAttachment>();
+  for (const handle of [
+    ...handles.filter((handle) => handle.id),
+    ...handles.filter((handle) => !handle.id),
+  ]) {
     const match = unmatched.findIndex((existing) =>
       handleNames(handle, existing),
     );
+    const [entry] = match >= 0 ? unmatched.splice(match, 1) : [];
+    if (entry) claimed.set(handle, entry);
+  }
+  for (const handle of handles) {
     const attachment =
-      match >= 0
-        ? unmatched.splice(match, 1)[0]
-        : await attachmentFromUpload(ownerEmail, handle);
+      claimed.get(handle) ?? (await attachmentFromUpload(ownerEmail, handle));
     if (!attachment)
       fail(
         `Attachment "${handle.filename}" isn't an upload Mail has for this account. Finish its create-attachment-upload PUT, then use the returned attachment object.`,

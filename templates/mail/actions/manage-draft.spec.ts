@@ -295,6 +295,44 @@ describe("manage-draft attachments", () => {
     ).toEqual([second]);
   });
 
+  it("lets an id claim its file before a name-only entry does", async () => {
+    const forwardedPart = (part: string) => ({
+      id: part,
+      filename: "image.png",
+      originalName: "image.png",
+      mimeType: "image/png",
+      size: 10,
+      url: "",
+      source: "gmail",
+      gmailMessageId: "message-1",
+      gmailAttachmentId: part,
+    });
+    const first = forwardedPart("part-1");
+    const second = forwardedPart("part-2");
+    appState.set("compose-id-first", {
+      id: "id-first",
+      to: "recipient@example.com",
+      subject: "Fwd",
+      body: "",
+      mode: "forward",
+      attachments: [first, second],
+    });
+
+    const result = await action.run({
+      action: "update",
+      id: "id-first",
+      expectedRevision: revisionOf("id-first"),
+      attachments: [
+        { filename: "image.png" },
+        { filename: "image.png", id: "part-1" },
+      ],
+    });
+
+    expect(
+      (result as { draft: { attachments: unknown } }).draft.attachments,
+    ).toEqual([second, first]);
+  });
+
   it("removes every file when an update passes an empty list", async () => {
     appState.set("compose-clear", {
       id: "clear",

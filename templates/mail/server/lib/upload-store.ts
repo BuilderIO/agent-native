@@ -27,7 +27,10 @@ export async function getStoredUpload(
   filename: string,
 ): Promise<StoredUpload | null> {
   const uploads = await readUploads(ownerEmail);
-  return uploads[filename] ?? null;
+  // A name like `constructor` must not find the object's own properties.
+  return Object.prototype.hasOwnProperty.call(uploads, filename)
+    ? (uploads[filename] ?? null)
+    : null;
 }
 
 export async function putStoredUpload(
