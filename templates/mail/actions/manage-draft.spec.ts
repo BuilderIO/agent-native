@@ -220,6 +220,59 @@ describe("manage-draft saved mailbox deletion", () => {
     });
   });
 
+  it("also removes a mailbox copy a sync made while the draft was being deleted", async () => {
+    const before = { id: "1", to: "a@example.com", subject: "Hi", body: "b" };
+    appState.set("compose-1", before);
+    const compareAndSet = mocks.compareAndSetAppState.getMockImplementation()!;
+    let synced = false;
+    mocks.compareAndSetAppState.mockImplementation(
+      (key: string, expected: unknown, next: unknown) => {
+        // A sync points the draft at its first Gmail copy just before this lands.
+        if (!synced) {
+          synced = true;
+          appState.set(key, {
+            ...before,
+            savedDraftId: "gmail-new",
+            savedDraftBackend: "gmail",
+            savedDraftAccountEmail: "owner@example.com",
+          });
+        }
+        return compareAndSet(key, expected, next);
+      },
+    );
+
+    await expect(action.run({ action: "delete", id: "1" })).resolves.toBe(
+      "Deleted draft 1",
+    );
+
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+      draftId: "gmail-new",
+    });
+    expect(appState.get("compose-1") ?? null).toBeNull();
+  });
+
+  it("deletes a draft that keeps changing as it stands after three tries", async () => {
+    appState.set("compose-1", {
+      id: "1",
+      savedDraftId: "local-1",
+      savedDraftBackend: "local",
+    });
+    mocks.compareAndSetAppState.mockResolvedValue(false);
+    mocks.deleteAppState.mockResolvedValue(true);
+
+    await expect(action.run({ action: "delete", id: "1" })).resolves.toBe(
+      "Deleted draft 1",
+    );
+
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledTimes(2);
+    expect(mocks.deleteAppState).toHaveBeenCalledWith("compose-1");
+    // The same copy is removed once, not once per try.
+    expect(mocks.writeLocalEmails).not.toHaveBeenCalled();
+    expect(mocks.withLocalEmailMutationLock).toHaveBeenCalledTimes(1);
+  });
+
   it("deletes a legacy local saved draft even after Gmail is connected", async () => {
     const otherEmail = { id: "sent-1", isDraft: false };
     mocks.readLocalEmails.mockResolvedValue([

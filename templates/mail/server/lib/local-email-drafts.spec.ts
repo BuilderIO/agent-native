@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   withLocalEmailMutationLock: vi.fn(),
   writeLocalEmails: vi.fn(),
   bodyToHtml: vi.fn((body: string) => `<p>${body}</p>`),
+  resolveComposeAttachments: vi.fn(),
 }));
 
 vi.mock("./local-email-store.js", () => ({
@@ -13,7 +14,10 @@ vi.mock("./local-email-store.js", () => ({
   writeLocalEmails: mocks.writeLocalEmails,
 }));
 
-vi.mock("./outgoing-email.js", () => ({ bodyToHtml: mocks.bodyToHtml }));
+vi.mock("./outgoing-email.js", () => ({
+  bodyToHtml: mocks.bodyToHtml,
+  resolveComposeAttachments: mocks.resolveComposeAttachments,
+}));
 
 import { updateLocalSavedDraft } from "./local-email-drafts.js";
 
@@ -98,5 +102,84 @@ describe("updateLocalSavedDraft", () => {
       }),
     ).rejects.toThrow("it was not recreated");
     expect(mocks.writeLocalEmails).not.toHaveBeenCalled();
+  });
+
+  describe("given the draft's attachments", () => {
+    const draft = {
+      id: "local-draft-1",
+      threadId: "thread-1",
+      from: { name: "Owner", email: "owner@example.com" },
+      to: [],
+      subject: "Subject",
+      snippet: "Body",
+      body: "Body",
+      date: "2026-01-01T00:00:00.000Z",
+      isRead: true,
+      isStarred: false,
+      isDraft: true,
+      isArchived: false,
+      isTrashed: false,
+      labelIds: ["drafts"],
+      attachments: [
+        { id: "a.txt", filename: "a.txt", mimeType: "text/plain", size: 1 },
+      ],
+    };
+    const update = {
+      ownerEmail: "owner@example.com",
+      draftId: "local-draft-1",
+      to: "recipient@example.com",
+      subject: "Subject",
+      body: "Body",
+    };
+
+    it("replaces the ones it had", async () => {
+      mocks.readLocalEmails.mockResolvedValue([draft]);
+      mocks.resolveComposeAttachments.mockResolvedValue([
+        {
+          filename: "b.txt",
+          originalName: "b.txt",
+          mimeType: "text/plain",
+          size: 2,
+          url: "/uploads/b.txt",
+        },
+      ]);
+      const attachments = [
+        {
+          id: "b",
+          filename: "b.txt",
+          originalName: "b.txt",
+          mimeType: "text/plain",
+          size: 2,
+          url: "/uploads/b.txt",
+        },
+      ];
+
+      await updateLocalSavedDraft({ ...update, attachments });
+
+      expect(mocks.resolveComposeAttachments).toHaveBeenCalledWith(
+        attachments,
+        "owner@example.com",
+      );
+      const [written] = mocks.writeLocalEmails.mock.calls[0]?.[1];
+      expect(written.attachments).toEqual([
+        {
+          id: "b.txt",
+          filename: "b.txt",
+          mimeType: "text/plain",
+          size: 2,
+          url: "/uploads/b.txt",
+        },
+      ]);
+    });
+
+    it("removes them all when there are none", async () => {
+      mocks.readLocalEmails.mockResolvedValue([draft]);
+      mocks.resolveComposeAttachments.mockResolvedValue([]);
+
+      await updateLocalSavedDraft({ ...update, attachments: [] });
+
+      const [written] = mocks.writeLocalEmails.mock.calls[0]?.[1];
+      expect(written).not.toHaveProperty("attachments");
+    });
   });
 });

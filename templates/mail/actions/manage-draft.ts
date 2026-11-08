@@ -148,6 +148,8 @@ const manageDraftSchema = z.discriminatedUnion("action", [
   }),
 ]);
 
+const MAX_DELETE_ATTEMPTS = 3;
+
 async function deletePersistedDraft(args: {
   ownerEmail: string;
   savedDraftId: string;
@@ -420,39 +422,56 @@ export default defineAction({
         fail(`Invalid draft ID "${args.id}"`, {
           errorCode: "draft_invalid_id",
         });
-      const storedDraft = await readAppState(`compose-${safeId}`);
-      if (!storedDraft)
+      const key = `compose-${safeId}`;
+      const notFound = () =>
         fail(`Draft "${safeId}" not found`, {
           errorCode: "draft_not_found",
           statusCode: 404,
         });
-      const savedDraftId = storedDraft.savedDraftId;
-      if (typeof savedDraftId === "string" && savedDraftId) {
-        const ownerEmail = getRequestUserEmail();
-        if (!ownerEmail) throw new Error("Unauthenticated");
-        await deletePersistedDraft({
-          ownerEmail,
-          savedDraftId,
-          savedDraftBackend:
-            storedDraft.savedDraftBackend === "gmail" ||
-            storedDraft.savedDraftBackend === "local"
-              ? storedDraft.savedDraftBackend
-              : undefined,
-          accountEmail:
-            typeof storedDraft.savedDraftAccountEmail === "string"
-              ? storedDraft.savedDraftAccountEmail
-              : typeof storedDraft.accountEmail === "string"
-                ? storedDraft.accountEmail
+      // A sync can point the draft at a new mailbox copy while this runs, so
+      // the draft goes only if it's still the one read here. If it changed,
+      // the copy it points at now goes too, on the next pass.
+      const removedCopies = new Set<string>();
+      for (let attempt = 1; ; attempt += 1) {
+        const storedDraft = await readAppState(key);
+        if (!storedDraft) {
+          if (attempt === 1) notFound();
+          return `Deleted draft ${safeId}`;
+        }
+        const savedDraftId = storedDraft.savedDraftId;
+        if (
+          typeof savedDraftId === "string" &&
+          savedDraftId &&
+          !removedCopies.has(savedDraftId)
+        ) {
+          const ownerEmail = getRequestUserEmail();
+          if (!ownerEmail) throw new Error("Unauthenticated");
+          await deletePersistedDraft({
+            ownerEmail,
+            savedDraftId,
+            savedDraftBackend:
+              storedDraft.savedDraftBackend === "gmail" ||
+              storedDraft.savedDraftBackend === "local"
+                ? storedDraft.savedDraftBackend
                 : undefined,
-        });
+            accountEmail:
+              typeof storedDraft.savedDraftAccountEmail === "string"
+                ? storedDraft.savedDraftAccountEmail
+                : typeof storedDraft.accountEmail === "string"
+                  ? storedDraft.accountEmail
+                  : undefined,
+          });
+          removedCopies.add(savedDraftId);
+        }
+        // Still changing after these: delete it as it stands now.
+        if (attempt === MAX_DELETE_ATTEMPTS) {
+          if (!(await deleteAppState(key))) notFound();
+          return `Deleted draft ${safeId}`;
+        }
+        if (await compareAndSetAppState(key, storedDraft, null)) {
+          return `Deleted draft ${safeId}`;
+        }
       }
-      const deleted = await deleteAppState(`compose-${safeId}`);
-      if (!deleted)
-        fail(`Draft "${safeId}" not found`, {
-          errorCode: "draft_not_found",
-          statusCode: 404,
-        });
-      return `Deleted draft ${safeId}`;
     }
 
     if (action === "delete-saved") {

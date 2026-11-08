@@ -334,9 +334,32 @@ describe("syncDraftToMailbox", () => {
       savedDraft: { draftId: "local-1", backend: "local" },
     });
     expect(mocks.updateLocalSavedDraft).toHaveBeenCalledWith(
-      expect.objectContaining({ draftId: "local-1", body: "v1" }),
+      // No attachments, said outright, so ones the copy had are removed.
+      expect.objectContaining({
+        draftId: "local-1",
+        body: "v1",
+        attachments: [],
+      }),
     );
     expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+  });
+
+  it("saves a reply to Gmail even when it can't thread it", async () => {
+    mocks.appState.set(KEY, draft({ replyToId: "message-1" }));
+    mocks.saveGmailDraft.mockResolvedValue({
+      draftId: "g1",
+      accountEmail: OWNER,
+      created: true,
+    });
+
+    await syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" });
+
+    expect(mocks.saveGmailDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyToId: "message-1",
+        replyHeadersOptional: true,
+      }),
+    );
   });
 
   describe("for an owner with no Gmail account", () => {

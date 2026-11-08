@@ -22,6 +22,26 @@ function parseAddressList(value: string): EmailAddress[] {
     .map((address) => ({ name: address, email: address }));
 }
 
+type ResolvedAttachments = Awaited<
+  ReturnType<typeof resolveComposeAttachments>
+>;
+
+function localAttachments(
+  attachments: ResolvedAttachments,
+): EmailMessage["attachments"] {
+  return attachments.map((attachment) => ({
+    id: attachment.filename,
+    filename: attachment.originalName,
+    mimeType: attachment.mimeType,
+    size: attachment.size,
+    url: attachment.url,
+  }));
+}
+
+/**
+ * Rewrites a local mailbox draft. `attachments`, when given, replace the
+ * draft's; left out, the draft keeps the ones it has.
+ */
 export async function updateLocalSavedDraft(args: {
   ownerEmail: string;
   draftId: string;
@@ -30,9 +50,13 @@ export async function updateLocalSavedDraft(args: {
   bcc?: string;
   subject: string;
   body: string;
+  attachments?: ComposeAttachment[];
   replyToId?: string;
   replyToThreadId?: string;
 }): Promise<void> {
+  const attachments =
+    args.attachments &&
+    (await resolveComposeAttachments(args.attachments, args.ownerEmail));
   await withLocalEmailMutationLock(args.ownerEmail, async () => {
     const emails = await readLocalEmails(args.ownerEmail);
     const index = emails.findIndex(
@@ -67,6 +91,11 @@ export async function updateLocalSavedDraft(args: {
 
     if (!args.cc?.trim()) updated.cc = undefined;
     if (!args.bcc?.trim()) updated.bcc = undefined;
+    if (attachments?.length) {
+      updated.attachments = localAttachments(attachments);
+    } else if (attachments) {
+      delete updated.attachments;
+    }
     if (!args.replyToId)
       delete (updated as EmailMessage & { replyToId?: string }).replyToId;
     if (!args.replyToThreadId) {
@@ -125,15 +154,7 @@ export async function createLocalSavedDraft(args: {
       isTrashed: false,
       labelIds: ["drafts"],
       ...(attachments.length > 0
-        ? {
-            attachments: attachments.map((attachment) => ({
-              id: attachment.filename,
-              filename: attachment.originalName,
-              mimeType: attachment.mimeType,
-              size: attachment.size,
-              url: attachment.url,
-            })),
-          }
+        ? { attachments: localAttachments(attachments) }
         : {}),
       ...(args.replyToId ? { replyToId: args.replyToId } : {}),
       ...(args.replyToThreadId

@@ -127,6 +127,16 @@ async function resolveManagedGmailClientForOwner(
   return client;
 }
 
+/**
+ * The account of the workspace's shared Gmail connection for this owner, if
+ * Mail has one. Throws when the connection can't be reached.
+ */
+export async function getManagedGmailAccountEmail(
+  ownerEmail: string,
+): Promise<string | null> {
+  return (await resolveManagedGmailClientForOwner(ownerEmail))?.email ?? null;
+}
+
 async function resolveManagedGmailClientWithError(
   ownerEmail?: string,
 ): Promise<ManagedGmailResolution> {

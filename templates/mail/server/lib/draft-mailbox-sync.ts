@@ -45,8 +45,10 @@ export type MailboxSync =
   /** Mail no longer stores the draft, so nothing was copied. */
   | { status: "gone" };
 
-// Each attempt writes the mailbox once. A draft that's still changing after
-// these is left to the save changing it, which runs its own sync.
+// Each attempt writes the mailbox once. A sync that runs out says pending: its
+// last write may have landed after a newer save's sync had finished, leaving
+// the copy a step behind until the draft's next save. Running out takes three
+// more saves landing while this sync writes.
 const MAX_SYNC_ATTEMPTS = 3;
 
 // What the mailbox copy is built from. A change to anything else, such as
@@ -104,6 +106,8 @@ async function writeMailboxCopy(
     ...(await mailboxRecipients(ownerEmail, draft)),
     subject: draft.subject || "",
     body: draft.body || "",
+    // All of them, so a removed attachment leaves the copy too.
+    attachments: draft.attachments ?? [],
     replyToId: draft.replyToId,
     replyToThreadId: draft.replyToThreadId,
   };
@@ -131,7 +135,7 @@ async function writeMailboxCopy(
       accountEmail: ownership.accountEmail,
       draftId: draft.savedDraftId,
       ...content,
-      attachments: draft.attachments,
+      replyHeadersOptional: true,
     });
     if (!saved) throw new Error("Could not save the existing Gmail draft.");
     return {
@@ -146,7 +150,7 @@ async function writeMailboxCopy(
     ownerEmail,
     accountEmail: draft.accountEmail,
     ...content,
-    attachments: draft.attachments,
+    replyHeadersOptional: true,
   });
   if (saved) {
     return {
@@ -160,11 +164,7 @@ async function writeMailboxCopy(
   if (await isConnected(ownerEmail)) {
     throw new Error("Gmail is connected but couldn't save this draft.");
   }
-  const draftId = await createLocalSavedDraft({
-    ownerEmail,
-    ...content,
-    attachments: draft.attachments,
-  });
+  const draftId = await createLocalSavedDraft({ ownerEmail, ...content });
   return { draftId, backend: "local", created: true };
 }
 
@@ -246,9 +246,10 @@ async function adoptCopy(
  * date with the draft as Mail stores it. Mail's copy is the one that sends, so
  * the mailbox follows it, never the reverse: a caller stores its change first,
  * then syncs. A Gmail write can't be made conditional, so after writing, this
- * reads the draft again and writes again if it changed meanwhile. Whichever
- * save stores last has its sync run after, so the copy ends on the newest
- * draft even when saves overlap.
+ * reads the draft again and writes again if it changed meanwhile: a sync
+ * reports synced only after a write of the draft as stored when it read it
+ * back. Whichever save stores last has its sync run after, so overlapping
+ * saves end with the copy on the newest draft, short of the attempt limit.
  *
  * It doesn't throw: a failure leaves Mail's copy stored and says the mailbox
  * copy is pending, for the next save to bring up to date.
