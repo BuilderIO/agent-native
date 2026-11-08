@@ -44,6 +44,12 @@ beforeAll(async () => {
   await addDocument({ id: "long-page", content: "x".repeat(20_000) });
   await addDocument({ id: "trashed-page", trashed: true });
   await addDocument({ id: "private-page", ownerEmail: OTHER });
+  await addDocument({ id: "database-page", title: "Launch tracker" });
+  await getDb().insert(schema.contentDatabases).values({
+    id: "launch-tracker",
+    ownerEmail: OWNER,
+    documentId: "database-page",
+  });
 }, 60_000);
 
 afterAll(() => {
@@ -213,7 +219,7 @@ describe("Content read-composer-source", () => {
     expect(context.match(/^Link: /gm)).toHaveLength(1);
   });
 
-  it.each(["trashed-page", "private-page", "missing-page"])(
+  it.each(["trashed-page", "private-page", "missing-page", "database-page"])(
     "does not read %s",
     async (id) => {
       await expect(

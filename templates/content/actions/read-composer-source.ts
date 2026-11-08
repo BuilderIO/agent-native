@@ -8,7 +8,7 @@ import {
   composerSourceRequestSchema,
   composerSourceResultSchema,
 } from "@agent-native/core/shared";
-import { asc, desc } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
@@ -26,6 +26,21 @@ const TRUNCATED_MARK = "\n[truncated]";
 
 function pageTitle(title: string | null | undefined) {
   return (title?.trim() || "Untitled").slice(0, 2000);
+}
+
+// The picker lists pages only, so a read by id refuses a database too.
+async function isActiveDatabaseDocument(documentId: string) {
+  const databases = await getDb()
+    .select({ id: schema.contentDatabases.id })
+    .from(schema.contentDatabases)
+    .where(
+      and(
+        eq(schema.contentDatabases.documentId, documentId),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    )
+    .limit(1);
+  return databases.length > 0;
 }
 
 // Header values stay on one line, so a page's title or description can't add
@@ -125,7 +140,8 @@ export default defineAction({
     if (
       !access ||
       access.resource.trashedAt ||
-      (await isSoftDeletedDatabaseDocument(args.id))
+      (await isSoftDeletedDatabaseDocument(args.id)) ||
+      (await isActiveDatabaseDocument(args.id))
     ) {
       fail("This page is unavailable or you no longer have access to it.", {
         statusCode: 404,
