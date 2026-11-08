@@ -35,7 +35,11 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { assertAnalyticsTablesFitAudience } from "../server/lib/analytics-chart-sharing.js";
+import {
+  assertAnalyticsTablesFitAudience,
+  sharesAudience,
+  widerAudience,
+} from "../server/lib/analytics-chart-sharing.js";
 import {
   documentCreationAttribution,
   requireDocumentRequestActor,
@@ -750,12 +754,9 @@ export default defineAction({
 
     // A new page takes its place's sharing, so a table copied from an
     // Analytics dashboard (in a duplicate, say) can't reach more people than
-    // the dashboard. A shared private parent counts as the organization.
-    await assertAnalyticsTablesFitAudience(
-      content,
-      visibility === "private" && inheritedShares.length > 0
-        ? "org"
-        : visibility,
+    // the dashboard, nor than the parent's shares reach.
+    await assertAnalyticsTablesFitAudience(content, async () =>
+      widerAudience(visibility, await sharesAudience(orgId, inheritedShares)),
     );
 
     const now = new Date().toISOString();

@@ -210,11 +210,14 @@ function AnalyticsChartRead({ data }: BlockReadProps<AnalyticsChartData>) {
   return <AnalyticsChartView data={data} />;
 }
 
-/** Whether the panel changed in Analytics since this copy, for an editor. */
-function usePanelChanged(
+/**
+ * Whether the panel changed in Analytics since this copy, or is gone from
+ * its dashboard, for an editor.
+ */
+function usePanelStatus(
   documentId: string | null | undefined,
   data: AnalyticsChartData,
-): boolean {
+): "changed" | "gone" | null {
   const query = useActionQuery(
     "get-analytics-chart-status",
     {
@@ -235,13 +238,13 @@ function usePanelChanged(
   const entry = query.data?.dashboards.find(
     (candidate) => candidate.dashboardId === data.dashboard.id,
   );
-  if (!entry || !("status" in entry)) return false;
+  if (!entry || !("status" in entry)) return null;
   const panel = entry.status.panels.find(
     (candidate) => candidate.id === data.panel.id,
   );
-  return (
-    Boolean(panel?.fingerprint) && panel?.fingerprint !== data.panel.fingerprint
-  );
+  if (!panel) return null;
+  if (panel.fingerprint === null) return "gone";
+  return panel.fingerprint !== data.panel.fingerprint ? "changed" : null;
 }
 
 function AnalyticsChartEdit({
@@ -253,7 +256,7 @@ function AnalyticsChartEdit({
   const t = useT();
   const { documentId } = ctx as ContentBlockRenderContext;
   const [refreshing, setRefreshing] = useState(false);
-  const changed = usePanelChanged(documentId, data);
+  const status = usePanelStatus(documentId, data);
 
   const refresh = async (acknowledgeWiderAudience = false) => {
     if (!documentId || refreshing) return;
@@ -296,9 +299,16 @@ function AnalyticsChartEdit({
   return (
     <AnalyticsChartView
       data={data}
-      notice={changed ? t("analyticsChart.changedRefresh") : null}
+      notice={
+        status === "gone"
+          ? t("analyticsChart.panelGone")
+          : status === "changed"
+            ? t("analyticsChart.changedRefresh")
+            : null
+      }
       actions={
-        documentId ? (
+        // A panel gone from its dashboard has nothing to refresh from.
+        documentId && status !== "gone" ? (
           <Button
             type="button"
             variant="ghost"

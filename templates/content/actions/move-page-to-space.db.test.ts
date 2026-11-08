@@ -159,7 +159,9 @@ async function share(resourceId: string, principalId: string, role: string) {
 }
 
 /** A table from a dashboard only its owner can open, as a page holds it. */
-async function privateDashboardTable(): Promise<string> {
+async function dashboardTable(
+  visibility: "private" | "org" = "private",
+): Promise<string> {
   const { analyticsChartBlockRaw } =
     await import("../shared/analytics-chart-block.js");
   return analyticsChartBlockRaw("analytics-chart-1a2b3c4d", {
@@ -167,7 +169,7 @@ async function privateDashboardTable(): Promise<string> {
       id: "accounts",
       title: "Accounts",
       url: "https://analytics.example.test/dashboards/accounts",
-      visibility: "private",
+      visibility,
     },
     panel: {
       id: "top",
@@ -416,7 +418,7 @@ describe("moving a page between Content spaces", () => {
   });
 
   it("refuses to bring a table into a space more people can open than its dashboard", async () => {
-    const table = await privateDashboardTable();
+    const table = await dashboardTable("private");
     const page = await as(OWNER, () =>
       createDocument.run({ title: "Renewals" }),
     );
@@ -455,7 +457,7 @@ ${table}
   });
 
   it("checks the bodies it moves as they are under its locks, not as first read", async () => {
-    const table = await privateDashboardTable();
+    const table = await dashboardTable("private");
     const page = await as(OWNER, () =>
       createDocument.run({ title: "Forecast" }),
     );
@@ -925,7 +927,7 @@ describe("sharing a page that holds a table", () => {
     await getDb()
       .update(schema.documents)
       .set({
-        content: `${await privateDashboardTable()}
+        content: `${await dashboardTable("private")}
 `,
       })
       .where(eq(schema.documents.id, page.id));
@@ -956,7 +958,7 @@ describe("sharing a page that holds a table", () => {
     const shareResource = (
       await import("@agent-native/core/sharing/actions/share-resource")
     ).default as { run: (args: unknown) => Promise<unknown> };
-    const table = await privateDashboardTable();
+    const table = await dashboardTable("private");
     const page = await as(OWNER, () =>
       createDocument.run({
         title: "Accounts at risk",
@@ -981,6 +983,40 @@ describe("sharing a page that holds a table", () => {
       .from(schema.documentShares)
       .where(eq(schema.documentShares.resourceId, page.id));
     expect(shares).toEqual([]);
+  });
+
+  it("shares a table from an organization dashboard with a colleague, never with someone outside it", async () => {
+    const shareResource = (
+      await import("@agent-native/core/sharing/actions/share-resource")
+    ).default as { run: (args: unknown) => Promise<unknown> };
+    const table = await dashboardTable("org");
+    const page = await as(OWNER, () =>
+      createDocument.run({
+        title: "Renewals",
+        content: `${table}
+`,
+      }),
+    );
+    const shareWith = (principalId: string) =>
+      as(OWNER, () =>
+        shareResource.run({
+          resourceType: "document",
+          resourceId: page.id,
+          principalType: "user",
+          principalId,
+          role: "viewer",
+          notify: false,
+        }),
+      );
+    await shareWith(EDITOR);
+    await expect(shareWith("guest@elsewhere.test")).rejects.toThrow(
+      "A table can't reach more people than its dashboard",
+    );
+    const shares = await getDb()
+      .select({ principalId: schema.documentShares.principalId })
+      .from(schema.documentShares)
+      .where(eq(schema.documentShares.resourceId, page.id));
+    expect(shares).toEqual([{ principalId: EDITOR }]);
   });
 });
 
@@ -1121,7 +1157,7 @@ describe("duplicating a page", () => {
   });
 
   it("refuses to copy a table into a space more people can open than its dashboard", async () => {
-    const table = await privateDashboardTable();
+    const table = await dashboardTable("private");
     const page = await as(OWNER, () =>
       createDocument.run({
         title: "Pipeline",

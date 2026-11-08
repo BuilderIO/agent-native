@@ -21,6 +21,7 @@ import {
   type AgentShareDestination,
 } from "@agent-native/toolkit/sharing";
 import {
+  ANALYTICS_CHART_TAG,
   analyticsChartsWiderThan,
   type AnalyticsChartData,
 } from "@shared/analytics-chart-block";
@@ -67,6 +68,8 @@ import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { ContentIcon } from "../icons/ContentIcon";
+
+const NO_CHARTS: AnalyticsChartData[] = [];
 
 const ShareButton = lazy(() =>
   import("@agent-native/toolkit/app/sharing").then((m) => ({
@@ -1040,34 +1043,54 @@ export function DocumentToolbar({
     new URLSearchParams(location.search).get("share") === "1";
   const [shareRequested, setShareRequested] = useState(false);
   const shareMounted = shareRequested || openShareOnLoad;
-  const [analyticsCharts, setAnalyticsCharts] = useState<AnalyticsChartData[]>(
-    [],
-  );
+  const [chartScan, setChartScan] = useState<{
+    content: string | undefined;
+    charts: AnalyticsChartData[];
+    unreadable: number;
+  } | null>(null);
   // Read only while Share is open: the body is parsed to find the charts.
   useEffect(() => {
     if (!shareMounted) return;
     let cancelled = false;
     analyticsChartsInBody(documentContent).then(
-      (charts) => {
-        if (!cancelled) setAnalyticsCharts(charts);
+      ({ charts, unreadable }) => {
+        if (!cancelled) {
+          setChartScan({ content: documentContent, charts, unreadable });
+        }
       },
-      () => undefined,
+      () => {
+        if (!cancelled) {
+          setChartScan({ content: documentContent, charts: [], unreadable: 1 });
+        }
+      },
     );
     return () => {
       cancelled = true;
     };
   }, [documentContent, shareMounted]);
+  const scanned =
+    chartScan !== null && chartScan.content === documentContent
+      ? chartScan
+      : null;
+  const analyticsCharts = scanned ? scanned.charts : NO_CHARTS;
+  // Until the body has been read, or while a chart in it can't be, any
+  // wider share asks first.
+  const chartsUnread =
+    Boolean(documentContent?.includes(`<${ANALYTICS_CHART_TAG}`)) &&
+    (!scanned || scanned.unreadable > 0);
   // Sharing a page wider than a chart's dashboard asks first; a table that
   // would go wider is refused by the server when the change is saved.
   const confirmChartAudience = useCallback(
     (from: EmbedVisibility, to: EmbedVisibility) => {
       if (to === from || to === "private") return false;
+      if (chartsUnread) return true;
       const { warn, block } = analyticsChartsWiderThan(to, analyticsCharts);
       return warn.length + block.length > 0;
     },
-    [analyticsCharts],
+    [analyticsCharts, chartsUnread],
   );
   const chartShareDetail = useMemo(() => {
+    if (chartsUnread) return () => t("analyticsChart.shareDetailUnread");
     if (analyticsCharts.length === 0) return undefined;
     return (to: EmbedVisibility) => {
       const { warn, block } = analyticsChartsWiderThan(to, analyticsCharts);
@@ -1087,7 +1110,7 @@ export function DocumentToolbar({
         ? `${text} ${t("analyticsChart.blockedTable")}`
         : text;
     };
-  }, [analyticsCharts, t]);
+  }, [analyticsCharts, chartsUnread, t]);
   const [autoSync, setAutoSync] = useLocalStorage(
     `notion-auto-sync:${documentId}`,
     false,

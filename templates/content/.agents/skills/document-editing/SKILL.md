@@ -467,7 +467,11 @@ Who can open the page and who can open the dashboard can differ:
 - Sharing a page more widely asks first when it holds charts from narrower
   dashboards. Sharing it, moving it into a space, or duplicating it is
   refused (`analytics_table_wider_than_dashboard`) when a table would reach
-  more people than its dashboard.
+  more people than its dashboard. A share with someone outside the
+  organization counts as reaching everyone.
+- `analytics_chart_unreadable` means the page holds an `AnalyticsChart` tag
+  that no longer reads as a chart, so it can't be shared more widely. Ask the
+  person to remove it or add the chart again from Analytics.
 - `analytics_chart_too_large` means the copy is too long to hand you as a tag.
   Ask the person to paste the panel's link into the page instead.
 

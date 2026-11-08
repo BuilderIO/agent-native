@@ -5,16 +5,19 @@ const mocks = vi.hoisted(() => ({
   resolveDocumentAccess: vi.fn(),
   requestAnalytics: vi.fn(),
   track: vi.fn(),
-  shares: [] as { id: string }[],
+  shares: [] as { principalType: string; principalId: string }[],
 }));
 
 vi.mock("../server/db/index.js", () => ({
-  schema: { documentShares: { id: "id", resourceId: "resource_id" } },
+  schema: { documentShares: { resourceId: "resource_id" } },
   getDb: () => ({
-    select: () => ({
-      from: () => ({ where: () => ({ limit: async () => mocks.shares }) }),
-    }),
+    select: () => ({ from: () => ({ where: async () => mocks.shares }) }),
   }),
+}));
+
+vi.mock("@agent-native/core/org", () => ({
+  isOrgMember: async (orgId: string, email: string) =>
+    orgId === "org_1" && email.endsWith("@example.test"),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -332,8 +335,10 @@ describe("capture-analytics-chart", () => {
     expect(confirmed.status).toBe("captured");
   });
 
-  it("counts a private page shared with anyone as open to the organization", async () => {
-    mocks.shares = [{ id: "share_1" }];
+  it("counts a private page shared with a colleague as open to the organization", async () => {
+    mocks.shares = [
+      { principalType: "user", principalId: "colleague@example.test" },
+    ];
     mocks.requestAnalytics.mockResolvedValue({
       ok: true,
       data: chart({ visibility: "private" }),
@@ -344,6 +349,38 @@ describe("capture-analytics-chart", () => {
       purpose: "insert",
     });
     expect(held.status).toBe("needs_confirmation");
+    mocks.requestAnalytics.mockResolvedValue({
+      ok: true,
+      data: chart({ visibility: "org" }),
+    });
+    const fits = await captureAnalyticsChart.run({
+      documentId: "doc_1",
+      link: LINK,
+      purpose: "insert",
+    });
+    expect(fits.status).toBe("captured");
+  });
+
+  it("counts a page shared with someone outside the organization as open to everyone", async () => {
+    mocks.resolveDocumentAccess.mockResolvedValue(page("org"));
+    mocks.shares = [
+      { principalType: "user", principalId: "guest@elsewhere.test" },
+    ];
+    mocks.requestAnalytics.mockResolvedValue({
+      ok: true,
+      data: chart({ visibility: "org" }),
+    });
+    await expect(
+      captureAnalyticsChart.run({
+        documentId: "doc_1",
+        link: LINK,
+        purpose: "insert",
+        acknowledgeWiderAudience: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "analytics_chart_wider_than_dashboard",
+      details: { reason: "public-page" },
+    });
   });
 
   it("never puts a narrower dashboard's panel in a public page", async () => {

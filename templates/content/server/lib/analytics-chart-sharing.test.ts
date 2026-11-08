@@ -1,4 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  members: new Set<string>(),
+}));
+
+vi.mock("@agent-native/core/org", () => ({
+  isOrgMember: async (orgId: string, email: string) =>
+    mocks.members.has(`${orgId}:${email}`),
+}));
+
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
 import {
   analyticsChartBlockRaw,
@@ -8,7 +19,12 @@ import { analyticsChartsInBody } from "../../shared/analytics-charts-in-body.js"
 import {
   assertAnalyticsTablesFitAudience,
   assertAnalyticsTablesFitSharingChange,
+  sharesAudience,
 } from "./analytics-chart-sharing.js";
+
+beforeEach(() => {
+  mocks.members = new Set(["org_1:colleague@example.test"]);
+});
 
 function chart(
   type: "line" | "table",
@@ -48,18 +64,80 @@ function body(...charts: AnalyticsChartData[]): string {
   ].join("\n\n");
 }
 
+/** A chart tag whose numbers are there but whose dashboard isn't. */
+function withoutDashboard(data: AnalyticsChartData): string {
+  return body(data).replace(/ dashboard=\{\{[^}]*\}\}/, "");
+}
+
 describe("analyticsChartsInBody", () => {
   it("finds every chart in a page body with its numbers", async () => {
-    const charts = await analyticsChartsInBody(
+    const { charts, unreadable } = await analyticsChartsInBody(
       body(chart("line", "org"), chart("table", "private", "Customers")),
     );
     expect(charts.map((found) => found.panel.type)).toEqual(["line", "table"]);
     expect(charts[1]?.rows).toEqual([["Acme", 12]]);
+    expect(unreadable).toBe(0);
   });
 
   it("reads a body without charts as none, without parsing it", async () => {
-    await expect(analyticsChartsInBody("Just text.")).resolves.toEqual([]);
-    await expect(analyticsChartsInBody(null)).resolves.toEqual([]);
+    const none = { charts: [], unreadable: 0 };
+    await expect(analyticsChartsInBody("Just text.")).resolves.toEqual(none);
+    await expect(analyticsChartsInBody(null)).resolves.toEqual(none);
+  });
+
+  it("counts a chart tag that doesn't read as one", async () => {
+    const content = withoutDashboard(chart("table", "org"));
+    expect(content).toContain("Acme");
+    expect(content).not.toContain("dashboard=");
+    await expect(analyticsChartsInBody(content)).resolves.toEqual({
+      charts: [],
+      unreadable: 1,
+    });
+  });
+});
+
+describe("sharesAudience", () => {
+  it("counts colleagues and the organization's groups as the organization", async () => {
+    await expect(sharesAudience("org_1", [])).resolves.toBe("private");
+    await expect(
+      sharesAudience("org_1", [
+        { principalType: "user", principalId: "colleague@example.test" },
+        { principalType: "group", principalId: "grp_1" },
+        { principalType: "org", principalId: "org_1" },
+      ]),
+    ).resolves.toBe("org");
+  });
+
+  it("counts anyone outside the organization as everyone", async () => {
+    for (const share of [
+      { principalType: "user", principalId: "guest@elsewhere.test" },
+      { principalType: "org", principalId: "org_2" },
+      { principalType: "link", principalId: "anyone" },
+    ]) {
+      await expect(
+        sharesAudience("org_1", [
+          { principalType: "user", principalId: "colleague@example.test" },
+          share,
+        ]),
+      ).resolves.toBe("public");
+    }
+    await expect(
+      sharesAudience(null, [
+        { principalType: "user", principalId: "colleague@example.test" },
+      ]),
+    ).resolves.toBe("public");
+  });
+
+  it("checks a personal page's shares against the caller's organization", async () => {
+    const colleague = [
+      { principalType: "user", principalId: "colleague@example.test" },
+    ];
+    await expect(
+      runWithRequestContext(
+        { userEmail: "owner@example.test", orgId: "org_1" },
+        () => sharesAudience(null, colleague),
+      ),
+    ).resolves.toBe("org");
   });
 });
 
@@ -124,6 +202,32 @@ describe("assertAnalyticsTablesFitAudience", () => {
         },
         change: { kind: "grant" },
       }),
+    ).rejects.toMatchObject({
+      errorCode: "analytics_table_wider_than_dashboard",
+    });
+  });
+
+  it("refuses to widen a page holding a chart tag that doesn't read", async () => {
+    const content = withoutDashboard(chart("line", "public"));
+    await expect(
+      assertAnalyticsTablesFitAudience(content, "org"),
+    ).rejects.toMatchObject({
+      errorCode: "analytics_chart_unreadable",
+      statusCode: 409,
+    });
+    await expect(
+      assertAnalyticsTablesFitAudience(content, "private"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("works out the audience only for a page holding charts", async () => {
+    const audience = vi.fn(async () => "public" as const);
+    await expect(
+      assertAnalyticsTablesFitAudience("Just text.", audience),
+    ).resolves.toBeUndefined();
+    expect(audience).not.toHaveBeenCalled();
+    await expect(
+      assertAnalyticsTablesFitAudience(body(chart("table", "org")), audience),
     ).rejects.toMatchObject({
       errorCode: "analytics_table_wider_than_dashboard",
     });

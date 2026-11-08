@@ -238,6 +238,23 @@ describe("AnalyticsChart for editors", () => {
     });
   });
 
+  it("says when the panel is gone from its dashboard, and offers no refresh", () => {
+    hooks.queries["get-analytics-chart-status"] = {
+      dashboards: [
+        {
+          dashboardId: "growth",
+          status: {
+            dashboard: { id: "growth", title: "Growth", visibility: "org" },
+            panels: [{ id: "wau", fingerprint: null, type: null }],
+          },
+        },
+      ],
+    };
+    renderEdit(chart());
+    expect(container.textContent).toContain("analyticsChart.panelGone");
+    expect(container.textContent).not.toContain("analyticsChart.refresh");
+  });
+
   it("stays quiet when the panel is unchanged or Analytics won't say", () => {
     hooks.queries["get-analytics-chart-status"] = {
       dashboards: [

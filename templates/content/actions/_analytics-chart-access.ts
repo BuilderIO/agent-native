@@ -6,7 +6,10 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { firstRow } from "../server/lib/first-row.js";
+import {
+  sharesAudience,
+  widerAudience,
+} from "../server/lib/analytics-chart-sharing.js";
 import { isPublicViewerOwner } from "../server/lib/public-documents.js";
 import { resolveDocumentAccess } from "./_document-access.js";
 
@@ -17,23 +20,27 @@ export const analyticsChartDocumentIdSchema = z
   .max(256)
   .describe("Page id");
 
-/** Whether a page is shared with anyone, which can reach past its org. */
-async function isShared(documentId: string): Promise<boolean> {
-  const share = firstRow(
-    await getDb()
-      .select({ id: schema.documentShares.id })
-      .from(schema.documentShares)
-      .where(eq(schema.documentShares.resourceId, documentId))
-      .limit(1),
-  );
-  return share !== undefined;
+/** Who a page's shares reach; see `sharesAudience`. */
+async function pageSharesAudience(
+  documentId: string,
+  orgId: string | null,
+): Promise<EmbedVisibility> {
+  const shares = await getDb()
+    .select({
+      principalType: schema.documentShares.principalType,
+      principalId: schema.documentShares.principalId,
+    })
+    .from(schema.documentShares)
+    .where(eq(schema.documentShares.resourceId, documentId));
+  return sharesAudience(orgId, shares);
 }
 
 /**
  * The page a chart goes in, for a signed-in reader (`viewer`) or one of its
  * editors (`editor`). A page in Trash, or one the caller can't open, reads as
- * missing either way. A private page shared with anyone counts as open to
- * the organization, since a share can reach people the dashboard doesn't.
+ * missing either way. Its audience counts its shares too: one with a
+ * colleague opens it to the organization, one with anyone outside it to
+ * everyone.
  */
 export async function authorizeAnalyticsChartPage(
   documentId: string,
@@ -62,6 +69,9 @@ export async function authorizeAnalyticsChartPage(
     });
   }
   const stored = access.resource.visibility;
-  if (stored === "org" || stored === "public") return { visibility: stored };
-  return { visibility: (await isShared(documentId)) ? "org" : "private" };
+  if (stored === "public") return { visibility: stored };
+  const shared = await pageSharesAudience(documentId, access.resource.orgId);
+  return {
+    visibility: widerAudience(stored === "org" ? "org" : "private", shared),
+  };
 }

@@ -1,9 +1,14 @@
 import { ActionContractError } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import type { EmbedVisibility } from "@agent-native/core/shared";
 import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import { assertAnalyticsTablesFitAudience } from "../server/lib/analytics-chart-sharing.js";
+import {
+  assertAnalyticsTablesFitAudience,
+  sharesAudience,
+  widerAudience,
+} from "../server/lib/analytics-chart-sharing.js";
 import { blocksFieldId } from "../shared/blocks-field-identity.js";
 import { reconcileDocuments } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
@@ -460,12 +465,13 @@ export async function movePageToSpace(args: {
         // The pages take the space's sharing, and a table copied from an
         // Analytics dashboard never reaches more people than the dashboard.
         // Their bodies are read under the locks, so a save can't slip past.
-        const audience =
-          visibility === "private" && parentShares.length > 0
-            ? "org"
-            : visibility;
+        let audience: Promise<EmbedVisibility> | undefined;
+        const pageAudience = () =>
+          (audience ??= sharesAudience(orgId, parentShares).then((shared) =>
+            widerAudience(visibility, shared),
+          ));
         for (const page of pages) {
-          await assertAnalyticsTablesFitAudience(page.content, audience);
+          await assertAnalyticsTablesFitAudience(page.content, pageAudience);
         }
         // Under the mover's page-tree lock, which every move into the
         // mover's pages takes, so two appends can't take one position.

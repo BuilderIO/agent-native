@@ -11,6 +11,10 @@ const en = {
   changed: "This panel changed in Analytics after this copy was made.",
   changedRefresh:
     "This panel changed in Analytics after this copy was made. Refresh to update it.",
+  panelGone:
+    "This panel no longer exists in Analytics. This copy keeps the numbers it had.",
+  shareDetailUnread:
+    "This page has Analytics charts not yet checked against their dashboards. Everyone who can open the page will see their numbers.",
   truncated: "Shows part of the panel's rows.",
   adding: "Adding the chart from Analytics…",
   added: "Chart added",
@@ -46,6 +50,10 @@ const translations: Record<
     changed: "Este panel cambió en Analytics después de hacer esta copia.",
     changedRefresh:
       "Este panel cambió en Analytics después de hacer esta copia. Actualízalo para ponerlo al día.",
+    panelGone:
+      "Este panel ya no existe en Analytics. Esta copia conserva los datos que tenía.",
+    shareDetailUnread:
+      "Esta página tiene gráficos de Analytics que aún no se han comprobado con sus paneles. Todos los que puedan abrir la página verán sus datos.",
     truncated: "Muestra parte de las filas del panel.",
     adding: "Añadiendo el gráfico desde Analytics…",
     added: "Gráfico añadido",
@@ -75,6 +83,10 @@ const translations: Record<
       "Ce panneau a changé dans Analytics depuis que cette copie a été faite.",
     changedRefresh:
       "Ce panneau a changé dans Analytics depuis que cette copie a été faite. Actualisez-le pour le mettre à jour.",
+    panelGone:
+      "Ce panneau n'existe plus dans Analytics. Cette copie garde les chiffres qu'elle avait.",
+    shareDetailUnread:
+      "Cette page contient des graphiques Analytics pas encore vérifiés par rapport à leurs tableaux de bord. Toutes les personnes qui peuvent ouvrir la page verront leurs chiffres.",
     truncated: "Affiche une partie des lignes du panneau.",
     adding: "Ajout du graphique depuis Analytics…",
     added: "Graphique ajouté",
@@ -104,6 +116,10 @@ const translations: Record<
       "Dieses Panel hat sich in Analytics geändert, nachdem diese Kopie erstellt wurde.",
     changedRefresh:
       "Dieses Panel hat sich in Analytics geändert, nachdem diese Kopie erstellt wurde. Aktualisiere es, um es auf den neuesten Stand zu bringen.",
+    panelGone:
+      "Dieses Panel gibt es in Analytics nicht mehr. Diese Kopie behält ihre bisherigen Zahlen.",
+    shareDetailUnread:
+      "Diese Seite enthält Analytics-Diagramme, die noch nicht mit ihren Dashboards abgeglichen wurden. Alle, die die Seite öffnen können, sehen ihre Zahlen.",
     truncated: "Zeigt einen Teil der Zeilen des Panels.",
     adding: "Diagramm wird aus Analytics hinzugefügt…",
     added: "Diagramm hinzugefügt",
@@ -132,6 +148,10 @@ const translations: Record<
     changed: "Este painel mudou no Analytics depois que esta cópia foi feita.",
     changedRefresh:
       "Este painel mudou no Analytics depois que esta cópia foi feita. Atualize para trazê-lo em dia.",
+    panelGone:
+      "Este painel não existe mais no Analytics. Esta cópia mantém os números que tinha.",
+    shareDetailUnread:
+      "Esta página tem gráficos do Analytics ainda não verificados com seus painéis. Todos que podem abrir a página verão os números deles.",
     truncated: "Mostra parte das linhas do painel.",
     adding: "Adicionando o gráfico do Analytics…",
     added: "Gráfico adicionado",
@@ -159,6 +179,9 @@ const translations: Record<
     refreshFailed: "此图表未能刷新。",
     changed: "此副本创建后，该面板在 Analytics 中已更改。",
     changedRefresh: "此副本创建后，该面板在 Analytics 中已更改。刷新即可更新。",
+    panelGone: "该面板在 Analytics 中已不存在。此副本保留原有的数据。",
+    shareDetailUnread:
+      "此页面包含尚未与其仪表板核对的 Analytics 图表。所有能打开此页面的人都会看到它们的数据。",
     truncated: "仅显示该面板的部分行。",
     adding: "正在从 Analytics 添加图表…",
     added: "图表已添加",
@@ -186,6 +209,9 @@ const translations: Record<
     changed: "建立此副本後，該面板在 Analytics 中已變更。",
     changedRefresh:
       "建立此副本後，該面板在 Analytics 中已變更。重新整理即可更新。",
+    panelGone: "該面板在 Analytics 中已不存在。此副本保留原有的數字。",
+    shareDetailUnread:
+      "此頁面有尚未與其儀表板核對的 Analytics 圖表。所有能開啟此頁面的人都會看到它們的數字。",
     truncated: "僅顯示該面板的部分列。",
     adding: "正在從 Analytics 新增圖表…",
     added: "圖表已新增",
@@ -214,6 +240,10 @@ const translations: Record<
       "このコピーを作成した後に、このパネルは Analytics で変更されました。",
     changedRefresh:
       "このコピーを作成した後に、このパネルは Analytics で変更されました。更新すると最新になります。",
+    panelGone:
+      "このパネルは Analytics にもう存在しません。このコピーには元の数値が残っています。",
+    shareDetailUnread:
+      "このページには、まだダッシュボードと照合していない Analytics のグラフがあります。ページを開ける全員がその数値を見られるようになります。",
     truncated: "パネルの行の一部を表示しています。",
     adding: "Analytics からグラフを追加しています…",
     added: "グラフを追加しました",
@@ -242,6 +272,10 @@ const translations: Record<
     changed: "이 사본을 만든 뒤 Analytics에서 이 패널이 변경되었습니다.",
     changedRefresh:
       "이 사본을 만든 뒤 Analytics에서 이 패널이 변경되었습니다. 새로고침하면 최신으로 바뀝니다.",
+    panelGone:
+      "이 패널은 Analytics에 더 이상 없습니다. 이 사본에는 기존 수치가 남아 있습니다.",
+    shareDetailUnread:
+      "이 페이지에는 아직 대시보드와 대조하지 않은 Analytics 차트가 있습니다. 페이지를 열 수 있는 모든 사람이 그 수치를 보게 됩니다.",
     truncated: "패널의 행 중 일부만 표시합니다.",
     adding: "Analytics에서 차트를 추가하는 중…",
     added: "차트를 추가했습니다",
@@ -270,6 +304,10 @@ const translations: Record<
     changed: "यह कॉपी बनने के बाद Analytics में यह पैनल बदल गया।",
     changedRefresh:
       "यह कॉपी बनने के बाद Analytics में यह पैनल बदल गया। इसे अपडेट करने के लिए रीफ़्रेश करें।",
+    panelGone:
+      "यह पैनल अब Analytics में मौजूद नहीं है। इस कॉपी में पहले वाले आँकड़े बने रहते हैं।",
+    shareDetailUnread:
+      "इस पेज में Analytics के ऐसे चार्ट हैं जिन्हें अभी उनके डैशबोर्ड से जाँचा नहीं गया है। पेज खोल सकने वाले सभी लोग उनके आँकड़े देखेंगे।",
     truncated: "पैनल की कुछ ही पंक्तियाँ दिखाता है।",
     adding: "Analytics से चार्ट जोड़ा जा रहा है…",
     added: "चार्ट जोड़ा गया",
@@ -280,7 +318,8 @@ const translations: Record<
     keepLink: "लिंक रहने दें",
     blockedPublic:
       "लिंक वाला कोई भी व्यक्ति यह पेज खोल सकता है, लेकिन {{dashboard}} डैशबोर्ड नहीं, इसलिए उसके पैनल यहाँ नहीं जोड़े जा सकते।",
-    blockedTable: "टेबल ऐसे पेज में नहीं जा सकती जिसे उसके डैशबोर्ड से ज़्यादा लोग खोल सकें।",
+    blockedTable:
+      "टेबल ऐसे पेज में नहीं जा सकती जिसे उसके डैशबोर्ड से ज़्यादा लोग खोल सकें।",
     shareDetailOne:
       "इस पेज में एक ऐसे डैशबोर्ड का चार्ट है जिसे कम लोग खोल सकते हैं ({{dashboards}})। पेज खोल सकने वाला हर व्यक्ति उसके आँकड़े देखेगा।",
     shareDetail:
@@ -297,6 +336,10 @@ const translations: Record<
     changed: "تغيّرت هذه اللوحة في Analytics بعد إنشاء هذه النسخة.",
     changedRefresh:
       "تغيّرت هذه اللوحة في Analytics بعد إنشاء هذه النسخة. حدّثها لتصبح محدّثة.",
+    panelGone:
+      "لم تعد هذه اللوحة موجودة في Analytics. تحتفظ هذه النسخة بالأرقام التي كانت لديها.",
+    shareDetailUnread:
+      "تحتوي هذه الصفحة على مخططات من Analytics لم يتم التحقق منها بعد مقابل لوحاتها. سيرى كل من يمكنه فتح الصفحة أرقامها.",
     truncated: "يعرض جزءًا من صفوف اللوحة.",
     adding: "جارٍ إضافة المخطط من Analytics…",
     added: "تمت إضافة المخطط",
