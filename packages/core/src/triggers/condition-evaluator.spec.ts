@@ -17,6 +17,10 @@ vi.mock("../agent/engine/index.js", () => ({
   normalizeModelForEngine: normalizeModelForEngineMock,
 }));
 
+const recordUsageMock = vi.hoisted(() => vi.fn(async () => undefined));
+
+vi.mock("../usage/store.js", () => ({ recordUsage: recordUsageMock }));
+
 const { __clearConditionCache, evaluateCondition } =
   await import("./condition-evaluator.js");
 
@@ -56,6 +60,7 @@ describe("evaluateCondition", () => {
     resolveEngineMock.mockReset();
     getStoredModelForEngineMock.mockClear();
     normalizeModelForEngineMock.mockClear();
+    recordUsageMock.mockClear();
   });
 
   afterEach(() => {
@@ -286,5 +291,98 @@ describe("evaluateCondition", () => {
         IDENTITY,
       ),
     ).rejects.toThrow("Condition evaluation failed: rate limited");
+  });
+
+  it("saves the check's usage once, under the owner, organization, app and label", async () => {
+    async function* meteredStream() {
+      yield {
+        type: "usage",
+        inputTokens: 120,
+        outputTokens: 1,
+        cacheReadTokens: 20,
+        builderCreditsUsed: 0.5,
+      } as { type: string; text?: string };
+      yield { type: "text-delta", text: "yes" };
+      yield { type: "usage", inputTokens: 5, outputTokens: 1 } as {
+        type: string;
+        text?: string;
+      };
+    }
+    const engine = fakeEngine(meteredStream);
+    const identity = {
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+      appId: "mail",
+    };
+    const evaluate = () =>
+      evaluateCondition("is this urgent?", { messageId: "metered" }, identity, {
+        engine,
+        resolvedModel: "automation-model",
+        usageLabel: "automation:triage",
+      });
+
+    await expect(evaluate()).resolves.toBe(true);
+    // A cached answer costs nothing, so it records nothing.
+    await expect(evaluate()).resolves.toBe(true);
+
+    expect(recordUsageMock).toHaveBeenCalledOnce();
+    expect(recordUsageMock).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      app: "mail",
+      label: "automation:triage",
+      inputTokens: 125,
+      outputTokens: 2,
+      cacheReadTokens: 20,
+      cacheWriteTokens: 0,
+      builderCreditsUsed: 0.5,
+      engineName: "fake-engine",
+      model: "automation-model",
+    });
+  });
+
+  it("saves the usage of a check whose answer is unusable", async () => {
+    async function* meteredGarbledStream() {
+      yield { type: "usage", inputTokens: 80, outputTokens: 3 } as {
+        type: string;
+        text?: string;
+      };
+      yield { type: "text-delta", text: "maybe" };
+    }
+    resolveEngineMock.mockResolvedValue(fakeEngine(meteredGarbledStream));
+
+    await expect(
+      evaluateCondition(
+        "is this urgent?",
+        { messageId: "metered-garbled" },
+        IDENTITY,
+      ),
+    ).rejects.toThrow(/unexpected classifier response/);
+
+    expect(recordUsageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "owner@example.com",
+        label: "automation-condition",
+        inputTokens: 80,
+        outputTokens: 3,
+      }),
+    );
+  });
+
+  it("records nothing when the engine reports no usage", async () => {
+    async function* yesStream() {
+      yield { type: "text-delta", text: "yes" };
+    }
+    resolveEngineMock.mockResolvedValue(fakeEngine(yesStream));
+
+    await expect(
+      evaluateCondition(
+        "is this urgent?",
+        { messageId: "unmetered" },
+        IDENTITY,
+      ),
+    ).resolves.toBe(true);
+
+    expect(recordUsageMock).not.toHaveBeenCalled();
   });
 });

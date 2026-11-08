@@ -4209,7 +4209,45 @@ Handle the event.`,
     ).toMatchObject({
       engine: { name: "test-engine" },
       resolvedModel: "automation-model",
+      usageLabel: "automation:condition-deployment-key",
     });
+  });
+
+  it("keeps a conditional event queued when the credential store cannot be read", async () => {
+    const { isResolvedEngineUsableForRequest } =
+      await import("../agent/engine/index.js");
+    const { CredentialStoreUnavailableError } =
+      await import("../server/credential-provider.js");
+    vi.mocked(isResolvedEngineUsableForRequest).mockRejectedValueOnce(
+      new CredentialStoreUnavailableError(),
+    );
+    resourceListAllOwnersMock.mockResolvedValue([
+      conditionResource("condition-store-down", "event.condition.store.down"),
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const handler = busEventHandler("event.condition.store.down");
+    await handler(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-condition-store-down",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+    await waitForEvent("event-condition-store-down", "pending");
+
+    expect(triggerQueueMocks.retry).toHaveBeenCalledOnce();
+    expect(triggerQueueMocks.complete).not.toHaveBeenCalled();
+    expect(triggerQueueMocks.rows[0]?.failureAttempts).toBe(1);
+    expect(startRunMock).not.toHaveBeenCalled();
+    const persisted = resourcePutMock.mock.calls.at(-1)?.[2] as string;
+    expect(persisted).toContain(
+      'lastErrorCode: "credential_store_unavailable"',
+    );
   });
 
   it("passes a configured background engine into condition checks", async () => {

@@ -32,6 +32,7 @@ import {
 } from "../agent/engine/index.js";
 import type { AgentEngine } from "../agent/engine/types.js";
 import { createTtlCache } from "../shared/ttl-cache.js";
+import type { UsageRecord } from "../usage/store.js";
 
 const CONDITION_EVAL_VERSION = "v4";
 const CONDITION_EVALUATION_TIMEOUT_MS = 15_000;
@@ -89,6 +90,8 @@ export async function evaluateCondition(
     signal?: AbortSignal;
     engine?: AgentEngine;
     resolvedModel?: string;
+    /** Usage label for the check's model call, such as the automation's own. */
+    usageLabel?: string;
   } = {},
 ): Promise<boolean> {
   if (!condition || !condition.trim()) return true;
@@ -157,7 +160,12 @@ export async function evaluateCondition(
 
     // A classification is an answer, not a write of the call that emitted the event.
     const result = await withoutWriteObservation(() =>
-      callClassifier(condition, payload, engine, model, controller.signal),
+      callClassifier(condition, payload, engine, model, controller.signal, {
+        ownerEmail: identity.userEmail,
+        orgId: identity.orgId,
+        app: identity.appId,
+        label: options.usageLabel ?? "automation-condition",
+      }),
     );
     if (controller.signal.aborted) {
       throw new Error(
@@ -202,12 +210,43 @@ export async function evaluateCondition(
   return result;
 }
 
+type ClassifierUsageScope = Pick<
+  UsageRecord,
+  "ownerEmail" | "orgId" | "app" | "label"
+>;
+
+/**
+ * Save what the check spent, as every other model call does, so usage
+ * dashboards and spend totals include it on whichever key paid for it.
+ */
+async function recordClassifierUsage(
+  scope: ClassifierUsageScope,
+  usage: Omit<UsageRecord, keyof ClassifierUsageScope>,
+): Promise<void> {
+  if (
+    usage.inputTokens <= 0 &&
+    usage.outputTokens <= 0 &&
+    !usage.cacheReadTokens &&
+    !usage.cacheWriteTokens &&
+    usage.builderCreditsUsed == null
+  ) {
+    return;
+  }
+  try {
+    const { recordUsage } = await import("../usage/store.js");
+    await recordUsage({ ...scope, ...usage });
+  } catch (error) {
+    console.error("[triggers] Failed to persist condition check usage:", error);
+  }
+}
+
 async function callClassifier(
   condition: string,
   payload: unknown,
   engine: AgentEngine,
   model: string,
   signal: AbortSignal,
+  usageScope: ClassifierUsageScope,
 ): Promise<boolean> {
   let payloadStr: string;
   try {
@@ -235,6 +274,13 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
 
   let text = "";
   let streamErrorMessage: string | undefined;
+  const usage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    builderCreditsUsed: undefined as number | undefined,
+  };
   try {
     const stream = engine.stream({
       model,
@@ -250,6 +296,15 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
     for await (const event of stream) {
       if (event.type === "text-delta") {
         text += event.text;
+      } else if (event.type === "usage") {
+        usage.inputTokens += event.inputTokens;
+        usage.outputTokens += event.outputTokens;
+        usage.cacheReadTokens += event.cacheReadTokens ?? 0;
+        usage.cacheWriteTokens += event.cacheWriteTokens ?? 0;
+        if (event.builderCreditsUsed !== undefined) {
+          usage.builderCreditsUsed =
+            (usage.builderCreditsUsed ?? 0) + event.builderCreditsUsed;
+        }
       } else if (event.type === "stop" && event.reason === "error") {
         streamErrorMessage = event.error ?? "model error";
       }
@@ -262,6 +317,19 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
         ? `Condition evaluation failed: ${err.message}`
         : "Condition evaluation failed: unknown error",
     );
+  } finally {
+    // A check that failed or timed out after the model answered still spent.
+    await recordClassifierUsage(usageScope, {
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
+      ...(usage.builderCreditsUsed === undefined
+        ? {}
+        : { builderCreditsUsed: usage.builderCreditsUsed }),
+      engineName: engine.name,
+      model,
+    });
   }
 
   if (streamErrorMessage) {
