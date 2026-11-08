@@ -1797,7 +1797,7 @@ export async function upsertDatabaseRow(
     [keyPropertyId]: input.keyValue,
   });
   const keyValueJson = values.get(keyPropertyId)!;
-  const [initialClaim] = await getDb()
+  const initialClaims = await getDb()
     .select({
       itemId: schema.contentDatabaseItemKeyClaims.itemId,
       documentId: schema.contentDatabaseItemKeyClaims.documentId,
@@ -1810,6 +1810,7 @@ export async function upsertDatabaseRow(
         eq(schema.contentDatabaseItemKeyClaims.keyValueJson, keyValueJson),
       ),
     );
+  const [initialClaim] = initialClaims;
   if (initialClaim) {
     await assertAccess("document", initialClaim.documentId, "editor");
   }
@@ -1824,7 +1825,7 @@ export async function upsertDatabaseRow(
         initial,
         input.idempotencyKey,
         replayDigests,
-        initialClaim ? [initialClaim.documentId] : [],
+        initialClaims.map((row) => row.documentId),
       );
       if (lockedReplay) return lockedReplay;
       const locked = await loadContext(
