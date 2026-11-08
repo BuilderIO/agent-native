@@ -316,6 +316,48 @@ describe("stripInlineBytes", () => {
     });
   });
 
+  it.each([
+    "![x](data:text/plain,sample(one)tail)",
+    "![x](data:text/plain,sample[one]tail)",
+    "![x](data:text/plain,sample\\)tail)",
+  ])("scrubs the complete balanced or escaped payload: %s", (text) => {
+    expect(stripInlineBytes({ text }, "reject")).toEqual({
+      text: "![x]([inline text/plain data omitted])",
+    });
+  });
+
+  it.each([
+    "https://a.com/?q=data:,foo&x=1",
+    "[site](https://a.com/?q=data:,foo&x=1)",
+    "ftp://a.test/?q=data:,foo&x=1",
+    "mailto:test@example.test?body=data:,foo&subject=kept",
+    "agentnative://page?q=data:,foo&x=1",
+  ])("preserves data URL text inside an outer URL: %s", (text) => {
+    expect(stripInlineBytes({ text }, "reject")).toEqual({ text });
+  });
+
+  it("keeps an outer URL while scrubbing a separate inline destination", () => {
+    const link = "[site](https://a.com/?q=data:,foo&x=1)";
+    expect(
+      stripInlineBytes({ text: link + " ![chart](" + PIXELS + ")" }, "reject"),
+    ).toEqual({
+      text: link + " ![chart]([inline image/png data omitted])",
+    });
+  });
+
+  it.each([
+    "[site](https://a.test/?q=data:,foo&x=1) ".repeat(10_000),
+    "data:, " + "a-".repeat(64_000),
+  ])(
+    "preserves outer URLs and non-URL text without repeated scans (%#)",
+    (text) => {
+      const started = performance.now();
+      expect(stripInlineBytes({ text }, "reject")).toEqual({ text });
+      expect(performance.now() - started).toBeLessThan(1_000);
+    },
+    30_000,
+  );
+
   it.each(["(data:;broken)", "[data:;broken]"])(
     "preserves repeated wrapped %s headers without rescanning the remaining text",
     (prefix) => {

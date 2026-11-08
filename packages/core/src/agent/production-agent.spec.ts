@@ -20345,6 +20345,8 @@ describe("runAgentLoop", () => {
         urls: ["data:,", "data:;base64,", "data:image/png;base64,"],
         brokenLink: "![chart](data:image/png;broken),following prose",
         brokenReference: "[data:text/plain;broken],following prose",
+        url: "https://a.com/?q=data:,foo&x=1",
+        link: "[site](https://a.com/?q=data:,foo&x=1)",
       };
       const actual = await toolResultFor(async () => examples);
       if (typeof actual !== "string") throw new Error("Missing tool result");
@@ -27684,6 +27686,11 @@ describe("runAgentLoop tool-result images", () => {
     { prefix: "data:,", mediaType: "text/plain", mirrored: false },
     {
       prefix: "data:;charset=UTF-8,",
+      mediaType: "text/plain",
+      mirrored: false,
+    },
+    {
+      prefix: "data:text/plain,sample(one)",
       mediaType: "text/plain",
       mirrored: false,
     },

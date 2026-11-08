@@ -65,9 +65,9 @@ const IMAGE_BYTE_FIELD_KEYS = new Set([
 ]);
 // URL schemes are case-insensitive: `DATA:image/png;base64,...` is still bytes.
 const DATA_SCHEME = /data:/i;
-const EMBEDDED_DATA_URL_START = /\bdata:((?:[\w.+-]+\/[\w.+-]+)?)(?=[;,])/gi;
-const DATA_URL_HEADER_BOUNDARY = /[,\s"'<>]/;
-const DATA_URL_PAYLOAD = /[^\s"'<>)\]]+/y;
+const EMBEDDED_URL_START =
+  /\b(?:data:((?:[\w.+-]+\/[\w.+-]+)?)(?=[;,])|(?<![a-z\d+.-])(?!data:)[a-z][a-z\d+.-]*:\/\/|(?:https?|mailto|tel|sms):)/gi;
+const URL_TOKEN_BOUNDARY = /[\s"'<>]/;
 
 function hasInlineByteProperty(json: string): boolean {
   for (const match of json.matchAll(/"((?:\\.|[^"\\])*)"\s*:/g)) {
@@ -153,18 +153,24 @@ function inlineMediaType(
   return undefined;
 }
 
-function findDataUrlHeaderEnd(
+function findUrlSpan(
   value: string,
   start: number,
   opening: string,
-): number {
-  const closing = opening === "(" ? ")" : opening === "[" ? "]" : "";
-  let depth = 1;
+  isData: boolean,
+): { end: number; comma: number } {
+  const wrapped = opening === "(" || opening === "[";
+  const closings = wrapped ? [opening === "(" ? ")" : "]"] : [];
+  let comma = -1;
   let escaped = false;
   for (let index = start; index < value.length; index += 1) {
     const char = value.charAt(index);
-    if (DATA_URL_HEADER_BOUNDARY.test(char)) return index;
-    if (!closing) continue;
+    if (URL_TOKEN_BOUNDARY.test(char)) return { end: index, comma };
+    if (isData && comma === -1 && char === ",") {
+      comma = index;
+      continue;
+    }
+    if (!wrapped && (!isData || comma === -1)) continue;
     if (escaped) {
       escaped = false;
       continue;
@@ -173,44 +179,43 @@ function findDataUrlHeaderEnd(
       escaped = true;
       continue;
     }
-    if (char === opening) depth += 1;
-    if (char === closing) {
-      depth -= 1;
-      if (depth === 0) return index;
+    if (char === "(" || char === "[") {
+      closings.push(char === "(" ? ")" : "]");
+    } else if (char === ")" || char === "]") {
+      if (closings[closings.length - 1] !== char) return { end: index, comma };
+      closings.pop();
+      if (wrapped && closings.length === 0) return { end: index, comma };
     }
   }
-  return -1;
+  return { end: value.length, comma };
 }
 
 function scrubString(value: string): string {
   const parts: string[] = [];
   let copiedThrough = 0;
   if (DATA_SCHEME.test(value)) {
-    EMBEDDED_DATA_URL_START.lastIndex = 0;
+    EMBEDDED_URL_START.lastIndex = 0;
     for (
-      let match = EMBEDDED_DATA_URL_START.exec(value);
+      let match = EMBEDDED_URL_START.exec(value);
       match !== null;
-      match = EMBEDDED_DATA_URL_START.exec(value)
+      match = EMBEDDED_URL_START.exec(value)
     ) {
-      const headerEnd = findDataUrlHeaderEnd(
+      const isData = match[0].slice(0, 5).toLowerCase() === "data:";
+      const span = findUrlSpan(
         value,
-        EMBEDDED_DATA_URL_START.lastIndex,
+        EMBEDDED_URL_START.lastIndex,
         value.charAt(match.index - 1),
+        isData,
       );
-      if (headerEnd === -1) break;
-      // Skip inspected header spans so nested prefixes cannot trigger rescans.
-      EMBEDDED_DATA_URL_START.lastIndex = headerEnd + 1;
-      if (value.charAt(headerEnd) !== ",") continue;
-      DATA_URL_PAYLOAD.lastIndex = headerEnd + 1;
-      const payload = DATA_URL_PAYLOAD.exec(value);
-      if (payload === null) continue;
+      // Skip inspected URL spans so embedded schemes cannot trigger rescans.
+      EMBEDDED_URL_START.lastIndex = span.end;
+      if (!isData || span.comma === -1 || span.end <= span.comma + 1) continue;
 
       parts.push(
         value.slice(copiedThrough, match.index),
         `[inline ${(match[1] || "text/plain").toLowerCase()} data omitted]`,
       );
-      copiedThrough = DATA_URL_PAYLOAD.lastIndex;
-      EMBEDDED_DATA_URL_START.lastIndex = copiedThrough;
+      copiedThrough = span.end;
     }
     if (parts.length > 0) {
       parts.push(value.slice(copiedThrough));
