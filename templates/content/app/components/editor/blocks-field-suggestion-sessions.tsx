@@ -15,6 +15,7 @@ import type { DocumentPropertiesResponse } from "@shared/api";
 import {
   blocksFieldSuggestionRevision,
   CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER,
+  parseBlocksFieldSuggestionRevision,
   suggestionBlocksFieldId,
 } from "@shared/blocks-field-suggestions";
 import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting";
@@ -1054,9 +1055,9 @@ export function useBlocksFieldSuggestions({
    * Holds what tabs show of their saved suggestions as it is now. A tab
    * still holding an earlier decision's view, because the text with that
    * decision is unread, keeps it, with any suggestion shown since added.
-   * Returns what lets this hold go, what drops suggestions from it, and the
-   * tabs that kept an earlier view. A later hold on a tab replaces this one
-   * there.
+   * Returns what lets this hold go, what drops suggestions from it, the tabs
+   * that kept an earlier view, and what each tab holds. A later hold on a
+   * tab replaces this one there.
    */
   const holdViews = useCallback(
     (fieldIds: string[]) => {
@@ -1102,7 +1103,7 @@ export function useBlocksFieldSuggestions({
           }
           return next;
         });
-      return { release, drop, carried };
+      return { release, drop, carried, held };
     },
     [changeViews],
   );
@@ -1133,14 +1134,16 @@ export function useBlocksFieldSuggestions({
 
   /**
    * Runs `then` once the page shows each tab of `revisions` past the
-   * revision given for it, at once if it already does.
+   * revision given for it, at once if it already does. A page still loading
+   * its first read of a tab shows no revision of it, which isn't past any.
    */
   const afterTextRead = useCallback(
     (revisions: ReadonlyMap<string, number>, then: () => void) => {
       const read = () =>
-        [...revisions].every(([fieldId, revision]) =>
-          shownRevisions(fieldId).every((shown) => shown > revision),
-        );
+        [...revisions].every(([fieldId, revision]) => {
+          const shown = shownRevisions(fieldId);
+          return shown.length > 0 && shown.every((each) => each > revision);
+        });
       if (read()) {
         then();
         return;
@@ -1173,10 +1176,21 @@ export function useBlocksFieldSuggestions({
       // read: the list drops an accepted suggestion before the text holding
       // it arrives, and the tab would show its old text without it meanwhile.
       const views = holdViews(fieldIds);
+      // The decided text is newer than what the page shows of each tab now,
+      // and than the text its held suggestions were made on, which a read
+      // still loading from before the decision may show.
       const shownBefore = new Map(
-        [...new Set(fieldIds)].map((fieldId) => [
+        [...views.held].map(([fieldId, view]) => [
           fieldId,
-          Math.max(-1, ...shownRevisions(fieldId)),
+          Math.max(
+            -1,
+            ...shownRevisions(fieldId),
+            ...view.flatMap(
+              (suggestion) =>
+                parseBlocksFieldSuggestionRevision(suggestion.baseRevision)
+                  ?.revision ?? [],
+            ),
+          ),
         ]),
       );
       /** The tabs whose changed text is still unread. */

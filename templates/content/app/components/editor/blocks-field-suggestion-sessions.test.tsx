@@ -848,6 +848,38 @@ describe("useBlocksFieldSuggestions", () => {
     expect(highlighted()).toEqual([]);
   });
 
+  it("keeps showing a decided tab's suggestions through a read from before the decision, when the page showed none of the tab yet", async () => {
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const created = first(firstSaved());
+    // The page's first read of its properties is still on its way.
+    await render(false, [created]);
+    vi.spyOn(queryClient, "refetchQueries").mockRejectedValueOnce(
+      new Error("Network down"),
+    );
+
+    await act(async () => {
+      await latest.decide(created, "accepted");
+    });
+    await render(false, [{ ...created, status: "accepted" }]);
+    expect(highlighted()).toEqual(["saved-0"]);
+
+    // That read lands with the text the suggestion was made on, without
+    // its edit.
+    await act(async () => {
+      showNotes(3);
+    });
+    expect(highlighted()).toEqual(["saved-0"]);
+
+    await act(async () => {
+      showNotes(4);
+    });
+    expect(highlighted()).toEqual([]);
+  });
+
   it("keeps an earlier decision's suggestion shown when the tab decides again before the page shows its new text", async () => {
     await render(true, []);
     await draftInTab();
