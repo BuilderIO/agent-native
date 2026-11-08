@@ -161,11 +161,10 @@ async function resolveDraftAttachments(
     ...handles.filter((handle) => handle.id),
     ...handles.filter((handle) => !handle.id),
   ]) {
-    const match = unmatched.findIndex((existing) =>
-      handleNames(handle, existing),
-    );
-    const [entry] = match >= 0 ? unmatched.splice(match, 1) : [];
-    if (entry) claimed.set(handle, entry);
+    const entry = unmatched.find((existing) => handleNames(handle, existing));
+    if (!entry) continue;
+    unmatched.splice(unmatched.indexOf(entry), 1);
+    claimed.set(handle, entry);
   }
   for (const handle of handles) {
     const attachment =
