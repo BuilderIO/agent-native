@@ -239,11 +239,15 @@ function eventRefreshesDocumentQuery(eventKey: string, queryName: unknown) {
     return queryName === "list-comments";
   if (eventKey === "apply-comment-ai-request")
     return queryName === "get-document" || queryName === "list-comments";
+  // Accepting a suggestion writes the Page body, or the Blocks field tab it
+  // was made on.
   if (
     eventKey === "decide-resource-suggestion" ||
     eventKey === "decide-resource-suggestion-proposal"
   )
-    return queryName === "get-document";
+    return (
+      queryName === "get-document" || queryName === "list-document-properties"
+    );
   return CONTENT_MUTATIONS.has(eventKey);
 }
 
