@@ -31,7 +31,10 @@ const tauri = vi.hoisted(() => {
 const transcription = vi.hoisted(() => ({
   start: vi.fn(async () => "whisper" as const),
   stop: vi.fn(
-    async (_engine?: string, _runId?: number): Promise<void> => undefined,
+    async (
+      _engine?: string,
+      _runId?: number,
+    ): Promise<{ failure: string | null }> => ({ failure: null }),
   ),
   restart: vi.fn(async () => undefined),
 }));
@@ -108,7 +111,7 @@ describe("useMeetingTranscription quit coordination", () => {
     transcription.start.mockReset();
     transcription.stop.mockReset();
     transcription.restart.mockReset();
-    transcription.stop.mockResolvedValue(undefined);
+    transcription.stop.mockResolvedValue({ failure: null });
     transcription.restart.mockResolvedValue(undefined);
     host = document.createElement("div");
     document.body.append(host);
@@ -333,7 +336,7 @@ describe("useMeetingTranscription quit coordination", () => {
 
   it("waits for engine startup and stop before closing an app-quit session", async () => {
     const engineStart = deferred<"whisper">();
-    const engineStop = deferred<void>();
+    const engineStop = deferred<{ failure: string | null }>();
     const stopRecording = deferred<{ actualEnd: string }>();
     transcription.start.mockReturnValue(engineStart.promise);
     transcription.stop.mockReturnValue(engineStop.promise);
@@ -411,7 +414,7 @@ describe("useMeetingTranscription quit coordination", () => {
     expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
 
     await act(async () => {
-      engineStop.resolve();
+      engineStop.resolve({ failure: null });
       await waitFor(() =>
         callClipsAction.mock.calls.some(
           ([name]) => name === "stop-meeting-recording",
@@ -439,7 +442,7 @@ describe("useMeetingTranscription quit coordination", () => {
 
   it("stops the resolved native engine after delayed startup before acknowledging quit", async () => {
     const engineStart = deferred<"whisper">();
-    const engineStop = deferred<void>();
+    const engineStop = deferred<{ failure: string | null }>();
     const stopRecording = deferred<{ actualEnd: string }>();
     const events: string[] = [];
     transcription.start.mockImplementation(async () => {
@@ -452,6 +455,7 @@ describe("useMeetingTranscription quit coordination", () => {
       if (engine === "whisper" && events.includes("startup-settled")) {
         return engineStop.promise;
       }
+      return { failure: null };
     });
     const callClipsAction = vi.fn((name: string) => {
       if (name === "start-meeting-recording") {
@@ -513,7 +517,7 @@ describe("useMeetingTranscription quit coordination", () => {
     expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
 
     await act(async () => {
-      engineStop.resolve();
+      engineStop.resolve({ failure: null });
       await waitFor(() =>
         callClipsAction.mock.calls.some(
           ([name]) => name === "stop-meeting-recording",
@@ -536,7 +540,7 @@ describe("useMeetingTranscription quit coordination", () => {
 
   it("keeps quit pending and retries when stopping the resolved native engine fails", async () => {
     const engineStart = deferred<"whisper">();
-    const retryEngineStop = deferred<void>();
+    const retryEngineStop = deferred<{ failure: string | null }>();
     const stopRecording = deferred<{ actualEnd: string }>();
     const events: string[] = [];
     let postStartWhisperStops = 0;
@@ -555,6 +559,7 @@ describe("useMeetingTranscription quit coordination", () => {
         }
         return retryEngineStop.promise;
       }
+      return { failure: null };
     });
     const callClipsAction = vi.fn((name: string) => {
       if (name === "start-meeting-recording") {
@@ -625,7 +630,7 @@ describe("useMeetingTranscription quit coordination", () => {
     ).toBe(false);
 
     await act(async () => {
-      retryEngineStop.resolve();
+      retryEngineStop.resolve({ failure: null });
       await waitFor(() =>
         callClipsAction.mock.calls.some(
           ([name]) => name === "stop-meeting-recording",

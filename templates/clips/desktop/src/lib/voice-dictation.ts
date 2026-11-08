@@ -1386,7 +1386,6 @@ export function installDesktopVoiceDictation(
         micDeviceId: concreteMediaDeviceId(micDeviceId) || null,
         micDeviceLabel: micDeviceLabel || null,
         captureSystem: false,
-        voiceProcessing: true,
         owner: "dictation",
         runId,
       });

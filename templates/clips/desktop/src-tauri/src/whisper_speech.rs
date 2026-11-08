@@ -1,4 +1,14 @@
+use serde::Serialize;
 use tauri::AppHandle;
+
+/// The first failure reported for a stopped run: a microphone that sent no
+/// usable audio, or a transcription that failed. Either way the run's
+/// transcript is missing speech, so whoever saves it must carry `failure`.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WhisperStopResult {
+    pub failure: Option<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OfflineTranscriptSegment {
@@ -30,7 +40,6 @@ pub async fn whisper_transcription_start(
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
     capture_system: bool,
-    voice_processing: bool,
     emit_partials: bool,
     owner: Option<String>,
     run_id: Option<u64>,
@@ -46,7 +55,6 @@ pub async fn whisper_transcription_start(
             mic_device_id,
             mic_device_label,
             capture_system,
-            voice_processing,
             emit_partials,
             macos::SessionOwner::from_param(owner),
             run_id,
@@ -61,7 +69,6 @@ pub async fn whisper_transcription_start(
             mic_device_id,
             mic_device_label,
             capture_system,
-            voice_processing,
             emit_partials,
             owner,
             run_id,
@@ -85,21 +92,20 @@ pub async fn whisper_transcription_stop(
     app: AppHandle,
     owner: Option<String>,
     run_id: Option<u64>,
-) -> Result<(), String> {
+) -> Result<WhisperStopResult, String> {
     #[cfg(target_os = "macos")]
     {
-        macos::stop(
+        Ok(macos::stop(
             &app,
             owner.map(|owner| macos::SessionOwner::from_param(Some(owner))),
             run_id,
             false,
-        );
-        Ok(())
+        ))
     }
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, owner, run_id);
-        Ok(())
+        Ok(WhisperStopResult::default())
     }
 }
 
@@ -130,22 +136,19 @@ pub async fn whisper_transcription_reset_timeline(
 #[cfg(target_os = "macos")]
 mod macos {
     use std::collections::HashSet;
-    use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
     use std::time::{Duration, Instant};
 
     use serde::Serialize;
     use tauri::{AppHandle, Emitter};
-    use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+    use transcribe_cpp::Model;
 
     use crate::capture_audio_bus::{
         try_subscribe, AudioSources, AudioSubscription, SubscriptionAttempt,
     };
     use crate::echo_guard::EchoGuard;
-    use crate::native_speech::macos::{
-        start_raw_mic_capture, MicVoiceProcessingMode, RawMicCapture,
-    };
+    use crate::native_speech::mic_capture::MicCapture;
     use crate::speech_capture_ownership::{
         claim as claim_speech_capture, SpeechCaptureEngine, SpeechCaptureLease, SpeechCaptureOwner,
     };
@@ -153,9 +156,12 @@ mod macos {
         start_raw_meeting_capture, start_raw_system_capture, supports_sck_microphone_capture,
         RawSckAudioCapture,
     };
-    use crate::whisper_model::{ensure_model, model_file};
+    use crate::transcribe_engine::{open_session, transcribe_whisper, ModelSlot};
+    use crate::whisper_model::{ensure_model, model_file, remove_superseded_legacy_model};
 
     const MEETING_AUDIO_OWNER: &str = "meeting-whisper";
+    const PARTIAL_TRANSCRIPT: &str = "voice:partial-transcript";
+    const FINAL_TRANSCRIPT: &str = "voice:final-transcript";
     const START_SUPERSEDED: &str = "speech-engine-start-superseded";
 
     const SHARED_LEVEL_EVERY: u32 = 3;
@@ -206,42 +212,20 @@ mod macos {
         buffer_start: Instant,
     }
 
-    fn context(app: &AppHandle) -> Result<Arc<WhisperContext>, String> {
-        whisper_rs::install_logging_hooks();
-
-        struct CachedContext {
-            model_path: PathBuf,
-            context: Arc<WhisperContext>,
-        }
-
-        static CTX: OnceLock<Mutex<Option<CachedContext>>> = OnceLock::new();
-        let slot = CTX.get_or_init(|| Mutex::new(None));
-        let mut guard = slot.lock().map_err(|e| e.to_string())?;
+    fn cached_model(app: &AppHandle) -> Result<Model, String> {
+        static MODEL: ModelSlot = ModelSlot::new();
         let path = model_file(app)?;
-        if let Some(cached) = guard.as_ref() {
-            if cached.model_path == path {
-                return Ok(cached.context.clone());
-            }
+        let (model, loaded) = MODEL
+            .get_or_load(&path)
+            .map_err(|e| format!("whisper {e}"))?;
+        if loaded {
+            remove_superseded_legacy_model(app, &path);
         }
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| "model path is not valid UTF-8".to_string())?;
-        let mut params = WhisperContextParameters::default();
-        params.use_gpu(cfg!(target_arch = "aarch64"));
-        let ctx = WhisperContext::new_with_params(path_str, params)
-            .map_err(|e| format!("whisper model load failed: {e}"))?;
-        let context = Arc::new(ctx);
-        *guard = Some(CachedContext {
-            model_path: path,
-            context: context.clone(),
-        });
-        Ok(context)
+        Ok(model)
     }
 
     pub fn prewarm(app: &AppHandle) -> Result<(), String> {
-        let ctx = context(app)?;
-        ctx.create_state()
-            .map_err(|e| format!("whisper state init failed: {e}"))?;
+        open_session(&cached_model(app)?).map_err(|e| format!("whisper {e}"))?;
         Ok(())
     }
 
@@ -252,14 +236,11 @@ mod macos {
     ) -> Result<Vec<super::OfflineTranscriptSegment>, String> {
         const CHUNK_SAMPLES: usize = 25 * 16_000;
 
-        let ctx = context(app)?;
-        let mut state = ctx
-            .create_state()
-            .map_err(|e| format!("whisper state init failed: {e}"))?;
+        let mut session = open_session(&cached_model(app)?).map_err(|e| format!("whisper {e}"))?;
         let mut segments = Vec::new();
         for (chunk_index, chunk) in samples.chunks(CHUNK_SAMPLES).enumerate() {
             let chunk_offset_ms = chunk_index as i64 * 25_000;
-            segments.extend(infer(&mut state, chunk, language).into_iter().map(
+            segments.extend(infer(&mut session, chunk, language)?.into_iter().map(
                 |(start_ms, end_ms, text)| super::OfflineTranscriptSegment {
                     start_ms: chunk_offset_ms.saturating_add(start_ms),
                     end_ms: chunk_offset_ms.saturating_add(end_ms),
@@ -362,6 +343,7 @@ mod macos {
         reset_generation: AtomicU32,
         emit_partials: bool,
         echo_guard: Option<Arc<EchoGuard>>,
+        failure: OnceLock<String>,
     }
 
     impl WhisperStream {
@@ -370,7 +352,7 @@ mod macos {
             source: &'static str,
             src_rate: f64,
             language: Option<String>,
-            ctx: Arc<WhisperContext>,
+            model: Model,
             stream_start: Instant,
             emit_partials: bool,
             echo_guard: Option<Arc<EchoGuard>>,
@@ -393,10 +375,11 @@ mod macos {
                 reset_generation: AtomicU32::new(0),
                 emit_partials,
                 echo_guard,
+                failure: OnceLock::new(),
             });
             let worker_stream = stream.clone();
             std::thread::spawn(move || {
-                worker(worker_stream, ctx);
+                worker(worker_stream, model);
                 done.store(true, Ordering::SeqCst);
             });
             stream
@@ -461,7 +444,7 @@ mod macos {
 
         fn clear_partial(&self) {
             let _ = self.app.emit(
-                "voice:partial-transcript",
+                PARTIAL_TRANSCRIPT,
                 serde_json::json!({
                     "text": "",
                     "source": self.source,
@@ -471,15 +454,54 @@ mod macos {
         }
 
         fn reset_timeline(&self, offset: Duration) {
-            if let Ok(mut buf) = self.buf.lock() {
-                buf.clear();
-            }
+            // The generation moves while the buffer's lock is held, so a
+            // reader holding that lock sees a buffer and generation that agree.
+            let mut buf = self
+                .buf
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            buf.clear();
             let now = Instant::now();
             if let Ok(mut timeline) = self.timeline.lock() {
                 timeline.stream_start = timeline_start_for_offset(now, offset);
                 timeline.buffer_start = now;
             }
             self.reset_generation.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn emit_inference(
+            &self,
+            event: &'static str,
+            result: Result<Vec<(i64, i64, String)>, String>,
+        ) {
+            match result {
+                Ok(segments) => self.emit_transcript(event, &segments, self.offset_ms()),
+                Err(error) => {
+                    eprintln!("[whisper-{}] {error}", self.source);
+                    // The next partial replaces a failed one, but the audio
+                    // behind a failed final is dropped, so it must not pass
+                    // for silence.
+                    if event == FINAL_TRANSCRIPT {
+                        self.report_failure(&error);
+                    }
+                }
+            }
+        }
+
+        fn report_failure(&self, error: &str) {
+            let _ = self.failure.set(error.to_owned());
+            let _ = self.app.emit(
+                "pill:error",
+                serde_json::json!({ "error": format!("Transcription worker ({}) failed: {error}", self.source) }),
+            );
+            let _ = self.app.emit(
+                "voice:speech-error",
+                serde_json::json!({
+                    "error": error,
+                    "source": self.source,
+                    "runId": self.run_id,
+                }),
+            );
         }
 
         fn emit_transcript(
@@ -566,40 +588,13 @@ mod macos {
     }
 
     fn infer(
-        state: &mut whisper_rs::WhisperState,
+        session: &mut transcribe_cpp::Session,
         samples: &[f32],
         language: Option<&str>,
-    ) -> Vec<(i64, i64, String)> {
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        params.set_n_threads(2);
-        params.set_language(language);
-        params.set_translate(false);
-        params.set_no_context(true);
-        params.set_suppress_nst(true);
-        params.set_print_special(false);
-        params.set_print_progress(false);
-        params.set_print_realtime(false);
-        params.set_print_timestamps(false);
-        if state.full(params, samples).is_err() {
-            return Vec::new();
-        }
-        let mut out = Vec::new();
-        for segment in state.as_iter() {
-            let text = segment.to_string();
-            if !is_speech(&text) || segment.no_speech_probability() >= MAX_NO_SPEECH_PROBABILITY {
-                continue;
-            }
-            let confidence = segment_confidence(&segment);
-            if confidence < MIN_AVG_TOKEN_PROBABILITY {
-                continue;
-            }
-            out.push((
-                segment.start_timestamp() * 10,
-                segment.end_timestamp() * 10,
-                text,
-            ));
-        }
-        out
+    ) -> Result<Vec<(i64, i64, String)>, String> {
+        let mut segments = transcribe_whisper(session, samples, language)?;
+        segments.retain(|(_, _, text)| is_speech(text));
+        Ok(segments)
     }
 
     fn is_speech(text: &str) -> bool {
@@ -618,36 +613,26 @@ mod macos {
 
     const SAMPLE_RATE_16K: f32 = 16000.0;
     const VOICE_RMS_THRESHOLD: f32 = 0.006;
-    const MAX_NO_SPEECH_PROBABILITY: f32 = 0.72;
     const MIN_MIC_VAD_PROBABILITY: f32 = 0.6;
-    const MIN_AVG_TOKEN_PROBABILITY: f32 = 0.55;
-
-    fn segment_confidence(segment: &whisper_rs::WhisperSegment<'_>) -> f32 {
-        let mut sum = 0.0f32;
-        let mut count = 0u32;
-        for i in 0..segment.n_tokens() {
-            let Some(token) = segment.get_token(i) else {
-                continue;
-            };
-            let is_special = token
-                .to_str_lossy()
-                .map(|t| t.starts_with("[_"))
-                .unwrap_or(false);
-            if is_special {
-                continue;
-            }
-            sum += token.token_probability();
-            count += 1;
-        }
-        if count == 0 {
-            return 0.0;
-        }
-        sum / count as f32
-    }
 
     fn mic_voice_detected(rms: f32, vad_probability: Option<f32>) -> bool {
         rms > VOICE_RMS_THRESHOLD
             && vad_probability.is_none_or(|probability| probability >= MIN_MIC_VAD_PROBABILITY)
+    }
+
+    /// Whether the audio after the first `polled` samples of `raw` holds
+    /// voice, judged the way the worker's loop judges each new stretch.
+    fn unpolled_voice(
+        raw: &[f32],
+        polled: usize,
+        sample_rate: f32,
+        vad: Option<&mut MicVoiceActivity>,
+    ) -> bool {
+        let Some(tail) = raw.get(polled..).filter(|tail| !tail.is_empty()) else {
+            return false;
+        };
+        let rms = (tail.iter().map(|x| x * x).sum::<f32>() / tail.len() as f32).sqrt();
+        mic_voice_detected(rms, vad.and_then(|vad| vad.observe(tail, sample_rate)))
     }
 
     fn buffer_start_after_drain(now: Instant, pending: Duration) -> Instant {
@@ -686,15 +671,12 @@ mod macos {
         (have_secs > 0.4 && silence > Duration::from_millis(800)) || have_secs > 25.0
     }
 
-    fn worker(stream: Arc<WhisperStream>, ctx: Arc<WhisperContext>) {
-        let mut state = match ctx.create_state() {
+    fn worker(stream: Arc<WhisperStream>, model: Model) {
+        let mut session = match open_session(&model) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("[whisper-{}] create_state failed: {e}", stream.source);
-                let _ = stream.app.emit(
-                    "pill:error",
-                    serde_json::json!({ "error": format!("Transcription worker ({}) failed: {e}", stream.source) }),
-                );
+                eprintln!("[whisper-{}] {e}", stream.source);
+                stream.report_failure(&e);
                 return;
             }
         };
@@ -778,8 +760,10 @@ mod macos {
                         eprintln!("[whisper-mic] suppressed {have_secs:.1}s of speaker bleed");
                         stream.clear_partial();
                     } else {
-                        let segs = infer(&mut state, resample_state.samples(), lang);
-                        stream.emit_transcript("voice:final-transcript", &segs, stream.offset_ms());
+                        stream.emit_inference(
+                            FINAL_TRANSCRIPT,
+                            infer(&mut session, resample_state.samples(), lang),
+                        );
                     }
                 }
                 let mut pending = 0usize;
@@ -816,23 +800,49 @@ mod macos {
                     stream.clear_partial();
                     false
                 } else {
-                    let segs = infer(&mut state, resample_state.samples(), lang);
-                    stream.emit_transcript("voice:partial-transcript", &segs, stream.offset_ms());
+                    stream.emit_inference(
+                        PARTIAL_TRANSCRIPT,
+                        infer(&mut session, resample_state.samples(), lang),
+                    );
                     true
                 };
                 last_infer = partial_inference_timestamp(last_infer, inference_ran, Instant::now());
             }
         }
 
-        let raw = stream.buf.lock().map(|b| b.clone()).unwrap_or_default();
+        let (raw, reset_since_poll) = stream
+            .buf
+            .lock()
+            .map(|b| {
+                let generation = stream.reset_generation.load(Ordering::SeqCst);
+                (b.clone(), generation != seen_reset_generation)
+            })
+            .unwrap_or_default();
         let src_rate = stream.src_rate.load(Ordering::SeqCst) as f64;
+        // Stopping delivers the capture's last buffers after the loop's final
+        // poll, so speech heard only there must still count.
+        // A reset since the last poll discarded the audio `had_voice` judged.
+        let (had_voice, polled) = if reset_since_poll {
+            if let Some(vad) = mic_voice_activity.as_mut() {
+                vad.reset();
+            }
+            (false, 0)
+        } else {
+            (had_voice, last_raw_len)
+        };
+        let had_voice = had_voice
+            || unpolled_voice(
+                &raw,
+                polled,
+                src_rate.max(1.0) as f32,
+                mic_voice_activity.as_mut(),
+            );
         let samples = resample_to_16k(&raw, src_rate);
         if had_voice
             && samples.len() as f32 / SAMPLE_RATE_16K > 0.3
             && !stream.is_playback_echo(&samples)
         {
-            let segs = infer(&mut state, &samples, lang);
-            stream.emit_transcript("voice:final-transcript", &segs, stream.offset_ms());
+            stream.emit_inference(FINAL_TRANSCRIPT, infer(&mut session, &samples, lang));
         }
         eprintln!("[whisper-{}] worker stopped", stream.source);
     }
@@ -892,35 +902,9 @@ mod macos {
         owner == SessionOwner::Meeting && microphone_capture_supported
     }
 
-    #[derive(Debug, PartialEq, Eq)]
-    struct SplitMicCaptureOptions {
-        voice_processing: MicVoiceProcessingMode,
-        reuse_voice_processing_engine: bool,
-    }
-
-    fn split_mic_capture_options(
-        owner: SessionOwner,
-        capture_system: bool,
-        requested_voice_processing: bool,
-    ) -> SplitMicCaptureOptions {
-        let voice_processing = match owner {
-            SessionOwner::Meeting => MicVoiceProcessingMode::Bypassed,
-            SessionOwner::Dictation if requested_voice_processing => {
-                MicVoiceProcessingMode::Enabled
-            }
-            SessionOwner::Dictation => MicVoiceProcessingMode::Disabled,
-        };
-        SplitMicCaptureOptions {
-            voice_processing,
-            reuse_voice_processing_engine: owner == SessionOwner::Dictation
-                && !capture_system
-                && voice_processing == MicVoiceProcessingMode::Enabled,
-        }
-    }
-
     struct Session {
         app: AppHandle,
-        mic_cap: Option<RawMicCapture>,
+        mic_cap: Option<MicCapture>,
         sys_cap: Option<RawSckAudioCapture>,
         _shared_audio: Option<AudioSubscription>,
         temporary_audio: Option<crate::screen_memory::TemporaryAudioLease>,
@@ -1069,7 +1053,6 @@ mod macos {
         mic_device_id: Option<String>,
         mic_device_label: Option<String>,
         capture_system: bool,
-        voice_processing: bool,
         emit_partials: bool,
         owner: SessionOwner,
         run_id: Option<u64>,
@@ -1101,12 +1084,12 @@ mod macos {
         if !run_is_current_now(owner, run_id) {
             return Err(START_SUPERSEDED.into());
         }
-        let ctx = context(&app).map_err(|e| {
+        let model = cached_model(&app).map_err(|e| {
             let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
             e
         })?;
-        ctx.create_state().map_err(|e| {
-            let msg = format!("whisper state init failed: {e}");
+        open_session(&model).map_err(|e| {
+            let msg = format!("whisper {e}");
             let _ = app.emit("pill:error", serde_json::json!({ "error": msg }));
             msg
         })?;
@@ -1124,7 +1107,7 @@ mod macos {
             "mic",
             48000.0,
             lang.clone(),
-            ctx.clone(),
+            model.clone(),
             session_start,
             emit_partials,
             echo_guard.clone(),
@@ -1136,7 +1119,7 @@ mod macos {
                 "system",
                 48000.0,
                 lang.clone(),
-                ctx.clone(),
+                model.clone(),
                 session_start,
                 emit_partials,
                 echo_guard.clone(),
@@ -1276,16 +1259,16 @@ mod macos {
                 mic_stream.set_src_rate(48000.0);
                 Ok((None, Some(combined_cap)))
             } else {
-                let mic_options =
-                    split_mic_capture_options(owner, capture_system, voice_processing);
-                let mic_cap = start_raw_mic_capture(
+                let mic_for_capture = mic_stream.clone();
+                let mic_cap = MicCapture::start(
                     app.clone(),
-                    mic_device_id,
-                    mic_device_label,
-                    mic_options.voice_processing,
-                    mic_options.reuse_voice_processing_engine,
+                    mic_device_id.as_deref(),
+                    mic_device_label.as_deref(),
                     run_id,
-                    mic_callback,
+                    Arc::new(move |samples: &[f32], sample_rate: f64| {
+                        mic_for_capture.set_src_rate(sample_rate);
+                        mic_for_capture.push(samples);
+                    }),
                 )
                 .map_err(|e| {
                     mic_stream.stop();
@@ -1294,7 +1277,6 @@ mod macos {
                     }
                     format!("mic capture failed: {e}")
                 })?;
-                mic_stream.set_src_rate(mic_cap.sample_rate());
 
                 let sys_cap = if let Some(system_callback) = system_callback {
                     match start_raw_system_capture(app.clone(), system_callback, run_id) {
@@ -1304,7 +1286,7 @@ mod macos {
                                 sys_stream.stop();
                             }
                             mic_stream.stop();
-                            mic_cap.stop();
+                            drop(mic_cap);
                             return Err(format!("system capture failed: {e}"));
                         }
                     }
@@ -1336,9 +1318,7 @@ mod macos {
                 if let Some(sys_stream) = &sys_stream {
                     sys_stream.stop();
                 }
-                if let Some(mic_cap) = mic_cap {
-                    mic_cap.stop();
-                }
+                drop(mic_cap);
                 if let Some(sys_cap) = sys_cap {
                     sys_cap.stop();
                 }
@@ -1353,9 +1333,7 @@ mod macos {
             if let Some(sys_stream) = &sys_stream {
                 sys_stream.stop();
             }
-            if let Some(mic_cap) = mic_cap {
-                mic_cap.stop();
-            }
+            drop(mic_cap);
             if let Some(sys_cap) = sys_cap {
                 sys_cap.stop();
             }
@@ -1370,9 +1348,7 @@ mod macos {
                 if let Some(sys_stream) = &sys_stream {
                     sys_stream.stop();
                 }
-                if let Some(mic_cap) = mic_cap {
-                    mic_cap.stop();
-                }
+                drop(mic_cap);
                 if let Some(sys_cap) = sys_cap {
                     sys_cap.stop();
                 }
@@ -1391,9 +1367,7 @@ mod macos {
             if let Some(sys_stream) = &sys_stream {
                 sys_stream.stop();
             }
-            if let Some(mic_cap) = mic_cap {
-                mic_cap.stop();
-            }
+            drop(mic_cap);
             if let Some(sys_cap) = sys_cap {
                 sys_cap.stop();
             }
@@ -1463,7 +1437,7 @@ mod macos {
         owner: Option<SessionOwner>,
         run_id: Option<u64>,
         replace_older: bool,
-    ) {
+    ) -> super::WhisperStopResult {
         let mut latest = match latest_run_id_slot().lock() {
             Ok(latest) => latest,
             Err(poisoned) => poisoned.into_inner(),
@@ -1476,20 +1450,20 @@ mod macos {
                 if latest.latest_run_id != Some(run_id)
                     || owner.is_some_and(|owner| latest.latest_owner != Some(owner))
                 {
-                    return;
+                    return super::WhisperStopResult::default();
                 }
             } else {
                 let Some(owner) = owner.or(latest.latest_owner) else {
-                    return;
+                    return super::WhisperStopResult::default();
                 };
                 if slot
                     .as_ref()
                     .is_some_and(|current| current.owner != owner || current.run_id != Some(run_id))
                 {
-                    return;
+                    return super::WhisperStopResult::default();
                 }
                 if !cancel_run_authority(&mut latest, owner, run_id) {
-                    return;
+                    return super::WhisperStopResult::default();
                 }
             }
         }
@@ -1510,32 +1484,49 @@ mod macos {
         drop(slot);
         drop(latest);
         let Some(mut session) = session else {
-            return;
+            return super::WhisperStopResult::default();
         };
-        session.mic.stop();
-        if let Some(sys) = &session.sys {
-            sys.stop();
-        }
+        // Captures go first: stopping one delivers the buffers it already
+        // queued, and a stream drops whatever arrives after its own stop.
         if let Some(mic_cap) = session.mic_cap.take() {
-            mic_cap.stop();
+            if let Err(error) = mic_cap.stop() {
+                session.mic.report_failure(&error);
+            }
         }
         if let Some(sys_cap) = session.sys_cap.take() {
             sys_cap.stop();
         }
         drop(session._shared_audio.take());
+        session.mic.stop();
+        if let Some(sys) = &session.sys {
+            sys.stop();
+        }
         release_temporary_audio(app, session.temporary_audio.take());
+        let workers_done = || {
+            session.mic.done.load(Ordering::SeqCst)
+                && session
+                    .sys
+                    .as_ref()
+                    .map_or(true, |s| s.done.load(Ordering::SeqCst))
+        };
         let deadline = Instant::now() + Duration::from_secs(4);
-        while Instant::now() < deadline {
-            let sys_done = session
-                .sys
-                .as_ref()
-                .map_or(true, |s| s.done.load(Ordering::SeqCst));
-            if session.mic.done.load(Ordering::SeqCst) && sys_done {
-                break;
-            }
+        while !workers_done() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(50));
         }
+        let workers_done = workers_done();
         eprintln!("[whisper] meeting transcription stopped");
+        let failure = session
+            .mic
+            .failure
+            .get()
+            .or_else(|| session.sys.as_ref().and_then(|sys| sys.failure.get()))
+            .cloned()
+            .or_else(|| {
+                (!workers_done).then(|| {
+                    "Local Whisper was still transcribing when the recording stopped, so the end of the transcript may be missing.".to_owned()
+                })
+            });
+        super::WhisperStopResult { failure }
     }
 
     #[cfg(test)]
@@ -1546,11 +1537,10 @@ mod macos {
             begin_run_authority, begin_run_result, buffer_start_after_drain, cancel_run_authority,
             clean_transcript, partial_inference_due, partial_inference_timestamp, resample_to_16k,
             run_is_current, session_start_error, should_use_combined_sck_capture,
-            split_mic_capture_options, start_native_capture_without_authority_lock,
-            timeline_start_for_offset, utterance_finalize_due, IncrementalResample, RunAuthority,
-            SessionOwner, START_SUPERSEDED,
+            start_native_capture_without_authority_lock, timeline_start_for_offset,
+            utterance_finalize_due, IncrementalResample, RunAuthority, SessionOwner,
+            START_SUPERSEDED,
         };
-        use crate::native_speech::macos::MicVoiceProcessingMode;
 
         #[test]
         fn a_failed_dictation_start_does_not_block_a_later_meeting_start() {
@@ -1819,54 +1809,24 @@ mod macos {
         }
 
         #[test]
-        fn meeting_split_capture_uses_bypassed_voice_processing() {
-            assert_eq!(
-                split_mic_capture_options(SessionOwner::Meeting, true, false),
-                super::SplitMicCaptureOptions {
-                    voice_processing: MicVoiceProcessingMode::Bypassed,
-                    reuse_voice_processing_engine: false,
-                }
-            );
-            assert_eq!(
-                split_mic_capture_options(SessionOwner::Meeting, false, true),
-                super::SplitMicCaptureOptions {
-                    voice_processing: MicVoiceProcessingMode::Bypassed,
-                    reuse_voice_processing_engine: false,
-                }
-            );
-        }
-
-        #[test]
-        fn dictation_split_capture_preserves_requested_processing() {
-            assert_eq!(
-                split_mic_capture_options(SessionOwner::Dictation, false, true),
-                super::SplitMicCaptureOptions {
-                    voice_processing: MicVoiceProcessingMode::Enabled,
-                    reuse_voice_processing_engine: true,
-                }
-            );
-            assert_eq!(
-                split_mic_capture_options(SessionOwner::Dictation, true, false),
-                super::SplitMicCaptureOptions {
-                    voice_processing: MicVoiceProcessingMode::Disabled,
-                    reuse_voice_processing_engine: false,
-                }
-            );
-            assert_eq!(
-                split_mic_capture_options(SessionOwner::Dictation, true, true),
-                super::SplitMicCaptureOptions {
-                    voice_processing: MicVoiceProcessingMode::Enabled,
-                    reuse_voice_processing_engine: false,
-                }
-            );
-        }
-
-        #[test]
         fn mic_voice_gate_requires_speech_probability_on_supported_captures() {
             assert!(!super::mic_voice_detected(0.02, Some(0.59)));
             assert!(!super::mic_voice_detected(0.004, Some(0.99)));
             assert!(super::mic_voice_detected(0.02, Some(0.6)));
             assert!(super::mic_voice_detected(0.02, None));
+        }
+
+        #[test]
+        fn speech_delivered_after_the_last_poll_counts_as_voice() {
+            let polled = 4_800;
+            let mut raw = vec![0.0; polled];
+            raw.extend((0..4_800).map(|i| if i % 2 == 0 { 0.1 } else { -0.1 }));
+            assert!(super::unpolled_voice(&raw, polled, 48_000.0, None));
+
+            let quiet_tail = vec![0.0; polled * 2];
+            assert!(!super::unpolled_voice(&quiet_tail, polled, 48_000.0, None));
+            assert!(!super::unpolled_voice(&raw, raw.len(), 48_000.0, None));
+            assert!(!super::unpolled_voice(&raw, raw.len() + 1, 48_000.0, None));
         }
 
         #[test]
@@ -1894,5 +1854,25 @@ mod macos {
                 Some("Thanks for the update".to_string())
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WhisperStopResult;
+
+    #[test]
+    fn a_stop_result_always_says_whether_the_run_failed() {
+        assert_eq!(
+            serde_json::to_value(WhisperStopResult::default()).unwrap(),
+            serde_json::json!({ "failure": null })
+        );
+        assert_eq!(
+            serde_json::to_value(WhisperStopResult {
+                failure: Some("Microphone AirPods sent no audio in 2.3 s.".into()),
+            })
+            .unwrap(),
+            serde_json::json!({ "failure": "Microphone AirPods sent no audio in 2.3 s." })
+        );
     }
 }
