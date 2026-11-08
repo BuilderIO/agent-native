@@ -34,12 +34,22 @@ export async function columnRuleDefinitions(
     })
     .from(schema.documentPropertyDefinitions)
     .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId));
-  return rows.map((row) => ({
+  return rows.map(toColumnRuleDefinition);
+}
+
+/** A stored column definition, read for its rules. */
+export function toColumnRuleDefinition(row: {
+  id: string;
+  name: string;
+  type: string;
+  optionsJson: string | null;
+}): ColumnRuleDefinition {
+  return {
     id: row.id,
     name: row.name,
     type: row.type,
     options: parsePropertyOptions(row.optionsJson),
-  }));
+  };
 }
 
 /**

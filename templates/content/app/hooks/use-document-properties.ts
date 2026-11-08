@@ -1,4 +1,5 @@
 import {
+  actionErrorMessage,
   callActionWithRetry,
   useActionMutation,
   useActionQuery,
@@ -882,10 +883,10 @@ export function useSetBlocksFieldFreezeRule(
     SetBlocksFieldFreezeRuleRequest
   >("set-blocks-field-freeze-rule", {
     skipActionQueryInvalidation: true,
+    // Each change sends the whole rule, so they must land in click order.
+    scope: { id: `content-column-rules:${databaseId}` },
     onMutate: async (variables) => {
       await queryClient.cancelQueries({ queryKey });
-      const previous =
-        queryClient.getQueryData<DocumentPropertiesResponse>(queryKey);
       queryClient.setQueryData<DocumentPropertiesResponse>(
         queryKey,
         (current) =>
@@ -907,16 +908,13 @@ export function useSetBlocksFieldFreezeRule(
             ),
           },
       );
-      return { previous };
     },
-    onError: (error, _variables, context) => {
+    // A later click may already have moved past this one's starting point, so
+    // a failure rereads the rule rather than restoring that point.
+    onError: (error) => {
       toast.error(dbText("somethingWentWrong"), {
-        description: error.message,
+        description: actionErrorMessage(error) ?? error.message,
       });
-      const previous = (
-        context as { previous?: DocumentPropertiesResponse } | undefined
-      )?.previous;
-      if (previous) queryClient.setQueryData(queryKey, previous);
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey });

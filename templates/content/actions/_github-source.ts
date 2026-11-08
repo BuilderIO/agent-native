@@ -21,6 +21,7 @@ import {
   recordCreatedDocumentsHistory,
   recordDocumentHistoryTransition,
 } from "../server/lib/document-history.js";
+import { firstRow } from "../server/lib/first-row.js";
 import {
   GitHubSourceDeadlineError,
   GitHubSourceError,
@@ -33,6 +34,7 @@ import {
   type GitHubRepositoryTarget,
   type GitHubTreeEntry,
 } from "../server/lib/github-source-client.js";
+import { tabsFrozenBy } from "../shared/column-rules.js";
 import {
   classifyGitHubSourceFile,
   fitsGitHubFieldType,
@@ -81,6 +83,7 @@ import {
   type DocumentPropertyOptions,
 } from "../shared/properties.js";
 import { bulkChunkSizeForColumnCount, chunks } from "./_batch-utils.js";
+import { columnRuleDefinitions } from "./_column-rules.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { mutateContentDatabaseSourceMetadata } from "./_database-source-utils.js";
@@ -710,6 +713,27 @@ function textFromStoredValue(
 }
 
 /**
+ * A column a collection rule keys on can't become text: the rule would stop
+ * matching and quietly reopen the tabs it freezes. The sync stops and says why.
+ */
+async function assertNoFreezeRuleKeyedOn(
+  tx: Db,
+  databaseId: string,
+  column: GitHubColumn,
+) {
+  const definitions = await columnRuleDefinitions(tx, databaseId);
+  const frozenTab = firstRow(tabsFrozenBy(definitions, column.propertyId));
+  if (!frozenTab) return;
+  const name =
+    definitions.find((definition) => definition.id === column.propertyId)
+      ?.name ?? column.key;
+  throw new GitHubSourceError(
+    "sync_failed",
+    `A file gives ${name} a value its column can't hold, and a rule freezes the ${frozenTab.name} tab while ${name} has certain values, so ${name} can't become text. Fix the value in the file, or remove the rule from the ${frozenTab.name} tab's menu, then refresh.`,
+  );
+}
+
+/**
  * A file's value no longer fits its column (a number column meets "TBD"),
  * so the column becomes text, keeping every row's value as words.
  */
@@ -1330,6 +1354,7 @@ async function fitColumns(
       });
       run.columns.set(key, column);
     } else if (!fitsGitHubFieldType(column.type, value)) {
+      await assertNoFreezeRuleKeyedOn(tx, run.database.id, column);
       await widenColumnToText(tx, column, run.now);
     }
     if (options) options.set(column, [...(options.get(column) ?? []), value]);

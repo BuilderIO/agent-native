@@ -408,6 +408,8 @@ let getDocument: typeof import("./get-document.js").default;
 let runGitHubSourceSweep: typeof import("./_github-source-freshness.js").runGitHubSourceSweep;
 let refreshBeforeRead: typeof import("./_github-source-freshness.js").refreshGitHubSourceBeforeRead;
 let liveCopyPage: typeof import("../server/test-support/live-copy-page.js");
+let configureProperty: typeof import("./configure-document-property.js").default;
+let setFreezeRule: typeof import("./set-blocks-field-freeze-rule.js").default;
 let spaceId: string;
 
 const as = async <T>(run: () => T | Promise<T>): Promise<Awaited<T>> =>
@@ -449,6 +451,9 @@ beforeAll(async () => {
     await import("./_document-edit-mutation.js"));
   getDocument = (await import("./get-document.js")).default;
   liveCopyPage = await import("../server/test-support/live-copy-page.js");
+  configureProperty = (await import("./configure-document-property.js"))
+    .default;
+  setFreezeRule = (await import("./set-blocks-field-freeze-rule.js")).default;
   ({ runGitHubSourceSweep, refreshGitHubSourceBeforeRead: refreshBeforeRead } =
     await import("./_github-source-freshness.js"));
   await as(() =>
@@ -1522,6 +1527,77 @@ describe("GitHub folder source", () => {
     const [one, two] = await liveRows(database.id);
     expect(await value(one!.documentId, order.id)).toBe("1");
     expect(await value(two!.documentId, order.id)).toBe("TBD");
+  });
+
+  it("stops rather than widen a column a tab's freeze rule keys on", async () => {
+    github.commit({
+      "docs/one.md": "---\nstage: Approved\n---\n# One\n",
+      "docs/two.md": "---\nstage: Draft\n---\n# Two\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    const stageColumn = async () => {
+      const stage = (await columns(database.id)).find(
+        (column) => column.name === "stage",
+      );
+      if (!stage) throw new Error("No stage column");
+      return stage;
+    };
+    const stage = await stageColumn();
+    expect(stage.type).toBe("select");
+    const approved = (
+      JSON.parse(stage.optionsJson) as {
+        options?: Array<{ id: string; name: string }>;
+      }
+    ).options?.find((option) => option.name === "Approved");
+    if (!approved) throw new Error("No Approved option");
+    const person = { caller: "frontend" as const, userEmail: owner };
+    const configured = (await as(() =>
+      configureProperty.run(
+        {
+          documentId: database.documentId,
+          databaseId: database.id,
+          name: "Review",
+          type: "blocks",
+        } as never,
+        person,
+      ),
+    )) as { properties: Array<{ definition: { id: string; name: string } }> };
+    const review = configured.properties.find(
+      (property) => property.definition.name === "Review",
+    );
+    if (!review) throw new Error("No Review tab");
+    const rule = { propertyId: stage.id, optionIds: [approved.id] };
+    await as(() =>
+      setFreezeRule.run(
+        { databaseId: database.id, propertyId: review.definition.id, rule },
+        person,
+      ),
+    );
+
+    // A value no select option can hold would turn stage into text, and the
+    // rule would stop matching and quietly reopen Review.
+    github.commit({
+      "docs/one.md": `---\nstage: ${"Approved ".repeat(15)}\n---\n# One\n`,
+      "docs/two.md": "---\nstage: Draft\n---\n# Two\n",
+    });
+    const synced = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(synced.sync).toMatchObject({
+      state: "error",
+      problem: {
+        code: "sync_failed",
+        message: expect.stringContaining("can't become text"),
+      },
+    });
+    expect((await stageColumn()).type).toBe("select");
+    const reviewOptions = (await columns(database.id)).find(
+      (column) => column.id === review.definition.id,
+    )?.optionsJson;
+    expect(JSON.parse(reviewOptions ?? "{}")).toMatchObject({
+      blocks: { freezeWhen: rule },
+    });
   });
 
   it("stops at its time budget and resumes where it left off", async () => {

@@ -1,5 +1,5 @@
 import { ActionContractError } from "@agent-native/core";
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -60,7 +60,12 @@ export default defineAction({
   authorize: (_args, ctx) => ctx?.caller === "frontend" && !isAgentCall(ctx),
   run: async ({ databaseId, propertyId, rule }) => {
     const database = await getDatabaseById(databaseId);
-    if (!database) throw new Error("Collection not found.");
+    if (!database) {
+      fail("Collection not found.", {
+        errorCode: "database_not_found",
+        statusCode: 404,
+      });
+    }
     await assertAccess("document", database.documentId, "admin");
     const optionIds = rule ? [...new Set(rule.optionIds)] : [];
 

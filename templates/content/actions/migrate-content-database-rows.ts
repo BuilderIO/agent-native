@@ -10,6 +10,10 @@ import { getDb, schema } from "../server/db/index.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { chunks } from "./_batch-utils.js";
 import {
+  assertNoColumnRuleOn,
+  toColumnRuleDefinition,
+} from "./_column-rules.js";
+import {
   lockContentDatabaseMutation,
   touchContentDatabase,
   withContentDatabaseMutationLock,
@@ -841,6 +845,10 @@ export async function runMigration(
         )
       )
         throw new Error("Legacy property is missing or unsafe to finalize.");
+      // A rule set since the plan was checked still holds its columns.
+      const ruleDefinitions = current.definitions.map(toColumnRuleDefinition);
+      for (const propertyId of legacyIds)
+        assertNoColumnRuleOn(ruleDefinitions, propertyId, "delete");
       if (legacyIds.length) {
         await tx
           .delete(schema.documentPropertyValues)
