@@ -107,6 +107,42 @@ describe("generic inline SVG fill edits", () => {
     }
   });
 
+  it("moves a use element by its translate", () => {
+    const html = `<svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg" viewBox="0 0 20 10"><defs><path id="source" d="M0 0h20v10z"/></defs><use id="instance" href="#source"/></svg>`;
+    const useNode = buildCodeLayerProjection(html).nodes.find(
+      (node) => node.tag === "use",
+    );
+    if (!useNode) throw new Error("use node not projected");
+
+    const result = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: useNode.id },
+      property: "translate",
+      value: "4px 2px",
+    });
+
+    expect(result.result.status).toBe("applied");
+    expect(result.content).toContain(
+      '<use id="instance" href="#source" style="translate: 4px 2px"',
+    );
+  });
+
+  it("still moves and resizes a pasted SVG whose paint is ambiguous", () => {
+    const html = `<div data-agent-native-node-id="wrap"><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg" viewBox="0 0 20 10"><path d="M0 0h20v10z"/><circle cx="5" cy="5" r="2"/></svg></div>`;
+    for (const [property, value] of [
+      ["left", "20px"],
+      ["width", "300px"],
+    ] as const) {
+      const result = applyVisualEdit(html, {
+        kind: "style",
+        target: { nodeId: "pasted" },
+        property,
+        value,
+      });
+      expect(result.result.status).toBe("applied");
+    }
+  });
+
   it("keeps a grouped multi-shape pasted SVG wrapper paint ambiguous", () => {
     const html = `<svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg"><g><path d="M0 0h20v20z"/><circle cx="10" cy="10" r="4"/></g></svg>`;
     const result = applyVisualEdit(html, {

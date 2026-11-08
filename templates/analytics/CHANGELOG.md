@@ -3,14 +3,65 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-24
+## 2026-11-05
 
 ### Improved
 
+- Reference saved dashboards directly from the composer
+
+## 2026-11-04
+
+### Improved
+
+- The agent finds the dashboard editing action more often when you ask to add or change a chart.
+
+## 2026-10-31
+
+### Improved
+
+- The Content dashboard shows each article's pageviews, search clicks and impressions, and charts pageviews and search clicks per day.
+
+## 2026-10-29
+
+### Improved
+
+- Sharing is one panel: invite people and your organization's agents from one field, see everyone with access in one list, and find Copy link and Send to at the bottom.
+
+### Fixed
+
+- Filtering sessions by events they did or didn't track no longer times out on large workspaces.
+
+## 2026-10-28
+
+### Improved
+
+- The agent can no longer save a chart drill-down that filters with a list variable, which failed every click while nothing was selected; it gets the filter pattern to use instead, and a drill-down saved earlier with one stops opening records until it's rewritten
+
+## 2026-10-27
+
+### Fixed
+
+- Clicking a chart point before its tooltip appears opens that point's records, not the first point's
+
+## 2026-10-24
+
+### Added
+
+- Pick dashboard panels for the agent with the Select button in the chat composer.
+
+### Improved
+
+- An empty Ask page shows the large composer, and the agent panel opens on the app's default model
+- The Content dashboard ranks articles by signups, adds Authors, New and rising, and Sources tabs, and names missing data sources in one notice.
 - Organization roster searches now find row-level dbt membership data more reliably.
 
 ### Fixed
 
+- Analytics now clearly indicates incomplete Gong user lists and HubSpot deal pages.
+- Date columns in dashboard tables no longer show the previous day in time zones west of UTC.
+- Gong transcript reads preserve the transcript alias for existing callers.
+- Phones can open the agent from the top bar on every page outside Ask
+- HubSpot and Gong searches keep their filters and page totals visible.
 - Analytics avoids showing partial warehouse results when a metric or plan request is ambiguous.
 - Analytics preserves verified results from successful time ranges when another requested range is unavailable.
 - Analytics uses a warehouse fallback for a failed metric only when requested and supported by a complete metric definition and result.
@@ -18,8 +69,16 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-23
 
+### Improved
+
+- Metric tiles can show their change from the period before, tables give the spare width to their first text column and right-align numbers, and callouts read as a list with a severity icon per row, in dashboards and emailed reports.
+
 ### Fixed
 
+- Content pageviews use their own GA4 property without changing other dashboards.
+- Content signup collection keeps actual query usage and the configured cap, including when collection fails
+- External agents need approval before changing recurring index builds.
+- Query cost tracking distinguishes unknown BigQuery usage from zero-byte results.
 - Analytics figures require complete, scope-matched warehouse evidence
 - Analytics keeps malformed metric values out of verified summaries
 - Analytics keeps verified metrics available when another requested dbt metric is unavailable
@@ -29,7 +88,23 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Analytics withholds warehouse figures when an owner-defined dbt metric query fails.
 - Warehouse figures stay hidden when a failed dbt query cannot verify the calculation.
 
+## 2026-10-22
+
+### Added
+
+- Outside assistants can open the Traffic dashboard in Analytics.
+- Tables, metric tiles and charts can show a number of seconds as a duration such as 16 min or 7.4 hours, and duration columns sort by time.
+
+### Improved
+
+- Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
+- Extension panels on dashboards are as tall as their content, so a one-line extension no longer leaves an empty band below it
+
 ## 2026-10-21
+
+### Added
+
+- You can pin a shared chat just for yourself, or hide it from your list and undo that from the toast.
 
 ### Improved
 
@@ -42,6 +117,10 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Preserve unknown replay availability in partial journeys
 
 ## 2026-10-20
+
+### Added
+
+- Custom SQL charts can open configured record details on click
 
 ### Fixed
 
@@ -1510,47 +1589,5 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Analytics now opens directly to Ask instead of the old Overview page.
 - The sidebar footer no longer shows a sign-out shortcut.
-
-## 2026-06-24
-
-### Added
-
-- Added a language picker and localized app chrome for supported languages.
-- Dashboard traffic tables now show top URLs and shared Clips with clickable links.
-- First-party template dashboards now show key activity, signup, retention, DAU, and WAU trends over time by template.
-- Retention charts now break out 1-day and 7-day return rates by template.
-
-### Improved
-
-- Analytics navigation, command palette, and settings now honor the selected interface language.
-- Dashboard charts now fill sparse template time series, support legend toggles, and sort tooltip values by impact.
-- Dashboard rows now auto-fit panels so one, two, or three charts fill the row naturally.
-- Settings now link directly to Agent settings for model, API key, automation, and voice preferences.
-- SQL panel editors now highlight query syntax and keep one-click formatting available.
-
-### Fixed
-
-- Active-user dashboard panels classify templates more accurately instead of overusing the unknown bucket.
-- Daily dashboard charts now show the in-progress day as a dashed segment.
-- Dashboard filters now apply consistently to first-party traffic panels and unsafe table links render as plain text.
-- Dashboard loading placeholders now span the available page width.
-- Dashboard panel deletes now stay deleted after refresh.
-- First-party dashboard dates now align to Pacific time for daily activity and retention panels.
-- First-party signup and pageview dashboard panels now use the selected time range and email filters consistently.
-
-## 2026-06-23
-
-### Added
-
-- Build large first-party analytics dashboards in one fast call by naming metrics
-- Open any dashboard chart full screen in a modal from the panel's three-dots menu
-
-### Improved
-
-- The Dashboards and Analyses sidebar settings buttons now stay hidden until you hover the section, for a cleaner sidebar
-
-### Fixed
-
-- Long dashboard and analysis names in the sidebar now truncate with an ellipsis instead of being clipped
 
 For the full list of updates, see the [changelog folder](./changelog/).

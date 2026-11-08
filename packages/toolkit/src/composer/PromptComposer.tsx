@@ -28,6 +28,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { useFirstRunOnboardingGateOwnsSurface } from "../app/onboarding/first-run-startup-gate-context.js";
 import { Button } from "../ui/button.js";
 import {
   Dialog,
@@ -99,6 +100,7 @@ const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
 export type PromptComposerFile = File;
 
 export interface PromptComposerSubmitOptions {
+  references?: Reference[];
   intent?: ComposerSubmitIntent;
   steer?: boolean;
   /** Clear the submitted draft once the host owns the message and its failure recovery. */
@@ -184,6 +186,8 @@ export interface PromptComposerProps {
   queuesBehindSubmission?: boolean;
   /** Called when a host-gated composer is clicked while it is disabled. */
   onDisabledClick?: () => void;
+  /** Called when the composer is clicked while the host shows its setup card. */
+  onSetupCardClick?: () => void;
   /** Override the generic document attachment cap for a multipart host. */
   maxDocumentAttachmentBytes?: number;
   /** Label used in the visible document attachment limit error. */
@@ -233,9 +237,13 @@ export interface PromptComposerProps {
    */
   extensionTools?: boolean;
   /** Programmatically seed the composer with plain text. */
-  initialText?: string;
+  initialText?: string | undefined;
   /** Stable key used to re-apply `initialText` when the host picks a preset. */
-  initialTextKey?: string | number;
+  initialTextKey?: string | number | undefined;
+  /** Let an explicit host handoff replace a saved draft. */
+  initialTextOverridesSavedDraft?: boolean;
+  /** Skip onTextChange notifications caused only by initial draft setup. */
+  suppressInitialTextChange?: boolean;
   /** Chips placed into `initialText`, as the composer handle's `setText` takes them. */
   initialReferences?: readonly ComposerTextReference[];
   /** Optional host-owned control rendered directly after the "+" button. */
@@ -798,6 +806,7 @@ function PromptComposerInner({
   willQueue = false,
   queuesBehindSubmission,
   onDisabledClick,
+  onSetupCardClick,
   maxDocumentAttachmentBytes,
   documentAttachmentLimitLabel,
   autoFocus,
@@ -823,6 +832,8 @@ function PromptComposerInner({
   extensionTools = false,
   initialText,
   initialTextKey,
+  initialTextOverridesSavedDraft = false,
+  suppressInitialTextChange = false,
   initialReferences,
   modeControl,
   requireAgentEngine = false,
@@ -959,8 +970,7 @@ function PromptComposerInner({
     : undefined;
   const composerModelListLoading =
     showModelSelector &&
-    (modelListLoading ??
-      (availableModels ? availableModels.length === 0 : models.isLoading));
+    (modelListLoading ?? (availableModels ? false : models.isLoading));
   const handleModelChange = showModelSelector
     ? (onModelChange ?? models.onModelChange)
     : undefined;
@@ -1012,9 +1022,12 @@ function PromptComposerInner({
     disabled || (missingApiKey && setupCardVisible),
   );
   const handleDisabledComposerClick = useCallback(() => {
-    if (missingApiKey) setSetupBouncePulse((pulse) => pulse + 1);
-    onDisabledClick?.();
-  }, [missingApiKey, onDisabledClick]);
+    if (setupCardVisible) {
+      setSetupBouncePulse((pulse) => pulse + 1);
+      onSetupCardClick?.();
+    }
+    if (composerDisabled) onDisabledClick?.();
+  }, [composerDisabled, setupCardVisible, onDisabledClick, onSetupCardClick]);
   const validateEngineBeforeSubmit = useCallback(async () => {
     if (!engineStatusChecksEnabled) return "configured" as const;
     try {
@@ -1081,11 +1094,12 @@ function PromptComposerInner({
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
   }, []);
+  const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
   useEffect(() => {
-    if (!autoFocus || composerDisabled) return;
+    if (!autoFocus || composerDisabled || firstRunOwnsSurface) return;
     const id = window.setTimeout(() => localRef.current?.focus(), 50);
     return () => window.clearTimeout(id);
-  }, [autoFocus, composerDisabled]);
+  }, [autoFocus, composerDisabled, firstRunOwnsSurface]);
 
   const handleSubmit = useCallback(
     async (
@@ -1106,6 +1120,7 @@ function PromptComposerInner({
         inlineTextAttachments,
       });
       await onSubmit(finalText, files, references, {
+        references,
         intent: submitOptions?.intent ?? "immediate",
         ...(submitOptions?.steer ? { steer: true } : {}),
         onLocalSubmit: submitOptions?.onLocalSubmit,
@@ -1150,6 +1165,7 @@ function PromptComposerInner({
       <AgentComposerFrame
         className={cn(
           "text-start",
+          setupCardVisible && "agent-composer-setup-gated",
           (composerDisabled ||
             (engineStatusChecksEnabled && engineState === "missing") ||
             (missingApiKey && setupCardVisible)) &&
@@ -1161,9 +1177,15 @@ function PromptComposerInner({
         rootStyle={rootStyle}
         layoutVariant={layoutVariant}
         noticeOutlet={noticeOutlet}
-        onClick={composerDisabled ? handleDisabledComposerClick : undefined}
+        onClickCapture={
+          setupCardVisible || composerDisabled
+            ? handleDisabledComposerClick
+            : undefined
+        }
       >
-        {engineState === "unavailable" && !engineNoticeDismissed ? (
+        {engineState === "unavailable" &&
+        !setupCardVisible &&
+        !engineNoticeDismissed ? (
           <ComposerNotice
             noticeId="provider-status-unavailable"
             actions={
@@ -1210,6 +1232,8 @@ function PromptComposerInner({
           conversationStarted={conversationStarted}
           initialText={initialText}
           initialTextKey={initialTextKey}
+          initialTextOverridesSavedDraft={initialTextOverridesSavedDraft}
+          suppressInitialTextChange={suppressInitialTextChange}
           initialReferences={initialReferences}
           onSubmit={handleSubmit}
           onEmptySubmit={onEmptySubmit}

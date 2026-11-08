@@ -224,6 +224,53 @@ describe("Builder CMS write adapter plan", () => {
     expect(plan.payload.request.body).not.toHaveProperty("published");
   });
 
+  it("blocks a push that sets one Builder field to two values", () => {
+    const plan = (propertyValue: string) => {
+      const changeSet = approvedChangeSet();
+      return buildBuilderCmsExecutionPlan({
+        source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+        changeSet: {
+          ...changeSet,
+          fieldChanges: [
+            ...changeSet.fieldChanges,
+            {
+              propertyId: "prop-title",
+              propertyName: "Title",
+              localFieldKey: "prop-title",
+              sourceFieldKey: "data.title",
+              currentValue: "Old title",
+              proposedValue: propertyValue,
+            },
+          ],
+        },
+        pushModeConfirmation: "autosave",
+      });
+    };
+
+    expect(plan("Other title")).toMatchObject({
+      state: "blocked",
+      payload: {
+        safety: {
+          blockers: [
+            "Two changes set Builder's title field to different values. Set one of them back before pushing.",
+          ],
+        },
+      },
+    });
+    expect(plan("New title")).toMatchObject({
+      state: "ready",
+      payload: {
+        operations: [
+          {
+            sourceFieldKey: "data.title",
+            localFieldKey: "title",
+            value: "New title",
+          },
+        ],
+      },
+    });
+  });
+
   it("derives autosave effect from stage-only write mode", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {

@@ -22,7 +22,10 @@ gh pr list --head "$(git branch --show-current)" --state open --json number --li
 Ownership, who may push or comment, the merge gate, cadence, and the Codex
 goal and heartbeat all live in `ship`. Under `/ship` this is a step inside it:
 keep going through the merge. Standalone, stop after 30 minutes of green
-GitHub Actions and no new feedback, and merge only if the user asks.
+GitHub Actions and no new feedback, and merge only if the user asks. On a
+factory PR, each watcher prompt is one tick, the watcher pushes and merges,
+and the round skips the login check below:
+see `factory-run/references/babysit-round.md`.
 
 ## Each tick
 
@@ -93,6 +96,14 @@ GitHub Actions and no new feedback, and merge only if the user asks.
   false positives, nitpicks, and anything the linter or typechecker already
   covers.
 - Never leave a comment without a disposition.
+- A high or critical finding closes only with a commit that fixes it, or a
+  reply that points at the code showing it can't happen. Replying
+  "addressed" without either doesn't close it, and it blocks the merge.
+- When a third round of findings lands on code this PR added, stop patching
+  its edges: each patch is new code for the next round. Replace it with
+  something simpler, often by fixing the boundary that made it necessary,
+  or, in a sweep, revert that report's commit and leave it for a person.
+  #8288 patched one resolver about 25 times in a day and never merged.
 
 ## Pushing to an existing PR
 

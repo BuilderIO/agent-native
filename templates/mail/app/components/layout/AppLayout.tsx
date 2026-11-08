@@ -63,6 +63,7 @@ import { Link, useNavigate, useLocation, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import type { ComposePaletteCommands } from "@/components/email/ComposeModal";
+import { DraftConflictPrompt } from "@/components/email/DraftConflictPrompt";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { AiInboxSetup } from "@/components/onboarding/AiInboxSetup";
@@ -138,6 +139,7 @@ import {
   resolvePinnedLabels,
   resolveDefaultMailHref,
   labelTabHref,
+  isLabelCountLowerBound,
   resolveInboxEmailQueryScope,
   filterInboxTabEmails,
 } from "@/lib/inbox-tabs";
@@ -582,9 +584,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       );
     }
   }, [activeAccounts]);
-  const { data: labelsData } = useLabels(
-    activeAccounts.size > 0 ? [...activeAccounts] : undefined,
-  );
+  const {
+    data: labelsData,
+    accountErrors: labelAccountErrors,
+    isError: labelsFailed,
+  } = useLabels(activeAccounts.size > 0 ? [...activeAccounts] : undefined);
   // The Filtered shortcut describes the whole connected mailbox, regardless
   // of which accounts are selected for the current label list.
   const {
@@ -819,6 +823,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     return inboxTabs.map((tab) => {
       const label = labels.find((l) => l.id === tab.id);
       const aiTagName = aiTagDisplayNames.get(tab.id);
+      const mailboxWideLabelTab =
+        tab.kind === "label" && !isInboxScopedLabel(tab.id, labels);
       return {
         id: tab.id,
         pinnedId: tab.kind === "label" ? tab.id : undefined,
@@ -826,21 +832,43 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         label:
           tab.kind === "all" ? t("mail.views.all") : (aiTagName ?? tab.name),
         fullLabel: aiTagName ?? label?.name,
-        href: inboxTabHref(tab.id),
-        isActive: view === "inbox" && activeInboxTabId === tab.id,
+        href: mailboxWideLabelTab
+          ? labelTabHref(tab.id, labels)
+          : inboxTabHref(tab.id),
+        isActive:
+          (view === "inbox" && activeInboxTabId === tab.id) ||
+          (mailboxWideLabelTab && activeLabel === tab.id && view === "all"),
         color: label?.color,
         tooltip: tab.query,
-        total: tab.total,
-        totalIsLowerBound: tab.totalIsLowerBound,
-        unread: tab.unread,
+        total: mailboxWideLabelTab ? label?.totalCount : tab.total,
+        totalIsLowerBound: mailboxWideLabelTab
+          ? isLabelCountLowerBound(labelsFailed, labelAccountErrors)
+          : tab.totalIsLowerBound,
+        unread: mailboxWideLabelTab ? label?.unreadCount : tab.unread,
         isSystemView: false,
       };
     });
-  }, [aiTagDisplayNames, inboxTabs, activeInboxTabId, labels, t, view]);
+  }, [
+    activeLabel,
+    activeInboxTabId,
+    aiTagDisplayNames,
+    inboxTabs,
+    labels,
+    labelsFailed,
+    labelAccountErrors,
+    t,
+    view,
+  ]);
 
   const topBarTabs = useMemo<RenderedTab[]>(
-    () => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])],
-    [systemViewTabs, dataTabs, view],
+    () => [
+      ...systemViewTabs,
+      ...(view === "inbox" ||
+      dataTabs.some((tab) => tab.isActive && tab.pinnedId === activeLabel)
+        ? dataTabs
+        : []),
+    ],
+    [activeLabel, systemViewTabs, dataTabs, view],
   );
 
   const hiddenViews = useMemo(
@@ -2176,6 +2204,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           )}
         </div>
       </div>
+      <DraftConflictPrompt
+        drafts={compose.drafts}
+        onRestore={(draft) => compose.update(draft.id, draft)}
+      />
       {(() => {
         const popoutDrafts = compose.drafts.filter((d) => !d.inline);
         if (popoutDrafts.length === 0) return null;

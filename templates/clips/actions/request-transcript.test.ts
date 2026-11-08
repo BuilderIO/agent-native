@@ -574,6 +574,7 @@ describe("requestTranscript regeneration", () => {
       recordingId: "rec_native",
       transcriptText: "Opening filler before the actual product feedback.",
       includeSummary: true,
+      automatic: true,
     });
     expect(result).toMatchObject({
       recordingId: "rec_native",
@@ -1279,7 +1280,12 @@ describe("requestTranscript regeneration", () => {
         ],
         [untitledRow],
         [{ language: "en" }],
-        [{ recordingId: "rec_imported" }],
+        [
+          {
+            recordingId: "rec_imported",
+            segmentsJson: pendingRow.segmentsJson,
+          },
+        ],
         [importedRow],
         [untitledRow],
       ];
@@ -1323,6 +1329,85 @@ describe("requestTranscript regeneration", () => {
         }),
       );
       expect(mockSaveTranscriptVersion).not.toHaveBeenCalled();
+    });
+
+    describe("with audio recovered from before recording started", () => {
+      const markedSegments = JSON.stringify([
+        {
+          startMs: 0,
+          endMs: 20_000,
+          text: "This long sentence was recovered from before the user started recording the meeting today.",
+          recovered: true,
+        },
+      ]);
+      const markedRow = {
+        ...pendingRow,
+        recordingId: "rec_imported",
+        ownerEmail: "owner@example.com",
+        status: "ready",
+        fullText: "This long sentence was recovered.",
+        segmentsJson: markedSegments,
+        importId: null,
+      };
+
+      it("keeps the mark when the post-meeting job rechunks the transcript", async () => {
+        mockSelectRows.queue = [
+          [markedRow],
+          [titleRow],
+          [{ language: "en" }],
+          [markedRow],
+          [titleRow],
+        ];
+
+        await requestTranscript.run({
+          recordingId: "rec_imported",
+          force: true,
+        });
+
+        const [patch] = mockUpdateSet.mock.calls.map(
+          ([set]) => set as { segmentsJson?: string },
+        );
+        const written = JSON.parse(patch.segmentsJson ?? "[]") as Array<{
+          recovered?: true;
+        }>;
+        expect(written.length).toBeGreaterThan(1);
+        expect(written.every((cue) => cue.recovered === true)).toBe(true);
+      });
+
+      it("won't write a rechunk over a transcript that changed since it was read", async () => {
+        const removedRow = {
+          ...markedRow,
+          fullText: "Me: the meeting itself",
+          segmentsJson: JSON.stringify([
+            { startMs: 20_000, endMs: 21_000, text: "the meeting itself" },
+          ]),
+        };
+        const untitledRow = {
+          ...titleRow,
+          title: "Untitled recording",
+          titleSource: "default",
+        };
+        mockRegenerateTitleRun.mockResolvedValue({ updated: true });
+        mockSelectRows.queue = [
+          [markedRow],
+          [untitledRow],
+          [{ language: "en" }],
+          [removedRow],
+          [removedRow],
+          [untitledRow],
+        ];
+
+        const result = await requestTranscript.run({
+          recordingId: "rec_imported",
+          force: true,
+        });
+
+        expect(mockUpdateSet).not.toHaveBeenCalled();
+        expect(mockRegenerateTitleRun).toHaveBeenCalledWith(
+          expect.objectContaining({ transcriptText: removedRow.fullText }),
+        );
+        expect(result).toMatchObject({ status: "ready", preserved: true });
+      });
     });
 
     it("keeps an import that lands while cloud transcription runs", async () => {

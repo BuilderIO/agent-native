@@ -4,7 +4,9 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
+import { scheduleAfterStartup } from "@agent-native/core/client/use-after-paint";
 import {
+  CONTENT_RECENT_LIMIT,
   contentRecentTargetKey,
   contentRecentVisitKey,
   type ContentRecentResult,
@@ -280,15 +282,87 @@ export function useRemoveContentRecent() {
   );
 }
 
+/**
+ * Gives a visited entry the server's visit time in every cached Recent list
+ * of the account and organization it was stored under, and moves it to its
+ * place by that time, as the server just did. An answer older than the visit
+ * a list already shows changes nothing, so answers that arrive out of order
+ * keep the later visit first. Lists of another organization are left alone:
+ * the server keeps Recent per organization. Returns false when one of those
+ * lists lacks the entry: that list needs the server's title and icon.
+ */
+export function moveCachedRecentVisit(
+  queryClient: ReturnType<typeof useQueryClient>,
+  target: ContentRecentTarget,
+  visitedAt: string,
+  accountKey: string,
+): boolean {
+  const key = contentRecentTargetKey(target);
+  const visitKey = contentRecentVisitKey(target);
+  // A scope key is `[email, orgId, spaceId]` as JSON and the account key is
+  // `[email, orgId]`, so the account's lists in every space share this prefix.
+  const scopePrefix = `${accountKey.slice(0, -1)},`;
+  let complete = true;
+  for (const [
+    cachedKey,
+    data,
+  ] of queryClient.getQueriesData<ContentRecentQueryData>({
+    queryKey: ["action", "get-content-recent"],
+  })) {
+    // A list with no data yet (a first read in flight or failed) can't be
+    // reordered, so it reads again.
+    if (!data) {
+      complete = false;
+      continue;
+    }
+    if (!data.scopeKey.startsWith(scopePrefix)) continue;
+    const entry = data.entries.find(
+      (candidate) => contentRecentTargetKey(candidate.target) === key,
+    );
+    if (!entry || contentRecentVisitKey(entry.target) !== visitKey) {
+      complete = false;
+      continue;
+    }
+    if (entry.visitedAt >= visitedAt) continue;
+    const rest = data.entries.filter((candidate) => candidate !== entry);
+    const at = rest.findIndex((candidate) => candidate.visitedAt < visitedAt);
+    rest.splice(at < 0 ? rest.length : at, 0, { ...entry, visitedAt });
+    queryClient.setQueryData<ContentRecentQueryData>(cachedKey, {
+      ...data,
+      entries: rest.slice(0, CONTENT_RECENT_LIMIT),
+    });
+  }
+  return complete;
+}
+
 export function useContentVisitRecorder() {
   const queryClient = useQueryClient();
   const t = useT();
   const mutation = useActionMutation("record-content-visit", {
     skipActionQueryInvalidation: true,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-recent"],
-      });
+    onSuccess: async (result, target) => {
+      // Reopening a page already in Recent only reorders the list, so it
+      // skips the refetch; a first visit still reads the new entry. An
+      // answer without a visit time comes from an older server. A Recent
+      // read already in flight may predate the visit and would land with
+      // the old order, so it's cancelled and Recent is read again. Cancelling
+      // first matters for a list's first read: invalidating alone would wait
+      // for that read's answer rather than restart it.
+      const recent = { queryKey: ["action", "get-content-recent"] };
+      const readInFlight = queryClient.isFetching(recent) > 0;
+      if (readInFlight) await queryClient.cancelQueries(recent);
+      const { visitedAt, accountKey } = result as {
+        visitedAt?: unknown;
+        accountKey?: unknown;
+      };
+      if (
+        typeof visitedAt !== "string" ||
+        typeof accountKey !== "string" ||
+        !moveCachedRecentVisit(queryClient, target, visitedAt, accountKey) ||
+        readInFlight
+      ) {
+        void queryClient.invalidateQueries(recent);
+      }
     },
     onError: () => {
       toast.error(t("sidebar.failedSaveSidebarState"));
@@ -301,11 +375,25 @@ export function useContentVisitRecorder() {
   }, []);
 }
 
+// The account and organization a visit is stored under, as
+// record-content-visit's `accountKey`, from the org query's cached answer.
+function cachedContentVisitAccountKey(
+  queryClient: ReturnType<typeof useQueryClient>,
+): string | undefined {
+  const org = queryClient.getQueryData<ReturnType<typeof useOrg>["data"]>([
+    "org-me",
+  ]);
+  // An answer without an account isn't one to store a visit under.
+  if (!org?.email) return undefined;
+  return JSON.stringify([org.email.trim().toLowerCase(), org.orgId ?? null]);
+}
+
 export function useRecordContentVisit(
   target: ContentRecentTarget | null,
   enabled: boolean,
 ) {
   const record = useContentVisitRecorder();
+  const queryClient = useQueryClient();
   const targetRef = useRef(target);
   targetRef.current = target;
   const key = target ? contentRecentVisitKey(target) : null;
@@ -314,6 +402,32 @@ export function useRecordContentVisit(
     if (!enabled || !key) return;
     if (recordedKey.current === key || !targetRef.current) return;
     recordedKey.current = key;
-    record(targetRef.current);
-  }, [enabled, key, record]);
+    const visited = targetRef.current;
+    // The visit belongs to the account and organization the page knows of
+    // when it opens, or learns of first. Read from the cache rather than
+    // subscribed to, so the page doesn't render again when they load.
+    let accountKey = cachedContentVisitAccountKey(queryClient);
+    const stopWatching = accountKey
+      ? undefined
+      : queryClient.getQueryCache().subscribe(() => {
+          accountKey ??= cachedContentVisitAccountKey(queryClient);
+          if (accountKey) stopWatching?.();
+        });
+    // Nothing on the page being opened waits on Recent's order, so the write
+    // waits for the load to settle. It isn't cancelled when the page closes:
+    // a page opened and left still counts as visited. It is dropped if the
+    // account or organization changed meanwhile, or is being read again
+    // after a switch: the server would store it under the new one.
+    scheduleAfterStartup(() => {
+      stopWatching?.();
+      if (queryClient.getQueryState(["org-me"])?.isInvalidated) return;
+      if (
+        accountKey !== undefined &&
+        cachedContentVisitAccountKey(queryClient) !== accountKey
+      ) {
+        return;
+      }
+      record(visited);
+    });
+  }, [enabled, key, queryClient, record]);
 }

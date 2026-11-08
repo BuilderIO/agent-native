@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Referenciar una grabación…",
+    group: "Grabaciones",
+    authentication: "Inicia sesión para añadir una referencia.",
+    invalid: "Elige una referencia válida antes de enviar.",
+    unavailable:
+      "Una referencia seleccionada ya no está disponible. Elimínala o selecciónala de nuevo.",
+  },
   meetingAsk: {
     resizeOrDismissAnswers: "Cambiar el tamaño o cerrar las respuestas",
   },
@@ -318,6 +326,55 @@ const messages = {
     clipsRestoreFailed: "{{count}} clips no se pudieron restaurar",
     clipsPermanentlyDeleted: "{{count}} clips eliminados permanentemente",
     clipsDeleteFailed: "{{count}} clips no se pudieron eliminar",
+    deletedMediaPending:
+      "Vídeo eliminado de Clips. Se están realizando las comprobaciones de eliminación.",
+    deletedMediaBlocked:
+      "Vídeo eliminado de Clips. No se pudo confirmar la eliminación de los archivos.",
+    deletedMediaRetained:
+      "Grabación eliminada. Se conservaron los archivos multimedia que otras grabaciones aún usan.",
+    clipsDeletedMediaPending:
+      "Vídeos eliminados de Clips: {{count}}. Se están realizando las comprobaciones de eliminación.",
+    clipsDeletedMediaBlocked:
+      "Vídeos eliminados de Clips: {{count}}. No se pudo confirmar la eliminación de los archivos.",
+    clipsDeletedMediaRetained:
+      "Grabaciones eliminadas: {{count}}. Se conservaron los archivos multimedia que otras grabaciones aún usan.",
+    deletedMediaFinalizing:
+      "Vídeo eliminado de Clips. Hay que reintentar la actualización del uso de almacenamiento.",
+    clipsDeletedMediaFinalizing:
+      "Vídeos eliminados de Clips: {{count}}. Hay que reintentar la actualización del uso de almacenamiento.",
+    mediaCleanupFinalizing:
+      "Hay que reintentar la actualización del uso de almacenamiento",
+    mediaCleanupFinalizingHelp:
+      "Las comprobaciones de eliminación de archivos terminaron, pero este vídeo podría seguir contando para tu límite de almacenamiento. Reintenta la actualización del uso para actualizar tu total de almacenamiento.",
+    mediaCleanupListLabel: "Eliminación de archivos multimedia",
+    mediaCleanupPending: "Comprobaciones de eliminación en curso",
+    mediaCleanupPendingHelp:
+      "Clips sigue comprobándolo en segundo plano. Puedes salir de esta página y consultar las actualizaciones en la Papelera.",
+    mediaCleanupBlocked:
+      "No se pudo confirmar la eliminación de los archivos de vídeo",
+    mediaCleanupBlockedHelp:
+      "Los archivos de vídeo almacenados podrían seguir existiendo. Reintentar la eliminación inicia otro intento. Puedes salir de esta página y consultar el resultado en la Papelera.",
+    mediaCleanupReconnect:
+      "Vuelve a conectar el almacenamiento para eliminar los archivos multimedia de grabaciones eliminadas",
+    mediaCleanupRetained:
+      "Los archivos multimedia compartidos de grabaciones eliminadas se conservan mientras otras grabaciones los usen",
+    mediaCleanupHelp: "Más información",
+    mediaCleanupRetryFiles: "Reintentar eliminación",
+    mediaCleanupRetryingFiles:
+      "Reintentando la eliminación de los archivos de vídeo",
+    mediaCleanupRetryUsage: "Reintentar actualización de uso",
+    mediaCleanupRetryingUsage:
+      "Reintentando la actualización del uso de almacenamiento",
+    mediaCleanupRemoved: "Archivos multimedia eliminados",
+    mediaCleanupUsageUpdated: "Uso de almacenamiento actualizado",
+    mediaCleanupStillBlocked:
+      "Todavía no se pudo confirmar la eliminación de los archivos de vídeo",
+    mediaCleanupStillFinalizing:
+      "Todavía hay que reintentar la actualización del uso de almacenamiento",
+    mediaCleanupRetryFailed:
+      "No se pudo iniciar el reintento. Vuelve a intentarlo.",
+    mediaCleanupLoadFailed:
+      "No se pudo cargar el estado de eliminación de archivos multimedia",
   },
   recordingRoute: {
     pageTitle: "Grabación de clip · Clips",
@@ -611,6 +668,18 @@ const messages = {
     desktopHint:
       "Para iniciar notas, abre Clips Desktop desde la barra de menús y elige Start Meeting Notes, o haz clic en Start notes cuando aparezca el recordatorio. Clips captura micrófono y audio del sistema, y escribe la transcripción aquí.",
     getDesktopApp: "Obtener aplicación de escritorio",
+    earlierAudioAdded_one:
+      "Se añadió {{count}} minuto de antes de que empezaras",
+    earlierAudioAdded_other:
+      "Se añadieron {{count}} minutos de antes de que empezaras",
+    earlierAudioAdded_many:
+      "Se añadieron {{count}} minutos de antes de que empezaras",
+    earlierAudioUnreadable:
+      "No se pudo comprobar si esta transcripción incluye audio anterior",
+    removeEarlierAudioTitle: "¿Quitar el audio anterior?",
+    removeEarlierAudioDescription:
+      "Se quitará de la transcripción y se volverán a generar el resumen, las tareas y la descripción del clip, aunque hayas escrito tú esa descripción. También se regenerará un título generado automáticamente; el que hayas elegido se conserva. También se eliminarán los capítulos.",
+    couldNotRemoveEarlierAudio: "No se pudo quitar el audio anterior",
     generateNotesFailed: "No se pudo generar el resumen. Intentar otra vez.",
     attendee_one: "asistente {{count}}",
     attendee_other: "asistentes {{count}}",
@@ -663,6 +732,8 @@ const messages = {
     noMatches: "Sin coincidencias.",
     noTranscript: "Aún no hay transcripción.",
     noTranscriptCaptured: "No se capturó ninguna transcripción.",
+    partialTranscript:
+      "Transcripción parcial: la grabación se cortó, por lo que puede faltar parte.",
     backupFailed:
       "No se capturó ningún discurso localmente y la transcripción de respaldo no finalizó. Vuelva a intentarlo o verifique los permisos de micrófono y voz.",
     backupNotSetup:
@@ -768,7 +839,7 @@ const messages = {
     openInCodex: "Abrir en Codex",
     copyAgentPrompt: "Copiar indicación para agente",
     agentPrompt:
-      "Lee esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Lee la transcripción completa con apis.transcript y carga recommendedFrames[].url (o apis.frame.urlTemplate con atMs) como imágenes. Conserva exactamente id y agent_access. Ante cualquier error, consulta failureKind, error y nextStep en la respuesta JSON. Si failureKind=access, explica que el enlace no concede acceso; para un clip privado, pide al propietario que elija {{shareWithAgents}} en el menú Compartir de Clips y envíe el enlace generado. Si failureKind=media y la transcripción funciona, explica que no se pudo recuperar el vídeo almacenado y que otro enlace no lo solucionará. Si failureKind=processing, sigue nextStep; no significa que falte el vídeo ni que el enlace sea inválido. Si failureKind=expired, pide al propietario que amplíe o quite la caducidad del clip en el menú Compartir, guarde el cambio y después elija {{shareWithAgents}} y envíe el enlace nuevo. Usa también browserDiagnostics si está disponible para informar de un error. Si tu herramienta no puede devolver imágenes ni abrir estos enlaces, indica que tu herramienta tiene ese límite; no es un error de Clips.",
+      "Lee esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Lee la transcripción completa con apis.transcript y carga recommendedFrames[].url (o apis.frame.urlTemplate con atMs) como imágenes. Conserva exactamente id y agent_access. Ante cualquier error, consulta failureKind, error y nextStep en la respuesta JSON. Si failureKind=access, explica que el enlace no concede acceso; para un clip privado, pide al propietario que elija {{shareWithAgents}} en el menú Compartir de Clips y envíe el enlace generado. Si failureKind=media y la transcripción funciona, explica que no se pudo recuperar el vídeo almacenado y que otro enlace no lo solucionará. Si failureKind=processing, sigue nextStep; no significa que falte el vídeo ni que el enlace sea inválido. Si failureKind=expired, pide al propietario que amplíe o quite la caducidad del clip en el menú Compartir, guarde el cambio y después elija {{shareWithAgents}} y envíe el enlace nuevo. Usa también browserDiagnostics si está disponible para informar de un error. Si no puedes abrir las URL de los fotogramas como imágenes, llama a la herramienta get-recording-frames de Clips con el ID de la grabación de esta URL de contexto, si está disponible. Si no, dile al usuario que conectar Clips en {{connectUrl}} te permite ver los fotogramas.",
     agentTokenDescription:
       "Enlace temporal de solo lectura para agentes, porque este clip no es público. Caduca en 2 horas.",
     agentPublicDescription:
@@ -1507,6 +1578,7 @@ const messages = {
   transcriptBubbles: {
     listening: "Escuchando…",
     noTranscript: "Aún no hay transcripción.",
+    unreadable: "No se pudo leer esta transcripción.",
     liveTranscriptDescription:
       "La transcripción en vivo aparecerá aquí cuando empiecen las notas.",
     me: "Yo",
@@ -1718,10 +1790,10 @@ const messages = {
     openDesktopApp: "Open desktop app",
   },
   editableTitle: {
-    untitled: "Untitled Clip",
+    untitled: "Clip sin título",
     renameFailed: "Failed to rename clip",
     emptyTitle: "Title cannot be empty",
-    generatingTitle: "Generating title",
+    generatingTitle: "Generando título",
     placeholder: "Clip title",
     editLabel: "Edit clip title",
   },

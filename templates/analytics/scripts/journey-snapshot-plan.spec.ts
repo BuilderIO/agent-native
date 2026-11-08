@@ -2,13 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import {
   allocateFrameBudgets,
+  combineSnapshotBands,
   compareTrees,
   defaultSnapshotWeek,
+  isBuilderCdnUrl,
   isReusableCaptureSelection,
   selectCaptureTree,
+  snapshotSummaryBands,
   SNAPSHOT_MAX_FRAMES,
   SNAPSHOT_PRESET,
   snapshotCanvasCacheKey,
+  snapshotCanvasTitle,
+  snapshotPopulationUnit,
   snapshotTreeCacheKey,
   snapshotPresetHash,
   treeTopForks,
@@ -69,6 +74,22 @@ function tree(nodes: SnapshotNode[], rootN = 10, app = "clips"): SnapshotTree {
 }
 
 describe("weekly snapshot preset", () => {
+  it("labels sessionless OAuth signup trees at event grain", () => {
+    expect(snapshotPopulationUnit({ populationGrain: "signup_events" })).toBe(
+      "signup events",
+    );
+    expect(snapshotPopulationUnit({})).toBe("sessions");
+  });
+
+  it("accepts only secure standard Builder CDN image URLs", () => {
+    expect(isBuilderCdnUrl("https://cdn.builder.io/image.png")).toBe(true);
+    expect(isBuilderCdnUrl("http://cdn.builder.io/image.png")).toBe(false);
+    expect(isBuilderCdnUrl("https://cdn.builder.io.evil.test/image.png")).toBe(
+      false,
+    );
+    expect(isBuilderCdnUrl("https://example.com/image.png")).toBe(false);
+  });
+
   it("defaults to the last full UTC week", () => {
     expect(defaultSnapshotWeek(new Date("2026-10-26T09:00:00.000Z"))).toBe(
       "2026-10-19",
@@ -98,8 +119,8 @@ describe("weekly snapshot preset", () => {
     expect(SNAPSHOT_PRESET).toMatchObject({
       emailFilter: "exclude_builder",
       excludeNonProductionHosts: true,
-      minAspect: 1.25,
-      maxAspect: 1.8,
+      minAspect: 1.2,
+      maxAspect: 2.1,
     });
   });
 
@@ -150,11 +171,40 @@ describe("weekly snapshot preset", () => {
       snapshotCanvasCacheKey({
         ...designScope,
         analyticsScopeHash: "analytics-principal-a",
+        layout: { experimentId: null, cohortKeys: ["web", "mcp-oauth"] },
       }),
     ).not.toBe(
       snapshotCanvasCacheKey({
         ...designScope,
         analyticsScopeHash: "analytics-principal-b",
+        layout: { experimentId: null, cohortKeys: ["web", "mcp-oauth"] },
+      }),
+    );
+  });
+
+  it("isolates Design canvas reuse by experiment and cohort layout", () => {
+    const scope = {
+      designUrl: "https://design.example/team",
+      designScopeHash: "design-principal",
+      analyticsScopeHash: "analytics-principal",
+    };
+    const baseLayout = {
+      experimentId: null,
+      cohortKeys: ["mcp-oauth", "web"],
+    };
+    expect(snapshotCanvasCacheKey({ ...scope, layout: baseLayout })).toBe(
+      snapshotCanvasCacheKey({
+        ...scope,
+        layout: { ...baseLayout, cohortKeys: ["web", "mcp-oauth"] },
+      }),
+    );
+    expect(snapshotCanvasCacheKey({ ...scope, layout: baseLayout })).not.toBe(
+      snapshotCanvasCacheKey({
+        ...scope,
+        layout: {
+          experimentId: "first_run_builder_credits_v2",
+          cohortKeys: ["control", "credits"],
+        },
       }),
     );
   });
@@ -172,6 +222,71 @@ describe("weekly snapshot preset", () => {
         "same",
       ),
     ).toBe(false);
+  });
+});
+
+describe("weekly snapshot summaries", () => {
+  it("keeps Analytics cohorts with no sessions or captured screenshots", () => {
+    const visibleTree = tree([], 8, "design");
+    const screenshotlessTree = tree([], 4, "design");
+    const zeroSessionTree = tree([], 0, "design");
+    const bands = snapshotSummaryBands(
+      [
+        { key: "design-web", label: "First touch · web", tree: visibleTree },
+        {
+          key: "design-mcp-oauth",
+          label: "First touch · MCP OAuth",
+          tree: screenshotlessTree,
+        },
+        {
+          key: "design-empty",
+          label: "First touch · no sessions",
+          tree: zeroSessionTree,
+        },
+      ],
+      new Map([
+        ["design-mcp-oauth", tree([], 6, "design")],
+        ["design-empty", tree([], 2, "design")],
+      ]),
+    );
+
+    expect(bands.map((band) => band.key)).toEqual([
+      "design-web",
+      "design-mcp-oauth",
+      "design-empty",
+    ]);
+    expect(bands[1]).toMatchObject({
+      label: "First touch · MCP OAuth",
+      tree: screenshotlessTree,
+      previousTree: { rootN: 6 },
+    });
+    expect(bands[2]).toMatchObject({
+      label: "First touch · no sessions",
+      tree: zeroSessionTree,
+      previousTree: { rootN: 2 },
+    });
+  });
+
+  it("identifies a single cohort in its canvas title", () => {
+    expect(
+      snapshotCanvasTitle({
+        app: "design",
+        week: "2026-10-19",
+        singleBand: { key: "design-web", label: "First touch · web" },
+        hasFirstTouchBands: true,
+      }),
+    ).toBe("Onboarding snapshot · design · 2026-10-19 · First touch · web");
+    expect(
+      snapshotCanvasTitle({
+        app: "clips",
+        week: "2026-10-19",
+        experimentId: "first_run_builder_credits",
+        singleBand: { key: "clips-control", label: "Experiment · control" },
+        hasFirstTouchBands: false,
+      }),
+    ).toBe(
+      "Onboarding snapshot · clips · 2026-10-19 · Experiment first_run_builder_credits · Experiment · control",
+    );
   });
 });
 
@@ -295,6 +410,69 @@ describe("snapshot tree planning", () => {
       SNAPSHOT_MAX_FRAMES,
     );
     expect(budgets.has("empty")).toBe(false);
+  });
+
+  it("combines cohort trees side by side without changing their denominators", () => {
+    const control = tree([
+      node("signup", "Signup", null, 1, 10),
+      node("signup > choice", "Setup choice", "signup", 2, 8, {
+        pctOfRoot: 80,
+        pctOfParent: 80,
+      }),
+    ]);
+    const credits = tree(
+      [
+        node("signup", "Signup", null, 1, 20),
+        node("signup > choice", "Setup choice", "signup", 2, 12, {
+          pctOfRoot: 60,
+          pctOfParent: 60,
+        }),
+      ],
+      20,
+    );
+
+    const combined = combineSnapshotBands(
+      [
+        { key: "control", tree: control },
+        { key: "credits", tree: credits },
+      ],
+      "design",
+    );
+
+    expect(combined.app).toBe("all");
+    expect(combined.rootN).toBe(30);
+    expect(combined.appRootN).toEqual({
+      "design::control": 10,
+      "design::credits": 20,
+    });
+    expect(combined.nodes).toMatchObject([
+      {
+        key: "design::control::signup",
+        cohortKey: "control",
+        parentKey: null,
+        pctOfRoot: 100,
+      },
+      {
+        key: "design::control::signup > choice",
+        cohortKey: "control",
+        parentKey: "design::control::signup",
+        pctOfRoot: 80,
+        pctOfParent: 80,
+      },
+      {
+        key: "design::credits::signup",
+        cohortKey: "credits",
+        parentKey: null,
+        pctOfRoot: 100,
+      },
+      {
+        key: "design::credits::signup > choice",
+        cohortKey: "credits",
+        parentKey: "design::credits::signup",
+        pctOfRoot: 60,
+        pctOfParent: 60,
+      },
+    ]);
   });
 
   it("preserves parent-relative branch counts", () => {

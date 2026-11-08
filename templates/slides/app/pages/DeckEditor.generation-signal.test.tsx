@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 
-import { AGENT_CHAT_SUBMIT_RESULT_EVENT } from "@agent-native/core/client/agent-chat";
+import {
+  AGENT_CHAT_SUBMIT_RESULT_EVENT,
+  reportAgentChatSubmitTarget,
+} from "@agent-native/core/client/agent-chat";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
@@ -32,6 +35,7 @@ const mocks = vi.hoisted(() => ({
   guidedQuestionFlowOptions: [] as unknown[],
   guidedQuestionQuestions: [] as Array<{ id: string; question: string }>,
   guidedQuestionPayload: null as { threadId?: string } | null,
+  guidedQuestionAskerThreadId: null as string | null,
   guidedQuestionRefetchPending: vi.fn(),
   pendingUnloadGuard: vi.fn(),
   attemptGenerating: false,
@@ -81,9 +85,54 @@ const mocks = vi.hoisted(() => ({
     delivered: true,
   })),
   abortStalledRun: vi.fn(),
+  readPreviousGenerationRun: vi.fn(
+    async (_threadId: string): Promise<"settled" | "running" | "unreadable"> =>
+      "settled",
+  ),
+  toast: vi.fn(),
   toastError: vi.fn(),
   translate: (key: string) => key,
+  toolbarProps: null as null | {
+    onExportPdf?: (signal: AbortSignal) => Promise<void>;
+    onExportPptx?: (signal: AbortSignal) => Promise<void>;
+  },
+  pptxSources: [] as string[],
+  renderSlideCanvases: false,
+  pdfAddImage: vi.fn(),
+  domToJpeg: vi.fn(async (_node: unknown) => "data:image/jpeg;base64,AA=="),
 }));
+
+vi.mock("jspdf", () => ({
+  jsPDF: class {
+    addImage = mocks.pdfAddImage;
+    addMetadata = vi.fn();
+    addPage = vi.fn();
+    link = vi.fn();
+    internal = { scaleFactor: 96 / 72 };
+    output = () => new Blob();
+    setFontSize = vi.fn();
+    setTextColor = vi.fn();
+    text = vi.fn();
+  },
+}));
+vi.mock("modern-screenshot", () => ({ domToJpeg: mocks.domToJpeg }));
+// The real PPTX builder needs dom-to-pptx layout; keep its slide lookup.
+vi.mock("@/lib/export-pptx-client", async () => {
+  const { findSlideExportSource } = await import("@/lib/export-pdf-client");
+  return {
+    exportDeckAsPptx: vi.fn(
+      async (_title: string, slides: { id: string }[]) => {
+        slides.forEach((slide, index) => {
+          const source = findSlideExportSource(slide.id, index, slides.length);
+          mocks.pptxSources.push(
+            source.getAttribute("data-slide-canvas") ?? "",
+          );
+        });
+        return { blankShapes: 0 };
+      },
+    ),
+  };
+});
 
 vi.mock("@/hooks/use-agent-generating", async (importOriginal) => {
   const original =
@@ -158,6 +207,9 @@ vi.mock("@/context/DeckContext", () => ({
     undo: vi.fn(),
     undoAvailability: {},
     subscribeUndoReveal: vi.fn(() => () => {}),
+    subscribeAgentChanges: vi.fn(() => () => {}),
+    undoAgentChange: vi.fn(),
+    undoIfLatest: vi.fn(),
     loading: false,
     loadError: false,
   }),
@@ -208,6 +260,22 @@ vi.mock(
     useGuidedQuestionFlow: (options: { threadId?: string }) => {
       mocks.guidedQuestionFlowOptions.push(options);
       mocks.guidedFlowOptions = options;
+      if (mocks.guidedQuestionAskerThreadId) {
+        // Like the real hook, a question asked by a thread is shown only to
+        // the flow that knows that thread.
+        const visible = options.threadId === mocks.guidedQuestionAskerThreadId;
+        return {
+          payload: null,
+          questions: visible ? mocks.guidedQuestionQuestions : null,
+          handleSubmit: vi.fn(),
+          handleSkip: vi.fn(),
+          refetchPendingQuestionStatus: async () =>
+            mocks.guidedQuestionQuestions.length > 0 &&
+            options.threadId === mocks.guidedQuestionAskerThreadId
+              ? { status: "pending" as const }
+              : { status: "none" as const },
+        };
+      }
       return {
         payload: mocks.guidedQuestionPayload,
         questions: mocks.guidedQuestionQuestions.length
@@ -225,7 +293,12 @@ const relayTrack = vi.hoisted(() =>
     async (_name: string, _properties?: Record<string, unknown>) => undefined,
   ),
 );
-vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
+vi.mock("sonner", () => ({
+  toast: Object.assign(mocks.toast, { error: mocks.toastError }),
+}));
+vi.mock("@/lib/agent-run-status", () => ({
+  readPreviousGenerationRun: mocks.readPreviousGenerationRun,
+}));
 vi.mock("@agent-native/core/client/analytics", async (importOriginal) => {
   const original =
     await importOriginal<
@@ -331,9 +404,16 @@ vi.mock("@/lib/pending-deck-changes", () => ({
 }));
 
 vi.mock("@/components/editor/EditorToolbar", () => ({
-  default: ({ canEdit }: { canEdit?: boolean }) => (
-    <div data-testid="editor-toolbar" data-can-edit={String(canEdit)} />
-  ),
+  default: (props: {
+    canEdit?: boolean;
+    onExportPdf?: (signal: AbortSignal) => Promise<void>;
+    onExportPptx?: (signal: AbortSignal) => Promise<void>;
+  }) => {
+    mocks.toolbarProps = props;
+    return (
+      <div data-testid="editor-toolbar" data-can-edit={String(props.canEdit)} />
+    );
+  },
 }));
 vi.mock("@/components/editor/QuestionFlow", () => ({
   QuestionFlow: () => <div data-testid="question-flow" />,
@@ -341,6 +421,7 @@ vi.mock("@/components/editor/QuestionFlow", () => ({
 vi.mock("@/components/editor/EditorSidebar", () => ({
   default: () => <div data-testid="editor-sidebar" />,
   getSlideSelection: () => [],
+  selectionFollowingActiveSlide: () => null,
 }));
 vi.mock("@/components/editor/SlideEditor", () => ({
   default: ({
@@ -377,7 +458,10 @@ vi.mock("@/components/editor/AssetLibraryPanel", () => ({
   default: () => null,
 }));
 vi.mock("@/components/editor/HistoryPanel", () => ({ default: () => null }));
-vi.mock("@/components/deck/SlideRenderer", () => ({ default: () => null }));
+vi.mock("@/components/deck/SlideRenderer", () => ({
+  default: ({ slide }: { slide: { id: string } }) =>
+    mocks.renderSlideCanvases ? <div data-slide-canvas={slide.id} /> : null,
+}));
 
 import { trackEvent } from "@agent-native/core/client/analytics";
 
@@ -482,6 +566,7 @@ describe("DeckEditor generation signal wiring", () => {
       guidedQuestionFlowOptions: [],
       guidedQuestionQuestions: [],
       guidedQuestionPayload: null,
+      guidedQuestionAskerThreadId: null,
       attemptGenerating: false,
       attemptObservedRun: false,
       attemptRunError: false,
@@ -530,6 +615,13 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.sendToAgentChatAndConfirm.mockClear();
     mocks.pendingUnloadGuard.mockClear();
     mocks.toastError.mockClear();
+    mocks.toast.mockClear();
+    mocks.readPreviousGenerationRun.mockReset().mockResolvedValue("settled");
+    mocks.toolbarProps = null;
+    mocks.renderSlideCanvases = false;
+    mocks.pdfAddImage.mockClear();
+    mocks.domToJpeg.mockClear();
+    mocks.pptxSources = [];
     window.innerWidth = 390;
     vi.mocked(trackEvent).mockClear();
     relayTrack.mockClear();
@@ -547,6 +639,61 @@ describe("DeckEditor generation signal wiring", () => {
       Reflect.deleteProperty(navigator, "locks");
     }
     vi.restoreAllMocks();
+  });
+
+  it("exports every slide to PDF even when the sidebar has not rendered them", async () => {
+    // The slide rail only renders thumbnails near its viewport, so a long deck
+    // has slides with no canvas anywhere on the page when export starts.
+    mocks.renderSlideCanvases = true;
+    mocks.deck.slides = Array.from({ length: 3 }, (_, i) => ({
+      id: `slide-${i + 1}`,
+      content: `<p>Slide ${i + 1}</p>`,
+    }));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:pdf");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+    const { container } = render(<RouterProvider router={router} />);
+    await waitFor(() => expect(mocks.toolbarProps?.onExportPdf).toBeTruthy());
+    const exportPdf = mocks.toolbarProps?.onExportPdf;
+    if (!exportPdf) throw new Error("the toolbar never received onExportPdf");
+
+    await act(async () => {
+      await exportPdf(new AbortController().signal);
+    });
+
+    expect(
+      mocks.domToJpeg.mock.calls.map(([node]) =>
+        (node as HTMLElement).getAttribute("data-slide-canvas"),
+      ),
+    ).toEqual(["slide-1", "slide-2", "slide-3"]);
+    expect(mocks.pdfAddImage).toHaveBeenCalledTimes(3);
+    expect(container.querySelector("[data-pdf-export-stage]")).toBeNull();
+  });
+
+  it("exports every slide to PPTX even when the sidebar has not rendered them", async () => {
+    mocks.renderSlideCanvases = true;
+    mocks.deck.slides = Array.from({ length: 3 }, (_, i) => ({
+      id: `slide-${i + 1}`,
+      content: `<p>Slide ${i + 1}</p>`,
+    }));
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+    const { container } = render(<RouterProvider router={router} />);
+    await waitFor(() => expect(mocks.toolbarProps?.onExportPptx).toBeTruthy());
+    const exportPptx = mocks.toolbarProps?.onExportPptx;
+    if (!exportPptx) throw new Error("the toolbar never received onExportPptx");
+
+    await act(async () => {
+      await exportPptx(new AbortController().signal);
+    });
+
+    expect(mocks.pptxSources).toEqual(["slide-1", "slide-2", "slide-3"]);
+    expect(container.querySelector("[data-pdf-export-stage]")).toBeNull();
   });
 
   it("guards reloads while an inline edit is active", async () => {
@@ -817,6 +964,39 @@ describe("DeckEditor generation signal wiring", () => {
         "slides:empty-generation-retry-recovery:deck-1",
       ),
     ).toBeNull();
+  });
+
+  it("waits on a question asked by a run that ended before the editor mounted", async () => {
+    // The deck route loads lazily, so Home's submission can be routed, run,
+    // and end on a question before this editor listens for any chat event.
+    reportAgentChatSubmitTarget("submit-before-mount", "generation-tab", {
+      threadId: "generation-thread",
+    });
+    mocks.guidedQuestionAskerThreadId = "generation-thread";
+    mocks.guidedQuestionQuestions = [
+      { id: "q1", question: "Which story should the deck tell?" },
+    ];
+    mocks.targetTabId = "generation-tab";
+    mocks.startedTabId = "generation-tab";
+    mocks.attemptObservedRun = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1&generationSubmitId=submit-before-mount",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("question-flow")).toBeTruthy(),
+    );
+    expect(screen.queryByText("deckEditor.tryAgain")).toBeNull();
+    expect(mocks.deck.generationContext).not.toHaveProperty(
+      "generationFailureCode",
+    );
   });
 
   it("persists the prompt when the guided-question check fails", async () => {
@@ -1446,6 +1626,103 @@ describe("DeckEditor generation signal wiring", () => {
     });
     await waitFor(() =>
       expect(window.localStorage.getItem(recoveryKey)).toBeNull(),
+    );
+  });
+
+  it.each([
+    ["running", "deckEditor.generationStillRunning"],
+    ["unreadable", "deckEditor.generationOutcomeUnresolved"],
+  ] as const)(
+    "refuses a retry while the previous run is %s on the server",
+    async (previousRun, message) => {
+      const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+      window.localStorage.setItem(
+        recoveryKey,
+        JSON.stringify({
+          kind: "generation_failure",
+          attemptId: "attempt-1",
+          failureCode: "no_output",
+        }),
+      );
+      Object.assign(mocks.deck.generationContext, {
+        generationAttemptId: "attempt-1",
+        generationStartedAt: Date.now(),
+        originalPrompt: "Original brief",
+        generationFailureCode: "no_output",
+        generationFailureAttemptId: "attempt-1",
+      });
+      mocks.startedTabId = "previous-run-tab";
+      mocks.guidedQuestionRefetchPending
+        .mockReset()
+        .mockResolvedValue({ status: "none" });
+      mocks.readPreviousGenerationRun.mockResolvedValue(previousRun);
+      router = createMemoryRouter(
+        [{ path: "/deck/:id", element: <DeckEditor /> }],
+        { initialEntries: ["/deck/deck-1"] },
+      );
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => expect(mocks.flushDeckSave).toHaveBeenCalledTimes(1));
+      await act(async () => {
+        screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+      });
+
+      await waitFor(() =>
+        expect(mocks.readPreviousGenerationRun).toHaveBeenCalledWith(
+          "previous-run-tab",
+        ),
+      );
+      const shown = previousRun === "running" ? mocks.toast : mocks.toastError;
+      await waitFor(() => expect(shown).toHaveBeenCalledWith(message));
+      expect(mocks.submitAndConfirm).not.toHaveBeenCalled();
+      expect(mocks.flushDeckSave).toHaveBeenCalledTimes(1);
+      expect(mocks.deck.generationContext).toMatchObject({
+        generationAttemptId: "attempt-1",
+        generationFailureCode: "no_output",
+      });
+      expect(router.state.location.search).toBe("");
+    },
+  );
+
+  it("retries once the server reports the previous run settled", async () => {
+    const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+    window.localStorage.setItem(
+      recoveryKey,
+      JSON.stringify({
+        kind: "generation_failure",
+        attemptId: "attempt-1",
+        failureCode: "no_output",
+      }),
+    );
+    Object.assign(mocks.deck.generationContext, {
+      generationAttemptId: "attempt-1",
+      generationStartedAt: Date.now(),
+      originalPrompt: "Original brief",
+      generationFailureCode: "no_output",
+      generationFailureAttemptId: "attempt-1",
+    });
+    mocks.startedTabId = "previous-run-tab";
+    mocks.guidedQuestionRefetchPending
+      .mockReset()
+      .mockResolvedValue({ status: "none" });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => expect(mocks.flushDeckSave).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+
+    await waitFor(() =>
+      expect(mocks.submitAndConfirm).toHaveBeenCalledTimes(1),
+    );
+    expect(mocks.readPreviousGenerationRun).toHaveBeenCalledWith(
+      "previous-run-tab",
     );
   });
 

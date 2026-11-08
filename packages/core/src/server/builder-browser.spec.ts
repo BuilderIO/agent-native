@@ -64,6 +64,7 @@ import {
   ensureBuilderProject,
   findBuilderProjectForRepo,
   getBuilderBranchProjectId,
+  getBuilderWorkspaceUrl,
   getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserConnectUrl,
   getBuilderBrowserConnectUrlForOwner,
@@ -83,7 +84,9 @@ import {
   resolveBuilderConnectCallbackState,
   resolveBuilderPreviewRelayParentOrigin,
   resolveBuilderPreviewRelayTargetOrigin,
+  registerBuilderBranchProject,
   resolveBuilderBranchProjectId,
+  resolveBuilderHandoffProjectId,
   runBuilderAgent,
   removeBuilderConnectStateCookie,
   provisionBuilderAccount,
@@ -211,6 +214,53 @@ describe("Builder account provisioning", () => {
       name: "Owner",
       agentNativeApp: "agent-native-clips",
       agentNativeTemplate: "clips",
+    });
+  });
+
+  it("signs the new-account-only mode without downgrading when older servers reject it", async () => {
+    const secret = "test-builder-sso-secret-with-at-least-32-chars";
+    vi.stubEnv(BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV, secret);
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ message: "Invalid Agent-Native account request." }),
+          { status: 401 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    await expect(
+      provisionBuilderAccount({
+        email: "owner@example.com",
+        name: "Owner",
+        agentNativeApp: "design",
+        agentNativeTemplate: "design",
+        newAccountOnly: true,
+      }),
+    ).rejects.toThrow();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const init = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(headers["x-agent-native-account-version"]).toBe(
+      "agent-native-account-v3",
+    );
+    expect(headers["x-agent-native-account-signature"]).toBe(
+      createHmac("sha256", secret)
+        .update(
+          [
+            "agent-native-account-v3",
+            headers["x-agent-native-account-timestamp"],
+            headers["x-agent-native-account-request-id"],
+            "owner@example.com",
+            "Owner",
+            "design",
+            "design",
+            "new-account-only",
+          ].join("\n"),
+        )
+        .digest("base64url"),
+    );
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      newAccountOnly: true,
     });
   });
 
@@ -1651,6 +1701,51 @@ describe("Builder callback CSRF state", () => {
       expect(resolverMocks.resolveSecret).not.toHaveBeenCalled();
     });
 
+    describe("host-bound project", () => {
+      afterEach(() => registerBuilderBranchProject(null));
+
+      it("takes the project the host names over Dispatch and env settings", async () => {
+        resolverMocks.getRequestOrgId.mockReturnValue("org-123");
+        resolverMocks.getSetting.mockResolvedValue({
+          builderProjectId: "dispatch-project",
+        });
+        process.env.BUILDER_BRANCH_PROJECT_ID = "env-project";
+        registerBuilderBranchProject(async () => " host-project ");
+
+        await expect(resolveBuilderHandoffProjectId()).resolves.toBe(
+          "host-project",
+        );
+        expect(resolverMocks.getSetting).not.toHaveBeenCalled();
+      });
+
+      it("leaves the deployment's project for everything but the handoff", async () => {
+        process.env.BUILDER_BRANCH_PROJECT_ID = "env-project";
+        registerBuilderBranchProject(async () => "host-project");
+
+        await expect(resolveBuilderBranchProjectId()).resolves.toBe(
+          "env-project",
+        );
+      });
+
+      it("falls back to the usual lookups when the host names none", async () => {
+        process.env.BUILDER_BRANCH_PROJECT_ID = "env-project";
+        registerBuilderBranchProject(() => undefined);
+
+        await expect(resolveBuilderHandoffProjectId()).resolves.toBe(
+          "env-project",
+        );
+      });
+
+      it("fails closed when the host cannot name a project", async () => {
+        process.env.BUILDER_BRANCH_PROJECT_ID = "env-project";
+        registerBuilderBranchProject(async () => {
+          throw new Error("no access");
+        });
+
+        await expect(resolveBuilderHandoffProjectId()).resolves.toBe("");
+      });
+    });
+
     it("keeps legacy fallbacks when no scoped Dispatch row exists", async () => {
       resolverMocks.getRequestOrgId.mockReturnValue("org-123");
       resolverMocks.resolveSecret.mockImplementation(async (key: string) =>
@@ -2344,5 +2439,19 @@ describe("Builder callback CSRF state", () => {
         name: "Agent-Native Workspace",
       });
     });
+  });
+});
+
+describe("getBuilderWorkspaceUrl", () => {
+  it("links a Builder-linked workspace to its page in Builder", () => {
+    vi.stubEnv("BUILDER_APP_HOST", "https://builder.io/");
+    expect(
+      getBuilderWorkspaceUrl({ BUILDER_WORKSPACE_PROJECT_ID: " ws 1 " }),
+    ).toBe("https://builder.io/app/workspaces/ws%201");
+    vi.unstubAllEnvs();
+  });
+
+  it("is null when the workspace is not linked to Builder", () => {
+    expect(getBuilderWorkspaceUrl({})).toBeNull();
   });
 });

@@ -45,6 +45,11 @@ import {
   trackRecordingFailure,
 } from "../server/lib/recording-failures.js";
 import {
+  beginMediaProduction,
+  finishMediaProduction,
+  withRecordingMediaProduction,
+} from "../server/lib/recording-media-lifecycle.js";
+import {
   listRecordingChunkKeys,
   recordingUploadBrowserSessionId,
   validateRecordingChunkKeys,
@@ -505,6 +510,7 @@ async function failStoredButUnservableRecording(params: {
         await releaseHostedClipRecording({
           recordingId: id,
           ownerEmail,
+          reason: "finalize_failed",
         });
       }
     } else {
@@ -1370,6 +1376,7 @@ async function consumeHostedAllowanceIfNeeded(params: {
       await releaseHostedClipRecording({
         recordingId: params.id,
         ownerEmail: params.ownerEmail,
+        reason: "finalize_failed",
       });
     }
   } else {
@@ -1656,6 +1663,7 @@ export default defineAction({
     let storageMode: "own" | "hosted" | null = null;
     let uploadAttemptId: string | null = null;
     let uploadGenerationId: string | null = null;
+    let mediaActivity: string | null = null;
     try {
       let [existing] = await db
         .select()
@@ -1672,6 +1680,10 @@ export default defineAction({
         chunkKeysToPurge = await listRecordingChunkKeys(ownerEmail, id);
         throw new Error(`Recording not found: ${id}`);
       }
+      mediaActivity = await beginMediaProduction({
+        recordingId: id,
+        ownerEmail,
+      });
       storageMode = existing.storageMode ?? null;
       uploadAttemptId = existing.uploadAttemptId ?? null;
       uploadGenerationId = existing.uploadGenerationId ?? null;
@@ -2056,6 +2068,7 @@ export default defineAction({
                   await releaseHostedClipRecording({
                     recordingId: id,
                     ownerEmail,
+                    reason: "finalize_failed",
                   });
                 }
                 await reconcileMeetingOnRecordingFailed({
@@ -2072,16 +2085,32 @@ export default defineAction({
 
         let videoUrl: string;
         try {
-          videoUrl = await uploadProvider.resumable.completeSession(
-            {
-              sessionId: resumableSession.sessionId,
-              meta: resumableSession.meta,
-            },
-            typeof resumableSession.meta.filename === "string"
-              ? resumableSession.meta.filename
-              : "",
-            { stableUrl: true, recordAsset: false },
+          const completeSession = uploadProvider.resumable.completeSession.bind(
+            uploadProvider.resumable,
           );
+          const produced = await withRecordingMediaProduction(
+            {
+              recordingId: id,
+              ownerEmail,
+              ...(resumableSession.meta.clipsHiddenUpload === true
+                ? { recordAsset: false }
+                : {}),
+            },
+            async () => ({
+              provider: uploadProvider.id,
+              url: await completeSession(
+                {
+                  sessionId: resumableSession.sessionId,
+                  meta: resumableSession.meta,
+                },
+                typeof resumableSession.meta.filename === "string"
+                  ? resumableSession.meta.filename
+                  : "",
+                { stableUrl: true, recordAsset: false },
+              ),
+            }),
+          );
+          videoUrl = produced.url;
         } catch (err) {
           const cleaned = await abortResumableUploadSession(resumableSession, {
             provider: uploadProvider,
@@ -2319,6 +2348,7 @@ export default defineAction({
           await releaseHostedClipRecording({
             recordingId: id,
             ownerEmail,
+            reason: "finalize_failed",
           });
         }
         if (failedRecording)
@@ -2553,10 +2583,13 @@ export default defineAction({
           stableUrl: true,
           recordAsset: false,
         };
-        upload =
-          existing.storageMode === "hosted"
-            ? await clipsHostedFileUploadProvider.upload(uploadInput)
-            : await uploadFile(uploadInput);
+        upload = await withRecordingMediaProduction(
+          { recordingId: id, ownerEmail, recordAsset: false },
+          () =>
+            existing.storageMode === "hosted"
+              ? clipsHostedFileUploadProvider.upload(uploadInput)
+              : uploadFile(uploadInput),
+        );
       } catch (err) {
         if (
           !(existing.storageMode === "hosted" && hostedStorageAuthFailure(err))
@@ -2963,6 +2996,7 @@ export default defineAction({
           err: err instanceof Error ? err.message : String(err),
         });
       }
+      if (mediaActivity) await finishMediaProduction(mediaActivity, null);
     }
   },
 });

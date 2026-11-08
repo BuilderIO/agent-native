@@ -18,6 +18,7 @@ import {
   ANALYTICS_ANALYSIS_RESULT_RENDERER,
   getSingleNumericAnalysisResult,
 } from "../shared/analysis-result.js";
+import { TRAFFIC_ENVIRONMENTS } from "../shared/traffic-environment.js";
 
 function resolveScope() {
   const userEmail = getRequestUserEmail();
@@ -333,6 +334,12 @@ export default defineAction({
       .describe(
         "Debugging only: set true when the user asks about QA/E2E test identities, which every read otherwise excludes.",
       ),
+    environment: z
+      .enum(TRAFFIC_ENVIRONMENTS)
+      .optional()
+      .describe(
+        "Read only production or only beta traffic; omit for all. Beta includes PR previews and local runs.",
+      ),
     showTable: z
       .boolean()
       .optional()
@@ -343,7 +350,7 @@ export default defineAction({
       .enum(["postgres"])
       .optional()
       .describe(
-        'Set "postgres" when the user rules out BigQuery; skip get-first-party-analytics-health then. BigQuery-only queries fail with first_party_backend_not_postgres.',
+        'Set "postgres" when the user rules out BigQuery. BigQuery-only queries fail with first_party_backend_not_postgres.',
       ),
   }),
   outputSchema: z.union([
@@ -384,6 +391,7 @@ export default defineAction({
       result = await queryFirstPartyAnalyticsWithBackend(args.sql, scope, {
         cache: true,
         includeTestIdentities: args.includeTestIdentities === true,
+        ...(args.environment ? { trafficEnvironment: args.environment } : {}),
         ...(args.backend ? { requireBackend: args.backend } : {}),
         ...(actionContext?.signal ? { signal: actionContext.signal } : {}),
       });

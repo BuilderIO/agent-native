@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -5,11 +6,15 @@ import path from "node:path";
 import {
   RadarQueryError,
   REPO_ROOT,
-  radarJsonbParam,
+  resolveRadarCampaignHmacConfig,
+  resolveRadarBigQueryEventsTable,
   resolveRadarFirstPartyBackend,
+  radarJsonbParam,
+  runBigQuery,
   runPostgresQuery,
 } from "./query.ts";
 import { CAMPAIGN_APPS, buildCampaignFollowupSql } from "./sql.ts";
+import { buildBigQueryCampaignFollowupSql } from "./warehouse-sql.ts";
 
 function itemAt<T>(items: readonly T[], index: number): T | undefined {
   if (index < 0 || index >= items.length) return undefined;
@@ -110,6 +115,10 @@ export function campaignPostgresParams(
     app: recipient.app,
   }));
   return [radarJsonbParam(recipientRows), startDate, endDate, orgId];
+}
+
+function campaignEmailHash(email: string, key: string): string {
+  return createHmac("sha256", key).update(email).digest("hex");
 }
 
 function normalizeApp(value: string | undefined): string {
@@ -261,6 +270,9 @@ function dateBefore(value: string, days: number): string {
 export async function runCampaignFollowup(
   orgId: string,
 ): Promise<CampaignFollowupResult> {
+  const backend = await resolveRadarFirstPartyBackend();
+  const hmac =
+    backend.sink === "bigquery" ? resolveRadarCampaignHmacConfig() : undefined;
   const { recipients, skippedRows } = readSentRecipients();
   const firstRecipient = itemAt(recipients, 0);
   if (!firstRecipient) {
@@ -276,18 +288,49 @@ export async function runCampaignFollowup(
   const startDate = dateBefore(oldest.slice(0, 10), 7);
   const observedAt = new Date();
   const endDate = observedAt.toISOString().slice(0, 10);
-  const backend = await resolveRadarFirstPartyBackend();
+  let rows: Record<string, unknown>[];
   if (backend.sink === "bigquery") {
-    throw new RadarQueryError(
-      "Campaign follow-up is unavailable for the BigQuery sink until a keyed recipient matching function is configured.",
-      2,
+    if (!hmac) {
+      throw new RadarQueryError(
+        "Secure BigQuery campaign matching is not configured.",
+        1,
+      );
+    }
+    const result = await runBigQuery(
+      buildBigQueryCampaignFollowupSql(
+        await resolveRadarBigQueryEventsTable(),
+        hmac.functionName,
+      ),
+      {
+        fresh: true,
+        cache: false,
+        params: [
+          { name: "start_date", type: "DATE", value: startDate },
+          { name: "end_date", type: "DATE", value: endDate },
+          { name: "org_id", type: "STRING", value: orgId },
+          {
+            name: "recipients_json",
+            type: "STRING",
+            value: JSON.stringify(
+              recipients.map((recipient) => ({
+                email_hash: campaignEmailHash(recipient.email, hmac.key),
+                sent_at: recipient.sent_at,
+                app: recipient.app,
+              })),
+            ),
+          },
+        ],
+      },
     );
+    rows = result.rows;
+  } else {
+    const result = await runPostgresQuery(
+      buildCampaignFollowupSql(),
+      campaignPostgresParams(recipients, startDate, endDate, orgId),
+      { fresh: true, cache: false },
+    );
+    rows = result.rows;
   }
-  const { rows } = await runPostgresQuery(
-    buildCampaignFollowupSql(),
-    campaignPostgresParams(recipients, startDate, endDate, orgId),
-    { fresh: true, cache: false },
-  );
   const byRecipientApp: Record<string, number> = {};
   const aggregateRows = rows.map((row) => {
     const recipientApp = String(row.recipient_app ?? "unknown");

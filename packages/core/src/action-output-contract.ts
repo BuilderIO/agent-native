@@ -668,19 +668,17 @@ function mayBeObject(node: JsonSchemaObject): boolean {
 }
 
 /**
- * One output-contract issue as `path: code`, built only from what the schema
- * declares. Object keys and messages can repeat the returned data — a record
- * key (`"42"` as much as `"dave@example.com"`), an unrecognized key, a
- * refinement message that interpolates a value — so the path is walked through
- * `schema`: a segment survives only as an index where the schema allows an
- * array and no object at that point, or as a property name the
- * schema declares at that node. Every other segment is `*`; without a schema, every segment is.
+ * An issue path built only from what the schema declares. Object keys can
+ * repeat the data — a record key (`"42"` as much as `"dave@example.com"`) — so
+ * the path is walked through `schema`: a segment survives only as an index
+ * where the schema allows an array and no object at that point, or as a
+ * property name the schema declares at that node. Every other segment is `*`;
+ * without a schema, every segment is.
  */
-export function describeOutputContractIssue(
+export function maskedIssuePath(
   path: ReadonlyArray<string | number>,
-  code: unknown,
   schema: JsonSchemaObject | undefined,
-): string {
+): string[] {
   let nodes = schema ? candidateNodes(schema, schema) : [];
   const segments: string[] = [];
   for (const raw of path) {
@@ -732,9 +730,45 @@ export function describeOutputContractIssue(
         : []),
     ]);
   }
+  return segments;
+}
+
+/**
+ * One output-contract issue as `path: code`, built only from what the schema
+ * declares. Messages can repeat the returned data — an unrecognized key, a
+ * refinement message that interpolates a value — so only the masked path and a
+ * reported code are kept.
+ */
+export function describeOutputContractIssue(
+  path: ReadonlyArray<string | number>,
+  code: unknown,
+  schema: JsonSchemaObject | undefined,
+): string {
+  const segments = maskedIssuePath(path, schema);
   const safeCode =
     typeof code === "string" && REPORTED_ISSUE_CODES.has(code)
       ? code
       : "invalid";
   return `${segments.length > 0 ? segments.join(".") : "(root)"}: ${safeCode}`;
+}
+
+/**
+ * The JSON Schema an action's input accepts, from the schema's own Standard
+ * JSON Schema *input* converter, which keeps nested fields behind a
+ * `z.preprocess` that parses a JSON string. `undefined` when the schema has no
+ * converter, so a path through it is masked whole.
+ */
+export function inputSchemaToJsonSchema(
+  schema: StandardSchemaV1,
+): JsonSchemaObject | undefined {
+  const input = (
+    schema as {
+      "~standard"?: {
+        jsonSchema?: { input?: (options: { target: string }) => unknown };
+      };
+    }
+  )["~standard"]?.jsonSchema?.input;
+  if (typeof input !== "function") return undefined;
+  const converted = input({ target: "draft-2020-12" });
+  return isRecord(converted) ? converted : undefined;
 }

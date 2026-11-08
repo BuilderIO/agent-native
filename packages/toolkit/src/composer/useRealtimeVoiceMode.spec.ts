@@ -147,6 +147,7 @@ describe("Realtime voice client transport", () => {
       type: "session.update",
       session: {
         delegation: {
+          type: "responses",
           responses: { reasoning: { effort: "high" } },
         },
       },
@@ -195,6 +196,7 @@ describe("Realtime voice client transport", () => {
       type: "session.update",
       session: {
         delegation: {
+          type: "responses",
           responses: { reasoning: { effort: "low" } },
         },
       },

@@ -294,9 +294,22 @@ jobs:
             echo "::error::Release PR changed immediately before merge; refusing admin-merge." >&2
             exit 1
           fi
-          current_main=$(gh api "repos/$REPO/branches/main" --jq '.commit.sha')
-          if [ "$current_main" != "$BASE_SHA" ]; then
-            echo "::error::Main advanced after validation; refusing to merge against an unvalidated base." >&2
+          # `main` moves about three times an hour and validation takes about 26
+          # minutes, so main has almost always moved by now. Folding it into the
+          # release branch re-runs required checks on a new head, and that
+          # restart never converges. The PR only touches release files
+          # (verified above), so GitHub applies it to the current main;
+          # --match-head-commit keeps the merged head the one that was
+          # validated. A conflict fails here, and the next release run rebuilds
+          # the PR from the new main.
+          mergeable=null
+          for _ in $(seq 1 12); do
+            mergeable=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.mergeable')
+            [ "$mergeable" != "null" ] && break
+            sleep 5
+          done
+          if [ "$mergeable" != "true" ]; then
+            echo "::error::Release PR does not merge cleanly onto main (mergeable=$mergeable); refusing admin-merge." >&2
             exit 1
           fi
           node --experimental-strip-types scripts/release-required-checks.ts verify "$PR_NUMBER" "$REPO"

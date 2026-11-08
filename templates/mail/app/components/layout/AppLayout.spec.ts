@@ -260,8 +260,8 @@ describe("AppLayout inbox tab bar", () => {
   it("scopes both the tab bar and the label list to the selected accounts", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain(
-      "useLabels(\n    activeAccounts.size > 0 ? [...activeAccounts] : undefined,\n  )",
+    expect(source.replace(/\s+/g, " ")).toContain(
+      "useLabels(activeAccounts.size > 0 ? [...activeAccounts] : undefined)",
     );
     expect(source).toContain("accountEmails: inboxAccountEmails,");
   });
@@ -271,6 +271,9 @@ describe("AppLayout inbox tab bar", () => {
 
     expect(source).toContain(
       "data: connectedLabelsData, accountErrors: connectedLabelErrors, isError: connectedLabelsFailed, } = useLabels();",
+    );
+    expect(source).toContain(
+      "accountErrors: labelAccountErrors, isError: labelsFailed, } = useLabels(",
     );
     expect(source).toContain("connectedLabelsFailed ||");
     expect(source).toContain("Boolean(connectedLabelErrors?.length)");
@@ -294,7 +297,22 @@ describe("AppLayout inbox tab bar", () => {
       "href: sysView.id === AI_FILTER_LABEL ? labelTabHref(AI_FILTER_LABEL)",
     );
     expect(source).toContain(
-      '() => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])]',
+      "href: mailboxWideLabelTab ? labelTabHref(tab.id, labels) : inboxTabHref(tab.id)",
+    );
+    expect(source).toContain(
+      'const mailboxWideLabelTab = tab.kind === "label" && !isInboxScopedLabel(tab.id, labels);',
+    );
+    expect(source).toContain(
+      "mailboxWideLabelTab ? label?.totalCount : tab.total",
+    );
+    expect(source).toContain(
+      "isLabelCountLowerBound(labelsFailed, labelAccountErrors)",
+    );
+    expect(source.replace(/\s+/g, " ")).toContain(
+      "[ activeLabel, activeInboxTabId, aiTagDisplayNames, inboxTabs, labels, labelsFailed, labelAccountErrors, t, view, ]",
+    );
+    expect(source).toContain(
+      "dataTabs.some((tab) => tab.isActive && tab.pinnedId === activeLabel)",
     );
   });
 

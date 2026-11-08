@@ -1,3 +1,7 @@
+import {
+  actionCallIntent,
+  preparedCallArguments,
+} from "@agent-native/core/action";
 import { describe, expect, it } from "vitest";
 
 import action from "./apply-visual-edit.js";
@@ -41,9 +45,10 @@ describe("apply-visual-edit schema", () => {
 
     expect(action.schema.safeParse(base).success).toBe(true);
 
+    // oracle-change: null is stripped before validation by actionCallIntent, so the bare schema rejects it.
     expect(
       action.schema.safeParse({ ...base, activeBreakpoint: null }).success,
-    ).toBe(true);
+    ).toBe(false);
 
     for (const bp of ["base", "sm", "md", "lg", "xl", "2xl"] as const) {
       expect(
@@ -112,9 +117,10 @@ describe("apply-visual-edit schema", () => {
       action.schema.safeParse({ ...base, activeFrameWidthPx: 768 }).success,
     ).toBe(true);
 
+    // oracle-change: null is stripped before validation by actionCallIntent, so the bare schema rejects it.
     expect(
       action.schema.safeParse({ ...base, activeFrameWidthPx: null }).success,
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       action.schema.safeParse({ ...base, activeFrameWidthPx: 0 }).success,
@@ -122,6 +128,47 @@ describe("apply-visual-edit schema", () => {
     expect(
       action.schema.safeParse({ ...base, activeFrameWidthPx: -1 }).success,
     ).toBe(false);
+  });
+});
+
+describe("apply-visual-edit padded optional fields", () => {
+  const sparse = {
+    source: { kind: "design-file", designId: "d1" },
+    intent: styleIntent,
+    activeFrameWidthPx: 390,
+  };
+
+  it("runs a call whose unused optional fields are null", async () => {
+    const padded = {
+      source: {
+        kind: null,
+        designId: "d1",
+        fileId: null,
+        filename: null,
+        path: null,
+        url: null,
+        connectionId: null,
+        revision: null,
+        html: null,
+      },
+      intent: {
+        ...styleIntent,
+        target: { nodeId: null, selector: "main", sourceAnchor: null },
+        operation: null,
+      },
+      activeFrameWidthPx: 390,
+      activeBreakpoint: null,
+      maxWidthPx: null,
+      includeContent: null,
+      persist: null,
+    };
+    const intent = await actionCallIntent(action, padded);
+    const expected = await actionCallIntent(action, sparse);
+    if (!intent.valid) throw intent.error;
+    if (!expected.valid) throw expected.error;
+    expect(preparedCallArguments(intent)).toEqual(
+      preparedCallArguments(expected),
+    );
   });
 });
 

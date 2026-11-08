@@ -12,7 +12,7 @@ import {
   CONTENT_SLASH_VISUALS,
 } from "@shared/labs";
 import { renderMathToHtml } from "@shared/math-rendering";
-import { collapseExactRepeatedNfm, docToNfm } from "@shared/nfm";
+import { collapseExactRepeatedNfm, docToNfm, type PMNode } from "@shared/nfm";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
 import {
   IconCheck,
@@ -75,7 +75,10 @@ import { useRollbackCreatedSlashDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
 
-import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
+import {
+  focusMostRecentEmptyToggleSummary,
+  TOGGLE_TITLE_NODE,
+} from "./extensions/NotionExtensions";
 import { createImagePickerId } from "./image-upload";
 import { buildLocalComponentSlashItems } from "./localComponentSlashItems";
 import { MathRenderer } from "./MathRenderer";
@@ -90,6 +93,8 @@ interface SlashCommandMenuProps {
   onDraftCommitted?: () => boolean | void | Promise<boolean | void>;
   onDraftPersisted?: (markdown: string) => boolean | Promise<boolean>;
   notionPageId?: string | null;
+  /** The page saves no body; its body is the live copy. */
+  bodyIsLiveCopy?: boolean;
 }
 
 interface EditorMenuPosition {
@@ -241,11 +246,18 @@ export function insertMediaPlaceholder(
   return editor.chain().focus().insertContent({ type, attrs }).run();
 }
 
+// The menu's commands turn the block it opens in into another, or put blocks
+// there. A Toggle's title is its own line, not a block to turn into another.
+function canOpenSlashMenu(editor: Editor) {
+  const { parent } = editor.state.selection.$from;
+  return parent.isTextblock && parent.type.name !== TOGGLE_TITLE_NODE;
+}
+
 function getActiveSlashCommandRange(editor: Editor) {
   const { state } = editor;
   if (!state.selection.empty) return null;
   const { from, $from } = state.selection;
-  if (!$from.parent.isTextblock) return null;
+  if (!canOpenSlashMenu(editor)) return null;
 
   const blockStart = $from.start();
   const textBefore = state.doc.textBetween(blockStart, from, "\n");
@@ -300,6 +312,39 @@ function waitForEditorUpdateFrame() {
   return new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
   });
+}
+
+/**
+ * The body to save after an insert, with an exactly repeated body collapsed.
+ * A page whose body is its live copy saves no body, so there the collapse
+ * edits the document and reaches the server as a collab update. Null when the
+ * repeat does not split into two whole copies of the document's blocks.
+ */
+export function bodyAfterInsert(
+  editor: Editor,
+  requiredText: string,
+  bodyIsLiveCopy: boolean,
+): string | null {
+  const json = editor.getJSON() as PMNode;
+  const body = docToNfm(json);
+  const collapsed = collapseExactRepeatedNfm(body, { requiredText });
+  if (!bodyIsLiveCopy || collapsed === body) return collapsed;
+  const blocks = json.content ?? [];
+  const copy = (part: typeof blocks) =>
+    docToNfm({ type: "doc", content: part });
+  const split = blocks.findIndex(
+    (_, index) =>
+      index > 0 &&
+      copy(blocks.slice(0, index)) === collapsed &&
+      copy(blocks.slice(index)) === collapsed,
+  );
+  if (split < 0) return null;
+  const { doc } = editor.state;
+  let from = 0;
+  for (let index = 0; index < split; index += 1)
+    from += doc.child(index).nodeSize;
+  editor.view.dispatch(editor.state.tr.delete(from, doc.content.size));
+  return collapsed;
 }
 
 export interface CommandTemplate extends Omit<
@@ -759,6 +804,7 @@ export function SlashCommandMenu({
   notionPageId,
   onDraftCommitted,
   onDraftPersisted,
+  bodyIsLiveCopy = false,
 }: SlashCommandMenuProps) {
   const t = useT();
   const labs = useLabStates();
@@ -950,12 +996,12 @@ export function SlashCommandMenu({
             .run();
         }
         await waitForEditorUpdateFrame();
-        const content = collapseExactRepeatedNfm(
-          docToNfm(editor.getJSON() as any),
-          {
-            requiredText: `id="${pageId}"`,
-          },
+        const content = bodyAfterInsert(
+          editor,
+          `id="${pageId}"`,
+          bodyIsLiveCopy,
         );
+        if (content === null) throw new Error(t("empty.genericError"));
         if (onDraftPersisted) {
           const persisted = await onDraftPersisted(content);
           if (!persisted) throw new Error(t("empty.genericError"));
@@ -1019,12 +1065,12 @@ export function SlashCommandMenu({
         );
         if (!inserted) throw new Error(t("empty.genericError"));
         await waitForEditorUpdateFrame();
-        const content = collapseExactRepeatedNfm(
-          docToNfm(editor.getJSON() as any),
-          {
-            requiredText: result.block.ownerBlockId,
-          },
+        const content = bodyAfterInsert(
+          editor,
+          result.block.ownerBlockId,
+          bodyIsLiveCopy,
         );
+        if (content === null) throw new Error(t("empty.genericError"));
         if (onDraftPersisted) {
           const persisted = await onDraftPersisted(content);
           if (!persisted) throw new Error(t("empty.genericError"));
@@ -1118,10 +1164,12 @@ export function SlashCommandMenu({
             .run();
         }
         await waitForEditorUpdateFrame();
-        const content = collapseExactRepeatedNfm(
-          docToNfm(editor.getJSON() as any),
-          { requiredText: `id="${pageId}"` },
+        const content = bodyAfterInsert(
+          editor,
+          `id="${pageId}"`,
+          bodyIsLiveCopy,
         );
+        if (content === null) throw new Error(t("empty.genericError"));
         if (onDraftPersisted) {
           const persisted = await onDraftPersisted(content);
           if (!persisted) throw new Error(t("empty.genericError"));
@@ -1513,7 +1561,7 @@ export function SlashCommandMenu({
       const { state } = editor;
       const { from } = state.selection;
       const { $from } = state.selection;
-      if (!$from.parent.isTextblock) {
+      if (!canOpenSlashMenu(editor)) {
         if (isOpen) {
           setIsOpen(false);
           setIsTurnInto(false);

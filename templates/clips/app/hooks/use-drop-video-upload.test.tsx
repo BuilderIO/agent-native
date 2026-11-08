@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
+  appApiPath: (path: string) => path,
   appBasePath: () => "",
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({

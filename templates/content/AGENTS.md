@@ -34,6 +34,7 @@ Every action has a schema; use `tool-search` for comments, sharing, Collections,
 | `view-screen` / `navigate` / `refresh-list` | Read context, move UI, refresh after out-of-band writes |
 | `list-documents` / `search-documents` / `get-document` / `pull-document` | Browse metadata, search, read, or flush live state before reading |
 | `get-blocks-field-word-count` | Count one exact collection field; omit `propertyId` for primary body |
+| `share-local-file-document` | Create/refresh a shareable copy, possibly already shared; outside-agent calls need approval |
 | `create-document` / `edit-document` / `update-document` / `delete-document` | Create, revision-edit, update, or move a page and children to Trash |
 | `import-content` / `undo-content-import` | Import Markdown as pages; undo trashes unedited imports |
 | `list-content-trash` / `get-trashed-document` | Find/read authorized Trash without restoring |

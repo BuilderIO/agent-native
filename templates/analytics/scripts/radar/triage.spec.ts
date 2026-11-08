@@ -48,6 +48,7 @@ describe("BigQuery triage metadata parameters", () => {
         },
       ],
       bytesProcessed: 10,
+      actualBytesProcessed: null,
       cacheHit: false,
     });
     mocks.runPostgresQuery.mockResolvedValue({
@@ -55,6 +56,7 @@ describe("BigQuery triage metadata parameters", () => {
         { session_id: "session-1", trouble_labels: "", friction_signals: 0 },
       ],
       bytesProcessed: null,
+      actualBytesProcessed: null,
       cacheHit: false,
     });
   });

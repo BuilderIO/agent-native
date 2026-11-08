@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   parseJsonRecord,
   parseCanaryArguments,
+  threadProjection,
   validateCanaryArguments,
   validateCanaryOutcome,
   validateCanaryPreflight,
@@ -133,6 +134,28 @@ describe("stale-run canary preflight", () => {
           100_000,
         ),
       /must not be redispatchable/,
+    );
+  });
+
+  it("rejects an unstamped user message even when it predates the run", () => {
+    const projection = threadProjection(
+      {
+        messages: [
+          {
+            role: "user",
+            createdAt: new Date(900).toISOString(),
+            metadata: { custom: { submittedRunId: IDS.runId } },
+          },
+        ],
+      },
+      IDS,
+    );
+
+    assert.equal(projection.promptMatchesTurn, false);
+    assert.throws(
+      () =>
+        validateCanaryPreflight({ ...snapshot(), ...projection }, IDS, 100_000),
+      /thread prompt does not belong to the canary turn/,
     );
   });
 });

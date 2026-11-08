@@ -28,18 +28,50 @@ export const CONTENT_CLIP_CLAIMS = {
   viewerName: "name",
   /** Optional, on an upload token: the uploader's IP address. */
   clientIp: "client_ip",
+  /**
+   * Optional, on a public-read token: an opaque key for the signed-out
+   * reader's network, which Clips counts their reads under. Without it, Clips
+   * counts every keyless reader of a Clip on a page together.
+   */
+  visitorKey: "visitor_key",
 } as const;
 
 /** The most comment threads one comment-list call returns. */
 export const CONTENT_CLIP_MAX_COMMENT_THREADS = 500;
 
 /**
- * Clips cuts a listed thread start's text to this many characters, and its
- * author's name and email to `CONTENT_CLIP_COMMENT_AUTHOR_CHARS`, so the
+ * Clips cuts a listed comment's author name and email to this many
+ * characters, and its text to `CONTENT_CLIP_COMMENT_TEXT_CHARS`, so the
  * longest comment list has a known size.
  */
-export const CONTENT_CLIP_COMMENT_PREVIEW_CHARS = 280;
 export const CONTENT_CLIP_COMMENT_AUTHOR_CHARS = 320;
+
+/**
+ * Clips' comment list for a page's comment margin: open threads only, each
+ * with its replies, its text cut to `CONTENT_CLIP_COMMENT_TEXT_CHARS` rather
+ * than the preview length, and at most `CONTENT_CLIP_MAX_LISTED_REPLIES`
+ * replies across the list, from the earliest thread on.
+ */
+export const CONTENT_CLIP_OPEN_THREADS_VIEW = "open-threads";
+export const CONTENT_CLIP_COMMENT_TEXT_CHARS = 2_000;
+export const CONTENT_CLIP_MAX_LISTED_REPLIES = 500;
+
+/** The longest comment or reply Clips takes from Content. */
+export const CONTENT_CLIP_MAX_COMMENT_CHARS = 10_000;
+
+/** The latest moment of a video Clips takes a comment at. */
+export const CONTENT_CLIP_MAX_VIDEO_TIMESTAMP_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The header that carries a comment's key on an `add` or `reply`: the same
+ * on every try of one comment, so Clips saves it once and answers a repeat
+ * with its ids. A Clips from before keys ignores it. Clips refuses a key its
+ * author already used for another comment with a 409 and
+ * `CONTENT_CLIP_COMMENT_KEY_USED`.
+ */
+export const CONTENT_CLIP_COMMENT_KEY_HEADER = "idempotency-key";
+export const CONTENT_CLIP_COMMENT_KEY = /^[A-Za-z0-9_-]{16,64}$/;
+export const CONTENT_CLIP_COMMENT_KEY_USED = "comment_key_used";
 
 /** Clips cuts the playback answer's recording title to this many characters. */
 export const CONTENT_CLIP_RECORDING_TITLE_CHARS = 500;
@@ -67,6 +99,10 @@ export const CLIP_PLAYBACK_ERRORS = {
   passwordRequired: "clip_password_required",
   redactionPending: "clip_redaction_pending",
   commentsDisabled: "clip_comments_disabled",
+  /** The reader can read the page but not comment on it. */
+  commentRequired: "clip_comment_required",
+  /** The comment's key was already used for a different comment. */
+  commentKeyUsed: "clip_comment_key_used",
   forbidden: "clip_forbidden",
   /** Clips refused Content's token. */
   unauthorized: "clip_token_refused",
@@ -116,6 +152,26 @@ export interface ClipCommentMarker {
   videoTimestampMs: number;
   content: string;
   authorName: string | null;
+}
+
+/** One comment on a Clip. A signed-out reader gets no author email. */
+export interface ClipComment {
+  id: string;
+  authorEmail: string | null;
+  authorName: string | null;
+  content: string;
+  createdAt: string;
+}
+
+/**
+ * An open thread on a Clip: its start at a moment of the video, and its
+ * replies. `replyCount` counts them all, so a thread with fewer `replies` had
+ * some held back.
+ */
+export interface ClipCommentThread extends ClipComment {
+  videoTimestampMs: number;
+  replyCount: number;
+  replies: ClipComment[];
 }
 
 /** The video types an upload to Clips may be. */

@@ -810,6 +810,8 @@ const editorPropertiesMessages = {
   editProperty: "Edit {{name}}",
   builderStatusPublishInBuilder:
     "Changes saved in Builder's editor can only be published from Builder.",
+  builderStatusUnpublishedChangesInBuilder:
+    "Unpublished changes come from Builder's editor, so they can't be set here.",
   editStartDate: "Edit {{name}} start date",
   editValue: "Edit {{name}} value",
   moveColumnLeft: "Move column left",
@@ -825,6 +827,7 @@ const editorPropertiesMessages = {
     video: "Video",
   },
   fromSource: "From {{name}}",
+  hiddenInThisView: "Hidden in this view",
   hiddenProperties: "Hidden properties",
   imageUploaded_zero: "Images uploaded",
   imageUploaded_one: "Image uploaded",
@@ -1593,7 +1596,8 @@ const enUS = {
     previewDraftUseSaved: "Use saved version",
     previewDraftSaveSeparately: "Save mine as a separate page",
     previewDraftSavedToHistory: "Your edits were saved to Version History",
-    previewDraftSavedSeparately: "Your edits were saved as a separate page",
+    previewDraftSavedSeparately:
+      "Your edits were saved as a private page in your space",
     previewDraftOpenSavedPage: "Open page",
     previewDraftMoreOptions: "More options",
     previewDraftViewFullVersions: "View full versions",
@@ -1798,6 +1802,28 @@ const enUS = {
     discardEditDescription: "Your comment will stay as it was.",
     discard: "Discard",
     keepEditing: "Keep editing",
+    deleteComment: "Delete comment",
+    deleteThread: "Delete thread",
+    deleteCommentQuestion: "Delete comment?",
+    deleteCommentDescription:
+      "It's deleted for everyone, and this can't be undone.",
+    deleteThreadQuestion: "Delete thread?",
+    deleteThreadDescription:
+      "The thread and its replies are deleted for everyone, and this can't be undone.",
+    deleteThreadAiChangeDescription:
+      "The thread and its replies are deleted for everyone, and this can't be undone. The AI's change to the page stays, but you won't be able to undo it from the thread.",
+    delete: "Delete",
+    deleting: "Deleting…",
+    deleteRefusedReplied:
+      "Someone else replied, so only an editor can delete this thread.",
+    deleteRefusedNotion:
+      "This comment is synced with Notion. Delete it in Notion.",
+    deleteRefusedAiWorking:
+      "The AI is working on this thread. Stop it before deleting the thread.",
+    deleteRefusedAiSuggestion:
+      "The AI's suggestion in this thread is waiting for review. Accept or reject it before deleting the thread.",
+    deleteRefusedBusy:
+      "This thread is being changed right now. Try deleting it again in a moment.",
     submit: "Comment",
     askAi: "Ask AI",
     aiBadge: "AI",
@@ -1808,7 +1834,6 @@ const enUS = {
     mentionPeopleLoadFailed: "Couldn't load people.",
     mentionAgents: "Agents",
     identityPerson: "Person",
-    identityModel: "Model",
     identityEffort: "Effort",
     identityRan: "Ran",
     identityNotRecorded: "Not recorded",
@@ -1827,6 +1852,10 @@ const enUS = {
     aiRemoveRecipient: "Remove AI recipient",
     aiSend: "Send to AI",
     aiSendShort: "Send",
+    aiSendReply: "Reply",
+    aiSendSuggest: "Suggest",
+    aiSendApply: "Apply",
+    aiSendMode: "Send to AI: {{mode}}",
     aiResponseMode: "Response",
     aiChooseSendMode: "Choose how AI responds",
     aiSuggestChanges: "Suggest changes",
@@ -1838,7 +1867,6 @@ const enUS = {
     aiPromptApplyResolve: "Apply changes for this comment and resolve it.",
     aiWorking: "AI is working…",
     aiReplied: "AI replied",
-    aiSuggestionReady: "Review suggestion",
     aiChangesApplied: "Changes applied",
     aiAppliedAndResolved: "Applied and resolved",
     aiChangeUndone: "Change undone",
@@ -1855,6 +1883,8 @@ const enUS = {
     aiFailed: "AI request failed",
     retry: "Retry",
     aiQueued: "AI is queued…",
+    aiWorkingNamed: "{{name}} is working…",
+    aiQueuedNamed: "{{name}} is queued…",
     aiRefreshing: "AI is checking the latest page…",
     aiCancelled: "AI request stopped",
     aiStop: "Stop",
@@ -1881,6 +1911,9 @@ const enUS = {
     rejectRemaining: "Reject remaining",
     acceptAll: "Accept all",
     rejectAll: "Reject all",
+    acceptAllAndResolve: "Accept all and resolve",
+    acceptAndResolve: "Accept and resolve",
+    suggestionLoadFailed: "Couldn't load this suggestion",
     suggestionReviewReadOnly:
       "Only people who can edit this page can accept or reject its suggestions.",
     resolve: "Resolve",
@@ -1947,10 +1980,20 @@ const enUS = {
   },
   publicDocument: {
     chat: "Chat",
+    freeAndOpenSource: "Free and open source on GitHub",
+    pagePath: "Page path",
     privateDescription:
       "Ask the owner to share it with your account or workspace before opening this link.",
     privateTitle: "This document is private",
+    signIn: "Sign in",
+    signUp: "Sign up",
+    signUpFree: "Sign up free",
+    subPages: "Sub-pages",
+    tryContentFree: "Try Content free",
     updated: "Updated {{date}}",
+    writtenIn: "Written in Agent-Native Content.",
+    writtenInDescription:
+      "Write and publish your own pages, with an AI agent that works inside your docs.",
   },
   database: databaseMessages,
   localFiles: localFilesMessages,

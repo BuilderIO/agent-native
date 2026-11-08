@@ -12,7 +12,11 @@ import {
   AppSidebarFooter,
   AppSidebarHeader,
 } from "@agent-native/toolkit/app/shared";
-import { CLIPS_MEETINGS, CLIPS_VOICE_DICTATION } from "@shared/labs";
+import {
+  CLIPS_MEETINGS,
+  CLIPS_SCREENSHOTS,
+  CLIPS_VOICE_DICTATION,
+} from "@shared/labs";
 import {
   IconInbox,
   IconPhoto,
@@ -30,11 +34,11 @@ import {
   IconLayoutSidebarLeftExpand,
   IconShare,
   IconDots,
-  IconEdit,
 } from "@tabler/icons-react";
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router";
 
+import { ClipsComposerContextProvider } from "@/components/ClipsComposerContext";
 import {
   Collapsible,
   CollapsibleContent,
@@ -196,6 +200,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const t = useT();
   const isRecordingRoute = location.pathname.startsWith("/r/");
   const meetingsLabEnabled = useLab(CLIPS_MEETINGS);
+  const screenshotsLabEnabled = useLab(CLIPS_SCREENSHOTS);
   const voiceDictationLabEnabled = useLab(CLIPS_VOICE_DICTATION);
   const recordingScope = useMemo(() => {
     const match = location.pathname.match(/^\/(?:r|share)\/([^/]+)/);
@@ -565,7 +570,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   ];
 
   const primaryNavItems = navItems.filter(
-    ({ to }) => to !== "/archive" && to !== "/trash",
+    ({ to }) =>
+      to !== "/archive" &&
+      to !== "/trash" &&
+      (to !== "/screenshots" || screenshotsLabEnabled),
   );
   const lifecycleNavItems = navItems.filter(
     ({ to }) => to === "/archive" || to === "/trash",
@@ -803,7 +811,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                                             }, 0);
                                           }}
                                         >
-                                          <IconEdit className="me-2 size-3.5" />
                                           {t("spaceDialog.renameSpace")}
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
@@ -815,7 +822,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                                           }}
                                           className="text-destructive"
                                         >
-                                          <IconTrash className="me-2 size-3.5" />
                                           {t("spaceDialog.deleteSpace")}
                                         </DropdownMenuItem>
                                       </DropdownMenuContent>
@@ -826,7 +832,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                               <ContextMenuContent>
                                 <ContextMenuItem asChild>
                                   <NavLink to={`/spaces/${s.id}`}>
-                                    <IconUsersGroup className="me-2 size-3.5" />
                                     {t("clipsFinalRaw.view")}
                                   </NavLink>
                                 </ContextMenuItem>
@@ -841,7 +846,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                                         }, 0);
                                       }}
                                     >
-                                      <IconEdit className="me-2 size-3.5" />
                                       {t("spaceDialog.renameSpace")}
                                     </ContextMenuItem>
                                     <ContextMenuItem
@@ -853,7 +857,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                                       }}
                                       className="text-destructive focus:text-destructive"
                                     >
-                                      <IconTrash className="me-2 size-3.5" />
                                       {t("spaceDialog.deleteSpace")}
                                     </ContextMenuItem>
                                   </>
@@ -913,6 +916,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       </aside>
 
       <AgentSidebar
+        composerContextProvider={ClipsComposerContextProvider}
         position="right"
         defaultOpen={false}
         enabled={!isRecordingRoute}

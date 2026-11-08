@@ -1332,6 +1332,24 @@ describe("AgentKitAssistantChat host behavior", () => {
     ]);
   });
 
+  it("renders a menu-only provider without optional context items", async () => {
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) =>
+      children({
+        menuItems: [
+          {
+            id: "native-reference",
+            label: "Native reference",
+            onSelect: vi.fn(),
+          },
+        ],
+      });
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps({ composerContextProvider: Provider }), ref);
+    expect(ref.current).not.toBeNull();
+  });
+
   it("counts provider-owned context against the prefill capacity", async () => {
     const providerItem = {
       key: "provider-reference",
@@ -3273,6 +3291,30 @@ describe("AgentKitAssistantChat host behavior", () => {
     },
   );
 
+  it("drops a docked chat's suggestion row while the setup card shows, so the card meets the composer", async () => {
+    chatMocks.renderEmptyState = true;
+    chatMocks.readiness = { canChat: false, missing: true, state: "missing" };
+    await useRealComposer();
+    await mount(
+      baseProps({
+        suggestionPlacement: "context-chips",
+        suggestions: ["Static starter"],
+        showModelSelector: false,
+      }),
+    );
+
+    expect(
+      container.querySelector("[data-agentkit-host-suggestions-slot]"),
+    ).toBeNull();
+    const card = container.querySelector('[data-testid="builder-setup-card"]');
+    expect(card).not.toBeNull();
+    expect(
+      card?.nextElementSibling?.querySelector(
+        '[data-agent-composer-slot="root"]',
+      ),
+    ).not.toBeNull();
+  });
+
   it("puts a docked chat's starters on one line in the row above the composer", async () => {
     chatMocks.renderEmptyState = true;
     await useRealComposer();
@@ -4288,6 +4330,24 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(bar?.textContent).toBe("Explore my apps");
   });
 
+  it.each([
+    [undefined, "compact"],
+    ["comfortable", "comfortable"],
+  ] as const)(
+    "forwards empty-state suggestion size %s to the shared bar",
+    async (emptyStateSuggestionSize, expectedSize) => {
+      chatMocks.renderEmptyState = true;
+      await mount(
+        baseProps({
+          suggestions: ["Explore my apps"],
+          ...(emptyStateSuggestionSize ? { emptyStateSuggestionSize } : {}),
+        }),
+      );
+
+      expect(chatMocks.suggestionBarProps.size).toBe(expectedSize);
+    },
+  );
+
   it("shows a host's empty-state text as muted body copy instead of the greeting", async () => {
     chatMocks.renderEmptyState = true;
     await mount(
@@ -5132,7 +5192,15 @@ describe("AgentKitAssistantChat host behavior", () => {
     try {
       await expect(
         chatMocks.rootProps.clientOptions.upload(
-          { uploadId: "upload-1", method: "POST", url: "/uploads" },
+          await chatMocks.transportOptions.operations.createUpload({
+            threadId: "test-thread",
+            descriptor: {
+              name: "reference.png",
+              mediaType: "image/png",
+              size: 4,
+              purpose: "message",
+            },
+          }),
           {
             name: "reference.pdf",
             mediaType: "application/pdf",
@@ -5308,7 +5376,15 @@ describe("AgentKitAssistantChat host behavior", () => {
       try {
         const error = await chatMocks.rootProps.clientOptions
           .upload(
-            { uploadId: "upload-1", method: "POST", url: "/uploads" },
+            await chatMocks.transportOptions.operations.createUpload({
+              threadId: "test-thread",
+              descriptor: {
+                name: "reference.png",
+                mediaType: "image/png",
+                size: 4,
+                purpose: "message",
+              },
+            }),
             {
               name: "reference.png",
               mediaType: "image/png",
@@ -5339,7 +5415,15 @@ describe("AgentKitAssistantChat host behavior", () => {
     try {
       await expect(
         chatMocks.rootProps.clientOptions.upload(
-          { uploadId: "upload-1", method: "POST", url: "/uploads" },
+          await chatMocks.transportOptions.operations.createUpload({
+            threadId: "test-thread",
+            descriptor: {
+              name: "reference.png",
+              mediaType: "image/png",
+              size: 4,
+              purpose: "message",
+            },
+          }),
           {
             name: "reference.png",
             mediaType: "image/png",
@@ -6769,6 +6853,16 @@ describe("AgentKitAssistantChat host behavior", () => {
       await ref.current!.sendMessage("Sent by the app", undefined, {
         submitMessageId: "submit-app",
         surface: "deck-outline",
+        references: [
+          {
+            type: "mention",
+            path: "github",
+            name: "GitHub",
+            source: "workspace-integration",
+            refType: "integration",
+            refId: "github",
+          },
+        ],
       });
     });
     await act(async () => {
@@ -6790,6 +6884,16 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(metadata[1]).toMatchObject({
       submitMessageId: "submit-app",
       agentNativeSurface: "deck-outline",
+      references: [
+        {
+          type: "mention",
+          path: "github",
+          name: "GitHub",
+          source: "workspace-integration",
+          refType: "integration",
+          refId: "github",
+        },
+      ],
     });
   });
 
@@ -9098,7 +9202,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
     expect(chatMocks.setupCardProps.bouncePulse).toBe(0);
 
-    await act(async () => chatMocks.composerProps.onDisabledClick());
+    await act(async () => chatMocks.composerProps.onSetupCardClick());
 
     expect(chatMocks.setupCardProps.bouncePulse).toBeGreaterThan(0);
     expect(blockedEvents).toHaveLength(1);

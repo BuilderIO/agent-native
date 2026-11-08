@@ -15,9 +15,14 @@ interface SlideOverflowWarningProps {
   overflowDetails: string;
   overflowDetailsLabel: string;
   isAskingAgentToFix: boolean;
+  fixLabel: string;
+  askingLabel: string;
   dismissLabel: string;
   onFix: () => void;
   onDismiss: () => void;
+  /** Omitted where the slide has no HTML text to resize. */
+  shrinkLabel?: string;
+  onShrink?: () => void;
 }
 
 export function SlideOverflowWarning({
@@ -25,9 +30,13 @@ export function SlideOverflowWarning({
   overflowDetails,
   overflowDetailsLabel,
   isAskingAgentToFix,
+  fixLabel,
+  askingLabel,
   dismissLabel,
   onFix,
   onDismiss,
+  shrinkLabel,
+  onShrink,
 }: SlideOverflowWarningProps) {
   return (
     <div
@@ -58,6 +67,16 @@ export function SlideOverflowWarning({
           <TooltipContent side="top">{overflowDetails}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
+      {onShrink && shrinkLabel ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 cursor-pointer px-1.5 text-[11px] font-medium text-foreground hover:bg-transparent hover:underline"
+          onClick={onShrink}
+        >
+          {shrinkLabel}
+        </Button>
+      ) : null}
       <Button
         size="sm"
         variant="ghost"
@@ -65,7 +84,7 @@ export function SlideOverflowWarning({
         onClick={onFix}
         disabled={isAskingAgentToFix}
       >
-        {isAskingAgentToFix ? "Asking…" : "Fix with AI"}
+        {isAskingAgentToFix ? askingLabel : fixLabel}
       </Button>
       <Button
         size="icon"

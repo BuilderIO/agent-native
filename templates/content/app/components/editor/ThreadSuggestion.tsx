@@ -5,20 +5,25 @@ import type {
 } from "@agent-native/core/review";
 import {
   IconArrowBackUp,
-  IconCheck,
   IconCircleCheck,
   IconCircleX,
-  IconX,
 } from "@tabler/icons-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-import { AgentAvatar, agentDisplayName } from "./agent-identity";
+import { AgentAvatar, modelDisplayName } from "./agent-identity";
 import { trimDiffContext, wordDiff } from "./comment-ai-diff";
 import { CommentRow } from "./CommentRow";
-import { suggestionLineExcerpt } from "./thread-suggestions";
+import { ProposalGroup, SuggestionDecisionButtons } from "./SuggestionControls";
+import {
+  piecesOfStaleUnits,
+  reviewUnitOperations,
+  reviewUnits,
+  suggestionLineExcerpt,
+} from "./thread-suggestions";
 
 type ThreadSuggestionProps = {
   /** One suggestion, or every edit of the proposal it belongs to, in Page order. */
@@ -31,8 +36,20 @@ type ThreadSuggestionProps = {
     suggestion: ResourceSuggestion,
     decision: SuggestionDecision,
   ) => void;
+  /** Decides pieces reviewed together, in one save. */
+  onDecideUnit: (
+    members: ResourceSuggestion[],
+    decision: SuggestionDecision,
+  ) => void;
   /** Decides every edit of the proposal still pending. */
   onDecideRemaining?: (decision: SuggestionDecision) => void;
+  /** Accepts every edit still pending, then resolves the thread. */
+  onAcceptAndResolve?: () => void;
+  /**
+   * Opens a proposal's edits at first. A thread keeps them closed, since the
+   * Page beside it already shows them; a view without the Page opens them.
+   */
+  defaultExpanded?: boolean;
 };
 
 function useStatusLabel() {
@@ -69,9 +86,14 @@ function SuggestionStatus({
   );
 }
 
-/** One edit's word diff, with its own Accept and Reject or outcome. */
+/**
+ * One edit's word diff with the same Accept and Reject icons as a suggestion
+ * card, or how it ended. The icons sit at the top end and the diff wraps
+ * around them, so a narrow thread card keeps the diff's width.
+ */
 function ThreadSuggestionEdit({
   suggestion,
+  operations,
   canDecide,
   busy,
   conflict,
@@ -79,6 +101,8 @@ function ThreadSuggestionEdit({
   showStatus,
 }: {
   suggestion: ResourceSuggestion;
+  /** What the edit changes: usually one, or each piece that can't read as one. */
+  operations: ResourceSuggestion["operations"];
   canDecide: boolean;
   busy: boolean;
   conflict: boolean;
@@ -87,27 +111,49 @@ function ThreadSuggestionEdit({
 }) {
   const t = useT();
   const statusLabel = useStatusLabel();
-  const excerpt = useMemo(
-    () => suggestionLineExcerpt(suggestion.operations),
-    [suggestion.operations],
-  );
-  const segments = useMemo(
+  const diffs = useMemo(
     () =>
-      excerpt ? trimDiffContext(wordDiff(excerpt.before, excerpt.after)) : [],
-    [excerpt],
+      operations
+        .map((operation) => {
+          const excerpt = suggestionLineExcerpt([operation]);
+          return excerpt
+            ? trimDiffContext(wordDiff(excerpt.before, excerpt.after))
+            : [];
+        })
+        .filter((segments) => segments.length > 0),
+    [operations],
   );
   const pending = suggestion.status === "pending";
+  const decidable = pending && canDecide;
+  const conflicted = conflict || suggestion.status === "stale";
+  if (
+    !diffs.length &&
+    !conflicted &&
+    !decidable &&
+    !(showStatus && statusLabel(suggestion.status))
+  )
+    return null;
   return (
     <div
-      className="grid grid-cols-1 gap-2"
+      className="flow-root border-t border-border/60 px-1 pt-2 first:border-t-0 first:pt-0"
       data-thread-suggestion={suggestion.id}
       data-thread-suggestion-status={suggestion.status}
     >
-      {segments.length ? (
+      {decidable ? (
+        <div className="float-end -me-1 -mt-0.5 ms-1 flex">
+          <SuggestionDecisionButtons
+            disabled={busy}
+            acceptDisabled={conflict}
+            onDecide={onDecide}
+          />
+        </div>
+      ) : null}
+      {diffs.map((segments, diffIndex) => (
         <p
+          key={diffIndex}
           aria-label={t("comments.suggestedChange")}
           className={cn(
-            "whitespace-pre-wrap break-words rounded-lg bg-muted/60 px-3 py-2 leading-6",
+            "whitespace-pre-wrap break-words leading-6",
             !pending && suggestion.status !== "accepted" && "opacity-70",
           )}
           data-thread-suggestion-diff
@@ -132,44 +178,16 @@ function ThreadSuggestionEdit({
             ),
           )}
         </p>
-      ) : null}
-      {conflict || suggestion.status === "stale" ? (
-        <p role="alert" className="text-xs text-destructive">
+      ))}
+      {conflicted ? (
+        <p role="alert" className="mt-1 text-xs text-destructive">
           {t("editor.toolbar.conflict")}
         </p>
       ) : null}
-      {pending && canDecide ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy || conflict}
-            onClick={(event) => {
-              event.stopPropagation();
-              onDecide("accepted");
-            }}
-            data-suggestion-decision="accepted"
-          >
-            <IconCheck aria-hidden />
-            {t("editor.acceptSuggestion")}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={(event) => {
-              event.stopPropagation();
-              onDecide("rejected");
-            }}
-            data-suggestion-decision="rejected"
-          >
-            <IconX aria-hidden />
-            {t("editor.rejectSuggestion")}
-          </Button>
+      {!decidable && showStatus ? (
+        <div className="mt-1">
+          <SuggestionStatus status={statusLabel(suggestion.status)} />
         </div>
-      ) : showStatus ? (
-        <SuggestionStatus status={statusLabel(suggestion.status)} />
       ) : null}
     </div>
   );
@@ -177,9 +195,10 @@ function ThreadSuggestionEdit({
 
 /**
  * An AI suggestion shown in place of its receipt reply inside the comment
- * thread that asked for it. Separate changes arrive as one proposal, so the
- * summary is said once above every edit. Deciding changes only the
- * suggestions; the thread stays open until someone resolves it.
+ * thread that asked for it. A proposal's edits sit in the same group as a
+ * proposal in the margin, closed to its summary, edit count, Accept all and
+ * Reject all until opened. Deciding changes only the suggestions; the thread
+ * stays open until someone resolves it.
  */
 export function ThreadSuggestionBody({
   suggestions,
@@ -187,75 +206,133 @@ export function ThreadSuggestionBody({
   busy,
   conflict,
   onDecide,
+  onDecideUnit,
   onDecideRemaining,
+  onAcceptAndResolve,
+  defaultExpanded = false,
 }: ThreadSuggestionProps) {
   const t = useT();
   const statusLabel = useStatusLabel();
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [first] = suggestions;
   if (!first) return null;
   const pending = suggestions.filter(
     (suggestion) => suggestion.status === "pending",
   );
-  const undecided = pending.length === suggestions.length;
-  // Edits that all ended the same way say so once, under the last of them.
+  // Edits that all ended the same way say so once, under the group.
   const sharedStatus =
     suggestions.length > 1 &&
     suggestions.every((suggestion) => suggestion.status === first.status)
       ? first.status
       : null;
+  const summary = first.proposalSummary || first.summary;
+  const units = reviewUnits(suggestions);
+  const staleUnitPieces = piecesOfStaleUnits(suggestions);
+  const cantAccept = (suggestion: ResourceSuggestion) =>
+    conflict(suggestion) || staleUnitPieces.has(suggestion.id);
+  const edits = units.map((unit) => (
+    <ThreadSuggestionEdit
+      key={unit.leader.id}
+      suggestion={unit.leader}
+      operations={reviewUnitOperations(unit)}
+      canDecide={canDecide}
+      busy={unit.members.some(busy)}
+      conflict={unit.members.some(cantAccept)}
+      onDecide={(decision) =>
+        unit.members.length > 1
+          ? onDecideUnit(
+              unit.members.filter(({ status }) => status === "pending"),
+              decision,
+            )
+          : onDecide(unit.leader, decision)
+      }
+      showStatus={!sharedStatus}
+    />
+  ));
   return (
     <div
       className="mt-0.5 grid grid-cols-1 gap-2"
       data-thread-suggestion-group={first.proposalId ?? first.id}
     >
-      <p className={cn(!pending.length && "text-muted-foreground")}>
-        {first.proposalSummary || first.summary}
-      </p>
-      {suggestions.map((suggestion) => (
-        <ThreadSuggestionEdit
-          key={suggestion.id}
-          suggestion={suggestion}
-          canDecide={canDecide}
-          busy={busy(suggestion)}
-          conflict={conflict(suggestion)}
-          onDecide={(decision) => onDecide(suggestion, decision)}
-          showStatus={!sharedStatus}
-        />
-      ))}
+      {units.length > 1 ? (
+        <ProposalGroup
+          proposalId={first.proposalId ?? first.id}
+          summary={summary}
+          totalCount={suggestions.length}
+          totalUnits={units.length}
+          members={suggestions}
+          active={false}
+          expanded={expanded}
+          onExpandedChange={setExpanded}
+          deciding={pending.some(busy)}
+          acceptDisabled={pending.some(cantAccept)}
+          canDecide={canDecide && !!onDecideRemaining}
+          onDecide={(decision) => onDecideRemaining?.(decision)}
+          onAcceptAndResolve={onAcceptAndResolve}
+        >
+          {edits}
+        </ProposalGroup>
+      ) : (
+        <>
+          <p className={cn(!pending.length && "text-muted-foreground")}>
+            {summary}
+          </p>
+          <div>{edits}</div>
+          {onAcceptAndResolve && canDecide && pending.length ? (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                disabled={pending.some(busy) || pending.some(cantAccept)}
+                onClick={onAcceptAndResolve}
+                className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
+                data-suggestion-accept-resolve
+              >
+                {t("comments.acceptAndResolve")}
+              </button>
+            </div>
+          ) : null}
+        </>
+      )}
       {sharedStatus ? (
         <SuggestionStatus status={statusLabel(sharedStatus)} />
       ) : null}
-      {canDecide && onDecideRemaining && pending.length > 1 ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            disabled={pending.some(busy) || pending.some(conflict)}
-            onClick={(event) => {
-              event.stopPropagation();
-              onDecideRemaining("accepted");
-            }}
-            data-suggestion-proposal-decision="accepted"
-          >
-            {t(undecided ? "comments.acceptAll" : "comments.acceptRemaining")}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="text-muted-foreground"
-            disabled={pending.some(busy)}
-            onClick={(event) => {
-              event.stopPropagation();
-              onDecideRemaining("rejected");
-            }}
-            data-suggestion-proposal-decision="rejected"
-          >
-            {t(undecided ? "comments.rejectAll" : "comments.rejectRemaining")}
-          </Button>
+    </div>
+  );
+}
+
+/** Holds a suggestion's place while it loads, or offers a retry once its read fails. */
+export function ThreadSuggestionPlaceholder({
+  onRetry,
+}: {
+  onRetry?: (() => void) | undefined;
+}) {
+  const t = useT();
+  if (onRetry)
+    return (
+      <div
+        className="flex items-center gap-2.5"
+        data-thread-suggestion-placeholder="failed"
+      >
+        <div className="w-7 shrink-0" />
+        <span role="alert" className="text-xs text-destructive">
+          {t("comments.suggestionLoadFailed")}
+        </span>
+        <Button type="button" variant="ghost" size="sm" onClick={onRetry}>
+          {t("comments.retry")}
+        </Button>
+      </div>
+    );
+  return (
+    <div className="flex gap-2.5" data-thread-suggestion-placeholder>
+      <div className="w-7 shrink-0" />
+      <div className="grid min-w-0 flex-1 gap-2">
+        <Skeleton className="h-4 w-4/5" />
+        <Skeleton className="h-4 w-full" />
+        <div className="flex gap-1.5">
+          <Skeleton className="h-7 w-20" />
+          <Skeleton className="h-7 w-20" />
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
@@ -269,7 +346,7 @@ export function ThreadSuggestionRow(props: ThreadSuggestionProps) {
   return (
     <CommentRow
       avatar={<AgentAvatar model={model} />}
-      name={agentDisplayName(model)}
+      name={modelDisplayName(model)}
       identity={{
         kind: "agent",
         model,

@@ -1,5 +1,9 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  isComposingKey,
+  isCommentSendKey,
+} from "@agent-native/toolkit/app/review";
 import { IconArrowUp, IconMessagePlus } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -231,8 +235,13 @@ function TimestampedCommentFields({
   return (
     <div
       data-player-ui
-      // Fullscreen puts this beside z-40 playback cards and the z-50 CTA.
-      className={cn("absolute inset-x-0 bottom-0 z-[45] p-3 sm:p-4", className)}
+      // Fullscreen puts this beside z-40 playback cards and the z-50 CTA. The
+      // player surface is select-none, and Safari then refuses typing in any
+      // field inside it.
+      className={cn(
+        "absolute inset-x-0 bottom-0 z-[45] select-text p-3 sm:p-4",
+        className,
+      )}
     >
       <div className="mx-auto w-full max-w-lg rounded-xl bg-background/95 p-2 shadow-lg ring-1 ring-foreground/10 backdrop-blur">
         {failedSends.length > 0 ? (
@@ -284,7 +293,9 @@ function TimestampedCommentFields({
           value={draft}
           onChange={(e) => onDraftChange(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            // An input method's Escape cancels its candidate, not the bar.
+            if (isComposingKey(e)) return;
+            if (isCommentSendKey(e)) {
               e.preventDefault();
               onSubmit();
             }

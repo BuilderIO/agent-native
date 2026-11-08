@@ -142,6 +142,10 @@
       "dist/app/onboarding/index.d.ts",
       "dist/app/onboarding/index.js"
     ],
+    "./app/generation": [
+      "dist/app/generation/index.d.ts",
+      "dist/app/generation/index.js"
+    ],
     "./app/progress": [
       "dist/app/progress/index.d.ts",
       "dist/app/progress/index.js"

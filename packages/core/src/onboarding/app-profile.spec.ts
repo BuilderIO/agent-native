@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import { getOnboardingAppProfile } from "./app-profile.js";
 import { WORKSPACE_SERVICES } from "./workspace-services.js";
 
@@ -23,6 +27,22 @@ const APP_IDS = [
 ] as const;
 
 describe("onboarding app profiles", () => {
+  it("exposes the app experiment and the deployment override", () => {
+    try {
+      defineAppConfig({ onboarding: { firstRunCreditsExperiment: "v2" } });
+      expect(getOnboardingAppProfile("design").firstRunCreditsExperiment).toBe(
+        "v2",
+      );
+      vi.stubEnv("FIRST_RUN_CREDITS_EXPERIMENT", "v1");
+      expect(getOnboardingAppProfile("design").firstRunCreditsExperiment).toBe(
+        "v1",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+    }
+  });
+
   it.each(APP_IDS)("declares a usable profile for %s", (appId) => {
     const profile = getOnboardingAppProfile(appId);
 

@@ -24,8 +24,10 @@ const jose = await import(pathToFileURL(coreRequire.resolve("jose")).href);
 const { resetAppConfigForTests } = await import("@agent-native/core/server");
 const {
   CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
-  CONTENT_CLIP_COMMENT_PREVIEW_CHARS,
+  CONTENT_CLIP_COMMENT_KEY_HEADER,
+  CONTENT_CLIP_COMMENT_TEXT_CHARS,
   CONTENT_CLIP_MAX_COMMENT_THREADS,
+  CONTENT_CLIP_MAX_LISTED_REPLIES,
 } = await import("../../shared/clips-peer-contract.js");
 const {
   CLIPS_ANSWER_MAX_BYTES,
@@ -34,6 +36,7 @@ const {
   requestClips,
   requestClipsUpload,
   resolveClipsAppUrl,
+  writeClipComment,
 } = await import("./clips-peer.js");
 
 const signedIn = {
@@ -41,7 +44,7 @@ const signedIn = {
   email: "Reader@Example.test",
   name: "Robin Reader",
 };
-const publicReader = { kind: "public" as const };
+const publicReader = { kind: "public" as const, visitorKey: null };
 
 function configure(env: Record<string, string>) {
   for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
@@ -164,6 +167,22 @@ describe("mintContentClipToken", () => {
     expect(payload.sub).toBe("content-public-doc-reader");
     expect(payload.scope).toBe("content-clip:public-read");
     expect(payload.name).toBeUndefined();
+    expect(payload).not.toHaveProperty("visitor_key");
+
+    const keyed = await mintContentClipToken({
+      reader: { kind: "public", visitorKey: "visitor-key-0123456789abcdefgh" },
+      scope: "content-clip:public-read",
+      documentId: "doc_1",
+      recordingId: "rec_1",
+      clipsAppUrl: CLIPS_URL,
+      secret: PEER_SECRET,
+    });
+    expect(
+      (await claimsOf(keyed, `${CLIPS_URL}/content-clips`)).payload,
+    ).toMatchObject({
+      sub: "content-public-doc-reader",
+      visitor_key: "visitor-key-0123456789abcdefgh",
+    });
   });
 
   it("signs an upload token that names the editor, the page and their address, and no recording", async () => {
@@ -278,6 +297,7 @@ describe("requestClips", () => {
     [404, { error: "Not found" }, "clip_not_found"],
     [410, { code: "expired" }, "clip_expired"],
     [409, { code: "redaction_pending" }, "clip_redaction_pending"],
+    [409, { code: "comment_key_used" }, "clip_comment_key_used"],
     [403, { code: "password_required" }, "clip_password_required"],
     [403, { code: "comments_disabled" }, "clip_comments_disabled"],
     [403, { code: "forbidden" }, "clip_forbidden"],
@@ -347,6 +367,53 @@ describe("requestClips", () => {
   });
 });
 
+describe("writeClipComment", () => {
+  const KEY = "0f5b3c1e-6a4d-4c2b-9e7f-1a2b3c4d5e6f";
+  const write = {
+    operation: "add" as const,
+    content: "Here",
+    videoTimestampMs: 5_000,
+  };
+
+  async function sent(idempotencyKey?: string) {
+    const fetchMock = vi.fn(async () =>
+      clipsResponse(200, { id: "c1", threadId: "c1" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      writeClipComment({
+        reader: signedIn,
+        documentId: "doc_1",
+        recordingId: "rec_1",
+        write,
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+      }),
+    ).resolves.toEqual({ ok: true, body: { id: "c1", threadId: "c1" } });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    return {
+      headers: init.headers as Record<string, string>,
+      body: JSON.parse(String(init.body)),
+    };
+  }
+
+  // A Clips from before keys refuses a body field it doesn't know.
+  it("sends a comment's key in a header, leaving the body as it was", async () => {
+    const { headers, body } = await sent(KEY);
+    expect(headers[CONTENT_CLIP_COMMENT_KEY_HEADER]).toBe(KEY);
+    expect(headers.authorization).toMatch(/^Bearer /);
+    expect(body).toEqual(write);
+  });
+
+  it("sends no key for a comment without one", async () => {
+    const { headers, body } = await sent();
+    expect(headers).not.toHaveProperty(CONTENT_CLIP_COMMENT_KEY_HEADER);
+    expect(body).toEqual(write);
+  });
+});
+
 describe("a Clips answer's size", () => {
   const request = (resource: "playback" | "comments") =>
     requestClips({
@@ -377,15 +444,26 @@ describe("a Clips answer's size", () => {
   it("reads the longest comment list Clips' contract allows", async () => {
     // Every field at its cut length, each character escaped to six bytes.
     const escaped = (length: number) => "\u0001".repeat(length);
+    const comment = (id: string) => ({
+      id: id.padEnd(128, "x"),
+      authorEmail: escaped(CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
+      authorName: escaped(CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
+      content: escaped(CONTENT_CLIP_COMMENT_TEXT_CHARS),
+      createdAt: new Date(8.64e15).toISOString(),
+    });
+    // The replies Clips lists, spread over the threads it lists.
+    const repliesEach =
+      CONTENT_CLIP_MAX_LISTED_REPLIES / CONTENT_CLIP_MAX_COMMENT_THREADS;
     const body = JSON.stringify({
       comments: Array.from(
         { length: CONTENT_CLIP_MAX_COMMENT_THREADS },
         (_, index) => ({
-          id: String(index).padEnd(128, "x"),
-          authorEmail: escaped(CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
-          authorName: escaped(CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
-          content: escaped(CONTENT_CLIP_COMMENT_PREVIEW_CHARS),
+          ...comment(String(index)),
           videoTimestampMs: Number.MAX_SAFE_INTEGER,
+          replyCount: Number.MAX_SAFE_INTEGER,
+          replies: Array.from({ length: repliesEach }, (_, reply) =>
+            comment(`${index}-${reply}`),
+          ),
         }),
       ),
       truncated: true,

@@ -50,13 +50,18 @@ import {
  * shape the existing template global-setups fall into today.
  */
 
-const AUTH_DIR = path.join(
+const DEFAULT_AUTH_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
   ".auth",
 );
 const SESSION_EXCHANGE_MAX_ATTEMPTS = 3;
 const RETRYABLE_SESSION_EXCHANGE_STATUSES = new Set([500, 502, 503, 504]);
+
+function authDir(): string {
+  const configured = process.env.BETA_E2E_AUTH_STATE_DIR?.trim();
+  return configured ? path.resolve(configured) : DEFAULT_AUTH_DIR;
+}
 
 export function shouldRetrySessionExchange(
   status: number,
@@ -78,15 +83,15 @@ export interface SessionIdentity {
 }
 
 export function authStatePath(appId: string): string {
-  return path.join(AUTH_DIR, `${appId}.json`);
+  return path.join(authDir(), `${appId}.json`);
 }
 
 export function laneMarkerPath(): string {
-  return path.join(AUTH_DIR, "lane-ready");
+  return path.join(authDir(), "lane-ready");
 }
 
 export function markAuthedLaneReady(): void {
-  mkdirSync(AUTH_DIR, { recursive: true });
+  mkdirSync(authDir(), { recursive: true });
   writeFileSync(laneMarkerPath(), new Date().toISOString());
 }
 
@@ -325,7 +330,7 @@ export async function bootstrapAppSession(
       );
     }
 
-    mkdirSync(AUTH_DIR, { recursive: true });
+    mkdirSync(authDir(), { recursive: true });
     await context.storageState({ path: authStatePath(site.id) });
     return identity;
   } finally {
@@ -334,7 +339,7 @@ export async function bootstrapAppSession(
 }
 
 export function writeCapturedState(appId: string, state: string): string {
-  mkdirSync(AUTH_DIR, { recursive: true });
+  mkdirSync(authDir(), { recursive: true });
   const file = authStatePath(appId);
   writeFileSync(file, state);
   return file;

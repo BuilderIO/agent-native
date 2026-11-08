@@ -9,61 +9,6 @@
   <body class="popup-page">
     <main class="recorder-card">
       <header class="popup-header desktop-header">
-        <button
-          id="feedback"
-          class="header-feedback"
-          type="button"
-          aria-expanded="false"
-          aria-controls="feedback-popover"
-        >
-          Feedback
-        </button>
-        <div id="feedback-popover" class="feedback-popover-content" hidden>
-          <div id="feedback-success" class="feedback-success" hidden>
-            <div class="feedback-success-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M5 12.5l4.2 4.2L19 7"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            </div>
-            <div class="feedback-success-title">Thanks for the feedback!</div>
-          </div>
-          <form id="feedback-form" class="feedback-form">
-            <textarea
-              id="feedback-textarea"
-              class="feedback-textarea"
-              rows="5"
-              maxlength="10000"
-              placeholder="Tell us what's on your mind..."
-            ></textarea>
-            <input
-              id="feedback-honeypot"
-              class="feedback-honeypot"
-              type="text"
-              tabindex="-1"
-              autocomplete="off"
-              aria-hidden="true"
-            />
-            <div class="feedback-form-footer">
-              <div id="feedback-hint" class="feedback-hint">
-                Ctrl+Enter to send
-              </div>
-              <button
-                id="feedback-submit"
-                class="feedback-submit"
-                type="submit"
-                disabled
-              >
-                Send feedback
-              </button>
-            </div>
-          </form>
-        </div>
         <div class="mode-toggle" role="radiogroup" aria-label="Recording mode">
           <button
             class="mode-option"
@@ -529,6 +474,61 @@
           </svg>
           <span>Settings</span>
         </button>
+        <button
+          id="feedback"
+          class="header-feedback"
+          type="button"
+          aria-expanded="false"
+          aria-controls="feedback-popover"
+        >
+          Feedback
+        </button>
+        <div id="feedback-popover" class="feedback-popover-content" hidden>
+          <div id="feedback-success" class="feedback-success" hidden>
+            <div class="feedback-success-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M5 12.5l4.2 4.2L19 7"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </div>
+            <div class="feedback-success-title">Thanks for the feedback!</div>
+          </div>
+          <form id="feedback-form" class="feedback-form">
+            <textarea
+              id="feedback-textarea"
+              class="feedback-textarea"
+              rows="5"
+              maxlength="10000"
+              placeholder="Tell us what's on your mind..."
+            ></textarea>
+            <input
+              id="feedback-honeypot"
+              class="feedback-honeypot"
+              type="text"
+              tabindex="-1"
+              autocomplete="off"
+              aria-hidden="true"
+            />
+            <div class="feedback-form-footer">
+              <div id="feedback-hint" class="feedback-hint">
+                Ctrl+Enter to send
+              </div>
+              <button
+                id="feedback-submit"
+                class="feedback-submit"
+                type="submit"
+                disabled
+              >
+                Send feedback
+              </button>
+            </div>
+          </form>
+        </div>
       </nav>
 
       <script type="module" src="./popup.ts"></script>

@@ -1,7 +1,8 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -9,9 +10,11 @@ import type {
   ContentDatabaseResponsePayload,
   ReviewContentDatabaseSourceChangeSetRequest,
 } from "../shared/api.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
   getExistingSourceForWrite,
   resolveDatabaseForSourceMutation,
+  sourceChangeSetReviewBasis,
 } from "./_database-source-utils.js";
 import {
   contentDatabaseResponseForCaller,
@@ -66,35 +69,94 @@ export default defineAction({
       throw new Error(`Change-set state is not reviewable: ${changeSet.state}`);
     }
 
-    if (changeSet.state === "approved" && args.decision === "reject") {
-      const [execution] = await getDb()
-        .select({ id: schema.contentDatabaseSourceExecutions.id })
-        .from(schema.contentDatabaseSourceExecutions)
-        .where(
-          and(
-            eq(schema.contentDatabaseSourceExecutions.sourceId, source.id),
-            eq(
-              schema.contentDatabaseSourceExecutions.changeSetId,
-              changeSet.id,
-            ),
-          ),
-        )
-        .limit(1);
-      if (execution) {
-        throw new Error(
-          "Cannot reject an approved change-set after an execution gate has been prepared.",
-        );
-      }
-    }
-
+    const reviewBasis =
+      args.decision === "approve"
+        ? await sourceChangeSetReviewBasis(getDb(), changeSet)
+        : null;
     const now = new Date().toISOString();
     const stateTo = args.decision === "approve" ? "approved" : "rejected";
     const reviewerEmail =
       getRequestUserEmail() ?? "agent-runtime@agent-native.local";
 
-    await getDb()
-      .insert(schema.contentDatabaseSourceChangeReviews)
-      .values({
+    await getDb().transaction(async (tx) => {
+      const db = tx as unknown as ReturnType<typeof getDb>;
+      // Staging and pushes change review items under this lock. The decision
+      // applies only to the item as the reviewer read it.
+      await lockContentDatabaseMutation(db, database.id);
+      // The lock can be held a while, so access is checked again.
+      await assertAccess("document", database.documentId, "editor", {
+        ...currentAccess(),
+        transaction: getDbExec(),
+      });
+      // A refresh can record a conflict on the item's row while the decision
+      // waits; the item's own columns don't show it.
+      if (
+        reviewBasis !== null &&
+        (await sourceChangeSetReviewBasis(db, changeSet)) !== reviewBasis
+      ) {
+        fail(
+          "This entry changed at its source while it was being reviewed. Review it again.",
+          { errorCode: "source_changed_during_review", statusCode: 409 },
+        );
+      }
+      // A push claims an approved item under this lock, so a gate prepared
+      // after this check can't be claimed once the item is rejected.
+      if (changeSet.state === "approved" && args.decision === "reject") {
+        const [execution = null] = await db
+          .select({ id: schema.contentDatabaseSourceExecutions.id })
+          .from(schema.contentDatabaseSourceExecutions)
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceExecutions.sourceId, source.id),
+              eq(
+                schema.contentDatabaseSourceExecutions.changeSetId,
+                changeSet.id,
+              ),
+            ),
+          )
+          .limit(1);
+        if (execution) {
+          fail(
+            "Cannot reject an approved change-set after an execution gate has been prepared.",
+            { errorCode: "source_change_set_push_prepared", statusCode: 409 },
+          );
+        }
+      }
+      const [decided = null] = await db
+        .update(schema.contentDatabaseSourceChangeSets)
+        .set({
+          state: stateTo,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceChangeSets.id, changeSet.id),
+            eq(schema.contentDatabaseSourceChangeSets.state, changeSet.state),
+            eq(
+              schema.contentDatabaseSourceChangeSets.updatedAt,
+              changeSet.updatedAt,
+            ),
+            eq(
+              schema.contentDatabaseSourceChangeSets.fieldChangesJson,
+              changeSet.fieldChangesJson,
+            ),
+            changeSet.bodyChangeJson === null
+              ? isNull(schema.contentDatabaseSourceChangeSets.bodyChangeJson)
+              : eq(
+                  schema.contentDatabaseSourceChangeSets.bodyChangeJson,
+                  changeSet.bodyChangeJson,
+                ),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSourceChangeSets.id });
+      if (!decided) {
+        fail(
+          "This change set changed while it was being reviewed. Review it again.",
+          { errorCode: "source_change_set_changed", statusCode: 409 },
+        );
+      }
+
+      await db.insert(schema.contentDatabaseSourceChangeReviews).values({
         id: crypto.randomUUID(),
         ownerEmail: database.ownerEmail,
         sourceId: source.id,
@@ -107,18 +169,11 @@ export default defineAction({
         createdAt: now,
       });
 
-    await getDb()
-      .update(schema.contentDatabaseSourceChangeSets)
-      .set({
-        state: stateTo,
-        updatedAt: now,
-      })
-      .where(eq(schema.contentDatabaseSourceChangeSets.id, changeSet.id));
-
-    await getDb()
-      .update(schema.contentDatabaseSources)
-      .set({ updatedAt: now })
-      .where(eq(schema.contentDatabaseSources.id, source.id));
+      await db
+        .update(schema.contentDatabaseSources)
+        .set({ updatedAt: now })
+        .where(eq(schema.contentDatabaseSources.id, source.id));
+    });
 
     return contentDatabaseResponseForCaller(
       await getContentDatabaseResponse(database.id, { limit: 100, offset: 0 }),

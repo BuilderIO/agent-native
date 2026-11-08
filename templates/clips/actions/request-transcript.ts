@@ -798,6 +798,7 @@ async function generateRecordingMetadata({
       recordingId,
       transcriptText,
       includeSummary: !description?.trim(),
+      automatic: true,
     });
     return {
       titleQueued: true,
@@ -882,6 +883,7 @@ async function completeReadyTranscript({
         fullText,
         now: new Date().toISOString(),
         mediaUpdatedAt: mediaUpdatedAt ?? recForTitle?.mediaUpdatedAt,
+        rewritesSegmentsJson: segmentsJson ?? "[]",
       });
       if (kept) return kept;
       segmentsJson = normalizedSegmentsJson;
@@ -1574,13 +1576,14 @@ async function writeTranscriptOrKeepImport(
     ownerEmail: row.ownerEmail,
     mediaUpdatedAt: row.mediaUpdatedAt,
   });
-  // An import is always ready, so a refused write with nothing to keep means
-  // the row was deleted; carrying on would report work that wasn't saved.
+  // A refused write means an import landed, the rewrite's source changed, or
+  // the row was deleted. Only a ready transcript with text can be kept; without
+  // one, carrying on would report work that wasn't saved.
   if (!kept) {
-    fail(`Transcript row for ${row.recordingId} was removed while saving`, {
-      errorCode: "transcript_removed",
-      statusCode: 409,
-    });
+    fail(
+      `Transcript row for ${row.recordingId} changed or was removed while saving`,
+      { errorCode: "transcript_removed", statusCode: 409 },
+    );
   }
   return kept;
 }
@@ -1605,6 +1608,12 @@ async function upsertTranscriptRow(
      * lands while it runs.
      */
     replaceTranscript?: StartedFromTranscript;
+    /**
+     * The stored segments a reshaping of the same words was built from. Writing
+     * it over anything else would restore what changed since, such as audio the
+     * user just removed.
+     */
+    rewritesSegmentsJson?: string;
   },
 ): Promise<boolean> {
   let expectedMediaUpdatedAt = row.mediaUpdatedAt;
@@ -1702,6 +1711,12 @@ async function upsertTranscriptRow(
       // the same guarded update as any existing row.
       current = await lockCurrent();
       if (!current) return false;
+    }
+    if (
+      row.rewritesSegmentsJson !== undefined &&
+      current.segmentsJson !== row.rewritesSegmentsJson
+    ) {
+      return false;
     }
     const updated = await tx
       .update(t)

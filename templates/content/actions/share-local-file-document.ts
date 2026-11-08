@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, isOutsideAgentCall } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { parseIconValue, serializeIconValue } from "@agent-native/core/icons";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -16,7 +16,7 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import {
-  syncPrivateCalloutReferences,
+  syncPrivateBodyReferences,
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
@@ -75,6 +75,14 @@ function serializeDocument(row: typeof schema.documents.$inferSelect) {
 }
 
 export default defineAction({
+  mcpTool: true,
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
   description:
     "Create or refresh a collection-backed shareable copy of a local-file document. Use this before sharing a local file with other users.",
   schema: z.object({
@@ -206,7 +214,7 @@ export default defineAction({
             orgId,
           },
         );
-        await syncPrivateCalloutReferences(
+        await syncPrivateBodyReferences(
           tx as unknown as ReturnType<typeof getDb>,
           {
             documentId: existing.id,
@@ -286,7 +294,7 @@ export default defineAction({
               orgId,
             },
           );
-          await syncPrivateCalloutReferences(
+          await syncPrivateBodyReferences(
             tx as unknown as ReturnType<typeof getDb>,
             {
               documentId,

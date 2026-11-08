@@ -25,11 +25,10 @@ describe("meeting sharing adoption", () => {
         <button>Share meeting</button>
       </ShareMeetingPopover>,
     );
-  it("confirms organization access before saving and defaults invites to notified Viewer", async () => {
+  it("shares with the organization at once and defaults invites to notified Viewer", async () => {
     await render();
-    await select(button("General access"), "Organization");
-    expect(mocks.visibility).not.toHaveBeenCalled();
-    await click(button("Share with organization"));
+    await select(button("General access"), "Anyone in your organization");
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
     expect(mocks.visibility).toHaveBeenCalledWith({
       resourceType: "meeting",
       resourceId: "meeting-test",
@@ -39,7 +38,7 @@ describe("meeting sharing adoption", () => {
       document.querySelector<HTMLInputElement>('input[role="combobox"]')!,
       "invite@example.test",
     );
-    await click(button("Add"));
+    await click(button("Invite"));
     expect(mocks.share).toHaveBeenCalledWith(
       expect.objectContaining({
         resourceType: "meeting",

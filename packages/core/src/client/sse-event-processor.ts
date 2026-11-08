@@ -8,7 +8,7 @@ import {
 } from "../agent/engine/credential-errors.js";
 import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
-  PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
+  isTerminalRecoveryErrorCode,
 } from "../agent/engine/error-detail.js";
 import type { AgentChatRichEventEnvelope } from "../agent/types.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
@@ -16,6 +16,7 @@ import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { normalizeConnectRequiredResult } from "../shared/connect-required.js";
 import { isNonProgressEventType } from "../shared/progress-events.js";
 import { toolInputsMatch } from "../shared/tool-inputs.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import { emitChatFirstOpenApp } from "./chat-first-state.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
@@ -26,7 +27,7 @@ import {
 } from "./tool-display.js";
 
 export type ContentPart =
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; omitFromPersistedHistory?: true }
   | {
       /**
        * Model chain-of-thought / extended-thinking prose. Streamed from
@@ -36,9 +37,11 @@ export type ContentPart =
        */
       type: "reasoning";
       text: string;
+      omitFromPersistedHistory?: true;
     }
   | {
       type: "tool-call";
+      omitFromPersistedHistory?: true;
       toolCallId: string;
       toolName: string;
       argsText: string;
@@ -98,6 +101,8 @@ type AgentChatStreamResult = {
 
 export interface SSEEvent {
   type: string;
+  omitFromPersistedHistory?: true;
+  allText?: boolean;
   text?: string;
   suggestions?: AgentSuggestion[];
   event?: AgentChatRichEventEnvelope;
@@ -945,82 +950,7 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     return false;
   }
 
-  if (
-    code === "context_length_exceeded" ||
-    code === "input_too_long" ||
-    code.startsWith("credits-limit") ||
-    code === "billing_error" ||
-    code === "unauthorized" ||
-    code === "authentication_error" ||
-    code === "permission_error" ||
-    code === "builder_auth_error" ||
-    // The account cannot use this model; another POST picks the same one.
-    code === "builder_model_unauthorized" ||
-    code === "http_401" ||
-    code === "http_403" ||
-    code === "rate_limit_exceeded" ||
-    code === "gateway_not_enabled" ||
-    code === "missing_api_key" ||
-    code === "missing_credentials" ||
-    code === "invalid_request" ||
-    code === "invalid_request_error" ||
-    code === "request_too_large" ||
-    code === "not_found_error" ||
-    code === "model_not_found" ||
-    // The server now owns rate-limit recovery end to end (in-loop retries,
-    // sibling-model fallback, one cooled continuation, then a terminal
-    // `provider_rate_limited`) and caps the continuation chain it hands back
-    // to the client. Auto-recovering a bare `http_429`/`http_529` here would
-    // let an exhausted rate-limit error re-POST as a client continuation,
-    // bypassing that one-hop cap and restarting the retry/fallback budget
-    // the server just spent. Render with the manual Retry affordance like
-    // `provider_rate_limited` below, not auto-continued.
-    code === "http_429" ||
-    code === "http_529" ||
-    // The gateway's own throttle codes, same reasoning.
-    code === "rate_limited" ||
-    code === "too_many_concurrent_requests" ||
-    code === "provider_rate_limited" ||
-    // The server already retried the bare-403 load-shedding signature before
-    // this reached the client; another automatic POST would just hammer the
-    // same throttle. Renders with the manual Retry affordance like
-    // `provider_rate_limited` above, not auto-continued.
-    code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE ||
-    // `builder_gateway_error` is the no-detail fallback the Builder engine
-    // emits when the gateway returns `{type:"stop",reason:"error"}` with no
-    // explanation — almost always the upstream provider giving up (model
-    // quota hit, account misconfiguration, opaque downstream failure). The
-    // production-agent already retries this synchronously up to MAX_RETRIES
-    // before the error escapes to the SSE stream, so by the time the client
-    // sees it, retrying again with another POST /agent-chat will hit the
-    // same wall. This used to send the chat into a 32-continuation runaway
-    // (each turn cleared+regenerated visible content) for users hitting a
-    // misbehaving Builder route. Surface the error instead.
-    code === "builder_gateway_error" ||
-    // The hosted run exhausted its in-invocation continuation budget without
-    // finishing (run-loop-with-resume.ts). It's flagged `recoverable: true` so
-    // the recovery banner reads "stopped before finishing", but it must NOT
-    // auto-continue: another POST would hit the same ~40s wall and churn. The
-    // user retries deliberately (ideally as a single bulk action).
-    code === "run_budget_exhausted" ||
-    // `aborted_<reason>` is emitted by `terminalEventForAbortReason` for every
-    // abort that is neither a user stop nor a continuation boundary — a Slack
-    // cancel, a stuck-banner auto-retry, an operator kill. Whoever aborted the
-    // run owns the retry; auto-continuing here restarts work someone just
-    // stopped (and double-fires alongside the stuck banner's own retry). They
-    // stay `recoverable: true` so the banner still reads "stopped before
-    // finishing".
-    code.startsWith("aborted_") ||
-    // The run's outcome is genuinely UNKNOWN: its row is gone, or it left
-    // 'running' in a state the server has no terminal event for. Both stay
-    // `recoverable: true` so the banner offers a manual Retry, but an
-    // automatic re-POST would assert the turn did not finish — and it may
-    // well have, side effects included. Replaying it would duplicate them.
-    // The user decides, which is exactly what these errors say to do.
-    code === "run_record_missing" ||
-    code === "unknown_run_status" ||
-    code === "run_terminal_lookup_failed"
-  ) {
+  if (isTerminalRecoveryErrorCode(code)) {
     return false;
   }
 
@@ -1562,6 +1492,8 @@ export function appendMissingFinalResponseWarning(
 
 interface ProcessEventState {
   completedToolsAfterLastAssistantText: Set<string>;
+  omitFromPersistedHistory?: boolean;
+  assistantTurnBoundaryPending?: boolean;
   /** Set once `agent-chat:stream-progress` has been dispatched for the
    *  current chunk, so a burst of per-token text/reasoning deltas only fires
    *  it once. Cleared by `resetProcessEventState` on a server `clear` retry
@@ -1667,10 +1599,22 @@ export function processEvent(
     errorInfo?: AgentAutoContinueErrorInfo;
   };
 } {
+  if (ev.type === "user_message") {
+    if (state) {
+      state.omitFromPersistedHistory = false;
+      state.assistantTurnBoundaryPending = true;
+    }
+  } else if (ev.omitFromPersistedHistory === true && state) {
+    state.omitFromPersistedHistory = true;
+  }
+  const omitFromPersistedHistory =
+    ev.omitFromPersistedHistory === true ||
+    state?.omitFromPersistedHistory === true;
+
   if (ev.type === "clear") {
     // Server is retrying — discard rejected draft text and unfinished tool
     // output while keeping completed tool results visible.
-    clearAssistantDraftContent(content);
+    clearAssistantDraftContent(content, ev.allText === true);
     resetProcessEventState(state);
     dispatchActivityClear(tabId);
     return {
@@ -1692,12 +1636,24 @@ export function processEvent(
       if (shouldDispatchStreamProgress(state)) dispatchStreamProgress(tabId);
     }
     if (ev.text?.trim()) markAssistantText(state);
-    const lastPart = content[content.length - 1];
-    if (lastPart && lastPart.type === "text") {
+    const lastPart = content.at(-1);
+    if (
+      lastPart &&
+      lastPart.type === "text" &&
+      state?.assistantTurnBoundaryPending !== true
+    ) {
       lastPart.text += ev.text ?? "";
+      if (omitFromPersistedHistory) {
+        lastPart.omitFromPersistedHistory = true;
+      }
     } else {
-      content.push({ type: "text", text: ev.text ?? "" });
+      content.push({
+        type: "text",
+        text: ev.text ?? "",
+        ...(omitFromPersistedHistory ? { omitFromPersistedHistory: true } : {}),
+      });
     }
+    if (state) state.assistantTurnBoundaryPending = false;
     return {
       action: "yield",
       result: { content: contentSnapshot(content) },
@@ -1710,12 +1666,24 @@ export function processEvent(
     const delta = ev.text ?? "";
     if (!delta) return { action: "continue" };
     if (shouldDispatchStreamProgress(state)) dispatchStreamProgress(tabId);
-    const lastPart = content[content.length - 1];
-    if (lastPart && lastPart.type === "reasoning") {
+    const lastPart = content.at(-1);
+    if (
+      lastPart &&
+      lastPart.type === "reasoning" &&
+      state?.assistantTurnBoundaryPending !== true
+    ) {
       lastPart.text += delta;
+      if (omitFromPersistedHistory) {
+        lastPart.omitFromPersistedHistory = true;
+      }
     } else {
-      content.push({ type: "reasoning", text: delta });
+      content.push({
+        type: "reasoning",
+        text: delta,
+        ...(omitFromPersistedHistory ? { omitFromPersistedHistory: true } : {}),
+      });
     }
+    if (state) state.assistantTurnBoundaryPending = false;
     return {
       action: "yield",
       result: { content: contentSnapshot(content) },
@@ -1774,6 +1742,9 @@ export function processEvent(
           argsText: "",
           args: {},
           activity: true,
+          ...(omitFromPersistedHistory
+            ? { omitFromPersistedHistory: true }
+            : {}),
         });
       }
     }
@@ -1808,6 +1779,9 @@ export function processEvent(
           argsText: "",
           args: {},
           activity: true,
+          ...(omitFromPersistedHistory
+            ? { omitFromPersistedHistory: true }
+            : {}),
         });
         toolCallIndex = content.length - 1;
       }
@@ -1820,6 +1794,9 @@ export function processEvent(
       }
       if (ev.type === "tool_input_delta" && ev.text) {
         pending.argsText += ev.text;
+      }
+      if (omitFromPersistedHistory) {
+        pending.omitFromPersistedHistory = true;
       }
     }
 
@@ -1852,6 +1829,9 @@ export function processEvent(
     if (completedIndex >= 0) {
       const completedPart = content[completedIndex];
       if (completedPart?.type === "tool-call") {
+        if (omitFromPersistedHistory) {
+          completedPart.omitFromPersistedHistory = true;
+        }
         if (completedPart.approvalPause === true) {
           completedPart.approvalResumeCandidate = true;
         }
@@ -1909,6 +1889,7 @@ export function processEvent(
         toolName: tool,
         argsText: JSON.stringify(args),
         args,
+        ...(omitFromPersistedHistory ? { omitFromPersistedHistory: true } : {}),
       };
     } else {
       content.push({
@@ -1917,6 +1898,7 @@ export function processEvent(
         toolName: tool,
         argsText: JSON.stringify(args),
         args,
+        ...(omitFromPersistedHistory ? { omitFromPersistedHistory: true } : {}),
       });
     }
     return {
@@ -1975,6 +1957,9 @@ export function processEvent(
       if (completedPart?.type !== "tool-call") {
         return { action: "continue" };
       }
+      if (omitFromPersistedHistory) {
+        completedPart.omitFromPersistedHistory = true;
+      }
       const legacyApprovalPause =
         ev.approvalPause === undefined &&
         completedPart.approvalPauseCandidate === true;
@@ -2005,6 +1990,9 @@ export function processEvent(
             isError: ev.isError === true,
             completedSideEffect: ev.completedSideEffect === true,
             tabId,
+            browserTabId: getBrowserTabId(),
+            runId: context?.runId,
+            ...(ev.id ? { toolCallId: ev.id } : {}),
             eventId: ev.eventId ?? ev.id,
           },
         }),
@@ -2021,8 +2009,11 @@ export function processEvent(
         ? approvedResumeIndex
         : findPendingToolCallIndex(content, doneTool, ev.id);
     if (doneIdx >= 0) {
-      const part = content[doneIdx];
-      if (part.type === "tool-call") {
+      const part = content.at(doneIdx);
+      if (part?.type === "tool-call") {
+        if (omitFromPersistedHistory) {
+          part.omitFromPersistedHistory = true;
+        }
         part.result = ev.result ?? "";
         const legacyApprovalPause =
           ev.approvalPause === undefined &&
@@ -2258,6 +2249,12 @@ export function processEvent(
   }
 
   if (ev.type === "auto_continue") {
+    // The continuation reads a fresh stream into this same content array, so
+    // the boundary has to be written before the next text delta glues on.
+    const tail = content.at(-1);
+    if (tail?.type === "text" && tail.text && !tail.text.endsWith("\n\n")) {
+      tail.text += tail.text.endsWith("\n") ? "\n" : "\n\n";
+    }
     const reason =
       ev.reason === "stream_ended" ||
       ev.reason === "loop_limit" ||
@@ -2492,7 +2489,10 @@ export function processEvent(
  * and started over", and `thread-data-builder` replays this same scoping on
  * rebuild, so the loss survived a reload.
  */
-function clearAssistantDraftContent(content: ContentPart[]): void {
+export function clearAssistantDraftContent(
+  content: ContentPart[],
+  allText = false,
+): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
     if (!part) continue;
@@ -2501,7 +2501,8 @@ function clearAssistantDraftContent(content: ContentPart[]): void {
       part.activity !== true &&
       part.result !== undefined
     ) {
-      return;
+      if (!allText) return;
+      continue;
     }
     if (part.type === "text" || part.type === "reasoning") {
       content.splice(index, 1);

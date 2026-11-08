@@ -9,7 +9,6 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { InlineMarkdown } from "@agent-native/toolkit/app/review";
 import type {
   CommentAiIntent,
   CommentAiRequest,
@@ -28,12 +27,11 @@ import { cn } from "@/lib/utils";
 
 import {
   AgentAvatar,
-  agentDisplayName,
   commentAiModelLabel,
   modelDisplayName,
 } from "./agent-identity";
 import { trimDiffContext, wordDiff } from "./comment-ai-diff";
-import { CommentAgentBadge, CommentRow } from "./CommentRow";
+import { CommentAgentBadge, CommentRow, renderCommentBody } from "./CommentRow";
 
 const ACTIVE_STATUSES = new Set<CommentAiRequest["status"]>([
   "classifying",
@@ -159,6 +157,26 @@ function isAppliedResolution(request: CommentAiRequest) {
     request.status === "resolved" &&
     Boolean(request.result?.editApplied) &&
     !request.result?.undone
+  );
+}
+
+/**
+ * Whether any of these requests made in the thread changed the page and
+ * hasn't undone it, whether it resolved the thread or left it for review.
+ * Deleting the thread deletes all of its requests, not just the latest,
+ * while the change stays in the page. The client sees only the viewer's own
+ * requests; someone else's applied change leaves their receipt reply in the
+ * thread, which already keeps its author from deleting it.
+ */
+export function threadHasAppliedAiChange(
+  requests: readonly CommentAiRequest[] | undefined,
+  threadId: string,
+) {
+  return !!requests?.some(
+    (request) =>
+      request.threadId === threadId &&
+      !!request.result?.editApplied &&
+      !request.result.undone,
   );
 }
 
@@ -1044,19 +1062,33 @@ export function useCommentAiRequests(
   );
 }
 
+/** "Claude Haiku 5.5 is working…": the model the run uses. */
+function workingLabel(
+  model: string | null | undefined,
+  t: ReturnType<typeof useT>,
+  queued = false,
+) {
+  if (!model?.trim())
+    return t(queued ? "comments.aiQueued" : "comments.aiWorking");
+  return t(queued ? "comments.aiQueuedNamed" : "comments.aiWorkingNamed", {
+    name: modelDisplayName(model),
+  });
+}
+
 function requestStatusLabel(
   request: CommentAiRequest,
   t: ReturnType<typeof useT>,
 ) {
+  // Until a run starts, only the model the comment was sent to is known.
+  const model = request.model ?? request.submittedModel;
   if (request.status === "classifying" || request.status === "classified")
-    return t("comments.aiWorking");
-  if (request.status === "queued") return t("comments.aiQueued");
-  if (request.status === "running") return t("comments.aiWorking");
+    return workingLabel(model, t);
+  if (request.status === "queued") return workingLabel(model, t, true);
+  if (request.status === "running") return workingLabel(model, t);
   if (request.status === "refreshing") return t("comments.aiRefreshing");
   if (request.status === "failed") return t("comments.aiFailed");
   if (request.status === "cancelled") return t("comments.aiCancelled");
   if (request.status === "needs-review") return t("comments.aiNeedsReview");
-  if (request.status === "suggested") return t("comments.aiSuggestionReady");
   if (request.status === "resolved")
     return request.result?.undone
       ? t("comments.aiChangeUndone")
@@ -1107,7 +1139,8 @@ export function CommentAiRequestStatus({
     continuation?.status === "unavailable";
   const continuationLabel = continuation
     ? continuation.status === "queued" || continuation.status === "running"
-      ? t("comments.aiWorking")
+      ? // A follow-up runs on request.model alone (see dispatchContinuation).
+        workingLabel(request.model, t)
       : continuation.status === "aborted"
         ? t("comments.aiCancelled")
         : continuation.status === "completed"
@@ -1136,7 +1169,9 @@ export function CommentAiRequestStatus({
         title={continuation?.error ?? request.error ?? undefined}
       >
         {active ? <Spinner aria-hidden className="size-3.5 shrink-0" /> : null}
-        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {/* Wraps rather than truncates: in a narrow card, "Claude Haiku 5.5
+            is working…" would otherwise lose the words that say what it's doing. */}
+        <span className="min-w-0 flex-1 break-words">{label}</span>
       </div>
       {active ? (
         <Button
@@ -1335,10 +1370,8 @@ export function CommentAiConversation({
             }}
             name={
               <>
-                <span className="sr-only">
-                  {agentDisplayName(request.model)}:{" "}
-                </span>
-                <span aria-hidden>{agentDisplayName(request.model)}</span>
+                <span className="sr-only">{modelLabel}: </span>
+                <span aria-hidden>{modelLabel}</span>
               </>
             }
             badge={
@@ -1355,7 +1388,7 @@ export function CommentAiConversation({
               ) : null
             }
           >
-            <InlineMarkdown content={turn.assistantText!} />
+            {renderCommentBody(turn.assistantText ?? "", [])}
           </CommentRow>
         ))}
     </div>

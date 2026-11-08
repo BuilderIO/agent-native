@@ -1,4 +1,6 @@
 import type {
+  AgentUploadFile,
+  AgentUploadDriver,
   AgentActionInvocation,
   AgentActionResult,
   AgentAnnotationSnapshot,
@@ -132,12 +134,7 @@ export interface AgentKitClientOptions {
   upload?: AgentKitUploadDriver;
 }
 
-export interface AgentKitUploadFile {
-  name: string;
-  mediaType: string;
-  size: number;
-  body: Blob;
-}
+export type AgentKitUploadFile = AgentUploadFile;
 
 const MAX_QUEUED_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024;
 
@@ -180,11 +177,7 @@ function requestAttachmentFile(
   };
 }
 
-export type AgentKitUploadDriver = (
-  target: AgentUploadTarget,
-  file: AgentKitUploadFile,
-  context?: AgentRequestContext,
-) => Promise<void>;
+export type AgentKitUploadDriver = AgentUploadDriver;
 
 /**
  * Creates the deterministic AgentKit controller used by every UI binding.
@@ -1904,6 +1897,48 @@ function messagePartsOrderSignature(
   return JSON.stringify(segments);
 }
 
+/**
+ * The streamed body cut back to a replacement's text and reasoning, which a
+ * discarded draft leaves as a prefix of what streamed. Undefined when the
+ * replacement is not a prefix, so the saved parts decide the order instead.
+ */
+function bodyPrefixMatching(
+  body: OrderedToolHistoryPart[],
+  parts: AgentMessage["parts"],
+): OrderedToolHistoryPart[] | undefined {
+  const targets: Array<{ type: "text" | "reasoning"; text: string }> = [];
+  for (const part of parts) {
+    if (part.type !== "text" && part.type !== "reasoning") return undefined;
+    if (!part.text) continue;
+    const previous = targets.at(-1);
+    if (previous?.type === part.type) previous.text += part.text;
+    else targets.push({ type: part.type, text: part.text });
+  }
+  const kept: OrderedToolHistoryPart[] = [];
+  let target = 0;
+  let offset = 0;
+  for (const entry of body) {
+    const goal = targets.at(target);
+    if (!goal) break;
+    const { part } = entry;
+    if (part.type !== goal.type) return undefined;
+    const text = part.text.slice(0, goal.text.length - offset);
+    if (goal.text.slice(offset, offset + text.length) !== text) {
+      return undefined;
+    }
+    kept.push(
+      text === part.text ? entry : { ...entry, part: { ...part, text } },
+    );
+    offset += text.length;
+    if (offset === goal.text.length) {
+      target += 1;
+      offset = 0;
+    }
+    if (text !== part.text) break;
+  }
+  return target === targets.length ? kept : undefined;
+}
+
 function indexToolHistoryEvents(
   eventsNewestFirst: IndexedToolHistoryEvent[],
   toolCallIds: Set<string>,
@@ -1933,7 +1968,9 @@ function indexToolHistoryEvents(
     }
 
     const messageId =
-      eventType === "message.created" || eventType === "message.completed"
+      eventType === "message.created" ||
+      eventType === "message.completed" ||
+      eventType === "message.replaced"
         ? event.message.id
         : eventType === "message.delta" || eventType === "reasoning.delta"
           ? event.messageId
@@ -1953,6 +1990,10 @@ function indexToolHistoryEvents(
         body.parts.push({ part, order: index });
       }
       body.hasMessageEvent = true;
+    } else if (eventType === "message.replaced") {
+      const kept = bodyPrefixMatching(body.parts, event.message.parts);
+      body.parts = kept ?? [];
+      body.hasMessageEvent = kept !== undefined;
     } else if (eventType === "message.delta") {
       body.parts.push({
         part: {
@@ -2448,7 +2489,8 @@ export class AgentKitClient implements AgentKitController {
       ((attempt) => Math.min(250 * 2 ** attempt, 4_000));
     this.onError = options.onError;
     this.onIntegrityReport = options.onIntegrityReport;
-    this.upload = options.upload ?? defaultUploadDriver;
+    this.upload =
+      options.upload ?? options.transport.upload ?? defaultUploadDriver;
     this.snapshot = {
       connection: "idle",
       capabilities: options.transport.capabilities ?? {},
@@ -5957,7 +5999,9 @@ export class AgentKitClient implements AgentKitController {
     catchUp: TerminalRunCatchUp,
   ): { event: AgentEvent; sourceMessageId?: string } {
     const sourceMessageId =
-      event.type === "message.created" || event.type === "message.completed"
+      event.type === "message.created" ||
+      event.type === "message.completed" ||
+      event.type === "message.replaced"
         ? event.message.id
         : event.type === "message.delta" || event.type === "reasoning.delta"
           ? event.messageId
@@ -6004,6 +6048,7 @@ export class AgentKitClient implements AgentKitController {
     switch (event.type) {
       case "message.created":
       case "message.completed":
+      case "message.replaced":
         return { ...event, message: { ...event.message, id: messageId } };
       case "message.delta":
       case "reasoning.delta":
@@ -6769,6 +6814,7 @@ export class AgentKitClient implements AgentKitController {
       switch (event.type) {
         case "message.created":
         case "message.completed":
+        case "message.replaced":
           return {
             ...event,
             message: {

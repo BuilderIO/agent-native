@@ -17,6 +17,7 @@ vi.mock("../db/client.js", async () => {
   };
   return {
     getDbExec: () => db,
+    getScopedDbExec: () => undefined,
     getScopedTransactionDbExec: () => undefined,
   };
 });
@@ -222,8 +223,13 @@ describe("automation run history", () => {
       ),
     ).rejects.toMatchObject({ code: "stale_execution_fence" });
 
-    expect(statements).toHaveLength(1);
-    expect(statements[0]?.sql).toContain("FROM agent_execution_leases");
+    // oracle-change: one exact list of the fence's two lease reads replaces the length and first-read checks.
+    // The fence checks the live lease, then whether it only lapsed; neither
+    // finds it, so nothing is written.
+    expect(statements.map((statement) => statement.sql)).toEqual([
+      expect.stringContaining("FROM agent_execution_leases"),
+      expect.stringContaining("lease_expires_at >= updated_at"),
+    ]);
     expect(emitMock).not.toHaveBeenCalled();
   });
 

@@ -244,3 +244,11 @@ describe("uploadRecordingMedia", () => {
     expect(mocks.hostedUpload).not.toHaveBeenCalled();
   });
 });
+vi.mock("./recording-media-lifecycle.js", () => ({
+  beginMediaProduction: vi.fn(async () => "fake-producer"),
+  finishMediaProduction: vi.fn(async () => undefined),
+  withRecordingMediaProduction: async (
+    _input: unknown,
+    produce: () => Promise<unknown>,
+  ) => produce(),
+}));

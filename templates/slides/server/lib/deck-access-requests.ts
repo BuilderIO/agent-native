@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 
 import { eq } from "drizzle-orm";
 
+import {
+  DECK_ACCESS_REQUEST_ROLES,
+  type DeckAccessRequestRole,
+} from "../../shared/deck-access.js";
 import { schema, type getDb } from "../db/index.js";
 
 export const DECK_ACCESS_REQUESTED_EVENT = "deck.access_requested";
@@ -12,9 +16,11 @@ export type AccessRequestPayload = {
   requesterName?: string;
   requestedAt?: string;
   note?: string;
+  requestedRole?: DeckAccessRequestRole;
   approvalTokenHash?: string;
   accessGrantedAt?: string;
   accessShareId?: string;
+  grantedRole?: DeckAccessRequestRole;
   notifiedOwner?: boolean;
   notifiedAt?: string;
   inAppNotified?: boolean;
@@ -54,6 +60,19 @@ export function parseAccessRequestPayload(
     // coercion-ok: malformed historical event payload cannot represent a matching requester.
     return null;
   }
+}
+
+/**
+ * The role a request asked for. Requests recorded before requests carried a
+ * role could only ever be granted view access, so they read as `viewer`.
+ */
+export function requestedRoleOf(
+  payload: AccessRequestPayload,
+): DeckAccessRequestRole {
+  const role = payload.requestedRole;
+  return role && (DECK_ACCESS_REQUEST_ROLES as readonly string[]).includes(role)
+    ? role
+    : "viewer";
 }
 
 /**

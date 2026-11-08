@@ -8,6 +8,7 @@ import type {
   AgentLoopOutcome,
   AgentLoopUsage,
 } from "../agent/production-agent.js";
+import { IncompleteAgentRunError } from "../agent/run-errors.js";
 import { isToolDoneFailure } from "../agent/tool-done-error.js";
 import type { AgentChatEvent, AgentToolInput } from "../agent/types.js";
 import { captureError } from "../server/capture-error.js";
@@ -295,7 +296,37 @@ type GenerationToolCall = {
     | null;
   /** What the call did: nothing, a write, or possibly a write. */
   outcome: "no_side_effect" | "unknown" | "completed";
+  /** Failing argument paths of an `input_invalid` call; absent otherwise. */
+  invalid_paths?: string[];
 };
+
+type ToolCallTracking = Pick<
+  GenerationToolCall,
+  "error_class" | "outcome" | "invalid_paths"
+>;
+
+/** Failure class, effect and failing fields of one tool call, for tools[] and its tool span. */
+function toolCallTracking(
+  event: Extract<AgentChatEvent, { type: "tool_done" }>,
+  isError: boolean,
+): ToolCallTracking {
+  const explicitError = event.isError === true;
+  return {
+    error_class: !isError
+      ? null
+      : explicitError
+        ? (event.errorClass ?? "tool_error")
+        : "legacy_inferred_error",
+    outcome: event.outcomeUnknown
+      ? "unknown"
+      : event.completedSideEffect === true
+        ? "completed"
+        : "no_side_effect",
+    ...(event.invalidPaths?.length
+      ? { invalid_paths: event.invalidPaths }
+      : {}),
+  };
+}
 
 function prepareCapturedModelInput(messages: unknown): unknown {
   return redactSensitiveFields(toPostHogMessages(messages));
@@ -359,6 +390,10 @@ function emitLlmGenerationTrackingEvent(args: {
     experimentId: string;
     variantId: string;
   }>;
+  singularExperimentAssignment?: {
+    experimentId: string;
+    variantId: string;
+  };
   modelSelectionSource?: string;
   aiInput?: unknown;
   aiOutputChoices?: unknown;
@@ -474,7 +509,10 @@ function emitLlmGenerationTrackingEvent(args: {
     properties.experiment_variants = args.experimentAssignments
       .map((assignment) => assignment.variantId)
       .join(",");
-    const singular = singleNonHostedAssignment(args.experimentAssignments);
+    const singular = singleNonHostedAssignment(
+      args.experimentAssignments,
+      args.singularExperimentAssignment,
+    );
     if (singular) {
       properties.experiment_id = singular.experimentId;
       properties.experiment_variant = singular.variantId;
@@ -581,6 +619,7 @@ export async function instrumentAgentLoop(opts: {
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
     onModelInput?: (messages: readonly unknown[]) => void | Promise<void>;
+    onModelDispatchStarted?: () => void;
     onUsage?: (usage: AgentLoopUsage) => void;
     onOutcome?: (outcome: AgentLoopOutcome) => void;
     providerOptions?: any;
@@ -596,10 +635,12 @@ export async function instrumentAgentLoop(opts: {
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
     onModelInput?: (messages: readonly unknown[]) => void | Promise<void>;
+    onModelDispatchStarted?: () => void;
     onUsage?: (usage: AgentLoopUsage) => void;
     onOutcome?: (outcome: AgentLoopOutcome) => void;
     providerOptions?: any;
     runId?: string;
+    historyPrivacyState?: { private: boolean };
   };
   runId: string;
   threadId: string | null;
@@ -613,6 +654,10 @@ export async function instrumentAgentLoop(opts: {
     experimentId: string;
     variantId: string;
   }>;
+  singularExperimentAssignment?: {
+    experimentId: string;
+    variantId: string;
+  };
   modelSelectionSource?: string;
   delegation?: {
     protocol: "a2a" | "mcp" | "agent-team";
@@ -662,6 +707,10 @@ export async function instrumentAgentLoop(opts: {
 
   const browserSessionId =
     opts.browserSessionId ?? getRequestContext()?.browserSessionId;
+  const singularExperimentAssignment = singleNonHostedAssignment(
+    opts.experimentAssignments,
+    opts.singularExperimentAssignment,
+  );
 
   const otelRunSpanPromise = startAgentSpan("invoke_agent", {
     "gen_ai.operation.name": "invoke_agent",
@@ -671,11 +720,8 @@ export async function instrumentAgentLoop(opts: {
     "agent.run_id": runId,
     "agent.user_id": userId ?? undefined,
     "agent.model_selection_source": opts.modelSelectionSource,
-    "agent.experiment_id": singleNonHostedAssignment(opts.experimentAssignments)
-      ?.experimentId,
-    "agent.experiment_variant": singleNonHostedAssignment(
-      opts.experimentAssignments,
-    )?.variantId,
+    "agent.experiment_id": singularExperimentAssignment?.experimentId,
+    "agent.experiment_variant": singularExperimentAssignment?.variantId,
     "agent.hosted_model_experiment_variant": hostedModelExperimentVariant(
       opts.experimentAssignments,
     ),
@@ -710,6 +756,7 @@ export async function instrumentAgentLoop(opts: {
     spanId: string;
     start: number;
     end: number;
+    dispatchStarted: boolean;
     usage?: AgentLoopUsage;
     stopReason?: string;
     errorCode?: string;
@@ -717,9 +764,22 @@ export async function instrumentAgentLoop(opts: {
     input?: unknown[];
     assistantText: BoundedAssistantText;
   }> = [];
+  let modelDispatchCount = 0;
+  let pendingModelInputDispatched = false;
+  const privateModelRoundTrips = new Set<number>();
+  let privateTurn = loopOpts.historyPrivacyState?.private === true;
   const currentRoundTrip = () => modelRoundTrips[modelRoundTrips.length - 1];
+  const inferModelDispatchFromOutput = () => {
+    if (pendingModelInputDispatched) return;
+    if (pendingModelInputStartedAt === undefined && modelDispatchCount > 0) {
+      return;
+    }
+    modelDispatchCount += 1;
+    pendingModelInputDispatched = true;
+  };
   let pendingModelInput: unknown[] | undefined;
   let pendingModelInputStartedAt: number | undefined;
+  let pendingModelInputOmitted = false;
   type CostCalculator = (
     inputTokens: number,
     outputTokens: number,
@@ -835,10 +895,12 @@ export async function instrumentAgentLoop(opts: {
     errorMessage: string,
   ): void => {
     const tripIndex = modelRoundTrips.length;
+    if (privateTurn) privateModelRoundTrips.add(tripIndex);
     modelRoundTrips.push({
       spanId: spanId(),
       start,
       end,
+      dispatchStarted: true,
       stopReason: "error",
       errorMessage,
       ...(input !== undefined ? { input } : {}),
@@ -890,6 +952,7 @@ export async function instrumentAgentLoop(opts: {
   const toolSpanRoundTrip = new Map<string, number>();
   const toolCounterRoundTrip = new Map<number, number>();
   const toolSpanErrorClass = new Map<string, string>();
+  const toolSpanTracking = new Map<string, ToolCallTracking>();
   const toolSpanCallId = new Map<string, string>();
 
   const openOtelToolSpans = new Set<AgentSpan>();
@@ -903,7 +966,25 @@ export async function instrumentAgentLoop(opts: {
   let cutOffReason: string | null = null;
 
   const instrumentedOutcome = (outcome: AgentLoopOutcome): void => {
-    terminalOutcome = outcome;
+    const safeOutcome: AgentLoopOutcome = !privateTurn
+      ? outcome
+      : outcome.state === "completed"
+        ? outcome
+        : outcome.state === "canceled"
+          ? { state: "canceled", message: "Private content omitted" }
+          : outcome.state === "input_required"
+            ? {
+                state: "input_required",
+                code: "private_content_omitted",
+                message: "Private content omitted",
+              }
+            : {
+                state: "failed",
+                code: "private_content_omitted",
+                retryable: false,
+                message: "Private content omitted",
+              };
+    terminalOutcome = safeOutcome;
     if (outcome.state === "completed" || outcome.state === "input_required") {
       // A stop that waits on the user is a pause, not a failure; `paused` is
       // derived from the outcome at finalization. An error event that arrives
@@ -912,25 +993,29 @@ export async function instrumentAgentLoop(opts: {
       errorMessage = null;
     } else {
       runStatus = "error";
-      errorMessage = redactCapturedError(
-        outcome.state === "canceled"
-          ? (outcome.message ?? "Agent run was canceled.")
-          : outcome.message,
-      );
+      errorMessage = privateTurn
+        ? "Private content omitted"
+        : redactCapturedError(
+            outcome.state === "canceled"
+              ? (outcome.message ?? "Agent run was canceled.")
+              : outcome.message,
+          );
     }
     runMetadata = {
       ...(runMetadata ?? {}),
       terminal_state: outcome.state,
-      ...("code" in outcome ? { terminal_code: outcome.code } : {}),
-      ...(outcome.state === "input_required"
+      ...(!privateTurn && "code" in outcome
+        ? { terminal_code: outcome.code }
+        : {}),
+      ...(!privateTurn && outcome.state === "input_required"
         ? { terminal_message: redactCapturedError(outcome.message) }
         : {}),
-      ...(outcome.state === "failed"
+      ...(!privateTurn && outcome.state === "failed"
         ? { terminal_retryable: outcome.retryable }
         : {}),
     };
     try {
-      loopOpts.onOutcome?.(outcome);
+      loopOpts.onOutcome?.(safeOutcome);
     } catch {
       // Observability adapters cannot alter the agent run.
     }
@@ -938,7 +1023,20 @@ export async function instrumentAgentLoop(opts: {
 
   const instrumentedSend = (event: AgentChatEvent): void => {
     try {
-      if (config.capturePrompts && event.type === "text") {
+      if (event.type === "text" || event.type === "tool_start") {
+        inferModelDispatchFromOutput();
+      }
+      const omitEventContent =
+        privateTurn || event.omitFromPersistedHistory === true;
+      if (omitEventContent) {
+        const currentIndex = modelRoundTrips.length - 1;
+        if (currentIndex >= 0) privateModelRoundTrips.add(currentIndex);
+        privateTurn = true;
+        if (event.omitFromPersistedHistory !== true) {
+          event = { ...event, omitFromPersistedHistory: true };
+        }
+      }
+      if (config.capturePrompts && event.type === "text" && !omitEventContent) {
         appendBoundedAssistantText(assistantTextCapture, event.text);
         const roundTrip = currentRoundTrip();
         if (roundTrip) {
@@ -953,20 +1051,28 @@ export async function instrumentAgentLoop(opts: {
         cutOffReason = null;
       } else if (event.type === "auto_continue") {
         const reason = event.reason || "auto_continue";
-        cutOffReason = reason;
-        if (!EXPECTED_CONTINUATION_REASONS.has(reason)) {
+        const expected = EXPECTED_CONTINUATION_REASONS.has(reason);
+        cutOffReason =
+          privateTurn && !expected ? "private_content_omitted" : reason;
+        if (!expected) {
           runStatus = "error";
-          errorMessage = redactCapturedError(
-            `Agent run was cut off before finishing (${reason}).`,
-          );
+          errorMessage = privateTurn
+            ? "Private content omitted"
+            : redactCapturedError(
+                `Agent run was cut off before finishing (${reason}).`,
+              );
         }
       } else if (event.type === "error") {
         runStatus = "error";
-        errorMessage = redactCapturedError(event.error);
-        errorCode = event.errorCode;
+        errorMessage = omitEventContent
+          ? "Private content omitted"
+          : redactCapturedError(event.error);
+        errorCode = omitEventContent ? undefined : event.errorCode;
       } else if (event.type === "tripwire") {
         runStatus = "error";
-        errorMessage = redactCapturedError(event.reason);
+        errorMessage = omitEventContent
+          ? "Private content omitted"
+          : redactCapturedError(event.reason);
       } else if (event.type === "loop_limit") {
         runStatus = "error";
         errorMessage = "Agent stopped at the loop limit";
@@ -984,11 +1090,19 @@ export async function instrumentAgentLoop(opts: {
               spanId: spanId(),
               start: modelStreamOpenedAt,
               end: modelStreamOpenedAt,
+              dispatchStarted: true,
               ...(pendingModelInput ? { input: pendingModelInput } : {}),
               assistantText: createBoundedAssistantText(),
             });
+            if (!pendingModelInputDispatched) modelDispatchCount += 1;
             pendingModelInput = undefined;
             pendingModelInputStartedAt = undefined;
+            pendingModelInputDispatched = true;
+            const currentIndex = modelRoundTrips.length - 1;
+            if (pendingModelInputOmitted) {
+              privateModelRoundTrips.add(currentIndex);
+            }
+            pendingModelInputOmitted = false;
             startOtelModelSpan(tripIndex);
           }
         } else if (modelStreamOpenedAt !== null) {
@@ -999,12 +1113,15 @@ export async function instrumentAgentLoop(opts: {
           if (trip) {
             trip.end = end;
             if (event.reason) trip.stopReason = event.reason;
-            if (event.errorCode) trip.errorCode = event.errorCode;
+            if (event.errorCode && !omitEventContent) {
+              trip.errorCode = event.errorCode;
+            }
           }
           if (event.reason === undefined || event.reason === "error") {
             modelSpansAwaitingFinalError.add(tripIndex);
           }
           modelStreamOpenedAt = null;
+          pendingModelInputDispatched = false;
         }
       }
 
@@ -1031,7 +1148,7 @@ export async function instrumentAgentLoop(opts: {
           ...(event.id ? { callId: event.id } : {}),
           startMs: Date.now(),
           toolName: event.tool,
-          input: event.input,
+          input: event.omitFromPersistedHistory === true ? {} : event.input,
           otelSpan: null,
         };
         pendingTools.set(counter, entry);
@@ -1102,13 +1219,19 @@ export async function instrumentAgentLoop(opts: {
 
         // Local spans keep the error text; tracking keeps only its class.
         const toolErrorMessage =
-          isError && config.captureToolResults
+          isError &&
+          config.captureToolResults &&
+          event.omitFromPersistedHistory !== true
             ? sanitizeToolErrorMessage(event.result)
             : null;
         const persistedErrorMessage = isError
-          ? (toolErrorMessage ?? toolErrorSignature(event.result))
+          ? event.omitFromPersistedHistory === true
+            ? null
+            : (toolErrorMessage ?? toolErrorSignature(event.result))
           : null;
 
+        const tracking = toolCallTracking(event, isError);
+        if (privateTurn) delete tracking.invalid_paths;
         if (
           counter !== undefined &&
           counter < MAX_TRACKED_GENERATION_TOOL_CALLS &&
@@ -1119,16 +1242,7 @@ export async function instrumentAgentLoop(opts: {
             started_offset_ms: Math.max(0, pending.startMs - runStart),
             duration_ms: Math.max(0, finishedAt - pending.startMs),
             status: isError ? "error" : "success",
-            error_class: !isError
-              ? null
-              : explicitError
-                ? (event.errorClass ?? "tool_error")
-                : "legacy_inferred_error",
-            outcome: event.outcomeUnknown
-              ? "unknown"
-              : event.completedSideEffect === true
-                ? "completed"
-                : "no_side_effect",
+            ...tracking,
           });
         }
 
@@ -1157,12 +1271,17 @@ export async function instrumentAgentLoop(opts: {
         }
 
         const spanMetadataFields: Record<string, unknown> = {};
-        if (config.captureToolArgs && pending) {
+        if (
+          config.captureToolArgs &&
+          pending &&
+          event.omitFromPersistedHistory !== true
+        ) {
           spanMetadataFields.input = redactSensitiveFields(pending.input);
         }
         if (
           !isError &&
           config.captureToolResults &&
+          event.omitFromPersistedHistory !== true &&
           typeof event.result === "string"
         ) {
           spanMetadataFields.output = sanitizeToolErrorMessage(event.result);
@@ -1184,6 +1303,7 @@ export async function instrumentAgentLoop(opts: {
             explicitError ? "tool_error" : "legacy_inferred_error",
           );
         }
+        toolSpanTracking.set(toolSpanId, tracking);
         const span: TraceSpan = {
           id: toolSpanId,
           runId,
@@ -1224,7 +1344,10 @@ export async function instrumentAgentLoop(opts: {
         onOutcome: instrumentedOutcome,
         onModelInput: (messages: readonly unknown[]) => {
           const attemptStartedAt = Date.now();
-          if (pendingModelInputStartedAt !== undefined) {
+          if (
+            pendingModelInputStartedAt !== undefined &&
+            pendingModelInputDispatched
+          ) {
             recordPreStreamModelFailure(
               pendingModelInputStartedAt,
               attemptStartedAt,
@@ -1232,16 +1355,30 @@ export async function instrumentAgentLoop(opts: {
               "Model attempt failed before streaming and was retried.",
             );
           }
-          const capturedMessages = config.capturePrompts
-            ? prepareCapturedModelInput(messages)
-            : undefined;
+          const capturedMessages =
+            config.capturePrompts && !privateTurn
+              ? prepareCapturedModelInput(messages)
+              : undefined;
           pendingModelInput = Array.isArray(capturedMessages)
             ? capturedMessages
             : undefined;
+          pendingModelInputOmitted = privateTurn;
           pendingModelInputStartedAt = attemptStartedAt;
+          pendingModelInputDispatched = false;
           return loopOpts.onModelInput?.(messages);
         },
+        onModelDispatchStarted: () => {
+          modelDispatchCount += 1;
+          pendingModelInputDispatched = true;
+          try {
+            loopOpts.onModelDispatchStarted?.();
+          } catch {
+            // coercion-ok: telemetry observers cannot change model dispatch.
+            // A telemetry observer cannot alter whether a model request runs.
+          }
+        },
         onUsage: (callUsage: AgentLoopUsage) => {
+          inferModelDispatchFromOutput();
           const trip = currentRoundTrip();
           if (trip) trip.usage = callUsage;
           loopOpts.onUsage?.(callUsage);
@@ -1249,24 +1386,34 @@ export async function instrumentAgentLoop(opts: {
       }),
     );
   } catch (err: any) {
+    if (err instanceof IncompleteAgentRunError) usage = err.usage;
     const classification = opts.classifyError?.(err) ?? null;
     runStatus = classification?.status ?? "error";
-    errorMessage = redactCapturedError(
-      classification?.errorMessage === undefined
-        ? (err?.message ?? String(err))
-        : classification.errorMessage,
-    );
+    errorMessage = privateTurn
+      ? "Private content omitted"
+      : redactCapturedError(
+          classification?.errorMessage === undefined
+            ? (err?.message ?? String(err))
+            : classification.errorMessage,
+        );
     errorHttpStatus = httpStatusFromError(err);
-    errorCode = typeof err?.errorCode === "string" ? err.errorCode : undefined;
+    errorCode =
+      !privateTurn && typeof err?.errorCode === "string"
+        ? err.errorCode
+        : undefined;
     const errorMetadata = classification?.metadata ?? null;
     runMetadata =
-      runMetadata || errorMetadata
+      !privateTurn && (runMetadata || errorMetadata)
         ? { ...(runMetadata ?? {}), ...(errorMetadata ?? {}) }
         : null;
     throw err;
   } finally {
     try {
       const runEnd = Date.now();
+      modelDispatchCount = Math.max(
+        modelDispatchCount,
+        usage?.llmCalls ?? (usage?.usageReported === true ? 1 : 0),
+      );
       const totalDurationMs = runEnd - runStart;
 
       const failedInsideModelCall = modelStreamOpenedAt !== null;
@@ -1287,7 +1434,9 @@ export async function instrumentAgentLoop(opts: {
       }
       finishAwaitingOtelModelSpans(errorMessage);
       const pendingModelCallFailed =
-        runStatus === "error" && pendingModelInputStartedAt !== undefined;
+        runStatus === "error" &&
+        pendingModelInputStartedAt !== undefined &&
+        pendingModelInputDispatched;
       if (pendingModelCallFailed) {
         recordPreStreamModelFailure(
           pendingModelInputStartedAt!,
@@ -1297,6 +1446,7 @@ export async function instrumentAgentLoop(opts: {
         );
         pendingModelInput = undefined;
         pendingModelInputStartedAt = undefined;
+        pendingModelInputDispatched = false;
       }
       const measuredModelDurationMs = modelStreamIntervals.length
         ? coveredDurationMs(modelStreamIntervals)
@@ -1315,6 +1465,11 @@ export async function instrumentAgentLoop(opts: {
             ? interruptedMessage
             : null;
           toolSpanErrorClass.set(pending.spanId, "interrupted");
+          const interruptedTracking: ToolCallTracking = {
+            error_class: "interrupted",
+            outcome: "unknown",
+          };
+          toolSpanTracking.set(pending.spanId, interruptedTracking);
           recordAgentToolCall({
             toolName: pending.toolName,
             errorType: "interrupted",
@@ -1325,8 +1480,7 @@ export async function instrumentAgentLoop(opts: {
               started_offset_ms: Math.max(0, pending.startMs - runStart),
               duration_ms: Math.max(0, runEnd - pending.startMs),
               status: "error",
-              error_class: "interrupted",
-              outcome: "unknown",
+              ...interruptedTracking,
             });
           }
           if (pending.otelSpan) {
@@ -1345,7 +1499,7 @@ export async function instrumentAgentLoop(opts: {
           const interruptedMetadata: Record<string, unknown> = {
             [TOOL_ERROR_DETAIL_METADATA_KEY]: "full",
           };
-          if (config.captureToolArgs) {
+          if (config.captureToolArgs && !privateTurn) {
             interruptedMetadata.input = redactSensitiveFields(pending.input);
           }
           spans.push({
@@ -1423,13 +1577,14 @@ export async function instrumentAgentLoop(opts: {
       const modelCallFailed =
         failedInsideModelCall ||
         pendingModelCallFailed ||
-        (modelRoundTrips.length === 0 &&
+        (modelDispatchCount > 0 &&
+          modelRoundTrips.length === 0 &&
           cutOffReason === null &&
           reportedToolFailures === 0);
 
       let llmCallCount = 0;
       if (usage || runStatus === "error") {
-        llmCallCount = usage?.llmCalls ?? Math.max(1, modelRoundTrips.length);
+        llmCallCount = usage?.llmCalls ?? modelDispatchCount;
         const runUsage = usage ?? {
           inputTokens: 0,
           outputTokens: 0,
@@ -1451,59 +1606,88 @@ export async function instrumentAgentLoop(opts: {
               coveredDurationMs(spanIntervals(emittedToolSpans)),
           );
 
+        const dispatchedRoundTrips = modelRoundTrips
+          .map((trip, index) => ({ trip, index }))
+          .filter(({ trip }) => trip.dispatchStarted);
         const generations =
-          modelRoundTrips.length > 0
-            ? modelRoundTrips.map((trip, index) => ({
-                spanId: trip.spanId,
-                model: trip.usage?.model ?? runUsage.model,
-                createdAt: trip.start,
-                endedAt: trip.end,
-                latencyMs: Math.max(0, trip.end - trip.start),
-                callUsage: trip.usage,
-                stopReason: trip.stopReason,
-                errorMessage: trip.errorMessage,
-                tokensKnown: trip.usage !== undefined,
-                input: trip.input,
-                assistantText: trip.assistantText.parts.join(""),
-                assistantTextTruncated: trip.assistantText.truncated,
-                toolSpans: collectedToolSpans.filter(
-                  (span) => toolSpanRoundTrip.get(span.id) === index,
-                ),
-                toolDetails: [...generationToolCalls.entries()]
-                  .filter(
-                    ([counter]) => toolCounterRoundTrip.get(counter) === index,
-                  )
-                  .sort(([a], [b]) => a - b)
-                  .map(([, detail]) => detail),
-                isFirst: index === 0,
-                isLast: index === modelRoundTrips.length - 1,
-              }))
-            : [
-                {
-                  spanId: spanId(),
-                  model: runUsage.model,
-                  createdAt: runStart,
-                  endedAt: runStart + derivedLlmDurationMs,
-                  latencyMs: derivedLlmDurationMs,
-                  callUsage: usage,
-                  stopReason: undefined as string | undefined,
-                  tokensKnown: usageReported,
-                  input:
-                    pendingModelInput ??
-                    (config.capturePrompts
-                      ? prepareCapturedModelInput(requestMessages)
-                      : requestMessages),
-                  assistantText: assistantTextCapture.parts.join(""),
-                  assistantTextTruncated: assistantTextCapture.truncated,
-                  errorMessage: undefined,
-                  toolSpans: collectedToolSpans,
-                  toolDetails: [...generationToolCalls.entries()]
-                    .sort(([a], [b]) => a - b)
-                    .map(([, detail]) => detail),
-                  isFirst: true,
-                  isLast: true,
-                },
-              ];
+          dispatchedRoundTrips.length > 0
+            ? dispatchedRoundTrips.map(({ trip, index }, generationIndex) => {
+                const omitContent =
+                  privateModelRoundTrips.has(index) ||
+                  (privateTurn &&
+                    generationIndex === dispatchedRoundTrips.length - 1);
+                return {
+                  spanId: trip.spanId,
+                  model: trip.usage?.model ?? runUsage.model,
+                  createdAt: trip.start,
+                  endedAt: trip.end,
+                  latencyMs: Math.max(0, trip.end - trip.start),
+                  callUsage: trip.usage,
+                  stopReason: trip.stopReason,
+                  errorMessage: omitContent ? null : trip.errorMessage,
+                  tokensKnown: trip.usage !== undefined,
+                  input: omitContent ? undefined : trip.input,
+                  assistantText: omitContent
+                    ? ""
+                    : trip.assistantText.parts.join(""),
+                  assistantTextTruncated: omitContent
+                    ? false
+                    : trip.assistantText.truncated,
+                  toolSpans: omitContent
+                    ? []
+                    : collectedToolSpans.filter(
+                        (span) => toolSpanRoundTrip.get(span.id) === index,
+                      ),
+                  toolDetails: omitContent
+                    ? []
+                    : [...generationToolCalls.entries()]
+                        .filter(
+                          ([counter]) =>
+                            toolCounterRoundTrip.get(counter) === index,
+                        )
+                        .sort(([a], [b]) => a - b)
+                        .map(([, detail]) => detail),
+                  privateContentOmitted: omitContent,
+                  isFirst: generationIndex === 0,
+                  isLast: generationIndex === dispatchedRoundTrips.length - 1,
+                };
+              })
+            : modelDispatchCount > 0
+              ? [
+                  {
+                    spanId: spanId(),
+                    model: runUsage.model,
+                    createdAt: runStart,
+                    endedAt: runStart + derivedLlmDurationMs,
+                    latencyMs: derivedLlmDurationMs,
+                    callUsage: usage,
+                    stopReason: undefined as string | undefined,
+                    tokensKnown: usageReported,
+                    input: privateTurn
+                      ? undefined
+                      : (pendingModelInput ??
+                        (config.capturePrompts
+                          ? prepareCapturedModelInput(requestMessages)
+                          : requestMessages)),
+                    assistantText: privateTurn
+                      ? ""
+                      : assistantTextCapture.parts.join(""),
+                    assistantTextTruncated: privateTurn
+                      ? false
+                      : assistantTextCapture.truncated,
+                    errorMessage: undefined,
+                    toolSpans: privateTurn ? [] : collectedToolSpans,
+                    toolDetails: privateTurn
+                      ? []
+                      : [...generationToolCalls.entries()]
+                          .sort(([a], [b]) => a - b)
+                          .map(([, detail]) => detail),
+                    privateContentOmitted: privateTurn,
+                    isFirst: true,
+                    isLast: true,
+                  },
+                ]
+              : [];
 
         for (const generation of generations) {
           const callUsage = generation.callUsage;
@@ -1539,15 +1723,17 @@ export async function instrumentAgentLoop(opts: {
             generation.stopReason === "max_tokens" ||
             (generationStatus === "error" &&
               generation.assistantText.length > 0);
-          const generationContent = buildGenerationContent({
-            config,
-            messages: generation.input,
-            assistantText: generation.assistantText,
-            assistantTextTruncated:
-              generation.assistantTextTruncated || assistantTextIncomplete,
-            toolSpans: generation.toolSpans,
-            toolCallIds: toolSpanCallId,
-          });
+          const generationContent = generation.privateContentOmitted
+            ? {}
+            : buildGenerationContent({
+                config,
+                messages: generation.input,
+                assistantText: generation.assistantText,
+                assistantTextTruncated:
+                  generation.assistantTextTruncated || assistantTextIncomplete,
+                toolSpans: generation.toolSpans,
+                toolCallIds: toolSpanCallId,
+              });
           const capturedContent = config.capturePrompts
             ? {
                 ...(generationContent.aiInput !== undefined
@@ -1640,6 +1826,7 @@ export async function instrumentAgentLoop(opts: {
             createdAt: generation.createdAt,
             endedAt: generation.endedAt,
             experimentAssignments: opts.experimentAssignments,
+            singularExperimentAssignment: opts.singularExperimentAssignment,
             modelSelectionSource: opts.modelSelectionSource,
             browserSessionId,
             ...generationContent,
@@ -1738,7 +1925,7 @@ export async function instrumentAgentLoop(opts: {
             run_id: runId,
             thread_id: threadId,
             turn_id: turnId,
-            llm_calls: llmCallCount || undefined,
+            llm_calls: llmCallCount,
             follow_up_ms: usage?.followUpMs,
             follow_up_input_tokens: usage?.followUpInputTokens,
             receipt_unverified_count: usage?.receiptUnverifiedCount,
@@ -1804,6 +1991,7 @@ export async function instrumentAgentLoop(opts: {
               ...trackingIdentityProperties(),
               source: "agent_observability",
               span_type: "tool_call",
+              ...toolSpanTracking.get(span.id),
             },
           });
         }
@@ -1904,7 +2092,7 @@ export async function instrumentAgentLoop(opts: {
         await Promise.all(
           [...pendingOtelModelSpans.values()].map((entry) => entry.spanPromise),
         );
-        if (usage && modelRoundTrips.length === 0) {
+        if (usage && modelRoundTrips.length === 0 && modelDispatchCount > 0) {
           const aggregateLlmSpan = await withAgentSpanContext(otelRunSpan, () =>
             startAgentSpan(
               `chat ${loopOpts.model}`,

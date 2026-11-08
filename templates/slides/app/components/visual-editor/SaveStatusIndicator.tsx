@@ -2,6 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCloudOff,
   IconDownload,
+  IconLoader2,
   IconRepeat,
   IconRefresh,
   IconUpload,
@@ -11,18 +12,17 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import type { DeckSaveError } from "@/context/DeckContext";
+  useDeckContentConflicts,
+  useDeckFieldConflicts,
+  type DeckSaveError,
+} from "@/context/DeckContext";
 import { isDeckAccessLostStatus } from "@/lib/deck-access-lost";
 import { cn } from "@/lib/utils";
 
-export type ConflictChoice = "keep-mine" | "use-latest";
+import {
+  ConflictReviewDialog,
+  type ReviewableConflict,
+} from "./ConflictReviewDialog";
 
 interface SaveStatusIndicatorProps {
   saving: boolean;
@@ -30,8 +30,8 @@ interface SaveStatusIndicatorProps {
   saveFailed?: boolean;
   saveError?: Pick<DeckSaveError, "status" | "errorCode" | "retryable">;
   offline?: boolean;
-  conflict?: { slideNumber: number; canResolve: boolean };
-  onResolveConflict?: (choice: ConflictChoice) => Promise<void>;
+  /** The deck whose slide conflicts this indicator reviews. */
+  deckId: string;
   onRetrySave?: () => Promise<void>;
   onReload?: () => void;
   onDownloadBackup?: () => void;
@@ -40,13 +40,12 @@ interface SaveStatusIndicatorProps {
 }
 
 export function SaveStatusIndicator({
-  saving: _saving,
+  saving,
   hasUnsavedChanges = false,
   saveFailed = false,
   saveError,
   offline,
-  conflict,
-  onResolveConflict,
+  deckId,
   onRetrySave,
   onReload,
   onDownloadBackup,
@@ -55,25 +54,22 @@ export function SaveStatusIndicator({
 }: SaveStatusIndicatorProps) {
   const t = useT();
   const [conflictOpen, setConflictOpen] = useState(false);
-  const [resolvingTextConflict, setResolvingTextConflict] = useState(false);
-  const [conflictError, setConflictError] = useState(false);
   const [retryingSave, setRetryingSave] = useState(false);
-  const showWarning =
-    Boolean(conflict) || saveFailed || (offline && hasUnsavedChanges);
-
-  const resolveTextConflict = async (choice: ConflictChoice) => {
-    if (!onResolveConflict || !conflict?.canResolve || resolvingTextConflict)
-      return;
-    setResolvingTextConflict(true);
-    setConflictError(false);
-    try {
-      await onResolveConflict(choice);
-      setConflictOpen(false);
-    } catch {
-      setConflictError(true);
-    } finally {
-      setResolvingTextConflict(false);
-    }
+  const contentConflict = useDeckContentConflicts(deckId).at(0);
+  const fieldConflict = useDeckFieldConflicts(deckId).at(0);
+  const conflict = Boolean(contentConflict || fieldConflict);
+  const review: ReviewableConflict | undefined = contentConflict?.canResolve
+    ? { kind: "content", conflict: contentConflict }
+    : !contentConflict && fieldConflict
+      ? { kind: "field", conflict: fieldConflict }
+      : undefined;
+  const showWarning = conflict || saveFailed || (offline && hasUnsavedChanges);
+  // A field conflict leaves the local draft unsaved, so it reads as a save
+  // failure with the same next step as a content conflict.
+  const plainErrorDetails: Partial<Record<string, string>> = {
+    deck_revision_conflict: t("editorToolbar.saveErrorDeckChanged"),
+    slide_content_conflict: t("editorToolbar.saveErrorSlidesChanged"),
+    slide_field_conflict: t("editorToolbar.saveErrorSlidesChanged"),
   };
 
   const retrySave = async () => {
@@ -89,11 +85,16 @@ export function SaveStatusIndicator({
   };
 
   if (showWarning) {
-    const errorDetail = saveError?.errorCode
-      ? `${saveError.status ? `${saveError.status} · ` : ""}${saveError.errorCode}`
-      : saveError?.status
-        ? `HTTP ${saveError.status}`
-        : undefined;
+    const plainErrorDetail = saveError?.errorCode
+      ? plainErrorDetails[saveError.errorCode]
+      : undefined;
+    const errorDetail =
+      plainErrorDetail ??
+      (saveError?.errorCode
+        ? `${saveError.status ? `${saveError.status} · ` : ""}${saveError.errorCode}`
+        : saveError?.status
+          ? `HTTP ${saveError.status}`
+          : undefined);
     const accessLost =
       !conflict && saveFailed && isDeckAccessLostStatus(saveError?.status);
     const label = conflict
@@ -136,15 +137,18 @@ export function SaveStatusIndicator({
         >
           <IconCloudOff className="size-3.5 shrink-0" aria-hidden="true" />
           <span className="hidden max-w-28 truncate lg:inline">{label}</span>
-          {saveFailed && errorDetail && (
+          {!conflict && saveFailed && errorDetail && (
             <span
-              className="sr-only font-mono text-[10px] lg:not-sr-only lg:max-w-40 lg:truncate"
+              className={cn(
+                "sr-only text-[10px] lg:not-sr-only lg:max-w-40 lg:truncate",
+                !plainErrorDetail && "font-mono",
+              )}
               title={errorDetail}
             >
               {errorDetail}
             </span>
           )}
-          {saveFailed && saveError?.retryable && onRetrySave && (
+          {!conflict && saveFailed && saveError?.retryable && onRetrySave && (
             <Button
               type="button"
               variant="ghost"
@@ -159,7 +163,7 @@ export function SaveStatusIndicator({
               <span className="hidden 2xl:inline">{t("settings.retry")}</span>
             </Button>
           )}
-          {saveFailed && onReload && (
+          {!conflict && saveFailed && onReload && (
             <Button
               type="button"
               variant="ghost"
@@ -173,38 +177,34 @@ export function SaveStatusIndicator({
               <span className="hidden 2xl:inline">{t("settings.reload")}</span>
             </Button>
           )}
-          {conflict?.canResolve && onResolveConflict && (
+          {review && (
             <Button
               type="button"
               variant="ghost"
               size="sm"
               className="h-6 gap-1 px-1.5 text-[11px] text-inherit hover:bg-destructive/10"
-              onClick={() => {
-                setConflictError(false);
-                setConflictOpen(true);
-              }}
+              onClick={() => setConflictOpen(true)}
               aria-label={t("editorToolbar.reviewConflict")}
             >
               {t("editorToolbar.reviewConflict")}
             </Button>
           )}
-          {onDownloadBackup &&
-            (!conflict?.canResolve || !onResolveConflict) && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-6 gap-1 px-1.5 text-[11px] text-inherit hover:bg-destructive/10"
-                onClick={onDownloadBackup}
-                title={t("editorToolbar.downloadBackup")}
-                aria-label={t("editorToolbar.downloadBackup")}
-              >
-                <IconDownload className="size-3.5" aria-hidden="true" />
-                <span className="hidden 2xl:inline">
-                  {t("editorToolbar.downloadBackup")}
-                </span>
-              </Button>
-            )}
+          {onDownloadBackup && !review && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-1.5 text-[11px] text-inherit hover:bg-destructive/10"
+              onClick={onDownloadBackup}
+              title={t("editorToolbar.downloadBackup")}
+              aria-label={t("editorToolbar.downloadBackup")}
+            >
+              <IconDownload className="size-3.5" aria-hidden="true" />
+              <span className="hidden 2xl:inline">
+                {t("editorToolbar.downloadBackup")}
+              </span>
+            </Button>
+          )}
           {!conflict && onImportBackup && (
             <Button
               type="button"
@@ -222,50 +222,36 @@ export function SaveStatusIndicator({
             </Button>
           )}
         </div>
-        {conflict?.canResolve && onResolveConflict && (
-          <Dialog
+        {review && (
+          <ConflictReviewDialog
+            deckId={deckId}
+            review={review}
             open={conflictOpen}
-            onOpenChange={(open) =>
-              !resolvingTextConflict && setConflictOpen(open)
-            }
-          >
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>
-                  {t("editorToolbar.conflictTitle", {
-                    number: conflict.slideNumber,
-                  })}
-                </DialogTitle>
-                <DialogDescription>
-                  {t("editorToolbar.conflictDescription")}
-                </DialogDescription>
-              </DialogHeader>
-              {conflictError && (
-                <p role="alert" className="text-sm text-destructive">
-                  {t("editorToolbar.conflictResolveFailed")}
-                </p>
-              )}
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={resolvingTextConflict}
-                  onClick={() => void resolveTextConflict("use-latest")}
-                >
-                  {t("editorToolbar.conflictUseLatest")}
-                </Button>
-                <Button
-                  type="button"
-                  disabled={resolvingTextConflict}
-                  onClick={() => void resolveTextConflict("keep-mine")}
-                >
-                  {t("editorToolbar.conflictKeepMine")}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+            onOpenChange={setConflictOpen}
+          />
         )}
       </>
+    );
+  }
+
+  if (saving) {
+    return (
+      <span
+        role="status"
+        data-save-status="saving"
+        className={cn(
+          "flex min-w-0 items-center gap-1 px-1.5 text-[11px] text-muted-foreground",
+          className,
+        )}
+      >
+        <IconLoader2
+          className="size-3.5 shrink-0 animate-spin"
+          aria-hidden="true"
+        />
+        <span className="sr-only lg:not-sr-only">
+          {t("editorToolbar.saving")}
+        </span>
+      </span>
     );
   }
 

@@ -48,11 +48,17 @@ import {
 } from "../server/cookie-namespace.js";
 import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 import {
+  CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SPECULATION_RULES_PATH,
+  DISABLED_SSR_CACHE_HEADERS,
   resolveChunkRecoveryCacheHeaders,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
+  resolveSsrCachePolicy,
+  SSR_CACHEABLE_ERROR_STATUSES,
+  SSR_MAX_AGE_HEADER,
   SSR_QUERY_CACHE_KEY_HEADER,
+  ssrRouteCacheLimits,
 } from "../shared/cache-control.js";
 import {
   EMBED_TARGET_QUERY_PARAM,
@@ -1452,6 +1458,7 @@ export function generateWorkerEntry(
   const chunkRecoveryCacheHeaders =
     resolveChunkRecoveryCacheHeaders(ssrCacheHeaders);
   const ssrCacheKeyHeaders = resolveSsrCacheKeyHeaders();
+  const ssrRouteLimits = ssrRouteCacheLimits(resolveSsrCachePolicy());
   const ssrAuthRedirectCookieName = frameworkSessionHintCookieName(
     resolveAuthCookieNamespace().frameworkCookieName,
   );
@@ -2149,6 +2156,14 @@ function getAppOriginClientConfigScript() {
   const workspaceAppPath =
     workspaceAppMountConfig?.currentPath ??
     (workspaceRuntime ? configuredWorkspaceAppPath : "");
+  const explicitRootPath =
+    workspaceAppMountConfig?.currentPath === "/" ||
+    (typeof appConfig.app.basePath === "string" &&
+      appConfig.app.basePath.trim().length > 0 &&
+      normalizeAppBasePath(appConfig.app.basePath) === "");
+  const frameworkRoutePrefix = (
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX || ""
+  ).trim();
   const config = {
     ...(appConfig.app.id ? { appId: appConfig.app.id } : {}),
     ...(appConfig.app.workspaceId
@@ -2166,6 +2181,8 @@ function getAppOriginClientConfigScript() {
     ...(workspaceAppMountConfig?.paths
       ? { workspaceAppMountPaths: workspaceAppMountConfig.paths }
       : {}),
+    ...(explicitRootPath ? { explicitRootPath: true } : {}),
+    ...(frameworkRoutePrefix ? { frameworkRoutePrefix } : {}),
   };
   const toUnicodeEscape = (character) =>
     String.fromCharCode(92) +
@@ -2198,6 +2215,13 @@ const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
 const CHUNK_RECOVERY_ALIAS_CACHE_HEADERS = ${JSON.stringify(chunkRecoveryCacheHeaders)};
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
 const SSR_QUERY_CACHE_KEY_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_KEY_HEADER)};
+const SSR_MAX_AGE_HEADER = ${JSON.stringify(SSR_MAX_AGE_HEADER)};
+// The longest windows a route's SSR_MAX_AGE_HEADER can ask for; null when the
+// deployment stores nothing.
+const SSR_ROUTE_CACHE_LIMITS = ${JSON.stringify(ssrRouteLimits)};
+const SSR_UNSTORED_CACHE_HEADERS = ${JSON.stringify(DISABLED_SSR_CACHE_HEADERS)};
+const SSR_ROUTE_BROWSER_CACHE_CONTROL = ${JSON.stringify(CHUNK_RECOVERY_BROWSER_CACHE_CONTROL)};
+const SSR_CACHEABLE_ERROR_STATUSES = new Set(${JSON.stringify(SSR_CACHEABLE_ERROR_STATUSES)});
 const CHUNK_RECOVERY_PATH_SUFFIX = ${JSON.stringify(CHUNK_RECOVERY_PATH_SUFFIX)};
 const CHUNK_RECOVERY_QUERY_PARAM = ${JSON.stringify(CHUNK_RECOVERY_QUERY_PARAM)};
 const CHUNK_RECOVERY_QUERY_VALUE = ${JSON.stringify(CHUNK_RECOVERY_QUERY_VALUE)};
@@ -2280,10 +2304,38 @@ function injectDefaultSocialImageMeta(html, imageUrl) {
 }
 
 function isSsrHtmlOrDataResponse(headers, status, pathname) {
-  if (status < 200 || status >= 400) return false;
+  if (status < 200) return false;
+  if (status >= 400 && !SSR_CACHEABLE_ERROR_STATUSES.has(status)) return false;
   const contentType = (headers.get("content-type") || "").toLowerCase();
   if (contentType.includes("text/html")) return true;
   return pathname.endsWith(".data") && contentType.includes("text/x-script");
+}
+
+// Mirror parseSsrMaxAge and ssrCacheHeadersWithin in shared/cache-control.ts;
+// build.spec.ts checks this worker against them.
+function parseSsrMaxAge(raw) {
+  if (raw == null) return null;
+  const value = raw.trim();
+  return /^\\d+$/.test(value) ? Number(value) : 0;
+}
+
+function sharedWithin(window, seconds) {
+  return (
+    "s-maxage=" +
+    Math.min(seconds, window.maxAge) +
+    ", stale-while-revalidate=" +
+    Math.min(seconds, window.stale)
+  );
+}
+
+function ssrCacheHeadersWithin(seconds) {
+  if (!SSR_ROUTE_CACHE_LIMITS || seconds <= 0) return SSR_UNSTORED_CACHE_HEADERS;
+  return {
+    "cache-control": SSR_ROUTE_BROWSER_CACHE_CONTROL,
+    "cdn-cache-control": "public, " + sharedWithin(SSR_ROUTE_CACHE_LIMITS.cdn, seconds),
+    "netlify-cdn-cache-control":
+      "public, durable, " + sharedWithin(SSR_ROUTE_CACHE_LIMITS.netlify, seconds),
+  };
 }
 
 /**
@@ -2297,6 +2349,8 @@ function applyDefaultSsrCacheHeader(headers, status, pathname, isRecoveryAlias =
   const varyByQuery =
     (headers.get(SSR_QUERY_CACHE_KEY_HEADER) || "").trim().toLowerCase() === "query";
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
+  const routeMaxAge = parseSsrMaxAge(headers.get(SSR_MAX_AGE_HEADER));
+  headers.delete(SSR_MAX_AGE_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
   headers.delete("set-cookie");
@@ -2313,7 +2367,9 @@ function applyDefaultSsrCacheHeader(headers, status, pathname, isRecoveryAlias =
     else headers.delete("vary");
   }
 
-  for (const [name, value] of Object.entries(SSR_CACHE_HEADERS)) {
+  const cacheHeaders =
+    routeMaxAge === null ? SSR_CACHE_HEADERS : ssrCacheHeadersWithin(routeMaxAge);
+  for (const [name, value] of Object.entries(cacheHeaders)) {
     headers.set(name, value);
   }
   const netlifyVary = varyByQuery
@@ -2907,6 +2963,7 @@ function patchReactRouterServerManifestSource(
   source: string,
   serverBuildFile: string,
   clientManifest: ReactRouterAssetManifest,
+  unreadable: string[],
 ): string | undefined {
   const regionStart = source.indexOf(
     "//#region \\0virtual:react-router/server-manifest",
@@ -2947,13 +3004,23 @@ function patchReactRouterServerManifestSource(
     /(?:\b[A-Za-z_][\w$]*|\$[\w$]*)\s*=\s*(\{\s*(?:entry|["']entry["'])\s*:)/g;
   for (const match of source.matchAll(assignments)) {
     const valueStart = match.index! + match[0].lastIndexOf("{");
-    const valueEnd = findJavaScriptObjectEnd(source, valueStart);
-    const serverManifest = evaluateReactRouterServerManifest(
-      source,
-      serverBuildFile,
-      valueStart,
-      valueEnd,
-    );
+    let valueEnd: number;
+    let serverManifest: unknown;
+    // Any bundled library can assign an object with an `entry` key, and one
+    // that reads a variable can't be evaluated here. The real manifest is plain
+    // data; if nothing matches, the caller reports what it couldn't read.
+    try {
+      valueEnd = findJavaScriptObjectEnd(source, valueStart);
+      serverManifest = evaluateReactRouterServerManifest(
+        source,
+        serverBuildFile,
+        valueStart,
+        valueEnd,
+      );
+    } catch (error) {
+      unreadable.push(error instanceof Error ? error.message : String(error));
+      continue;
+    }
     if (
       !serverManifest ||
       typeof serverManifest !== "object" ||
@@ -2984,6 +3051,7 @@ function patchReactRouterServerManifestInOutput(
     pairedClientDirectory,
   );
   let patchedFile: string | undefined;
+  const unreadable: string[] = [];
   walkServerJavaScriptFiles(serverDirectory, (serverBuildFile) => {
     const source = fs.readFileSync(serverBuildFile, "utf8");
     let rewritten = replacePairedClientAssetReferences(
@@ -2995,6 +3063,7 @@ function patchReactRouterServerManifestInOutput(
         rewritten,
         serverBuildFile,
         clientManifest,
+        unreadable,
       );
       if (patched !== undefined) {
         rewritten = patched;
@@ -3005,7 +3074,10 @@ function patchReactRouterServerManifestInOutput(
   });
   if (!patchedFile) {
     throw new Error(
-      `React Router server manifest not found in Nitro output ${serverDirectory}`,
+      [
+        `React Router server manifest not found in Nitro output ${serverDirectory}`,
+        ...unreadable,
+      ].join("\n"),
     );
   }
   console.log(
@@ -4507,6 +4579,78 @@ const CF_MODULE_NODE_BUILTINS = [
   "inspector",
   "vm",
 ];
+
+function escapeModuleSpecifier(mod: string): string {
+  return mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Names imported from `mod` with `import { a, b as c } from "mod"`, including
+ * clauses that also bind the default export (`import d, { a } from "mod"`).
+ * Matches both minified output and the spaced form the generated Worker entry
+ * uses.
+ */
+export function collectNamedImportsFrom(code: string, mod: string): string[] {
+  const re = new RegExp(
+    `import(?:\\s+[\\w$]+\\s*,)?\\s*\\{([^}]+)\\}\\s*from\\s*["']${escapeModuleSpecifier(mod)}["']`,
+    "g",
+  );
+  const names: string[] = [];
+  for (const m of code.matchAll(re)) {
+    const clause = m[1];
+    if (!clause) continue;
+    for (const part of clause.split(",")) {
+      const name = part
+        .trim()
+        .split(/\s+as\s+/)[0]
+        ?.trim();
+      // `default` is re-exported on its own and can't be an `export const`.
+      if (name && name !== "default" && /^[a-zA-Z_$]/.test(name)) {
+        names.push(name);
+      }
+    }
+  }
+  return names;
+}
+
+/** Points every `from "mod"` in `code` at `importPath`. */
+export function rewriteModuleImportSpecifier(
+  code: string,
+  mod: string,
+  importPath: string,
+): string {
+  const re = new RegExp(`from\\s*["']${escapeModuleSpecifier(mod)}["']`, "g");
+  return code.replace(re, `from"${importPath}"`);
+}
+
+/**
+ * esbuild entry that re-bundles a bare external for a Cloudflare Worker. A
+ * namespace import works for CommonJS and for ES modules with or without a
+ * default export; `import x from` and `export { default } from` fail to
+ * bundle an ES module that has no default export. A default export is kept
+ * as is, even when it is `null` or `undefined`, and so is a named export the
+ * module defines; the default export's property is only a fallback for names
+ * the module lacks. Each name is exported from a local binding, so a reserved
+ * word such as `class` is still a legal export and no export can collide with
+ * the entry's own bindings.
+ */
+export function cloudflareExternalBundleEntry(
+  resolvedMod: string,
+  neededExports: Iterable<string>,
+): string {
+  const names = Array.from(neededExports);
+  return [
+    `import * as _ns from "${resolvedMod}";`,
+    `const _mod = "default" in _ns ? _ns.default : _ns;`,
+    `export default _mod;`,
+    ...(names.length > 0
+      ? names.flatMap((n, i) => [
+          `const _e${i} = ${JSON.stringify(n)} in _ns ? _ns.${n} : _mod?.${n};`,
+          `export { _e${i} as ${n} };`,
+        ])
+      : [`export * from "${resolvedMod}";`]),
+  ].join("\n");
+}
 
 /**
  * Post-build patches for `cloudflare_module` server output. Recurses (via
@@ -6410,9 +6554,11 @@ export default bundle;
             const importPath = relPath.startsWith(".")
               ? relPath
               : "./" + relPath;
-            const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            const re = new RegExp(`from["']${escaped}["']`, "g");
-            const rewritten = code.replace(re, `from"${importPath}"`);
+            const rewritten = rewriteModuleImportSpecifier(
+              code,
+              mod,
+              importPath,
+            );
             if (rewritten !== code) fs.writeFileSync(p, rewritten);
           }
         }
@@ -6453,35 +6599,17 @@ export default bundle;
               if (!entry.name.endsWith(".mjs") && !entry.name.endsWith(".js"))
                 continue;
               const code = fs.readFileSync(p, "utf-8");
-              const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-              const re = new RegExp(
-                `import\\{([^}]+)\\}from["']${escaped}["']`,
-                "g",
-              );
-              for (const m2 of code.matchAll(re)) {
-                for (const part of m2[1].split(",")) {
-                  const name = part
-                    .trim()
-                    .split(/\s+as\s+/)[0]
-                    .trim();
-                  if (name && /^[a-zA-Z_$]/.test(name)) neededExports.add(name);
-                }
+              for (const name of collectNamedImportsFrom(code, mod)) {
+                neededExports.add(name);
               }
             }
           }
           findNeededExports(outputDir);
 
-          const entryCode =
-            neededExports.size > 0
-              ? [
-                  `import _mod from "${resolvedMod}";`,
-                  `export default _mod;`,
-                  ...Array.from(neededExports).map(
-                    (n) =>
-                      `export const ${n} = _mod.${n} ?? _mod?.default?.${n};`,
-                  ),
-                ].join("\n")
-              : `export * from "${resolvedMod}"; export { default } from "${resolvedMod}";`;
+          const entryCode = cloudflareExternalBundleEntry(
+            resolvedMod,
+            neededExports,
+          );
 
           execFileSync(
             esbuild.executable,
@@ -6510,21 +6638,19 @@ export default bundle;
               }
               if (!entry.name.endsWith(".mjs") && !entry.name.endsWith(".js"))
                 continue;
-              let code = fs.readFileSync(p, "utf-8");
+              const code = fs.readFileSync(p, "utf-8");
               const relPath = path
                 .relative(path.dirname(p), outFile)
                 .replace(/\\/g, "/");
               const importPath = relPath.startsWith(".")
                 ? relPath
                 : "./" + relPath;
-              const re = new RegExp(
-                `from["']${mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`,
-                "g",
+              const rewritten = rewriteModuleImportSpecifier(
+                code,
+                mod,
+                importPath,
               );
-              if (re.test(code)) {
-                code = code.replace(re, `from"${importPath}"`);
-                fs.writeFileSync(p, code);
-              }
+              if (rewritten !== code) fs.writeFileSync(p, rewritten);
             }
           }
           rewriteImports(outputDir);

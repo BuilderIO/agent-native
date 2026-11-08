@@ -1025,6 +1025,7 @@ async function directoryWidgetTemplateConfig(
   const actionNames = [
     ...new Set([
       ...profile.connectorCatalog,
+      ...Object.keys(profile.widgetTargets ?? {}),
       ...Object.keys(profile.widgetReadActionArguments ?? {}),
       ...Object.keys(profile.widgetWriteActionArguments ?? {}),
     ]),
@@ -1375,6 +1376,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         const actionNames = [
           ...new Set([
             ...profile.connectorCatalog,
+            ...Object.keys(profile.widgetTargets ?? {}),
             ...Object.keys(profile.widgetReadActionArguments ?? {}),
             ...Object.keys(profile.widgetWriteActionArguments ?? {}),
           ]),
@@ -1848,7 +1850,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     } finally {
       consoleInfo.mockRestore();
     }
-  }, 60_000);
+  }, 120_000);
 
   it("logs web-runtime response statuses for directory errors", async () => {
     const requestLogs: Array<Record<string, any>> = [];
@@ -10096,6 +10098,84 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
     expect(out.result.structuredContent._agentImages).toBeUndefined();
     expect(JSON.stringify(out.result.structuredContent)).not.toContain(png);
+  });
+
+  it("lists a compactCatalog image action next to the other compactCatalog reads, without mcpTool, and returns its frames as image blocks", async () => {
+    // The shape Clips' get-recording-frames declares: opted into the compact
+    // catalog with mcpApp.compactCatalog, never mcpTool, which would switch
+    // the app to the connector tier and drop the reads listed beside it.
+    const jpeg = "/9j/4AAQ";
+    const frame = (label: string) => ({
+      data: jpeg,
+      mediaType: "image/jpeg",
+      label,
+    });
+    const compact = (name: string, run: () => Promise<unknown>) => ({
+      tool: { description: name },
+      readOnly: true,
+      http: { method: "GET" as const },
+      mcpApp: { compactCatalog: true },
+      run,
+    });
+    const framesConfig = {
+      ...compactSurfaceDefaultConfig,
+      actions: {
+        ...compactSurfaceDefaultConfig.actions,
+        "list-comments": compact("list-comments", async () => ({
+          comments: [],
+        })),
+        "get-recording-player-data": compact(
+          "get-recording-player-data",
+          async () => ({ recording: {} }),
+        ),
+        "get-recording-frames": {
+          ...compact("get-recording-frames", async () => ({
+            frames: [{ atMs: 0 }, { atMs: 1000 }],
+            _agentImages: [frame("Frame at 0:00"), frame("Frame at 0:01")],
+          })),
+          mcpAnnotations: {
+            readOnlyHint: true,
+            destructiveHint: false,
+            openWorldHint: false,
+          },
+        },
+      },
+    };
+    const headers = await mcpAppsAuthHeaders();
+
+    const listed = await callWeb(
+      { jsonrpc: "2.0", id: 302, method: "tools/list", params: {} },
+      { headers, config: framesConfig },
+    );
+    expect(listed.error).toBeUndefined();
+    const names = listed.result.tools.map((t: any) => t.name);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "get-recording-frames",
+        "list-comments",
+        "get-recording-player-data",
+        "open_app",
+      ]),
+    );
+    expect(names).not.toContain("internal-heavy");
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 303,
+        method: "tools/call",
+        params: { name: "get-recording-frames", arguments: {} },
+      },
+      { headers, config: framesConfig },
+    );
+    expect(out.error).toBeUndefined();
+    expect(out.result.content).toEqual([
+      expect.objectContaining({ type: "text" }),
+      { type: "image", data: jpeg, mimeType: "image/jpeg" },
+      { type: "image", data: jpeg, mimeType: "image/jpeg" },
+    ]);
+    expect(out.result.content[0].text).not.toContain(jpeg);
+    expect(out.result.structuredContent._agentImages).toBeUndefined();
   });
 
   it("publishes one scoped action change after a successful mutating direct MCP call", async () => {

@@ -32,6 +32,7 @@ type CurrentSlideFitMeasurement = DeckFitState["slides"][string] & {
 };
 
 const CURRENT_SLIDE_COMMENT_LIMIT = 100;
+const HOME_DECK_LIST_LIMIT = 20;
 
 function getCurrentSlideFitMeasurement(
   value: unknown,
@@ -632,8 +633,14 @@ export default defineAction({
     if (filteredRows.length === 0) {
       lines.push(`(no decks — use create-deck to make one)`);
     } else {
-      for (const row of filteredRows) {
+      const shownRows = filteredRows.slice(0, HOME_DECK_LIST_LIMIT);
+      for (const row of shownRows) {
         lines.push(`- id=${row.id}  title="${row.title ?? "(untitled)"}"`);
+      }
+      if (shownRows.length < filteredRows.length) {
+        lines.push(
+          `showing ${shownRows.length} of ${filteredRows.length} decks, most recent first; use list-decks for more.`,
+        );
       }
       lines.push(``);
       lines.push(

@@ -359,6 +359,10 @@ export async function removeBuilderStatusPropertyWithoutSource(
   await db
     .delete(schema.documentPropertyValues)
     .where(eq(schema.documentPropertyValues.propertyId, propertyId));
+  // After the values: deleting them records a tombstone for each one.
+  await db
+    .delete(schema.documentPropertyValueTombstones)
+    .where(eq(schema.documentPropertyValueTombstones.propertyId, propertyId));
   await db
     .delete(schema.contentDatabaseItemKeyClaims)
     .where(

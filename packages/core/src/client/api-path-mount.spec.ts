@@ -274,6 +274,23 @@ describe("appMountPath", () => {
     },
   );
 
+  it("keeps the configured fallback for framework routes on an explicit root app", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    vi.stubGlobal("window", {
+      location: { pathname: "/_agent-native/auth/session" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/",
+      },
+    });
+
+    expect(appBasePath()).toBe("/dispatch");
+    expect(agentNativePath("/_agent-native/auth/session")).toBe(
+      "/dispatch/_agent-native/auth/session",
+    );
+  });
+
   it("preserves the default root router basename without mount metadata", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     const context = { basename: "/" };
@@ -316,7 +333,7 @@ describe("appMountPath", () => {
     expect(context.basename).toBe("/dispatch");
   });
 
-  it("keeps an explicit root mount above matching sibling mounts", () => {
+  it("prefers a matching sibling mount over the explicit root fallback", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
       "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
@@ -330,8 +347,8 @@ describe("appMountPath", () => {
       },
     });
 
-    expect(appBasePath()).toBe("");
-    expect(isWorkspaceAppPath("/settings/model")).toBe(true);
+    expect(appBasePath()).toBe("/settings");
+    expect(isWorkspaceAppPath("/settings/model")).toBe(false);
     expect(appMountedPath("/settings/model", "/")).toBe("/settings/model");
   });
 

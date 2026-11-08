@@ -957,6 +957,19 @@ export function buildBuilderCmsExecutionPlan(args: {
       fieldBlockers.push(converted.blocker);
       continue;
     }
+    // The page title and a property mapped to Builder's title field are
+    // separate edits to one Builder field, and the patch keeps only one value.
+    const sameField = operations.find(
+      (operation) => operation.sourceFieldKey === field.sourceFieldKey,
+    );
+    if (sameField) {
+      if (stableJson(sameField.value) !== stableJson(converted.value)) {
+        fieldBlockers.push(
+          `Two changes set Builder's ${builderFieldName(field.sourceFieldKey)} field to different values. Set one of them back before pushing.`,
+        );
+      }
+      continue;
+    }
     operations.push({
       sourceFieldKey: field.sourceFieldKey,
       localFieldKey: field.localFieldKey,

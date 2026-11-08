@@ -4607,13 +4607,9 @@ function simpleSelectorMatchesElement(
 
 function selectorPathMatchesElement(
   element: ParsedElement | undefined,
-  selector: string,
+  parts: readonly string[],
   elements: readonly ParsedElement[],
 ): boolean {
-  const parts = normalizeSelectorForMatch(selector)
-    .split(" > ")
-    .map((part) => part.trim())
-    .filter(Boolean);
   if (parts.length <= 1) return false;
 
   let current: ParsedElement | undefined = element;
@@ -4673,37 +4669,69 @@ function nodesWithStableSourceId(
   return index.get(sourceId) ?? [];
 }
 
+interface SelectorQuery {
+  normalized: string;
+  hasDirectPath: boolean;
+  pathParts: readonly string[];
+  lastPart: string;
+}
+
+function selectorQuery(selector: string): SelectorQuery {
+  const normalized = normalizeSelectorForMatch(selector);
+  return {
+    normalized,
+    hasDirectPath: normalized.includes(" > "),
+    pathParts: normalizeSelectorForMatch(normalized)
+      .split(" > ")
+      .map((part) => part.trim())
+      .filter(Boolean),
+    lastPart: lastSelectorPart(normalized),
+  };
+}
+
+// A selector lookup tests every node of the screen, so a node's selectors are
+// normalized once per projection, not once per lookup.
+const normalizedSelectorsByNode = new WeakMap<
+  CodeLayerNode,
+  readonly string[]
+>();
+
+function normalizedNodeSelectors(node: CodeLayerNode): readonly string[] {
+  let normalized = normalizedSelectorsByNode.get(node);
+  if (!normalized) {
+    normalized = [node.selector, node.path, ...node.selectors].map(
+      normalizeSelectorForMatch,
+    );
+    normalizedSelectorsByNode.set(node, normalized);
+  }
+  return normalized;
+}
+
 function selectorMatches(
   node: CodeLayerNode,
-  selector: string,
+  query: SelectorQuery,
   element: ParsedElement | undefined,
   elements: readonly ParsedElement[],
 ): boolean {
-  const normalizedSelector = normalizeSelectorForMatch(selector);
-  const normalizedNodeSelectors = [
-    node.selector,
-    node.path,
-    ...node.selectors,
-  ].map(normalizeSelectorForMatch);
-  if (normalizedNodeSelectors.includes(normalizedSelector)) return true;
-  const selectorHasDirectPath = normalizedSelector.includes(" > ");
+  const { normalized: normalizedSelector, hasDirectPath, lastPart } = query;
+  const nodeSelectors = normalizedNodeSelectors(node);
+  if (nodeSelectors.includes(normalizedSelector)) return true;
   if (
-    selectorHasDirectPath &&
-    normalizedNodeSelectors.some((candidate) =>
+    hasDirectPath &&
+    nodeSelectors.some((candidate) =>
       candidate.endsWith(` > ${normalizedSelector}`),
     )
   ) {
     return true;
   }
   if (
-    selectorHasDirectPath &&
-    selectorPathMatchesElement(element, normalizedSelector, elements)
+    hasDirectPath &&
+    selectorPathMatchesElement(element, query.pathParts, elements)
   ) {
     return true;
   }
-  if (selectorHasDirectPath) return false;
+  if (hasDirectPath) return false;
   if (simpleSelectorMatches(node, normalizedSelector)) return true;
-  const lastPart = lastSelectorPart(normalizedSelector);
   return (
     lastPart !== normalizedSelector && simpleSelectorMatches(node, lastPart)
   );
@@ -4714,15 +4742,17 @@ function resolveTarget(
   target: EditIntentTarget,
 ): EditIntentResolution {
   const { projection, elementByNodeId } = build;
-  const matchesForSelector = (value: string): CodeLayerNode[] =>
-    projection.nodes.filter((node) => {
-      return selectorMatches(
+  const matchesForSelector = (value: string): CodeLayerNode[] => {
+    const query = selectorQuery(value);
+    return projection.nodes.filter((node) =>
+      selectorMatches(
         node,
-        value,
+        query,
         elementByNodeId.get(node.id),
         build.elements,
-      );
-    });
+      ),
+    );
+  };
   if (target.nodeId) {
     const matches = nodesWithStableSourceId(projection, target.nodeId);
     if (matches.length === 1 && matches[0]) {
@@ -6390,8 +6420,10 @@ function resolveStyleEditTargetRoute(
     return { kind: "released-svg" };
   }
   const paintChild = vectorPaintChild(html, element, intent.property, elements);
+  const isPaintProperty =
+    intent.property.startsWith("fill") || intent.property.startsWith("stroke");
   const useTarget =
-    element.tag === "use"
+    element.tag === "use" && isPaintProperty
       ? element
       : paintChild?.tag === "use"
         ? paintChild
@@ -6405,6 +6437,7 @@ function resolveStyleEditTargetRoute(
   }
   if (
     node.dataAttributes["data-an-primitive"] === "pasted-svg" &&
+    isPaintProperty &&
     !paintChild
   ) {
     return { kind: "unsupported" };
@@ -8602,6 +8635,8 @@ const FLEX_ITEM_STRIP_PROPS = [
   "order",
 ] as const;
 
+const MEASURED_FLOW_STYLE_ATTR = "data-agent-native-group-flow-style";
+
 const MEASURED_FLOW_REBASE_STRIP_PROPS = [
   "position",
   "left",
@@ -8793,16 +8828,70 @@ function rebaseMeasuredFlowChild(
   top: number,
 ): string {
   const declarations = parseStyleDeclarations(attributeValue(child, "style"));
+  const authored = declarations.declarations
+    .filter((declaration) =>
+      isMeasuredFlowStrippedProp(cssPropertyKey(declaration.prop)),
+    )
+    .map(
+      (declaration) =>
+        `${declaration.prop}: ${styleDeclarationValue(declaration)}`,
+    );
   removeStyleDeclarations(declarations, MEASURED_FLOW_REBASE_STRIP_PROPS);
   setStyleDeclaration(declarations, "position", "absolute");
   setStyleDeclaration(declarations, "left", formatMeasuredPixel(left));
   setStyleDeclaration(declarations, "top", formatMeasuredPixel(top));
-  return replaceOrInsertAttribute(
-    html,
-    child,
-    "style",
-    serializeStyleDeclarations(declarations),
+  return patchElementAttributes(html, [
+    {
+      element: child,
+      attributes: {
+        style: serializeStyleDeclarations(declarations),
+        [MEASURED_FLOW_STYLE_ATTR]:
+          authored.length > 0 ? authored.join("; ") : null,
+      },
+    },
+  ]);
+}
+
+function releaseMeasuredFlowChild(html: string, child: ParsedElement): string {
+  if (parseStyle(attributeValue(child, "style")).position !== "absolute") {
+    return html;
+  }
+  const declarations = parseStyleDeclarations(attributeValue(child, "style"));
+  removeStyleDeclarations(declarations, ["position", "left", "top"]);
+  // A family the user set again while grouped keeps their value: appending the
+  // snapshot's shorthand after a newer longhand would silently override it.
+  const keys = declarations.declarations.map((declaration) =>
+    cssPropertyKey(declaration.prop),
   );
+  const editedMargin = keys.some((key) => key.startsWith("margin"));
+  const editedOffset = keys.some(
+    (key) => isMeasuredFlowStrippedProp(key) && !key.startsWith("margin"),
+  );
+  const saved = parseStyleDeclarations(
+    attributeValue(child, MEASURED_FLOW_STYLE_ATTR),
+  ).declarations;
+  for (const declaration of saved) {
+    const isMargin = cssPropertyKey(declaration.prop).startsWith("margin");
+    if (isMargin ? editedMargin : editedOffset) continue;
+    setStyleDeclaration(
+      declarations,
+      declaration.prop,
+      styleDeclarationValue(declaration),
+    );
+  }
+  return patchElementAttributes(html, [
+    {
+      element: child,
+      attributes: {
+        style: serializeStyleDeclarations(declarations),
+        [MEASURED_FLOW_STYLE_ATTR]: null,
+      },
+    },
+  ]);
+}
+
+function isMeasuredFlowStrippedProp(key: string): boolean {
+  return (MEASURED_FLOW_REBASE_STRIP_PROPS as readonly string[]).includes(key);
 }
 
 function nextSequentialWrapperName(
@@ -10437,9 +10526,20 @@ function applyUnwrap(
   const hasMeasuredFlowOrigin =
     measuredGroupLeft !== null || measuredGroupTop !== null;
   const shouldRebase = hasPositionedOffset || hasMeasuredFlowOrigin;
+  // A measured-flow group only exists around children that were in flow, and
+  // a pinned child is out of flow, so its siblings would reflow around the gap.
+  const releaseIntoFlow = hasMeasuredFlowOrigin && !hasPositionedOffset;
 
   let innerContent = html.slice(element.contentStart, element.contentEnd);
-  if (shouldRebase) {
+  if (releaseIntoFlow) {
+    const fragmentElements = parseHtmlElements(innerContent);
+    const directChildren = fragmentElements.filter(
+      (fe) => fe.parentIndex === undefined,
+    );
+    for (const child of [...directChildren].sort((a, b) => b.start - a.start)) {
+      innerContent = releaseMeasuredFlowChild(innerContent, child);
+    }
+  } else if (shouldRebase) {
     const deltaLeftPx =
       (measuredGroupLeft ?? 0) + (hasPositionedOffset ? (wrapperLeft ?? 0) : 0);
     const deltaTopPx =

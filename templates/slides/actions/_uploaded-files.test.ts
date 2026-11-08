@@ -13,6 +13,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mockExistsSync = vi.hoisted(() => vi.fn());
 const mockReadFile = vi.hoisted(() => vi.fn());
 const hosted = vi.hoisted(() => ({ value: true }));
+const threadUploads = vi.hoisted(() => ({
+  files: [] as Array<{ name: string; path: string }>,
+}));
 
 vi.mock("fs", () => ({
   default: {
@@ -27,6 +30,10 @@ vi.mock("../server/lib/tenant-files.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../server/lib/tenant-files.js")>()),
   tenantUploadDir: () => "/uploads/owner",
   isHostedSlidesRuntime: () => hosted.value,
+}));
+
+vi.mock("../server/lib/thread-uploads.js", () => ({
+  readThreadUploads: async () => threadUploads.files,
 }));
 
 import { mintUploadedReference } from "../server/lib/uploaded-reference-storage";
@@ -86,6 +93,7 @@ describe("readUserUploadedFile", () => {
     vi.clearAllMocks();
     hosted.value = true;
     readError = null;
+    threadUploads.files = [];
     blobs.clear();
     process.env.SECRETS_ENCRYPTION_KEY = "slides-uploaded-files-test";
     registerPrivateBlobProvider(provider);
@@ -143,6 +151,44 @@ describe("readUserUploadedFile", () => {
     ).rejects.toMatchObject({
       details: { attachmentStatus: "malformed", reason: "unrecognized_scheme" },
     });
+  });
+
+  it("opens a file attached earlier in the thread by its name", async () => {
+    const older = await mint("proposal.pdf", Buffer.from("%PDF old"));
+    const newer = await mint("proposal.pdf", Buffer.from("%PDF new"));
+    threadUploads.files = [
+      { name: "proposal.pdf", path: older },
+      { name: "notes.docx", path: "attachment:v1:unrelated" },
+      { name: "proposal.pdf", path: newer },
+    ];
+    const inThread = <T>(threadId: string | undefined, fn: () => Promise<T>) =>
+      runWithRequestContext(
+        {
+          userEmail: OWNER,
+          orgId: "org-one",
+          ...(threadId ? { run: { threadId } } : {}),
+        },
+        fn,
+      );
+
+    await expect(
+      inThread("thread-1", () =>
+        readUserUploadedFile("proposal.pdf", { attachments: [] }),
+      ),
+    ).resolves.toEqual({
+      data: Buffer.from("%PDF new"),
+      filename: "proposal.pdf",
+    });
+    await expect(
+      inThread("thread-1", () =>
+        readUserUploadedFile("proposal.pdf", undefined, {
+          expectedExtensions: [".pptx"],
+        }),
+      ),
+    ).rejects.toMatchObject({ details: { reason: "unrecognized_scheme" } });
+    await expect(
+      inThread(undefined, () => readUserUploadedFile("proposal.pdf")),
+    ).rejects.toMatchObject({ details: { reason: "unrecognized_scheme" } });
   });
 
   it("resolves a single attached upload when the model cannot reproduce its name", async () => {

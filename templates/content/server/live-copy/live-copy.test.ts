@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,7 +7,11 @@ import { getDbExec, withDbExec, type DbExec } from "@agent-native/core/db";
 import { serializeIconValue } from "@agent-native/core/icons";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putSetting } from "@agent-native/core/settings";
-import { initProseMirrorDoc, updateYFragment } from "@tiptap/y-tiptap";
+import {
+  initProseMirrorDoc,
+  updateYFragment,
+  yXmlFragmentToProseMirrorRootNode,
+} from "@tiptap/y-tiptap";
 import { and, asc, desc, eq } from "drizzle-orm";
 import {
   afterAll,
@@ -939,8 +944,8 @@ describe("writes through a switched page's live copy", () => {
       const lower = statement.toLowerCase();
       const update = /^\s*update "([^"]+)"/.exec(lower);
       if (update) return update[1];
-      if (!/ for update/.test(lower)) return undefined;
-      return (/ for update of "([^"]+)"/.exec(lower) ??
+      if (!/ for (?:update|share)/.test(lower)) return undefined;
+      return (/ for (?:update|share) of "([^"]+)"/.exec(lower) ??
         / from "([^"]+)"/.exec(lower))?.[1];
     };
 
@@ -975,6 +980,8 @@ describe("writes through a switched page's live copy", () => {
     // After the page lock, only writes to rows already locked.
     expect(locks).toEqual([
       "content_databases",
+      "content_databases",
+      "content_databases",
       "content_database_items",
       "documents",
       "documents",
@@ -985,17 +992,36 @@ describe("writes through a switched page's live copy", () => {
 
   it("locks the page in Content's order from an unchanged edit's own persist, and refuses it in Trash", async () => {
     await switchedPage("unchanged", "Hello there");
-    await getDb().insert(schema.contentDatabases).values({
-      id: "db-unchanged-parent",
-      ownerEmail: OWNER,
-      documentId: "elsewhere",
-    });
-    await getDb().insert(schema.contentDatabaseItems).values({
-      id: "unchanged-row",
-      ownerEmail: OWNER,
-      databaseId: "db-unchanged-parent",
-      documentId: "unchanged",
-    });
+    await getDb()
+      .insert(schema.contentDatabases)
+      .values([
+        {
+          id: "db-unchanged-second",
+          ownerEmail: OWNER,
+          documentId: "elsewhere",
+        },
+        {
+          id: "db-unchanged-parent",
+          ownerEmail: OWNER,
+          documentId: "elsewhere",
+        },
+      ]);
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values([
+        {
+          id: "unchanged-row",
+          ownerEmail: OWNER,
+          databaseId: "db-unchanged-parent",
+          documentId: "unchanged",
+        },
+        {
+          id: "unchanged-second-row",
+          ownerEmail: OWNER,
+          databaseId: "db-unchanged-second",
+          documentId: "unchanged",
+        },
+      ]);
     const statements: string[] = [];
     const unchangedEdit = () =>
       cause.withContentBodyWriteCause({ operation: "test-unchanged" }, () =>
@@ -1014,6 +1040,10 @@ describe("writes through a switched page's live copy", () => {
             } as DbExec;
             const locked = await persist.lockLiveCopyPage(spy, "unchanged");
             expect(locked?.page.content).toBe("Hello there");
+            expect([...(locked?.lockedDatabaseIds ?? [])]).toEqual([
+              "db-unchanged-parent",
+              "db-unchanged-second",
+            ]);
           },
         }),
       );
@@ -1023,14 +1053,15 @@ describe("writes through a switched page's live copy", () => {
       liveCopy: "unchanged",
     });
     const locks = statements
-      .filter((sql) => / for update|^\s*update /.test(sql))
+      .filter((sql) => / for (?:update|share)|^\s*update /.test(sql))
       .map(
         (sql) =>
           (/^\s*update "([^"]+)"/.exec(sql) ??
-            / for update of "([^"]+)"/.exec(sql) ??
+            / for (?:update|share) of "([^"]+)"/.exec(sql) ??
             / from "([^"]+)"/.exec(sql))?.[1],
       );
     expect(locks).toEqual([
+      "content_databases",
       "content_databases",
       "content_database_items",
       "documents",
@@ -1045,53 +1076,93 @@ describe("writes through a switched page's live copy", () => {
     });
   });
 
-  it("refuses a body write when the page joined a collection after its memberships were locked", async () => {
-    await switchedPage("joined", "Hello there");
-    await getDb().insert(schema.contentDatabases).values({
-      id: "db-joined-parent",
-      ownerEmail: OWNER,
-      documentId: "elsewhere",
-    });
-    const version = (await collabVersion("joined")) as number;
+  it.each([
+    { change: "join", unchanged: false },
+    { change: "join", unchanged: true },
+    { change: "move", unchanged: false },
+    { change: "move", unchanged: true },
+    { change: "remove", unchanged: false },
+    { change: "remove", unchanged: true },
+  ] as const)(
+    "refuses a late membership $change (unchanged: $unchanged)",
+    async ({ change, unchanged }) => {
+      const id = `scope-${change}-${unchanged}`;
+      const originalCollection = `${id}-a`;
+      const newCollection = `${id}-b`;
+      const itemId = `${id}-row`;
+      await switchedPage(id, "Hello there");
+      await getDb()
+        .insert(schema.contentDatabases)
+        .values([
+          {
+            id: originalCollection,
+            ownerEmail: OWNER,
+            documentId: "elsewhere",
+          },
+          { id: newCollection, ownerEmail: OWNER, documentId: "elsewhere" },
+        ]);
+      if (change !== "join")
+        await getDb().insert(schema.contentDatabaseItems).values({
+          id: itemId,
+          ownerEmail: OWNER,
+          databaseId: originalCollection,
+          documentId: id,
+        });
+      const version = (await collabVersion(id)) as number;
 
-    await expect(
-      cause.withContentBodyWriteCause({ operation: "test-joined" }, () =>
-        inTransaction(async (tx) => {
-          let joined = false;
-          const spy: DbExec = {
-            async execute(input) {
-              const sql = (
-                typeof input === "string" ? input : input.sql
-              ).toLowerCase();
-              // The page joins between the membership lock and the page lock.
-              if (!joined && /from "documents" .* for update/.test(sql)) {
-                joined = true;
-                await execDb
-                  .drizzleOverExec(tx)
-                  .insert(schema.contentDatabaseItems)
-                  .values({
-                    id: "joined-row",
-                    ownerEmail: OWNER,
-                    databaseId: "db-joined-parent",
-                    documentId: "joined",
-                  });
-              }
-              return tx.execute(input);
-            },
-          } as DbExec;
-          await persist.persistContentLiveCopy(spy, {
-            docId: "joined",
-            origin: "mutation",
-            previousVersion: version,
-            version: version + 1,
-            text: "Hello again",
-            state: new Uint8Array(),
-          });
-        }),
-      ),
-    ).rejects.toMatchObject({ errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED" });
-    expect((await page("joined")).content).toBe("Hello there");
-  });
+      await expect(
+        cause.withContentBodyWriteCause({ operation: "test-joined" }, () =>
+          inTransaction(async (tx) => {
+            let changed = false;
+            // raw-sql-ok: this test proxy forwards Drizzle's SQL and bound arguments unchanged; it constructs no SQL.
+            const spy: DbExec = {
+              async execute(input) {
+                const sql = (
+                  typeof input === "string" ? input : input.sql
+                ).toLowerCase();
+                // The topology change overtakes discovery before the page lock.
+                if (!changed && /from "documents" .* for update/.test(sql)) {
+                  changed = true;
+                  const db = execDb.drizzleOverExec(tx);
+                  if (change === "join")
+                    await db.insert(schema.contentDatabaseItems).values({
+                      id: itemId,
+                      ownerEmail: OWNER,
+                      databaseId: newCollection,
+                      documentId: id,
+                    });
+                  else if (change === "move")
+                    await db
+                      .update(schema.contentDatabaseItems)
+                      .set({ databaseId: newCollection })
+                      .where(eq(schema.contentDatabaseItems.id, itemId));
+                  else
+                    await db
+                      .delete(schema.contentDatabaseItems)
+                      .where(eq(schema.contentDatabaseItems.id, itemId));
+                }
+                return tx.execute(input);
+              },
+            } as DbExec;
+            if (unchanged)
+              await persist.persistUnchangedContentBodyEdit(spy, id, {
+                operation: "test-scope",
+              });
+            else
+              await persist.persistContentLiveCopy(spy, {
+                docId: id,
+                origin: "mutation",
+                previousVersion: version,
+                version: version + 1,
+                text: "Hello again",
+                state: new Uint8Array(),
+              });
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED" });
+      expect(await page(id)).toMatchObject({ content: "Hello there" });
+    },
+  );
 });
 
 describe("a page whose write path changes mid-write", () => {
@@ -1492,6 +1563,50 @@ describe("edit-document on a switched page", () => {
       collab.applyUpdate(id, await editorUpdate(id, markdownBlocks(body))),
     );
   }
+
+  it("keeps a toggle's rich title through an agent's edit to another block", async () => {
+    const toggle = [
+      '<details markdown="1">',
+      "<summary>**Plan** for today</summary>",
+      "\tBody",
+      "</details>",
+    ].join("\n");
+    await switchedPage("rich-title", `${toggle}\nHello there\nSecond`);
+    const loaded = await page("rich-title");
+    assert(loaded);
+    await typeInTab("rich-title", `${toggle}\nHello there\nSecond B`);
+
+    const result = await agentEdit("rich-title", loaded, [
+      { find: "there", replace: "world" },
+    ]);
+
+    expect(result.receipt.outcome).toBe("applied");
+    const after = await page("rich-title");
+    assert(after);
+    expect(after.content).toBe(`${toggle}\nHello world\nSecond B`);
+    const live = await collab.readLiveCopy(
+      binding.contentLiveCopy,
+      "rich-title",
+    );
+    if (live.kind !== "live") throw new Error(`rich-title is ${live.kind}`);
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, live.state);
+    const root = yXmlFragmentToProseMirrorRootNode(
+      doc.getXmlFragment("default"),
+      editorSchema,
+    );
+    doc.destroy();
+    const toggleNode = root.firstChild;
+    assert(toggleNode);
+    expect(toggleNode.attrs.summary).toBe("");
+    expect(toggleNode.firstChild?.toJSON()).toEqual({
+      type: "notionToggleSummary",
+      content: [
+        { type: "text", text: "Plan", marks: [{ type: "bold" }] },
+        { type: "text", text: " for today" },
+      ],
+    });
+  });
 
   it("commits an agent's edit through the live copy, so the page stays switched", async () => {
     await switchedPage("agent-edit", "Hello there");
@@ -3259,41 +3374,144 @@ describe("a version restore on a switched page", () => {
   });
 
   it("restores a version's private callout icon in the page's canonical form", async () => {
-    const icon = serializeIconValue({
-      version: 1,
-      kind: "image",
-      authority: "private-icon",
-      assetId: "restore-icon-asset",
-    })!;
-    const saved = `Intro\n\n<callout icon="${icon.replace(/"/g, "&quot;")}">\n\tSaved\n</callout>`;
-    await switchedPage("restore-icon", "Current");
-    await getDb().insert(schema.documentVersions).values({
-      id: "restore-icon-version",
-      documentId: "restore-icon",
-      ownerEmail: OWNER,
-      title: "restore-icon",
-      content: saved,
-    });
+    const assetId = "44444444-4444-4444-8444-444444444444";
+    const authority = await import("../lib/private-icon-authority.js");
+    const ownership = vi
+      .spyOn(authority, "ownsPrivateIcon")
+      .mockResolvedValue(true);
+    try {
+      const icon = serializeIconValue({
+        version: 1,
+        kind: "image",
+        authority: "private-icon",
+        assetId,
+      });
+      if (!icon) throw new Error("Private icon fixture must serialize.");
+      const saved = `Intro\n\n<callout icon="${icon.replace(/"/g, "&quot;")}">\n\tSaved\n</callout>`;
+      await switchedPage("restore-icon", "Current");
+      await getDb().insert(schema.documentVersions).values({
+        id: "restore-icon-version",
+        documentId: "restore-icon",
+        ownerEmail: OWNER,
+        title: "restore-icon",
+        content: saved,
+      });
 
-    const restored = await restore(
-      "restore-icon",
-      "restore-icon-version",
-      (await metadata("restore-icon")).updatedAt,
-    );
-
-    expect(restored.content).not.toBe(saved);
-    expect(restored.content).toContain("Saved");
-    const references = await getDb()
-      .select({ assetId: schema.privateIconReferences.assetId })
-      .from(schema.privateIconReferences)
-      .where(
-        eq(
-          schema.privateIconReferences.elementId,
-          "restore-icon:restore-icon-asset",
-        ),
+      const before = await metadata("restore-icon");
+      assert(before);
+      const restored = await restore(
+        "restore-icon",
+        "restore-icon-version",
+        before.updatedAt,
       );
-    expect(references).toEqual([{ assetId: "restore-icon-asset" }]);
+
+      expect(restored.content).not.toBe(saved);
+      expect(restored.content).toContain("Saved");
+      const references = await getDb()
+        .select({ assetId: schema.privateIconReferences.assetId })
+        .from(schema.privateIconReferences)
+        .where(
+          eq(schema.privateIconReferences.elementId, `restore-icon:${assetId}`),
+        );
+      expect(references).toEqual([{ assetId }]);
+      expect(ownership).toHaveBeenCalledWith({
+        assetId,
+        ownerEmail: OWNER,
+        orgId: null,
+      });
+    } finally {
+      ownership.mockRestore();
+    }
   });
+
+  it.each(["recovery", "after", "malformed"] as const)(
+    "restores a %s body through the live copy without borrowing the page or checkpoint author's icon authority",
+    async (scenario) => {
+      const checkpointKind = scenario === "malformed" ? "after" : scenario;
+      const assetId =
+        scenario === "malformed"
+          ? "legacy-invalid-icon"
+          : "55555555-5555-4555-8555-555555555555";
+      const icon = serializeIconValue({
+        version: 1,
+        kind: "image",
+        authority: "private-icon",
+        assetId,
+      });
+      if (!icon) throw new Error("Private icon fixture must serialize.");
+      const saved = `Intro $60\n\n<callout icon="${icon.replace(/"/g, "&quot;")}">\n\tKeep these words\n</callout>\n\n`;
+      const id = `restore-unproved-${scenario}`;
+      await switchedPage(id, "Current");
+      await getDb()
+        .insert(schema.documentShares)
+        .values({
+          id: `${id}-share`,
+          resourceId: id,
+          principalType: "user",
+          principalId: OTHER,
+          role: "editor",
+          createdBy: OWNER,
+        });
+      await getDb()
+        .insert(schema.documentVersions)
+        .values({
+          id: `${id}-version`,
+          documentId: id,
+          ownerEmail: OWNER,
+          actorEmail: OWNER,
+          title: id,
+          content: saved,
+          checkpointKind,
+        });
+      const authority = await import("../lib/private-icon-authority.js");
+      const ownership = vi
+        .spyOn(authority, "ownsPrivateIcon")
+        .mockImplementation(async ({ assetId, ownerEmail }) => {
+          authority.assertPrivateIconId(assetId);
+          return ownerEmail === OWNER;
+        });
+      try {
+        const before = await metadata(id);
+        assert(before);
+        const restored = await restore(
+          id,
+          `${id}-version`,
+          before.updatedAt,
+          OTHER,
+        );
+        expect(restored.content).toBe(nfm.canonicalizeNfm(saved));
+        expect(restored.content).not.toBe(saved);
+        const current = await page(id);
+        assert(current);
+        expect(current.content).toBe(restored.content);
+        expect(current.liveBodySwitchedAt).not.toBeNull();
+        expect(current.bodyRevision).toBe(before.bodyRevision + 1);
+        expect(current.collabBodyRevision).toBe(current.bodyRevision);
+        expect(
+          await getDb()
+            .select()
+            .from(schema.privateIconReferences)
+            .where(eq(schema.privateIconReferences.documentId, id)),
+        ).toEqual([]);
+        if (scenario === "malformed") {
+          expect(ownership).not.toHaveBeenCalled();
+        } else {
+          expect(ownership).toHaveBeenCalledExactlyOnceWith({
+            assetId,
+            ownerEmail: OTHER,
+            orgId: null,
+          });
+        }
+        const { resolveReadablePrivateIcon } =
+          await import("../lib/private-icon-references.js");
+        expect(
+          await resolveReadablePrivateIcon(assetId, { userEmail: OTHER }),
+        ).toBeNull();
+      } finally {
+        ownership.mockRestore();
+      }
+    },
+  );
 
   it("refuses a legacy restore whose page switched to its live copy before it committed", async () => {
     await switchedPage("restore-switching", "First draft");

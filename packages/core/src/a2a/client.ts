@@ -22,6 +22,7 @@ import type {
   AgentCard,
   A2AProtocolVersion,
   Artifact,
+  FilePart,
   JsonRpcRequest,
   JsonRpcResponse,
   Message,
@@ -1951,6 +1952,7 @@ export async function callAgent(
     pollIntervalMs?: number;
     returnRecoverableArtifactsOnTimeout?: boolean;
     onUpdate?: (task: Task) => void;
+    files?: FilePart["file"][];
   },
 ): Promise<string> {
   const metadata: Record<string, unknown> = { ...opts?.metadata };
@@ -1965,7 +1967,10 @@ export async function callAgent(
     opts?.idempotencyKey ?? (opts?.taskId ? undefined : `auto:${randomUUID()}`);
   const message: Message = {
     role: "user",
-    parts: [{ type: "text", text }],
+    parts: [
+      { type: "text", text },
+      ...(opts?.files ?? []).map((file) => ({ type: "file" as const, file })),
+    ],
   };
 
   const apiKeyAttempts = await buildA2AApiKeyAttempts(

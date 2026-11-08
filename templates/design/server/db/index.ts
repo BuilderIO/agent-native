@@ -1,4 +1,5 @@
 import { createGetDb } from "@agent-native/core/db";
+import { registerIdentityColumns } from "@agent-native/core/org";
 import { registerShareableResource } from "@agent-native/core/sharing";
 
 import {
@@ -11,8 +12,24 @@ import * as schema from "./schema.js";
 export const getDb = createGetDb(schema);
 export { schema };
 
+registerIdentityColumns([
+  {
+    table: "design_review_agent_requests",
+    column: "requester_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    orgScope: {
+      column: "design_id",
+      references: { table: "designs", column: "id", orgColumn: "org_id" },
+    },
+    reason:
+      "Rekeying keeps cancel authority and attribution after an email change; requests remain as design review history when a member leaves.",
+  },
+]);
+
 registerShareableResource({
   type: "design",
+  agentRead: { actions: ["get-design"] },
   resourceTable: schema.designs,
   sharesTable: schema.designShares,
   displayName: "Design",
@@ -29,6 +46,7 @@ registerShareableResource({
 
 registerShareableResource({
   type: "design-template",
+  agentRead: { actions: ["get-design-template"], idParam: "templateId" },
   resourceTable: schema.designTemplates,
   sharesTable: schema.designTemplateShares,
   displayName: "Design template",
@@ -39,6 +57,7 @@ registerShareableResource({
 
 registerShareableResource({
   type: "design-system",
+  agentRead: { actions: ["get-design-system"] },
   resourceTable: schema.designSystems,
   sharesTable: schema.designSystemShares,
   displayName: "Design System",

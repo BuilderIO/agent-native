@@ -1,9 +1,19 @@
 import type { ActionMcpAppResourceConfig } from "../action.js";
-import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
+import {
+  FETCH_TRANSPORT_CHANGED_EVENT,
+  FETCH_TRANSPORT_SYMBOL_KEY,
+  EMBED_SESSION_RENEWAL_WINDOW_KEY,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import {
   MCP_APP_HOST_FILL_ATTRIBUTE,
   MCP_APP_PANE_FILL_MAX_HEIGHT,
 } from "../shared/mcp-app-display.js";
+import {
+  EMBED_TOKEN_STORAGE_KEY,
+  MCP_CHAT_BRIDGE_STORAGE_KEY,
+  resolveMcpAppEmbedBasePath,
+} from "../shared/mcp-app-widget-embed.js";
 import { EXTERNAL_EMBED_WINDOW_KEY } from "../shared/route-chunk-recovery-bootstrap.js";
 import { HIDDEN_EMBED_URL } from "./embed-redaction.js";
 
@@ -686,7 +696,28 @@ export function embedApp(
       );
     }
 
-    function embedConfigForAppUrl(appUrl) {
+    function appOriginConfigForDocument(parsed) {
+      const script = parsed.querySelector("script[data-agent-native-app-origin-config]");
+      if (!script) return {};
+      const source = script.textContent || "";
+      const prefix = "window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,";
+      const suffix = ");";
+      if (!source.startsWith(prefix) || !source.endsWith(suffix)) {
+        throw new Error("Embedded app origin config is malformed.");
+      }
+      let appConfig;
+      try {
+        appConfig = JSON.parse(source.slice(prefix.length, -suffix.length));
+      } catch (_err) {
+        throw new Error("Embedded app origin config is not valid JSON.");
+      }
+      if (!appConfig || typeof appConfig !== "object" || Array.isArray(appConfig)) {
+        throw new Error("Embedded app origin config must be an object.");
+      }
+      return appConfig;
+    }
+
+    function embedConfigForAppUrl(appUrl, appConfig) {
       const sanitizedTarget = localPathFromUrl(appUrl, false);
       return {
         origin: appUrl.origin,
@@ -697,7 +728,8 @@ export function embedApp(
         chatBridgeActive: appUrl.searchParams.get(chatBridgeParam) === "1",
         chatBridgeParam,
         embedTokenParam: "__an_embed_token",
-        embedTargetHeader: "x-agent-native-embed-target"
+        embedTargetHeader: "x-agent-native-embed-target",
+        appConfig
       };
     }
 
@@ -766,27 +798,108 @@ export function embedApp(
           window.history.replaceState(window.history.state, "", config.target);
         }
       } catch (_err) {}
+      // Keep transplanted auth storage on the same mount resolver as its reader.
+      var resolveMcpAppEmbedBasePath = ${resolveMcpAppEmbedBasePath.toString()};
+      function activeConfig() {
+        return window[${JSON.stringify(EXTERNAL_EMBED_WINDOW_KEY)}] || config;
+      }
+      function workspaceMountOptions(active) {
+        var appConfig = active.appConfig || {};
+        return {
+          workspaceRuntime: true,
+          routerBasePath: window.__reactRouterContext && window.__reactRouterContext.basename,
+          workspaceAppPath: appConfig.workspaceAppPath,
+          workspaceAppMountPaths: appConfig.workspaceAppMountPaths,
+          explicitRootPath: appConfig.explicitRootPath === true,
+          frameworkRoutePrefix: appConfig.frameworkRoutePrefix
+        };
+      }
+      function embedStorageKey(key) {
+        var active = activeConfig();
+        var appConfig = active.appConfig || {};
+        if (appConfig.workspaceRuntime !== true) return key;
+        var basePath = resolveMcpAppEmbedBasePath(
+          "external-target",
+          active.target || location.pathname,
+          workspaceMountOptions(active)
+        );
+        if (typeof basePath !== "string") return undefined;
+        return key + ":" + (basePath || "/");
+      }
       try {
         if (config.token) {
-          sessionStorage.setItem("agent-native:embed-auth-token", config.token);
+          var tokenStorageKey = embedStorageKey(${JSON.stringify(EMBED_TOKEN_STORAGE_KEY)});
+          if (tokenStorageKey) sessionStorage.setItem(tokenStorageKey, config.token);
         }
         if (config.chatBridgeActive && config.token) {
-          sessionStorage.setItem("agent-native:mcp-chat-bridge", config.token);
+          var bridgeStorageKey = embedStorageKey(${JSON.stringify(MCP_CHAT_BRIDGE_STORAGE_KEY)});
+          if (bridgeStorageKey) sessionStorage.setItem(bridgeStorageKey, config.token);
         }
       } catch (_err) {}
       if (window.__agentNativeExternalEmbedRuntimeInstalled) return;
       window.__agentNativeExternalEmbedRuntimeInstalled = true;
       function appOrigin() {
         try {
-          return new URL(config.origin).origin;
+          return new URL(activeConfig().origin).origin;
         } catch (_err) {
           return "";
         }
       }
       function targetPath() {
-        return config.target || location.pathname + location.search;
+        var active = activeConfig();
+        return active.target || location.pathname + location.search;
+      }
+      function authorizedTargetPath() {
+        var active = activeConfig();
+        var appConfig = active.appConfig || {};
+        var target = targetPath();
+        if (appConfig.workspaceRuntime !== true) return target;
+        var options = workspaceMountOptions(active);
+        var targetMount = resolveMcpAppEmbedBasePath(
+          "external-target",
+          active.target || location.pathname,
+          options
+        );
+        var currentMount = resolveMcpAppEmbedBasePath(
+          "workspace-path",
+          location.pathname,
+          Object.assign({}, options, { preferDeclaredMounts: true })
+        );
+        if (typeof targetMount !== "string" || targetMount !== currentMount) {
+          return null;
+        }
+        return target;
+      }
+      function requestBelongsToTargetMount(value, target) {
+        var active = activeConfig();
+        var appConfig = active.appConfig || {};
+        if (appConfig.workspaceRuntime !== true) return true;
+        var options = workspaceMountOptions(active);
+        var targetMount = resolveMcpAppEmbedBasePath(
+          "external-target",
+          target,
+          options
+        );
+        if (typeof targetMount !== "string") return false;
+        var parsedUrl;
+        try {
+          parsedUrl = { url: new URL(value, location.href) };
+        } catch (error) {
+          parsedUrl = { error: error };
+        }
+        if (!("url" in parsedUrl)) return false;
+        var url = parsedUrl.url;
+        const origin = appOrigin();
+        if (url.origin !== location.origin && url.origin !== origin) return false;
+        var requestMount = resolveMcpAppEmbedBasePath(
+          "workspace-path",
+          url.pathname,
+          Object.assign({}, options, { preferDeclaredMounts: true })
+        );
+        return typeof requestMount === "string" && requestMount === targetMount;
       }
       function rewrittenUrl(value, appendToken) {
+        var active = activeConfig();
         const origin = appOrigin();
         if (!origin) return null;
         let url;
@@ -801,25 +914,55 @@ export function embedApp(
           url.protocol = app.protocol;
           url.host = app.host;
         }
-        if (appendToken && config.token && url.pathname === "/_agent-native/events") {
-          url.searchParams.set(config.embedTokenParam, config.token);
+        const appConfig = active.appConfig || {};
+        var frameworkRoutePrefix = appConfig.frameworkRoutePrefix || "/_agent-native";
+        if (frameworkRoutePrefix.endsWith("/")) {
+          frameworkRoutePrefix = frameworkRoutePrefix.slice(0, -1);
+        }
+        const eventsPath = frameworkRoutePrefix + "/events";
+        const authorizedTarget = authorizedTargetPath();
+        if (
+          appendToken &&
+          authorizedTarget !== null &&
+          requestBelongsToTargetMount(value, authorizedTarget) &&
+          active.token &&
+          url.pathname.endsWith(eventsPath)
+        ) {
+          url.searchParams.set(active.embedTokenParam, active.token);
         }
         return url.toString();
       }
       function authHeaders(input, init) {
+        var active = activeConfig();
+        var authorizedTarget = authorizedTargetPath();
+        var requestUrl = input instanceof Request ? input.url : input;
+        if (
+          authorizedTarget !== null &&
+          !requestBelongsToTargetMount(requestUrl, authorizedTarget)
+        ) {
+          authorizedTarget = null;
+        }
         const headers = new Headers(
           init && init.headers ? init.headers : input instanceof Request ? input.headers : undefined
         );
-        if (config.token && !headers.has("Authorization")) {
-          headers.set("Authorization", "Bearer " + config.token);
+        if (
+          authorizedTarget !== null &&
+          active.token &&
+          !headers.has("Authorization")
+        ) {
+          headers.set("Authorization", "Bearer " + active.token);
         }
-        if (!headers.has(config.embedTargetHeader)) {
-          headers.set(config.embedTargetHeader, targetPath());
+        if (
+          authorizedTarget !== null &&
+          !headers.has(active.embedTargetHeader)
+        ) {
+          headers.set(active.embedTargetHeader, authorizedTarget);
         }
         return headers;
       }
       if (typeof fetch === "function") {
         const originalFetch = fetch.bind(window);
+        var pageFetch = fetch;
         window.fetch = function(input, init) {
           const raw = input instanceof Request ? input.url : String(input);
           const url = rewrittenUrl(raw, false);
@@ -829,10 +972,62 @@ export function embedApp(
             credentials: "omit"
           });
           if (input instanceof Request) {
-            return originalFetch(new Request(url, input), nextInit);
+            const requestInit = {
+              method: input.method,
+              mode: input.mode,
+              cache: input.cache,
+              redirect: input.redirect,
+              referrer: input.referrer,
+              referrerPolicy: input.referrerPolicy,
+              integrity: input.integrity,
+              keepalive: input.keepalive,
+              signal: input.signal
+            };
+            // A body in init replaces the Request's, which may already be spent.
+            if (nextInit.body !== undefined) {
+              return originalFetch(url, Object.assign(requestInit, nextInit));
+            }
+            // Read the body first: a Request used as init sends it as a stream,
+            // which needs HTTP/2 and which not every browser can send.
+            return input.arrayBuffer().then(function(body) {
+              return originalFetch(
+                url,
+                Object.assign(
+                  requestInit,
+                  body.byteLength > 0 ? { body: body } : null,
+                  nextInit
+                )
+              );
+            });
           }
           return originalFetch(url, nextInit);
         };
+        // The requests it signs go out on a transport of their own, one per
+        // token. It signs only on the target's mount and with a token; its
+        // other requests still omit cookies, so they go out on another
+        // transport, never the signed one or the page's. Asked as each read
+        // is keyed and sent, so it follows the page between mounts. With no
+        // app origin, every request passes through unchanged.
+        var signedTransport = null;
+        var unsignedTransport = {};
+        window.fetch[Symbol.for(${JSON.stringify(FETCH_TRANSPORT_SYMBOL_KEY)})] = function() {
+          if (!appOrigin()) return pageFetch;
+          var token = activeConfig().token;
+          if (!token || authorizedTargetPath() === null) {
+            return unsignedTransport;
+          }
+          if (!signedTransport || signedTransport.token !== token) {
+            signedTransport = { token: token, transport: {} };
+          }
+          return signedTransport.transport;
+        };
+        // Requests now go out signed by this runtime: the app reads the
+        // session again over it.
+        if (typeof window.dispatchEvent === "function") {
+          window.dispatchEvent(
+            new Event(${JSON.stringify(FETCH_TRANSPORT_CHANGED_EVENT)})
+          );
+        }
       }
       if (typeof XMLHttpRequest !== "undefined") {
         const originalOpen = XMLHttpRequest.prototype.open;
@@ -840,6 +1035,7 @@ export function embedApp(
         XMLHttpRequest.prototype.open = function(method, url) {
           const rewritten = rewrittenUrl(url, false);
           this.__agentNativeExternalEmbed = !!rewritten;
+          this.__agentNativeExternalEmbedUrl = url;
           return originalOpen.call(
             this,
             method,
@@ -852,8 +1048,20 @@ export function embedApp(
         XMLHttpRequest.prototype.send = function(body) {
           if (this.__agentNativeExternalEmbed) {
             try {
-              if (config.token) this.setRequestHeader("Authorization", "Bearer " + config.token);
-              this.setRequestHeader(config.embedTargetHeader, targetPath());
+              var active = activeConfig();
+              var authorizedTarget = authorizedTargetPath();
+              if (
+                authorizedTarget !== null &&
+                requestBelongsToTargetMount(
+                  this.__agentNativeExternalEmbedUrl,
+                  authorizedTarget
+                )
+              ) {
+                if (active.token) {
+                  this.setRequestHeader("Authorization", "Bearer " + active.token);
+                }
+                this.setRequestHeader(active.embedTargetHeader, authorizedTarget);
+              }
             } catch (_err) {}
           }
           return originalSend.call(this, body);
@@ -1086,12 +1294,15 @@ export function embedApp(
     }
 
     async function mountTransplantedHtml(html, appUrl) {
-      const config = embedConfigForAppUrl(appUrl);
-      installExternalEmbedRuntime(config);
       const parsed = new DOMParser().parseFromString(
         rewriteRootRelativeHtmlUrls(removeHtmlCspMeta(html), appUrl.origin),
         "text/html"
       );
+      const config = embedConfigForAppUrl(
+        appUrl,
+        appOriginConfigForDocument(parsed)
+      );
+      installExternalEmbedRuntime(config);
       const scripts = Array.from(parsed.querySelectorAll("script"));
       copyDocumentElementAttributes(parsed.documentElement);
       importHeadChildrenWithBase(parsed.head, config.baseHref);
@@ -1117,11 +1328,13 @@ export function embedApp(
       if (!isEmbedStartUrl(src)) {
         return { url: new URL(src), response: null };
       }
+      // A fetch has no document context, so the start route answers with its
+      // redirect, and the app serves that page only to a request for HTML.
       const response = await fetch(src, {
         credentials: "omit",
         redirect: "follow",
         headers: {
-          Accept: "application/json",
+          Accept: "text/html",
           "X-Agent-Native-Embed-Transplant": "1"
         }
       });
@@ -1140,6 +1353,8 @@ export function embedApp(
     }
 
     async function transplantAppDocument(src) {
+      window[${JSON.stringify(EMBED_SESSION_RENEWAL_WINDOW_KEY)}] =
+        renewTransplantedEmbedSession;
       rememberActiveEmbedSessionTicket(src);
       clearFrameReadyTimer();
       clearFrameLoadTimer();
@@ -1698,6 +1913,30 @@ export function embedApp(
       }
     }
 
+    // An app running in this window has the chat as its parent, not this shell,
+    // so it asks for a renewal by calling this rather than by posting a message.
+    async function renewTransplantedEmbedSession() {
+      if (embedSessionRefreshAttempts >= maxEmbedSessionRefreshAttempts) {
+        return false;
+      }
+      embedSessionRefreshAttempts += 1;
+      try {
+        const args = embedSessionArgsFor(
+          openStartUrl || openUrl,
+          true,
+          activeEmbedSessionTicket,
+        );
+        if (!args.sourceTicket) return false;
+        const data = parseToolResult(await callEmbedSessionTool(args));
+        if (data.renewed !== true) return false;
+        embedSessionRefreshAttempts = 0;
+        return true;
+      } catch (err) {
+        console.warn("[agent-native] embedded session renewal failed", err);
+        return false;
+      }
+    }
+
     function shouldSelfNavigateToApp() {
       const render = renderModeSource();
       const mode = render.mode;
@@ -1833,6 +2072,14 @@ export function embedApp(
       return sections.filter(Boolean).join("\\n\\n");
     }
 
+    // "noopener" would hide whether the browser blocked the tab, so it's cleared
+    // on the tab instead.
+    function openBlankTab(url) {
+      const tab = window.open(url, "_blank");
+      if (tab) tab.opener = null;
+      return Boolean(tab);
+    }
+
     async function openHostLink(data) {
       const url = typeof (data && data.url) === "string" ? data.url : "";
       if (!url) return { isError: true };
@@ -1842,8 +2089,7 @@ export function embedApp(
       if (app && typeof app.openLink === "function") {
         return await app.openLink({ url });
       }
-      window.open(url, "_blank", "noopener,noreferrer");
-      return { ok: true };
+      return openBlankTab(url) ? { ok: true } : { isError: true };
     }
 
     function notifyHostHeight() {
@@ -2575,8 +2821,7 @@ export function embedApp(
           } catch (err) {
             console.warn("[agent-native] MCP host open-link request failed", err);
           }
-          const opened = window.open(url, "_blank", "noopener,noreferrer");
-          return opened ? { ok: true } : { isError: true };
+          return openBlankTab(url) ? { ok: true } : { isError: true };
         },
         async requestDisplayMode(params) {
           await nativeApp.connect();

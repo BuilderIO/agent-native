@@ -271,10 +271,9 @@ function storedMessage(entry: unknown): Record<string, unknown> | null {
   return asRecord(record?.message) ?? record;
 }
 
-function threadProjection(
+export function threadProjection(
   rawThreadData: unknown,
   ids: CanaryIds,
-  startedAt: number | null,
 ): Pick<
   CanarySnapshot,
   | "threadExists"
@@ -301,18 +300,8 @@ function threadProjection(
     .find((message) => message.role === "user");
   const userCustom = asRecord(asRecord(latestUser?.metadata)?.custom);
   const submittedTurnId = userCustom?.submittedTurnId;
-  const userCreatedAt = latestUser?.createdAt;
-  const createdAt =
-    typeof userCreatedAt === "string" ? Date.parse(userCreatedAt) : Number.NaN;
   const promptMatchesTurn =
-    Boolean(latestUser) &&
-    (typeof submittedTurnId === "string"
-      ? submittedTurnId === ids.turnId
-      : userCustom?.submittedRunId === ids.runId ||
-        userCreatedAt == null ||
-        (Number.isFinite(createdAt) &&
-          startedAt !== null &&
-          createdAt <= startedAt));
+    Boolean(latestUser) && submittedTurnId === ids.turnId;
 
   const assistant = messages.find((message) => {
     if (message.role !== "assistant") return false;
@@ -392,11 +381,7 @@ async function readSnapshot(sql: Sql, ids: CanaryIds): Promise<CanarySnapshot> {
               : null,
         }
       : null;
-    const projection = threadProjection(
-      threads[0]?.thread_data,
-      ids,
-      run?.startedAt ?? null,
-    );
+    const projection = threadProjection(threads[0]?.thread_data, ids);
     return {
       run,
       liveLeaseCount: asNumber(leases[0]?.live_lease_count) ?? 0,

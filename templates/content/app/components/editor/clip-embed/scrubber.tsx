@@ -15,7 +15,10 @@ import {
   timelineMarkerAlignment,
   timelineMarkerLanes,
   timelineMarkerMs,
+  msToClock,
 } from "./scrubber-position";
+
+export { msToClock } from "./scrubber-position";
 
 interface CommentMarkerGroup {
   ms: number;
@@ -28,7 +31,9 @@ export interface ScrubberProps {
   currentMs: number;
   durationMs: number;
   onSeek: (ms: number) => void;
-  comments?: ClipCommentMarker[] | undefined;
+  comments?: readonly ClipCommentMarker[] | undefined;
+  /** A marker was clicked, after the video moved to it. */
+  onOpenComment?: (commentId: string) => void;
   onMarkerLanesChange?: (lanes: Map<number, number>) => void;
 }
 
@@ -42,6 +47,7 @@ export function Scrubber(props: ScrubberProps) {
     durationMs,
     onSeek,
     comments,
+    onOpenComment,
     onMarkerLanesChange,
   } = props;
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -297,6 +303,7 @@ export function Scrubber(props: ScrubberProps) {
                 onClick={(event) => {
                   event.stopPropagation();
                   onSeek(ms);
+                  onOpenComment?.(first.id);
                 }}
                 className="relative flex h-7 w-7 shrink-0 items-center justify-center text-player-control-foreground drop-shadow-md transition-transform hover:scale-110 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-player-control-foreground/80"
                 aria-label={
@@ -331,16 +338,4 @@ export function Scrubber(props: ScrubberProps) {
       </div>
     </div>
   );
-}
-
-export function msToClock(ms: number): string {
-  if (!isFinite(ms) || ms < 0) return "0:00";
-  const total = Math.floor(ms / 1000);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  if (h > 0) {
-    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  }
-  return `${m}:${String(s).padStart(2, "0")}`;
 }
