@@ -1930,35 +1930,26 @@ export function DocumentSidebar({
             ),
           )
         : (navigationContextQuery.data?.path.map(
-            (entry): ActivePathDocument => ({
-              id: entry.id,
-              parentId: entry.parentId,
-              title: entry.title,
+            ({
+              databaseId,
+              databaseDocumentId,
+              ...entry
+            }): ActivePathDocument => ({
+              ...entry,
               content: "",
               description: "",
-              icon: entry.icon,
               position: 0,
-              isFavorite: entry.isFavorite,
               hideFromSearch: false,
-              visibility: entry.visibility,
-              accessRole: entry.accessRole,
-              canView: entry.canView,
-              canComment: entry.canComment,
-              canEdit: entry.canEdit,
-              canManage: entry.canManage,
-              source: entry.source,
-              database: undefined,
-              createdAt: entry.createdAt,
-              updatedAt: entry.updatedAt,
-              databaseMembership: entry.databaseId
+              ...(databaseId
                 ? {
-                    databaseId: entry.databaseId,
-                    databaseDocumentId: entry.databaseDocumentId,
-                    databaseTitle: null,
-                    position: null,
+                    databaseMembership: {
+                      databaseId,
+                      databaseDocumentId,
+                      databaseTitle: null,
+                      position: null,
+                    },
                   }
-                : undefined,
-              hasChildren: entry.hasChildren,
+                : {}),
             }),
           ) ?? []),
     [documents, localFileMode, navigationContextQuery.data?.path],

@@ -412,11 +412,12 @@ function resolveNavigationView(args: {
   };
 }
 
-const childDocuments = alias(schema.documents, "navigation_child_documents");
-const childItems = alias(
-  schema.contentDatabaseItems,
-  "navigation_child_memberships",
-);
+function navigationAccessContext(
+  userEmail: string,
+  database: typeof schema.contentDatabases.$inferSelect,
+): AccessContext {
+  return { userEmail, ...(database.orgId ? { orgId: database.orgId } : {}) };
+}
 
 /**
  * The children the Files tree draws under `parentId`: pages in the same Files
@@ -429,6 +430,11 @@ function visibleChildren(args: {
   accessContext: AccessContext;
   filter: Omit<Parameters<typeof navigationFilterSql>[0], "document">;
 }) {
+  const childDocuments = alias(schema.documents, "navigation_child_documents");
+  const childItems = alias(
+    schema.contentDatabaseItems,
+    "navigation_child_memberships",
+  );
   return getDb()
     .select({ id: childItems.id })
     .from(childItems)
@@ -479,10 +485,10 @@ export async function filesNavigationParentsWithChildren(args: {
           visibleChildren({
             parentId: schema.documents.id,
             databaseId: args.database.id,
-            accessContext: {
-              userEmail: args.userEmail,
-              orgId: args.database.orgId ?? undefined,
-            },
+            accessContext: navigationAccessContext(
+              args.userEmail,
+              args.database,
+            ),
             filter: {
               filters: view.filters,
               filterMode: view.filterMode,
@@ -520,10 +526,7 @@ export async function getContentDatabaseNavigationPage(args: {
 
   const cursor = args.cursor ? decodeCursor(args.cursor) : null;
   const db = getDb();
-  const accessContext = {
-    userEmail: args.userEmail,
-    orgId: args.database.orgId ?? undefined,
-  };
+  const accessContext = navigationAccessContext(args.userEmail, args.database);
   const {
     viewId,
     sharedView,
