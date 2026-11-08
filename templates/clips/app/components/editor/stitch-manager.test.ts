@@ -15,3 +15,23 @@ describe("StitchManager layout", () => {
     );
   });
 });
+
+describe("StitchManager server stitch", () => {
+  it("no longer combines videos in the browser", () => {
+    const source = readSource();
+
+    expect(source).not.toContain("exportConcat");
+    expect(source).not.toContain("uploadFileClient");
+  });
+
+  it("asks the server to stitch and opens the new recording", () => {
+    const source = readSource();
+
+    expect(source).toContain("stitch.mutateAsync({");
+    expect(source).not.toMatch(/mutateAsync\(\{[^}]*videoUrl/);
+    expect(source).toContain('t("stitchManager.processingDescription")');
+    expect(source).toContain(
+      "navigate(`/r/${encodeURIComponent(newRecordingId)}`)",
+    );
+  });
+});

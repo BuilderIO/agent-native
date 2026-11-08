@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { and, inArray } from "drizzle-orm";
+import { getRequestOrgId } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
@@ -14,11 +14,18 @@ import {
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
 import { isS3ObjectUrlBoundToRecording } from "../server/lib/s3-upload-provider.js";
-import { assertNativeRecordingMedia } from "./lib/native-media.js";
+// Without a videoUrl the server combines the clips.
+import {
+  isFfprobeAvailable,
+  loadOwnedStitchSources,
+  parseSourceRecordingIds,
+  startStitchJob,
+} from "../server/lib/stitch-job.js";
+import { isFfmpegAvailable } from "../server/lib/video-remux.js";
 
 export default defineAction({
   description:
-    "Stitch multiple recordings into a new recording. The client-side editor is expected to concat the video files via ffmpeg.wasm and pass in the uploaded videoUrl + durationMs. Returns the new recording id.",
+    "Stitch multiple recordings into a new recording, in the given order. Returns the new recording id at once with status 'processing'; the server combines the videos in the background (stream copy when they match, otherwise a re-encode) and the recording turns 'ready', or 'failed' with a reason. Passing an already-combined videoUrl creates it ready instead.",
   schema: z.object({
     recordingId: z
       .string()
@@ -40,7 +47,9 @@ export default defineAction({
     videoUrl: z
       .string()
       .optional()
-      .describe("URL of the pre-stitched video (from ffmpeg.wasm + upload)"),
+      .describe(
+        "URL of an already-combined video. Omit it to let the server combine the recordings.",
+      ),
     durationMs: z.coerce
       .number()
       .int()
@@ -61,40 +70,12 @@ export default defineAction({
       );
     }
 
-    let ids: string[];
-    if (typeof args.sourceRecordingIds === "string") {
-      try {
-        ids = JSON.parse(args.sourceRecordingIds);
-      } catch {
-        ids = args.sourceRecordingIds.split(",").map((s) => s.trim());
-      }
-    } else {
-      ids = args.sourceRecordingIds;
-    }
-    ids = ids.filter((s) => typeof s === "string" && s.length > 0);
-    if (ids.length < 2) {
-      throw new Error("stitch-recordings needs at least 2 sourceRecordingIds");
-    }
-
-    const sources = await db
-      .select()
-      .from(schema.recordings)
-      .where(
-        and(
-          inArray(schema.recordings.id, ids),
-          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-        ),
-      );
-    if (sources.length !== ids.length) {
+    const ids = parseSourceRecordingIds(args.sourceRecordingIds);
+    const ordered = await loadOwnedStitchSources(ids, ownerEmail);
+    if (!videoUrl && (!isFfmpegAvailable() || !isFfprobeAvailable())) {
       throw new Error(
-        `Not all source recordings were found: asked for ${ids.length}, got ${sources.length}`,
+        "Recordings are combined with ffmpeg, which is not available on this server.",
       );
-    }
-
-    const byId = new Map(sources.map((s) => [s.id, s]));
-    const ordered = ids.map((id) => byId.get(id)!);
-    for (const source of ordered) {
-      assertNativeRecordingMedia(source);
     }
     const organizationId = ordered[0].organizationId;
     const visibility = await getDefaultRecordingVisibility(
@@ -147,7 +128,9 @@ export default defineAction({
       visibility,
       createdAt: now,
       updatedAt: now,
-      thumbnailUrl: ordered[0].thumbnailUrl ?? null,
+      // A server stitch gets its own thumbnail once the video is ready.
+      thumbnailUrl: videoUrl ? (ordered[0].thumbnailUrl ?? null) : null,
+      thumbnailStatus: videoUrl ? undefined : "pending",
     } as any);
 
     if (videoUrl && !ordered[0].thumbnailUrl) {
@@ -158,15 +141,31 @@ export default defineAction({
       });
     }
 
-    await writeAppState("refresh-signal", { ts: Date.now() });
     if (!videoUrl) {
+      // The upload state is only a progress hint for the UI; the recording
+      // row is the source of truth. Write it before the job starts, so a fast
+      // job failure (which writes "failed") always lands after it, and never
+      // let it block the job: the row is committed and must get its job.
       await writeAppState(`recording-upload-${id}`, {
         recordingId: id,
-        status: "pending-stitch-upload",
+        status: "processing",
+        stage: "server-stitch",
         sourceRecordingIds: ids,
         startedAt: now,
+      }).catch((error: unknown) => {
+        console.warn("[stitch-recordings] upload state write failed", {
+          recordingId: id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+      startStitchJob({
+        recordingId: id,
+        ownerEmail,
+        orgId: getRequestOrgId() ?? organizationId,
+        sourceRecordingIds: ids,
       });
     }
+    await writeAppState("refresh-signal", { ts: Date.now() });
 
     console.log(
       `Created stitched recording ${id} from ${ids.length} sources (${totalDuration}ms)`,
@@ -177,9 +176,6 @@ export default defineAction({
       sourceRecordingIds: ids,
       status: videoUrl ? ("ready" as const) : ("processing" as const),
       durationMs: totalDuration,
-      uploadChunkUrlTemplate: videoUrl
-        ? null
-        : `/api/uploads/${id}/chunk?index={index}&total={total}&isFinal={isFinal}`,
     };
   },
 });
