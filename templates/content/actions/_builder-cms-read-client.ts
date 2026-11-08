@@ -177,7 +177,6 @@ export type BuilderCmsContentEntryReadResult =
       state: "not_found";
       entry: null;
       providerStatus:
-        | "http_404"
         | "http_200_not_found"
         | "http_200_unexpected_entry"
         | "mcp_not_found";

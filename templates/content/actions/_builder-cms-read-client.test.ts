@@ -2261,6 +2261,160 @@ describe("Builder CMS read client", () => {
     expect(modelReads).toBe(2);
   });
 
+  it("retries transient general query-data failures before reading the entry", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    const entryStatuses = [429, 502, 200];
+    const fetchImpl = vi.fn(async (input: URL) => {
+      if (input.pathname === "/api/v1/models") {
+        return new Response(
+          JSON.stringify({
+            models: [{ id: "model-uuid", name: "blog_article", fields: [] }],
+          }),
+          { status: 200 },
+        );
+      }
+      const status = entryStatuses.shift() ?? 200;
+      return status === 200
+        ? new Response(
+            JSON.stringify({
+              results: [
+                {
+                  id: "builder-entry-1",
+                  modelId: "model-uuid",
+                  data: { title: "Recovered" },
+                },
+              ],
+              totalCount: 1,
+            }),
+            { status: 200 },
+          )
+        : new Response(null, { status });
+    });
+
+    await expect(
+      readBuilderCmsContentEntryResult({
+        model: "blog_article",
+        entryId: "builder-entry-1",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "found",
+      entry: { id: "builder-entry-1" },
+    });
+    expect(entryStatuses).toEqual([]);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps retry evidence when a general exact read stays rate limited", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    const fetchImpl = vi.fn(async (input: URL) =>
+      input.pathname === "/api/v1/models"
+        ? new Response(
+            JSON.stringify({
+              models: [{ id: "model-uuid", name: "blog_article", fields: [] }],
+            }),
+            { status: 200 },
+          )
+        : new Response(null, { status: 429 }),
+    );
+
+    await expect(
+      readBuilderCmsContentEntryResult({
+        model: "blog_article",
+        entryId: "rate-limited-entry",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toMatchObject<Partial<BuilderCmsContentEntryReadError>>({
+      reason: "transient_read_failure",
+      providerStatus: "http_429",
+      retryable: true,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+
+  it("hashes a general live preflight body the same way hydration does", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    const canonicalBlocks = [
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "text-1",
+        component: {
+          name: "Text",
+          options: { text: "<p>Canonical enriched body.</p>" },
+        },
+      },
+    ];
+    const fetchImpl = vi.fn(async (input: URL) => {
+      if (input.pathname === "/api/v1/models") {
+        return new Response(
+          JSON.stringify({
+            models: [{ id: "model-uuid", name: "blog_article", fields: [] }],
+          }),
+          { status: 200 },
+        );
+      }
+      expect(input.searchParams.get("noCache")).toBe("true");
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: "builder-entry-1",
+              modelId: "model-uuid",
+              published: "draft",
+              lastUpdated: 1_786_000_000_000,
+              data: { title: "Builder title", blocks: canonicalBlocks },
+            },
+          ],
+          totalCount: 1,
+        }),
+        { status: 200 },
+      );
+    });
+
+    const hydrated = await readBuilderCmsContentEntryResult({
+      model: "blog_article",
+      entryId: "builder-entry-1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const live = await readBuilderCmsEntryLiveState({
+      model: "blog_article",
+      entryId: "builder-entry-1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const baselineHash = builderBlocksHash(
+      builderEntryBlocks(hydrated.entry!.rawEntry!),
+    );
+    expect(baselineHash).toEqual(expect.any(String));
+    expect(live).toMatchObject({
+      exists: true,
+      published: "draft",
+      lastUpdated: "1786000000000",
+      blocksHash: baselineHash,
+      id: "builder-entry-1",
+      values: expect.objectContaining({ "data.title": "Builder title" }),
+    });
+  });
+
   it("reports an empty general exact query as a 200 not-found result", async () => {
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
