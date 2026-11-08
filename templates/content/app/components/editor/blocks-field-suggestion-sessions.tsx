@@ -978,23 +978,29 @@ export function useBlocksFieldSuggestions({
   }, []);
 
   /**
-   * Reads the tabs' text afresh, trying again while that fails for as long
-   * as one of `sessions` is still its tab's. Reports whether it was read.
+   * Reads the tabs' text afresh, and the page's comments with it when
+   * `comments`, trying again while that fails for as long as one of
+   * `sessions` is still its tab's. Reports whether it was read.
    */
   const reread = useCallback(
-    async (sessions: FieldSession[]) => {
+    async (sessions: FieldSession[], comments: boolean) => {
       const current = () =>
         sessions.some(
           (session) => sessionsRef.current.get(session.fieldId) === session,
         );
+      const queryKeys = [
+        ["action", "list-document-properties", { documentId }],
+        ...(comments ? [["action", "list-comments", { documentId }]] : []),
+      ];
       let delay = 0;
       for (;;) {
         try {
-          await queryClient.refetchQueries(
-            {
-              queryKey: ["action", "list-document-properties", { documentId }],
-            },
-            { throwOnError: true },
+          // Asked for in one go, the reads share a batch and land together,
+          // so a tab never shows its new text with a thread's old quote.
+          await Promise.all(
+            queryKeys.map((queryKey) =>
+              queryClient.refetchQueries({ queryKey }, { throwOnError: true }),
+            ),
           );
           return true;
         } catch (error) {
@@ -1057,29 +1063,13 @@ export function useBlocksFieldSuggestions({
     [documentId, queryClient],
   );
 
-  /** Accepting moves each asking thread's quote onto the tab's new text. */
-  const rereadMovedQuotes = useCallback(
-    (decided: ResourceSuggestion[]) => {
-      if (
-        decided.some(
-          (suggestion) =>
-            suggestion.status === "accepted" &&
-            suggestionSourceThreadId(suggestion),
-        )
-      )
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-comments", { documentId }],
-        });
-    },
-    [documentId, queryClient],
-  );
-
   /**
    * Runs a decision on tabs' suggestions: their drafts are saved first, and
    * afterwards the tabs read their text again and start new drafts on it.
+   * `run` reports the suggestions it decided.
    */
   const decideOnFields = useCallback(
-    async (fieldIds: string[], run: () => Promise<void>) => {
+    async (fieldIds: string[], run: () => Promise<ResourceSuggestion[]>) => {
       if (decidingRef.current) return;
       decidingRef.current = true;
       // The tabs stop taking typing until they restart on the decided text,
@@ -1091,12 +1081,18 @@ export function useBlocksFieldSuggestions({
       const releaseViews = holdViews(fieldIds);
       /** When the decision was made, while its text is still unread. */
       let unreadSince: number | null = null;
+      // Accepting moves each asking thread's quote onto the tab's new text.
+      let movedQuotes = false;
       try {
         for (const fieldId of new Set(fieldIds)) {
           const session = sessionsRef.current.get(fieldId);
           if (session && !(await save(session, { autosave: false }))) return;
         }
-        await run();
+        movedQuotes = (await run()).some(
+          (suggestion) =>
+            suggestion.status === "accepted" &&
+            suggestionSourceThreadId(suggestion),
+        );
         unreadSince = Date.now();
         const decided = [...new Set(fieldIds)].flatMap(
           (fieldId) => sessionsRef.current.get(fieldId) ?? [],
@@ -1104,7 +1100,7 @@ export function useBlocksFieldSuggestions({
         // A tab restarted on its cached text would miss an accepted edit and
         // save its next draft on an old base. Until the text is read, the
         // tabs keep their old drafts, which have nothing unsaved.
-        if (!(await reread(decided))) return;
+        if (!(await reread(decided, movedQuotes))) return;
         unreadSince = null;
         let restarted = false;
         for (const session of decided) {
@@ -1124,12 +1120,20 @@ export function useBlocksFieldSuggestions({
         setDecidingFields(NO_FIELDS);
         // Text that couldn't be read now, outside Suggesting mode or after
         // it ended, is read when the page next refreshes it, as it does
-        // after a decision; the tabs keep their views until then.
+        // after a decision; the tabs keep their views until then, and the
+        // moved quotes are read after it.
         if (unreadSince === null) releaseViews();
-        else afterTextRead(unreadSince, releaseViews);
+        else
+          afterTextRead(unreadSince, () => {
+            releaseViews();
+            if (movedQuotes)
+              void queryClient.invalidateQueries({
+                queryKey: ["action", "list-comments", { documentId }],
+              });
+          });
       }
     },
-    [afterTextRead, bump, holdViews, reread, save],
+    [afterTextRead, bump, documentId, holdViews, queryClient, reread, save],
   );
 
   const decide = useCallback(
@@ -1144,7 +1148,7 @@ export function useBlocksFieldSuggestions({
           "durability" in target
             ? await materializeDraft(target)
             : freshest(target);
-        if (!savedTarget) return;
+        if (!savedTarget) return [];
         const result = await mutationsRef.current.decideSuggestion.mutateAsync({
           id: savedTarget.id,
           decision,
@@ -1152,10 +1156,10 @@ export function useBlocksFieldSuggestions({
           observedBase: savedTarget.baseRevision,
           observedRevision: savedTarget.revision,
         });
-        rereadMovedQuotes([result.suggestion]);
+        return [result.suggestion];
       });
     },
-    [decideOnFields, freshest, materializeDraft, rereadMovedQuotes],
+    [decideOnFields, freshest, materializeDraft],
   );
 
   const decideMembers = useCallback(
@@ -1178,10 +1182,10 @@ export function useBlocksFieldSuggestions({
               observedBase: member.baseRevision,
             })),
           });
-          rereadMovedQuotes(result.suggestions);
+          return result.suggestions;
         },
       ),
-    [decideOnFields, freshest, rereadMovedQuotes],
+    [decideOnFields, freshest],
   );
 
   /**

@@ -237,7 +237,6 @@ describe("useBlocksFieldSuggestions", () => {
 
   it("decides a tab's suggestion after saving its draft, then reads the tab again and starts its draft over", async () => {
     const refetchQueries = vi.spyOn(queryClient, "refetchQueries");
-    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
     await render(true, []);
     await draftInTab();
     await act(async () => {
@@ -272,13 +271,13 @@ describe("useBlocksFieldSuggestions", () => {
     expect(latest.provider.sessions.has("notes")).toBe(false);
     expect(latest.deciding).toBe(false);
     // No thread asked for it, so no quote moved.
-    expect(invalidateQueries).not.toHaveBeenCalledWith({
-      queryKey: ["action", "list-comments", { documentId: "doc-1" }],
-    });
+    expect(refetchQueries).not.toHaveBeenCalledWith(
+      { queryKey: ["action", "list-comments", { documentId: "doc-1" }] },
+      { throwOnError: true },
+    );
   });
 
-  it("reads the comments again when accepting moves the asking thread's quote", async () => {
-    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+  it("reads the comments with the tab's text when accepting moves the asking thread's quote", async () => {
     await render(true, []);
     await draftInTab();
     await act(async () => {
@@ -293,14 +292,40 @@ describe("useBlocksFieldSuggestions", () => {
       suggestion: { ...asked, status: "accepted" },
     });
     await render(true, [asked]);
+    // Reads asked for in one synchronous run share a batch and land
+    // together, so the tab's new text never shows with the thread's old quote.
+    const asks: string[] = [];
+    let askedTogether: string[] = [];
+    let land: () => void = () => {};
+    const landed = new Promise<void>((resolve) => {
+      land = resolve;
+    });
+    vi.spyOn(queryClient, "refetchQueries").mockImplementation(
+      async (filters) => {
+        if (asks.length === 0)
+          queueMicrotask(() => {
+            askedTogether = [...asks];
+          });
+        asks.push(String(filters?.queryKey?.[1]));
+        await landed;
+      },
+    );
+
+    let decision = Promise.resolve();
+    await act(async () => {
+      decision = latest.decide(asked, "accepted");
+    });
+    await vi.waitFor(() => expect(askedTogether.length).toBeGreaterThan(0));
+    expect(askedTogether).toEqual([
+      "list-document-properties",
+      "list-comments",
+    ]);
 
     await act(async () => {
-      await latest.decide(asked, "accepted");
+      land();
+      await decision;
     });
-
-    expect(invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["action", "list-comments", { documentId: "doc-1" }],
-    });
+    expect(latest.deciding).toBe(false);
   });
 
   it("keeps a decided tab's draft until the tab's text is read afresh", async () => {
