@@ -30,6 +30,7 @@ vi.mock(
       isError: false,
       counts: null,
       refreshCounts: () => {},
+      countsCheck: "done" as const,
       setSwitch: skillChoices.setSwitch,
       setMark: skillChoices.setMark,
       ...skillChoices.value,
@@ -605,6 +606,7 @@ describe("Skills page", () => {
         },
       },
       refreshCounts: () => {},
+      countsCheck: "done" as const,
       setSwitch: skillChoices.setSwitch,
       setMark: skillChoices.setMark,
     };
@@ -655,6 +657,70 @@ describe("Skills page", () => {
     );
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
+
+  it.each([
+    ["checking", "Checking who this changes…", true],
+    [
+      "failed",
+      "Couldn't check who this changes. On for everyone. Nobody can switch it off or use their own version.",
+      false,
+    ],
+  ] as const)(
+    "says nothing from old counts while fresh ones are %s",
+    async (countsCheck, says, waits) => {
+      const { RequireSkillDialog } =
+        await import("../../../resources/SkillChoiceControls.js");
+      const state = {
+        choices: { switches: {}, marks: {} },
+        canMark: true,
+        isLoaded: true,
+        isError: false,
+        counts: {
+          members: 5,
+          counts: {
+            "organization:skills/brand-voice/SKILL.md": {
+              off: 2,
+              on: 0,
+              ownVersions: 1,
+            },
+          },
+        },
+        refreshCounts: () => {},
+        countsCheck,
+        setSwitch: skillChoices.setSwitch,
+        setMark: skillChoices.setMark,
+      };
+      await renderPage(() => (
+        <RequireSkillDialog
+          skill={{
+            source: "organization",
+            path: "skills/brand-voice/SKILL.md",
+            name: "brand-voice",
+          }}
+          context={{
+            state,
+            orgName: "Acme",
+            dispatchNames: new Map(),
+            requiredPaths: new Set(),
+            requiredNames: new Set(),
+            onRequire: () => {},
+          }}
+          onOpenChange={() => {}}
+        />
+      ));
+      const dialog = document.body.querySelector<HTMLElement>(
+        '[role="alertdialog"]',
+      );
+      const description = document.getElementById(
+        dialog?.getAttribute("aria-describedby") ?? "",
+      );
+      expect(description?.textContent).toBe(says);
+      const confirm = Array.from(dialog!.querySelectorAll("button")).find(
+        (button) => button.textContent === "Make required",
+      );
+      expect(confirm?.disabled).toBe(waits);
+    },
+  );
 
   it("offers Add skill in the empty personal group", async () => {
     await renderPage(SkillsSettingsPage);

@@ -2903,6 +2903,9 @@ const messages: ToolkitAgentChatTranslation = {
     "Dispatch の {{name}} は必須なので、エージェントはそちらを使い、こちらはスキップします。両方使うには、どちらかの名前を変更してください。",
   "settingsResources.skills.choicesLoadFailed":
     "どのスキルがオンになっているかを読み込めなかったため、スイッチを非表示にしています。ページを再読み込みしてもう一度お試しください。",
+  "settingsResources.skills.requireChecking": "影響を受ける人を確認しています…",
+  "settingsResources.skills.requireCountsFailed":
+    "影響を受ける人を確認できませんでした。",
   "settingsResources.skills.requireTitle": "{{name}} を必須にしますか？",
   "settingsResources.skills.makeRequired": "必須にする",
   "settingsResources.skills.switchFailed":

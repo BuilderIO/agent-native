@@ -2910,6 +2910,9 @@ const messages = {
     "Dispatch's {{name}} is Required, so the agent uses it and skips this one. Rename one to use both.",
   "settingsResources.skills.choicesLoadFailed":
     "Couldn't load which skills are on for you, so the switches are hidden. Reload the page to try again.",
+  "settingsResources.skills.requireChecking": "Checking who this changes…",
+  "settingsResources.skills.requireCountsFailed":
+    "Couldn't check who this changes.",
   "settingsResources.skills.requireTitle": "Make {{name}} required?",
   "settingsResources.skills.makeRequired": "Make required",
   "settingsResources.skills.switchFailed":

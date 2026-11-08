@@ -356,12 +356,17 @@ export function RequireSkillDialog({
   };
 
   const sentences: string[] = [];
-  if (skill && context && skill.source !== "personal") {
+  // The counts asked for when the dialog opened are on their way, and the
+  // older ones could say the wrong thing.
+  const checking = context?.state.countsCheck === "checking";
+  if (checking) {
+    sentences.push(t("agentChat.settingsResources.skills.requireChecking"));
+  } else if (skill && context && skill.source !== "personal") {
     const { state, orgName } = context;
+    const counts = state.countsCheck === "done" ? state.counts : null;
     const mark = skillMarkFor(state.choices, skill.source, skill.path);
-    const count =
-      state.counts?.counts[skillChoiceKey(skill.source, skill.path)];
-    const members = state.counts?.members ?? 0;
+    const count = counts?.counts[skillChoiceKey(skill.source, skill.path)];
+    const members = counts?.members ?? 0;
     if (mark === "recommended" && count && count.off > 0) {
       sentences.push(
         t("agentChat.settingsResources.skills.requireTurnsBackOn", {
@@ -370,7 +375,7 @@ export function RequireSkillDialog({
       );
     }
     const notOn = members - (count?.on ?? 0);
-    if (mark === "optional" && state.counts && notOn > 0) {
+    if (mark === "optional" && counts && notOn > 0) {
       sentences.push(
         t("agentChat.settingsResources.skills.requireTurnsOn", {
           count: notOn,
@@ -386,12 +391,18 @@ export function RequireSkillDialog({
       );
     }
     if (sentences.length === 0) {
+      if (state.countsCheck === "failed") {
+        sentences.push(
+          t("agentChat.settingsResources.skills.requireCountsFailed"),
+        );
+      }
       sentences.push(t("agentChat.settingsResources.skills.markRequiredHint"));
     }
   }
 
   const confirm = async () => {
-    if (!skill || !context || skill.source === "personal" || pending) return;
+    if (!skill || !context || skill.source === "personal") return;
+    if (pending || checking) return;
     setPending(true);
     setFailed(false);
     try {
@@ -445,7 +456,7 @@ export function RequireSkillDialog({
           </AlertDialogCancel>
           <Button
             type="button"
-            disabled={pending}
+            disabled={pending || checking}
             onClick={() => void confirm()}
           >
             {pending ? <Spinner /> : null}

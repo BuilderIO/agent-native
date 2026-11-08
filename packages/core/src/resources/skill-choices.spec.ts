@@ -414,10 +414,12 @@ describe("readSkillReference", () => {
   const MINE = "skills/my-release-notes/SKILL.md";
   const ORG = "skills/release-notes/SKILL.md";
   const OTHER = "skills/brand-voice/SKILL.md";
+  const DISPATCH = "skills/dispatch-release-notes/SKILL.md";
   const files: Record<string, { name: string; content: string }> = {
     [MINE]: { name: "release-notes", content: "Mine." },
     [ORG]: { name: "release-notes", content: "The organization's." },
     [OTHER]: { name: "brand-voice", content: "Brand voice." },
+    [DISPATCH]: { name: "release-notes", content: "Dispatch's." },
   };
   const readSkill = vi.fn(async (path: string) => files[path] ?? null);
   const requiring = (...paths: string[]) => ({
@@ -463,14 +465,36 @@ describe("readSkillReference", () => {
     ).resolves.toBe("Mine.");
   });
 
-  it("finds the paths of Required skills from either place", () => {
+  it("prefers the organization's Required skill to a same-named Dispatch one, as the prompt does", async () => {
+    // The Dispatch mark was stored first.
+    const choices = {
+      switches: {},
+      marks: {
+        [`workspace:${DISPATCH}`]: "required" as const,
+        [`organization:${ORG}`]: "required" as const,
+      },
+    };
+    await expect(readSkillReference(MINE, choices, readSkill)).resolves.toBe(
+      "The organization's.",
+    );
+    await expect(
+      readSkillReference(DISPATCH, choices, readSkill),
+    ).resolves.toBe("The organization's.");
+    readSkill.mockClear();
+    await expect(readSkillReference(ORG, choices, readSkill)).resolves.toBe(
+      "The organization's.",
+    );
+    expect(readSkill).toHaveBeenCalledTimes(1);
+  });
+
+  it("finds the paths of Required skills from either place, the organization's first", () => {
     expect(
       requiredSkillPaths({
         switches: {},
         marks: {
+          [`workspace:${OTHER}`]: "required",
           [`organization:${ORG}`]: "required",
           [`workspace:${ORG}`]: "required",
-          [`workspace:${OTHER}`]: "required",
           [`organization:${MINE}`]: "optional",
         },
       }),

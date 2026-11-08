@@ -2842,6 +2842,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Dispatch का {{name}} ज़रूरी है, इसलिए एजेंट उसे इस्तेमाल करता है और यह वाला छोड़ देता है। दोनों इस्तेमाल करने के लिए एक का नाम बदलें।",
   "settingsResources.skills.choicesLoadFailed":
     "यह लोड नहीं हो सका कि आपके लिए कौन-सी स्किल चालू हैं, इसलिए स्विच छिपा दिए गए हैं। फिर से कोशिश करने के लिए पेज रीलोड करें।",
+  "settingsResources.skills.requireChecking":
+    "जाँच हो रही है कि इससे किस पर असर पड़ेगा…",
+  "settingsResources.skills.requireCountsFailed":
+    "यह जाँचा नहीं जा सका कि इससे किस पर असर पड़ेगा।",
   "settingsResources.skills.requireTitle": "{{name}} को ज़रूरी बनाएँ?",
   "settingsResources.skills.makeRequired": "ज़रूरी बनाएँ",
   "settingsResources.skills.switchFailed":

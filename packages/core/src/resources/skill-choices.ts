@@ -259,11 +259,19 @@ export function skillReferenceResource(
   return chosen?.resource ?? effective.effectiveResource;
 }
 
-/** Paths of the organization and Dispatch skills marked Required. */
+/**
+ * Paths of the organization and Dispatch skills marked Required, the
+ * organization's first, as the prompt orders them.
+ */
 export function requiredSkillPaths(choices: SkillChoices): string[] {
   const paths = new Set<string>();
-  for (const [key, mark] of Object.entries(choices.marks)) {
-    if (mark === "required") paths.add(key.slice(key.indexOf(":") + 1));
+  for (const source of ["organization", "workspace"] as const) {
+    const prefix = skillChoiceKey(source, "");
+    for (const [key, mark] of Object.entries(choices.marks)) {
+      if (mark === "required" && key.startsWith(prefix)) {
+        paths.add(key.slice(prefix.length));
+      }
+    }
   }
   return [...paths];
 }
@@ -271,8 +279,9 @@ export function requiredSkillPaths(choices: SkillChoices): string[] {
 /**
  * The text a reference to one skill path reads. `readSkill` reads the copy
  * at a path that `skillReferenceResource` picks, or null when it can't. The
- * prompt knows skills by name, so a Required skill also replaces a
- * same-named one at another path, such as the person's own.
+ * prompt knows skills by name and keeps the first Required one with a name,
+ * so a Required skill also replaces a same-named one at another path, such
+ * as the person's own or a Required Dispatch skill after the organization's.
  */
 export async function readSkillReference(
   path: string,
@@ -284,9 +293,11 @@ export async function readSkillReference(
   const skill = await readSkill(path);
   if (!skill) return null;
   const required = requiredSkillPaths(choices);
-  const others = required.includes(path)
-    ? []
-    : await Promise.all(required.map(readSkill));
+  const at = required.indexOf(path);
+  // Only a Required skill the prompt reaches before this one can replace it.
+  const others = await Promise.all(
+    (at === -1 ? required : required.slice(0, at)).map(readSkill),
+  );
   const replacement = others.find((other) => other?.name === skill.name);
   return (replacement ?? skill).content;
 }

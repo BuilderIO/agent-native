@@ -39,6 +39,11 @@ export interface SkillChoicesState {
   counts: SkillChoiceCounts | null;
   /** For admins: fetch the counts again, as before asking about Required. */
   refreshCounts: () => void;
+  /**
+   * Whether the counts `refreshCounts` asked for are in: "checking" until
+   * they arrive, "failed" if they couldn't be read.
+   */
+  countsCheck: "checking" | "done" | "failed";
   /** Rejects when the server refused; the switch goes back. */
   setSwitch: (source: SkillSource, path: string, on: boolean) => Promise<void>;
   /** Rejects when the server refused; the mark goes back. */
@@ -156,9 +161,19 @@ export function useSkillChoices(
     [saveMarkAsync, settle],
   );
 
+  // Counts read before an admin asked again may be out of date.
+  const [countsAskedAt, setCountsAskedAt] = useState<number | null>(null);
   const refreshCounts = useCallback(() => {
-    if (canMark) void refetchCounts();
+    if (!canMark) return;
+    setCountsAskedAt(Date.now());
+    void refetchCounts();
   }, [canMark, refetchCounts]);
+  const countsCheck =
+    countsAskedAt === null || countsQuery.dataUpdatedAt > countsAskedAt
+      ? "done"
+      : countsQuery.errorUpdatedAt > countsAskedAt
+        ? "failed"
+        : "checking";
 
   const data = query.data;
   const choices = useMemo<SkillChoices>(() => {
@@ -178,6 +193,7 @@ export function useSkillChoices(
     isError: query.isError,
     counts: countsQuery.data ?? null,
     refreshCounts,
+    countsCheck,
     setSwitch,
     setMark,
   };

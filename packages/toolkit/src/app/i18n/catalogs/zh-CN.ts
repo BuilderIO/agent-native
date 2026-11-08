@@ -2644,6 +2644,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Dispatch 中的 {{name}} 是必需的，所以智能体会使用它，并跳过这个。重命名其中一个即可同时使用两者。",
   "settingsResources.skills.choicesLoadFailed":
     "无法加载你启用了哪些技能，所以开关已隐藏。请重新加载页面再试一次。",
+  "settingsResources.skills.requireChecking": "正在确认这会影响哪些人…",
+  "settingsResources.skills.requireCountsFailed": "无法确认这会影响哪些人。",
   "settingsResources.skills.requireTitle": "将 {{name}} 设为必需？",
   "settingsResources.skills.makeRequired": "设为必需",
   "settingsResources.skills.switchFailed": "无法保存你对 {{name}} 的选择。",

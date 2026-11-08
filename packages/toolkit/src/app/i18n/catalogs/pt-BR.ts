@@ -3055,6 +3055,9 @@ const messages: ToolkitAgentChatTranslation = {
     "A {{name}} do Dispatch é obrigatória, então o agente usa ela e ignora esta. Renomeie uma para usar as duas.",
   "settingsResources.skills.choicesLoadFailed":
     "Não foi possível carregar quais habilidades estão ativadas para você, então os interruptores estão ocultos. Recarregue a página para tentar de novo.",
+  "settingsResources.skills.requireChecking": "Verificando quem isso afeta…",
+  "settingsResources.skills.requireCountsFailed":
+    "Não foi possível verificar quem isso afeta.",
   "settingsResources.skills.requireTitle": "Tornar {{name}} obrigatória?",
   "settingsResources.skills.makeRequired": "Tornar obrigatória",
   "settingsResources.skills.switchFailed":

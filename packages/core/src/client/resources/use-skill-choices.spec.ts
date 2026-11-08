@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   answer: undefined as unknown,
   isError: false,
   counts: undefined as unknown,
+  countsAt: 0,
+  countsFailedAt: 0,
   queries: [] as Array<{ name: string; enabled: boolean | undefined }>,
   refetch: vi.fn(async () => undefined),
   refetchCounts: vi.fn(async () => undefined),
@@ -34,7 +36,12 @@ vi.mock("../use-action.js", () => ({
     mocks.queries.push({ name, enabled: options.enabled });
     return name === "get-skill-choices"
       ? { data: mocks.answer, isError: mocks.isError, refetch: mocks.refetch }
-      : { data: mocks.counts, refetch: mocks.refetchCounts };
+      : {
+          data: mocks.counts,
+          dataUpdatedAt: mocks.countsAt,
+          errorUpdatedAt: mocks.countsFailedAt,
+          refetch: mocks.refetchCounts,
+        };
   },
   useActionMutation: (name: string) => ({
     mutateAsync:
@@ -84,6 +91,8 @@ beforeEach(() => {
   };
   mocks.isError = false;
   mocks.counts = undefined;
+  mocks.countsAt = 0;
+  mocks.countsFailedAt = 0;
   mocks.queries.length = 0;
   vi.spyOn(Date, "now").mockReturnValue(1234);
 });
@@ -133,6 +142,28 @@ describe("useSkillChoices", () => {
     act(() => state.refreshCounts());
     expect(mocks.refetchCounts).toHaveBeenCalledTimes(1);
     expect(mocks.refetch).not.toHaveBeenCalled();
+  });
+
+  it("says whether the counts asked for are in", async () => {
+    mocks.answer = { switches: {}, marks: {}, canMark: true };
+    mocks.counts = { members: 3, counts: {} };
+    mocks.countsAt = 1000;
+    await render();
+    expect(state.countsCheck).toBe("done");
+
+    act(() => state.refreshCounts());
+    expect(state.countsCheck).toBe("checking");
+
+    // The same page reads the query again as answers come in.
+    const rerender = () =>
+      act(async () => root?.render(React.createElement(Probe)));
+    mocks.countsFailedAt = 1300;
+    await rerender();
+    expect(state.countsCheck).toBe("failed");
+
+    mocks.countsAt = 1400;
+    await rerender();
+    expect(state.countsCheck).toBe("done");
   });
 
   it("loads nothing until someone is signed in, or when turned off", async () => {

@@ -3026,6 +3026,8 @@ const messages: ToolkitAgentChatTranslation = {
     "{{name}} في Dispatch مطلوبة، لذا يستخدمها الوكيل ويتخطى هذه. أعد تسمية إحداهما لاستخدام الاثنتين.",
   "settingsResources.skills.choicesLoadFailed":
     "تعذّر تحميل المهارات المفعّلة لك، لذا أُخفيت مفاتيح التبديل. أعد تحميل الصفحة للمحاولة مرة أخرى.",
+  "settingsResources.skills.requireChecking": "جارٍ التحقق ممن يتأثر بهذا…",
+  "settingsResources.skills.requireCountsFailed": "تعذّر التحقق ممن يتأثر بهذا.",
   "settingsResources.skills.requireTitle": "جعل {{name}} مطلوبة؟",
   "settingsResources.skills.makeRequired": "جعلها مطلوبة",
   "settingsResources.skills.switchFailed": "تعذّر حفظ اختيارك لـ {{name}}.",
