@@ -1066,6 +1066,7 @@ export function useDeleteContentDatabase() {
       ["action", "list-trashed-documents"],
       ["action", "list-content-trash"],
       ["action", "get-content-recent"],
+      ...SEARCH_QUERY_KEYS,
     ],
   });
 }
@@ -1091,6 +1092,7 @@ export function useRestoreContentDatabase() {
       ["action", "get-content-recent"],
       contentDatabaseNavigationQueryFilter(),
       contentNavigationContextFilter([data.documentId]),
+      ...SEARCH_QUERY_KEYS,
     ],
   });
 }
@@ -1147,6 +1149,7 @@ export function useAddDatabaseItem(documentId: string) {
       invalidateContentDatabaseNavigationQueries(queryClient, {
         databaseId: data.receipt.target.databaseId,
       });
+      invalidateContentQueries(queryClient, SEARCH_QUERY_KEYS);
     },
   });
 }
@@ -1197,7 +1200,10 @@ export function useSubmitContentDatabaseForm(documentId: string) {
     SubmitContentDatabaseFormResponse,
     SubmitContentDatabaseFormRequest
   >("submit-content-database-form", {
-    invalidates: contentDatabaseRowTargets(documentId),
+    invalidates: [
+      ...contentDatabaseRowTargets(documentId),
+      ...SEARCH_QUERY_KEYS,
+    ],
   });
 }
 
@@ -1206,8 +1212,10 @@ export function useDuplicateDatabaseItem(documentId: string) {
     ContentDatabaseResponsePayload,
     DuplicateDatabaseItemRequest
   >("duplicate-database-item", {
-    invalidates: (data) =>
-      contentDatabaseRowTargets(documentId, data.database.id),
+    invalidates: (data) => [
+      ...contentDatabaseRowTargets(documentId, data.database.id),
+      ...SEARCH_QUERY_KEYS,
+    ],
   });
 }
 
@@ -1216,8 +1224,10 @@ export function useDuplicateDatabaseItems(documentId: string) {
     ContentDatabaseResponsePayload,
     DatabaseItemsBatchRequest
   >("duplicate-database-items", {
-    invalidates: (data) =>
-      contentDatabaseRowTargets(documentId, data.database.id),
+    invalidates: (data) => [
+      ...contentDatabaseRowTargets(documentId, data.database.id),
+      ...SEARCH_QUERY_KEYS,
+    ],
   });
 }
 
@@ -1237,9 +1247,10 @@ export function useRemoveDatabaseItems(documentId: string) {
           ["action", "list-document-properties", { documentId: id }],
         ]),
         contentNavigationContextFilter(removed),
+        // Search lists a page in its collection, but not in Favorites.
         ...(data.database.systemRole === "favorites"
           ? [contentNavigationBranchFilter({ documentIds: removed })]
-          : []),
+          : SEARCH_QUERY_KEYS),
       ];
     },
   });

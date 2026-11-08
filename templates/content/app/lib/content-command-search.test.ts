@@ -14,6 +14,7 @@ import {
   excludeAlreadyShownDocuments,
   mergeInstantAndServerResults,
   pagesInsidePage,
+  pageScopeEntry,
   searchHighlightParts,
   titleEntryPassesFilters,
   titleEntryToInstantSearchResult,
@@ -476,6 +477,39 @@ describe("titleEntryToInstantSearchResult", () => {
         titles,
       ).parentTitle,
     ).toBeNull();
+  });
+});
+
+describe("pageScopeEntry", () => {
+  const membership = {
+    databaseId: "database",
+    databaseDocumentId: "collection",
+    databaseTitle: "Collection",
+    position: 0,
+  };
+
+  it("places a collection's row inside the collection", () => {
+    expect(
+      pageScopeEntry({
+        id: "row",
+        parentId: null,
+        databaseMembership: membership,
+      }),
+    ).toEqual({
+      id: "row",
+      parentId: null,
+      collectionDocumentId: "collection",
+    });
+  });
+
+  it("leaves a Files row outside the Files page, as the server does", () => {
+    expect(
+      pageScopeEntry({
+        id: "file",
+        parentId: "folder",
+        databaseMembership: { ...membership, systemRole: "files" },
+      }),
+    ).toEqual({ id: "file", parentId: "folder", collectionDocumentId: null });
   });
 });
 

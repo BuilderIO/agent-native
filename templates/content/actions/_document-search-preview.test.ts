@@ -101,6 +101,28 @@ describe("findSearchMatch", () => {
       needle: "istanbul",
     });
   });
+
+  it("finds it when the query has that capital too", () => {
+    expect(findSearchMatch("Visit İstanbul", ["İstanbul"])).toEqual({
+      position: 6,
+      needle: "İstanbul",
+    });
+  });
+
+  it("prefers a word that starts with the query, as the index does", () => {
+    expect(findSearchMatch("concatenate the catapult", ["cat"])).toEqual({
+      position: 16,
+      needle: "cat",
+    });
+    expect(findSearchMatch("so-called cat", ["cal"])?.position).toBe(3);
+  });
+
+  it("settles for a match inside a word when there's no other", () => {
+    expect(findSearchMatch("concatenate", ["cat"])).toEqual({
+      position: 3,
+      needle: "cat",
+    });
+  });
 });
 
 describe("documentSearchPreview", () => {
@@ -111,6 +133,15 @@ describe("documentSearchPreview", () => {
       snippet: "Just the first line.",
       contentLength: 20,
     });
+  });
+
+  it("shows the same top from just the top of a long page and its length", () => {
+    const body = `Just the first line. ${"more words ".repeat(1_000)}`;
+    const top = Array.from(body).slice(0, 5_000).join("");
+
+    expect(documentSearchPreview(top, [], body.length)).toEqual(
+      documentSearchPreview(body, []),
+    );
   });
 
   it("shows the passage around a match deep in a page", () => {

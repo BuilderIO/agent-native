@@ -505,7 +505,7 @@ describe("Trash writes", () => {
 });
 
 describe("collection row writes", () => {
-  it("duplicate refreshes the collection and its sorted table", async () => {
+  it("duplicate refreshes the collection, its sorted table and search", async () => {
     await mountReads();
     actionResponses["duplicate-database-item"] = {
       database: { id: "tracker-db" },
@@ -517,7 +517,13 @@ describe("collection row writes", () => {
 
     await act(() => duplicate.current.mutateAsync({ itemId: "item-page" }));
 
-    expect(await refetched()).toEqual(["documents", "tracker", "trackerTable"]);
+    expect(await refetched()).toEqual([
+      "documents",
+      "search",
+      "titles",
+      "tracker",
+      "trackerTable",
+    ]);
   });
 
   it("a row's title edit refreshes search, and its other cells leave search alone", async () => {
@@ -565,7 +571,7 @@ describe("collection row writes", () => {
     );
   });
 
-  it("bulk removal by item id refreshes the removed pages named in the response", async () => {
+  it("bulk removal by item id refreshes the removed pages named in the response, and search", async () => {
     await mountReads();
     actionResponses["remove-database-items"] = {
       database: { id: "tracker-db" },
@@ -589,6 +595,8 @@ describe("collection row writes", () => {
       "pageDoc",
       "pagePath",
       "pageProperties",
+      "search",
+      "titles",
       "tracker",
       "trackerTable",
     ]);

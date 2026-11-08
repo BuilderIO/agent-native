@@ -32,6 +32,7 @@ import {
   isLocalFileSearchResult,
   mergeInstantAndServerResults,
   pagesInsidePage,
+  pageScopeEntry,
   searchHighlightParts,
   titleEntryPassesFilters,
   titleEntryToInstantSearchResult,
@@ -734,14 +735,7 @@ export function ContentCommandSearchResults({
     () =>
       pageScopeId
         ? pagesInsidePage(
-            documents?.map((document) => ({
-              id: document.id,
-              parentId: document.parentId,
-              collectionDocumentId:
-                document.databaseMembership?.databaseDocumentId ?? null,
-            })) ??
-              titleEntries ??
-              [],
+            documents?.map(pageScopeEntry) ?? titleEntries ?? [],
             pageScopeId,
           )
         : null,

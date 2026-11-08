@@ -324,6 +324,28 @@ export function titleEntryToInstantSearchResult(
 }
 
 /**
+ * A sidebar page as `pagesInsidePage` reads it. Rows of a system collection,
+ * such as Files, aren't inside its page, as in the server's scope.
+ */
+export function pageScopeEntry(
+  document: Pick<Document, "id" | "parentId" | "databaseMembership">,
+): {
+  id: string;
+  parentId: string | null;
+  collectionDocumentId: string | null;
+} {
+  const membership = document.databaseMembership;
+  return {
+    id: document.id,
+    parentId: document.parentId,
+    collectionDocumentId:
+      membership && !membership.systemRole
+        ? membership.databaseDocumentId
+        : null,
+  };
+}
+
+/**
  * A page and everything inside it, among the pages loaded: its sub-pages and
  * the rows of collections, however deep. A page reached only through one the
  * list leaves out, such as a page hidden from search, is missed here, and the

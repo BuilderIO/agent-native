@@ -43,6 +43,11 @@ function escapeRegExp(text: string): string {
   return text.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
 }
 
+/** Whether `at` starts a word, splitting words as the search index does. */
+function startsWord(text: string, at: number): boolean {
+  return !/[\p{L}\p{N}\p{M}]$/u.test(text.slice(Math.max(0, at - 2), at));
+}
+
 function occurrencesOf(lowered: string, needle: string): number[] {
   const positions: number[] = [];
   if (/\s/.test(needle) && needle.length <= MAX_FLEXIBLE_PHRASE_CHARS) {
@@ -51,16 +56,20 @@ function occurrencesOf(lowered: string, needle: string): number[] {
     for (const match of lowered.matchAll(new RegExp(pattern, "g"))) {
       positions.push(match.index);
     }
-    return positions;
+  } else {
+    for (
+      let at = lowered.indexOf(needle);
+      at >= 0;
+      at = lowered.indexOf(needle, at + needle.length)
+    ) {
+      positions.push(at);
+    }
   }
-  for (
-    let at = lowered.indexOf(needle);
-    at >= 0;
-    at = lowered.indexOf(needle, at + needle.length)
-  ) {
-    positions.push(at);
-  }
-  return positions;
+  // The index finds body words from their start, so a match there is why the
+  // page was found. One inside a word ("cat" in "concatenate") counts only
+  // when there's no other, as for a page found by its title.
+  const wordStarts = positions.filter((at) => startsWord(lowered, at));
+  return wordStarts.length ? wordStarts : positions;
 }
 
 /**
@@ -73,7 +82,7 @@ export function findSearchMatch(
 ): FoundMatch | null {
   const lowered = lowerKeepingOffsets(body);
   const hits = needles.flatMap((needle, order) =>
-    occurrencesOf(lowered, needle.toLowerCase()).map((position) => ({
+    occurrencesOf(lowered, lowerKeepingOffsets(needle)).map((position) => ({
       position,
       order,
     })),
@@ -175,17 +184,21 @@ function charactersAfter(text: string, offset: number, count: number) {
   return at;
 }
 
+/**
+ * `contentLength` is the whole page's when `body` is only its top (at least
+ * `MAX_WINDOW_CHARS` of it), which is all a preview without words shows.
+ */
 export function documentSearchPreview(
   body: string,
   needles: readonly string[],
+  contentLength = characterCount(body),
 ): DocumentSearchPreview {
-  const contentLength = characterCount(body);
   const match = needles.length ? findSearchMatch(body, needles) : null;
   if (!match) {
     const end = charactersAfter(body, 0, MAX_WINDOW_CHARS);
     return {
       snippet: searchSnippet(body.slice(0, end), "", {
-        clippedEnd: end < body.length,
+        clippedEnd: characterCount(body.slice(0, end)) < contentLength,
       }),
       contentLength,
     };
@@ -216,7 +229,8 @@ export function documentSearchPreview(
  * once and searched here, where a database would decompress it again for every
  * mention in its query and compare text more slowly. A page of results then
  * costs one pass over each body, whatever its size, and the database stays out
- * of it after handing the bodies over.
+ * of it after handing the bodies over. Without words to find, a preview is the
+ * top of the page, so only that much of each is read.
  */
 export async function loadDocumentSearchPreviews({
   db,
@@ -230,15 +244,26 @@ export async function loadDocumentSearchPreviews({
   needles: string[];
 }): Promise<Map<string, DocumentSearchPreview>> {
   if (!ids.length) return new Map();
+  const content = sql<string>`coalesce(${schema.documents.content}, '')`;
+  const topOnly = needles.length === 0;
   // guard:allow-unscoped — `where` is search-documents' access filter for this caller, and `ids` are rows it already returned.
-  const rows: Array<{ id: string; body: string }> = await db
-    .select({
-      id: schema.documents.id,
-      body: sql<string>`coalesce(${schema.documents.content}, '')`,
-    })
-    .from(schema.documents)
-    .where(and(where, inArray(schema.documents.id, ids)));
+  const rows: Array<{ id: string; body: string; length: number | null }> =
+    await db
+      .select({
+        id: schema.documents.id,
+        body: topOnly
+          ? sql<string>`left(${content}, ${MAX_WINDOW_CHARS})`
+          : content,
+        length: topOnly
+          ? sql<number>`char_length(${content})`
+          : sql<null>`null`,
+      })
+      .from(schema.documents)
+      .where(and(where, inArray(schema.documents.id, ids)));
   return new Map(
-    rows.map((row) => [row.id, documentSearchPreview(row.body, needles)]),
+    rows.map((row) => [
+      row.id,
+      documentSearchPreview(row.body, needles, row.length ?? undefined),
+    ]),
   );
 }
