@@ -27,6 +27,15 @@ vi.mock("../org/service-principal-guard.js", async (importOriginal) => ({
   assertServicePrincipalMayRun: vi.fn(async () => ({ allowedActions: grant })),
 }));
 
+const trackedCalls: Array<Record<string, unknown>> = [];
+
+vi.mock("./analytics.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./analytics.js")>()),
+  trackMcpToolCall: (_ctx: unknown, payload: Record<string, unknown>) => {
+    trackedCalls.push(payload);
+  },
+}));
+
 vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("../server/better-auth-instance.js")
@@ -114,11 +123,16 @@ function config(overrides: Partial<MCPConfig> = {}): MCPConfig {
   } as MCPConfig;
 }
 
-async function clientFor(mcpConfig: MCPConfig = config(), fullCatalog = false) {
+async function clientFor(
+  mcpConfig: MCPConfig = config(),
+  fullCatalog = false,
+  requestMeta: { inlineMcpApps?: boolean } = {},
+) {
   const server = await createMCPServerForRequest(mcpConfig, alice, {
     origin: "http://localhost:8100",
     transport: "http",
     fullCatalog,
+    ...requestMeta,
   } as any);
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
@@ -147,6 +161,7 @@ async function viaCallTool(client: Client, args: Record<string, unknown>) {
 
 beforeEach(() => {
   runs.length = 0;
+  trackedCalls.length = 0;
   grant = null;
 });
 
@@ -360,6 +375,47 @@ describe("tool-search with unlisted tools", () => {
   });
 });
 
+describe("the widget of an unlisted tool", () => {
+  // No listed tool here has a widget, so only the unlisted one can turn on
+  // MCP App resources.
+  function withUnlistedWidget(): MCPConfig {
+    const all = {
+      ...actions(),
+      "plan-history": action("plan-history", {
+        readOnly: true,
+        mcpTool: "search",
+        mcpApp: {
+          resource: { title: "History", html: "<main>history</main>" },
+        },
+      }),
+    };
+    return config({ actions: all, productionActions: all } as any);
+  }
+  const cards = { inlineMcpApps: true };
+
+  it("can be read after call-tool names it in the result", async () => {
+    const client = await clientFor(withUnlistedWidget(), false, cards);
+    const out = await viaCallTool(client, { name: "plan-history" });
+    expect(out.isError).toBeFalsy();
+    const uri = out._meta["openai/outputTemplate"];
+    expect(uri).toEqual(expect.any(String));
+
+    const { contents } = await client.readResource({ uri });
+    expect(JSON.stringify(contents)).toContain("history");
+    const { resources } = await client.listResources();
+    expect(resources.map((resource) => resource.name)).toEqual([
+      "plan-history",
+    ]);
+  });
+
+  it("stays out of reach outside a service principal's grant", async () => {
+    grant = ["tool-search", "call-tool", "get-plan"];
+    const client = await clientFor(withUnlistedWidget(), false, cards);
+    const { resources } = await client.listResources();
+    expect(resources).toEqual([]);
+  });
+});
+
 describe("tools/call through call-tool", () => {
   it("runs the unlisted tool it names, with its arguments", async () => {
     const out = await viaCallTool(await clientFor(), {
@@ -406,6 +462,19 @@ describe("tools/call through call-tool", () => {
       expect(textOf(out)).toContain(message);
     }
     expect(runs).toEqual([]);
+  });
+
+  it("records the tool it ran and that tool's arguments", async () => {
+    await viaCallTool(await clientFor(), {
+      name: "archive-plan",
+      arguments: { id: "plan-1" },
+    });
+    expect(trackedCalls).toEqual([
+      expect.objectContaining({
+        toolName: "archive-plan",
+        parameters: { id: "plan-1" },
+      }),
+    ]);
   });
 
   it("calls an app's own call-tool action instead", async () => {

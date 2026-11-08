@@ -3471,15 +3471,17 @@ export async function createMCPServerForRequest(
   }
 
   // MCP App widgets belong to their action: outside the grant, the resource is
-  // as invisible as the tool.
-  async function grantedAdvertisedActions(
+  // as invisible as the tool. An unlisted tool's result names its widget just as
+  // a listed tool's does, so the client has to be able to read that one too.
+  async function grantedServedActions(
     actionName: string,
   ): Promise<typeof advertisedActions> {
     const { allowedActions } = await resolveServiceGrant(actionName);
+    const served = { ...advertisedActions, ...unlistedActions };
     return allowedActions === null
-      ? advertisedActions
+      ? served
       : Object.fromEntries(
-          Object.entries(advertisedActions).filter(([name]) =>
+          Object.entries(served).filter(([name]) =>
             isActionGranted(allowedActions, name),
           ),
         );
@@ -3490,7 +3492,7 @@ export async function createMCPServerForRequest(
   ): Promise<typeof advertisedActions> {
     // Only an action with a widget has a resource, so only those convert.
     return Object.fromEntries(
-      Object.entries(await grantedAdvertisedActions(actionName)).filter(
+      Object.entries(await grantedServedActions(actionName)).filter(
         ([name, entry]) => entry.mcpApp?.resource && isAdvertisable(name),
       ),
     );
@@ -3742,8 +3744,10 @@ export async function createMCPServerForRequest(
             : requestMeta?.mcpRetryToken
               ? `stateless:${requestMeta.mcpRetryToken}`
               : undefined;
-      // The tool that ran: for a `call-tool` call, the one it named.
+      // The tool that ran: for a `call-tool` call, the one it named, with the
+      // arguments it was given.
       let calledName = request.params?.name;
+      let calledArgs = request.params?.arguments;
       const result = await withToolCallContext(async () => {
         let { name, arguments: args } = request.params;
 
@@ -3779,6 +3783,7 @@ export async function createMCPServerForRequest(
           }
           ({ name, args } = target);
           calledName = name;
+          calledArgs = args;
         }
 
         try {
@@ -3916,10 +3921,7 @@ export async function createMCPServerForRequest(
         ...(calledEntry
           ? { toolCategory: calledEntry.readOnly === true ? "read" : "write" }
           : {}),
-        parameters: (request.params?.arguments ?? {}) as Record<
-          string,
-          unknown
-        >,
+        parameters: (calledArgs ?? {}) as Record<string, unknown>,
         durationMs: Date.now() - startedAt,
         isError: (result as { isError?: boolean }).isError === true,
         ...(failure ?? {}),
