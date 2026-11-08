@@ -5,7 +5,10 @@ import {
   type AnalyticsChartData,
 } from "../../shared/analytics-chart-block.js";
 import { analyticsChartsInBody } from "../../shared/analytics-charts-in-body.js";
-import { assertAnalyticsTablesFitAudience } from "./analytics-chart-sharing.js";
+import {
+  assertAnalyticsTablesFitAudience,
+  assertAnalyticsTablesFitSharingChange,
+} from "./analytics-chart-sharing.js";
 
 function chart(
   type: "line" | "table",
@@ -92,6 +95,38 @@ describe("assertAnalyticsTablesFitAudience", () => {
         "public",
       ),
     ).resolves.toBeUndefined();
+  });
+
+  it("counts sharing a private page with someone as opening it to the organization", async () => {
+    const content = body(chart("table", "private"));
+    await expect(
+      assertAnalyticsTablesFitSharingChange({
+        resource: { content, visibility: "private" },
+        change: { kind: "grant" },
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "analytics_table_wider_than_dashboard",
+    });
+    await expect(
+      assertAnalyticsTablesFitSharingChange({
+        resource: {
+          content: body(chart("table", "org")),
+          visibility: "private",
+        },
+        change: { kind: "grant" },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertAnalyticsTablesFitSharingChange({
+        resource: {
+          content: body(chart("table", "org")),
+          visibility: "public",
+        },
+        change: { kind: "grant" },
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "analytics_table_wider_than_dashboard",
+    });
   });
 
   it("never stops a page from going private", async () => {

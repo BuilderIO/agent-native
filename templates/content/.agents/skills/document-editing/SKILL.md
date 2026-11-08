@@ -465,8 +465,11 @@ Who can open the page and who can open the dashboard can differ:
   dashboard. Don't work around it; narrow the page's sharing or ask the person
   to share the dashboard more widely in Analytics.
 - Sharing a page more widely asks first when it holds charts from narrower
-  dashboards, and is refused (`analytics_table_wider_than_dashboard`) when a
-  table would reach more people than its dashboard.
+  dashboards. Sharing it, moving it into a space, or duplicating it is
+  refused (`analytics_table_wider_than_dashboard`) when a table would reach
+  more people than its dashboard.
+- `analytics_chart_too_large` means the copy is too long to hand you as a tag.
+  Ask the person to paste the panel's link into the page instead.
 
 Analytics refusals (`analytics_refused`, such as a dashboard the person can't
 open) come back with Analytics' own reason; pass it on.

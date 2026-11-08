@@ -25,3 +25,27 @@ export async function assertAnalyticsTablesFitAudience(
     { errorCode: "analytics_table_wider_than_dashboard", statusCode: 409 },
   );
 }
+
+/**
+ * The page sharing hook's check. A share with a person or group can reach
+ * people the dashboard doesn't, so it counts as at least the whole
+ * organization.
+ */
+export async function assertAnalyticsTablesFitSharingChange({
+  resource,
+  change,
+}: {
+  resource: { content?: unknown; visibility?: unknown } | null | undefined;
+  change:
+    | { kind: "visibility"; visibility: EmbedVisibility }
+    | { kind: "grant" };
+}): Promise<void> {
+  await assertAnalyticsTablesFitAudience(
+    resource?.content,
+    change.kind === "visibility"
+      ? change.visibility
+      : resource?.visibility === "public"
+        ? "public"
+        : "org",
+  );
+}

@@ -44,14 +44,10 @@ registerShareableResource({
   },
   // A table copied from an Analytics dashboard never reaches more people
   // than the dashboard. Imported lazily: it parses the page body.
-  assertSharingChange: async ({ resource, change }) => {
-    if (change.kind !== "visibility") return;
-    const { assertAnalyticsTablesFitAudience } =
+  assertSharingChange: async (args) => {
+    const { assertAnalyticsTablesFitSharingChange } =
       await import("../lib/analytics-chart-sharing.js");
-    await assertAnalyticsTablesFitAudience(
-      resource?.content,
-      change.visibility,
-    );
+    await assertAnalyticsTablesFitSharingChange(args);
   },
   agentReadable: {
     resourceKind: DOCUMENT_AGENT_RESOURCE_KIND,
