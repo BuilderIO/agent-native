@@ -358,7 +358,9 @@ async function runBakeoff(models: BakeoffModels | null) {
           embedded,
         });
 
-        const passage = await models.chat(HYDE_PROMPT, kase.query, usage.hyde);
+        const passage =
+          (await models.chat(HYDE_PROMPT, kase.query, usage.hyde)) ||
+          kase.query;
         const [hydeVector] = await models.embed(
           [passage],
           "document",

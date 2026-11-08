@@ -48,17 +48,23 @@ async function postWithRetry(
   body: unknown,
 ): Promise<Record<string, any>> {
   for (let attempt = 1; ; attempt += 1) {
+    // A network error or timeout is retried like a 429 or 5xx answer.
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(120_000),
+    }).catch((error: unknown) => {
+      if (attempt === 4) throw error;
+      return null;
     });
-    if (response.ok) return (await response.json()) as Record<string, any>;
-    const retryable = response.status === 429 || response.status >= 500;
-    if (!retryable || attempt === 4) {
-      const detail = (await response.text().catch(() => "")).slice(0, 300);
-      throw new Error(`${url} answered ${response.status}: ${detail}`);
+    if (response?.ok) return (await response.json()) as Record<string, any>;
+    if (response) {
+      const retryable = response.status === 429 || response.status >= 500;
+      if (!retryable || attempt === 4) {
+        const detail = (await response.text().catch(() => "")).slice(0, 300);
+        throw new Error(`${url} answered ${response.status}: ${detail}`);
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, attempt * 2_000));
   }
@@ -120,7 +126,17 @@ export function bakeoffModelsFromEnv(
         );
         usage.embeddedCharacters += batch.reduce((n, t) => n + t.length, 0);
         usage.inputTokens += Number(data.usage?.prompt_tokens ?? 0);
-        for (const row of data.data ?? []) vectors.push(row.embedding);
+        // Each row names the input it embeds; place it by that, not by order.
+        const rows = (data.data ?? []) as {
+          index: number;
+          embedding: number[];
+        }[];
+        if (rows.length !== batch.length)
+          throw new Error(
+            `Expected ${batch.length} embeddings, got ${rows.length}.`,
+          );
+        for (const row of [...rows].sort((a, b) => a.index - b.index))
+          vectors.push(row.embedding);
       }
       return vectors;
     };
