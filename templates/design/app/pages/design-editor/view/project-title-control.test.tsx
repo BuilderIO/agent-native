@@ -10,7 +10,10 @@ import {
   DropdownMenuContent,
 } from "@/components/ui/dropdown-menu";
 
-import { BuiltFromItem } from "./project-title-control";
+import {
+  BuiltFromItem,
+  renderProjectTitleControl,
+} from "./project-title-control";
 
 const query = vi.hoisted(() => ({
   data: undefined as unknown,
@@ -24,6 +27,12 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
     query.useActionQuery(...args);
     return { data: query.data, isError: query.isError };
   },
+  useActionMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}));
+
+vi.mock("react-router", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-router")>()),
+  useNavigate: () => vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -149,5 +158,66 @@ describe("Built from link", () => {
     };
 
     expectUnlinked(await openMenu());
+  });
+});
+
+async function renderTitleForViewer(briefs: DesignBrief[]) {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const props = {
+    editorCore: { t: (key: string) => key, id: "design-one" },
+    editorGenerationAndAccess: {
+      canEditDesign: false,
+      canShareDesign: false,
+      duplicateDesignMutation: { isPending: false },
+    },
+    editorFilesAndSaving: { titleEditing: false },
+    editorHistory: {},
+    editorLiveEditsAndPresence: {},
+    editorLayoutAndStructure: {},
+    editorSourceAndSync: {},
+    design: { title: "Signup screen", data: { briefs } },
+    widgetEmbed: false,
+  } as unknown as Parameters<typeof renderProjectTitleControl>[0];
+  await act(async () => {
+    root.render(renderProjectTitleControl(props));
+  });
+  cleanup = () => act(async () => root.unmount()).then(() => host.remove());
+  return host;
+}
+
+describe("Design title for someone who can only view the design", () => {
+  it("opens a menu with only the pages the design was built from", async () => {
+    query.data = {
+      id: "page-one",
+      title: "Spring launch brief",
+      url: brief.url,
+      context: "Content page: the brief",
+    };
+    const host = await renderTitleForViewer([brief]);
+    const trigger = host.querySelector("button");
+    if (!trigger) throw new Error("Missing title menu");
+    expect(trigger.textContent).toBe("Signup screen");
+
+    await act(async () => {
+      trigger.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    const items = document.body.querySelectorAll('[role="menuitem"]');
+    expect(items).toHaveLength(1);
+    expect(items[0].textContent).toBe(
+      "designEditor.fileMenu.builtFrom: Spring launch brief",
+    );
+    expect(items[0].getAttribute("href")).toBe(brief.url);
+  });
+
+  it("shows the plain title when the design wasn't built from a page", async () => {
+    const host = await renderTitleForViewer([]);
+
+    expect(host.querySelector("button")).toBeNull();
+    expect(host.textContent).toBe("Signup screen");
   });
 });
