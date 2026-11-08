@@ -181,6 +181,55 @@ export function threadHasAppliedAiChange(
 }
 
 /**
+ * The comments finished requests wrote, such as AI's reply or the receipt
+ * for its suggestion or change, that the loaded threads don't have yet, as
+ * one sorted string so a caller can read the list again once per new set.
+ * Nothing counts as missing before the threads first load.
+ */
+export function missingCommentAiReplyIds(
+  requests: readonly CommentAiRequest[],
+  threads: readonly { comments: readonly { id: string }[] }[] | undefined,
+) {
+  if (!threads) return "";
+  const loaded = new Set(
+    threads.flatMap((thread) => thread.comments.map((comment) => comment.id)),
+  );
+  return requests
+    .flatMap((request) =>
+      !ACTIVE_STATUSES.has(request.status) && request.result?.commentId
+        ? [request.result.commentId]
+        : [],
+    )
+    .filter((id) => !loaded.has(id))
+    .sort()
+    .join(" ");
+}
+
+/**
+ * Records each request's status in `known` and says whether one that was
+ * running when last seen has since finished with a change to the page.
+ */
+export function noteCommentAiPageChanges(
+  known: Map<string, CommentAiRequest["status"]>,
+  requests: readonly CommentAiRequest[],
+) {
+  let changed = false;
+  for (const request of requests) {
+    const prior = known.get(request.operationId);
+    known.set(request.operationId, request.status);
+    if (
+      prior !== undefined &&
+      ACTIVE_STATUSES.has(prior) &&
+      !ACTIVE_STATUSES.has(request.status) &&
+      request.result?.editApplied &&
+      !request.result.undone
+    )
+      changed = true;
+  }
+  return changed;
+}
+
+/**
  * Keeps a thread that AI just resolved in view until the person is done with
  * it, instead of letting it vanish from the margin mid-read.
  */
