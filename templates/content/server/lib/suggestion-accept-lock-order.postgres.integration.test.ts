@@ -28,6 +28,7 @@ let adapterKind: string;
 let getDocumentAction: typeof import("../../actions/get-document.js").default;
 let createSuggestion: typeof import("@agent-native/core/review/suggestions/actions/create-resource-suggestion").default;
 let decideSuggestion: typeof import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion").default;
+let lockDatabaseMemberships: typeof import("../../actions/_database-membership-lock.js").lockDatabaseMemberships;
 let sequence = 0;
 const previousSyncEventsEnabled =
   process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS;
@@ -54,6 +55,8 @@ beforeAll(async () => {
   decideSuggestion = (
     await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion")
   ).default;
+  ({ lockDatabaseMemberships } =
+    await import("../../actions/_database-membership-lock.js"));
   await (await import("../plugins/db.js")).default(undefined as never);
   await (await import("../plugins/suggested-edits.js")).default();
   const { registerFeatureFlags } =
@@ -177,6 +180,174 @@ async function seedSuggestion(): Promise<{
   );
   return { documentId, suggestion };
 }
+
+/** Adds the Page to a Files collection, as every Page in a space is. */
+async function addFilesMembership(documentId: string): Promise<string> {
+  const now = new Date().toISOString();
+  const collectionPageId = `${documentId}-files`;
+  const databaseId = `${documentId}-files-db`;
+  const propertyId = `${documentId}-files-body`;
+  const membershipId = `${documentId}-files-item`;
+  await getDb().insert(schema.documents).values({
+    id: collectionPageId,
+    title: "Files",
+    content: "",
+    ownerEmail: OWNER,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await getDb().insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: collectionPageId,
+    title: "Files",
+    systemRole: "files",
+    primaryBlocksPropertyId: propertyId,
+    blocksSeeded: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await getDb()
+    .insert(schema.documentPropertyDefinitions)
+    .values({
+      id: propertyId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Content",
+      type: "blocks",
+      optionsJson: JSON.stringify({ blocks: { primary: true } }),
+      createdAt: now,
+      updatedAt: now,
+    });
+  await getDb().insert(schema.contentDatabaseItems).values({
+    id: membershipId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return membershipId;
+}
+
+/** Holds `membershipIds` the way a save does, until `release` is called. */
+async function holdMemberships(membershipIds: string[]) {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let held!: (pid: number) => void;
+  const holding = new Promise<number>((resolve) => {
+    held = resolve;
+  });
+  const holder = getDb().transaction(async (transaction) => {
+    const tx = transaction as unknown as Db;
+    const pid = await backendPid(tx);
+    await lockDatabaseMemberships(tx, membershipIds);
+    held(pid);
+    await released;
+  });
+  const pid = await Promise.race([
+    holding,
+    holder.then(() => {
+      throw new Error("The holder ended before it held its memberships.");
+    }),
+  ]);
+  return { pid, release, holder };
+}
+
+function acceptSuggestion(suggestion: ResourceSuggestion) {
+  return Promise.resolve(
+    decideSuggestion.run(
+      {
+        id: suggestion.id,
+        decision: "accepted",
+        idempotencyKey: `accept-lock-order-decide-${suggestion.id}`,
+        observedBase: suggestion.baseRevision,
+        observedRevision: suggestion.revision,
+      },
+      ctx,
+    ),
+  );
+}
+
+async function storedContent(documentId: string) {
+  const [stored] = await getDb()
+    .select({ content: schema.documents.content })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId));
+  return stored?.content;
+}
+
+describe.skipIf(!POSTGRES_URL)(
+  "a legacy suggestion accept and memberships other writers hold",
+  () => {
+    it(
+      "lands while another Page's memberships are held",
+      () =>
+        runWithRequestContext({ userEmail: OWNER }, async () => {
+          const { documentId, suggestion } = await seedSuggestion();
+          await addFilesMembership(documentId);
+          const other = await seedSuggestion();
+          const otherMembership = await addFilesMembership(other.documentId);
+          const holder = await holdMemberships([otherMembership]);
+          try {
+            await acceptSuggestion(suggestion);
+            expect(await storedContent(documentId)).toBe(
+              canonicalizeNfm(page.replace("sets the scene", "opens")),
+            );
+          } finally {
+            holder.release();
+            await holder.holder;
+          }
+        }),
+      120_000,
+    );
+
+    it(
+      "waits for a save that holds the Page's own memberships, then lands",
+      () =>
+        runWithRequestContext({ userEmail: OWNER }, async () => {
+          for (let run = 0; run < RUNS; run += 1) {
+            const { documentId, suggestion } = await seedSuggestion();
+            const membership = await addFilesMembership(documentId);
+            const holder = await holdMemberships([membership]);
+            let settled = false;
+            let accept: Promise<unknown> | undefined;
+            try {
+              accept = acceptSuggestion(suggestion);
+              void accept.then(
+                () => (settled = true),
+                () => (settled = true),
+              );
+              const blocked = await waitUntilBlockedBy(
+                holder.pid,
+                () => settled,
+              );
+              // An accept that ended without waiting reports its own failure.
+              if (!blocked) await accept;
+              expect(blocked).toBe(true);
+            } finally {
+              holder.release();
+            }
+            const results = await Promise.allSettled([holder.holder, accept!]);
+            expect(
+              results
+                .filter((result) => result.status === "rejected")
+                .map((result) =>
+                  failureCode((result as PromiseRejectedResult).reason),
+                ),
+              `run ${run + 1}`,
+            ).toEqual([]);
+            expect(await storedContent(documentId)).toBe(
+              canonicalizeNfm(page.replace("sets the scene", "opens")),
+            );
+          }
+        }),
+      120_000,
+    );
+  },
+);
 
 describe.skipIf(!POSTGRES_URL)(
   "a legacy suggestion accept and a live-body conversion on one Page",
