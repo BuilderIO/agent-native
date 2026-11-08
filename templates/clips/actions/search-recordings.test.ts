@@ -74,7 +74,6 @@ async function seedMatch(
     expiresAt,
     password: options.password ?? null,
     trashedAt: options.trashedAt ?? null,
-    password: options.password ?? null,
     createdAt: now,
     updatedAt: now,
   });
