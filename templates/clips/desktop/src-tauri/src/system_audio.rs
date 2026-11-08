@@ -69,6 +69,7 @@ pub async fn audio_transcription_start(
     emit_partials: Option<bool>,
     owner: Option<String>,
     run_id: Option<u64>,
+    engine: Option<String>,
 ) -> Result<(), String> {
     let _ = meeting_id;
     crate::logfile::diagnostic("[meeting-audio] transcription engine start requested");
@@ -81,6 +82,7 @@ pub async fn audio_transcription_start(
         emit_partials.unwrap_or(true),
         owner,
         run_id,
+        engine,
     )
     .await;
     if let Err(error) = &result {
@@ -99,8 +101,10 @@ pub async fn audio_transcription_stop(
     app: AppHandle,
     owner: Option<String>,
     run_id: Option<u64>,
+    discard: Option<bool>,
 ) -> Result<crate::whisper_speech::WhisperStopResult, String> {
-    crate::whisper_speech::whisper_transcription_stop(app, owner, run_id).await
+    crate::whisper_speech::whisper_transcription_stop(app, owner, run_id, discard.unwrap_or(false))
+        .await
 }
 
 #[tauri::command]

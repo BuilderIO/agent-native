@@ -1,5 +1,6 @@
 export const VOICE_ENGINE_KEY = "clips:voice-engine";
 export const VOICE_POLISH_KEY = "clips:voice-polish";
+export const VOICE_MODE_KEY = "clips:voice-mode";
 // Before the engine and AI polish were separate settings, one key held both.
 // It is only read to migrate installs that predate the split.
 export const LEGACY_VOICE_PROVIDER_KEY = "clips:voice-provider";
@@ -8,11 +9,17 @@ interface VoiceEngineOption {
   id: string;
   label: string;
   offMacLabel?: string;
+  macOnly?: boolean;
 }
 
 export const VOICE_ENGINES = [
   { id: "native", label: "Apple Speech", offMacLabel: "Browser built-in" },
   { id: "whisper", label: "Local Whisper" },
+  {
+    id: "parakeet",
+    label: "Parakeet (on-device, English, 731 MB)",
+    macOnly: true,
+  },
 ] as const satisfies readonly VoiceEngineOption[];
 
 export type VoiceEngine = (typeof VOICE_ENGINES)[number]["id"];
@@ -37,7 +44,9 @@ const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
 export function voiceEngineOptions(
   isMac: boolean,
 ): Array<{ value: VoiceEngine; label: string }> {
-  return VOICE_ENGINES.map((engine: VoiceEngineOption) => ({
+  return VOICE_ENGINES.filter(
+    (engine: VoiceEngineOption) => isMac || !engine.macOnly,
+  ).map((engine: VoiceEngineOption) => ({
     value: engine.id as VoiceEngine,
     label: !isMac && engine.offMacLabel ? engine.offMacLabel : engine.label,
   }));
@@ -88,6 +97,34 @@ export function migrateLegacyVoiceProvider(
   return { ...(migrated ?? DEFAULT_VOICE_SETTINGS) };
 }
 
+// Every Clips build since dictation shipped saves one of these on its first
+// launch, so finding none of them means this is the first launch.
+const FIRST_LAUNCH_ABSENT_KEYS = [
+  VOICE_MODE_KEY,
+  VOICE_ENGINE_KEY,
+  LEGACY_VOICE_PROVIDER_KEY,
+] as const;
+
+function isEnglish(language: string): boolean {
+  return /^en(?:[-_]|$)/i.test(language.trim());
+}
+
+/**
+ * The engine to save on a new install: Parakeet when dictation is in English
+ * on a Mac, so it downloads on first launch. Existing installs return null
+ * and keep their engine, which spares them a surprise 731 MB download. `read`
+ * must throw when storage cannot be read: unreadable is not a new install.
+ */
+export function newInstallVoiceEngine(
+  read: (key: string) => string | null,
+  env: { isMac: boolean; language: string },
+): VoiceEngine | null {
+  if (!env.isMac || !isEnglish(env.language)) return null;
+  return FIRST_LAUNCH_ABSENT_KEYS.every((key) => read(key) === null)
+    ? "parakeet"
+    : null;
+}
+
 export function loadVoiceSettings(
   read: (key: string) => string | null,
 ): VoiceSettings {
@@ -105,7 +142,7 @@ export function loadVoiceSettings(
 
 export type DictationRoute =
   | {
-      kind: "native" | "browser" | "whisper";
+      kind: "native" | "browser" | "whisper" | "parakeet";
       cleanupProvider?: VoicePolishProvider;
     }
   | { kind: "server"; providerPref: VoicePolishProvider };
@@ -116,12 +153,16 @@ export type DictationRoute =
 function engineRouteKind(
   engine: VoiceEngine,
   isMac: boolean,
-): "native" | "browser" | "whisper" {
+): "native" | "browser" | "whisper" | "parakeet" {
   switch (engine) {
     case "native":
       return isMac ? "native" : "browser";
     case "whisper":
       return "whisper";
+    // Parakeet is only offered on a Mac; a value carried to another platform
+    // gets that platform's built-in speech.
+    case "parakeet":
+      return isMac ? "parakeet" : "browser";
   }
 }
 

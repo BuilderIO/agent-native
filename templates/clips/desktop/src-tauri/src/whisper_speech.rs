@@ -1,13 +1,66 @@
 use serde::Serialize;
 use tauri::AppHandle;
 
+/// Which on-device model a transcription runs on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LocalEngine {
+    Whisper,
+    Parakeet,
+}
+
+/// A dictation that asks for Parakeet always gets it here: whether the model
+/// can take it is the dictation start's call, which turns it away to Apple
+/// Speech with a reason and starts Parakeet's recovery. A meeting uses
+/// Parakeet once the file is on disk, and Whisper until then.
+pub(crate) fn resolve_local_engine(
+    requested: Option<&str>,
+    dictation: bool,
+    meeting_can_use_parakeet: impl FnOnce() -> bool,
+) -> Result<LocalEngine, &'static str> {
+    match requested {
+        Some("parakeet") if dictation || meeting_can_use_parakeet() => Ok(LocalEngine::Parakeet),
+        Some("parakeet") | Some("whisper") | None => Ok(LocalEngine::Whisper),
+        Some(_) => Err("unknown-transcription-engine"),
+    }
+}
+
+/// How a Parakeet dictation got its text: transcribed while the key was held,
+/// or from the whole recording after release.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DictationPass {
+    Live,
+    Fallback,
+}
+
+impl DictationPass {
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            DictationPass::Live => "live",
+            DictationPass::Fallback => "fallback",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictationTranscript {
+    pub text: String,
+    pub pass: DictationPass,
+    pub release_to_text_ms: u64,
+    pub audio_ms: u64,
+}
+
 /// The first failure reported for a stopped run: a microphone that sent no
 /// usable audio, or a transcription that failed. Either way the run's
 /// transcript is missing speech, so whoever saves it must carry `failure`.
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
+/// A Parakeet dictation's text comes back in `dictation`.
+#[derive(Debug, Default, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WhisperStopResult {
     pub failure: Option<String>,
+    pub dictation: Option<DictationTranscript>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,8 +96,15 @@ pub async fn whisper_transcription_start(
     emit_partials: bool,
     owner: Option<String>,
     run_id: Option<u64>,
+    engine: Option<String>,
 ) -> Result<(), String> {
-    if !crate::config::feature_config(&app).whisper_model_enabled {
+    let dictation = owner.as_deref() != Some("meeting");
+    let engine = resolve_local_engine(engine.as_deref(), dictation, || {
+        crate::parakeet_model::meeting_can_use(&app)
+    })
+    .map_err(str::to_owned)?;
+    if engine == LocalEngine::Whisper && !crate::config::feature_config(&app).whisper_model_enabled
+    {
         return Err("whisper-model-disabled".into());
     }
     #[cfg(target_os = "macos")]
@@ -58,6 +118,7 @@ pub async fn whisper_transcription_start(
             emit_partials,
             macos::SessionOwner::from_param(owner),
             run_id,
+            engine,
         )
         .await
     }
@@ -72,6 +133,7 @@ pub async fn whisper_transcription_start(
             emit_partials,
             owner,
             run_id,
+            engine,
         );
         Err("Whisper transcription is only supported on macOS.".into())
     }
@@ -87,31 +149,49 @@ pub fn prewarm_context(_app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Stops a transcription. A Parakeet dictation returns its text here, unless
+/// `discard` is set because the user cancelled it.
 #[tauri::command]
 pub async fn whisper_transcription_stop(
     app: AppHandle,
     owner: Option<String>,
     run_id: Option<u64>,
+    discard: bool,
 ) -> Result<WhisperStopResult, String> {
     #[cfg(target_os = "macos")]
     {
-        Ok(macos::stop(
-            &app,
-            owner.map(|owner| macos::SessionOwner::from_param(Some(owner))),
-            run_id,
-            false,
-        ))
+        tauri::async_runtime::spawn_blocking(move || {
+            macos::stop(
+                &app,
+                owner.map(|owner| macos::SessionOwner::from_param(Some(owner))),
+                run_id,
+                false,
+                discard,
+            )
+        })
+        .await
+        .map_err(|e| format!("transcription stop task failed: {e}"))?
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, owner, run_id);
+        let _ = (app, owner, run_id, discard);
         Ok(WhisperStopResult::default())
     }
 }
 
+/// For quitting: ends the live transcription and cancels every dictation
+/// still producing its text and every native run in flight. Workers hand
+/// their models back as they stop; the caller waits for that on the slot.
 pub fn shutdown(app: &AppHandle) {
     #[cfg(target_os = "macos")]
-    macos::stop(app, None, None, false);
+    {
+        crate::transcribe_engine::quit_token().cancel();
+        if let Err(error) = macos::stop(app, None, None, false, true) {
+            eprintln!("[whisper] shutdown stop failed: {error}");
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
 }
 
 #[tauri::command]
@@ -142,13 +222,14 @@ mod macos {
 
     use serde::Serialize;
     use tauri::{AppHandle, Emitter};
-    use transcribe_cpp::Model;
 
+    use super::LocalEngine;
     use crate::capture_audio_bus::{
         try_subscribe, AudioSources, AudioSubscription, SubscriptionAttempt,
     };
     use crate::echo_guard::EchoGuard;
     use crate::native_speech::mic_capture::MicCapture;
+    use crate::parakeet_live::{AudioTap, LiveDictation};
     use crate::speech_capture_ownership::{
         claim as claim_speech_capture, SpeechCaptureEngine, SpeechCaptureLease, SpeechCaptureOwner,
     };
@@ -156,7 +237,10 @@ mod macos {
         start_raw_meeting_capture, start_raw_system_capture, supports_sck_microphone_capture,
         RawSckAudioCapture,
     };
-    use crate::transcribe_engine::{open_session, transcribe_whisper, ModelSlot};
+    use crate::transcribe_engine::{
+        model_error, open_session, transcribe_parakeet, transcribe_whisper, RunLease, LOCAL_MODEL,
+        QUITTING,
+    };
     use crate::whisper_model::{ensure_model, model_file, remove_superseded_legacy_model};
 
     const MEETING_AUDIO_OWNER: &str = "meeting-whisper";
@@ -212,20 +296,31 @@ mod macos {
         buffer_start: Instant,
     }
 
-    fn cached_model(app: &AppHandle) -> Result<Model, String> {
-        static MODEL: ModelSlot = ModelSlot::new();
+    /// Whisper for one-shot runs. Drop the lease only after every session
+    /// opened on its model.
+    fn whisper_lease(app: &AppHandle) -> Result<RunLease<'static>, String> {
         let path = model_file(app)?;
-        let (model, loaded) = MODEL
-            .get_or_load(&path)
-            .map_err(|e| format!("whisper {e}"))?;
+        let (lease, loaded) = LOCAL_MODEL
+            .lease_for_run(&path)
+            .map_err(|e| model_error("whisper", e))?;
         if loaded {
             remove_superseded_legacy_model(app, &path);
         }
-        Ok(model)
+        Ok(lease)
     }
 
+    /// Loads Whisper at launch unless another model got there first, so a
+    /// Parakeet user is not left holding both.
     pub fn prewarm(app: &AppHandle) -> Result<(), String> {
-        open_session(&cached_model(app)?).map_err(|e| format!("whisper {e}"))?;
+        let path = model_file(app)?;
+        let Some(lease) = LOCAL_MODEL
+            .load_if_empty(&path)
+            .map_err(|e| format!("whisper {e}"))?
+        else {
+            return Ok(());
+        };
+        remove_superseded_legacy_model(app, &path);
+        open_session(lease.model()).map_err(|e| format!("whisper {e}"))?;
         Ok(())
     }
 
@@ -236,17 +331,20 @@ mod macos {
     ) -> Result<Vec<super::OfflineTranscriptSegment>, String> {
         const CHUNK_SAMPLES: usize = 25 * 16_000;
 
-        let mut session = open_session(&cached_model(app)?).map_err(|e| format!("whisper {e}"))?;
+        let lease = whisper_lease(app)?;
+        let mut session = open_session(lease.model()).map_err(|e| format!("whisper {e}"))?;
         let mut segments = Vec::new();
         for (chunk_index, chunk) in samples.chunks(CHUNK_SAMPLES).enumerate() {
             let chunk_offset_ms = chunk_index as i64 * 25_000;
-            segments.extend(infer(&mut session, chunk, language)?.into_iter().map(
-                |(start_ms, end_ms, text)| super::OfflineTranscriptSegment {
-                    start_ms: chunk_offset_ms.saturating_add(start_ms),
-                    end_ms: chunk_offset_ms.saturating_add(end_ms),
-                    text,
-                },
-            ));
+            segments.extend(
+                infer(&mut session, LocalEngine::Whisper, chunk, language)?
+                    .into_iter()
+                    .map(|(start_ms, end_ms, text)| super::OfflineTranscriptSegment {
+                        start_ms: chunk_offset_ms.saturating_add(start_ms),
+                        end_ms: chunk_offset_ms.saturating_add(end_ms),
+                        text,
+                    }),
+            );
         }
         Ok(segments)
     }
@@ -332,6 +430,9 @@ mod macos {
 
     pub(crate) struct WhisperStream {
         source: &'static str,
+        engine: LocalEngine,
+        /// Set for a Parakeet dictation, which transcribes as audio arrives.
+        live: Option<Arc<LiveDictation>>,
         run_id: Option<u64>,
         src_rate: AtomicU32,
         language: Option<String>,
@@ -346,13 +447,21 @@ mod macos {
         failure: OnceLock<String>,
     }
 
+    /// What a stream's worker transcribes with: a Parakeet dictation's live
+    /// pass, or one-shot runs on a leased model.
+    enum StreamWork {
+        Live(Arc<LiveDictation>),
+        Runs(RunLease<'static>),
+    }
+
     impl WhisperStream {
         fn new(
             app: AppHandle,
             source: &'static str,
             src_rate: f64,
             language: Option<String>,
-            model: Model,
+            work: StreamWork,
+            engine: LocalEngine,
             stream_start: Instant,
             emit_partials: bool,
             echo_guard: Option<Arc<EchoGuard>>,
@@ -361,6 +470,11 @@ mod macos {
             let done = Arc::new(AtomicBool::new(false));
             let stream = Arc::new(WhisperStream {
                 source,
+                engine,
+                live: match &work {
+                    StreamWork::Live(live) => Some(live.clone()),
+                    StreamWork::Runs(_) => None,
+                },
                 run_id,
                 src_rate: AtomicU32::new(src_rate as u32),
                 language,
@@ -379,10 +493,21 @@ mod macos {
             });
             let worker_stream = stream.clone();
             std::thread::spawn(move || {
-                worker(worker_stream, model);
+                match work {
+                    StreamWork::Live(live) => live_worker(&worker_stream, &live),
+                    StreamWork::Runs(lease) => worker(worker_stream, lease),
+                }
                 done.store(true, Ordering::SeqCst);
             });
             stream
+        }
+
+        fn audio_tap(&self) -> AudioTap<'_> {
+            AudioTap {
+                buf: &self.buf,
+                src_rate: &self.src_rate,
+                running: &self.running,
+            }
         }
 
         fn set_src_rate(&self, rate: f64) {
@@ -519,7 +644,7 @@ mod macos {
                 .filter(|t| !t.is_empty())
                 .collect::<Vec<_>>()
                 .join(" ");
-            let Some(clean) = clean_transcript(&joined) else {
+            let Some(clean) = clean_transcript(&joined, self.engine) else {
                 return;
             };
             let segments = raw_segs
@@ -589,12 +714,30 @@ mod macos {
 
     fn infer(
         session: &mut transcribe_cpp::Session,
+        engine: LocalEngine,
         samples: &[f32],
         language: Option<&str>,
     ) -> Result<Vec<(i64, i64, String)>, String> {
-        let mut segments = transcribe_whisper(session, samples, language)?;
+        let mut segments = match engine {
+            LocalEngine::Whisper => transcribe_whisper(session, samples, language)?,
+            LocalEngine::Parakeet => transcribe_parakeet(session, samples)?,
+        };
         segments.retain(|(_, _, text)| is_speech(text));
         Ok(segments)
+    }
+
+    fn live_worker(stream: &WhisperStream, live: &LiveDictation) {
+        live.run(&stream.audio_tap(), |text| {
+            let _ = stream.app.emit(
+                PARTIAL_TRANSCRIPT,
+                serde_json::json!({
+                    "text": text,
+                    "source": stream.source,
+                    "runId": stream.run_id,
+                }),
+            );
+        });
+        eprintln!("[parakeet-{}] worker stopped", stream.source);
     }
 
     fn is_speech(text: &str) -> bool {
@@ -671,8 +814,10 @@ mod macos {
         (have_secs > 0.4 && silence > Duration::from_millis(800)) || have_secs > 25.0
     }
 
-    fn worker(stream: Arc<WhisperStream>, model: Model) {
-        let mut session = match open_session(&model) {
+    /// Drops `lease` only after its session, which is what keeps a live
+    /// stream off the copy until this worker's last run is done.
+    fn worker(stream: Arc<WhisperStream>, lease: RunLease<'static>) {
+        let mut session = match open_session(lease.model()) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[whisper-{}] {e}", stream.source);
@@ -762,7 +907,7 @@ mod macos {
                     } else {
                         stream.emit_inference(
                             FINAL_TRANSCRIPT,
-                            infer(&mut session, resample_state.samples(), lang),
+                            infer(&mut session, stream.engine, resample_state.samples(), lang),
                         );
                     }
                 }
@@ -802,7 +947,7 @@ mod macos {
                 } else {
                     stream.emit_inference(
                         PARTIAL_TRANSCRIPT,
-                        infer(&mut session, resample_state.samples(), lang),
+                        infer(&mut session, stream.engine, resample_state.samples(), lang),
                     );
                     true
                 };
@@ -842,15 +987,23 @@ mod macos {
             && samples.len() as f32 / SAMPLE_RATE_16K > 0.3
             && !stream.is_playback_echo(&samples)
         {
-            stream.emit_inference(FINAL_TRANSCRIPT, infer(&mut session, &samples, lang));
+            stream.emit_inference(
+                FINAL_TRANSCRIPT,
+                infer(&mut session, stream.engine, &samples, lang),
+            );
         }
         eprintln!("[whisper-{}] worker stopped", stream.source);
     }
 
-    fn clean_transcript(text: &str) -> Option<String> {
+    fn clean_transcript(text: &str, engine: LocalEngine) -> Option<String> {
         let trimmed = text.trim();
         if trimmed.is_empty() {
             return None;
+        }
+        // Whisper invents these phrases over silence; Parakeet does not, so
+        // from Parakeet they are real speech.
+        if engine == LocalEngine::Parakeet {
+            return Some(trimmed.to_string());
         }
         let normalized = trimmed
             .trim_matches(|c: char| !c.is_alphanumeric())
@@ -1056,6 +1209,7 @@ mod macos {
         emit_partials: bool,
         owner: SessionOwner,
         run_id: Option<u64>,
+        engine: LocalEngine,
     ) -> Result<(), String> {
         let capture_lease = claim_speech_capture(
             match owner {
@@ -1075,27 +1229,64 @@ mod macos {
         }
         begin_run(owner, run_id).map_err(str::to_owned)?;
 
-        stop(&app, Some(owner), run_id, true);
+        if let Err(error) = stop(&app, Some(owner), run_id, true, true) {
+            eprintln!("[whisper] stopping the previous transcription failed: {error}");
+        }
 
-        ensure_model(&app).await.map_err(|e| {
-            let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
-            e
-        })?;
+        let mut engine = engine;
+        if engine == LocalEngine::Whisper {
+            ensure_whisper(&app).await?;
+        }
         if !run_is_current_now(owner, run_id) {
             return Err(START_SUPERSEDED.into());
         }
-        let model = cached_model(&app).map_err(|e| {
+        let pill_error = |e: String| {
             let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
             e
-        })?;
-        open_session(&model).map_err(|e| {
-            let msg = format!("whisper {e}");
-            let _ = app.emit("pill:error", serde_json::json!({ "error": msg }));
-            msg
-        })?;
+        };
+        // A Parakeet dictation only ever starts on a warmed-up model nothing
+        // else holds, taken without waiting; otherwise it is turned away
+        // before any audio is captured and dictates with Apple Speech. A
+        // meeting may wait for Parakeet to load, and uses Whisper if it can't.
+        let (mic_work, sys_lease) = match (engine, owner) {
+            (LocalEngine::Parakeet, SessionOwner::Dictation) => {
+                if capture_system {
+                    return Err("a Parakeet dictation does not transcribe system audio".into());
+                }
+                let lease = crate::parakeet_model::dictation_lease(&app)?;
+                open_session(lease.model()).map_err(|e| pill_error(format!("parakeet {e}")))?;
+                let live = LiveDictation::new(lease, crate::parakeet_model::model_path(&app)?);
+                (StreamWork::Live(Arc::new(live)), None)
+            }
+            (LocalEngine::Parakeet, SessionOwner::Meeting) => {
+                let lease = match crate::parakeet_model::meeting_lease(&app).await {
+                    Ok(lease) => lease,
+                    Err(error) if error == QUITTING => return Err(error),
+                    Err(error) => {
+                        eprintln!("[whisper] {error}; the meeting transcribes with Whisper");
+                        if !crate::config::feature_config(&app).whisper_model_enabled {
+                            return Err("whisper-model-disabled".into());
+                        }
+                        engine = LocalEngine::Whisper;
+                        ensure_whisper(&app).await?;
+                        whisper_lease(&app).map_err(pill_error)?
+                    }
+                };
+                open_session(lease.model()).map_err(|e| pill_error(format!("whisper {e}")))?;
+                let sys_lease = capture_system.then(|| lease.share()).transpose()?;
+                (StreamWork::Runs(lease), sys_lease)
+            }
+            (LocalEngine::Whisper, _) => {
+                let lease = whisper_lease(&app).map_err(pill_error)?;
+                open_session(lease.model()).map_err(|e| pill_error(format!("whisper {e}")))?;
+                let sys_lease = capture_system.then(|| lease.share()).transpose()?;
+                (StreamWork::Runs(lease), sys_lease)
+            }
+        };
         if !run_is_current_now(owner, run_id) {
             return Err(START_SUPERSEDED.into());
         }
+        eprintln!("[whisper] {owner:?} transcription runs on {engine:?}");
 
         let _ = language;
         let lang: Option<String> = None;
@@ -1107,19 +1298,21 @@ mod macos {
             "mic",
             48000.0,
             lang.clone(),
-            model.clone(),
+            mic_work,
+            engine,
             session_start,
             emit_partials,
             echo_guard.clone(),
             run_id,
         );
-        let sys_stream = capture_system.then(|| {
+        let sys_stream = sys_lease.map(|lease| {
             WhisperStream::new(
                 app.clone(),
                 "system",
                 48000.0,
                 lang.clone(),
-                model.clone(),
+                StreamWork::Runs(lease),
+                engine,
                 session_start,
                 emit_partials,
                 echo_guard.clone(),
@@ -1386,10 +1579,17 @@ mod macos {
             _capture_lease: capture_lease,
         });
         eprintln!(
-            "[whisper] transcription started (mic{})",
+            "[whisper] transcription started on {engine:?} (mic{})",
             if capture_system { " + system" } else { "" }
         );
         Ok(())
+    }
+
+    async fn ensure_whisper(app: &AppHandle) -> Result<(), String> {
+        ensure_model(app).await.map(|_| ()).map_err(|e| {
+            let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
+            e
+        })
     }
 
     pub fn reset_timeline(owner: Option<SessionOwner>, run_id: Option<u64>, offset: Duration) {
@@ -1432,12 +1632,45 @@ mod macos {
         }
     }
 
+    /// Whether a stop aimed at `target` reaches a run started as `current`.
+    fn stop_reaches(target: Option<u64>, current: Option<u64>, replace_older: bool) -> bool {
+        match (target, current) {
+            (Some(id), Some(current_id)) => current_id == id || (replace_older && current_id < id),
+            (Some(_), None) => false,
+            (None, _) => true,
+        }
+    }
+
+    /// Run IDs and dictations, for [`finalizing_slot`].
+    type FinalizingRuns = Mutex<Vec<(Option<u64>, Arc<LiveDictation>)>>;
+
+    /// Parakeet dictations past release that are still producing their text.
+    /// They have left the session slot, so a cancel looks for them here.
+    fn finalizing_slot() -> &'static FinalizingRuns {
+        static SLOT: OnceLock<FinalizingRuns> = OnceLock::new();
+        SLOT.get_or_init(|| Mutex::new(Vec::new()))
+    }
+
+    /// Keeps one dictation in [`finalizing_slot`] until its text is ready.
+    struct Finalizing(Arc<LiveDictation>);
+
+    impl Drop for Finalizing {
+        fn drop(&mut self) {
+            finalizing_slot()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .retain(|(_, live)| !Arc::ptr_eq(live, &self.0));
+        }
+    }
+
     pub fn stop(
         app: &AppHandle,
         owner: Option<SessionOwner>,
         run_id: Option<u64>,
         replace_older: bool,
-    ) -> super::WhisperStopResult {
+        discard: bool,
+    ) -> Result<super::WhisperStopResult, String> {
+        let released = Instant::now();
         let mut latest = match latest_run_id_slot().lock() {
             Ok(latest) => latest,
             Err(poisoned) => poisoned.into_inner(),
@@ -1445,53 +1678,75 @@ mod macos {
         let mut slot = session_slot()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Done under the session lock, which a release holds while it moves
+        // its dictation here, so a cancel can't slip between the two. It comes
+        // before the run checks below: a cancelled dictation can still be
+        // finalizing after a newer run has begun.
+        if discard && owner != Some(SessionOwner::Meeting) {
+            for (finalizing_run, live) in finalizing_slot()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .iter()
+            {
+                if stop_reaches(run_id, *finalizing_run, replace_older) {
+                    live.discard();
+                }
+            }
+        }
         if let Some(run_id) = run_id {
             if replace_older {
                 if latest.latest_run_id != Some(run_id)
                     || owner.is_some_and(|owner| latest.latest_owner != Some(owner))
                 {
-                    return super::WhisperStopResult::default();
+                    return Ok(super::WhisperStopResult::default());
                 }
             } else {
                 let Some(owner) = owner.or(latest.latest_owner) else {
-                    return super::WhisperStopResult::default();
+                    return Ok(super::WhisperStopResult::default());
                 };
                 if slot
                     .as_ref()
                     .is_some_and(|current| current.owner != owner || current.run_id != Some(run_id))
                 {
-                    return super::WhisperStopResult::default();
+                    return Ok(super::WhisperStopResult::default());
                 }
                 if !cancel_run_authority(&mut latest, owner, run_id) {
-                    return super::WhisperStopResult::default();
+                    return Ok(super::WhisperStopResult::default());
                 }
             }
         }
         let session = if slot.as_ref().is_some_and(|current| {
             owner.map_or(true, |owner| current.owner == owner)
-                && match (run_id, current.run_id) {
-                    (Some(id), Some(current_id)) => {
-                        current_id == id || (replace_older && current_id < id)
-                    }
-                    (Some(_), None) => false,
-                    (None, _) => true,
-                }
+                && stop_reaches(run_id, current.run_id, replace_older)
         }) {
             slot.take()
         } else {
             None
         };
+        let finalizing = session
+            .as_ref()
+            .and_then(|session| session.mic.live.clone().map(|live| (session.run_id, live)))
+            .filter(|_| !discard)
+            .map(|(run_id, live)| {
+                finalizing_slot()
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .push((run_id, live.clone()));
+                Finalizing(live)
+            });
         drop(slot);
         drop(latest);
         let Some(mut session) = session else {
-            return super::WhisperStopResult::default();
+            return Ok(super::WhisperStopResult::default());
         };
         // Captures go first: stopping one delivers the buffers it already
         // queued, and a stream drops whatever arrives after its own stop.
-        if let Some(mic_cap) = session.mic_cap.take() {
-            if let Err(error) = mic_cap.stop() {
-                session.mic.report_failure(&error);
-            }
+        let mic_failure = session
+            .mic_cap
+            .take()
+            .and_then(|mic_cap| mic_cap.stop().err());
+        if let Some(error) = &mic_failure {
+            session.mic.report_failure(error);
         }
         if let Some(sys_cap) = session.sys_cap.take() {
             sys_cap.stop();
@@ -1502,6 +1757,24 @@ mod macos {
             sys.stop();
         }
         release_temporary_audio(app, session.temporary_audio.take());
+        if let Some(live) = session.mic.live.clone() {
+            if discard {
+                live.discard();
+                return Ok(super::WhisperStopResult::default());
+            }
+            // The stop call returns a Parakeet dictation's text, so a mic that
+            // sent nothing must fail it here rather than come back empty.
+            if let Some(error) = mic_failure {
+                live.discard();
+                return Err(error);
+            }
+            let transcript = live.finish(&session.mic.audio_tap(), released);
+            drop(finalizing);
+            return transcript.map(|dictation| super::WhisperStopResult {
+                failure: None,
+                dictation: Some(dictation),
+            });
+        }
         let workers_done = || {
             session.mic.done.load(Ordering::SeqCst)
                 && session
@@ -1522,11 +1795,18 @@ mod macos {
             .or_else(|| session.sys.as_ref().and_then(|sys| sys.failure.get()))
             .cloned()
             .or_else(|| {
+                let engine = match session.mic.engine {
+                    LocalEngine::Whisper => "Local Whisper",
+                    LocalEngine::Parakeet => "Parakeet",
+                };
                 (!workers_done).then(|| {
-                    "Local Whisper was still transcribing when the recording stopped, so the end of the transcript may be missing.".to_owned()
+                    format!("{engine} was still transcribing when the recording stopped, so the end of the transcript may be missing.")
                 })
             });
-        super::WhisperStopResult { failure }
+        Ok(super::WhisperStopResult {
+            failure,
+            dictation: None,
+        })
     }
 
     #[cfg(test)]
@@ -1537,10 +1817,22 @@ mod macos {
             begin_run_authority, begin_run_result, buffer_start_after_drain, cancel_run_authority,
             clean_transcript, partial_inference_due, partial_inference_timestamp, resample_to_16k,
             run_is_current, session_start_error, should_use_combined_sck_capture,
-            start_native_capture_without_authority_lock, timeline_start_for_offset,
-            utterance_finalize_due, IncrementalResample, RunAuthority, SessionOwner,
+            start_native_capture_without_authority_lock, stop_reaches, timeline_start_for_offset,
+            utterance_finalize_due, IncrementalResample, LocalEngine, RunAuthority, SessionOwner,
             START_SUPERSEDED,
         };
+
+        #[test]
+        fn a_stop_reaches_its_own_run_and_replaces_only_older_ones() {
+            assert!(stop_reaches(Some(7), Some(7), false));
+            assert!(!stop_reaches(Some(7), Some(6), false));
+            assert!(stop_reaches(Some(7), Some(6), true));
+            assert!(!stop_reaches(Some(7), Some(8), true));
+            assert!(!stop_reaches(Some(7), None, true));
+            // Shutdown stops with no run ID and reaches everything.
+            assert!(stop_reaches(None, Some(7), false));
+            assert!(stop_reaches(None, None, false));
+        }
 
         #[test]
         fn a_failed_dictation_start_does_not_block_a_later_meeting_start() {
@@ -1848,10 +2140,22 @@ mod macos {
 
         #[test]
         fn filters_multilingual_caption_hallucinations() {
-            assert_eq!(clean_transcript("ご視聴ありがとうございました"), None);
             assert_eq!(
-                clean_transcript("Thanks for the update"),
+                clean_transcript("ご視聴ありがとうございました", LocalEngine::Whisper),
+                None
+            );
+            assert_eq!(
+                clean_transcript("Thanks for the update", LocalEngine::Whisper),
                 Some("Thanks for the update".to_string())
+            );
+        }
+
+        #[test]
+        fn keeps_phrases_from_parakeet_that_whisper_invents_over_silence() {
+            assert_eq!(clean_transcript("Thank you.", LocalEngine::Whisper), None);
+            assert_eq!(
+                clean_transcript("Thank you.", LocalEngine::Parakeet),
+                Some("Thank you.".to_string())
             );
         }
     }
@@ -1859,20 +2163,58 @@ mod macos {
 
 #[cfg(test)]
 mod tests {
-    use super::WhisperStopResult;
+    use super::{resolve_local_engine, LocalEngine, WhisperStopResult};
+
+    /// A dictation always reaches the start that can turn it away with a
+    /// reason and recover Parakeet, however the model is doing.
+    #[test]
+    fn a_parakeet_dictation_always_reaches_the_parakeet_start() {
+        assert_eq!(
+            resolve_local_engine(Some("parakeet"), true, || panic!("not a meeting")),
+            Ok(LocalEngine::Parakeet)
+        );
+    }
+
+    #[test]
+    fn meetings_use_whisper_until_parakeet_is_on_disk() {
+        assert_eq!(
+            resolve_local_engine(Some("parakeet"), false, || true),
+            Ok(LocalEngine::Parakeet)
+        );
+        assert_eq!(
+            resolve_local_engine(Some("parakeet"), false, || false),
+            Ok(LocalEngine::Whisper)
+        );
+        assert_eq!(
+            resolve_local_engine(None, false, || true),
+            Ok(LocalEngine::Whisper)
+        );
+    }
+
+    #[test]
+    fn an_unknown_engine_is_an_error_not_whisper() {
+        assert_eq!(
+            resolve_local_engine(Some("parakeat"), true, || true),
+            Err("unknown-transcription-engine")
+        );
+    }
 
     #[test]
     fn a_stop_result_always_says_whether_the_run_failed() {
         assert_eq!(
             serde_json::to_value(WhisperStopResult::default()).unwrap(),
-            serde_json::json!({ "failure": null })
+            serde_json::json!({ "failure": null, "dictation": null })
         );
         assert_eq!(
             serde_json::to_value(WhisperStopResult {
                 failure: Some("Microphone AirPods sent no audio in 2.3 s.".into()),
+                dictation: None,
             })
             .unwrap(),
-            serde_json::json!({ "failure": "Microphone AirPods sent no audio in 2.3 s." })
+            serde_json::json!({
+                "failure": "Microphone AirPods sent no audio in 2.3 s.",
+                "dictation": null
+            })
         );
     }
 }

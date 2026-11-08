@@ -26,6 +26,7 @@ import {
   transcriptFullText,
   transcriptLineFromSegment,
   transcriptSegments,
+  type LocalTranscriptionModel,
   type SourcedTranscriptSegment,
   type TranscriptionEngine,
   type TranscriptLine,
@@ -108,6 +109,7 @@ interface Props {
   selectedMicId: string | null;
   selectedMicLabel: string | null;
   enabled: boolean;
+  localModel: LocalTranscriptionModel | null;
 }
 
 const MEETING_START_CANCELLED = Symbol("meeting-start-cancelled");
@@ -177,8 +179,13 @@ export function useMeetingTranscription({
   selectedMicId,
   selectedMicLabel,
   enabled,
+  localModel,
 }: Props): void {
   const sessionRef = useRef<MeetingTranscriptionSession | null>(null);
+  // Read when audio starts or resumes, so changing the engine mid-meeting
+  // applies from the next resume rather than restarting capture.
+  const localModelRef = useRef(localModel);
+  localModelRef.current = localModel;
   const pendingStartRef = useRef<MeetingTranscriptionPayload | null>(null);
   const recoveryRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -791,6 +798,7 @@ export function useMeetingTranscription({
           mic: { deviceId: selectedMicId, label: selectedMicLabel },
           runId: session.audioRunId,
           canContinue: sessionIsActive,
+          localModel: localModelRef.current,
         });
         engineStarting = enginePromise;
         session.engineStarting = enginePromise;
@@ -868,6 +876,7 @@ export function useMeetingTranscription({
               true,
               true,
               runId,
+              localModelRef.current,
             );
           } catch (err) {
             if (session.resumingRunId === runId) {

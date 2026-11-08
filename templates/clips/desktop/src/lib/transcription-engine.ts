@@ -5,6 +5,12 @@ import { allocateVoiceRunId } from "./voice-dictation-lifecycle";
 
 export type TranscriptSource = "mic" | "system";
 export type TranscriptionEngine = "whisper" | "macos-native";
+/**
+ * A model the on-device engine runs instead of Whisper. A meeting waits for
+ * it to load, and uses Whisper when its file isn't downloaded or fails to
+ * load, so a meeting never waits on a download.
+ */
+export type LocalTranscriptionModel = "parakeet";
 
 export interface TranscriptSegment {
   startMs: number;
@@ -283,6 +289,7 @@ export async function restartTranscriptionEngine(
   captureSystem: boolean = true,
   emitPartials: boolean = true,
   runId: number = allocateVoiceRunId(),
+  localModel: LocalTranscriptionModel | null = null,
 ): Promise<void> {
   if (engine === "whisper") {
     await invoke("audio_transcription_start", {
@@ -294,6 +301,7 @@ export async function restartTranscriptionEngine(
       emitPartials,
       owner: "meeting",
       runId,
+      engine: localModel,
     });
   } else {
     await invoke("native_speech_start", {
@@ -312,10 +320,12 @@ export async function startTranscriptionEngine(opts: {
   emitPartials?: boolean;
   runId?: number;
   canContinue?: () => boolean;
+  localModel?: LocalTranscriptionModel | null;
 }): Promise<TranscriptionEngine> {
   const captureSystem = opts.captureSystem ?? true;
   const emitPartials = opts.emitPartials ?? true;
   const runId = opts.runId ?? allocateVoiceRunId();
+  const localModel = opts.localModel ?? null;
   const assertCanContinue = () => {
     if (opts.canContinue && !opts.canContinue()) {
       throw new Error("transcription-start-cancelled");
@@ -329,6 +339,7 @@ export async function startTranscriptionEngine(opts: {
       captureSystem,
       emitPartials,
       runId,
+      localModel,
     );
     return "whisper";
   } catch (err) {
@@ -355,6 +366,7 @@ export async function startTranscriptionEngine(opts: {
           captureSystem,
           emitPartials,
           runId,
+          localModel,
         );
         return "whisper";
       } catch (defaultMicErr) {

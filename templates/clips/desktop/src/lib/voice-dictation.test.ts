@@ -187,17 +187,17 @@ function stateChanges() {
 // "server" is the built-in engine off a Mac with no browser speech, which
 // falls back to server transcription.
 async function startDictation(
-  route: "server" | "browser" | "native" | "whisper",
+  route: "server" | "browser" | "native" | "whisper" | "parakeet",
   polish: VoicePolish = "off",
 ) {
-  if (route === "native") setPlatform("MacIntel");
+  if (route === "native" || route === "parakeet") setPlatform("MacIntel");
   const { installDesktopVoiceDictation } = await import("./voice-dictation");
   const dispose = installDesktopVoiceDictation({
     enabled: true,
     serverUrl: "https://clips.test",
     shortcut: "both",
     mode: "push-to-talk",
-    engine: route === "whisper" ? "whisper" : "native",
+    engine: route === "whisper" || route === "parakeet" ? route : "native",
     polish,
   });
   await settle();
@@ -206,6 +206,24 @@ async function startDictation(
     .reverse()
     .find((state) => typeof state.runId === "number");
   return { dispose, runId: latestState?.runId as number | undefined };
+}
+
+// Parakeet's stop call returns the finished text instead of a final event.
+function parakeetReturns(text: string) {
+  tauri.invoke.mockImplementation((command, args) => {
+    if (
+      command === "audio_transcription_stop" &&
+      !(args as { discard?: boolean } | undefined)?.discard
+    ) {
+      return Promise.resolve({
+        failure: null,
+        dictation: { text, pass: "live", releaseToTextMs: 120, audioMs: 2_000 },
+      });
+    }
+    return Promise.resolve(
+      command === "complete_voice_dictation" ? "inserted" : undefined,
+    );
+  });
 }
 
 function emitFinal(runId: number, text: string) {
@@ -765,6 +783,7 @@ describe("desktop voice dictation runs", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("audio_transcription_stop", {
       owner: "dictation",
       runId: started.runId,
+      discard: true,
     });
 
     await dispatch("voice:shortcut-start", { source: "fn" });
@@ -777,6 +796,186 @@ describe("desktop voice dictation runs", () => {
       .map((state) => state.runId as number);
     expect(recordingRuns).toHaveLength(1);
     expect(recordingRuns[0]).toBeGreaterThan(started.runId!);
+  });
+
+  describe("Parakeet", () => {
+    it("pastes the text the stop call returns, without logging it", async () => {
+      const info = vi.spyOn(console, "info");
+      parakeetReturns("recognized words");
+      const started = await startDictation("parakeet");
+      dispose = started.dispose;
+      expect(tauri.invoke).toHaveBeenCalledWith(
+        "audio_transcription_start",
+        expect.objectContaining({ owner: "dictation", engine: "parakeet" }),
+      );
+
+      await release();
+      await settle();
+
+      expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
+        text: "recognized words",
+      });
+      expect(stateChanges().at(-1)).toMatchObject({
+        state: "complete",
+        insertion: "inserted",
+      });
+      expect(info).toHaveBeenCalledWith(
+        "[voice-dictation] timing finalization:complete",
+        expect.objectContaining({
+          kind: "parakeet",
+          pass: "live",
+          releaseToTextMs: 120,
+          audioMs: 2_000,
+        }),
+      );
+      expect(JSON.stringify(info.mock.calls)).not.toContain("recognized");
+    });
+
+    it("dictates with Apple Speech until Parakeet is ready, and says why", async () => {
+      tauri.invoke.mockImplementation((command) => {
+        if (command === "audio_transcription_start") {
+          return Promise.reject("parakeet-model-not-ready:unloaded");
+        }
+        return Promise.resolve(
+          command === "complete_voice_dictation" ? "inserted" : undefined,
+        );
+      });
+      const started = await startDictation("parakeet");
+      dispose = started.dispose;
+      const { runId } = started;
+      if (runId === undefined) throw new Error("Dictation did not start.");
+      expect(tauri.invoke).toHaveBeenCalledWith(
+        "native_speech_start",
+        expect.objectContaining({ owner: "dictation" }),
+      );
+
+      await release();
+      emitFinal(runId, "recognized words");
+      await vi.advanceTimersByTimeAsync(250);
+      await settle();
+
+      expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
+        text: "recognized words",
+      });
+      expect(stateChanges().at(-1)).toMatchObject({
+        state: "complete",
+        engineFallback: "loading",
+      });
+    });
+
+    it("fails loudly on a Parakeet refusal it can't read", async () => {
+      tauri.invoke.mockImplementation((command) => {
+        if (command === "audio_transcription_start") {
+          return Promise.reject("parakeet-model-not-ready:sideways");
+        }
+        return Promise.resolve(undefined);
+      });
+      const started = await startDictation("parakeet");
+      dispose = started.dispose;
+      await settle();
+
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "native_speech_start",
+        expect.anything(),
+      );
+      expect(stateChanges().at(-1)).toMatchObject({ state: "error" });
+    });
+
+    it("discards the recording when the dictation is cancelled", async () => {
+      parakeetReturns("recognized words");
+      const started = await startDictation("parakeet");
+      dispose = started.dispose;
+      await vi.advanceTimersByTimeAsync(501);
+      await dispatch("voice:cancel");
+      await settle();
+
+      expect(tauri.invoke).toHaveBeenCalledWith("audio_transcription_stop", {
+        owner: "dictation",
+        runId: started.runId,
+        discard: true,
+      });
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "complete_voice_dictation",
+        expect.anything(),
+      );
+    });
+
+    it("discards a dictation cancelled while it is still transcribing", async () => {
+      const warn = vi.spyOn(console, "warn");
+      let rejectStop!: (reason: string) => void;
+      tauri.invoke.mockImplementation((command, args) => {
+        if (command === "audio_transcription_stop") {
+          if ((args as { discard?: boolean }).discard) {
+            rejectStop("parakeet-dictation-discarded");
+            return Promise.resolve(undefined);
+          }
+          return new Promise((_, reject) => {
+            rejectStop = reject;
+          });
+        }
+        return Promise.resolve(undefined);
+      });
+      const started = await startDictation("parakeet");
+      dispose = started.dispose;
+      await release();
+      await settle();
+      expect(stateChanges().at(-1)).toMatchObject({ state: "processing" });
+
+      await dispatch("voice:cancel");
+      await settle();
+
+      expect(tauri.invoke).toHaveBeenCalledWith("audio_transcription_stop", {
+        owner: "dictation",
+        runId: started.runId,
+        discard: true,
+      });
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "complete_voice_dictation",
+        expect.anything(),
+      );
+      expect(warn).not.toHaveBeenCalledWith(
+        "[voice-dictation] Parakeet stop failed:",
+        expect.anything(),
+      );
+    });
+
+    it("fails as a microphone error when the mic sent no audio", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      tauri.invoke.mockImplementation((command) =>
+        command === "audio_transcription_stop"
+          ? Promise.reject("Microphone Studio Mic sent no audio in 2.0 s.")
+          : Promise.resolve(undefined),
+      );
+      const started = await startDictation("parakeet");
+      dispose = started.dispose;
+      await release();
+      await settle();
+
+      expect(stateChanges().at(-1)).toMatchObject({
+        state: "error",
+        failure: "microphone-unavailable",
+      });
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "complete_voice_dictation",
+        expect.anything(),
+      );
+    });
+
+    it("fails the run when the stop call returns no transcript", async () => {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const started = await startDictation("parakeet");
+      dispose = started.dispose;
+      await release();
+      await settle();
+
+      expect(stateChanges().at(-1)).toMatchObject({
+        state: "error",
+        failure: "provider",
+      });
+      expect(error).toHaveBeenCalledWith(
+        "[voice-dictation] Parakeet stop returned no transcript for a dictation",
+      );
+    });
   });
 
   it("does not let an old recorder stop replace the newer finalizing run", async () => {
@@ -1149,6 +1348,25 @@ describe("desktop voice dictation runs", () => {
       },
     );
 
+    it("pastes the polished text from Parakeet speech", async () => {
+      respondToCleanup(async () => jsonResponse({ text: "Recognized words." }));
+      parakeetReturns("recognized words");
+      const started = await startDictation("parakeet", "builder-gemini");
+      dispose = started.dispose;
+      await release();
+      await settle();
+
+      expect(
+        cleanupRequests().map((form) => [
+          form.get("text"),
+          form.get("provider"),
+        ]),
+      ).toEqual([["recognized words", "builder-gemini"]]);
+      expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
+        text: "Recognized words.",
+      });
+    });
+
     it("pastes the raw text when polish fails", async () => {
       respondToCleanup(
         async () =>
@@ -1235,5 +1453,22 @@ describe("desktop voice dictation runs", () => {
         });
       },
     );
+  });
+});
+
+describe("parakeetUnavailableReason", () => {
+  it("reads the reason a Parakeet start gave and nothing else", async () => {
+    const { parakeetUnavailableReason } = await import("./voice-dictation");
+    expect(parakeetUnavailableReason("parakeet-model-not-ready:busy")).toBe(
+      "busy",
+    );
+    expect(
+      parakeetUnavailableReason(new Error("parakeet-model-not-ready:failed")),
+    ).toBe("failed");
+    expect(parakeetUnavailableReason("parakeet-model-not-ready:unloaded")).toBe(
+      "loading",
+    );
+    expect(parakeetUnavailableReason("parakeet-model-not-ready")).toBeNull();
+    expect(parakeetUnavailableReason("mic capture failed")).toBeNull();
   });
 });
