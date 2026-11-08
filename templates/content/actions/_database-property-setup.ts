@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core/action";
 import {
   iconValueSchema,
   parseIconValue,
@@ -13,7 +14,12 @@ import {
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
 import {
+  contentDatabaseFilterOperatorNeedsValue,
+  selectedFilterValues,
+} from "../shared/database-query.js";
+import {
   DOCUMENT_PROPERTY_VISIBILITIES,
+  defaultPropertyOptions,
   parsePropertyOptions,
   serializePropertyOptions,
   normalizePropertyVisibility,
@@ -27,7 +33,7 @@ import {
   setupError,
   setupGuardSchema,
 } from "./_database-setup-mutation.js";
-import { nanoid } from "./_property-utils.js";
+import { nanoid, parseDatabaseViewConfig } from "./_property-utils.js";
 import { assertRelationTargetDatabase } from "./_relation-values.js";
 
 export const ordinaryPropertyTypes = [
@@ -50,6 +56,7 @@ export const ordinaryPropertyTypes = [
 export const setupPropertyTypes = [
   ...ordinaryPropertyTypes,
   "relation",
+  "blocks",
 ] as const;
 
 const optionPropertyTypes = ["select", "multi_select", "status"] as const;
@@ -120,6 +127,15 @@ const createDefinitionSchema = z.discriminatedUnion("type", [
         ),
     })
     .strict(),
+  propertyDefinitionBase
+    .extend({
+      type: z
+        .literal("blocks")
+        .describe(
+          "A rich-text Blocks field: a new, empty tab on every row's page of this collection",
+        ),
+    })
+    .strict(),
 ]);
 
 const optionEditSchema = z.discriminatedUnion("operation", [
@@ -147,6 +163,19 @@ const optionEditSchema = z.discriminatedUnion("operation", [
     .object({
       operation: z.literal("reorder"),
       optionIds: z.array(z.string().trim().min(1).max(200)).max(100),
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("remove"),
+      optionId: z
+        .string()
+        .trim()
+        .min(1)
+        .max(200)
+        .describe(
+          "Option to delete. Refused with OPTION_IN_USE while any row's value or a saved view's filter still uses it",
+        ),
     })
     .strict(),
 ]);
@@ -257,6 +286,15 @@ function applyOptionEdits(
         );
       }
       options[index] = { ...options[index]!, ...edit.patch };
+    } else if (edit.operation === "remove") {
+      if (!options.some((option) => option.id === edit.optionId)) {
+        setupError(
+          "INVALID_INPUT",
+          `Option \"${edit.optionId}\" does not exist.`,
+          400,
+        );
+      }
+      options = options.filter((option) => option.id !== edit.optionId);
     } else {
       if (
         edit.optionIds.length !== options.length ||
@@ -275,6 +313,100 @@ function applyOptionEdits(
     validateOptions(options);
   }
   return { ...current, options } satisfies DocumentPropertyOptions;
+}
+
+/**
+ * Refuses to delete an option that a row or a saved view still uses, so a
+ * removal never leaves a row showing an unknown value or a filter matching
+ * nothing. Rows and filters can name an option by ID or by name, in any case,
+ * as the view query matches them; a filter that takes no value (such as "is
+ * empty") names no option. Each person's own view filters are theirs and
+ * aren't checked.
+ */
+async function assertRemovedOptionsUnused(
+  tx: Db,
+  context: MutationContext,
+  definition: Definition,
+  nextOptions: DocumentPropertyOptions,
+) {
+  const kept = new Set((nextOptions.options ?? []).map((option) => option.id));
+  const removed = (
+    parsePropertyOptions(definition.optionsJson).options ?? []
+  ).filter((option) => !kept.has(option.id));
+  if (removed.length === 0) return;
+
+  const usesOption = (candidate: unknown, option: DocumentPropertyOption) =>
+    typeof candidate === "string" &&
+    (normalizedOptionName(candidate) === normalizedOptionName(option.id) ||
+      normalizedOptionName(candidate) === normalizedOptionName(option.name));
+  const values = await tx
+    .select({
+      documentId: schema.documentPropertyValues.documentId,
+      valueJson: schema.documentPropertyValues.valueJson,
+    })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.documentPropertyValues,
+      and(
+        eq(
+          schema.documentPropertyValues.documentId,
+          schema.contentDatabaseItems.documentId,
+        ),
+        eq(schema.documentPropertyValues.propertyId, definition.id),
+      ),
+    )
+    .where(eq(schema.contentDatabaseItems.databaseId, context.database.id));
+  const { views } = parseDatabaseViewConfig(context.database.viewConfigJson);
+
+  for (const option of removed) {
+    const rowDocumentIds = new Set<string>();
+    for (const value of values) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(value.valueJson);
+      } catch {
+        parsed = value.valueJson;
+      }
+      const items = Array.isArray(parsed) ? parsed : [parsed];
+      if (items.some((item) => usesOption(item, option))) {
+        rowDocumentIds.add(value.documentId);
+      }
+    }
+    const viewIds = views
+      .filter((view) =>
+        view.filters.some(
+          (filter) =>
+            filter.key === definition.id &&
+            contentDatabaseFilterOperatorNeedsValue(filter.operator) &&
+            selectedFilterValues(filter.value).some((candidate) =>
+              usesOption(candidate, option),
+            ),
+        ),
+      )
+      .map((view) => view.id);
+    if (rowDocumentIds.size === 0 && viewIds.length === 0) continue;
+    const uses = [
+      rowDocumentIds.size > 0
+        ? `${rowDocumentIds.size} row${rowDocumentIds.size === 1 ? "" : "s"}`
+        : null,
+      viewIds.length > 0
+        ? `${viewIds.length} saved view filter${viewIds.length === 1 ? "" : "s"}`
+        : null,
+    ].filter(Boolean);
+    throw new ActionContractError(
+      `Option \"${option.name}\" is still used by ${uses.join(" and ")}. Move those rows to another option and change those filters, then remove it.`,
+      {
+        errorCode: "OPTION_IN_USE",
+        statusCode: 409,
+        details: {
+          propertyId: definition.id,
+          optionId: option.id,
+          rowCount: rowDocumentIds.size,
+          viewIds,
+        },
+      },
+    );
+  }
 }
 
 function canonicalProperty(definition: Definition, context: MutationContext) {
@@ -492,9 +624,11 @@ export async function runConfigureDocumentProperty(
                   ).id,
                 },
               }
-            : "options" in definition
-              ? { options: definition.options ?? [] }
-              : {};
+            : definition.type === "blocks"
+              ? defaultPropertyOptions("blocks")
+              : "options" in definition
+                ? { options: definition.options ?? [] }
+                : {};
         if ("options" in definition) validateOptions(definition.options ?? []);
         const [maxPosition] = await tx
           .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
@@ -592,6 +726,7 @@ export async function runConfigureDocumentProperty(
         );
       }
       const nextOptions = applyOptionEdits(existing, input.patch.optionEdits);
+      await assertRemovedOptionsUnused(tx, context, existing, nextOptions);
       if (input.patch.icon !== undefined) {
         const userEmail = getRequestUserEmail();
         if (!userEmail)
