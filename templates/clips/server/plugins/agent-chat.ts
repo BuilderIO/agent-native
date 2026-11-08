@@ -1,5 +1,6 @@
-import "../register-secrets.js";
 import { getOrgContext } from "@agent-native/core/org";
+
+import "../register-secrets.js";
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
@@ -12,10 +13,23 @@ import {
 // why `autoDiscoverActions` on its own produces 404s for action routes in
 // production.
 import actionsRegistry from "../../.generated/actions-registry.js";
+import {
+  searchRecordingReferences,
+  validateRecordingReferences,
+} from "../lib/composer-references.js";
 import { INITIAL_TOOL_NAMES } from "../lib/initial-tool-names.js";
 
 export default createAgentChatPlugin({
   appId: "clips",
+  mentionProviders: {
+    recordings: {
+      label: "composerSources.group",
+      search: searchRecordingReferences,
+    },
+  },
+  prepareRequest: async ({ references }) => {
+    await validateRecordingReferences(references);
+  },
   mcp: { appApprovalPage: true },
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,

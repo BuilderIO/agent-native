@@ -3,6 +3,32 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-05
+
+### Fixed
+
+- Preserve event seconds and milliseconds when using a time zone.
+
+## 2026-11-04
+
+### Improved
+
+- The agent finds the right Calendar action more often when you talk about meetings, rescheduling, or booking pages in your own words.
+
+## 2026-11-03
+
+### Fixed
+
+- Calendar shows available events and avoids an incorrect 'Connect Google' prompt when a connected account has a temporary sign-in problem.
+- Events the agent creates now land at the time you asked for in your Calendar timezone instead of shifting by your UTC offset.
+- Find a time now counts events from all your connected Google accounts as busy time.
+
+## 2026-10-29
+
+### Improved
+
+- Sharing is one panel: invite people and your organization's agents from one field, see everyone with access in one list, and find Copy link and Send to at the bottom.
+
 ## 2026-10-27
 
 ### Fixed

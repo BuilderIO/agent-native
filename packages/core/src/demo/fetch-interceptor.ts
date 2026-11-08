@@ -25,6 +25,7 @@
  *   - Framework infra endpoints (poll and events) are skipped.
  *   - Any error during interception falls back to the original response.
  */
+import { markPassThroughFetch } from "../client/fetch-transport.js";
 import { getBrowserDemoModeEnabled } from "./browser-state.js";
 import { redactDemoData } from "./redact.js";
 
@@ -97,9 +98,10 @@ export function ensureDemoModeFetchInterceptor(): void {
   if (installed) return;
   installed = true;
 
-  const base = window.fetch.bind(window);
+  const pageFetch = window.fetch;
+  const base = pageFetch.bind(window);
 
-  window.fetch = async function patchedFetch(
+  const patchedFetch = async function patchedFetch(
     input: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<Response> {
@@ -142,5 +144,9 @@ export function ensureDemoModeFetchInterceptor(): void {
     } catch {
       return res;
     }
-  };
+  } as typeof fetch;
+  // Sends every request on unchanged, so it keeps the credentials (such as
+  // embed auth's bearer) of the fetch underneath.
+  markPassThroughFetch(patchedFetch, pageFetch);
+  window.fetch = patchedFetch;
 }

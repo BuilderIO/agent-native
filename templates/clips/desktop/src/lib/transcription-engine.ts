@@ -13,6 +13,7 @@ export interface TranscriptSegment {
 }
 
 export interface SourcedTranscriptSegment extends TranscriptSegment {
+  recovered?: true;
   source: TranscriptSource;
 }
 

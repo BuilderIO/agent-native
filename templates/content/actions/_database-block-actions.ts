@@ -1,11 +1,23 @@
 import { ActionContractError } from "@agent-native/core";
-import { assertAccess } from "@agent-native/core/sharing";
+import type { DbExec } from "@agent-native/core/db";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
+import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
+import { drizzleOverExec } from "../server/live-copy/exec-db.js";
+import {
+  editContentLiveCopy,
+  liveCopyBaseChanged,
+  liveCopyWriteLeftPath,
+  unrepresentableBodyError,
+} from "../server/live-copy/write.js";
 import {
   BLOCKS_FIELD_BLOCK_KINDS,
   BLOCKS_FIELD_OPERATION_CAPABILITIES,
@@ -517,6 +529,11 @@ async function writeMarkdown(
         { propertyId: target.propertyId },
       );
     }
+    await syncPrivateMediaReferences(db, {
+      documentId: target.rowDocumentId,
+      after: markdown,
+      userEmail: documentAttributionActor(),
+    });
     return;
   }
   await compareAndSwapAdditionalBlocksField({
@@ -673,6 +690,357 @@ function outcomeFor(
   return "updated";
 }
 
+function assertMutationRevisions(
+  loaded: LoadedField,
+  input: MutationInput,
+): void {
+  assertSchema(loaded.context, input.expectedSchemaRevision);
+  if (loaded.row.revision !== input.expectedRowRevision) {
+    contractError("ROW_REVISION_CONFLICT", "The database row changed.", {
+      expected: input.expectedRowRevision,
+      actual: loaded.row.revision,
+    });
+  }
+  if (loaded.identity.identityStatus === "stale") {
+    contractError(
+      "BLOCK_IDENTITY_STALE",
+      "The Blocks field changed without a matching identity revision.",
+    );
+  }
+  if (loaded.identity.revision !== input.expectedFieldRevision) {
+    contractError("FIELD_REVISION_CONFLICT", "The Blocks field changed.", {
+      expected: input.expectedFieldRevision,
+      actual: loaded.identity.revision,
+    });
+  }
+}
+
+async function prepareBlockMutation(
+  db: Db,
+  loaded: LoadedField,
+  input: MutationInput,
+) {
+  assertMutationRevisions(loaded, input);
+  const generatedInsertId = `block_${nanoid(16)}`;
+  const resolved = actionMutation(input, loaded.identity, generatedInsertId);
+  if (resolved.insertedBlockId) {
+    const used = await db
+      .select({ id: schema.documentBlocks.id })
+      .from(schema.documentBlocks)
+      .where(eq(schema.documentBlocks.id, resolved.insertedBlockId));
+    if (used.length > 0) {
+      contractError(
+        "BLOCK_ID_ALREADY_USED",
+        "The requested block ID has already been used.",
+        { blockId: resolved.insertedBlockId },
+      );
+    }
+  }
+  let changed;
+  try {
+    changed = mutateBlocksFieldDocument({
+      markdown: loaded.markdown,
+      identity: loaded.identity,
+      mutation: resolved.mutation,
+      insertedBlockId: resolved.insertedBlockId,
+      createInsertedDescendantId: () => `block_${nanoid(16)}`,
+    });
+  } catch (error) {
+    mapMutationFailure(error);
+  }
+  return { resolved, changed };
+}
+
+type PreparedBlockMutation = Awaited<ReturnType<typeof prepareBlockMutation>>;
+
+async function recordBlockMutation(args: {
+  tx: Db;
+  input: MutationInput;
+  inputDigest: string;
+  loaded: LoadedField;
+  changed: PreparedBlockMutation["changed"];
+  resolved: PreparedBlockMutation["resolved"];
+  postIdentity: BlocksFieldIdentity;
+  markdown: string;
+  now: string;
+}): Promise<ContentDatabaseBlockMutationResult> {
+  const {
+    tx,
+    input,
+    inputDigest,
+    loaded,
+    changed,
+    resolved,
+    postIdentity,
+    markdown,
+    now,
+  } = args;
+  const postRow = await rowSnapshot(
+    tx,
+    input.target.databaseId,
+    input.target.itemId,
+    input.target.rowDocumentId,
+    revisionPropertyIds(loaded.context),
+  );
+  if (!postRow) {
+    contractError(
+      "READBACK_MISMATCH",
+      "The database row disappeared during block mutation.",
+    );
+  }
+  const postBlocks = serializedBlocks(markdown, postIdentity);
+  const preOrder = loaded.identity.blocks.map((block) => block.id);
+  const postOrder = postBlocks.map((block) => block.id);
+  const deletedBlockIds = preOrder.filter(
+    (blockId) => !postOrder.includes(blockId),
+  );
+  const insertedBlockIds = postOrder.filter(
+    (blockId) => !preOrder.includes(blockId),
+  );
+  const primaryBlockId =
+    resolved.insertedBlockId ?? ("blockId" in input ? input.blockId : null);
+  const affectedBlockIds = [
+    ...new Set([
+      ...(primaryBlockId ? [primaryBlockId] : []),
+      ...insertedBlockIds,
+      ...deletedBlockIds,
+    ]),
+  ];
+  const receiptId = `block_receipt_${nanoid(18)}`;
+  const receipt: ContentDatabaseBlockMutationReceipt = {
+    receiptId,
+    operation: input.operation,
+    outcome: outcomeFor(
+      input,
+      changed.changed,
+      resolved.insertedBlockId !== undefined,
+    ),
+    target: input.target,
+    rowLink: {
+      urlPath: `/page/${input.target.rowDocumentId}`,
+      label: "Open database row",
+    },
+    schemaRevision: loaded.context.schemaRevision,
+    idempotency: {
+      key: input.idempotencyKey,
+      result: "applied",
+      payloadDigest: inputDigest,
+    },
+    revisions: {
+      row: { before: loaded.row.revision, after: postRow.revision },
+      field: {
+        before: loaded.identity.revision,
+        after: postIdentity.revision,
+      },
+    },
+    affected: {
+      blockIds: affectedBlockIds,
+      deletedBlockIds,
+      order: postOrder,
+    },
+    readback: {
+      verified: true,
+      fieldRevision: postIdentity.revision,
+      contentHash: postIdentity.contentHash,
+      order: postOrder,
+      blocks: postBlocks,
+    },
+  };
+  const storedResult: ContentDatabaseBlockMutationResult = { receipt };
+  await tx.insert(schema.contentDatabaseRowMutationReceipts).values({
+    id: receiptId,
+    ownerEmail: loaded.ownerEmail,
+    orgId: loaded.context.database.orgId,
+    spaceId: input.target.spaceId,
+    databaseId: input.target.databaseId,
+    databaseDocumentId: input.target.databaseDocumentId,
+    operation: `block:${input.operation}`,
+    itemId: input.target.itemId,
+    documentId: input.target.rowDocumentId,
+    idempotencyKey: input.idempotencyKey,
+    payloadDigest: inputDigest,
+    schemaRevision: loaded.context.schemaRevision,
+    preRowRevision: loaded.row.revision,
+    postRowRevision: postRow.revision,
+    resultJson: JSON.stringify(storedResult),
+    createdAt: now,
+    updatedAt: now,
+  });
+  return storedResult;
+}
+
+class ReplayedBlockMutation extends Error {
+  constructor(readonly result: ContentDatabaseBlockMutationResult) {
+    super("The block mutation already committed.");
+  }
+}
+
+function mapBlockIdCollision(
+  error: unknown,
+  insertedBlockId: string | undefined,
+): never {
+  if (
+    error instanceof BlocksFieldIdCollisionError ||
+    (insertedBlockId && isUniqueConstraintError(error))
+  ) {
+    contractError(
+      "BLOCK_ID_ALREADY_USED",
+      "The requested block ID has already been used.",
+      {
+        blockId:
+          error instanceof BlocksFieldIdCollisionError
+            ? error.blockId
+            : insertedBlockId,
+      },
+    );
+  }
+  throw error;
+}
+
+async function mutatePrimaryBlockThroughLiveCopy(
+  input: MutationInput,
+  inputDigest: string,
+  loaded: LoadedField,
+): Promise<ContentDatabaseBlockMutationResult | false> {
+  if (
+    loaded.storageTarget !== "document_body" ||
+    !(await isLiveBodyWriterPage(input.target.rowDocumentId))
+  )
+    return false;
+  let insertedBlockId: string | undefined;
+  let result: ContentDatabaseBlockMutationResult | undefined;
+  const beforeWrite = async (exec: DbExec) => {
+    const tx = drizzleOverExec(exec);
+    const replay = await readExistingReceipt(
+      input.target.databaseId,
+      input.idempotencyKey,
+      inputDigest,
+      tx,
+    );
+    if (replay) throw new ReplayedBlockMutation(replay);
+    for (const documentId of [
+      input.target.databaseDocumentId,
+      input.target.rowDocumentId,
+    ]) {
+      await assertAccess("document", documentId, "editor", {
+        ...currentAccess(),
+        transaction: exec,
+      });
+    }
+    const current = await loadField({
+      target: input.target,
+      role: "editor",
+      db: tx,
+      accessAlreadyResolved: true,
+    });
+    assertMutationRevisions(current, input);
+    if (current.storageTarget !== "document_body") {
+      contractError(
+        "FIELD_REVISION_CONFLICT",
+        "The Blocks field changed before the mutation could commit.",
+        { propertyId: input.target.propertyId },
+      );
+    }
+  };
+  try {
+    const { resolved, changed } = await prepareBlockMutation(
+      getDb(),
+      loaded,
+      input,
+    );
+    insertedBlockId = resolved.insertedBlockId;
+    assertNoNewlySharedVideoIds(loaded.markdown, changed.markdown);
+    await editContentLiveCopy(input.target.rowDocumentId, {
+      cause: {
+        operation: "mutate-content-database-block",
+        lockCollections: [input.target.databaseId],
+        expectedBlocksFieldRevision: {
+          propertyId: input.target.propertyId,
+          revision: input.expectedFieldRevision,
+        },
+        ...(changed.changed
+          ? {
+              blocksFieldIdentity: {
+                propertyId: input.target.propertyId,
+                preferredIdsByPath: changed.preferredIdsByPath,
+                rejectCrossFieldIdRemapping: true as const,
+              },
+            }
+          : {}),
+        beforeWrite,
+      },
+      edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
+      input: { expected: loaded.markdown, content: changed.markdown },
+      persist: async (exec, commit) => {
+        const tx = drizzleOverExec(exec);
+        const postIdentity = await readBlocksFieldIdentity({
+          db: tx,
+          documentId: input.target.rowDocumentId,
+          propertyId: input.target.propertyId,
+          markdown: commit.text,
+        });
+        if (
+          resolved.insertedBlockId &&
+          !postIdentity.blocks.some(
+            (block) => block.id === resolved.insertedBlockId,
+          )
+        ) {
+          contractError(
+            "BLOCK_ID_ALREADY_USED",
+            "The requested block ID has already been used.",
+            { blockId: resolved.insertedBlockId },
+          );
+        }
+        const now = new Date().toISOString();
+        if (changed.changed)
+          await touchContentDatabase(tx, input.target.databaseId, now);
+        result = await recordBlockMutation({
+          tx,
+          input,
+          inputDigest,
+          loaded,
+          changed,
+          resolved,
+          postIdentity,
+          markdown: commit.text,
+          now,
+        });
+      },
+    });
+  } catch (error) {
+    if (error instanceof ReplayedBlockMutation) return error.result;
+    if (
+      liveCopyBaseChanged(error) ||
+      (error instanceof ActionContractError &&
+        (error.errorCode === "ROW_REVISION_CONFLICT" ||
+          error.errorCode === "FIELD_REVISION_CONFLICT"))
+    ) {
+      const replay = await readExistingReceipt(
+        input.target.databaseId,
+        input.idempotencyKey,
+        inputDigest,
+      );
+      if (replay) return replay;
+    }
+    if (liveCopyWriteLeftPath(error)) return false;
+    if (liveCopyBaseChanged(error)) {
+      contractError(
+        "FIELD_REVISION_CONFLICT",
+        "The Blocks field changed before the mutation could commit.",
+        { propertyId: input.target.propertyId },
+      );
+    }
+    mapBlockIdCollision(
+      unrepresentableBodyError(error) ?? error,
+      insertedBlockId,
+    );
+  }
+  if (!result)
+    // guard:allow-bare-error — invariant: a successful edit always awaited the callback that inserts and captures its receipt.
+    throw new Error("The live block mutation committed without a receipt.");
+  return result;
+}
+
 export async function mutateDatabaseBlock(
   input: MutationInput,
 ): Promise<ContentDatabaseBlockMutationResult> {
@@ -687,6 +1055,13 @@ export async function mutateDatabaseBlock(
         inputDigest,
       );
       if (replay) return replay;
+      const loaded = await loadField({ target: input.target, role: "editor" });
+      const liveResult = await mutatePrimaryBlockThroughLiveCopy(
+        input,
+        inputDigest,
+        loaded,
+      );
+      if (liveResult) return liveResult;
       return getDb().transaction(async (transaction) => {
         const tx = transaction as unknown as Db;
         await lockContentDatabaseMutation(tx, input.target.databaseId);
@@ -727,60 +1102,11 @@ export async function mutateDatabaseBlock(
           db: tx,
           accessAlreadyResolved: true,
         });
-        assertSchema(loaded.context, input.expectedSchemaRevision);
-        if (loaded.row.revision !== input.expectedRowRevision) {
-          contractError("ROW_REVISION_CONFLICT", "The database row changed.", {
-            expected: input.expectedRowRevision,
-            actual: loaded.row.revision,
-          });
-        }
-        if (loaded.identity.identityStatus === "stale") {
-          contractError(
-            "BLOCK_IDENTITY_STALE",
-            "The Blocks field changed without a matching identity revision.",
-          );
-        }
-        if (loaded.identity.revision !== input.expectedFieldRevision) {
-          contractError(
-            "FIELD_REVISION_CONFLICT",
-            "The Blocks field changed.",
-            {
-              expected: input.expectedFieldRevision,
-              actual: loaded.identity.revision,
-            },
-          );
-        }
-        const generatedInsertId = `block_${nanoid(16)}`;
-        const resolved = actionMutation(
+        const { resolved, changed } = await prepareBlockMutation(
+          tx,
+          loaded,
           input,
-          loaded.identity,
-          generatedInsertId,
         );
-        if (resolved.insertedBlockId) {
-          const [used] = await tx
-            .select({ id: schema.documentBlocks.id })
-            .from(schema.documentBlocks)
-            .where(eq(schema.documentBlocks.id, resolved.insertedBlockId));
-          if (used) {
-            contractError(
-              "BLOCK_ID_ALREADY_USED",
-              "The requested block ID has already been used.",
-              { blockId: resolved.insertedBlockId },
-            );
-          }
-        }
-        let changed;
-        try {
-          changed = mutateBlocksFieldDocument({
-            markdown: loaded.markdown,
-            identity: loaded.identity,
-            mutation: resolved.mutation,
-            insertedBlockId: resolved.insertedBlockId,
-            createInsertedDescendantId: () => `block_${nanoid(16)}`,
-          });
-        } catch (error) {
-          mapMutationFailure(error);
-        }
         const now = new Date().toISOString();
         let postIdentity = loaded.identity;
         if (changed.changed) {
@@ -824,22 +1150,7 @@ export async function mutateDatabaseBlock(
               });
             }
           } catch (error) {
-            if (
-              error instanceof BlocksFieldIdCollisionError ||
-              (resolved.insertedBlockId && isUniqueConstraintError(error))
-            ) {
-              contractError(
-                "BLOCK_ID_ALREADY_USED",
-                "The requested block ID has already been used.",
-                {
-                  blockId:
-                    error instanceof BlocksFieldIdCollisionError
-                      ? error.blockId
-                      : resolved.insertedBlockId,
-                },
-              );
-            }
-            throw error;
+            mapBlockIdCollision(error, resolved.insertedBlockId);
           }
           postIdentity = await readBlocksFieldIdentity({
             db: tx,
@@ -861,99 +1172,17 @@ export async function mutateDatabaseBlock(
           }
           await touchContentDatabase(tx, input.target.databaseId, now);
         }
-        const postRow = await rowSnapshot(
+        return recordBlockMutation({
           tx,
-          input.target.databaseId,
-          input.target.itemId,
-          input.target.rowDocumentId,
-          revisionPropertyIds(loaded.context),
-        );
-        if (!postRow) {
-          contractError(
-            "READBACK_MISMATCH",
-            "The database row disappeared during block mutation.",
-          );
-        }
-        const postBlocks = serializedBlocks(changed.markdown, postIdentity);
-        const preOrder = loaded.identity.blocks.map((block) => block.id);
-        const postOrder = postBlocks.map((block) => block.id);
-        const deletedBlockIds = preOrder.filter(
-          (blockId) => !postOrder.includes(blockId),
-        );
-        const insertedBlockIds = postOrder.filter(
-          (blockId) => !preOrder.includes(blockId),
-        );
-        const primaryBlockId =
-          resolved.insertedBlockId ??
-          ("blockId" in input ? input.blockId : null);
-        const affectedBlockIds = [
-          ...new Set([
-            ...(primaryBlockId ? [primaryBlockId] : []),
-            ...insertedBlockIds,
-            ...deletedBlockIds,
-          ]),
-        ];
-        const receiptId = `block_receipt_${nanoid(18)}`;
-        const receipt: ContentDatabaseBlockMutationReceipt = {
-          receiptId,
-          operation: input.operation,
-          outcome: outcomeFor(
-            input,
-            changed.changed,
-            resolved.insertedBlockId !== undefined,
-          ),
-          target: input.target,
-          rowLink: {
-            urlPath: `/page/${input.target.rowDocumentId}`,
-            label: "Open database row",
-          },
-          schemaRevision: loaded.context.schemaRevision,
-          idempotency: {
-            key: input.idempotencyKey,
-            result: "applied",
-            payloadDigest: inputDigest,
-          },
-          revisions: {
-            row: { before: loaded.row.revision, after: postRow.revision },
-            field: {
-              before: loaded.identity.revision,
-              after: postIdentity.revision,
-            },
-          },
-          affected: {
-            blockIds: affectedBlockIds,
-            deletedBlockIds,
-            order: postOrder,
-          },
-          readback: {
-            verified: true,
-            fieldRevision: postIdentity.revision,
-            contentHash: postIdentity.contentHash,
-            order: postOrder,
-            blocks: postBlocks,
-          },
-        };
-        const storedResult: ContentDatabaseBlockMutationResult = { receipt };
-        await tx.insert(schema.contentDatabaseRowMutationReceipts).values({
-          id: receiptId,
-          ownerEmail: loaded.ownerEmail,
-          orgId: loaded.context.database.orgId,
-          spaceId: input.target.spaceId,
-          databaseId: input.target.databaseId,
-          databaseDocumentId: input.target.databaseDocumentId,
-          operation: `block:${input.operation}`,
-          itemId: input.target.itemId,
-          documentId: input.target.rowDocumentId,
-          idempotencyKey: input.idempotencyKey,
-          payloadDigest: inputDigest,
-          schemaRevision: loaded.context.schemaRevision,
-          preRowRevision: loaded.row.revision,
-          postRowRevision: postRow.revision,
-          resultJson: JSON.stringify(storedResult),
-          createdAt: now,
-          updatedAt: now,
+          input,
+          inputDigest,
+          loaded,
+          changed,
+          resolved,
+          postIdentity,
+          markdown: changed.markdown,
+          now,
         });
-        return storedResult;
       });
     },
   );

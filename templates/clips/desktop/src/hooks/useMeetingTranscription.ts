@@ -1056,6 +1056,7 @@ export function useMeetingTranscription({
                   endMs?: number;
                   text: string;
                   source?: "mic" | "system";
+                  recovered?: true;
                 }>;
                 if (segs.length > 0) {
                   const storedLines = segs.map((s) =>
@@ -1064,6 +1065,7 @@ export function useMeetingTranscription({
                       endMs: s.endMs ?? 0,
                       text: s.text,
                       source: s.source ?? "mic",
+                      recovered: s.recovered,
                     }),
                   );
                   session.lines = [...storedLines, ...session.lines];
@@ -1154,8 +1156,8 @@ export function useMeetingTranscription({
           }>("rewind_meeting_history_collect", { token: prepared.token })
             .then((history) => {
               if (sessionRef.current !== session) return;
-              const historyLines = history.segments.map(
-                transcriptLineFromSegment,
+              const historyLines = history.segments.map((segment) =>
+                transcriptLineFromSegment({ ...segment, recovered: true }),
               );
               session.lines = [...historyLines, ...session.lines];
               const preloadedLines = pillTranscriptLines(session.lines);
