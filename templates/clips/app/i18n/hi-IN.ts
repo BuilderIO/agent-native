@@ -1989,6 +1989,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "{{count}} मुफ़्त क्लिप बाकी",
     freeClipsLeft_other: "{{count}} मुफ़्त क्लिप बाकी",
+    activateBuilder: "Builder.io सक्रिय करें",
     hostedClipsExhaustedTitle:
       "रिकॉर्डिंग जारी रखने के लिए Builder.io को मुफ़्त में कनेक्ट करें",
     hostedClipsExhaustedDescription:

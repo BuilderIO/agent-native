@@ -2045,6 +2045,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "無料クリップの残り {{count}} 本",
     freeClipsLeft_other: "無料クリップの残り {{count}} 本",
+    activateBuilder: "Builder.io を有効にする",
     hostedClipsExhaustedTitle: "Builder.io に無料で接続して録画を続ける",
     hostedClipsExhaustedDescription:
       "無料のホスト録画枠を使い切りました。Builder.io ストレージに接続すると、ライブラリへのクリップ保存を続けられます。",

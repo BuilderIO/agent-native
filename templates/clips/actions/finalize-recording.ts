@@ -928,24 +928,27 @@ async function completeReadyRecordingBookkeeping(params: {
   // runs. Existing rows keep their state so reconnecting can retry them.
   const cloudTranscriptionAvailable =
     await resolveHasBuilderGatewayCredential();
-  if (!existingTranscript && !cloudTranscriptionAvailable) {
-    shouldDispatchTranscript = true;
-  } else if (!existingTranscript) {
-    // A transcript import can create the row after the read above; keep it.
-    const [insertedTranscript] = await db
-      .insert(schema.recordingTranscripts)
-      .values({
-        recordingId: params.id,
-        ownerEmail: params.ownerEmail,
-        status: "pending",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing({ target: schema.recordingTranscripts.recordingId })
-      .returning({ recordingId: schema.recordingTranscripts.recordingId });
-    shouldDispatchTranscript = Boolean(insertedTranscript);
+  if (!existingTranscript) {
+    if (cloudTranscriptionAvailable) {
+      // A transcript import can create the row after the read above; keep it.
+      const [insertedTranscript] = await db
+        .insert(schema.recordingTranscripts)
+        .values({
+          recordingId: params.id,
+          ownerEmail: params.ownerEmail,
+          status: "pending",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing({
+          target: schema.recordingTranscripts.recordingId,
+        })
+        .returning({ recordingId: schema.recordingTranscripts.recordingId });
+      shouldDispatchTranscript = Boolean(insertedTranscript);
+    } else {
+      shouldDispatchTranscript = true;
+    }
   } else if (
-    existingTranscript &&
     cloudTranscriptionAvailable &&
     existingTranscript.source !== "imported" &&
     (existingTranscript.status === "failed" ||

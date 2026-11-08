@@ -901,7 +901,7 @@ describe("requestTranscript regeneration", () => {
     await expect(
       requestTranscript.run(
         { recordingId: "rec_ready", force: true, regenerate: true },
-        { caller: "frontend" } as any,
+        { caller: "frontend" } as Parameters<typeof requestTranscript.run>[1],
       ),
     ).rejects.toMatchObject({
       errorCode: "ai_model_unavailable",
