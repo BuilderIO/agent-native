@@ -1336,6 +1336,9 @@ const messages = {
     titleLabel: "제목",
     combining:
       "ffmpeg.wasm으로 결합 중 — {{progress}}%. 큰 이어붙이기는 1분 정도 걸릴 수 있습니다.",
+    starting: "시작하는 중…",
+    processingDescription:
+      "서버에서 결합하는 중입니다. 이 탭을 닫아도 됩니다. 클립은 자동으로 준비됩니다.",
     combine: "결합",
   },
   inviteDialog: {

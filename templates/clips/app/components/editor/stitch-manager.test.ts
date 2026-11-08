@@ -17,18 +17,17 @@ describe("StitchManager layout", () => {
 });
 
 describe("StitchManager server stitch", () => {
-  it("no longer combines videos in the browser", () => {
+  it("combines in the browser only when the server has no ffmpeg", () => {
     const source = readSource();
 
-    expect(source).not.toContain("exportConcat");
-    expect(source).not.toContain("uploadFileClient");
+    expect(source).toContain("if (!isServerStitchUnavailable(err)) throw err;");
+    expect(source).toContain("result = await stitchInBrowser();");
   });
 
   it("asks the server to stitch and opens the new recording", () => {
     const source = readSource();
 
-    expect(source).toContain("stitch.mutateAsync({");
-    expect(source).not.toMatch(/mutateAsync\(\{[^}]*videoUrl/);
+    expect(source).toContain("result = await stitch.mutateAsync({");
     expect(source).toContain('t("stitchManager.processingDescription")');
     expect(source).toContain(
       "navigate(`/r/${encodeURIComponent(newRecordingId)}`)",

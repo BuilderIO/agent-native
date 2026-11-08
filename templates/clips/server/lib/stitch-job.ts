@@ -222,7 +222,7 @@ export function planStitch(probes: readonly StitchSourceProbe[]): StitchPlan {
       `Recording ${missingVideo + 1} in the stitch has no readable video track.`,
     );
   }
-  const videos = probes.map((p) => p.video!);
+  const videos = probes.flatMap((p) => (p.video ? [p.video] : []));
   const width = evenUp(Math.max(...videos.map((v) => v.width)));
   const height = evenUp(Math.max(...videos.map((v) => v.height)));
   const withAudio = probes.filter((p) => p.audio).length;
@@ -241,6 +241,9 @@ export function planStitch(probes: readonly StitchSourceProbe[]): StitchPlan {
     return reencode("not every source is an mp4 file");
   }
   const first = videos[0];
+  if (!first) {
+    return reencode("no video sources");
+  }
   if (!COPYABLE_VIDEO_CODECS.has(first.codec)) {
     return reencode(`video codec ${first.codec} cannot be copied into mp4`);
   }
@@ -259,8 +262,11 @@ export function planStitch(probes: readonly StitchSourceProbe[]): StitchPlan {
     return reencode("some sources have audio and some do not");
   }
   if (audio === "all") {
-    const audios = probes.map((p) => p.audio!);
+    const audios = probes.flatMap((p) => (p.audio ? [p.audio] : []));
     const a0 = audios[0];
+    if (!a0) {
+      return reencode("no audio sources");
+    }
     if (!COPYABLE_AUDIO_CODECS.has(a0.codec)) {
       return reencode(`audio codec ${a0.codec} cannot be copied into mp4`);
     }
@@ -437,6 +443,7 @@ export function resolveFfprobeCommand(): string {
 
 export function isFfprobeAvailable(): boolean {
   return (
+    // observed-write-ok: read-only ffprobe version check
     spawnSync(resolveFfprobeCommand(), ["-version"], {
       stdio: "ignore",
       timeout: 2_000,
@@ -448,6 +455,7 @@ export async function probeStitchSource(
   path: string,
 ): Promise<StitchSourceProbe> {
   const stdout = await new Promise<string>((resolve, reject) => {
+    // observed-write-ok: ffprobe only reads the source file
     const child = spawn(
       resolveFfprobeCommand(),
       [
@@ -467,10 +475,10 @@ export async function probeStitchSource(
       child.kill("SIGKILL");
       reject(new Error("ffprobe timed out"));
     }, PROBE_TIMEOUT_MS);
-    child.stdout?.on("data", (chunk: Buffer) => {
+    child.stdout.on("data", (chunk: Buffer) => {
       out += chunk.toString("utf8");
     });
-    child.stderr?.on("data", (chunk: Buffer) => {
+    child.stderr.on("data", (chunk: Buffer) => {
       err = (err + chunk.toString("utf8")).slice(-4096);
     });
     child.on("error", (error) => {
@@ -524,7 +532,7 @@ export async function concatVideoFiles(
   }
   const plan = planStitch(probes);
   const durations = probes.map(
-    (probe, i) => probe.durationMs ?? sources[i].fallbackDurationMs ?? null,
+    (probe, i) => probe.durationMs ?? sources[i]?.fallbackDurationMs ?? null,
   );
   const totalMs = durations.reduce<number>((sum, d) => sum + (d ?? 0), 0);
   const onProgress = options.onProgress ?? (() => {});
@@ -533,6 +541,7 @@ export async function concatVideoFiles(
   let mode: "copy" | "reencode" = plan.mode;
   if (plan.mode === "copy") {
     const listPath = join(dirname(outputPath), "concat.txt");
+    // observed-write-ok: temp-only concat list inside the job's temp dir
     await writeFile(
       listPath,
       buildConcatList(sources.map((source) => source.path)),
@@ -576,8 +585,8 @@ export async function concatVideoFiles(
       buildReencodeArgs({
         inputs: sources.map((source, i) => ({
           path: source.path,
-          hasAudio: Boolean(probes[i].audio),
-          durationMs: durations[i],
+          hasAudio: Boolean(probes[i]?.audio),
+          durationMs: durations[i] ?? null,
         })),
         width,
         height,
@@ -659,7 +668,10 @@ export async function loadOwnedStitchSources(
       `Not all source recordings were found: asked for ${ids.length}, got ${ids.length - missing.length}`,
     );
   }
-  const ordered = ids.map((id) => byId.get(id)!);
+  const ordered = ids.flatMap((id) => {
+    const source = byId.get(id);
+    return source ? [source] : [];
+  });
   for (const source of ordered) {
     assertNativeRecordingMedia(source);
     if (source.trashedAt) {
@@ -692,20 +704,20 @@ async function downloadSource(
     const media = await loadRecordingMediaBytes(
       recording as PublicAgentRecording,
     );
+    // observed-write-ok: temp-only copy of the source inside the job's temp dir
     await writeFile(path, media.bytes);
     return;
   }
   const response = await fetchRecordingMediaResponse(videoUrl, {
     recordingId: recording.id,
     storageMode: recording.storageMode,
-    ownerEmail: recording.ownerEmail,
-    organizationId: recording.organizationId,
   });
   if (!response.body) {
     throw new Error(`Recording "${recording.title}" has no video data.`);
   }
   await pipeline(
     Readable.fromWeb(response.body as unknown as NodeReadableStream),
+    // observed-write-ok: temp-only copy of the source inside the job's temp dir
     createWriteStream(path, { flags: "wx" }),
   );
 }
@@ -947,7 +959,7 @@ async function afterStitchReady(input: {
     });
   });
 
-  const [insertedTranscript] = await db
+  const insertedTranscripts = await db
     .insert(schema.recordingTranscripts)
     .values({
       recordingId,
@@ -973,7 +985,7 @@ async function afterStitchReady(input: {
       });
     });
   }
-  if (insertedTranscript) {
+  if (insertedTranscripts.length > 0) {
     await dispatchPostFinalizeJob({
       recordingId,
       kind: "transcript",
@@ -993,6 +1005,7 @@ export async function runStitchJob(input: StitchJobInput): Promise<void> {
   let dir: string | null = null;
   let uploadedUrl: string | null = null;
   try {
+    // observed-write-ok: per-job temp dir, removed in finally
     dir = await mkdtemp(join(tmpdir(), "clips-stitch-"));
     const sources = await loadOwnedStitchSources(
       input.sourceRecordingIds,
@@ -1101,13 +1114,16 @@ export async function runStitchJob(input: StitchJobInput): Promise<void> {
     if (dir) {
       // The stitch result is already settled here (ready or failed); a
       // leftover temp dir must not change it, but it must be visible.
-      await rm(dir, { recursive: true, force: true }).catch((error: unknown) => {
-        console.warn("[stitch-job] could not remove the temp dir", {
-          recordingId,
-          dir,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
+      // observed-write-ok: removes the per-job temp dir
+      await rm(dir, { recursive: true, force: true }).catch(
+        (error: unknown) => {
+          console.warn("[stitch-job] could not remove the temp dir", {
+            recordingId,
+            dir,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        },
+      );
     }
   }
 }
@@ -1123,7 +1139,10 @@ export function startStitchJob(input: StitchJobInput): void {
   activeStitchIds.add(input.recordingId);
   const next = queue.then(() =>
     runWithRequestContext(
-      { userEmail: input.ownerEmail, orgId: input.orgId ?? undefined },
+      {
+        userEmail: input.ownerEmail,
+        ...(input.orgId ? { orgId: input.orgId } : {}),
+      },
       () => runStitchJob(input),
     ),
   );
@@ -1163,6 +1182,7 @@ export async function failStaleStitchJobs(
       and(
         eq(schema.recordings.status, "processing"),
         isNull(schema.recordings.videoUrl),
+        // guard:allow-blob-predicate — stale sweep runs once at boot, already narrowed to processing rows
         like(schema.recordings.editsJson, '%"stitchedFrom"%'),
         lt(schema.recordings.createdAt, cutoff),
         activeStitchIds.size > 0

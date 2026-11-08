@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestOrgId } from "@agent-native/core/server";
 import { z } from "zod";
@@ -73,8 +73,9 @@ export default defineAction({
     const ids = parseSourceRecordingIds(args.sourceRecordingIds);
     const ordered = await loadOwnedStitchSources(ids, ownerEmail);
     if (!videoUrl && (!isFfmpegAvailable() || !isFfprobeAvailable())) {
-      throw new Error(
+      fail(
         "Recordings are combined with ffmpeg, which is not available on this server.",
+        { errorCode: "stitch_ffmpeg_unavailable", statusCode: 424 },
       );
     }
     const organizationId = ordered[0].organizationId;

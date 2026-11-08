@@ -217,7 +217,10 @@ export function StitchManager({
       (p) => setBrowserProgress(p.progress),
     );
     const destinationRecordingId = crypto.randomUUID();
-    const upload = await uploadFileClient(blob, `${destinationRecordingId}.mp4`);
+    const upload = await uploadFileClient(
+      blob,
+      `${destinationRecordingId}.mp4`,
+    );
     const videoUrl = upload?.url ?? null;
     if (!videoUrl) {
       throw new Error(t("stitchManager.connectStorage"));
