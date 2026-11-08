@@ -268,7 +268,7 @@ describe("createBuilderEngine", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("preserves optional action schemas in GPT gateway requests", async () => {
+  it("sends GPT gateway tools out of strict mode with optional schemas intact", async () => {
     const inputSchema = {
       type: "object",
       properties: {
@@ -298,6 +298,30 @@ describe("createBuilderEngine", () => {
     );
     const body = JSON.parse(requestFetch.mock.calls[0][1]!.body as string);
     expect(body.tools[0].input_schema).toEqual(inputSchema);
+    expect(body.tools[0].strict).toBe(false);
+  });
+
+  it("leaves the strict flag off Claude gateway tools", async () => {
+    const requestFetch = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonlResponse([
+        { type: "text", text: "Done" },
+        { type: "stop", stop_reason: "end_turn" },
+      ]),
+    );
+    vi.stubGlobal("fetch", requestFetch);
+    await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        tools: [
+          {
+            name: "list-events",
+            description: "List events",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+    const body = JSON.parse(requestFetch.mock.calls[0][1]!.body as string);
     expect(body.tools[0]).not.toHaveProperty("strict");
   });
 
