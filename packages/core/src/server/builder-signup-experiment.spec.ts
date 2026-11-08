@@ -59,6 +59,7 @@ const accepted = () => ({
   acceptedAt: testTime - 1000,
   attemptId: ATTEMPT,
   policy: BUILDER_SIGNUP_POLICY,
+  method: "google" as const,
 });
 const signedSession = (): AuthSession => ({
   email: "new@example.com",
@@ -129,6 +130,36 @@ beforeEach(() => {
 });
 
 describe("pre-signup Builder experiment", () => {
+  it("requires the original acceptance browser for consent recorded during unverified password signup", async () => {
+    mocks.settings.clear();
+    const cookie = encodeBuilderSignupAssignment({
+      ...accepted(),
+      method: "password",
+      email: "new@example.com",
+    });
+    expect(
+      await (
+        await bindRequest(cookie, ATTEMPT, "password", "new@example.com")
+      ).json(),
+    ).toEqual({ bound: true });
+    session = signedSession();
+    for (const operation of ["status", "activate"]) {
+      expect(await (await request({ operation })).json()).toEqual({
+        status: "disabled",
+        code: "password_acceptance_cookie_required",
+      });
+    }
+    expect(activate).not.toHaveBeenCalled();
+    expect(mocks.settings.has("design_builder_signup_v1:new-user")).toBe(false);
+    expect(
+      await (await request({ operation: "status" }, cookie)).json(),
+    ).toEqual({ status: "eligible" });
+    expect(
+      await (await request({ operation: "activate" }, cookie)).json(),
+    ).toEqual({ status: "connected" });
+    expect(activate).toHaveBeenCalledOnce();
+  });
+
   it("checks cookie-free eligibility without reserving or provisioning and skips completed activation", async () => {
     session = signedSession();
     expect(await (await request({ operation: "status" })).json()).toEqual({

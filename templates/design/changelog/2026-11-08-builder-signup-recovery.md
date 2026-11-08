@@ -3,4 +3,4 @@ type: fixed
 date: 2026-11-08
 ---
 
-Automatic Builder setup resumes after signup even when the browser loses its signup cookies.
+Google and email-link signups reliably finish automatic Builder setup when signup cookies are lost.

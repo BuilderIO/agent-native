@@ -49,7 +49,23 @@ const consentSchema = assignmentSchema.extend({
   attemptId: z.string().min(16).max(128),
   userId: z.string().min(1),
   email: z.string().email(),
+  method: z.enum(["password", "magic-link", "google"]),
 });
+
+function hasSignupConsentOwnership(
+  consent: z.infer<typeof consentSchema>,
+  original: Assignment | null,
+): boolean {
+  // Google and email-link bindings happen after ownership verification.
+  // Password binding happens before verification, so retain its browser binding.
+  if (consent.method !== "password") return true;
+  return (
+    original?.id === consent.id &&
+    original.attemptId === consent.attemptId &&
+    original.acceptedAt === consent.acceptedAt &&
+    original.method === "password"
+  );
+}
 
 function experimentProperties(
   assignment?: Assignment,
@@ -369,6 +385,13 @@ export function createBuilderSignupExperimentHandler(dependencies: {
           { userId: session.email, authUserId: session.userId },
         );
         return refuse(409, "consent_invalid");
+      }
+      if (!hasSignupConsentOwnership(saved.data, assignment)) {
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+        return {
+          status: "disabled" as const,
+          code: "password_acceptance_cookie_required",
+        };
       }
       assignment = saved.data;
     }
