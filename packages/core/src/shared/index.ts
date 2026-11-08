@@ -71,7 +71,6 @@ export {
   analyticsCaptureCellSchema,
   analyticsCaptureKeyDateSchema,
   analyticsCaptureSeriesSchema,
-  analyticsDashboardVisibility,
   analyticsPanelCaptureRequestSchema,
   analyticsPanelCaptureSchema,
   analyticsPanelStatusRequestSchema,

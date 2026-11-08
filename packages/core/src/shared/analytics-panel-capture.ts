@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-import type { EmbedVisibility } from "./embed-audience.js";
-
 /**
  * The contract between Analytics and an app that keeps a frozen copy of one
  * dashboard panel, such as a chart in a Content page. Analytics owns the
@@ -202,13 +200,6 @@ export const analyticsPanelStatusSchema = z.object({
     .max(50),
 });
 export type AnalyticsPanelStatus = z.infer<typeof analyticsPanelStatusSchema>;
-
-/** The dashboard's sharing as an embed audience check reads it. */
-export function analyticsDashboardVisibility(
-  status: Pick<AnalyticsPanelStatus, "dashboard"> | null | undefined,
-): EmbedVisibility | null {
-  return status?.dashboard.visibility ?? null;
-}
 
 const FILTER_PARAM_PREFIX = "f_";
 
