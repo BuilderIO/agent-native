@@ -954,6 +954,29 @@ describe("mountDevActionForwardRoute", () => {
     mockResolveOrgIdForEmail.mockResolvedValue(null);
   });
 
+  it("reports a failed org lookup like any other action error", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const token = getDevActionToken()!;
+    vi.stubEnv("DATABASE_URL", `pglite:${tmpDir}`);
+    mockResolveOrgIdForEmail.mockRejectedValueOnce(
+      new Error("database is starting up"),
+    );
+    const run = vi.fn();
+    const handler = mountedHandler({ "do-thing": { run } as any });
+    const event: any = {
+      _headers: {
+        [DEV_ACTION_TOKEN_HEADER]: token,
+        [DEV_ACTION_USER_HEADER]: "owner@example.test",
+      },
+      _body: { name: "do-thing" },
+    };
+
+    const response = await handler(event);
+    expect(response).toEqual({ ok: false, error: "database is starting up" });
+    expect(event._status).toBe(500);
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("returns 500 with the thrown message when the action fails, without notifying a change", async () => {
     writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
     const token = getDevActionToken()!;
@@ -1183,6 +1206,28 @@ describe("mountDevDbQueryForwardRoute", () => {
     expect(response.rows).toEqual([{ orgId: null, orgScope: "personal" }]);
     expect(mockResolveOrgIdForEmail).not.toHaveBeenCalled();
     mockResolveOrgIdForEmail.mockResolvedValue(null);
+  });
+
+  it("reports a failed org lookup like any other query error", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const token = getDevActionToken()!;
+    vi.stubEnv("DATABASE_URL", `pglite:${tmpDir}`);
+    mockResolveOrgIdForEmail.mockRejectedValueOnce(
+      new Error("database is starting up"),
+    );
+    const handler = mountedDbQueryHandler();
+    const event: any = {
+      _headers: {
+        [DEV_ACTION_TOKEN_HEADER]: token,
+        [DEV_ACTION_USER_HEADER]: "owner@example.test",
+      },
+      _body: { sql: "SELECT 1" },
+    };
+
+    const response = await handler(event);
+    expect(response).toEqual({ ok: false, error: "database is starting up" });
+    expect(event._status).toBe(500);
+    expect(mockRunDbQuery).not.toHaveBeenCalled();
   });
 
   it("returns 500 with the thrown message when runDbQuery rejects the query", async () => {

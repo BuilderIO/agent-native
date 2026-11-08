@@ -78,6 +78,24 @@ function devOrgChoiceFromHeaders(event: H3Event): DevOrgChoice {
   };
 }
 
+/**
+ * The caller's org scope, or the route's usual error response when the org
+ * lookup fails, so the CLI shows the database's message.
+ */
+async function resolveDevOrgScopeForRoute(
+  event: H3Event,
+  userEmail: string | undefined,
+): Promise<
+  { orgId?: string; orgScope?: "personal" } | { ok: false; error: string }
+> {
+  try {
+    return await resolveDevOrgScope(userEmail, devOrgChoiceFromHeaders(event));
+  } catch (error: any) {
+    setResponseStatus(event, 500);
+    return { ok: false, error: error?.message ?? String(error) };
+  }
+}
+
 export function hashDatabaseKey(databaseUrl: string): string {
   return crypto.createHash("sha256").update(databaseUrl).digest("hex");
 }
@@ -365,10 +383,8 @@ export function mountDevActionForwardRoute(
       const userEmail =
         getHeader(event, DEV_ACTION_USER_HEADER) ||
         (await resolveDevUserEmail());
-      const orgScope = await resolveDevOrgScope(
-        userEmail,
-        devOrgChoiceFromHeaders(event),
-      );
+      const orgScope = await resolveDevOrgScopeForRoute(event, userEmail);
+      if ("error" in orgScope) return orgScope;
 
       const context = {
         userEmail,
@@ -511,10 +527,8 @@ export function mountDevDbQueryForwardRoute(nitroApp: any): void {
       const userEmail =
         getHeader(event, DEV_ACTION_USER_HEADER) ||
         (await resolveDevUserEmail());
-      const orgScope = await resolveDevOrgScope(
-        userEmail,
-        devOrgChoiceFromHeaders(event),
-      );
+      const orgScope = await resolveDevOrgScopeForRoute(event, userEmail);
+      if ("error" in orgScope) return orgScope;
 
       const context = { ...(userEmail ? { userEmail } : {}), ...orgScope };
       return runWithRequestContext(context, async () => {
