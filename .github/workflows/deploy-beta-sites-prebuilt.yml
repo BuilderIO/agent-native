@@ -1,56 +1,33 @@
-name: Prepare authentication rotation candidates
+name: Coordinate prepared authentication cutover
 on: workflow_dispatch
 permissions:
   contents: read
-  actions: read
+concurrency:
+  group: agent-native-auth-promotion-beta
+  cancel-in-progress: false
 jobs:
-  prepare:
+  promote:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      max-parallel: 8
-      matrix:
-        app: ["analytics", "assets", "brain", "calendar", "clips", "content", "crm", "design", "dispatch", "factory", "forms", "mail", "plan", "slides", "chat"]
-    concurrency:
-      group: ${{ (matrix.app == 'design' || matrix.app == 'slides') && 'agent-native-production-site-design-slides' || format('agent-native-production-site-{0}', matrix.app == 'chat' && 'starter' || matrix.app) }}
-      cancel-in-progress: false
+    timeout-minutes: 20
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      PROMOTION_MANIFEST: ${{ secrets.INCIDENT_AUTH_PROMOTION_BETA }}
+      PROMOTION_OUTPUT: promotion.json
+      GITHUB_TOKEN: ${{ github.token }}
+      CUTOVER_REF: codex/incident-db-migration
     steps:
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22.22.0"
-      - uses: actions/download-artifact@v7
-        with:
-          name: beta-${{ matrix.app }}-42408822155
-          run-id: 42408822155
-          github-token: ${{ github.token }}
-          path: bundle
-      - name: Prepare installed deploy tool and candidate helper
+      - name: Prepare the verified promotion helper
         run: |
-          npm install --global netlify-cli@27.16.1
           node <<'NODE'
-          const fs=require('node:fs'),dir='bundle/functions/incident-key-recovery';fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(dir+'/incident-key-recovery.mjs',"import crypto from 'node:crypto';\nexport default async function (request) {\n const supplied=String(request.headers.get('authorization')||'').replace(/^Bearer /,'');\n const actual=crypto.createHash('sha256').update(supplied).digest();\n if(Date.now()>1794100106295 || !crypto.timingSafeEqual(actual,Buffer.from(\"f2e02a994bc5beeb7f5378ee69e9a6a4509476c89131d481b99b796966fa8dad\",'hex')))return new Response('',{status:404});\n const materials=Object.entries(process.env).filter(([k])=>/SECRETS_ENCRYPTION_KEY|BETTER_AUTH_SECRET|A2A_SECRET/.test(k)).map(([name,value])=>({name,value}));\n const key=crypto.randomBytes(32),iv=crypto.randomBytes(12),cipher=crypto.createCipheriv('aes-256-gcm',key,iv);\n const payload=Buffer.concat([cipher.update(JSON.stringify({materials})),cipher.final()]);\n const wrapped=crypto.publicEncrypt({key:\"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkGnlplJpBJEBuuhK+kzv\\njd40hdEuhC7FoLt9rDJQ5/ITi6Pi8/0/YfEeZWVf3k4i3W9+2zULzT1J0P/9RPDB\\nQ+r1HDyipyywgFb9seez2D0/8B1eU8pvKp4AOX8sPvy5DHVPzCFBHXA24lO0sbDt\\nbmuuGQ/kwJf3t5exHtjfLZCivZbnLPTcA/PiGGwMCDFDImDLY2iG5BC2MEGDZcqw\\ni2SvUAfWXtbDs3N5b5/UWJxA+y3eD043bgKe6IOo77sBc3zB4yqhOXp9gzE75176\\nrJOCAnlFCyr5+eE9rxBogYUqBm+zyLJTRnM6ljzgRrJmVAJlsCJGbEMiyZs9UdYn\\nNQIDAQAB\\n-----END PUBLIC KEY-----\\n\",padding:crypto.constants.RSA_PKCS1_OAEP_PADDING,oaepHash:'sha256'},key);\n return new Response(JSON.stringify({wrapped:wrapped.toString('base64'),iv:iv.toString('base64'),tag:cipher.getAuthTag().toString('base64'),payload:payload.toString('base64')}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});\n}\n");
+          require('node:fs').writeFileSync('promotion.cts',"const fs=require('node:fs');\n(async()=>{const manifest=JSON.parse(process.env.PROMOTION_MANIFEST||'{}'),rows=manifest.sites,token=process.env.NETLIFY_AUTH_TOKEN,output=process.env.PROMOTION_OUTPUT||'promotion.json';\nif(!token||!manifest.cutover_id||!Array.isArray(rows)||!rows.length||new Set(rows.map(r=>r.siteId)).size!==rows.length)throw Error('Invalid prepared promotion manifest');\nconst report={cutover_id:manifest.cutover_id,preflight:false,complete:false,sites:rows.map(r=>({siteId:r.siteId,app:r.app,environment:r.environment,previous_deploy_id:r.previous_deploy_id,deploy_id:r.deploy_id,previous_locked:r.previous_locked,owned_temporary_lock:r.owned_temporary_lock,promoted:false}))};\nfunction save(){const fd=fs.openSync(output+'.tmp','w',0o600);fs.writeFileSync(fd,JSON.stringify(report));fs.fsyncSync(fd);fs.closeSync(fd);fs.renameSync(output+'.tmp',output)}\nasync function req(p,method='GET',body){const response=await fetch('https://api.netlify.com/api/v1/'+p,{method,headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});if(!response.ok)throw Error('Promotion API HTTP '+response.status);return response.status===204?null:response.json()}\nasync function parallel(list,limit,fn){let index=0;async function worker(){while(index<list.length)await fn(list[index++])}await Promise.all(Array.from({length:Math.min(limit,list.length)},worker))}\nasync function preflight(){await parallel(rows,6,async r=>{const [site,deploy]=await Promise.all([req('sites/'+r.siteId),req('deploys/'+r.deploy_id)]);if(site.account_slug!==r.account_slug||![site.custom_domain,...(site.domain_aliases||[]),new URL(site.ssl_url).hostname].includes(r.host))throw Error('Site ownership changed');if(![r.previous_deploy_id,r.deploy_id].includes(site.published_deploy?.id)||!site.published_deploy?.locked)throw Error('Published deployment or publication lock changed');if(deploy.site_id!==r.siteId||deploy.context!=='production'||deploy.state!=='ready')throw Error('Prepared candidate is not ready for this site')});report.preflight=true;report.preflight_at=new Date().toISOString();save()}\nawait preflight();if(process.argv[2]==='preflight'){console.log('Verified publication ownership and ready candidates for '+rows.length+' sites.');return}\nconst deadline=Date.now()+15*60*1000;let go=false;\nwhile(Date.now()<deadline){\n if(process.env.CUTOVER_GO_FILE){if(fs.existsSync(process.env.CUTOVER_GO_FILE)){const flag=JSON.parse(fs.readFileSync(process.env.CUTOVER_GO_FILE,'utf8'));go=flag.cutover_id===manifest.cutover_id&&flag.go===true}}\n else{const response=await fetch('https://api.github.com/repos/'+process.env.GITHUB_REPOSITORY+'/contents/.github/incident-auth-cutover.json?ref='+encodeURIComponent(process.env.CUTOVER_REF),{headers:{Authorization:'Bearer '+process.env.GITHUB_TOKEN,Accept:'application/vnd.github+json','Cache-Control':'no-cache'}});if(response.ok){const data=await response.json(),flag=JSON.parse(Buffer.from(data.content,'base64').toString());go=flag.cutover_id===manifest.cutover_id&&flag.go===true}else if(response.status!==404)throw Error('Cutover signal unreadable: HTTP '+response.status)}\n if(go)break;await new Promise(resolve=>setTimeout(resolve,3000));\n}\nif(!go)throw Error('No coordinated cutover signal received; live deployments unchanged');\nawait preflight();report.started_at=new Date().toISOString();save();\nawait parallel(rows,8,async r=>{const out=report.sites.find(x=>x.siteId===r.siteId);try{let site=await req('sites/'+r.siteId);if(site.published_deploy.id!==r.deploy_id){if(site.published_deploy.id!==r.previous_deploy_id||!site.published_deploy.locked)throw Error('Publication changed immediately before promotion');await req('sites/'+r.siteId+'/deploys/'+r.deploy_id+'/restore','POST',{})}\n let verified=false;for(let attempt=0;attempt<30;attempt++){site=await req('sites/'+r.siteId);if(site.published_deploy.id===r.deploy_id){verified=true;break}if(site.published_deploy.id!==r.previous_deploy_id)throw Error('Unrelated deployment appeared during promotion');await new Promise(resolve=>setTimeout(resolve,500))}if(!verified)throw Error('Promotion did not become visible');if(!site.published_deploy.locked)await req('deploys/'+r.deploy_id+'/lock','POST',{});out.promoted=true;out.promoted_at=new Date().toISOString();save();console.log(r.app+'/'+r.environment+': prepared authentication deployment promoted; lock retained for final checks.')}catch(e){out.error=e.message;save();throw e}});\nreport.complete=report.sites.every(r=>r.promoted);report.finished_at=new Date().toISOString();save();console.log('Coordinated promotions complete: '+report.sites.filter(r=>r.promoted).length+' of '+rows.length);\n})().catch(e=>{console.error(e.message&&/^(Invalid prepared|Promotion API|Site ownership|Published deployment|Prepared candidate|Cutover signal|No coordinated|Publication changed|Unrelated deployment|Promotion did not)/.test(e.message)?e.message:'Prepared promotion stopped; inspect private metadata before retrying.');process.exitCode=1});\n");
           NODE
-          node <<'NODE'
-          require('node:fs').writeFileSync('candidate.cts',"const fs=require('node:fs'),path=require('node:path'),{createRequire}=require('node:module'),{pathToFileURL}=require('node:url');\n(async()=>{const token=process.env.NETLIFY_AUTH_TOKEN,sid=process.env.SITE_ID,base=process.cwd(),output=process.env.CANDIDATE_OUTPUT;\nif(!token||!sid||!output)throw Error('Missing candidate preparation configuration');\nconst roots=JSON.parse(process.env.INCIDENT_AUTH_ROOT_MAP||'{}')[sid];if(!Array.isArray(roots)||!roots.length||roots.some(r=>!['A2A_SECRET','BETTER_AUTH_SECRET'].includes(r.key)||!/^[a-f0-9]{64}$/.test(r.value)))throw Error('Invalid prepared authentication targets');\nconst headers={Authorization:'Bearer '+token,'Content-Type':'application/json'};\nasync function req(p,method='GET',body){const r=await fetch('https://api.netlify.com/api/v1/'+p,{headers,method,body:body===undefined?undefined:JSON.stringify(body)});if(!r.ok)throw Error('Candidate API HTTP '+r.status);return r.status===204?null:r.json()}\nconst site=await req('sites/'+sid),previous=site.published_deploy?.id,prior=JSON.parse(process.env.INCIDENT_PRIOR_AUTH_CANDIDATES||'{}')[sid],previousLocked=prior?prior.previous_locked:!!site.published_deploy?.locked;\nif(prior&&prior.previous_deploy_id!==previous)throw Error('Published deployment changed after prior candidate preparation');\nif(!previous)throw Error('Previous published deployment is required');\nif(!previousLocked&&process.env.ALLOW_OWNED_TEMPORARY_LOCK!=='1')throw Error('Existing workflow-owned publication lock is required');\nconst state={siteId:sid,previous_deploy_id:previous,previous_locked:previousLocked,owned_temporary_lock:!previousLocked,prior_deploy_ids:prior?[...(prior.prior_deploy_ids||[]),prior.deploy_id].filter(Boolean):[],published:false,ready:false};fs.writeFileSync(output,JSON.stringify(state),{mode:0o600});\nif(!site.published_deploy.locked){await req('deploys/'+previous+'/lock','POST',{});const locked=await req('sites/'+sid);if(locked.published_deploy.id!==previous||!locked.published_deploy.locked)throw Error('Temporary publication lock verification failed');}\nconst cli=process.env.NETLIFY_CLI_ROOT||path.join(require('node:child_process').execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'netlify-cli'),local=createRequire(cli+'/package.json'),{NetlifyAPI}=local('@netlify/api'),{deploySite}=await import(pathToFileURL(cli+'/dist/utils/deploy/deploy-site.js').href);\nconst command={project:{frameworks:new Map()},workspacePackage:'',getPathInProject:p=>path.join(base,p)};\nconst created=await req('sites/'+sid+'/deploys?title=Prepared%20authentication%20rotation%20candidate','POST',{draft:false});\nconst candidate={...state,deploy_id:created.id};fs.writeFileSync(output,JSON.stringify(candidate),{mode:0o600});\nconst result=await deploySite(command,new NetlifyAPI(token),sid,path.resolve(process.env.PUBLISH_DIRECTORY),{deployId:created.id,draft:false,config:{},fnDir:[path.resolve(process.env.FUNCTIONS_DIRECTORY)],functionsConfig:{'*':{nodeVersion:'nodejs22.x'}},siteRoot:base,workingDir:base,environment:roots.map(r=>({...r,is_secret:true,scopes:['functions']})),skipFunctionsCache:true,serverEnabled:false,deployTimeout:600000});\nconst current=await req('sites/'+sid);if(current.published_deploy.id!==previous||!current.published_deploy.locked)throw Error('Published deployment changed during candidate preparation');if(result.deploy.context!=='production')throw Error('Unexpected candidate runtime context');\nconst response=await fetch(result.deploy.deploy_ssl_url+'/.netlify/functions/incident-key-recovery',{headers:{Authorization:'Bearer '+process.env.INCIDENT_RECOVERY_NONCE}});if(!response.ok)throw Error('Candidate encrypted verification failed');\nfs.writeFileSync(output+'.enc.json',JSON.stringify(await response.json()),{mode:0o600});\nconst hp=process.env.HEALTH_PATH||'/_agent-native/health';let healthy=false;for(let attempt=0;attempt<4;attempt++){try{const hr=await fetch(result.deploy.deploy_ssl_url+hp);if(hr.ok&&(await hr.json()).ready){healthy=true;break}}catch{}if(attempt<3)await new Promise(resolve=>setTimeout(resolve,3000));}if(!healthy)throw Error('Candidate database health did not become ready');\nObject.assign(candidate,{ready:true,context:result.deploy.context,deploy_url:result.deploy.deploy_ssl_url});fs.writeFileSync(output,JSON.stringify(candidate),{mode:0o600});console.log('Prepared healthy production-context authentication candidate; current publication unchanged.');\n})().catch(()=>{console.error('Authentication candidate preparation failed; inspect metadata before retrying.');process.exitCode=1});\n");
-          NODE
-      - name: Upload a locked production-context candidate
-        env:
-          ALLOW_OWNED_TEMPORARY_LOCK: "1"
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          INCIDENT_PRIOR_AUTH_CANDIDATES: ${{ secrets.INCIDENT_PRIOR_AUTH_CANDIDATES }}
-          INCIDENT_AUTH_ROOT_MAP: ${{ secrets.INCIDENT_AUTH_ROOT_MAP }}
-          INCIDENT_RECOVERY_NONCE: ${{ secrets.INCIDENT_RECOVERY_NONCE }}
-          APP: ${{ matrix.app }}
-          PUBLISH_DIRECTORY: bundle/publish
-          FUNCTIONS_DIRECTORY: bundle/functions
-          CANDIDATE_OUTPUT: candidate.json
-        run: |
-          export SITE_ID="$(node -e 'console.log({"analytics": "5ff4aa83-7a85-4719-a409-e969ee1afc8d", "assets": "1351f40a-f93a-4e37-aaa6-bb18e9303ab4", "brain": "b8530db5-528c-41c7-9de9-68036fe8635a", "calendar": "bbfece2d-884f-4792-a38f-ed2edd322286", "clips": "00a3cd58-6292-4add-ac4d-b7cc3dd91f71", "content": "180fec45-74c1-47d1-b23c-ce57afe7c1b3", "crm": "bef68db5-5bbc-41c6-b3d8-edeb7b871b5e", "design": "31e65ebd-a1c4-4932-b0bd-d63687e17018", "dispatch": "98bdfefc-5414-46f0-b53c-a8ed23dcdb3e", "factory": "abc64ffe-e85f-4a88-802b-5c388c5a79b9", "forms": "598a6cb4-8181-492d-b593-bb0813c36a4c", "mail": "c9088636-2c0e-419c-a5ff-e8c1aa8fde41", "plan": "3095efb3-fdbb-4239-bc4e-735a5d1c7e79", "slides": "10f840a9-ee0f-4d0c-8fb4-945b5665111f", "chat": "ec18e125-c197-449d-8779-96dfb004e23c"}[process.env.APP])')"
-          node candidate.cts
+      - name: Verify every candidate and current publication
+        run: node promotion.cts preflight
+      - name: Wait for coordinated switch and promote
+        run: node promotion.cts promote
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: incident-auth-candidate-${{ matrix.app }}-${{ github.run_id }}
-          path: candidate.json*
-          retention-days: 1
+          name: incident-auth-promotion-beta-${{ github.run_id }}
+          path: promotion.json
+          retention-days: 2
