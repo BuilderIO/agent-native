@@ -233,6 +233,26 @@ describe("runImportDesignFile", () => {
     expect(deps.uploadDesignFile).toHaveBeenCalledOnce();
   });
 
+  it("offers no retry when the upload fallback fails, since it may have saved screens", async () => {
+    const { deps, args } = setup({
+      prepareFigImport: vi.fn(async () => {
+        throw new Error("schema changed");
+      }),
+      uploadDesignFile: vi.fn(async () => {
+        throw new Error("Seeding collaboration failed");
+      }),
+    });
+
+    await expect(
+      runImportDesignFile(args(kiwiFile(1024))),
+    ).resolves.toMatchObject({ status: "failed" });
+    expect(deps.uploadDesignFile).toHaveBeenCalledOnce();
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.importFailed",
+      { id: FIG_IMPORT_TOAST_ID, description: "Seeding collaboration failed" },
+    );
+  });
+
   it("reports a decode failure with a retry when no upload fallback is available", async () => {
     const { deps, onRetry, args } = setup({
       prepareFigImport: vi.fn(async () => {

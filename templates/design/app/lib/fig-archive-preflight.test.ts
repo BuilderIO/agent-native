@@ -179,6 +179,24 @@ describe("preflightFigArchive", () => {
     expect(largestRead).toBeLessThanOrEqual(128 * 1024);
   });
 
+  it("reports a zip without canvas.fig as unreadable", async () => {
+    const file = asFile(
+      zipSync({ "images/a": [new Uint8Array(4), { level: 0 }] }),
+    );
+
+    await expect(preflightFigArchive(file)).resolves.toEqual({
+      status: "unreadable",
+      reason: ".fig zip is missing canvas.fig.",
+    });
+  });
+
+  it("reports a kiwi file without a document chunk as unreadable", async () => {
+    await expect(preflightFigArchive(asFile(kiwi(schema)))).resolves.toEqual({
+      status: "unreadable",
+      reason: ".fig file is missing its document chunk.",
+    });
+  });
+
   it("reports a file it cannot parse as unreadable, not as fitting", async () => {
     await expect(
       preflightFigArchive(asFile(new TextEncoder().encode("not a fig file"))),

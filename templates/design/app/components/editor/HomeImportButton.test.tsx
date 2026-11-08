@@ -233,6 +233,29 @@ describe("home Figma import", () => {
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
+  it("creates no design when the file fails to decode, and offers a retry", async () => {
+    mocks.prepare.mockRejectedValueOnce(new Error("Invalid Zstandard frame"));
+    const file = new File(["fixture"], "Corrupt.fig");
+
+    await chooseFile(file);
+
+    await vi.waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith(
+        "designEditor.import.errors.importFailed",
+        expect.objectContaining({
+          id: FIG_IMPORT_TOAST_ID,
+          description: "Invalid Zstandard frame",
+        }),
+      ),
+    );
+    expect(mocks.create).not.toHaveBeenCalled();
+    const retry = mocks.error.mock.lastCall?.[1]?.action.onClick;
+    await act(async () => retry());
+    await vi.waitFor(() =>
+      expect(readPendingDesignImport("file-design")?.file).toBe(file),
+    );
+  });
+
   it("frees the decoded file when creating the design fails", async () => {
     mocks.create.mockRejectedValueOnce(new Error("Sign in required"));
 

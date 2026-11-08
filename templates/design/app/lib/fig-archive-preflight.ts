@@ -106,7 +106,8 @@ async function readKiwiChunkSizes(
     largestChunkBytes: 0,
   };
   let offset = 12;
-  for (let index = 0; offset < length; index += 1) {
+  let index = 0;
+  for (; offset < length; index += 1) {
     if (index >= MAX_KIWI_CHUNKS) {
       throw new UnreadableArchive(".fig file has too many binary chunks.");
     }
@@ -134,6 +135,9 @@ async function readKiwiChunkSizes(
     sizes.largestChunkBytes = Math.max(sizes.largestChunkBytes, declared);
     // Chunks after the schema and the document are embedded image blobs.
     if (index >= 2) sizes.imageBytes += declared;
+  }
+  if (index < 2) {
+    throw new UnreadableArchive(".fig file is missing its document chunk.");
   }
   return sizes;
 }
@@ -180,6 +184,7 @@ async function readZipSizes(
     imageBytes: 0,
     largestChunkBytes: 0,
   };
+  let hasCanvas = false;
   let canvas: { localHeaderOffset: number; size: number } | null = null;
   let position = 0;
   for (let entry = 0; entry < entries; entry += 1) {
@@ -204,11 +209,14 @@ async function readZipSizes(
       );
     }
     if (name.startsWith("images/")) sizes.imageBytes += uncompressedSize;
+    if (name === "canvas.fig") hasCanvas = true;
     if (name === "canvas.fig" && compressionMethod === 0) {
       canvas = { localHeaderOffset, size: uncompressedSize };
     }
   }
 
+  if (!hasCanvas)
+    throw new UnreadableArchive(".fig zip is missing canvas.fig.");
   if (canvas) {
     const header = await readBytes(
       blob,

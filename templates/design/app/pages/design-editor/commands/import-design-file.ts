@@ -219,6 +219,18 @@ export async function prepareWholeFigImport(
   return prepared;
 }
 
+/** The upload route can save screens before a later server step fails, and
+ * its errors cannot say whether it did. */
+class FigUploadFallbackError extends Error {
+  readonly remoteMutationStarted = true;
+  constructor(readonly uploadError: unknown) {
+    super(
+      uploadError instanceof Error ? uploadError.message : String(uploadError),
+    );
+    this.name = "FigUploadFallbackError";
+  }
+}
+
 function remoteMutationStarted(error: unknown): boolean {
   return (
     (error as { remoteMutationStarted?: unknown } | null)
@@ -260,12 +272,18 @@ async function importFigFile(
       localError,
     );
     report({ phase: "uploading", progress: 0, saved: null, total: null });
-    return deps.uploadDesignFile({
-      designId,
-      file,
-      fallbackErrorMessage: t("designEditor.import.errors.uploadFailed"),
-      onProgress: ({ percent }) => report({ progress: percent }),
-    });
+    try {
+      const uploaded = await deps.uploadDesignFile({
+        designId,
+        file,
+        fallbackErrorMessage: t("designEditor.import.errors.uploadFailed"),
+        onProgress: ({ percent }) => report({ progress: percent }),
+      });
+      if (uploaded.error) throw new Error(uploaded.error);
+      return uploaded;
+    } catch (uploadError) {
+      throw new FigUploadFallbackError(uploadError);
+    }
   }
 }
 

@@ -91,16 +91,26 @@ export function HomeImportButton() {
       try {
         prepared = await prepareWholeFigImport(file);
       } catch (decodeError) {
+        releaseFigImportToast(toastOwner);
         if (decodeError instanceof FigFileRefusedError) {
-          releaseFigImportToast(toastOwner);
           toast.error(figFileRefusalMessage(decodeError.refusal, t), {
             id: FIG_IMPORT_TOAST_ID,
             description: file.name,
           });
-          return;
+        } else {
+          toast.error(t("designEditor.import.errors.importFailed"), {
+            id: FIG_IMPORT_TOAST_ID,
+            description:
+              decodeError instanceof Error
+                ? decodeError.message
+                : t("common.genericError"),
+            action: {
+              label: t("homeContext.retry"),
+              onClick: () => void importFile(file),
+            },
+          });
         }
-        // The editor decodes again and can fall back to the upload route.
-        console.warn("[fig-import] home decode failed", decodeError);
+        return;
       }
       const result = await create.mutateAsync({
         title: file.name.replace(/\.fig$/i, "") || t("home.untitledDesign"),
@@ -109,11 +119,7 @@ export function HomeImportButton() {
         creationMethod: "import_figma",
       });
       if (!result.id) throw new Error(t("home.failedToCreateDesign"));
-      setPendingDesignImport(result.id, {
-        kind: "file",
-        file,
-        ...(prepared ? { prepared } : {}),
-      });
+      setPendingDesignImport(result.id, { kind: "file", file, prepared });
       prepared = undefined;
       void navigate(`/design/${result.id}`);
     } catch (cause) {
