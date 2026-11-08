@@ -535,6 +535,30 @@ describe("ddl-guard", () => {
       warn.mockRestore();
     });
 
+    it("logs a repeated unreadable probe once per table and code", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { pgTableExists } = await import("./ddl-guard.js");
+      const failWith = (code: string) =>
+        ({
+          execute: async () => {
+            throw Object.assign(new Error("down"), { code });
+          },
+        }) as any;
+      for (let i = 0; i < 3; i += 1) {
+        await pgTableExists("app_secrets", failWith("ECONNRESET"));
+      }
+      const probeWarnings = () =>
+        warn.mock.calls.filter(([msg]) =>
+          String(msg).includes("schema probe unreadable"),
+        ).length;
+      expect(probeWarnings()).toBe(1);
+      await pgTableExists("app_secrets", failWith("28P01"));
+      await pgTableExists("settings", failWith("ECONNRESET"));
+      expect(probeWarnings()).toBe(3);
+      warn.mockRestore();
+    });
+
     it("never issues DDL when the table probe is unreadable", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       vi.spyOn(console, "warn").mockImplementation(() => {});

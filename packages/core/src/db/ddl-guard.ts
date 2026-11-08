@@ -170,20 +170,21 @@ async function loadSchemaSnapshot(
     }
     return { tables, columns, indexes };
   } catch {
-    warnIntrospectionUnavailableOnce();
+    warnOnce(
+      "introspection-unavailable",
+      "[db] batched schema introspection unavailable; falling back to one probe " +
+        "per table/column/index (slower cold starts, same behaviour)",
+    );
     return null;
   }
 }
 
-let _warnedIntrospectionUnavailable = false;
+const warnedOnce = new Set<string>();
 
-function warnIntrospectionUnavailableOnce(): void {
-  if (_warnedIntrospectionUnavailable) return;
-  _warnedIntrospectionUnavailable = true;
-  console.warn(
-    "[db] batched schema introspection unavailable; falling back to one probe " +
-      "per table/column/index (slower cold starts, same behaviour)",
-  );
+function warnOnce(key: string, message: string): void {
+  if (warnedOnce.has(key)) return;
+  warnedOnce.add(key);
+  console.warn(message);
 }
 
 function schemaSnapshot(client: DbExec, injected: boolean) {
@@ -244,8 +245,10 @@ export async function pgTableExists(
     });
     return rows.length > 0;
   } catch (err) {
-    console.warn(
-      `[db] schema probe unreadable for table "${table}" (code: ${probeDiagnosticCode(err) ?? "unknown"})`,
+    const code = probeDiagnosticCode(err) ?? "unknown";
+    warnOnce(
+      `probe-unreadable:${table}:${code}`,
+      `[db] schema probe unreadable for table "${table}" (code: ${code})`,
     );
     // coercion-ok: undefined is a typed unreadable state; callers throw rather
     // than issuing DDL against an unverified schema.
