@@ -916,7 +916,8 @@ jobs:
         if: >-
           inputs.target == 'production' && inputs.deploy &&
           inputs.deploy_mode == 'production' &&
-          steps.target.outputs.source_template == 'plan'
+          steps.target.outputs.source_template == 'plan' &&
+          inputs.artifact_download != true
         env:
           DATABASE_URL: ${{ secrets.PLAN_DATABASE_URL }}
         run: |
