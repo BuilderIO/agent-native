@@ -10,6 +10,7 @@ import {
   writePageDraftJournal,
 } from "../editor/page-draft-journal";
 import {
+  createUnlessCommitted,
   mergeCreatedDocumentWithDraft,
   prepareCreatedDraftReplay,
   readDocumentBeforeCreateDiscard,
@@ -83,6 +84,39 @@ describe("document sidebar create recovery", () => {
         throw unavailable;
       }),
     ).rejects.toBe(unavailable);
+  });
+
+  it("answers a pending create with the page the server already has", async () => {
+    const committed = createdDocument({ content: "Saved by the other tab" });
+    const create = vi.fn(async () => createdDocument());
+
+    await expect(
+      createUnlessCommitted(async () => committed, create),
+    ).resolves.toBe(committed);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("sends a pending create only after the server confirms the page is missing", async () => {
+    const created = createdDocument();
+    const notFound = Object.assign(new Error("not found"), { status: 404 });
+    const unavailable = Object.assign(new Error("unavailable"), {
+      status: 503,
+    });
+    const create = vi.fn(async () => created);
+
+    await expect(
+      createUnlessCommitted(async () => {
+        throw notFound;
+      }, create),
+    ).resolves.toBe(created);
+    expect(create).toHaveBeenCalledOnce();
+
+    await expect(
+      createUnlessCommitted(async () => {
+        throw unavailable;
+      }, create),
+    ).rejects.toBe(unavailable);
+    expect(create).toHaveBeenCalledOnce();
   });
 
   it("overlays a restored draft onto the create response without losing server metadata", () => {

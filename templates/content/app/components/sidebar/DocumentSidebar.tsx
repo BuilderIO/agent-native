@@ -328,6 +328,20 @@ export async function readDocumentBeforeCreateDiscard(
   }
 }
 
+/**
+ * Re-sends a pending page's create only when the server doesn't have the page.
+ * The tab that created it clears the intent before it frees the create lock,
+ * but the next tab can still read the cleared intent: localStorage reaches
+ * other tabs asynchronously, and nothing orders it with the lock hand-off.
+ */
+export async function createUnlessCommitted<T>(
+  read: () => Promise<Document>,
+  create: () => Promise<T>,
+): Promise<Document | T> {
+  const resolution = await readDocumentBeforeCreateDiscard(read);
+  return resolution.kind === "committed" ? resolution.document : create();
+}
+
 export function mergeCreatedDocumentWithDraft(
   created: Document,
   entry: PageDraftJournalEntry | null,
@@ -2271,14 +2285,23 @@ export function DocumentSidebar({
                   currentIntent,
                   read,
                   () =>
-                    createDocumentAsync({
-                      id: currentIntent.id,
-                      title: "",
-                      parentId: currentIntent.parentId ?? undefined,
-                      spaceId: currentIntent.parentId
-                        ? undefined
-                        : (currentIntent.spaceId ?? undefined),
-                    }),
+                    createUnlessCommitted(
+                      () =>
+                        callAction<Document>(
+                          "get-document",
+                          { id: currentIntent.id },
+                          { method: "GET" },
+                        ),
+                      () =>
+                        createDocumentAsync({
+                          id: currentIntent.id,
+                          title: "",
+                          parentId: currentIntent.parentId ?? undefined,
+                          spaceId: currentIntent.parentId
+                            ? undefined
+                            : (currentIntent.spaceId ?? undefined),
+                        }),
+                    ),
                 );
                 let confirmedDocument: Document = created;
                 if (draft) {
