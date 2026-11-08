@@ -2107,6 +2107,69 @@ description: ${description}
     expect(prompt).not.toContain("meeting-notes");
   });
 
+  it("keeps a person's same-named skill out when a Required one is hidden from the / picker", async () => {
+    const owner = "user@example.test";
+    const candidates = [
+      {
+        id: "hidden",
+        owner: "__organization__:org-1",
+        path: "skills/brand-voice/SKILL.md",
+        content: `---
+name: brand-voice
+description: The organization's voice.
+user-invocable: false
+---
+# brand-voice`,
+      },
+      {
+        id: "renamed",
+        owner,
+        path: "skills/my-voice/SKILL.md",
+        content: `---
+name: brand-voice
+description: My renamed voice.
+---
+# brand-voice`,
+      },
+      {
+        id: "notes",
+        owner: "__organization__:org-1",
+        path: "skills/meeting-notes/SKILL.md",
+        content: `---
+name: meeting-notes
+description: Meeting notes.
+---
+# meeting-notes`,
+      },
+    ].map((candidate) => ({
+      ...candidate,
+      mimeType: "text/markdown",
+      updatedAt: 1000,
+    }));
+    mocks.resourceListAccessible.mockResolvedValue(
+      candidates.map(({ content: _content, ...resource }) => resource),
+    );
+    mocks.resourceGet.mockImplementation(
+      async (id: string) =>
+        candidates.find((candidate) => candidate.id === id) ?? null,
+    );
+    mocks.readSkillChoices.mockResolvedValue({
+      switches: {},
+      marks: { "organization:skills/brand-voice/SKILL.md": "required" },
+    });
+
+    const prompt = await loadResourcesForPrompt(
+      owner,
+      false,
+      undefined,
+      "org-1",
+    );
+
+    expect(prompt).toContain("Meeting notes.");
+    expect(prompt).not.toContain("My renamed voice.");
+    expect(prompt).not.toContain("The organization's voice.");
+  });
+
   it("fails the prompt when it can't read who chose which skills", async () => {
     mocks.resourceListAccessible.mockResolvedValue([
       {
