@@ -755,6 +755,99 @@ function moveToOtherSpace(seed: Awaited<ReturnType<typeof seedSpaceMove>>) {
   );
 }
 
+/** A collection page with one row, in Files, to move to another space. */
+async function seedCollectionSpaceMove() {
+  const key = fixtureKey();
+  const ids = {
+    fromSpace: `${key}_sa`,
+    toSpace: `${key}_sb`,
+    fromFiles: `${key}_fa`,
+    toFiles: `${key}_fb`,
+    collection: `${key}_c`,
+    collectionPage: `${key}_p2`,
+    row: `${key}_p1`,
+    rowItem: `${key}_m2`,
+    rowFilesItem: `${key}_m3`,
+    pageFilesItem: `${key}_m1`,
+  };
+  const db = getDb();
+  for (const [spaceId, filesId] of [
+    [ids.fromSpace, ids.fromFiles],
+    [ids.toSpace, ids.toFiles],
+  ] as const) {
+    await db.insert(schema.contentSpaces).values({
+      id: spaceId,
+      name: `Synthetic ${spaceId}`,
+      kind: "user",
+      ownerEmail: OWNER,
+      orgId: null,
+      filesDatabaseId: filesId,
+      createdBy: OWNER,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    });
+    await db.insert(schema.contentDatabases).values({
+      id: filesId,
+      ownerEmail: OWNER,
+      spaceId,
+      documentId: `${filesId}_page`,
+      title: "Files",
+      systemRole: "files",
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    });
+  }
+  await db.insert(schema.documents).values([
+    pageValues(ids.collectionPage, null, "Collection", {
+      spaceId: ids.fromSpace,
+    }),
+    pageValues(ids.row, ids.collectionPage, "Row", {
+      spaceId: ids.fromSpace,
+      position: 0,
+    }),
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: ids.collection,
+    ownerEmail: OWNER,
+    spaceId: ids.fromSpace,
+    documentId: ids.collectionPage,
+    title: "Collection",
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  await db
+    .insert(schema.contentDatabaseItems)
+    .values([
+      itemValues(ids.rowItem, ids.collection, ids.row, 0),
+      itemValues(ids.pageFilesItem, ids.fromFiles, ids.collectionPage, 0),
+      itemValues(ids.rowFilesItem, ids.fromFiles, ids.row, 1),
+    ]);
+  const rows: LockedRow[] = [
+    { label: "collection", kind: "collection", id: ids.collection },
+    {
+      label: "page Files membership",
+      kind: "membership",
+      id: ids.pageFilesItem,
+    },
+    { label: "row membership", kind: "membership", id: ids.rowItem },
+    { label: "row Files membership", kind: "membership", id: ids.rowFilesItem },
+    { label: "row page", kind: "page", id: ids.row },
+    { label: "collection page", kind: "page", id: ids.collectionPage },
+  ];
+  return { key, ids, rows };
+}
+
+function moveCollectionToOtherSpace(
+  seed: Awaited<ReturnType<typeof seedCollectionSpaceMove>>,
+) {
+  return asOwner(() =>
+    moveDocument.run({
+      id: seed.ids.collectionPage,
+      spaceId: seed.ids.toSpace,
+    }),
+  );
+}
+
 /** An empty page fresh from the slash menu, filed in a collection with its parent. */
 async function seedSlashPage() {
   const key = fixtureKey();
@@ -2257,6 +2350,25 @@ describe.skipIf(!POSTGRES_URL)(
           "moved page",
           "new parent page",
           "child page",
+        ]);
+      });
+
+      it("move a collection to another space", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedCollectionSpaceMove();
+          return {
+            rows: seed.rows,
+            run: () => moveCollectionToOtherSpace(seed),
+          };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual([
+          "collection",
+          "page Files membership",
+          "row membership",
+          "row Files membership",
+          "row page",
+          "collection page",
         ]);
       });
 
@@ -3920,6 +4032,46 @@ parentId: "${seed.ids.moved}"
           spaceId: seed.ids.fromSpace,
         });
       }
+    });
+
+    it("refuses a move to another space of a collection that gained a row while it waited", async () => {
+      const seed = await seedCollectionSpaceMove();
+      const added = `${seed.key}_p3`;
+      const { action: moved } = await raceAgainst(
+        async (tx) => {
+          // add-database-item: the collection, then the new row.
+          await tx
+            .update(schema.contentDatabases)
+            .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+            .where(eq(schema.contentDatabases.id, seed.ids.collection));
+          await tx.insert(schema.documents).values(
+            pageValues(added, seed.ids.collectionPage, "Added", {
+              spaceId: seed.ids.fromSpace,
+              position: 1,
+            }),
+          );
+          await tx
+            .insert(schema.contentDatabaseItems)
+            .values(
+              itemValues(`${seed.key}_m4`, seed.ids.collection, added, 1),
+            );
+        },
+        () => moveCollectionToOtherSpace(seed),
+      );
+      await expect(moved).rejects.toMatchObject({
+        errorCode: "PAGE_SUBTREE_CHANGED",
+        statusCode: 409,
+      });
+      for (const page of [seed.ids.collectionPage, seed.ids.row, added]) {
+        expect(await readPage(page)).toMatchObject({
+          spaceId: seed.ids.fromSpace,
+        });
+      }
+      const [collection] = await getDb()
+        .select({ spaceId: schema.contentDatabases.spaceId })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, seed.ids.collection));
+      expect(collection).toEqual({ spaceId: seed.ids.fromSpace });
     });
 
     it("appends a page moved to another space after a page another move appended while it waited", async () => {
