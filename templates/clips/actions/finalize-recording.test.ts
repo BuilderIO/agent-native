@@ -28,6 +28,9 @@ const mockProbeHasAudioStream = vi.hoisted(() =>
   vi.fn(async (): Promise<boolean | null> => null),
 );
 const mockProbeMediaInfo = vi.hoisted(() => vi.fn());
+const mockRemuxWebmToSeekable = vi.hoisted(() =>
+  vi.fn(async (bytes: Uint8Array) => ({ changed: false, bytes })),
+);
 const mockHostedUploadFile = vi.hoisted(() => vi.fn());
 const mockDeleteS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const mockConsumeHostedClipRecording = vi.hoisted(() => vi.fn());
@@ -294,10 +297,7 @@ vi.mock("../server/lib/upload-lease.js", () => ({
 vi.mock("../server/lib/video-remux.js", () => ({
   probeHasAudioStream: () => mockProbeHasAudioStream(),
   probeMediaInfo: (...args: unknown[]) => mockProbeMediaInfo(...args),
-  remuxWebmToSeekable: vi.fn(async (bytes: Uint8Array) => ({
-    changed: false,
-    bytes,
-  })),
+  remuxWebmToSeekable: (bytes: Uint8Array) => mockRemuxWebmToSeekable(bytes),
 }));
 
 vi.mock("../server/lib/video-storage.js", () => ({
@@ -317,7 +317,7 @@ vi.mock("./lib/ensure-seekable-video.js", () => ({
     (videoUrl: string | null | undefined) =>
       typeof videoUrl === "string" && videoUrl.startsWith("https://"),
   ),
-  markRecordingSeekable: vi.fn(),
+  markRecordingSeekable: vi.fn(async () => undefined),
 }));
 
 import {
@@ -1078,6 +1078,12 @@ describe("finalize-recording media serve verification", () => {
       width: 0,
       height: 0,
     };
+    // A browser's WebM often has no length until the seekable rewrite adds one.
+    const rewritten = new Uint8Array([7, 7, 7]);
+    mockRemuxWebmToSeekable.mockResolvedValueOnce({
+      changed: true,
+      bytes: rewritten,
+    });
     mockProbeMediaInfo.mockResolvedValueOnce({
       durationMs: 4200,
       width: 320,
@@ -1098,6 +1104,7 @@ describe("finalize-recording media serve verification", () => {
     });
 
     expect(result).toEqual(expect.objectContaining({ status: "ready" }));
+    expect(mockProbeMediaInfo).toHaveBeenCalledWith(rewritten, "webm");
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "ready",

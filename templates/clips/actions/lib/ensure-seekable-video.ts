@@ -3,7 +3,7 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { queueBuilderMediaCompression } from "../../server/lib/builder-media-compression.js";
@@ -134,48 +134,59 @@ export async function fetchProviderBytes(
   }
 }
 
+type MeasuredMediaColumns = {
+  durationMs?: SQL;
+  width?: SQL;
+  height?: SQL;
+  hasAudio?: false;
+};
+
 /**
  * A streamed upload goes straight to storage, past finalize's look at the
- * file, so this job is the first to hold its bytes. Fills in what the upload
- * left out and clears an audio claim the file doesn't back up. Leaves
- * `mediaUpdatedAt` alone: the media hasn't changed, and transcripts are tied
- * to it.
+ * file, so this job is the first to hold its bytes. Returns what the file
+ * adds to the row, as values the database checks against the row when it
+ * writes, so a job that read the row earlier can't undo another's: a length
+ * or size only fills a column still at 0, and the audio flag only turns
+ * false, when the file has no audio stream. Null when the file adds nothing.
  */
-async function saveMeasuredMedia(
-  rec: {
-    id: string;
-    videoUrl: string;
-    durationMs: number;
-    width: number;
-    height: number;
-    hasAudio: boolean;
-  },
-  ownerEmail: string,
+async function measureMedia(
+  rec: { durationMs: number; width: number; height: number; hasAudio: boolean },
   mediaBytes: Uint8Array,
   videoFormat: VideoFormat,
-): Promise<void> {
+): Promise<MeasuredMediaColumns | null> {
   const given = {
     durationMs: rec.durationMs,
     width: rec.width,
     height: rec.height,
   };
-  if (!rec.hasAudio && !isMissingMediaFacts(given)) return;
+  if (!rec.hasAudio && !isMissingMediaFacts(given)) return null;
 
   const probed = await probeMediaInfo(mediaBytes, videoFormat);
   const measured = fillMediaFacts(given, probed);
-  const hasAudio = rec.hasAudio && probed.hasAudio !== false;
-  if (
-    hasAudio === rec.hasAudio &&
-    measured.durationMs === given.durationMs &&
-    measured.width === given.width &&
-    measured.height === given.height
-  ) {
-    return;
+  const columns: MeasuredMediaColumns = {};
+  for (const key of ["durationMs", "width", "height"] as const) {
+    if (measured[key] !== given[key]) {
+      columns[key] =
+        sql`coalesce(nullif(${schema.recordings[key]}, 0), ${measured[key]})`;
+    }
   }
+  if (rec.hasAudio && probed.hasAudio === false) columns.hasAudio = false;
+  return Object.keys(columns).length > 0 ? columns : null;
+}
 
+/**
+ * Saves what the file adds when this job leaves the media as it is. Leaves
+ * `mediaUpdatedAt` alone: the media hasn't changed, and transcripts are tied
+ * to it.
+ */
+async function saveMeasuredMedia(
+  rec: { id: string; videoUrl: string },
+  ownerEmail: string,
+  columns: MeasuredMediaColumns,
+): Promise<void> {
   await getDb()
     .update(schema.recordings)
-    .set({ ...measured, hasAudio, updatedAt: new Date().toISOString() })
+    .set({ ...columns, updatedAt: new Date().toISOString() })
     .where(
       and(
         eq(schema.recordings.id, rec.id),
@@ -275,19 +286,33 @@ async function ensureRecordingSeekableInternal(params: {
       });
   const outputFormat: VideoFormat = normalizeTimeline ? "mp4" : videoFormat;
 
-  await saveMeasuredMedia(
-    { ...rec, videoUrl: rec.videoUrl },
-    ownerEmail,
+  // Measured from the bytes that stay the recording's media: when they are
+  // new, the numbers are written with the swap below, never before it.
+  const measuredColumns = await measureMedia(
+    rec,
     seekable.bytes,
-    outputFormat,
+    seekable.changed ? outputFormat : videoFormat,
   ).catch((err) => {
-    console.warn("[ensure-seekable-video] saving measured media failed", {
+    console.warn("[ensure-seekable-video] measuring media failed", {
       recordingId,
       error: err instanceof Error ? err.message : String(err),
     });
+    return null;
   });
 
   if (!seekable.changed) {
+    if (measuredColumns) {
+      await saveMeasuredMedia(
+        { id: recordingId, videoUrl: rec.videoUrl },
+        ownerEmail,
+        measuredColumns,
+      ).catch((err) => {
+        console.warn("[ensure-seekable-video] saving measured media failed", {
+          recordingId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
     if (normalizeTimeline) {
       return {
         recordingId,
@@ -336,6 +361,7 @@ async function ensureRecordingSeekableInternal(params: {
   const updated = await db
     .update(schema.recordings)
     .set({
+      ...measuredColumns,
       videoUrl: upload.url,
       videoFormat: outputFormat,
       videoSizeBytes: seekable.bytes.byteLength,

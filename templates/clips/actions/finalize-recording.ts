@@ -2517,10 +2517,12 @@ export default defineAction({
         width: finalWidth,
         height: finalHeight,
       };
+      // Measured from the bytes being saved: a browser's WebM often has no
+      // length until the seekable rewrite above adds one.
       const measuredMedia = fillMediaFacts(
         givenMedia,
         isMissingMediaFacts(givenMedia)
-          ? await probeMediaInfo(assembled, videoFormat)
+          ? await probeMediaInfo(uploadData, videoFormat)
           : null,
       );
 
