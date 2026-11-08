@@ -3184,12 +3184,15 @@ export async function createMCPServerForRequest(
             (!writesAreAskAppOnly || isMcpReadOnlyTool(entry)),
         ),
       );
-  // An app with its own `call-tool` action leaves no name for the tool that
-  // runs unlisted ones, so it lists them instead.
-  const ownsCallTool = Object.hasOwn(actions, CALL_TOOL_NAME);
-  const unlistedActions = ownsCallTool ? {} : searchServedActions;
+  // An unlisted action takes `tool-search` to find and `call-tool` to run. An
+  // app that denies the first or has its own action with the second's name
+  // lists them instead.
+  const listsSearchServed =
+    !Object.hasOwn(visibleActions, TOOL_SEARCH_TOOL_NAME) ||
+    Object.hasOwn(actions, CALL_TOOL_NAME);
+  const unlistedActions = listsSearchServed ? {} : searchServedActions;
   const advertisedActions = scopeToolSearchToAdvertised(
-    ownsCallTool
+    listsSearchServed
       ? { ...advertisedActionsBeforeToolSearchScope, ...searchServedActions }
       : Object.fromEntries(
           Object.entries(advertisedActionsBeforeToolSearchScope).filter(

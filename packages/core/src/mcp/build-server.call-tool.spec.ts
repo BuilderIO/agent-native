@@ -250,6 +250,20 @@ describe('tools/list with mcpTool: "search" actions', () => {
     expect(tools.has("draft-plan")).toBe(false);
   });
 
+  it("lists the tools it would hide when tool-search is denied", async () => {
+    const tools = await listed(
+      await clientFor(
+        config({ externalAgents: { denyActions: ["tool-search"] } }),
+      ),
+    );
+    expect(tools.has("tool-search")).toBe(false);
+    expect(tools.has("call-tool")).toBe(false);
+    for (const name of ["archive-plan", "purge-plan", "plan-history"]) {
+      expect(tools.has(name)).toBe(true);
+    }
+    expect(tools.has("plan-settings")).toBe(false);
+  });
+
   it("lists no call-tool when nothing is unlisted", async () => {
     const decided = Object.fromEntries(
       Object.entries(actions()).map(([name, entry]) => [
