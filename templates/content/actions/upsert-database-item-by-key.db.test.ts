@@ -8,11 +8,72 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
 
 // guard:allow-unscoped — isolated PGlite fixtures intentionally inspect rows directly.
+
+// Another server instance shares the database but not this process's
+// position locks. `whileWaitingForCollectionLock` stands one in.
+const instances = await vi.hoisted(async () => {
+  const { AsyncLocalStorage } = await import("node:async_hooks");
+  return {
+    other: new AsyncLocalStorage<true>(),
+    waiting: new AsyncLocalStorage<{ meanwhile?: () => Promise<unknown> }>(),
+  };
+});
+
+vi.mock("./_position-utils.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./_position-utils.js")>();
+  return {
+    ...actual,
+    withPositionLock: <T>(scopeKey: string, run: () => Promise<T>) =>
+      instances.other.getStore()
+        ? run()
+        : actual.withPositionLock(scopeKey, run),
+  };
+});
+
+vi.mock("../server/db/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../server/db/index.js")>();
+  return {
+    ...actual,
+    getDb: () => {
+      const db = actual.getDb();
+      const call = instances.waiting.getStore();
+      if (!call?.meanwhile) return db;
+      return new Proxy(db, {
+        get(target, property) {
+          const value = Reflect.get(target, property);
+          if (property !== "transaction")
+            return typeof value === "function" ? value.bind(target) : value;
+          return async (...args: unknown[]) => {
+            const meanwhile = call.meanwhile;
+            call.meanwhile = undefined;
+            if (meanwhile) {
+              await instances.waiting.exit(() =>
+                instances.other.run(true, meanwhile),
+              );
+            }
+            return value.apply(target, args);
+          };
+        },
+      });
+    },
+  };
+});
+
+/**
+ * Runs `run`; once it has passed its own checks and is about to wait for the
+ * collection lock, another server instance does `meanwhile` first.
+ */
+function whileWaitingForCollectionLock<T>(
+  meanwhile: () => Promise<unknown>,
+  run: () => Promise<T>,
+): Promise<T> {
+  return instances.waiting.run({ meanwhile }, run);
+}
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -1067,5 +1128,177 @@ describe("reliable Content database row mutations", () => {
       );
     expect(rows).toHaveLength(1);
     expect(receipts).toHaveLength(1);
+  });
+
+  describe("while a single-row write waits for the collection lock", () => {
+    async function rowCount(databaseId: string) {
+      const rows = await getDb()
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+      return rows.length;
+    }
+
+    async function title(documentId: string) {
+      const [document] = await getDb()
+        .select({ title: schema.documents.title })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, documentId));
+      return document?.title;
+    }
+
+    /** Runs `write` twice under one key, the second from another instance. */
+    async function raceOneKey<
+      T extends { receipt: { receiptId: string; idempotency: unknown } },
+    >(write: () => Promise<T>) {
+      let winner: T | undefined;
+      const loser = await whileWaitingForCollectionLock(async () => {
+        winner = await write();
+      }, write);
+      expect(winner?.receipt.idempotency).toMatchObject({ result: "applied" });
+      expect(loser.receipt.receiptId).toBe(winner?.receipt.receiptId);
+      expect(loser.receipt.idempotency).toMatchObject({ result: "replayed" });
+    }
+
+    it("add-database-item replays the row another instance created under its key", async () => {
+      const ids = await fixture();
+      const discovered = await contract(ids.databaseId);
+      await raceOneKey(() =>
+        asOwner(() =>
+          createRow.run({
+            ...envelope(discovered, "instance-create"),
+            title: "Once",
+          }),
+        ),
+      );
+      expect(await rowCount(ids.databaseId)).toBe(1);
+    });
+
+    it("update-database-item replays the update another instance made under its key", async () => {
+      const ids = await fixture();
+      const discovered = await contract(ids.databaseId);
+      const created = await asOwner(() =>
+        createRow.run({
+          ...envelope(discovered, "instance-update-create"),
+          title: "Before",
+        }),
+      );
+      await raceOneKey(() =>
+        asOwner(() =>
+          updateRow.run({
+            ...envelope(discovered, "instance-update"),
+            itemId: created.receipt.row.itemId,
+            documentId: created.receipt.row.documentId,
+            expectedRowRevision: created.receipt.row.rowRevision,
+            title: "After",
+          }),
+        ),
+      );
+      expect(await title(created.receipt.row.documentId)).toBe("After");
+    });
+
+    it("upsert-database-item-by-key replays the row another instance created under its key", async () => {
+      const ids = await fixture();
+      await addProperty({
+        ...ids,
+        name: "Feedback ID",
+        type: "text",
+        naturalKey: true,
+      });
+      const discovered = await contract(ids.databaseId);
+      await raceOneKey(() =>
+        asOwner(() =>
+          upsertRow.run({
+            ...envelope(discovered, "instance-upsert"),
+            keyValue: "feedback-instance",
+            expectedRowRevision: null,
+            title: "Once",
+          }),
+        ),
+      );
+      expect(await rowCount(ids.databaseId)).toBe(1);
+    });
+
+    it("add-database-item adds nothing once collection access is revoked", async () => {
+      const ids = await fixture();
+      await shareDocument(ids.databaseDocumentId);
+      const discovered = await contract(ids.databaseId);
+      await expect(
+        whileWaitingForCollectionLock(
+          () => revokeDocumentShare(ids.databaseDocumentId),
+          () =>
+            asCollaborator(() =>
+              createRow.run({
+                ...envelope(discovered, "instance-revoked-create"),
+                title: "Must not land",
+              }),
+            ),
+        ),
+      ).rejects.toThrow();
+      expect(await rowCount(ids.databaseId)).toBe(0);
+    });
+
+    it("update-database-item refuses once row access is revoked", async () => {
+      const ids = await fixture();
+      await shareDocument(ids.databaseDocumentId);
+      const discovered = await contract(ids.databaseId);
+      const created = await asOwner(() =>
+        createRow.run({
+          ...envelope(discovered, "instance-revoked-update-create"),
+          title: "Before",
+        }),
+      );
+      await expect(
+        whileWaitingForCollectionLock(
+          () => revokeDocumentShare(created.receipt.row.documentId),
+          () =>
+            asCollaborator(() =>
+              updateRow.run({
+                ...envelope(discovered, "instance-revoked-update"),
+                itemId: created.receipt.row.itemId,
+                documentId: created.receipt.row.documentId,
+                expectedRowRevision: created.receipt.row.rowRevision,
+                title: "Must not land",
+              }),
+            ),
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(await title(created.receipt.row.documentId)).toBe("Before");
+    });
+
+    it("upsert-database-item-by-key refuses once row access is revoked", async () => {
+      const ids = await fixture();
+      await shareDocument(ids.databaseDocumentId);
+      await addProperty({
+        ...ids,
+        name: "Feedback ID",
+        type: "text",
+        naturalKey: true,
+      });
+      const discovered = await contract(ids.databaseId);
+      const created = await asOwner(() =>
+        upsertRow.run({
+          ...envelope(discovered, "instance-revoked-upsert-create"),
+          keyValue: "feedback-revoked",
+          expectedRowRevision: null,
+          title: "Before",
+        }),
+      );
+      await expect(
+        whileWaitingForCollectionLock(
+          () => revokeDocumentShare(created.receipt.row.documentId),
+          () =>
+            asCollaborator(() =>
+              upsertRow.run({
+                ...envelope(discovered, "instance-revoked-upsert"),
+                keyValue: "feedback-revoked",
+                expectedRowRevision: created.receipt.row.rowRevision,
+                title: "Must not land",
+              }),
+            ),
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(await title(created.receipt.row.documentId)).toBe("Before");
+    });
   });
 });
