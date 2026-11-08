@@ -18,7 +18,7 @@ import { watchAgentCall } from "../server/lib/factory-workflow-tripwires.js";
 
 export default defineAction({
   description:
-    "Turn a workflow on or off. Turning it on pauses for the user's approval in chat before it runs, because from then on the workflow sends messages, writes records and can merge pull requests on its schedule: say what it will do before calling, and do not report it as on until the call returns. It needs every provider the graph uses to be connected, otherwise it fails with connection_required listing the providers (connect them with request-workflow-connection); a provider whose status could not be checked only adds a warning. It also needs a clean dry run recorded for its current version, otherwise it fails with dry_run_required, and the graph is checked again against today's operation catalog. Turning it off needs no approval and always works. Both switch the scheduled job to match.",
+    "Turn a workflow on or off. Turning it on pauses for the user's approval in chat before it runs, because from then on the workflow sends messages, writes records and can merge pull requests on its schedule: say what it will do before calling, and do not report it as on until the call returns. It needs every provider the graph uses to be connected, otherwise it fails with connection_required listing the providers (connect them with request-workflow-connection); a provider whose saved key this deployment cannot decrypt fails with connection_unreadable (a person must save the key again, and connecting does not help); a provider whose status could not be checked only adds a warning. It also needs a clean dry run recorded for its current version, otherwise it fails with dry_run_required, and the graph is checked again against today's operation catalog. Turning it off needs no approval and always works. Both switch the scheduled job to match.",
   schema: z.object({
     factoryId: factoryIdSchema,
     workflowId: z.string().trim().min(1).max(64),
@@ -130,6 +130,26 @@ export default defineAction({
                 details: {
                   workflowId,
                   providers: missing.map((connection) => connection.provider),
+                  connections,
+                },
+              },
+            );
+          }
+          // Saved but unreadable fails every run just as a missing one does, and connecting again is no fix.
+          const unreadable = connections.filter(
+            (connection) => connection.status === "unreadable",
+          );
+          if (unreadable.length > 0) {
+            fail(
+              `This workflow would fail its first run: ${unreadable.map((connection) => `${connection.provider} (used by ${connection.nodes.join(", ")}): ${connection.detail}`).join(" ")} Nothing was turned on.`,
+              {
+                errorCode: "connection_unreadable",
+                statusCode: 412,
+                details: {
+                  workflowId,
+                  providers: unreadable.map(
+                    (connection) => connection.provider,
+                  ),
                   connections,
                 },
               },

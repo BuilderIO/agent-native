@@ -31,6 +31,7 @@ import {
   type PanelCostEstimate,
 } from "../server/lib/query-cost-estimate";
 import { clipHead } from "../shared/panel-render-contract";
+import { TRAFFIC_ENVIRONMENTS } from "../shared/traffic-environment";
 
 const MAX_PANELS = 60;
 /** Stop starting dry runs here so the action returns before its 55 s timeout. */
@@ -65,6 +66,12 @@ export default defineAction({
       .optional()
       .describe(
         "First-party sql only: 'raw' prices the raw events table even when the events model covers the query. Alerts read the raw table, so pass it when estimating an alert.",
+      ),
+    environment: z
+      .enum(TRAFFIC_ENVIRONMENTS)
+      .optional()
+      .describe(
+        "First-party sql only: the environment the query will read with, as on query-agent-native-analytics.",
       ),
     dashboardId: z
       .string()
@@ -113,8 +120,11 @@ export default defineAction({
         statusCode: 400,
       });
     }
-    if (args.eventsSource && !(args.sql && args.source === "first-party")) {
-      fail("eventsSource applies only to first-party sql.", {
+    if (
+      (args.eventsSource || args.environment) &&
+      !(args.sql && args.source === "first-party")
+    ) {
+      fail("eventsSource and environment apply only to first-party sql.", {
         errorCode: "invalid_target",
         statusCode: 400,
       });
@@ -147,7 +157,10 @@ export default defineAction({
       const estimate =
         args.source === "first-party"
           ? await estimateFirstPartySql(args.sql, scope, runsPerMonth, signal, {
-              eventsSource: args.eventsSource,
+              ...(args.eventsSource ? { eventsSource: args.eventsSource } : {}),
+              ...(args.environment
+                ? { trafficEnvironment: args.environment }
+                : {}),
             })
           : await estimateBigQuerySql(args.sql, runsPerMonth, signal);
       return {
@@ -178,7 +191,7 @@ export default defineAction({
     if (!stored && !seed) {
       if (dashboard) {
         fail(
-          `estimate-query-cost only supports SQL dashboards; "${dashboardId}" is ${dashboard.kind}.`,
+          `Saved-dashboard cost estimates require a SQL dashboard; "${dashboardId}" is ${dashboard.kind}.`,
           { errorCode: "dashboard_not_sql", statusCode: 400 },
         );
       }

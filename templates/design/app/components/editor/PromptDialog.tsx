@@ -1,5 +1,5 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import {
@@ -26,6 +26,7 @@ import {
   lazy,
   Suspense,
   type ComponentType,
+  type ReactNode,
   useState,
   useEffect,
   useCallback,
@@ -167,6 +168,8 @@ interface PromptPopoverProps {
   initialTextKey?: number;
   initialTextOverridesSavedDraft?: boolean;
   onPromptTextChange?: (text: string) => void;
+  /** Row rendered inside the composer frame, above the editor. */
+  composerHeaderSlot?: ReactNode;
   disabled?: boolean;
   submissionDisabled?: boolean;
   showModelSelector?: boolean;
@@ -266,6 +269,7 @@ export default function PromptPopover({
   initialTextKey,
   initialTextOverridesSavedDraft = false,
   onPromptTextChange,
+  composerHeaderSlot,
   disabled = false,
   submissionDisabled = false,
   showModelSelector,
@@ -408,7 +412,7 @@ export default function PromptPopover({
   }, [open]);
 
   const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
-    const response = await fetch(`${appBasePath()}/api/uploads`, {
+    const response = await fetch(appApiPath("/api/uploads"), {
       method: "DELETE",
       headers: { "content-type": "application/json" },
       credentials: "include",
@@ -459,7 +463,7 @@ export default function PromptPopover({
         for (const batch of splitUploadBatches(preparedFiles)) {
           const formData = new FormData();
           batch.forEach(({ file }) => formData.append("files", file));
-          const res = await fetch(`${appBasePath()}/api/uploads`, {
+          const res = await fetch(appApiPath("/api/uploads"), {
             method: "POST",
             body: formData,
           });
@@ -732,6 +736,7 @@ export default function PromptPopover({
         draftTextRef.current = text;
         onPromptTextChange?.(text);
       }}
+      headerSlot={composerHeaderSlot}
       contextItems={contextItems}
       onRemoveContextItem={onRemoveContextItem}
       onRetryContextItem={onRetryContextItem}

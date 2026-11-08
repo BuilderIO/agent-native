@@ -1,6 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
+  appApiPath,
   appBasePath,
   appPath,
 } from "@agent-native/core/client/api-path";
@@ -60,6 +61,7 @@ import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { ClipsAvatar } from "@/components/clips-avatar";
+import { ClipsComposerContextProvider } from "@/components/ClipsComposerContext";
 import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import { RecordingContextSection } from "@/components/lookback/recording-context-panel";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
@@ -738,7 +740,7 @@ export default function ShareRoute() {
     queryKey: shareQueryKey,
     queryFn: async () => {
       const url = new URL(
-        `${appBasePath()}/api/public-recording`,
+        appApiPath("/api/public-recording"),
         window.location.origin,
       );
       url.searchParams.set("id", shareId ?? "");
@@ -2111,6 +2113,7 @@ export default function ShareRoute() {
               {sessionStatus === "loading" ||
               sessionStatus === "signing-out" ? null : session ? (
                 <AgentPanel
+                  composerContextProvider={ClipsComposerContextProvider}
                   emptyStateText={t("recordingPage.askAboutClip")}
                   dynamicSuggestions={false}
                   scope={

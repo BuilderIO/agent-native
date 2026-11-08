@@ -1,6 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconPencil, IconX } from "@tabler/icons-react";
-import { useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 
@@ -15,9 +19,17 @@ interface SpeakerNotesPanelProps {
 const MIN_NOTES_HEIGHT = 120;
 const MAX_NOTES_HEIGHT = 480;
 const DEFAULT_NOTES_HEIGHT = 231;
+const NOTES_HEIGHT_KEY_STEP = 24;
 
 function clampNotesHeight(value: number) {
   return Math.min(MAX_NOTES_HEIGHT, Math.max(MIN_NOTES_HEIGHT, value));
+}
+
+function storeNotesHeight(value: number) {
+  try {
+    localStorage.setItem("speaker-notes-height", String(value));
+    // coercion-ok: the height still applies for this session when storage is unavailable.
+  } catch {}
 }
 
 export function SpeakerNotesPanel({
@@ -51,12 +63,20 @@ export function SpeakerNotesPanel({
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      try {
-        localStorage.setItem("speaker-notes-height", String(latestHeight));
-      } catch {}
+      storeNotesHeight(latestHeight);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp, { once: true });
+  };
+
+  const resizeWithKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    const delta =
+      event.key === "ArrowUp" ? NOTES_HEIGHT_KEY_STEP : -NOTES_HEIGHT_KEY_STEP;
+    const nextHeight = clampNotesHeight(height + delta);
+    setHeight(nextHeight);
+    storeNotesHeight(nextHeight);
   };
 
   return (
@@ -69,8 +89,13 @@ export function SpeakerNotesPanel({
         role="separator"
         aria-orientation="horizontal"
         aria-label={t("speakerNotesPanel.resize")}
-        className="group absolute inset-x-0 top-[-4px] z-10 flex h-2 cursor-row-resize items-center justify-center"
+        aria-valuenow={height}
+        aria-valuemin={MIN_NOTES_HEIGHT}
+        aria-valuemax={MAX_NOTES_HEIGHT}
+        tabIndex={0}
+        className="group absolute inset-x-0 top-[-4px] z-10 flex h-2 cursor-row-resize items-center justify-center focus-visible:bg-primary/20 focus-visible:outline-none"
         onPointerDown={startResize}
+        onKeyDown={resizeWithKeyboard}
       >
         <div className="h-0.5 w-[50px] rounded-full bg-muted-foreground/30 transition-colors group-hover:bg-muted-foreground/70" />
       </div>

@@ -196,4 +196,23 @@ describe("InlineMarkdown", () => {
     expect(container.querySelector("a")).toBeNull();
     expect(container.textContent).toBe(content);
   });
+
+  it("shows a protected span's own text inside code", () => {
+    act(() => {
+      root.render(
+        <InlineMarkdown
+          renderLists
+          content={"`@[Sam]` and\n\n```\nping @[Sam]\n```"}
+          protectedSpans={[{ source: "@[Sam]", label: "@Sam [x]" }]}
+          renderProtectedSpan={(span) => <mark>{span.label}</mark>}
+        />,
+      );
+    });
+
+    const codes = [...container.querySelectorAll("code")].map(
+      (code) => code.textContent,
+    );
+    expect(codes).toEqual(["@[Sam]", "ping @[Sam]\n"]);
+    expect(container.textContent).not.toContain("inline-markdown-protected");
+  });
 });

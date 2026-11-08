@@ -48,6 +48,10 @@ import {
   validateMaxIterationsInput,
   writeAgentLoopSettings,
 } from "../agent/loop-settings.js";
+import {
+  createBuilderSignupExperimentHandler,
+  getBuilderSignupConnectError,
+} from "./builder-signup-experiment.js";
 export {
   normalizeAgentEngineStatusModel,
   resolveAgentEngineStatus,
@@ -64,9 +68,11 @@ import {
   listComposeDrafts,
   getComposeDraft,
   putComposeDraft,
+  saveComposeDraft,
   deleteComposeDraft,
   deleteAllComposeDrafts,
   getStateMany,
+  putStateMany,
   APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY,
   type AppStateAnonymousOwnerResolver,
 } from "../application-state/handlers.js";
@@ -113,6 +119,7 @@ import {
 import { createNotificationsHandler } from "../notifications/routes.js";
 import {
   getOrgContext,
+  hasForbiddenOrgScope,
   hasOrgScopeResolutionUnavailable,
   resolveOrgScopeForEmail,
 } from "../org/context.js";
@@ -152,11 +159,16 @@ import {
   EMPTY_SPECULATION_RULES,
   resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
+import { normalizeCorsOrigin } from "../shared/cors-origin.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import { FIRST_RUN_ONBOARDING_EXPERIMENT_EVENT_NAMES } from "../shared/first-run-builder-credits-experiment.js";
-import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
+import {
+  isGoogleDefaultAvatarUrl,
+  isGoogleProfileImageUrl,
+} from "../shared/google-profile-image.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import {
+  corsAllowHeadersFor,
   EMBED_TRANSPLANT_HEADER,
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
@@ -186,7 +198,6 @@ import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { readAnalyticsSessionId } from "./attribution.js";
 import { getSession, type AuthSession } from "./auth.js";
 import { createAutomationFailureUnsubscribeHandler } from "./automation-failure-notifications.js";
-import { registerBackgroundJobStop } from "./background-jobs.js";
 import {
   getBetterAuthInternalAdapter,
   getBetterAuthSync,
@@ -359,6 +370,7 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
+import { startSandboxExecutionSweep } from "./sandbox-execution-sweep.js";
 import {
   findUnsupportedScopedKeyNames,
   saveKeyValuesToScopedSecrets,
@@ -1325,8 +1337,8 @@ export async function runDbHealthProbe(
       identity.app !== runningApp;
   }
   const database = getDatabaseRuntimeFingerprint();
-  // Measured on the connection `SELECT 1` just warmed, so the number reflects
-  // the database's own load rather than a serverless cold start.
+  // Reuse the liveness timing, which can include connection acquisition and
+  // network latency as well as database execution.
   let pressure: DbPressure | undefined;
   if (options.pressure) {
     pressure = db
@@ -2502,7 +2514,7 @@ async function authorizeBuilderConnectScope(
 }
 
 export type BuilderAccountActivationResult =
-  | { ok: true; scope: "user" | "org" }
+  | { ok: true; scope: "user" | "org"; code?: string }
   | {
       ok: false;
       status: number;
@@ -2514,6 +2526,7 @@ export type BuilderAccountActivationResult =
     };
 
 interface BuilderAccountActivationInput {
+  newAccountOnly?: boolean;
   ownerEmail: string;
   session: AuthSession | null;
   provisioningToken: string | null | undefined;
@@ -2592,6 +2605,7 @@ export async function activateBuilderAccount(
     }
     const activationOrg = activation.write;
     const credentials = await provisionBuilderAccount({
+      ...(input.newAccountOnly ? { newAccountOnly: true } : {}),
       email: ownerEmail,
       name: session.name,
       agentNativeApp: input.tracking.agentNativeApp,
@@ -2599,50 +2613,73 @@ export async function activateBuilderAccount(
     });
     const { writeBuilderCredentials } =
       await import("./credential-provider.js");
-    const written = await writeBuilderCredentials(
-      ownerEmail,
-      credentials,
-      activationOrg ?? undefined,
-    );
-    await Promise.all([
-      deleteSetting("builder-disconnected").catch(
-        () => false, // coercion-ok: best-effort cleanup after successful provisioning
-      ),
-      ...getBuilderConnectErrorCleanupKeys(ownerEmail, connectAttemptId).map(
-        (key) =>
-          deleteSetting(key).catch(
-            () => false, // coercion-ok: best-effort cleanup after successful provisioning
-          ),
-      ),
-    ]);
-    await trackBuilderLifecycle(
-      event,
-      "builder connect succeeded",
-      ownerEmail,
-      {
-        ...builderConnectTrackingProperties(input.tracking),
-        stage: "provision",
-        credential_scope: written.scope,
-        account_provisioned: true,
-      },
-    );
-    track(
-      "llm_credential_changed",
-      {
-        change_type: "connected",
-        provider: "builder",
+    let written: Awaited<ReturnType<typeof writeBuilderCredentials>>;
+    try {
+      written = await writeBuilderCredentials(
+        ownerEmail,
+        credentials,
+        activationOrg ?? undefined,
+      );
+    } catch (error) {
+      captureError(error, { route: "builder.provision.credential-write" });
+      return fail(
+        409,
+        "A Builder.io account already exists for this email. Sign in to Builder.io to use it.",
+        "credential_write_failed",
+        "account_exists",
+      );
+    }
+    try {
+      await Promise.all([
+        deleteSetting("builder-disconnected").catch(
+          () => false, // coercion-ok: best-effort cleanup after successful provisioning
+        ),
+        ...getBuilderConnectErrorCleanupKeys(ownerEmail, connectAttemptId).map(
+          (key) =>
+            deleteSetting(key).catch(
+              () => false, // coercion-ok: best-effort cleanup after successful provisioning
+            ),
+        ),
+      ]);
+      await trackBuilderLifecycle(
+        event,
+        "builder connect succeeded",
+        ownerEmail,
+        {
+          ...builderConnectTrackingProperties(input.tracking),
+          stage: "provision",
+          credential_scope: written.scope,
+          account_provisioned: true,
+        },
+      );
+      track(
+        "llm_credential_changed",
+        {
+          change_type: "connected",
+          provider: "builder",
+          scope: written.scope,
+          credential_kind: "builder",
+        },
+        { userId: ownerEmail },
+      );
+      await recordBuilderConnectionAudit({
+        connected: true,
+        ownerEmail,
+        orgId: activationOrg?.orgId ?? null,
         scope: written.scope,
-        credential_kind: "builder",
-      },
-      { userId: ownerEmail },
-    );
-    await recordBuilderConnectionAudit({
-      connected: true,
-      ownerEmail,
-      orgId: activationOrg?.orgId ?? null,
-      scope: written.scope,
-      attribution: routeAuditAttribution(event),
-    });
+        attribution: routeAuditAttribution(event),
+      });
+    } catch (error) {
+      captureError(error, {
+        route: "builder.provision.post-write",
+        tags: { credential_write: "completed" },
+      });
+      return {
+        ok: true,
+        scope: written.scope,
+        code: "post_write_reporting_failed",
+      };
+    }
     return { ok: true, scope: written.scope };
   } catch (error) {
     const provisioningError =
@@ -2797,6 +2834,7 @@ export function createBuilderProvisionHandler(
  *   GET    /_agent-native/env-status                    — env key configuration status (when envKeys provided)
  *   POST   /_agent-native/env-vars                      — compatibility route that saves keys to scoped DB secrets
  *   GET    /_agent-native/application-state?keys=a,b,c  — batched read of many keys
+ *   POST   /_agent-native/application-state            — batched write of many keys
  *   GET    /_agent-native/application-state/:key        — read application state
  *   PUT    /_agent-native/application-state/:key        — write application state
  *   DELETE /_agent-native/application-state/:key        — delete application state
@@ -2804,6 +2842,7 @@ export function createBuilderProvisionHandler(
  *   DELETE /_agent-native/application-state/compose     — delete all compose drafts
  *   GET    /_agent-native/application-state/compose/:id — get compose draft
  *   PUT    /_agent-native/application-state/compose/:id — upsert compose draft
+ *   PATCH  /_agent-native/application-state/compose/:id — save a compose draft only if it's unchanged
  *   DELETE /_agent-native/application-state/compose/:id — delete compose draft
  */
 /**
@@ -2996,6 +3035,15 @@ function oauthPopupCompletionHtml(
   const completionMessage = completionId
     ? `{type:"agent-native:workspace-connection-complete",completionId:"${completionId}"}`
     : '{type:"agent-native:workspace-connection-complete"}';
+  // A UI served from another origin (runtime.apiBaseUrl) may have opened this
+  // popup. postMessage to an origin other than the opener's is dropped, so
+  // naming every listed UI origin reaches only the real opener.
+  const uiOrigins = [
+    ...new Set(readCorsAllowedOrigins().map(normalizeCorsOrigin)),
+  ];
+  const notifyUiOrigins = uiOrigins.length
+    ? `for (const origin of ${JSON.stringify(uiOrigins).replace(/</g, "\\u003c")}) window.opener?.postMessage(${completionMessage}, origin);`
+    : "";
   const direction = locale === "ar-SA" ? "rtl" : "ltr";
   return `<!doctype html>
 <html lang="${locale}" dir="${direction}">
@@ -3025,6 +3073,7 @@ function oauthPopupCompletionHtml(
       ${persistCompletion}
       setTimeout(() => window.close(), 2000);
       window.opener?.postMessage(${completionMessage}, window.location.origin);
+      ${notifyUiOrigins}
     </script>
   </body>
 </html>`;
@@ -3275,6 +3324,7 @@ export function mountApplicationStateRoutes(
       } else {
         if (method === "GET") return getComposeDraft(event);
         if (method === "PUT") return putComposeDraft(event);
+        if (method === "PATCH") return saveComposeDraft(event);
         if (method === "DELETE") return deleteComposeDraft(event);
       }
       setResponseStatus(event, 405);
@@ -3291,6 +3341,7 @@ export function mountApplicationStateRoutes(
       withAnonymousOwner(event);
       if (key === "") {
         if (getMethod(event) === "GET") return getStateMany(event);
+        if (getMethod(event) === "POST") return putStateMany(event);
         return;
       }
       if (event.context) {
@@ -3708,7 +3759,10 @@ export function createCoreRoutesPlugin(
               setResponseHeader(
                 event,
                 "Access-Control-Allow-Headers",
-                MCP_EMBED_CORS_ALLOW_HEADERS,
+                corsAllowHeadersFor(
+                  requestedHeaders,
+                  MCP_EMBED_CORS_ALLOW_HEADERS,
+                ),
               );
             }
             setResponseStatus(event, 204);
@@ -3741,7 +3795,7 @@ export function createCoreRoutesPlugin(
           setResponseHeader(
             event,
             "Access-Control-Allow-Headers",
-            MCP_EMBED_CORS_ALLOW_HEADERS,
+            corsAllowHeadersFor(requestedHeaders, MCP_EMBED_CORS_ALLOW_HEADERS),
           );
         }),
       );
@@ -4219,46 +4273,10 @@ export function createCoreRoutesPlugin(
       // a missing table short-circuits to a no-op) and best-effort — the
       // poll-time drain in run-code covers deployments where warm-instance
       // timers rarely fire.
-      (() => {
-        if (shouldDisableInProcessSweeps()) return;
-        let lastSweep = 0;
-        const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
-        let startupTimer: ReturnType<typeof setTimeout> | null = null;
-        let sweepTimer: ReturnType<typeof setInterval> | null = null;
-
-        const stopSandboxExecutionSweep = () => {
-          if (startupTimer) {
-            clearTimeout(startupTimer);
-            startupTimer = null;
-          }
-          if (sweepTimer) {
-            clearInterval(sweepTimer);
-            sweepTimer = null;
-          }
-        };
-
-        startupTimer = setTimeout(() => {
-          startupTimer = null;
-          sweepTimer = setInterval(() => {
-            const now = Date.now();
-            if (now - lastSweep < SWEEP_INTERVAL_MS) return;
-            lastSweep = now;
-
-            (async () => {
-              const { drainDueSandboxExecutions } =
-                await import("../coding-tools/sandbox/background.js");
-              await drainDueSandboxExecutions({ limit: 5 });
-            })().catch(() => {
-              // best-effort — never break the server
-            });
-          }, 30_000); // Check every 30s but only sweep once per 2min
-          sweepTimer.unref?.();
-        }, 25_000); // Start 25s after init (after the agent sweeps)
-        startupTimer.unref?.();
-
-        registerBackgroundJobStop(stopSandboxExecutionSweep);
+      if (!shouldDisableInProcessSweeps()) {
+        const stopSandboxExecutionSweep = startSandboxExecutionSweep();
         nitroApp.hooks?.hook?.("close", stopSandboxExecutionSweep);
-      })();
+      }
 
       getH3App(nitroApp).use(
         `${P}/debug/runtime`,
@@ -4311,6 +4329,9 @@ export function createCoreRoutesPlugin(
         const envStatus = getBuilderBrowserStatusForEvent(event);
         const ownerContext = await resolveBuilderOwnerContext(event);
         const userEmail = ownerContext.email;
+        const signupConnectError = await getBuilderSignupConnectError(
+          ownerContext.session?.userId,
+        );
         const provisioningToken =
           userEmail &&
           ownerContext.session?.token &&
@@ -4330,6 +4351,7 @@ export function createCoreRoutesPlugin(
         const withConnectToken = <
           T extends {
             connectUrl: string;
+            configured?: boolean;
             agentNativeProvisioningEnabled?: boolean;
           },
         >(
@@ -4339,7 +4361,14 @@ export function createCoreRoutesPlugin(
           BuilderConnectionsStatus & {
             effective: BuilderEffectiveConnection | null;
           } => {
-          const withConnections = { ...status, ...connections, effective };
+          const withConnections = {
+            ...status,
+            ...connections,
+            effective,
+            ...(signupConnectError && status.configured !== true
+              ? { connectError: signupConnectError }
+              : {}),
+          };
           if (!userEmail) return withConnections;
           return {
             ...withConnections,
@@ -4364,8 +4393,8 @@ export function createCoreRoutesPlugin(
             const orgCtx = await getOrgContext(event);
             orgId = orgCtx.orgId ?? null;
             orgRole = orgCtx.role ?? null;
-          } catch {
-            /* org module not present in this template — keep userEmail-only */
+          } catch (error) {
+            if (!isMissingOrganizationTableError(error)) throw error;
           }
         }
         connections = await resolveBuilderConnectionsStatus({
@@ -5066,6 +5095,39 @@ export function createCoreRoutesPlugin(
       );
 
       getH3App(nitroApp).use(
+        `${P}/auth/builder-signup-experiment`,
+        createBuilderSignupExperimentHandler({
+          getSession,
+          sameOrigin: isSameOriginConnect,
+          activate: async (event, session) => {
+            const authorization = await authorizeBuilderConnectScope(
+              event,
+              session.email,
+              null,
+            );
+            if ("deny" in authorization)
+              return { ok: false, code: authorization.deny.reason };
+            return activateBuilderAccount(event, {
+              ownerEmail: session.email,
+              session,
+              provisioningToken: signBuilderProvisioningToken(
+                session.email,
+                session.token ?? "",
+              ),
+              requestedScope: null,
+              member: authorization.member,
+              connectAttemptId: null,
+              tracking: {
+                agentNativeApp: "design",
+                agentNativeTemplate: "design",
+              },
+              newAccountOnly: true,
+            });
+          },
+        }),
+      );
+
+      getH3App(nitroApp).use(
         `${P}/builder/provision`,
         createBuilderProvisionHandler((event) =>
           resolveBuilderOwnerContext(event),
@@ -5114,8 +5176,8 @@ export function createCoreRoutesPlugin(
           try {
             const orgCtx = await getOrgContext(event);
             orgId = orgCtx.orgId ?? null;
-          } catch {
-            /* org module not present in this template — keep userEmail-only */
+          } catch (error) {
+            if (!isMissingOrganizationTableError(error)) throw error;
           }
 
           // Wrap in runWithRequestContext so resolveBuilderCredential() inside
@@ -5875,8 +5937,8 @@ export function createCoreRoutesPlugin(
               const orgCtx = await getOrgContext(event);
               orgId = orgCtx.orgId ?? null;
               role = orgCtx.role ?? null;
-            } catch {
-              // coercion-ok: org module is optional; disconnect still clears user-scoped custody.
+            } catch (error) {
+              if (!isMissingOrganizationTableError(error)) throw error;
             }
             if (requestedConnectionScope) {
               const result = await disconnectBuilderConnectionAtScope({
@@ -5988,6 +6050,13 @@ export function createCoreRoutesPlugin(
                   : undefined,
             };
           } catch (err) {
+            if (
+              typeof err === "object" &&
+              err !== null &&
+              "statusCode" in err &&
+              err.statusCode === 503
+            )
+              throw err;
             await trackBuilderLifecycle(
               event,
               "builder disconnect failed",
@@ -6104,8 +6173,8 @@ export function createCoreRoutesPlugin(
               try {
                 const orgCtx = await getOrgContext(event);
                 orgId = orgCtx.orgId ?? undefined;
-              } catch {
-                /* org module not present in this template */
+              } catch (error) {
+                if (!isMissingOrganizationTableError(error)) throw error;
               }
             }
             // One context for the whole sweep so the per-request secret memo is
@@ -6295,8 +6364,8 @@ export function createCoreRoutesPlugin(
           try {
             const orgCtx = await getOrgContext(event);
             orgId = orgCtx.orgId ?? null;
-          } catch {
-            /* org module not present in this template — keep userEmail-only */
+          } catch (error) {
+            if (!isMissingOrganizationTableError(error)) throw error;
           }
 
           const clientPlatform = readAnalyticsClientPlatformHeader(event);
@@ -6383,8 +6452,18 @@ export function createCoreRoutesPlugin(
             return { error: "unauthorized" };
           }
 
-          const orgCtx = await getOrgContext(event).catch(() => null);
-          const orgId = orgCtx?.orgId ?? session.orgId ?? null;
+          const orgCtx = await getOrgContext(event);
+          if (!orgCtx.orgId && hasForbiddenOrgScope(event)) {
+            setResponseStatus(event, 403);
+            return { error: "Organization scope is forbidden." };
+          }
+          if (!orgCtx.orgId && hasOrgScopeResolutionUnavailable(event)) {
+            setResponseStatus(event, 503);
+            return {
+              error: "Organization scope is unavailable. Please retry.",
+            };
+          }
+          const orgId = orgCtx.orgId;
           const ctx = { userEmail: session.email, orgId };
           const canUpdate = await canUpdateAgentLoopSettings(
             session.email,
@@ -6833,7 +6912,12 @@ export function createCoreRoutesPlugin(
               `avatar:${decodeURIComponent(emailParam)}`,
             );
             const storedImage = (data as any)?.image;
-            if (typeof storedImage === "string" && storedImage.trim()) {
+            // A silhouette saved before it was recognized is not a photo either.
+            if (
+              typeof storedImage === "string" &&
+              storedImage.trim() &&
+              !isGoogleDefaultAvatarUrl(storedImage)
+            ) {
               return { image: storedImage };
             }
             if (getBetterAuthSync()) {

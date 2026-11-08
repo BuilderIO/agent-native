@@ -326,7 +326,11 @@ A host can stage already-authorized context and receive the frozen snapshot on s
 />
 ```
 
-Context sources register `picker` on a `ComposerContextMenuItem`. `ComposerContextMenu` owns connected shadcn/Radix cascading submenus, not replacement panels: the root offers file upload, then Add context → host categories → source pickers. Add context is omitted when there are no host entries. Arrow keys and Escape navigate the menu hierarchy. Back within a link picker only returns from results to link entry in the same flyout. The shared picker owns search, list rows, loading, empty and error states, retry, pagination, and link entry. Apps provide authorized data and selection callbacks, not their own picker JSX.
+Context sources register direct, named actions on `ComposerContextMenuItem`. The shared menu labels Add context, Integrations, and Commands as separate accessible groups. Sources open a picker dialog after one menu choice. Workspace integrations appear in their own group. Commands contains rare task modes. Root rows stay stable while source data loads inside dialogs. Native menu arrows, typeahead, and Escape remain available. Dialogs manage search, grouped results, loading, empty and error states, retry, and focus restoration.
+
+Contributions use `section: "context" | "integrations" | "commands"` and ascending `order`, with label and id breaking ties. `renderLink(children)` preserves native link navigation. Apps with a scoped mention provider can register `referencePicker: { source, referenceType }`. Selection inserts a normal composer reference. `referenceType` excludes app-owned resource types from the shared Search workspace… dialog, avoiding duplicate choices. Workspace registrations come through `resources.useWorkspaceMenu({ enabled, onSelectIntegration })`. Its `scopeKey` resets and aborts workspace pickers when identity changes. Provider failures remain errors, not empty results.
+
+A source such as Figma stays visible while access is checked. Its dialog shows loading or an error with retry, a real connection link when disconnected, or the authorized URL picker when connected. Create Skill selects the skill mode directly. Upload skill file opens a review and save dialog after the native file chooser.
 
 The picker configuration accepts:
 
@@ -349,6 +353,7 @@ const contextMenuItems: ComposerContextMenuItem[] = [
     label: labels.references,
     picker: {
       searchPlaceholder: labels.searchReferences,
+      presentation: { type: "dialog", mode: "single" },
       items: authorizedReferences,
       selectedIds,
       onSelect: stageReference,
@@ -422,7 +427,7 @@ Picker entries do not also define `render` or entry-level `onSelect`. Categories
 
 Optional `footerAction` stays below the results even during loading, errors, or an empty list. It accepts a localized `label`, optional `icon` and `disabled`, and either `onSelect()` or `renderLink(children)`. Use a callback for a modal or another stateful workflow: `false` keeps the menu open, `true` or `void` closes it, and rejection displays an error with retry. For pure navigation, return a real React Router `Link` or native anchor from `renderLink`; the shared menu supplies the row through `asChild`, preserving its `href` and browser navigation semantics. Wire existing authorized workflows, not placeholder actions.
 
-Passing `addAttachment` to `ComposerContextMenu` adds the standard upload action first and preserves the host's file callback.
+Passing `addAttachment` to `ComposerContextMenu` adds Files and images to Add context and preserves the host's file callback.
 
 `PromptComposer` and `AgentKitComposer` accept `attachmentAdapter`, using the public `AttachmentAdapter` type from `@assistant-ui/react`. Supply the host's file-acceptance, size-validation, and staging policy through this adapter; omit it to retain the default adapters. The shared composer still owns the upload control, file picker, context picker, and attachment chips. Do not replace those controls to customize file staging.
 

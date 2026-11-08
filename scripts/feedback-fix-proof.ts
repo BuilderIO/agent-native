@@ -8,9 +8,17 @@
 //     fix-proof: proven, red at 1a2b3c4d5 (exit 1), green at 6e7f8a9b0: pnpm ... vitest run x.spec.ts
 //   - https://app.slack.com/archives/C0.../p456
 //     visual: <before screenshot url> <after screenshot url>
+//   - chat-health:design:2026-11-06
+//     fix-proof: proven, ...
+//
+// A report is a URL, or a factory chat-health key, which has no URL.
 //
 // Visual-only evidence is not machine proof. A passing run names each report
 // that still needs a human to inspect its before/after screenshots before merge.
+//
+// A PR whose diff touches only TEST_PATH files (a flaky-test fix) has no
+// source change to revert, so no proof can exist. Each report it covers must
+// say so with a `fix-proof: test-only` line; the diff alone never clears one.
 //
 //   PR_BODY="$(gh pr view N --json body -q .body)" node scripts/feedback-fix-proof.ts
 //   ... feedback-fix-proof.ts --has-reports   prints has_reports=true|false
@@ -21,17 +29,33 @@
 // Each proof's fix commit must be on this branch and not on its base
 // (BASE_SHA, or the merge-base with origin/main).
 //
-// Exit 0: every report proven. Exit 1: a report has no proof, or a proof
-// did not hold on re-run. Exit 2: could not run.
+// Exit 0: every report proven, or the PR is test-only. Exit 1: a report has
+// no proof, or a proof did not hold on re-run. Exit 2: could not run.
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Imported by fix-proof.ts; this file has no top-level side effects.
+export const TEST_PATH =
+  /(^|\/)(__tests__|e2e)\/|^tests?\/|\.(test|spec|e2e)\.[cm]?[jt]sx?$|^\.changeset\/.+\.md$/;
+
+const CHANGESET = /^\.changeset\//;
+
+export function isTestOnlyChange(paths: string[]): boolean {
+  // A changeset rides along with a test change; alone it proves nothing.
+  return (
+    paths.every((path) => TEST_PATH.test(path)) &&
+    paths.some((path) => !CHANGESET.test(path))
+  );
+}
+
 export type Report = {
   link: string;
   proven: string[];
   visual: [before: string, after: string] | null;
+  /** Set only by a `fix-proof: test-only` line under the report. */
+  testOnly?: true;
 };
 type VisualReport = Report & {
   visual: [before: string, after: string];
@@ -47,6 +71,9 @@ const WORKSPACE = /^(?:@[a-z0-9-]+\/)?[a-z0-9-]+$/;
 export function parseProofCommand(command: string): string[] | null {
   const args = command.split(/\s+/);
   if (args.some((arg) => !arg || /[;&|`$<>]/.test(arg))) return null;
+  // Codex shells often lack pnpm on PATH, so local proofs say `corepack pnpm`;
+  // CI has pnpm itself.
+  if (args[0] === "corepack" && args[1] === "pnpm") args.shift();
 
   const nodeTestPath = args[2];
   if (
@@ -169,6 +196,9 @@ export function isTrackedRepositoryTest(
   throw new Error("Git failed to verify whether the proof test is tracked.");
 }
 
+const REPORT_LINK =
+  /https?:\/\/[^\s)>]+|\bchat-health:[a-z0-9-]+:\d{4}-\d{2}-\d{2}\b/g;
+
 export function parseReports(body: string): Report[] | null {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
   // Everything after the first Reports heading is the Reports section, so
@@ -186,18 +216,16 @@ export function parseReports(body: string): Report[] | null {
       .trim()
       .replace(/^(?:[-*+]|\d+[.)])\s+/, "")
       .replace(/^`/, "");
-    // Every URL on any other line starts a report, whatever its format; a
+    // Every report link on any other line starts a report, whatever its format; a
     // proof later on that line covers each of them. A detail link read as a
     // report fails as NO PROOF, which is the safe direction. URLs inside the
     // proof's own command are not reports.
     const at = line.indexOf("fix-proof: proven");
     const onLine = /^(fix-proof|visual):/.test(evidence)
       ? []
-      : [
-          ...(at === -1 ? line : line.slice(0, at)).matchAll(
-            /https?:\/\/[^\s)>]+/g,
-          ),
-        ].map(([link]): Report => ({ link, proven: [], visual: null }));
+      : [...(at === -1 ? line : line.slice(0, at)).matchAll(REPORT_LINK)].map(
+          ([link]): Report => ({ link, proven: [], visual: null }),
+        );
     reports.push(...onLine);
     const targets = onLine.length ? onLine : reports.slice(-1);
     const proof =
@@ -205,7 +233,9 @@ export function parseReports(body: string): Report[] | null {
     const visual = /^visual:\s*(https?:\/\/\S+)\s+(https?:\/\/\S+)\s*$/.exec(
       evidence.replace(/`\s*$/, ""),
     );
+    const testOnly = /^fix-proof: test-only\b/.test(evidence);
     for (const report of targets) {
+      if (testOnly) report.testOnly = true;
       if (proof) report.proven.push(`${proof[1]}\t${proof[2].trim()}`);
       if (visual) report.visual = [visual[1], visual[2]];
     }
@@ -235,7 +265,43 @@ function main() {
     process.exit(2);
   }
 
-  const missing = reports.filter((r) => r.proven.length === 0 && !r.visual);
+  const base =
+    process.env.BASE_SHA ||
+    spawnSync("git", ["merge-base", "HEAD", "origin/main"], {
+      encoding: "utf8",
+    }).stdout.trim();
+  if (!base) {
+    console.error(
+      "feedback-fix-proof: could not run: set BASE_SHA or fetch origin/main",
+    );
+    process.exit(2);
+  }
+  const diff = spawnSync(
+    "git",
+    ["diff", "--name-only", "--no-renames", base, "HEAD"],
+    { encoding: "utf8", maxBuffer: 64 << 20 },
+  );
+  if (diff.status !== 0) {
+    console.error(
+      `feedback-fix-proof: could not run: git diff ${base} HEAD: ${diff.stderr.trim()}`,
+    );
+    process.exit(2);
+  }
+  const changed = diff.stdout.split("\n").filter(Boolean);
+  // The diff decides that nothing needs proving, the report line says which
+  // reports are test work, so a test-only diff can't clear a product report.
+  const testOnlyDiff = isTestOnlyChange(changed);
+  const exempt = (r: Report) => testOnlyDiff && r.testOnly === true;
+  if (testOnlyDiff && reports.every(exempt)) {
+    console.log(
+      `feedback-fix-proof: test-only PR (${changed.length} changed files, all tests or changesets); ${reports.length} reports need no fix proof`,
+    );
+    return;
+  }
+
+  const missing = reports.filter(
+    (r) => r.proven.length === 0 && !r.visual && !exempt(r),
+  );
   const visualOnly = reports.filter(
     (r): r is VisualReport => r.proven.length === 0 && r.visual !== null,
   );
@@ -250,17 +316,6 @@ function main() {
     );
   }
 
-  const base =
-    process.env.BASE_SHA ||
-    spawnSync("git", ["merge-base", "HEAD", "origin/main"], {
-      encoding: "utf8",
-    }).stdout.trim();
-  if (!base) {
-    console.error(
-      "feedback-fix-proof: could not run: set BASE_SHA or fetch origin/main",
-    );
-    process.exit(2);
-  }
   const isAncestor = (a: string, b: string) =>
     spawnSync("git", ["merge-base", "--is-ancestor", a, b]).status === 0;
 

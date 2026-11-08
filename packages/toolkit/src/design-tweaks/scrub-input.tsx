@@ -107,7 +107,7 @@ export function cancelActiveScrubInputs() {
   for (const cancel of [...activeScrubCancelCallbacks]) cancel();
 }
 
-function registerActiveScrubInput(cancel: () => void) {
+export function registerActiveScrubInput(cancel: () => void) {
   activeScrubCancelCallbacks.add(cancel);
   return () => activeScrubCancelCallbacks.delete(cancel);
 }

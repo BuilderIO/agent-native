@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { withoutWriteObservation } from "../action-frame.js";
 import type { ActionRunContext } from "../action.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
@@ -171,7 +172,16 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
   };
 }
 
+// An event is bookkeeping about a call, never one of the writes the call is for.
 export function track(
+  name: string,
+  properties?: Record<string, unknown>,
+  source?: TrackingSource,
+): void {
+  withoutWriteObservation(() => trackEvent(name, properties, source));
+}
+
+function trackEvent(
   name: string,
   properties?: Record<string, unknown>,
   source?: TrackingSource,
@@ -373,6 +383,12 @@ function emitTrackedEvent(
 }
 
 function requestFirstRunExperiment(authUserId: string) {
+  const onboarding = getAppConfig().onboarding;
+  if (
+    (onboarding.firstRunCreditsExperimentOverride ??
+      onboarding.firstRunCreditsExperiment) !== "v2"
+  )
+    return null;
   const assignment = getRequestContext()?.firstRunBuilderCreditsV2Assignment;
   if (assignment?.authUserId !== authUserId) return null;
   const expected = assignFirstRunBuilderCreditsV2(authUserId);
@@ -429,6 +445,13 @@ export function identify(
   traits?: Record<string, unknown>,
 ): void {
   if (isTrackingSuppressed(userId, traits)) return;
+  withoutWriteObservation(() => identifyWithProviders(userId, traits));
+}
+
+function identifyWithProviders(
+  userId: string,
+  traits?: Record<string, unknown>,
+): void {
   for (const provider of getRegistry().values()) {
     if (!provider.identify) continue;
     try {
@@ -443,6 +466,10 @@ export function identify(
 }
 
 export function flushTracking(): Promise<void[]> {
+  return withoutWriteObservation(flushProviders);
+}
+
+function flushProviders(): Promise<void[]> {
   const promises: Promise<void>[] = [];
   for (const provider of getRegistry().values()) {
     if (!provider.flush) continue;

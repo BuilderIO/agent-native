@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import {
   defineAppConfig,
   resetAppConfigForTests,
@@ -6316,6 +6317,48 @@ describe("server/auth", () => {
       );
     });
 
+    it("lets an operator-listed UI origin send credentials to public CORS paths", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://app.example.com");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        publicPaths: ["/api/public-ingest"],
+        publicCorsPaths: ["/api/public-ingest"],
+      });
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+
+      const preflight = (origin: string) => {
+        const event = createMockEvent({
+          path: "/api/public-ingest",
+          headers: {
+            origin,
+            "access-control-request-method": "POST",
+            "access-control-request-headers": "content-type",
+          },
+        });
+        event.req.method = "OPTIONS";
+        event.node.req.method = "OPTIONS";
+        return event;
+      };
+
+      const listed = preflight("https://app.example.com");
+      await guard(listed);
+      expect(listed.res.headers.get("access-control-allow-credentials")).toBe(
+        "true",
+      );
+
+      const other = preflight("https://clips.agent-native.com");
+      await guard(other);
+      expect(other.res.headers.get("access-control-allow-credentials")).toBe(
+        null,
+      );
+    });
+
     it.each([
       "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
       "https://shakira-professor-conscious-frederick-trycloudflare-com.web-sandbox.oaiusercontent.com",
@@ -10657,6 +10700,89 @@ describe("server/auth", () => {
           ),
         ).resolves.toBeNull();
       });
+    });
+
+    it("accepts only active Better Auth tokens as framework cookies or bearers", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+
+      const database = await createTestPglite();
+      try {
+        await database.exec(`
+          CREATE TABLE sessions (token TEXT PRIMARY KEY, email TEXT, created_at BIGINT NOT NULL);
+          CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT, email_verified BOOLEAN);
+          CREATE TABLE "session" (token TEXT PRIMARY KEY, user_id TEXT, expires_at TIMESTAMPTZ NOT NULL);
+          INSERT INTO "user" VALUES ('user-1', 'session@example.com', TRUE);
+          INSERT INTO "session" VALUES
+            ('active-token', 'user-1', NOW() + INTERVAL '1 hour'),
+            ('expired-token', 'user-1', NOW() - INTERVAL '1 hour');
+        `);
+        vi.doMock("../db/client.js", () => ({
+          getDbExec: () => ({
+            execute: async (
+              input: string | { sql: string; args?: unknown[] },
+            ) => {
+              // raw-sql-ok: this test adapter forwards SQL and bound args unchanged to PGlite.
+              const { sql, args } =
+                typeof input === "string" ? { sql: input, args: [] } : input;
+              const ledger = storeLedgerResult(sql);
+              if (ledger) return ledger;
+              const result = await database.query(sql, args);
+              return {
+                rows: result.rows,
+                rowsAffected: result.affectedRows ?? 0,
+              };
+            },
+          }),
+          isLocalDatabase: () => true,
+          retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        }));
+        vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+          ...(await importOriginal<object>()),
+          getBetterAuth: async () => ({
+            api: { getSession: async () => null },
+          }),
+          getBetterAuthSync: () => null,
+        }));
+        vi.doMock("./legacy-auth-migration.js", () => ({
+          resolveCanonicalUserForLegacySession: async () => null,
+        }));
+        vi.doMock("../org/context.js", () => ({
+          resolveOrgIdForEmailViaEvent: async () => null,
+        }));
+
+        const { COOKIE_NAME, getBrowserCookieSession, getSession } =
+          await import("./auth.js");
+        const cookie = (token: string) =>
+          createMockEvent({ headers: { cookie: `${COOKIE_NAME}=${token}` } });
+        const bearer = (token: string) =>
+          createMockEvent({ headers: { authorization: `Bearer ${token}` } });
+
+        await expect(getSession(bearer("active-token"))).resolves.toMatchObject(
+          {
+            email: "session@example.com",
+          },
+        );
+        await expect(getSession(bearer("expired-token"))).resolves.toBeNull();
+        await expect(getSession(cookie("active-token"))).resolves.toMatchObject(
+          {
+            email: "session@example.com",
+          },
+        );
+        await expect(
+          getBrowserCookieSession(cookie("active-token")),
+        ).resolves.toMatchObject({
+          email: "session@example.com",
+        });
+        await expect(getSession(cookie("expired-token"))).resolves.toBeNull();
+        await expect(
+          getBrowserCookieSession(cookie("expired-token")),
+        ).resolves.toBeNull();
+      } finally {
+        await database.close();
+      }
     });
 
     it("resolves bearer legacy sessions with canonical verification state", async () => {

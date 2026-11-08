@@ -16,6 +16,13 @@ const mocks = vi.hoisted(() => ({
     | ((event: { preventDefault: () => void }) => void)
     | null,
   renderSlide: vi.fn(),
+  shareButtonProps: null as null | {
+    deckId: string;
+    hasSlides: boolean;
+    hideTrigger?: boolean;
+    defaultOpen?: boolean;
+    onOpenChange?: (open: boolean) => void;
+  },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -66,10 +73,17 @@ vi.mock("./SlideRenderer", () => ({
   },
 }));
 
-vi.mock("../editor/ShareDialog", () => ({
-  default: ({ open }: { open?: boolean }) => (
-    <div data-testid="share-dialog" data-open={String(Boolean(open))} />
-  ),
+vi.mock("../editor/DeckShareButton", () => ({
+  DeckShareButton: (props: {
+    deckId: string;
+    hasSlides: boolean;
+    hideTrigger?: boolean;
+    defaultOpen?: boolean;
+    onOpenChange?: (open: boolean) => void;
+  }) => {
+    mocks.shareButtonProps = props;
+    return <div data-testid="deck-share" />;
+  },
 }));
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
@@ -112,6 +126,8 @@ const deck: Deck = {
   title: "Test deck",
   createdAt: "2026-08-07T00:00:00.000Z",
   updatedAt: "2026-08-07T00:00:00.000Z",
+  canEdit: true,
+  canManage: true,
   slides: [
     {
       id: "slide-1",
@@ -187,7 +203,7 @@ describe("DeckCard delete flow", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "home.deleteDeck" }));
     expect(onDelete).not.toHaveBeenCalled();
     expect(mocks.closeAutoFocus).not.toBeNull();
 
@@ -199,6 +215,22 @@ describe("DeckCard delete flow", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onDelete).toHaveBeenCalledOnce();
     expect(onDelete).toHaveBeenCalledWith("deck-1");
+  });
+
+  it("offers no rename or delete to a viewer", () => {
+    render(
+      <DeckCard
+        deck={{ ...deck, canEdit: false, canManage: false }}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onDuplicate={vi.fn()}
+        onToggleStar={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText("home.renameDeck")).toBeNull();
+    expect(screen.queryByText("home.deleteDeck")).toBeNull();
+    expect(screen.getByText("home.duplicateDeck")).toBeTruthy();
   });
 
   it("renders the first-slide preview returned by the light deck listing", () => {
@@ -218,7 +250,7 @@ describe("DeckCard delete flow", () => {
     );
   });
 
-  it("opens sharing after the overflow menu finishes closing", async () => {
+  it("opens the deck's live share panel after the overflow menu finishes closing", async () => {
     render(
       <DeckCard
         deck={deck}
@@ -230,18 +262,21 @@ describe("DeckCard delete flow", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "share.title" }));
-    expect(screen.getByTestId("share-dialog").getAttribute("data-open")).toBe(
-      "false",
-    );
+    expect(screen.queryByTestId("deck-share")).toBeNull();
     const closeEvent = { preventDefault: vi.fn() };
     mocks.closeAutoFocus?.(closeEvent);
     expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
 
-    await waitFor(() =>
-      expect(screen.getByTestId("share-dialog").getAttribute("data-open")).toBe(
-        "true",
-      ),
-    );
+    await waitFor(() => expect(screen.getByTestId("deck-share")).toBeTruthy());
+    expect(mocks.shareButtonProps).toMatchObject({
+      deckId: "deck-1",
+      hasSlides: true,
+      hideTrigger: true,
+      defaultOpen: true,
+    });
+
+    act(() => mocks.shareButtonProps?.onOpenChange?.(false));
+    expect(screen.queryByTestId("deck-share")).toBeNull();
   });
 });
 
@@ -257,7 +292,7 @@ describe("DeckCard rename", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("Rename"));
+    fireEvent.click(screen.getByText("home.renameDeck"));
     act(() => mocks.closeAutoFocus?.({ preventDefault: vi.fn() }));
 
     const input = screen.getByDisplayValue("Test deck") as HTMLInputElement;
@@ -278,7 +313,7 @@ describe("DeckCard rename", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("Rename"));
+    fireEvent.click(screen.getByText("home.renameDeck"));
     mocks.closeAutoFocus?.({ preventDefault: vi.fn() });
     const input = await waitFor(() => screen.getByDisplayValue("Test deck"));
     fireEvent.change(input, { target: { value: "candidate" } });

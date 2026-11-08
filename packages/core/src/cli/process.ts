@@ -3,10 +3,27 @@ import {
   type ChildProcess,
   type SpawnOptions,
 } from "node:child_process";
+import fs from "node:fs";
 import { constants as osConstants } from "node:os";
 
 export const DEV_SERVER_SUPERVISOR_ENV = "AGENT_NATIVE_DEV_SUPERVISOR";
 export const DEV_SERVER_RECOVERY_EXIT_CODE = 86;
+export const DEV_SERVER_READY_FILE_ENV = "AGENT_NATIVE_DEV_READY_FILE";
+/** Set on a workspace deploy's app builds: the deploy reports for all of them. */
+export const WORKSPACE_DEPLOY_BUILD_ENV = "AGENT_NATIVE_WORKSPACE_DEPLOY_BUILD";
+
+/**
+ * Tells `agent-native dev` when this server is first listening. Only the first
+ * call in a run creates the file, so restarts and later workspace apps don't count.
+ */
+export function markDevServerReady(env: NodeJS.ProcessEnv = process.env): void {
+  const file = env[DEV_SERVER_READY_FILE_ENV];
+  if (!file) return;
+  try {
+    fs.writeFileSync(file, String(Date.now()), { flag: "wx" });
+    // coercion-ok: the file already exists, or telemetry can't write it
+  } catch {}
+}
 
 export function cliSpawnOptions(
   options: Pick<SpawnOptions, "env" | "shell" | "stdio"> = {},

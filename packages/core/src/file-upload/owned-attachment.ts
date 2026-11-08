@@ -137,6 +137,16 @@ export function claimOwnedAttachmentHydrationCandidate(
   return true;
 }
 
+/** Return a slot claimed for a URL that turned out not to be ours, so foreign URLs never starve owned ones. */
+export function releaseOwnedAttachmentHydrationCandidate(
+  budget: OwnedAttachmentHydrationBudget,
+): void {
+  budget.remainingCandidates = Math.min(
+    MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
+    budget.remainingCandidates + 1,
+  );
+}
+
 export const createOwnedImageHydrationBudget =
   createOwnedAttachmentHydrationBudget;
 

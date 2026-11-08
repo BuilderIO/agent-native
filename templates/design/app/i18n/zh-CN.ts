@@ -324,6 +324,7 @@ export default {
   common: {
     loading: "正在加载...",
     genericError: "出了点问题",
+    linkedSourceSizeLimit: "此关联组件编辑超出了源代码大小限制。",
   },
   editPanel: {
     colorInputLabel: "颜色",
@@ -420,6 +421,7 @@ export default {
       font: "字体",
       baseSize: "底座尺寸",
       size: "尺寸",
+      fontSizes: "字号阶梯",
       weight: "重量",
       color: "颜色",
       align: "对齐",
@@ -868,6 +870,9 @@ export default {
       bottom: "乙",
       left: "L",
     },
+    fontPicker: {
+      catalogUnavailable: "无法加载完整字体库。",
+    },
     fontFamilies: {
       inherit: "继承",
       sansSerif: "无衬线字体",
@@ -1018,6 +1023,9 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "无法加载此屏幕。",
+    writeFailed: "无法保存该更改。",
+    selectionPublishFailed: "智能体可能看不到你最新的选择。请重新选择。",
     liveCollaboration: {
       title: "实时协作",
       description:
@@ -2587,6 +2595,7 @@ export default {
   },
   homeContext: {
     websiteReference: "添加网站",
+    websiteReferenceMenu: "添加网站…",
     websiteUrlLabel: "网站 URL",
     websiteUrl: "粘贴网站 URL",
     figmaUrlLabel: "Figma 链接",
@@ -2609,10 +2618,12 @@ export default {
     retry: "重试",
     empty: "没有匹配的参考。",
     none: "无",
-    design: "设计",
+    design: "设计参考",
     slides: "幻灯片",
     referenceDesign: "参考设计",
-    figmaReference: "添加 Figma",
+    connectFigma: "连接 Figma",
+    figmaDisconnected: "连接 Figma 以浏览设计。",
+    figmaReference: "Figma 设计",
     referenceDeck: "参考演示文稿",
     quickSaas: "创建 SaaS 落地页",
     quickDashboard: "创建仪表盘",
@@ -2776,8 +2787,6 @@ export default {
       dismiss: "关闭",
     },
     import: "导入",
-    importOptions: "导入选项",
-    figmaLink: "Figma 链接",
     importFromFigma: "从 Figma 导入",
     figmaFile: "Figma 文件 (.fig)",
     figmaFileMaxSize: "最大 {{max}} GB",
@@ -3284,6 +3293,7 @@ export default {
     updateFailed: "无法更新评论",
     commentsInCluster: "群组中的评论：{{count}}",
     moreActions: "更多操作",
+    moreActionsFor: "{{author}} 的更多操作",
     copyLink: "复制链接",
     linkCopied: "链接已复制",
     copyLinkFailed: "无法复制链接",
@@ -3303,6 +3313,7 @@ export default {
     addEmoji: "添加表情",
     mention: "提及某人",
     noMentions: "未找到人员",
+    mentionsFailed: "无法加载人员",
     reopen: "重新打开",
     reopening: "正在重新打开…",
     undo: "撤消",
@@ -3348,7 +3359,6 @@ export default {
     },
     filtersActive: "已应用筛选",
     suggestChanges: "建议修改",
-    replyInThread: "在讨论中回复",
     applyChangesAndResolve: "应用修改并解决",
     agent: {
       sectionLabel: "智能体",

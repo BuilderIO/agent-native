@@ -409,13 +409,6 @@ test("visual-edit snapshot observer reads direct and batched responses", () => {
   expect(snapshotHtmlByFile.get("file-2")).toBe("<h1>Previously hydrated</h1>");
 });
 
-function ownScreenFrame(page: Page) {
-  return page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .contentFrame();
-}
-
 test.describe("public visual edit", () => {
   test.beforeAll(async ({ browser }) => {
     visualEditTargetServer = http.createServer((request, response) => {
@@ -1167,14 +1160,16 @@ test.describe("public visual edit", () => {
     browser,
   }) => {
     const savedBefore = await app.savedHtml(designId);
+    // Every screen in view paints, so the home screen is found by id, not
+    // by iframe order.
+    const homeScreenId = await indexScreenId(browser, designId);
     const signedOut = await openSignedOutPage(browser, `/design/${designId}`);
+    const homeFrame = () => designFrame(signedOut.page, homeScreenId);
     try {
-      await expect(
-        ownScreenFrame(signedOut.page).getByText("E2E Hero Heading"),
-      ).toBeVisible();
-      const publicIframe = signedOut.page
-        .locator("iframe[data-design-preview-iframe]")
-        .last();
+      await expect(homeFrame().getByText("E2E Hero Heading")).toBeVisible();
+      const publicIframe = signedOut.page.locator(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${homeScreenId}"]`,
+      );
       await expect(publicIframe).toBeVisible();
       await publicIframe.evaluate((element) => {
         const frame = element as HTMLIFrameElement & {
@@ -1187,7 +1182,7 @@ test.describe("public visual edit", () => {
             (frame.__publicReadOnlyLoadCount ?? 0) + 1;
         });
       });
-      await ownScreenFrame(signedOut.page)
+      await homeFrame()
         .locator("body")
         .evaluate(() => {
           (window as any).__publicReadOnlyDocumentMarker =
@@ -1214,7 +1209,7 @@ test.describe("public visual edit", () => {
                   rect.height > 0,
               };
             });
-            const documentMarker = await ownScreenFrame(signedOut.page)
+            const documentMarker = await homeFrame()
               .locator("body")
               .evaluate(
                 () => (window as any).__publicReadOnlyDocumentMarker ?? null,
@@ -1241,9 +1236,7 @@ test.describe("public visual edit", () => {
       await signedOut.page.evaluate(() => {
         (window as any).__bridge = [];
       });
-      const heading = ownScreenFrame(signedOut.page)
-        .getByText("E2E Hero Heading")
-        .first();
+      const heading = homeFrame().getByText("E2E Hero Heading").first();
       const headingBox = await heading.boundingBox();
       expect(headingBox).toBeTruthy();
       await signedOut.page.mouse.click(
@@ -1270,9 +1263,7 @@ test.describe("public visual edit", () => {
           ),
         )
         .toBe(false);
-      await expect(
-        ownScreenFrame(signedOut.page).getByText("E2E Hero Heading"),
-      ).toBeVisible();
+      await expect(homeFrame().getByText("E2E Hero Heading")).toBeVisible();
       await expectStablePublicPreview();
 
       await signedOut.page.keyboard.press(SHORTCUT);
@@ -1564,15 +1555,16 @@ test.describe("public visual edit", () => {
     await expect(allScreensButton).toHaveAttribute("aria-current", "page");
 
     await page.getByRole("button", { name: /^share$/i }).click();
-    await expect(
-      page.getByText("Live canvas link", { exact: true }),
-    ).toBeVisible();
+    const copyLiveCanvasLink = page
+      .getByRole("button", { name: "Copy link", exact: true })
+      .and(page.getByTitle("Live canvas link", { exact: true }));
+    await expect(copyLiveCanvasLink).toBeVisible();
     await page
       .context()
       .grantPermissions(["clipboard-read", "clipboard-write"], {
         origin: new URL(page.url()).origin,
       });
-    await page.getByRole("button", { name: "Copy", exact: true }).click();
+    await copyLiveCanvasLink.click();
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
       .toContain(`/visual-edit/${collaborationDesignId}?share=1`);

@@ -9,6 +9,7 @@ vi.mock("../db/index.js", () => ({
       ownerEmail: "ownerEmail",
       title: "title",
       data: "data",
+      contentHash: "contentHash",
       createdAt: "createdAt",
       chatContext: "chatContext",
       changeGroup: "changeGroup",
@@ -28,13 +29,16 @@ import {
   createDeckVersionSnapshot,
   deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
+  deckVersionContentHash,
   deckVersionContentSignature,
 } from "./deck-versions.js";
 
 let latestVersion:
   | {
+      id?: string;
       title: string;
       data: string;
+      contentHash?: string | null;
       createdAt: string;
       chatContext?: string | null;
     }
@@ -42,16 +46,25 @@ let latestVersion:
 const insertedVersions: unknown[] = [];
 let insertedRows: unknown[] = [];
 let conflictInsert = false;
+const selectedProjections: string[][] = [];
 const db = {
-  select: () => ({
-    from: () => ({
-      where: () => ({
-        orderBy: () => ({
-          limit: async () => (latestVersion ? [latestVersion] : []),
+  select: (projection: Record<string, unknown>) => {
+    selectedProjections.push(Object.keys(projection));
+    return {
+      from: () => ({
+        where: () => ({
+          orderBy: () => ({
+            limit: async () =>
+              latestVersion
+                ? [{ contentHash: null, ...latestVersion, data: undefined }]
+                : [],
+          }),
+          limit: async () =>
+            latestVersion ? [{ data: latestVersion.data }] : [],
         }),
       }),
-    }),
-  }),
+    };
+  },
   insert: () => ({
     values: (value: unknown) => {
       insertedVersions.push(value);
@@ -98,6 +111,76 @@ describe("deck version snapshot deduplication", () => {
     insertedVersions.length = 0;
     insertedRows = [{ id: "version-1" }];
     conflictInsert = false;
+    selectedProjections.length = 0;
+  });
+
+  it("skips an editor save inside the interval without reading an old body", async () => {
+    latestVersion = {
+      id: "version-0",
+      title: "Deck",
+      data: JSON.stringify({ slides: [{ id: "s1", content: "old" }] }),
+      createdAt: new Date().toISOString(),
+    };
+
+    await expect(
+      createDeckVersionSnapshot(
+        {
+          id: "deck-1",
+          title: "Deck",
+          data: JSON.stringify({ slides: [{ id: "s1", content: "new" }] }),
+          ownerEmail: "owner@example.com",
+        },
+        { db: db as unknown as ReturnType<typeof getDb> },
+      ),
+    ).resolves.toEqual({ created: false, reason: "interval" });
+    expect(selectedProjections).toEqual([
+      ["id", "title", "contentHash", "createdAt", "chatContext"],
+    ]);
+  });
+
+  it("compares the stored content hash instead of the old body", async () => {
+    const data = JSON.stringify({ slides: [{ id: "s1", content: "same" }] });
+    latestVersion = {
+      id: "version-0",
+      title: "Deck",
+      data: "not read",
+      contentHash: deckVersionContentHash(data),
+      createdAt: "2026-09-03T00:00:00.000Z",
+    };
+
+    await expect(
+      createDeckVersionSnapshot(
+        {
+          id: "deck-1",
+          title: "Deck",
+          data,
+          ownerEmail: "owner@example.com",
+        },
+        { db: db as unknown as ReturnType<typeof getDb> },
+      ),
+    ).resolves.toEqual({ created: false, reason: "duplicate" });
+    expect(selectedProjections).toHaveLength(1);
+  });
+
+  it("hashes a legacy version body once and stores the hash on new versions", async () => {
+    latestVersion = {
+      id: "version-0",
+      title: "Deck",
+      data: JSON.stringify({ slides: [{ id: "s1", content: "old" }] }),
+      createdAt: "2026-09-03T00:00:00.000Z",
+    };
+    const data = JSON.stringify({ slides: [{ id: "s1", content: "new" }] });
+
+    await expect(
+      createDeckVersionSnapshot(
+        { id: "deck-1", title: "Deck", data, ownerEmail: "owner@example.com" },
+        { db: db as unknown as ReturnType<typeof getDb> },
+      ),
+    ).resolves.toMatchObject({ created: true });
+    expect(selectedProjections.at(1)).toEqual(["data"]);
+    expect(insertedVersions).toEqual([
+      expect.objectContaining({ contentHash: deckVersionContentHash(data) }),
+    ]);
   });
 
   it("ignores updatedAt when checking for duplicate deck content", () => {

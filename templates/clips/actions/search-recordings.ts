@@ -196,6 +196,11 @@ export default defineAction({
             recordingAccess,
           ),
           lifecycleFilter,
+          or(
+            ownerFilter,
+            isNull(schema.recordings.password),
+            eq(schema.recordings.password, ""),
+          ),
           sql`lower(${schema.recordingTranscripts.fullText}) LIKE ${pattern} ESCAPE '\\'`,
         ),
       )

@@ -268,6 +268,8 @@ export default {
   common: {
     loading: "Loading...",
     genericError: "Something went wrong",
+    linkedSourceSizeLimit:
+      "This linked component edit exceeds the source size limit.",
   },
   editPanel: {
     colorInputLabel: "color",
@@ -364,6 +366,7 @@ export default {
       font: "Font",
       baseSize: "Base Size",
       size: "Size",
+      fontSizes: "Type scale",
       weight: "Weight",
       color: "Color",
       align: "Align",
@@ -813,6 +816,9 @@ export default {
       bottom: "B",
       left: "L",
     },
+    fontPicker: {
+      catalogUnavailable: "Couldn't load the full font library.",
+    },
     fontFamilies: {
       inherit: "Inherit",
       sansSerif: "Sans Serif",
@@ -963,6 +969,10 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "Could not load this screen.",
+    writeFailed: "Couldn't save that change.",
+    selectionPublishFailed:
+      "The agent may not see your latest selection. Select it again.",
     liveCollaboration: {
       title: "Live collaboration",
       description:
@@ -2607,6 +2617,7 @@ export default {
   },
   homeContext: {
     websiteReference: "Add website",
+    websiteReferenceMenu: "Add website…",
     websiteUrlLabel: "Website URL",
     websiteUrl: "Paste a website URL",
     figmaUrlLabel: "Figma link",
@@ -2631,10 +2642,12 @@ export default {
     retry: "Retry",
     empty: "No matching references.",
     none: "None",
-    design: "Design",
+    design: "Design references",
     slides: "Slides",
     referenceDesign: "Reference a design",
-    figmaReference: "Add Figma",
+    connectFigma: "Connect Figma",
+    figmaDisconnected: "Connect Figma to browse designs.",
+    figmaReference: "Figma design",
     referenceDeck: "Reference a presentation",
     quickSaas: "Create a SaaS landing page",
     quickDashboard: "Create a dashboard",
@@ -2798,8 +2811,6 @@ export default {
       dismiss: "Dismiss",
     },
     import: "Import",
-    importOptions: "Import options",
-    figmaLink: "Figma link",
     importFromFigma: "Import from Figma",
     figmaFile: "Figma file (.fig)",
     figmaFileMaxSize: "Up to {{max}} GB",
@@ -3326,6 +3337,7 @@ export default {
     updateFailed: "Could not update the comment",
     commentsInCluster: "Comments in cluster: {{count}}",
     moreActions: "More actions",
+    moreActionsFor: "More actions for {{author}}",
     copyLink: "Copy link",
     linkCopied: "Link copied",
     copyLinkFailed: "Could not copy link",
@@ -3345,6 +3357,7 @@ export default {
     addEmoji: "Add emoji",
     mention: "Mention someone",
     noMentions: "No people found",
+    mentionsFailed: "Couldn't load people",
     reopen: "Reopen",
     reopening: "Reopening…",
     undo: "Undo",
@@ -3396,7 +3409,6 @@ export default {
     },
     filtersActive: "Filters applied",
     suggestChanges: "Suggest changes",
-    replyInThread: "Reply in thread",
     applyChangesAndResolve: "Apply changes and resolve",
     agent: {
       sectionLabel: "Agents",

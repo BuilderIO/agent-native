@@ -9,11 +9,17 @@ import {
 
 async function loadSignOut() {
   vi.resetModules();
-  const [{ signOut }, { isSigningOut, useSession }] = await Promise.all([
-    import("./sign-out.js"),
-    import("./use-session.js"),
-  ]);
-  return { signOut, isSigningOut, useSession };
+  const [
+    { signOut, registerSignOutCleanup, SignOutCleanupError },
+    { isSigningOut, useSession },
+  ] = await Promise.all([import("./sign-out.js"), import("./use-session.js")]);
+  return {
+    signOut,
+    registerSignOutCleanup,
+    SignOutCleanupError,
+    isSigningOut,
+    useSession,
+  };
 }
 
 let replace: ReturnType<typeof vi.fn>;
@@ -87,6 +93,76 @@ describe("signOut", () => {
     } finally {
       unregister();
     }
+  });
+
+  it("runs registered app cleanup before revoking the session", async () => {
+    const { signOut, registerSignOutCleanup } = await loadSignOut();
+    const order: string[] = [];
+    const unregister = registerSignOutCleanup(async () => {
+      order.push("clear-app-data");
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        order.push("revoke-session");
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }),
+    );
+
+    try {
+      await signOut();
+      expect(order).toEqual(["clear-app-data", "revoke-session"]);
+    } finally {
+      unregister();
+    }
+  });
+
+  it("fails before changing session state when registered app cleanup fails", async () => {
+    const {
+      signOut,
+      registerSignOutCleanup,
+      SignOutCleanupError,
+      isSigningOut,
+    } = await loadSignOut();
+    const session = await import("./use-session.js");
+    const begin = vi.spyOn(session, "beginSignOut");
+    window.sessionStorage.removeItem(BETA_REDIRECT_SIGN_OUT_STORAGE_KEY);
+    const unregister = registerSignOutCleanup(async () => {
+      throw new Error("synthetic cleanup failure");
+    });
+    const request = vi.fn();
+    vi.stubGlobal("fetch", request);
+
+    try {
+      await expect(signOut()).rejects.toBeInstanceOf(SignOutCleanupError);
+      expect(begin).not.toHaveBeenCalled();
+      expect(isSigningOut()).toBe(false);
+      expect(request).not.toHaveBeenCalled();
+      expect(replace).not.toHaveBeenCalled();
+      expect(
+        window.sessionStorage.getItem(BETA_REDIRECT_SIGN_OUT_STORAGE_KEY),
+      ).toBeNull();
+    } finally {
+      unregister();
+    }
+  });
+
+  it("does not run an app cleanup after it has been unregistered", async () => {
+    const { signOut, registerSignOutCleanup } = await loadSignOut();
+    const cleanup = vi.fn();
+    const unregister = registerSignOutCleanup(cleanup);
+    unregister();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      ),
+    );
+
+    await signOut();
+
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(replace).toHaveBeenCalledTimes(1);
   });
 
   it("forgets what the recorder kept before it asks the server to revoke the session", async () => {

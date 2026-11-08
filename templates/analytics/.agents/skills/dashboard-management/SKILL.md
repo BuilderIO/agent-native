@@ -501,23 +501,41 @@ declare `config.drilldown: { sql: "…" }`
 to open records for a clicked point instead of aggregate rows. The template
 receives the dashboard filters plus `{{drillX}}` (raw x-axis value) and
 `{{drillSeries}}` (raw series key, or empty when absent), escaped for the source.
-In declared BigQuery templates, scalar variables must be inside ordinary quoted strings, and `:list` variables
-must be standalone SQL tokens, such as inside `IN ({{appFilter:list}})`.
+In declared BigQuery templates, variables must be inside ordinary quoted strings.
 Lookup rejects variables in raw literals, identifiers or comments, variables
-right after a string's backslash escape, variables touching a quote other than
-a triple-quoted string's own delimiters (an empty value could join the quotes),
-and variables attached to SQL identifiers or literal prefixes. Doubled quotes
+right after a string's backslash escape, and variables touching a quote other
+than a triple-quoted string's own delimiters (an empty value could join the
+quotes). Doubled quotes
 (`''`) are refused too: GoogleSQL reads them as two literals, so escape quotes
 with a backslash. Static raw regex literals are allowed.
 Declared first-party templates follow the same position rules in PostgreSQL
-syntax: scalar variables go inside plain `'…'` strings (`''` escapes a quote),
+syntax: variables go inside plain `'…'` strings (`''` escapes a quote),
 never in `"…"` identifiers. Lookup also refuses `E`, `U&`, `B`, `X` and `N`
 strings, a prefix touching its quote (write `DATE '2026-10-01'`), `$`,
 backticks or `#` outside strings, and nested block comments.
 Declared record templates do not support `{{?variable}}…{{/variable}}`
 blocks, which could assemble new literal contexts after validation. Use SQL
 `CASE` expressions with ordinary variables for optional filters.
-Its SQL can return `COUNT(*) OVER () AS total_matching` alongside a bounded
+
+**Record templates can't use `:list` variables.** With nothing selected,
+`{{appFilter:list}}` renders as the bare name `__empty_list_filter__`. BigQuery
+and PostgreSQL reject that name even inside a `CASE` branch that never runs, so
+`IN ({{appFilter:list}})` fails every click until someone picks a value. Under
+an `all` option, such as the first-party app filter's default, it renders as
+`'all'` and matches no rows. Match the comma-joined scalar instead, and treat
+both an empty value and `all` as every app. In BigQuery:
+`('{{appFilter}}' IN ('', 'all') OR app IN UNNEST(SPLIT('{{appFilter}}', ',')))`.
+In first-party SQL, which can also run on BigQuery:
+`('{{appFilter}}' IN ('', 'all') OR STRPOS(',' || '{{appFilter}}' || ',', ',' || app || ',') > 0)`.
+An agent dashboard write that adds or changes a template with a `:list`
+variable is refused with these patterns, and one with a `{{?…}}` block is
+refused with the `CASE` advice above. A template saved earlier with `:list`
+fails every click, even with values selected, until it is rewritten to one of
+these patterns. The other rules
+above are checked only when someone clicks, and a failed click shows just
+"Couldn't load records".
+
+A record template can return `COUNT(*) OVER () AS total_matching` alongside a bounded
 record list such as `LIMIT 500`; the dialog hides that count column and reports
 truncation. Without a valid count, the total and export completeness remain
 unknown. Provider partial results also have unknown totals, even if a count is
@@ -717,6 +735,8 @@ and a predicate that consumes the declared filter, such as
 its options; date variables must have a matching date-range filter. The server
 rejects unbound first-party SQL during dashboard validation.
 
+**Traffic.** `traffic_environment` is a reserved filter id for first-party panels, with the values `all`, `production` and `beta` (beta includes PR previews and local runs). It never appears in panel SQL; reads apply it through the query scope, so don't add a hostname condition for it. A dashboard created by `compose-dashboard` or by `update-dashboard` with a new id starts with it set to `production`; a duplicate keeps its source's value, and one from folder sync, a Sigma migration or a template clone starts without it. One saved without it shows the menu on `all` until someone saves a default view with another value. A report saved without `f_traffic_environment` reads all traffic whatever the dashboard shows; set it in the report's `filters` to switch. Save verification reads all traffic unless `filters` names one, and refuses a first-party panel the dashboard's default traffic can't load, such as a rollup with no start date. Alerts always read all traffic. `get-traffic-counts` reports the events counted as production only because they have no host and no recognized environment.
+
 **Filter ids must be unique.** Two filters with the same `id` collide on the same URL param, so changing one visibly updates the other in the UI. The dashboard save endpoint rejects duplicates with a 400.
 
 **Use `type: "date-range"` for paired start/end dates.** Don't add two `type: "date"` filters labeled "Start" and "End" — even with distinct ids, that ships the wrong UX. A single date-range filter renders as the "from … to …" pair and exposes both halves to SQL via `{{<id>Start}}` / `{{<id>End}}`.
@@ -735,7 +755,7 @@ Use conditional blocks for optional filters:
 {{?plan}}AND plan IN ({{plan:list}}){{/plan}}
 ```
 
-An unwrapped `{{<id>:list}}` with no selection fails the query on purpose. Option values must not contain commas.
+An unwrapped `{{<id>:list}}` with no selection fails the query on purpose. Option values must not contain commas. Drill-down record templates can't use `:list` or `{{?…}}` blocks; match the comma-joined value as `config.drilldown` above describes.
 
 To offer a named group of values, give the multi-select `presets`, such as `"presets": [{ "label": "Launch apps", "values": ["clips", "slides", "design"] }]`. Each preset shows as a button beside Select all in the dropdown, and picking it replaces only that filter's selection, so the other filters keep their values. Every value must be one of the filter's options. Use a preset rather than a saved view when the user wants a shortcut for one filter: a saved view replaces every filter. In Edit mode, people manage presets themselves at the bottom of the dropdown: checking two or more values that no preset matches offers Save as group, which appends the same `presets` entry, and a selection that matches a preset offers Rename group and Delete group for that entry. Treat a preset you did not write as someone's saved choice and keep it unless asked.
 

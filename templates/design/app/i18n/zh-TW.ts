@@ -305,6 +305,7 @@ export default {
     updateFailed: "無法更新評論",
     commentsInCluster: "群組中的評論：{{count}}",
     moreActions: "更多操作",
+    moreActionsFor: "{{author}} 的更多操作",
     copyLink: "複製連結",
     linkCopied: "連結已複製",
     copyLinkFailed: "無法複製連結",
@@ -324,6 +325,7 @@ export default {
     addEmoji: "新增表情符號",
     mention: "提及某人",
     noMentions: "找不到人員",
+    mentionsFailed: "無法載入人員",
     reopen: "重新開啟",
     reopening: "正在重新開啟…",
     undo: "復原",
@@ -369,7 +371,6 @@ export default {
     },
     filtersActive: "已套用篩選",
     suggestChanges: "建議修改",
-    replyInThread: "在討論串中回覆",
     applyChangesAndResolve: "套用修改並解決",
     agent: {
       sectionLabel: "代理",
@@ -473,6 +474,7 @@ export default {
   common: {
     loading: "載入中...",
     genericError: "出了點問題",
+    linkedSourceSizeLimit: "此連結元件編輯超過了來源大小限制。",
   },
   editPanel: {
     repeatAffectsAll: "影響全部 {{count}} 個副本",
@@ -585,6 +587,7 @@ export default {
       font: "字型",
       baseSize: "底座尺寸",
       size: "尺寸",
+      fontSizes: "字級階梯",
       weight: "重量",
       color: "顏色",
       align: "對齊",
@@ -1033,6 +1036,9 @@ export default {
       bottom: "乙",
       left: "L",
     },
+    fontPicker: {
+      catalogUnavailable: "無法載入完整字型庫。",
+    },
     fontFamilies: {
       inherit: "繼承",
       sansSerif: "無襯線字型",
@@ -1167,6 +1173,9 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "無法載入此畫面。",
+    writeFailed: "無法儲存該變更。",
+    selectionPublishFailed: "代理程式可能看不到你最新的選取內容。請重新選取。",
     liveCollaboration: {
       title: "即時協作",
       description:
@@ -2747,6 +2756,7 @@ export default {
   },
   homeContext: {
     websiteReference: "新增網站",
+    websiteReferenceMenu: "新增網站…",
     websiteUrlLabel: "網站 URL",
     websiteUrl: "貼上網站 URL",
     figmaUrlLabel: "Figma 連結",
@@ -2769,10 +2779,12 @@ export default {
     retry: "重試",
     empty: "沒有相符的參考。",
     none: "無",
-    design: "設計",
+    design: "設計參考",
     slides: "投影片",
     referenceDesign: "參考設計",
-    figmaReference: "新增 Figma",
+    connectFigma: "連接 Figma",
+    figmaDisconnected: "連接 Figma 以瀏覽設計。",
+    figmaReference: "Figma 設計",
     referenceDeck: "參考簡報",
     quickSaas: "建立 SaaS 登陸頁",
     quickDashboard: "建立儀表板",
@@ -2936,8 +2948,6 @@ export default {
       dismiss: "關閉",
     },
     import: "匯入",
-    importOptions: "匯入選項",
-    figmaLink: "Figma 連結",
     importFromFigma: "從 Figma 匯入",
     figmaFile: "Figma 檔案 (.fig)",
     figmaFileMaxSize: "最大 {{max}} GB",

@@ -334,6 +334,8 @@ export default {
   common: {
     loading: "लोड हो रहा है...",
     genericError: "कुछ गलत हो गया",
+    linkedSourceSizeLimit:
+      "यह लिंक किए गए घटक का संपादन स्रोत आकार सीमा से अधिक है।",
   },
   editPanel: {
     colorInputLabel: "रंग",
@@ -430,6 +432,7 @@ export default {
       font: "फ़ॉन्ट",
       baseSize: "आधार आकार",
       size: "आकार",
+      fontSizes: "टाइप स्केल",
       weight: "वज़न",
       color: "रंग",
       align: "संरेखित",
@@ -879,6 +882,9 @@ export default {
       bottom: "बी",
       left: "एल",
     },
+    fontPicker: {
+      catalogUnavailable: "पूरी फ़ॉन्ट लाइब्रेरी लोड नहीं हो सकी।",
+    },
     fontFamilies: {
       inherit: "इनहेरिट",
       sansSerif: "सान्स सेरिफ़",
@@ -1029,6 +1035,10 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "यह स्क्रीन लोड नहीं हो सकी।",
+    writeFailed: "वह बदलाव सहेजा नहीं जा सका।",
+    selectionPublishFailed:
+      "एजेंट शायद आपका नवीनतम चयन नहीं देख पाएगा। उसे फिर से चुनें।",
     liveCollaboration: {
       title: "लाइव सहयोग",
       description:
@@ -2651,6 +2661,7 @@ export default {
   },
   homeContext: {
     websiteReference: "वेबसाइट जोड़ें",
+    websiteReferenceMenu: "वेबसाइट जोड़ें…",
     websiteUrlLabel: "वेबसाइट URL",
     websiteUrl: "वेबसाइट का URL पेस्ट करें",
     figmaUrlLabel: "Figma लिंक",
@@ -2675,10 +2686,12 @@ export default {
     retry: "फिर प्रयास करें",
     empty: "कोई मिलते-जुलते संदर्भ नहीं हैं।",
     none: "कोई नहीं",
-    design: "डिज़ाइन",
+    design: "डिज़ाइन संदर्भ",
     slides: "स्लाइड",
     referenceDesign: "डिज़ाइन को संदर्भ बनाएँ",
-    figmaReference: "Figma जोड़ें",
+    connectFigma: "Figma कनेक्ट करें",
+    figmaDisconnected: "डिज़ाइन ब्राउज़ करने के लिए Figma कनेक्ट करें।",
+    figmaReference: "Figma डिज़ाइन",
     referenceDeck: "प्रस्तुति को संदर्भ बनाएँ",
     quickSaas: "SaaS लैंडिंग पेज बनाएँ",
     quickDashboard: "डैशबोर्ड बनाएँ",
@@ -2842,8 +2855,6 @@ export default {
       dismiss: "बंद करें",
     },
     import: "आयात करें",
-    importOptions: "आयात विकल्प",
-    figmaLink: "Figma लिंक",
     importFromFigma: "Figma से आयात करें",
     figmaFile: "Figma फ़ाइल (.fig)",
     figmaFileMaxSize: "अधिकतम {{max}} GB",
@@ -3365,6 +3376,7 @@ export default {
     updateFailed: "टिप्पणी अपडेट नहीं की जा सकी",
     commentsInCluster: "क्लस्टर में टिप्पणियाँ: {{count}}",
     moreActions: "अधिक कार्रवाइयाँ",
+    moreActionsFor: "{{author}} के लिए अधिक कार्रवाइयाँ",
     copyLink: "लिंक कॉपी करें",
     linkCopied: "लिंक कॉपी हो गया",
     copyLinkFailed: "लिंक कॉपी नहीं किया जा सका",
@@ -3384,6 +3396,7 @@ export default {
     addEmoji: "इमोजी जोड़ें",
     mention: "किसी को मेंशन करें",
     noMentions: "कोई व्यक्ति नहीं मिला",
+    mentionsFailed: "लोगों को लोड नहीं किया जा सका",
     reopen: "फिर से खोलें",
     reopening: "फिर से खोला जा रहा है…",
     undo: "पहले जैसा करें",
@@ -3433,7 +3446,6 @@ export default {
     },
     filtersActive: "फ़िल्टर लागू हैं",
     suggestChanges: "बदलाव सुझाएँ",
-    replyInThread: "थ्रेड में जवाब दें",
     applyChangesAndResolve: "बदलाव लागू करें और हल करें",
     agent: {
       sectionLabel: "एजेंट",

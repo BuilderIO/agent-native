@@ -3542,7 +3542,7 @@ it(
 );
 
 it(
-  "a plain click selects the top-level layer inside a screen, as on the board",
+  "a plain click selects content inside a screen and its top-level layer on the board",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -3602,7 +3602,7 @@ it(
 
       const screen = await openSurface(false);
       const board = await openSurface(true);
-      expect(screen.selectedId).toBe("screen");
+      expect(screen.selectedId).toBe("heading");
       expect(board.selectedId).toBe("screen");
       expect(pageErrors).toEqual([]);
     } finally {
