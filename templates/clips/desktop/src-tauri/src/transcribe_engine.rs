@@ -105,6 +105,9 @@ struct CopyUse {
     holders: AtomicUsize,
     /// True once a warm-up has run on this copy.
     warm: AtomicBool,
+    /// Set when a release found runs holding this copy. The last of them to
+    /// hand it back unloads it, unless [`ModelSlot::keep`] wanted it again.
+    release_waiting: AtomicBool,
 }
 
 const STREAMING: usize = usize::MAX;
@@ -139,11 +142,16 @@ impl CopyUse {
         }
     }
 
-    fn give_back(&self, kind: HoldKind) {
+    /// True when this was the last run on a copy a release is waiting for.
+    fn give_back(&self, kind: HoldKind) -> bool {
         match kind {
-            HoldKind::Stream => self.holders.store(0, Ordering::SeqCst),
+            HoldKind::Stream => {
+                self.holders.store(0, Ordering::SeqCst);
+                false
+            }
             HoldKind::Run => {
-                self.holders.fetch_sub(1, Ordering::SeqCst);
+                self.holders.fetch_sub(1, Ordering::SeqCst) == 1
+                    && self.release_waiting.load(Ordering::SeqCst)
             }
         }
     }
@@ -217,16 +225,18 @@ impl Leases {
 }
 
 /// One caller's hold on a copy, handed back when it drops.
-struct Hold<'a> {
+struct Hold<'a, M: Clone> {
     copy: Arc<CopyUse>,
     kind: HoldKind,
-    leases: &'a Leases,
+    slot: &'a ModelSlot<M>,
 }
 
-impl Drop for Hold<'_> {
+impl<M: Clone> Drop for Hold<'_, M> {
     fn drop(&mut self) {
-        self.copy.give_back(self.kind);
-        self.leases.give_back();
+        if self.copy.give_back(self.kind) {
+            self.slot.unload_released(&self.copy);
+        }
+        self.slot.leases.give_back();
     }
 }
 
@@ -235,7 +245,7 @@ impl Drop for Hold<'_> {
 /// session are gone.
 pub(crate) struct StreamLease<'a, M: Clone = Model> {
     model: M,
-    hold: Hold<'a>,
+    hold: Hold<'a, M>,
 }
 
 impl<M: Clone> StreamLease<'_, M> {
@@ -258,7 +268,7 @@ impl<M: Clone> StreamLease<'_, M> {
 /// would be refused or held back by transcribe.cpp.
 pub(crate) struct RunLease<'a, M: Clone = Model> {
     model: M,
-    hold: Hold<'a>,
+    hold: Hold<'a, M>,
 }
 
 impl<'a, M: Clone> RunLease<'a, M> {
@@ -268,7 +278,7 @@ impl<'a, M: Clone> RunLease<'a, M> {
 
     /// Another run lease on the same copy, for a second worker.
     pub(crate) fn share(&self) -> Result<RunLease<'a, M>, String> {
-        if !self.hold.leases.open() {
+        if !self.hold.slot.leases.open() {
             return Err(QUITTING.to_owned());
         }
         // A run already holds the copy, so no stream can: this always takes.
@@ -279,7 +289,7 @@ impl<'a, M: Clone> RunLease<'a, M> {
             hold: Hold {
                 copy: self.hold.copy.clone(),
                 kind: HoldKind::Run,
-                leases: self.hold.leases,
+                slot: self.hold.slot,
             },
         })
     }
@@ -341,7 +351,7 @@ impl<M: Clone> ModelSlot<M> {
         }
     }
 
-    fn hold(&self, copy: &Arc<CopyUse>, kind: HoldKind) -> Result<Hold<'_>, LeaseRefused> {
+    fn hold(&self, copy: &Arc<CopyUse>, kind: HoldKind) -> Result<Hold<'_, M>, LeaseRefused> {
         if !self.leases.open() {
             return Err(LeaseRefused::Quitting);
         }
@@ -356,7 +366,7 @@ impl<M: Clone> ModelSlot<M> {
         Ok(Hold {
             copy: copy.clone(),
             kind,
-            leases: &self.leases,
+            slot: self,
         })
     }
 
@@ -413,27 +423,63 @@ impl<M: Clone> ModelSlot<M> {
         })
     }
 
-    /// Unloads the model at `path` if it is the resident one and no one-shot
-    /// runs hold it. Emptying the slot under a meeting's runs would let the
-    /// other model load beside them, so their copy stays until a load finds
-    /// it free. A live stream that still holds it keeps it alive until it
-    /// finishes.
+    /// Unloads the model at `path` if it is the resident one, and says
+    /// whether it did. Emptying the slot under a meeting's runs would let the
+    /// other model load beside them, so their copy stays resident and the
+    /// last run to hand it back unloads it. A live stream that still holds it
+    /// keeps it alive until it finishes.
     pub(crate) fn release(&self, path: &Path) -> Result<bool, String> {
         let _loading = lock(&self.loading);
         let released = {
             let mut resident = lock(&self.resident);
-            let matches = resident
-                .as_ref()
-                .is_some_and(|resident| resident.path == path && !resident.copy.held_by_runs());
-            if matches {
+            let Some(current) = resident.as_ref().filter(|resident| resident.path == path) else {
+                return Ok(false);
+            };
+            // Set before the runs are counted: a run handing the copy back in
+            // between then sees it and unloads the copy itself.
+            current.copy.release_waiting.store(true, Ordering::SeqCst);
+            let free = !current.copy.held_by_runs();
+            if free {
                 *resident = None;
             }
-            matches
+            free
         };
         if released {
             self.changed();
         }
         Ok(released)
+    }
+
+    /// Cancels a release still waiting on the runs that hold `path`'s copy,
+    /// for when that model is wanted again.
+    pub(crate) fn keep(&self, path: &Path) {
+        if let Some(current) = lock(&self.resident)
+            .as_ref()
+            .filter(|resident| resident.path == path)
+        {
+            current.copy.release_waiting.store(false, Ordering::SeqCst);
+        }
+    }
+
+    /// Called by the last run to hand back a copy a release was waiting for.
+    fn unload_released(&self, copy: &Arc<CopyUse>) {
+        let unloaded = {
+            let mut resident = lock(&self.resident);
+            let waiting = resident.as_ref().is_some_and(|current| {
+                Arc::ptr_eq(&current.copy, copy)
+                    && current.copy.release_waiting.load(Ordering::SeqCst)
+                    && !current.copy.held_by_runs()
+            });
+            if waiting {
+                resident.take()
+            } else {
+                None
+            }
+        };
+        if unloaded.is_some() {
+            drop(unloaded);
+            self.changed();
+        }
     }
 
     /// Loads `path` only when no model is resident, so a background prewarm
@@ -488,7 +534,11 @@ impl<M: Clone> ModelSlot<M> {
     /// retired, so the slot never keeps a model a stuck stream is holding. A
     /// stream asking for a copy runs hold gets [`IN_USE`] at once. Call with
     /// `loading` held.
-    fn hold_resident(&self, path: &Path, kind: HoldKind) -> Result<Option<(M, Hold<'_>)>, String> {
+    fn hold_resident(
+        &self,
+        path: &Path,
+        kind: HoldKind,
+    ) -> Result<Option<(M, Hold<'_, M>)>, String> {
         let deadline = Instant::now() + MODEL_HANDBACK_WAIT;
         loop {
             let mut resident = lock(&self.resident);
@@ -560,7 +610,7 @@ impl<M: Clone> ModelSlot<M> {
 
     /// Replaces the resident model with a fresh copy of `path`, with a `kind`
     /// hold already on it. Call with `loading` held.
-    fn load_into_slot(&self, path: &Path, kind: HoldKind) -> Result<(M, Hold<'_>), String> {
+    fn load_into_slot(&self, path: &Path, kind: HoldKind) -> Result<(M, Hold<'_, M>), String> {
         if self.leases.is_closed() {
             return Err(QUITTING.to_owned());
         }
@@ -995,6 +1045,8 @@ pub(crate) mod tests {
         let parakeet = Path::new("parakeet.gguf");
         let slot = ModelSlot::new(fake_load);
         let (meeting, _) = slot.lease_for_run(parakeet).unwrap();
+        let (second_run, _) = slot.lease_for_run(parakeet).unwrap();
+        let copy = Arc::downgrade(meeting.model());
 
         assert!(!slot.release(parakeet).unwrap());
         assert_eq!(
@@ -1003,8 +1055,28 @@ pub(crate) mod tests {
             "the other model doesn't load beside the meeting's"
         );
         drop(meeting);
+        assert!(copy.upgrade().is_some(), "a run still holds it");
+        drop(second_run);
 
-        assert!(slot.release(parakeet).unwrap(), "unloads once the runs end");
+        assert!(copy.upgrade().is_none(), "the last run unloads it");
+        assert!(!slot.release(parakeet).unwrap(), "nothing left to release");
+    }
+
+    /// The user picks another engine during a meeting, then Parakeet again.
+    #[test]
+    fn a_model_wanted_again_stays_once_the_runs_end() {
+        let parakeet = Path::new("parakeet.gguf");
+        let slot = ModelSlot::new(fake_load);
+        let (meeting, _) = slot.lease_for_run(parakeet).unwrap();
+        let copy = Arc::downgrade(meeting.model());
+
+        assert!(!slot.release(parakeet).unwrap());
+        slot.keep(parakeet);
+        drop(meeting);
+
+        assert!(copy.upgrade().is_some(), "still resident");
+        let (_, loaded) = slot.lease_for_run(parakeet).unwrap();
+        assert!(!loaded, "the next run gets the same copy");
     }
 
     #[test]
