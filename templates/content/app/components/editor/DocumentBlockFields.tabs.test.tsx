@@ -1456,6 +1456,32 @@ describe("DocumentBlockFields tabs", () => {
       );
     });
 
+    it("gives a refused delete's own reason, without the action's name", async () => {
+      mocks.remove.mockRejectedValueOnce(
+        Object.assign(
+          new Error(
+            "Action delete-document-property failed: The Notes tab has a rule that freezes it, so it can't be deleted.",
+          ),
+          {
+            errorCode: "COLUMN_RULE_IN_USE",
+            actionMessage:
+              "The Notes tab has a rule that freezes it, so it can't be deleted.",
+          },
+        ),
+      );
+      await render();
+      await rightClick(tab("notes"));
+      await choose("[data-block-field-delete]");
+      await confirmDelete();
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "editor.deleteBlockFieldFailed",
+        {
+          description:
+            "The Notes tab has a rule that freezes it, so it can't be deleted.",
+        },
+      );
+    });
+
     it("stays on a tab whose delete failed", async () => {
       mocks.remove.mockRejectedValueOnce(new Error("Offline"));
       entry = "/page/doc-1?field=notes";

@@ -1101,7 +1101,9 @@ function MultiBlockFields({
         writeSelection(previousRequestedId);
       }
       toast.error(t("editor.deleteBlockFieldFailed"), {
-        description: error instanceof Error ? error.message : undefined,
+        description:
+          actionErrorMessage(error) ??
+          (error instanceof Error ? error.message : undefined),
       });
     }
   }
