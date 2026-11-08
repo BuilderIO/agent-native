@@ -52,8 +52,9 @@ resources to All apps only for global guidance.
   Dispatch. Distinct products go in `apps/<app-id>` at `/<app-id>`; prefer
   focused A2A apps. Do not clone first-party apps or modify Chat unless asked.
 - Dispatch discovers `apps/<app-id>/package.json`; include a clear `description`.
-  Preserve `APP_BASE_PATH` / `VITE_APP_BASE_PATH` with `appBasePath()`. Scaffold
-  from the workspace root: `pnpm exec agent-native create <app-id> --template=<template>`.
+  Keep `configureClientRouterBasename()` in `app/entry.client.tsx` so the app
+  hydrates at `/<app-id>`. Scaffold from the workspace root:
+  `pnpm exec agent-native add-app <app-id> --template=<template>`.
 - Reuse provider connections and scoped resolvers. Framework apps use
   `resolveSecret`; workspace apps use the connector helper. Request missing
   keys through Dispatch vault, not a non-admin's `.env`.

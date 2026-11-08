@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
 
-import type { VoiceProvider } from "../lib/voice-dictation";
+import type { VoiceEngine } from "../lib/voice-settings";
 import type { FeatureConfig } from "../shared/config";
 
 export interface WhisperModelOption {
@@ -38,9 +38,8 @@ const WHISPER_STATUS_EVENTS = [
 
 export function useWhisperSettings(
   featureConfig: FeatureConfig | null,
-  voiceProvider: VoiceProvider,
-  onVoiceProviderChange: (provider: VoiceProvider) => void,
-  nativeVoiceProvider: () => VoiceProvider,
+  voiceEngine: VoiceEngine,
+  onVoiceEngineChange: (engine: VoiceEngine) => void,
 ) {
   const [catalog, setCatalog] = useState<WhisperModelOption[]>([]);
   const [downloadedModelIds, setDownloadedModelIds] = useState<string[]>([]);
@@ -127,8 +126,8 @@ export function useWhisperSettings(
       .then(() => {
         if (next) {
           triggerDownload();
-        } else if (voiceProvider === "whisper") {
-          onVoiceProviderChange(nativeVoiceProvider());
+        } else if (voiceEngine === "whisper") {
+          onVoiceEngineChange("native");
         }
       })
       .catch((err) =>

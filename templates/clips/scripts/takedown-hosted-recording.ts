@@ -279,6 +279,7 @@ async function main(): Promise<void> {
           await releaseHostedClipRecording({
             recordingId,
             ownerEmail: current.ownerEmail,
+            reason: "takedown",
           });
         } else if (allowance?.status === "consumed") {
           await adjustHostedClipRecordingBytes({

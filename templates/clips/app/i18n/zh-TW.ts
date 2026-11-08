@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "引用錄製內容…",
+    group: "錄製內容",
+    authentication: "登入以新增引用。",
+    invalid: "傳送前請選擇有效的引用。",
+    unavailable: "所選引用已無法使用。請移除或重新選擇。",
+  },
   meetingAsk: { resizeOrDismissAnswers: "調整答案區域大小或關閉" },
   meetingBrowserConfirmation:
     "Clips 偵測到此瀏覽器正在使用麥克風，但無法判斷會議在哪個分頁進行。",
@@ -296,21 +303,40 @@ const messages = {
     clipsRestoreFailed: "{{count}} 個剪輯無法恢復",
     clipsPermanentlyDeleted: "已永久刪除 {{count}} 個剪輯",
     clipsDeleteFailed: "{{count}} 個剪輯無法刪除",
-    deletedMediaPending: "錄製已刪除。媒體檔案仍在移除中。",
-    deletedMediaBlocked: "錄製已刪除，但無法移除其媒體檔案。",
+    deletedMediaPending: "影片已從 Clips 移除。正在進行刪除檢查。",
+    deletedMediaBlocked: "影片已從 Clips 移除。無法確認檔案是否已刪除。",
     deletedMediaRetained: "錄製已刪除。其他錄製仍在使用的媒體檔案已保留。",
-    clipsDeletedMediaPending: "已刪除的錄製：{{count}}。媒體檔案仍在移除中。",
-    clipsDeletedMediaBlocked: "已刪除的錄製：{{count}}。無法移除媒體檔案。",
+    clipsDeletedMediaPending:
+      "已從 Clips 移除的影片：{{count}}。正在進行刪除檢查。",
+    clipsDeletedMediaBlocked:
+      "已從 Clips 移除的影片：{{count}}。無法確認檔案是否已刪除。",
     clipsDeletedMediaRetained:
       "已刪除的錄製：{{count}}。其他錄製仍在使用的媒體檔案已保留。",
+    deletedMediaFinalizing: "影片已從 Clips 移除。需要重試儲存空間用量更新。",
+    clipsDeletedMediaFinalizing:
+      "已從 Clips 移除的影片：{{count}}。需要重試儲存空間用量更新。",
+    mediaCleanupFinalizing: "需要重試儲存空間用量更新",
+    mediaCleanupFinalizingHelp:
+      "檔案移除檢查已結束，但此影片可能仍計入你的儲存限額。重試更新用量以更新儲存總量。",
     mediaCleanupListLabel: "媒體移除",
-    mediaCleanupPending: "正在移除已刪除錄製的媒體檔案",
-    mediaCleanupBlocked: "無法移除已刪除錄製的媒體檔案",
+    mediaCleanupPending: "正在進行刪除檢查",
+    mediaCleanupPendingHelp:
+      "Clips 會繼續在背景檢查。你可以離開此頁面，稍後在垃圾桶查看更新。",
+    mediaCleanupBlocked: "無法確認影片檔案是否已刪除",
+    mediaCleanupBlockedHelp:
+      "儲存的影片檔案可能仍然存在。重試移除會發起另一次嘗試。你可以離開此頁面，在垃圾桶查看結果。",
     mediaCleanupReconnect: "請重新連線儲存空間以移除已刪除錄製的媒體檔案",
     mediaCleanupRetained: "已刪除錄製的共用媒體檔案在其他錄製使用期間會保留",
+    mediaCleanupHelp: "更多資訊",
+    mediaCleanupRetryFiles: "重試移除",
+    mediaCleanupRetryingFiles: "正在重試刪除影片檔案",
+    mediaCleanupRetryUsage: "重試用量更新",
+    mediaCleanupRetryingUsage: "正在重試儲存空間用量更新",
     mediaCleanupRemoved: "媒體檔案已移除",
-    mediaCleanupStillBlocked: "仍無法移除媒體檔案",
-    mediaCleanupRetryFailed: "無法重試移除媒體",
+    mediaCleanupUsageUpdated: "儲存空間用量已更新",
+    mediaCleanupStillBlocked: "仍無法確認影片檔案是否已刪除",
+    mediaCleanupStillFinalizing: "儲存空間用量更新仍需重試",
+    mediaCleanupRetryFailed: "無法開始重試。請再試一次。",
     mediaCleanupLoadFailed: "無法載入媒體移除狀態",
   },
   recordingRoute: {
@@ -579,6 +605,13 @@ const messages = {
     desktopHint:
       "若要開始筆記，請從選單列開啟 Clips Desktop 並選擇 Start Meeting Notes，或在提醒出現時按 Start notes。Clips 會擷取麥克風和系統音訊，並在這裡寫入逐字稿。",
     getDesktopApp: "取得桌面應用程式",
+    earlierAudioAdded_one: "已新增開始前的 {{count}} 分鐘",
+    earlierAudioAdded_other: "已新增開始前的 {{count}} 分鐘",
+    earlierAudioUnreadable: "無法檢查此逐字稿是否包含開始前的音訊",
+    removeEarlierAudioTitle: "移除開始前的音訊嗎？",
+    removeEarlierAudioDescription:
+      "這會將其從逐字稿中移除，並重新產生摘要、待辦事項和片段描述，即使描述是你自己寫的也一樣。自動產生的標題也會重新產生；你選擇的標題會保留。章節也會被刪除。",
+    couldNotRemoveEarlierAudio: "無法移除開始前的音訊",
     generateNotesFailed: "無法產生摘要。請再試一次。",
     attendee_one: "{{count}} 與會者",
     attendee_other: "{{count}} 與會者",
@@ -627,6 +660,7 @@ const messages = {
     noMatches: "沒有符合項目。",
     noTranscript: "還沒有逐字稿。",
     noTranscriptCaptured: "沒有擷取到任何逐字稿。",
+    partialTranscript: "部分逐字稿：錄製內容被截斷，可能缺少部分內容。",
     backupFailed:
       "本機未擷取到任何語音，備份轉錄也未完成。請重試或檢查麥克風和語音權限。",
     backupNotSetup: "本機未擷取到任何語音，且未設定備份轉錄。",
@@ -727,7 +761,7 @@ const messages = {
     openInCodex: "在 Codex 中開啟",
     copyAgentPrompt: "複製 Agent 提示",
     agentPrompt:
-      "讀取這個 Clips Agent 脈絡 URL：{{agentContextUrl}}。使用 apis.transcript 閱讀完整逐字稿，並將 recommendedFrames[].url（或帶有 atMs 的 apis.frame.urlTemplate）當作圖片擷取。請原樣保留 id 和 agent_access。發生錯誤時，請檢查 JSON 中的 failureKind、error 和 nextStep。如果 failureKind=access，請說明此連結無法授予存取權；私人剪輯請讓擁有者在 Clips 分享選單中選擇 {{shareWithAgents}} 並傳送產生的連結。如果逐字稿可用但 failureKind=media，請說明無法取得儲存的媒體，換連結也無法解決。如果 failureKind=processing，請遵循 nextStep；這不代表剪輯缺失或連結無效。如果 failureKind=expired，請讓擁有者在分享選單延長或取消剪輯的到期時間並儲存，接著選擇 {{shareWithAgents}} 並傳送新連結。回報問題時，也請使用可用的 browserDiagnostics。如果你的工具無法回傳圖片或開啟這些連結，請說明是你的工具有此限制，這不是 Clips 的錯誤。",
+      "讀取這個 Clips Agent 脈絡 URL：{{agentContextUrl}}。使用 apis.transcript 閱讀完整逐字稿，並將 recommendedFrames[].url（或帶有 atMs 的 apis.frame.urlTemplate）當作圖片擷取。請原樣保留 id 和 agent_access。發生錯誤時，請檢查 JSON 中的 failureKind、error 和 nextStep。如果 failureKind=access，請說明此連結無法授予存取權；私人剪輯請讓擁有者在 Clips 分享選單中選擇 {{shareWithAgents}} 並傳送產生的連結。如果逐字稿可用但 failureKind=media，請說明無法取得儲存的媒體，換連結也無法解決。如果 failureKind=processing，請遵循 nextStep；這不代表剪輯缺失或連結無效。如果 failureKind=expired，請讓擁有者在分享選單延長或取消剪輯的到期時間並儲存，接著選擇 {{shareWithAgents}} 並傳送新連結。回報問題時，也請使用可用的 browserDiagnostics。如果你無法將影格 URL 當作圖片開啟，請在可用時使用此脈絡 URL 中的錄製 ID 呼叫 Clips 的 get-recording-frames 工具。若無法使用，請告訴使用者在 {{connectUrl}} 連接 Clips 後你就能查看影格。",
     agentTokenDescription:
       "此剪輯未公開，因此提供供 Agent 使用的臨時唯讀連結。2 小時後過期。",
     agentPublicDescription: "供 Agent 使用的唯讀連結。剪輯保持公開期間有效。",
@@ -1423,6 +1457,7 @@ const messages = {
   transcriptBubbles: {
     listening: "正在聆聽…",
     noTranscript: "還沒有轉錄。",
+    unreadable: "無法讀取此逐字稿。",
     liveTranscriptDescription: "開始紀錄後，即時轉錄會顯示在這裡。",
     me: "我",
     them: "對方",
@@ -2071,6 +2106,11 @@ const messages = {
     flowOriginalTranscript: "顯示原始轉錄文字",
     flowCleanupSkipped: "未整理文字，已保留原始文字",
     flowBacktrackSkipped: "未套用文字編輯，已保留辨識結果",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet 尚未下載",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Parakeet 下載中",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet 載入中",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet 忙碌中",
+    flowAppleSpeechParakeetFailed: "Apple Speech · Parakeet 載入失敗",
     flowCancelDictation: "取消聽寫",
     flowCopying: "正在複製轉錄文字…",
     aiProcessed: "AI 已處理",

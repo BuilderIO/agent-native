@@ -1,6 +1,10 @@
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, isLocalDatabase, type DbExec } from "../db/client.js";
-import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import type { StoreWriteOptions } from "../settings/store.js";
@@ -54,8 +58,43 @@ export const applicationStateStore = defineStore({
         );
       },
     },
+    {
+      // The page and number of the last ordered write applied to a row (see
+      // AppStateWriteOrder). Both stay null on rows nothing ordered wrote.
+      name: "write-order",
+      run: async () => {
+        await ensureColumnExists(
+          "application_state",
+          "writer",
+          `ALTER TABLE application_state ADD COLUMN IF NOT EXISTS writer TEXT`,
+        );
+        await ensureColumnExists(
+          "application_state",
+          "writer_seq",
+          `ALTER TABLE application_state ADD COLUMN IF NOT EXISTS writer_seq BIGINT`,
+        );
+      },
+    },
   ],
 });
+
+/**
+ * Where a write sits in its writer's order. A browser page numbers its writes
+ * in the order it makes them; a write numbered at or below the last one the
+ * store applied to its row from the same writer is skipped, so a request that
+ * lands late can't undo a newer write from that page. Writes from another
+ * writer, or with no order (agents, scripts, older clients), always apply,
+ * and unordered writes leave the row's last order in place.
+ */
+export interface AppStateWriteOrder {
+  writer: string;
+  seq: number;
+}
+
+export interface AppStateWriteOptions {
+  requestSource?: string | undefined;
+  order?: AppStateWriteOrder | undefined;
+}
 
 export function ensureTable(): Promise<void> {
   return applicationStateStore.ready();
@@ -107,33 +146,61 @@ export async function appStateGetMany(
   return values;
 }
 
+/**
+ * Stores `value` under `key`. With an `order`, a write older than the last one
+ * applied to the row from the same writer is skipped (see AppStateWriteOrder):
+ * nothing changes and no change event fires.
+ */
 export async function appStatePut(
   sessionId: string,
   key: string,
   value: Record<string, unknown>,
-  options?: StoreWriteOptions,
+  options?: AppStateWriteOptions,
 ): Promise<void> {
   const serialized = serializeAppStateValue(key, value);
   await ensureTable();
   const client = getDbExec();
-  await client.execute({
-    sql: `INSERT INTO application_state (session_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (session_id, key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`,
-    args: [sessionId, key, serialized, Date.now()],
-  });
+  const order = options?.order;
+  if (!order) {
+    await client.execute({
+      sql: `INSERT INTO application_state (session_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (session_id, key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`,
+      args: [sessionId, key, serialized, Date.now()],
+    });
+  } else {
+    // Postgres rechecks the WHERE against the locked row, so two writes
+    // racing on one row still end on the newer.
+    const result = await client.execute({
+      sql: `INSERT INTO application_state (session_id, key, value, updated_at, writer, writer_seq) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (session_id, key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at, writer=EXCLUDED.writer, writer_seq=EXCLUDED.writer_seq WHERE application_state.writer IS NULL OR application_state.writer <> EXCLUDED.writer OR application_state.writer_seq < EXCLUDED.writer_seq`,
+      args: [sessionId, key, serialized, Date.now(), order.writer, order.seq],
+    });
+    if (result.rowsAffected === 0) return;
+  }
   emitAppStateChange(key, options?.requestSource, sessionId);
 }
 
+/**
+ * Deletes `key`. With an `order`, a delete older than the last write applied
+ * to the row from the same writer is skipped. Deleting leaves no record, so
+ * an older ordered write that lands after a delete writes the row again.
+ */
 export async function appStateDelete(
   sessionId: string,
   key: string,
-  options?: StoreWriteOptions,
+  options?: AppStateWriteOptions,
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
-  const result = await client.execute({
-    sql: `DELETE FROM application_state WHERE session_id = ? AND key = ?`,
-    args: [sessionId, key],
-  });
+  const order = options?.order;
+  const result = order
+    ? await client.execute({
+        // Rows with no ordered write yet, another writer's, or an older one.
+        sql: `DELETE FROM application_state WHERE session_id = ? AND key = ? AND (writer IS NULL OR writer <> ? OR writer_seq < ?)`,
+        args: [sessionId, key, order.writer, order.seq],
+      })
+    : await client.execute({
+        sql: `DELETE FROM application_state WHERE session_id = ? AND key = ?`,
+        args: [sessionId, key],
+      });
   const deleted = result.rowsAffected > 0;
   if (deleted) emitAppStateDelete(key, options?.requestSource, sessionId);
   return deleted;

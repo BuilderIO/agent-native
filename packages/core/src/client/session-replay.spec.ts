@@ -263,6 +263,15 @@ function installBrowser(
   };
 }
 
+/** Custom events a test's own calls made; every recording also opens with its route. */
+function customEventsExceptRoute(addCustomEvent: {
+  mock: { calls: unknown[][] };
+}) {
+  return addCustomEvent.mock.calls.filter(
+    ([tag]) => tag !== "agent-native.navigation",
+  );
+}
+
 async function freshSessionReplay() {
   vi.resetModules();
   return import("./session-replay.js");
@@ -383,7 +392,7 @@ describe("session replay", () => {
       tabId: "tab-1",
     });
 
-    expect(addCustomEvent).toHaveBeenCalledOnce();
+    expect(customEventsExceptRoute(addCustomEvent)).toHaveLength(1);
     expect(addCustomEvent).toHaveBeenCalledWith(
       SESSION_REPLAY_AGENT_CHAT_EVENT_TAG,
       {
@@ -394,6 +403,83 @@ describe("session replay", () => {
         tabId: "tab-1",
       },
     );
+  });
+
+  it("marks each in-app route change once, without its query string", async () => {
+    const { history } = installBrowser(
+      "https://app.agent-native.com/inbox?secret=1",
+    );
+    const addCustomEvent = vi.fn();
+    (
+      recordMock as typeof recordMock & {
+        addCustomEvent: typeof addCustomEvent;
+      }
+    ).addCustomEvent = addCustomEvent;
+    recordMock.mockReturnValue(vi.fn());
+    const { startSessionReplay, SESSION_REPLAY_NAVIGATION_EVENT_TAG } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+    for (const next of [
+      "/inbox?secret=2",
+      "/deck/1?secret=3",
+      "/deck/1?secret=4",
+    ]) {
+      (window.history as unknown as typeof history).pushState({}, "", next);
+      await Promise.resolve();
+    }
+
+    expect(addCustomEvent.mock.calls).toEqual([
+      [SESSION_REPLAY_NAVIGATION_EVENT_TAG, { path: "/inbox" }],
+      [SESSION_REPLAY_NAVIGATION_EVENT_TAG, { path: "/deck/1" }],
+    ]);
+  });
+
+  it("marks a failed agent run with its code, never its message", async () => {
+    const { fireWindowEvent } = installBrowser(
+      "https://analytics.agent-native.com/ask",
+    );
+    const addCustomEvent = vi.fn();
+    (
+      recordMock as typeof recordMock & {
+        addCustomEvent: typeof addCustomEvent;
+      }
+    ).addCustomEvent = addCustomEvent;
+    recordMock.mockReturnValue(vi.fn());
+    const { startSessionReplay, SESSION_REPLAY_AGENT_CHAT_EVENT_TAG } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+    fireWindowEvent("agent-chat:run-error", {
+      detail: {
+        message: "A private prompt failed",
+        details: "stack with private data",
+        errorCode: "provider_rejected",
+        recoverable: true,
+        runId: "run-1",
+        tabId: "tab-1",
+      },
+    });
+
+    expect(customEventsExceptRoute(addCustomEvent)).toEqual([
+      [
+        SESSION_REPLAY_AGENT_CHAT_EVENT_TAG,
+        {
+          phase: "run-failed",
+          surface: "app",
+          runId: "run-1",
+          tabId: "tab-1",
+          errorCode: "provider_rejected",
+          recoverable: true,
+        },
+      ],
+    ]);
   });
 
   it("marks tracked app events on the replay with only their name", async () => {
@@ -420,17 +506,10 @@ describe("session replay", () => {
     emitSessionReplayAnalyticsEvent("   ");
     emitSessionReplayAnalyticsEvent("x".repeat(300));
 
-    expect(addCustomEvent).toHaveBeenCalledTimes(2);
-    expect(addCustomEvent).toHaveBeenNthCalledWith(
-      1,
-      SESSION_REPLAY_ANALYTICS_EVENT_TAG,
-      { name: "recording_started" },
-    );
-    expect(addCustomEvent).toHaveBeenNthCalledWith(
-      2,
-      SESSION_REPLAY_ANALYTICS_EVENT_TAG,
-      { name: "x".repeat(120) },
-    );
+    expect(customEventsExceptRoute(addCustomEvent)).toEqual([
+      [SESSION_REPLAY_ANALYTICS_EVENT_TAG, { name: "recording_started" }],
+      [SESSION_REPLAY_ANALYTICS_EVENT_TAG, { name: "x".repeat(120) }],
+    ]);
   });
 
   it("marks page-view Web Vitals on the replay, leaving out unmeasured metrics", async () => {
@@ -496,7 +575,7 @@ describe("session replay", () => {
     } as Parameters<typeof emitSessionReplaySlowRequest>[0]);
     emitSessionReplaySlowRequest({ action: "list-clips" });
 
-    expect(addCustomEvent).toHaveBeenCalledTimes(1);
+    expect(customEventsExceptRoute(addCustomEvent)).toHaveLength(1);
     expect(addCustomEvent).toHaveBeenCalledWith(
       SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
       {
@@ -541,7 +620,7 @@ describe("session replay", () => {
     for (let index = 0; index < 1_005; index += 1) {
       emitSessionReplayAnalyticsEvent("clip_viewed");
     }
-    expect(addCustomEvent).toHaveBeenCalledTimes(1_000);
+    expect(customEventsExceptRoute(addCustomEvent)).toHaveLength(1_000);
     // An upload rewrites the stored replay session; the count must survive it.
     recordOptions[0].emit({ type: 3, data: { href: "/library" } });
     await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -549,20 +628,20 @@ describe("session replay", () => {
     await stopSessionReplay();
     await startSessionReplay(options);
     emitSessionReplayAnalyticsEvent("clip_viewed");
-    expect(addCustomEvent).toHaveBeenCalledTimes(1_000);
+    expect(customEventsExceptRoute(addCustomEvent)).toHaveLength(1_000);
 
     await stopSessionReplay();
     delete (globalThis as any)[replayStateKey];
     const reloaded = await freshSessionReplay();
     await reloaded.startSessionReplay(options);
     reloaded.emitSessionReplayAnalyticsEvent("clip_viewed");
-    expect(addCustomEvent).toHaveBeenCalledTimes(1_000);
+    expect(customEventsExceptRoute(addCustomEvent)).toHaveLength(1_000);
 
     await reloaded.stopSessionReplay();
     storage.delete("agent-native.session_replay_id");
     await reloaded.startSessionReplay(options);
     reloaded.emitSessionReplayAnalyticsEvent("clip_viewed");
-    expect(addCustomEvent).toHaveBeenCalledTimes(1_001);
+    expect(customEventsExceptRoute(addCustomEvent)).toHaveLength(1_001);
   });
 
   it("keeps numeric agent-chat marker metadata usable", async () => {
@@ -4795,6 +4874,40 @@ describe("session replay", () => {
       userName: "Dev User",
       orgId: "org_123",
     });
+  });
+
+  it.each([
+    [
+      "names the build's commit",
+      "a".repeat(40),
+      { commit_sha: "a".repeat(40) },
+    ],
+    ["sends no metadata for a build with no commit", "", undefined],
+  ])("%s", async (_label, commitSha, metadata) => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    vi.stubGlobal("__AGENT_NATIVE_COMMIT_SHA__", commitSha);
+    const recordOptions: any[] = [];
+    recordMock.mockImplementation((options) => {
+      recordOptions.push(options);
+      return vi.fn();
+    });
+    const { startSessionReplay } = await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      maxEventsPerBatch: 1,
+    });
+    recordOptions[0].emit({ type: 3, data: { href: "/inbox" } });
+    const replayCalls = () =>
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("/session-replay"),
+      );
+    await waitForAssertion(() => expect(replayCalls()).toHaveLength(1));
+
+    const [, init] = replayCalls()[0] as unknown as [string, RequestInit];
+    const body = await parseReplayUpload(init);
+    expect(body.metadata).toEqual(metadata);
   });
 
   it("flushes queued auth-required replay events when auth is cleared", async () => {

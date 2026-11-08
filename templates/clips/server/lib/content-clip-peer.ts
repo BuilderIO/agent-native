@@ -5,9 +5,12 @@
  * The token contract is in `shared/content-clip-contract.ts`.
  */
 import { verifyA2AToken } from "@agent-native/core/a2a";
+import { isActionContractError } from "@agent-native/core/action";
 import {
   getAppProductionUrl,
+  platformWaitUntil,
   readBodyWithSizeLimit,
+  runInBackground,
   runWithRequestContext,
   withConfiguredAppBasePath,
 } from "@agent-native/core/server";
@@ -28,10 +31,8 @@ import { alias } from "drizzle-orm/pg-core";
 import { getQuery, getRequestHeader, getRouterParam, type H3Event } from "h3";
 import { z } from "zod";
 
-import addComment from "../../actions/add-comment.js";
 import deleteComment from "../../actions/delete-comment.js";
 import reactToComment from "../../actions/react-to-comment.js";
-import replyToComment from "../../actions/reply-to-comment.js";
 import resolveComment from "../../actions/resolve-comment.js";
 import updateComment from "../../actions/update-comment.js";
 import { canReadRecordingComments } from "../../shared/comment-access.js";
@@ -39,6 +40,9 @@ import {
   CONTENT_CLIP_AUDIENCE_PATH,
   CONTENT_CLIP_CLAIMS,
   CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
+  CONTENT_CLIP_COMMENT_KEY,
+  CONTENT_CLIP_COMMENT_KEY_HEADER,
+  CONTENT_CLIP_COMMENT_KEY_USED,
   CONTENT_CLIP_COMMENT_PREVIEW_CHARS,
   CONTENT_CLIP_COMMENT_TEXT_CHARS,
   CONTENT_CLIP_MAX_COMMENT_CHARS,
@@ -50,6 +54,7 @@ import {
   CONTENT_CLIP_PUBLIC_READER,
   CONTENT_CLIP_RECORDING_TITLE_CHARS,
   CONTENT_CLIP_SCOPES,
+  CONTENT_CLIP_VISITOR_KEY,
   type ContentClipScope,
 } from "../../shared/content-clip-contract.js";
 import { recordingEmbedProvider } from "../../shared/embed-provider.js";
@@ -75,6 +80,11 @@ import {
 import { resolvePlayerThumbnailUrl } from "./player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "./player-video-url.js";
 import {
+  saveRecordingComment,
+  saveRecordingReply,
+  type SavedRecordingComment,
+} from "./recording-comment-writes.js";
+import {
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
 } from "./recording-page-access.js";
@@ -90,6 +100,8 @@ interface ContentClipPeer {
   /** Null for a signed-out reader of a public document. */
   viewerEmail: string | null;
   viewerName: string | null;
+  /** A signed-out reader's opaque network key, when Content signed one. */
+  visitorKey: string | null;
 }
 
 interface OpenedClip {
@@ -183,6 +195,8 @@ export interface VerifiedContentPeer {
   /** Null for a signed-out reader of a public document. */
   viewerEmail: string | null;
   viewerName: string | null;
+  /** A signed-out reader's opaque network key, when Content signed one. */
+  visitorKey: string | null;
   claims: Record<string, unknown>;
 }
 
@@ -259,6 +273,17 @@ export async function verifyContentPeerToken(
     viewerEmail && typeof name === "string"
       ? name.trim().slice(0, MAX_VIEWER_NAME_CHARS) || null
       : null;
+  // Absent on a token from a Content that signs no keys: that reader counts
+  // with every other keyless one.
+  const visitorKey = claims[CONTENT_CLIP_CLAIMS.visitorKey] ?? null;
+  if (
+    visitorKey !== null &&
+    (!isPublicReader ||
+      typeof visitorKey !== "string" ||
+      !CONTENT_CLIP_VISITOR_KEY.test(visitorKey))
+  ) {
+    return unauthorized();
+  }
 
   return {
     contentApp,
@@ -266,6 +291,7 @@ export async function verifyContentPeerToken(
     scope: claims.scope as ContentClipScope,
     viewerEmail,
     viewerName,
+    visitorKey,
     claims,
   };
 }
@@ -280,8 +306,15 @@ async function verifyPeer(
   if (peer.claims[CONTENT_CLIP_CLAIMS.recordingId] !== recordingId) {
     return unauthorized();
   }
-  const { contentApp, documentId, viewerEmail, viewerName } = peer;
-  return { contentApp, documentId, recordingId, viewerEmail, viewerName };
+  const { contentApp, documentId, viewerEmail, viewerName, visitorKey } = peer;
+  return {
+    contentApp,
+    documentId,
+    recordingId,
+    viewerEmail,
+    viewerName,
+    visitorKey,
+  };
 }
 
 function pruneExpired(buckets: Map<string, RateBucket>, now: number): void {
@@ -297,7 +330,10 @@ function clipKey(peer: ContentClipPeer, kind: RateKind): string {
     kind,
     peer.contentApp,
     peer.documentId,
-    peer.viewerEmail ?? CONTENT_CLIP_PUBLIC_READER,
+    peer.viewerEmail ??
+      (peer.visitorKey
+        ? `visitor:${peer.visitorKey}`
+        : CONTENT_CLIP_PUBLIC_READER),
     peer.recordingId,
   ].join("\n");
 }
@@ -821,22 +857,56 @@ async function isCommentOnRecording(
   return Boolean(comment);
 }
 
-async function writeComment(write: CommentWrite, recordingId: string) {
+/**
+ * Sends a new comment's emails after Clips answers, so the reader never waits
+ * on them: each send may take up to a minute, longer than Content waits for
+ * an answer. Without the platform's waitUntil they get only a moment before
+ * the answer, so a function frozen once it answers can lose them; the comment
+ * is saved either way, and an email that fails is logged, never sent again.
+ */
+async function notifyAfterAnswer(
+  saved: SavedRecordingComment,
+  event: H3Event,
+): Promise<void> {
+  if (saved.repeated) return;
+  const sending = saved.notify().catch((error: unknown) => {
+    console.error(
+      `[clips] emails for comment ${saved.id} failed after it was saved`,
+      error instanceof Error ? error.message : error,
+    );
+  });
+  await runInBackground(sending, platformWaitUntil(event.req));
+}
+
+async function writeComment(
+  write: CommentWrite,
+  recordingId: string,
+  idempotencyKey: string | undefined,
+  event: H3Event,
+) {
   switch (write.operation) {
     case "add": {
-      const { id, threadId } = await addComment.run({
+      const saved = await saveRecordingComment({
         recordingId,
         content: write.content,
         videoTimestampMs: write.videoTimestampMs,
+        idempotencyKey,
       });
-      return { id, threadId };
+      await notifyAfterAnswer(saved, event);
+      return { id: saved.id, threadId: saved.threadId };
     }
     case "reply": {
-      const { id, threadId, parentId } = await replyToComment.run({
+      const saved = await saveRecordingReply({
         commentId: write.commentId,
         content: write.content,
+        idempotencyKey,
       });
-      return { id, threadId, parentId };
+      await notifyAfterAnswer(saved, event);
+      return {
+        id: saved.id,
+        threadId: saved.threadId,
+        parentId: saved.parentId,
+      };
     }
     case "edit": {
       const { id, content, updatedAt } = await updateComment.run({
@@ -882,6 +952,16 @@ export async function handleContentClipCommentWrite(
   const parsed = commentWriteSchema.safeParse(body);
   if (!parsed.success) return errorResponse(400, "Invalid comment request");
   const write = parsed.data;
+  const idempotencyKey = getRequestHeader(
+    event,
+    CONTENT_CLIP_COMMENT_KEY_HEADER,
+  );
+  if (
+    idempotencyKey !== undefined &&
+    !CONTENT_CLIP_COMMENT_KEY.test(idempotencyKey)
+  ) {
+    return errorResponse(400, "Invalid comment request");
+  }
 
   return withOpenedClip(peer, "write", async ({ recording }) => {
     // Stricter than Clips' own `delete-comment`, which lets an author delete
@@ -900,8 +980,16 @@ export async function handleContentClipCommentWrite(
       return notFound();
     }
     try {
-      return json(await writeComment(write, peer.recordingId));
+      return json(
+        await writeComment(write, peer.recordingId, idempotencyKey, event),
+      );
     } catch (error) {
+      if (
+        isActionContractError(error) &&
+        error.errorCode === CONTENT_CLIP_COMMENT_KEY_USED
+      ) {
+        return errorResponse(409, error.message, CONTENT_CLIP_COMMENT_KEY_USED);
+      }
       return forbiddenResponse(error);
     }
   });

@@ -29,7 +29,9 @@ function extractMemberEmail(event: H3Event): string | undefined {
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
+import { workspacePrivateOrigins } from "../a2a/workspace-private-origins.js";
 import { warnAgent } from "../agent/action-warnings.js";
+import { isFirstPartyApp } from "../app-config/app-identity.js";
 import { getAppConfig } from "../app-config/index.js";
 import { routeAuditAttribution } from "../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
@@ -40,6 +42,7 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { verifyFederatedWorkspaceIconOwner } from "../icon-assets/workspace-transport.js";
 import { offboardMember } from "../identity/offboard.js";
+import { normalizeAppBasePath } from "../server/app-base-path.js";
 import {
   getAppProductionUrl,
   resolveAppRuntimeUrl,
@@ -2192,10 +2195,30 @@ export const syncA2ASecretHandler = defineEventHandler(
 
     // Only first-party built-ins and apps mounted on this deployment may receive
     // the organization secret. A workspace manifest can contain external URLs.
-    const [discoveredAgents, builtins, workspaceApps] = await Promise.all([
-      discoverAgents(),
+    const app = getAppConfig().app;
+    // Use one strict workspace snapshot for both sender identity and discovery.
+    // Other agent sources remain best-effort; they are not workspace recipients.
+    const workspaceApps = await loadWorkspaceAppsManifest(true);
+    const matchingMounts = app.basePath
+      ? (workspaceApps ?? []).filter(
+          (entry) =>
+            typeof entry.path === "string" &&
+            entry.path.startsWith("/") &&
+            !entry.path.startsWith("//") &&
+            normalizeAppBasePath(entry.path) ===
+              normalizeAppBasePath(app.basePath),
+        )
+      : [];
+    const selfAppId =
+      app.workspaceId ??
+      (matchingMounts.length === 1 ? matchingMounts[0]?.id : undefined) ??
+      (!workspaceApps?.length && isFirstPartyApp(app) ? app.slug : undefined);
+    const [discoveredAgents, builtins] = await Promise.all([
+      discoverAgents(selfAppId, {
+        workspaceAppsManifest: workspaceApps,
+        requireResolvableWorkspaceUrls: true,
+      }),
       Promise.resolve(getBuiltinAgentsForSeeding()),
-      loadWorkspaceAppsManifest(),
     ]);
     const registeredBuiltins = new Map(
       builtins.map((agent) => [agent.id, agent.url]),
@@ -2233,6 +2256,7 @@ export const syncA2ASecretHandler = defineEventHandler(
     };
     const agents = discoveredAgents.filter((agent) => {
       if (agent.source === "builtin") {
+        if (isFirstPartyApp(app) && agent.id === app.slug) return false;
         const trustedUrl = registeredBuiltins.get(agent.id);
         return Boolean(trustedUrl && matchesPath(agent.url, trustedUrl));
       }
@@ -2244,6 +2268,13 @@ export const syncA2ASecretHandler = defineEventHandler(
       const registeredPath = registeredWorkspacePaths.get(agent.id);
       return Boolean(registeredPath && matchesPath(agent.url, registeredPath));
     });
+    if (!selfAppId && agents.some((agent) => agent.source === "workspace")) {
+      throw createError({
+        statusCode: 503,
+        message:
+          "Cannot sync workspace A2A secrets without a workspace app ID or a unique configured app base path",
+      });
+    }
 
     const results: Array<{
       id: string;
@@ -2269,6 +2300,27 @@ export const syncA2ASecretHandler = defineEventHandler(
           );
           const protectionHeaders =
             resolveVercelDeploymentProtectionHeaders(target);
+          const recipient = new URL(agent.url);
+          const recipientOrigin = recipient.origin;
+          const loopbackHost =
+            /^https?:\/\/(?:127\.0\.0\.1|\[::1\]|localhost)(?=[:/?#]|$)/i;
+          const configuredLoopback =
+            agent.source === "workspace" &&
+            loopbackHost.test(agent.url) &&
+            workspacePrivateOrigins().some(
+              (configured) =>
+                loopbackHost.test(configured) &&
+                URL.canParse(configured) &&
+                new URL(configured).origin === recipientOrigin,
+            );
+          const allowedLocalhostOrigin =
+            configuredLoopback && recipient.hostname === "localhost"
+              ? recipientOrigin
+              : undefined;
+          const allowedPrivateOrigins =
+            configuredLoopback && !allowedLocalhostOrigin
+              ? [recipientOrigin]
+              : [];
           const res = await ssrfSafeFetch(
             target,
             {
@@ -2281,10 +2333,11 @@ export const syncA2ASecretHandler = defineEventHandler(
               body: JSON.stringify({ secret, orgDomain }),
             },
             {
-              maxRedirects: 3,
-              ...(protectionHeaders["x-vercel-protection-bypass"]
-                ? { followRedirects: false }
-                : {}),
+              maxRedirects: 0,
+              followRedirects: false,
+              requireDispatcher: true,
+              allowedPrivateOrigins,
+              ...(allowedLocalhostOrigin ? { allowedLocalhostOrigin } : {}),
             },
           );
 

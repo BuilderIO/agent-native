@@ -31,7 +31,7 @@
  * allowed to delete a project.
  */
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
@@ -41,6 +41,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
+import { pnpmCommand, startCommand } from "./lib/pnpm-command.ts";
 import {
   baseEnv,
   dropDatabase,
@@ -237,6 +238,14 @@ function errorMessage(error: unknown): string {
 // only the direct child would leave `close` unfired and cleanup unreached.
 function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   if (!child.pid) return;
+  if (process.platform === "win32") {
+    // Windows has no process groups, and pnpm runs under a cmd.exe wrapper
+    // there, so stop the whole tree under the child.
+    spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+    });
+    return;
+  }
   try {
     process.kill(-child.pid, signal);
   } catch (error) {
@@ -314,11 +323,13 @@ async function runLive(
 ): Promise<string> {
   assertNotInterrupted();
   log(`${options.label}: ${cmd} ${args.join(" ")}`);
-  const child = spawn(cmd, args, {
+  const start = startCommand(cmd, args);
+  const child = spawn(start.command, start.args, {
     cwd: options.cwd,
     env: options.env ?? baseEnv(),
     detached: true,
     stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+    shell: start.shell,
   });
   activeRuns.add(child);
   child.once("close", () => activeRuns.delete(child));
@@ -662,8 +673,10 @@ async function startNodeServer(
     assertNotInterrupted();
     exitMessage = null;
     closed = false;
-    const next = spawn("pnpm", ["start"], {
+    const pnpm = pnpmCommand(["start"]);
+    const next = spawn(pnpm.command, pnpm.args, {
       cwd: appDir,
+      shell: pnpm.shell,
       env: { ...env, NODE_ENV: "production", PORT: String(port) },
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],

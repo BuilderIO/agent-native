@@ -75,16 +75,20 @@ skip steps 2, 4, and 5 and the fit and contrast checks below.
      slides) without re-reading. Read with `get-deck` only if an edit fails to
      match or the write is rejected as stale; someone may have edited it since.
    - **Otherwise** (truncated, ambiguous, split by markup, or structural): call
-     `get-deck` with that `slideId` (`compact=false` for full HTML, plus
-     `format=true` for code-style work) and use its `contentHash` as
-     `baseContentHash`.
+     `get-deck` with that `slideId` (`compact=false` for full HTML) and use its
+     `contentHash` as `baseContentHash`. Quote `find` text from that
+     unformatted HTML: `format=true` is for reading only and rewrites spacing
+     (`padding: 4px` vs stored `padding:4px`), so its text can miss.
    - **Trend values:** when you change the number in a `data-trend="auto"`
      element, set its `--trend` to `var(--trend-up)` for a leading "+" or
      positive value, `var(--trend-down)` for "-" or "−", and
      `var(--trend-flat)` for an unsigned zero when the element defines
      `--trend-flat`.
    - Use `fullContent` only for an intentional full rewrite, never to make a
-     small change. `format=true` persists readable line breaks.
+     small change. `format=true` on `update-slide` applies to `edits` and
+     `objectId` only, not `fullContent`: it formats the stored HTML before
+     matching `find` and persists readable line breaks, so use it only when
+     every `find` was quoted from a `get-deck format=true` read.
 4. Read back with `get-deck` (or a thumbnail's `.slide-content`
    `textContent`), never `document.body.innerText`: thumbnails use
    `content-visibility: auto`, so their text is empty in a hidden tab, and the

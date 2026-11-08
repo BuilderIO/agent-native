@@ -15,6 +15,9 @@ export const OVERVIEW_LIVE_BOOT_BUDGET = 4;
 
 export const OVERVIEW_LIVE_EDITOR_MIN_SCREEN_PX = 240;
 
+/** Narrower than this on screen, nothing in a screen can be read or edited. */
+export const OVERVIEW_LEGIBLE_SCREEN_PX = 64;
+
 const LIVE_EDITOR_DEMOTE_RATIO = 0.75;
 
 export const OVERVIEW_STATIC_PREVIEW_BUDGET = 64;
@@ -64,7 +67,7 @@ export function resolveLiveEditorScreenIds({
       screenPx >= minScreenPx ||
       (wasLive &&
         (screenPx >= minScreenPx * LIVE_EDITOR_DEMOTE_RATIO ||
-          warmIds.has(id)));
+          (warmIds.has(id) && screenPx >= OVERVIEW_LEGIBLE_SCREEN_PX)));
     if (!largeEnough) continue;
     if (
       !geometry ||
@@ -85,11 +88,15 @@ export function resolveLiveEditorScreenIds({
 export function selectStaticPreviewScreenIds({
   candidates,
   viewport,
+  visibleViewport = null,
   retainedIds,
   budget = OVERVIEW_STATIC_PREVIEW_BUDGET,
 }: {
   candidates: readonly { id: string; geometry: FrameGeometry }[];
   viewport: OverscannedViewportBounds | null;
+  /** On-screen previews come first: center distance alone ranks a tall
+   *  on-screen screen behind short off-screen ones. */
+  visibleViewport?: OverscannedViewportBounds | null;
   retainedIds: ReadonlySet<string>;
   budget?: number;
 }): Set<string> {
@@ -97,12 +104,23 @@ export function selectStaticPreviewScreenIds({
   const nearby = candidates.filter(({ geometry }) =>
     isFrameWithinOverscannedViewport(geometry, viewport),
   );
+  const onScreen = visibleViewport
+    ? nearby.filter(({ geometry }) =>
+        isFrameWithinOverscannedViewport(geometry, visibleViewport),
+      )
+    : [];
+  const nearbyIds = new Set(nearby.map(({ id }) => id));
+  const onScreenIds = new Set(onScreen.map(({ id }) => id));
   const retained = candidates.filter(
-    (candidate) => retainedIds.has(candidate.id) && !nearby.includes(candidate),
+    ({ id }) => retainedIds.has(id) && !nearbyIds.has(id),
   );
   return new Set(
     [
-      ...orderByViewportDistance(nearby, viewport),
+      ...orderByViewportDistance(onScreen, viewport),
+      ...orderByViewportDistance(
+        nearby.filter(({ id }) => !onScreenIds.has(id)),
+        viewport,
+      ),
       ...orderByViewportDistance(retained, viewport),
     ].slice(0, Math.max(0, Math.floor(budget))),
   );

@@ -940,6 +940,7 @@ const editor = {
       video: "Vídeo",
     },
     fromSource: "Desde {{name}}",
+    hiddenInThisView: "Ocultas en esta vista",
     hiddenProperties: "Propiedades ocultas",
     imageUploaded_zero: "Imágenes cargadas",
     imageUploaded_one: "Imagen cargada",
@@ -1181,10 +1182,20 @@ const rawLiterals = {
   },
   publicDocument: {
     chat: "Chat",
+    freeAndOpenSource: "Gratis y de código abierto en GitHub",
+    pagePath: "Ruta de la página",
     privateDescription:
       "Pide al propietario que lo comparta con tu cuenta o espacio de trabajo antes de abrir este enlace.",
     privateTitle: "Este documento es privado",
+    signIn: "Iniciar sesión",
+    signUp: "Registrarse",
+    signUpFree: "Regístrate gratis",
+    subPages: "Subpáginas",
+    tryContentFree: "Prueba Content gratis",
     updated: "Actualizado {{date}}",
+    writtenIn: "Escrito en Agent-Native Content.",
+    writtenInDescription:
+      "Escribe y publica tus propias páginas, con un agente de IA que trabaja dentro de tus documentos.",
   },
   database: {
     click: "Haz clic",
@@ -1323,7 +1334,8 @@ const rawLiterals = {
     previewDraftUseSaved: "Usar la versión guardada",
     previewDraftSaveSeparately: "Guardar la mía como página aparte",
     previewDraftSavedToHistory: "Tus cambios se guardaron en el historial",
-    previewDraftSavedSeparately: "Tus cambios se guardaron como página aparte",
+    previewDraftSavedSeparately:
+      "Tus cambios se guardaron como página privada en tu espacio",
     previewDraftOpenSavedPage: "Abrir página",
     previewDraftMoreOptions: "Más opciones",
     previewDraftViewFullVersions: "Ver versiones completas",
@@ -2066,6 +2078,27 @@ const overrides = {
     discardEditDescription: "Tu comentario se quedará como estaba.",
     discard: "Descartar",
     keepEditing: "Seguir editando",
+    deleteComment: "Eliminar comentario",
+    deleteThread: "Eliminar hilo",
+    deleteCommentQuestion: "¿Eliminar el comentario?",
+    deleteCommentDescription: "Se eliminará para todos y no se puede deshacer.",
+    deleteThreadQuestion: "¿Eliminar el hilo?",
+    deleteThreadDescription:
+      "El hilo y sus respuestas se eliminarán para todos, y no se puede deshacer.",
+    deleteThreadAiChangeDescription:
+      "El hilo y sus respuestas se eliminarán para todos, y no se puede deshacer. El cambio de la IA en la página se mantiene, pero no podrás deshacerlo desde el hilo.",
+    delete: "Eliminar",
+    deleting: "Eliminando…",
+    deleteRefusedReplied:
+      "Otra persona respondió, así que solo un editor puede eliminar este hilo.",
+    deleteRefusedNotion:
+      "Este comentario está sincronizado con Notion. Elimínalo en Notion.",
+    deleteRefusedAiWorking:
+      "La IA está trabajando en este hilo. Detenla antes de eliminar el hilo.",
+    deleteRefusedAiSuggestion:
+      "La sugerencia de la IA en este hilo está pendiente de revisión. Acéptala o recházala antes de eliminar el hilo.",
+    deleteRefusedBusy:
+      "Este hilo se está modificando ahora mismo. Vuelve a intentar eliminarlo en un momento.",
     submit: "Comentar",
     askAi: "Preguntar a la IA",
     aiBadge: "IA",
@@ -2076,8 +2109,10 @@ const overrides = {
     mentionPeopleLoadFailed: "No se pudieron cargar las personas.",
     mentionAgents: "Agentes",
     identityPerson: "Persona",
-    identityModel: "Modelo",
     identityEffort: "Esfuerzo",
+    acceptAllAndResolve: "Aceptar todo y resolver",
+    acceptAndResolve: "Aceptar y resolver",
+    suggestionLoadFailed: "No se pudo cargar esta sugerencia",
     identityRan: "Ejecutado",
     identityNotRecorded: "No registrado",
     identityOpenRun: "Abrir ejecución",
@@ -2110,7 +2145,6 @@ const overrides = {
     aiPromptApplyResolve: "Aplica los cambios de este comentario y resuélvelo.",
     aiWorking: "La IA está trabajando…",
     aiReplied: "La IA respondió",
-    aiSuggestionReady: "Revisar sugerencia",
     aiChangesApplied: "Cambios aplicados",
     aiAppliedAndResolved: "Aplicado y resuelto",
     aiChangeUndone: "Cambio deshecho",
