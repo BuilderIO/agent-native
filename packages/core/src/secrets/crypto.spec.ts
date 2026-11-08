@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 
+import { resetAppConfigForTests } from "../app-config/index.js";
 import {
   encryptSecretValue,
   decryptSecretValue,
@@ -48,6 +49,35 @@ describe("secret crypto", () => {
     process.env.SECRETS_ENCRYPTION_KEY = "key-B";
     expect(() => decryptSecretValue(enc)).toThrow();
     process.env.SECRETS_ENCRYPTION_KEY = "crypto-spec-encryption-key";
+  });
+
+  it("reads old ciphertext during rotation while writing only with the current key", () => {
+    try {
+      vi.stubEnv("SECRETS_ENCRYPTION_KEY", "rotation-old-material");
+      const oldCiphertext = encryptSecretValue("old-value");
+      vi.stubEnv("SECRETS_ENCRYPTION_KEY", "rotation-current-material");
+      vi.stubEnv(
+        "SECRETS_ENCRYPTION_KEYS_PREVIOUS",
+        "another-writer-material,rotation-old-material",
+      );
+      resetAppConfigForTests();
+      expect(decryptSecretValue(oldCiphertext)).toBe("old-value");
+      expect(decryptSharedSecretValue(oldCiphertext)).toBe("old-value");
+      const tampered =
+        oldCiphertext.slice(0, -2) +
+        (oldCiphertext.endsWith("00") ? "11" : "00");
+      expect(() => decryptSecretValue(tampered)).toThrow();
+      const newCiphertext = encryptSecretValue("new-value");
+      vi.stubEnv("SECRETS_ENCRYPTION_KEYS_PREVIOUS", undefined);
+      resetAppConfigForTests();
+      expect(decryptSecretValue(newCiphertext)).toBe("new-value");
+      expect(() => decryptSecretValue(oldCiphertext)).toThrow();
+      vi.stubEnv("SECRETS_ENCRYPTION_KEY", "rotation-old-material");
+      expect(() => decryptSecretValue(newCiphertext)).toThrow();
+    } finally {
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+    }
   });
 
   it("rejects payloads that are not v1-tagged ciphertext", () => {
