@@ -71,9 +71,16 @@ async function openMenu(target: DesignBrief = brief) {
     );
   });
   cleanup = () => act(async () => root.unmount()).then(() => host.remove());
-  const link = document.body.querySelector("a");
-  if (!link) throw new Error("Missing Built from link");
-  return link;
+  const item = document.body.querySelector('[role="menuitem"]');
+  if (!item) throw new Error("Missing Built from item");
+  return item;
+}
+
+function expectUnlinked(item: Element) {
+  expect(item.textContent).toBe("designEditor.fileMenu.builtFromPage");
+  expect(item.tagName).not.toBe("A");
+  expect(item.querySelector("a")).toBeNull();
+  expect(item.getAttribute("aria-disabled")).toBe("true");
 }
 
 describe("Built from link", () => {
@@ -99,11 +106,8 @@ describe("Built from link", () => {
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
   });
 
-  it("shows a generic label while the title loads or when the viewer can't read the page", async () => {
-    const link = await openMenu();
-
-    expect(link.textContent).toBe("designEditor.fileMenu.builtFromPage");
-    expect(link.getAttribute("href")).toBe(brief.url);
+  it("shows an unlinked generic label while the page loads or when the viewer can't read it", async () => {
+    expectUnlinked(await openMenu());
   });
 
   it("drops a cached title when reading the page again fails", async () => {
@@ -114,9 +118,8 @@ describe("Built from link", () => {
       context: "Content page: the brief",
     };
     query.isError = true;
-    const link = await openMenu();
 
-    expect(link.textContent).toBe("designEditor.fileMenu.builtFromPage");
+    expectUnlinked(await openMenu());
   });
 
   it("puts the page's title only on the link Content returned for it", async () => {
@@ -137,16 +140,14 @@ describe("Built from link", () => {
     expect(link.getAttribute("href")).toBe(brief.url);
   });
 
-  it("keeps the generic label when Content's link isn't a full web address", async () => {
+  it("doesn't link when Content's link isn't a full web address", async () => {
     query.data = {
       id: "page-one",
       title: "Spring launch brief",
       url: "/_agent-native/open?documentId=page-one",
       context: "Content page: the brief",
     };
-    const link = await openMenu();
 
-    expect(link.textContent).toBe("designEditor.fileMenu.builtFromPage");
-    expect(link.getAttribute("href")).toBe(brief.url);
+    expectUnlinked(await openMenu());
   });
 });

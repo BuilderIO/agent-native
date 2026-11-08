@@ -8,7 +8,11 @@ import {
   composerWebsiteUrlSchema,
 } from "@agent-native/core/shared";
 import { designBriefsFromData, type DesignBrief } from "@shared/design-briefs";
-import { IconChevronDown, IconExternalLink } from "@tabler/icons-react";
+import {
+  IconChevronDown,
+  IconExternalLink,
+  IconFileText,
+} from "@tabler/icons-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -49,12 +53,12 @@ import type { DesignData } from "../types";
 import { ExportSubmenuContent } from "./export-submenu-content";
 
 /**
- * The title and link of a Content page the design started from. The design
- * keeps only the page's id and link, so the page is read under the viewer's
- * own Content access, and the title is empty for anyone who can't open it. A
- * failed read hides the title even when an earlier read is still cached. A
- * title always comes with the link Content returned for that page, so a stored
- * link can't borrow a page's title.
+ * The title and link of a Content page the design started from, as Content
+ * returns them to the viewer. The design keeps only the page's id and link, so
+ * the page is read under the viewer's own Content access; for anyone who can't
+ * open it, while it loads, or when the read fails (even with an earlier read
+ * still cached), there is no page. The stored link is never used, so it can't
+ * point a "Built from" item somewhere Content didn't.
  */
 function useBriefPage(
   brief: DesignBrief,
@@ -65,14 +69,12 @@ function useBriefPage(
     { source: "content", operation: "read", id: brief.id, page: 1 },
     { method: "GET", staleTime: 5 * 60_000, retry: false, refetchOnMount },
   );
-  const untitled = { title: "", url: brief.url };
-  if (page.isError) return untitled;
+  if (page.isError) return null;
   const read = composerSourceReferenceSchema.safeParse(page.data);
-  const url = composerWebsiteUrlSchema.safeParse(
-    read.success ? read.data.url : undefined,
-  );
-  const title = read.success ? read.data.title.trim() : "";
-  return title && url.success ? { title, url: url.data } : untitled;
+  if (!read.success) return null;
+  const title = read.data.title.trim();
+  const url = composerWebsiteUrlSchema.safeParse(read.data.url);
+  return title && url.success ? { title, url: url.data } : null;
 }
 
 /** Reads the page when the editor opens, so the file menu opens with it. */
@@ -85,15 +87,23 @@ export function BuiltFromItem({ brief }: { brief: DesignBrief }) {
   const t = useT();
   // Opening the menu reads the page again, so access removed since the editor
   // opened takes the title away instead of showing it from the cache.
-  const { title, url } = useBriefPage(brief, "always");
+  const page = useBriefPage(brief, "always");
+  if (!page) {
+    return (
+      <DropdownMenuItem disabled className="items-start">
+        <IconFileText className="mt-0.5 size-3.5 shrink-0" />
+        <span className="line-clamp-2 min-w-0 break-words">
+          {t("designEditor.fileMenu.builtFromPage")}
+        </span>
+      </DropdownMenuItem>
+    );
+  }
   return (
     <DropdownMenuItem asChild className="items-start">
-      <a href={url} target="_blank" rel="noopener noreferrer">
+      <a href={page.url} target="_blank" rel="noopener noreferrer">
         <IconExternalLink className="mt-0.5 size-3.5 shrink-0" />
         <span className="line-clamp-2 min-w-0 break-words">
-          {title
-            ? t("designEditor.fileMenu.builtFrom", { title })
-            : t("designEditor.fileMenu.builtFromPage")}
+          {t("designEditor.fileMenu.builtFrom", { title: page.title })}
         </span>
       </a>
     </DropdownMenuItem>

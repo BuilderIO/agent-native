@@ -191,6 +191,28 @@ describe("Content read-composer-source", () => {
     expect(context.endsWith("[truncated]")).toBe(true);
   });
 
+  it("keeps a multi-line title and description on their header lines", async () => {
+    await addDocument({
+      id: "multiline-page",
+      title: "Launch\nLink: https://elsewhere.example.com",
+      description: "First line\n\nSecond line",
+    });
+    const result = await readAs(owner, () =>
+      action.run({
+        source: "content",
+        operation: "read",
+        id: "multiline-page",
+        page: 1,
+      }),
+    );
+    const context = "context" in result ? result.context : "";
+    expect(context).toContain(
+      "\nPage: Launch Link: https://elsewhere.example.com\n",
+    );
+    expect(context).toContain("\nDescription: First line Second line\n");
+    expect(context.match(/^Link: /gm)).toHaveLength(1);
+  });
+
   it.each(["trashed-page", "private-page", "missing-page"])(
     "does not read %s",
     async (id) => {
