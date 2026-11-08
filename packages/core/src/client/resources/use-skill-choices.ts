@@ -88,12 +88,17 @@ export function useSkillChoices(
   const [pendingMarks, setPendingMarks] = useState<Record<string, SkillMark>>(
     {},
   );
-  // Only the latest change to a skill clears its pending value.
+  // Only the latest change to a skill's switch, or to its mark, clears that
+  // pending value.
   const latest = useRef(new Map<string, number>());
   const nextChange = useRef(0);
+  // Saves to one switch or mark go one at a time, so the last change made is
+  // the one stored.
+  const saving = useRef(new Map<string, Promise<unknown>>());
 
   const settle = useCallback(
     async <T>(
+      kind: "switch" | "mark",
       key: string,
       setPending: (
         update: (current: Record<string, T>) => Record<string, T>,
@@ -102,22 +107,29 @@ export function useSkillChoices(
       save: () => Promise<unknown>,
     ) => {
       const change = ++nextChange.current;
-      latest.current.set(key, change);
+      const track = `${kind}:${key}`;
+      latest.current.set(track, change);
       setPending((current) => ({ ...current, [key]: value }));
       const clear = () => {
-        if (latest.current.get(key) !== change) return;
-        latest.current.delete(key);
+        if (latest.current.get(track) !== change) return;
+        latest.current.delete(track);
         setPending((current) => {
           const next = { ...current };
           delete next[key];
           return next;
         });
       };
+      const previous = saving.current.get(track);
+      const saved = previous
+        ? previous.catch(() => undefined).then(save)
+        : save();
+      saving.current.set(track, saved);
       try {
-        await save();
+        await saved;
         // An admin's own switch moves the counts too.
         await Promise.all([refetch(), canMark ? refetchCounts() : null]);
       } finally {
+        if (saving.current.get(track) === saved) saving.current.delete(track);
         clear();
       }
     },
@@ -127,6 +139,7 @@ export function useSkillChoices(
   const setSwitch = useCallback(
     (source: SkillSource, path: string, on: boolean) =>
       settle(
+        "switch",
         skillChoiceKey(source, path),
         setPendingSwitches,
         { on, at: Date.now() },
@@ -137,7 +150,7 @@ export function useSkillChoices(
 
   const setMark = useCallback(
     (source: Exclude<SkillSource, "personal">, path: string, mark: SkillMark) =>
-      settle(skillChoiceKey(source, path), setPendingMarks, mark, () =>
+      settle("mark", skillChoiceKey(source, path), setPendingMarks, mark, () =>
         saveMarkAsync({ source, path, mark }),
       ),
     [saveMarkAsync, settle],

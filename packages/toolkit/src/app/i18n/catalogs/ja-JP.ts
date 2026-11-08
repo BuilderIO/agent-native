@@ -2899,6 +2899,8 @@ const messages: ToolkitAgentChatTranslation = {
     "{{org}} の必須スキルのため、常にオンです",
   "settingsResources.skills.dispatchClash":
     "Dispatch にも {{name}} があります。エージェントはこちらを使い、Dispatch のものはスキップします。両方使うには、どちらかの名前を変更してください。",
+  "settingsResources.skills.dispatchClashRequired":
+    "Dispatch の {{name}} は必須なので、エージェントはそちらを使い、こちらはスキップします。両方使うには、どちらかの名前を変更してください。",
   "settingsResources.skills.requireTitle": "{{name}} を必須にしますか？",
   "settingsResources.skills.makeRequired": "必須にする",
   "settingsResources.skills.switchFailed":

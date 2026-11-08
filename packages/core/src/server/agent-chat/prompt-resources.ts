@@ -765,6 +765,13 @@ class RequiredSkillLabsReadError extends Error {
   }
 }
 
+class SkillChoicesReadError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = "SkillChoicesReadError";
+  }
+}
+
 async function loadResourceSkillPromptEntries(
   owner: string,
   orgId?: string | null,
@@ -785,10 +792,14 @@ async function loadResourceSkillPromptEntries(
           }
         : await resourceListAccessibleLayers(owner, "skills/", inOrg);
     // Each person's switches and the organization's marks decide which
-    // skills the agent sees; Required ones come first so they win.
+    // skills the agent sees; Required ones come first so they win. Without
+    // them the prompt would leave out a Required skill or include one the
+    // person switched off, so a failed read fails the prompt, as labs do.
     const choices = await readSkillChoices({
       email: owner === SHARED_OWNER ? null : owner,
       orgId: orgId === undefined ? (getRequestOrgId() ?? null) : orgId,
+    }).catch((error) => {
+      throw new SkillChoicesReadError(error);
     });
     const { required, rest } = applySkillChoices(layers, choices);
     const sorted = [
@@ -844,7 +855,12 @@ async function loadResourceSkillPromptEntries(
     }
     return { entries, total: sorted.length, metadataRead: loaded.length };
   } catch (error) {
-    if (error instanceof RequiredSkillLabsReadError) throw error;
+    if (
+      error instanceof RequiredSkillLabsReadError ||
+      error instanceof SkillChoicesReadError
+    ) {
+      throw error;
+    }
     return { entries: [], total: 0, metadataRead: 0 };
   }
 }

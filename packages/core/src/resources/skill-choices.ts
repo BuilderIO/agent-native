@@ -21,9 +21,11 @@ import {
   type SkillSwitch,
 } from "./skill-choice-rules.js";
 import {
+  resourceList,
   resourceListOrganization,
   resourceOwnersAtPaths,
   resourceWorkspaceAppId,
+  WORKSPACE_OWNER,
   type EffectiveResourceContext,
   type ResourceMeta,
 } from "./store.js";
@@ -62,6 +64,18 @@ function storedKey(source: SkillSource, path: string): string {
     : skillChoiceKey(source, path);
 }
 
+// A person's switches go with them into every organization they belong to,
+// but each organization has its own shared skills, so a switch on one names
+// the organization it was made in. Personal skills are the same everywhere.
+function storedSwitchKey(
+  source: SkillSource,
+  path: string,
+  orgId: string | null,
+): string {
+  const key = storedKey(source, path);
+  return orgId && source !== "personal" ? `${orgId}/${key}` : key;
+}
+
 /** The `skillChoiceKey` a stored key means in this app, or null if another app's. */
 function choiceKey(stored: string): string | null {
   if (!stored.startsWith(WORKSPACE_KEY_PREFIX)) {
@@ -81,12 +95,21 @@ function isSkillSwitch(value: unknown): value is SkillSwitch {
   return typeof on === "boolean" && typeof at === "number";
 }
 
+/** A person's switches as they apply in one organization, or in none. */
 function readSwitches(
   value: Record<string, unknown> | null,
+  orgId: string | null,
 ): Record<string, SkillSwitch> {
+  const inOrg = orgId ? `${orgId}/` : null;
   const switches: Record<string, SkillSwitch> = {};
   for (const [stored, raw] of Object.entries(value ?? {})) {
-    const key = choiceKey(stored);
+    const key = stored.startsWith("personal:")
+      ? stored
+      : !inOrg
+        ? choiceKey(stored)
+        : stored.startsWith(inOrg)
+          ? choiceKey(stored.slice(inOrg.length))
+          : null;
     if (key && isSkillSwitch(raw)) switches[key] = { on: raw.on, at: raw.at };
   }
   return switches;
@@ -111,22 +134,23 @@ export async function readSkillChoices(input: {
   orgId?: string | null;
 }): Promise<SkillChoices> {
   const email = input.email?.trim();
-  const orgId = input.orgId?.trim();
+  const orgId = input.orgId?.trim() || null;
   const [switches, marks] = await Promise.all([
     email ? getUserSetting(email, SKILL_SWITCHES_SETTING_KEY) : null,
     orgId ? getOrgSetting(orgId, SKILL_MARKS_SETTING_KEY) : null,
   ]);
-  return { switches: readSwitches(switches), marks: readMarks(marks) };
+  return { switches: readSwitches(switches, orgId), marks: readMarks(marks) };
 }
 
 export async function setSkillSwitch(
-  email: string,
+  person: { email: string; orgId: string | null },
   source: SkillSource,
   path: string,
   on: boolean,
   now = Date.now(),
 ): Promise<SkillSwitch> {
-  const key = storedKey(source, path);
+  const { email } = person;
+  const key = storedSwitchKey(source, path, person.orgId?.trim() || null);
   const choice: SkillSwitch = { on, at: now };
   await mutateUserSetting(email, SKILL_SWITCHES_SETTING_KEY, (current) => ({
     ...(current ?? {}),
@@ -201,9 +225,11 @@ export function applySkillChoices<T extends Pick<ResourceMeta, "path">>(
 }
 
 /**
- * The skill file a reference to one path reads. A personal copy normally
- * wins, but when the organization's or Dispatch's skill at that path is
- * Required, nobody can use their own version, so the required one does.
+ * The skill file a reference to one path reads: the copy the prompt would
+ * use. A Required organization or Dispatch skill comes first, then the first
+ * copy the person has on, their own before the organization's and
+ * Dispatch's. Asking for a skill by name is explicit, so when every copy is
+ * off the reference still reads the usual one.
  */
 export function skillReferenceResource(
   effective: Pick<
@@ -212,22 +238,25 @@ export function skillReferenceResource(
   >,
   choices: SkillChoices,
 ): ResourceMeta | null {
-  if (effective.effectiveScope !== "personal") {
-    return effective.effectiveResource;
-  }
-  for (const [scope, source] of [
-    ["shared", "organization"],
-    ["workspace", "workspace"],
-  ] as const) {
-    const layer = effective.layers.find((entry) => entry.scope === scope);
-    if (
-      layer?.resource &&
-      skillMarkFor(choices, source, effective.path) === "required"
-    ) {
-      return layer.resource;
-    }
-  }
-  return effective.effectiveResource;
+  const copies = (
+    [
+      ["personal", "personal"],
+      ["shared", "organization"],
+      ["workspace", "workspace"],
+    ] as const
+  ).flatMap(([scope, source]) => {
+    const resource = effective.layers.find(
+      (entry) => entry.scope === scope,
+    )?.resource;
+    return resource ? [{ resource, source }] : [];
+  });
+  const chosen =
+    copies.find(
+      ({ source }) =>
+        skillMarkFor(choices, source, effective.path) === "required",
+    ) ??
+    copies.find(({ source }) => isSkillOn(choices, source, effective.path));
+  return chosen?.resource ?? effective.effectiveResource;
 }
 
 async function listOrgMemberEmails(orgId: string): Promise<string[]> {
@@ -243,9 +272,19 @@ export async function readSkillChoiceCounts(
   orgId: string,
 ): Promise<SkillChoiceCounts> {
   const members = await listOrgMemberEmails(orgId);
-  const [settings, orgSkills] = await Promise.all([
+  const [settings, orgSkills, dispatchSkills] = await Promise.all([
     getUserSettings(members, SKILL_SWITCHES_SETTING_KEY),
     resourceListOrganization(orgId, "skills/"),
+    resourceList(WORKSPACE_OWNER, "skills/", { orgId }),
+  ]);
+  const orgPaths = new Set(orgSkills.map((skill) => skill.path));
+  const dispatchPaths = new Set(dispatchSkills.map((skill) => skill.path));
+  // Only this organization's skills are counted. Other people's personal
+  // skills are theirs alone, and a stored key for anything else says
+  // nothing an admin here should see.
+  const counted = new Set([
+    ...[...orgPaths].map((path) => skillChoiceKey("organization", path)),
+    ...[...dispatchPaths].map((path) => skillChoiceKey("workspace", path)),
   ]);
   const counts: Record<string, SkillChoiceCount> = {};
   const bump = (key: string, field: keyof SkillChoiceCount) => {
@@ -253,19 +292,23 @@ export async function readSkillChoiceCounts(
     counts[key][field] += 1;
   };
   for (const email of members) {
-    const switches = readSwitches(settings.get(email) ?? null);
+    const switches = readSwitches(settings.get(email) ?? null, orgId);
     for (const [key, choice] of Object.entries(switches)) {
-      // Other people's personal skills are theirs alone.
-      if (key.startsWith("personal:")) continue;
-      bump(key, choice.on ? "on" : "off");
+      if (counted.has(key)) bump(key, choice.on ? "on" : "off");
     }
   }
-  const owned = await resourceOwnersAtPaths(
-    members,
-    orgSkills.map((skill) => skill.path),
-  );
+  // A Required organization or Dispatch skill replaces anyone's own at its
+  // path, so admins see how many people have one.
+  const owned = await resourceOwnersAtPaths(members, [
+    ...new Set([...orgPaths, ...dispatchPaths]),
+  ]);
   for (const { path } of owned) {
-    bump(skillChoiceKey("organization", path), "ownVersions");
+    if (orgPaths.has(path)) {
+      bump(skillChoiceKey("organization", path), "ownVersions");
+    }
+    if (dispatchPaths.has(path)) {
+      bump(skillChoiceKey("workspace", path), "ownVersions");
+    }
   }
   return { members: members.length, counts };
 }

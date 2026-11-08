@@ -3022,6 +3022,8 @@ const messages: ToolkitAgentChatTranslation = {
     "مطلوبة من {{org}}، لذا فهي مفعّلة دائمًا",
   "settingsResources.skills.dispatchClash":
     "يحتوي Dispatch أيضًا على {{name}}. يستخدم الوكيل هذه ويتخطى التي في Dispatch. أعد تسمية إحداهما لاستخدام الاثنتين.",
+  "settingsResources.skills.dispatchClashRequired":
+    "{{name}} في Dispatch مطلوبة، لذا يستخدمها الوكيل ويتخطى هذه. أعد تسمية إحداهما لاستخدام الاثنتين.",
   "settingsResources.skills.requireTitle": "جعل {{name}} مطلوبة؟",
   "settingsResources.skills.makeRequired": "جعلها مطلوبة",
   "settingsResources.skills.switchFailed": "تعذّر حفظ اختيارك لـ {{name}}.",

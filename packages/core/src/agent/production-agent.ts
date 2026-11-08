@@ -4123,10 +4123,14 @@ export async function resolveSkillReferenceContent(
       const effective = await resourceEffectiveContext(ownerEmail, ref.path, {
         ...resourceOptions,
       });
-      // A Required organization or Dispatch skill beats the person's own.
+      // The copy the prompt would use: a Required organization or Dispatch
+      // skill, then the first one the person has on.
       const chosen = skillReferenceResource(
         effective,
-        await readSkillChoices({ orgId: resourceOptions.orgId }),
+        await readSkillChoices({
+          email: ownerEmail,
+          orgId: resourceOptions.orgId,
+        }),
       );
       if (!chosen) return null;
       const full = await resourceGet(chosen.id, {

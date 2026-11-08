@@ -21,6 +21,11 @@ export default defineAction({
       readSkillChoices({ email, orgId }),
       orgId ? readOrgMemberRole(orgId, email) : null,
     ]);
-    return { ...choices, canMark: role === "owner" || role === "admin" };
+    return {
+      switches: choices.switches,
+      // An organization's marks are for its members only.
+      marks: role ? choices.marks : {},
+      canMark: role === "owner" || role === "admin",
+    };
   },
 });

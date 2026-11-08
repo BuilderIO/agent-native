@@ -200,24 +200,21 @@ export function ResourceSettingsGroups({
   const skillChoices = useSkillChoices({ enabled: hasSkills });
   const [requiring, setRequiring] = useState<SkillRowChoice | null>(null);
   const workspaceNodes = trees.workspace.nodes;
-  // A same-named Dispatch skill loses to the organization's, unless it's the
-  // Required one.
-  const dispatchNames = useMemo(
-    () =>
-      new Set(
-        getLeafResources(filterResourceTree(workspaceNodes, "skills"))
-          .filter(
-            (node) =>
-              skillMarkFor(
-                skillChoices.choices,
-                "workspace",
-                node.resource.path,
-              ) !== "required",
-          )
-          .map(resourceRowLabel),
-      ),
-    [skillChoices.choices, workspaceNodes],
-  );
+  // Each Dispatch skill's name, and whether it's Required, which lets it win
+  // over a same-named organization skill that isn't.
+  const dispatchNames = useMemo(() => {
+    const names = new Map<string, boolean>();
+    for (const node of getLeafResources(
+      filterResourceTree(workspaceNodes, "skills"),
+    )) {
+      const name = resourceRowLabel(node);
+      const required =
+        skillMarkFor(skillChoices.choices, "workspace", node.resource.path) ===
+        "required";
+      names.set(name, names.get(name) === true || required);
+    }
+    return names;
+  }, [skillChoices.choices, workspaceNodes]);
   const sharedNodes = trees.shared.nodes;
   // A Required organization or Dispatch skill is used instead of anyone's
   // own skill at the same path.

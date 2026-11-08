@@ -2653,6 +2653,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.requiredLockHint": "{{org}} 要求使用，因此一律開啟",
   "settingsResources.skills.dispatchClash":
     "Dispatch 中也有 {{name}}。代理程式會使用這個，並略過 Dispatch 中的那個。重新命名其中一個即可同時使用兩者。",
+  "settingsResources.skills.dispatchClashRequired":
+    "Dispatch 中的 {{name}} 是必要的，所以代理程式會使用它，並略過這個。重新命名其中一個即可同時使用兩者。",
   "settingsResources.skills.requireTitle": "要將 {{name}} 設為必要嗎？",
   "settingsResources.skills.makeRequired": "設為必要",
   "settingsResources.skills.switchFailed": "無法儲存您對 {{name}} 的選擇。",

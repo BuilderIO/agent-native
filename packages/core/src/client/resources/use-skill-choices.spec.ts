@@ -236,6 +236,84 @@ describe("useSkillChoices", () => {
     expect(state.choices.switches[ORG]).toEqual({ on: true, at: 5 });
   });
 
+  it("saves quick switches to one skill in order, even after a refusal", async () => {
+    const first = deferred();
+    const second = deferred();
+    mocks.saveSwitch
+      .mockImplementationOnce(async () => first.promise)
+      .mockImplementationOnce(async () => second.promise);
+    await render();
+
+    let one!: Promise<void>;
+    let two!: Promise<void>;
+    let three!: Promise<void>;
+    act(() => {
+      one = state.setSwitch("organization", PATH, false);
+    });
+    act(() => {
+      two = state.setSwitch("organization", PATH, true);
+    });
+    // The second waits for the first, so the server stores the last one.
+    expect(mocks.saveSwitch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      first.reject(new Error("Forbidden"));
+      await one.catch(() => undefined);
+    });
+    await vi.waitFor(() => expect(mocks.saveSwitch).toHaveBeenCalledTimes(2));
+    act(() => {
+      three = state.setSwitch("organization", PATH, false);
+    });
+    expect(mocks.saveSwitch).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      second.resolve();
+      await two;
+      await three;
+    });
+    expect(
+      mocks.saveSwitch.mock.calls.map(([args]) => (args as { on: boolean }).on),
+    ).toEqual([false, true, false]);
+
+    // With nothing left saving, the next switch saves at once.
+    act(() => {
+      void state.setSwitch("organization", PATH, true);
+    });
+    expect(mocks.saveSwitch).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps a switch and a mark on one skill apart", async () => {
+    const switchSave = deferred();
+    const markSave = deferred();
+    mocks.saveSwitch.mockImplementationOnce(async () => switchSave.promise);
+    mocks.saveMark.mockImplementationOnce(async () => markSave.promise);
+    await render();
+
+    let flip!: Promise<void>;
+    let mark!: Promise<void>;
+    act(() => {
+      flip = state.setSwitch("organization", PATH, false);
+    });
+    act(() => {
+      mark = state.setMark("organization", PATH, "required");
+    });
+    expect(mocks.saveMark).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      switchSave.resolve();
+      await flip;
+    });
+    // The switch's own save is back, whatever the mark is doing.
+    expect(state.choices.switches[ORG]).toEqual({ on: true, at: 5 });
+    expect(state.choices.marks[ORG]).toBe("required");
+
+    await act(async () => {
+      markSave.resolve();
+      await mark;
+    });
+    expect(state.choices.marks[ORG]).toBe("optional");
+  });
+
   it("shows a mark at once, and Recommended as no mark", async () => {
     const save = deferred();
     mocks.saveMark.mockImplementationOnce(async () => save.promise);

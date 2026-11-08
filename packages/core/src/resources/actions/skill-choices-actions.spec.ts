@@ -16,6 +16,7 @@ vi.mock("../skill-choices.js", async (importOriginal) => {
     SKILL_MARKS: actual.SKILL_MARKS,
     skillChoicesSchema: actual.skillChoicesSchema,
     skillChoiceCountsSchema: actual.skillChoiceCountsSchema,
+    skillMarkFor: actual.skillMarkFor,
     readSkillChoices: (...args: unknown[]) => mockReadSkillChoices(...args),
     readSkillChoiceCounts: (...args: unknown[]) =>
       mockReadSkillChoiceCounts(...args),
@@ -46,12 +47,28 @@ describe("skill choice actions", () => {
       setSkillSwitch.run({ source: "organization", path, on: false }, member),
     ).resolves.toEqual({ source: "organization", path, on: false, at: 1 });
     expect(mockSetSkillSwitch).toHaveBeenCalledWith(
-      "ana@x.com",
+      { email: "ana@x.com", orgId: "org-1" },
       "organization",
       path,
       false,
     );
     expect(mockReadOrgMemberRole).not.toHaveBeenCalled();
+  });
+
+  it("refuses to switch a Required shared skill, but not the person's own", async () => {
+    mockReadSkillChoices.mockResolvedValue({
+      switches: {},
+      marks: { [`organization:${path}`]: "required" },
+    });
+    await expect(
+      setSkillSwitch.run({ source: "organization", path, on: false }, member),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(mockReadSkillChoices).toHaveBeenCalledWith({ orgId: "org-1" });
+    expect(mockSetSkillSwitch).not.toHaveBeenCalled();
+
+    await expect(
+      setSkillSwitch.run({ source: "personal", path, on: false }, member),
+    ).resolves.toMatchObject({ source: "personal", on: false });
   });
 
   it("refuses a switch without a signed-in person", async () => {
@@ -115,6 +132,25 @@ describe("skill choice actions", () => {
     expect(mockReadSkillChoices).toHaveBeenLastCalledWith({
       email: "ana@x.com",
       orgId: null,
+    });
+  });
+
+  it("shows an organization's marks to its members only", async () => {
+    mockReadSkillChoices.mockResolvedValue({
+      switches: { [`personal:${path}`]: { on: false, at: 1 } },
+      marks: { [`organization:${path}`]: "required" },
+    });
+    mockReadOrgMemberRole.mockResolvedValue("member");
+    await expect(getSkillChoices.run({}, member)).resolves.toEqual({
+      switches: { [`personal:${path}`]: { on: false, at: 1 } },
+      marks: { [`organization:${path}`]: "required" },
+      canMark: false,
+    });
+    mockReadOrgMemberRole.mockResolvedValue(null);
+    await expect(getSkillChoices.run({}, member)).resolves.toEqual({
+      switches: { [`personal:${path}`]: { on: false, at: 1 } },
+      marks: {},
+      canMark: false,
     });
   });
 

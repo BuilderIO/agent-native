@@ -1,11 +1,15 @@
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
-import { setSkillSwitch } from "../skill-choices.js";
+import {
+  readSkillChoices,
+  setSkillSwitch,
+  skillMarkFor,
+} from "../skill-choices.js";
 
 export default defineAction({
   description:
-    "Switch one skill on or off for the current user only. A Required skill stays on whatever they choose, and a Dispatch skill changes in this app only.",
+    "Switch one skill on or off for the current user only. A Required skill can't be switched, and a Dispatch skill changes in this app only.",
   schema: z.object({
     source: z
       .enum(["personal", "organization", "workspace"])
@@ -37,7 +41,19 @@ export default defineAction({
   run: async ({ source, path, on }, ctx) => {
     const email = ctx?.userEmail?.trim();
     if (!email) fail("Not authenticated.", { statusCode: 401 });
-    const choice = await setSkillSwitch(email, source, path, on);
+    const orgId = ctx?.orgId?.trim() || null;
+    // Nobody can switch a Required skill. A switch stored now would quietly
+    // take effect if the mark changed later.
+    if (
+      source !== "personal" &&
+      skillMarkFor(await readSkillChoices({ orgId }), source, path) ===
+        "required"
+    ) {
+      fail("Your organization requires this skill, so it can't be switched.", {
+        statusCode: 409,
+      });
+    }
+    const choice = await setSkillSwitch({ email, orgId }, source, path, on);
     return { source, path, ...choice };
   },
 });

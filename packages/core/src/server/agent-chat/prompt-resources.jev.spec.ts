@@ -2107,6 +2107,24 @@ description: ${description}
     expect(prompt).not.toContain("meeting-notes");
   });
 
+  it("fails the prompt when it can't read who chose which skills", async () => {
+    mocks.resourceListAccessible.mockResolvedValue([
+      {
+        id: "org-voice",
+        owner: "__organization__:org-1",
+        path: "skills/brand-voice/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+      },
+    ]);
+    mocks.readSkillChoices.mockRejectedValue(new Error("settings down"));
+
+    // Without the choices, a Required skill would silently go missing.
+    await expect(
+      loadResourcesForPrompt("user@example.test", false, undefined, "org-1"),
+    ).rejects.toThrow("settings down");
+  });
+
   it.each([false, true])(
     "loads personal memory instructions in %s compact context",
     async (compact) => {

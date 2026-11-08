@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const userSettings = new Map<string, Record<string, unknown>>();
 const orgSettings = new Map<string, Record<string, unknown>>();
 const mockResourceListOrganization = vi.fn();
+const mockResourceList = vi.fn();
 const mockResourceOwnersAtPaths = vi.fn();
 const mockExecute = vi.fn();
 let workspaceAppId: string | null = "mail";
@@ -49,6 +50,8 @@ vi.mock("../settings/org-settings.js", () => ({
 }));
 
 vi.mock("./store.js", () => ({
+  WORKSPACE_OWNER: "__workspace__",
+  resourceList: (...args: unknown[]) => mockResourceList(...args),
   resourceListOrganization: (...args: unknown[]) =>
     mockResourceListOrganization(...args),
   resourceOwnersAtPaths: (...args: unknown[]) =>
@@ -83,6 +86,8 @@ beforeEach(() => {
   userSettings.clear();
   orgSettings.clear();
   mockResourceListOrganization.mockReset();
+  mockResourceList.mockReset();
+  mockResourceList.mockResolvedValue([]);
   mockResourceOwnersAtPaths.mockReset();
   mockExecute.mockReset();
   workspaceAppId = "mail";
@@ -211,14 +216,16 @@ describe("applySkillChoices", () => {
 });
 
 describe("stored choices", () => {
-  it("reads only this app's Dispatch choices and drops malformed ones", async () => {
+  it("reads only this organization's and app's choices and drops malformed ones", async () => {
     userSettings.set(`ana@x.com:${SKILL_SWITCHES_SETTING_KEY}`, {
       "personal:skills/a/SKILL.md": { on: false, at: 5 },
-      "organization:skills/b/SKILL.md": { on: true, at: 6 },
-      "workspace@mail:skills/c/SKILL.md": { on: false, at: 7 },
-      "workspace@calendar:skills/c/SKILL.md": { on: true, at: 8 },
-      "organization:skills/d/SKILL.md": { on: "no", at: 9 },
-      "elsewhere:skills/e/SKILL.md": { on: false, at: 10 },
+      "org-1/organization:skills/b/SKILL.md": { on: true, at: 6 },
+      "org-1/workspace@mail:skills/c/SKILL.md": { on: false, at: 7 },
+      "org-1/workspace@calendar:skills/c/SKILL.md": { on: true, at: 8 },
+      "org-1/organization:skills/d/SKILL.md": { on: "no", at: 9 },
+      "org-1/elsewhere:skills/e/SKILL.md": { on: false, at: 10 },
+      "org-2/organization:skills/g/SKILL.md": { on: false, at: 11 },
+      "organization:skills/h/SKILL.md": { on: false, at: 12 },
     });
     orgSettings.set(`org-1:${SKILL_MARKS_SETTING_KEY}`, {
       "organization:skills/b/SKILL.md": "required",
@@ -249,7 +256,7 @@ describe("stored choices", () => {
 
   it("saves a Dispatch switch for this app only", async () => {
     await setSkillSwitch(
-      "ana@x.com",
+      { email: "ana@x.com", orgId: null },
       "workspace",
       "skills/c/SKILL.md",
       false,
@@ -263,6 +270,33 @@ describe("stored choices", () => {
     await expect(readSkillChoices({ email: "ana@x.com" })).resolves.toEqual({
       switches: { "workspace:skills/c/SKILL.md": { on: false, at: 42 } },
       marks: {},
+    });
+  });
+
+  it("keeps a switch on a shared skill to the organization it was made in", async () => {
+    const ana = { email: "ana@x.com", orgId: "org-1" };
+    await setSkillSwitch(ana, "organization", "skills/b/SKILL.md", false, 1);
+    await setSkillSwitch(ana, "personal", "skills/a/SKILL.md", false, 2);
+    expect(userSettings.get(`ana@x.com:${SKILL_SWITCHES_SETTING_KEY}`)).toEqual(
+      {
+        "org-1/organization:skills/b/SKILL.md": { on: false, at: 1 },
+        "personal:skills/a/SKILL.md": { on: false, at: 2 },
+      },
+    );
+    // A personal skill is the same in every organization; a shared one isn't.
+    await expect(
+      readSkillChoices({ email: "ana@x.com", orgId: "org-2" }),
+    ).resolves.toEqual({
+      switches: { "personal:skills/a/SKILL.md": { on: false, at: 2 } },
+      marks: {},
+    });
+    await expect(
+      readSkillChoices({ email: "ana@x.com", orgId: "org-1" }),
+    ).resolves.toMatchObject({
+      switches: {
+        "organization:skills/b/SKILL.md": { on: false, at: 1 },
+        "personal:skills/a/SKILL.md": { on: false, at: 2 },
+      },
     });
   });
 
@@ -324,18 +358,47 @@ describe("skillReferenceResource", () => {
     ).toBe("dispatch");
   });
 
-  it("leaves a reference that isn't to a personal copy alone", () => {
+  it("lets a Required Dispatch skill beat the organization's", () => {
     const shared = {
       ...effective,
       effectiveScope: "shared" as const,
       effectiveResource: resource("org"),
+      layers: [layer("shared", "org"), layer("workspace", "dispatch")],
     };
+    expect(skillReferenceResource(shared, NO_SKILL_CHOICES)?.id).toBe("org");
     expect(
       skillReferenceResource(shared, {
         switches: {},
         marks: { [`workspace:${path}`]: "required" },
       })?.id,
+    ).toBe("dispatch");
+  });
+
+  it("reads the first copy the person has on, as the prompt does", () => {
+    const off = { on: false, at: 1 };
+    expect(
+      skillReferenceResource(effective, {
+        switches: { [`personal:${path}`]: off },
+        marks: {},
+      })?.id,
     ).toBe("org");
+    expect(
+      skillReferenceResource(effective, {
+        switches: { [`personal:${path}`]: off, [`organization:${path}`]: off },
+        marks: {},
+      })?.id,
+    ).toBe("dispatch");
+    // Asked for by name with every copy off, it reads the usual one.
+    expect(
+      skillReferenceResource(effective, {
+        switches: {
+          [`personal:${path}`]: off,
+          [`organization:${path}`]: off,
+          [`workspace:${path}`]: off,
+        },
+        marks: {},
+      })?.id,
+    ).toBe("mine");
     expect(
       skillReferenceResource(
         { path, effectiveScope: null, effectiveResource: null, layers: [] },
@@ -358,31 +421,47 @@ describe("readSkillChoiceCounts", () => {
       { path: "skills/a/SKILL.md" },
       { path: "skills/b/SKILL.md" },
     ]);
+    mockResourceList.mockResolvedValue([
+      { path: "skills/a/SKILL.md" },
+      { path: "skills/c/SKILL.md" },
+    ]);
     mockResourceOwnersAtPaths.mockResolvedValue([
       { owner: "bo@x.com", path: "skills/a/SKILL.md" },
       { owner: "cy@x.com", path: "skills/a/SKILL.md" },
+      { owner: "cy@x.com", path: "skills/c/SKILL.md" },
+      { owner: "ana@x.com", path: "skills/b/SKILL.md" },
     ]);
     userSettings.set(`ana@x.com:${SKILL_SWITCHES_SETTING_KEY}`, {
-      "organization:skills/a/SKILL.md": { on: false, at: 1 },
+      "org-1/organization:skills/a/SKILL.md": { on: false, at: 1 },
       "personal:skills/secret/SKILL.md": { on: false, at: 1 },
-      "workspace@mail:skills/c/SKILL.md": { on: true, at: 1 },
+      "org-1/workspace@mail:skills/c/SKILL.md": { on: true, at: 1 },
     });
     userSettings.set(`bo@x.com:${SKILL_SWITCHES_SETTING_KEY}`, {
-      "organization:skills/a/SKILL.md": { on: false, at: 2 },
-      "workspace@calendar:skills/c/SKILL.md": { on: true, at: 2 },
+      "org-1/organization:skills/a/SKILL.md": { on: false, at: 2 },
+      "org-1/workspace@calendar:skills/c/SKILL.md": { on: true, at: 2 },
+      // Made in another organization, so not counted here.
+      "org-2/organization:skills/b/SKILL.md": { on: false, at: 2 },
+      // Not one of this organization's skills.
+      "org-1/organization:skills/gone/SKILL.md": { on: false, at: 2 },
+      "org-1/organization:context/private.md": { on: false, at: 2 },
     });
 
     const counts = await readSkillChoiceCounts("org-1");
 
+    expect(mockResourceList).toHaveBeenCalledWith("__workspace__", "skills/", {
+      orgId: "org-1",
+    });
     expect(mockResourceOwnersAtPaths).toHaveBeenCalledWith(
       ["ana@x.com", "bo@x.com", "cy@x.com"],
-      ["skills/a/SKILL.md", "skills/b/SKILL.md"],
+      ["skills/a/SKILL.md", "skills/b/SKILL.md", "skills/c/SKILL.md"],
     );
     expect(counts).toEqual({
       members: 3,
       counts: {
         "organization:skills/a/SKILL.md": { off: 2, on: 0, ownVersions: 2 },
-        "workspace:skills/c/SKILL.md": { off: 0, on: 1, ownVersions: 0 },
+        "organization:skills/b/SKILL.md": { off: 0, on: 0, ownVersions: 1 },
+        "workspace:skills/a/SKILL.md": { off: 0, on: 0, ownVersions: 2 },
+        "workspace:skills/c/SKILL.md": { off: 0, on: 1, ownVersions: 1 },
       },
     });
     expect(JSON.stringify(counts)).not.toContain("@");

@@ -507,6 +507,40 @@ describe("Skills page", () => {
     );
   });
 
+  it("tells an admin which of two same-named skills the agent uses", async () => {
+    orgState.value = { orgId: "org-1", orgName: "Acme", role: "owner" };
+    const originalShared = trees.shared;
+    trees.shared = [
+      ...originalShared,
+      leaf("skills/our-release-notes/SKILL.md", "__shared__", {
+        kind: "skill",
+        skillMeta: { name: "release-notes" } as never,
+      }),
+    ];
+    try {
+      skillChoices.value = { canMark: true };
+      await renderPage(SkillsSettingsPage);
+      expect(group("organization").textContent).toContain(
+        "Dispatch also has a release-notes. The agent uses this one and skips Dispatch's.",
+      );
+
+      // A Required Dispatch skill wins over the organization's.
+      skillChoices.value = {
+        canMark: true,
+        choices: {
+          switches: {},
+          marks: { "workspace:skills/release-notes/SKILL.md": "required" },
+        },
+      };
+      await renderPage(SkillsSettingsPage);
+      expect(group("organization").textContent).toContain(
+        "Dispatch's release-notes is Required, so the agent uses it and skips this one.",
+      );
+    } finally {
+      trees.shared = originalShared;
+    }
+  });
+
   it("asks before making a skill Required, saying who it changes", async () => {
     const { RequireSkillDialog } =
       await import("../../../resources/SkillChoiceControls.js");
@@ -540,7 +574,7 @@ describe("Skills page", () => {
         context={{
           state,
           orgName: "Acme",
-          dispatchNames: new Set(),
+          dispatchNames: new Map(),
           requiredPaths: new Set(),
           onRequire: () => {},
         }}

@@ -3051,6 +3051,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Exigida por {{org}}, por isso está sempre ativada",
   "settingsResources.skills.dispatchClash":
     "O Dispatch também tem uma {{name}}. O agente usa esta e ignora a do Dispatch. Renomeie uma para usar as duas.",
+  "settingsResources.skills.dispatchClashRequired":
+    "A {{name}} do Dispatch é obrigatória, então o agente usa ela e ignora esta. Renomeie uma para usar as duas.",
   "settingsResources.skills.requireTitle": "Tornar {{name}} obrigatória?",
   "settingsResources.skills.makeRequired": "Tornar obrigatória",
   "settingsResources.skills.switchFailed":

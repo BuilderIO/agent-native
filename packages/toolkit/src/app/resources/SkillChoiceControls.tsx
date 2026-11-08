@@ -45,8 +45,11 @@ export interface SkillRowChoice {
 export interface SkillRowContext {
   state: SkillChoicesState;
   orgName: string | null;
-  /** Names of Dispatch skills, to warn an admin about a same-named one. */
-  dispatchNames: ReadonlySet<string>;
+  /**
+   * Each Dispatch skill's name and whether it's Required, to warn an admin
+   * about a same-named one.
+   */
+  dispatchNames: ReadonlyMap<string, boolean>;
   /** Paths of Required shared skills, which replace anyone's own copy. */
   requiredPaths: ReadonlySet<string>;
   /** Asks before an admin makes a skill Required. */
@@ -183,12 +186,24 @@ export function SkillRowNotes({
     }
   }
 
-  const clashes =
-    skill.source === "organization" &&
-    context.state.canMark &&
-    context.dispatchNames.has(skill.name);
+  // The agent uses one skill per name. The organization's wins over
+  // Dispatch's unless only Dispatch's is Required.
+  const dispatchRequired =
+    skill.source === "organization" && context.state.canMark
+      ? context.dispatchNames.get(skill.name)
+      : undefined;
+  const clash =
+    dispatchRequired === undefined
+      ? null
+      : dispatchRequired && mark !== "required"
+        ? t("agentChat.settingsResources.skills.dispatchClashRequired", {
+            name: skill.name,
+          })
+        : t("agentChat.settingsResources.skills.dispatchClash", {
+            name: skill.name,
+          });
 
-  if (lines.length === 0 && !clashes) return null;
+  if (lines.length === 0 && !clash) return null;
   return (
     <>
       {lines.length > 0 ? (
@@ -196,12 +211,10 @@ export function SkillRowNotes({
           {lines.join(" · ")}
         </span>
       ) : null}
-      {clashes ? (
+      {clash ? (
         <span className="mt-1 flex items-start gap-1.5 text-xs text-foreground">
           <IconAlertCircle className="mt-px size-3.5 shrink-0" />
-          {t("agentChat.settingsResources.skills.dispatchClash", {
-            name: skill.name,
-          })}
+          {clash}
         </span>
       ) : null}
     </>
