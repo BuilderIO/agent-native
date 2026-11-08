@@ -243,7 +243,7 @@ async function settledWithin(
       ),
       new Promise<void>((resolve) => {
         timer = setTimeout(resolve, ms);
-        timer.unref?.();
+        timer.unref();
       }),
     ]);
   } finally {
