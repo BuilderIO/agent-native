@@ -19,13 +19,53 @@ test("workspacePackages throws when a checkout has no package manifests", () => 
   );
 });
 
-test("preview command must match one eligible site exactly, ignoring case", () => {
-  assert.equal(previewSiteFromCommand("/preview analytics"), "analytics");
-  assert.equal(previewSiteFromCommand("/PREVIEW ANALYTICS"), "analytics");
-  assert.equal(previewSiteFromCommand("/preview analytics\n"), undefined);
-  assert.equal(previewSiteFromCommand("/preview analytics\r\n"), undefined);
-  assert.equal(previewSiteFromCommand("/preview unknown"), undefined);
-  assert.equal(previewSiteFromCommand("/preview  analytics"), undefined);
+test("preview commands allow only a single final LF or CRLF, ignoring case", () => {
+  assert.equal(previewSiteFromCommand("/preview content\n"), "content");
+  for (const site of previewEligibleSiteNames()) {
+    for (const command of [
+      `/preview ${site}`,
+      `/PREVIEW ${site.toUpperCase()}`,
+      `/PrEvIeW ${site.toUpperCase()}`,
+    ]) {
+      for (const ending of ["", "\n", "\r\n"]) {
+        assert.equal(
+          previewSiteFromCommand(command + ending),
+          site,
+          JSON.stringify(command + ending),
+        );
+      }
+    }
+    for (const ending of [
+      "\r",
+      "\n\n",
+      "\r\n\r\n",
+      "\n\r\n",
+      " ",
+      "\t",
+      "\u2028",
+      "\u2029",
+      "\nmore",
+    ]) {
+      assert.equal(
+        previewSiteFromCommand(`/preview ${site}${ending}`),
+        undefined,
+        JSON.stringify(ending),
+      );
+    }
+  }
+  for (const command of [
+    "/preview unknown",
+    "/preview  analytics",
+    " /preview analytics",
+    "/preview analytics extra",
+    "/preview analytics\n/preview content",
+  ]) {
+    assert.equal(
+      previewSiteFromCommand(command),
+      undefined,
+      JSON.stringify(command),
+    );
+  }
 });
 
 test("selects the app sites touched by a PR", () => {
