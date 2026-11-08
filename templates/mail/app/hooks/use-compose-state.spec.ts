@@ -21,13 +21,21 @@ import {
   saveDraftToEmailsBestEffort,
   saveNewestDraft,
   setDraftOverlapResolver,
+  syncDraftToMailboxBestEffort,
   type DraftSaveResult,
   type DraftSaveQueueResult,
 } from "./use-compose-state";
 
+const mocks = vi.hoisted(() => ({ callAction: vi.fn() }));
+
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
   appApiPath: (path: string) => path,
+}));
+
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  callAction: mocks.callAction,
 }));
 
 function draft(id: string, inline = false): ComposeState {
@@ -512,6 +520,88 @@ describe("saveDraftToEmailsBestEffort", () => {
         body: "Local-only draft",
       }),
     ).resolves.toEqual({ status: "unavailable" });
+  });
+});
+
+describe("syncDraftToMailboxBestEffort", () => {
+  afterEach(() => {
+    mocks.callAction.mockReset();
+  });
+
+  it("asks for the mailbox copy only once this tab's queued write of the draft lands", async () => {
+    const pending = new Map<string, Promise<unknown>>();
+    let landWrite: (() => void) | undefined;
+    void enqueueDraftMutation(
+      pending,
+      "draft-1",
+      () =>
+        new Promise<void>((resolve) => {
+          landWrite = resolve;
+        }),
+    );
+    mocks.callAction.mockResolvedValue({
+      status: "synced",
+      savedDraft: {
+        draftId: "gmail-1",
+        backend: "gmail",
+        accountEmail: "me@example.com",
+      },
+    });
+
+    const synced = syncDraftToMailboxBestEffort(pending, "draft-1");
+    await vi.waitFor(() => expect(landWrite).toBeDefined());
+    expect(mocks.callAction).not.toHaveBeenCalled();
+    landWrite!();
+
+    await expect(synced).resolves.toEqual({
+      status: "saved",
+      draftId: "gmail-1",
+      backend: "gmail",
+      accountEmail: "me@example.com",
+    });
+    expect(mocks.callAction).toHaveBeenCalledWith("sync-draft-mailbox", {
+      id: "draft-1",
+    });
+  });
+
+  it("still asks after a queued write fails, since Mail's stored copy is what it copies", async () => {
+    const pending = new Map<string, Promise<unknown>>();
+    void enqueueDraftMutation(pending, "draft-1", async () => {
+      throw new Error("offline");
+    }).catch(() => undefined);
+    mocks.callAction.mockResolvedValue({ status: "gone" });
+
+    await expect(
+      syncDraftToMailboxBestEffort(pending, "draft-1"),
+    ).resolves.toEqual({ status: "gone" });
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a mailbox copy left behind as a failed save", async () => {
+    mocks.callAction.mockResolvedValue({
+      status: "pending",
+      errorCode: "gmail_quota_cooldown",
+      message: "Email service is briefly busy",
+      retryAfterMs: 5_000,
+    });
+
+    const result = await syncDraftToMailboxBestEffort(new Map(), "draft-1");
+
+    expect(result.status).toBe("failed");
+    expect((result as { error: unknown }).error).toMatchObject({
+      message: "Email service is briefly busy",
+      errorCode: "gmail_quota_cooldown",
+      retryAfterMs: 5_000,
+    });
+  });
+
+  it("reports a request that fails as a failed save", async () => {
+    const error = new Error("Request failed (500)");
+    mocks.callAction.mockRejectedValue(error);
+
+    await expect(
+      syncDraftToMailboxBestEffort(new Map(), "draft-1"),
+    ).resolves.toEqual({ status: "failed", error });
   });
 });
 

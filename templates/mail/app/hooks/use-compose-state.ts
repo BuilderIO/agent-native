@@ -1,6 +1,6 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appApiPath } from "@agent-native/core/client/api-path";
-import { useActionMutation } from "@agent-native/core/client/hooks";
+import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
 import {
   isSaveConflict,
   mergeRecords,
@@ -280,7 +280,9 @@ async function saveDraftToEmails(
 export type DraftSaveResult =
   | ({ status: "saved" } & SavedDraftMetadata)
   | { status: "unavailable" }
-  | { status: "failed"; error: unknown };
+  | { status: "failed"; error: unknown }
+  // Mail no longer stores the draft, so there was nothing to copy.
+  | { status: "gone" };
 
 export type DraftSaveQueueResult =
   | ({ status: "saved" } & SavedDraftMetadata)
@@ -290,7 +292,8 @@ export type DraftSaveQueueResult =
       error: unknown;
       savedDraft?: SavedDraftMetadata;
     }
-  | { status: "cancelled"; savedDraft?: SavedDraftMetadata };
+  | { status: "cancelled"; savedDraft?: SavedDraftMetadata }
+  | { status: "gone"; savedDraft?: SavedDraftMetadata };
 
 export function enqueueDraftSave(
   pending: Map<string, Promise<DraftSaveQueueResult>>,
@@ -475,6 +478,51 @@ export async function saveDraftToEmailsBestEffort(
     return savedDraft
       ? { status: "saved", ...savedDraft }
       : { status: "unavailable" };
+  } catch (error) {
+    return { status: "failed", error };
+  }
+}
+
+type MailboxSyncResponse =
+  | { status: "synced"; savedDraft: SavedDraftMetadata }
+  | {
+      status: "pending";
+      errorCode: string;
+      message: string;
+      retryAfterMs?: number;
+    }
+  | { status: "unavailable" }
+  | { status: "gone" };
+
+/**
+ * Brings a draft's mailbox copy up to date with the draft as Mail stores it,
+ * once this tab's queued writes of it have landed. The server copies what's
+ * stored, not this tab's text, so a write that lost to another save, or that
+ * the person settled by keeping the other version, can't leave its own text in
+ * Gmail.
+ */
+export async function syncDraftToMailboxBestEffort(
+  pendingMutations: Map<string, Promise<unknown>>,
+  id: string,
+): Promise<DraftSaveResult> {
+  await pendingMutations.get(id)?.catch(() => undefined);
+  try {
+    const result = (await callAction("sync-draft-mailbox", {
+      id,
+    })) as MailboxSyncResponse;
+    if (result.status === "synced") {
+      return { status: "saved", ...result.savedDraft };
+    }
+    if (result.status === "pending") {
+      return {
+        status: "failed",
+        error: Object.assign(new Error(result.message), {
+          errorCode: result.errorCode,
+          retryAfterMs: result.retryAfterMs,
+        }),
+      };
+    }
+    return { status: result.status };
   } catch (error) {
     return { status: "failed", error };
   }
@@ -690,9 +738,10 @@ export function useComposeState() {
             (draft) => draft.id === id,
           ),
         () => removedDraftIdsRef.current[id] !== undefined,
-        saveDraftToEmailsBestEffort,
+        () =>
+          syncDraftToMailboxBestEffort(pendingDraftMutationsRef.current, id),
       ).then((result) => {
-        if (result.status === "cancelled") return;
+        if (result.status === "cancelled" || result.status === "gone") return;
         reportDraftSaveResult(current, result);
         const latest = (
           qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
@@ -1061,10 +1110,14 @@ export function useComposeState() {
       if (current) {
         dirtyRef.current[id] = false;
         versionRef.current[id] = versionRef.current[id] ?? 0;
-        if (hasDraftContent(current)) autoSaveToGmail(id);
-        return enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
-          putMutation.mutateAsync(current),
+        const saved = enqueueDraftMutation(
+          pendingDraftMutationsRef.current,
+          id,
+          () => putMutation.mutateAsync(current),
         );
+        // After the write is queued, so the mailbox copy is made from it.
+        if (hasDraftContent(current)) autoSaveToGmail(id);
+        return saved;
       }
     },
     [qc, putMutation, autoSaveToGmail],

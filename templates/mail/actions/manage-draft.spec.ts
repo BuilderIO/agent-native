@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   deleteGmailDraft: vi.fn(),
   findGmailDraftAccount: vi.fn(),
   updateLocalSavedDraft: vi.fn(),
+  createLocalSavedDraft: vi.fn(),
+  deleteLocalSavedDraft: vi.fn(),
   isConnected: vi.fn(),
   readLocalEmails: vi.fn(),
   withLocalEmailMutationLock: vi.fn(),
@@ -70,6 +72,12 @@ vi.mock("../server/lib/gmail-drafts.js", () => ({
 
 vi.mock("../server/lib/local-email-drafts.js", () => ({
   updateLocalSavedDraft: mocks.updateLocalSavedDraft,
+  createLocalSavedDraft: mocks.createLocalSavedDraft,
+  deleteLocalSavedDraft: mocks.deleteLocalSavedDraft,
+}));
+
+vi.mock("../server/lib/google-auth.js", () => ({
+  isConnected: mocks.isConnected,
 }));
 
 vi.mock("../server/lib/local-email-store.js", () => ({
@@ -143,14 +151,9 @@ describe("manage-draft MCP App", () => {
     expect(source).toContain('listAppState("compose-")');
     expect(source).toContain("replyToId: args.replyToId");
     expect(source).toContain(
-      "draft.accountEmail = savedGmailDraft.accountEmail",
-    );
-    expect(source).toContain(
       "savedGmailDraft?.accountEmail ?? args.accountEmail",
     );
-    expect(source).toContain(
-      "draft.savedDraftId ? draft.accountEmail : undefined",
-    );
+    expect(source).toContain("draft.accountEmail = ownership.accountEmail");
     expect(source).toContain("delete draft.accountEmail");
   });
 });
@@ -375,13 +378,10 @@ describe("manage-draft local fallback", () => {
     });
 
     expect(updated.draft).not.toHaveProperty("accountEmail");
-    expect(mocks.saveGmailDraft).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        ownerEmail: "owner@example.com",
-        accountEmail: undefined,
-        draftId: undefined,
-      }),
-    );
+    const [lastSave] = mocks.saveGmailDraft.mock.lastCall!;
+    expect(lastSave).toMatchObject({ ownerEmail: "owner@example.com" });
+    expect(lastSave.accountEmail).toBeUndefined();
+    expect(lastSave.draftId).toBeUndefined();
   });
 
   it("rejects switching the mailbox for an existing Gmail draft", async () => {
@@ -550,7 +550,7 @@ describe("manage-draft Gmail budget refusals", () => {
     expect(mocks.writeAppState).not.toHaveBeenCalled();
   });
 
-  it("reports a refused update of a Gmail draft as not saved", async () => {
+  it("keeps a refused update in Mail and says Gmail's copy is behind", async () => {
     const stored = {
       id: "gmail-draft",
       savedDraftId: "gmail-draft-1",
@@ -565,18 +565,51 @@ describe("manage-draft Gmail budget refusals", () => {
     appState.set("compose-gmail-draft", stored);
     mocks.saveGmailDraft.mockRejectedValue(new GmailQuotaRefusedError(5_000));
 
+    const result = await action.run({
+      action: "update",
+      id: "gmail-draft",
+      expectedRevision: revisionOf("gmail-draft"),
+      body: "Changed",
+    });
+
+    expect(appState.get("compose-gmail-draft")).toMatchObject({
+      body: "Changed",
+    });
+    expect(result.revision).toBe(revisionOf("gmail-draft"));
+    expect(result.mailboxSync).toMatchObject({
+      status: "pending",
+      errorCode: "gmail_quota_cooldown",
+      retryAfterMs: 5_000,
+    });
+    expect(result.message).toMatch(/isn't updated yet: .*about 5s/);
+  });
+
+  it("reports a refused lookup of a draft's Gmail account as not saved", async () => {
+    const stored = {
+      id: "legacy-draft",
+      savedDraftId: "legacy-gmail-1",
+      to: "recipient@example.com",
+      subject: "Refund",
+      body: "Draft",
+      mode: "compose",
+    };
+    appState.set("compose-legacy-draft", stored);
+    mocks.findGmailDraftAccount.mockRejectedValue(
+      new GmailQuotaRefusedError(5_000),
+    );
+
     const error = await action
       .run({
         action: "update",
-        id: "gmail-draft",
-        expectedRevision: revisionOf("gmail-draft"),
+        id: "legacy-draft",
+        expectedRevision: revisionOf("legacy-draft"),
         body: "Changed",
       })
       .catch((thrown: unknown) => thrown);
 
     expect(isNoWriteError(error)).toBe(true);
-    expect(mocks.writeAppState).not.toHaveBeenCalled();
-    expect(appState.get("compose-gmail-draft")).toBe(stored);
+    expect(appState.get("compose-legacy-draft")).toBe(stored);
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
   });
 
   it("leaves Gmail's own 429 as it was, since that request was sent", async () => {
@@ -781,7 +814,7 @@ describe("manage-draft saves against the revision it read", () => {
     expect(redone.revision).toBe(revisionOf("shared-draft"));
   });
 
-  it("applies a repeated update once", async () => {
+  it("applies a repeated update once, retrying only Gmail's copy", async () => {
     const readRevision = revisionOf("shared-draft");
     const first = await action.run({
       action: "update",
@@ -790,6 +823,7 @@ describe("manage-draft saves against the revision it read", () => {
       body: "Agent body",
     });
     mocks.saveGmailDraft.mockClear();
+    mocks.compareAndSetAppState.mockClear();
 
     const repeat = await action.run({
       action: "update",
@@ -800,14 +834,18 @@ describe("manage-draft saves against the revision it read", () => {
 
     expect(repeat.draft.body).toBe("Agent body");
     expect(repeat.revision).toBe(first.revision);
-    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+    expect(mocks.saveGmailDraft).toHaveBeenCalledTimes(1);
+    expect(mocks.saveGmailDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ body: "Agent body" }),
+    );
   });
 
-  it("catches a save that lands between the check and the write", async () => {
-    const typed = { ...stored, body: "Typed during the Gmail save" };
-    mocks.saveGmailDraft.mockImplementation(async () => {
+  it("catches a save that lands between the check and the write, and writes nothing", async () => {
+    const typed = { ...stored, body: "Typed just before the write" };
+    mocks.compareAndSetAppState.mockImplementationOnce(async () => {
       appState.set("compose-shared-draft", typed);
-      return null;
+      return false;
     });
 
     await expect(
@@ -822,76 +860,28 @@ describe("manage-draft saves against the revision it read", () => {
       details: { current: typed },
     });
     expect(appState.get("compose-shared-draft")).toBe(typed);
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
   });
 
-  it("removes the Gmail draft it made when it loses that race", async () => {
-    const typed = { ...stored, body: "Typed during the Gmail save" };
-    mocks.saveGmailDraft.mockImplementation(async () => {
-      appState.set("compose-shared-draft", typed);
-      return {
-        draftId: "new-gmail-draft",
-        accountEmail: "user@example.com",
-        created: true,
-      };
-    });
-
-    await expect(
-      action.run({
-        action: "update",
-        id: "shared-draft",
-        expectedRevision: revisionOf("shared-draft"),
-        subject: "Agent subject",
-      }),
-    ).rejects.toMatchObject({ errorCode: "save_conflict" });
-    expect(mocks.deleteGmailDraft).toHaveBeenCalledWith(
-      expect.objectContaining({
-        accountEmail: "user@example.com",
-        draftId: "new-gmail-draft",
-      }),
-    );
-  });
-
-  it("names the Gmail draft it couldn't remove after losing that race", async () => {
-    const typed = { ...stored, body: "Typed during the Gmail save" };
-    mocks.saveGmailDraft.mockImplementation(async () => {
-      appState.set("compose-shared-draft", typed);
-      return {
-        draftId: "stuck-gmail-draft",
-        accountEmail: "user@example.com",
-        created: true,
-      };
-    });
-    mocks.deleteGmailDraft.mockRejectedValueOnce(new Error("Gmail is down"));
-
-    await expect(
-      action.run({
-        action: "update",
-        id: "shared-draft",
-        expectedRevision: revisionOf("shared-draft"),
-        subject: "Agent subject",
-      }),
-    ).rejects.toMatchObject({
-      errorCode: "save_conflict",
-      details: {
-        current: typed,
-        leftoverGmailDraftId: "stuck-gmail-draft",
-      },
-    });
-  });
-
-  it("keeps a Gmail draft it only updated when it loses that race", async () => {
+  it("copies Mail's draft to Gmail, not the text this call sent", async () => {
     const saved = {
       ...stored,
       savedDraftId: "existing-gmail-draft",
       savedDraftBackend: "gmail",
       savedDraftAccountEmail: "user@example.com",
+      accountEmail: "user@example.com",
     };
     appState.set("compose-shared-draft", saved);
+    let typedOnce = false;
     mocks.saveGmailDraft.mockImplementation(async () => {
-      appState.set("compose-shared-draft", {
-        ...saved,
-        body: "Typed during the Gmail save",
-      });
+      if (!typedOnce) {
+        // The person types while this call's copy is on its way to Gmail.
+        typedOnce = true;
+        appState.set("compose-shared-draft", {
+          ...(appState.get("compose-shared-draft") as object),
+          body: "Typed during the Gmail save",
+        });
+      }
       return {
         draftId: "existing-gmail-draft",
         accountEmail: "user@example.com",
@@ -899,15 +889,116 @@ describe("manage-draft saves against the revision it read", () => {
       };
     });
 
-    await expect(
-      action.run({
-        action: "update",
-        id: "shared-draft",
-        expectedRevision: revisionOf("shared-draft"),
+    const result = await action.run({
+      action: "update",
+      id: "shared-draft",
+      expectedRevision: revisionOf("shared-draft"),
+      subject: "Agent subject",
+    });
+
+    expect(mocks.saveGmailDraft).toHaveBeenCalledTimes(2);
+    expect(mocks.saveGmailDraft).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        draftId: "existing-gmail-draft",
+        subject: "Agent subject",
+        body: "Typed during the Gmail save",
+      }),
+    );
+    expect(result.mailboxSync).toEqual({ status: "synced" });
+    expect(result.draft).toMatchObject({
+      subject: "Agent subject",
+      body: "Typed during the Gmail save",
+    });
+    expect(result.revision).toBe(revisionOf("shared-draft"));
+    expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+  });
+
+  it("adopts one Gmail draft and removes the one it made when another save got there first", async () => {
+    mocks.saveGmailDraft
+      .mockImplementationOnce(async () => {
+        // Another save stores the draft with the Gmail draft it made.
+        appState.set("compose-shared-draft", {
+          ...(appState.get("compose-shared-draft") as object),
+          savedDraftId: "their-gmail-draft",
+          savedDraftBackend: "gmail",
+          savedDraftAccountEmail: "user@example.com",
+          accountEmail: "user@example.com",
+        });
+        return {
+          draftId: "my-gmail-draft",
+          accountEmail: "user@example.com",
+          created: true,
+        };
+      })
+      .mockResolvedValueOnce({
+        draftId: "their-gmail-draft",
+        accountEmail: "user@example.com",
+        created: false,
+      });
+
+    const result = await action.run({
+      action: "update",
+      id: "shared-draft",
+      expectedRevision: revisionOf("shared-draft"),
+      subject: "Agent subject",
+    });
+
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ draftId: "my-gmail-draft" }),
+    );
+    expect(mocks.saveGmailDraft).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        draftId: "their-gmail-draft",
         subject: "Agent subject",
       }),
-    ).rejects.toMatchObject({ errorCode: "save_conflict" });
-    expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+    );
+    expect(appState.get("compose-shared-draft")).toMatchObject({
+      savedDraftId: "their-gmail-draft",
+      subject: "Agent subject",
+    });
+    expect(result.mailboxSync).toEqual({ status: "synced" });
+  });
+
+  it("names a spare Gmail draft it couldn't remove", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.saveGmailDraft
+      .mockImplementationOnce(async () => {
+        appState.set("compose-shared-draft", {
+          ...(appState.get("compose-shared-draft") as object),
+          body: "Typed during the Gmail save",
+        });
+        return {
+          draftId: "stuck-gmail-draft",
+          accountEmail: "user@example.com",
+          created: true,
+        };
+      })
+      .mockResolvedValueOnce({
+        draftId: "kept-gmail-draft",
+        accountEmail: "user@example.com",
+        created: true,
+      });
+    mocks.deleteGmailDraft.mockRejectedValueOnce(new Error("Gmail is down"));
+
+    const result = await action.run({
+      action: "update",
+      id: "shared-draft",
+      expectedRevision: revisionOf("shared-draft"),
+      subject: "Agent subject",
+    });
+
+    expect(result.mailboxSync).toEqual({
+      status: "synced",
+      leftoverDraftIds: ["stuck-gmail-draft"],
+    });
+    expect(result.message).toContain("stuck-gmail-draft");
+    expect(appState.get("compose-shared-draft")).toMatchObject({
+      savedDraftId: "kept-gmail-draft",
+      body: "Typed during the Gmail save",
+    });
+    consoleError.mockRestore();
   });
 
   describe("when the write throws", () => {
@@ -925,14 +1016,13 @@ describe("manage-draft saves against the revision it read", () => {
         subject: "Agent subject",
       });
 
-    it("removes the Gmail draft it made if the write didn't land", async () => {
+    it("saves nothing to Gmail if the write didn't land", async () => {
       mocks.saveGmailDraft.mockResolvedValue(newGmailDraft);
       mocks.compareAndSetAppState.mockRejectedValueOnce(writeError);
 
       await expect(update()).rejects.toBe(writeError);
-      expect(mocks.deleteGmailDraft).toHaveBeenCalledWith(
-        expect.objectContaining({ draftId: "new-gmail-draft" }),
-      );
+      expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+      expect(appState.get("compose-shared-draft")).toBe(stored);
     });
 
     it("counts a write that landed before it threw as stored", async () => {
@@ -950,11 +1040,10 @@ describe("manage-draft saves against the revision it read", () => {
       expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
     });
 
-    it("keeps the Gmail draft and says so if the reread fails too", async () => {
+    it("says to check before trying again if the reread fails too", async () => {
       const consoleError = vi
         .spyOn(console, "error")
         .mockImplementation(() => {});
-      mocks.saveGmailDraft.mockResolvedValue(newGmailDraft);
       mocks.compareAndSetAppState.mockImplementationOnce(async () => {
         mocks.readAppState.mockRejectedValueOnce(new Error("database down"));
         throw writeError;
@@ -962,9 +1051,9 @@ describe("manage-draft saves against the revision it read", () => {
 
       await expect(update()).rejects.toMatchObject({
         errorCode: "draft_store_unconfirmed",
-        details: { gmailDraftId: "new-gmail-draft" },
+        details: { draftId: "shared-draft" },
       });
-      expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+      expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
       consoleError.mockRestore();
     });
 
