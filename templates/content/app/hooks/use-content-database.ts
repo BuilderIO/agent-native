@@ -73,6 +73,7 @@ import {
 } from "../lib/page-open-collection";
 import {
   contentNavigationBranchFilter,
+  contentNavigationContextInDatabaseFilter,
   contentNavigationContextFilter,
   contentPlacementTargets,
   contentSpaceFilesDatabaseId,
@@ -294,6 +295,12 @@ export function invalidateContentDatabaseNavigationQueries(
   void queryClient.invalidateQueries(
     contentDatabaseNavigationQueryFilter(scope),
   );
+  // A path entry's `hasChildren` follows the same view and rows.
+  if (scope.databaseId) {
+    void queryClient.invalidateQueries(
+      contentNavigationContextInDatabaseFilter(scope.databaseId),
+    );
+  }
 }
 
 export function contentDatabaseNavigationQueryFilter(
@@ -1414,6 +1421,8 @@ export function useUpdateContentDatabaseView(documentId: string) {
       void queryClient.invalidateQueries({
         queryKey: contentDatabaseByIdQueryKey(databaseId),
       });
+      // The Files tree, and the paths through it, read the view's filter.
+      invalidateContentDatabaseNavigationQueries(queryClient, { databaseId });
     },
   });
 }

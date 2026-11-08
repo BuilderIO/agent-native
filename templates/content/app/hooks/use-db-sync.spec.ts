@@ -637,7 +637,7 @@ describe("contentActionInvalidatePredicate", () => {
     ).toBe(true);
   });
 
-  it("refreshes only the active personal view and the Files tree it orders for personal presentation writes", () => {
+  it("refreshes only the active personal view, the Files tree it orders, and the open path for personal presentation writes", () => {
     const predicate = contentActionInvalidatePredicate("/page/database-page");
     const personalViewQuery = {
       queryKey: [
@@ -675,10 +675,36 @@ describe("contentActionInvalidatePredicate", () => {
     expect(
       predicate({ ...filesTreeQuery, isActive: () => false }, events),
     ).toBe(false);
+    const pathQuery = {
+      queryKey: [
+        "action",
+        "get-content-navigation-context",
+        { id: "other-page" },
+      ],
+      isActive: () => true,
+    };
+    expect(predicate(pathQuery, events)).toBe(true);
+    expect(predicate({ ...pathQuery, isActive: () => false }, events)).toBe(
+      false,
+    );
     expect(predicate(tableQuery, events)).toBe(false);
     expect(
       predicate(filesTreeQuery, [{ source: "action", key: "add-comment" }]),
     ).toBe(false);
+  });
+
+  it("refreshes the open path when a shared view is saved in another tab", () => {
+    const predicate = contentActionInvalidatePredicate("/page/page-1");
+    const pathQuery = {
+      queryKey: ["action", "get-content-navigation-context", { id: "page-1" }],
+      isActive: () => true,
+    };
+    const events = [{ source: "action", key: "update-content-database-view" }];
+
+    expect(predicate(pathQuery, events)).toBe(true);
+    expect(predicate({ ...pathQuery, isActive: () => false }, events)).toBe(
+      false,
+    );
   });
 
   it("refreshes the active personal view and Files tree when a property is deleted outside the editor", () => {

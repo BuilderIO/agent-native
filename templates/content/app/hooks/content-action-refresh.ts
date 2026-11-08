@@ -106,6 +106,8 @@ const DATABASE_PRESENTATION_MUTATIONS = new Set([
   // Deleting a property drops it from saved personal sorts and filters.
   "delete-document-property",
   "update-content-database-personal-view",
+  // The shared view's filter decides which pages count as children on a path.
+  "update-content-database-view",
 ]);
 
 const DATABASE_LIFECYCLE_MUTATIONS = new Set([
@@ -285,11 +287,16 @@ function queryTargetsDatabase(query: ActionQuery, documentId: string): boolean {
 }
 
 // The Files tree is ordered by the stored personal view but not keyed by it,
-// so it reads again with that view.
+// so it reads again with that view, as do the paths that say which of its pages
+// have children.
 function queryTargetsActiveDatabasePresentation(query: ActionQuery): boolean {
   if (query.queryKey[0] !== "action" || query.isActive?.() !== true)
     return false;
-  if (query.queryKey[1] === "get-content-database-personal-view") return true;
+  if (
+    query.queryKey[1] === "get-content-database-personal-view" ||
+    query.queryKey[1] === "get-content-navigation-context"
+  )
+    return true;
   if (query.queryKey[1] !== "query-content-database-items") return false;
   return queryReadsFilesNavigation(query);
 }

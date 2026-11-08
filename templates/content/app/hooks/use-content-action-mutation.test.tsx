@@ -316,6 +316,33 @@ describe("sidebar writes refresh only the affected branch", () => {
     );
   });
 
+  it("rename refreshes the path through the renamed page's parent, whose arrow can follow a name filter", async () => {
+    await mountReads(["otherPath", "pagePath"]);
+    queryClient.setQueryData(
+      ["action", "get-content-navigation-context", { id: "other-child" }],
+      {
+        document: { id: "other-child" },
+        path: [
+          { id: "other", parentId: null },
+          { id: "other-child", parentId: "other" },
+        ],
+      },
+    );
+    actionResponses["update-document"] = {
+      id: "other-child",
+      title: "Renamed",
+      updatedAt: "2026-09-27T00:00:00.000Z",
+      softDeletedDatabaseIds: [],
+    };
+    const update = await renderHook(() => useUpdateDocument());
+
+    await act(() =>
+      update.current.mutateAsync({ id: "other-child", title: "Renamed" }),
+    );
+
+    expect(await refetched()).toEqual(["otherPath"]);
+  });
+
   it("create refreshes the parent's children, the parent's row, and the paths through the parent and the new page", async () => {
     await mountReads();
     actionResponses["create-document"] = {
