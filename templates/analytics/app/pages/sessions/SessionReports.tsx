@@ -27,6 +27,9 @@ import { ANALYTICS_SESSIONS_TRIAGE_LAB } from "../../../shared/labs";
 import { sessionReportPath } from "../../../shared/session-reports";
 import { formatOffsetClock } from "./session-replay-devtools";
 
+// Asks for one more than it shows, so a longer list reads as 20+, not 20.
+const SHOWN_REPORTS = 20;
+
 function createReportContext(recordingId: string, fromMs: number | null) {
   const from =
     fromMs === null
@@ -55,7 +58,7 @@ export function SessionReportsButton({
   const { send, isGenerating } = useSendToAgentChat();
   const query = useActionQuery(
     "list-session-reports",
-    { recordingId, limit: 20 },
+    { recordingId, limit: SHOWN_REPORTS + 1 },
     { enabled: lab, staleTime: 30_000 },
   );
   if (!lab) return null;
@@ -70,6 +73,11 @@ export function SessionReportsButton({
   }
 
   const reports = query.data?.reports ?? [];
+  const shownReports = reports.slice(0, SHOWN_REPORTS);
+  const reportCount =
+    reports.length > SHOWN_REPORTS
+      ? `${SHOWN_REPORTS}+`
+      : String(reports.length);
   const createButton = (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -109,12 +117,12 @@ export function SessionReportsButton({
       <PopoverTrigger asChild>
         <Button type="button" variant="outline">
           <IconFileDescription className="h-4 w-4" />
-          {t("sessions.reportCount", { count: String(reports.length) })}
+          {t("sessions.reportCount", { count: reportCount })}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 p-2">
         <ul className="flex flex-col">
-          {reports.map((report) => (
+          {shownReports.map((report) => (
             <li key={report.id}>
               <Link
                 to={sessionReportPath(report.id)}
