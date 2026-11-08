@@ -44,7 +44,7 @@ export default defineAction({
   agentTool: false,
   run: async (args) => {
     // Only editors see the changed-panel note, so readers never reach Analytics.
-    await authorizeAnalyticsChartPage(args.documentId, "editor");
+    const page = await authorizeAnalyticsChartPage(args.documentId, "editor");
     const dashboards = await Promise.all(
       args.dashboards.map(async ({ dashboardId, panelIds }) => {
         const answer = await requestAnalytics(
@@ -52,6 +52,7 @@ export default defineAction({
           { dashboardId, panelIds },
           analyticsPanelStatusSchema,
           STATUS_TIMEOUT_MS,
+          page.authorityOrgId,
         );
         return answer.ok
           ? { dashboardId, status: answer.data }

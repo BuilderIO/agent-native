@@ -86,6 +86,16 @@ describe("openedDashboardVisibility", () => {
     );
   });
 
+  it("reads a dashboard shared with an organization but saved without one as private, even for a reader outside any", async () => {
+    const personal = { email: reader.email, orgId: null };
+    expect(await openedDashboardVisibility(saved("org", null), personal)).toBe(
+      "private",
+    );
+    expect(
+      await openedDashboardVisibility(saved("private", null), personal),
+    ).toBe("private");
+  });
+
   it("asks a built-in how it was installed for the reader's organization", async () => {
     mocks.builtinDashboardVisibility.mockResolvedValue("org");
     expect(

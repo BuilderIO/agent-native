@@ -11,6 +11,11 @@ import {
 import { getAppConfig } from "@agent-native/core/server";
 import { getBuiltinAgents } from "@agent-native/core/server/agent-discovery";
 import {
+  getRequestContext,
+  runWithRequestContext,
+  type RequestContext,
+} from "@agent-native/core/server/request-context";
+import {
   resolveEnvironmentTargets,
   resolveLaneEndpoint,
 } from "@agent-native/core/shared/environment-lanes";
@@ -83,17 +88,29 @@ function peerMessage(output: string): string | null {
   return text ? text.slice(0, MAX_PEER_MESSAGE_CHARS) : null;
 }
 
+/** The signed-in person's request, in the organization that opened the page. */
+function inOrganization(orgId: string | null): RequestContext {
+  const { orgId: _active, ...context } = getRequestContext() ?? {};
+  return orgId ? { ...context, orgId } : context;
+}
+
 /**
  * Calls one of Analytics' read-only actions as the signed-in person and
  * checks the answer against `schema`. Never throws for Analytics' failures.
+ * `orgId` is the organization that let them open the page, which for a page
+ * in a space can be the space's rather than their current one, so Analytics
+ * checks the dashboard where the page's readers are.
  */
 export async function requestAnalytics<T>(
   action: "capture-dashboard-panel" | "get-dashboard-panel-status",
   input: Record<string, unknown>,
   schema: ZodType<T>,
   requestTimeoutMs: number,
+  orgId: string | null,
 ): Promise<AnalyticsPeerResult<T>> {
-  const auth = await resolveA2ACallerAuth();
+  const auth = await runWithRequestContext(inOrganization(orgId), () =>
+    resolveA2ACallerAuth(),
+  );
   if (!auth.userEmail) {
     return {
       ok: false,

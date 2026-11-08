@@ -1,8 +1,5 @@
 import { fail } from "@agent-native/core/action";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import type { EmbedVisibility } from "@agent-native/core/shared";
 import { roleSatisfies } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -43,12 +40,17 @@ async function pageSharesAudience(
  * editors (`editor`). A page in Trash, or one the caller can't open, reads as
  * missing either way. Its audience counts its shares too: one with a
  * colleague opens it to the organization, one with anyone outside it to
- * everyone.
+ * everyone. `authorityOrgId` is the organization that let the caller open
+ * it: their current one, or for a page in a space, the space's.
  */
 export async function authorizeAnalyticsChartPage(
   documentId: string,
   role: "viewer" | "editor",
-): Promise<{ visibility: EmbedVisibility; orgId: string | null }> {
+): Promise<{
+  visibility: EmbedVisibility;
+  orgId: string | null;
+  authorityOrgId: string | null;
+}> {
   const email = getRequestUserEmail();
   if (!email || isPublicViewerOwner(email)) {
     fail("Sign in to use Analytics charts.", {
@@ -72,25 +74,31 @@ export async function authorizeAnalyticsChartPage(
     });
   }
   const { orgId } = access.resource;
+  const authorityOrgId = access.authority.orgId;
   const stored = access.resource.visibility;
-  if (stored === "public") return { visibility: stored, orgId };
+  if (stored === "public") return { visibility: stored, orgId, authorityOrgId };
   const shared = await pageSharesAudience(documentId, orgId);
   return {
     visibility: widerAudience(stored === "org" ? "org" : "private", shared),
     orgId,
+    authorityOrgId,
   };
 }
 
 /**
- * Analytics reports a dashboard's sharing for the editor's current
- * organization. A dashboard shared with that organization reaches none of
- * the readers of a page from another one, so there it counts as private.
+ * Analytics reports a dashboard's sharing for the organization that opened
+ * the page. A dashboard shared with that organization reaches none of the
+ * readers of a page from another one, such as the editor's own page from an
+ * organization they've since left, so there it counts as private.
  */
 export function chartForPageOrganization<
   Chart extends { dashboard: { visibility: EmbedVisibility } },
->(chart: Chart, pageOrgId: string | null): Chart {
-  return pageOrgId &&
-    pageOrgId !== getRequestOrgId() &&
+>(
+  chart: Chart,
+  page: { orgId: string | null; authorityOrgId: string | null },
+): Chart {
+  return page.orgId &&
+    page.orgId !== page.authorityOrgId &&
     chart.dashboard.visibility === "org"
     ? { ...chart, dashboard: { ...chart.dashboard, visibility: "private" } }
     : chart;

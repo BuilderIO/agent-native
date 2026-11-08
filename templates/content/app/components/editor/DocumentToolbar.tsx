@@ -9,7 +9,10 @@ import {
   useIsMcpDirectoryWidgetWriteEmbed,
 } from "@agent-native/core/client/mcp-app-host";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
-import type { EmbedVisibility } from "@agent-native/core/shared";
+import {
+  isWiderVisibility,
+  type EmbedVisibility,
+} from "@agent-native/core/shared";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
@@ -1080,9 +1083,10 @@ export function DocumentToolbar({
     (!scanned || scanned.unreadable > 0);
   // Sharing a page wider than a chart's dashboard asks first; a table that
   // would go wider is refused by the server when the change is saved.
+  // Narrowing who can open the page never asks.
   const confirmChartAudience = useCallback(
     (from: EmbedVisibility, to: EmbedVisibility) => {
-      if (to === from || to === "private") return false;
+      if (!isWiderVisibility(to, from)) return false;
       if (chartsUnread) return true;
       const { warn, block } = analyticsChartsWiderThan(to, analyticsCharts);
       return warn.length + block.length > 0;

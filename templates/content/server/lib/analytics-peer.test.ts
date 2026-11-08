@@ -11,6 +11,12 @@ vi.mock("@agent-native/core/a2a", () => ({
   invokeAgentAction: mocks.invokeAgentAction,
 }));
 
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+  runWithRequestContext,
+} from "@agent-native/core/server/request-context";
+
 import { requestAnalytics } from "./analytics-peer.js";
 
 const schema = z.object({ value: z.number() });
@@ -39,6 +45,7 @@ describe("requestAnalytics", () => {
         { dashboardId: "growth", panelId: "wau" },
         schema,
         58_000,
+        "org_1",
       ),
     ).resolves.toEqual({ ok: true, data: { value: 3 } });
     expect(mocks.invokeAgentAction).toHaveBeenCalledWith({
@@ -53,10 +60,44 @@ describe("requestAnalytics", () => {
     });
   });
 
+  it("asks as the organization that opened the page, not the current one", async () => {
+    const orgs: (string | undefined)[] = [];
+    mocks.resolveA2ACallerAuth.mockImplementation(async () => {
+      orgs.push(getRequestOrgId());
+      return { userEmail: getRequestUserEmail() };
+    });
+    mocks.invokeAgentAction.mockResolvedValue(
+      answer("completed", JSON.stringify({ value: 3 })),
+    );
+    await runWithRequestContext(
+      { userEmail: "editor@example.test", orgId: "org_current" },
+      async () => {
+        await requestAnalytics(
+          "capture-dashboard-panel",
+          {},
+          schema,
+          58_000,
+          "org_space",
+        );
+        await requestAnalytics(
+          "capture-dashboard-panel",
+          {},
+          schema,
+          58_000,
+          null,
+        );
+      },
+    );
+    expect(orgs).toEqual(["org_space", undefined]);
+    expect(mocks.invokeAgentAction).toHaveBeenCalledWith(
+      expect.objectContaining({ userEmail: "editor@example.test" }),
+    );
+  });
+
   it("asks nothing without a signed-in person", async () => {
     mocks.resolveA2ACallerAuth.mockResolvedValue({ userEmail: undefined });
     await expect(
-      requestAnalytics("get-dashboard-panel-status", {}, schema, 15_000),
+      requestAnalytics("get-dashboard-panel-status", {}, schema, 15_000, null),
     ).resolves.toMatchObject({ ok: false, code: "analytics_signed_out" });
     expect(mocks.invokeAgentAction).not.toHaveBeenCalled();
   });
@@ -66,7 +107,7 @@ describe("requestAnalytics", () => {
       answer("failed", JSON.stringify({ error: "Panel not found" })),
     );
     await expect(
-      requestAnalytics("capture-dashboard-panel", {}, schema, 58_000),
+      requestAnalytics("capture-dashboard-panel", {}, schema, 58_000, null),
     ).resolves.toEqual({
       ok: false,
       code: "analytics_refused",
@@ -77,14 +118,14 @@ describe("requestAnalytics", () => {
   it("says when Analytics can't be reached or answers nonsense", async () => {
     mocks.invokeAgentAction.mockRejectedValueOnce(new Error("ECONNREFUSED"));
     await expect(
-      requestAnalytics("capture-dashboard-panel", {}, schema, 58_000),
+      requestAnalytics("capture-dashboard-panel", {}, schema, 58_000, null),
     ).resolves.toMatchObject({ ok: false, code: "analytics_unreachable" });
 
     mocks.invokeAgentAction.mockResolvedValueOnce(
       answer("completed", JSON.stringify({ value: "three" })),
     );
     await expect(
-      requestAnalytics("capture-dashboard-panel", {}, schema, 58_000),
+      requestAnalytics("capture-dashboard-panel", {}, schema, 58_000, null),
     ).resolves.toMatchObject({ ok: false, code: "analytics_invalid_response" });
   });
 
@@ -94,7 +135,7 @@ describe("requestAnalytics", () => {
 ...[truncated — full result was 55,508 chars]`;
     mocks.invokeAgentAction.mockResolvedValueOnce(answer("completed", cut));
     await expect(
-      requestAnalytics("capture-dashboard-panel", {}, schema, 58_000),
+      requestAnalytics("capture-dashboard-panel", {}, schema, 58_000, null),
     ).resolves.toMatchObject({ ok: false, code: "analytics_invalid_response" });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("isn't JSON"), {
       action: "capture-dashboard-panel",

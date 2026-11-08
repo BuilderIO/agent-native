@@ -137,6 +137,7 @@ describe("capture-analytics-chart", () => {
       { dashboardId: "growth", panelId: "wau", filters: { timeRange: "90d" } },
       expect.anything(),
       58_000,
+      "org_1",
     );
     expect(result.status).toBe("captured");
     if (result.status !== "captured") return;
@@ -194,6 +195,7 @@ describe("capture-analytics-chart", () => {
       { dashboardId: "growth", panelId: "wau" },
       expect.anything(),
       58_000,
+      "org_1",
     );
   });
 
@@ -211,6 +213,7 @@ describe("capture-analytics-chart", () => {
       { dashboardId: "growth", panelId: "wau", filters: { timeRange: "30d" } },
       expect.anything(),
       58_000,
+      "org_1",
     );
     expect(result.blockId).toBe("analytics-chart-1a2b3c4d");
     expect(mocks.track).toHaveBeenCalledWith(
@@ -391,6 +394,26 @@ describe("capture-analytics-chart", () => {
     });
   });
 
+  it("asks Analytics as a space's organization for a page its space let the editor open", async () => {
+    const inSpace = page("org");
+    inSpace.resource.orgId = "org_2";
+    inSpace.authority.orgId = "org_2";
+    mocks.resolveDocumentAccess.mockResolvedValue(inSpace);
+    const result = await captureAnalyticsChart.run({
+      documentId: "doc_1",
+      link: LINK,
+      purpose: "insert",
+    });
+    expect(mocks.requestAnalytics).toHaveBeenCalledWith(
+      "capture-dashboard-panel",
+      expect.anything(),
+      expect.anything(),
+      58_000,
+      "org_2",
+    );
+    expect(result.status).toBe("captured");
+  });
+
   it("counts a page shared with someone outside the organization as open to everyone", async () => {
     mocks.resolveDocumentAccess.mockResolvedValue(page("org"));
     mocks.shares = [
@@ -482,6 +505,7 @@ describe("get-analytics-chart-status", () => {
       { dashboardId: "growth", panelIds: ["wau"] },
       expect.anything(),
       15_000,
+      "org_1",
     );
   });
 

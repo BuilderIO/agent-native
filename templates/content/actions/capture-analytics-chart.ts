@@ -155,6 +155,7 @@ export default defineAction({
       request,
       analyticsChartSchema,
       CAPTURE_TIMEOUT_MS,
+      page.authorityOrgId,
     );
     if (!answer.ok) {
       fail(answer.message, {
@@ -167,7 +168,7 @@ export default defineAction({
               : 502,
       });
     }
-    const chart = chartForPageOrganization(answer.data, page.orgId);
+    const chart = chartForPageOrganization(answer.data, page);
     const audience = analyticsChartAudience("insert", page.visibility, chart);
     const blockId = args.blockId ?? newBlockId();
     const forEditor = isEditorCall(ctx);
