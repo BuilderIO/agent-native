@@ -525,10 +525,10 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           <Empty className="min-h-full gap-2 rounded-none p-4 md:p-6">
             <EmptyHeader>
               <EmptyTitle className="text-sm font-medium text-muted-foreground">
-                {query
-                  ? t("transcriptPanel.noMatches")
-                  : unreadable
-                    ? t("transcriptBubbles.unreadable")
+                {unreadable && displaySegments.length === 0
+                  ? t("transcriptBubbles.unreadable")
+                  : query
+                    ? t("transcriptPanel.noMatches")
                     : t("transcriptPanel.noTranscript")}
               </EmptyTitle>
             </EmptyHeader>

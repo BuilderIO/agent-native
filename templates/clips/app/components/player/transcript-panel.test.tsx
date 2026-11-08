@@ -180,6 +180,38 @@ describe("TranscriptPanel no-audio failures", () => {
     }
   });
 
+  it("keeps saying an unreadable transcript couldn't be read while searching", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <TranscriptPanel
+            segments={[]}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="ready"
+            unreadable
+          />
+        </TooltipProvider>,
+      );
+    });
+    const input = container.querySelector<HTMLInputElement>("input");
+    const inputValueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    expect(input).not.toBeNull();
+    expect(inputValueSetter).toBeDefined();
+
+    act(() => {
+      if (!input || !inputValueSetter) return;
+      inputValueSetter.call(input, "launch");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("transcriptBubbles.unreadable");
+    expect(container.textContent).not.toContain("transcriptPanel.noMatches");
+  });
+
   it("still says there is no transcript yet when there is none", () => {
     act(() => {
       root.render(
