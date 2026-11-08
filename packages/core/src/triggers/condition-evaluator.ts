@@ -171,8 +171,8 @@ export async function evaluateCondition(
         controller.signal,
         {
           ownerEmail: identity.userEmail,
-          orgId: identity.orgId,
-          app: identity.appId,
+          ...(identity.orgId === undefined ? {} : { orgId: identity.orgId }),
+          ...(identity.appId === undefined ? {} : { app: identity.appId }),
           label: options.usageLabel ?? "automation-condition",
         },
         usageWrites,
