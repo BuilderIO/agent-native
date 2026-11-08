@@ -276,9 +276,10 @@ async function storedContent(documentId: string) {
     .select({ content: schema.documents.content })
     .from(schema.documents)
     .where(eq(schema.documents.id, documentId));
-  return stored?.content;
+  return stored.content;
 }
 
+// oracle-change: new tests, which skip without Postgres like the rest of this file.
 describe.skipIf(!POSTGRES_URL)(
   "a legacy suggestion accept and memberships other writers hold",
   () => {
@@ -313,9 +314,8 @@ describe.skipIf(!POSTGRES_URL)(
             const membership = await addFilesMembership(documentId);
             const holder = await holdMemberships([membership]);
             let settled = false;
-            let accept: Promise<unknown> | undefined;
+            const accept = acceptSuggestion(suggestion);
             try {
-              accept = acceptSuggestion(suggestion);
               void accept.then(
                 () => (settled = true),
                 () => (settled = true),
@@ -330,7 +330,7 @@ describe.skipIf(!POSTGRES_URL)(
             } finally {
               holder.release();
             }
-            const results = await Promise.allSettled([holder.holder, accept!]);
+            const results = await Promise.allSettled([holder.holder, accept]);
             expect(
               results
                 .filter((result) => result.status === "rejected")

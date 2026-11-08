@@ -1378,12 +1378,12 @@ describe("Content suggested edits Blocks transaction", () => {
               await execute({
                 sql: "INSERT INTO content_database_items (id, owner_email, database_id, document_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
                 args: [
-                  joining!.id,
-                  joining!.ownerEmail,
-                  joining!.databaseId,
-                  joining!.documentId,
-                  joining!.createdAt,
-                  joining!.updatedAt,
+                  joining.id,
+                  joining.ownerEmail,
+                  joining.databaseId,
+                  joining.documentId,
+                  joining.createdAt,
+                  joining.updatedAt,
                 ],
               });
             }

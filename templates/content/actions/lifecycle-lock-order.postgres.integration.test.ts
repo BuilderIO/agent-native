@@ -3394,6 +3394,7 @@ Unchanged body.
       });
     });
 
+    // oracle-change: Accept no longer takes a table lock on memberships, so no membership writer can meet one.
     it("restarts a restore that meets a favorite added while it waited, and locks it before any page", async () => {
       const seed = await seedFavorites();
       const pages = [seed.ids.collectionPage, seed.ids.kept, seed.ids.removed];
