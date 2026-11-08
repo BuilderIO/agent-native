@@ -54,7 +54,8 @@ function meetingHasContentFilter() {
 
 export default defineAction({
   description:
-    "List meetings (Granola-style) the current user has access to. Connected calendars are read live; use view='upcoming' / 'past' / 'all' / 'trash' to filter by lifecycle.",
+    "List meetings (Granola-style) the current user has access to. Connected calendars are read live; use view='upcoming' / 'past' / 'all' / 'trash' to filter by lifecycle. For meetings that already have notes or a transcript, use view='past' with hasContent=true and a small limit, since rows carry full notes and summaries, then get-meeting for the transcript.",
+  mcpApp: { compactCatalog: true },
   schema: z.object({
     view: z
       .enum(["upcoming", "agenda", "past", "all", "trash"])

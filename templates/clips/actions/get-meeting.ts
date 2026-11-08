@@ -5,12 +5,15 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
 import {
   materializeCalendarMeetingFromVirtualId,
   parseCalendarMeetingId,
 } from "../server/lib/calendar-event-meetings.js";
 import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 import { storedEarlierAudioMinutes } from "../shared/earlier-audio.js";
+import { parseTranscriptSegments } from "../shared/transcript-segments.js";
+import { boundTranscriptForAgent } from "./lib/transcript-preview.js";
 
 interface Bullet {
   text: string;
@@ -41,14 +44,31 @@ function safeParseArray<T>(
   }
 }
 
+function transcriptForAgent<T extends { fullText?: string | null }>(
+  { segmentsJson, ...transcript }: T & { segmentsJson?: string | null },
+  fullTextOffset: number | undefined,
+) {
+  return {
+    ...transcript,
+    ...boundTranscriptForAgent({
+      fullText: transcript.fullText,
+      segments: parseTranscriptSegments(segmentsJson),
+      fullTextOffset,
+      action: "get-meeting",
+    }),
+  };
+}
+
 export default defineAction({
   description:
-    'Get a meeting by id with its participants, action items, and a reference to its recording (if any). `earlierAudioMinutes` is how much audio from before the user started recording its transcript holds, 0 when none; remove-earlier-meeting-audio takes it out. When no meeting is returned, `meeting` is null and `reason` is "unavailable" — it does not distinguish missing from inaccessible. A read failure throws instead.',
+    'Get a meeting by id with its participants, action items, transcript, and a reference to its recording (if any). Agent calls receive a bounded transcript chunk; pass transcriptOffset from nextFullTextOffset until it is null to read the complete transcript. `earlierAudioMinutes` is how much audio from before the user started recording its transcript holds, 0 when none; remove-earlier-meeting-audio takes it out. When no meeting is returned, `meeting` is null and `reason` is "unavailable" — it does not distinguish missing from inaccessible. A read failure throws instead.',
   schema: z.object({
     id: z.string().describe("Meeting id"),
+    transcriptOffset: z.coerce.number().int().min(0).optional(),
   }),
+  mcpApp: { compactCatalog: true },
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     let meetingId = args.id;
     if (parseCalendarMeetingId(args.id)) {
       const materialized = await materializeCalendarMeetingFromVirtualId(
@@ -115,7 +135,10 @@ export default defineAction({
       participants,
       actionItems,
       recording,
-      transcript,
+      transcript:
+        transcript && isAgentRecordingCaller(ctx?.caller)
+          ? transcriptForAgent(transcript, args.transcriptOffset)
+          : transcript,
       earlierAudioMinutes: storedEarlierAudioMinutes(transcript?.segmentsJson),
       role: access.role,
     };

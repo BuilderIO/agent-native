@@ -83,7 +83,7 @@ Desktop notes also check for web End meeting requests every five seconds while a
 | ------------------------- | --------------------------------------------------------------------- |
 | `list-meetings`           | Upcoming + past, scoped via `accessFilter`; reads connected Google Calendar live. `hasContent` filters to meetings worth reopening; `offset` + `hasMore` page the history |
 | `search-meetings`         | Find a meeting by title, summary, notes, attendee, or linked transcript text, with a match snippet. Use this — not `list-meetings` — when the user describes what was said rather than when it happened |
-| `get-meeting`             | One meeting + participants + segments + notes                         |
+| `get-meeting`             | One meeting + participants + notes + transcript. Agent calls get the transcript in chunks: pass `transcriptOffset` from `nextFullTextOffset` until it is null. Its text carries `Me:` / `Them:` labels; `segments` covers only the start |
 | `create-meeting`          | Create a meeting row (`source`: `calendar` / `adhoc` / `manual`); desktop adhoc Zoom/Teams/Meet/Webex detection passes `source: "adhoc"` |
 | `update-meeting`          | Inline title/notes edits; owner/admin changes to visibility and `shareTranscript` |
 | `delete-meeting`          | Soft-delete a meeting from the visible list; linked recordings and calendar events stay intact |

@@ -85,6 +85,7 @@ export default defineAction({
       .default(false)
       .describe("Include meetings that have been moved to trash."),
   }),
+  mcpApp: { compactCatalog: true },
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
