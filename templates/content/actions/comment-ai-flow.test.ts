@@ -106,9 +106,28 @@ vi.mock("../server/lib/comment-ai.js", () => ({
     state.request.status = "running";
     return state.retainedPayload;
   },
+  readCommentAiText: async (_db: unknown, document: Record<string, any>) =>
+    bodyText(document),
   serializeCommentAiRequest: () => receipt(),
   updateCommentAiRequest: (...args: unknown[]) => mocks.updateRequest(...args),
 }));
+
+/** The page body as Ask AI reads it, following the document's current text. */
+function bodyText(document: Record<string, any>) {
+  return {
+    fieldId: "body",
+    fieldName: null,
+    get content() {
+      return document.content;
+    },
+    get revision() {
+      return state.documentRevision;
+    },
+    get suggestionBase() {
+      return document.updatedAt;
+    },
+  };
+}
 
 vi.mock("./add-comment.js", () => ({
   default: { run: (...args: unknown[]) => mocks.addComment(...args) },
@@ -262,6 +281,7 @@ beforeEach(() => {
     },
     comments: [{ id: "comment-1", parentId: null, content: "Please fix" }],
   };
+  state.source.text = bodyText(state.source.document);
   state.updates = [];
   state.retainedPayload = undefined;
   state.transactionDigest = "thread-digest";

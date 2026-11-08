@@ -32,7 +32,7 @@ import { toast } from "sonner";
 
 import {
   nextSuggestionAutosaveRetryDelay,
-  SUGGESTION_AUTOSAVE_IDLE_MS,
+  suggestionAutosaveDebounce,
 } from "./suggestions/autosave-schedule";
 import {
   createSuggestionDraftSession,
@@ -53,6 +53,7 @@ import {
   type SuggestionPersistenceEntry,
 } from "./suggestions/draft-session";
 import type { SuggestionPresentationTransitions } from "./suggestions/presentation-rebase";
+import { suggestionSourceThreadId } from "./thread-suggestions";
 import type { VisualEditorSuggestion } from "./VisualEditor";
 
 // Suggesting mode on a Blocks field tab other than the page body. Each tab
@@ -63,6 +64,7 @@ import type { VisualEditorSuggestion } from "./VisualEditor";
 const NO_TRANSITIONS: SuggestionPresentationTransitions = new Map();
 const NO_VISUALS: VisualEditorSuggestion[] = [];
 const NO_FIELDS: ReadonlySet<string> = new Set();
+const NO_VIEWS: ReadonlyMap<string, ResourceSuggestion[]> = new Map();
 
 type ProposalRequest = {
   resourceType: string;
@@ -86,6 +88,11 @@ type FieldSession = {
   proposalId: string | null;
   /** Changed since it was last saved. */
   dirty: boolean;
+  /**
+   * When it first changed after its last complete save. As with the body's
+   * draft, typing without a pause still saves it once the max wait passes.
+   */
+  dirtySince: number | null;
   /**
    * Suggesting ended with edits unsaved or still saving. It's no longer the
    * tab's session, but it keeps trying to save them.
@@ -338,6 +345,9 @@ export function useBlocksFieldSuggestions({
   const creationKeysRef = useRef(new Map<string, string>());
   const [decidingFields, setDecidingFields] =
     useState<ReadonlySet<string>>(NO_FIELDS);
+  /** The saved suggestions each deciding tab showed when its decision began. */
+  const [decidingViews, setDecidingViews] =
+    useState<ReadonlyMap<string, ResourceSuggestion[]>>(NO_VIEWS);
   const decidingRef = useRef(false);
   const [flushing, setFlushing] = useState(false);
   const [anchors, setAnchors] = useState<ReadonlyMap<string, string[]>>(
@@ -347,19 +357,20 @@ export function useBlocksFieldSuggestions({
   const saveRef = useRef<
     (session: FieldSession, options: { autosave: boolean }) => Promise<boolean>
   >(() => Promise.resolve(true));
+  /** Saves the draft after `delay`, or after the typing debounce. */
   const schedule = useCallback(
-    (
-      session: FieldSession,
-      delay = SUGGESTION_AUTOSAVE_IDLE_MS,
-      retrying = false,
-    ) => {
+    (session: FieldSession, delay?: number, retrying = false) => {
       if (session.timer) clearTimeout(session.timer);
       session.retrying = retrying;
-      session.timer = setTimeout(() => {
-        session.timer = null;
-        session.retrying = false;
-        void saveRef.current(session, { autosave: true });
-      }, delay);
+      const now = Date.now();
+      session.timer = setTimeout(
+        () => {
+          session.timer = null;
+          session.retrying = false;
+          void saveRef.current(session, { autosave: true });
+        },
+        delay ?? suggestionAutosaveDebounce(session.dirtySince ?? now, now),
+      );
     },
     [],
   );
@@ -532,6 +543,9 @@ export function useBlocksFieldSuggestions({
         session.failed = false;
         session.refused = false;
         session.retryDelay = 0;
+        // Typing during the save keeps the old start, so the max wait still
+        // counts from the first edit this save missed.
+        if (session.draft === draft) session.dirtySince = null;
         return true;
       } catch (error) {
         session.dirty = true;
@@ -704,6 +718,7 @@ export function useBlocksFieldSuggestions({
         entries: new Map(),
         proposalId: null,
         dirty: false,
+        dirtySince: null,
         ended: false,
         failed: false,
         refused: false,
@@ -725,6 +740,7 @@ export function useBlocksFieldSuggestions({
       if (!session || session.draft === markdown) return;
       session.draft = markdown;
       session.dirty = true;
+      session.dirtySince ??= Date.now();
       if (!session.retrying) schedule(session);
       bump();
     },
@@ -827,13 +843,15 @@ export function useBlocksFieldSuggestions({
       }),
     [derived, saved],
   );
+  const suggestionsRef = useRef(suggestions);
+  suggestionsRef.current = suggestions;
 
   const visuals = useCallback(
     (fieldId: string, markdown: string) => {
       const shown = derived.visuals.get(fieldId) ?? [];
       const inSession = new Set(shown.map((visual) => visual.id));
       return presentations({
-        savedSuggestions: suggestions.filter(
+        savedSuggestions: (decidingViews.get(fieldId) ?? suggestions).filter(
           (suggestion) =>
             suggestion.status === "pending" &&
             !inSession.has(suggestion.id) &&
@@ -846,7 +864,7 @@ export function useBlocksFieldSuggestions({
         transitions: NO_TRANSITIONS,
       });
     },
-    [derived, presentations, suggestions],
+    [decidingViews, derived, presentations, suggestions],
   );
 
   const provider = useMemo<BlocksFieldSuggestionsValue>(
@@ -984,6 +1002,23 @@ export function useBlocksFieldSuggestions({
     [documentId, queryClient],
   );
 
+  /** Accepting moves each asking thread's quote onto the tab's new text. */
+  const rereadMovedQuotes = useCallback(
+    (decided: ResourceSuggestion[]) => {
+      if (
+        decided.some(
+          (suggestion) =>
+            suggestion.status === "accepted" &&
+            suggestionSourceThreadId(suggestion),
+        )
+      )
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-comments", { documentId }],
+        });
+    },
+    [documentId, queryClient],
+  );
+
   /**
    * Runs a decision on tabs' suggestions: their drafts are saved first, and
    * afterwards the tabs read their text again and start new drafts on it.
@@ -995,6 +1030,19 @@ export function useBlocksFieldSuggestions({
       // The tabs stop taking typing until they restart on the decided text,
       // so nothing typed meanwhile is dropped with the old draft.
       setDecidingFields(new Set(fieldIds));
+      // They also show their suggestions as they were until then: the list
+      // drops an accepted suggestion before the text holding it is read, and
+      // the tab would show its old text without it meanwhile.
+      setDecidingViews(
+        new Map(
+          fieldIds.map((fieldId) => [
+            fieldId,
+            suggestionsRef.current.filter(
+              (suggestion) => suggestionBlocksFieldId(suggestion) === fieldId,
+            ),
+          ]),
+        ),
+      );
       try {
         for (const fieldId of new Set(fieldIds)) {
           const session = sessionsRef.current.get(fieldId);
@@ -1024,6 +1072,7 @@ export function useBlocksFieldSuggestions({
       } finally {
         decidingRef.current = false;
         setDecidingFields(NO_FIELDS);
+        setDecidingViews(NO_VIEWS);
       }
     },
     [bump, reread, save],
@@ -1042,16 +1091,17 @@ export function useBlocksFieldSuggestions({
             ? await materializeDraft(target)
             : freshest(target);
         if (!savedTarget) return;
-        await mutationsRef.current.decideSuggestion.mutateAsync({
+        const result = await mutationsRef.current.decideSuggestion.mutateAsync({
           id: savedTarget.id,
           decision,
           idempotencyKey: globalThis.crypto.randomUUID(),
           observedBase: savedTarget.baseRevision,
           observedRevision: savedTarget.revision,
         });
+        rereadMovedQuotes([result.suggestion]);
       });
     },
-    [decideOnFields, freshest, materializeDraft],
+    [decideOnFields, freshest, materializeDraft, rereadMovedQuotes],
   );
 
   const decideMembers = useCallback(
@@ -1064,7 +1114,7 @@ export function useBlocksFieldSuggestions({
         members.flatMap((member) => suggestionBlocksFieldId(member) ?? []),
         async () => {
           const current = members.map(freshest);
-          await mutationsRef.current.decideProposal.mutateAsync({
+          const result = await mutationsRef.current.decideProposal.mutateAsync({
             proposalId,
             decision,
             idempotencyKey: globalThis.crypto.randomUUID(),
@@ -1074,9 +1124,10 @@ export function useBlocksFieldSuggestions({
               observedBase: member.baseRevision,
             })),
           });
+          rereadMovedQuotes(result.suggestions);
         },
       ),
-    [decideOnFields, freshest],
+    [decideOnFields, freshest, rereadMovedQuotes],
   );
 
   /**

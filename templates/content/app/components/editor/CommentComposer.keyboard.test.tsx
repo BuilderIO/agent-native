@@ -87,11 +87,13 @@ describe("CommentComposer rich recipient", () => {
     initialValue = "Review this",
     mentions = [],
     confirmEscape = false,
+    suggestOnly = false,
   }: {
     initialAi?: CommentAiDraft | null;
     initialValue?: string;
     mentions?: MentionEntry[];
     confirmEscape?: CommentDiscardKind | false;
+    suggestOnly?: boolean;
   }) {
     const [value, setValue] = useState(initialValue);
     const [aiDraft, setAiDraft] = useState<CommentAiDraft | null>(initialAi);
@@ -117,6 +119,7 @@ describe("CommentComposer rich recipient", () => {
           setAiDraft(next);
         }}
         aiModelStorageKey="comment-ai:test"
+        aiSuggestOnly={suggestOnly}
       />
     );
   }
@@ -124,6 +127,7 @@ describe("CommentComposer rich recipient", () => {
   beforeEach(async () => {
     onModelChange.mockClear();
     onAiDraftChange.mockClear();
+    aiSubmit.mockClear();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
     document.body.append(container);
@@ -425,6 +429,36 @@ describe("CommentComposer rich recipient", () => {
         '[data-mention-ref-type="content-comment-ai-recipient"]',
       ),
     ).toHaveLength(1);
+  });
+
+  it("lets the AI choose where a draft's Apply mode can't be sent", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="suggest-only"
+          initialValue="Ask @GPT-5.6 Luna"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "apply-resolve",
+          }}
+          suggestOnly
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const send = container.querySelector<HTMLButtonElement>(
+      "[data-comment-ai-send-mode]",
+    )!;
+    expect(send.dataset.commentAiSendMode).toBe("auto");
+    await act(async () => send.click());
+    expect(aiSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ intent: "auto" }),
+    );
   });
 
   it("restores a saved AI draft's chip past an @model in inline code", async () => {

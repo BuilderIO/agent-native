@@ -93,6 +93,10 @@ describe("useBlocksFieldSuggestions", () => {
     isError: false,
     error: null as Error | null,
   }));
+  /** How the tabs' highlights are made; the tests read what it was given. */
+  const presentations = vi.fn(
+    (_args: { savedSuggestions: ResourceSuggestion[] }) => [] as never[],
+  );
 
   function Harness(props: {
     suggesting: boolean;
@@ -105,7 +109,7 @@ describe("useBlocksFieldSuggestions", () => {
       saving: props.saving,
       authorEmail: "suggester@example.test",
       saved: props.saved,
-      presentations: () => [],
+      presentations,
       onSaved,
       refetchSuggestions,
       activeSuggestionId: null,
@@ -150,6 +154,7 @@ describe("useBlocksFieldSuggestions", () => {
     for (const mock of Object.values(mocks)) mock.mockReset();
     onSaved.mockReset();
     refetchSuggestions.mockClear();
+    presentations.mockClear();
     mocks.createProposal.mockImplementation(
       async (request: {
         baseRevision: string;
@@ -163,6 +168,15 @@ describe("useBlocksFieldSuggestions", () => {
             request.baseRevision,
           ),
         ),
+      }),
+    );
+    // A decision answers with the suggestion as decided.
+    mocks.decideSuggestion.mockImplementation(
+      async (input: { id: string; decision: string }) => ({
+        suggestion: {
+          ...savedSuggestion(input.id, [], "blocks-field:notes:3"),
+          status: input.decision,
+        },
       }),
     );
   });
@@ -223,7 +237,7 @@ describe("useBlocksFieldSuggestions", () => {
 
   it("decides a tab's suggestion after saving its draft, then reads the tab again and starts its draft over", async () => {
     const refetchQueries = vi.spyOn(queryClient, "refetchQueries");
-    mocks.decideSuggestion.mockResolvedValue({});
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
     await render(true, []);
     await draftInTab();
     await act(async () => {
@@ -257,12 +271,41 @@ describe("useBlocksFieldSuggestions", () => {
     );
     expect(latest.provider.sessions.has("notes")).toBe(false);
     expect(latest.deciding).toBe(false);
+    // No thread asked for it, so no quote moved.
+    expect(invalidateQueries).not.toHaveBeenCalledWith({
+      queryKey: ["action", "list-comments", { documentId: "doc-1" }],
+    });
+  });
+
+  it("reads the comments again when accepting moves the asking thread's quote", async () => {
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    // Ask AI's suggestion on a tab names its request and thread.
+    const asked = {
+      ...first(firstSaved()),
+      metadata: { sourceThreadId: "thread-1", commentAiRequestId: "request-1" },
+    };
+    mocks.decideSuggestion.mockResolvedValue({
+      suggestion: { ...asked, status: "accepted" },
+    });
+    await render(true, [asked]);
+
+    await act(async () => {
+      await latest.decide(asked, "accepted");
+    });
+
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["action", "list-comments", { documentId: "doc-1" }],
+    });
   });
 
   it("keeps a decided tab's draft until the tab's text is read afresh", async () => {
     vi.useFakeTimers();
     try {
-      mocks.decideSuggestion.mockResolvedValue({});
       await render(true, []);
       await draftInTab();
       await act(async () => {
@@ -301,7 +344,6 @@ describe("useBlocksFieldSuggestions", () => {
   it("stops rereading a decided tab once Suggesting mode ends", async () => {
     vi.useFakeTimers();
     try {
-      mocks.decideSuggestion.mockResolvedValue({});
       await render(true, []);
       await draftInTab();
       await act(async () => {
@@ -659,11 +701,82 @@ describe("useBlocksFieldSuggestions", () => {
     expect(latest.deciding).toBe(true);
 
     await act(async () => {
-      finish?.({});
+      finish?.({ suggestion: { ...created, status: "accepted" } });
       await decision;
     });
     expect(latest.provider.decidingFields.size).toBe(0);
     expect(latest.deciding).toBe(false);
+  });
+
+  it("shows a tab's suggestions as they were until the decided text is read", async () => {
+    let finish: ((value: unknown) => void) | undefined;
+    mocks.decideSuggestion.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const created = first(firstSaved());
+    await render(false, [created]);
+    /** The saved suggestions the tab highlights over its text. */
+    const highlighted = () => {
+      presentations.mockClear();
+      latest.provider.visuals("notes", "Original notes.");
+      return first(first(presentations.mock.calls)).savedSuggestions.map(
+        (suggestion) => suggestion.id,
+      );
+    };
+    expect(highlighted()).toEqual(["saved-0"]);
+
+    let decision: Promise<void> | undefined;
+    await act(async () => {
+      decision = latest.decide(created, "accepted");
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    // The list reads the suggestion as accepted before the tab's text with
+    // its edit arrives; the tab keeps highlighting it over the old text.
+    await render(false, [{ ...created, status: "accepted" }]);
+    expect(highlighted()).toEqual(["saved-0"]);
+
+    await act(async () => {
+      finish?.({ suggestion: { ...created, status: "accepted" } });
+      await decision;
+    });
+    expect(highlighted()).toEqual([]);
+  });
+
+  it("saves a tab's draft within five seconds of typing without a pause", async () => {
+    vi.useFakeTimers();
+    try {
+      await render(true, []);
+      await act(async () => {
+        latest.provider.start("notes", {
+          content: "Original notes.",
+          revision: 3,
+        });
+      });
+      const type = async (markdown: string) => {
+        await act(async () => {
+          latest.provider.change("notes", markdown);
+          await vi.advanceTimersByTimeAsync(500);
+        });
+      };
+      for (let count = 1; count <= 9; count += 1)
+        await type(`Original notes${"!".repeat(count)}`);
+      // Four and a half seconds of typing, never a second's pause.
+      expect(mocks.createProposal).not.toHaveBeenCalled();
+
+      await type("Original notes, still typing.");
+      expect(mocks.createProposal).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the tabs from typing while the page saves to leave Suggesting mode", async () => {
@@ -828,7 +941,6 @@ describe("useBlocksFieldSuggestions", () => {
   });
 
   it("decides on the newest revision of a tab suggestion someone else amended", async () => {
-    mocks.decideSuggestion.mockResolvedValue({});
     await render(true, []);
     await draftInTab();
     await act(async () => {

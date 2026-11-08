@@ -499,7 +499,7 @@ describe("listing comments by tab", () => {
 });
 
 describe("Ask AI on a tab's thread", () => {
-  it("is refused with a typed error and records no request", async () => {
+  it("records the tab the request is about", async () => {
     const fixture = await seedCollection("ask-ai");
     const tab = await add({
       documentId: fixture.row,
@@ -507,21 +507,19 @@ describe("Ask AI on a tab's thread", () => {
       fieldId: fixture.notesId,
       quotedText: "dolor",
     });
-    await expect(
-      as(() =>
-        startCommentAiRequest({
-          requestId: "44444444-4444-4444-8444-444444444444",
-          documentId: fixture.row,
-          threadId: tab.threadId,
-          rootCommentId: tab.id,
-          intent: "reply",
-        }),
-      ),
-    ).rejects.toMatchObject({ errorCode: "comment_ai_field_unsupported" });
+    await as(() =>
+      startCommentAiRequest({
+        requestId: "44444444-4444-4444-8444-444444444444",
+        documentId: fixture.row,
+        threadId: tab.threadId,
+        rootCommentId: tab.id,
+        intent: "reply",
+      }),
+    );
     const [request] = await getDb()
       .select()
       .from(schema.commentAiRequests)
       .where(eq(schema.commentAiRequests.threadId, tab.threadId));
-    expect(request).toBeUndefined();
+    expect(request).toMatchObject({ fieldId: fixture.notesId });
   });
 });
