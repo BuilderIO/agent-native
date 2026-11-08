@@ -928,7 +928,8 @@ jobs:
         if: >-
           inputs.target == 'production' && inputs.deploy &&
           inputs.deploy_mode == 'production' &&
-          steps.target.outputs.source_template == 'clips'
+          steps.target.outputs.source_template == 'clips' &&
+          inputs.artifact_download != true
         env:
           DATABASE_URL: ${{ secrets.CLIPS_DATABASE_URL }}
         run: |
