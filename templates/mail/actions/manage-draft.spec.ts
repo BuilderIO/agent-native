@@ -400,6 +400,27 @@ describe("manage-draft attachments", () => {
     );
     expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
   });
+
+  it("doesn't call an empty list already applied to corrupt attachment state", async () => {
+    appState.set("compose-corrupt", {
+      id: "corrupt",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "",
+      mode: "compose",
+      attachments: { filename: "brief.pdf" },
+    });
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "corrupt",
+        expectedRevision: "stale-revision",
+        attachments: [],
+      }),
+    ).rejects.toMatchObject({ errorCode: "save_conflict" });
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+  });
 });
 
 describe("manage-draft MCP App", () => {

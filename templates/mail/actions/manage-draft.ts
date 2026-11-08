@@ -187,6 +187,9 @@ function hasSameAttachments(
   current: unknown,
   handles: DraftAttachmentHandle[],
 ): boolean {
+  // No list means no files. Anything else that isn't a list is corrupt, so it
+  // can't already hold this update.
+  if (current !== undefined && !Array.isArray(current)) return false;
   const attachments = Array.isArray(current) ? current : [];
   return (
     attachments.length === handles.length &&
