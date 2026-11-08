@@ -2,6 +2,7 @@
 
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import type { DocumentProperty } from "@shared/api";
+import { CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER } from "@shared/blocks-field-suggestions";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -170,6 +171,25 @@ function suggestion(id: string): ResourceSuggestion {
   } as ResourceSuggestion;
 }
 
+/** A suggested edit to another Blocks field tab than the body. */
+function tabSuggestion(id: string, fieldId: string): ResourceSuggestion {
+  return {
+    ...suggestion(id),
+    adapterKind: CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER,
+    baseRevision: `blocks-field:${fieldId}:1`,
+    operations: [
+      {
+        id: `${id}-op`,
+        ordinal: 0,
+        kind: "replace_text",
+        targetId: fieldId,
+        before: { markdown: "Filler notes." },
+        after: { markdown: "Filler notes, edited." },
+      },
+    ],
+  } as ResourceSuggestion;
+}
+
 const commentAi = {
   requests: [],
   startingThreadIds: new Set<string>(),
@@ -195,6 +215,7 @@ type Options = {
   pending?: PendingCommentSelection | null;
   commentAi?: CommentAiController;
   scrollContainer?: HTMLDivElement;
+  canDecideFieldSuggestions?: boolean;
 };
 
 let replies: ReturnType<typeof useCommentReplyDrafts>;
@@ -226,6 +247,8 @@ function Owner({
       currentUserEmail="reviewer@example.test"
       canComment
       canResolve
+      canDecideSuggestions
+      canDecideFieldSuggestions={options.canDecideFieldSuggestions ?? true}
       alignToAnchors={false}
       scrollContainerRef={
         options.scrollContainer
@@ -364,6 +387,57 @@ describe("comments across Blocks field tabs", () => {
 
     act(() => replies.setHistoryFilters({ tab: null }));
     expect(feed()).toHaveLength(7);
+  });
+
+  it("lists a tab's suggested edit under its tab, and filters it with that tab (CMT-2)", () => {
+    render(tabThreads, {
+      documentProperties: twoFields,
+      suggestions: [suggestion("edit-1"), tabSuggestion("notes-edit", "notes")],
+    });
+    expect(feed()).toEqual([
+      "# Content",
+      "body-1",
+      "edit-1",
+      "# Notes",
+      "notes-1",
+      "notes-edit",
+      "# comments.fieldRemoved:Old notes",
+      "gone-1",
+    ]);
+
+    act(() => replies.setHistoryFilters({ tab: "notes" }));
+    expect(feed()).toEqual(["# Notes", "notes-1", "notes-edit"]);
+
+    act(() => replies.setHistoryFilters({ tab: "" }));
+    expect(feed()).toEqual(["# Content", "body-1", "edit-1"]);
+  });
+
+  it("offers accepting a tab's suggestion only to the Collection's editors", () => {
+    const decisions = (id: string) =>
+      [
+        ...container.querySelectorAll<HTMLButtonElement>(
+          `[data-suggestion-id="${id}"] button[data-suggestion-decision]`,
+        ),
+      ].map(
+        (button) =>
+          `${button.dataset.suggestionDecision}${button.disabled ? " (off)" : ""}`,
+      );
+    const suggestions = [
+      suggestion("edit-1"),
+      tabSuggestion("notes-edit", "notes"),
+    ];
+
+    // Rejecting writes nothing, so whoever decides on the page can reject.
+    render(tabThreads, {
+      documentProperties: twoFields,
+      suggestions,
+      canDecideFieldSuggestions: false,
+    });
+    expect(decisions("edit-1")).toEqual(["accepted", "rejected"]);
+    expect(decisions("notes-edit")).toEqual(["accepted (off)", "rejected"]);
+
+    render(tabThreads, { documentProperties: twoFields, suggestions });
+    expect(decisions("notes-edit")).toEqual(["accepted", "rejected"]);
   });
 
   it("shows every tab again when the chosen one is gone", () => {
