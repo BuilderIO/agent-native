@@ -395,7 +395,7 @@ describe("in-flight partials", () => {
 });
 
 describe("meeting microphone capture", () => {
-  it("starts without VoiceProcessingIO so call apps keep control of mic gain", async () => {
+  it("starts Whisper on the selected microphone with system audio", async () => {
     await startTranscriptionEngine({
       mic: { deviceId: "mic-1", label: "Built-in Microphone" },
     });
@@ -406,14 +406,14 @@ describe("meeting microphone capture", () => {
       micDeviceId: "mic-1",
       micDeviceLabel: "Built-in Microphone",
       captureSystem: true,
-      voiceProcessing: false,
       emitPartials: true,
       owner: "meeting",
       runId: expect.any(Number),
+      engine: null,
     });
   });
 
-  it("keeps VoiceProcessingIO off when meeting transcription resumes", async () => {
+  it("resumes Whisper on the same microphone", async () => {
     await restartTranscriptionEngine("whisper", {
       deviceId: "mic-1",
       label: "Built-in Microphone",
@@ -425,10 +425,10 @@ describe("meeting microphone capture", () => {
       micDeviceId: "mic-1",
       micDeviceLabel: "Built-in Microphone",
       captureSystem: true,
-      voiceProcessing: false,
       emitPartials: true,
       owner: "meeting",
       runId: expect.any(Number),
+      engine: null,
     });
   });
 
@@ -444,11 +444,20 @@ describe("meeting microphone capture", () => {
       micDeviceId: "mic-1",
       micDeviceLabel: "Built-in Microphone",
       captureSystem: true,
-      voiceProcessing: false,
       emitPartials: false,
       owner: "meeting",
       runId: expect.any(Number),
+      engine: null,
     });
+  });
+
+  it("asks the on-device engine for Parakeet when the user chose it", async () => {
+    await startTranscriptionEngine({ localModel: "parakeet" });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "audio_transcription_start",
+      expect.objectContaining({ owner: "meeting", engine: "parakeet" }),
+    );
   });
 
   it("rebases a resumed Whisper session to the recording timeline", async () => {
@@ -463,8 +472,13 @@ describe("meeting microphone capture", () => {
   it.each(["whisper", "macos-native"] as const)(
     "stops the exact meeting %s run",
     async (engine) => {
-      await stopTranscriptionEngine(engine, 123);
+      invokeMock.mockResolvedValueOnce(
+        engine === "whisper" ? { failure: null } : undefined,
+      );
 
+      await expect(stopTranscriptionEngine(engine, 123)).resolves.toEqual({
+        failure: null,
+      });
       expect(invokeMock).toHaveBeenCalledWith(
         engine === "whisper"
           ? "audio_transcription_stop"
@@ -473,6 +487,22 @@ describe("meeting microphone capture", () => {
       );
     },
   );
+
+  it("returns the failure a stopped Whisper run reported", async () => {
+    const failure = "Microphone AirPods sent no audio in 2.3 s.";
+    invokeMock.mockResolvedValueOnce({ failure });
+
+    await expect(stopTranscriptionEngine("whisper", 123)).resolves.toEqual({
+      failure,
+    });
+  });
+
+  it("does not read a Whisper stop without a failure field as clean", async () => {
+    invokeMock.mockResolvedValueOnce(undefined);
+
+    const { failure } = await stopTranscriptionEngine("whisper", 123);
+    expect(failure).toContain("without reporting");
+  });
 
   it("falls back to native speech when the local Whisper capture cannot start", async () => {
     invokeMock
@@ -618,10 +648,10 @@ describe("meeting microphone capture", () => {
       micDeviceId: null,
       micDeviceLabel: null,
       captureSystem: true,
-      voiceProcessing: false,
       emitPartials: true,
       owner: "meeting",
       runId: expect.any(Number),
+      engine: null,
     });
   });
 
