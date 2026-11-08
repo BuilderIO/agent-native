@@ -29,13 +29,17 @@ describe("native preview surface clock", () => {
   });
 
   it("keeps ordinary documents without a native runtime inert", () => {
-    expect(
-      prepareNativePreviewSurface({
-        html,
-        sandbox: "allow-scripts",
-        profile: "overview",
-        animationEpochMs: 1_790_000_000_123.5,
-      }).html,
-    ).toBe(html);
+    const prepared = prepareNativePreviewSurface({
+      html,
+      sandbox: "allow-scripts",
+      profile: "overview",
+      animationEpochMs: 1_790_000_000_123.5,
+    });
+    expect(prepared.html).toContain(
+      '<meta data-agent-native-preview-revision="',
+    );
+    expect(prepared.html).not.toContain(
+      "data-agent-native-native-shader-runtime",
+    );
   });
 });

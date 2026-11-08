@@ -3,11 +3,21 @@ import { vi } from "vitest";
 /** A GitHub client double and a pull request it returns, for the PR and merge specs. */
 export const observedAt = "2026-10-14T12:00:00.000Z";
 
+/** A description with the `### Verified` section Builder is asked for. */
+export const verifiedBody =
+  "Sorts the form list by name.\n\n### Verified\n\nRan the form list spec: it fails without the change and passes with it.";
+
+/** What the fake pull request changes: a source file and the test that covers it. */
+export const changedSourceFile = "templates/forms/app/components/FormList.tsx";
+export const changedTestFile =
+  "templates/forms/app/components/FormList.spec.tsx";
+export const changedFileNames = [changedSourceFile, changedTestFile];
+
 export function pullRequestSummary(overrides: Record<string, unknown> = {}) {
   return {
     number: 7,
     title: "Fix the form list sorting",
-    body: "Sorts the form list by name.",
+    body: verifiedBody,
     state: "open",
     draft: false,
     merged: false,
@@ -25,7 +35,7 @@ export function pullRequestSummary(overrides: Record<string, unknown> = {}) {
     updatedAt: observedAt,
     additions: 20,
     deletions: 5,
-    changedFiles: 1,
+    changedFiles: changedFileNames.length,
     mergeable: true,
     mergeableState: "clean",
     reviewComments: 0,
@@ -59,9 +69,7 @@ export function fakeGitHub(overrides: Record<string, unknown> = {}) {
       checks: [{ name: "ci", state: "passed", observedAt }],
       checksCoverage: "complete",
     }),
-    listPullRequestChangedFiles: vi
-      .fn()
-      .mockResolvedValue(["templates/forms/app/components/FormList.tsx"]),
+    listPullRequestChangedFiles: vi.fn().mockResolvedValue(changedFileNames),
     getRepositoryMergeSettings: vi.fn().mockResolvedValue({
       allowSquashMerge: true,
       allowMergeCommit: true,

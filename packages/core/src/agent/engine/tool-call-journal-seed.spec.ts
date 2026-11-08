@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import * as runStore from "../run-store.js";
 import {
   JOURNALED_TOOL_REPLAY_PREFIX,
   RECOVERED_TOOL_REPLAY_PREFIX,
   loadedSkillPagesContext,
+  loadPriorTurnToolCallJournal,
   seedRepeatedToolErrorCountsFromJournal,
   seedRepeatedToolCallCountsFromJournal,
   type PriorTurnToolCallSequenceEntry,
@@ -637,4 +639,191 @@ describe("loadedSkillPagesContext", () => {
     expect(result.length).toBeLessThanOrEqual(40_000);
     expect(result).toContain("Omitted to fit loaded-skill context");
   });
+});
+
+describe("private prior-turn recovery", () => {
+  it("refuses to resume an executed private tool whose identity was omitted", async () => {
+    const read = vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue([
+        {
+          type: "tool_start",
+          id: "private-call",
+          tool: "write",
+          input: {},
+          omitFromPersistedHistory: true,
+        },
+        {
+          type: "tool_done",
+          id: "private-call",
+          tool: "write",
+          input: {},
+          result: "[Private content omitted]",
+          completedSideEffect: true,
+          omitFromPersistedHistory: true,
+        },
+      ]);
+    try {
+      expect(
+        await loadPriorTurnToolCallJournal("thread", "turn"),
+      ).toMatchObject({ status: "unreadable" });
+    } finally {
+      read.mockRestore();
+    }
+  });
+});
+
+it("resumes a matched private approval pause that did not execute", async () => {
+  const read = vi
+    .spyOn(runStore, "getCurrentTurnEventsForThread")
+    .mockResolvedValue([
+      {
+        type: "tool_start",
+        id: "approval-call",
+        tool: "write",
+        input: {},
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_done",
+        id: "approval-call",
+        tool: "write",
+        input: {},
+        result: "[Private content omitted]",
+        approvalPause: true,
+        completedSideEffect: false,
+        omitFromPersistedHistory: true,
+      },
+    ]);
+  try {
+    expect(await loadPriorTurnToolCallJournal("thread", "turn")).toMatchObject({
+      status: "read",
+    });
+  } finally {
+    read.mockRestore();
+  }
+});
+
+it("continues to read a public prior tool journal", async () => {
+  const read = vi
+    .spyOn(runStore, "getCurrentTurnEventsForThread")
+    .mockResolvedValue([
+      {
+        type: "tool_start",
+        id: "public-call",
+        tool: "write",
+        input: { id: "public" },
+      },
+      {
+        type: "tool_done",
+        id: "public-call",
+        tool: "write",
+        input: { id: "public" },
+        result: "done",
+        completedSideEffect: true,
+      },
+    ]);
+  try {
+    expect(await loadPriorTurnToolCallJournal("thread", "turn")).toMatchObject({
+      status: "read",
+    });
+  } finally {
+    read.mockRestore();
+  }
+});
+
+it("does not dispatch another call in the same turn after private execution", async () => {
+  const read = vi
+    .spyOn(runStore, "getCurrentTurnEventsForThread")
+    .mockResolvedValue([
+      {
+        type: "tool_start",
+        id: "earlier-call",
+        tool: "write",
+        input: {},
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_done",
+        id: "earlier-call",
+        tool: "write",
+        input: {},
+        result: "[Private content omitted]",
+        completedSideEffect: true,
+        omitFromPersistedHistory: true,
+      },
+    ]);
+  const { runAgentLoop } = await import("../production-agent.js");
+  const { z } = await import("zod");
+  const run = vi.fn(async () => "saved");
+  const events: import("../types.js").AgentChatEvent[] = [];
+  const engine: import("./types.js").AgentEngine = {
+    name: "synthetic",
+    label: "Synthetic",
+    defaultModel: "synthetic",
+    supportedModels: ["synthetic"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    async *stream() {
+      yield {
+        type: "assistant-content" as const,
+        parts: [
+          {
+            type: "tool-call" as const,
+            id: "new-call",
+            name: "write",
+            input: { text: "synthetic" },
+          },
+        ],
+      };
+      yield { type: "stop" as const, reason: "tool_use" as const };
+    },
+  };
+  try {
+    await runAgentLoop({
+      engine,
+      model: "synthetic",
+      systemPrompt: "synthetic",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "new checkpoint" }] },
+      ],
+      actions: {
+        write: {
+          schema: z.object({ text: z.string() }),
+          tool: {
+            description: "Synthetic write",
+            parameters: {
+              type: "object",
+              properties: { text: { type: "string" } },
+              required: ["text"],
+            },
+          },
+          readOnly: false,
+          persistInChatHistory: false,
+          run,
+        },
+      },
+      threadId: "thread",
+      turnId: "same-turn",
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "error",
+          errorCode: "tool_call_journal_unreadable",
+        }),
+      ]),
+    );
+  } finally {
+    read.mockRestore();
+  }
 });

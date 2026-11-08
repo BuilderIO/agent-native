@@ -430,8 +430,10 @@ describe("story 6: a support ticket to the right place", () => {
       needsManual: 2,
       released: 0,
       itemFailures: 0,
+      errorRouted: 0,
       needsCheck: 0,
       skippedRows: 0,
+      primed: 0,
       modelCalls: 4,
       parked: 0,
       woke: 0,
@@ -698,6 +700,7 @@ describe("story 2: a Builder task that is stuck", () => {
         builderTaskId: "task-1",
         projectId: "project-1",
         branchName: "factory-g1",
+        builderUrl: "https://builder.example.test/branches/factory-g1",
         repository: "example-org/example-repo",
       },
     });
@@ -711,7 +714,11 @@ describe("story 2: a Builder task that is stuck", () => {
     });
     test.operations.always(
       "builder.check",
-      ok({ state: "stuck", hasPullRequest: false }),
+      ok({
+        state: "stuck",
+        reason: "agent_waiting_for_input",
+        hasPullRequest: false,
+      }),
     );
     test.operations.always(
       "builder.followUp",
@@ -777,7 +784,7 @@ describe("story 2: a Builder task that is stuck", () => {
     expect(test.operations.callsTo("slack.postMessage")).toHaveLength(1);
     expect(test.operations.callsTo("slack.postMessage")[0].fields).toEqual({
       to: "triage-owner@example.test",
-      text: "Builder is stuck on Report r1",
+      text: 'Builder is stuck on "Report r1" (agent_waiting_for_input). Task: https://builder.example.test/branches/factory-g1',
     });
     // The group stands for both reports, so both are handed to a person.
     expect(

@@ -79,6 +79,18 @@ query's typed recovery instruction: schema errors call for `find-data` or
 narrower scan; only timeout, rate-limit, and temporary backend failures permit
 one unchanged retry. Use the separate BigQuery action for GoogleSQL-only SQL.
 
+`query-agent-native-analytics` reads all traffic unless `environment` is
+`production` or `beta`. A usage number should usually pass `production`. An
+event with no host counts as production unless its `deployment_environment`
+property names a beta one (`beta`, `preview`, `local`, `development` or
+`test`). With
+it set, `analytics_event_daily_rollups` and `analytics_user_days` are rebuilt
+from raw events, because they have no host: give `event_date` a start
+(`>=`, `=` or `BETWEEN`) in the same query level, or the read is refused
+rather than scanning every event. A dashboard panel on those tables needs the
+same start date, or it fails to load under a production or beta filter. The
+content tables ignore it.
+
 First-party reads exclude test identities (QA/E2E accounts): ingest never
 stores their events or replays, and the read scope filters `user_id` (events,
 replays) and `user_key` (user-days). Pass `includeTestIdentities: true` to

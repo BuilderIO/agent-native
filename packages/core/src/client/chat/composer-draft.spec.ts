@@ -97,6 +97,57 @@ describe("assistant chat composer drafts", () => {
       readAssistantChatComposerContextDraft("design:account:org:thread"),
     ).toBeNull();
   });
+  it.each([
+    "design",
+    "slides",
+    "figma",
+    "website",
+    "integration",
+    "google-slides",
+    "app.custom:reference",
+    "x".repeat(128),
+  ])(
+    "round-trips app-owned source metadata %s without interpreting it",
+    (source) => {
+      const selection = {
+        designSystemId: null,
+        references: [{ source, id: "resource-one", title: "Reference" }],
+      };
+      writeAssistantChatComposerContextDraft(
+        "app:account:org:thread",
+        selection,
+      );
+      expect(
+        readAssistantChatComposerContextDraft("app:account:org:thread"),
+      ).toEqual(selection);
+    },
+  );
+  it.each([
+    "",
+    "x".repeat(129),
+    "google slides",
+    "https://example.test",
+    "app/source",
+    " source",
+    "source\n",
+    "app..source",
+  ])("rejects malformed source metadata %j on write and read", (source) => {
+    const selection = {
+      designSystemId: null,
+      references: [{ source, id: "resource-one", title: "Reference" }],
+    };
+    expect(() =>
+      writeAssistantChatComposerContextDraft("invalid-source", selection),
+    ).toThrow();
+    expect(readAssistantChatComposerContextDraft("invalid-source")).toBeNull();
+    window.localStorage.setItem(
+      "agent-chat-composer-context:invalid-source",
+      JSON.stringify({ version: 1, selection }),
+    );
+    expect(() =>
+      readAssistantChatComposerContextDraft("invalid-source"),
+    ).toThrow();
+  });
   it("distinguishes unreadable drafts from absent drafts and rejects oversized selections", () => {
     expect(() => readAssistantChatComposerContextDraft(" ")).toThrow();
     window.localStorage.setItem(

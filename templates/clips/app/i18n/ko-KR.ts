@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "녹화 참조…",
+    group: "녹화",
+    authentication: "참조를 추가하려면 로그인하세요.",
+    invalid: "전송하기 전에 유효한 참조를 선택하세요.",
+    unavailable:
+      "선택한 참조를 더 이상 사용할 수 없습니다. 제거하거나 다시 선택하세요.",
+  },
   meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
   meetingBrowserConfirmation:
     "Clips는 이 브라우저의 마이크 활동을 감지하지만 회의 중인 탭을 구분할 수 없습니다.",
@@ -311,27 +319,47 @@ const messages = {
     clipsPermanentlyDeleted: "클립 {{count}}개 영구 삭제됨",
     clipsDeleteFailed: "클립 {{count}}개를 삭제할 수 없습니다",
     deletedMediaPending:
-      "녹화가 삭제되었습니다. 미디어 파일은 아직 제거 중입니다.",
+      "Clips에서 동영상을 제거했습니다. 삭제 확인을 진행하고 있습니다.",
     deletedMediaBlocked:
-      "녹화가 삭제되었지만 미디어 파일을 제거할 수 없습니다.",
+      "Clips에서 동영상을 제거했습니다. 파일 삭제를 확인할 수 없습니다.",
     deletedMediaRetained:
       "녹화가 삭제되었습니다. 다른 녹화에서 아직 사용하는 미디어 파일은 유지되었습니다.",
     clipsDeletedMediaPending:
-      "삭제된 녹화: {{count}}개. 미디어 파일은 아직 제거 중입니다.",
+      "Clips에서 제거한 동영상: {{count}}개. 삭제 확인을 진행하고 있습니다.",
     clipsDeletedMediaBlocked:
-      "삭제된 녹화: {{count}}개. 미디어 파일을 제거할 수 없습니다.",
+      "Clips에서 제거한 동영상: {{count}}개. 파일 삭제를 확인할 수 없습니다.",
     clipsDeletedMediaRetained:
       "삭제된 녹화: {{count}}개. 다른 녹화에서 아직 사용하는 미디어 파일은 유지되었습니다.",
+    deletedMediaFinalizing:
+      "Clips에서 동영상을 제거했습니다. 스토리지 사용량 업데이트를 다시 시도해야 합니다.",
+    clipsDeletedMediaFinalizing:
+      "Clips에서 제거한 동영상: {{count}}개. 스토리지 사용량 업데이트를 다시 시도해야 합니다.",
+    mediaCleanupFinalizing: "스토리지 사용량 업데이트를 다시 시도해야 함",
+    mediaCleanupFinalizingHelp:
+      "파일 제거 확인은 끝났지만 이 동영상이 아직 저장 용량 한도에 포함될 수 있습니다. 사용량 업데이트를 재시도하여 저장 용량 합계를 업데이트하세요.",
     mediaCleanupListLabel: "미디어 제거",
-    mediaCleanupPending: "삭제된 녹화의 미디어 파일을 제거하는 중",
-    mediaCleanupBlocked: "삭제된 녹화의 미디어 파일을 제거할 수 없습니다",
+    mediaCleanupPending: "삭제 확인 진행 중",
+    mediaCleanupPendingHelp:
+      "Clips가 백그라운드에서 확인을 계속합니다. 이 페이지를 나가도 되며 휴지통에서 업데이트를 확인할 수 있습니다.",
+    mediaCleanupBlocked: "동영상 파일 삭제를 확인할 수 없음",
+    mediaCleanupBlockedHelp:
+      "저장된 동영상 파일이 아직 남아 있을 수 있습니다. 제거 재시도를 누르면 다시 시도합니다. 이 페이지를 나가도 되며 휴지통에서 결과를 확인할 수 있습니다.",
     mediaCleanupReconnect:
       "삭제된 녹화의 미디어 파일을 제거하려면 스토리지를 다시 연결하세요",
     mediaCleanupRetained:
       "삭제된 녹화의 공유 미디어 파일은 다른 녹화에서 사용하는 동안 유지됩니다",
+    mediaCleanupHelp: "자세한 정보",
+    mediaCleanupRetryFiles: "제거 다시 시도",
+    mediaCleanupRetryingFiles: "동영상 파일 삭제를 다시 시도하는 중",
+    mediaCleanupRetryUsage: "사용량 업데이트 다시 시도",
+    mediaCleanupRetryingUsage: "스토리지 사용량 업데이트를 다시 시도하는 중",
     mediaCleanupRemoved: "미디어 파일이 제거됨",
-    mediaCleanupStillBlocked: "미디어 파일을 여전히 제거할 수 없습니다",
-    mediaCleanupRetryFailed: "미디어 제거를 다시 시도할 수 없습니다",
+    mediaCleanupUsageUpdated: "스토리지 사용량이 업데이트됨",
+    mediaCleanupStillBlocked: "동영상 파일 삭제를 여전히 확인할 수 없습니다",
+    mediaCleanupStillFinalizing:
+      "스토리지 사용량 업데이트를 여전히 다시 시도해야 합니다",
+    mediaCleanupRetryFailed:
+      "다시 시도를 시작할 수 없습니다. 다시 시도해 주세요.",
     mediaCleanupLoadFailed: "미디어 제거 상태를 불러올 수 없습니다",
   },
   recordingRoute: {
@@ -617,6 +645,14 @@ const messages = {
     desktopHint:
       "메모를 시작하려면 메뉴 막대에서 Clips Desktop을 열고 Start Meeting Notes를 선택하거나, 알림이 표시되면 Start notes를 클릭하세요. Clips가 마이크와 시스템 오디오를 캡처하고 여기에 기록을 작성합니다.",
     getDesktopApp: "데스크톱 앱 받기",
+    earlierAudioAdded_one: "시작 전 {{count}}분이 추가됨",
+    earlierAudioAdded_other: "시작 전 {{count}}분이 추가됨",
+    earlierAudioUnreadable:
+      "이 스크립트에 시작 전 오디오가 포함되어 있는지 확인할 수 없습니다",
+    removeEarlierAudioTitle: "시작 전 오디오를 삭제하시겠습니까?",
+    removeEarlierAudioDescription:
+      "스크립트에서 삭제하고 요약, 작업 항목, 클립 설명을 다시 만듭니다. 설명을 직접 작성한 경우에도 다시 만들어집니다. 자동 생성 제목도 다시 만들어지지만 직접 선택한 제목은 유지됩니다. 챕터도 삭제됩니다.",
+    couldNotRemoveEarlierAudio: "시작 전 오디오를 삭제할 수 없습니다",
     generateNotesFailed: "요약을 생성할 수 없습니다. 다시 시도해 보세요.",
     attendee_one: "{{count}} 참석자",
     attendee_other: "{{count}} 참석자",
@@ -667,6 +703,8 @@ const messages = {
     noMatches: "일치하는 항목이 없습니다.",
     noTranscript: "아직 성적표가 없습니다.",
     noTranscriptCaptured: "캡처된 녹취록이 없습니다.",
+    partialTranscript:
+      "일부 녹취록: 녹화가 중간에 끊겨 일부 내용이 누락되었을 수 있습니다.",
     backupFailed:
       "로컬에서 음성이 캡처되지 않았으며 백업 기록이 완료되지 않았습니다. 다시 시도하거나 마이크 및 음성 권한을 확인하세요.",
     backupNotSetup:
@@ -770,7 +808,7 @@ const messages = {
     openInCodex: "Codex에서 열기",
     copyAgentPrompt: "에이전트 프롬프트 복사",
     agentPrompt:
-      "이 Clips 에이전트 컨텍스트 URL을 읽으세요: {{agentContextUrl}}. apis.transcript에서 전체 transcript를 읽고 영상을 확인하도록 recommendedFrames[].url(또는 atMs가 포함된 apis.frame.urlTemplate)을 이미지로 가져오세요. id와 agent_access를 제공된 그대로 유지하세요. 오류가 발생하면 JSON 응답의 failureKind, error, nextStep를 확인하세요. failureKind=access이면 이 링크로는 접근할 수 없다고 설명하고, 비공개 클립은 소유자에게 Clips 공유 메뉴에서 {{shareWithAgents}}를 선택해 생성된 링크를 보내 달라고 요청하세요. transcript는 작동하는데 failureKind=media이면 저장된 미디어를 가져올 수 없다고 설명하세요. 새 링크로 해결되지 않습니다. failureKind=processing이면 nextStep를 따르세요. 이것이 클립 누락이나 잘못된 링크를 뜻하지는 않습니다. failureKind=expired이면 소유자에게 공유 메뉴에서 클립 만료를 연장하거나 해제하고 저장한 뒤 {{shareWithAgents}}를 선택해 새 링크를 보내 달라고 요청하세요. 버그를 보고할 때 browserDiagnostics가 있으면 함께 확인하세요. 도구가 이미지를 반환하거나 이 링크를 열 수 없다면, 도구의 한계이며 Clips 오류가 아니라고 알려 주세요.",
+      "이 Clips 에이전트 컨텍스트 URL을 읽으세요: {{agentContextUrl}}. apis.transcript에서 전체 transcript를 읽고 영상을 확인하도록 recommendedFrames[].url(또는 atMs가 포함된 apis.frame.urlTemplate)을 이미지로 가져오세요. id와 agent_access를 제공된 그대로 유지하세요. 오류가 발생하면 JSON 응답의 failureKind, error, nextStep를 확인하세요. failureKind=access이면 이 링크로는 접근할 수 없다고 설명하고, 비공개 클립은 소유자에게 Clips 공유 메뉴에서 {{shareWithAgents}}를 선택해 생성된 링크를 보내 달라고 요청하세요. transcript는 작동하는데 failureKind=media이면 저장된 미디어를 가져올 수 없다고 설명하세요. 새 링크로 해결되지 않습니다. failureKind=processing이면 nextStep를 따르세요. 이것이 클립 누락이나 잘못된 링크를 뜻하지는 않습니다. failureKind=expired이면 소유자에게 공유 메뉴에서 클립 만료를 연장하거나 해제하고 저장한 뒤 {{shareWithAgents}}를 선택해 새 링크를 보내 달라고 요청하세요. 버그를 보고할 때 browserDiagnostics가 있으면 함께 확인하세요. 프레임 URL을 이미지로 열 수 없다면, 사용할 수 있는 경우 이 컨텍스트 URL의 녹화 ID로 Clips get-recording-frames 도구를 호출하세요. 사용할 수 없다면, {{connectUrl}} 에서 Clips를 연결하면 프레임을 볼 수 있다고 사용자에게 알려 주세요.",
     agentTokenDescription:
       "이 클립은 공개 상태가 아니므로 에이전트용 임시 읽기 전용 링크입니다. 2시간 후 만료됩니다.",
     agentPublicDescription:
@@ -1490,6 +1528,7 @@ const messages = {
   transcriptBubbles: {
     listening: "듣는 중…",
     noTranscript: "아직 기록이 없습니다.",
+    unreadable: "이 스크립트를 읽을 수 없습니다.",
     liveTranscriptDescription:
       "노트가 시작되면 실시간 기록이 여기에 표시됩니다.",
     me: "나",

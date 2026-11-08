@@ -123,6 +123,13 @@ const messages = {
     noAssetsYet: "アセットはまだありません。",
     assetUploadFailed: "一部のアップロードに失敗しました",
     assetDeleteFailed: "アセットの削除に失敗しました",
+    assetLoadFailed: "アセットを読み込めませんでした",
+    assetSelectNoChange: "この画像をこのスライドに適用できませんでした",
+    retry: "再試行",
+    assetDeleteInUse:
+      "このアセットはデッキで使用されています。先にデッキから削除してください",
+    assetDeleteStorageRemains:
+      "ライブラリから削除しましたが、保存されたファイルは削除できませんでした",
     contentMarkdown: "コンテンツ (Markdown)",
     speakerNotes: "スピーカーノート",
     speakerNotesForSlide: "スピーカーノート — スライド {{index}} / {{count}}",
@@ -301,6 +308,7 @@ const messages = {
       "入力を始めるか、エージェントでスピーカーノートをすばやく生成しましょう",
   },
   editorToolbar: {
+    saving: "保存中...",
     layoutTitle: "タイトル",
     layoutSection: "セクション区切り",
     layoutContent: "コンテンツ",
@@ -854,6 +862,10 @@ const messages = {
       "デッキを選択したスナップショットに戻しました。",
     restoreFailed: "復元に失敗しました",
     restoreFailedDescription: "このデッキのバージョンを復元できませんでした。",
+    alreadyAtVersion: "すでにこのバージョンです",
+    restoreReloadFailed: "デッキを更新できませんでした",
+    restoreReloadFailedDescription:
+      "ページを再読み込みして、このデッキの現在のバージョンを確認してください。",
     backToSavedVersions: "履歴に戻る",
     savedVersions: "履歴",
     description: "デッキの履歴を表示して、以前のスナップショットを復元します。",
@@ -882,9 +894,6 @@ const messages = {
     newSlideSaveFailed:
       "新しいスライドを保存できませんでした。もう一度お試しください。",
     addSlides: "スライドを追加",
-    addEmptySlide: "空のスライドを追加",
-    noAi: "AI なし",
-    duplicateCurrentSlide: "現在のスライドを複製",
     promptPlaceholder: "作成したいスライドを説明してください...",
     newSlide: "新しいスライド",
     slidesHeading: "スライド",
@@ -1331,7 +1340,28 @@ const messages = {
     },
     importDeck: "デッキをインポート",
     context: {
+      googleSlides: {
+        connectionFailed:
+          "Google ドライブの接続を確認できませんでした。もう一度お試しください。",
+        attach: "添付",
+        reading: "読み取り中…",
+        authentication: "Google スライドを添付するにはログインしてください。",
+        invalid:
+          "有効な Google スライドのプレゼンテーション URL を入力してください。",
+        connect:
+          "このプレゼンテーションを読むには Google ドライブに接続してください。",
+        denied:
+          "このプレゼンテーションにアクセスできません。権限を確認するか Google ドライブに再接続してください。",
+        failed:
+          "このプレゼンテーションを読み取れませんでした。もう一度お試しください。",
+        tooLarge:
+          "このプレゼンテーションは大きすぎるためコンテキストとして読み取れません。",
+        truncated: "参照の抜粋は切り詰められ、残りの内容は含まれていません。",
+      },
       websiteReference: "ウェブサイトを追加",
+      connectFigma: "Figma を接続",
+      figmaDisconnected: "デザインを探すには Figma を接続してください。",
+      websiteReferenceMenu: "ウェブサイトを追加…",
       websiteUrlLabel: "ウェブサイトのURL",
       websiteUrl: "ウェブサイトのURLを貼り付け",
       figmaUrlLabel: "Figmaリンク",
@@ -1346,9 +1376,9 @@ const messages = {
       searchPresentations: "プレゼンテーションを検索…",
       menu: {
         system: "デザインシステムを使う",
-        figma: "Figmaを追加",
+        figma: "Figma デザイン",
         design: "デザインを参照",
-        deck: "プレゼンテーションを参照",
+        deck: "デッキを参照…",
         searchDesign: "デザインを検索…",
       },
       loadFailed: "参照を読み込めませんでした。再試行してください。",
@@ -1373,7 +1403,7 @@ const messages = {
         "Design でこの Figma 参照を読み込めませんでした。Design に保存されている Figma アクセストークンと、紐づくアカウントでファイルを開けることを確認して、もう一度お試しください。",
       tooMany: "参照は20件まで選択できます。",
       search: "参照を検索",
-      designCategory: "デザイン",
+      designCategory: "デザインの参照",
     },
     quickStart: {
       invalidUrl: "有効なHTTPまたはHTTPSのURLを入力してください。",

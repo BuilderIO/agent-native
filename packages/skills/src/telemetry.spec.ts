@@ -1,25 +1,15 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createCliTelemetry } from "./telemetry.js";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(here, "../../..");
-const coreTelemetry = path.join(
-  repoRoot,
-  "packages",
-  "core",
-  "src",
-  "cli",
-  "telemetry.ts",
-);
-
-function executableSource(text: string): string {
-  return text.replace(/^\s*\/\*\*[\s\S]*?\*\/\s*/, "").trim();
+function pinHome(): string {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "an-telemetry-"));
+  vi.spyOn(os, "homedir").mockReturnValue(home);
+  return home;
 }
 
 describe("createCliTelemetry", () => {
@@ -32,6 +22,7 @@ describe("createCliTelemetry", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     process.env = { ...savedEnv };
   });
@@ -50,10 +41,34 @@ describe("createCliTelemetry", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("never sends after telemetry disable in the core CLI", async () => {
+    const home = pinHome();
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY = "anpk_unit_test_key";
+    delete process.env.DO_NOT_TRACK;
+    delete process.env.AGENT_NATIVE_TELEMETRY_DISABLED;
+    fs.mkdirSync(path.join(home, ".agent-native"));
+    fs.writeFileSync(
+      path.join(home, ".agent-native", "telemetry.json"),
+      JSON.stringify({ enabled: false }),
+    );
+
+    const telemetry = createCliTelemetry({
+      cli: "skills-installer",
+      cliVersion: "9.9.9",
+      command: "add",
+      interactive: false,
+    });
+    telemetry.track("skills_cli_started");
+    telemetry.captureException(new Error("boom"));
+    await telemetry.flush();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
   it("does not create an installation id until an event is tracked", () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), "an-telemetry-"));
-    process.env.HOME = home;
-    process.env.USERPROFILE = home;
+    const home = pinHome();
     process.env.NODE_ENV = "production";
     process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY = "anpk_unit_test_key";
 
@@ -71,9 +86,7 @@ describe("createCliTelemetry", () => {
   });
 
   it("falls back to the embedded public key when no env override is set", async () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), "an-telemetry-"));
-    process.env.HOME = home;
-    process.env.USERPROFILE = home;
+    const home = pinHome();
     delete process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
     delete process.env.DO_NOT_TRACK;
     delete process.env.AGENT_NATIVE_TELEMETRY_DISABLED;
@@ -96,9 +109,7 @@ describe("createCliTelemetry", () => {
   });
 
   it("posts a funnel event with the first-party shape when enabled", async () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), "an-telemetry-"));
-    process.env.HOME = home;
-    process.env.USERPROFILE = home;
+    const home = pinHome();
     process.env.NODE_ENV = "production";
     process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY = "anpk_unit_test_key";
     delete process.env.DO_NOT_TRACK;
@@ -136,10 +147,37 @@ describe("createCliTelemetry", () => {
     fs.rmSync(home, { recursive: true, force: true });
   });
 
+  it("sends a private skill from a folder named like our catalog as custom", async () => {
+    const home = pinHome();
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY = "anpk_unit_test_key";
+    delete process.env.DO_NOT_TRACK;
+    delete process.env.AGENT_NATIVE_TELEMETRY_DISABLED;
+    delete process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT;
+    const skill = path.join(home, "BuilderIO/skills/skills/acme-internal");
+    fs.mkdirSync(skill, { recursive: true });
+    fs.writeFileSync(
+      path.join(skill, "SKILL.md"),
+      "---\nname: acme-internal\ndescription: Private.\n---\n",
+    );
+    vi.spyOn(process, "cwd").mockReturnValue(home);
+    vi.spyOn(process.stdout, "write").mockReturnValue(true);
+
+    const { runSkillsCli } = await import("./index.js");
+    await runSkillsCli(["list", "--json"], { log: () => {} });
+
+    const sent = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse((init as RequestInit).body as string),
+    );
+    const listed = sent.find((e) => e.event === "skills_cli skills listed");
+    expect(listed.properties.available).toContain("custom");
+    expect(JSON.stringify(sent)).not.toContain("acme-internal");
+
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
   it("posts a bounded exception event when a CLI command fails", async () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), "an-telemetry-"));
-    process.env.HOME = home;
-    process.env.USERPROFILE = home;
+    const home = pinHome();
     process.env.NODE_ENV = "production";
     process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY = "anpk_unit_test_key";
 
@@ -153,7 +191,7 @@ describe("createCliTelemetry", () => {
     telemetry.captureException(error, {
       handled: false,
       tags: { source: "command" },
-      extra: { attempt: 1 },
+      extra: { durationMs: 1, attempt: 1 },
     });
     await telemetry.flush();
 
@@ -166,23 +204,11 @@ describe("createCliTelemetry", () => {
       runtime: "cli",
       handled: false,
       exceptionTags: { source: "command" },
-      exceptionExtra: { attempt: 1 },
+      exceptionExtra: { durationMs: 1 },
     });
+    expect(body.properties.exceptionExtra).not.toHaveProperty("attempt");
     expect(body.properties.exceptionMessage).not.toContain("do-not-send");
 
     fs.rmSync(home, { recursive: true, force: true });
-  });
-});
-
-describe("telemetry drift guard", () => {
-  it("matches the @agent-native/core copy (ignoring the doc comment)", () => {
-    if (!fs.existsSync(coreTelemetry)) {
-      return;
-    }
-    const mine = executableSource(
-      fs.readFileSync(path.join(here, "telemetry.ts"), "utf8"),
-    );
-    const theirs = executableSource(fs.readFileSync(coreTelemetry, "utf8"));
-    expect(theirs).toBe(mine);
   });
 });

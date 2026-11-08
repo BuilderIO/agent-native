@@ -62,6 +62,15 @@ describe("Dispatch workspace app share access", () => {
     ).resolves.toBe(false);
   });
 
+  it("shares one manager answer across a request org's apps", () => {
+    const key = mocks.getRegisteredResource().canManageAccessKey as (resource: {
+      orgId?: string | null;
+    }) => string | undefined;
+
+    expect(key({ orgId: "org-a" })).toBe("org-a");
+    expect(key({ orgId: null })).toBeUndefined();
+  });
+
   it("does not resolve a role for a resource outside the request org", async () => {
     await expect(
       canManageAccess()(

@@ -446,6 +446,7 @@ export const DiscussionComposer = forwardRef<
   TiptapComposerHandle,
   {
     currentUserEmail?: string;
+    currentUserName?: string;
     value: string;
     onChange: (text: string) => void;
     mentions: MentionEntry[];
@@ -461,6 +462,7 @@ export const DiscussionComposer = forwardRef<
 >(function DiscussionComposer(
   {
     currentUserEmail,
+    currentUserName,
     value,
     onChange,
     mentions,
@@ -482,7 +484,10 @@ export const DiscussionComposer = forwardRef<
       data-discussion-composer
     >
       <div className="flex h-9.5 shrink-0 items-center">
-        <CommentAvatar email={currentUserEmail} name={currentUserEmail} />
+        <CommentAvatar
+          email={currentUserEmail ?? null}
+          name={currentUserName?.trim() || currentUserEmail || null}
+        />
       </div>
       <div className="min-w-0 flex-1">
         <CommentComposer
