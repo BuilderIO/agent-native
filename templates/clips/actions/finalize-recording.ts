@@ -2522,7 +2522,13 @@ export default defineAction({
       const measuredMedia = fillMediaFacts(
         givenMedia,
         isMissingMediaFacts(givenMedia)
-          ? await probeMediaInfo(uploadData, videoFormat).catch(() => null)
+          ? await probeMediaInfo(uploadData, videoFormat).catch((err) => {
+              console.warn("[finalize] measuring media failed", {
+                id,
+                err: err instanceof Error ? err.message : String(err),
+              });
+              return null;
+            })
           : null,
       );
 
