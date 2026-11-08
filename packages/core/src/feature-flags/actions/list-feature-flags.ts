@@ -26,7 +26,7 @@ export default defineAction({
   toolCallable: false,
   run: async (_args, ctx) => {
     const definitions = listFeatureFlags();
-    const access = await getFeatureFlagManagerAccess(ctx ?? {});
+    const access = await getFeatureFlagManagerAccess(ctx);
     if (!access.canManageOrg && !access.canManageGlobal) return forbidden;
     if (definitions.length === 0)
       return {

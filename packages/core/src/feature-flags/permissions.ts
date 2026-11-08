@@ -37,18 +37,17 @@ export interface FeatureFlagManagerAccess {
  * and the global rule (this app's admin list, whatever org they are in).
  * The two are independent; being on the list grants nothing in an org.
  */
-export async function getFeatureFlagManagerAccess(scope: {
-  userEmail?: string;
-  orgId?: string | null;
-}): Promise<FeatureFlagManagerAccess> {
-  const email = scope.userEmail?.trim().toLowerCase();
+export async function getFeatureFlagManagerAccess(
+  scope: { userEmail?: string; orgId?: string | null } | undefined,
+): Promise<FeatureFlagManagerAccess> {
+  const email = scope?.userEmail?.trim().toLowerCase();
   if (!email) {
     throw new FeatureFlagPermissionError(
       "Sign in to manage feature flags.",
       401,
     );
   }
-  const orgId = scope.orgId?.trim() || null;
+  const orgId = scope?.orgId?.trim() || null;
   return {
     email,
     orgId,
@@ -67,7 +66,7 @@ export async function getFeatureFlagManagerAccess(scope: {
  * writes the global rule, so an older caller never writes wider than before.
  */
 export async function requireFeatureFlagManager(
-  scope: { userEmail?: string; orgId?: string | null },
+  scope: { userEmail?: string; orgId?: string | null } | undefined,
   requested?: FeatureFlagRuleScope,
 ): Promise<{
   email: string;

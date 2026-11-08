@@ -69,7 +69,7 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (args, ctx) => {
-    const manager = await requireFeatureFlagManager(ctx ?? {}, args.scope);
+    const manager = await requireFeatureFlagManager(ctx, args.scope);
     if (!getFeatureFlagDefinition(args.key)) {
       throw new Error(`Unknown feature flag: ${args.key}`);
     }
