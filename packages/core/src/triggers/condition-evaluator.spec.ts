@@ -406,6 +406,49 @@ describe("evaluateCondition", () => {
     expect(streams).toBe(1);
   });
 
+  it("saves a timed-out check's usage before reporting the timeout", async () => {
+    vi.useFakeTimers();
+    async function* meteredThenHanging(opts: {
+      abortSignal: AbortSignal;
+    }): AsyncIterable<{ type: string; text?: string }> {
+      yield { type: "usage", inputTokens: 30, outputTokens: 0 } as {
+        type: string;
+        text?: string;
+      };
+      yield* hangingUntilAborted(opts);
+    }
+    resolveEngineMock.mockResolvedValue(fakeEngine(meteredThenHanging));
+    let finishWrite!: () => void;
+    recordUsageMock.mockReturnValueOnce(
+      new Promise<undefined>((resolve) => {
+        finishWrite = () => resolve(undefined);
+      }),
+    );
+
+    let settled = false;
+    const evaluation = evaluateCondition(
+      "is this urgent?",
+      { messageId: "timed-out-metered" },
+      IDENTITY,
+    ).finally(() => {
+      settled = true;
+    });
+    const rejection = expect(evaluation).rejects.toThrow(
+      "Condition evaluation timed out.",
+    );
+    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.waitFor(() =>
+      expect(recordUsageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ inputTokens: 30 }),
+      ),
+    );
+
+    // The timeout waits for the write instead of leaving it behind.
+    expect(settled).toBe(false);
+    finishWrite();
+    await rejection;
+  });
+
   it("records nothing when the engine reports no usage", async () => {
     async function* yesStream() {
       yield { type: "text-delta", text: "yes" };

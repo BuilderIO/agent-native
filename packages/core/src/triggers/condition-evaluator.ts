@@ -36,6 +36,9 @@ import type { UsageRecord } from "../usage/store.js";
 
 const CONDITION_EVAL_VERSION = "v4";
 const CONDITION_EVALUATION_TIMEOUT_MS = 15_000;
+// How long a check cut off by its deadline may take to unwind its aborted
+// stream, so the usage it reported is saved before the caller moves on.
+const ABORTED_CHECK_UNWIND_MS = 1_000;
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE_SIZE = 500;
@@ -206,21 +209,46 @@ export async function evaluateCondition(
       })
     : null;
 
+  const evaluation = evaluate();
   let result: boolean;
   try {
     result = await Promise.race([
-      evaluate(),
+      evaluation,
       timeout,
       ...(aborted ? [aborted] : []),
     ]);
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
     removeAbortListener?.();
-    // A check cut off by the deadline saves its usage when its stream ends.
+    // A check cut off by the deadline queues its usage write only once its
+    // aborted stream unwinds, so give it a moment before collecting writes.
+    await settledWithin(evaluation, ABORTED_CHECK_UNWIND_MS);
     await Promise.all(usageWrites);
   }
 
   return result;
+}
+
+/** Resolves when `promise` settles or `ms` passes, whichever is first. */
+async function settledWithin(
+  promise: Promise<unknown>,
+  ms: number,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      promise.then(
+        () => undefined,
+        () => undefined,
+      ),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ms);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 type ClassifierUsageScope = Pick<
