@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { DesignBrief } from "@shared/design-briefs";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -52,7 +53,7 @@ afterEach(async () => {
   cleanup = undefined;
 });
 
-async function openMenu() {
+async function openMenu(target: DesignBrief = brief) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -64,7 +65,7 @@ async function openMenu() {
         createElement(
           DropdownMenuContent,
           null,
-          createElement(BuiltFromItem, { brief }),
+          createElement(BuiltFromItem, { brief: target }),
         ),
       ),
     );
@@ -116,5 +117,36 @@ describe("Built from link", () => {
     const link = await openMenu();
 
     expect(link.textContent).toBe("designEditor.fileMenu.builtFromPage");
+  });
+
+  it("puts the page's title only on the link Content returned for it", async () => {
+    query.data = {
+      id: "page-one",
+      title: "Spring launch brief",
+      url: brief.url,
+      context: "Content page: the brief",
+    };
+    const link = await openMenu({
+      ...brief,
+      url: "https://elsewhere.example.com/not-the-brief",
+    });
+
+    expect(link.textContent).toBe(
+      "designEditor.fileMenu.builtFrom: Spring launch brief",
+    );
+    expect(link.getAttribute("href")).toBe(brief.url);
+  });
+
+  it("keeps the generic label when Content's link isn't a full web address", async () => {
+    query.data = {
+      id: "page-one",
+      title: "Spring launch brief",
+      url: "/_agent-native/open?documentId=page-one",
+      context: "Content page: the brief",
+    };
+    const link = await openMenu();
+
+    expect(link.textContent).toBe("designEditor.fileMenu.builtFromPage");
+    expect(link.getAttribute("href")).toBe(brief.url);
   });
 });

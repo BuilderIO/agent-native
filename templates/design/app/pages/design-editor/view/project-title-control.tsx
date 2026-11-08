@@ -3,7 +3,10 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { composerSourceReferenceSchema } from "@agent-native/core/shared";
+import {
+  composerSourceReferenceSchema,
+  composerWebsiteUrlSchema,
+} from "@agent-native/core/shared";
 import { designBriefsFromData, type DesignBrief } from "@shared/design-briefs";
 import { IconChevronDown, IconExternalLink } from "@tabler/icons-react";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -46,12 +49,14 @@ import type { DesignData } from "../types";
 import { ExportSubmenuContent } from "./export-submenu-content";
 
 /**
- * The title of a Content page the design started from. The design keeps only
- * the page's id and link, so the title is read under the viewer's own Content
- * access, and is empty for anyone who can't open the page. A failed read hides
- * the title even when an earlier read is still cached.
+ * The title and link of a Content page the design started from. The design
+ * keeps only the page's id and link, so the page is read under the viewer's
+ * own Content access, and the title is empty for anyone who can't open it. A
+ * failed read hides the title even when an earlier read is still cached. A
+ * title always comes with the link Content returned for that page, so a stored
+ * link can't borrow a page's title.
  */
-function useBriefPageTitle(
+function useBriefPage(
   brief: DesignBrief,
   refetchOnMount: boolean | "always" = true,
 ) {
@@ -60,14 +65,19 @@ function useBriefPageTitle(
     { source: "content", operation: "read", id: brief.id, page: 1 },
     { method: "GET", staleTime: 5 * 60_000, retry: false, refetchOnMount },
   );
-  if (page.isError) return "";
+  const untitled = { title: "", url: brief.url };
+  if (page.isError) return untitled;
   const read = composerSourceReferenceSchema.safeParse(page.data);
-  return read.success ? read.data.title.trim() : "";
+  const url = composerWebsiteUrlSchema.safeParse(
+    read.success ? read.data.url : undefined,
+  );
+  const title = read.success ? read.data.title.trim() : "";
+  return title && url.success ? { title, url: url.data } : untitled;
 }
 
-/** Reads the title when the editor opens, so the file menu opens with it. */
+/** Reads the page when the editor opens, so the file menu opens with it. */
 function BriefTitlePrefetch({ brief }: { brief: DesignBrief }) {
-  useBriefPageTitle(brief);
+  useBriefPage(brief);
   return null;
 }
 
@@ -75,10 +85,10 @@ export function BuiltFromItem({ brief }: { brief: DesignBrief }) {
   const t = useT();
   // Opening the menu reads the page again, so access removed since the editor
   // opened takes the title away instead of showing it from the cache.
-  const title = useBriefPageTitle(brief, "always");
+  const { title, url } = useBriefPage(brief, "always");
   return (
     <DropdownMenuItem asChild className="items-start">
-      <a href={brief.url} target="_blank" rel="noopener noreferrer">
+      <a href={url} target="_blank" rel="noopener noreferrer">
         <IconExternalLink className="mt-0.5 size-3.5 shrink-0" />
         <span className="line-clamp-2 min-w-0 break-words">
           {title
