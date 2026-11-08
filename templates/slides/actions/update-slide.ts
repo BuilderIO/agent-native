@@ -171,6 +171,12 @@ export default defineAction({
         .describe(
           "Replacement text; pass an empty string explicitly to clear it",
         ),
+      notes: z
+        .string()
+        .optional()
+        .describe(
+          "Presenter-only speaker notes to save on this slide; may be sent alone or with a content edit",
+        ),
       fullContent: z
         .string()
         .optional()
@@ -194,7 +200,7 @@ export default defineAction({
         .optional()
         .default(false)
         .describe(
-          "Format the resulting HTML with Prettier before persisting it.",
+          "Format the resulting HTML with Prettier before persisting it. With edits or objectId the stored HTML is formatted first too, so find text should come from a get-deck format=true read; omit it otherwise. Not applied to fullContent.",
         ),
       preserveSource: z
         .boolean()
@@ -268,6 +274,7 @@ export default defineAction({
       contextPackId,
       contextModeOverride,
       reuseLabels,
+      notes,
     } = args;
     const hasLegacyMode =
       find !== undefined || objectId !== undefined || replace !== undefined;
@@ -275,9 +282,9 @@ export default defineAction({
       Number(Boolean(edits)) +
       Number(hasLegacyMode) +
       Number(fullContent !== undefined);
-    if (inputModeCount === 0) {
+    if (inputModeCount === 0 && notes === undefined) {
       fail(
-        "One of --edits, --find/--replace, --objectId/--replace, or --fullContent is required",
+        "One of --edits, --find/--replace, --objectId/--replace, --fullContent, or notes is required",
         {
           errorCode: "slide_edit_mode_required",
         },
@@ -448,8 +455,17 @@ export default defineAction({
           currentContentHash !== firstAttemptContentHash)
       ) {
         fail(
-          "Slide content changed since it was read. Call get-deck with this slideId again and rebase the patch.",
-          { errorCode: "slide_content_stale", statusCode: 409 },
+          "Slide content changed since it was read. Call get-deck with this slideId for the exact current HTML, rebase the patch on it, and retry with details.currentContentHash as baseContentHash. details.currentContent is only a preview: it is omitted when large and may have credential-like text redacted, so never write from it.",
+          {
+            errorCode: "slide_content_stale",
+            statusCode: 409,
+            details: {
+              deckId,
+              slideId,
+              currentContent: String(slide.content ?? ""),
+              currentContentHash,
+            },
+          },
         );
       }
       firstAttemptContentHash ??= currentContentHash;
@@ -525,9 +541,15 @@ export default defineAction({
         }
       }
 
-      if (applied) {
+      const contentApplied = applied;
+      if (contentApplied) {
         slide.layoutFitRevision = createLayoutFitRevision();
         if (isAgentCaller) delete slide.layoutWarningDismissed;
+      }
+
+      if (!notFound && notes !== undefined && notes !== slide.notes) {
+        slide.notes = notes;
+        applied = true;
       }
 
       // A content edit keeps the reveals. One it newly strands fails the edit and
@@ -557,7 +579,7 @@ export default defineAction({
             }
           | undefined;
 
-        if (shouldResolveCreativeContext) {
+        if (contentApplied && shouldResolveCreativeContext) {
           const effectivePackId =
             contextPackId ?? existingContext?.contextPackId;
           const requestedLabels: CreativeContextReuseLabel[] =

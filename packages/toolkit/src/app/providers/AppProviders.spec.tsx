@@ -238,6 +238,44 @@ describe("AppProviders session gate", () => {
     expect(useThemeFamilyMock).toHaveBeenCalledOnce();
   });
 
+  it("renders next-themes' script as a data block inside the client-only shell", async () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+
+    renderProviders({ skipFirstRunOnboarding: true });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // React 19 logs "Encountered a script tag" for any executable <script> it
+    // creates on the client; the early head script already applies the theme.
+    const themeScripts = [...container.querySelectorAll("script")].filter(
+      (script) => script.textContent?.includes("prefers-color-scheme"),
+    );
+    expect(themeScripts.length).toBeGreaterThan(0);
+    for (const script of themeScripts) {
+      expect(script.getAttribute("type")).toBe("application/json");
+    }
+  });
+
+  it("keeps next-themes' executable script on public routes", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    const html = renderToStaticMarkup(
+      <AppProviders
+        queryClient={new QueryClient()}
+        i18n={false}
+        toaster={null}
+        isPublicPath
+      >
+        <div />
+      </AppProviders>,
+    );
+
+    expect(html).toMatch(
+      /<script(?![^>]*type=)[^>]*>[^<]*prefers-color-scheme/,
+    );
+  });
+
   it("allows an authenticated app shell to disable theme-family sync", () => {
     useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
 

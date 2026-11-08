@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import type { Document } from "@shared/api";
-import { act } from "react";
+import { act, useContext, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
@@ -20,6 +21,7 @@ const state = vi.hoisted(() => ({
   resolve: vi.fn(),
   refetch: vi.fn(),
   verify: vi.fn(),
+  readJournal: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: vi.fn().mockResolvedValue({ draft: null }),
@@ -32,6 +34,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@tanstack/react-query", () => ({
+  isCancelledError: () => false,
   useQueryClient: () => ({ refetchQueries: state.refetch }),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -55,7 +58,7 @@ vi.mock("@/hooks/use-documents", () => ({
 }));
 vi.mock("./page-draft-journal", () => ({
   liveDraftWriterIds: async () => new Set<string>(),
-  readPageDraftJournal: () => null,
+  readPageDraftJournal: (...args: unknown[]) => state.readJournal(...args),
   listPageDraftJournal: () => [],
   sweepLegacyRetainedPageDraftMarkers: () => undefined,
   clearPageDraftJournal: () => true,
@@ -87,6 +90,7 @@ vi.mock("./RecoveryComparison", () => ({
   ),
 }));
 
+import { LiveEditorSessionContext } from "./live-editor-session";
 import { PageDraftRecovery } from "./PageDraftRecovery";
 
 describe("Page draft recovery", () => {
@@ -97,31 +101,45 @@ describe("Page draft recovery", () => {
     title: "Saved",
     content: "Saved body",
     canEdit: true,
+    accessRole: "owner",
     updatedAt: "v2",
     revision: "saved-body-revision",
     contentHash: "sha256:saved-body",
   } as Document;
-  const render = () =>
+  const render = (documentFresh = true, document = page) =>
     root.render(
-      <PageDraftRecovery document={page}>
+      <PageDraftRecovery document={document} documentFresh={documentFresh}>
         <textarea defaultValue="Live editor" />
       </PageDraftRecovery>,
     );
+  const otherSessionDraft = {
+    title: "Draft",
+    content: "Draft body",
+    version: 3,
+    baseDocumentUpdatedAt: "v1",
+    loadedContentWasEmpty: 0,
+    editorSessionId: "tab:page",
+    editGeneration: 4,
+  };
   beforeEach(() => {
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
     vi.clearAllMocks();
     state.draft = null;
-    state.refetch.mockResolvedValue(undefined);
+    state.refetch.mockResolvedValue({ data: undefined });
     state.verify.mockResolvedValue(undefined);
+    state.readJournal.mockReturnValue(null);
     state.update.mockResolvedValue({
       ...page,
       title: "Draft",
       content: "Draft body",
     });
     state.remove.mockResolvedValue({ status: "deleted" });
-    state.resolve.mockResolvedValue({ status: "resolved" });
+    state.resolve.mockResolvedValue({
+      status: "resolved",
+      choice: "use_saved",
+    });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -151,8 +169,166 @@ describe("Page draft recovery", () => {
     await act(async () => render());
     expect(container.querySelector("textarea")).toBeNull();
     expect(state.resolve).toHaveBeenCalledWith(
-      expect.objectContaining({ choice: "use_saved" }),
+      expect.objectContaining({ choice: "automatic" }),
     );
+  });
+
+  describe("on a visited page", () => {
+    // This open's draft read, held so the test decides when it returns.
+    const holdDraftRead = () => {
+      let finish = () => {};
+      state.verify.mockReturnValue(
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+      );
+      return () => act(async () => finish());
+    };
+
+    it("shows the editor before this open's draft read when nothing can need recovering", async () => {
+      const finishDraftRead = holdDraftRead();
+      await act(async () => render());
+      expect(container.querySelector("textarea")).not.toBeNull();
+
+      await finishDraftRead();
+      expect(container.querySelector("textarea")).not.toBeNull();
+      expect(state.resolve).not.toHaveBeenCalled();
+    });
+
+    it("waits for the draft read when the journal holds an entry", async () => {
+      holdDraftRead();
+      state.readJournal.mockReturnValue({
+        scope: { writerId: "tab:other" },
+        snapshot: { content: "Unsaved", editGeneration: 1 },
+        writtenAt: 1,
+      });
+      await act(async () => render());
+      expect(container.querySelector("textarea")).toBeNull();
+      expect(
+        container.querySelector('[data-testid="editor-skeleton"]'),
+      ).not.toBeNull();
+    });
+
+    it("waits for the draft read when the journal cannot be read", async () => {
+      holdDraftRead();
+      state.readJournal.mockImplementation(() => {
+        throw new Error("storage refused");
+      });
+      await act(async () => render());
+      expect(container.querySelector("textarea")).toBeNull();
+    });
+
+    it("hands a draft this open's read finds to recovery", async () => {
+      const finishDraftRead = holdDraftRead();
+      await act(async () => render());
+      expect(container.querySelector("textarea")).not.toBeNull();
+
+      state.draft = otherSessionDraft;
+      await finishDraftRead();
+      await act(async () => render());
+      expect(container.querySelector("textarea")).toBeNull();
+      expect(state.resolve).toHaveBeenCalledWith(
+        expect.objectContaining({ choice: "automatic" }),
+      );
+    });
+
+    it("hands a late draft to recovery when its closed editor's journal entry holds it too", async () => {
+      const finishDraftRead = holdDraftRead();
+      await act(async () => render());
+      expect(container.querySelector("textarea")).not.toBeNull();
+
+      // Another tab wrote both, then closed, while this open's read ran.
+      state.draft = otherSessionDraft;
+      state.readJournal.mockReturnValue({
+        scope: { writerId: "tab:page" },
+        snapshot: {
+          title: "Draft",
+          content: "Draft body",
+          baseTitle: "Older",
+          baseContent: "Older body",
+          baseUpdatedAt: null,
+          editGeneration: 4,
+        },
+        writtenAt: 2,
+      });
+      await finishDraftRead();
+      await act(async () => render());
+      expect(state.resolve).toHaveBeenCalledWith(
+        expect.objectContaining({
+          choice: "automatic",
+          expectedDraftContent: "Draft body",
+        }),
+      );
+    });
+
+    it("leaves the shown editor's own journal entries to it", async () => {
+      const finishDraftRead = holdDraftRead();
+      const own = {
+        scope: { writerId: "tab:live" },
+        snapshot: {
+          title: "Saved",
+          content: "Typed here",
+          baseTitle: "Saved",
+          baseContent: "Saved body",
+          baseUpdatedAt: "v2",
+          editGeneration: 1,
+        },
+        writtenAt: 2,
+      };
+      const LiveEditor = () => {
+        const register = useContext(LiveEditorSessionContext);
+        useEffect(() => register?.("tab:live"), [register]);
+        return <textarea defaultValue="Live editor" />;
+      };
+      await act(async () =>
+        root.render(
+          <PageDraftRecovery document={page}>
+            <LiveEditor />
+          </PageDraftRecovery>,
+        ),
+      );
+      expect(container.querySelector("textarea")).not.toBeNull();
+
+      // Its writer lock is not seen here (no other tab is open), only the
+      // session it registered.
+      state.readJournal.mockImplementation(
+        (_scope: unknown, skip?: ReadonlySet<string>) =>
+          skip?.has("tab:live") ? null : own,
+      );
+      await finishDraftRead();
+      expect(container.querySelector("textarea")).not.toBeNull();
+      expect(state.resolve).not.toHaveBeenCalled();
+      expect(state.remove).not.toHaveBeenCalled();
+    });
+
+    it("settles no draft until this open's page read returns", async () => {
+      state.draft = otherSessionDraft;
+      await act(async () => render(false));
+      expect(container.querySelector("textarea")).toBeNull();
+      expect(state.resolve).not.toHaveBeenCalled();
+      expect(state.update).not.toHaveBeenCalled();
+      expect(state.remove).not.toHaveBeenCalled();
+
+      await act(async () => render(true));
+      expect(state.resolve).toHaveBeenCalledWith(
+        expect.objectContaining({ choice: "automatic" }),
+      );
+    });
+
+    it("releases the editor only once this open's page read returns", async () => {
+      await act(async () => render(false));
+      // Shown from the cached reads, but not yet released over them.
+      expect(container.querySelector("textarea")).not.toBeNull();
+      state.draft = otherSessionDraft;
+      await act(async () => render(false));
+      expect(container.querySelector("textarea")).toBeNull();
+      expect(state.resolve).not.toHaveBeenCalled();
+
+      await act(async () => render(true));
+      expect(state.resolve).toHaveBeenCalledWith(
+        expect.objectContaining({ choice: "automatic" }),
+      );
+    });
   });
 
   it("restores an identified draft against its matching canonical base", async () => {
@@ -252,7 +428,7 @@ describe("Page draft recovery", () => {
     await act(async () => render());
     expect(state.update).not.toHaveBeenCalled();
     expect(state.resolve).toHaveBeenCalledWith({
-      choice: "use_saved",
+      choice: "automatic",
       documentId: "page",
       expectedDraftVersion: 3,
       expectedDraftTitle: "Draft",
@@ -262,6 +438,56 @@ describe("Page draft recovery", () => {
     expect(
       container.querySelector('[role="status"]')?.textContent ?? "",
     ).not.toContain("editor.previewDraftConflict");
+  });
+
+  it("frees the draft slot when the draft it just resolved was written again", async () => {
+    state.draft = {
+      title: "Draft",
+      content: "Draft body",
+      version: 3,
+      baseDocumentUpdatedAt: "v1",
+      loadedContentWasEmpty: 0,
+      editorSessionId: "other-browser:page",
+      editGeneration: 0,
+    };
+    // Resolving finds the claim that already keeps it, so the row stays.
+    state.refetch.mockImplementation(async () => ({
+      data: { draft: state.draft },
+    }));
+    state.remove.mockImplementation(async () => {
+      state.draft = null;
+      return { status: "deleted" };
+    });
+    await act(async () => render());
+    expect(state.resolve).toHaveBeenCalledOnce();
+    expect(state.remove).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "delete",
+        documentId: "page",
+        expectedVersion: 3,
+        expectedContent: "Draft body",
+        expectedEditorSessionId: "other-browser:page",
+        expectedEditGeneration: 0,
+      }),
+    );
+  });
+
+  it("keeps a different draft another editor wrote after the one it resolved", async () => {
+    state.draft = {
+      title: "Draft",
+      content: "Draft body",
+      version: 3,
+      baseDocumentUpdatedAt: "v1",
+      loadedContentWasEmpty: 0,
+      editorSessionId: "other-browser:page",
+      editGeneration: 0,
+    };
+    state.refetch.mockResolvedValue({
+      data: { draft: { ...state.draft, content: "Newer body" } },
+    });
+    await act(async () => render());
+    expect(state.resolve).toHaveBeenCalled();
+    expect(state.remove).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -287,7 +513,7 @@ describe("Page draft recovery", () => {
       expect(state.update).not.toHaveBeenCalled();
       expect(state.resolve).toHaveBeenCalledWith(
         expect.objectContaining({
-          choice: "use_saved",
+          choice: "automatic",
           expectedDraftContent: "Draft body",
           expectedDocumentUpdatedAt: "v2",
         }),
@@ -358,7 +584,7 @@ describe("Page draft recovery", () => {
     });
     await act(async () => render());
     expect(state.resolve).toHaveBeenCalledWith(
-      expect.objectContaining({ choice: "use_saved" }),
+      expect.objectContaining({ choice: "automatic" }),
     );
     expect(state.remove).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -384,7 +610,7 @@ describe("Page draft recovery", () => {
     };
     await act(async () => render());
     expect(state.resolve).toHaveBeenCalledWith({
-      choice: "use_saved",
+      choice: "automatic",
       documentId: "page",
       expectedDraftVersion: 7,
       expectedDraftTitle: "Legacy draft",
@@ -393,6 +619,39 @@ describe("Page draft recovery", () => {
     });
     expect(container.querySelector("textarea")).not.toBeNull();
     expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("saves a collaborator's legacy draft as a page of their own, not in History", async () => {
+    state.draft = {
+      title: "Legacy draft",
+      content: "Legacy body",
+      version: 7,
+      baseDocumentUpdatedAt: "v1",
+      loadedContentWasEmpty: 0,
+      editorSessionId: null,
+      editGeneration: null,
+    };
+    state.resolve.mockResolvedValue({
+      status: "resolved",
+      choice: "save_separately",
+      urlPath: "/page/recovery-copy",
+    });
+    await act(async () => render(true));
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        choice: "automatic",
+        documentId: "page",
+      }),
+    );
+    expect(toast.success).toHaveBeenCalledWith(
+      "editor.previewDraftSavedSeparately",
+      {
+        action: expect.objectContaining({
+          label: "editor.previewDraftOpenSavedPage",
+        }),
+      },
+    );
+    expect(container.querySelector("textarea")).not.toBeNull();
   });
 
   it("keeps a failed legacy draft pending", async () => {
@@ -445,7 +704,7 @@ describe("Page draft recovery", () => {
       expect(state.update).not.toHaveBeenCalled();
       expect(state.resolve).toHaveBeenCalledWith(
         expect.objectContaining({
-          choice: "use_saved",
+          choice: "automatic",
           expectedDraftVersion: 3,
           expectedDraftContent: "Draft body",
         }),
@@ -466,7 +725,7 @@ describe("Page draft recovery", () => {
       });
       expect(state.resolve).toHaveBeenCalledTimes(2);
       expect(state.resolve).toHaveBeenLastCalledWith(
-        expect.objectContaining({ choice: "use_saved" }),
+        expect.objectContaining({ choice: "automatic" }),
       );
       expect(state.update).not.toHaveBeenCalled();
     });

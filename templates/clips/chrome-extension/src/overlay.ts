@@ -137,17 +137,19 @@ const ICONS = {
   ),
 };
 
+type OverlayReply = { ok?: boolean; state?: Partial<OverlayState> };
+
 function send(
   type: string,
   extra: Record<string, unknown> = {},
-  onComplete?: (ok: boolean) => void,
+  onComplete?: (ok: boolean, response?: OverlayReply) => void,
 ): void {
   try {
     chrome.runtime.sendMessage(
       { type, ...extra },
-      (response?: { ok?: boolean }) => {
+      (response?: OverlayReply) => {
         const error = chrome.runtime.lastError;
-        onComplete?.(!error && response?.ok !== false);
+        onComplete?.(!error && response?.ok !== false, response);
       },
     );
   } catch {
@@ -451,11 +453,15 @@ function initToolbar(): void {
       const resume = state.phase === "paused";
       const command = resume ? "CLIPS_OVERLAY_RESUME" : "CLIPS_OVERLAY_PAUSE";
       pauseCommandPending = true;
+      stateRevision++;
+      const now = Date.now();
+      if (resume) state.baseEpochMs = now;
+      else state.baseElapsedMs += Math.max(0, now - state.baseEpochMs);
       state.phase = resume ? "recording" : "paused";
       toolbarRender?.();
-      send(command, {}, (ok) => {
+      send(command, {}, () => {
         pauseCommandPending = false;
-        if (!ok) send("CLIPS_OVERLAY_HELLO", { part });
+        sendHello();
       });
     },
     true,
@@ -489,9 +495,10 @@ function initToolbar(): void {
     pill.classList.toggle("toolbar-v-paused", paused);
     pauseBtn.title = paused ? "Resume" : "Pause";
     pauseBtn.innerHTML = paused ? ICONS.resume : ICONS.pause;
-    const elapsed = paused
-      ? state.baseElapsedMs
-      : state.baseElapsedMs + Math.max(0, Date.now() - state.baseEpochMs);
+    const elapsed =
+      state.phase !== "recording"
+        ? state.baseElapsedMs
+        : state.baseElapsedMs + Math.max(0, Date.now() - state.baseEpochMs);
     clock.textContent = formatDuration(elapsed);
   };
 
@@ -529,11 +536,9 @@ const state: OverlayState = {
   countdownEndsAtMs: 0,
 };
 let toolbarRender: (() => void) | null = null;
+let stateRevision = 0;
 
-chrome.runtime.onMessage.addListener((message) => {
-  if (!message || typeof message !== "object") return;
-  if ((message as { type?: unknown }).type !== "CLIPS_OVERLAY_STATE") return;
-  const next = (message as { state?: Partial<OverlayState> }).state;
+function applyOverlayState(next: Partial<OverlayState> | undefined): void {
   if (!next) return;
   if (typeof next.phase === "string") state.phase = next.phase as OverlayPhase;
   if (typeof next.baseElapsedMs === "number")
@@ -543,6 +548,23 @@ chrome.runtime.onMessage.addListener((message) => {
   if (typeof next.countdownEndsAtMs === "number")
     state.countdownEndsAtMs = next.countdownEndsAtMs;
   toolbarRender?.();
+}
+
+// An incognito tab's extension frames can't receive the background's
+// runtime broadcasts, so the HELLO reply is the only way a reloaded toolbar
+// learns how long the recording has been running.
+function sendHello(): void {
+  const revision = stateRevision;
+  send("CLIPS_OVERLAY_HELLO", { part }, (ok, response) => {
+    if (ok && revision === stateRevision) applyOverlayState(response?.state);
+  });
+}
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (!message || typeof message !== "object") return;
+  if ((message as { type?: unknown }).type !== "CLIPS_OVERLAY_STATE") return;
+  stateRevision++;
+  applyOverlayState((message as { state?: Partial<OverlayState> }).state);
 });
 
 if (part === "bubble") void initBubble();
@@ -550,4 +572,4 @@ else if (part === "countdown") initCountdown();
 else if (part === "toolbar") initToolbar();
 else if (part === "saving") initSaving();
 
-send("CLIPS_OVERLAY_HELLO", { part });
+sendHello();

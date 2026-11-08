@@ -9,6 +9,7 @@ import type { FrameworkToolsConfig } from "../../framework-tools.js";
 import type { McpActionEntryOptions } from "../../mcp-client/index.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
+import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import type { PromptExamples } from "../prompts/index.js";
 import type { RealtimeVoiceIntelligence } from "../realtime-voice.js";
 import type {
@@ -60,6 +61,8 @@ export interface AgentChatPluginOptions {
    * model from the rest of the process, which no first-party app does.
    */
   model?: string;
+  /** Fallback effort when a run has no user-selected reasoning effort. */
+  reasoningEffort?: ReasoningEffort;
   runSoftTimeoutMs?: number;
   runNoProgressTimeoutMs?: number;
   /**
@@ -142,6 +145,11 @@ export interface AgentChatPluginOptions {
     owner: string,
   ) => string | null | Promise<string | null>;
   finalResponseGuard?: AgentLoopFinalResponseGuard;
+  /** Validate native data widgets before they are returned for publication. */
+  validateDataWidget?: (
+    input: Parameters<ActionEntry["run"]>[0],
+    context: Parameters<ActionEntry["run"]>[1],
+  ) => void | Promise<void>;
   prepareRequest?: ProductionAgentOptions["prepareRequest"];
   resolveActionSurface?: ProductionAgentOptions["resolveActionSurface"];
   /**

@@ -932,6 +932,32 @@ Review GitHub issues.
     expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
   });
 
+  it("surfaces a saved key this deployment cannot decrypt with its own code when saving an enabled job", async () => {
+    const { UnreadableSecretError } =
+      await import("../server/lib/unreadable-secret.js");
+    assertFactoryConnectorReadyMock.mockRejectedValue(
+      new UnreadableSecretError("SLACK_BOT_TOKEN"),
+    );
+    const { default: action } = await import("./save-factory-automation.js");
+    await expect(
+      action.run(
+        {
+          factoryId: "support-triage",
+          automationId: "resource-1",
+          name: "factories/support-triage/factory-slack-feedback",
+          prompt: "Watch Slack more closely.",
+          enabled: true,
+        },
+        { userEmail: "teammate@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "app_secret_unreadable",
+      statusCode: 412,
+      actionContractError: true,
+    });
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+  });
+
   it("surfaces a vault outage as an action failure when saving an enabled job", async () => {
     assertFactoryConnectorReadyMock.mockRejectedValue(
       new VaultUnavailableError("vault timeout"),

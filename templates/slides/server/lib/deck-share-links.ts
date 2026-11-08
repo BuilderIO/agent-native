@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -21,4 +21,23 @@ export async function findLiveDeckShareLink(token: string) {
   if (!row) return null;
   const age = Date.now() - new Date(row.shared.createdAt).getTime();
   return age > SHARE_LINK_TTL_MS ? null : row.shared;
+}
+
+export async function hasLiveDeckShareLinkReferencing(
+  url: string,
+): Promise<boolean> {
+  const rows = await getDb()
+    .select({ createdAt: schema.deckShareLinks.createdAt })
+    .from(schema.deckShareLinks)
+    .innerJoin(schema.decks, eq(schema.decks.id, schema.deckShareLinks.deckId))
+    .where(
+      and(
+        eq(schema.decks.visibility, "public"),
+        sql`strpos(${schema.deckShareLinks.slides}, ${url}) > 0`,
+      ),
+    );
+  return rows.some(
+    (row) =>
+      Date.now() - new Date(row.createdAt).getTime() <= SHARE_LINK_TTL_MS,
+  );
 }

@@ -14,7 +14,7 @@ import {
   resolveAccess,
   roleSatisfies,
 } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
@@ -182,6 +182,9 @@ export default defineAction({
       id: schema.designFiles.id,
       filename: schema.designFiles.filename,
       fileType: schema.designFiles.fileType,
+      contentBytes: sql<
+        number | null
+      >`octet_length(${schema.designFiles.content})`,
       createdAt: schema.designFiles.createdAt,
       updatedAt: schema.designFiles.updatedAt,
     };
@@ -258,6 +261,7 @@ export default defineAction({
           id: f.id,
           filename: f.filename,
           fileType: f.fileType,
+          contentBytes: f.contentBytes,
           createdAt: f.createdAt,
           updatedAt: f.updatedAt,
         };

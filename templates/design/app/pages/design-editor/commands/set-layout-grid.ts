@@ -7,10 +7,13 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 
+import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 import {
   applyDesignDataOperations,
   type DesignDataOperation,
 } from "@/pages/design-editor/data-operations";
+
+import { designMetadataQueryKey } from "../design-query-key";
 
 export interface SetLayoutGridArgs {
   id: string | undefined;
@@ -47,13 +50,16 @@ export function runSetLayoutGrid(
     operation,
   ]);
   designDataJsonRef.current = nextData;
-  queryClient.setQueryData(["action", "get-design", { id }], (old: unknown) => {
+  queryClient.setQueryData(designMetadataQueryKey(id), (old: unknown) => {
     if (!old || typeof old !== "object") return old;
     return { ...old, data: JSON.stringify(nextData) };
   });
   args.updateDesignMutation.mutate(
     { id, dataOperations: [operation] } as never,
     {
+      onError: (error) => {
+        reportDesignWriteFailure(error);
+      },
       onSettled: () => {
         void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],

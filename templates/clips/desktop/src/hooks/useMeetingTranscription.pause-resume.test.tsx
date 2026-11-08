@@ -166,6 +166,114 @@ describe("meeting transcription pause and resume", () => {
     vi.unstubAllGlobals();
   });
 
+  it("marks audio recovered from Rewind, and only that audio", async () => {
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "rewind_meeting_history_status") {
+        return { available: true };
+      }
+      if (command === "rewind_meeting_history_prepare") {
+        return {
+          token: "history-1",
+          scheduledStart: "2026-10-21T16:00:00.000Z",
+          capturedUntil: "2026-10-21T16:05:00.000Z",
+        };
+      }
+      if (command === "rewind_meeting_history_collect") {
+        return {
+          segments: [
+            {
+              startMs: 0,
+              endMs: 60_000,
+              text: "before you started",
+              source: "system",
+            },
+          ],
+        };
+      }
+      return undefined;
+    });
+    await act(async () => {
+      root.render(createElement(Harness));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", {
+      meetingId: "meeting-1",
+      reason: "user",
+      scheduledStart: "2026-10-21T16:00:00.000Z",
+    });
+    const runId = mocks.startTranscriptionEngine.mock.calls[0]?.[0]
+      .runId as number;
+    await act(async () => {
+      emitFinal(runId, "the meeting itself");
+      await vi.advanceTimersByTimeAsync(1_500);
+      await settle();
+    });
+
+    const saved = mocks.actions.filter(
+      (action) => action.name === "save-browser-transcript",
+    );
+    const segments = saved[saved.length - 1]?.body.segments as Array<{
+      text: string;
+      recovered?: true;
+    }>;
+    expect(
+      segments.map((segment) => [segment.text, segment.recovered]),
+    ).toEqual([
+      ["before you started", true],
+      ["the meeting itself", undefined],
+    ]);
+  });
+
+  it("keeps the mark on earlier audio a restarted session reloads", async () => {
+    mocks.legacyMeeting.mockResolvedValue({
+      meeting: { actualEnd: null },
+      transcript: {
+        segmentsJson: JSON.stringify([
+          {
+            startMs: 0,
+            endMs: 60_000,
+            text: "before you started",
+            source: "system",
+            recovered: true,
+          },
+          {
+            startMs: 60_000,
+            endMs: 61_000,
+            text: "first session",
+            source: "mic",
+          },
+        ]),
+      },
+    });
+    await act(async () => {
+      root.render(createElement(Harness));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
+    const runId = mocks.startTranscriptionEngine.mock.calls[0]?.[0]
+      .runId as number;
+    await act(async () => {
+      emitFinal(runId, "second session");
+      await vi.advanceTimersByTimeAsync(1_500);
+      await settle();
+    });
+
+    const saved = mocks.actions.filter(
+      (action) => action.name === "save-browser-transcript",
+    );
+    const segments = saved[saved.length - 1]?.body.segments as Array<{
+      text: string;
+      recovered?: true;
+    }>;
+    expect(
+      segments.map((segment) => [segment.text, segment.recovered]),
+    ).toEqual([
+      ["before you started", true],
+      ["first session", undefined],
+      ["second session", undefined],
+    ]);
+  });
+
   it("releases the native engine within five seconds of a persisted web end", async () => {
     await act(async () => {
       root.render(createElement(Harness));

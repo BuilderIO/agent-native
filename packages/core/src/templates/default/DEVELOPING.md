@@ -23,7 +23,7 @@ app/routes/$id.tsx                 → /:id (dynamic param)
 
 ## Mounted Workspace Routing
 
-In a workspace, this app can be mounted under `/<app-id>`. React Router already receives `APP_BASE_PATH`/`VITE_APP_BASE_PATH` through `appBasePath()`, so route code stays app-local:
+In a workspace, this app can be mounted under `/<app-id>`. `app/entry.client.tsx` calls `configureClientRouterBasename()` before hydration to set the React Router basename from the workspace mount, so route code stays app-local:
 
 | Route file              | App-internal route | Mounted browser URL |
 | ----------------------- | ------------------ | ------------------- |

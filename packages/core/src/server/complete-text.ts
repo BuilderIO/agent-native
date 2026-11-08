@@ -1,3 +1,4 @@
+import { withoutWriteObservation } from "../action-frame.js";
 import {
   getStoredModelForEngine,
   normalizeModelForEngine,
@@ -149,7 +150,15 @@ async function resolveCompletionApiKey(
   });
 }
 
-export async function completeText(
+// A completion is an answer, not a write: an action that fails after asking
+// for one may be retried.
+export function completeText(
+  options: CompleteTextOptions,
+): Promise<CompleteTextResult> {
+  return withoutWriteObservation(() => completeUnobserved(options));
+}
+
+async function completeUnobserved(
   options: CompleteTextOptions,
 ): Promise<CompleteTextResult> {
   registerBuiltinEngines();

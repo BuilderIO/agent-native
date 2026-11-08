@@ -33,11 +33,11 @@ import type {
   ContextManifestSourceRef,
   ContextSystemProvenance,
 } from "../../shared/context-xray.js";
-import {
-  discoverAgentsWithDirectoryStatus,
-  type DiscoveredAgent,
-  type DiscoveredAgentsWithDirectoryStatus,
-  type OrgDirectoryStatus,
+import { discoverAgentContextAgentsWithDirectoryStatus } from "../agent-context-agents.js";
+import type {
+  DiscoveredAgent,
+  DiscoveredAgentsWithDirectoryStatus,
+  OrgDirectoryStatus,
 } from "../agent-discovery.js";
 import type { BuilderGatewayAuth } from "../credential-provider.js";
 import {
@@ -1395,7 +1395,7 @@ export async function preloadJevContextWithStatus(options: {
         try {
           const appRead = await withinPromptBudget(
             () =>
-              discoverAgentsWithDirectoryStatus(
+              discoverAgentContextAgentsWithDirectoryStatus(
                 options.selfAppId ?? options.appId,
                 {
                   includePersonalAgents:
@@ -2189,7 +2189,7 @@ export async function loadResourcesForPrompt(
     try {
       const appRead = await withinPromptBudget(
         () =>
-          discoverAgentsWithDirectoryStatus(selfAppId, {
+          discoverAgentContextAgentsWithDirectoryStatus(selfAppId, {
             includePersonalAgents:
               owner !== SHARED_OWNER &&
               getRequestContext()?.userEmail === owner,

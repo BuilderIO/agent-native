@@ -1264,11 +1264,19 @@ export async function getAuthStatus(
       );
       tokenValid = true;
       photoUrl = await resolveAccountPhotoUrl(accessToken, photoUrl);
-    } catch {
-      // getValidAccessToken throws when the refresh token is permanently
-      // revoked (after deleting the broken row). Excluding the account here
-      // ensures `connected` flips to false instead of reporting a dead
-      // account as still connected.
+    } catch (err: unknown) {
+      // A permanently revoked or unusable token must drop out so `connected`
+      // flips to false. A transient refresh failure (network, 5xx, missing
+      // client credentials) leaves the account connected; excluding it would
+      // show "Connect Google" for a healthy account.
+      const message =
+        err !== null &&
+        (typeof err === "object" || typeof err === "function") &&
+        "message" in err
+          ? String(err.message ?? "")
+          : "";
+      tokenValid =
+        !isPermanentRefreshError(message) && !/please reconnect/i.test(message);
     }
     if (!tokenValid) continue;
     result.push({

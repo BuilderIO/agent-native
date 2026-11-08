@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
 import { appendAgentChatContextToMessage } from "@agent-native/core/shared";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const adhocAnalysisSkill = readFileSync(
   new URL("../../.agents/skills/adhoc-analysis/SKILL.md", import.meta.url),
@@ -198,6 +198,7 @@ describe("Analytics prompt-reference preparation", () => {
     ) => Promise<unknown>;
 
     await prepareRequest({
+      references: [],
       ownerEmail: "owner@example.test",
       requestContext: "Current request: count active users",
       contextPrefetchDeadlineAt: Date.now() + 1_300,
@@ -234,6 +235,7 @@ describe("Analytics prompt-reference preparation", () => {
       ) => Promise<unknown>;
 
       const result = await prepareRequest({
+        references: [],
         ownerEmail: "owner@example.test",
         message: "count active users",
         requestContext: "Current request: count active users",
@@ -264,6 +266,7 @@ describe("Analytics prompt-reference preparation", () => {
     });
 
     await prepareRequest({
+      references: [],
       ownerEmail: "owner@example.test",
       message: "count active users",
       requestContext:
@@ -290,6 +293,7 @@ describe("Analytics prompt-reference preparation", () => {
 
       await expect(
         prepareRequest({
+          references: [],
           ownerEmail: "owner@example.test",
           message,
           requestContext: `Current request:\n${message}`,
@@ -343,6 +347,7 @@ describe("Analytics prompt-reference preparation", () => {
     ) => Promise<unknown>;
 
     await prepareRequest({
+      references: [],
       ownerEmail: "owner@example.test",
       message,
       requestContext: `Current request:\n${message}`,
@@ -366,6 +371,7 @@ describe("Analytics prompt-reference preparation", () => {
       ) => Promise<unknown>;
 
       const result = await prepareRequest({
+        references: [],
         ownerEmail: "owner@example.test",
         message: "what's our NRR",
         requestContext: "Current request:\nwhat's our NRR",
@@ -432,6 +438,7 @@ describe("Analytics prompt-reference preparation", () => {
     ) => Promise<unknown>;
 
     await prepareRequest({
+      references: [],
       ownerEmail: "owner@example.test",
       requestContext: "Current request: count active users",
       contextPrefetchDeadlineAt: Date.now() + 1_300,
@@ -964,6 +971,12 @@ function guardContext(params: {
 }
 
 describe("realDataFinalGuard dbt fallback disclosure", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-15T19:00:00.000Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
   const dbtNotFound = {
     name: "query-dbt-semantic-metric",
     isError: false,

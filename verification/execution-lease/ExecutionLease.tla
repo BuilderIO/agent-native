@@ -12,7 +12,8 @@
 (* One action = one real atomic unit: a BEGIN..COMMIT transaction, one     *)
 (* autocommit statement, or (Effect) the tool's external side effect.       *)
 (* Time is modelled only as "a live lease may stop being live at any        *)
-(* moment" (LeaseLapse).                                                    *)
+(* moment" (LeaseLapse). A lapse is not a revoke: its owner may renew it,   *)
+(* or keep writing under it, until a revoke, a claim or the run's end.      *)
 (***************************************************************************)
 EXTENDS Naturals, Sequences, FiniteSets, TLC
 
@@ -43,7 +44,8 @@ StepStatus == {"prepared", "dispatched", "unknown", "completed"}
 WPC == {"idle", "begin", "dispatch", "dispatch-started", "invoke",
         "finish", "late", "done"}
 
-NoLease == [exists |-> FALSE, owner |-> NoRun, gen |-> 0, live |-> FALSE]
+NoLease == [exists |-> FALSE, owner |-> NoRun, gen |-> 0, live |-> FALSE,
+            revoked |-> FALSE]
 NoStep  == [exists |-> FALSE, status |-> "none", run |-> NoRun, gen |-> 0,
             policy |-> "none", dispatchedAt |-> FALSE,
             wasDispatched |-> FALSE]
@@ -58,7 +60,7 @@ VARIABLES
   effectPending, \* the action is invoked but its external effect has not landed
   checked,       \* mutation e only: lease check committed, write not yet run
   effects,       \* history: every external effect <<[run, gen, policy]>>
-  dead,          \* history: (owner, gen) pairs that were live and stopped being
+  dead,          \* history: (owner, gen) pairs that stopped owning the lease
   staleWrite,    \* history: a step-journal write committed by a non-current owner
   liveSteal      \* history: a claim superseded a live lease of a running owner
 
@@ -67,11 +69,16 @@ vars == <<policy, rstatus, wg, lease, step, wpc, effectPending, checked,
 
 Perms == Permutations(Runs)
 
-(* The fence check of lockAndAssertCurrentExecutionFences (EF:120-143):     *)
-(* owner_run_id = r AND generation = g AND lease_expires_at > now, FOR UPDATE*)
+(* The fence check of lockAndAssertCurrentExecutionFences (EF): owner_run_id*)
+(* = r AND generation = g, FOR UPDATE, and either lease_expires_at > now or  *)
+(* ownsLapsedTurnLease: the lease lapsed on its own (expires_at >= updated_at*)
+(* + 1 s, which every revoke falsifies by setting both to now) and r's run  *)
+(* is still running at generation g.                                        *)
 Current(r) == /\ wg[r] # 0
-              /\ lease.exists /\ lease.live
+              /\ lease.exists
               /\ lease.owner = r /\ lease.gen = wg[r]
+              /\ \/ lease.live
+                 \/ ~lease.revoked /\ rstatus[r] = "running"
 
 (* withFencedExecutionWrite (EF:145-182) runs the check and the write in one *)
 (* transaction. Mutation e splits them: FenceCheck commits first, the write  *)
@@ -93,11 +100,14 @@ Adopt(r) == [exists |-> TRUE, status |-> "prepared", run |-> r,
 UnknownAfterMismatch(r) == [step EXCEPT !.status = "unknown"]
 NoPresentRun == \A q \in Runs : rstatus[q] \notin Present
 
-\* History for P6: a (owner, gen) pair dies when it stops being the live lease.
+\* A lease row is owned while it is live or lapsed without a revoke.
+Owned(l) == l.exists /\ (l.live \/ ~l.revoked)
+\* History for P6: a (owner, gen) pair dies when it stops owning the lease:
+\* revoked, replaced by a claim, or pruned. A lapse alone does not kill it.
 \* Every action except Effect ends with RetireDead.
 Retire(old, new) ==
-  IF old.exists /\ old.live
-     /\ ~(new.exists /\ new.live /\ new.owner = old.owner /\ new.gen = old.gen)
+  IF Owned(old)
+     /\ ~(Owned(new) /\ new.owner = old.owner /\ new.gen = old.gen)
   THEN dead \cup {<<old.owner, old.gen>>}
   ELSE dead
 RetireDead == dead' = Retire(lease, lease')
@@ -135,7 +145,8 @@ Claim(r) ==
                  /\ rstatus[lease.owner] \notin Terminal
      IN  Mutation = "d" \/ ~busy
   /\ LET g == IF lease.exists THEN lease.gen + 1 ELSE 1
-     IN  /\ lease' = [exists |-> TRUE, owner |-> r, gen |-> g, live |-> TRUE]
+     IN  /\ lease' = [exists |-> TRUE, owner |-> r, gen |-> g, live |-> TRUE,
+                       revoked |-> FALSE]
          /\ wg' = [wg EXCEPT ![r] = g]
   /\ wpc' = [wpc EXCEPT ![r] = "begin"]
   /\ liveSteal' = (liveSteal \/ (lease.exists /\ lease.live
@@ -144,11 +155,12 @@ Claim(r) ==
                  staleWrite>>
   /\ RetireDead
 
-\* W3 renewExecutionLease, RS:563-603 (RM:1706-1716, every 1.5 s). The UPDATE
-\* requires owner, generation and lease_expires_at > clock_timestamp()
-\* (RS:573-580), so it only keeps a live lease live: a stutter step here.
-\* Its agent_runs UPDATE (RS:591-599) ignores rowsAffected, so a run that is
-\* no longer 'running' keeps its lease alive.
+\* W3 renewExecutionLease (RS, RM every 1.5 s). The UPDATE requires owner,
+\* generation and lease_expires_at > clock_timestamp(); when that misses, a
+\* lapsed lease is renewed only through ownsLapsedTurnLease, the same check as
+\* Current. So it keeps a live lease live and brings back one that lapsed
+\* unrevoked while its run still runs. Its agent_runs UPDATE ignores
+\* rowsAffected, so a run that is no longer 'running' keeps a live lease.
 Renew(r) ==
   /\ Current(r)
   /\ lease' = [lease EXCEPT !.live = TRUE]
@@ -381,10 +393,11 @@ WorkerStops(r) ==
                  effects, dead, staleWrite, liveSteal>>
 
 \* W11 releaseTurnExecutionLease, RS:606-626 (RM:2598-2617): own tx,
-\* UPDATE lease_expires_at = now WHERE owner, generation and live.
+\* UPDATE lease_expires_at = updated_at = now WHERE owner, generation, live.
 WorkerRelease(r) ==
   /\ Current(r)
-  /\ lease' = [lease EXCEPT !.live = FALSE]
+  /\ lease.live
+  /\ lease' = [lease EXCEPT !.live = FALSE, !.revoked = TRUE]
   /\ UNCHANGED <<policy, rstatus, wg, step, wpc, effectPending, checked,
                  effects, staleWrite, liveSteal>>
   /\ RetireDead
@@ -392,15 +405,24 @@ WorkerRelease(r) ==
 -----------------------------------------------------------------------------
 (*************************** Outsiders ***************************************)
 
-\* The lease stops being live with no owner/generation check:
-\*  - expiry: lease_expires_at > clock_timestamp() turns false (RS:419);
-\*  - revokeTaskExecutionLease RS:3636-3647 (WHERE thread, turn only), used by
-\*    the team busy-loser path agent-teams-run-queue.ts:311-312 and the A2A
-\*    task store;
-\*  - revokeExecutionLeasesForRuns RS:3649-3661 (WHERE owner_run_id IN, no gen).
+\* Expiry: lease_expires_at > clock_timestamp() turns false. The row keeps
+\* the expiry its last renewal set, about 15 s after updated_at, so the owner
+\* still holds it (Current) until something revokes or replaces it.
 LeaseLapse ==
   /\ lease.exists /\ lease.live
   /\ lease' = [lease EXCEPT !.live = FALSE]
+  /\ UNCHANGED <<policy, rstatus, wg, step, wpc, effectPending, checked,
+                 effects, staleWrite, liveSteal>>
+  /\ RetireDead
+
+\* A revoke with no owner/generation check, live or lapsed lease alike; each
+\* sets lease_expires_at and updated_at to now together:
+\*  - revokeTaskExecutionLease (WHERE thread, turn only), used by the team
+\*    busy-loser path agent-teams-run-queue.ts and the A2A task store;
+\*  - revokeExecutionLeasesForRuns (WHERE owner_run_id IN, no gen).
+LeaseRevoke ==
+  /\ Owned(lease)
+  /\ lease' = [lease EXCEPT !.live = FALSE, !.revoked = TRUE]
   /\ UNCHANGED <<policy, rstatus, wg, step, wpc, effectPending, checked,
                  effects, staleWrite, liveSteal>>
   /\ RetireDead
@@ -413,7 +435,8 @@ StopRun(r) ==
   /\ rstatus[r] = "running"
   /\ rstatus' = [rstatus EXCEPT ![r] = "aborted"]
   /\ lease' = IF lease.exists /\ lease.owner = r
-                THEN [lease EXCEPT !.live = FALSE] ELSE lease
+                THEN [lease EXCEPT !.live = FALSE, !.revoked = TRUE]
+                ELSE lease
   /\ UNCHANGED <<policy, wg, step, wpc, effectPending, checked, effects,
                  staleWrite, liveSteal>>
   /\ RetireDead
@@ -425,7 +448,8 @@ AbortTurn ==
   /\ rstatus' = [q \in Runs |-> IF rstatus[q] = "running" THEN "aborted"
                                 ELSE rstatus[q]]
   /\ lease' = IF lease.exists /\ rstatus[lease.owner] = "running"
-                THEN [lease EXCEPT !.live = FALSE] ELSE lease
+                THEN [lease EXCEPT !.live = FALSE, !.revoked = TRUE]
+                ELSE lease
   /\ UNCHANGED <<policy, wg, step, wpc, effectPending, checked, effects,
                  staleWrite, liveSteal>>
   /\ RetireDead
@@ -577,6 +601,7 @@ Next ==
   \/ \E r \in Runs : WorkerRelease(r)
   \/ \E r \in Runs : WorkerStops(r)
   \/ LeaseLapse
+  \/ LeaseRevoke
   \/ \E r \in Runs : StopRun(r)
   \/ AbortTurn
   \/ \E r \in Runs : ReapOrFailUnowned(r)
@@ -595,7 +620,7 @@ TypeOK ==
   /\ rstatus \in [Runs -> RunStatus]
   /\ wg \in [Runs -> Gens]
   /\ lease \in [exists : BOOLEAN, owner : Runs \cup {NoRun}, gen : Gens,
-                live : BOOLEAN]
+                live : BOOLEAN, revoked : BOOLEAN]
   /\ step \in [exists : BOOLEAN, status : StepStatus \cup {"none"},
                run : Runs \cup {NoRun}, gen : Gens,
                policy : Policies \cup {"none"},
@@ -619,12 +644,14 @@ P8 == AssumeNoTurnIdReuseAfterRetention =>
 \* run executes the step under "never", that is the only effect it ever had.
 P8Strict == (\E i \in 1..Len(effects) : IsNever(effects[i])) => Len(effects) = 1
 
-\* P1: every committed step-journal write was made by the owner of the current
-\* live generation at commit time.
+\* P1: every committed step-journal write was made by the current owner at
+\* commit time: the lease names its run and generation and is live, or lapsed
+\* unrevoked while that run still runs.
 P1 == ~staleWrite
 
-\* P6: no resurrection: a (owner, gen) that stopped being live never is again.
-P6 == (lease.exists /\ lease.live) => <<lease.owner, lease.gen>> \notin dead
+\* P6: no resurrection: a (owner, gen) that was revoked, replaced or pruned
+\* never owns the lease again. A lapse alone may be renewed by its owner.
+P6 == Owned(lease) => <<lease.owner, lease.gen>> \notin dead
 
 \* Claim promise (TurnExecutionLeaseBusyError, RS:497-499): a claim never
 \* supersedes a live lease whose owner run is still running.
