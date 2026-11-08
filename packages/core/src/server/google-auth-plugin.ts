@@ -12,7 +12,9 @@ export interface GoogleAuthPluginOptions extends Pick<
 > {}
 
 // The sign-in page renders for each request that shows it, so a renderer that
-// loads after startup (the toolkit's does) still reaches the page.
+// loads after startup (the toolkit's does) reaches the page once it has loaded.
+// A page served before then is core's fallback, cached like the full page, so
+// pass the toolkit's renderer only after `await loadAuthPageRenderers()`.
 export function createGoogleAuthPlugin(
   options?: GoogleAuthPluginOptions,
 ): NitroPluginDef {
