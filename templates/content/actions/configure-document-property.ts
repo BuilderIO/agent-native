@@ -35,7 +35,10 @@ import {
   refreshAfterSetup,
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
-import { lockPagesAndAssertAgentsMayEditText } from "./_document-agent-lock.js";
+import {
+  isAgentCall,
+  lockPagesAndAssertAgentsMayEditText,
+} from "./_document-agent-lock.js";
 import {
   nextAppendPosition,
   propertyDefinitionsPositionScope,
@@ -328,12 +331,12 @@ export default defineAction({
             tx,
             memberships.map((membership) => membership.id),
           );
-          // Leaving Blocks deletes the text this field holds on every row.
+          // Leaving Blocks deletes the text this field holds on every row, and
+          // entering it adds a tab to every row.
           if (
             isBlocksPropertyType(
               lockedDefinition.type as DocumentPropertyType,
-            ) &&
-            !isBlocksPropertyType(type)
+            ) !== isBlocksPropertyType(type)
           )
             await lockPagesAndAssertAgentsMayEditText(
               tx as unknown as ReturnType<typeof getDb>,
@@ -463,6 +466,25 @@ export default defineAction({
               .from(schema.contentDatabases)
               .where(eq(schema.contentDatabases.id, database.id));
             if (!lockedDatabase) throw new Error("Database not found.");
+            // A new Blocks field adds a tab to every row.
+            if (isBlocksPropertyType(type) && isAgentCall(context)) {
+              const memberships = await tx
+                .select({
+                  id: schema.contentDatabaseItems.id,
+                  documentId: schema.contentDatabaseItems.documentId,
+                })
+                .from(schema.contentDatabaseItems)
+                .where(eq(schema.contentDatabaseItems.databaseId, database.id));
+              await lockDatabaseMemberships(
+                tx,
+                memberships.map((membership) => membership.id),
+              );
+              await lockPagesAndAssertAgentsMayEditText(
+                tx as unknown as ReturnType<typeof getDb>,
+                memberships.map((membership) => membership.documentId),
+                context,
+              );
+            }
             const [maxPos] = await tx
               .select({
                 max: sql<unknown>`COALESCE(MAX(position), -1)`,
