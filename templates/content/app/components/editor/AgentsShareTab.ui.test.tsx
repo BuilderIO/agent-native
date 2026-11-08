@@ -87,10 +87,13 @@ describe("AgentsShareTab", () => {
       "false",
       "true",
     ]);
-    expect(items[1].textContent).toContain("editor.toolbar.agentLevelDefault");
+    const commentItem = items.shift();
+    const editItem = items.shift();
+    if (!commentItem || !editItem) throw new Error("No level items");
+    expect(editItem.textContent).toContain("editor.toolbar.agentLevelDefault");
 
     await act(async () =>
-      items[0].dispatchEvent(
+      commentItem.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
       ),
     );

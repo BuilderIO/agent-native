@@ -127,6 +127,12 @@ describe("DocumentToolbar in an MCP App widget", () => {
     return container.querySelector<T>(`[aria-label="${label}"]`);
   }
 
+  function lastShareProps() {
+    const props = [...mocks.shareProps].pop();
+    if (!props) throw new Error("Share wasn't rendered");
+    return props;
+  }
+
   function openLink() {
     return byLabel<HTMLAnchorElement>("editor.toolbar.openInAgentNative");
   }
@@ -533,7 +539,7 @@ describe("DocumentToolbar in an MCP App widget", () => {
       await act(async () => Promise.resolve());
       await act(async () => Promise.resolve());
 
-      const props = mocks.shareProps[mocks.shareProps.length - 1];
+      const props = lastShareProps();
       expect(props.basicSharingOnly).toBe(false);
       expect(props.hideInSearchControl).toBeDefined();
       // Sending the page to an agent lives in the Agents tab, not a menu.
@@ -562,7 +568,7 @@ describe("DocumentToolbar in an MCP App widget", () => {
       await act(async () => Promise.resolve());
       await act(async () => Promise.resolve());
 
-      const props = mocks.shareProps[mocks.shareProps.length - 1];
+      const props = lastShareProps();
       expect(props.defaultOpen).toBe(true);
       expect(props.shareTabs.defaultValue).toBe("agents");
     });

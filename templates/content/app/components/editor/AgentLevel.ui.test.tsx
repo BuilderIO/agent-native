@@ -165,18 +165,23 @@ describe("what agents can do on a page", () => {
           settle.push(() => resolve({ ok: true }));
         }),
     );
+    const settleNext = () => {
+      const next = settle.shift();
+      if (!next) throw new Error("No save waiting");
+      next();
+    };
     const saving = () =>
       container.querySelector("[data-saving]")?.getAttribute("data-saving");
 
     await act(async () => options.action.onClick());
     await press("comment");
     expect(settle).toHaveLength(2);
-    await act(async () => settle[0]());
+    await act(async () => settleNext());
 
     expect(saving()).toBe("yes");
     expect(container.querySelector("output")?.textContent).toBe("comment");
 
-    await act(async () => settle[1]());
+    await act(async () => settleNext());
 
     expect(saving()).toBe("no");
   });

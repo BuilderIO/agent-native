@@ -1820,8 +1820,9 @@ export function DocumentToolbar({
                                             resourceType: "document",
                                             resourceId: documentId,
                                             title: documentTitle || "Untitled",
-                                            updatedAt:
-                                              documentUpdatedAt ?? undefined,
+                                            ...(documentUpdatedAt
+                                              ? { updatedAt: documentUpdatedAt }
+                                              : {}),
                                             preview: {
                                               kind: "document",
                                               label: t(
