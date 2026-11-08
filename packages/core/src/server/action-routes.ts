@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   createError,
   defineEventHandler,
@@ -41,6 +43,7 @@ import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
 import {
+  hasForbiddenOrgScope,
   hasOrgScopeResolutionUnavailable,
   isFederationMembershipValidatedForEvent,
   resolveOrgIdForEmail,
@@ -1275,10 +1278,49 @@ function mountActionRoutesInternal(
             orgId = await storedActiveOrgId(resolvedCaller.owner);
           }
         } else if (!capabilityAllowed || userEmail) {
-          orgId = options?.resolveOrgId
-            ? ((await options.resolveOrgId(event)) ?? undefined)
-            : undefined;
-          if (!hasExplicitPersonalOrgScope(event) && !orgId && userEmail) {
+          const publicRead =
+            entry.requiresAuth === false && entry.readOnly === true;
+          let orgUnavailable = false;
+          try {
+            orgId = options?.resolveOrgId
+              ? ((await options.resolveOrgId(event)) ?? undefined)
+              : undefined;
+          } catch (error) {
+            if (
+              !publicRead ||
+              !(
+                typeof error === "object" &&
+                error !== null &&
+                "statusCode" in error &&
+                error.statusCode === 503
+              )
+            )
+              throw error;
+            orgUnavailable = true;
+          }
+          const orgForbidden = hasForbiddenOrgScope(event);
+          orgUnavailable ||= hasOrgScopeResolutionUnavailable(event);
+          if (orgForbidden || orgUnavailable) {
+            orgId = undefined;
+            orgScope = undefined;
+          }
+          if (orgForbidden && !publicRead) {
+            setResponseStatus(event, 403);
+            return { error: "Organization scope is forbidden." };
+          }
+          if (orgUnavailable && !publicRead) {
+            setResponseStatus(event, 503);
+            return {
+              error: "Organization scope is unavailable. Please retry.",
+            };
+          }
+          if (
+            !orgUnavailable &&
+            !orgForbidden &&
+            !hasExplicitPersonalOrgScope(event) &&
+            !orgId &&
+            userEmail
+          ) {
             orgId = await storedActiveOrgId(userEmail);
             if (!orgId) {
               try {
@@ -1768,17 +1810,20 @@ function mountActionRoutesInternal(
               setResponseStatus(event, status);
 
               const failureCaller = requestCaller;
+              const privateAction = entry.persistInChatHistory === false;
               countActionFailure({
                 action: name,
                 status,
                 caller: failureCaller,
-                errorCode: llmProviderMissing
-                  ? LLM_PROVIDER_MISSING_ERROR_CODE
-                  : typeof err?.errorCode === "string"
-                    ? err.errorCode
-                    : isValidationError
-                      ? "validation"
-                      : undefined,
+                errorCode: privateAction
+                  ? undefined
+                  : llmProviderMissing
+                    ? LLM_PROVIDER_MISSING_ERROR_CODE
+                    : typeof err?.errorCode === "string"
+                      ? err.errorCode
+                      : isValidationError
+                        ? "validation"
+                        : undefined,
               });
               if (llmProviderMissing) {
                 countCredentialState(
@@ -1859,21 +1904,29 @@ function mountActionRoutesInternal(
                         : {}),
                     };
               }
-              const captureId = captureError(err, {
-                route: routePath,
-                method: reqMethod,
-                tags: {
-                  action: name,
-                  caller: failureCaller,
-                  status_code: String(status),
+              const captureId = captureError(
+                privateAction ? new Error("Private content omitted") : err,
+                {
+                  ...(privateAction
+                    ? { errorMessagePolicy: "omit" as const }
+                    : {}),
+                  route: routePath,
+                  method: reqMethod,
+                  tags: {
+                    action: name,
+                    caller: failureCaller,
+                    status_code: String(status),
+                  },
+                  ...(requestId ? { extra: { request_id: requestId } } : {}),
                 },
-                ...(requestId ? { extra: { request_id: requestId } } : {}),
-              });
+              );
               console.error(`[agent-native] action '${name}' failed:`, {
                 action: name,
                 ...(requestId ? { requestId } : {}),
                 ...(captureId ? { captureId } : {}),
-                error: redactErrorStack(err) ?? redact(String(err)),
+                error: privateAction
+                  ? "Private content omitted"
+                  : (redactErrorStack(err) ?? redact(String(err))),
               });
               return { error: "Internal server error" };
             }
@@ -1960,6 +2013,24 @@ function buildWebMcpCompatibilityManifest(
     },
     tools,
   };
+}
+
+function webMcpManifestEtag(manifest: unknown): string {
+  return `"${createHash("sha256").update(JSON.stringify(manifest)).digest("base64url").slice(0, 32)}"`;
+}
+
+function ifNoneMatchIncludes(
+  header: string | undefined,
+  etag: string,
+): boolean {
+  if (!header) return false;
+  // A compressed response reaches the browser with "-df" on its tag (seen on
+  // our Netlify hosts), and the browser sends that tag back as it received it.
+  return header
+    .split(",")
+    .some(
+      (tag) => tag.trim().replace(/^W\//, "").replace(/-df"$/, '"') === etag,
+    );
 }
 
 export function mountWebMcpActionRoutes(
@@ -2066,7 +2137,6 @@ export function mountWebMcpActionRoutes(
       ) {
         throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
       }
-      setResponseHeader(event, "Cache-Control", "no-store");
       const visible = directoryWidgetSession
         ? visibleDirectoryWidgetReadActions
         : authCapability?.startsWith("capability:visual-edit:")
@@ -2074,13 +2144,25 @@ export function mountWebMcpActionRoutes(
           : authenticated
             ? eligible
             : { ...publicEligible, ...visibleCapabilityActions };
-      return Object.entries(visible).map(([name, entry]) => ({
+      const manifest = Object.entries(visible).map(([name, entry]) => ({
         name,
         title: agentNativeToolTitle(name, entry.tool.title),
         description: entry.tool.description,
         inputSchema: entry.tool.parameters,
         readOnly: entry.readOnly === true,
       }));
+      // The manifest is hundreds of KB and changes only with the build or the
+      // caller's access, so the browser revalidates it instead of downloading
+      // it again. The tag hashes the body this caller would get, which makes
+      // a 304 correct across sign-in changes without caching per user.
+      const etag = webMcpManifestEtag(manifest);
+      setResponseHeader(event, "Cache-Control", "private, no-cache");
+      setResponseHeader(event, "ETag", etag);
+      if (ifNoneMatchIncludes(getHeader(event, "if-none-match"), etag)) {
+        setResponseStatus(event, 304);
+        return null;
+      }
+      return manifest;
     }),
   );
 

@@ -14,7 +14,10 @@ import {
   recordActionFailure,
   resetActionFailureCircuits,
 } from "./action-failure-circuit.js";
-import { recordSessionIdentity } from "./session-identity.js";
+import {
+  notifySessionIdentityPublished,
+  recordSessionIdentity,
+} from "./session-identity.js";
 import {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   actionErrorMessage,
@@ -26,6 +29,7 @@ import {
   defaultActionQueryRetry,
   defaultActionQueryRetryDelay,
   guardActionQueryRefetchInterval,
+  prepareUiActionCapability,
   serializeActionQueryParams,
   shouldRetryActionQueryForError,
   tryCallActionKeepalive,
@@ -611,12 +615,98 @@ describe("callAction", () => {
       );
     vi.stubGlobal("fetch", fetchMock);
 
-    await callActionBlob("render-export-png", {}, { uiOnly: true });
+    const beforeSend = vi.fn(async () => {});
+    await callActionBlob("render-export-png", {}, { uiOnly: true, beforeSend });
 
+    expect(beforeSend).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       "/_agent-native/ui-capability",
       "/_agent-native/actions/render-export-png",
     ]);
+  });
+
+  it("waits for a caller's send gate after minting a UI capability", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(jsonResponse({ done: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const beforeSend = vi.fn(() => gate);
+    const request = callAction("read-thing", {}, { uiOnly: true, beforeSend });
+    await vi.waitFor(() => expect(beforeSend).toHaveBeenCalledOnce());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    release();
+    await expect(request).resolves.toEqual({ done: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not send after a gated action has timed out", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const beforeSend = vi.fn(() => gate);
+    const request = callAction(
+      "read-thing",
+      {},
+      { uiOnly: true, beforeSend, timeoutMs: 50 },
+    );
+    const rejected = expect(request).rejects.toThrow("timed out");
+    await vi.waitFor(() => expect(beforeSend).toHaveBeenCalledOnce());
+    await rejected;
+    release();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels a gated action without waiting for the gate", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const beforeSend = vi.fn(() => gate);
+    const controller = new AbortController();
+    const request = callAction(
+      "read-thing",
+      {},
+      { uiOnly: true, beforeSend, signal: controller.signal },
+    );
+    const rejected = expect(request).rejects.toBeDefined();
+    await vi.waitFor(() => expect(beforeSend).toHaveBeenCalledOnce());
+    controller.abort();
+    try {
+      await rejected;
+    } finally {
+      release();
+    }
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects when the send gate throws", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      callAction(
+        "read-thing",
+        {},
+        {
+          beforeSend: () => {
+            throw new Error("gate failed");
+          },
+        },
+      ),
+    ).rejects.toThrow("gate failed");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("fails loudly when the UI capability cannot be minted", async () => {
@@ -1611,6 +1701,36 @@ describe("the UI capability on writes from the signed-in app", () => {
     recordSessionIdentity(identity);
   }
 
+  it.each([
+    ["ok", 200],
+    ["error", 500],
+  ])(
+    "reads the mint response body to the end on an %s response",
+    async (_name, status) => {
+      signIn();
+      const mintResponse = new Response("{}", { status });
+      const cancel = vi.spyOn(ReadableStream.prototype, "cancel");
+      routeFetch(() => mintResponse);
+
+      await callAction("delete-file", { id: "file-1" }).catch(() => {});
+
+      expect(mintResponse.bodyUsed).toBe(true);
+      expect(cancel).not.toHaveBeenCalled();
+    },
+  );
+
+  it("mints from a response that has no body", async () => {
+    signIn();
+    const fetchMock = routeFetch(() => new Response(null, { status: 204 }));
+
+    await callAction("delete-file", { id: "file-1" });
+    await callAction("delete-file", { id: "file-2" });
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === MINT)).toHaveLength(
+      1,
+    );
+  });
+
   it("presents the capability on the first write", async () => {
     signIn();
     const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
@@ -1761,6 +1881,238 @@ describe("the UI capability on writes from the signed-in app", () => {
 
     await expect(write).rejects.toThrow(/signed-in user changed/);
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([MINT]);
+  });
+
+  function stubSessionStorage() {
+    const values = new Map<string, string>();
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+    return values;
+  }
+
+  async function reloadModules() {
+    vi.stubGlobal("window", {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      location: new URL("http://localhost/"),
+    });
+    vi.resetModules();
+    const [actions, identity] = await Promise.all([
+      import("./use-action.js"),
+      import("./session-identity.js"),
+    ]);
+    return {
+      callAction: actions.callAction,
+      prepareUiActionCapability: actions.prepareUiActionCapability,
+      identity,
+    };
+  }
+
+  it("skips the mint after a reload inside the reuse window", async () => {
+    stubSessionStorage();
+    signIn();
+    const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
+    await callAction("delete-file", { id: "file-1" });
+
+    const reloaded = await reloadModules();
+    reloaded.identity.recordSessionIdentity("user-1");
+    await reloaded.callAction("delete-file", { id: "file-2" });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      MINT,
+      "/_agent-native/actions/delete-file",
+      "/_agent-native/actions/delete-file",
+    ]);
+  });
+
+  it("mints after a reload for another user or once the window has passed", async () => {
+    stubSessionStorage();
+    signIn("user-1");
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
+    await callAction("delete-file", { id: "file-1" });
+
+    const asOtherUser = await reloadModules();
+    asOtherUser.identity.recordSessionIdentity("user-2");
+    await asOtherUser.callAction("delete-file", { id: "file-2" });
+    now.mockReturnValue(1_000_000 + 9 * 60_000);
+    const later = await reloadModules();
+    later.identity.recordSessionIdentity("user-2");
+    await later.callAction("delete-file", { id: "file-3" });
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === MINT)).toHaveLength(
+      3,
+    );
+  });
+
+  it("leaves the mint to the first write unless the page asks for it early", async () => {
+    signIn();
+    const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
+
+    notifySessionIdentityPublished("user-1");
+    await Promise.resolve();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("mints as soon as a signed-in session is known on a page that asks", async () => {
+    const reloaded = await reloadModules();
+    const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
+
+    reloaded.prepareUiActionCapability();
+    expect(fetchMock).not.toHaveBeenCalled();
+    reloaded.identity.recordSessionIdentity("user-1");
+    reloaded.identity.notifySessionIdentityPublished("user-1");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await reloaded.callAction("delete-file", { id: "file-1" });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      MINT,
+      "/_agent-native/actions/delete-file",
+    ]);
+  });
+
+  it("mints at once when a page asks after the session is known", async () => {
+    signIn();
+    const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
+    notifySessionIdentityPublished("user-1");
+
+    prepareUiActionCapability();
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(MINT);
+  });
+
+  it("does not mint when a published session is signed out", async () => {
+    vi.stubGlobal("window", {});
+    const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
+
+    recordSessionIdentity(null);
+    notifySessionIdentityPublished(null);
+    recordSessionIdentity(undefined);
+    notifySessionIdentityPublished(null);
+    await Promise.resolve();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("forgets the capability, remembered one included, on sign-out", async () => {
+    const stored = stubSessionStorage();
+    signIn("user-1");
+    const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
+    notifySessionIdentityPublished("user-1");
+    await callAction("delete-file", { id: "file-1" });
+    expect(stored.size).toBe(1);
+
+    recordSessionIdentity(null);
+    notifySessionIdentityPublished(null);
+    expect(stored.size).toBe(0);
+    recordSessionIdentity("user-1");
+    notifySessionIdentityPublished("user-1");
+    await callAction("delete-file", { id: "file-2" });
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === MINT)).toHaveLength(
+      2,
+    );
+  });
+
+  it("forgets the capability when the account or org changes", async () => {
+    stubSessionStorage();
+    signIn("user-1");
+    const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
+    notifySessionIdentityPublished("user-1\nauth-1\norg-1");
+    await callAction("delete-file", { id: "file-1" });
+
+    notifySessionIdentityPublished("user-1\nauth-1\norg-2");
+    await callAction("delete-file", { id: "file-2" });
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === MINT)).toHaveLength(
+      2,
+    );
+  });
+
+  it("aborts and keeps nothing from a mint the account changed under", async () => {
+    const stored = stubSessionStorage();
+    const remembered = () =>
+      [...stored.keys()].filter((key) =>
+        key.startsWith("agent-native:ui-capability:"),
+      );
+    const mints: Array<(response: Response) => void> = [];
+    const mintSignals: Array<AbortSignal | null | undefined> = [];
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url !== MINT) return Promise.resolve(jsonResponse({ ok: true }));
+      mintSignals.push(init?.signal);
+      return new Promise<Response>((resolve) => mints.push(resolve));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    signIn("user-1");
+    notifySessionIdentityPublished("user-1\nauth-1\norg-1");
+    prepareUiActionCapability();
+    await vi.waitFor(() => expect(mints).toHaveLength(1));
+
+    recordSessionIdentity("user-2");
+    notifySessionIdentityPublished("user-2\nauth-2\norg-1");
+    const write = callAction("delete-file", { id: "file-1" });
+    await vi.waitFor(() => expect(mints).toHaveLength(2));
+    expect(mintSignals.map((signal) => signal?.aborted)).toEqual([true, false]);
+    mints[0]?.(jsonResponse({ ok: true }));
+    // Microtasks, not a timer: an earlier test in this block leaves fake
+    // timers on.
+    for (let tick = 0; tick < 10; tick += 1) await Promise.resolve();
+
+    expect(remembered()).toHaveLength(0);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([MINT, MINT]);
+    mints[1]?.(jsonResponse({ ok: true }));
+    await write;
+
+    expect(remembered()).toHaveLength(1);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      MINT,
+      MINT,
+      "/_agent-native/actions/delete-file",
+    ]);
+  });
+
+  it("shares one mint between writes the server refuses together", async () => {
+    signIn();
+    let refusals = 0;
+    let mints = 0;
+    let releaseMint: () => void = () => {};
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === MINT) {
+        mints += 1;
+        if (mints > 1) {
+          await new Promise<void>((resolve) => (releaseMint = resolve));
+        }
+        return jsonResponse({ ok: true });
+      }
+      if (refusals > 0) {
+        refusals -= 1;
+        return jsonResponse(
+          { errorCode: "ui_capability_required" },
+          { status: 403 },
+        );
+      }
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await callAction("delete-file", { id: "file-1" });
+
+    refusals = 2;
+    const writes = Promise.all([
+      callAction("delete-file", { id: "file-2" }),
+      callAction("delete-file", { id: "file-3" }),
+    ]);
+    await vi.waitFor(() => expect(refusals).toBe(0));
+    for (let tick = 0; tick < 10; tick += 1) await Promise.resolve();
+    expect(mints).toBe(2);
+    releaseMint();
+    await writes;
+
+    expect(mints).toBe(2);
   });
 
   it("re-mints when the server rejects a remembered capability", async () => {

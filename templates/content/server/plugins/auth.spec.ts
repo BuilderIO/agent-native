@@ -25,5 +25,8 @@ describe("Content auth plugin", () => {
       "/api/_agent-native-background/other-worker",
     );
     expect(options.publicPaths).toContain("/api/private-icons/");
+    // Reads authorize in the route; uploads stay behind the session gate.
+    expect(options.publicPaths).toContain("/api/private-media/");
+    expect(options.publicPaths).not.toContain("/api/private-media");
   });
 });

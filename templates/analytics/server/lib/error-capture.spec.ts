@@ -846,6 +846,64 @@ describe("ingestException", () => {
     expect(byUserKey.map((issue) => issue.id)).toEqual([tim.issueId]);
   });
 
+  it("finds an issue by the traffic it occurred in and keeps its counts merged", async () => {
+    const betaUrl = "https://beta.slides.example.com/deck";
+    const productionUrl = "https://slides.example.com/deck";
+    const otherFailure = (message: string, environment: string | null) =>
+      baseRaw({
+        type: "RangeError",
+        message,
+        environment,
+        rawStack: `RangeError: ${message}\n    at ${message} (https://app.example.com/assets/${message}.js:1:1)`,
+      });
+
+    const onBoth = await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ url: productionUrl }),
+    );
+    await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ url: betaUrl, timestamp: "2026-07-08T12:01:00.000Z" }),
+    );
+    const onBeta = await ingestException(
+      SCOPE,
+      otherFailure("betaFailure", "production"),
+      derivedFor({ url: betaUrl }),
+    );
+    const noHostMarkedBeta = await ingestException(
+      SCOPE,
+      otherFailure("markedFailure", "beta"),
+      derivedFor({ url: null }),
+    );
+    const noHost = await ingestException(
+      SCOPE,
+      otherFailure("unmarkedFailure", null),
+      derivedFor({ url: null }),
+    );
+    const viewer = { userEmail: SCOPE.ownerEmail, orgId: null };
+
+    const beta = await listErrorIssues(viewer, { environment: "beta" });
+    const production = await listErrorIssues(viewer, {
+      environment: "production",
+    });
+    const all = await listErrorIssues(viewer);
+
+    expect(beta.map((issue) => issue.id).sort()).toEqual(
+      [onBoth.issueId, onBeta.issueId, noHostMarkedBeta.issueId].sort(),
+    );
+    expect(production.map((issue) => issue.id).sort()).toEqual(
+      [onBoth.issueId, noHost.issueId].sort(),
+    );
+    expect(all).toHaveLength(4);
+    for (const issues of [beta, production, all]) {
+      expect(
+        issues.find((issue) => issue.id === onBoth.issueId)?.eventCount,
+      ).toBe(2);
+    }
+  });
+
   it("does not match an occurrence outside its issue owner scope", async () => {
     const tim = await ingestException(SCOPE, baseRaw(), derivedFor());
     const db = drizzle(client, { schema }) as any;
@@ -1922,6 +1980,33 @@ describe("error ingest flood control", () => {
     [issue] = await issues();
     expect(issue.eventCount).toBe(121);
     expect(await events()).toHaveLength(22);
+  });
+
+  it("samples each kind of traffic on its own once an issue is hot", async () => {
+    const at = (n: number, url: string | null) =>
+      derivedFor({
+        userKey: "same-user",
+        anonymousId: "same-user",
+        sessionId: `s${n}`,
+        url,
+      });
+    const production = "https://app.example.com/dashboard";
+    const beta = "https://beta.app.example.com/dashboard";
+    for (let i = 0; i < 21; i += 1) {
+      await ingestException(SCOPE, baseRaw(), at(i, production));
+    }
+    expect(await events()).toHaveLength(21);
+
+    await ingestException(SCOPE, baseRaw(), at(21, production));
+    expect(await events()).toHaveLength(21);
+
+    await ingestException(SCOPE, baseRaw(), at(22, beta));
+    expect(await events()).toHaveLength(22);
+    await ingestException(SCOPE, baseRaw(), at(23, beta));
+    expect(await events()).toHaveLength(22);
+
+    const [issue] = await issues();
+    expect(issue.eventCount).toBe(24);
   });
 
   it("still stores the first event from each new user so usersAffected keeps growing", async () => {

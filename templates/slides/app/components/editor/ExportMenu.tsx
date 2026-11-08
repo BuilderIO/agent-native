@@ -80,6 +80,8 @@ interface ExportMenuProps {
   headless?: boolean;
   hideExportDialog?: boolean;
   onExportStatusChange?: (status: ExportStatus) => void;
+  /** Commits a text edit still held by the open slide editor; the save queue can't see it until then. */
+  flushInlineEdit?: () => void;
 }
 
 export interface ExportMenuHandle {
@@ -386,6 +388,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       headless = false,
       hideExportDialog = false,
       onExportStatusChange,
+      flushInlineEdit,
     },
     ref,
   ) {
@@ -462,6 +465,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       const controller = new AbortController();
       exportAbortRef.current = controller;
       try {
+        flushInlineEdit?.();
         await action(controller.signal);
         // Work the signal could not interrupt may still finish after Cancel.
         if (!controller.signal.aborted) updateExportStatus({ state: "idle" });
@@ -578,6 +582,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       if (!hasSlides || !onExportGoogleSlides) return;
       if (!beginExport("google-slides")) return;
       try {
+        flushInlineEdit?.();
         const availability =
           await fetchGoogleSlidesExportAvailability(queryClient);
         if (!availability.available) {

@@ -8,6 +8,7 @@ import { IconLoader2, IconMessageCircle } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import { CHAT_STOP_DEBOUNCE_MS } from "@/hooks/use-agent-generating";
+import { EXTERNAL_DECK_CHANGE_EVENT } from "@/lib/agent-run-status";
 
 export function isAgentSidebarVisible() {
   const panel = document.querySelector<HTMLElement>(".agent-sidebar-panel");
@@ -151,13 +152,33 @@ export function AgentWorkIndicator() {
         }
       }
     };
+    // A deck write with no chat run behind it pulses the banner for one debounce window.
+    const externalSource = "__external-deck-change__";
+    const handleExternalChange = () => {
+      clearStopDebounce(externalSource);
+      runningSourcesRef.current.add(externalSource);
+      syncRunning();
+      stopDebounceRef.current.set(
+        externalSource,
+        setTimeout(() => {
+          stopDebounceRef.current.delete(externalSource);
+          runningSourcesRef.current.delete(externalSource);
+          syncRunning();
+        }, CHAT_STOP_DEBOUNCE_MS),
+      );
+    };
     window.addEventListener("agentNative.chatRunning", handler);
+    window.addEventListener(EXTERNAL_DECK_CHANGE_EVENT, handleExternalChange);
     return () => {
       for (const timer of stopDebounceRef.current.values()) {
         clearTimeout(timer);
       }
       stopDebounceRef.current.clear();
       window.removeEventListener("agentNative.chatRunning", handler);
+      window.removeEventListener(
+        EXTERNAL_DECK_CHANGE_EVENT,
+        handleExternalChange,
+      );
     };
   }, []);
 

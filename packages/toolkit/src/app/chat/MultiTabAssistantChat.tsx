@@ -139,6 +139,7 @@ interface PendingSend {
   actionScope?: AgentActionScope;
   /** See `AgentChatMessage.approvedToolCalls`. */
   approvedToolCalls?: string[];
+  references?: AgentChatMessage["references"];
   /** See `AssistantChatSendOptions.surface`. */
   surface?: string;
 }
@@ -270,6 +271,7 @@ function deliverPendingSend(
     ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
     ...(send.requestMode ? { requestMode: send.requestMode } : {}),
     ...(send.attachments ? { attachments: send.attachments } : {}),
+    ...(send.references ? { references: send.references } : {}),
     ...(send.submitMessageId ? { submitMessageId: send.submitMessageId } : {}),
     ...(send.submissionExpiresAt !== undefined
       ? { submissionExpiresAt: send.submissionExpiresAt }
@@ -961,6 +963,8 @@ export type MultiTabAssistantChatProps = Omit<
   contentHidden?: boolean;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
+  /** Prefer the configured engine's default model for a fresh chat. */
+  preferEngineDefaultModel?: boolean;
   /** Restore the previously active thread and open tabs from localStorage. */
   restoreActiveThread?: boolean;
   /** Stable browser tab id used for tab-scoped app-state context. */
@@ -975,6 +979,8 @@ export type MultiTabAssistantChatProps = Omit<
   scope?: ChatThreadScope | null;
   /** Keep app-owned chat history isolated to the supplied scope. */
   isolateHistoryByScope?: boolean;
+  /** Set false to keep focus in the host when a chat is mounted or swapped. */
+  composerAutoFocus?: boolean;
   /** @deprecated Scope context is now rendered in the composer. */
   showScopeBadge?: boolean;
   /** Cadence for hydrating agent-team sub-agent tab status. Default: 3000. */
@@ -1033,11 +1039,13 @@ export function MultiTabAssistantChat({
   contentHidden = false,
   apiUrl = agentNativePath("/_agent-native/agent-chat"),
   storageKey,
+  preferEngineDefaultModel = false,
   restoreActiveThread = true,
   browserTabId: browserTabIdProp,
   threadUrlSync = false,
   scope = null,
   isolateHistoryByScope = false,
+  composerAutoFocus: hostComposerAutoFocus = true,
   agentTeamPollMs = DEFAULT_AGENT_TEAM_POLL_MS,
   availableModels: hostAvailableModels,
   modelListLoading: hostModelListLoading,
@@ -1272,6 +1280,17 @@ export function MultiTabAssistantChat({
   activeThreadIdRef.current = activeThreadId;
   // Mark the active tab as mounted so it persists when switched away
   if (activeThreadId) mountedTabsRef.current.add(activeThreadId);
+  const scopeFollowedTabsRef = useRef(new Set<string>());
+  const scopeSeenRef = useRef(contextNamespace);
+  const scopeChangedAtRef = useRef(0);
+  if (scopeSeenRef.current !== contextNamespace) {
+    scopeSeenRef.current = contextNamespace;
+    scopeChangedAtRef.current = Date.now();
+  }
+  const scopeFollowing = Date.now() - scopeChangedAtRef.current < 2000;
+  if (scopeFollowing && activeThreadId) {
+    scopeFollowedTabsRef.current.add(activeThreadId);
+  }
   // Tabs that rendered once after the thread list loaded. Only that first load
   // gates a tab's restore: a later reload (a history-scope change) refetches
   // every row, and gating on it releases and reopens each mounted thread and
@@ -1384,6 +1403,9 @@ export function MultiTabAssistantChat({
     ? (hostModelListError ?? false)
     : discoveredModelsError;
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
+  const [currentModelEngine, setCurrentModelEngine] = useState<
+    string | undefined
+  >();
   // Unset for host-managed models: the host's catalog names no app default.
   const [catalogDefault, setCatalogDefault] = useState<
     { model: string; engine?: string } | undefined
@@ -1499,15 +1521,35 @@ export function MultiTabAssistantChat({
   }, []);
 
   const resolveThreadModelSelection = useCallback(
-    (threadId: string) =>
-      resolveModelSelection(
-        threadModelRef.current.get(threadId) ?? persistedModelSelection,
-        availableModels,
-        catalogDefault,
-      ),
+    (threadId: string) => {
+      let selection =
+        threadModelRef.current.get(threadId) ?? persistedModelSelection;
+      if (!selection && preferEngineDefaultModel && !hostManagedModels) {
+        const group =
+          availableModels.find(
+            (candidate) =>
+              candidate.configured && candidate.engine === currentModelEngine,
+          ) ?? availableModels.find((candidate) => candidate.configured);
+        const preferred =
+          group &&
+          group.engine === currentModelEngine &&
+          group.models.includes(defaultModel)
+            ? defaultModel
+            : group && discoveredModelEngines[group.engine]?.defaultModel;
+        if (group && preferred && group.models.includes(preferred)) {
+          selection = { model: preferred, engine: group.engine };
+        }
+      }
+      return resolveModelSelection(selection, availableModels, catalogDefault);
+    },
     [
       availableModels,
       catalogDefault,
+      currentModelEngine,
+      defaultModel,
+      discoveredModelEngines,
+      hostManagedModels,
+      preferEngineDefaultModel,
       persistedModelSelection,
       modelSelectionVersion,
     ],
@@ -1705,6 +1747,7 @@ export function MultiTabAssistantChat({
         setDiscoveredModelsError(false);
         setDiscoveredModels(catalog.groups);
         setDiscoveredModelEngines(catalog.modelEngines);
+        setCurrentModelEngine(catalog.currentModelEngine?.name);
         setDefaultModel(catalog.defaultModel);
         setCatalogDefault((current) =>
           current?.model === catalog.defaultModel &&
@@ -2235,15 +2278,18 @@ export function MultiTabAssistantChat({
     { intervalMs: agentTeamPollMs, pauseWhenHidden: true },
   );
 
-  // Focus the composer when switching tabs
+  // Focus the composer when the user switches tabs.
   useEffect(() => {
-    if (!activeThreadId) return;
+    if (!activeThreadId || !hostComposerAutoFocus) return;
+    if (scopeFollowedTabsRef.current.has(activeThreadId) && scopeFollowing) {
+      return;
+    }
     // Small delay to ensure the tab is visible before focusing
     const t = setTimeout(() => {
       chatRefs.current.get(activeThreadId)?.focusComposer();
     }, 50);
     return () => clearTimeout(t);
-  }, [activeThreadId]);
+  }, [activeThreadId, hostComposerAutoFocus, scopeFollowing]);
 
   // Ref callback: scroll the active tab into view in the overflow container.
   // Uses getBoundingClientRect for reliable positioning regardless of offsetParent.
@@ -2510,6 +2556,7 @@ export function MultiTabAssistantChat({
         submit,
         images,
         attachments,
+        references,
         submitMessageId,
         usageLabel,
         actionScope,
@@ -2564,6 +2611,7 @@ export function MultiTabAssistantChat({
         ...(prefillContext ? { prefillContext } : {}),
         images,
         attachments,
+        references,
         submit,
         ...(background ? { trackInRunsTray: true } : {}),
         ...(requestMode ? { requestMode } : {}),
@@ -4029,6 +4077,10 @@ export function MultiTabAssistantChat({
                   contextNamespace={contextNamespace}
                   isolateHistoryByScope={isolateHistoryByScope}
                   isActiveComposer={!contentHidden && tabId === activeThreadId}
+                  composerAutoFocus={
+                    hostComposerAutoFocus &&
+                    !scopeFollowedTabsRef.current.has(tabId)
+                  }
                   isReferenceTarget={tabId === activeThreadId}
                   apiUrl={apiUrl}
                   isNewThread={isKnownNewThread}

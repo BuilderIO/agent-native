@@ -122,6 +122,25 @@ vi.mock("./run-store.js", () => ({
       }
     },
   ),
+  persistedRunEventData: (eventData: string) => {
+    const event = JSON.parse(eventData) as Record<string, unknown>;
+    if (event.omitFromPersistedHistory !== true) return eventData;
+    return JSON.stringify({
+      type: event.type,
+      omitFromPersistedHistory: true,
+      ...(event.type === "text" ? { text: "" } : {}),
+      ...(event.type === "error" ? { error: "Private content omitted" } : {}),
+      ...(event.type === "tool_start" ? { tool: event.tool, input: {} } : {}),
+      ...(event.type === "tool_done"
+        ? {
+            tool: event.tool,
+            input: {},
+            result: "[Private content omitted]",
+            ...(event.isError === true ? { isError: true } : {}),
+          }
+        : {}),
+    });
+  },
   updateRunStatus: vi.fn(() => Promise.resolve()),
   updateRunStatusIfRunning: vi.fn(() => Promise.resolve(true)),
   getRunStatus: vi.fn(() => Promise.resolve("running")),
@@ -2497,6 +2516,58 @@ describe("run manager soft timeout", () => {
     expect(finalized).toBe(true);
   });
 
+  it.each([undefined, null, false])(
+    "rejects finalization and records an errored run when event persistence rejects with %s",
+    async (failure) => {
+      vi.mocked(insertRunEvent).mockRejectedValue(failure);
+      const run = startRun(
+        "run-falsy-event-failure",
+        "thread-falsy-event-failure",
+        async (send) => {
+          await send({ type: "text", text: "not persisted" }).catch(() => {});
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await expect(run.finalized).rejects.toBe(failure);
+      expect(run.status).toBe("errored");
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        run.runId,
+        "errored",
+      );
+      expect(setRunTerminalReason).toHaveBeenCalledWith(
+        run.runId,
+        "error:run_event_persistence_failed",
+      );
+    },
+  );
+
+  it("reports independent event and abort status failures even when they share an error", async () => {
+    const failure = new Error("shared persistence failure");
+    vi.mocked(insertRunEvent).mockRejectedValue(failure);
+    vi.mocked(markRunAborted).mockRejectedValue(failure);
+    const runId = "run-shared-finalization-failure";
+    const run = startRun(
+      runId,
+      "thread-shared-finalization-failure",
+      async (send) => {
+        await send({ type: "text", text: "not persisted" }).catch(() => {});
+        abortRun(runId, "user");
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    const result = await run.finalized.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(markRunAborted).toHaveBeenCalledWith(runId, "user");
+    expect(result).toBeInstanceOf(AggregateError);
+    expect((result as AggregateError).errors).toEqual([failure, failure]);
+  });
+
   it("rejects finalized when terminal event persistence cannot be established", async () => {
     const terminalError = new Error("terminal event persistence failed");
     vi.mocked(insertRunEvent).mockImplementation(
@@ -2799,11 +2870,7 @@ describe("run manager soft timeout", () => {
       undefined,
       { softTimeoutMs: 0 },
     );
-    run.flushEvents = vi
-      .fn()
-      .mockRejectedValueOnce(terminalEventError)
-      .mockRejectedValueOnce(terminalEventError)
-      .mockResolvedValueOnce(undefined);
+    run.flushEvents = vi.fn().mockRejectedValue(terminalEventError);
     vi.mocked(markRunAborted).mockResolvedValueOnce(false);
     vi.mocked(getRunStatus).mockResolvedValueOnce("completed");
 
@@ -2822,6 +2889,242 @@ describe("run manager soft timeout", () => {
       "user",
     );
     await run.finalized;
+  });
+
+  it("retains the real event queue failure through a turn abort", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-stop-real-queue",
+      0,
+      true,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    vi.mocked(insertRunEvent).mockRejectedValueOnce(terminalEventError);
+    let eventFailed!: () => void;
+    const eventFailureObserved = new Promise<void>((resolve) => {
+      eventFailed = resolve;
+    });
+    const run = startRun(
+      "run-stop-real-queue",
+      "thread-stop-real-queue",
+      async (send, signal) => {
+        try {
+          await send({ type: "text", text: "not persisted" });
+        } catch (error) {
+          expect(error).toBe(terminalEventError);
+        }
+        eventFailed();
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    const finalized = expect(run.finalized).rejects.toBe(terminalEventError);
+
+    try {
+      await eventFailureObserved;
+      await expect(abortRunAndTurnDurably(run.runId, "user")).rejects.toBe(
+        terminalEventError,
+      );
+      expect(markTurnAborted).toHaveBeenCalledWith(
+        run.threadId,
+        run.turnId,
+        "user",
+      );
+      await finalized;
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("reports a failed run marker as well as the terminal flush failure", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-stop-run-marker-failure",
+      0,
+      true,
+    );
+    const markerError = new Error("run marker unavailable");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const run = startRun(
+      "run-stop-run-marker-failure",
+      "thread-stop-run-marker-failure",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.flushEvents = vi.fn().mockRejectedValue(terminalEventError);
+    vi.mocked(markRunAborted).mockRejectedValueOnce(markerError);
+
+    try {
+      const error = await abortRunAndTurnDurably(run.runId, "user").catch(
+        (error) => error,
+      );
+      expect(error).toBeInstanceOf(AggregateError);
+      expect(error.errors).toEqual([terminalEventError, markerError]);
+      expect(markTurnAborted).not.toHaveBeenCalled();
+      await run.finalized;
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("reports a failed turn marker even when it throws the same error as the flush", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-stop-marker-failure",
+      0,
+      true,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const run = startRun(
+      "run-stop-marker-failure",
+      "thread-stop-marker-failure",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.flushEvents = vi.fn().mockRejectedValue(terminalEventError);
+    vi.mocked(markTurnAborted).mockRejectedValueOnce(terminalEventError);
+
+    try {
+      const error = await abortRunAndTurnDurably(run.runId, "user").catch(
+        (error) => error,
+      );
+      expect(error).toBeInstanceOf(AggregateError);
+      expect(error.errors).toEqual([terminalEventError, terminalEventError]);
+      expect(markTurnAborted).toHaveBeenCalledWith(
+        run.threadId,
+        run.turnId,
+        "user",
+      );
+      await run.finalized;
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("reports independent flush failures from other runs in the same turn", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-stop-first",
+      0,
+      true,
+    );
+    const otherError = new AgentRunEventNotPersistedError(
+      "run-stop-second",
+      1,
+      true,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const waitForAbort = async (_send: unknown, signal: AbortSignal) => {
+      await new Promise<void>((resolve) => {
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    };
+    const run = startRun(
+      "run-stop-first",
+      "thread-stop-multiple",
+      waitForAbort,
+      undefined,
+      {
+        softTimeoutMs: 0,
+        turnId: "turn-stop-multiple",
+      },
+    );
+    const otherRun = startRun(
+      "run-stop-second",
+      "thread-stop-multiple",
+      waitForAbort,
+      undefined,
+      {
+        softTimeoutMs: 0,
+        turnId: "turn-stop-multiple",
+      },
+    );
+    run.flushEvents = vi.fn().mockRejectedValue(terminalEventError);
+    otherRun.flushEvents = vi.fn().mockRejectedValue(otherError);
+
+    try {
+      const error = await abortRunAndTurnDurably(run.runId, "user").catch(
+        (error) => error,
+      );
+      expect(error).toBeInstanceOf(AggregateError);
+      expect(error.errors).toEqual([terminalEventError, otherError]);
+      expect(markTurnAborted).toHaveBeenCalledWith(
+        run.threadId,
+        run.turnId,
+        "user",
+      );
+      await Promise.all([run.finalized, otherRun.finalized]);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("reports all concurrent turn flush failures without writing the marker after a retryable failure", async () => {
+    const terminalError = new AgentRunEventNotPersistedError(
+      "run-turn-terminal",
+      0,
+      true,
+    );
+    const retryableError = new Error("event store unavailable");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const waitForAbort = async (_send: unknown, signal: AbortSignal) => {
+      await new Promise<void>((resolve) => {
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    };
+    const run = startRun(
+      "run-turn-terminal",
+      "thread-turn-flushes",
+      waitForAbort,
+      undefined,
+      {
+        softTimeoutMs: 0,
+        turnId: "turn-flushes",
+      },
+    );
+    const otherRun = startRun(
+      "run-turn-retryable",
+      "thread-turn-flushes",
+      waitForAbort,
+      undefined,
+      {
+        softTimeoutMs: 0,
+        turnId: "turn-flushes",
+      },
+    );
+    run.flushEvents = vi.fn().mockRejectedValue(terminalError);
+    otherRun.flushEvents = vi.fn().mockRejectedValue(retryableError);
+
+    try {
+      const error = await abortTurnByRefDurably(run.threadId, run.turnId).catch(
+        (error) => error,
+      );
+      expect(error).toBeInstanceOf(AggregateError);
+      expect(error.errors).toEqual([terminalError, retryableError]);
+      expect(markTurnAborted).not.toHaveBeenCalled();
+      await Promise.all([run.finalized, otherRun.finalized]);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("does not widen a refused safe-boundary stop to a turn abort", async () => {
@@ -2885,10 +3188,7 @@ describe("run manager soft timeout", () => {
       undefined,
       { softTimeoutMs: 0 },
     );
-    run.flushEvents = vi
-      .fn()
-      .mockRejectedValueOnce(terminalEventError)
-      .mockResolvedValue(undefined);
+    run.flushEvents = vi.fn().mockRejectedValue(terminalEventError);
     vi.mocked(markRunAbortedAtSafeBoundary).mockResolvedValueOnce(true);
 
     try {
@@ -8716,7 +9016,7 @@ describe("run manager soft timeout", () => {
     }
   });
 
-  it("drops queued events and closes the open batch when the run is terminal", async () => {
+  it("rejects later events and flushes after terminal batch persistence fails", async () => {
     const terminalEventError = new AgentRunEventNotPersistedError(
       "run-batch-terminal",
       0,
@@ -8765,7 +9065,7 @@ describe("run manager soft timeout", () => {
       await expect(run.flushEvents?.()).rejects.toBe(terminalEventError);
       releaseSecondPublication();
       await expect(run.finalized).rejects.toBe(terminalEventError);
-      expect(insertRunEvents).toHaveBeenCalledTimes(2);
+      expect(insertRunEvents).toHaveBeenCalledTimes(1);
       expect(publicationErrors).toEqual([
         terminalEventError,
         terminalEventError,
@@ -8778,7 +9078,7 @@ describe("run manager soft timeout", () => {
         type: "text",
         text: "also not persisted",
       });
-      await expect(run.flushEvents?.()).resolves.toBeUndefined();
+      await expect(run.flushEvents?.()).rejects.toBe(terminalEventError);
     } finally {
       if (priorInsertRunEvents) {
         vi.mocked(insertRunEvents).mockImplementation(priorInsertRunEvents);
@@ -8867,6 +9167,241 @@ describe("run manager soft timeout", () => {
     expect(durableOrder).toEqual([0, 1]);
     expect(publishedOrder.slice(0, 2)).toEqual([0, 1]);
     expect(writeBatches).toEqual([[0], [1]]);
+  });
+
+  it("completes private text and UI tool responses without an unwanted continuation", async () => {
+    for (const kind of ["text", "ui"] as const) {
+      const runId = `run-private-completion-${kind}`;
+      const run = startRun(
+        runId,
+        `thread-${runId}`,
+        async (send) => {
+          await send({
+            type: "tool_start",
+            tool: "read",
+            input: {},
+            omitFromPersistedHistory: true,
+          });
+          await send({
+            type: "tool_done",
+            tool: "read",
+            input: {},
+            result: "private result",
+            ...(kind === "ui"
+              ? { chatUI: { renderer: "core.inline-extension" } }
+              : {}),
+          });
+          if (kind === "text")
+            await send({ type: "text", text: "private final answer" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      await run.finalized;
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
+      expect(setRunTerminalReason).toHaveBeenCalledWith(runId, "done");
+      expect(JSON.stringify(run.events)).not.toContain("private final answer");
+      expect(
+        run.events.some(({ event }) => event.type === "auto_continue"),
+      ).toBe(false);
+    }
+  });
+
+  it("continues after a failed private UI result or a later unfinished tool", async () => {
+    for (const kind of ["failed-ui", "later-tool"] as const) {
+      const runId = `run-private-unfinished-${kind}`;
+      const run = startRun(
+        runId,
+        `thread-${runId}`,
+        async (send) => {
+          await send({
+            type: "tool_done",
+            tool: "render",
+            input: {},
+            result: "private",
+            chatUI: { renderer: "core.inline-extension" },
+            omitFromPersistedHistory: true,
+            ...(kind === "failed-ui" ? { isError: true } : {}),
+          });
+          if (kind === "later-tool") {
+            await send({
+              type: "text",
+              text: "private final before later tool",
+            });
+            await send({
+              type: "tool_done",
+              tool: "read",
+              input: {},
+              result: "private",
+            });
+          }
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      await run.finalized;
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        runId,
+        "truncated",
+        { terminalReason: "stream_ended" },
+      );
+    }
+  });
+
+  it("does not leak private persistence failures or error codes into diagnostics", async () => {
+    const sentinel = "private-persistence-sentinel";
+    const provider = vi.fn(() => "event-id");
+    const unregister = registerErrorCaptureProvider(
+      "private-persistence-test",
+      provider,
+    );
+    const writes: string[] = [];
+    let failOnce = true;
+    try {
+      const run = startRun(
+        "run-private-persistence-failure",
+        "thread-private-persistence-failure",
+        async (send) => {
+          await send({
+            type: "tool_start",
+            tool: "read",
+            input: { sentinel },
+            omitFromPersistedHistory: true,
+          });
+          await send({ type: "error", error: sentinel, errorCode: sentinel });
+        },
+        undefined,
+        {
+          softTimeoutMs: 0,
+          persistEvent: async (write, metadata) => {
+            writes.push(metadata.eventData);
+            if (failOnce) {
+              failOnce = false;
+              throw new Error(sentinel);
+            }
+            await write();
+          },
+        },
+      );
+      await run.finalized;
+      expect(provider).toHaveBeenCalled();
+      expect(
+        provider.mock.calls
+          .map(
+            ([error, context]) => `${error.message} ${JSON.stringify(context)}`,
+          )
+          .join(" "),
+      ).not.toContain(sentinel);
+      expect(writes.join(" ")).not.toContain(sentinel);
+      expect(setRunTerminalReason).toHaveBeenCalledWith(
+        "run-private-persistence-failure",
+        "error:private_content_omitted",
+      );
+      expect(setRunError).toHaveBeenCalledWith(
+        "run-private-persistence-failure",
+        "private_content_omitted",
+        "Private content omitted",
+      );
+    } finally {
+      unregister();
+    }
+  });
+
+  it("keeps private run events live but omits them from batches and retained state", async () => {
+    const body = "private-run-event-sentinel";
+    let releaseRun!: () => void;
+    const runBarrier = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    vi.mocked(insertRunEvents).mockClear();
+
+    const run = startRun(
+      "run-private-event-cache",
+      "thread-private-event-cache",
+      async (send) => {
+        await runBarrier;
+        await send({
+          type: "tool_input_start",
+          id: "private-call",
+          tool: "read-private-message",
+          omitFromPersistedHistory: true,
+        });
+        await send({ type: "text", text: `Summary: ${body}` });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    const liveEvents: RunEvent[] = [];
+    run.subscribers.add((event) => liveEvents.push(event));
+    releaseRun();
+
+    await run.finalized;
+
+    expect(
+      liveEvents.find(({ event }) => event.type === "text")?.event,
+    ).toMatchObject({ type: "text", text: `Summary: ${body}` });
+    expect(JSON.stringify(run.events)).not.toContain(body);
+    const batchedEvents = vi
+      .mocked(insertRunEvents)
+      .mock.calls.flatMap(([, events]) =>
+        events.map(({ eventData }) => eventData),
+      );
+    expect(batchedEvents.join("\n")).not.toContain(body);
+    expect(batchedEvents).toContain(
+      JSON.stringify({
+        type: "text",
+        omitFromPersistedHistory: true,
+        text: "",
+      }),
+    );
+  });
+
+  it("omits private run failures from stored error details while preserving the live error", async () => {
+    const body = "private-run-error-sentinel";
+    const completionEvents: unknown[] = [];
+    vi.mocked(setRunError).mockClear();
+    const run = startRun(
+      "run-private-error",
+      "thread-private-error",
+      async (send) => {
+        await send({
+          type: "tool_start",
+          id: "private-call",
+          tool: "read-private-message",
+          input: { body },
+          omitFromPersistedHistory: true,
+        });
+        throw new Error(`Private read failed: ${body}`);
+      },
+      async (completedRun) => {
+        completionEvents.push(...completedRun.events);
+      },
+      { softTimeoutMs: 0 },
+    );
+    const liveEvents: RunEvent[] = [];
+    run.subscribers.add((event) => liveEvents.push(event));
+
+    await run.finalized;
+
+    expect(
+      liveEvents.find(({ event }) => event.type === "error")?.event,
+    ).toMatchObject({
+      type: "error",
+      error: `Private read failed: ${body}`,
+    });
+    expect(JSON.stringify(run.events)).not.toContain(body);
+    expect(JSON.stringify(completionEvents)).not.toContain(body);
+    expect(JSON.stringify(completionEvents)).toContain(
+      "Private content omitted",
+    );
+    expect(JSON.stringify(vi.mocked(setRunError).mock.calls)).not.toContain(
+      body,
+    );
+    expect(vi.mocked(setRunError).mock.calls).toContainEqual([
+      "run-private-error",
+      "private_content_omitted",
+      "Private content omitted",
+    ]);
   });
 
   it("retries a failed sequence before persisting later events", async () => {
@@ -8996,9 +9531,14 @@ describe("run manager soft timeout", () => {
     },
   );
 
-  it("keeps user cancellation when a pending event write permanently fails", async () => {
+  it("keeps user cancellation while reporting a permanent event write failure", async () => {
     let rejectFirstWrite!: (error: Error) => void;
     let seqZeroAttempts = 0;
+    let resolveAbort!: (persisted: boolean) => void;
+    const abortWrite = new Promise<boolean>((resolve) => {
+      resolveAbort = resolve;
+    });
+    vi.mocked(markRunAborted).mockReturnValueOnce(abortWrite);
     const writeError = new Error("permanent event persistence failure");
     const onComplete = vi.fn();
     vi.mocked(insertRunEvent).mockImplementation(async (_runId, seq) => {
@@ -9026,7 +9566,13 @@ describe("run manager soft timeout", () => {
     await vi.waitFor(() => expect(rejectFirstWrite).toBeTypeOf("function"));
     expect(abortRun(run.runId, "user")).toBe(true);
     rejectFirstWrite(writeError);
-    await run.finalized;
+    try {
+      await vi.waitFor(() => expect(markRunAborted).toHaveBeenCalled());
+      expect(onComplete).not.toHaveBeenCalled();
+    } finally {
+      resolveAbort(true);
+    }
+    await expect(run.finalized).rejects.toBe(writeError);
 
     expect(run.status).toBe("aborted");
     expect(onComplete).toHaveBeenCalledWith(
