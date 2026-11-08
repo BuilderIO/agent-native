@@ -37,7 +37,7 @@ description: "把一則提示詞交給 Claude、ChatGPT、Codex、Cursor 或其�
 4. 閱讀 APP_NAME/AGENTS.md，了解應用程式的結構。
 5. 用 `pnpm dev` 啟動應用程式，並讓它在背景持續執行。
 6. 讀取 `pnpm dev` 輸出的本機 URL。檢查它是否有回應，
-   用 `curl <url>/_agent-native/ping?configuration=1`。回應中應包含
+   用 `curl "<url>/_agent-native/ping?configuration=1"`。回應中應包含
    `"message":"pong"` 和設定狀態 `"ok"`。不要開啟瀏覽器，也不要
    使用無頭瀏覽器工具。我會自己開啟應用程式。
 7. 在 APP_NAME 資料夾中執行 `pnpm action hello`。它會執行應用程式的

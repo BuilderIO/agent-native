@@ -40,7 +40,7 @@ ci-dessous indique APP_NAME.
 5. Démarre l’application avec `pnpm dev` et laisse-la tourner en
    arrière-plan.
 6. Lis l’URL locale affichée par `pnpm dev`. Vérifie qu’elle répond,
-   avec `curl <url>/_agent-native/ping?configuration=1`. La réponse
+   avec `curl "<url>/_agent-native/ping?configuration=1"`. La réponse
    doit contenir `"message":"pong"` et un statut de configuration
    `"ok"`. N’ouvre pas de navigateur et n’utilise pas d’outils de
    navigateur headless. J’ouvrirai l’application moi-même.

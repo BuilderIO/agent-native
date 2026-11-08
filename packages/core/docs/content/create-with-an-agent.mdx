@@ -36,7 +36,7 @@ it. Use that name wherever a step below says APP_NAME.
 4. Read APP_NAME/AGENTS.md so you know how the app is laid out.
 5. Start the app with `pnpm dev` and keep it running in the background.
 6. Read the local URL that `pnpm dev` prints. Check that it responds,
-   with `curl <url>/_agent-native/ping?configuration=1`. The reply
+   with `curl "<url>/_agent-native/ping?configuration=1"`. The reply
    should include `"message":"pong"` and a configuration status of
    `"ok"`. Do not open a browser and do not use headless browser
    tools. I will open the app myself.
