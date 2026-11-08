@@ -1,4 +1,4 @@
-name: Activate beta CRM encryption writers
+name: Activate beta CRM authentication configuration
 on: workflow_dispatch
 permissions:
   contents: read
@@ -9,7 +9,7 @@ jobs:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          ROOTS: ${{ secrets.INCIDENT_CRM_BETA_WRITER_ROOTS }}
+          ROOTS: ${{ secrets.INCIDENT_CRM_BETA_AUTH_ROOTS }}
         with:
           script: |
             const sid='bef68db5-5bbc-41c6-b3d8-edeb7b871b5e';
@@ -19,7 +19,7 @@ jobs:
             if(site.account_slug!=='steve8708'||site.custom_domain!=='beta.crm.agent-native.com')throw Error('Ownership changed');
             const ep='accounts/'+site.account_slug+'/env',q='?site_id='+sid;
             for(const u of JSON.parse(process.env.ROOTS)){
-              if(!['SECRETS_ENCRYPTION_KEY','WORKSPACE_SECRETS_ENCRYPTION_KEY'].includes(u.key)||!u.value||u.value.length!==64)throw Error('Invalid writer target');
+              if(!['A2A_SECRET','BETTER_AUTH_SECRET'].includes(u.key)||!u.value||u.value.length!==64)throw Error('Invalid writer target');
               const e=(await req(ep+q)).find(e=>e.key===u.key);
               if(!e)await req(ep+q,'POST',[{key:u.key,is_secret:true,scopes:['builds','functions'],values:u.contexts.map(context=>({context,value:u.value}))}]);
               else if(e.is_secret){for(const context of u.contexts)await req(ep+'/'+u.key+q,'PATCH',{context,value:u.value});}
@@ -27,4 +27,4 @@ jobs:
               const check=(await req(ep+q)).find(e=>e.key===u.key);
               if(!check?.is_secret||!check.scopes.includes('functions'))throw Error('Writer metadata verification failed');
             }
-            core.info('Backed-up beta CRM encryption writer configuration activated; runtime deployment follows. Authentication unchanged.');
+            core.info('Backed-up beta CRM authentication configuration activated; runtime deployment follows. Prepared candidate remains unpublished.');
