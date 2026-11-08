@@ -13,6 +13,7 @@ import {
   isEmbedAuthActive,
 } from "@agent-native/core/client/host";
 import {
+  AgentNativeI18nProvider,
   getLocaleInitScript,
   useT,
   type LocaleCode,
@@ -70,6 +71,7 @@ import {
 import { SlidesRecentSkeleton } from "@/components/home/SlidesRecentSkeleton";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
+import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DeckProvider, deckIdFromPathname } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
@@ -222,11 +224,13 @@ const slidesFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
   localizeMessages: (messages) =>
     slidesFirstPaintCopy(messages as typeof slidesEnglish),
   suggestionRole: "general",
+  // Attachments enter through the hydrated composer with Slides' storage policy.
   renderComposer: (props) => (
     <div data-agentkit-composer-size="large">
       <PromptComposer
         {...props}
-        attachmentsEnabled
+        attachmentsEnabled={false}
+        inlineTextAttachments={false}
         className="slides-home-prompt-composer-area"
         layoutVariant="hero"
         modelStatusChecksEnabled
@@ -252,6 +256,10 @@ export function isBareContentPath(pathname: string): boolean {
 export function isDeckEditorPath(pathname: string): boolean {
   const normalizedPath = pathname.replace(/\/+$/, "");
   return pathname.startsWith("/deck/") && !normalizedPath.endsWith("/present");
+}
+
+export function isDeckHomePath(pathname: string): boolean {
+  return pathname.replace(/\/+$/, "") === "/home";
 }
 
 export function computeSessionBypass(pathname: string): boolean {
@@ -394,9 +402,14 @@ function AppContent() {
       "env-status",
     ],
     ignoreSource: TAB_ID,
-    realtime: isPrivateDeckEditorPath(location.pathname)
-      ? { reason: "other collaborators can edit this deck while it is open" }
-      : undefined,
+    // guard:allow-realtime-opt-in — Home must show decks that collaborators or API calls add without a user action
+    realtime: isDeckHomePath(location.pathname)
+      ? {
+          reason: "collaborators and API calls can add or change decks on Home",
+        }
+      : isPrivateDeckEditorPath(location.pathname)
+        ? { reason: "other collaborators can edit this deck while it is open" }
+        : undefined,
     pauseWhenHidden: true,
   });
   const { resolvedTheme, setTheme } = useTheme();
@@ -521,7 +534,7 @@ function AppContent() {
       </CommandMenu>
       <DeckProvider
         key={DECK_KEY}
-        realtimeEnabled={isDeckEditor}
+        realtimeEnabled={isDeckEditor || isDeckHomePath(location.pathname)}
         openDeckId={deckIdFromPathname(location.pathname)}
       >
         <AppLayout>
@@ -590,7 +603,22 @@ export default function Root() {
     ) : undefined;
 
   if (BARE_PREFIXES.some((p) => location.pathname.startsWith(p))) {
-    return <Outlet />;
+    return (
+      <QueryClientProvider client={queryClient}>
+        <AgentNativeI18nProvider
+          catalog={i18nCatalog}
+          persistPreference={false}
+        >
+          <Outlet />
+          <Toaster
+            richColors
+            position="bottom-left"
+            offset={{ bottom: 44, left: 32 }}
+            mobileOffset={{ bottom: 44, left: 16 }}
+          />
+        </AgentNativeI18nProvider>
+      </QueryClientProvider>
+    );
   }
 
   return (

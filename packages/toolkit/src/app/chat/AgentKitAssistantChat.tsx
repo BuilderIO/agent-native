@@ -26,7 +26,6 @@ import type {
   AgentTransport,
   AgentThreadSnapshot,
   AgentToolCall,
-  AgentUploadTarget,
   FilePart,
 } from "@agent-native/agentkit/protocol";
 import type { AgentChatAttachment } from "@agent-native/core";
@@ -70,6 +69,10 @@ import {
   useAgentEngineConfigured,
   type AgentEngineConfiguredState,
 } from "@agent-native/core/client/agent-chat";
+import {
+  createAgentNativeUploadRuntime,
+  fileUploadUrlForChatApi,
+} from "@agent-native/core/client/agentkit-chat/transport";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   compareAndSetClientAppState,
@@ -174,6 +177,7 @@ import {
 import { isStreamingVoiceMessage } from "../agentkit/react/voice-transcripts.js";
 import { ThreadContextRing } from "../context-xray/ThreadContextRing.js";
 import { threadHasFinishedReply } from "../context-xray/use-thread-context-usage.js";
+import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-startup-gate.js";
 import {
   AgentKitDevCheckpointProvider,
@@ -250,6 +254,8 @@ import { ThinkingDisplayProvider } from "./thinking-display.js";
 export interface AgentKitAssistantChatProps extends AssistantChatProps {
   /** Reference routing follows the selected conversation even when chat is hidden. */
   isReferenceTarget?: boolean;
+  /** Set to false so mounting the composer leaves focus where it is. */
+  composerAutoFocus?: boolean;
   /** Called after AgentKit creates a fork so the host can add and activate a tab. */
   onForkedThread?: (threadId: string) => void;
   branchNavigation?: AgentKitBranchNavigation;
@@ -1551,6 +1557,19 @@ const agentKitSlots = {
   message: AgentKitUserMessage,
   messageSupplement: AgentKitMessageSupplement,
   messageActionsTrailing: AgentKitHistoryMessageSupplement,
+  feedbackNote: ({
+    renderTrigger,
+    ...props
+  }: {
+    threadId: string;
+    runId?: string;
+    messageSeq?: number;
+    renderTrigger: (
+      toggle: () => void,
+      open: boolean,
+      contentId: string,
+    ) => React.ReactNode;
+  }) => <ThumbsFeedback {...props} renderNegativeTrigger={renderTrigger} />,
   text: AgentKitMarkdownText,
   tool: AgentKitTool,
   connectionRequest: AgentKitConnectionRequest,
@@ -1932,55 +1951,54 @@ export const AgentKitAssistantChat = forwardRef<
     }),
     [formatDate, props.composerPlaceholder, t],
   );
-  const uploadedFilesRef = useRef(new Map<string, FilePart>());
+  const { session: uploadSession } = useSession();
+  const uploadScopeKey = JSON.stringify([
+    uploadSession?.email ?? null,
+    uploadSession?.orgId ?? null,
+    uploadSession?.authUserId ?? null,
+  ]);
+  const uploadRuntime = useMemo(
+    () =>
+      createAgentNativeUploadRuntime({
+        url: fileUploadUrlForChatApi(
+          props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
+        ),
+      }),
+    [props.apiUrl],
+  );
+  useEffect(
+    () => () => uploadRuntime.dispose(),
+    [uploadRuntime, uploadScopeKey],
+  );
   const upload: AgentKitUploadDriver = useCallback(
-    async (target, file, context) => {
-      if (file.size > AGENT_CHAT_UPLOAD_MAX_FILE_BYTES) {
-        throw attachmentTooLargeError(
-          uploadTooLargeMessage(translatorRef.current),
-        );
-      }
-      const form = new FormData();
-      for (const [key, value] of Object.entries(target.fields ?? {})) {
-        form.set(key, value);
-      }
-      form.set("file", file.body, file.name);
-      let response: Response;
+    async (...args) => {
       try {
-        response = await fetch(target.url, {
-          method: target.method,
-          headers: target.headers,
-          body: form,
-          signal: context?.signal,
-        });
-      } catch (error) {
-        if (context?.signal?.aborted) throw error;
+        await uploadRuntime.upload(...args);
+      } catch (cause) {
+        if (args[2]?.signal?.aborted) throw cause;
+        const status =
+          cause && typeof cause === "object" && "status" in cause
+            ? cause.status
+            : undefined;
+        if (typeof status === "number")
+          throw uploadHttpError(status, translatorRef.current);
+        const code =
+          cause && typeof cause === "object" && "code" in cause
+            ? cause.code
+            : undefined;
         throw Object.assign(
-          new Error(translatorRef.current("agentChat.composer.uploadOffline")),
-          { code: "upload_network_error", retryable: true, cause: error },
+          new Error(
+            translatorRef.current(
+              code === "upload_network_error"
+                ? "agentChat.composer.uploadOffline"
+                : "agentChat.composer.uploadFailed",
+            ),
+          ),
+          { code, cause, retryable: code === "upload_network_error" },
         );
       }
-      // The server's error body is never shown: its text is untranslated.
-      if (!response.ok) {
-        throw uploadHttpError(response.status, translatorRef.current);
-      }
-      const result: unknown = await response.json();
-      const uploaded = asRecord(result);
-      if (typeof uploaded?.url !== "string" || !uploaded.url) {
-        throw Object.assign(
-          new Error(translatorRef.current("agentChat.composer.uploadFailed")),
-          { code: "upload_invalid_response", retryable: false },
-        );
-      }
-      uploadedFilesRef.current.set(target.uploadId, {
-        type: "file",
-        name: file.name,
-        mediaType: file.mediaType,
-        url: uploaded.url,
-        ...(typeof uploaded.id === "string" ? { fileId: uploaded.id } : {}),
-      });
     },
-    [],
+    [uploadRuntime],
   );
   const transportThreadIdRef = useRef(threadId);
   const tabIdRef = useRef(props.tabId);
@@ -2020,21 +2038,7 @@ export const AgentKitAssistantChat = forwardRef<
     const operations: NonNullable<
       CreateAgentNativeAgentKitTransportOptions["operations"]
     > = {
-      createUpload: async () =>
-        ({
-          uploadId: createAgentUploadId(),
-          method: "POST",
-          url: agentNativePath("/_agent-native/file-upload"),
-          fields: {},
-        }) satisfies AgentUploadTarget,
-      completeUpload: async ({ uploadId }) => {
-        const uploaded = uploadedFilesRef.current.get(uploadId);
-        if (!uploaded) {
-          throw new Error(`Upload ${uploadId} did not complete.`);
-        }
-        uploadedFilesRef.current.delete(uploadId);
-        return uploaded;
-      },
+      ...uploadRuntime.operations,
       invokeAction: async ({ invocation }) => {
         try {
           const result = await callAction(
@@ -3684,10 +3688,13 @@ const AgentKitAssistantChatBody = forwardRef<
             ? { agentNativeInternalContinuation: true }
             : {}),
           ...(contextScope ? { chatScope: contextScope } : {}),
-          ...(references.length || options.recoveryReferences?.length
+          ...(references.length ||
+          options.references?.length ||
+          options.recoveryReferences?.length
             ? {
                 references: [
                   ...references,
+                  ...(options.references ?? []),
                   ...(options.recoveryReferences ?? []),
                 ],
               }
@@ -5228,6 +5235,7 @@ function AgentKitAssistantEmptyState({ threadId }: { threadId: string }) {
           {promptSuggestions.length ? (
             <AgentKitSuggestedPrompts
               suggestions={promptSuggestions}
+              size={surface.props.emptyStateSuggestionSize}
               disabled={
                 !surface.canChat ||
                 Boolean(surface.props.composerDisabled) ||
@@ -5402,7 +5410,11 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           {surface.authError.sessionExpired && !surface.authSessionAvailable ? (
             <button
               type="button"
-              onClick={() => void signOut()}
+              onClick={() => {
+                void signOut().catch(() =>
+                  toast.error(t("agentChat.auth.logOutFailed")),
+                );
+              }}
               className="rounded-md border border-destructive/30 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10"
             >
               {t("agentChat.auth.logOut")}
@@ -5790,12 +5802,11 @@ function AgentKitComposerSurface({
       mounted.current = false;
     };
   }, []);
+  const visibleProviderContextItems = composerContext?.contextItems ?? [];
   const providerContextKeys = new Set(
-    composerContext?.contextItems.map((item) => item.key),
+    visibleProviderContextItems.map((item) => item.key),
   );
-  const visibleContextItems = composerContext
-    ? [...contextItems, ...composerContext.contextItems]
-    : contextItems;
+  const visibleContextItems = [...contextItems, ...visibleProviderContextItems];
   const submissionScope = JSON.stringify([
     threadId,
     props.tabId,
@@ -6148,6 +6159,7 @@ function AgentKitComposerSurface({
         <AgentKitComposer
           threadId={threadId}
           isReferenceTarget={props.isReferenceTarget !== false}
+          autoFocus={props.composerAutoFocus !== false}
           requireAgentEngine
           disabled={
             providerBlocksComposer || props.composerDisabled || isRestoring
@@ -6159,7 +6171,7 @@ function AgentKitComposerSurface({
             // into the queue behind it.
             (isSubmissionInFlight && !submissionHoldsTurn)
           }
-          onDisabledClick={
+          onSetupCardClick={
             props.composerDisabled || !setupMissing
               ? undefined
               : () => {
@@ -6251,7 +6263,9 @@ function AgentKitComposerSurface({
             props.availableModels === undefined
           }
           attachmentsEnabled={fileStorageConfigured}
-          onAttachmentRequest={requestFileStorage}
+          {...(!fileStorageConfigured
+            ? { onAttachmentRequest: requestFileStorage }
+            : {})}
           contextButtonTooltipDisabled={fileStoragePromptOpen}
           onAttachmentError={setComposerError}
           onSubmit={submitComposer}
@@ -6330,12 +6344,14 @@ function AgentKitSuggestedPrompts({
   disabled,
   onSelect,
   className,
+  size = "compact",
   layout,
 }: {
   suggestions: AgentSuggestionInput[];
   disabled: boolean;
   onSelect: (suggestion: AgentSuggestionInput) => void;
   className: string;
+  size?: "compact" | "comfortable";
   layout?: "wrap" | "single-line";
 }) {
   const t = useT();
@@ -6357,6 +6373,7 @@ function AgentKitSuggestedPrompts({
       }))}
       onSelect={onSelect}
       className={className}
+      size={size}
       layout={layout}
     />
   );
@@ -6834,7 +6851,7 @@ function AgentKitRunFailure({
             )
           }
         />
-        {continueFailed ? (
+        {continueFailed && !superseded ? (
           <ComposerNotice
             role="alert"
             noticeId="continue-failed"
@@ -6895,8 +6912,12 @@ function AgentKitRunFailure({
             : undefined
         }
         onContinue={continueStoppedRun}
+        // A newer run carries the turn now, so a refused Continue is stale and
+        // would contradict the Stop button that run shows.
         continueError={
-          continueFailed ? t("agentChat.recovery.continueUnavailable") : null
+          continueFailed && !superseded
+            ? t("agentChat.recovery.continueUnavailable")
+            : null
         }
         onRetry={() => void retryFailedTurn()}
         onRetryWithoutAttachments={retryWithoutAttachments}

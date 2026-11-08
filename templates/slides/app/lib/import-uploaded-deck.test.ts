@@ -36,7 +36,7 @@ describe("importUploadedDeckIntoDeck", () => {
   it("imports one PPTX into the target before generation", async () => {
     mockCallAction.mockResolvedValue({
       imported: true,
-      deckId: "deck-1",
+      id: "deck-1",
       slideCount: 8,
     });
     const onImportStarted = vi.fn();
@@ -59,6 +59,7 @@ describe("importUploadedDeckIntoDeck", () => {
       {
         filePath: pptxFile.path,
         deckId: "deck-1",
+        replaceExisting: true,
       },
       { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
     );
@@ -116,7 +117,7 @@ describe("importUploadedDeckIntoDeck", () => {
   it("allows cleanup after a resolved empty import", async () => {
     mockCallAction.mockResolvedValue({
       imported: true,
-      deckId: "deck-1",
+      id: "deck-1",
       slideCount: 0,
     });
     const onImportStarted = vi.fn();

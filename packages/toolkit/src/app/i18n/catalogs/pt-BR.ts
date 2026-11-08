@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "auth.logOutFailed": "Não foi possível sair",
   "block.renderUnavailable": "Este bloco está temporariamente indisponível.",
   "block.loading": "Carregando bloco.",
   "composer.contextUrlLabel": "Endereço URL",
@@ -127,6 +128,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Vendas",
   "onboarding.roleOps": "Operações",
+  "onboarding.roleCreator": "Criador de conteúdo",
+  "onboarding.roleStudent": "Estudante",
+  "onboarding.roleEducator": "Educador",
   "onboarding.roleIndividual": "Individual",
   "onboarding.roleOther": "Outro",
   "onboarding.roleOtherInputLabel": "Descreva sua função",
@@ -996,6 +1000,7 @@ const messages: ToolkitAgentChatTranslation = {
     "O Builder.io inclui créditos gratuitos, ou você pode usar sua própria chave de API.",
   "setup.builderOrOwnKeys":
     "Use o Builder.io (créditos gratuitos) ou adicione as chaves do seu próprio provedor.",
+  "setup.reconnectBuilder": "Reconectar Builder.io",
   "setup.connectAi": "Conectar IA",
   "setup.connectBuilder": "Usar Builder.io",
   "setup.connectionsDescription":
@@ -1198,7 +1203,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.menu.scheduleTask": "Agendar tarefa",
   "composer.menu.scheduleTaskDescription":
     "Executar algo conforme uma programação",
-  "composer.menu.uploadFile": "Carregar arquivo",
+  "composer.menu.uploadFile": "Arquivos e imagens",
+  "composer.menu.searchWorkspace": "Pesquisar no espaço de trabalho…",
+  "composer.menu.references": "Referências",
+  "composer.menu.referenceFile": "Referenciar um arquivo",
+  "composer.menu.attachToMessage": "Adicionar contexto",
+  "composer.menu.commands": "Comandos",
   "composer.menu.uploadFileDescription":
     "Imagens, PDFs, texto/código, JSON, CSV",
   "composer.messageAgent": "Enviar mensagem ao agente...",
@@ -3585,6 +3595,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "Remover app do workspace",
   "chatFirst.showMore": "Mostrar mais",
   "chatFirst.showLess": "Mostrar menos",
+  "chatFirst.showMoreCount": "Mostrar mais {{count}}",
   "chatFirst.appOrderUnavailable":
     "Não foi possível salvar a ordem dos apps neste dispositivo.",
   "chatFirst.openSideSurfaces": "Abrir painéis laterais",

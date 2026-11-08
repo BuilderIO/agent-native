@@ -73,7 +73,7 @@ describe("onboarding journey event source projection", () => {
     const responseIdentityColumns =
       ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS.join(", ");
 
-    expect(ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS).toHaveLength(14);
+    expect(ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS).toHaveLength(15);
     expect(request).toMatchObject({ limit: 4_000, offset: 4_000 });
     expect(request.eventDateRange).toEqual({
       startDate: "2026-09-24",

@@ -118,13 +118,13 @@ pnpm dev                         # opens Dispatch; other apps start on first vis
 從工作區內的任何位置：
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 CLI 再次顯示範本選取器，其中已過濾掉您已安裝的應用程式。選取一個或多個，它們就會被搭建在 `apps/` 下。非互動式變體：
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 任何第一方範本都可以用作工作區應用程式 - CLI 在範本上執行一個小型 **workspacify** 轉換，將共用包新增為 dep 並解析 `workspace:*` 引用。無需維護並行的“工作空間應用程式”腳手架。
@@ -259,6 +259,8 @@ pnpm dev
 
 此設定控制應用程式清單、代理探索與代理間呼叫。已掛載的工作區應用程式以及已連線遠端代理的自訂 URL 保持優先。MCP 應用程式存取仍是獨立的路由權限。
 
+在 Dispatch 中，組織擁有者與管理員也可以在 設定 › 組織 › 應用程式 中（或使用 `set-hosted-apps-settings`）隱藏所提供的內建應用程式。隱藏後，它們會從該組織的 Dispatch 應用程式清單及其代理的應用程式脈絡中移除；以名稱使用 `call-agent` 仍可存取它們。沒有組織時沒有對應的設定頁面，只能由代理為該使用者變更。
+
 ## 共用 MCP 伺服器 {#shared-mcp}
 
 跨工作區應用共用 MCP 伺服器的推薦選項（按優先順序排列）：
@@ -293,6 +295,10 @@ my-company-platform/
 ## 共用憑證 {#shared-credentials}
 
 預設情況下，同一工作區中的應用程式指向同一 `DATABASE_URL`，因此框架憑證儲存可以使憑證可供每個應用程式使用，而無需每個應用程式設定。直接使用 `@agent-native/core/credentials`，或者如果您的工作區需要更嚴格的命名約定，則在 `packages/shared` 中新增瘦助手。
+
+## `/` 的預設應用程式 {#default-app}
+
+當工作區包含 `dispatch` 應用程式時，`/` 會開啟 Dispatch，否則開啟第一個應用程式。設定 `WORKSPACE_DEFAULT_APP=<app-id>` 可開啟其他應用程式。`agent-native dev` 與工作區部署都會先從程序環境讀取，再從工作區根目錄的 `.env` 讀取；不符合任何應用程式的值會被忽略。部署在建置時讀取此變數，因此請在執行建置的地方設定。Dispatch 保留自己的 `/dispatch` 重新導向，`deployment.workspace.rootPage: "directory"` 仍會顯示應用程式清單。
 
 ## 共用設計權杖 {#design-tokens}
 

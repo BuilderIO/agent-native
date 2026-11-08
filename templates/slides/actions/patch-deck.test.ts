@@ -1314,6 +1314,60 @@ describe("animation target validation", () => {
   });
 });
 
+describe("silent success: reorder and agent field schema", () => {
+  it("rejects reorder-slides ids that name no slide", () => {
+    const deck = {
+      slides: [
+        { id: "s1", content: "1" },
+        { id: "s2", content: "2" },
+      ],
+    };
+    expect(() =>
+      applyOperation(
+        deck,
+        { op: "reorder-slides", orderedIds: ["s2", "ghost"] },
+        { strictReorder: true },
+      ),
+    ).toThrow(/ghost/);
+    expect(deck.slides.map((s: { id: string }) => s.id)).toEqual(["s1", "s2"]);
+  });
+
+  it("ignores stale reorder-slides ids for non-agent callers", () => {
+    const deck = {
+      slides: [
+        { id: "s1", content: "1" },
+        { id: "s2", content: "2" },
+      ],
+    };
+    applyOperation(deck, {
+      op: "reorder-slides",
+      orderedIds: ["s2", "ghost", "s1"],
+    });
+    expect(deck.slides.map((s: { id: string }) => s.id)).toEqual(["s2", "s1"]);
+  });
+
+  it("agent patch-deck-fields schema does not accept visibility", () => {
+    const parameters = patchDeckAction.tool.parameters as {
+      properties: {
+        operations: {
+          items: {
+            anyOf: Array<{
+              properties?: {
+                op?: { const?: string };
+                fields?: { additionalProperties?: boolean };
+              };
+            }>;
+          };
+        };
+      };
+    };
+    const deckFields = parameters.properties.operations.items.anyOf.find(
+      (operation) => operation.properties?.op?.const === "patch-deck-fields",
+    );
+    expect(deckFields?.properties?.fields?.additionalProperties).toBe(false);
+  });
+});
+
 describe("isAgentPatchCaller", () => {
   it("treats tool, mcp, a2a, and webmcp callers as agent callers", () => {
     expect(isAgentPatchCaller("tool")).toBe(true);
@@ -3802,6 +3856,47 @@ describe("run() — reveals through an agent content patch", () => {
     expect(lastUpdatedDeckData).toBeUndefined();
   });
 
+  it("saves a shape appended at the slide end under a click-reveal on an earlier paragraph", async () => {
+    const row = mockDeckRow;
+    if (!row) throw new Error("mockDeckRow is not set");
+    row.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide"><h1>Heading</h1><p>First</p><p>Second</p></div>',
+          animations: [
+            {
+              id: "reveal-first",
+              elementIndex: 1,
+              elementPath: [1],
+              type: "fade",
+            },
+          ],
+        },
+      ],
+    });
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: {
+              content:
+                '<div class="fmd-slide"><h1>Heading</h1><p>First</p><p>Second</p><div class="fmd-shape fmd-shape-rectangle" data-slide-shape="rectangle" style="position: absolute; left: 10px; top: 10px; width: 100px; height: 60px"></div></div>',
+            },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+    expect(lastUpdatedDeckData).toBeDefined();
+  });
+
   it("refuses a content patch that inserts a sibling before a stored reveal's target, with a typed error and no write", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",
@@ -5273,6 +5368,11 @@ describe("run() — client write ordering", () => {
     ).rejects.toMatchObject({
       errorCode: "slide_content_stale",
       statusCode: 409,
+      details: {
+        slideId: "slide-1",
+        currentContent: "remote edit",
+        currentContentHash: hashSlideContent("remote edit"),
+      },
     });
 
     expect(JSON.parse(mockDeckRow!.data as string).slides[0].content).toBe(
@@ -5827,5 +5927,101 @@ describe("run() — patch-slide edits", () => {
         edits: [{ find: "#a85f43", replace: "#000000" }],
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("run() — a patch to a deleted slide is a typed 404 with no write", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content: "<div>One</div>" }],
+      }),
+    };
+  });
+
+  it("names the slide the client is still editing and writes nothing", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-2",
+              fields: { content: "<div>Edited</div>" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_not_found",
+      statusCode: 404,
+      details: { slideIds: ["slide-2"] },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("rejects a patch to a slide deleted earlier in the same batch", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "add-slide",
+              slideId: "slide-2",
+              fields: { content: "<div>Two</div>" },
+            },
+            { op: "delete-slide", slideId: "slide-1" },
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { notes: "late" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_not_found",
+      details: { slideIds: ["slide-1"] },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("accepts a patch to a slide added earlier in the same batch", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "add-slide",
+              slideId: "slide-2",
+              afterSlideId: "slide-1",
+              fields: { content: "<div>Two</div>" },
+            },
+            {
+              op: "patch-slide",
+              slideId: "slide-2",
+              fields: { notes: "Typed right after adding" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).resolves.toMatchObject({ ok: true });
   });
 });
