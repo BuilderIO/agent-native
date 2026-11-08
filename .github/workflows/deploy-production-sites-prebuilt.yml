@@ -1,30 +1,30 @@
-name: Stage beta CRM encryption readers
+name: Activate beta CRM encryption writers
 on: workflow_dispatch
 permissions:
   contents: read
 jobs:
-  stage:
+  activate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          PREVIOUS_KEYS: ${{ secrets.INCIDENT_CRM_BETA_PREVIOUS_KEYS }}
+          ROOTS: ${{ secrets.INCIDENT_CRM_BETA_WRITER_ROOTS }}
         with:
           script: |
             const sid='bef68db5-5bbc-41c6-b3d8-edeb7b871b5e';
-            const key='SECRETS_ENCRYPTION_KEYS_PREVIOUS';
             const headers={Authorization:'Bearer '+process.env.NETLIFY_AUTH_TOKEN,'Content-Type':'application/json'};
-            async function req(path,options={}){const r=await fetch('https://api.netlify.com/api/v1/'+path,{headers,...options});if(!r.ok)throw new Error('Netlify reader staging HTTP '+r.status);return r.status===204?null:await r.json()}
+            async function req(path,method='GET',body){const r=await fetch('https://api.netlify.com/api/v1/'+path,{headers,method,body:body===undefined?undefined:JSON.stringify(body)});if(!r.ok)throw Error('Writer activation HTTP '+r.status);return r.status===204?null:r.json()}
             const site=await req('sites/'+sid);
-            if(site.id!==sid||site.account_slug!=='steve8708'||site.custom_domain!=='beta.crm.agent-native.com')throw new Error('Beta CRM ownership changed');
-            const endpoint='accounts/'+site.account_slug+'/env?site_id='+sid;
-            const entries=await req(endpoint);
-            if(entries.some(e=>e.key===key))throw new Error('Reader variable already exists; inspect before retrying');
-            const value=process.env.PREVIOUS_KEYS;
-            if(!value||value.length<64)throw new Error('Prepared reader material is missing');
-            const contexts=['production','branch-deploy','deploy-preview'];
-            await req(endpoint,{method:'POST',body:JSON.stringify([{key,is_secret:true,scopes:['builds','functions'],values:contexts.map(context=>({context,value}))}])});
-            const entry=(await req(endpoint)).find(e=>e.key===key);
-            if(!entry||!entry.is_secret||!entry.scopes.includes('functions')||!contexts.every(context=>entry.values.some(v=>v.context===context)))throw new Error('Reader staging metadata readback failed');
-            core.info('Created and verified beta CRM previous-key reader configuration; current writer and authentication keys unchanged.');
+            if(site.account_slug!=='steve8708'||site.custom_domain!=='beta.crm.agent-native.com')throw Error('Ownership changed');
+            const ep='accounts/'+site.account_slug+'/env',q='?site_id='+sid;
+            for(const u of JSON.parse(process.env.ROOTS)){
+              if(!['SECRETS_ENCRYPTION_KEY','WORKSPACE_SECRETS_ENCRYPTION_KEY'].includes(u.key)||!u.value||u.value.length!==64)throw Error('Invalid writer target');
+              const e=(await req(ep+q)).find(e=>e.key===u.key);
+              if(!e)await req(ep+q,'POST',[{key:u.key,is_secret:true,scopes:['builds','functions'],values:u.contexts.map(context=>({context,value:u.value}))}]);
+              else if(e.is_secret){for(const context of u.contexts)await req(ep+'/'+u.key+q,'PATCH',{context,value:u.value});}
+              else{const values=e.values.filter(v=>!u.contexts.includes(v.context));values.push(...u.contexts.map(context=>({context,value:u.value})));await req(ep+'/'+u.key+q,'PUT',{key:u.key,is_secret:true,scopes:[...new Set([...e.scopes,'builds','functions'])],values});}
+              const check=(await req(ep+q)).find(e=>e.key===u.key);
+              if(!check?.is_secret||!check.scopes.includes('functions'))throw Error('Writer metadata verification failed');
+            }
+            core.info('Backed-up beta CRM encryption writer configuration activated; runtime deployment follows. Authentication unchanged.');
