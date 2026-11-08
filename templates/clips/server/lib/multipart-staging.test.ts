@@ -7,14 +7,14 @@ const b = (...n: number[]) => new Uint8Array(n);
 describe("joinContiguous", () => {
   it("joins chunks that exactly cover the range, in offset order", () => {
     expect([
-      ...joinContiguous(
+      ...(joinContiguous(
         [
           { offset: 12, bytes: b(3) },
           { offset: 10, bytes: b(1, 2) },
         ],
         10,
         13,
-      )!,
+      ) ?? []),
     ]).toEqual([1, 2, 3]);
   });
 

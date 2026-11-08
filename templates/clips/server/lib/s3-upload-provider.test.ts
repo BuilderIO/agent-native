@@ -1781,6 +1781,7 @@ describe("s3FileUploadProvider", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- the S3 provider always defines resumable
     const resumable = s3FileUploadProvider.resumable!;
     let session = await resumable.startSession(
       "recording-retry.webm",
@@ -1840,6 +1841,7 @@ describe("s3FileUploadProvider", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- the S3 provider always defines resumable
     const resumable = s3FileUploadProvider.resumable!;
     let session = await resumable.startSession(
       "recording-legacy.webm",
