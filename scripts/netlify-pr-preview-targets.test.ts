@@ -19,6 +19,7 @@ test("workspacePackages throws when a checkout has no package manifests", () => 
   );
 });
 
+// oracle-change: Accept a trailing LF or CRLF and expand cases to all eligible sites.
 test("preview commands allow only a single final LF or CRLF, ignoring case", () => {
   assert.equal(previewSiteFromCommand("/preview content\n"), "content");
   for (const site of previewEligibleSiteNames()) {
