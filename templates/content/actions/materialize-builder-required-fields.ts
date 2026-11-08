@@ -9,8 +9,10 @@ import {
   type BuilderCmsModelFieldSummary,
   type DocumentPropertyValue,
 } from "../shared/api.js";
+import { keepRuledOptions } from "../shared/column-rules.js";
 import {
   normalizePropertyVisibility,
+  parsePropertyOptions,
   serializePropertyOptions,
   serializePropertyValue,
   type DocumentPropertyOptionColor,
@@ -19,6 +21,7 @@ import {
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
 import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
+import { columnRuleDefinitions } from "./_column-rules.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
@@ -406,6 +409,10 @@ export default defineAction({
             },
           });
       }
+      const ruleDefinitions = await columnRuleDefinitions(
+        tx as unknown as ReturnType<typeof getDb>,
+        database.id,
+      );
       for (const metadata of requiredModelFields) {
         const field = currentByKey.get(requiredFieldKey(metadata));
         if (!field) {
@@ -434,9 +441,15 @@ export default defineAction({
               `Required Builder reference field ${field.sourceFieldLabel} is not bound to a valid select property. No fields were repaired.`,
             );
           }
-          const repairedOptionsJson = serializePropertyOptions(
-            reference.options,
-          );
+          const repairedOptionsJson = serializePropertyOptions({
+            ...reference.options,
+            options: keepRuledOptions(
+              ruleDefinitions,
+              property.id,
+              parsePropertyOptions(property.optionsJson).options,
+              reference.options.options ?? [],
+            ),
+          });
           if (property.optionsJson !== repairedOptionsJson) {
             await tx
               .update(schema.documentPropertyDefinitions)

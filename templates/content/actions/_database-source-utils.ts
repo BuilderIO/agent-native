@@ -61,6 +61,7 @@ import {
   builderReadableBodyToBuilderBlocks,
   builderMdxBodyToBuilderBlocks,
 } from "../shared/builder-mdx.js";
+import { keepRuledOptions } from "../shared/column-rules.js";
 import {
   normalizePropertyValueWithOptions,
   parsePropertyOptions,
@@ -151,6 +152,7 @@ import {
   removeBuilderStatusPropertyWithoutSource,
   writeBuilderStatusValues,
 } from "./_builder-status-property.js";
+import { columnRuleDefinitions } from "./_column-rules.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import {
@@ -9332,13 +9334,17 @@ async function lockedSourcePropertyPass(
         .where(eq(definitions.id, propertyId)),
     );
     if (!definition) return false;
+    const currentOptions =
+      parsePropertyOptions(definition.optionsJson).options ?? [];
     await tx
       .update(definitions)
       .set({
         optionsJson: serializePropertyOptions({
-          options: sourcePropertyOptionsForSources(
-            currentSources,
-            parsePropertyOptions(definition.optionsJson).options ?? [],
+          options: keepRuledOptions(
+            await columnRuleDefinitions(tx, args.database.id),
+            propertyId,
+            currentOptions,
+            sourcePropertyOptionsForSources(currentSources, currentOptions),
           ),
         }),
         updatedAt: args.now,

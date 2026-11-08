@@ -5,6 +5,7 @@ import {
   freezeRuleOf,
   frozenBlocksFieldMessage,
   frozenBlocksFields,
+  keepRuledOptions,
   tabsFrozenBy,
   toggledFreezeRule,
   type ColumnRuleDefinition,
@@ -144,10 +145,13 @@ describe("which tabs are frozen", () => {
   });
 
   it("tells whoever was refused what reopens the tab", () => {
-    const [field] = frozenBlocksFields(definitions, () => "approved");
-    expect(frozenBlocksFieldMessage(field)).toBe(
+    expect(
+      frozenBlocksFields(definitions, () => "approved").map((field) =>
+        frozenBlocksFieldMessage(field),
+      ),
+    ).toEqual([
       "The Spec tab can't change while Status is Approved: a rule on this collection freezes it. Move Status off Approved to edit it, or comment on the page instead.",
-    );
+    ]);
   });
 
   it("knows which columns rules key on, and which tabs each one freezes", () => {
@@ -194,5 +198,31 @@ describe("checking a value in a tab's menu", () => {
       propertyId: "status",
       optionIds: ["draft"],
     });
+  });
+});
+
+describe("a source rewriting a column's options", () => {
+  const upstream = [{ id: "draft", name: "Draft", color: "gray" as const }];
+
+  it("keeps an option a rule names that the source left out", () => {
+    expect(
+      keepRuledOptions(
+        definitions,
+        "status",
+        status.options.options,
+        upstream,
+      ).map((option) => option.id),
+    ).toEqual(["draft", "approved"]);
+  });
+
+  it("takes the source's options as they are on a column no rule keys on", () => {
+    expect(
+      keepRuledOptions(
+        [status, notes],
+        "status",
+        status.options.options,
+        upstream,
+      ),
+    ).toEqual(upstream);
   });
 });

@@ -1,4 +1,8 @@
-import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import {
+  MutationObserver,
+  QueryClient,
+  QueryObserver,
+} from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const useActionMutation = vi.hoisted(() => vi.fn());
@@ -31,6 +35,7 @@ import {
   useSetBlocksFieldFreezeRule,
   useSetDocumentProperty,
   useUpdateDatabaseItems,
+  type SetBlocksFieldFreezeRuleRequest,
 } from "./use-document-properties";
 
 describe("documentPropertiesResponseMatchesScope", () => {
@@ -1169,7 +1174,7 @@ describe("useSetBlocksFieldFreezeRule", () => {
         scope: { id: "content-column-rules:database-1" },
       }),
     );
-    const options = useActionMutation.mock.calls[0][1];
+    const options = useActionMutation.mock.lastCall?.[1];
     const approved = {
       databaseId: "database-1",
       propertyId: "spec",
@@ -1201,5 +1206,83 @@ describe("useSetBlocksFieldFreezeRule", () => {
     expect(toastError).toHaveBeenCalledWith(expect.any(String), {
       description: "The Spec tab's rule changed.",
     });
+  });
+
+  it("rereads the rule only after the last queued change lands", async () => {
+    const queryClient = new QueryClient();
+    const key = [
+      "action",
+      "list-document-properties",
+      { documentId: "row-1", databaseId: "database-1" },
+    ];
+    queryClient.setQueryData(key, {
+      documentId: "row-1",
+      databaseId: "database-1",
+      properties: [
+        {
+          definition: { id: "spec", type: "blocks", options: {} },
+          value: "",
+        },
+      ],
+    });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockImplementation((_name, options) => options);
+    useSetBlocksFieldFreezeRule("row-1", "database-1", "database-page-1");
+    const options = useActionMutation.mock.lastCall?.[1];
+    // Each request waits until the test lets it finish.
+    const waiting: Array<() => void> = [];
+    let started = 0;
+    const finishNext = () => waiting.shift()?.();
+    const click = (optionIds: string[]) =>
+      new MutationObserver<
+        { ok: true },
+        Error,
+        SetBlocksFieldFreezeRuleRequest
+      >(queryClient, {
+        ...options,
+        mutationFn: () =>
+          new Promise((resolve) => {
+            started += 1;
+            waiting.push(() => resolve({ ok: true }));
+          }),
+      }).mutate({
+        databaseId: "database-1",
+        propertyId: "spec",
+        rule: { propertyId: "status", optionIds },
+      });
+    const shownRule = () =>
+      queryClient.getQueryData<{
+        properties: Array<{
+          definition: { options: { blocks?: { freezeWhen?: unknown } } };
+        }>;
+      }>(key)?.properties[0]?.definition.options.blocks?.freezeWhen;
+    const rereads = () =>
+      invalidate.mock.calls.filter(
+        ([filters]) =>
+          JSON.stringify(filters?.queryKey) === JSON.stringify(key),
+      ).length;
+    const last = {
+      propertyId: "status",
+      optionIds: ["approved", "published", "archived"],
+    };
+
+    const clicks = [
+      click(["approved"]),
+      click(["approved", "published"]),
+      click(last.optionIds),
+    ];
+    // Changes go one at a time, and every click shows at once.
+    await vi.waitFor(() => expect(started).toBe(1));
+    expect(shownRule()).toEqual(last);
+    finishNext();
+    await vi.waitFor(() => expect(started).toBe(2));
+    finishNext();
+    await vi.waitFor(() => expect(started).toBe(3));
+    expect(rereads()).toBe(0);
+    expect(shownRule()).toEqual(last);
+    finishNext();
+    await Promise.all(clicks);
+    expect(rereads()).toBe(1);
   });
 });

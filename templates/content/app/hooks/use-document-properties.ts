@@ -878,13 +878,14 @@ export function useSetBlocksFieldFreezeRule(
 ) {
   const queryClient = useQueryClient();
   const queryKey = documentPropertiesQueryKey(documentId, databaseId);
+  const scopeId = `content-column-rules:${databaseId}`;
   return useActionMutation<
     { ok: true; propertyId: string; rule: BlocksFieldFreezeRule | null },
     SetBlocksFieldFreezeRuleRequest
   >("set-blocks-field-freeze-rule", {
     skipActionQueryInvalidation: true,
     // Each change sends the whole rule, so they must land in click order.
-    scope: { id: `content-column-rules:${databaseId}` },
+    scope: { id: scopeId },
     onMutate: async (variables) => {
       await queryClient.cancelQueries({ queryKey });
       queryClient.setQueryData<DocumentPropertiesResponse>(
@@ -917,6 +918,13 @@ export function useSetBlocksFieldFreezeRule(
       });
     },
     onSettled: () => {
+      // While a later click waits its turn, a reread would show the rule
+      // without it, and the click after that would send that older rule.
+      // The last change to settle rereads for all of them.
+      const pending = queryClient.isMutating({
+        predicate: (mutation) => mutation.options.scope?.id === scopeId,
+      });
+      if (pending > 1) return;
       void queryClient.invalidateQueries({ queryKey });
       void queryClient.invalidateQueries(
         contentDatabaseQueryFilter(databaseDocumentId),

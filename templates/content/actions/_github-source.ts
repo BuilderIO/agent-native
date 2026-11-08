@@ -657,6 +657,22 @@ async function ensureOptions(
   const names = (Array.isArray(value) ? value : [value]).filter(
     (name): name is string => typeof name === "string" && !!name.trim(),
   );
+  const cached = new Set(
+    (column.options.options ?? []).map((option) =>
+      option.name.trim().toLowerCase(),
+    ),
+  );
+  if (names.every((name) => cached.has(name.trim().toLowerCase()))) return;
+  // A person may have changed the options since this sync loaded its columns,
+  // and a rule may name one they added, so new choices join the options as
+  // they are now, under the collection's lock.
+  const current = firstRow(
+    await tx
+      .select({ optionsJson: schema.documentPropertyDefinitions.optionsJson })
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, column.propertyId)),
+  );
+  if (current) column.options = parsePropertyOptions(current.optionsJson);
   const options = [...(column.options.options ?? [])];
   const known = new Set(
     options.map((option) => option.name.trim().toLowerCase()),

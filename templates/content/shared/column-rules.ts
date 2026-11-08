@@ -2,6 +2,7 @@ import {
   isPrimaryBlocksField,
   normalizePropertyValueWithOptions,
   type BlocksFieldFreezeRule,
+  type DocumentPropertyOption,
   type DocumentPropertyOptions,
   type DocumentPropertyType,
 } from "./properties.js";
@@ -65,6 +66,28 @@ export function freezeRuleKeys(
     keys.set(rule.propertyId, ids);
   }
   return keys;
+}
+
+/**
+ * A column's options as a source rewrites them, plus any option a rule names
+ * that the source left out. A person removing one is refused; a source isn't
+ * asked, so the option stays and the rule keeps matching its rows.
+ */
+export function keepRuledOptions(
+  definitions: readonly ColumnRuleDefinition[],
+  propertyId: string,
+  current: readonly DocumentPropertyOption[] | undefined,
+  next: readonly DocumentPropertyOption[],
+): DocumentPropertyOption[] {
+  const named = freezeRuleKeys(definitions).get(propertyId);
+  if (!named) return [...next];
+  const kept = new Set(next.map((option) => option.id));
+  return [
+    ...next,
+    ...(current ?? []).filter(
+      (option) => named.has(option.id) && !kept.has(option.id),
+    ),
+  ];
 }
 
 /** The ruled tabs that use this column as their key. */

@@ -30,6 +30,7 @@ vi.mock("@/hooks/use-document-properties", () => ({
   useDeleteDocumentProperty: () => ({ mutateAsync: vi.fn() }),
   useReorderDocumentProperty: () => ({ mutateAsync: vi.fn() }),
   useSetDocumentProperty: () => ({ mutateAsync: vi.fn(async () => ({})) }),
+  useSetBlocksFieldFreezeRule: () => ({ mutate: vi.fn() }),
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 vi.mock("@/components/QueryErrorState", () => ({
