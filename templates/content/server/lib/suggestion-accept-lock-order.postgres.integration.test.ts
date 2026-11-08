@@ -272,11 +272,13 @@ function acceptSuggestion(suggestion: ResourceSuggestion) {
 }
 
 async function storedContent(documentId: string) {
-  const [stored] = await getDb()
-    .select({ content: schema.documents.content })
-    .from(schema.documents)
-    .where(eq(schema.documents.id, documentId));
-  return stored.content;
+  const stored = (
+    await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId))
+  ).pop();
+  return stored?.content;
 }
 
 // oracle-change: new tests, which skip without Postgres like the rest of this file.

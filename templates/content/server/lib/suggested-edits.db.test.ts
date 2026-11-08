@@ -1351,15 +1351,18 @@ describe("Content suggested edits Blocks transaction", () => {
 
   it("returns a retryable conflict when the Page joins a collection after its memberships were locked", async () => {
     const { documentId } = await seedSystemDatabasePage(1);
-    const [joining] = await getDb()
-      .delete(schema.contentDatabaseItems)
-      .where(
-        eq(
-          schema.contentDatabaseItems.id,
-          `suggestion-ordinary-item-${sequence}-0`,
-        ),
-      )
-      .returning();
+    const joining = (
+      await getDb()
+        .delete(schema.contentDatabaseItems)
+        .where(
+          eq(
+            schema.contentDatabaseItems.id,
+            `suggestion-ordinary-item-${sequence}-0`,
+          ),
+        )
+        .returning()
+    ).pop();
+    if (!joining) throw new Error("The Page has no ordinary membership.");
     await expect(
       getDbExec().transaction!(async (tx) => {
         const prepared = coordination();
