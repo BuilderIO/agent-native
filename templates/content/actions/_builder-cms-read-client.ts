@@ -1147,14 +1147,14 @@ async function initializeBuilderMcp(args: {
 
 async function readBuilderCmsContentEntriesViaMcp(args: {
   model: string;
-  fieldPaths?: readonly string[];
-  includeBodies?: boolean;
-  rawData?: boolean;
-  limit?: number;
-  maxPages?: number;
-  offset?: number;
-  startingFetchedEntryCount?: number;
-  expectedCollectionCount?: number;
+  fieldPaths?: readonly string[] | undefined;
+  includeBodies?: boolean | undefined;
+  rawData?: boolean | undefined;
+  limit?: number | undefined;
+  maxPages?: number | undefined;
+  offset?: number | undefined;
+  startingFetchedEntryCount?: number | undefined;
+  expectedCollectionCount?: number | undefined;
   fetchImpl: FetchLike;
   accessToken: string;
 }): Promise<BuilderCmsReadResult> {
@@ -1472,10 +1472,10 @@ async function readBuilderCmsGeneralApiEntry(args: {
   model: string;
   entryId: string;
   authorization: BuilderRequestAuthorization;
-  expectedSourceSpace?: string | null;
-  expectedSourceConnectionId?: string | null;
+  expectedSourceSpace?: string | null | undefined;
+  expectedSourceConnectionId?: string | null | undefined;
   fetchImpl: FetchLike;
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
 }) {
   const publicKey = requireBuilderOAuthPublicKey(
     args.authorization,

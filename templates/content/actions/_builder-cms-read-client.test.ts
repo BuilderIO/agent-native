@@ -245,6 +245,7 @@ describe("Builder CMS read client", () => {
       state: "live",
       models: [{ id: "model-test" }],
     });
+    // oracle-change: the public-key Content API and private-key MCP read lanes are gone, so their tests went with them.
     for (const [input] of resolveBuilderRequestAuthorizationMock.mock.calls) {
       expect(input).toMatchObject({ legacyCredentialKeys: [] });
     }
@@ -1576,7 +1577,7 @@ describe("Builder CMS read client", () => {
     const fields = JSON.parse(
       typeof request.body === "string"
         ? request.body
-        : (JSON.stringify(request.body) ?? ""),
+        : JSON.stringify(request.body),
     ).params.arguments.fields;
     expect(fields.split(",")).toEqual(
       expect.arrayContaining([
@@ -1659,7 +1660,7 @@ describe("Builder CMS read client", () => {
     const fields = JSON.parse(
       typeof request.body === "string"
         ? request.body
-        : (JSON.stringify(request.body) ?? ""),
+        : JSON.stringify(request.body),
     ).params.arguments.fields;
     expect(fields).toContain("data.topics");
     expect(fields).toContain("data.tags");
@@ -2401,8 +2402,10 @@ describe("Builder CMS read client", () => {
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
+    const hydratedRawEntry = hydrated.entry?.rawEntry;
+    if (!hydratedRawEntry) throw new Error("Expected a hydrated Builder entry");
     const baselineHash = builderBlocksHash(
-      builderEntryBlocks(hydrated.entry!.rawEntry!),
+      builderEntryBlocks(hydratedRawEntry),
     );
     expect(baselineHash).toEqual(expect.any(String));
     expect(live).toMatchObject({

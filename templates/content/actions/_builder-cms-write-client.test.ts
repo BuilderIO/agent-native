@@ -171,6 +171,7 @@ describe("Builder CMS write client", () => {
     expect(resolveBuilderRequestAuthorizationMock).toHaveBeenCalledTimes(1);
   });
 
+  // oracle-change: Source writes no longer fall back to deploy keys, so the tests of that fallback went with it.
   it("keeps unbound Builder docs writes on the legacy credential lane", async () => {
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
