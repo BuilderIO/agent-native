@@ -264,8 +264,10 @@ export const searchRelevanceCases: SearchEvalCase[] = [
   },
 
   // ---------------------------------------------------------------------
-  // question (9) — report-only; natural-language questions AND every word
-  // together, so filler words rarely all appear in one document today.
+  // question (27) — report-only; natural-language questions AND every word
+  // together, so filler words rarely all appear in one document today. The
+  // last 18 also ask in words the answer doesn't use ("charged twice" for
+  // "duplicate charges"), and one asks in English about a Spanish page.
   // ---------------------------------------------------------------------
   {
     id: "question-q3-hiring-plan",
@@ -330,6 +332,142 @@ export const searchRelevanceCases: SearchEvalCase[] = [
     query: "where can I find the current task priorities",
     expectFirst: "task-priorities-collection",
     rationale: "Natural-language question about the Task Priorities page.",
+  },
+  {
+    id: "question-charged-twice",
+    class: "question",
+    query: "why were some customers charged twice",
+    expectFirst: "incident-postmortem-checkout",
+    rationale: "The postmortem says duplicate charges, not charged twice.",
+  },
+  {
+    id: "question-duplicate-charge-refunds",
+    class: "question",
+    query:
+      "how quickly do we refund duplicate charges for enterprise customers",
+    expectFirst: "spanish-refund-policy",
+    rationale: "Only the Spanish refund policy answers it.",
+  },
+  {
+    id: "question-failed-payments",
+    class: "question",
+    query: "what happens when a customer's payment fails",
+    expectFirst: "billing-v2-spec",
+    rationale: "Billing v2 describes dunning emails before a downgrade.",
+  },
+  {
+    id: "question-undo-sso",
+    class: "question",
+    query: "how do we undo SSO for one customer if it breaks their login",
+    expectFirst: "sso-rollout-plan",
+    rationale:
+      "The rollout plan's rollback disables enforcement per workspace.",
+  },
+  {
+    id: "question-unsupported-browsers",
+    class: "question",
+    query: "which browsers are we no longer supporting",
+    expectFirst: "adr-014-drop-safari-15",
+    rationale: "The decision record names Safari 15 but never says browsers.",
+  },
+  {
+    id: "question-why-grpc",
+    class: "question",
+    query: "why do our internal services use gRPC instead of REST",
+    expectFirst: "adr-005-grpc",
+    rationale: "Natural-language question about the gRPC decision record.",
+  },
+  {
+    id: "question-exports-large-workspaces",
+    class: "question",
+    query: "how do exports work for really big workspaces",
+    expectFirst: "data-export-api-spec",
+    rationale: "The export spec streams large workspaces in batches.",
+  },
+  {
+    id: "question-paging-unacknowledged",
+    class: "question",
+    query: "what happens if nobody answers a page",
+    expectFirst: "oncall-rotation-q3",
+    rationale:
+      "The rotation escalates a page not acknowledged in five minutes.",
+  },
+  {
+    id: "question-out-of-scope-this-quarter",
+    class: "question",
+    query: "what did we leave out of this quarter's plan",
+    acceptableTop3: ["q3-roadmap", "product-review-aug-20"],
+    rationale: "Pricing tier changes are out of scope for Q3.",
+  },
+  {
+    id: "question-new-hire-laptop",
+    class: "question",
+    query: "what's ready on a new hire's laptop on day one",
+    acceptableTop3: [
+      "new-engineer-onboarding-guide",
+      "new-hire-it-setup-checklist",
+    ],
+    rationale: "Both onboarding pages describe the day-one laptop.",
+  },
+  {
+    id: "question-engineering-headcount",
+    class: "question",
+    query: "how many engineers are we adding this quarter",
+    expectFirst: "hiring-plan-q3",
+    rationale: "The hiring plan says engineering adds three roles.",
+  },
+  {
+    id: "question-slow-dashboards-big-customers",
+    class: "question",
+    query: "why are dashboards slow for our biggest customers",
+    acceptableTop3: [
+      "task-improve-query-planner",
+      "task-reduce-dashboard-load-time",
+    ],
+    rationale: "Both tasks cover dashboard load time for large workspaces.",
+  },
+  {
+    id: "question-mobile-release-stages",
+    class: "question",
+    query: "how gradually did we release the phone app",
+    expectFirst: "mobile-launch-plan",
+    rationale: "The launch plan stages the rollout at 10 and 50 percent.",
+  },
+  {
+    id: "question-simultaneous-edits",
+    class: "question",
+    query:
+      "what happens when two people edit the same dashboard widget at once",
+    expectFirst: "realtime-collab-spec",
+    rationale: "The collaboration spec resolves conflicts per field.",
+  },
+  {
+    id: "question-public-prices",
+    class: "question",
+    query: "do we show our prices publicly",
+    expectFirst: "pricing-blog",
+    rationale: "The pricing post says tier limits are published.",
+  },
+  {
+    id: "question-advisory-board-requests",
+    class: "question",
+    query: "what features did the customer advisory board ask for",
+    expectFirst: "customer-advisory-board-notes",
+    rationale: "Natural-language question about the advisory board notes.",
+  },
+  {
+    id: "question-support-first-weeks",
+    class: "question",
+    query: "what do new support people do in their first two weeks",
+    expectFirst: "support-onboarding-runbook",
+    rationale: "The support runbook covers two weeks of shadowing.",
+  },
+  {
+    id: "question-one-on-one-template",
+    class: "question",
+    query: "where is my template for one on one meetings",
+    expectFirst: "personal-1-1-template",
+    rationale: "The template's title says 1:1, not one on one.",
   },
 
   // ---------------------------------------------------------------------

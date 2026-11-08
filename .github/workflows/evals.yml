@@ -11,6 +11,7 @@ on:
         options:
           - content-parity
           - brain
+          - content-question-search
           - all
   schedule:
     - cron: "0 9 * * *"
@@ -188,6 +189,26 @@ jobs:
               if [[ "$eval_status" -ne 0 ]]; then
                 exit "$eval_status"
               fi
+            fi
+          fi
+
+          # A one-off comparison that calls models on every run, so only when
+          # asked for by name, never in the daily run.
+          if [[ "$suite" == "content-question-search" ]]; then
+            if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+              {
+                echo "### Content question search"
+                echo ""
+                echo "Status: SKIPPED"
+                echo ""
+                echo "Reason: no OpenAI key is configured."
+                echo ""
+              } >> "$GITHUB_STEP_SUMMARY"
+            else
+              report_dir="$RUNNER_TEMP/question-search"
+              export SEARCH_QUESTION_BAKEOFF=1 SEARCH_QUESTION_BAKEOFF_REPORT="$report_dir"
+              pnpm --filter content exec vitest run evals/question-search
+              cat "$report_dir/question-search-bakeoff.md" >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
 
