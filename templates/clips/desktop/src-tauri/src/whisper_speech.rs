@@ -475,6 +475,17 @@ mod macos {
         }
     }
 
+    /// The cleaned text of a pass's segments, if any words survive.
+    fn segments_text(raw_segs: &[(i64, i64, String)], engine: LocalEngine) -> Option<String> {
+        let joined: String = raw_segs
+            .iter()
+            .map(|(_, _, t)| t.trim())
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        clean_transcript(&joined, engine)
+    }
+
     /// Whether a dictation's last pass runs, and its words stand. A silent
     /// verdict at release skips the pass and discards the words, unless a
     /// word was recognized in audio the speech check scored as possible
@@ -499,13 +510,7 @@ mod macos {
             engine: LocalEngine,
             heard: Range<Duration>,
         ) -> Option<String> {
-            let joined: String = raw_segs
-                .iter()
-                .map(|(_, _, t)| t.trim())
-                .filter(|t| !t.is_empty())
-                .collect::<Vec<_>>()
-                .join(" ");
-            let clean = clean_transcript(&joined, engine)?;
+            let clean = segments_text(raw_segs, engine)?;
             let at = |offset_ms: i64| {
                 let offset = Duration::from_millis(offset_ms.max(0) as u64);
                 (heard.start + offset).min(heard.end)
@@ -794,7 +799,14 @@ mod macos {
             raw_segs: &[(i64, i64, String)],
             offset_ms: i64,
         ) {
-            let Some(clean) = self.last_pass.recognize(raw_segs, self.engine, heard) else {
+            // Only a dictation's mic gets a silent verdict to check the spans
+            // against; a meeting's streams would collect them for hours.
+            let clean = if self.speech_check.is_some() {
+                self.last_pass.recognize(raw_segs, self.engine, heard)
+            } else {
+                segments_text(raw_segs, self.engine)
+            };
+            let Some(clean) = clean else {
                 return;
             };
             let segments = raw_segs
