@@ -2522,7 +2522,7 @@ export default defineAction({
       const measuredMedia = fillMediaFacts(
         givenMedia,
         isMissingMediaFacts(givenMedia)
-          ? await probeMediaInfo(uploadData, videoFormat)
+          ? await probeMediaInfo(uploadData, videoFormat).catch(() => null)
           : null,
       );
 

@@ -1116,6 +1116,38 @@ describe("finalize-recording media serve verification", () => {
     );
   });
 
+  it("still finishes the upload when reading the file fails", async () => {
+    seedBufferedRecording();
+    mockState.uploadState = {
+      ...mockState.uploadState,
+      durationMs: 0,
+      width: 0,
+      height: 0,
+    };
+    mockProbeMediaInfo.mockRejectedValueOnce(new Error("ENOSPC"));
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("public media", {
+        status: 206,
+        headers: { "content-range": "bytes 0-11/12" },
+      }),
+    );
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(expect.objectContaining({ status: "ready" }));
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "ready",
+        durationMs: 0,
+        width: 0,
+        height: 0,
+      }),
+    );
+  });
+
   it("keeps the length and size an upload gave, without reading the file for them", async () => {
     seedBufferedRecording();
     mockProbeMediaInfo.mockClear();

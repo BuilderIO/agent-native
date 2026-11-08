@@ -180,7 +180,7 @@ async function measureMedia(
  * to it.
  */
 async function saveMeasuredMedia(
-  rec: { id: string; videoUrl: string },
+  rec: { id: string; videoUrl: string; mediaUpdatedAt: string },
   ownerEmail: string,
   columns: MeasuredMediaColumns,
 ): Promise<void> {
@@ -192,6 +192,8 @@ async function saveMeasuredMedia(
         eq(schema.recordings.id, rec.id),
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         eq(schema.recordings.videoUrl, rec.videoUrl),
+        // Any media replacement moves this, even one that keeps the URL.
+        eq(schema.recordings.mediaUpdatedAt, rec.mediaUpdatedAt),
       ),
     );
   await writeAppState("refresh-signal", { ts: Date.now() });
@@ -223,6 +225,7 @@ async function ensureRecordingSeekableInternal(params: {
       width: schema.recordings.width,
       height: schema.recordings.height,
       hasAudio: schema.recordings.hasAudio,
+      mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
     })
     .from(schema.recordings)
     .where(
@@ -303,7 +306,11 @@ async function ensureRecordingSeekableInternal(params: {
   if (!seekable.changed) {
     if (measuredColumns) {
       await saveMeasuredMedia(
-        { id: recordingId, videoUrl: rec.videoUrl },
+        {
+          id: recordingId,
+          videoUrl: rec.videoUrl,
+          mediaUpdatedAt: rec.mediaUpdatedAt,
+        },
         ownerEmail,
         measuredColumns,
       ).catch((err) => {

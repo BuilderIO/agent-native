@@ -11,6 +11,7 @@ const recording = vi.hoisted(() => ({
   width: 1280,
   height: 720,
   hasAudio: true,
+  mediaUpdatedAt: "2026-11-01T00:00:00.000Z",
 }));
 const repairedBytes = vi.hoisted(() => new Uint8Array([9, 8, 7, 6]));
 const mockProbeMediaInfo = vi.hoisted(() => vi.fn());
@@ -88,6 +89,7 @@ vi.mock("../../server/db/index.js", () => ({
       width: "recordings.width",
       height: "recordings.height",
       hasAudio: "recordings.hasAudio",
+      mediaUpdatedAt: "recordings.mediaUpdatedAt",
     },
   },
 }));
@@ -412,6 +414,10 @@ describe("ensureRecordingSeekable timeline normalization", () => {
       expect(mockUpdateWhere).toHaveBeenCalledWith(
         expect.arrayContaining([
           { column: "recordings.videoUrl", value: recording.videoUrl },
+          {
+            column: "recordings.mediaUpdatedAt",
+            value: recording.mediaUpdatedAt,
+          },
         ]),
       );
       expect(mockWriteAppState).toHaveBeenCalledWith(
