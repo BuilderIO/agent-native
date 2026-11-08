@@ -2,37 +2,32 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { getLabForLegacyFlag } from "../../labs/registry.js";
-import { requireFeatureFlagManager } from "../permissions.js";
+import { getFeatureFlagManagerAccess } from "../permissions.js";
 import { listFeatureFlags } from "../registry.js";
-import { evaluateFeatureFlagRules, getFeatureFlagRules } from "../store.js";
+import {
+  defaultFeatureFlagRules,
+  evaluateFeatureFlagRules,
+  readFeatureFlagRuleLayers,
+} from "../store.js";
+
+const forbidden = {
+  contractVersion: 1,
+  status: "forbidden" as const,
+  reason: "forbidden" as const,
+  flags: [],
+  canManage: false,
+};
 
 export default defineAction({
   description:
-    "List this app's registered feature flags and their current rules. Organization owner/admin only (or the explicit no-org administrator).",
+    "List this app's registered feature flags for an operator. Each flag reports the global rule, the active organization's own rule, which of the two is in effect for that organization, and whether the caller can change each one; a rule that could not be read is reported as unreadable, never as off. Organization owners/admins and this app's feature flag admin list only.",
   schema: z.object({}),
   http: { method: "GET" },
   toolCallable: false,
   run: async (_args, ctx) => {
     const definitions = listFeatureFlags();
-    let manager;
-    try {
-      manager = await requireFeatureFlagManager(ctx ?? {});
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        "statusCode" in error &&
-        (error as { statusCode?: number }).statusCode === 403
-      ) {
-        return {
-          contractVersion: 1,
-          status: "forbidden" as const,
-          reason: "forbidden" as const,
-          flags: [],
-          canManage: false,
-        };
-      }
-      throw error;
-    }
+    const access = await getFeatureFlagManagerAccess(ctx ?? {});
+    if (!access.canManageOrg && !access.canManageGlobal) return forbidden;
     if (definitions.length === 0)
       return {
         contractVersion: 1,
@@ -43,23 +38,42 @@ export default defineAction({
       };
     const flags = await Promise.all(
       definitions.map(async (definition) => {
-        const rules = await getFeatureFlagRules(definition.key, manager);
+        const layers = await readFeatureFlagRuleLayers(definition.key, access);
+        const inEffect =
+          layers.inEffect === "org"
+            ? layers.org
+            : layers.inEffect === "global"
+              ? layers.global
+              : null;
+        const rules = !inEffect
+          ? defaultFeatureFlagRules()
+          : inEffect.state === "set"
+            ? inEffect.rules
+            : null;
+        const movedToLab = getLabForLegacyFlag(definition.key)?.key;
         return {
           ...definition,
-          ...(getLabForLegacyFlag(definition.key) && {
-            movedToLab: getLabForLegacyFlag(definition.key)?.key,
-            canManage: false,
-          }),
-          rules,
-          enabledForCurrentUser: evaluateFeatureFlagRules(
-            definition.key,
+          ...(movedToLab && { movedToLab, canManage: false }),
+          ...(rules && {
             rules,
-            {
-              userEmail: manager.email,
-              userKey: manager.email,
-              orgId: manager.orgId,
+            enabledForCurrentUser: evaluateFeatureFlagRules(
+              definition.key,
+              rules,
+              {
+                userEmail: access.email,
+                userKey: access.email,
+                orgId: access.orgId,
+              },
+            ),
+          }),
+          scopes: {
+            inEffect: layers.inEffect,
+            global: { ...layers.global, canManage: access.canManageGlobal },
+            org: layers.org && {
+              ...layers.org,
+              canManage: access.canManageOrg,
             },
-          ),
+          },
         };
       }),
     );

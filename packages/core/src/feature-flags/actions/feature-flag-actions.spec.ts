@@ -33,9 +33,12 @@ vi.mock("../registry.js", () => ({
 }));
 
 const requireFeatureFlagManagerMock = vi.fn();
+const getFeatureFlagManagerAccessMock = vi.fn();
 vi.mock("../permissions.js", () => ({
   requireFeatureFlagManager: (...args: any[]) =>
     requireFeatureFlagManagerMock(...args),
+  getFeatureFlagManagerAccess: (...args: any[]) =>
+    getFeatureFlagManagerAccessMock(...args),
 }));
 
 const getOrgDomainMock = vi.fn();
@@ -45,6 +48,13 @@ vi.mock("../../org/context.js", () => ({
 
 const defaultFeatureFlagRulesMock = vi.fn();
 const getFeatureFlagRulesMock = vi.fn();
+const readFeatureFlagRuleLayersMock = vi.fn(
+  async (key: string, scope: unknown) => ({
+    inEffect: "global",
+    global: { state: "set", rules: await getFeatureFlagRulesMock(key, scope) },
+    org: null,
+  }),
+);
 const evaluateFeatureFlagRulesMock = vi.fn();
 const normalizeFeatureFlagRulesMock = vi.fn((value) => value);
 const mutateFeatureFlagRulesMock = vi.fn(
@@ -57,6 +67,8 @@ const mutateFeatureFlagRulesMock = vi.fn(
 vi.mock("../store.js", () => ({
   defaultFeatureFlagRules: () => defaultFeatureFlagRulesMock(),
   getFeatureFlagRules: (...args: any[]) => getFeatureFlagRulesMock(...args),
+  readFeatureFlagRuleLayers: (...args: any[]) =>
+    readFeatureFlagRuleLayersMock(...args),
   evaluateFeatureFlagRules: (...args: any[]) =>
     evaluateFeatureFlagRulesMock(...args),
   mutateFeatureFlagRules: (...args: any[]) =>
@@ -79,6 +91,13 @@ beforeEach(() => {
   requireFeatureFlagManagerMock.mockResolvedValue({
     email: "admin@example.com",
     orgId: "org-1",
+    scope: "org",
+  });
+  getFeatureFlagManagerAccessMock.mockResolvedValue({
+    email: "admin@example.com",
+    orgId: "org-1",
+    canManageOrg: true,
+    canManageGlobal: false,
   });
   getOrgDomainMock.mockResolvedValue("builder.io");
   defaultFeatureFlagRulesMock.mockReturnValue({
@@ -104,9 +123,12 @@ beforeEach(() => {
 
 describe("feature flag action contracts", () => {
   it("does not leak operator rules to a non-manager", async () => {
-    requireFeatureFlagManagerMock.mockRejectedValue(
-      Object.assign(new Error("forbidden"), { statusCode: 403 }),
-    );
+    getFeatureFlagManagerAccessMock.mockResolvedValue({
+      email: "member@example.com",
+      orgId: "org-1",
+      canManageOrg: false,
+      canManageGlobal: false,
+    });
 
     await expect(listAction.run({}, { caller: "frontend" })).resolves.toEqual({
       contractVersion: 1,
@@ -115,7 +137,7 @@ describe("feature flag action contracts", () => {
       flags: [],
       canManage: false,
     });
-    expect(getFeatureFlagRulesMock).not.toHaveBeenCalled();
+    expect(readFeatureFlagRuleLayersMock).not.toHaveBeenCalled();
   });
 
   it("reports no definitions only after authorizing the manager", async () => {
@@ -133,7 +155,7 @@ describe("feature flag action contracts", () => {
       flags: [],
       canManage: true,
     });
-    expect(requireFeatureFlagManagerMock).toHaveBeenCalledOnce();
+    expect(getFeatureFlagManagerAccessMock).toHaveBeenCalledOnce();
   });
 
   it("reports whether the delegated operator currently has each flag", async () => {
@@ -200,7 +222,7 @@ describe("feature flag action contracts", () => {
     );
     expect(mutateFeatureFlagRulesMock).toHaveBeenCalledWith(
       "new-editor",
-      { email: "admin@example.com", orgId: "org-1" },
+      { orgId: "org-1" },
       expect.any(Function),
     );
     expect(result).toEqual({
@@ -211,7 +233,7 @@ describe("feature flag action contracts", () => {
         updatedAt: expect.any(Number),
         updatedBy: "admin@example.com",
       }),
-      scope: { orgId: "org-1", orgDomain: "builder.io" },
+      scope: { kind: "org", orgId: "org-1", orgDomain: "builder.io" },
     });
   });
 
@@ -237,7 +259,7 @@ describe("feature flag action contracts", () => {
       ),
     ).resolves.toEqual(
       expect.objectContaining({
-        scope: { orgId: "org-1", orgDomain: null },
+        scope: { kind: "org", orgId: "org-1", orgDomain: null },
       }),
     );
     expect(mutateFeatureFlagRulesMock).toHaveBeenCalledOnce();

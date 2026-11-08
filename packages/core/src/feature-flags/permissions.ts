@@ -1,5 +1,6 @@
 import { getOrgRoleForEmail } from "../mcp/actions/service-token-access.js";
 import { canManageOrg } from "../org/permissions.js";
+import type { FeatureFlagRuleScope } from "./store.js";
 
 export class FeatureFlagPermissionError extends Error {
   statusCode: number;
@@ -24,10 +25,22 @@ export function isFeatureFlagAdminEmail(email: string | undefined): boolean {
   return Boolean(normalized && productionAdminAllowlist().has(normalized));
 }
 
-export async function requireFeatureFlagManager(scope: {
+export interface FeatureFlagManagerAccess {
+  email: string;
+  orgId: string | null;
+  canManageOrg: boolean;
+  canManageGlobal: boolean;
+}
+
+/**
+ * What the caller may change: their active org's own rule (org owner/admin)
+ * and the global rule (this app's admin list, whatever org they are in).
+ * The two are independent; being on the list grants nothing in an org.
+ */
+export async function getFeatureFlagManagerAccess(scope: {
   userEmail?: string;
   orgId?: string | null;
-}): Promise<{ email: string; orgId: string | null }> {
+}): Promise<FeatureFlagManagerAccess> {
   const email = scope.userEmail?.trim().toLowerCase();
   if (!email) {
     throw new FeatureFlagPermissionError(
@@ -36,22 +49,53 @@ export async function requireFeatureFlagManager(scope: {
     );
   }
   const orgId = scope.orgId?.trim() || null;
-  if (orgId) {
-    const role = await getOrgRoleForEmail(orgId, email);
-    if (!canManageOrg(role)) {
+  return {
+    email,
+    orgId,
+    canManageOrg: orgId
+      ? canManageOrg(await getOrgRoleForEmail(orgId, email))
+      : false,
+    canManageGlobal:
+      isFeatureFlagAdminEmail(email) ||
+      (!orgId && process.env.NODE_ENV !== "production"),
+  };
+}
+
+/**
+ * Authorizes one write and names the row it lands in. With no `requested`
+ * scope, a caller in an org writes that org's rule and a caller with no org
+ * writes the global rule, so an older caller never writes wider than before.
+ */
+export async function requireFeatureFlagManager(
+  scope: { userEmail?: string; orgId?: string | null },
+  requested?: FeatureFlagRuleScope,
+): Promise<{
+  email: string;
+  orgId: string | null;
+  scope: FeatureFlagRuleScope;
+}> {
+  const access = await getFeatureFlagManagerAccess(scope);
+  const target = requested ?? (access.orgId ? "org" : "global");
+  if (target === "org") {
+    if (!access.orgId) {
+      throw new FeatureFlagPermissionError(
+        "An active organization is required to change its feature flag rule.",
+        400,
+      );
+    }
+    if (!access.canManageOrg) {
       throw new FeatureFlagPermissionError(
         "Only organization owners or admins can manage feature flags.",
         403,
       );
     }
-    return { email, orgId };
+    return { email: access.email, orgId: access.orgId, scope: "org" };
   }
-  if (process.env.NODE_ENV !== "production") return { email, orgId: null };
-  if (!isFeatureFlagAdminEmail(email)) {
+  if (!access.canManageGlobal) {
     throw new FeatureFlagPermissionError(
-      "Feature flag management without an organization requires an explicit admin allowlist entry.",
+      "Changing a feature flag for every organization requires this app's feature flag admin list.",
       403,
     );
   }
-  return { email, orgId: null };
+  return { email: access.email, orgId: null, scope: "global" };
 }

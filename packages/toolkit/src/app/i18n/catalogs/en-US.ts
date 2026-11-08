@@ -1615,6 +1615,32 @@ const messages = {
   "featureFlags.builderCreditReferrals.name": "Builder credit referrals",
   "featureFlags.builderCreditReferrals.description":
     "Show connected Builder workspace referral details in Usage.",
+  "featureFlags.scope.appliesTo": "Applies to",
+  "featureFlags.scope.org": "This organization",
+  "featureFlags.scope.global": "All organizations",
+  "featureFlags.scope.setForOrg": "Set for this organization",
+  "featureFlags.scope.setForGlobal": "Set for all organizations",
+  "featureFlags.scope.overridesGlobal":
+    "Overrides the rule for all organizations",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "This organization's own rule replaces the rule for all organizations, which is: {{audience}}.",
+  "featureFlags.scope.unreadable": "Couldn't be read",
+  "featureFlags.scope.enableForMeOrg": "Adds you to this organization's rule",
+  "featureFlags.scope.enableForMeGlobal":
+    "Adds you to the rule for all organizations",
+  "featureFlags.scope.turnOffOrg": "Turn off for this organization",
+  "featureFlags.scope.turnOffGlobal": "Turn off for all organizations",
+  "featureFlags.scope.turnOffOrgTitle":
+    "Turn off {{name}} for this organization?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "Turn off {{name}} for all organizations?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "This immediately removes access for everyone in this organization. You can configure a new rollout later.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "This immediately removes access in every organization that doesn't have its own rule. You can configure a new rollout later.",
+  "featureFlags.scope.summaryOrg": "In this organization: {{audience}}.",
+  "featureFlags.scope.summaryGlobal": "In all organizations: {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule": "This organization keeps its own rule.",
   "usage.inviteFriends": "Invite friends",
   "usage.inviteCredits":
     "Earn {{amount}} Builder credits when a friend subscribes.",

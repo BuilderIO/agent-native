@@ -1515,6 +1515,28 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Builder 积分推荐",
   "featureFlags.builderCreditReferrals.description":
     "在用量中显示已连接 Builder 工作区的推荐详情。",
+  "featureFlags.scope.appliesTo": "适用范围",
+  "featureFlags.scope.org": "此组织",
+  "featureFlags.scope.global": "所有组织",
+  "featureFlags.scope.setForOrg": "为此组织设置",
+  "featureFlags.scope.setForGlobal": "为所有组织设置",
+  "featureFlags.scope.overridesGlobal": "覆盖了所有组织的规则",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "此组织自己的规则会替代所有组织的规则，后者为：{{audience}}。",
+  "featureFlags.scope.unreadable": "无法读取",
+  "featureFlags.scope.enableForMeOrg": "将你加入此组织的规则",
+  "featureFlags.scope.enableForMeGlobal": "将你加入所有组织的规则",
+  "featureFlags.scope.turnOffOrg": "为此组织关闭",
+  "featureFlags.scope.turnOffGlobal": "为所有组织关闭",
+  "featureFlags.scope.turnOffOrgTitle": "要为此组织关闭 {{name}} 吗？",
+  "featureFlags.scope.turnOffGlobalTitle": "要为所有组织关闭 {{name}} 吗？",
+  "featureFlags.scope.turnOffOrgDescription":
+    "这会立即移除此组织中所有人的访问权限。你之后可以重新配置发布。",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "这会立即移除所有没有自己规则的组织中的访问权限。你之后可以重新配置发布。",
+  "featureFlags.scope.summaryOrg": "在此组织中：{{audience}}。",
+  "featureFlags.scope.summaryGlobal": "在所有组织中：{{audience}}。",
+  "featureFlags.scope.orgKeepsOwnRule": "此组织会保留自己的规则。",
   "usage.inviteFriends": "邀请好友",
   "usage.inviteCredits": "好友订阅后可获得 {{amount}} 个 Builder 积分。",
   "usage.copyInviteLink": "复制邀请链接",

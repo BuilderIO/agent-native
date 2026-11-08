@@ -347,10 +347,6 @@ const messages = {
     youDoNotHaveAccess: "You don't have access",
     currentUserUnknown: "Your access couldn't be evaluated",
     moreActions: "More actions for {{name}}",
-    disableForEveryone: "Disable for everyone",
-    disableForEveryoneTitle: "Disable {{name}} for everyone?",
-    disableForEveryoneDescription:
-      "This immediately removes access for every targeted person and organization. You can configure a new rollout later.",
     editTargeting: "Edit targeting",
     editTargetingFor: "Edit targeting for {{name}}",
     targetingTitle: "Edit targeting — {{name}}",
@@ -366,7 +362,6 @@ const messages = {
     percentageLabel: "Percentage of users",
     targetingRuleHelp:
       "A person gets access if they match any email, organization, or percentage rule.",
-    targetingSummary: "Currently enabled for: {{audience}}.",
     saveRules: "Save changes",
     cancel: "Cancel",
     inherited: "No matching targets",

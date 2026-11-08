@@ -1701,6 +1701,36 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Parrainages de crédits Builder",
   "featureFlags.builderCreditReferrals.description":
     "Afficher les détails de parrainage de l’espace de travail Builder connecté dans Utilisation.",
+  "featureFlags.scope.appliesTo": "S’applique à",
+  "featureFlags.scope.org": "Cette organisation",
+  "featureFlags.scope.global": "Toutes les organisations",
+  "featureFlags.scope.setForOrg": "Défini pour cette organisation",
+  "featureFlags.scope.setForGlobal": "Défini pour toutes les organisations",
+  "featureFlags.scope.overridesGlobal":
+    "Remplace la règle de toutes les organisations",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "La règle propre à cette organisation remplace la règle de toutes les organisations, qui est : {{audience}}.",
+  "featureFlags.scope.unreadable": "Lecture impossible",
+  "featureFlags.scope.enableForMeOrg":
+    "Vous ajoute à la règle de cette organisation",
+  "featureFlags.scope.enableForMeGlobal":
+    "Vous ajoute à la règle de toutes les organisations",
+  "featureFlags.scope.turnOffOrg": "Désactiver pour cette organisation",
+  "featureFlags.scope.turnOffGlobal":
+    "Désactiver pour toutes les organisations",
+  "featureFlags.scope.turnOffOrgTitle":
+    "Désactiver {{name}} pour cette organisation ?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "Désactiver {{name}} pour toutes les organisations ?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "L’accès est immédiatement retiré à toutes les personnes de cette organisation. Vous pourrez configurer un nouveau déploiement plus tard.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "L’accès est immédiatement retiré dans toutes les organisations qui n’ont pas leur propre règle. Vous pourrez configurer un nouveau déploiement plus tard.",
+  "featureFlags.scope.summaryOrg": "Dans cette organisation : {{audience}}.",
+  "featureFlags.scope.summaryGlobal":
+    "Dans toutes les organisations : {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule":
+    "Cette organisation conserve sa propre règle.",
   "usage.inviteFriends": "Inviter des amis",
   "usage.inviteCredits":
     "Gagnez {{amount}} crédits Builder lorsqu’un ami s’abonne.",

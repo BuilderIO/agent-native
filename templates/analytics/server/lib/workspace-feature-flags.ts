@@ -51,13 +51,23 @@ export interface WorkspaceFeatureFlagsResult {
   apps: FleetFlagApp[];
 }
 
+export type WorkspaceFeatureFlagScope = "org" | "global";
+
+interface TargetMutationScope {
+  kind?: WorkspaceFeatureFlagScope;
+  orgId: string | null;
+  orgDomain: string | null;
+}
+
 export interface VerifiedWorkspaceFeatureFlagMutationResult {
   contractVersion: 3;
   status: "verified";
   key: string;
   rules: Record<string, unknown>;
-  scope: { orgId: string | null; orgDomain: string | null };
-  enabledForCurrentUser: boolean;
+  scope: TargetMutationScope;
+  /** Null when the written rule does not decide the operator's own access. */
+  enabledForCurrentUser: boolean | null;
+  flag: Record<string, unknown>;
 }
 
 interface TargetFeatureFlagMutationResult {
@@ -65,7 +75,7 @@ interface TargetFeatureFlagMutationResult {
   status: "ready";
   key: string;
   rules: Record<string, unknown>;
-  scope: { orgId: string | null; orgDomain: string | null };
+  scope: TargetMutationScope;
 }
 
 export type WorkspaceFeatureFlagMutationResult =
@@ -76,13 +86,25 @@ export interface WorkspaceFeatureFlagMutationInput {
   appId: string;
   key: string;
   operation: "enable-for-current-user" | "off" | "replace-rules";
+  scope?: WorkspaceFeatureFlagScope;
   rules?: Record<string, unknown>;
+}
+
+// Analytics always acts inside an org, so a write reaches every org only
+// when the operator names "global"; the target is never left to infer it.
+function mutationScope(
+  input: Pick<WorkspaceFeatureFlagMutationInput, "scope">,
+): WorkspaceFeatureFlagScope {
+  return input.scope ?? "org";
 }
 
 export function workspaceFeatureFlagTargetInput(
   input: WorkspaceFeatureFlagMutationInput,
-): Omit<WorkspaceFeatureFlagMutationInput, "appId"> {
-  const { appId: _appId, ...rawTargetInput } = input;
+): Omit<WorkspaceFeatureFlagMutationInput, "appId" | "scope"> & {
+  scope: WorkspaceFeatureFlagScope;
+} {
+  const { appId: _appId, ...rest } = input;
+  const rawTargetInput = { ...rest, scope: mutationScope(input) };
   return input.operation === "replace-rules" && input.rules
     ? {
         ...rawTargetInput,
@@ -99,12 +121,12 @@ export function workspaceFeatureFlagTargetInput(
 function mutationValidationExpectation(
   admin: AnalyticsAdminContext,
   input: WorkspaceFeatureFlagMutationInput,
-  orgDomain: string,
+  orgDomain: string | null,
 ) {
   return {
     key: input.key,
     orgDomain,
-    allowExplicitNoOrgTarget: true,
+    scope: mutationScope(input),
     ...(input.operation === "replace-rules" && input.rules
       ? {
           rules: {
@@ -131,13 +153,27 @@ export function validateWorkspaceFeatureFlagMutation(
   body: unknown,
   expected: {
     key: string;
-    orgDomain: string;
-    allowExplicitNoOrgTarget?: boolean;
+    orgDomain: string | null;
+    scope?: WorkspaceFeatureFlagScope;
     rules?: Record<string, unknown>;
     enabledForEmail?: string;
   },
 ): TargetFeatureFlagMutationResult {
   const payload = body as Partial<TargetFeatureFlagMutationResult> | null;
+  const scope = payload?.scope;
+  // A target that predates explicit scope omits `kind` and drops a requested
+  // scope, so only an explicit "global" kind proves a global write. An org
+  // write may report a null domain when the target cannot resolve it.
+  const scopeMatches =
+    !!scope &&
+    typeof scope === "object" &&
+    (expected.scope === "global"
+      ? scope.kind === "global" &&
+        scope.orgId === null &&
+        scope.orgDomain === null
+      : scope.kind !== "global" &&
+        (scope.orgDomain === expected.orgDomain ||
+          (scope.orgDomain === null && typeof scope.orgId === "string")));
   const valid =
     payload?.contractVersion === 2 &&
     payload.status === "ready" &&
@@ -145,10 +181,7 @@ export function validateWorkspaceFeatureFlagMutation(
     !!payload.rules &&
     typeof payload.rules === "object" &&
     !Array.isArray(payload.rules) &&
-    !!payload.scope &&
-    typeof payload.scope === "object" &&
-    (payload.scope.orgDomain === expected.orgDomain ||
-      (expected.allowExplicitNoOrgTarget && payload.scope.orgDomain === null));
+    scopeMatches;
   if (!valid)
     throw new Error(
       "The target app returned an unsupported or unverified feature flag mutation response.",
@@ -507,6 +540,85 @@ async function readBackTarget(
   throw new WorkspaceFeatureFlagFailure("verification");
 }
 
+interface ReadBackRule {
+  state?: unknown;
+  rules?: unknown;
+  canManage?: unknown;
+}
+
+interface ReadBackScopes {
+  inEffect?: unknown;
+  global?: ReadBackRule;
+  org?: ReadBackRule | null;
+}
+
+function readBackScopes(
+  flag: Record<string, unknown>,
+): ReadBackScopes | undefined {
+  const scopes = flag.scopes;
+  return scopes && typeof scopes === "object"
+    ? (scopes as ReadBackScopes)
+    : undefined;
+}
+
+/**
+ * Compares the written row, not the evaluated rule: after a global write an
+ * org with its own rule still evaluates that rule, so the operator's own
+ * access proves nothing unless the written row is the one in effect.
+ */
+function verifyReadBackFlag(
+  verifiedFlag: Record<string, unknown> | undefined,
+  input: WorkspaceFeatureFlagMutationInput,
+  mutation: TargetFeatureFlagMutationResult,
+  orgDomain: string | null,
+): VerifiedWorkspaceFeatureFlagMutationResult {
+  if (!verifiedFlag) throw new WorkspaceFeatureFlagFailure("verification");
+  const scope = mutationScope(input);
+  const scopes = readBackScopes(verifiedFlag);
+  const writtenRow: ReadBackRule | null | undefined = scopes
+    ? scopes[scope]
+    : { state: "set", rules: verifiedFlag.rules };
+  const decidesOperator = !scopes || scopes.inEffect === scope;
+  const enabled = verifiedFlag.enabledForCurrentUser;
+  const expectedEnabled =
+    input.operation === "enable-for-current-user"
+      ? true
+      : input.operation === "off"
+        ? false
+        : null;
+  if (
+    writtenRow?.state !== "set" ||
+    (decidesOperator &&
+      (typeof enabled !== "boolean" ||
+        (expectedEnabled !== null && enabled !== expectedEnabled)))
+  ) {
+    throw new WorkspaceFeatureFlagFailure("verification");
+  }
+  try {
+    validateWorkspaceFeatureFlagMutation(
+      {
+        contractVersion: 2,
+        status: "ready",
+        key: input.key,
+        rules: writtenRow.rules,
+        scope: mutation.scope,
+      },
+      { key: input.key, orgDomain, scope, rules: mutation.rules },
+    );
+  } catch {
+    throw new WorkspaceFeatureFlagFailure("verification");
+  }
+  return {
+    contractVersion: 3,
+    status: "verified",
+    key: mutation.key,
+    rules: writtenRow.rules as Record<string, unknown>,
+    scope: mutation.scope,
+    enabledForCurrentUser: decidesOperator ? (enabled as boolean) : null,
+    flag: verifiedFlag,
+  };
+}
+
 export function classifyWorkspaceFeatureFlagList(
   app: OrgApp,
   result: { status: number; body: unknown },
@@ -616,14 +728,16 @@ export async function setWorkspaceFeatureFlag(
           percentage?: number;
         }
       | undefined;
+    const scope = mutationScope(input);
     const targetInput =
       input.operation === "replace-rules"
         ? {
             operation: input.operation,
             key: input.key,
+            scope,
             rules: localRules!,
           }
-        : { operation: input.operation, key: input.key };
+        : { operation: input.operation, key: input.key, scope };
     let result;
     try {
       result = await setLocalFeatureFlagAction.run(
@@ -633,7 +747,7 @@ export async function setWorkspaceFeatureFlag(
     } catch (error) {
       throw localMutationFailure(error);
     }
-    const orgDomain = result.scope.orgDomain ?? "";
+    const orgDomain = result.scope.orgDomain;
     let mutation: TargetFeatureFlagMutationResult;
     try {
       mutation = validateWorkspaceFeatureFlagMutation(
@@ -651,46 +765,14 @@ export async function setWorkspaceFeatureFlag(
     }
     if (verifiedApp.state === "forbidden")
       throw new WorkspaceFeatureFlagFailure("authorization");
-    const verifiedFlag = verifiedApp.flags.find(
-      (flag) => flag.key === input.key,
+    if (verifiedApp.state !== "ready")
+      throw new WorkspaceFeatureFlagFailure("verification");
+    return verifyReadBackFlag(
+      verifiedApp.flags.find((flag) => flag.key === input.key),
+      input,
+      mutation,
+      orgDomain,
     );
-    if (
-      verifiedApp.state !== "ready" ||
-      !verifiedFlag ||
-      typeof verifiedFlag.enabledForCurrentUser !== "boolean" ||
-      (input.operation === "enable-for-current-user" &&
-        !verifiedFlag.enabledForCurrentUser) ||
-      (input.operation === "off" && verifiedFlag.enabledForCurrentUser)
-    ) {
-      throw new WorkspaceFeatureFlagFailure("verification");
-    }
-    try {
-      validateWorkspaceFeatureFlagMutation(
-        {
-          contractVersion: 2,
-          status: "ready",
-          key: input.key,
-          rules: verifiedFlag.rules,
-          scope: mutation.scope,
-        },
-        {
-          key: input.key,
-          orgDomain,
-          allowExplicitNoOrgTarget: true,
-          rules: mutation.rules,
-        },
-      );
-    } catch {
-      throw new WorkspaceFeatureFlagFailure("verification");
-    }
-    return {
-      contractVersion: 3,
-      status: "verified",
-      key: mutation.key,
-      rules: verifiedFlag.rules as Record<string, unknown>,
-      scope: mutation.scope,
-      enabledForCurrentUser: verifiedFlag.enabledForCurrentUser,
-    };
   }
   const app = await resolveTargetApp(admin, input.appId);
   const targetInput = workspaceFeatureFlagTargetInput(input);
@@ -702,6 +784,8 @@ export async function setWorkspaceFeatureFlag(
   }
   if (!orgDomain)
     throw new WorkspaceFeatureFlagSetupFailure("token-generation");
+  if (targetInput.scope === "global")
+    await requireGlobalWriteSupport(app, admin, input.key, orgDomain);
   let result: Awaited<ReturnType<typeof callTarget>>;
   try {
     result = await callTarget(
@@ -754,49 +838,46 @@ export async function setWorkspaceFeatureFlag(
     throw new WorkspaceFeatureFlagFailure("authorization");
   if (verifiedApp.state === "unsupported")
     throw new WorkspaceFeatureFlagFailure("unsupported-target");
-  const verifiedFlag = verifiedApp.flags.find((flag) => flag.key === input.key);
-  const expectedEnabled =
-    input.operation === "enable-for-current-user"
-      ? true
-      : input.operation === "off"
-        ? false
-        : null;
-  if (
-    verifiedApp.state !== "ready" ||
-    !verifiedFlag ||
-    typeof verifiedFlag.enabledForCurrentUser !== "boolean" ||
-    (expectedEnabled !== null &&
-      verifiedFlag.enabledForCurrentUser !== expectedEnabled)
-  ) {
+  if (verifiedApp.state !== "ready")
     throw new WorkspaceFeatureFlagFailure("verification");
-  }
+  return verifyReadBackFlag(
+    verifiedApp.flags.find((flag) => flag.key === input.key),
+    input,
+    mutation,
+    orgDomain,
+  );
+}
+
+/**
+ * A target that predates explicit scope drops the field and writes the
+ * operator's org instead, so a global write first checks the target's own
+ * list: it must report the global rule and let this operator change it.
+ */
+async function requireGlobalWriteSupport(
+  app: OrgApp,
+  admin: AnalyticsAdminContext,
+  key: string,
+  orgDomain: string,
+): Promise<void> {
+  let listed: Awaited<ReturnType<typeof callTarget>>;
   try {
-    validateWorkspaceFeatureFlagMutation(
-      {
-        contractVersion: 2,
-        status: "ready",
-        key: input.key,
-        rules: verifiedFlag.rules,
-        scope: mutation.scope,
-      },
-      {
-        key: input.key,
-        orgDomain,
-        allowExplicitNoOrgTarget: true,
-        rules: mutation.rules,
-      },
-    );
-  } catch {
-    throw new WorkspaceFeatureFlagFailure("verification");
+    listed = await callTarget(app, admin, "list-feature-flags", {}, orgDomain);
+  } catch (error) {
+    if (classifyWorkspaceFeatureFlagTargetFailure(error) === "token-generation")
+      throw new WorkspaceFeatureFlagSetupFailure("token-generation");
+    throw targetFailure(error);
   }
-  return {
-    contractVersion: 3,
-    status: "verified",
-    key: mutation.key,
-    rules: verifiedFlag.rules as Record<string, unknown>,
-    scope: mutation.scope,
-    enabledForCurrentUser: verifiedFlag.enabledForCurrentUser,
-  };
+  if (listed.status >= 500)
+    throw new WorkspaceFeatureFlagFailure("target-action");
+  const target = classifyWorkspaceFeatureFlagList(app, listed);
+  if (target.state === "forbidden")
+    throw new WorkspaceFeatureFlagFailure("authorization");
+  const flag = target.flags.find((candidate) => candidate.key === key);
+  const scopes = flag && readBackScopes(flag);
+  if (!scopes?.global)
+    throw new WorkspaceFeatureFlagFailure("unsupported-target");
+  if (scopes.global.canManage !== true)
+    throw new WorkspaceFeatureFlagFailure("authorization");
 }
 
 export async function getWorkspaceFlagTarget(

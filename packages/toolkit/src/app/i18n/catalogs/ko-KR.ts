@@ -1608,6 +1608,29 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Builder 크레딧 추천",
   "featureFlags.builderCreditReferrals.description":
     "사용량에 연결된 Builder 워크스페이스의 추천 세부정보를 표시합니다.",
+  "featureFlags.scope.appliesTo": "적용 대상",
+  "featureFlags.scope.org": "이 조직",
+  "featureFlags.scope.global": "모든 조직",
+  "featureFlags.scope.setForOrg": "이 조직에 설정됨",
+  "featureFlags.scope.setForGlobal": "모든 조직에 설정됨",
+  "featureFlags.scope.overridesGlobal": "모든 조직 규칙을 재정의함",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "이 조직의 자체 규칙이 모든 조직 규칙을 대신합니다. 모든 조직 규칙: {{audience}}.",
+  "featureFlags.scope.unreadable": "읽을 수 없음",
+  "featureFlags.scope.enableForMeOrg": "이 조직의 규칙에 나를 추가합니다",
+  "featureFlags.scope.enableForMeGlobal": "모든 조직 규칙에 나를 추가합니다",
+  "featureFlags.scope.turnOffOrg": "이 조직에서 끄기",
+  "featureFlags.scope.turnOffGlobal": "모든 조직에서 끄기",
+  "featureFlags.scope.turnOffOrgTitle": "이 조직에서 {{name}}을(를) 끌까요?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "모든 조직에서 {{name}}을(를) 끌까요?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "이 조직의 모든 사용자 액세스가 즉시 제거됩니다. 나중에 새 롤아웃을 구성할 수 있습니다.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "자체 규칙이 없는 모든 조직에서 액세스가 즉시 제거됩니다. 나중에 새 롤아웃을 구성할 수 있습니다.",
+  "featureFlags.scope.summaryOrg": "이 조직: {{audience}}.",
+  "featureFlags.scope.summaryGlobal": "모든 조직: {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule": "이 조직은 자체 규칙을 유지합니다.",
   "usage.inviteFriends": "친구 초대",
   "usage.inviteCredits":
     "친구가 구독하면 Builder 크레딧 {{amount}}개를 받을 수 있습니다.",

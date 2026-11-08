@@ -287,6 +287,74 @@ export async function getFeatureFlagRulesStrict(
   return normalizeFeatureFlagRules(stored.value);
 }
 
+export type FeatureFlagRuleScope = "org" | "global";
+
+/** One stored rule row as an operator reads it. */
+export type FeatureFlagStoredRule =
+  | { state: "set"; rules: FeatureFlagRules }
+  | { state: "unset" }
+  | { state: "unreadable"; problem: string };
+
+export interface FeatureFlagRuleLayers {
+  global: FeatureFlagStoredRule;
+  org: (FeatureFlagStoredRule & { orgId: string }) | null;
+  /** The row evaluation uses for this org: an org row of any shape wins. */
+  inEffect: "org" | "global" | "none";
+}
+
+async function readStoredRule(
+  read: () => Promise<SettingEntry>,
+): Promise<FeatureFlagStoredRule> {
+  let stored: SettingEntry;
+  try {
+    stored = await read();
+  } catch (error) {
+    if (error instanceof SyntaxError)
+      return { state: "unreadable", problem: "stored rules are not JSON" };
+    throw error;
+  }
+  if (!stored.found) return { state: "unset" };
+  const problem = storedRulesProblem(stored.value);
+  return problem
+    ? { state: "unreadable", problem }
+    : { state: "set", rules: normalizeFeatureFlagRules(stored.value) };
+}
+
+/**
+ * Reads the global rule and the org's own rule as separate rows, for
+ * operators. Evaluation never merges them: an org row replaces the global
+ * one for that org, so showing only the evaluated rules hides which row a
+ * change has to land in. A malformed row is `unreadable`, not `unset`,
+ * because it still takes precedence.
+ */
+export async function readFeatureFlagRuleLayers(
+  key: string,
+  scope: Pick<FeatureFlagScope, "orgId" | "transaction">,
+): Promise<FeatureFlagRuleLayers> {
+  if (!getFeatureFlagDefinition(key))
+    throw new FeatureFlagRulesError("unregistered", key, "not registered");
+  const orgId = scope.orgId?.trim() || null;
+  const options = { transaction: scope.transaction };
+  const [global, org] = await Promise.all([
+    readStoredRule(() => getSettingEntry(settingKey(key), options)),
+    orgId
+      ? readStoredRule(() =>
+          getOrgSettingEntry(orgId, settingKey(key), options),
+        )
+      : null,
+  ]);
+  return {
+    global,
+    org: org && orgId ? { ...org, orgId } : null,
+    inEffect:
+      org && org.state !== "unset"
+        ? "org"
+        : global.state !== "unset"
+          ? "global"
+          : "none",
+  };
+}
+
 export async function getFeatureFlagRulesForKeys(
   keys: readonly string[],
   scope: Pick<FeatureFlagScope, "orgId" | "transaction">,

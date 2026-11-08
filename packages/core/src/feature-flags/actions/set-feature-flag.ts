@@ -18,26 +18,35 @@ const rulesSchema = z.object({
   percentage: z.number().int().min(0).max(100).optional(),
 });
 
+const scopeSchema = z.enum(["org", "global"]).optional();
+
 const schema = z.discriminatedUnion("operation", [
   z.object({
     operation: z.literal("enable-for-current-user"),
     key: z.string(),
+    scope: scopeSchema,
   }),
-  z.object({ operation: z.literal("off"), key: z.string() }),
+  z.object({
+    operation: z.literal("off"),
+    key: z.string(),
+    scope: scopeSchema,
+  }),
   z.object({
     operation: z.literal("replace-rules"),
     key: z.string(),
+    scope: scopeSchema,
     rules: rulesSchema,
   }),
 ]);
 
 export default defineAction({
   description:
-    "Atomically manage one registered feature flag: enable it for the current user, turn it off immediately for the active scope, or replace its full rules. Organization owner/admin only (or the explicit no-org administrator).",
+    "Atomically manage one registered feature flag: enable it for the current user, turn it off, or replace its full rules. `scope: \"org\"` writes the active organization's own rule (organization owner/admin only); `scope: \"global\"` writes the rule for every organization (this app's feature flag admin list only). An organization's own rule replaces the global rule for that organization. Omitting scope writes the active organization's rule, or the global rule for a caller with no organization; the result names the rule written.",
   schema,
   agentInputSchema: z.object({
     operation: z.enum(["enable-for-current-user", "off", "replace-rules"]),
     key: z.string(),
+    scope: scopeSchema,
     rules: rulesSchema.optional(),
   }),
   toolCallable: false,
@@ -48,7 +57,11 @@ export default defineAction({
       ownerEmail: meta.userEmail,
       visibility: meta.orgId ? "org" : "private",
     }),
-    summary: (args) => `Feature flag ${args.key}: ${args.operation}`,
+    summary: (args, result) => {
+      const written = (result as { scope?: { kind?: string } } | undefined)
+        ?.scope?.kind;
+      return `Feature flag ${args.key}: ${args.operation}${written ? ` (${written})` : ""}`;
+    },
   },
   mcpAnnotations: {
     readOnlyHint: false,
@@ -56,7 +69,7 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (args, ctx) => {
-    const manager = await requireFeatureFlagManager(ctx ?? {});
+    const manager = await requireFeatureFlagManager(ctx ?? {}, args.scope);
     if (!getFeatureFlagDefinition(args.key)) {
       throw new Error(`Unknown feature flag: ${args.key}`);
     }
@@ -75,7 +88,7 @@ export default defineAction({
 
     const persistedRules = await mutateFeatureFlagRules(
       args.key,
-      manager,
+      { orgId: manager.orgId },
       (current) => {
         let rules;
         if (args.operation === "off") {
@@ -97,7 +110,7 @@ export default defineAction({
       status: "ready" as const,
       key: args.key,
       rules: persistedRules,
-      scope: { orgId: manager.orgId, orgDomain },
+      scope: { kind: manager.scope, orgId: manager.orgId, orgDomain },
     };
   },
 });

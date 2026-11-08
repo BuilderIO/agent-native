@@ -1591,6 +1591,29 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Builder क्रेडिट रेफ़रल",
   "featureFlags.builderCreditReferrals.description":
     "उपयोग में कनेक्टेड Builder वर्कस्पेस के रेफ़रल विवरण दिखाएँ।",
+  "featureFlags.scope.appliesTo": "किस पर लागू",
+  "featureFlags.scope.org": "यह संगठन",
+  "featureFlags.scope.global": "सभी संगठन",
+  "featureFlags.scope.setForOrg": "इस संगठन के लिए सेट",
+  "featureFlags.scope.setForGlobal": "सभी संगठनों के लिए सेट",
+  "featureFlags.scope.overridesGlobal": "सभी संगठनों का नियम ओवरराइड करता है",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "इस संगठन का अपना नियम सभी संगठनों के नियम की जगह लेता है, जो यह है: {{audience}}।",
+  "featureFlags.scope.unreadable": "पढ़ा नहीं जा सका",
+  "featureFlags.scope.enableForMeOrg": "आपको इस संगठन के नियम में जोड़ता है",
+  "featureFlags.scope.enableForMeGlobal": "आपको सभी संगठनों के नियम में जोड़ता है",
+  "featureFlags.scope.turnOffOrg": "इस संगठन के लिए बंद करें",
+  "featureFlags.scope.turnOffGlobal": "सभी संगठनों के लिए बंद करें",
+  "featureFlags.scope.turnOffOrgTitle": "क्या इस संगठन के लिए {{name}} बंद करें?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "क्या सभी संगठनों के लिए {{name}} बंद करें?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "इससे इस संगठन के सभी लोगों की पहुँच तुरंत हट जाती है। आप बाद में नया रोलआउट कॉन्फ़िगर कर सकते हैं।",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "इससे उन सभी संगठनों में पहुँच तुरंत हट जाती है जिनका अपना नियम नहीं है। आप बाद में नया रोलआउट कॉन्फ़िगर कर सकते हैं।",
+  "featureFlags.scope.summaryOrg": "इस संगठन में: {{audience}}।",
+  "featureFlags.scope.summaryGlobal": "सभी संगठनों में: {{audience}}।",
+  "featureFlags.scope.orgKeepsOwnRule": "यह संगठन अपना नियम बनाए रखता है।",
   "usage.inviteFriends": "दोस्तों को आमंत्रित करें",
   "usage.inviteCredits": "दोस्त के सदस्यता लेने पर {{amount}} Builder क्रेडिट पाएं।",
   "usage.copyInviteLink": "आमंत्रण लिंक कॉपी करें",

@@ -13,5 +13,8 @@ export type {
   FeatureFlagActor,
   FeatureFlagMetadata,
   FeatureFlagRules,
+  FeatureFlagRuleScope,
+  FeatureFlagRuleScopes,
+  FeatureFlagStoredRule,
   SetFeatureFlagInput,
 } from "./types.js";

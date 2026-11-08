@@ -1634,6 +1634,29 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "إحالات أرصدة Builder",
   "featureFlags.builderCreditReferrals.description":
     "عرض تفاصيل إحالات مساحة عمل Builder المتصلة في الاستخدام.",
+  "featureFlags.scope.appliesTo": "ينطبق على",
+  "featureFlags.scope.org": "هذه المؤسسة",
+  "featureFlags.scope.global": "كل المؤسسات",
+  "featureFlags.scope.setForOrg": "مضبوط لهذه المؤسسة",
+  "featureFlags.scope.setForGlobal": "مضبوط لكل المؤسسات",
+  "featureFlags.scope.overridesGlobal": "يتجاوز قاعدة كل المؤسسات",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "قاعدة هذه المؤسسة الخاصة تحل محل قاعدة كل المؤسسات، وهي: {{audience}}.",
+  "featureFlags.scope.unreadable": "تعذّرت القراءة",
+  "featureFlags.scope.enableForMeOrg": "يضيفك إلى قاعدة هذه المؤسسة",
+  "featureFlags.scope.enableForMeGlobal": "يضيفك إلى قاعدة كل المؤسسات",
+  "featureFlags.scope.turnOffOrg": "إيقاف لهذه المؤسسة",
+  "featureFlags.scope.turnOffGlobal": "إيقاف لكل المؤسسات",
+  "featureFlags.scope.turnOffOrgTitle": "هل تريد إيقاف {{name}} لهذه المؤسسة؟",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "هل تريد إيقاف {{name}} لكل المؤسسات؟",
+  "featureFlags.scope.turnOffOrgDescription":
+    "يؤدي هذا إلى إزالة وصول كل الأشخاص في هذه المؤسسة فورًا. يمكنك إعداد طرح جديد لاحقًا.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "يؤدي هذا إلى إزالة الوصول فورًا في كل مؤسسة ليست لها قاعدة خاصة. يمكنك إعداد طرح جديد لاحقًا.",
+  "featureFlags.scope.summaryOrg": "في هذه المؤسسة: {{audience}}.",
+  "featureFlags.scope.summaryGlobal": "في كل المؤسسات: {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule": "تحتفظ هذه المؤسسة بقاعدتها الخاصة.",
   "usage.inviteFriends": "ادعُ الأصدقاء",
   "usage.inviteCredits":
     "احصل على {{amount}} من أرصدة Builder عندما يشترك صديق.",
