@@ -167,6 +167,8 @@ describe("useUpdateContentDatabaseView", () => {
         state: { data: { path: [{ id: "page", databaseId: "tracker" }] } },
       }),
     ).toBe(false);
+    // Still loading, so it may have read the old view.
+    expect(paths.predicate({ state: { data: undefined } })).toBe(true);
   });
 
   it("writes a legacy canonical response to both caches and invalidates its database id", async () => {

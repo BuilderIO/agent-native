@@ -693,18 +693,36 @@ describe("contentActionInvalidatePredicate", () => {
     ).toBe(false);
   });
 
-  it("refreshes the open path when a shared view is saved in another tab", () => {
+  it.each([
+    "create-document",
+    "delete-document",
+    "move-document",
+    "restore-document",
+    "update-content-database-view",
+  ])("refreshes the open path when %s runs elsewhere", (key) => {
     const predicate = contentActionInvalidatePredicate("/page/page-1");
     const pathQuery = {
       queryKey: ["action", "get-content-navigation-context", { id: "page-1" }],
       isActive: () => true,
     };
-    const events = [{ source: "action", key: "update-content-database-view" }];
+    const events = [{ source: "action", key }];
 
     expect(predicate(pathQuery, events)).toBe(true);
     expect(predicate({ ...pathQuery, isActive: () => false }, events)).toBe(
       false,
     );
+  });
+
+  it("leaves the open path alone for writes that can't change its arrows", () => {
+    const predicate = contentActionInvalidatePredicate("/page/page-1");
+    const pathQuery = {
+      queryKey: ["action", "get-content-navigation-context", { id: "page-1" }],
+      isActive: () => true,
+    };
+
+    expect(
+      predicate(pathQuery, [{ source: "action", key: "add-comment" }]),
+    ).toBe(false);
   });
 
   it("refreshes the active personal view and Files tree when a property is deleted outside the editor", () => {

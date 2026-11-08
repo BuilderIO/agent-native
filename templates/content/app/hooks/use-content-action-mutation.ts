@@ -218,7 +218,8 @@ export function contentNavigationContextFilter(
 
 /**
  * Navigation contexts with a page in `databaseId`: a path entry's `hasChildren`
- * follows that collection's view and rows.
+ * follows that collection's view and rows. A read with no data yet could be in
+ * any collection, and may already have read the old view.
  */
 export function contentNavigationContextInDatabaseFilter(
   databaseId: string,
@@ -230,7 +231,8 @@ export function contentNavigationContextInDatabaseFilter(
         | { path?: Array<{ databaseId?: string | null }> }
         | undefined;
       return (
-        data?.path?.some((entry) => entry.databaseId === databaseId) === true
+        !data ||
+        data.path?.some((entry) => entry.databaseId === databaseId) === true
       );
     },
   };

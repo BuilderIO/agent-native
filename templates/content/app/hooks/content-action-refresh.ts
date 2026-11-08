@@ -106,8 +106,6 @@ const DATABASE_PRESENTATION_MUTATIONS = new Set([
   // Deleting a property drops it from saved personal sorts and filters.
   "delete-document-property",
   "update-content-database-personal-view",
-  // The shared view's filter decides which pages count as children on a path.
-  "update-content-database-view",
 ]);
 
 const DATABASE_LIFECYCLE_MUTATIONS = new Set([
@@ -129,6 +127,16 @@ const DOCUMENT_DISCOVERY_MUTATIONS = new Set([
   "link-github-folder",
   "refresh-content-database-source",
   "sync-github-folder",
+]);
+
+// A path entry's `hasChildren` reads the same rows and view as the Files tree,
+// and a move changes the path itself.
+const NAVIGATION_CONTEXT_MUTATIONS = new Set([
+  ...DATABASE_RESULT_MUTATIONS,
+  ...DATABASE_PRESENTATION_MUTATIONS,
+  ...DATABASE_LIFECYCLE_MUTATIONS,
+  ...DOCUMENT_DISCOVERY_MUTATIONS,
+  "move-document",
 ]);
 
 const PREVIEW_DRAFT_MUTATIONS = new Set([
@@ -287,16 +295,11 @@ function queryTargetsDatabase(query: ActionQuery, documentId: string): boolean {
 }
 
 // The Files tree is ordered by the stored personal view but not keyed by it,
-// so it reads again with that view, as do the paths that say which of its pages
-// have children.
+// so it reads again with that view.
 function queryTargetsActiveDatabasePresentation(query: ActionQuery): boolean {
   if (query.queryKey[0] !== "action" || query.isActive?.() !== true)
     return false;
-  if (
-    query.queryKey[1] === "get-content-database-personal-view" ||
-    query.queryKey[1] === "get-content-navigation-context"
-  )
-    return true;
+  if (query.queryKey[1] === "get-content-database-personal-view") return true;
   if (query.queryKey[1] !== "query-content-database-items") return false;
   return queryReadsFilesNavigation(query);
 }
@@ -304,6 +307,14 @@ function queryTargetsActiveDatabasePresentation(query: ActionQuery): boolean {
 function queryReadsFilesNavigation(query: ActionQuery): boolean {
   const args = query.queryKey[2];
   return !!args && typeof args === "object" && "navigation" in args;
+}
+
+function queryIsActiveNavigationContext(query: ActionQuery): boolean {
+  return (
+    query.queryKey[0] === "action" &&
+    query.queryKey[1] === "get-content-navigation-context" &&
+    query.isActive?.() === true
+  );
 }
 
 function queryTargetsActiveNavigationOrRecent(query: ActionQuery): boolean {
@@ -458,6 +469,12 @@ export function contentActionInvalidatePredicate(
     if (
       queryTargetsActiveDatabasePresentation(query) &&
       eventsIncludeMutation(events, DATABASE_PRESENTATION_MUTATIONS)
+    ) {
+      return true;
+    }
+    if (
+      queryIsActiveNavigationContext(query) &&
+      eventsIncludeMutation(events, NAVIGATION_CONTEXT_MUTATIONS)
     ) {
       return true;
     }
