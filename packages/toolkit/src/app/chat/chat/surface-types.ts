@@ -51,6 +51,7 @@ export interface AssistantChatSendOptions {
   trackInRunsTray?: boolean;
   requestMode?: AgentRequestMode;
   attachments?: AgentChatAttachment[];
+  references?: AgentChatMessage["references"];
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
   /** Drop a queued submit instead of handing it to chat after this time. */
@@ -241,6 +242,8 @@ export interface AssistantChatProps {
   threadFooterSlot?: AssistantChatThreadFooterSlot;
   /** Optional content rendered in the empty state, above the suggestion buttons. */
   emptyStateAddon?: React.ReactNode;
+  /** Visual size for initial suggestion buttons in the empty state. Defaults to compact. */
+  emptyStateSuggestionSize?: "compact" | "comfortable";
   /** Optional content rendered in the empty state, below the suggestion
    *  buttons. Unlike `threadFooterSlot` this never survives the first message. */
   emptyStateFooter?: React.ReactNode;

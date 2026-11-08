@@ -79,6 +79,7 @@ import {
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
   hasStoredBuilderOAuthGrant,
+  hasStoredBuilderOAuthGrantForUse,
   listUsersWithStoredBuilderOAuthGrant,
   markBuilderOAuthReconnectRequired,
   resolveBuilderOAuthRequestAccess,
@@ -415,6 +416,18 @@ describe("Builder hosted user OAuth", () => {
     );
 
     await expect(hasBuilderOAuthSession(ownerEmail)).resolves.toBe(false);
+    await expect(hasStoredBuilderOAuthGrantForUse(ownerEmail)).resolves.toBe(
+      true,
+    );
+  });
+
+  it("finds no stored grant when no token row exists", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+    getRawTokensMock.mockResolvedValue(null);
+
+    await expect(hasStoredBuilderOAuthGrantForUse(ownerEmail)).resolves.toBe(
+      false,
+    );
   });
 
   it("does not treat a non-record token bundle as OAuth custody", async () => {
@@ -579,6 +592,90 @@ describe("Builder hosted user OAuth", () => {
         orgId: null,
       }),
     ).resolves.toEqual({ kind: "unusable" });
+  });
+
+  it("reports stored custody this key cannot open as unreadable, not as an expired sign-in", async () => {
+    resolveAccessStateMock.mockResolvedValue({
+      state: {
+        kind: "malformed",
+        revision: 1,
+        legacyRevision: 0,
+        reason: "unreadable",
+      },
+      accessToken: null,
+    });
+
+    await expect(
+      resolveBuilderOAuthRequestAccessState({
+        ownerEmail,
+        requiredScope: BUILDER_OAUTH_SCOPE,
+        orgId: null,
+      }),
+    ).resolves.toEqual({ kind: "unreadable" });
+  });
+
+  it("asks to reconnect when one grant is unreadable and another one needs reconnecting", async () => {
+    resolveAccessStateMock.mockImplementation(
+      async (options: { scope: "user" | "org" }) =>
+        options.scope === "user"
+          ? {
+              state: {
+                kind: "malformed",
+                revision: 1,
+                legacyRevision: 0,
+                reason: "unreadable",
+              },
+              accessToken: null,
+            }
+          : {
+              state: {
+                kind: "reconnect_required",
+                credential: credentials(),
+                revision: 2,
+                legacyRevision: 0,
+              },
+              accessToken: null,
+            },
+    );
+
+    await expect(
+      resolveBuilderOAuthRequestAccessState({
+        ownerEmail,
+        requiredScope: BUILDER_OAUTH_SCOPE,
+        orgId: DEFAULT_ORG,
+      }),
+    ).resolves.toEqual({ kind: "unusable" });
+  });
+
+  it("runs on a readable grant when another one cannot be read", async () => {
+    resolveAccessStateMock.mockImplementation(
+      async (options: { scope: "user" | "org" }) =>
+        options.scope === "user"
+          ? {
+              state: {
+                kind: "malformed",
+                revision: 1,
+                legacyRevision: 0,
+                reason: "unreadable",
+              },
+              accessToken: null,
+            }
+          : {
+              state: { kind: "connected", credential: credentials() },
+              accessToken: "<ACCESS_TOKEN_EXAMPLE>",
+            },
+    );
+
+    await expect(
+      resolveBuilderOAuthRequestAccessState({
+        ownerEmail,
+        requiredScope: BUILDER_OAUTH_SCOPE,
+        orgId: DEFAULT_ORG,
+      }),
+    ).resolves.toMatchObject({
+      kind: "available",
+      access: { scope: "org" },
+    });
   });
 
   it("returns usable access and scope from one credential resolution", async () => {

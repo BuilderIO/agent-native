@@ -1,21 +1,7 @@
+import { isPersistableAttachmentReferenceUrl } from "@agent-native/agentkit/protocol";
+
 import { isInlineDataUrl } from "./attachments.js";
 import { parseDataUrl } from "./data-url.js";
-
-function isPersistableAttachmentReferenceUrl(value: unknown): value is string {
-  if (typeof value !== "string" || !value.trim() || value.length > 8192) {
-    return false;
-  }
-  if (!URL.canParse(value)) return false;
-  const url = new URL(value);
-  return (
-    (url.protocol === "http:" || url.protocol === "https:") &&
-    Boolean(url.hostname) &&
-    !url.username &&
-    !url.password &&
-    !url.search &&
-    !url.hash
-  );
-}
 
 /**
  * Inline file bytes reached a SQL write with no durable URL to stand in for
@@ -256,11 +242,10 @@ function sanitize(
   const fallbackUrl =
     ownUrl ?? (hasAttachmentContext ? inheritedUrl : undefined);
   const inline = hasAttachmentContext ? inlineKeys(item) : [];
-  const unreferenced =
-    isAttachment &&
-    inline.length > 0 &&
-    !fallbackUrl &&
-    !(typeof item.fileId === "string" && item.fileId);
+  // A `fileId` names the attachment; nothing resolves it back to bytes, so it
+  // never stands in for bytes that need a URL. The dispatch serializer agrees
+  // for parts that carry bytes.
+  const unreferenced = isAttachment && inline.length > 0 && !fallbackUrl;
 
   if (unreferenced && policy === "reject") {
     throw new DurableAttachmentReferenceRequiredError();

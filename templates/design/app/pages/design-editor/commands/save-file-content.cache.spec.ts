@@ -13,7 +13,11 @@ import {
   type SaveFileContentArgs,
 } from "./save-file-content";
 
-const DESIGN_KEY = ["action", "get-design", { id: "design-1" }];
+const DESIGN_KEY = [
+  "action",
+  "get-design",
+  { id: "design-1", includeFileContent: false },
+];
 const OLD_UPDATED_AT = "2026-01-01T00:00:00.000Z";
 
 function setup(result: Record<string, unknown>) {
@@ -23,12 +27,10 @@ function setup(result: Record<string, unknown>) {
     files: [
       {
         id: "screen-1",
-        content: "<main>old</main>",
         updatedAt: OLD_UPDATED_AT,
       },
       {
         id: "screen-2",
-        content: "<main>other</main>",
         updatedAt: OLD_UPDATED_AT,
       },
     ],
@@ -71,7 +73,7 @@ function setup(result: Record<string, unknown>) {
 function cachedFile(queryClient: QueryClient, id: string) {
   return (
     queryClient.getQueryData(DESIGN_KEY) as {
-      files: { id: string; content: string; updatedAt: string }[];
+      files: { id: string; updatedAt: string }[];
     }
   ).files.find((file) => file.id === id)!;
 }
@@ -89,7 +91,6 @@ describe("runSaveFileContent get-design cache", () => {
     await fileSaveChainsRef.current[pending.id];
 
     expect(cachedFile(queryClient, "screen-1")).toMatchObject({
-      content: "<main>new</main>",
       updatedAt: OLD_UPDATED_AT,
     });
     expect(invalidateQueries).toHaveBeenCalledWith({
@@ -97,7 +98,7 @@ describe("runSaveFileContent get-design cache", () => {
     });
   });
 
-  it("writes the persisted updatedAt so the overlay retires without a refetch", async () => {
+  it("updates metadata but waits for a hydrated body before retiring the overlay", async () => {
     const persistedAt = "2026-01-01T00:00:05.000Z";
     const { args, invalidateQueries, pending, queryClient } = setup({
       id: "screen-1",
@@ -111,15 +112,15 @@ describe("runSaveFileContent get-design cache", () => {
 
     const saved = cachedFile(queryClient, "screen-1");
     expect(saved).toMatchObject({
-      content: "<main>new</main>",
       updatedAt: persistedAt,
     });
     expect(cachedFile(queryClient, "screen-2")).toBe(otherBefore);
+    expect(saved).not.toHaveProperty("content");
     expect(invalidateQueries).not.toHaveBeenCalled();
     expect(
       shouldRetirePendingLocalFileContent(
         { content: pending.content, baseUpdatedAt: OLD_UPDATED_AT },
-        saved,
+        { ...saved, content: pending.content },
       ),
     ).toBe(true);
   });

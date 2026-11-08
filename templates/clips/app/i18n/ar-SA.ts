@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "الإشارة إلى تسجيل…",
+    group: "التسجيلات",
+    authentication: "سجّل الدخول لإضافة مرجع.",
+    invalid: "اختر مرجعًا صالحًا قبل الإرسال.",
+    unavailable: "لم يعد المرجع المحدد متاحًا. أزله أو اختره مرة أخرى.",
+  },
   meetingAsk: {
     resizeOrDismissAnswers: "تغيير حجم الإجابات أو إغلاقها",
   },
@@ -303,27 +310,46 @@ const messages = {
     clipsRestoreFailed: "تعذرت استعادة {{count}} مقاطع",
     clipsPermanentlyDeleted: "تم حذف {{count}} مقاطع نهائيا",
     clipsDeleteFailed: "تعذر حذف {{count}} مقاطع",
-    deletedMediaPending: "تم حذف التسجيل. لا تزال إزالة ملفات الوسائط جارية.",
-    deletedMediaBlocked:
-      "تم حذف التسجيل، لكن تعذرت إزالة ملفات الوسائط الخاصة به.",
+    deletedMediaPending:
+      "تمت إزالة الفيديو من Clips. عمليات التحقق من الحذف جارية.",
+    deletedMediaBlocked: "تمت إزالة الفيديو من Clips. تعذر تأكيد حذف الملفات.",
     deletedMediaRetained:
       "تم حذف التسجيل. تم الاحتفاظ بملفات الوسائط التي لا تزال تسجيلات أخرى تستخدمها.",
     clipsDeletedMediaPending:
-      "التسجيلات المحذوفة: {{count}}. لا تزال إزالة ملفات الوسائط جارية.",
+      "مقاطع الفيديو التي أُزيلت من Clips: {{count}}. عمليات التحقق من الحذف جارية.",
     clipsDeletedMediaBlocked:
-      "التسجيلات المحذوفة: {{count}}. تعذرت إزالة ملفات الوسائط.",
+      "مقاطع الفيديو التي أُزيلت من Clips: {{count}}. تعذر تأكيد حذف الملفات.",
     clipsDeletedMediaRetained:
       "التسجيلات المحذوفة: {{count}}. تم الاحتفاظ بملفات الوسائط التي لا تزال تسجيلات أخرى تستخدمها.",
+    deletedMediaFinalizing:
+      "تمت إزالة الفيديو من Clips. يلزم إعادة محاولة تحديث استخدام التخزين.",
+    clipsDeletedMediaFinalizing:
+      "مقاطع الفيديو التي أُزيلت من Clips: {{count}}. يلزم إعادة محاولة تحديث استخدام التخزين.",
+    mediaCleanupFinalizing: "يلزم إعادة محاولة تحديث استخدام التخزين",
+    mediaCleanupFinalizingHelp:
+      "انتهت عمليات التحقق من إزالة الملفات، لكن قد يظل هذا الفيديو محسوبًا ضمن حد التخزين. أعد محاولة تحديث الاستخدام لتحديث إجمالي التخزين.",
     mediaCleanupListLabel: "إزالة الوسائط",
-    mediaCleanupPending: "جارٍ إزالة ملفات الوسائط من التسجيلات المحذوفة",
-    mediaCleanupBlocked: "تعذرت إزالة ملفات الوسائط من التسجيلات المحذوفة",
+    mediaCleanupPending: "عمليات التحقق من الحذف جارية",
+    mediaCleanupPendingHelp:
+      "يواصل Clips التحقق في الخلفية. يمكنك مغادرة هذه الصفحة ومراجعة سلة المهملات للاطلاع على التحديثات.",
+    mediaCleanupBlocked: "تعذر تأكيد حذف ملفات الفيديو",
+    mediaCleanupBlockedHelp:
+      "قد تظل ملفات الفيديو المخزنة موجودة. تبدأ إعادة محاولة الإزالة محاولة أخرى. يمكنك مغادرة هذه الصفحة ومراجعة سلة المهملات لمعرفة النتيجة.",
     mediaCleanupReconnect:
       "أعد ربط التخزين لإزالة ملفات الوسائط من التسجيلات المحذوفة",
     mediaCleanupRetained:
       "يتم الاحتفاظ بملفات الوسائط المشتركة من التسجيلات المحذوفة ما دامت تسجيلات أخرى تستخدمها",
+    mediaCleanupHelp: "مزيد من المعلومات",
+    mediaCleanupRetryFiles: "إعادة محاولة الإزالة",
+    mediaCleanupRetryingFiles: "جارٍ إعادة محاولة حذف ملفات الفيديو",
+    mediaCleanupRetryUsage: "إعادة محاولة تحديث الاستخدام",
+    mediaCleanupRetryingUsage: "جارٍ إعادة محاولة تحديث استخدام التخزين",
     mediaCleanupRemoved: "تمت إزالة ملفات الوسائط",
-    mediaCleanupStillBlocked: "لا تزال إزالة ملفات الوسائط متعذرة",
-    mediaCleanupRetryFailed: "تعذرت إعادة محاولة إزالة الوسائط",
+    mediaCleanupUsageUpdated: "تم تحديث استخدام التخزين",
+    mediaCleanupStillBlocked: "لا يزال تأكيد حذف ملفات الفيديو متعذرًا",
+    mediaCleanupStillFinalizing:
+      "لا يزال تحديث استخدام التخزين يحتاج إلى إعادة المحاولة",
+    mediaCleanupRetryFailed: "تعذر بدء إعادة المحاولة. حاول مرة أخرى.",
     mediaCleanupLoadFailed: "تعذر تحميل حالة إزالة الوسائط",
   },
   recordingRoute: {
@@ -604,6 +630,18 @@ const messages = {
     desktopHint:
       "لبدء الملاحظات، افتح Clips Desktop من شريط القوائم واختر Start Meeting Notes، أو انقر على Start notes عند ظهور التذكير. يلتقط Clips الميكروفون وصوت النظام ويكتب النص هنا.",
     getDesktopApp: "احصل على تطبيق سطح المكتب",
+    earlierAudioAdded_zero: "تمت إضافة {{count}} دقيقة من قبل أن تبدأ",
+    earlierAudioAdded_one: "تمت إضافة {{count}} دقيقة من قبل أن تبدأ",
+    earlierAudioAdded_two: "تمت إضافة {{count}} دقيقتين من قبل أن تبدأ",
+    earlierAudioAdded_few: "تمت إضافة {{count}} دقائق من قبل أن تبدأ",
+    earlierAudioAdded_many: "تمت إضافة {{count}} دقيقة من قبل أن تبدأ",
+    earlierAudioAdded_other: "تمت إضافة {{count}} دقيقة من قبل أن تبدأ",
+    earlierAudioUnreadable:
+      "تعذّر التحقق مما إذا كان هذا النص المكتوب يتضمن صوتًا سابقًا",
+    removeEarlierAudioTitle: "هل تريد إزالة الصوت السابق؟",
+    removeEarlierAudioDescription:
+      "سيؤدي هذا إلى حذفه من النص المكتوب وإعادة إنشاء الملخص وعناصر الإجراءات ووصف المقطع، حتى إذا كنت قد كتبت هذا الوصف بنفسك. وسيُعاد إنشاء العنوان المُنشأ تلقائيًا أيضًا، أما العنوان الذي اخترته فيبقى كما هو. كما ستُحذف أي فصول.",
+    couldNotRemoveEarlierAudio: "تعذرت إزالة الصوت السابق",
     generateNotesFailed: "تعذر إنشاء الملخص. حاول ثانية.",
     attendee_one: "الحضور {{count}}",
     attendee_other: "الحضور {{count}}",
@@ -662,6 +700,7 @@ const messages = {
     noMatches: "لا توجد مباريات.",
     noTranscript: "لا يوجد نسخة بعد.",
     noTranscriptCaptured: "لم يتم التقاط أي نص.",
+    partialTranscript: "نص جزئي: تم قطع التسجيل، لذا قد يكون جزء منه مفقودًا.",
     backupFailed:
       "لم يتم التقاط أي خطاب محليًا، ولم ينته النسخ الاحتياطي. أعد المحاولة أو تحقق من أذونات الميكروفون والكلام.",
     backupNotSetup: "لم يتم التقاط أي كلام محليًا، ولم يتم إعداد النسخ الاحتياطي.",
@@ -764,7 +803,7 @@ const messages = {
     openInCodex: "فتح في Codex",
     copyAgentPrompt: "نسخ مطالبة الوكيل",
     agentPrompt:
-      "اقرأ عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. اقرأ النص الكامل من apis.transcript واجلب recommendedFrames[].url (أو apis.frame.urlTemplate مع atMs) كصور. احتفظ بـ id وagent_access كما هما تماماً. عند أي خطأ، افحص failureKind وerror وnextStep في استجابة JSON. إذا كانت failureKind=access، وضّح أن الرابط لا يمنح الوصول؛ وللمقطع الخاص، اطلب من المالك اختيار {{shareWithAgents}} في قائمة Clips Share وإرسال الرابط الناتج. إذا كانت failureKind=media بينما يعمل النص، وضّح أنه تعذّر جلب الوسائط المخزنة وأن رابطاً آخر لن يحل المشكلة. وإذا كانت failureKind=processing، فاتبع nextStep؛ فهذا لا يعني أن المقطع مفقود أو أن الرابط غير صالح. إذا كانت failureKind=expired، اطلب من المالك تمديد انتهاء صلاحية المقطع أو إزالته من قائمة المشاركة، وحفظ التغيير، ثم اختيار {{shareWithAgents}} وإرسال الرابط الجديد. استخدم browserDiagnostics أيضاً عند توفرها لتقرير الأخطاء. إذا تعذّر على أداتك إرجاع الصور أو فتح هذه الروابط، فوضّح أن هذا قيد في أداتك وليس خطأ في Clips.",
+      "اقرأ عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. اقرأ النص الكامل من apis.transcript واجلب recommendedFrames[].url (أو apis.frame.urlTemplate مع atMs) كصور. احتفظ بـ id وagent_access كما هما تماماً. عند أي خطأ، افحص failureKind وerror وnextStep في استجابة JSON. إذا كانت failureKind=access، وضّح أن الرابط لا يمنح الوصول؛ وللمقطع الخاص، اطلب من المالك اختيار {{shareWithAgents}} في قائمة Clips Share وإرسال الرابط الناتج. إذا كانت failureKind=media بينما يعمل النص، وضّح أنه تعذّر جلب الوسائط المخزنة وأن رابطاً آخر لن يحل المشكلة. وإذا كانت failureKind=processing، فاتبع nextStep؛ فهذا لا يعني أن المقطع مفقود أو أن الرابط غير صالح. إذا كانت failureKind=expired، اطلب من المالك تمديد انتهاء صلاحية المقطع أو إزالته من قائمة المشاركة، وحفظ التغيير، ثم اختيار {{shareWithAgents}} وإرسال الرابط الجديد. استخدم browserDiagnostics أيضاً عند توفرها لتقرير الأخطاء. إذا تعذّر عليك فتح عناوين URL للإطارات كصور، فاستدعِ أداة Clips المسماة get-recording-frames مع معرّف التسجيل من عنوان URL للسياق هذا إن كانت متاحة. وإن لم تكن متاحة، فأخبر المستخدم أن ربط Clips عبر {{connectUrl}} يتيح لك رؤية الإطارات.",
     agentTokenDescription:
       "رابط مؤقت للقراءة فقط للوكلاء لأن هذا المقطع غير عام. تنتهي صلاحيته بعد ساعتين.",
     agentPublicDescription: "رابط للقراءة فقط للوكلاء. يعمل ما دام المقطع عاما.",
@@ -1495,6 +1534,7 @@ const messages = {
   transcriptBubbles: {
     listening: "يستمع…",
     noTranscript: "لا يوجد نص بعد.",
+    unreadable: "تعذّرت قراءة هذا النص المكتوب.",
     liveTranscriptDescription: "سيظهر النص المباشر هنا عند بدء الملاحظات.",
     me: "أنا",
     them: "هم",
@@ -2181,6 +2221,11 @@ const messages = {
     flowOriginalTranscript: "عرض النص الأصلي",
     flowCleanupSkipped: "تم تخطي تنقيح النص مع الاحتفاظ بالنص الأصلي",
     flowBacktrackSkipped: "تم تخطي تعديل النص مع الاحتفاظ بالنص المتعرّف عليه",
+    flowAppleSpeechParakeetMissing: "Apple Speech · لم يتم تنزيل Parakeet",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · جارٍ تنزيل Parakeet",
+    flowAppleSpeechParakeetLoading: "Apple Speech · جارٍ تحميل Parakeet",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet مشغول",
+    flowAppleSpeechParakeetFailed: "Apple Speech · تعذّر تحميل Parakeet",
     flowCancelDictation: "إلغاء الإملاء",
     flowCopying: "جارٍ نسخ النص…",
     aiProcessed: "تمت المعالجة بالذكاء الاصطناعي",

@@ -5,6 +5,7 @@ import {
   hasSessionHint,
   isSessionNavigationPending,
   navigateForSession,
+  SESSION_INVALIDATION_STORAGE_KEY,
   SESSION_NAVIGATION_RELEASED_EVENT,
   SESSION_NAVIGATION_STALL_MS,
   SSR_SESSION_BOOTSTRAP_TIMEOUT_MS,
@@ -79,6 +80,93 @@ describe("getSsrSessionBootstrapScriptBody", () => {
     );
     deadline?.();
     expect(abort).toHaveBeenCalledOnce();
+  });
+
+  it("records the stored invalidation marker as the read goes out", () => {
+    const windowObject: {
+      localStorage: { getItem: (key: string) => string | null };
+      __agentNativeSessionBootstrapInvalidation?: string;
+    } = {
+      localStorage: {
+        getItem: (key) =>
+          key === SESSION_INVALIDATION_STORAGE_KEY ? "signed-in-earlier" : null,
+      },
+    };
+    const recordedWhenSent: Array<string | undefined> = [];
+    const fetch = vi.fn(() => {
+      recordedWhenSent.push(
+        windowObject.__agentNativeSessionBootstrapInvalidation,
+      );
+      return new Promise(() => {});
+    });
+    const runScript = new Function(
+      "window",
+      "document",
+      "AbortController",
+      "setTimeout",
+      "clearTimeout",
+      "fetch",
+      getSsrSessionBootstrapScriptBody("/session", "an_hint"),
+    );
+
+    runScript(
+      windowObject,
+      { cookie: "an_hint=1" },
+      class TestAbortController {
+        signal = {};
+        abort() {}
+      },
+      () => 1,
+      vi.fn(),
+      fetch,
+    );
+
+    expect(recordedWhenSent).toEqual(["signed-in-earlier"]);
+  });
+
+  it("records the transport the read goes out on, as it is sent, so only a caller on it takes the answer", () => {
+    const runScript = (fetch: unknown) => {
+      const windowObject: { __agentNativeSessionBootstrapTransport?: unknown } =
+        {};
+      new Function(
+        "window",
+        "document",
+        "AbortController",
+        "setTimeout",
+        "clearTimeout",
+        "fetch",
+        getSsrSessionBootstrapScriptBody("/session", "an_hint"),
+      )(
+        windowObject,
+        { cookie: "an_hint=1" },
+        undefined,
+        () => 1,
+        vi.fn(),
+        fetch,
+      );
+      return windowObject.__agentNativeSessionBootstrapTransport;
+    };
+    const fetch = vi.fn(() => new Promise(() => {}));
+    expect(runScript(fetch)).toBe(fetch);
+    expect(fetch).toHaveBeenCalledOnce();
+
+    // A wrapper that signs with the token it holds now: the transport is that
+    // token's, kept after the token changes.
+    let token = "token-a";
+    const transports = new Map([
+      ["token-a", { token: "token-a" }],
+      ["token-b", { token: "token-b" }],
+    ]);
+    const signed = Object.assign(
+      vi.fn(() => new Promise(() => {})),
+      {
+        [Symbol.for("agent-native.fetch.transport")]: () =>
+          transports.get(token),
+      },
+    );
+    const recorded = runScript(signed);
+    token = "token-b";
+    expect(recorded).toBe(transports.get("token-a"));
   });
 
   it("does not schedule or fetch without the session hint", () => {

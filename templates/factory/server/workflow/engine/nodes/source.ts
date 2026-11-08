@@ -1,4 +1,4 @@
-import type { OperationResult } from "../../adapter.js";
+import type { InboxStart, OperationResult } from "../../adapter.js";
 import { WorkflowError, type WorkflowNodeOfKind } from "../../contract.js";
 import {
   boundItem,
@@ -26,6 +26,16 @@ interface Fetched {
   cursor?: string;
   /** Rows the provider sent that the host could not turn into items. */
   skippedRows?: number;
+  /** An inbox poll's position after this read, which a live run saves. */
+  position?: string;
+  /** An inbox poll's first live read: the newest position and no items. */
+  primed?: boolean;
+  /** An inbox poll left out this many of the app's own posts: output of the workflow, not new work. */
+  skippedOwn?: number;
+  /** An inbox poll read nothing into the inbox: its items are a sample. */
+  sample?: boolean;
+  /** A sample of a source that has no position yet, which a live run would start from now. */
+  wouldPrime?: boolean;
 }
 
 /**
@@ -68,11 +78,32 @@ function isInboxBacked(settings: SourceSettings): boolean {
   );
 }
 
+/**
+ * Where an inbox poll starts. A position a live run saved is where it goes on
+ * from. With none, a workflow that has never settled a live run starts from
+ * now, so switching it on never works through what was already in the channel;
+ * one that already ran keeps reading as it did, because it has handled
+ * everything up to now and a new position would drop what is still waiting.
+ */
+async function inboxStart(
+  call: NodeCall<SourceNode>,
+): Promise<InboxStart | undefined> {
+  const { ctx, node } = call;
+  const stored = await ctx.host.store.getSourceCursor(ctx.scope, {
+    workflowId: ctx.workflowId,
+    nodeId: node.id,
+  });
+  if (stored) return { kind: "from", position: stored.value };
+  return ctx.window.firstRun ? { kind: "prime" } : undefined;
+}
+
 async function fetchFromInbox(
   call: NodeCall<SourceNode>,
   settings: Extract<SourceSettings, { source: "inbox-poll" | "status" }>,
 ): Promise<Fetched> {
   const { ctx } = call;
+  const start =
+    settings.source === "inbox-poll" ? await inboxStart(call) : undefined;
   const result = await retrying(
     ctx,
     () =>
@@ -80,6 +111,7 @@ async function fetchFromInbox(
         settings,
         mode: ctx.mode,
         signal: ctx.signal,
+        ...(start ? { start } : {}),
       }),
     (taken) => !taken.ok && taken.retryable,
   );
@@ -89,6 +121,13 @@ async function fetchFromInbox(
     ...(result.totalAvailable === undefined
       ? {}
       : { totalAvailable: result.totalAvailable }),
+    ...(result.position === undefined ? {} : { position: result.position }),
+    ...(result.primed ? { primed: true } : {}),
+    ...(result.skippedOwn === undefined
+      ? {}
+      : { skippedOwn: result.skippedOwn }),
+    ...(result.sample ? { sample: true } : {}),
+    ...(result.sample && start?.kind === "prime" ? { wouldPrime: true } : {}),
   };
 }
 
@@ -384,9 +423,24 @@ export const executeSource: NodeExecutorFor<"source"> = async (call) => {
     });
     ctx.runtime.skippedRows += fetched.skippedRows;
   }
-  // The poller behind an inbox poll writes its rows in every mode, a dry run
-  // included, so the audit can say the run ingested even though it changed no item.
-  if (settings.source === "inbox-poll") step.field("ingested", true);
+  if (settings.source === "inbox-poll") {
+    // Only a live read that went on from a position (or from none) brought rows
+    // in; a first read takes the position alone, and a dry or test read stores nothing.
+    step.field("ingested", ctx.runtime.live && fetched.primed !== true);
+    if (fetched.primed) {
+      step.field("primed", true);
+      ctx.runtime.primed += 1;
+    }
+    if (fetched.sample) {
+      step.field("sample", true);
+      if (fetched.wouldPrime) step.field("wouldPrime", true);
+    }
+    // The count of what was left out is kept on the step, so a source that took
+    // nothing because the channel held only the workflow's own posts says so.
+    if (fetched.skippedOwn !== undefined) {
+      step.field("skippedOwn", fetched.skippedOwn);
+    }
+  }
   step.field("taken", won.length);
   if (skipped.length > 0) step.field("heldByAnotherRun", skipped.length);
   for (const item of won) {
@@ -400,7 +454,21 @@ export const executeSource: NodeExecutorFor<"source"> = async (call) => {
   }
 
   let commit: NodeOutcome["commit"];
-  if (fetched.cursor !== undefined) {
+  if (fetched.position !== undefined) {
+    if (ctx.runtime.live) {
+      const value = fetched.position;
+      step.field("cursorAfter", fitText(value, 200));
+      commit = () =>
+        ctx.host.store.setSourceCursor(ctx.scope, {
+          workflowId: ctx.workflowId,
+          nodeId: node.id,
+          value,
+          ownerEmail: ctx.ownerEmail,
+        });
+    } else {
+      step.field("cursorHeld", "not a live run");
+    }
+  } else if (fetched.cursor !== undefined) {
     if (droppedByEngine) {
       step.field("cursorHeld", "items past the bound were not taken");
       if (ctx.runtime.live) ctx.runtime.cursorsHeld.push(node.id);

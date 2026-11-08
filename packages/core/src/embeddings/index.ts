@@ -1,3 +1,4 @@
+import { withoutWriteObservation } from "../action-frame.js";
 import { readBoundedResponseBytes } from "../ingestion/index.js";
 import {
   getBuilderEmbeddingsBaseUrl,
@@ -131,12 +132,15 @@ async function postJson(
     : controller.signal;
   try {
     signal.throwIfAborted();
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify(body),
-      signal,
-    });
+    // Computing a vector saves nothing: the call may fail after it and retry.
+    const response = await withoutWriteObservation(() =>
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(body),
+        signal,
+      }),
+    );
     if (!response.ok)
       throw new Error(
         `Embedding provider ${providerModel} failed with status ${response.status}.`,

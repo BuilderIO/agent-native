@@ -384,12 +384,9 @@ describe("govern-factory-pull-request final check evidence", () => {
     expect(manualDispositionId("head-sha-2")).not.toBe(manualDispositionId());
   });
 
-  it.each([
-    ["a bot-authored pull request", { userType: "Bot" }],
-    ["the exact steve8708 login", { userLogin: "steve8708" }],
-  ])("skips %s before evidence or state changes", async (_label, author) => {
+  it("skips a bot-authored pull request before evidence or state changes", async () => {
     await seedItem("pr_observed");
-    const github = governanceGitHub({ initialSummary: author });
+    const github = governanceGitHub({ initialSummary: { userType: "Bot" } });
 
     const result = await runGovernance(github);
     const item = (

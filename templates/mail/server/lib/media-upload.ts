@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { noteExternalWrite } from "@agent-native/core/action";
 import { uploadFile } from "@agent-native/core/file-upload";
 import {
   getRequestContext,
@@ -116,6 +117,7 @@ export async function storeMediaUpload(input: {
     );
   }
 
+  noteExternalWrite("local-disk");
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
   const filePath = path.join(UPLOADS_DIR, input.filename);
   fs.writeFileSync(filePath, input.data);

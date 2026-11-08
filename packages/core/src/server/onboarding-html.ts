@@ -1134,7 +1134,7 @@ export interface OnboardingHtmlOptions {
   requestOrigin?: string;
   signupLegalNotice?: SignupLegalNoticeOptions | false;
   googleAuthMode?: GoogleAuthMode;
-  renderSignInPage?: (props: AuthPageProps) => string;
+  renderSignInPage?: (props: AuthPageProps) => string | undefined;
 }
 
 function escapeHtml(value: string): string {
@@ -1223,9 +1223,13 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }).resumeHref;
   const workspaceRuntime = isWorkspaceRuntime();
   const trackingApp =
-    getAppConfig().app.slug ??
-    getAppConfig().app.template ??
-    getAppConfig().app.id ??
+    getAppConfig().app.slug?.trim() ||
+    getAppConfig().app.template?.trim() ||
+    getAppConfig().app.id?.trim() ||
+    resolveBuiltInAuthMarketingSlug({
+      ...(opts.requestHost ? { requestHost: opts.requestHost } : {}),
+      ...(opts.requestPath ? { requestPath: opts.requestPath } : {}),
+    }) ||
     "";
   const publicOAuthOrigin = getPublicOAuthOrigin();
   const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();
@@ -2058,6 +2062,11 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .btn-google:hover { background: #e5e5e5; }
   .btn-google:disabled { opacity: 0.5; cursor: wait; }
   .btn-google svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .animate-spin { animation: spin 0.75s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .animate-spin { animation: none; }
+  }
   .google-signin {
     position: relative;
     width: 100%;
@@ -2552,7 +2561,9 @@ const RESET_PASSWORD_STYLES = `
 
 export function getResetPasswordHtml(
   requestPath?: string,
-  renderResetPasswordPage?: (props: ResetPasswordPageProps) => string,
+  renderResetPasswordPage?: (
+    props: ResetPasswordPageProps,
+  ) => string | undefined,
 ): string {
   const configuredAppBasePath = getAppBasePathFromViteEnv();
   const appBasePath =
