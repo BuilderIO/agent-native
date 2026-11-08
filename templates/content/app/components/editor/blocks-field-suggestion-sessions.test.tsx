@@ -4,7 +4,12 @@ import type {
   ResourceSuggestion,
   SuggestionOperation,
 } from "@agent-native/core/review";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  QueryObserver,
+  useQuery,
+} from "@tanstack/react-query";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -99,12 +104,23 @@ describe("useBlocksFieldSuggestions", () => {
   );
 
   function Harness(props: {
+    documentId: string;
     suggesting: boolean;
     saving: boolean;
     saved: ResourceSuggestion[];
   }) {
+    // The page's tabs show their text from its read of its properties.
+    useQuery({
+      queryKey: [
+        "action",
+        "list-document-properties",
+        { documentId: props.documentId },
+      ],
+      queryFn: async () => null,
+      enabled: false,
+    });
     latest = useBlocksFieldSuggestions({
-      documentId: "doc-1",
+      documentId: props.documentId,
       suggesting: props.suggesting,
       saving: props.saving,
       authorEmail: "suggester@example.test",
@@ -120,17 +136,43 @@ describe("useBlocksFieldSuggestions", () => {
   async function render(
     suggesting: boolean,
     saved: ResourceSuggestion[],
-    { saving = false }: { saving?: boolean } = {},
+    {
+      saving = false,
+      documentId = "doc-1",
+    }: { saving?: boolean; documentId?: string } = {},
   ) {
     await act(async () => {
       root.render(
         createElement(
           QueryClientProvider,
           { client: queryClient },
-          createElement(Harness, { suggesting, saving, saved }),
+          createElement(Harness, { documentId, suggesting, saving, saved }),
         ),
       );
     });
+  }
+
+  /** The page's read of its properties, at `revision` of the Notes tab. */
+  function showNotes(
+    revision: number,
+    scope: { documentId: string; databaseId?: string } = {
+      documentId: "doc-1",
+    },
+  ) {
+    queryClient.setQueryData(["action", "list-document-properties", scope], {
+      documentId: scope.documentId,
+      databaseId: scope.databaseId ?? null,
+      properties: [{ definition: { id: "notes" }, blocksField: { revision } }],
+    });
+  }
+
+  /** The saved suggestions the Notes tab highlights over its text. */
+  function highlighted() {
+    presentations.mockClear();
+    latest.provider.visuals("notes", "Original notes.");
+    return first(first(presentations.mock.calls)).savedSuggestions.map(
+      (suggestion) => suggestion.id,
+    );
   }
 
   async function draftInTab() {
@@ -748,14 +790,6 @@ describe("useBlocksFieldSuggestions", () => {
     });
     const created = first(firstSaved());
     await render(false, [created]);
-    /** The saved suggestions the tab highlights over its text. */
-    const highlighted = () => {
-      presentations.mockClear();
-      latest.provider.visuals("notes", "Original notes.");
-      return first(first(presentations.mock.calls)).savedSuggestions.map(
-        (suggestion) => suggestion.id,
-      );
-    };
     expect(highlighted()).toEqual(["saved-0"]);
 
     let decision: Promise<void> | undefined;
@@ -776,7 +810,7 @@ describe("useBlocksFieldSuggestions", () => {
     expect(highlighted()).toEqual([]);
   });
 
-  it("keeps showing a decided tab's suggestions until its text is read, when reading it fails outside Suggesting mode", async () => {
+  it("keeps showing a decided tab's suggestions until the page shows its new text, when reading it fails outside Suggesting mode", async () => {
     await render(true, []);
     await draftInTab();
     await act(async () => {
@@ -784,14 +818,9 @@ describe("useBlocksFieldSuggestions", () => {
     });
     const created = first(firstSaved());
     await render(false, [created]);
-    /** The saved suggestions the tab highlights over its text. */
-    const highlighted = () => {
-      presentations.mockClear();
-      latest.provider.visuals("notes", "Original notes.");
-      return first(first(presentations.mock.calls)).savedSuggestions.map(
-        (suggestion) => suggestion.id,
-      );
-    };
+    await act(async () => {
+      showNotes(3);
+    });
     vi.spyOn(queryClient, "refetchQueries").mockRejectedValueOnce(
       new Error("Network down"),
     );
@@ -804,14 +833,171 @@ describe("useBlocksFieldSuggestions", () => {
     expect(latest.deciding).toBe(false);
     expect(highlighted()).toEqual(["saved-0"]);
 
-    // The page reads it when it next refreshes.
+    // Reads that don't show the new text let nothing go: the page's own,
+    // still at the old revision, and another Collection's, not on screen.
     await act(async () => {
-      queryClient.setQueryData(
-        ["action", "list-document-properties", { documentId: "doc-1" }],
-        { properties: [] },
-      );
+      showNotes(3);
+      showNotes(4, { documentId: "doc-1", databaseId: "other-collection" });
+    });
+    expect(highlighted()).toEqual(["saved-0"]);
+
+    // The page shows it when it next reads it.
+    await act(async () => {
+      showNotes(4);
     });
     expect(highlighted()).toEqual([]);
+  });
+
+  it("keeps an earlier decision's suggestion shown when the tab decides again before the page shows its new text", async () => {
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const accepted = first(firstSaved());
+    const rejected = {
+      ...accepted,
+      id: "saved-1",
+      threadId: "suggestion-saved-1",
+    };
+    await render(false, [accepted, rejected]);
+    await act(async () => {
+      showNotes(3);
+    });
+    const refetchQueries = vi
+      .spyOn(queryClient, "refetchQueries")
+      .mockRejectedValue(new Error("Network down"));
+
+    await act(async () => {
+      await latest.decide(accepted, "accepted");
+    });
+    await render(false, [{ ...accepted, status: "accepted" }, rejected]);
+    expect(highlighted()).toEqual(["saved-0", "saved-1"]);
+
+    // Rejecting the other changes no text; the tab still shows the accepted
+    // one until its edit is on screen.
+    await act(async () => {
+      await latest.decide(rejected, "rejected");
+    });
+    await render(false, [
+      { ...accepted, status: "accepted" },
+      { ...rejected, status: "rejected" },
+    ]);
+    expect(highlighted()).toContain("saved-0");
+
+    refetchQueries.mockRestore();
+    await act(async () => {
+      showNotes(4);
+    });
+    expect(highlighted()).toEqual([]);
+  });
+
+  it("lets a decided tab's suggestions go at once when the page already shows its new text", async () => {
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const created = first(firstSaved());
+    await render(false, [created]);
+    await act(async () => {
+      showNotes(3);
+    });
+    vi.spyOn(queryClient, "refetchQueries").mockRejectedValueOnce(
+      new Error("Network down"),
+    );
+    // The page's own read lands while the decision is under way.
+    mocks.decideSuggestion.mockImplementation(async () => {
+      showNotes(4);
+      return { suggestion: { ...created, status: "accepted" } };
+    });
+
+    await act(async () => {
+      await latest.decide(created, "accepted");
+    });
+    await render(false, [{ ...created, status: "accepted" }]);
+    expect(highlighted()).toEqual([]);
+  });
+
+  it("waits on nothing for a page left while its decision was under way", async () => {
+    let finish: ((value: unknown) => void) | undefined;
+    mocks.decideSuggestion.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const created = first(firstSaved());
+    await render(false, [created]);
+    await act(async () => {
+      showNotes(3);
+    });
+    // Something else on screen still shows the first page's properties.
+    const elsewhere = new QueryObserver(queryClient, {
+      queryKey: ["action", "list-document-properties", { documentId: "doc-1" }],
+      enabled: false,
+    });
+    const stopElsewhere = elsewhere.subscribe(() => {});
+    vi.spyOn(queryClient, "refetchQueries").mockRejectedValue(
+      new Error("Network down"),
+    );
+
+    let decision: Promise<void> | undefined;
+    await act(async () => {
+      decision = latest.decide(created, "accepted");
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    await render(false, [], { documentId: "doc-2" });
+    await act(async () => {
+      finish?.({ suggestion: { ...created, status: "accepted" } });
+      await decision;
+    });
+
+    expect(queryClient.getQueryCache().hasListeners()).toBe(false);
+    stopElsewhere();
+  });
+
+  it("restarts a tab on its new text even when the moved quote can't be read", async () => {
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const asked = {
+      ...first(firstSaved()),
+      metadata: { sourceThreadId: "thread-1", commentAiRequestId: "request-1" },
+    };
+    mocks.decideSuggestion.mockResolvedValue({
+      suggestion: { ...asked, status: "accepted" },
+    });
+    await render(true, [asked]);
+    vi.spyOn(queryClient, "refetchQueries").mockImplementation(
+      async (filters) => {
+        if (filters?.queryKey?.[1] === "list-comments")
+          throw new Error("Network down");
+      },
+    );
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+
+    await act(async () => {
+      await latest.decide(asked, "accepted");
+    });
+
+    expect(latest.deciding).toBe(false);
+    expect(latest.provider.sessions.has("notes")).toBe(false);
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    // The comments are asked for once more.
+    await vi.waitFor(() =>
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ["action", "list-comments", { documentId: "doc-1" }],
+      }),
+    );
   });
 
   it("saves a tab's draft within five seconds of typing without a pause", async () => {

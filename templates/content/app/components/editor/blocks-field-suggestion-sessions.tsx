@@ -11,6 +11,7 @@ import type {
   SuggestionDecision,
   SuggestionOperation,
 } from "@agent-native/core/review";
+import type { DocumentPropertiesResponse } from "@shared/api";
 import {
   blocksFieldSuggestionRevision,
   CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER,
@@ -345,11 +346,31 @@ export function useBlocksFieldSuggestions({
   const creationKeysRef = useRef(new Map<string, string>());
   const [decidingFields, setDecidingFields] =
     useState<ReadonlySet<string>>(NO_FIELDS);
-  /** The saved suggestions each deciding tab showed when its decision began. */
+  /**
+   * The saved suggestions each tab shows until its decided text is read:
+   * those it showed when the decision began. Read and changed through the
+   * ref, so a hold always builds on the one before it.
+   */
   const [decidingViews, setDecidingViews] =
     useState<ReadonlyMap<string, ResourceSuggestion[]>>(NO_VIEWS);
+  const decidingViewsRef = useRef(decidingViews);
+  const changeViews = useCallback(
+    (
+      change: (
+        views: ReadonlyMap<string, ResourceSuggestion[]>,
+      ) => ReadonlyMap<string, ResourceSuggestion[]>,
+    ) => {
+      const next = change(decidingViewsRef.current);
+      if (next === decidingViewsRef.current) return;
+      decidingViewsRef.current = next;
+      setDecidingViews(next);
+    },
+    [],
+  );
   /** Stops the waits for decided tabs' text that hold their views. */
   const waitingReadsRef = useRef(new Set<() => void>());
+  /** Counts the pages this one has left, so a late decision waits on none. */
+  const pageLeftRef = useRef(0);
   const decidingRef = useRef(false);
   const [flushing, setFlushing] = useState(false);
   const [anchors, setAnchors] = useState<ReadonlyMap<string, string[]>>(
@@ -655,11 +676,12 @@ export function useBlocksFieldSuggestions({
   // held views carry over to it.
   useEffect(
     () => () => {
+      pageLeftRef.current += 1;
       for (const stop of waitingReadsRef.current) stop();
       waitingReadsRef.current.clear();
-      setDecidingViews(NO_VIEWS);
+      changeViews(() => NO_VIEWS);
     },
-    [documentId],
+    [changeViews, documentId],
   );
 
   useEffect(() => {
@@ -978,9 +1000,12 @@ export function useBlocksFieldSuggestions({
   }, []);
 
   /**
-   * Reads the tabs' text afresh, and the page's comments with it when
-   * `comments`, trying again while that fails for as long as one of
-   * `sessions` is still its tab's. Reports whether it was read.
+   * Reads the tabs' text afresh, trying again while that fails for as long
+   * as one of `sessions` is still its tab's. Reports whether it was read.
+   * With `comments`, the page's comments are asked for in the same run, so
+   * the two reads share a batch and land together: a tab never shows its
+   * new text with a thread's old quote. Comments that fail to load are
+   * asked for once more, and hold nothing up.
    */
   const reread = useCallback(
     async (sessions: FieldSession[], comments: boolean) => {
@@ -988,20 +1013,22 @@ export function useBlocksFieldSuggestions({
         sessions.some(
           (session) => sessionsRef.current.get(session.fieldId) === session,
         );
-      const queryKeys = [
-        ["action", "list-document-properties", { documentId }],
-        ...(comments ? [["action", "list-comments", { documentId }]] : []),
-      ];
+      const commentsKey = ["action", "list-comments", { documentId }];
       let delay = 0;
       for (;;) {
+        const text = queryClient.refetchQueries(
+          { queryKey: ["action", "list-document-properties", { documentId }] },
+          { throwOnError: true },
+        );
+        if (comments)
+          void queryClient
+            .refetchQueries({ queryKey: commentsKey }, { throwOnError: true })
+            .catch(() =>
+              queryClient.invalidateQueries({ queryKey: commentsKey }),
+            )
+            .catch(() => undefined);
         try {
-          // Asked for in one go, the reads share a batch and land together,
-          // so a tab never shows its new text with a thread's old quote.
-          await Promise.all(
-            queryKeys.map((queryKey) =>
-              queryClient.refetchQueries({ queryKey }, { throwOnError: true }),
-            ),
-          );
+          await text;
           return true;
         } catch (error) {
           if (!current()) return false;
@@ -1021,46 +1048,96 @@ export function useBlocksFieldSuggestions({
   );
 
   /**
-   * Holds what tabs show of their saved suggestions as it is now, and
-   * returns what lets them go. A later hold on a tab replaces this one.
+   * Holds what tabs show of their saved suggestions as it is now. A tab
+   * still holding an earlier decision's view, because the text with that
+   * decision is unread, keeps it, with any suggestion shown since added.
+   * Returns what lets this hold go, and the tabs that kept an earlier view.
+   * A later hold on a tab replaces this one there.
    */
-  const holdViews = useCallback((fieldIds: string[]) => {
-    const held = new Map(
-      fieldIds.map((fieldId) => [
-        fieldId,
-        suggestionsRef.current.filter(
+  const holdViews = useCallback(
+    (fieldIds: string[]) => {
+      const held = new Map<string, ResourceSuggestion[]>();
+      const carried = new Set<string>();
+      for (const fieldId of new Set(fieldIds)) {
+        const shown = suggestionsRef.current.filter(
           (suggestion) => suggestionBlocksFieldId(suggestion) === fieldId,
-        ),
-      ]),
-    );
-    setDecidingViews((views) => new Map([...views, ...held]));
-    return () =>
-      setDecidingViews((views) => {
-        const kept = new Map(
-          [...views].filter(([fieldId, view]) => held.get(fieldId) !== view),
         );
-        if (kept.size === views.size) return views;
-        return kept.size > 0 ? kept : NO_VIEWS;
-      });
-  }, []);
+        const earlier = decidingViewsRef.current.get(fieldId);
+        if (earlier) carried.add(fieldId);
+        held.set(
+          fieldId,
+          earlier
+            ? [
+                ...earlier,
+                ...shown.filter(
+                  (suggestion) =>
+                    !earlier.some((kept) => kept.id === suggestion.id),
+                ),
+              ]
+            : shown,
+        );
+      }
+      changeViews((views) => new Map([...views, ...held]));
+      const release = () =>
+        changeViews((views) => {
+          const kept = new Map(
+            [...views].filter(([fieldId, view]) => held.get(fieldId) !== view),
+          );
+          if (kept.size === views.size) return views;
+          return kept.size > 0 ? kept : NO_VIEWS;
+        });
+      return { release, carried };
+    },
+    [changeViews],
+  );
 
-  /** Runs `then` once the tabs' text is read again, after `since`. */
+  /**
+   * The revisions of a tab's text that the page shows: one for each read of
+   * its properties on screen that has the tab.
+   */
+  const shownRevisions = useCallback(
+    (fieldId: string) =>
+      queryClient
+        .getQueryCache()
+        .findAll({
+          queryKey: ["action", "list-document-properties", { documentId }],
+        })
+        .filter((query) => query.getObserversCount() > 0)
+        .flatMap((query) => {
+          const read = query.state.data as
+            | DocumentPropertiesResponse
+            | undefined;
+          const revision = read?.properties?.find(
+            (property) => property.definition.id === fieldId,
+          )?.blocksField?.revision;
+          return revision === undefined ? [] : [revision];
+        }),
+    [documentId, queryClient],
+  );
+
+  /**
+   * Runs `then` once the page shows each tab of `revisions` past the
+   * revision given for it, at once if it already does.
+   */
   const afterTextRead = useCallback(
-    (since: number, then: () => void) => {
-      const cache = queryClient.getQueryCache();
-      const queryKey = ["action", "list-document-properties", { documentId }];
-      const stop = cache.subscribe(() => {
-        const read = cache
-          .findAll({ queryKey })
-          .some((query) => query.state.dataUpdatedAt >= since);
-        if (!read) return;
+    (revisions: ReadonlyMap<string, number>, then: () => void) => {
+      const read = () =>
+        [...revisions].every(([fieldId, revision]) =>
+          shownRevisions(fieldId).every((shown) => shown > revision),
+        );
+      if (read()) {
+        then();
+        return;
+      }
+      const stop = queryClient.getQueryCache().subscribe(() => {
+        if (!read()) return;
         stop();
         waitingReadsRef.current.delete(stop);
         then();
       });
       waitingReadsRef.current.add(stop);
     },
-    [documentId, queryClient],
+    [queryClient, shownRevisions],
   );
 
   /**
@@ -1072,15 +1149,22 @@ export function useBlocksFieldSuggestions({
     async (fieldIds: string[], run: () => Promise<ResourceSuggestion[]>) => {
       if (decidingRef.current) return;
       decidingRef.current = true;
+      const pagesLeft = pageLeftRef.current;
       // The tabs stop taking typing until they restart on the decided text,
       // so nothing typed meanwhile is dropped with the old draft.
       setDecidingFields(new Set(fieldIds));
       // They also show their suggestions as they were until their text is
       // read: the list drops an accepted suggestion before the text holding
       // it arrives, and the tab would show its old text without it meanwhile.
-      const releaseViews = holdViews(fieldIds);
-      /** When the decision was made, while its text is still unread. */
-      let unreadSince: number | null = null;
+      const views = holdViews(fieldIds);
+      const shownBefore = new Map(
+        [...new Set(fieldIds)].map((fieldId) => [
+          fieldId,
+          Math.max(-1, ...shownRevisions(fieldId)),
+        ]),
+      );
+      /** The tabs whose changed text is still unread. */
+      let unread: string[] = [];
       // Accepting moves each asking thread's quote onto the tab's new text.
       let movedQuotes = false;
       try {
@@ -1088,12 +1172,20 @@ export function useBlocksFieldSuggestions({
           const session = sessionsRef.current.get(fieldId);
           if (session && !(await save(session, { autosave: false }))) return;
         }
-        movedQuotes = (await run()).some(
-          (suggestion) =>
-            suggestion.status === "accepted" &&
-            suggestionSourceThreadId(suggestion),
+        const accepted = (await run()).filter(
+          (suggestion) => suggestion.status === "accepted",
         );
-        unreadSince = Date.now();
+        movedQuotes = accepted.some((suggestion) =>
+          suggestionSourceThreadId(suggestion),
+        );
+        // Accepting changed the tabs' text, and a tab that kept an earlier
+        // decision's view has that decision's change still to read.
+        unread = [
+          ...new Set([
+            ...views.carried,
+            ...(accepted.length > 0 ? fieldIds : []),
+          ]),
+        ];
         const decided = [...new Set(fieldIds)].flatMap(
           (fieldId) => sessionsRef.current.get(fieldId) ?? [],
         );
@@ -1101,7 +1193,7 @@ export function useBlocksFieldSuggestions({
         // save its next draft on an old base. Until the text is read, the
         // tabs keep their old drafts, which have nothing unsaved.
         if (!(await reread(decided, movedQuotes))) return;
-        unreadSince = null;
+        unread = [];
         let restarted = false;
         for (const session of decided) {
           if (sessionsRef.current.get(session.fieldId) !== session) continue;
@@ -1118,22 +1210,41 @@ export function useBlocksFieldSuggestions({
       } finally {
         decidingRef.current = false;
         setDecidingFields(NO_FIELDS);
-        // Text that couldn't be read now, outside Suggesting mode or after
-        // it ended, is read when the page next refreshes it, as it does
-        // after a decision; the tabs keep their views until then, and the
-        // moved quotes are read after it.
-        if (unreadSince === null) releaseViews();
+        // Changed text that couldn't be read now, outside Suggesting mode or
+        // after it ended, comes with the page's next read of it, which its
+        // sync makes after a decision. Its tabs keep their views until the
+        // page shows it, and the moved quotes are read after it. A page left
+        // meanwhile waits on nothing.
+        if (unread.length === 0 || pagesLeft !== pageLeftRef.current)
+          views.release();
         else
-          afterTextRead(unreadSince, () => {
-            releaseViews();
-            if (movedQuotes)
-              void queryClient.invalidateQueries({
-                queryKey: ["action", "list-comments", { documentId }],
-              });
-          });
+          afterTextRead(
+            new Map(
+              unread.map((fieldId) => [
+                fieldId,
+                shownBefore.get(fieldId) ?? -1,
+              ]),
+            ),
+            () => {
+              views.release();
+              if (movedQuotes)
+                void queryClient.invalidateQueries({
+                  queryKey: ["action", "list-comments", { documentId }],
+                });
+            },
+          );
       }
     },
-    [afterTextRead, bump, documentId, holdViews, queryClient, reread, save],
+    [
+      afterTextRead,
+      bump,
+      documentId,
+      holdViews,
+      queryClient,
+      reread,
+      save,
+      shownRevisions,
+    ],
   );
 
   const decide = useCallback(
