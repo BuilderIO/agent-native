@@ -127,7 +127,7 @@ impl Unavailable {
 
 /// Why the slot turned a dictation away, given what else is going on.
 /// `on_disk` is `Err` when the file's metadata can't be read.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg(target_os = "macos")]
 fn unavailable(
     refused: crate::transcribe_engine::LeaseRefused,
     downloading: bool,
@@ -171,7 +171,15 @@ fn is_complete_on_disk(path: &Path) -> Result<bool, String> {
 /// retired copy a stuck live pass still holds) makes it not ready again, so
 /// Settings and dictation never trust a model that is gone.
 pub(crate) fn is_ready(app: &AppHandle) -> bool {
-    model_path(app).is_ok_and(|path| crate::transcribe_engine::LOCAL_MODEL.holds_warm(&path))
+    #[cfg(target_os = "macos")]
+    {
+        model_path(app).is_ok_and(|path| crate::transcribe_engine::LOCAL_MODEL.holds_warm(&path))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        false
+    }
 }
 
 /// Whether a meeting can use Parakeet: the whole file is on disk. A meeting
@@ -643,6 +651,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn a_dictation_turned_away_says_why_and_whether_parakeet_recovers() {
         use crate::transcribe_engine::LeaseRefused::{
             Cold, NotLoaded, OtherModelRunning, Running, Streaming,

@@ -3844,6 +3844,7 @@ fn run_transcript_job(
             Ok(mut source_rows) => rows.append(&mut source_rows),
             // Not a failure, and nothing was heard: the segment must not end
             // up failed, empty or ready, so it is pending until it is retried.
+            #[cfg(target_os = "macos")]
             Err(error) if error == crate::transcribe_engine::OTHER_MODEL_IN_USE => {
                 write_transcript_status(
                     app,
