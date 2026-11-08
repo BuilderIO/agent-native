@@ -265,12 +265,35 @@ export function contentRowTargets(
   ];
 }
 
+/** The parents that cached breadcrumb paths name for `documentIds`. */
+function parentsOnCachedPaths(
+  queryClient: Pick<QueryClient, "getQueryCache">,
+  documentIds: readonly string[],
+): string[] {
+  const ids = new Set(documentIds);
+  const parents = new Set<string>();
+  for (const query of queryClient
+    .getQueryCache()
+    .findAll({ queryKey: ["action", "get-content-navigation-context"] })) {
+    const data = query.state.data as
+      | { path?: Array<{ id?: string; parentId?: string | null }> }
+      | undefined;
+    for (const entry of data?.path ?? []) {
+      if (entry.id && ids.has(entry.id) && entry.parentId) {
+        parents.add(entry.parentId);
+      }
+    }
+  }
+  return [...parents];
+}
+
 /**
  * Targets for a write that adds, removes, or reparents pages: every loaded
  * page of the branches that list them now, the children of each destination
  * parent, the rows of the old and new parents (their expand control follows
- * `hasChildren`), and any breadcrumb path through the pages. Call it before the
- * write's own cache updates take the pages out of their current branches.
+ * `hasChildren`), and any breadcrumb path through the pages or those parents
+ * (a path entry carries `hasChildren` too). Call it before the write's own
+ * cache updates take the pages out of their current branches.
  */
 export function contentPlacementTargets(
   queryClient: Pick<QueryClient, "getQueryCache">,
@@ -288,19 +311,20 @@ export function contentPlacementTargets(
   const currentDatabaseId = current.find(
     (branch) => typeof branch.databaseId === "string",
   )?.databaseId as string | undefined;
+  const parents = [
+    ...current.flatMap((branch) =>
+      typeof branch.parentId === "string" ? [branch.parentId] : [],
+    ),
+    ...parentsOnCachedPaths(queryClient, documentIds),
+    ...parentIds.filter((id): id is string => id !== null),
+  ];
   return [
     contentNavigationBranchFilter({
-      documentIds: [
-        ...documentIds,
-        ...current.flatMap((branch) =>
-          typeof branch.parentId === "string" ? [branch.parentId] : [],
-        ),
-        ...parentIds.filter((id): id is string => id !== null),
-      ],
+      documentIds: [...documentIds, ...parents],
       parentIds,
       databaseId: databaseId ?? currentDatabaseId,
       branches: current,
     }),
-    contentNavigationContextFilter(documentIds),
+    contentNavigationContextFilter([...documentIds, ...parents]),
   ];
 }

@@ -316,7 +316,7 @@ describe("sidebar writes refresh only the affected branch", () => {
     );
   });
 
-  it("create refreshes the parent's children, the parent's row, and the new page's path", async () => {
+  it("create refreshes the parent's children, the parent's row, and the paths through the parent and the new page", async () => {
     await mountReads();
     actionResponses["create-document"] = {
       id: "new-page",
@@ -333,6 +333,7 @@ describe("sidebar writes refresh only the affected branch", () => {
     expect(await refetched()).toEqual([
       "newPath",
       "pageChildren",
+      "pagePath",
       "sectionChildren",
     ]);
   });
@@ -358,7 +359,7 @@ describe("sidebar writes refresh only the affected branch", () => {
     expect(await refetched()).toEqual(["root", "rootPage2"]);
   });
 
-  it("move refreshes the old branch, the new parent's children and row, and the Files collection", async () => {
+  it("move refreshes the old branch, the new parent's children and row, the paths through both parents, and the Files collection", async () => {
     await mountReads();
     actionResponses["move-document"] = { id: "sibling", parentId: "other" };
     const move = await renderHook(() => useMoveDocument());
@@ -371,6 +372,8 @@ describe("sidebar writes refresh only the affected branch", () => {
       "documents",
       "files",
       "otherChildren",
+      "otherPath",
+      "pagePath",
       "root",
       "sectionChildren",
       "sectionChildrenPage2",
@@ -395,6 +398,7 @@ describe("sidebar writes refresh only the affected branch", () => {
       "documents",
       "favorites",
       "files",
+      "pagePath",
       "recent",
       "root",
       "sectionChildren",
@@ -409,7 +413,7 @@ describe("sidebar writes refresh only the affected branch", () => {
 describe("Trash writes", () => {
   const trashLists = ["trash", "trashedDatabases", "trashedDocuments"];
 
-  it("delete refreshes the deleted row's branch, its parent's row, collections, search, and Trash", async () => {
+  it("delete refreshes the deleted row's branch, its parent's row and paths, collections, search, and Trash", async () => {
     await mountReads();
     actionResponses["delete-document"] = { success: true, deleted: 1 };
     const remove = await renderHook(() => useDeleteDocument());
@@ -421,6 +425,7 @@ describe("Trash writes", () => {
         "documents",
         "favorites",
         "files",
+        "pagePath",
         "recent",
         "root",
         "search",
@@ -432,6 +437,26 @@ describe("Trash writes", () => {
         ...trashLists,
       ].sort(),
     );
+  });
+
+  it("delete refreshes the open parent's path when only a cached path knows the parent", async () => {
+    await mountReads(["otherPath", "pagePath"]);
+    queryClient.setQueryData(
+      ["action", "get-content-navigation-context", { id: "other-child" }],
+      {
+        document: { id: "other-child" },
+        path: [
+          { id: "other", parentId: null },
+          { id: "other-child", parentId: "other" },
+        ],
+      },
+    );
+    actionResponses["delete-document"] = { success: true, deleted: 1 };
+    const remove = await renderHook(() => useDeleteDocument());
+
+    await act(() => remove.current.mutateAsync({ id: "other-child" }));
+
+    expect(await refetched()).toEqual(["otherPath"]);
   });
 
   it.each([
@@ -629,6 +654,12 @@ describe("optimistic sidebar creates", () => {
       "new-page",
     ]);
     expect(seeded?.path[2]?.databaseId).toBe(FILES);
+    expect(seeded?.path[1]?.hasChildren).toBe(true);
+    expect(
+      queryClient
+        .getQueryData<ContentNavigationContext>(keys.pagePath)
+        ?.path.map((entry) => entry.hasChildren),
+    ).toEqual([undefined, true]);
     expect(
       queryClient
         .getQueryData<any>(keys.sectionChildren)
@@ -643,6 +674,7 @@ describe("optimistic sidebar creates", () => {
     expect(queryClient.getQueryState(keys.sectionChildren)?.isInvalidated).toBe(
       true,
     );
+    expect(queryClient.getQueryState(keys.pagePath)?.isInvalidated).toBe(true);
   });
 
   it("reveal a new root page through its space's Files collection", () => {

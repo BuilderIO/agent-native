@@ -655,8 +655,9 @@ const NAVIGATION_CONTEXT_QUERY_KEY = [
 /**
  * An optimistic page opens before the server has it, so its path read fails
  * and the sidebar would stop revealing the page's ancestors. Seed the path from
- * the parent's cached one and show the parent as expandable; the create's
- * refresh replaces both, and `removeCreatedDocumentNavigation` undoes them.
+ * the parent's cached one and show the parent as expandable, in its branch rows
+ * and in every cached path through it; the create's refresh replaces them, and
+ * `removeCreatedDocumentNavigation` undoes them.
  * The sidebar reveals a path only through its space's Files membership, so
  * the new entry claims that membership too.
  */
@@ -671,6 +672,20 @@ export function seedCreatedDocumentNavigation(
   const parentId = document.parentId ?? null;
   let parentPath: ContentNavigationPathEntry[] = [];
   if (parentId) {
+    queryClient.setQueriesData<ContentNavigationContext>(
+      { queryKey: NAVIGATION_CONTEXT_QUERY_KEY },
+      (current) =>
+        current?.path.some(
+          (entry) => entry.id === parentId && entry.hasChildren !== true,
+        )
+          ? {
+              ...current,
+              path: current.path.map((entry) =>
+                entry.id === parentId ? { ...entry, hasChildren: true } : entry,
+              ),
+            }
+          : current,
+    );
     for (const [
       ,
       context,
@@ -736,6 +751,7 @@ export function removeCreatedDocumentNavigation(
   if (document.parentId) {
     invalidateContentQueries(queryClient, [
       contentNavigationBranchFilter({ documentIds: [document.parentId] }),
+      contentNavigationContextFilter([document.parentId]),
     ]);
   }
 }

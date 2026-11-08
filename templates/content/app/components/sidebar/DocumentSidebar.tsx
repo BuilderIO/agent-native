@@ -47,6 +47,7 @@ import {
   ContentFilesSidebarView,
   PagedContentFilesSidebarView,
   contentSidebarOrderedItems,
+  type ActivePathDocument,
   type ContentFilesSidebarRenderReorder,
 } from "@/components/editor/database/sidebar";
 import {
@@ -663,7 +664,7 @@ function WorkspaceSidebarItem({
   activeDocumentId: string | null;
   expandedDocumentIds: ReadonlySet<string>;
   documentMetadata: ReadonlyMap<string, Document>;
-  activePathDocuments: readonly Document[];
+  activePathDocuments: readonly ActivePathDocument[];
   onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
   onActivate: (space: ContentSpaceSummary, documentId?: string) => void;
   onToggleExpanded: () => void;
@@ -1929,7 +1930,7 @@ export function DocumentSidebar({
             ),
           )
         : (navigationContextQuery.data?.path.map(
-            (entry): Document => ({
+            (entry): ActivePathDocument => ({
               id: entry.id,
               parentId: entry.parentId,
               title: entry.title,
@@ -1957,6 +1958,7 @@ export function DocumentSidebar({
                     position: null,
                   }
                 : undefined,
+              hasChildren: entry.hasChildren,
             }),
           ) ?? []),
     [documents, localFileMode, navigationContextQuery.data?.path],
