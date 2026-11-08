@@ -196,6 +196,17 @@ async function supersedeSuggestions(
   }
 }
 
+// So a suggestion's change event reaches everyone who can read the resource,
+// not only the actor: their open page shows it without a reload.
+function suggestionChangeResource(suggestion: ResourceSuggestion | undefined) {
+  return suggestion
+    ? {
+        resourceType: suggestion.resourceType,
+        resourceId: suggestion.resourceId,
+      }
+    : null;
+}
+
 export const createResourceSuggestion = defineAction({
   description:
     "Create a typed pending suggestion without changing the canonical resource. Pass supersedes to replace your own earlier pending suggestions on the same resource in the same step.",
@@ -229,6 +240,10 @@ export const createResourceSuggestion = defineAction({
     openWorldHint: true,
     idempotentHint: true,
   },
+  changeResource: ({ resourceType, resourceId }) => ({
+    resourceType,
+    resourceId,
+  }),
   run: async (args, ctx) => {
     const access = await assertReviewableResourceAccess(
       args.resourceType,
@@ -394,6 +409,8 @@ export const updateResourceSuggestion = defineAction({
     openWorldHint: false,
     idempotentHint: true,
   },
+  changeResource: (_input, result) =>
+    suggestionChangeResource(result as ResourceSuggestion),
   run: async (args, ctx) => {
     const initial = await getSuggestion(args.id);
     if (!initial)
@@ -595,6 +612,10 @@ export const decideResourceSuggestion = defineAction({
     openWorldHint: false,
     idempotentHint: true,
   },
+  changeResource: (_input, result) =>
+    suggestionChangeResource(
+      (result as { suggestion?: ResourceSuggestion }).suggestion,
+    ),
   run: async (args, ctx) => {
     const suggestion = await getSuggestion(args.id);
     if (!suggestion) throw new Error("Suggestion not found");
@@ -844,6 +865,10 @@ export const createResourceSuggestionProposal = defineAction({
     openWorldHint: true,
     idempotentHint: true,
   },
+  changeResource: ({ resourceType, resourceId }) => ({
+    resourceType,
+    resourceId,
+  }),
   run: async (args, ctx) => {
     await assertReviewableResourceAccess(
       args.resourceType,
@@ -1086,6 +1111,10 @@ export const decideResourceSuggestionProposal = defineAction({
     openWorldHint: false,
     idempotentHint: true,
   },
+  changeResource: (_input, result) =>
+    suggestionChangeResource(
+      (result as { suggestions: ResourceSuggestion[] }).suggestions[0],
+    ),
   run: async (args, ctx) => {
     await ensureSuggestionTables();
     const db = getDbExec();
