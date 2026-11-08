@@ -24,7 +24,11 @@ vi.mock("./google-auth.js", () => ({
   getManagedGmailAccountEmail: mocks.getManagedGmailAccountEmail,
 }));
 
-import { findGmailDraftAccount, saveGmailDraft } from "./gmail-drafts.js";
+import {
+  assertGmailDraftAccount,
+  findGmailDraftAccount,
+  saveGmailDraft,
+} from "./gmail-drafts.js";
 
 /** An error as google-api.ts throws it, with its HTTP status. */
 function googleError(status: number, detail: string) {
@@ -99,6 +103,26 @@ describe("findGmailDraftAccount", () => {
         draftId: "legacy-draft",
       }),
     ).rejects.toThrow("Google API error (403)");
+  });
+});
+
+describe("assertGmailDraftAccount", () => {
+  it("refuses an account the owner hasn't connected", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+    mocks.getManagedGmailAccountEmail.mockResolvedValue(null);
+
+    await expect(
+      assertGmailDraftAccount("stranger@example.com", "owner@example.com"),
+    ).rejects.toThrow("Account not owned by current user");
+  });
+
+  it("accepts the account the workspace manages", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+    mocks.getManagedGmailAccountEmail.mockResolvedValue("owner@example.com");
+
+    await expect(
+      assertGmailDraftAccount("owner@example.com", "owner@example.com"),
+    ).resolves.toBeUndefined();
   });
 });
 

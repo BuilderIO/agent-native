@@ -74,6 +74,9 @@ async function saveComposeDraftIfCurrent(
       body: JSON.stringify({ expectedRevision, next: draft }),
     },
   );
+  // A conflict isn't a refusal: Mail holds a newer draft, which a sync can copy.
+  if (res.ok || res.status === 409) refusedDrafts.delete(draft.id);
+  else refusedDrafts.add(draft.id);
   if (res.ok) return res.json();
   if (res.status !== 409) {
     throw Object.assign(new Error(`Request failed (${res.status})`), {
@@ -118,6 +121,8 @@ const dirtyDrafts: Record<string, boolean> = {};
 const draftVersions: Record<string, number> = {};
 const savedDrafts = new Map<string, ComposeState>();
 const pendingDraftMutations = new Map<string, Promise<unknown>>();
+// Drafts whose last write Mail's store refused, so it doesn't hold their text.
+const refusedDrafts = new Set<string>();
 let resolveDraftOverlap:
   | ((
       overlap: SaveOverlap<ComposeState>,
@@ -528,6 +533,21 @@ export async function syncDraftToMailboxBestEffort(
   }
 }
 
+/**
+ * Keeps a draft's mailbox copy current. When Mail's store refused the draft's
+ * last write, it holds nothing current to copy and the text on screen may be the
+ * only copy there is, so that text goes to the mailbox instead.
+ */
+export async function keepMailboxCopyCurrent(
+  pendingMutations: Map<string, Promise<unknown>>,
+  draft: ComposeState,
+): Promise<DraftSaveResult> {
+  await pendingMutations.get(draft.id)?.catch(() => undefined);
+  return refusedDrafts.has(draft.id)
+    ? saveDraftToEmailsBestEffort(draft)
+    : syncDraftToMailboxBestEffort(pendingMutations, draft.id);
+}
+
 export function useComposeState() {
   const qc = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -738,8 +758,8 @@ export function useComposeState() {
             (draft) => draft.id === id,
           ),
         () => removedDraftIdsRef.current[id] !== undefined,
-        () =>
-          syncDraftToMailboxBestEffort(pendingDraftMutationsRef.current, id),
+        (draft) =>
+          keepMailboxCopyCurrent(pendingDraftMutationsRef.current, draft),
       ).then((result) => {
         if (result.status === "cancelled" || result.status === "gone") return;
         reportDraftSaveResult(current, result);
@@ -753,15 +773,14 @@ export function useComposeState() {
         );
         if (!updatedDraft) return;
 
+        // The sync stored this on the draft already. Saving the draft again
+        // could store text newer than what the sync copied, with no sync after.
         qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
           (old ?? []).map((draft) => (draft.id === id ? updatedDraft : draft)),
         );
-        void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
-          putMutation.mutateAsync(updatedDraft),
-        ).catch((error) => reportDraftWriteFailed(id, error));
       });
     },
-    [qc, putMutation, reportDraftSaveResult],
+    [qc, reportDraftSaveResult],
   );
 
   const update = useCallback(

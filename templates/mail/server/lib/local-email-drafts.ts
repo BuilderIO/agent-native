@@ -12,7 +12,7 @@ import {
   writeLocalEmails,
 } from "./local-email-store.js";
 import { readSettings } from "./mail-settings.js";
-import { bodyToHtml, resolveComposeAttachments } from "./outgoing-email.js";
+import { bodyToHtml } from "./outgoing-email.js";
 
 function parseAddressList(value: string): EmailAddress[] {
   return value
@@ -22,12 +22,10 @@ function parseAddressList(value: string): EmailAddress[] {
     .map((address) => ({ name: address, email: address }));
 }
 
-type ResolvedAttachments = Awaited<
-  ReturnType<typeof resolveComposeAttachments>
->;
-
+// What a local copy lists of each attachment. Only Mail's copy sends, so the
+// bytes are read then, not on every save of this one.
 function localAttachments(
-  attachments: ResolvedAttachments,
+  attachments: ComposeAttachment[],
 ): NonNullable<EmailMessage["attachments"]> {
   return attachments.map((attachment) => ({
     id: attachment.filename,
@@ -39,8 +37,9 @@ function localAttachments(
 }
 
 /**
- * Rewrites a local mailbox draft. `attachments`, when given, replace the
- * draft's; left out, the draft keeps the ones it has.
+ * Rewrites a local mailbox draft, and returns false if it no longer exists.
+ * `attachments`, when given, replace the draft's; left out, the draft keeps the
+ * ones it has.
  */
 export async function updateLocalSavedDraft(args: {
   ownerEmail: string;
@@ -53,20 +52,13 @@ export async function updateLocalSavedDraft(args: {
   attachments?: ComposeAttachment[];
   replyToId?: string | undefined;
   replyToThreadId?: string | undefined;
-}): Promise<void> {
-  const attachments =
-    args.attachments &&
-    (await resolveComposeAttachments(args.attachments, args.ownerEmail));
-  await withLocalEmailMutationLock(args.ownerEmail, async () => {
+}): Promise<boolean> {
+  return withLocalEmailMutationLock(args.ownerEmail, async () => {
     const emails = await readLocalEmails(args.ownerEmail);
     const index = emails.findIndex(
       (email) => email.id === args.draftId && email.isDraft,
     );
-    if (index < 0) {
-      throw new Error(
-        `Local saved draft ${args.draftId} no longer exists; it was not recreated.`,
-      );
-    }
+    if (index < 0) return false;
 
     const current = emails[index];
     const updated: EmailMessage = {
@@ -91,9 +83,9 @@ export async function updateLocalSavedDraft(args: {
 
     if (!args.cc?.trim()) updated.cc = undefined;
     if (!args.bcc?.trim()) updated.bcc = undefined;
-    if (attachments?.length) {
-      updated.attachments = localAttachments(attachments);
-    } else if (attachments) {
+    if (args.attachments?.length) {
+      updated.attachments = localAttachments(args.attachments);
+    } else if (args.attachments) {
       delete updated.attachments;
     }
     if (!args.replyToId)
@@ -105,6 +97,7 @@ export async function updateLocalSavedDraft(args: {
 
     emails[index] = updated;
     await writeLocalEmails(args.ownerEmail, emails);
+    return true;
   });
 }
 
@@ -124,10 +117,6 @@ export async function createLocalSavedDraft(args: {
   replyToThreadId?: string | undefined;
 }): Promise<string> {
   const settings = await readSettings(args.ownerEmail);
-  const attachments = await resolveComposeAttachments(
-    args.attachments,
-    args.ownerEmail,
-  );
   return withLocalEmailMutationLock(args.ownerEmail, async () => {
     const emails = await readLocalEmails(args.ownerEmail);
     const cc = parseAddressList(args.cc ?? "");
@@ -137,7 +126,9 @@ export async function createLocalSavedDraft(args: {
       threadId:
         (args.replyToId
           ? emails.find((email) => email.id === args.replyToId)?.threadId
-          : undefined) ?? `thread-${nanoid(8)}`,
+          : undefined) ??
+        args.replyToThreadId ??
+        `thread-${nanoid(8)}`,
       from: { name: settings.name, email: settings.email },
       to: parseAddressList(args.to),
       ...(cc.length ? { cc } : {}),
@@ -153,8 +144,8 @@ export async function createLocalSavedDraft(args: {
       isArchived: false,
       isTrashed: false,
       labelIds: ["drafts"],
-      ...(attachments.length > 0
-        ? { attachments: localAttachments(attachments) }
+      ...(args.attachments?.length
+        ? { attachments: localAttachments(args.attachments) }
         : {}),
       ...(args.replyToId ? { replyToId: args.replyToId } : {}),
       ...(args.replyToThreadId

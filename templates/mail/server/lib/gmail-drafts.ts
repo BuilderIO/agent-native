@@ -105,6 +105,14 @@ async function resolveAccountEmail(
   return account ? account.accountId : null;
 }
 
+/** Throws unless the owner can save drafts to `accountEmail`. */
+export async function assertGmailDraftAccount(
+  accountEmail: string,
+  ownerEmail: string,
+): Promise<void> {
+  await resolveAccount(accountEmail, ownerEmail);
+}
+
 /**
  * Reads the message a reply draft answers, for its reply headers and thread.
  * When `optional`, a message Mail may not read (403) or that's gone (404)

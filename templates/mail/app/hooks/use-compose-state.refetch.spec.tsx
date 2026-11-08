@@ -20,7 +20,10 @@ vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
   appApiPath: (path: string) => path,
 }));
+const mocks = vi.hoisted(() => ({ callAction: vi.fn() }));
+
 vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction: mocks.callAction,
   getBrowserTabId: () => "tab",
   useActionMutation: () => ({ mutateAsync: vi.fn() }),
 }));
@@ -44,6 +47,7 @@ async function mounted() {
     savedDraftBackend: "local",
   };
   const sent: ComposeState[] = [];
+  const posted: Record<string, unknown>[] = [];
   const answers: ((response: Response) => void)[] = [];
   const answer = (index: number, response: Response) =>
     answers[index]?.(response);
@@ -55,6 +59,7 @@ async function mounted() {
         return new Promise<Response>((resolve) => answers.push(resolve));
       }
       if (url.endsWith("/application-state/compose")) return asJson([stored]);
+      if (init?.method === "POST") posted.push(JSON.parse(String(init.body)));
       return asJson({ draftId: "saved", backend: "local" });
     }),
   );
@@ -70,7 +75,7 @@ async function mounted() {
     qc
       .getQueryData<ComposeState[]>(["compose-drafts"])
       ?.find((one) => one.id === id);
-  return { id, stored, sent, answer, result, local };
+  return { id, stored, sent, posted, answer, result, local };
 }
 
 describe("useComposeState", () => {
@@ -79,6 +84,7 @@ describe("useComposeState", () => {
 
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    mocks.callAction.mockReset();
     failures = [];
     window.addEventListener(DRAFT_SAVE_FAILED_EVENT, onFailure);
   });
@@ -182,6 +188,151 @@ describe("useComposeState", () => {
     });
 
     await waitFor(() => expect(failures).toHaveLength(1));
+  });
+
+  it("doesn't save the draft again after a sync gives it a new mailbox copy", async () => {
+    const { id, sent, answer, result, local } = await mounted();
+    mocks.callAction.mockResolvedValue({
+      status: "synced",
+      savedDraft: {
+        draftId: "gmail-new",
+        backend: "gmail",
+        accountEmail: "me@example.com",
+      },
+    });
+
+    act(() => result.current.update(id, { subject: "Mine" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await act(async () => {
+      answer(0, asJson({ value: sent[0], revision: "rev_saved" }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    await waitFor(() => expect(local()?.savedDraftId).toBe("gmail-new"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(mocks.callAction).toHaveBeenCalledWith("sync-draft-mailbox", { id });
+    // A write here would store text the sync never copied, and nothing syncs after it.
+    expect(sent).toHaveLength(1);
+    expect(local()?.subject).toBe("Mine");
+  });
+
+  it("saves the text on screen to the mailbox when the store refuses the draft", async () => {
+    const { id, sent, posted, answer, result } = await mounted();
+
+    act(() => result.current.update(id, { subject: "Mine" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await act(async () => {
+      answer(0, asJson({ error: "refused" }, 500));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toMatchObject({ subject: "Mine", draftId: "saved" });
+    expect(mocks.callAction).not.toHaveBeenCalled();
+  });
+
+  it("waits for a queued write before choosing how to save the mailbox copy", async () => {
+    const { id, sent, posted, answer, result } = await mounted();
+
+    act(() => {
+      result.current.update(id, { subject: "Mine" });
+      void result.current.flush(id)?.catch(() => undefined);
+    });
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await act(async () => {
+      answer(0, asJson({ error: "refused" }, 500));
+    });
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(mocks.callAction).not.toHaveBeenCalled();
+  });
+
+  it("goes back to the sync once the store takes the draft", async () => {
+    const { id, sent, posted, answer, result } = await mounted();
+    mocks.callAction.mockResolvedValue({
+      status: "synced",
+      savedDraft: { draftId: "saved", backend: "local" },
+    });
+
+    act(() => result.current.update(id, { subject: "Refused" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await act(async () => {
+      answer(0, asJson({ error: "refused" }, 500));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    await waitFor(() => expect(posted).toHaveLength(1));
+
+    act(() => result.current.update(id, { subject: "Stored" }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    await act(async () => {
+      answer(1, asJson({ value: sent[1], revision: "rev_saved" }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+
+    await waitFor(() =>
+      expect(mocks.callAction).toHaveBeenCalledWith("sync-draft-mailbox", {
+        id,
+      }),
+    );
+    expect(posted).toHaveLength(1);
+  });
+
+  it("syncs after losing a conflict, even if the store refused an earlier write", async () => {
+    const { id, stored, sent, posted, answer, result } = await mounted();
+    mocks.callAction.mockResolvedValue({
+      status: "synced",
+      savedDraft: { draftId: "saved", backend: "local" },
+    });
+
+    act(() => result.current.update(id, { subject: "Refused" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await act(async () => {
+      answer(0, asJson({ error: "refused" }, 500));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    await waitFor(() => expect(posted).toHaveLength(1));
+
+    act(() => result.current.update(id, { subject: "Mine" }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    await act(async () => {
+      answer(
+        1,
+        asJson(
+          {
+            error: "stale",
+            errorCode: "save_conflict",
+            details: {
+              current: { ...stored, subject: "Theirs" },
+              currentRevision: "rev_theirs",
+            },
+          },
+          409,
+        ),
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+
+    // Sending "Mine" here is what would leave a losing save's text in Gmail.
+    await waitFor(() =>
+      expect(mocks.callAction).toHaveBeenCalledWith("sync-draft-mailbox", {
+        id,
+      }),
+    );
+    expect(posted).toHaveLength(1);
   });
 
   it("reports any other failed save", async () => {

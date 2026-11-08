@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   deleteLocalSavedDraft: vi.fn(),
   updateLocalSavedDraft: vi.fn(),
   readAliases: vi.fn(),
+  compareAndSetOverride: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -19,6 +20,8 @@ vi.mock("@agent-native/core/application-state", () => ({
     expected: unknown,
     next: Record<string, unknown> | null,
   ) => {
+    const override = mocks.compareAndSetOverride();
+    if (override) return override;
     if ((mocks.appState.get(key) ?? null) !== expected) return false;
     if (next) mocks.appState.set(key, next);
     else mocks.appState.delete(key);
@@ -256,6 +259,87 @@ describe("syncDraftToMailbox with overlapping saves", () => {
   });
 });
 
+describe("syncDraftToMailbox when adopting a copy", () => {
+  const made = { draftId: "g1", accountEmail: OWNER, created: true };
+
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  /** A store whose first compare-and-set runs `landed`, then throws. */
+  function throwAfterWrite(landed: () => void) {
+    mocks.compareAndSetOverride.mockImplementationOnce(async () => {
+      landed();
+      throw new Error("connection lost");
+    });
+  }
+
+  it("writes newer text to the copy when a save lands just after the adoption", async () => {
+    mocks.appState.set(KEY, draft({}));
+    mocks.saveGmailDraft
+      .mockResolvedValueOnce(made)
+      .mockResolvedValueOnce({ ...made, created: false });
+    mocks.compareAndSetOverride.mockImplementationOnce(async () => {
+      mocks.appState.set(
+        KEY,
+        draft({ ...onGmail, savedDraftId: "g1", body: "newer" }),
+      );
+      return true;
+    });
+
+    await expect(
+      syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+    ).resolves.toMatchObject({
+      status: "synced",
+      draft: { body: "newer" },
+    });
+    expect(mocks.saveGmailDraft).toHaveBeenLastCalledWith(
+      expect.objectContaining({ draftId: "g1", body: "newer" }),
+    );
+  });
+
+  it("counts a write that landed before it threw as adopted", async () => {
+    mocks.appState.set(KEY, draft({}));
+    mocks.saveGmailDraft.mockResolvedValue(made);
+    throwAfterWrite(() =>
+      mocks.appState.set(KEY, draft({ ...onGmail, savedDraftId: "g1" })),
+    );
+
+    await expect(
+      syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+    ).resolves.toMatchObject({
+      status: "synced",
+      savedDraft: { draftId: "g1" },
+    });
+    expect(mocks.saveGmailDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("writes newer text to the copy when a save landed after the adoption", async () => {
+    mocks.appState.set(KEY, draft({}));
+    mocks.saveGmailDraft
+      .mockResolvedValueOnce(made)
+      .mockResolvedValueOnce({ ...made, created: false });
+    throwAfterWrite(() =>
+      mocks.appState.set(
+        KEY,
+        draft({ ...onGmail, savedDraftId: "g1", body: "newer" }),
+      ),
+    );
+
+    await expect(
+      syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+    ).resolves.toMatchObject({
+      status: "synced",
+      draft: { body: "newer" },
+    });
+    expect(mocks.saveGmailDraft).toHaveBeenCalledTimes(2);
+    expect(mocks.saveGmailDraft).toHaveBeenLastCalledWith(
+      expect.objectContaining({ draftId: "g1", body: "newer" }),
+    );
+    expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+  });
+});
+
 describe("syncDraftToMailbox", () => {
   it("copies nothing for a draft Mail doesn't store", async () => {
     await expect(
@@ -328,6 +412,7 @@ describe("syncDraftToMailbox", () => {
       KEY,
       draft({ savedDraftId: "local-1", savedDraftBackend: "local" }),
     );
+    mocks.updateLocalSavedDraft.mockResolvedValue(true);
 
     await expect(
       syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
@@ -344,6 +429,23 @@ describe("syncDraftToMailbox", () => {
       }),
     );
     expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+  });
+
+  it("makes a new local draft when the one it points at has gone", async () => {
+    mocks.appState.set(
+      KEY,
+      draft({ savedDraftId: "local-1", savedDraftBackend: "local" }),
+    );
+    mocks.updateLocalSavedDraft.mockResolvedValue(false);
+    mocks.createLocalSavedDraft.mockResolvedValue("local-2");
+
+    await expect(
+      syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+    ).resolves.toMatchObject({
+      status: "synced",
+      savedDraft: { draftId: "local-2", backend: "local" },
+    });
+    expect(mocks.appState.get(KEY)).toMatchObject({ savedDraftId: "local-2" });
   });
 
   it("saves a reply to Gmail even when it can't thread it", async () => {

@@ -120,14 +120,22 @@ async function writeMailboxCopy(
       accountEmail: draft.savedDraftAccountEmail ?? draft.accountEmail,
     });
     if (ownership.backend === "local") {
-      await updateLocalSavedDraft({
+      const updated = await updateLocalSavedDraft({
         ownerEmail,
         draftId: draft.savedDraftId,
         ...content,
         cc: content.cc ?? "",
         bcc: content.bcc ?? "",
       });
-      return { draftId: draft.savedDraftId, backend: "local", created: false };
+      if (updated) {
+        return {
+          draftId: draft.savedDraftId,
+          backend: "local",
+          created: false,
+        };
+      }
+      const draftId = await createLocalSavedDraft({ ownerEmail, ...content });
+      return { draftId, backend: "local", created: true };
     }
     // A Gmail draft deleted outside Mail comes back as a new one, as `created`.
     const saved = await saveGmailDraft({
@@ -276,26 +284,22 @@ export async function syncDraftToMailbox(args: {
       );
       if (!copy) return { status: "unavailable" };
 
+      let written: Record<string, unknown> = stored;
       if (copy.created) {
         const next = withCopy(draft, copy);
-        if (await adoptCopy(key, stored, next)) {
-          return {
-            status: "synced",
-            draft: next,
-            savedDraft: refOf(copy),
-            ...leftover(),
-          };
+        if (!(await adoptCopy(key, stored, next))) {
+          // Another save changed the draft, and may have made its own copy.
+          if (!(await discardCopy(args.ownerEmail, copy))) {
+            leftovers.push(copy.draftId);
+          }
+          continue;
         }
-        // Another save changed the draft, and may have made its own copy.
-        if (!(await discardCopy(args.ownerEmail, copy))) {
-          leftovers.push(copy.draftId);
-        }
-        continue;
+        written = next;
       }
 
       const latest = await readAppState(key);
       if (!latest) return { status: "gone" };
-      if (sameMailboxCopy(latest, stored)) {
+      if (sameMailboxCopy(latest, written)) {
         return {
           status: "synced",
           draft: latest as unknown as ComposeState,

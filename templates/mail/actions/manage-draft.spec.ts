@@ -10,8 +10,8 @@ const mocks = vi.hoisted(() => ({
   writeAppState: vi.fn(),
   compareAndSetAppState: vi.fn(),
   deleteAppState: vi.fn(),
-  deleteAppStateByPrefix: vi.fn(),
   listAppState: vi.fn(),
+  assertGmailDraftAccount: vi.fn(),
   saveGmailDraft: vi.fn(),
   deleteGmailDraft: vi.fn(),
   findGmailDraftAccount: vi.fn(),
@@ -51,7 +51,6 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mocks.writeAppState,
   compareAndSetAppState: mocks.compareAndSetAppState,
   deleteAppState: mocks.deleteAppState,
-  deleteAppStateByPrefix: mocks.deleteAppStateByPrefix,
   listAppState: mocks.listAppState,
 }));
 
@@ -65,6 +64,7 @@ vi.mock("@agent-native/core/settings", () => ({
 }));
 
 vi.mock("../server/lib/gmail-drafts.js", () => ({
+  assertGmailDraftAccount: mocks.assertGmailDraftAccount,
   saveGmailDraft: mocks.saveGmailDraft,
   deleteGmailDraft: mocks.deleteGmailDraft,
   findGmailDraftAccount: mocks.findGmailDraftAccount,
@@ -110,7 +110,7 @@ beforeEach(() => {
   mocks.buildDeepLink.mockReturnValue("/mail");
   mocks.saveGmailDraft.mockResolvedValue(null);
   mocks.findGmailDraftAccount.mockResolvedValue(null);
-  mocks.updateLocalSavedDraft.mockResolvedValue(undefined);
+  mocks.updateLocalSavedDraft.mockResolvedValue(true);
   mocks.isConnected.mockResolvedValue(false);
   mocks.readLocalEmails.mockResolvedValue([]);
   mocks.withLocalEmailMutationLock.mockImplementation(
@@ -262,7 +262,7 @@ describe("manage-draft saved mailbox deletion", () => {
     mocks.compareAndSetAppState.mockResolvedValue(false);
 
     await expect(action.run({ action: "delete", id: "1" })).rejects.toThrow(
-      "kept changing",
+      "Its mailbox copy is already gone; the draft's next save makes a new one.",
     );
 
     expect(mocks.compareAndSetAppState).toHaveBeenCalledTimes(3);
@@ -270,6 +270,18 @@ describe("manage-draft saved mailbox deletion", () => {
     expect(appState.get("compose-1")).toBeTruthy();
     // The same copy is removed once, not once per try.
     expect(mocks.withLocalEmailMutationLock).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't mention a mailbox copy when a draft that keeps changing has none", async () => {
+    appState.set("compose-1", { id: "1", body: "b" });
+    mocks.compareAndSetAppState.mockResolvedValue(false);
+
+    const error = await action
+      .run({ action: "delete", id: "1" })
+      .catch((caught: Error) => caught);
+
+    expect((error as Error).message).toContain("kept changing");
+    expect((error as Error).message).not.toContain("mailbox copy");
   });
 
   it("counts a draft deleted elsewhere meanwhile as deleted", async () => {
@@ -333,24 +345,61 @@ describe("manage-draft saved mailbox deletion", () => {
 
   it("uses saved mailbox metadata when deleting all compose drafts", async () => {
     mocks.isConnected.mockResolvedValue(true);
-    mocks.listAppState.mockResolvedValue([
-      {
-        value: {
-          savedDraftId: "gmail-draft-1",
-          savedDraftBackend: "gmail",
-          savedDraftAccountEmail: "secondary@example.com",
-          accountEmail: "default@example.com",
-        },
-      },
-    ]);
+    const value = {
+      savedDraftId: "gmail-draft-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "secondary@example.com",
+      accountEmail: "default@example.com",
+    };
+    appState.set("compose-1", value);
+    mocks.listAppState.mockResolvedValue([{ key: "compose-1", value }]);
 
-    await action.run({ action: "delete-all" });
+    await expect(action.run({ action: "delete-all" })).resolves.toBe(
+      "Deleted 1 draft(s)",
+    );
 
     expect(mocks.deleteGmailDraft).toHaveBeenCalledWith({
       ownerEmail: "owner@example.com",
       accountEmail: "secondary@example.com",
       draftId: "gmail-draft-1",
     });
+    expect(appState.get("compose-1") ?? null).toBeNull();
+  });
+
+  it("also removes a mailbox copy a sync made after delete-all listed the drafts", async () => {
+    const listed = { id: "1", body: "b" };
+    appState.set("compose-1", listed);
+    mocks.listAppState.mockImplementation(async () => {
+      const value = appState.get("compose-1");
+      // A sync points the draft at its first Gmail copy right after the listing.
+      appState.set("compose-1", {
+        ...listed,
+        savedDraftId: "gmail-new",
+        savedDraftBackend: "gmail",
+        savedDraftAccountEmail: "owner@example.com",
+      });
+      return [{ key: "compose-1", value }];
+    });
+
+    await action.run({ action: "delete-all" });
+
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+      draftId: "gmail-new",
+    });
+    expect(appState.get("compose-1") ?? null).toBeNull();
+  });
+
+  it("leaves a draft saved after delete-all listed the drafts", async () => {
+    mocks.listAppState.mockResolvedValue([]);
+    appState.set("compose-new", { id: "new", body: "b" });
+
+    await expect(action.run({ action: "delete-all" })).resolves.toBe(
+      "Deleted 0 draft(s)",
+    );
+
+    expect(appState.get("compose-new")).toBeTruthy();
   });
 });
 
@@ -446,6 +495,32 @@ describe("manage-draft local fallback", () => {
     expect(lastSave).toMatchObject({ ownerEmail: "owner@example.com" });
     expect(lastSave.accountEmail).toBeUndefined();
     expect(lastSave.draftId).toBeUndefined();
+  });
+
+  it("refuses an account the owner can't use before storing anything", async () => {
+    const stored = { id: "no-copy", to: "", subject: "", body: "Draft" };
+    appState.set("compose-no-copy", stored);
+    mocks.assertGmailDraftAccount.mockRejectedValueOnce(
+      new Error("Account not owned by current user"),
+    );
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "no-copy",
+        expectedRevision: revisionOf("no-copy"),
+        body: "Changed",
+        accountEmail: "stranger@example.com",
+      }),
+    ).rejects.toThrow("Account not owned by current user");
+
+    expect(mocks.assertGmailDraftAccount).toHaveBeenCalledWith(
+      "stranger@example.com",
+      "owner@example.com",
+    );
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+    expect(appState.get("compose-no-copy")).toBe(stored);
   });
 
   it("rejects switching the mailbox for an existing Gmail draft", async () => {
@@ -646,6 +721,43 @@ describe("manage-draft Gmail budget refusals", () => {
       retryAfterMs: 5_000,
     });
     expect(result.message).toMatch(/isn't updated yet: .*about 5s/);
+  });
+
+  it("returns the newer draft when a save lands while Gmail's copy is pending", async () => {
+    appState.set("compose-busy", {
+      id: "busy",
+      to: "",
+      subject: "",
+      body: "v1",
+      savedDraftId: "gmail-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+    });
+    let saves = 0;
+    mocks.saveGmailDraft.mockImplementation(async () => {
+      saves += 1;
+      appState.set("compose-busy", {
+        ...(appState.get("compose-busy") as object),
+        body: `typed ${saves}`,
+      });
+      return {
+        draftId: "gmail-1",
+        accountEmail: "owner@example.com",
+        created: false,
+      };
+    });
+
+    const result = await action.run({
+      action: "update",
+      id: "busy",
+      expectedRevision: revisionOf("busy"),
+      body: "v2",
+    });
+
+    expect(result.mailboxSync).toMatchObject({ status: "pending" });
+    expect(result.draft.body).toBe("typed 3");
+    expect(result.revision).toBe(revisionOf("busy"));
   });
 
   it("reports a refused lookup of a draft's Gmail account as not saved", async () => {

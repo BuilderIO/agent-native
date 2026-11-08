@@ -3,7 +3,6 @@ import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
 import {
   readAppState,
   compareAndSetAppState,
-  deleteAppStateByPrefix,
   listAppState,
 } from "@agent-native/core/application-state";
 import {
@@ -22,6 +21,7 @@ import { z } from "zod";
 import { composeDeepLink } from "../server/lib/compose-deep-link.js";
 import { syncDraftToMailbox } from "../server/lib/draft-mailbox-sync.js";
 import {
+  assertGmailDraftAccount,
   deleteGmailDraft,
   saveGmailDraft,
 } from "../server/lib/gmail-drafts.js";
@@ -177,6 +177,57 @@ async function deletePersistedDraft(args: {
   });
 }
 
+/**
+ * Removes a compose draft and its mailbox copy, and returns whether there was a
+ * draft to remove. A sync can point the draft at a new mailbox copy while this
+ * runs, so the draft goes only if it's still the one read here. If it changed,
+ * the copy it points at now goes too, on the next pass. The copy goes first, so
+ * if the mailbox refuses, the draft is still there to delete again.
+ */
+async function deleteComposeDraft(id: string): Promise<boolean> {
+  const key = `compose-${id}`;
+  const removedCopies = new Set<string>();
+  for (let attempt = 1; attempt <= MAX_DELETE_ATTEMPTS; attempt += 1) {
+    const storedDraft = await readAppState(key);
+    if (!storedDraft) return attempt > 1;
+    const savedDraftId = storedDraft.savedDraftId;
+    if (
+      typeof savedDraftId === "string" &&
+      savedDraftId &&
+      !removedCopies.has(savedDraftId)
+    ) {
+      const ownerEmail = getRequestUserEmail();
+      if (!ownerEmail) throw new Error("Unauthenticated");
+      await deletePersistedDraft({
+        ownerEmail,
+        savedDraftId,
+        savedDraftBackend:
+          storedDraft.savedDraftBackend === "gmail" ||
+          storedDraft.savedDraftBackend === "local"
+            ? storedDraft.savedDraftBackend
+            : undefined,
+        accountEmail:
+          typeof storedDraft.savedDraftAccountEmail === "string"
+            ? storedDraft.savedDraftAccountEmail
+            : typeof storedDraft.accountEmail === "string"
+              ? storedDraft.accountEmail
+              : undefined,
+      });
+      removedCopies.add(savedDraftId);
+    }
+    if (await compareAndSetAppState(key, storedDraft, null)) return true;
+  }
+  // Deleting a version this never read could leave behind a mailbox copy a sync
+  // just made.
+  const copyNote = removedCopies.size
+    ? " Its mailbox copy is already gone; the draft's next save makes a new one."
+    : "";
+  fail(
+    `Draft "${id}" kept changing while it was being deleted, so it's still there.${copyNote} Delete it again.`,
+    { errorCode: "draft_busy", statusCode: 409 },
+  );
+}
+
 async function readConfiguredSignature(): Promise<string | undefined> {
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) return undefined;
@@ -295,6 +346,20 @@ async function storeComposeDraft(
   }
 }
 
+/** The draft as stored now, or `known` if it's gone or can't be read. */
+async function latestStoredDraft(
+  id: string,
+  known: ComposeState,
+): Promise<ComposeState> {
+  try {
+    const stored = await readAppState(`compose-${id}`);
+    return stored ? (stored as unknown as ComposeState) : known;
+  } catch (error) {
+    console.error(`[manage-draft] draft ${id} reread failed:`, error);
+    return known;
+  }
+}
+
 /**
  * Brings the mailbox copy of a draft this call stored up to date, and returns
  * the update result for the draft as stored after that. Mail's copy is already
@@ -310,7 +375,8 @@ async function updatedDraftResult(
   const sync = ownerEmail
     ? await syncDraftToMailbox({ ownerEmail, id })
     : ({ status: "unavailable" } as const);
-  const current = sync.status === "synced" ? sync.draft : draft;
+  const current =
+    sync.status === "synced" ? sync.draft : await latestStoredDraft(id, draft);
   const deepLink = composeDeepLink(current);
   const note =
     sync.status === "pending"
@@ -392,26 +458,10 @@ export default defineAction({
       const ownerEmail = getRequestUserEmail();
       if (!ownerEmail) throw new Error("Unauthenticated");
       const storedDrafts = await listAppState("compose-");
-      for (const { value } of storedDrafts) {
-        const savedDraftId = value.savedDraftId;
-        if (typeof savedDraftId !== "string" || !savedDraftId) continue;
-        await deletePersistedDraft({
-          ownerEmail,
-          savedDraftId,
-          savedDraftBackend:
-            value.savedDraftBackend === "gmail" ||
-            value.savedDraftBackend === "local"
-              ? value.savedDraftBackend
-              : undefined,
-          accountEmail:
-            typeof value.savedDraftAccountEmail === "string"
-              ? value.savedDraftAccountEmail
-              : typeof value.accountEmail === "string"
-                ? value.accountEmail
-                : undefined,
-        });
+      let count = 0;
+      for (const { key } of storedDrafts) {
+        if (await deleteComposeDraft(key.slice("compose-".length))) count += 1;
       }
-      const count = await deleteAppStateByPrefix("compose-");
       return `Deleted ${count} draft(s)`;
     }
 
@@ -421,57 +471,13 @@ export default defineAction({
         fail(`Invalid draft ID "${args.id}"`, {
           errorCode: "draft_invalid_id",
         });
-      const key = `compose-${safeId}`;
-      const notFound = () =>
+      if (!(await deleteComposeDraft(safeId))) {
         fail(`Draft "${safeId}" not found`, {
           errorCode: "draft_not_found",
           statusCode: 404,
         });
-      // A sync can point the draft at a new mailbox copy while this runs, so
-      // the draft goes only if it's still the one read here. If it changed,
-      // the copy it points at now goes too, on the next pass.
-      const removedCopies = new Set<string>();
-      for (let attempt = 1; attempt <= MAX_DELETE_ATTEMPTS; attempt += 1) {
-        const storedDraft = await readAppState(key);
-        if (!storedDraft) {
-          if (attempt === 1) notFound();
-          return `Deleted draft ${safeId}`;
-        }
-        const savedDraftId = storedDraft.savedDraftId;
-        if (
-          typeof savedDraftId === "string" &&
-          savedDraftId &&
-          !removedCopies.has(savedDraftId)
-        ) {
-          const ownerEmail = getRequestUserEmail();
-          if (!ownerEmail) throw new Error("Unauthenticated");
-          await deletePersistedDraft({
-            ownerEmail,
-            savedDraftId,
-            savedDraftBackend:
-              storedDraft.savedDraftBackend === "gmail" ||
-              storedDraft.savedDraftBackend === "local"
-                ? storedDraft.savedDraftBackend
-                : undefined,
-            accountEmail:
-              typeof storedDraft.savedDraftAccountEmail === "string"
-                ? storedDraft.savedDraftAccountEmail
-                : typeof storedDraft.accountEmail === "string"
-                  ? storedDraft.accountEmail
-                  : undefined,
-          });
-          removedCopies.add(savedDraftId);
-        }
-        if (await compareAndSetAppState(key, storedDraft, null)) {
-          return `Deleted draft ${safeId}`;
-        }
       }
-      // Deleting a version this never read could leave behind a mailbox copy
-      // a sync just made.
-      fail(
-        `Draft "${safeId}" kept changing while it was being deleted, so it's still there. Delete it again.`,
-        { errorCode: "draft_busy", statusCode: 409 },
-      );
+      return `Deleted draft ${safeId}`;
     }
 
     if (action === "delete-saved") {
@@ -689,6 +695,11 @@ export default defineAction({
           errorCode: "draft_account_change",
           statusCode: 400,
         });
+      }
+      if (!ownership && args.accountEmail) {
+        // Checked now: the sync runs after this is stored, and only says pending.
+        if (!ownerEmail) throw new Error("Unauthenticated");
+        await assertGmailDraftAccount(args.accountEmail, ownerEmail);
       }
       for (const key of DRAFT_UPDATE_FIELDS) {
         if ((args as any)[key] !== undefined)
