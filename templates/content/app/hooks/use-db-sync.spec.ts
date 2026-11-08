@@ -694,11 +694,16 @@ describe("contentActionInvalidatePredicate", () => {
   });
 
   it.each([
+    "clone-creative-context-document",
+    "create-content-database",
     "create-document",
+    "create-inline-content-database",
     "delete-document",
+    "duplicate-page",
     "import-content-source",
     "move-document",
     "restore-document",
+    "rollback-created-slash-document",
     "sync-local-folder-source",
     "undo-content-import",
     "update-content-database-view",

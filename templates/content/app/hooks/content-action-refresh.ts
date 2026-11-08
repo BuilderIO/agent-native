@@ -137,6 +137,12 @@ const NAVIGATION_CONTEXT_MUTATIONS = new Set([
   ...DATABASE_PRESENTATION_MUTATIONS,
   ...DATABASE_LIFECYCLE_MUTATIONS,
   ...DOCUMENT_DISCOVERY_MUTATIONS,
+  // These add or trash a page under a parent, and no list above names them.
+  "clone-creative-context-document",
+  "create-content-database",
+  "create-inline-content-database",
+  "duplicate-page",
+  "rollback-created-slash-document",
 ]);
 
 const PREVIEW_DRAFT_MUTATIONS = new Set([
