@@ -384,14 +384,26 @@ pub async fn parakeet_model_prepare(app: AppHandle) -> Result<(), String> {
     }
 }
 
+/// Whether this request starts the one prepare. Only a prepare that starts
+/// clears the cancel flag: one already running must still see a release that
+/// came before this request, or it reports ready on a copy the release has
+/// unloaded. It then ends cancelled, and Settings prepares again.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn claim_prepare(preparing: &AtomicBool, cancel: &AtomicBool) -> bool {
+    if preparing.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    cancel.store(false, Ordering::SeqCst);
+    true
+}
+
 /// `reclaim` is for a dictation that found the resident copy held by an
 /// earlier live pass: prepare then waits for that pass to hand it back, or
 /// retires it and loads a fresh copy, even though the slot still counts as
 /// ready.
 #[cfg(target_os = "macos")]
 fn start_prepare(app: AppHandle, reclaim: bool) -> Result<(), String> {
-    CANCEL_DOWNLOAD.store(false, Ordering::SeqCst);
-    if PREPARING.swap(true, Ordering::SeqCst) {
+    if !claim_prepare(&PREPARING, &CANCEL_DOWNLOAD) {
         return Ok(());
     }
     if !reclaim && is_ready(&app) {
@@ -716,6 +728,26 @@ mod tests {
         assert!(Unavailable::Failed.starts_prepare(&mut retry, after(10 * 60)));
         assert!(!Unavailable::Failed.starts_prepare(&mut retry, after(15 * 60)));
         assert!(Unavailable::Failed.starts_prepare(&mut retry, after(20 * 60)));
+    }
+
+    /// Parakeet is picked, then another engine (a release), then Parakeet
+    /// again while the first prepare is still loading.
+    #[test]
+    fn a_running_prepare_still_sees_a_release_from_before_parakeet_was_picked_again() {
+        let preparing = AtomicBool::new(false);
+        let cancel = AtomicBool::new(false);
+        assert!(claim_prepare(&preparing, &cancel));
+        cancel.store(true, Ordering::SeqCst);
+
+        assert!(!claim_prepare(&preparing, &cancel), "one prepare at a time");
+        assert!(cancel.load(Ordering::SeqCst));
+
+        preparing.store(false, Ordering::SeqCst);
+        assert!(claim_prepare(&preparing, &cancel));
+        assert!(
+            !cancel.load(Ordering::SeqCst),
+            "the next prepare starts uncancelled"
+        );
     }
 
     #[test]
