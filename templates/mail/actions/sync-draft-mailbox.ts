@@ -13,6 +13,26 @@ export default defineAction({
       .regex(/^[a-zA-Z0-9_-]{1,64}$/)
       .describe("Compose draft ID"),
   }),
+  // A MailboxSync from server/lib/draft-mailbox-sync.ts, without the synced draft.
+  outputSchema: z.discriminatedUnion("status", [
+    z.object({
+      status: z.literal("synced"),
+      savedDraft: z.object({
+        draftId: z.string(),
+        backend: z.enum(["gmail", "local"]),
+        accountEmail: z.string().optional(),
+      }),
+    }),
+    z.object({
+      status: z.literal("pending"),
+      errorCode: z.string(),
+      message: z.string(),
+      retryAfterMs: z.number().optional(),
+      leftoverDraftIds: z.array(z.string()).optional(),
+    }),
+    z.object({ status: z.literal("unavailable") }),
+    z.object({ status: z.literal("gone") }),
+  ]),
   // The composer runs this after its own save lands; agents' saves sync inside manage-draft.
   agentTool: false,
   run: async (args) => {
