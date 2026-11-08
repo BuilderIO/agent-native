@@ -3760,7 +3760,7 @@ function DateValueEditor({
           showEnd && !includeTime ? "grid grid-cols-2 gap-2" : "grid gap-2"
         }
       >
-        <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+        <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted-foreground">
           {t("editor.properties.start")}
           <Input
             ref={dateValueInputRef}
@@ -3786,7 +3786,7 @@ function DateValueEditor({
           />
         </label>
         {showEnd ? (
-          <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+          <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted-foreground">
             {t("editor.properties.end")}
             <Input
               aria-label={t("editor.properties.editEndDate", {
