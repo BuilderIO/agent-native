@@ -17,6 +17,7 @@ import {
   mcpScriptSchemaType,
   mcpScriptToolDescriptors,
   McpScriptTypeError,
+  McpScriptValueTooLargeError,
   plainResultValue,
   runMcpScript,
   searchMcpScriptActions,
@@ -794,6 +795,83 @@ describe("runMcpScript", () => {
       `api.getDocument takes at most ${MCP_SCRIPT_LIMITS.argumentChars} characters of arguments.`,
     ]);
     expect(calls).toEqual([]);
+  });
+
+  it("measures arguments before a refusal records them, and all the way down", async () => {
+    const { run, calls, denials } = runner({ "get-document": entry() });
+    const denied = await run(`
+      let a = { leaf: true };
+      for (let i = 0; i < 24; i++) a = [a, a];
+      try { await api.notAvailable({ a }); } catch (error) {
+        return error.code;
+      }
+    `);
+    expect(denied.result).toBe("unknown-function");
+    expect(denials).toHaveLength(1);
+    expect(denials[0].args).toBeUndefined();
+    // A part below the depth the copy stops at would otherwise go
+    // unmeasured into the call.
+    const deep = await run(`
+      let a = { leaf: true };
+      for (let i = 0; i < 19; i++) a = [a, a];
+      for (let i = 0; i < 66; i++) a = { child: a };
+      try { await api.getDocument({ a }); } catch (error) {
+        return [error.code, error.message];
+      }
+    `);
+    expect(deep.result).toEqual([
+      "invalid_arguments",
+      "api.getDocument takes arguments nested at most 64 levels deep.",
+    ]);
+    expect(calls).toEqual([]);
+  });
+
+  it("charges every string a converted value becomes, each time it appears", async () => {
+    const { run } = runner({});
+    for (const make of [
+      `new RegExp("x".repeat(10000))`,
+      `new Error("x".repeat(10000))`,
+      `new Map([["x".repeat(10000), 1]])`,
+    ]) {
+      const payload = await run(
+        `const v = ${make}; return Array(600).fill(v);`,
+      );
+      expect(payload.error?.code, make).toBe("script_result_too_large");
+    }
+    expect(() => plainResultValue(Array(600).fill(10n ** 10_000n))).toThrow(
+      McpScriptValueTooLargeError,
+    );
+  });
+
+  it("refuses a sparse array by its length, before reading a slot", async () => {
+    const sparse: unknown[] = [];
+    sparse.length = 2 ** 32 - 1;
+    expect(() => plainResultValue(sparse)).toThrow(McpScriptValueTooLargeError);
+    const { run } = runner({});
+    const returned = await run(
+      `const a = []; a.length = 2 ** 32 - 1; return a;`,
+    );
+    expect(returned.error?.code).toBe("script_result_too_large");
+    const logged = await run(
+      `console.log("kept"); __console.lines.length = 2 ** 32 - 1; return 1;`,
+    );
+    expect(logged).toMatchObject({
+      ok: true,
+      result: 1,
+      logs: ["kept"],
+      logsDropped: 2 ** 32 - 2,
+    });
+  });
+
+  it("does not turn a call's name into text unless it is a string", async () => {
+    const { run, denials } = runner({});
+    const payload = await run(`
+      let a = [];
+      for (let i = 0; i < 40; i++) a = [a, a];
+      return (await __host.call(a, {})).code;
+    `);
+    expect(payload.result).toBe("unknown-function");
+    expect(denials.map((denial) => denial.functionName)).toEqual(["(unnamed)"]);
   });
 
   it("holds console limits the script cannot reach around", async () => {

@@ -1035,12 +1035,13 @@ export async function runMcpScript(
       __host: {
         call: async (rawName: unknown, rawArgs: unknown) => {
           const startedAt = Date.now();
-          const fn = oneLine(
+          // The guest's `api` names every call with a string. Anything else
+          // is not turned into text, which for a nested array the sandbox
+          // sent once and pointed to again would spell out every copy.
+          const fn =
             typeof rawName === "string"
-              ? rawName.replace(/^api\./, "")
-              : String(rawName),
-            120,
-          );
+              ? oneLine(rawName.replace(/^api\./, ""), 120)
+              : "(unnamed)";
           // A call is listed when it starts, so a script that stops while
           // waiting on one still shows it, as unfinished.
           const slot = stopped
@@ -1088,6 +1089,27 @@ export async function runMcpScript(
               startedAt,
             );
           }
+          // Measured before anything copies them, the audit log included: the
+          // sandbox sends a part the arguments repeat once, and a copy spells
+          // out every repeat.
+          let args: unknown;
+          let argumentProblem: string | undefined;
+          try {
+            plainResultValue(
+              rawArgs,
+              MCP_SCRIPT_LIMITS.argumentChars,
+              "refuse",
+            );
+            args = toJsonData(rawArgs === undefined ? {} : rawArgs);
+            if (!isSchemaObject(args)) throw new TypeError("not an object");
+          } catch (error) {
+            argumentProblem =
+              error instanceof McpScriptValueTooLargeError
+                ? `api.${fn} takes at most ${MCP_SCRIPT_LIMITS.argumentChars} characters of arguments.`
+                : error instanceof McpScriptValueTooDeepError
+                  ? `api.${fn} takes arguments nested at most ${MAX_RESULT_DEPTH} levels deep.`
+                  : `api.${fn} takes one object of JSON data.`;
+          }
           const action = input.catalog.byFunction.get(fn);
           // The catalog holds only what the policy allows; asking again at
           // the call keeps it in force if an entry has changed since.
@@ -1108,7 +1130,8 @@ export async function runMcpScript(
                 action: denial.action,
                 reason: denial.reason,
                 message,
-                args: rawArgs,
+                // Arguments past the limits, or not JSON, are left out.
+                args: argumentProblem === undefined ? args : undefined,
               });
             } catch (error) {
               console.error(
@@ -1124,22 +1147,13 @@ export async function runMcpScript(
               startedAt,
             );
           }
-          let args: unknown;
-          try {
-            // Measured before the copy, which spells out every part the
-            // sandbox sent once and pointed to again.
-            plainResultValue(rawArgs, MCP_SCRIPT_LIMITS.argumentChars);
-            args = toJsonData(rawArgs === undefined ? {} : rawArgs);
-            if (!isSchemaObject(args)) throw new TypeError("not an object");
-          } catch (error) {
+          if (argumentProblem !== undefined) {
             return refuse(
               fn,
               action,
               "failed",
               "invalid_arguments",
-              error instanceof McpScriptValueTooLargeError
-                ? `api.${fn} takes at most ${MCP_SCRIPT_LIMITS.argumentChars} characters of arguments.`
-                : `api.${fn} takes one object of JSON data.`,
+              argumentProblem,
               startedAt,
             );
           }
@@ -1310,19 +1324,19 @@ export async function runMcpScript(
       return fail("script_failed", "The script stopped before it completed.");
     }
     const envelope = isSchemaObject(result.value) ? result.value : {};
-    // The script can reach its own log buffer, so the limits hold here too.
-    const lines = Array.isArray(envelope.logs)
-      ? envelope.logs.filter((line): line is string => typeof line === "string")
+    // The script can reach its own log buffer, so the limits hold here too,
+    // and only the lines it may keep are read: a buffer it lengthened by
+    // hand would otherwise be scanned slot by slot.
+    const lines: readonly unknown[] = Array.isArray(envelope.logs)
+      ? envelope.logs
       : [];
     const logs: string[] = [];
     let logChars = 0;
-    for (const line of lines) {
-      if (
-        logs.length >= MCP_SCRIPT_LIMITS.logLines ||
-        logChars + line.length + 1 > MCP_SCRIPT_LIMITS.logChars
-      ) {
-        break;
-      }
+    const readable = Math.min(lines.length, MCP_SCRIPT_LIMITS.logLines);
+    for (let index = 0; index < readable; index += 1) {
+      const line = lines[index];
+      if (typeof line !== "string") continue;
+      if (logChars + line.length + 1 > MCP_SCRIPT_LIMITS.logChars) break;
       logs.push(line);
       logChars += line.length + 1;
     }
@@ -1399,6 +1413,14 @@ export class McpScriptValueTooLargeError extends Error {
   }
 }
 
+/** A guest value nested deeper than the server will read it. */
+export class McpScriptValueTooDeepError extends Error {
+  constructor() {
+    super(`The value is nested more than ${MAX_RESULT_DEPTH} levels deep.`);
+    this.name = "McpScriptValueTooDeepError";
+  }
+}
+
 /**
  * A guest value as JSON data. The sandbox hands back BigInt, cycles, `Map`,
  * `Set`, `Date` and binary values, which JSON cannot hold, so each becomes
@@ -1407,13 +1429,18 @@ export class McpScriptValueTooLargeError extends Error {
  * array, a `Date` its ISO string, and binary data a byte count.
  *
  * The sandbox sends a part a value repeats once, and JSON spells out every
- * copy, so a short script can return something enormous. Each node and
- * string is charged as often as it appears, and past `maxChars` this
- * throws `McpScriptValueTooLargeError`.
+ * copy, so a short script can return something enormous. Every node, key
+ * and string the copy holds, a converted one included, is charged as often
+ * as it appears, at its length before JSON escapes it, and past `maxChars`
+ * this throws `McpScriptValueTooLargeError`. Past 64 levels a part is
+ * marked, or with `tooDeep: "refuse"` this throws
+ * `McpScriptValueTooDeepError`, so that a caller about to serialize the
+ * original has measured all of it.
  */
 export function plainResultValue(
   value: unknown,
   maxChars: number = MCP_SCRIPT_LIMITS.returnChars,
+  tooDeep: "mark" | "refuse" = "mark",
 ): unknown {
   const onPath = new Set<object>();
   let spent = 0;
@@ -1421,48 +1448,113 @@ export function plainResultValue(
     spent += chars;
     if (spent > maxChars) throw new McpScriptValueTooLargeError(maxChars);
   };
+  const text = (out: string) => {
+    charge(out.length + 2);
+    return out;
+  };
+  // Each member costs at least its separator, so a collection longer than
+  // the budget left is refused before it is read. The sandbox sends a
+  // sparse array as its length alone, which would otherwise be walked, or
+  // copied, slot by slot.
+  const members = (count: number) => {
+    charge(2);
+    if (count > maxChars - spent) {
+      throw new McpScriptValueTooLargeError(maxChars);
+    }
+  };
   const walk = (item: unknown, depth: number): unknown => {
-    charge(typeof item === "string" ? item.length + 2 : 1);
-    if (typeof item === "bigint") return `${item.toString()}n`;
-    if (typeof item === "number") return Number.isFinite(item) ? item : null;
-    if (item === undefined) return null;
-    if (item === null || typeof item !== "object") {
-      return typeof item === "function" || typeof item === "symbol"
-        ? null
-        : item;
+    switch (typeof item) {
+      case "string":
+        return text(item);
+      case "bigint":
+        return text(`${item.toString()}n`);
+      case "number":
+        if (!Number.isFinite(item)) break;
+        charge(String(item).length);
+        return item;
+      case "boolean":
+        charge(item ? 4 : 5);
+        return item;
+      case "object":
+        if (item === null) break;
+        return walkObject(item, depth);
+      case "undefined":
+      case "function":
+      case "symbol":
+        break;
     }
-    if (depth > MAX_RESULT_DEPTH) return "[Too deep]";
-    if (onPath.has(item)) return "[Circular]";
+    // `null`, standing in for anything JSON has no form of.
+    charge(4);
+    return null;
+  };
+  const walkObject = (item: object, depth: number): unknown => {
+    if (depth > MAX_RESULT_DEPTH) {
+      if (tooDeep === "refuse") throw new McpScriptValueTooDeepError();
+      return text("[Too deep]");
+    }
+    if (onPath.has(item)) return text("[Circular]");
     if (item instanceof Date) {
-      return Number.isNaN(item.getTime()) ? null : item.toISOString();
+      return Number.isNaN(item.getTime())
+        ? walk(null, depth)
+        : text(item.toISOString());
     }
-    if (item instanceof RegExp) return String(item);
+    if (item instanceof RegExp) return text(String(item));
     if (ArrayBuffer.isView(item) || item instanceof ArrayBuffer) {
-      return `[${item.byteLength} bytes of binary data]`;
+      return text(`[${item.byteLength} bytes of binary data]`);
     }
     onPath.add(item);
     try {
       if (item instanceof Error) {
-        return { name: item.name, message: item.message };
+        charge(`{"name":,"message":}`.length);
+        return {
+          name: text(typeof item.name === "string" ? item.name : "Error"),
+          message: text(typeof item.message === "string" ? item.message : ""),
+        };
       }
-      if (Array.isArray(item) || item instanceof Set) {
-        return [...item].map((member) => walk(member, depth + 1));
+      if (Array.isArray(item)) {
+        members(item.length);
+        const out: unknown[] = [];
+        for (let index = 0; index < item.length; index += 1) {
+          charge(1);
+          out.push(walk(item[index], depth + 1));
+        }
+        return out;
+      }
+      if (item instanceof Set) {
+        members(item.size);
+        const out: unknown[] = [];
+        for (const member of item) {
+          charge(1);
+          out.push(walk(member, depth + 1));
+        }
+        return out;
       }
       if (item instanceof Map) {
-        const entries = [...item];
-        return entries.every(([key]) => typeof key === "string")
-          ? Object.fromEntries(
-              entries.map(([key, member]) => [key, walk(member, depth + 1)]),
-            )
-          : entries.map(([key, member]) => [
-              walk(key, depth + 1),
-              walk(member, depth + 1),
-            ]);
+        members(item.size);
+        let stringKeys = true;
+        for (const key of item.keys()) {
+          if (typeof key !== "string") {
+            stringKeys = false;
+            break;
+          }
+        }
+        const out: Array<[unknown, unknown]> = [];
+        for (const [key, member] of item) {
+          if (stringKeys && typeof key === "string") {
+            charge(key.length + 4);
+            out.push([key, walk(member, depth + 1)]);
+          } else {
+            charge(3);
+            out.push([walk(key, depth + 1), walk(member, depth + 1)]);
+          }
+        }
+        return stringKeys ? Object.fromEntries(out) : out;
       }
+      charge(2);
       const out: Record<string, unknown> = {};
       for (const [key, member] of Object.entries(item)) {
         if (member === undefined) continue;
-        charge(key.length + 3);
+        charge(key.length + 4);
         out[key] = walk(member, depth + 1);
       }
       return out;
