@@ -114,7 +114,7 @@ describe("Builder signup client contract", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("releases the one-time UI gate after an uncertain activation without retrying provisioning", async () => {
+  it("preserves the pending hint after an uncertain activation without retrying provisioning", async () => {
     vi.useFakeTimers();
     const browserDocument = { cookie: "an_builder_signup_pending=1" };
     vi.stubGlobal("document", browserDocument);
@@ -127,8 +127,8 @@ describe("Builder signup client contract", () => {
     );
     await vi.advanceTimersByTimeAsync(30000);
     await outcome;
-    expect(browserDocument.cookie).toContain("Max-Age=0");
-    expect(hasPendingBuilderSignupAssignment()).toBe(false);
+    expect(browserDocument.cookie).toBe("an_builder_signup_pending=1");
+    expect(hasPendingBuilderSignupAssignment()).toBe(true);
   });
 
   it("does not turn transport errors or unknown outcomes into a connected state", async () => {
@@ -137,7 +137,7 @@ describe("Builder signup client contract", () => {
     const fetch = vi.fn(async () => response({ status: "connected" }, 503));
     vi.stubGlobal("fetch", fetch);
     await expect(activateBuilderSignupAssignment()).rejects.toThrow(/503/);
-    expect(browserDocument.cookie).toContain("Max-Age=0");
+    expect(browserDocument.cookie).toBe("an_builder_signup_pending=1");
     expect(fetch).toHaveBeenCalledTimes(1);
     fetch.mockResolvedValueOnce(response({ status: "unknown" }));
     await expect(activateBuilderSignupAssignment()).rejects.toThrow(

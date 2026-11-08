@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({ activate: vi.fn() }));
 vi.mock("@agent-native/core/client/analytics", () => ({ track: vi.fn() }));
 vi.mock("@agent-native/core/client/auth/builder-signup", () => ({
   activateBuilderSignupAssignment: mocks.activate,
-  hasPendingBuilderSignupAssignment: () => true,
+  hasPendingBuilderSignupAssignment: () => false,
 }));
 vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
@@ -30,7 +30,7 @@ function Activation({ verified }: { verified: boolean }) {
   );
 }
 
-it("waits for verification without replacing an in-progress prompt when activation starts", async () => {
+it("recovers activation without a pending cookie and preserves an in-progress prompt after verification", async () => {
   let finish: () => void = () => {};
   mocks.activate.mockImplementation(
     () =>

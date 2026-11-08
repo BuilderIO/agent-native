@@ -1,8 +1,5 @@
 import { track } from "@agent-native/core/client/analytics";
-import {
-  activateBuilderSignupAssignment,
-  hasPendingBuilderSignupAssignment,
-} from "@agent-native/core/client/auth/builder-signup";
+import { activateBuilderSignupAssignment } from "@agent-native/core/client/auth/builder-signup";
 import { useT } from "@agent-native/core/client/i18n";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
@@ -20,12 +17,12 @@ export function useBuilderSignupActivation(
   const queryClient = useQueryClient();
   const [settledUserId, setSettledUserId] = useState<string>();
   useEffect(() => {
-    if (!userId || !hasPendingBuilderSignupAssignment()) return;
+    if (!userId) return;
     let disposed = false;
     let attempt = attempts.get(userId);
     if (!attempt) {
-      // Activation clears the pending cookie, so a later effect never retries;
-      // the refresh belongs to the attempt, not to whichever effect is mounted.
+      // The server checks durable signup consent even when callback cookies
+      // were lost. The shared promise survives StrictMode and page remounts.
       attempt = activateBuilderSignupAssignment().finally(() => {
         void queryClient.invalidateQueries();
       });
@@ -38,7 +35,9 @@ export function useBuilderSignupActivation(
       (error: unknown) => {
         if (attempts.get(userId) === attempt) attempts.delete(userId);
         void track("builder_signup_experiment_client_failed", {
-          reason: error instanceof Error ? error.name : "unknown_error",
+          experiment_id: "design_builder_signup_v1",
+          auth_user_id: userId,
+          reason: error instanceof Error ? error.message : "unknown_error",
         });
         if (!disposed) setSettledUserId(userId);
       },
@@ -47,11 +46,7 @@ export function useBuilderSignupActivation(
       disposed = true;
     };
   }, [queryClient, userId]);
-  return (
-    userId !== undefined &&
-    settledUserId !== userId &&
-    hasPendingBuilderSignupAssignment()
-  );
+  return userId !== undefined && settledUserId !== userId;
 }
 
 // Children stay mounted in the same tree position whether or not a session or

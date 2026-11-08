@@ -43,6 +43,13 @@ const assignmentSchema = z.object({
   policy: z.literal(BUILDER_SIGNUP_POLICY),
 });
 type Assignment = z.infer<typeof assignmentSchema>;
+const consentSchema = assignmentSchema.extend({
+  variant: z.literal("automatic"),
+  acceptedAt: z.number().int(),
+  attemptId: z.string().min(16).max(128),
+  userId: z.string().min(1),
+  email: z.string().email(),
+});
 
 function experimentProperties(
   assignment?: Assignment,
@@ -331,6 +338,46 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       })
       .safeParse(await readBodyWithSizeLimit(event, 4096));
     if (!body.success) return refuse(400, "invalid_request");
+    // Consent was bound to the newly created identity during signup. Browser
+    // cookies are transport hints; a callback or later visit can lose them.
+    const consent =
+      body.data.operation === "activate" &&
+      session?.emailVerified &&
+      session.userId
+        ? await getSetting(
+            `${BUILDER_SIGNUP_EXPERIMENT}:consent:${session.userId}`,
+          )
+        : null;
+    if (consent && session?.userId) {
+      const saved = consentSchema.safeParse(consent);
+      if (
+        !saved.success ||
+        saved.data.issuedAt > saved.data.acceptedAt ||
+        saved.data.acceptedAt > Date.now() ||
+        saved.data.userId !== session.userId ||
+        saved.data.email !== session.email.trim().toLowerCase()
+      ) {
+        track(
+          "builder_signup_experiment_activation_unavailable",
+          {
+            ...experimentProperties(assignment ?? undefined),
+            code: "consent_invalid",
+          },
+          { userId: session.email, authUserId: session.userId },
+        );
+        return refuse(409, "consent_invalid");
+      }
+      assignment = saved.data;
+    }
+    if (
+      !assignment &&
+      body.data.operation === "activate" &&
+      session?.emailVerified &&
+      session.userId
+    ) {
+      deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+      return { status: "disabled" as const, code: "not_enrolled" };
+    }
     if (!assignment) {
       deleteCookie(event, "an_builder_signup_pending", { path: "/" });
       if (body.data.operation === "activate") {
@@ -408,9 +455,6 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       return terminal("fallback", "control");
     if (!assignment.acceptedAt || !assignment.attemptId)
       return terminal("fallback", "acceptance_missing");
-    const consent = await getSetting(
-      `${BUILDER_SIGNUP_EXPERIMENT}:consent:${session.userId}`,
-    );
     if (
       !consent ||
       consent.attemptId !== assignment.attemptId ||
