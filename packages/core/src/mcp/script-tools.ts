@@ -171,7 +171,6 @@ export function buildMcpScriptCatalog(
     a.localeCompare(b),
   )) {
     const [only, ...others] = named;
-    if (!only) continue;
     if (others.length > 0) {
       collisions.set(fn, named.map(([name]) => name).sort());
       continue;
@@ -205,9 +204,8 @@ export function explainMcpScriptDenial(
     const policy = mcpScriptCallPolicy(name, entry);
     if (!policy.allowed) return { action: name, reason: policy.reason };
   }
-  const [first] = named;
-  return first
-    ? { action: first[0], reason: "out-of-scope" }
+  return named.length > 0
+    ? { action: named[0][0], reason: "out-of-scope" }
     : { action: undefined, reason: "unknown-function" };
 }
 
@@ -332,6 +330,14 @@ function hasTopLevelOperator(type: string): boolean {
   return false;
 }
 
+/**
+ * JSON text for JSON data. `JSON.stringify` returns undefined for
+ * undefined, though its type says string, so that reads as `null`.
+ */
+function jsonText(value: unknown): string {
+  return value === undefined ? "null" : JSON.stringify(value);
+}
+
 function parenthesize(type: string): string {
   return hasTopLevelOperator(type) ? `(${type})` : type;
 }
@@ -391,12 +397,7 @@ function schemaType(
         union.map((member) => schemaType(member, scope, depth + 1, indent)),
       ),
     ];
-    const [only, ...others] = members;
-    parts.push(
-      only !== undefined && others.length === 0
-        ? only
-        : `(${members.join(" | ")})`,
-    );
+    parts.push(members.length === 1 ? members[0] : `(${members.join(" | ")})`);
   }
   if (STRUCTURAL_KEYS.some((key) => schema[key] !== undefined)) {
     const base = Object.fromEntries(
@@ -404,12 +405,11 @@ function schemaType(
     );
     parts.unshift(structuralType(base, scope, depth, indent));
   }
-  const [only, ...others] = parts;
   const type =
-    only === undefined
+    parts.length === 0
       ? "unknown"
-      : others.length === 0
-        ? only
+      : parts.length === 1
+        ? parts[0]
         : parts.map(parenthesize).join(" & ");
   return schema.nullable === true ? `${parenthesize(type)} | null` : type;
 }
@@ -420,7 +420,9 @@ function structuralType(
   depth: number,
   indent: string,
 ): string {
-  if ("const" in schema) return JSON.stringify(schema.const) ?? "unknown";
+  if ("const" in schema) {
+    return schema.const === undefined ? "unknown" : jsonText(schema.const);
+  }
   if (Array.isArray(schema.enum)) {
     return schema.enum.length === 0
       ? "never"
@@ -684,8 +686,8 @@ export function searchMcpScriptActions(
       const haystack = [
         fn,
         action,
-        entry?.tool.description ?? "",
-        ...(entry?.searchHints ?? []),
+        entry.tool.description,
+        ...(entry.searchHints ?? []),
       ]
         .join(" ")
         .toLowerCase();
@@ -698,10 +700,7 @@ export function searchMcpScriptActions(
     );
   }
   const body = matched
-    .flatMap((action) => {
-      const entry = catalog.actions[action];
-      return entry ? [mcpScriptDeclaration(action, entry)] : [];
-    })
+    .map((action) => mcpScriptDeclaration(action, catalog.actions[action]))
     .join("\n\n");
   const lines = [`declare const api: {\n${body}${body ? "\n" : ""}};`];
   if (missing.length > 0) {
@@ -1079,11 +1078,11 @@ export async function runMcpScript(
                   action,
                   "failed",
                   "action_reported_error",
-                  `api.${fn} reported an error: ${oneLine(JSON.stringify(outcome.value) ?? "", 500)}`,
+                  `api.${fn} reported an error: ${oneLine(jsonText(outcome.value), 500)}`,
                   startedAt,
                 );
               }
-              const json = JSON.stringify(outcome.value) ?? "null";
+              const json = jsonText(outcome.value);
               const bytes = utf8Bytes(json);
               if (bytes > MCP_SCRIPT_LIMITS.callResultBytes) {
                 return refuse(
@@ -1152,7 +1151,9 @@ export async function runMcpScript(
                 startedAt,
               );
             }
-            default:
+            case "approval-required":
+            case "approval-pending":
+            case "approval-denied":
               // Scriptable actions ask for no approval, so this is a bug in
               // policy, refused rather than left waiting.
               return refuse(
@@ -1357,7 +1358,7 @@ export function formatMcpScriptPayload(
     }
   }
   if (text.length > maxChars && "result" in payload) {
-    const resultText = JSON.stringify(payload.result) ?? "null";
+    const resultText = jsonText(payload.result);
     trimmed.result = undefined;
     trimmed.resultTruncated = {
       originalChars: resultText.length,
