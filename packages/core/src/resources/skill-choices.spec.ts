@@ -71,6 +71,8 @@ const {
   isSkillOn,
   readSkillChoiceCounts,
   readSkillChoices,
+  readSkillReference,
+  requiredSkillPaths,
   setSkillMark,
   setSkillSwitch,
   skillMarkFor,
@@ -405,6 +407,74 @@ describe("skillReferenceResource", () => {
         NO_SKILL_CHOICES,
       ),
     ).toBeNull();
+  });
+});
+
+describe("readSkillReference", () => {
+  const MINE = "skills/my-release-notes/SKILL.md";
+  const ORG = "skills/release-notes/SKILL.md";
+  const OTHER = "skills/brand-voice/SKILL.md";
+  const files: Record<string, { name: string; content: string }> = {
+    [MINE]: { name: "release-notes", content: "Mine." },
+    [ORG]: { name: "release-notes", content: "The organization's." },
+    [OTHER]: { name: "brand-voice", content: "Brand voice." },
+  };
+  const readSkill = vi.fn(async (path: string) => files[path] ?? null);
+  const requiring = (...paths: string[]) => ({
+    switches: {},
+    marks: Object.fromEntries(
+      paths.map((path) => [`organization:${path}`, "required" as const]),
+    ),
+  });
+
+  beforeEach(() => readSkill.mockClear());
+
+  it("reads a Required skill instead of a same-named one at another path", async () => {
+    await expect(
+      readSkillReference(MINE, requiring(OTHER, ORG), readSkill),
+    ).resolves.toBe("The organization's.");
+    await expect(
+      readSkillReference(MINE, requiring(OTHER), readSkill),
+    ).resolves.toBe("Mine.");
+    await expect(
+      readSkillReference(MINE, NO_SKILL_CHOICES, readSkill),
+    ).resolves.toBe("Mine.");
+    expect(readSkill.mock.calls.map(([path]) => path)).toEqual([
+      MINE,
+      OTHER,
+      ORG,
+      MINE,
+      OTHER,
+      MINE,
+    ]);
+  });
+
+  it("reads a Required skill itself, and nothing when it can't be read", async () => {
+    await expect(
+      readSkillReference(ORG, requiring(ORG, OTHER), readSkill),
+    ).resolves.toBe("The organization's.");
+    expect(readSkill).toHaveBeenCalledTimes(1);
+    await expect(
+      readSkillReference("skills/gone/SKILL.md", requiring(ORG), readSkill),
+    ).resolves.toBeNull();
+    // An unreadable Required skill doesn't hide the one asked for.
+    await expect(
+      readSkillReference(MINE, requiring("skills/gone/SKILL.md"), readSkill),
+    ).resolves.toBe("Mine.");
+  });
+
+  it("finds the paths of Required skills from either place", () => {
+    expect(
+      requiredSkillPaths({
+        switches: {},
+        marks: {
+          [`organization:${ORG}`]: "required",
+          [`workspace:${ORG}`]: "required",
+          [`workspace:${OTHER}`]: "required",
+          [`organization:${MINE}`]: "optional",
+        },
+      }),
+    ).toEqual([ORG, OTHER]);
   });
 });
 

@@ -2853,6 +2853,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Dispatch에도 {{name}}이(가) 있습니다. 에이전트는 이 스킬을 사용하고 Dispatch의 스킬은 건너뜁니다. 둘 다 사용하려면 하나의 이름을 바꾸세요.",
   "settingsResources.skills.dispatchClashRequired":
     "Dispatch의 {{name}}이(가) 필수라서 에이전트는 그 스킬을 사용하고 이 스킬은 건너뜁니다. 둘 다 사용하려면 하나의 이름을 바꾸세요.",
+  "settingsResources.skills.choicesLoadFailed":
+    "어떤 스킬이 켜져 있는지 불러오지 못해 스위치를 숨겼습니다. 페이지를 새로고침해 다시 시도하세요.",
   "settingsResources.skills.requireTitle": "{{name}}을(를) 필수로 지정할까요?",
   "settingsResources.skills.makeRequired": "필수로 지정",
   "settingsResources.skills.switchFailed":

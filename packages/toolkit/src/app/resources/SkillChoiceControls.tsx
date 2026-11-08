@@ -50,8 +50,12 @@ export interface SkillRowContext {
    * about a same-named one.
    */
   dispatchNames: ReadonlyMap<string, boolean>;
-  /** Paths of Required shared skills, which replace anyone's own copy. */
+  /**
+   * Paths and names of Required shared skills, which replace anyone's own
+   * skill at the same path or with the same name.
+   */
   requiredPaths: ReadonlySet<string>;
+  requiredNames: ReadonlySet<string>;
   /** Asks before an admin makes a skill Required. */
   onRequire: (skill: SkillRowChoice) => void;
 }
@@ -119,8 +123,13 @@ export function SkillRowNotes({
   if (!state.isLoaded) return null;
   if (skill.source === "personal") {
     // Only its owner decides, so it needs no reason unless a Required
-    // shared skill at the same path is used instead.
-    if (!context.requiredPaths.has(skill.path)) return null;
+    // shared skill at the same path, or with the same name, is used instead.
+    if (
+      !context.requiredPaths.has(skill.path) &&
+      !context.requiredNames.has(skill.name)
+    ) {
+      return null;
+    }
     return (
       <span className="mt-0.5 block truncate text-xs text-muted-foreground">
         {t("agentChat.settingsResources.skills.requiredHidesOwn", {
@@ -295,7 +304,8 @@ export function SkillRowControls({
       <span
         className={`flex ${SKILL_SWITCH_COLUMN} shrink-0 items-center justify-end`}
       >
-        {mark === "required" ? (
+        {/* Until the choices load, a switch would show a guess. */}
+        {!state.isLoaded ? null : mark === "required" ? (
           <ReadOnlySettingValue
             value={
               markable ? "" : t("agentChat.settingsResources.skills.alwaysOn")
@@ -307,7 +317,6 @@ export function SkillRowControls({
         ) : (
           <Switch
             checked={on}
-            disabled={!state.isLoaded}
             aria-label={skill.name}
             onChange={(next) => {
               state.setSwitch(skill.source, skill.path, next).catch(() => {

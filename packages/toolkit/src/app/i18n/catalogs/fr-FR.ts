@@ -3092,6 +3092,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Dispatch a aussi une compétence {{name}}. L'agent utilise celle-ci et ignore celle de Dispatch. Renommez-en une pour utiliser les deux.",
   "settingsResources.skills.dispatchClashRequired":
     "La compétence {{name}} de Dispatch est obligatoire, donc l'agent l'utilise et ignore celle-ci. Renommez-en une pour utiliser les deux.",
+  "settingsResources.skills.choicesLoadFailed":
+    "Impossible de charger les compétences activées pour vous, donc les interrupteurs sont masqués. Rechargez la page pour réessayer.",
   "settingsResources.skills.requireTitle": "Rendre {{name}} obligatoire ?",
   "settingsResources.skills.makeRequired": "Rendre obligatoire",
   "settingsResources.skills.switchFailed":

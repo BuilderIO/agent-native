@@ -3062,6 +3062,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Dispatch también tiene una {{name}}. El agente usa esta y omite la de Dispatch. Cambia el nombre de una para usar ambas.",
   "settingsResources.skills.dispatchClashRequired":
     "La {{name}} de Dispatch es obligatoria, así que el agente la usa y omite esta. Cambia el nombre de una para usar ambas.",
+  "settingsResources.skills.choicesLoadFailed":
+    "No se pudo cargar qué habilidades tienes activadas, así que los interruptores están ocultos. Vuelve a cargar la página para intentarlo de nuevo.",
   "settingsResources.skills.requireTitle": "¿Hacer obligatoria {{name}}?",
   "settingsResources.skills.makeRequired": "Hacer obligatoria",
   "settingsResources.skills.switchFailed":

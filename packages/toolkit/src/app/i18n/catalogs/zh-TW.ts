@@ -2655,6 +2655,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Dispatch 中也有 {{name}}。代理程式會使用這個，並略過 Dispatch 中的那個。重新命名其中一個即可同時使用兩者。",
   "settingsResources.skills.dispatchClashRequired":
     "Dispatch 中的 {{name}} 是必要的，所以代理程式會使用它，並略過這個。重新命名其中一個即可同時使用兩者。",
+  "settingsResources.skills.choicesLoadFailed":
+    "無法載入你啟用了哪些技能，所以開關已隱藏。請重新載入頁面再試一次。",
   "settingsResources.skills.requireTitle": "要將 {{name}} 設為必要嗎？",
   "settingsResources.skills.makeRequired": "設為必要",
   "settingsResources.skills.switchFailed": "無法儲存您對 {{name}} 的選擇。",

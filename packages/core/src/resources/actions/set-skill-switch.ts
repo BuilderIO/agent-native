@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
+import { readOrgMemberRole } from "../../server/personal-provider-key-policy.js";
 import {
   readSkillChoices,
   setSkillSwitch,
@@ -43,9 +44,12 @@ export default defineAction({
     if (!email) fail("Not authenticated.", { statusCode: 401 });
     const orgId = ctx?.orgId?.trim() || null;
     // Nobody can switch a Required skill. A switch stored now would quietly
-    // take effect if the mark changed later.
+    // take effect if the mark changed later. Only members learn the
+    // organization's marks, as in get-skill-choices.
     if (
       source !== "personal" &&
+      orgId &&
+      (await readOrgMemberRole(orgId, email)) &&
       skillMarkFor(await readSkillChoices({ orgId }), source, path) ===
         "required"
     ) {

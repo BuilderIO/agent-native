@@ -3042,6 +3042,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Dispatch hat auch einen Skill {{name}}. Der Agent nutzt diesen und überspringt den aus Dispatch. Benenne einen um, um beide zu nutzen.",
   "settingsResources.skills.dispatchClashRequired":
     "Der Skill {{name}} aus Dispatch ist Pflicht, deshalb nutzt der Agent ihn und überspringt diesen. Benenne einen um, um beide zu nutzen.",
+  "settingsResources.skills.choicesLoadFailed":
+    "Es konnte nicht geladen werden, welche Skills für dich aktiv sind, deshalb sind die Schalter ausgeblendet. Lade die Seite neu, um es noch einmal zu versuchen.",
   "settingsResources.skills.requireTitle": "{{name}} zur Pflicht machen?",
   "settingsResources.skills.makeRequired": "Zur Pflicht machen",
   "settingsResources.skills.switchFailed":

@@ -52,10 +52,10 @@ describe("skill choice actions", () => {
       path,
       false,
     );
-    expect(mockReadOrgMemberRole).not.toHaveBeenCalled();
   });
 
   it("refuses to switch a Required shared skill, but not the person's own", async () => {
+    mockReadOrgMemberRole.mockResolvedValue("member");
     mockReadSkillChoices.mockResolvedValue({
       switches: {},
       marks: { [`organization:${path}`]: "required" },
@@ -69,6 +69,19 @@ describe("skill choice actions", () => {
     await expect(
       setSkillSwitch.run({ source: "personal", path, on: false }, member),
     ).resolves.toMatchObject({ source: "personal", on: false });
+  });
+
+  it("answers someone outside the organization the same whatever its marks", async () => {
+    mockReadOrgMemberRole.mockResolvedValue(null);
+    mockReadSkillChoices.mockResolvedValue({
+      switches: {},
+      marks: { [`organization:${path}`]: "required" },
+    });
+    await expect(
+      setSkillSwitch.run({ source: "organization", path, on: false }, member),
+    ).resolves.toMatchObject({ source: "organization", on: false });
+    expect(mockReadOrgMemberRole).toHaveBeenCalledWith("org-1", "ana@x.com");
+    expect(mockReadSkillChoices).not.toHaveBeenCalled();
   });
 
   it("refuses a switch without a signed-in person", async () => {

@@ -259,6 +259,38 @@ export function skillReferenceResource(
   return chosen?.resource ?? effective.effectiveResource;
 }
 
+/** Paths of the organization and Dispatch skills marked Required. */
+export function requiredSkillPaths(choices: SkillChoices): string[] {
+  const paths = new Set<string>();
+  for (const [key, mark] of Object.entries(choices.marks)) {
+    if (mark === "required") paths.add(key.slice(key.indexOf(":") + 1));
+  }
+  return [...paths];
+}
+
+/**
+ * The text a reference to one skill path reads. `readSkill` reads the copy
+ * at a path that `skillReferenceResource` picks, or null when it can't. The
+ * prompt knows skills by name, so a Required skill also replaces a
+ * same-named one at another path, such as the person's own.
+ */
+export async function readSkillReference(
+  path: string,
+  choices: SkillChoices,
+  readSkill: (
+    path: string,
+  ) => Promise<{ name: string; content: string } | null>,
+): Promise<string | null> {
+  const skill = await readSkill(path);
+  if (!skill) return null;
+  const required = requiredSkillPaths(choices);
+  const others = required.includes(path)
+    ? []
+    : await Promise.all(required.map(readSkill));
+  const replacement = others.find((other) => other?.name === skill.name);
+  return (replacement ?? skill).content;
+}
+
 async function listOrgMemberEmails(orgId: string): Promise<string[]> {
   const { rows } = await getDbExec().execute({
     sql: `SELECT email FROM org_members

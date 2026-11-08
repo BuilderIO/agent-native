@@ -4111,38 +4111,46 @@ export async function resolveSkillReferenceContent(
     try {
       const [
         { resourceEffectiveContext, resourceGet },
-        { readSkillChoices, skillReferenceResource },
+        { readSkillChoices, readSkillReference, skillReferenceResource },
+        { getSkillNameFromPath },
       ] = await Promise.all([
         import("../resources/store.js"),
         import("../resources/skill-choices.js"),
+        import("../resources/metadata.js"),
       ]);
       const resourceOptions = {
         userEmail: ownerEmail,
         orgId: getRequestOrgId() ?? null,
       };
-      const effective = await resourceEffectiveContext(ownerEmail, ref.path, {
-        ...resourceOptions,
+      const choices = await readSkillChoices({
+        email: ownerEmail,
+        orgId: resourceOptions.orgId,
       });
-      // The copy the prompt would use: a Required organization or Dispatch
-      // skill, then the first one the person has on.
-      const chosen = skillReferenceResource(
-        effective,
-        await readSkillChoices({
-          email: ownerEmail,
-          orgId: resourceOptions.orgId,
-        }),
-      );
-      if (!chosen) return null;
-      const full = await resourceGet(chosen.id, {
-        ...resourceOptions,
-      });
-      if (
-        !full?.content ||
-        !(await isRuntimeVisibleSkillContent(full.content, ownerEmail))
-      ) {
-        return null;
-      }
-      return full.content;
+      // The copy the prompt would use at a path: a Required organization or
+      // Dispatch skill, then the first one the person has on.
+      const readSkill = async (path: string) => {
+        const chosen = skillReferenceResource(
+          await resourceEffectiveContext(ownerEmail, path, {
+            ...resourceOptions,
+          }),
+          choices,
+        );
+        const full = chosen
+          ? await resourceGet(chosen.id, { ...resourceOptions })
+          : null;
+        if (
+          !chosen ||
+          !full?.content ||
+          !(await isRuntimeVisibleSkillContent(full.content, ownerEmail))
+        ) {
+          return null;
+        }
+        const name =
+          parseSkillFrontmatter(full.content).name ||
+          getSkillNameFromPath(chosen.path);
+        return { name, content: full.content };
+      };
+      return await readSkillReference(ref.path, choices, readSkill);
     } catch {
       return null;
     }

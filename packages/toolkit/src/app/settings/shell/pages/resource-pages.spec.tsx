@@ -477,6 +477,51 @@ describe("Skills page", () => {
     }
   });
 
+  it("says a Required skill replaces a same-named one of the person's own at another path", async () => {
+    skillChoices.value = {
+      choices: {
+        switches: {},
+        marks: { "workspace:skills/release-notes/SKILL.md": "required" },
+      },
+    };
+    const originalPersonal = trees.personal;
+    trees.personal = [
+      ...originalPersonal,
+      leaf("skills/my-release-notes/SKILL.md", "me@example.test", {
+        kind: "skill",
+        skillMeta: { name: "release-notes" } as never,
+      }),
+      leaf("skills/brand-voice/SKILL.md", "me@example.test", {
+        kind: "skill",
+        skillMeta: { name: "brand-voice" } as never,
+      }),
+    ];
+    try {
+      await renderPage(SkillsSettingsPage);
+      const notes = group("personal").textContent?.split(
+        "Not used: Acme requires everyone to use the shared one",
+      );
+      // Only the same-named skill, not brand-voice.
+      expect(notes).toHaveLength(2);
+    } finally {
+      trees.personal = originalPersonal;
+    }
+  });
+
+  it("hides switches until the choices load, and says when they can't", async () => {
+    skillChoices.value = { isLoaded: false };
+    await renderPage(SkillsSettingsPage);
+    expect(group("from-dispatch").querySelector('[role="switch"]')).toBeNull();
+    expect(container.textContent).not.toContain("Couldn't load which skills");
+
+    skillChoices.value = { isLoaded: false, isError: true };
+    await renderPage(SkillsSettingsPage);
+    expect(group("from-dispatch").querySelector('[role="switch"]')).toBeNull();
+    expect(container.textContent).toContain(
+      "Couldn't load which skills are on for you, so the switches are hidden. Reload the page to try again.",
+    );
+  });
+
   it("shows an admin how people chose, never who", async () => {
     orgState.value = { orgId: "org-1", orgName: "Acme", role: "owner" };
     skillChoices.value = {
@@ -576,6 +621,7 @@ describe("Skills page", () => {
           orgName: "Acme",
           dispatchNames: new Map(),
           requiredPaths: new Set(),
+          requiredNames: new Set(),
           onRequire: () => {},
         }}
         onOpenChange={onOpenChange}

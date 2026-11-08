@@ -3024,6 +3024,8 @@ const messages: ToolkitAgentChatTranslation = {
     "يحتوي Dispatch أيضًا على {{name}}. يستخدم الوكيل هذه ويتخطى التي في Dispatch. أعد تسمية إحداهما لاستخدام الاثنتين.",
   "settingsResources.skills.dispatchClashRequired":
     "{{name}} في Dispatch مطلوبة، لذا يستخدمها الوكيل ويتخطى هذه. أعد تسمية إحداهما لاستخدام الاثنتين.",
+  "settingsResources.skills.choicesLoadFailed":
+    "تعذّر تحميل المهارات المفعّلة لك، لذا أُخفيت مفاتيح التبديل. أعد تحميل الصفحة للمحاولة مرة أخرى.",
   "settingsResources.skills.requireTitle": "جعل {{name}} مطلوبة؟",
   "settingsResources.skills.makeRequired": "جعلها مطلوبة",
   "settingsResources.skills.switchFailed": "تعذّر حفظ اختيارك لـ {{name}}.",

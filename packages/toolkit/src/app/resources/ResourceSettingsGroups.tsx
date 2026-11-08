@@ -217,9 +217,11 @@ export function ResourceSettingsGroups({
   }, [skillChoices.choices, workspaceNodes]);
   const sharedNodes = trees.shared.nodes;
   // A Required organization or Dispatch skill is used instead of anyone's
-  // own skill at the same path.
-  const requiredPaths = useMemo(() => {
+  // own skill at the same path, or with the same name, since the agent knows
+  // skills by name.
+  const required = useMemo(() => {
     const paths = new Set<string>();
+    const names = new Set<string>();
     for (const [nodes, source] of [
       [sharedNodes, "organization"],
       [workspaceNodes, "workspace"],
@@ -230,24 +232,26 @@ export function ResourceSettingsGroups({
         const { path } = node.resource;
         if (skillMarkFor(skillChoices.choices, source, path) === "required") {
           paths.add(path);
+          names.add(resourceRowLabel(node));
         }
       }
     }
-    return paths;
+    return { paths, names };
   }, [sharedNodes, skillChoices.choices, workspaceNodes]);
   const skillContext = useMemo<SkillRowContext>(
     () => ({
       state: skillChoices,
       orgName,
       dispatchNames,
-      requiredPaths,
+      requiredPaths: required.paths,
+      requiredNames: required.names,
       // The dialog says whom Required changes, so it asks for fresh counts.
       onRequire: (skill) => {
         skillChoices.refreshCounts();
         setRequiring(skill);
       },
     }),
-    [dispatchNames, orgName, requiredPaths, skillChoices],
+    [dispatchNames, orgName, required, skillChoices],
   );
 
   const sourceLabel = (source: ResourceGroupSource) =>
@@ -259,6 +263,14 @@ export function ResourceSettingsGroups({
 
   return (
     <div className="flex flex-col gap-8">
+      {hasSkills && skillChoices.isError && !skillChoices.isLoaded ? (
+        <Alert variant="destructive">
+          <IconAlertCircle />
+          <AlertDescription>
+            {t("agentChat.settingsResources.skills.choicesLoadFailed")}
+          </AlertDescription>
+        </Alert>
+      ) : null}
       {groups.map((group) => {
         const rows: GroupRow[] = group.sources.flatMap((source) =>
           getLeafResources(
