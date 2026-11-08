@@ -22,6 +22,8 @@ jobs:
       deploy_mode: production
       smoke: true
       migration_only: false
-      artifact_upload: true
-      artifact_name: incident-encryption-prod-${{ matrix.site }}-${{ github.run_id }}
+      artifact_upload: false
+      artifact_download: true
+      checkout_ref: 32037392301280b203e61f692c690fba1328c4ea
+      artifact_name: incident-encryption-prod-${{ matrix.site }}-42423863070
     secrets: inherit
