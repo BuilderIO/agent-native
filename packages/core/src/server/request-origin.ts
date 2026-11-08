@@ -164,13 +164,23 @@ export function isSameOriginPost(event: H3Event): boolean {
   return hasSameOriginBrowserEvidence(event);
 }
 
+function isDesktopAppOrigin(origin: string | undefined): boolean {
+  if (!origin || !URL.canParse(origin)) return false;
+  const parsed = new URL(origin);
+  return parsed.protocol === "tauri:" && parsed.hostname === "localhost";
+}
+
 export function isSameOriginRequest(event: H3Event): boolean {
   if (isListedUiOrigin(event)) return true;
+  const origin = getRequestHeader(event, "origin");
+  const host = getRequestHeader(event, "host");
+  // WebKit marks every request from the desktop app's tauri:// page
+  // Sec-Fetch-Site: cross-site, so this origin is admitted before fetch
+  // metadata decides. No web page can send it: browsers set Origin themselves.
+  if (host && isDesktopAppOrigin(origin)) return true;
   const fetchSite = getRequestHeader(event, "sec-fetch-site");
   if (fetchSite) return fetchSite === "same-origin" || fetchSite === "none";
 
-  const host = getRequestHeader(event, "host");
-  const origin = getRequestHeader(event, "origin");
   if (origin) {
     if (!host) return false;
     try {
@@ -185,9 +195,6 @@ export function isSameOriginRequest(event: H3Event): boolean {
         : parsed.protocol === "https:" ||
           (parsed.protocol === "http:" && isLoopbackHost(host));
       if (parsed.host === host && matchesScheme) return true;
-      if (parsed.protocol === "tauri:" && parsed.hostname === "localhost") {
-        return true;
-      }
       if (
         (parsed.protocol === "http:" || parsed.protocol === "https:") &&
         parsed.hostname === "tauri.localhost" &&
