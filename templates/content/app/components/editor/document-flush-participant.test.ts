@@ -229,4 +229,67 @@ describe("fresh document flush participant", () => {
     });
     expect(compare).not.toHaveBeenCalled();
   });
+  it("checks back for the verify phase without waiting for a sync event", async () => {
+    vi.useFakeTimers();
+    request.expiresAt = Date.now() + 20_000;
+    await participant()(request);
+    const prepared = acks()[0];
+    request = { ...request, phase: "verify", phaseToken: "after-S" };
+    await vi.advanceTimersByTimeAsync(499);
+    expect(acks()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(acks()[1]).toMatchObject({
+      status: "verified",
+      phaseToken: "after-S",
+      stabilityToken: prepared.stabilityToken,
+    });
+  });
+  it("checks back for a prepare asked again after a changed answer", async () => {
+    vi.useFakeTimers();
+    request.expiresAt = Date.now() + 20_000;
+    drain.mockImplementationOnce(async () => {
+      local.generation++;
+    });
+    await participant()(request);
+    expect(acks()[0].status).toBe("changed");
+    request = { ...request, phaseToken: "again", prepareToken: "again" };
+    await vi.advanceTimersByTimeAsync(500);
+    expect(acks()[1]).toMatchObject({
+      status: "prepared",
+      phaseToken: "again",
+    });
+  });
+  it("stops checking back once the request leaves the mailbox", async () => {
+    vi.useFakeTimers();
+    request.expiresAt = Date.now() + 20_000;
+    await participant()(request);
+    const reads = read.mock.calls.length;
+    read.mockResolvedValue(null);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(read.mock.calls.length).toBe(reads + 1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(read.mock.calls.length).toBe(reads + 1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("stops checking back at the request's deadline", async () => {
+    vi.useFakeTimers();
+    request.expiresAt = Date.now() + 1_200;
+    await participant()(request);
+    const reads = read.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(1_200);
+    expect(read.mock.calls.length).toBe(reads + 2);
+    expect(acks()).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("does not check back when its answer was never published", async () => {
+    vi.useFakeTimers();
+    request.expiresAt = Date.now() + 20_000;
+    compare.mockResolvedValue(false);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await participant()(request);
+    const reads = read.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(read.mock.calls.length).toBe(reads);
+    error.mockRestore();
+  });
 });
