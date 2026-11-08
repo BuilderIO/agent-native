@@ -75,6 +75,7 @@ import {
   shouldSubmitDocumentContent,
   subscribeToAuthoritativeQuerySuccess,
   titleMatchConfirmsSave,
+  failedSaveRestoresSavedTitle,
   unansweredTitleAfterSave,
   updateAdditionalBlockContents,
   updateDocumentLoadFailureState,
@@ -3039,6 +3040,33 @@ describe("document editor layout", () => {
     expect(
       unansweredTitleAfterSave({ ...sent, sentTitle: undefined, answer: page }),
     ).toBe("Renamed page");
+  });
+
+  it("keeps a newer typed title in the cache when an older save fails", () => {
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: "Renamed page",
+        unansweredTitle: "Renamed page",
+      }),
+    ).toBe(true);
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: "Renamed page",
+        unansweredTitle: null,
+      }),
+    ).toBe(true);
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: "Renamed",
+        unansweredTitle: "Renamed page",
+      }),
+    ).toBe(false);
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: undefined,
+        unansweredTitle: null,
+      }),
+    ).toBe(false);
   });
 
   it("keeps prose titles on the reading column", () => {

@@ -1327,6 +1327,18 @@ export function unansweredTitleAfterSave(args: {
   return null;
 }
 
+// A failed save puts the last saved title back into the cached page, unless a
+// newer typed title is waiting for its own save, whose answer settles it.
+export function failedSaveRestoresSavedTitle(args: {
+  sentTitle: string | undefined;
+  unansweredTitle: string | null;
+}) {
+  return (
+    args.sentTitle !== undefined &&
+    (args.unansweredTitle === null || args.unansweredTitle === args.sentTitle)
+  );
+}
+
 export function refreshUnchangedTitleSaveWatermark(args: {
   serverTitle: string;
   serverUpdatedAt: string | null;
@@ -4473,7 +4485,12 @@ function PageEditorSessionBody({
         );
         return answer;
       } catch (error) {
-        if (updates.title !== undefined) {
+        if (
+          failedSaveRestoresSavedTitle({
+            sentTitle: updates.title,
+            unansweredTitle: unansweredTitleRef.current,
+          })
+        ) {
           patchDocumentCaches(queryClient, documentId, {
             title: lastSavedTitleRef.current.title,
           });
