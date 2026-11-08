@@ -475,6 +475,20 @@ describe("runMcpScript", () => {
     expect(calls).toEqual([{ action: "get-document", args: { id: "doc_1" } }]);
   });
 
+  it("asks the policy again at each call, so a changed entry is refused", async () => {
+    const changing = entry();
+    const { run, denials, calls } = runner({ "get-document": changing });
+    Object.assign(changing, { readOnly: false });
+    const payload = await run(`
+      try { await api.getDocument({ id: "doc_1" }); } catch (error) {
+        return error.code;
+      }
+    `);
+    expect(payload.result).toBe("mutating");
+    expect(calls).toEqual([]);
+    expect(denials.map((denial) => denial.reason)).toEqual(["mutating"]);
+  });
+
   it("refuses a direct bridge call to an action outside the catalog and records it", async () => {
     const known = {
       "get-document": entry(),

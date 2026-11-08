@@ -3624,18 +3624,22 @@ export async function createMCPServerForRequest(
     requestMcpActionApproval,
   });
 
-  // A script reaches what this caller can find directly: `visibleActions`
-  // already leaves out what the OAuth scope, discovery and the operator's
-  // deny list remove, and the service grant comes off here.
+  // A script reaches only what this caller could call directly: an action a
+  // direct call resolves (the advertised catalog, or every action with the
+  // full catalog) whose input MCP may carry, within the OAuth scope,
+  // discovery rules and operator deny list (`visibleActions`) and the
+  // service grant.
   function scriptCatalogFor(allowedActions: string[] | null) {
+    const directlyCallable = fullCatalogRequested ? actions : advertisedActions;
     return buildMcpScriptCatalog(
-      allowedActions === null
-        ? visibleActions
-        : Object.fromEntries(
-            Object.entries(visibleActions).filter(([name]) =>
-              isActionGranted(allowedActions, name),
-            ),
-          ),
+      Object.fromEntries(
+        Object.entries(visibleActions).filter(
+          ([name]) =>
+            Object.hasOwn(directlyCallable, name) &&
+            isAdvertisable(name) &&
+            isActionGranted(allowedActions, name),
+        ),
+      ),
     );
   }
 

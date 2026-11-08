@@ -62,6 +62,7 @@ function config(): MCPConfig {
         "get-document",
         {
           readOnly: true,
+          mcpTool: true,
           mcpScript: "read",
           tool: {
             description: "Read one document",
@@ -81,10 +82,29 @@ function config(): MCPConfig {
       ),
       "list-documents": action(
         "list-documents",
-        { readOnly: true, mcpScript: "read" },
+        { readOnly: true, mcpTool: true, mcpScript: "read" },
         () => [{ id: "doc_1" }, { id: "doc_2" }],
       ),
-      "plain-read": action("plain-read", { readOnly: true }),
+      "plain-read": action("plain-read", { readOnly: true, mcpTool: true }),
+      // Opted in, but a direct call on the default catalog cannot reach it.
+      "list-archived": action("list-archived", {
+        readOnly: true,
+        mcpScript: "read",
+      }),
+      // Opted in, but takes a raw query, which MCP carries only when the
+      // action allows it.
+      "query-documents": action("query-documents", {
+        readOnly: true,
+        mcpTool: true,
+        mcpScript: "read",
+        tool: {
+          description: "Query documents",
+          parameters: {
+            type: "object",
+            properties: { sql: { type: "string" } },
+          },
+        },
+      }),
       // A hand-built entry can declare the opt-in on a write; the policy
       // reads the real classification.
       "delete-document": action("delete-document", {
@@ -169,7 +189,13 @@ describe("the MCP script catalog", () => {
     });
     expect(run.description).toContain("api.getDocument");
     expect(run.description).toContain("api.listDocuments");
-    for (const refused of ["plainRead", "deleteDocument", "runCode"]) {
+    for (const refused of [
+      "plainRead",
+      "deleteDocument",
+      "runCode",
+      "listArchived",
+      "queryDocuments",
+    ]) {
       expect(run.description).not.toContain(`api.${refused}`);
     }
   });
@@ -185,6 +211,49 @@ describe("the MCP script catalog", () => {
       (tool) => tool.name,
     );
     expect(flagOff).toEqual(usual);
+  });
+
+  it("leaves a directory catalog closed when a connection asks for scripts", async () => {
+    const directory = async (requestMeta: Record<string, unknown>) => {
+      const base = config();
+      const server = await createMCPServerForRequest(
+        {
+          ...base,
+          catalogMode: "directory",
+          widgetDomain: "https://docs.example",
+          connectorCatalog: ["get-document"],
+          actions: {
+            ...base.actions,
+            "get-document": {
+              ...base.actions["get-document"],
+              mcpAnnotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+                openWorldHint: false,
+              },
+            },
+          },
+        },
+        user,
+        {
+          origin: "http://localhost:8100",
+          transport: "http",
+          inlineMcpApps: false,
+          ...requestMeta,
+        } as any,
+      );
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "test-client", version: "1.0.0" });
+      await Promise.all([
+        client.connect(clientTransport),
+        server.connect(serverTransport),
+      ]);
+      return (await client.listTools()).tools.map((tool) => tool.name);
+    };
+    const usual = await directory({});
+    expect(usual).toContain("get-document");
+    expect(await directory({ scriptCatalog: true })).toEqual(usual);
   });
 
   it("refuses every other tool name on the script catalog", async () => {
@@ -270,6 +339,35 @@ describe("the MCP script catalog", () => {
         runId: payload.runId,
       });
     }
+  });
+
+  it("reaches only what a direct call could, with inputs MCP may carry", async () => {
+    const script = `
+      const codes = [];
+      for (const call of [
+        () => api.listArchived(),
+        () => api.queryDocuments({ sql: "select 1" }),
+      ]) {
+        try { await call(); codes.push("ran"); } catch (error) {
+          codes.push(error.code);
+        }
+      }
+      return codes;
+    `;
+    const { payload } = await runScript(await clientFor(user), script);
+    expect(payload.result).toEqual(["out-of-scope", "out-of-scope"]);
+    expect(runs).toEqual([]);
+
+    // The full catalog reaches every action, but never the raw query.
+    const full = await clientFor(user, {
+      scriptCatalog: true,
+      fullCatalog: true,
+    });
+    expect((await runScript(full, script)).payload.result).toEqual([
+      "ran",
+      "out-of-scope",
+    ]);
+    expect(runs.map((run) => run.name)).toEqual(["list-archived"]);
   });
 
   it("offers nothing to an OAuth token without mcp:read", async () => {

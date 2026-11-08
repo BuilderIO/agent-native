@@ -1025,12 +1025,17 @@ export async function runMcpScript(
             );
           }
           const action = input.catalog.byFunction.get(fn);
-          if (!action) {
-            const denial = explainMcpScriptDenial(
-              fn,
-              input.catalog,
-              input.known,
-            );
+          // The catalog holds only what the policy allows; asking again at
+          // the call keeps it in force if an entry has changed since.
+          const policy =
+            action === undefined
+              ? undefined
+              : mcpScriptCallPolicy(action, input.catalog.actions[action]);
+          if (action === undefined || policy?.allowed === false) {
+            const denial =
+              policy?.allowed === false
+                ? { action, reason: policy.reason }
+                : explainMcpScriptDenial(fn, input.catalog, input.known);
             const message = `api.${fn} ${DENIAL_MESSAGES[denial.reason]}.`;
             try {
               await input.recordDenial({
