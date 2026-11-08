@@ -66,7 +66,7 @@ function BriefTitlePrefetch({ brief }: { brief: DesignBrief }) {
   return null;
 }
 
-function BuiltFromItem({ brief }: { brief: DesignBrief }) {
+export function BuiltFromItem({ brief }: { brief: DesignBrief }) {
   const t = useT();
   const title = useBriefPageTitle(brief);
   return (
