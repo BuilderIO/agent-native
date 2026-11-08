@@ -348,6 +348,8 @@ export function useBlocksFieldSuggestions({
   /** The saved suggestions each deciding tab showed when its decision began. */
   const [decidingViews, setDecidingViews] =
     useState<ReadonlyMap<string, ResourceSuggestion[]>>(NO_VIEWS);
+  /** Stops the waits for decided tabs' text that hold their views. */
+  const waitingReadsRef = useRef(new Set<() => void>());
   const decidingRef = useRef(false);
   const [flushing, setFlushing] = useState(false);
   const [anchors, setAnchors] = useState<ReadonlyMap<string, string[]>>(
@@ -649,6 +651,16 @@ export function useBlocksFieldSuggestions({
   endSessionsRef.current = endSessions;
   // Another page, or none: what this one's tabs hold is saved as it goes.
   useEffect(() => () => endSessionsRef.current(), [documentId]);
+  // Another row of the Collection has the same tabs; none of this page's
+  // held views carry over to it.
+  useEffect(
+    () => () => {
+      for (const stop of waitingReadsRef.current) stop();
+      waitingReadsRef.current.clear();
+      setDecidingViews(NO_VIEWS);
+    },
+    [documentId],
+  );
 
   useEffect(() => {
     // Suggesting mode may have ended, but what it left unsaved still counts.
@@ -1002,6 +1014,49 @@ export function useBlocksFieldSuggestions({
     [documentId, queryClient],
   );
 
+  /**
+   * Holds what tabs show of their saved suggestions as it is now, and
+   * returns what lets them go. A later hold on a tab replaces this one.
+   */
+  const holdViews = useCallback((fieldIds: string[]) => {
+    const held = new Map(
+      fieldIds.map((fieldId) => [
+        fieldId,
+        suggestionsRef.current.filter(
+          (suggestion) => suggestionBlocksFieldId(suggestion) === fieldId,
+        ),
+      ]),
+    );
+    setDecidingViews((views) => new Map([...views, ...held]));
+    return () =>
+      setDecidingViews((views) => {
+        const kept = new Map(
+          [...views].filter(([fieldId, view]) => held.get(fieldId) !== view),
+        );
+        if (kept.size === views.size) return views;
+        return kept.size > 0 ? kept : NO_VIEWS;
+      });
+  }, []);
+
+  /** Runs `then` once the tabs' text is read again, after `since`. */
+  const afterTextRead = useCallback(
+    (since: number, then: () => void) => {
+      const cache = queryClient.getQueryCache();
+      const queryKey = ["action", "list-document-properties", { documentId }];
+      const stop = cache.subscribe(() => {
+        const read = cache
+          .findAll({ queryKey })
+          .some((query) => query.state.dataUpdatedAt >= since);
+        if (!read) return;
+        stop();
+        waitingReadsRef.current.delete(stop);
+        then();
+      });
+      waitingReadsRef.current.add(stop);
+    },
+    [documentId, queryClient],
+  );
+
   /** Accepting moves each asking thread's quote onto the tab's new text. */
   const rereadMovedQuotes = useCallback(
     (decided: ResourceSuggestion[]) => {
@@ -1030,25 +1085,19 @@ export function useBlocksFieldSuggestions({
       // The tabs stop taking typing until they restart on the decided text,
       // so nothing typed meanwhile is dropped with the old draft.
       setDecidingFields(new Set(fieldIds));
-      // They also show their suggestions as they were until then: the list
-      // drops an accepted suggestion before the text holding it is read, and
-      // the tab would show its old text without it meanwhile.
-      setDecidingViews(
-        new Map(
-          fieldIds.map((fieldId) => [
-            fieldId,
-            suggestionsRef.current.filter(
-              (suggestion) => suggestionBlocksFieldId(suggestion) === fieldId,
-            ),
-          ]),
-        ),
-      );
+      // They also show their suggestions as they were until their text is
+      // read: the list drops an accepted suggestion before the text holding
+      // it arrives, and the tab would show its old text without it meanwhile.
+      const releaseViews = holdViews(fieldIds);
+      /** When the decision was made, while its text is still unread. */
+      let unreadSince: number | null = null;
       try {
         for (const fieldId of new Set(fieldIds)) {
           const session = sessionsRef.current.get(fieldId);
           if (session && !(await save(session, { autosave: false }))) return;
         }
         await run();
+        unreadSince = Date.now();
         const decided = [...new Set(fieldIds)].flatMap(
           (fieldId) => sessionsRef.current.get(fieldId) ?? [],
         );
@@ -1056,6 +1105,7 @@ export function useBlocksFieldSuggestions({
         // save its next draft on an old base. Until the text is read, the
         // tabs keep their old drafts, which have nothing unsaved.
         if (!(await reread(decided))) return;
+        unreadSince = null;
         let restarted = false;
         for (const session of decided) {
           if (sessionsRef.current.get(session.fieldId) !== session) continue;
@@ -1072,10 +1122,14 @@ export function useBlocksFieldSuggestions({
       } finally {
         decidingRef.current = false;
         setDecidingFields(NO_FIELDS);
-        setDecidingViews(NO_VIEWS);
+        // Text that couldn't be read now, outside Suggesting mode or after
+        // it ended, is read when the page next refreshes it, as it does
+        // after a decision; the tabs keep their views until then.
+        if (unreadSince === null) releaseViews();
+        else afterTextRead(unreadSince, releaseViews);
       }
     },
-    [bump, reread, save],
+    [afterTextRead, bump, holdViews, reread, save],
   );
 
   const decide = useCallback(

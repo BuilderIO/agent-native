@@ -751,6 +751,44 @@ describe("useBlocksFieldSuggestions", () => {
     expect(highlighted()).toEqual([]);
   });
 
+  it("keeps showing a decided tab's suggestions until its text is read, when reading it fails outside Suggesting mode", async () => {
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const created = first(firstSaved());
+    await render(false, [created]);
+    /** The saved suggestions the tab highlights over its text. */
+    const highlighted = () => {
+      presentations.mockClear();
+      latest.provider.visuals("notes", "Original notes.");
+      return first(first(presentations.mock.calls)).savedSuggestions.map(
+        (suggestion) => suggestion.id,
+      );
+    };
+    vi.spyOn(queryClient, "refetchQueries").mockRejectedValueOnce(
+      new Error("Network down"),
+    );
+
+    await act(async () => {
+      await latest.decide(created, "accepted");
+    });
+    await render(false, [{ ...created, status: "accepted" }]);
+    // The decision is over, but the tab's text holding the edit isn't read.
+    expect(latest.deciding).toBe(false);
+    expect(highlighted()).toEqual(["saved-0"]);
+
+    // The page reads it when it next refreshes.
+    await act(async () => {
+      queryClient.setQueryData(
+        ["action", "list-document-properties", { documentId: "doc-1" }],
+        { properties: [] },
+      );
+    });
+    expect(highlighted()).toEqual([]);
+  });
+
   it("saves a tab's draft within five seconds of typing without a pause", async () => {
     vi.useFakeTimers();
     try {
