@@ -3102,6 +3102,12 @@ const messages: ToolkitAgentChatTranslation = {
     "As {{count}} pessoas com a própria versão recebem o texto de {{org}} no lugar. As versões delas são mantidas e voltam se você mudar isso depois.",
   "settingsResources.skills.requireOwnVersions_other":
     "As {{count}} pessoas com a própria versão recebem o texto de {{org}} no lugar. As versões delas são mantidas e voltam se você mudar isso depois.",
+  "settingsResources.skills.requireOwnVersionsDispatch_one":
+    "A {{count}} pessoa com a própria versão recebe o texto de Dispatch no lugar. A versão dela é mantida e volta se você mudar isso depois.",
+  "settingsResources.skills.requireOwnVersionsDispatch_many":
+    "As {{count}} pessoas com a própria versão recebem o texto de Dispatch no lugar. As versões delas são mantidas e voltam se você mudar isso depois.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "As {{count}} pessoas com a própria versão recebem o texto de Dispatch no lugar. As versões delas são mantidas e voltam se você mudar isso depois.",
   "settingsResources.files.empty":
     "Adicione um arquivo para dar mais contexto ao seu agente.",
   "settingsResources.files.emptyTitle": "Nenhum arquivo ainda",

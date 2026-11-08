@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ReferencedSkill } from "./skill-choices.js";
+
 const userSettings = new Map<string, Record<string, unknown>>();
 const orgSettings = new Map<string, Record<string, unknown>>();
 const mockResourceListOrganization = vi.fn();
@@ -72,7 +74,7 @@ const {
   readSkillChoiceCounts,
   readSkillChoices,
   readSkillReference,
-  requiredSkillPaths,
+  requiredSkills,
   setSkillMark,
   setSkillSwitch,
   skillMarkFor,
@@ -415,11 +417,21 @@ describe("readSkillReference", () => {
   const ORG = "skills/release-notes/SKILL.md";
   const OTHER = "skills/brand-voice/SKILL.md";
   const DISPATCH = "skills/dispatch-release-notes/SKILL.md";
-  const files: Record<string, { name: string; content: string }> = {
-    [MINE]: { name: "release-notes", content: "Mine." },
-    [ORG]: { name: "release-notes", content: "The organization's." },
-    [OTHER]: { name: "brand-voice", content: "Brand voice." },
-    [DISPATCH]: { name: "release-notes", content: "Dispatch's." },
+  const NEWER = "skills/release-notes-v2/SKILL.md";
+  const files: Record<string, ReferencedSkill> = {
+    [MINE]: { name: "release-notes", content: "Mine.", updatedAt: 5 },
+    [ORG]: {
+      name: "release-notes",
+      content: "The organization's.",
+      updatedAt: 1,
+    },
+    [OTHER]: { name: "brand-voice", content: "Brand voice.", updatedAt: 1 },
+    [DISPATCH]: { name: "release-notes", content: "Dispatch's.", updatedAt: 9 },
+    [NEWER]: {
+      name: "release-notes",
+      content: "The organization's newer one.",
+      updatedAt: 2,
+    },
   };
   const readSkill = vi.fn(async (path: string) => files[path] ?? null);
   const requiring = (...paths: string[]) => ({
@@ -441,21 +453,12 @@ describe("readSkillReference", () => {
     await expect(
       readSkillReference(MINE, NO_SKILL_CHOICES, readSkill),
     ).resolves.toBe("Mine.");
-    expect(readSkill.mock.calls.map(([path]) => path)).toEqual([
-      MINE,
-      OTHER,
-      ORG,
-      MINE,
-      OTHER,
-      MINE,
-    ]);
   });
 
   it("reads a Required skill itself, and nothing when it can't be read", async () => {
     await expect(
       readSkillReference(ORG, requiring(ORG, OTHER), readSkill),
     ).resolves.toBe("The organization's.");
-    expect(readSkill).toHaveBeenCalledTimes(1);
     await expect(
       readSkillReference("skills/gone/SKILL.md", requiring(ORG), readSkill),
     ).resolves.toBeNull();
@@ -480,16 +483,24 @@ describe("readSkillReference", () => {
     await expect(
       readSkillReference(DISPATCH, choices, readSkill),
     ).resolves.toBe("The organization's.");
-    readSkill.mockClear();
     await expect(readSkillReference(ORG, choices, readSkill)).resolves.toBe(
       "The organization's.",
     );
-    expect(readSkill).toHaveBeenCalledTimes(1);
   });
 
-  it("finds the paths of Required skills from either place, the organization's first", () => {
+  it("picks between same-named Required skills from one place as the prompt does, newest first", async () => {
+    // The older one's mark was stored first.
+    const choices = requiring(ORG, NEWER);
+    for (const path of [MINE, ORG, NEWER]) {
+      await expect(readSkillReference(path, choices, readSkill)).resolves.toBe(
+        "The organization's newer one.",
+      );
+    }
+  });
+
+  it("finds the Required skills from either place, a path marked in both as the organization's", () => {
     expect(
-      requiredSkillPaths({
+      requiredSkills({
         switches: {},
         marks: {
           [`workspace:${OTHER}`]: "required",
@@ -498,7 +509,10 @@ describe("readSkillReference", () => {
           [`organization:${MINE}`]: "optional",
         },
       }),
-    ).toEqual([ORG, OTHER]);
+    ).toEqual([
+      { source: "organization", path: ORG },
+      { source: "workspace", path: OTHER },
+    ]);
   });
 });
 

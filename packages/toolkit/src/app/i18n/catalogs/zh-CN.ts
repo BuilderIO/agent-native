@@ -2662,6 +2662,8 @@ const messages: ToolkitAgentChatTranslation = {
     "它会为尚未开启它的 {{count}} 人开启。",
   "settingsResources.skills.requireOwnVersions_other":
     "拥有自己版本的 {{count}} 人将改用 {{org}} 的文本。他们的版本会保留，之后你更改此设置时会恢复。",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "拥有自己版本的 {{count}} 人将改用 Dispatch 的文本。他们的版本会保留，之后你更改此设置时会恢复。",
   "settingsResources.files.empty": "添加文件，为智能体提供更多上下文。",
   "settingsResources.files.emptyTitle": "还没有文件",
   "settingsResources.files.orgEmpty": "还没有共享文件",

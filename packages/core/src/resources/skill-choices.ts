@@ -260,20 +260,35 @@ export function skillReferenceResource(
 }
 
 /**
- * Paths of the organization and Dispatch skills marked Required, the
- * organization's first, as the prompt orders them.
+ * The organization and Dispatch skills marked Required, each path once. A
+ * path marked in both places counts as the organization's, as in
+ * `applySkillChoices`.
  */
-export function requiredSkillPaths(choices: SkillChoices): string[] {
-  const paths = new Set<string>();
+export function requiredSkills(
+  choices: SkillChoices,
+): Array<{ source: Exclude<SkillSource, "personal">; path: string }> {
+  const required = new Map<string, Exclude<SkillSource, "personal">>();
   for (const source of ["organization", "workspace"] as const) {
     const prefix = skillChoiceKey(source, "");
     for (const [key, mark] of Object.entries(choices.marks)) {
-      if (mark === "required" && key.startsWith(prefix)) {
-        paths.add(key.slice(prefix.length));
+      const path = key.slice(prefix.length);
+      if (
+        mark === "required" &&
+        key.startsWith(prefix) &&
+        !required.has(path)
+      ) {
+        required.set(path, source);
       }
     }
   }
-  return [...paths];
+  return [...required].map(([path, source]) => ({ source, path }));
+}
+
+/** A skill file as a reference reads it. */
+export interface ReferencedSkill {
+  name: string;
+  content: string;
+  updatedAt: number;
 }
 
 /**
@@ -281,24 +296,33 @@ export function requiredSkillPaths(choices: SkillChoices): string[] {
  * at a path that `skillReferenceResource` picks, or null when it can't. The
  * prompt knows skills by name and keeps the first Required one with a name,
  * so a Required skill also replaces a same-named one at another path, such
- * as the person's own or a Required Dispatch skill after the organization's.
+ * as the person's own. Same-named Required skills go in the prompt's order
+ * (`sortResourceSkills`): the organization's before Dispatch's, then the
+ * most recently changed, then by path.
  */
 export async function readSkillReference(
   path: string,
   choices: SkillChoices,
-  readSkill: (
-    path: string,
-  ) => Promise<{ name: string; content: string } | null>,
+  readSkill: (path: string) => Promise<ReferencedSkill | null>,
 ): Promise<string | null> {
   const skill = await readSkill(path);
   if (!skill) return null;
-  const required = requiredSkillPaths(choices);
-  const at = required.indexOf(path);
-  // Only a Required skill the prompt reaches before this one can replace it.
-  const others = await Promise.all(
-    (at === -1 ? required : required.slice(0, at)).map(readSkill),
+  const read = await Promise.all(
+    requiredSkills(choices).map(async (required) => {
+      const found =
+        required.path === path ? skill : await readSkill(required.path);
+      return found?.name === skill.name ? { ...required, ...found } : null;
+    }),
   );
-  const replacement = others.find((other) => other?.name === skill.name);
+  const replacement = read
+    .filter((other) => other !== null)
+    .sort(
+      (a, b) =>
+        Number(a.source === "workspace") - Number(b.source === "workspace") ||
+        b.updatedAt - a.updatedAt ||
+        a.path.localeCompare(b.path),
+    )
+    .at(0);
   return (replacement ?? skill).content;
 }
 

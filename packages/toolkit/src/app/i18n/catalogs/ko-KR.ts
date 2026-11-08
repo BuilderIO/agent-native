@@ -2877,6 +2877,8 @@ const messages: ToolkitAgentChatTranslation = {
     "이 스킬을 켜지 않은 {{count}}명에게 켜집니다.",
   "settingsResources.skills.requireOwnVersions_other":
     "자신의 버전이 있는 {{count}}명은 대신 {{org}}의 텍스트를 받습니다. 각자의 버전은 보관되며, 나중에 이 설정을 바꾸면 다시 돌아옵니다.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "자신의 버전이 있는 {{count}}명은 대신 Dispatch의 텍스트를 받습니다. 각자의 버전은 보관되며, 나중에 이 설정을 바꾸면 다시 돌아옵니다.",
   "settingsResources.files.empty":
     "파일을 추가해 에이전트에게 더 많은 컨텍스트를 제공하세요.",
   "settingsResources.files.emptyTitle": "아직 파일이 없습니다",

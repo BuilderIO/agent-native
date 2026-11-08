@@ -3078,6 +3078,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Die {{count}} Person mit eigener Version bekommt stattdessen den Text von {{org}}. Ihre Version bleibt erhalten und kommt zurück, wenn du das später änderst.",
   "settingsResources.skills.requireOwnVersions_other":
     "Die {{count}} Personen mit eigener Version bekommen stattdessen den Text von {{org}}. Ihre Versionen bleiben erhalten und kommen zurück, wenn du das später änderst.",
+  "settingsResources.skills.requireOwnVersionsDispatch_one":
+    "Die {{count}} Person mit eigener Version bekommt stattdessen den Text von Dispatch. Ihre Version bleibt erhalten und kommt zurück, wenn du das später änderst.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "Die {{count}} Personen mit eigener Version bekommen stattdessen den Text von Dispatch. Ihre Versionen bleiben erhalten und kommen zurück, wenn du das später änderst.",
   "settingsResources.files.empty":
     "Füge eine Datei hinzu, um deinem Agenten mehr Kontext zu geben.",
   "settingsResources.files.emptyTitle": "Noch keine Dateien",

@@ -4148,7 +4148,7 @@ export async function resolveSkillReferenceContent(
         const name =
           parseSkillFrontmatter(full.content).name ||
           getSkillNameFromPath(chosen.path);
-        return { name, content: full.content };
+        return { name, content: full.content, updatedAt: chosen.updatedAt };
       };
       return await readSkillReference(ref.path, choices, readSkill);
     } catch {

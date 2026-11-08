@@ -382,12 +382,16 @@ export function RequireSkillDialog({
         }),
       );
     }
-    if (skill.source === "organization" && count && count.ownVersions > 0) {
+    if (count && count.ownVersions > 0) {
       sentences.push(
-        t("agentChat.settingsResources.skills.requireOwnVersions", {
-          count: count.ownVersions,
-          org: orgName ?? "",
-        }),
+        skill.source === "organization"
+          ? t("agentChat.settingsResources.skills.requireOwnVersions", {
+              count: count.ownVersions,
+              org: orgName ?? "",
+            })
+          : t("agentChat.settingsResources.skills.requireOwnVersionsDispatch", {
+              count: count.ownVersions,
+            }),
       );
     }
     if (sentences.length === 0) {

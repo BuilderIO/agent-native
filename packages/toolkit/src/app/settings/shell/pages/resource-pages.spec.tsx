@@ -722,6 +722,55 @@ describe("Skills page", () => {
     },
   );
 
+  it("says how many people's own versions a Required Dispatch skill replaces", async () => {
+    const { RequireSkillDialog } =
+      await import("../../../resources/SkillChoiceControls.js");
+    const state = {
+      choices: { switches: {}, marks: {} },
+      canMark: true,
+      isLoaded: true,
+      isError: false,
+      counts: {
+        members: 5,
+        counts: {
+          "workspace:skills/brand-voice/SKILL.md": {
+            off: 0,
+            on: 0,
+            ownVersions: 2,
+          },
+        },
+      },
+      refreshCounts: () => {},
+      countsCheck: "done" as const,
+      setSwitch: skillChoices.setSwitch,
+      setMark: skillChoices.setMark,
+    };
+    await renderPage(() => (
+      <RequireSkillDialog
+        skill={{
+          source: "workspace",
+          path: "skills/brand-voice/SKILL.md",
+          name: "brand-voice",
+        }}
+        context={{
+          state,
+          orgName: "Acme",
+          dispatchNames: new Map(),
+          requiredPaths: new Set(),
+          requiredNames: new Set(),
+          onRequire: () => {},
+        }}
+        onOpenChange={() => {}}
+      />
+    ));
+    const dialog = document.body.querySelector<HTMLElement>(
+      '[role="alertdialog"]',
+    );
+    expect(dialog?.textContent).toContain(
+      "The 2 people with their own version get Dispatch's text instead.",
+    );
+  });
+
   it("offers Add skill in the empty personal group", async () => {
     await renderPage(SkillsSettingsPage);
     const personal = group("personal");

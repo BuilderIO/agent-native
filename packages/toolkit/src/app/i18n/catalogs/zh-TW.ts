@@ -2675,6 +2675,8 @@ const messages: ToolkitAgentChatTranslation = {
     "它會為尚未開啟它的 {{count}} 人開啟。",
   "settingsResources.skills.requireOwnVersions_other":
     "擁有自己版本的 {{count}} 人將改用 {{org}} 的文字。他們的版本會保留，之後您變更此設定時會恢復。",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "擁有自己版本的 {{count}} 人將改用 Dispatch 的文字。他們的版本會保留，之後您變更此設定時會恢復。",
   "settingsResources.files.empty": "新增檔案，為代理程式提供更多脈絡。",
   "settingsResources.files.emptyTitle": "還沒有檔案",
   "settingsResources.files.orgEmpty": "還沒有共用檔案",

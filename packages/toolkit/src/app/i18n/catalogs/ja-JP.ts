@@ -2924,6 +2924,8 @@ const messages: ToolkitAgentChatTranslation = {
     "オンにしていなかった {{count}} 人に対してオンになります。",
   "settingsResources.skills.requireOwnVersions_other":
     "自分のバージョンを持つ {{count}} 人には、代わりに {{org}} のテキストが使われます。各自のバージョンは保持され、後で変更すれば元に戻ります。",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "自分のバージョンを持つ {{count}} 人には、代わりに Dispatch のテキストが使われます。各自のバージョンは保持され、後で変更すれば元に戻ります。",
   "settingsResources.files.empty":
     "ファイルを追加して、エージェントにより多くのコンテキストを与えましょう。",
   "settingsResources.files.emptyTitle": "ファイルはまだありません",

@@ -2875,6 +2875,10 @@ const messages: ToolkitAgentChatTranslation = {
     "अपने वर्शन वाले {{count}} व्यक्ति को इसके बजाय {{org}} का टेक्स्ट मिलेगा। उनका वर्शन रखा जाएगा, और अगर आप बाद में इसे बदलते हैं तो वापस आ जाएगा।",
   "settingsResources.skills.requireOwnVersions_other":
     "अपने वर्शन वाले {{count}} लोगों को इसके बजाय {{org}} का टेक्स्ट मिलेगा। उनके वर्शन रखे जाएँगे, और अगर आप बाद में इसे बदलते हैं तो वापस आ जाएँगे।",
+  "settingsResources.skills.requireOwnVersionsDispatch_one":
+    "अपने वर्शन वाले {{count}} व्यक्ति को इसके बजाय Dispatch का टेक्स्ट मिलेगा। उनका वर्शन रखा जाएगा, और अगर आप बाद में इसे बदलते हैं तो वापस आ जाएगा।",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "अपने वर्शन वाले {{count}} लोगों को इसके बजाय Dispatch का टेक्स्ट मिलेगा। उनके वर्शन रखे जाएँगे, और अगर आप बाद में इसे बदलते हैं तो वापस आ जाएँगे।",
   "settingsResources.files.empty": "अपने एजेंट को अधिक संदर्भ देने के लिए एक फ़ाइल जोड़ें।",
   "settingsResources.files.emptyTitle": "अभी तक कोई फ़ाइल नहीं",
   "settingsResources.files.orgEmpty": "अभी कोई साझा फ़ाइल नहीं है",

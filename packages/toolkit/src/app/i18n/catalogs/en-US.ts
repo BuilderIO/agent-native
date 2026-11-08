@@ -2941,6 +2941,10 @@ const messages = {
     "The {{count}} person with their own version gets {{org}}'s text instead. Their version is kept, and comes back if you change this later.",
   "settingsResources.skills.requireOwnVersions_other":
     "The {{count}} people with their own version get {{org}}'s text instead. Their versions are kept, and come back if you change this later.",
+  "settingsResources.skills.requireOwnVersionsDispatch_one":
+    "The {{count}} person with their own version gets Dispatch's text instead. Their version is kept, and comes back if you change this later.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "The {{count}} people with their own version get Dispatch's text instead. Their versions are kept, and come back if you change this later.",
   "settingsResources.files.empty":
     "Add a file to give your agent more context.",
   "settingsResources.files.emptyTitle": "No files yet",

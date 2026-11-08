@@ -3093,6 +3093,18 @@ const messages: ToolkitAgentChatTranslation = {
     "سيحصل {{count}} شخصًا لديهم نسخهم الخاصة على نص {{org}} بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
   "settingsResources.skills.requireOwnVersions_other":
     "سيحصل {{count}} شخص لديهم نسخهم الخاصة على نص {{org}} بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_zero":
+    "سيحصل {{count}} شخص لديهم نسخهم الخاصة على نص Dispatch بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_one":
+    "سيحصل {{count}} شخص لديه نسخته الخاصة على نص Dispatch بدلًا منها. تُحفظ نسخته، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_two":
+    "سيحصل {{count}} شخصان لديهما نسختهما الخاصة على نص Dispatch بدلًا منها. تُحفظ نسختاهما، وتعودان إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_few":
+    "سيحصل {{count}} أشخاص لديهم نسخهم الخاصة على نص Dispatch بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_many":
+    "سيحصل {{count}} شخصًا لديهم نسخهم الخاصة على نص Dispatch بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "سيحصل {{count}} شخص لديهم نسخهم الخاصة على نص Dispatch بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
   "settingsResources.files.empty": "أضف ملفًا لمنح وكيلك سياقًا أكثر.",
   "settingsResources.files.emptyTitle": "لا توجد ملفات بعد",
   "settingsResources.files.orgEmpty": "لا توجد ملفات مشتركة بعد",
