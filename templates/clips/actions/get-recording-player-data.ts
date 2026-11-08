@@ -333,6 +333,7 @@ export default defineAction({
       durationMs: rec.durationMs,
     });
     const segmentsUnreadable = storedSegmentsUnreadable(
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- a recording can have no transcript row; the destructured type hides that
       transcript?.segmentsJson,
     );
     // Saved lines that can't be read aren't "no speech": the panel says the

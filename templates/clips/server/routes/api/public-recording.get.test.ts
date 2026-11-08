@@ -974,7 +974,9 @@ describe("/api/public-recording route", () => {
         ]),
       );
 
-      const result = (await handler(event as any)) as {
+      const result = (await handler(
+        event as unknown as Parameters<typeof handler>[0],
+      )) as {
         transcript: Record<string, unknown>;
       };
 

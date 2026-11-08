@@ -388,7 +388,7 @@ describe("/api/public-meeting route", () => {
         ]),
       );
 
-      const result = await handler({} as any);
+      const result = await handler({} as Parameters<typeof handler>[0]);
 
       expect(result).toMatchObject({
         meeting: {
@@ -411,7 +411,7 @@ describe("/api/public-meeting route", () => {
       ]),
     );
 
-    const result = (await handler({} as any)) as {
+    const result = (await handler({} as Parameters<typeof handler>[0])) as {
       meeting: { transcript: Record<string, unknown> };
     };
 
