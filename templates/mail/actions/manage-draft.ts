@@ -167,8 +167,12 @@ async function resolveDraftAttachments(
     claimed.set(handle, entry);
   }
   for (const handle of handles) {
+    const kept = claimed.get(handle);
+    // A name given for a file already on the draft renames it.
     const attachment =
-      claimed.get(handle) ?? (await attachmentFromUpload(ownerEmail, handle));
+      kept && handle.originalName
+        ? { ...kept, originalName: handle.originalName }
+        : (kept ?? (await attachmentFromUpload(ownerEmail, handle)));
     if (!attachment)
       fail(
         `Attachment "${handle.filename}" isn't an upload Mail has for this account. Finish its create-attachment-upload PUT, then use the returned attachment object.`,
@@ -186,7 +190,14 @@ function hasSameAttachments(
   const attachments = Array.isArray(current) ? current : [];
   return (
     attachments.length === handles.length &&
-    handles.every((handle, index) => handleNames(handle, attachments[index]))
+    handles.every((handle, index) => {
+      const attachment = attachments[index];
+      return (
+        handleNames(handle, attachment) &&
+        (!handle.originalName ||
+          attachment?.originalName === handle.originalName)
+      );
+    })
   );
 }
 

@@ -333,6 +333,29 @@ describe("manage-draft attachments", () => {
     ).toEqual([second, first]);
   });
 
+  it("renames a file already on the draft when a new name is passed", async () => {
+    appState.set("compose-rename", {
+      id: "rename",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "",
+      mode: "compose",
+      attachments: [uploaded],
+    });
+
+    const result = await action.run({
+      action: "update",
+      id: "rename",
+      expectedRevision: revisionOf("rename"),
+      attachments: [{ ...handle, originalName: "october-invoice.pdf" }],
+    });
+
+    expect(
+      (result as { draft: { attachments: unknown } }).draft.attachments,
+    ).toEqual([{ ...uploaded, originalName: "october-invoice.pdf" }]);
+    expect(mocks.attachmentFromUpload).not.toHaveBeenCalled();
+  });
+
   it("removes every file when an update passes an empty list", async () => {
     appState.set("compose-clear", {
       id: "clear",
