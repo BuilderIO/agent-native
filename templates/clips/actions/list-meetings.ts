@@ -19,6 +19,7 @@ import {
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
 import {
   isDeclinedCalendarEvent,
   isSoloCalendarEvent,
@@ -35,7 +36,11 @@ import {
 } from "../server/lib/calendar-event-meetings.js";
 import { listEvents } from "../server/lib/google-calendar-client.js";
 import { booleanParam } from "./lib/cli-params.js";
-import { meetingRowHasContent } from "./lib/meeting-content.js";
+import {
+  AGENT_MEETINGS_PER_CALL,
+  meetingRowForAgent,
+  meetingRowHasContent,
+} from "./lib/meeting-content.js";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_PERSISTED_ROWS_PER_QUERY = 1000;
@@ -54,7 +59,7 @@ function meetingHasContentFilter() {
 
 export default defineAction({
   description:
-    "List meetings (Granola-style) the current user has access to. Connected calendars are read live; use view='upcoming' / 'past' / 'all' / 'trash' to filter by lifecycle. For meetings that already have notes or a transcript, use view='past' with hasContent=true and a small limit, since rows carry full notes and summaries, then get-meeting for the transcript.",
+    "List meetings (Granola-style) the current user has access to. Connected calendars are read live; use view='upcoming' / 'past' / 'all' / 'trash' to filter by lifecycle. For meetings that already have notes or a transcript, use view='past' with hasContent=true. Agent calls get at most 25 meetings per call, paged with offset and hasMore, each with summaryPreview and hasNotes in place of its whole summary, notes and bullets; get-meeting has those and the transcript.",
   mcpApp: { compactCatalog: true },
   schema: z.object({
     view: z
@@ -117,13 +122,17 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const currentUserEmail = getRequestUserEmail();
     const now = new Date();
     const nowIso = now.toISOString();
+    const forAgent = isAgentRecordingCaller(ctx?.caller);
+    const limit = forAgent
+      ? Math.min(args.limit, AGENT_MEETINGS_PER_CALL)
+      : args.limit;
 
-    const windowCount = args.offset + args.limit;
+    const windowCount = args.offset + limit;
     const upcomingWindowMaxIso = args.upcomingWithinMin
       ? new Date(
           now.getTime() + args.upcomingWithinMin * 60 * 1000,
@@ -219,10 +228,10 @@ export default defineAction({
         .from(schema.meetings)
         .where(and(...whereClauses))
         .orderBy(...orderBy)
-        .limit(Math.min(MAX_PERSISTED_ROWS_PER_QUERY, args.limit + 1))
+        .limit(Math.min(MAX_PERSISTED_ROWS_PER_QUERY, limit + 1))
         .offset(args.offset);
-      persistedHasMore = page.length > args.limit;
-      rows = page.slice(0, args.limit);
+      persistedHasMore = page.length > limit;
+      rows = page.slice(0, limit);
     }
 
     const persistedIds = rows.map((m) => m.id);
@@ -442,7 +451,7 @@ export default defineAction({
 
     if (!willMergeLiveCalendar) {
       return {
-        meetings: combined,
+        meetings: forAgent ? combined.map(meetingRowForAgent) : combined,
         calendarErrors,
         hasMore: persistedHasMore,
       };
@@ -456,9 +465,13 @@ export default defineAction({
       return args.view === "past" ? safeB - safeA : safeA - safeB;
     });
 
-    const meetings = combined.slice(args.offset, args.offset + args.limit);
-    const hasMore = combined.length > args.offset + args.limit;
+    const meetings = combined.slice(args.offset, args.offset + limit);
+    const hasMore = combined.length > args.offset + limit;
 
-    return { meetings, calendarErrors, hasMore };
+    return {
+      meetings: forAgent ? meetings.map(meetingRowForAgent) : meetings,
+      calendarErrors,
+      hasMore,
+    };
   },
 });

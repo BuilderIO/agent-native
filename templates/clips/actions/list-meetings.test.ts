@@ -129,6 +129,7 @@ import {
   recordCalendarFetchError,
   resolveCalendarAccessToken,
 } from "../server/lib/calendar-event-meetings";
+import { AGENT_MEETINGS_PER_CALL } from "./lib/meeting-content";
 import action from "./list-meetings";
 
 const meeting = (id: string) => ({
@@ -236,5 +237,77 @@ describe("list-meetings history", () => {
 
     expect(state.limit).toBe(51);
     expect(state.offset).toBe(4500);
+  });
+
+  describe("for agents", () => {
+    const history = (includeLiveCalendar: boolean) =>
+      action.schema.parse({
+        view: "past",
+        hasContent: true,
+        includeLiveCalendar,
+        limit: 100,
+      });
+
+    beforeEach(() => {
+      state.rows = Array.from({ length: 30 }, (_, index) => ({
+        ...meeting(`meeting-${index}`),
+        summaryMd: "# Summary\n\nWe agreed to ship.",
+        bulletsJson: '[{"text":"Ship"}]',
+        actionItemsJson: '[{"text":"Ship it"}]',
+      }));
+    });
+
+    it.each([
+      ["mcp", false],
+      ["a2a", false],
+      ["tool", false],
+      ["mcp", true],
+    ])(
+      "gives a %s caller one page of short rows (live calendar: %s)",
+      async (caller, includeLiveCalendar) => {
+        const result = await action.run(history(includeLiveCalendar), {
+          caller,
+        } as never);
+
+        expect(result.meetings).toHaveLength(AGENT_MEETINGS_PER_CALL);
+        expect(result.hasMore).toBe(true);
+        expect(result.meetings[0]).toMatchObject({
+          summaryPreview: "# Summary We agreed to ship.",
+          hasNotes: true,
+          actionItemsJson: '[{"text":"Ship it"}]',
+        });
+        for (const field of ["summaryMd", "userNotesMd", "bulletsJson"]) {
+          expect(result.meetings[0]).not.toHaveProperty(field);
+        }
+      },
+    );
+
+    it("reads the next page from the offset it was given", async () => {
+      await action.run(
+        action.schema.parse({
+          view: "past",
+          includeLiveCalendar: false,
+          limit: 100,
+          offset: 25,
+        }),
+        { caller: "mcp" } as never,
+      );
+
+      expect(state.limit).toBe(AGENT_MEETINGS_PER_CALL + 1);
+      expect(state.offset).toBe(25);
+    });
+
+    it("leaves the app's own lists whole", async () => {
+      const result = await action.run(history(false), {
+        caller: "frontend",
+      } as never);
+
+      expect(result.meetings).toHaveLength(30);
+      expect(result.meetings[0]).toMatchObject({
+        summaryMd: "# Summary\n\nWe agreed to ship.",
+        userNotesMd: "notes",
+        bulletsJson: '[{"text":"Ship"}]',
+      });
+    });
   });
 });

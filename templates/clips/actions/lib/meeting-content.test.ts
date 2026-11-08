@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { meetingRowHasContent } from "./meeting-content.js";
+import { meetingRowForAgent, meetingRowHasContent } from "./meeting-content.js";
 
 const emptyCalendarHusk = {
   recordingId: null,
@@ -14,6 +14,28 @@ const emptyCalendarHusk = {
   bulletsJson: "[]",
   actionItemsJson: "[]",
 };
+
+describe("meetingRowForAgent", () => {
+  it("cuts a long summary down to a one-line preview", () => {
+    const row = meetingRowForAgent({
+      ...emptyCalendarHusk,
+      summaryMd: `# Summary\n\n${"a".repeat(500)}`,
+    });
+
+    expect(row.summaryPreview).toHaveLength(100);
+    expect(row.summaryPreview).toMatch(/^# Summary a+$/);
+  });
+
+  it("says when there's no summary or notes", () => {
+    expect(
+      meetingRowForAgent({ ...emptyCalendarHusk, userNotesMd: " \n" }),
+    ).toMatchObject({ summaryPreview: null, hasNotes: false });
+    expect(meetingRowForAgent({})).toMatchObject({
+      summaryPreview: null,
+      hasNotes: false,
+    });
+  });
+});
 
 describe("meetingRowHasContent", () => {
   it("hides a bare calendar row nobody has touched", () => {
