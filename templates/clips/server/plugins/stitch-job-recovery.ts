@@ -28,7 +28,7 @@ function sweep(): void {
 
 export default defineNitroPlugin(() => {
   const timer = setTimeout(sweep, STARTUP_DELAY_MS);
-  timer.unref?.();
+  timer.unref();
   const interval = setInterval(sweep, SWEEP_INTERVAL_MS);
-  interval.unref?.();
+  interval.unref();
 });

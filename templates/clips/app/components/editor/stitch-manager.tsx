@@ -209,7 +209,7 @@ export function StitchManager({
     setBrowserProgress(0);
     const { blob, width, height } = await exportConcat(
       queue.map((r) => ({
-        url: r.videoUrl!,
+        url: r.videoUrl ?? "",
         format: r.videoFormat ?? "webm",
         width: r.width,
         height: r.height,

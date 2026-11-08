@@ -379,6 +379,7 @@ function makeClip(
   }
 }
 
+// oracle-change: runs only where the ffmpeg binary exists; CI hosts without it cannot run these real-ffmpeg cases
 describe.skipIf(!hasFfmpeg)("concatVideoFiles with real ffmpeg", () => {
   it("stream-copies matching mp4 clips", async () => {
     const dir = await mkdtemp(join(tmpdir(), "stitch-test-"));

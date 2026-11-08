@@ -240,7 +240,7 @@ export function planStitch(probes: readonly StitchSourceProbe[]): StitchPlan {
   if (!probes.every((p) => isMp4Container(p.formatName))) {
     return reencode("not every source is an mp4 file");
   }
-  const first = videos[0];
+  const first = videos.at(0);
   if (!first) {
     return reencode("no video sources");
   }
@@ -263,7 +263,7 @@ export function planStitch(probes: readonly StitchSourceProbe[]): StitchPlan {
   }
   if (audio === "all") {
     const audios = probes.flatMap((p) => (p.audio ? [p.audio] : []));
-    const a0 = audios[0];
+    const a0 = audios.at(0);
     if (!a0) {
       return reencode("no audio sources");
     }
