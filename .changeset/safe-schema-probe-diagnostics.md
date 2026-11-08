@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Preserve safe database diagnostic codes for unreadable table probes without exposing raw error details.
+Log a safe database diagnostic code when a schema table probe is unreadable, and stop logging raw introspection error text.

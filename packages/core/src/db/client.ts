@@ -1225,23 +1225,6 @@ const CONNECTION_ERROR_CODES = new Set([
 
 export function isConnectionError(err: any): boolean {
   if (!err) return false;
-  let current: unknown = err;
-  const seen = new Set<unknown>();
-  while (current && !seen.has(current)) {
-    // An unfinished scan cannot rule out a nested schema-probe failure.
-    if (seen.size === 64) return false;
-    seen.add(current);
-    const link = current as { schemaProbeFailure?: unknown; cause?: unknown };
-    try {
-      if (link.schemaProbeFailure === true) return false;
-      // coercion-ok: an unreadable marker must not hide a readable cause.
-    } catch {}
-    try {
-      current = link.cause;
-    } catch {
-      break;
-    }
-  }
   const code = err.code || err.cause?.code;
   if (code && CONNECTION_ERROR_CODES.has(code)) return true;
   const name = err.name || err.cause?.name || "";

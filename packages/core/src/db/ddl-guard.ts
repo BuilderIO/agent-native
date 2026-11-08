@@ -229,14 +229,6 @@ export async function pgTableExists(
   table: string,
   injectedClient?: DbExec,
 ): Promise<boolean | undefined> {
-  return probeTableExists(table, injectedClient);
-}
-
-async function probeTableExists(
-  table: string,
-  injectedClient?: DbExec,
-  onUnreadable?: (code: string | undefined) => void,
-): Promise<boolean | undefined> {
   if (!PLAIN_IDENTIFIER.test(table)) {
     return false;
   }
@@ -252,7 +244,9 @@ async function probeTableExists(
     });
     return rows.length > 0;
   } catch (err) {
-    onUnreadable?.(probeDiagnosticCode(err));
+    console.warn(
+      `[db] schema probe unreadable for table "${table}" (code: ${probeDiagnosticCode(err) ?? "unknown"})`,
+    );
     // coercion-ok: undefined is a typed unreadable state; callers throw rather
     // than issuing DDL against an unverified schema.
     // A failed probe is not evidence that the table is absent. Let the caller
@@ -347,11 +341,8 @@ export async function ensureSchemaObject(options: {
   const initiallyExists = await probe();
   if (initiallyExists === true) return false;
   if (initiallyExists === undefined) {
-    throw Object.assign(
-      new Error(
-        `ensureSchemaObject: could not probe required schema "${label}"; refusing to issue DDL`,
-      ),
-      { schemaProbeFailure: true },
+    throw new Error(
+      `ensureSchemaObject: could not probe required schema "${label}"; refusing to issue DDL`,
     );
   }
   const ran = await withLegacyServerlessSchemaDdl(() =>
@@ -362,11 +353,8 @@ export async function ensureSchemaObject(options: {
   const existsAfterTimeout = await probe();
   if (existsAfterTimeout === true) return true;
   if (existsAfterTimeout === undefined) {
-    throw Object.assign(
-      new Error(
-        `ensureSchemaObject: could not re-probe required schema "${label}" after a lock-timed-out DDL`,
-      ),
-      { schemaProbeFailure: true },
+    throw new Error(
+      `ensureSchemaObject: could not re-probe required schema "${label}" after a lock-timed-out DDL`,
     );
   }
   throw new Error(
@@ -383,31 +371,13 @@ export async function ensureTableExists(
     injectedClient?: DbExec;
   } = {},
 ): Promise<boolean> {
-  let probeErrorCode: string | undefined;
-  try {
-    return await ensureSchemaObject({
-      probe: () => {
-        probeErrorCode = undefined;
-        return probeTableExists(table, options.injectedClient, (code) => {
-          probeErrorCode = code;
-        });
-      },
-      ddl: createSql,
-      label: `table ${table}`,
-      ...(options.lockTimeout !== undefined && {
-        lockTimeout: options.lockTimeout,
-      }),
-      ...(options.injectedClient !== undefined && {
-        injectedClient: options.injectedClient,
-      }),
-    });
-  } catch (err) {
-    if (probeErrorCode && err instanceof Error) {
-      err.message += ` (database probe code: ${probeErrorCode})`;
-      Object.assign(err, { errorCode: probeErrorCode });
-    }
-    throw err;
-  }
+  return ensureSchemaObject({
+    probe: () => pgTableExists(table, options.injectedClient),
+    ddl: createSql,
+    label: `table ${table}`,
+    lockTimeout: options.lockTimeout,
+    injectedClient: options.injectedClient,
+  });
 }
 
 export async function ensureColumnExists(
