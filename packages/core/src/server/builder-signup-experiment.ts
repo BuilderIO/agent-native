@@ -32,6 +32,12 @@ export const BUILDER_SIGNUP_EXPERIMENT = "design_builder_signup_v1";
 export const BUILDER_SIGNUP_POLICY = "builder-signup-2026-11-06";
 export const BUILDER_SIGNUP_COOKIE = "an_builder_signup";
 const TTL = 7 * 24 * 60 * 60;
+const existingSignupStatusSchema = z.enum([
+  "control",
+  "started",
+  "connected",
+  "fallback",
+]);
 const assignmentSchema = z.object({
   id: z.string().regex(/^[a-f0-9]{32}$/),
   variant: z.enum(["control", "automatic"]),
@@ -406,9 +412,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         `${BUILDER_SIGNUP_EXPERIMENT}:${session.userId}`,
       );
       if (existing) {
-        const status = z
-          .enum(["started", "connected", "fallback"])
-          .parse(existing.status);
+        const status = existingSignupStatusSchema.parse(existing.status);
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return {
           status: "disabled" as const,
@@ -541,9 +545,11 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     const key = `${BUILDER_SIGNUP_EXPERIMENT}:${session.userId}`;
     const existing = await getSetting(key);
     if (existing) {
-      const status = z
-        .enum(["started", "connected", "fallback"])
-        .parse(existing.status);
+      const status = existingSignupStatusSchema.parse(existing.status);
+      if (status === "control") {
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+        return { status: "disabled" as const, code: "control" };
+      }
       if (status !== "started")
         return terminal(
           status,

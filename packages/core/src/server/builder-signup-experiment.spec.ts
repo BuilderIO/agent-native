@@ -130,6 +130,26 @@ beforeEach(() => {
 });
 
 describe("pre-signup Builder experiment", () => {
+  it("keeps a recorded control assignment authoritative if automatic consent also exists", async () => {
+    session = signedSession();
+    mocks.settings.set("design_builder_signup_v1:new-user", {
+      status: "control",
+      variant: "control",
+    });
+    expect(await (await request({ operation: "status" })).json()).toEqual({
+      status: "disabled",
+      code: "already_completed",
+    });
+    expect(await (await request({ operation: "activate" })).json()).toEqual({
+      status: "disabled",
+      code: "control",
+    });
+    expect(activate).not.toHaveBeenCalled();
+    expect(
+      mocks.settings.get("design_builder_signup_v1:new-user")?.status,
+    ).toBe("control");
+  });
+
   it("requires the original acceptance browser for consent recorded during unverified password signup", async () => {
     mocks.settings.clear();
     const cookie = encodeBuilderSignupAssignment({
