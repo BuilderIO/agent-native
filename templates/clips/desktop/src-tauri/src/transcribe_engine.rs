@@ -413,15 +413,18 @@ impl<M: Clone> ModelSlot<M> {
         })
     }
 
-    /// Unloads the model at `path` if it is the resident one. Sessions that
-    /// still hold it keep it alive until they finish.
+    /// Unloads the model at `path` if it is the resident one and no one-shot
+    /// runs hold it. Emptying the slot under a meeting's runs would let the
+    /// other model load beside them, so their copy stays until a load finds
+    /// it free. A live stream that still holds it keeps it alive until it
+    /// finishes.
     pub(crate) fn release(&self, path: &Path) -> Result<bool, String> {
         let _loading = lock(&self.loading);
         let released = {
             let mut resident = lock(&self.resident);
             let matches = resident
                 .as_ref()
-                .is_some_and(|resident| resident.path == path);
+                .is_some_and(|resident| resident.path == path && !resident.copy.held_by_runs());
             if matches {
                 *resident = None;
             }
@@ -983,6 +986,25 @@ pub(crate) mod tests {
 
         let (_, loaded) = slot.lease_for_run(parakeet).unwrap();
         assert!(loaded, "the other model loads once the runs end");
+    }
+
+    /// The user picks another engine while a meeting's runs hold Parakeet.
+    #[test]
+    fn releasing_a_model_runs_hold_leaves_it_resident() {
+        let whisper = Path::new("whisper-base.gguf");
+        let parakeet = Path::new("parakeet.gguf");
+        let slot = ModelSlot::new(fake_load);
+        let (meeting, _) = slot.lease_for_run(parakeet).unwrap();
+
+        assert!(!slot.release(parakeet).unwrap());
+        assert_eq!(
+            slot.lease_for_run(whisper).err().as_deref(),
+            Some(OTHER_MODEL_IN_USE),
+            "the other model doesn't load beside the meeting's"
+        );
+        drop(meeting);
+
+        assert!(slot.release(parakeet).unwrap(), "unloads once the runs end");
     }
 
     #[test]
