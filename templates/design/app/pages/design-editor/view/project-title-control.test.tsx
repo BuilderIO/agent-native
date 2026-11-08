@@ -206,14 +206,13 @@ describe("Design title for someone who can only view the design", () => {
       );
     });
 
-    const items = document.body.querySelectorAll('[role="menuitem"]');
-    expect(items).toHaveLength(1);
-    const item = items[0];
-    if (!item) throw new Error("Missing Built from item");
-    expect(item.textContent).toBe(
-      "designEditor.fileMenu.builtFrom: Spring launch brief",
+    const items = Array.from(
+      document.body.querySelectorAll('[role="menuitem"]'),
+      (item) => [item.textContent, item.getAttribute("href")],
     );
-    expect(item.getAttribute("href")).toBe(brief.url);
+    expect(items).toEqual([
+      ["designEditor.fileMenu.builtFrom: Spring launch brief", brief.url],
+    ]);
   });
 
   it("shows the plain title when the design wasn't built from a page", async () => {
