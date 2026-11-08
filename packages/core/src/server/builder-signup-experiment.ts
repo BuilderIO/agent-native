@@ -330,7 +330,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       return refuse(415, "json_required");
     const body = z
       .object({
-        operation: z.enum(["accept", "activate"]),
+        operation: z.enum(["accept", "activate", "status"]),
         assignmentId: z.string().optional(),
         attemptId: z.string().min(16).max(128).optional(),
         method: z.enum(["password", "magic-link", "google"]).optional(),
@@ -341,7 +341,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     // Consent was bound to the newly created identity during signup. Browser
     // cookies are transport hints; a callback or later visit can lose them.
     const consent =
-      body.data.operation === "activate" &&
+      body.data.operation !== "accept" &&
       session?.emailVerified &&
       session.userId
         ? await getSetting(
@@ -368,6 +368,18 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         return refuse(409, "consent_invalid");
       }
       assignment = saved.data;
+    }
+    if (body.data.operation === "status") {
+      if (!session?.emailVerified || !session.userId)
+        return refuse(401, "verified_session_required");
+      if (!consent)
+        return { status: "disabled" as const, code: "not_enrolled" };
+      const existing = await getSetting(
+        `${BUILDER_SIGNUP_EXPERIMENT}:${session.userId}`,
+      );
+      if (existing && existing.status !== "started")
+        return { status: "disabled" as const, code: "already_completed" };
+      return { status: "eligible" as const };
     }
     if (
       !assignment &&

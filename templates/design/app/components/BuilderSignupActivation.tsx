@@ -1,7 +1,11 @@
 import { track } from "@agent-native/core/client/analytics";
-import { activateBuilderSignupAssignment } from "@agent-native/core/client/auth/builder-signup";
+import {
+  activateBuilderSignupAssignment,
+  getBuilderSignupActivationStatus,
+  hasPendingBuilderSignupAssignment,
+} from "@agent-native/core/client/auth/builder-signup";
 import { useT } from "@agent-native/core/client/i18n";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,9 +19,26 @@ export function useBuilderSignupActivation(
   userId: string | undefined,
 ): boolean {
   const queryClient = useQueryClient();
+  const eligibility = useQuery({
+    queryKey: ["builder-signup-eligibility", userId],
+    queryFn: getBuilderSignupActivationStatus,
+    enabled: Boolean(userId),
+    staleTime: Infinity,
+    retry: 1,
+  });
+  useEffect(() => {
+    if (eligibility.error && userId) {
+      void track("builder_signup_experiment_client_failed", {
+        experiment_id: "design_builder_signup_v1",
+        auth_user_id: userId,
+        stage: "eligibility",
+        reason: eligibility.error.message,
+      });
+    }
+  }, [eligibility.error, userId]);
   const [settledUserId, setSettledUserId] = useState<string>();
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || eligibility.data !== "eligible") return;
     let disposed = false;
     let attempt = attempts.get(userId);
     if (!attempt) {
@@ -45,8 +66,13 @@ export function useBuilderSignupActivation(
     return () => {
       disposed = true;
     };
-  }, [queryClient, userId]);
-  return userId !== undefined && settledUserId !== userId;
+  }, [eligibility.data, queryClient, userId]);
+  return (
+    userId !== undefined &&
+    settledUserId !== userId &&
+    (eligibility.data === "eligible" ||
+      (eligibility.isPending && hasPendingBuilderSignupAssignment()))
+  );
 }
 
 // Children stay mounted in the same tree position whether or not a session or

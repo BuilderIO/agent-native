@@ -129,6 +129,31 @@ beforeEach(() => {
 });
 
 describe("pre-signup Builder experiment", () => {
+  it("checks cookie-free eligibility without reserving or provisioning and skips completed activation", async () => {
+    session = signedSession();
+    expect(await (await request({ operation: "status" })).json()).toEqual({
+      status: "eligible",
+    });
+    expect(activate).not.toHaveBeenCalled();
+    expect(mocks.settings.has("design_builder_signup_v1:new-user")).toBe(false);
+    expect(mocks.track).not.toHaveBeenCalled();
+    mocks.settings.set("design_builder_signup_v1:new-user", {
+      status: "fallback",
+      code: "account_exists",
+    });
+    expect(await (await request({ operation: "status" })).json()).toEqual({
+      status: "disabled",
+      code: "already_completed",
+    });
+    expect(activate).not.toHaveBeenCalled();
+    mocks.settings.clear();
+    expect(await (await request({ operation: "status" })).json()).toEqual({
+      status: "disabled",
+      code: "not_enrolled",
+    });
+    expect(mocks.track).not.toHaveBeenCalled();
+  });
+
   it("recovers a consented Google signup without either browser cookie and provisions only once", async () => {
     mocks.settings.clear();
     const cookie = encodeBuilderSignupAssignment({

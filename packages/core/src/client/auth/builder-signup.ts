@@ -71,6 +71,15 @@ export async function acceptBuilderSignupAssignment(
     throw new Error("Builder signup acceptance was not recorded");
 }
 
+export async function getBuilderSignupActivationStatus(): Promise<
+  "eligible" | "disabled"
+> {
+  const result = await request({ operation: "status" });
+  if (result.status === "eligible" || result.status === "disabled")
+    return result.status;
+  throw new Error("Invalid Builder signup eligibility response");
+}
+
 export async function activateBuilderSignupAssignment(): Promise<
   "connected" | "fallback" | "disabled"
 > {

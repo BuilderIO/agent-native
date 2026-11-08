@@ -6,6 +6,7 @@ import {
   acceptBuilderSignupAssignment,
   activateBuilderSignupAssignment,
   getBuilderSignupAssignment,
+  getBuilderSignupActivationStatus,
   hasPendingBuilderSignupAssignment,
 } from "./builder-signup.js";
 
@@ -24,6 +25,22 @@ afterEach(() => {
 });
 
 describe("Builder signup client contract", () => {
+  it("checks eligibility without treating a failed or unknown response as non-enrollment", async () => {
+    const fetch = vi.fn(async () => response({ status: "eligible" }));
+    vi.stubGlobal("fetch", fetch);
+    expect(await getBuilderSignupActivationStatus()).toBe("eligible");
+    fetch.mockResolvedValueOnce(
+      response({ status: "disabled", code: "not_enrolled" }),
+    );
+    expect(await getBuilderSignupActivationStatus()).toBe("disabled");
+    fetch.mockResolvedValueOnce(response({ status: "unknown" }));
+    await expect(getBuilderSignupActivationStatus()).rejects.toThrow(
+      "Invalid Builder signup eligibility response",
+    );
+    fetch.mockResolvedValueOnce(response({ status: "disabled" }, 503));
+    await expect(getBuilderSignupActivationStatus()).rejects.toThrow(/503/);
+  });
+
   it("reads the assigned arm without exposing an auth credential to the browser", async () => {
     const fetch = vi.fn(async () => response(assignment));
     vi.stubGlobal("fetch", fetch);
