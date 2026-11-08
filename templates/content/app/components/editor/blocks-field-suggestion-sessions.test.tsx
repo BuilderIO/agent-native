@@ -484,6 +484,48 @@ describe("useBlocksFieldSuggestions", () => {
     }
   });
 
+  it("takes back a tab's ended draft that is still saving when Suggesting mode starts again", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.createProposal.mockRejectedValueOnce(new Error("Network down"));
+      await render(true, []);
+      await draftInTab();
+      await render(false, []);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(mocks.createProposal).toHaveBeenCalledTimes(1);
+
+      await render(true, []);
+      await act(async () => {
+        latest.provider.start("notes", {
+          content: "Original notes.",
+          revision: 3,
+        });
+      });
+      expect(latest.provider.sessions.get("notes")?.draft).toBe(
+        "Original notes, revised.",
+      );
+
+      // The retry saves it as the tab's draft, and nothing is suggested twice.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      expect(mocks.createProposal).toHaveBeenCalledTimes(2);
+      let saved = false;
+      await act(async () => {
+        saved = await latest.flushAll();
+      });
+      expect(saved).toBe(true);
+      expect(mocks.createProposal).toHaveBeenCalledTimes(2);
+      expect(latest.provider.sessions.get("notes")?.draft).toBe(
+        "Original notes, revised.",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps trying a tab's save that was under way when Suggesting mode ended", async () => {
     vi.useFakeTimers();
     try {

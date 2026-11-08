@@ -679,6 +679,18 @@ export function useBlocksFieldSuggestions({
   const start = useCallback(
     (fieldId: string, base: { content: string; revision: number }) => {
       if (!suggestingRef.current || sessionsRef.current.has(fieldId)) return;
+      // A draft Suggesting mode left still saving is the tab's again, so its
+      // edits aren't suggested a second time by a fresh draft. Like any
+      // session, it keeps the text it started from.
+      for (const ended of endedRef.current) {
+        if (ended.documentId !== documentId || ended.fieldId !== fieldId)
+          continue;
+        endedRef.current.delete(ended);
+        ended.ended = false;
+        sessionsRef.current.set(fieldId, ended);
+        bump();
+        return;
+      }
       sessionsRef.current.set(fieldId, {
         documentId,
         fieldId,
