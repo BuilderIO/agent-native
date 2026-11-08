@@ -369,6 +369,43 @@ describe("evaluateCondition", () => {
     );
   });
 
+  it("answers within the deadline while saving its usage is slow", async () => {
+    vi.useFakeTimers();
+    let streams = 0;
+    async function* meteredStream() {
+      streams += 1;
+      yield { type: "usage", inputTokens: 40, outputTokens: 1 } as {
+        type: string;
+        text?: string;
+      };
+      yield { type: "text-delta", text: "yes" };
+    }
+    const engine = fakeEngine(meteredStream);
+    let finishWrite!: () => void;
+    recordUsageMock.mockReturnValueOnce(
+      new Promise<undefined>((resolve) => {
+        finishWrite = () => resolve(undefined);
+      }),
+    );
+    const evaluate = () =>
+      evaluateCondition(
+        "is this urgent?",
+        { messageId: "slow-usage-write" },
+        IDENTITY,
+        { engine, resolvedModel: "automation-model" },
+      );
+
+    const evaluation = evaluate();
+    // The write is still running when the deadline passes.
+    await vi.advanceTimersByTimeAsync(15_000);
+    finishWrite();
+
+    await expect(evaluation).resolves.toBe(true);
+    // The answer was cached, so asking again costs no second model call.
+    await expect(evaluate()).resolves.toBe(true);
+    expect(streams).toBe(1);
+  });
+
   it("records nothing when the engine reports no usage", async () => {
     async function* yesStream() {
       yield { type: "text-delta", text: "yes" };

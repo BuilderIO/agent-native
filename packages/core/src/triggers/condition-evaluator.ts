@@ -113,6 +113,9 @@ export async function evaluateCondition(
   const controller = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   let removeAbortListener: (() => void) | undefined;
+  // Saving what the check spent stays outside the deadline, so a slow write
+  // never turns an answer the model already gave into a timeout.
+  const usageWrites: Promise<void>[] = [];
   const evaluate = async () => {
     let engine: AgentEngine;
     let model: string;
@@ -160,12 +163,20 @@ export async function evaluateCondition(
 
     // A classification is an answer, not a write of the call that emitted the event.
     const result = await withoutWriteObservation(() =>
-      callClassifier(condition, payload, engine, model, controller.signal, {
-        ownerEmail: identity.userEmail,
-        orgId: identity.orgId,
-        app: identity.appId,
-        label: options.usageLabel ?? "automation-condition",
-      }),
+      callClassifier(
+        condition,
+        payload,
+        engine,
+        model,
+        controller.signal,
+        {
+          ownerEmail: identity.userEmail,
+          orgId: identity.orgId,
+          app: identity.appId,
+          label: options.usageLabel ?? "automation-condition",
+        },
+        usageWrites,
+      ),
     );
     if (controller.signal.aborted) {
       throw new Error(
@@ -205,6 +216,8 @@ export async function evaluateCondition(
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
     removeAbortListener?.();
+    // A check cut off by the deadline saves its usage when its stream ends.
+    await Promise.all(usageWrites);
   }
 
   return result;
@@ -218,6 +231,7 @@ type ClassifierUsageScope = Pick<
 /**
  * Save what the check spent, as every other model call does, so usage
  * dashboards and spend totals include it on whichever key paid for it.
+ * Never rejects, so callers can leave it running.
  */
 async function recordClassifierUsage(
   scope: ClassifierUsageScope,
@@ -247,6 +261,7 @@ async function callClassifier(
   model: string,
   signal: AbortSignal,
   usageScope: ClassifierUsageScope,
+  usageWrites: Promise<void>[],
 ): Promise<boolean> {
   let payloadStr: string;
   try {
@@ -319,17 +334,19 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
     );
   } finally {
     // A check that failed or timed out after the model answered still spent.
-    await recordClassifierUsage(usageScope, {
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-      cacheReadTokens: usage.cacheReadTokens,
-      cacheWriteTokens: usage.cacheWriteTokens,
-      ...(usage.builderCreditsUsed === undefined
-        ? {}
-        : { builderCreditsUsed: usage.builderCreditsUsed }),
-      engineName: engine.name,
-      model,
-    });
+    usageWrites.push(
+      recordClassifierUsage(usageScope, {
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cacheReadTokens: usage.cacheReadTokens,
+        cacheWriteTokens: usage.cacheWriteTokens,
+        ...(usage.builderCreditsUsed === undefined
+          ? {}
+          : { builderCreditsUsed: usage.builderCreditsUsed }),
+        engineName: engine.name,
+        model,
+      }),
+    );
   }
 
   if (streamErrorMessage) {
