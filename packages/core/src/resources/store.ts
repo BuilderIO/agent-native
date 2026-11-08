@@ -2966,7 +2966,8 @@ export async function resourceOwnersAtPaths(
       ({ rows } = await client.execute(query));
     } catch (error) {
       if (!isMissingResourceSchemaError(error)) throw error;
-      return [];
+      await ensureTable();
+      ({ rows } = await client.execute(query));
     }
     for (const row of rows) {
       found.push({ owner: String(row.owner), path: String(row.path) });

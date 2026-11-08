@@ -181,6 +181,7 @@ import {
 import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
+  sortResourceSkills,
 } from "../server/agent-chat/skill-frontmatter.js";
 import { captureError } from "../server/capture-error.js";
 import {
@@ -4148,9 +4149,21 @@ export async function resolveSkillReferenceContent(
         const name =
           parseSkillFrontmatter(full.content).name ||
           getSkillNameFromPath(chosen.path);
-        return { name, content: full.content, updatedAt: chosen.updatedAt };
+        return {
+          name,
+          content: full.content,
+          owner: chosen.owner,
+          path: chosen.path,
+          updatedAt: chosen.updatedAt,
+        };
       };
-      return await readSkillReference(ref.path, choices, readSkill);
+      // Same-named Required skills in the order the prompt keeps them.
+      return await readSkillReference(ref.path, choices, readSkill, (skills) =>
+        sortResourceSkills(skills, {
+          owner: ownerEmail,
+          orgId: resourceOptions.orgId,
+        }),
+      );
     } catch {
       return null;
     }

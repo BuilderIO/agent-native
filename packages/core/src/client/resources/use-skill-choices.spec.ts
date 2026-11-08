@@ -13,11 +13,12 @@ const mocks = vi.hoisted(() => ({
   session: "authenticated",
   answer: undefined as unknown,
   isError: false,
+  answerAt: 0,
   counts: undefined as unknown,
   countsAt: 0,
   countsFailedAt: 0,
   queries: [] as Array<{ name: string; enabled: boolean | undefined }>,
-  refetch: vi.fn(async () => undefined),
+  refetch: vi.fn(async () => ({ isError: false })),
   refetchCounts: vi.fn(async () => undefined),
   saveSwitch: vi.fn(async (_args: unknown): Promise<unknown> => undefined),
   saveMark: vi.fn(async (_args: unknown): Promise<unknown> => undefined),
@@ -35,7 +36,12 @@ vi.mock("../use-action.js", () => ({
   ) => {
     mocks.queries.push({ name, enabled: options.enabled });
     return name === "get-skill-choices"
-      ? { data: mocks.answer, isError: mocks.isError, refetch: mocks.refetch }
+      ? {
+          data: mocks.answer,
+          dataUpdatedAt: mocks.answerAt,
+          isError: mocks.isError,
+          refetch: mocks.refetch,
+        }
       : {
           data: mocks.counts,
           dataUpdatedAt: mocks.countsAt,
@@ -90,6 +96,7 @@ beforeEach(() => {
     canMark: false,
   };
   mocks.isError = false;
+  mocks.answerAt = 0;
   mocks.counts = undefined;
   mocks.countsAt = 0;
   mocks.countsFailedAt = 0;
@@ -236,6 +243,25 @@ describe("useSkillChoices", () => {
     expect(failure).toEqual(new Error("Forbidden"));
     expect(mocks.refetch).not.toHaveBeenCalled();
     expect(state.choices.switches[ORG]).toEqual({ on: true, at: 5 });
+  });
+
+  it("keeps a saved switch when the read after it fails, until a read succeeds", async () => {
+    mocks.refetch.mockResolvedValueOnce({ isError: true });
+    await render();
+    await act(async () => {
+      await state.setSwitch("organization", PATH, false);
+    });
+    expect(mocks.refetch).toHaveBeenCalledTimes(1);
+    expect(state.choices.switches[ORG]).toEqual({ on: false, at: 1234 });
+
+    mocks.answer = {
+      switches: { [ORG]: { on: false, at: 1300 } },
+      marks: {},
+      canMark: false,
+    };
+    mocks.answerAt = 1400;
+    await act(async () => root?.render(React.createElement(Probe)));
+    expect(state.choices.switches[ORG]).toEqual({ on: false, at: 1300 });
   });
 
   it("keeps the latest of two quick switches until its own save is back", async () => {

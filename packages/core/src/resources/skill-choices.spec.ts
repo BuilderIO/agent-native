@@ -74,7 +74,7 @@ const {
   readSkillChoiceCounts,
   readSkillChoices,
   readSkillReference,
-  requiredSkills,
+  requiredSkillPaths,
   setSkillMark,
   setSkillSwitch,
   skillMarkFor,
@@ -418,22 +418,28 @@ describe("readSkillReference", () => {
   const OTHER = "skills/brand-voice/SKILL.md";
   const DISPATCH = "skills/dispatch-release-notes/SKILL.md";
   const NEWER = "skills/release-notes-v2/SKILL.md";
+  const skillAt = (
+    path: string,
+    owner: string,
+    name: string,
+    content: string,
+    updatedAt: number,
+  ): ReferencedSkill => ({ path, owner, name, content, updatedAt });
   const files: Record<string, ReferencedSkill> = {
-    [MINE]: { name: "release-notes", content: "Mine.", updatedAt: 5 },
-    [ORG]: {
-      name: "release-notes",
-      content: "The organization's.",
-      updatedAt: 1,
-    },
-    [OTHER]: { name: "brand-voice", content: "Brand voice.", updatedAt: 1 },
-    [DISPATCH]: { name: "release-notes", content: "Dispatch's.", updatedAt: 9 },
-    [NEWER]: {
-      name: "release-notes",
-      content: "The organization's newer one.",
-      updatedAt: 2,
-    },
+    [MINE]: skillAt(MINE, "ana@x.com", "release-notes", "Mine.", 5),
+    [ORG]: skillAt(ORG, "org", "release-notes", "The organization's.", 1),
+    [OTHER]: skillAt(OTHER, "org", "brand-voice", "Brand voice.", 1),
+    [DISPATCH]: skillAt(
+      DISPATCH,
+      "dispatch",
+      "release-notes",
+      "Dispatch's.",
+      9,
+    ),
+    [NEWER]: skillAt(NEWER, "org", "release-notes", "The newer one.", 2),
   };
   const readSkill = vi.fn(async (path: string) => files[path] ?? null);
+  const asListed = (skills: ReferencedSkill[]) => skills;
   const requiring = (...paths: string[]) => ({
     switches: {},
     marks: Object.fromEntries(
@@ -445,62 +451,69 @@ describe("readSkillReference", () => {
 
   it("reads a Required skill instead of a same-named one at another path", async () => {
     await expect(
-      readSkillReference(MINE, requiring(OTHER, ORG), readSkill),
+      readSkillReference(MINE, requiring(OTHER, ORG), readSkill, asListed),
     ).resolves.toBe("The organization's.");
     await expect(
-      readSkillReference(MINE, requiring(OTHER), readSkill),
+      readSkillReference(MINE, requiring(OTHER), readSkill, asListed),
     ).resolves.toBe("Mine.");
     await expect(
-      readSkillReference(MINE, NO_SKILL_CHOICES, readSkill),
+      readSkillReference(MINE, NO_SKILL_CHOICES, readSkill, asListed),
     ).resolves.toBe("Mine.");
   });
 
   it("reads a Required skill itself, and nothing when it can't be read", async () => {
     await expect(
-      readSkillReference(ORG, requiring(ORG, OTHER), readSkill),
+      readSkillReference(ORG, requiring(ORG, OTHER), readSkill, asListed),
     ).resolves.toBe("The organization's.");
     await expect(
-      readSkillReference("skills/gone/SKILL.md", requiring(ORG), readSkill),
+      readSkillReference(
+        "skills/gone/SKILL.md",
+        requiring(ORG),
+        readSkill,
+        asListed,
+      ),
     ).resolves.toBeNull();
     // An unreadable Required skill doesn't hide the one asked for.
     await expect(
-      readSkillReference(MINE, requiring("skills/gone/SKILL.md"), readSkill),
+      readSkillReference(
+        MINE,
+        requiring("skills/gone/SKILL.md"),
+        readSkill,
+        asListed,
+      ),
     ).resolves.toBe("Mine.");
   });
 
-  it("prefers the organization's Required skill to a same-named Dispatch one, as the prompt does", async () => {
-    // The Dispatch mark was stored first.
+  it("reads whichever same-named Required skill the prompt's order puts first", async () => {
     const choices = {
       switches: {},
       marks: {
-        [`workspace:${DISPATCH}`]: "required" as const,
         [`organization:${ORG}`]: "required" as const,
+        [`organization:${OTHER}`]: "required" as const,
+        [`workspace:${DISPATCH}`]: "required" as const,
+        [`organization:${NEWER}`]: "required" as const,
       },
     };
-    await expect(readSkillReference(MINE, choices, readSkill)).resolves.toBe(
-      "The organization's.",
+    // Unlike the order the marks were stored in.
+    const order = vi.fn((skills: ReferencedSkill[]) =>
+      [...skills].sort((a, b) => b.updatedAt - a.updatedAt),
     );
-    await expect(
-      readSkillReference(DISPATCH, choices, readSkill),
-    ).resolves.toBe("The organization's.");
-    await expect(readSkillReference(ORG, choices, readSkill)).resolves.toBe(
-      "The organization's.",
-    );
-  });
-
-  it("picks between same-named Required skills from one place as the prompt does, newest first", async () => {
-    // The older one's mark was stored first.
-    const choices = requiring(ORG, NEWER);
     for (const path of [MINE, ORG, NEWER]) {
-      await expect(readSkillReference(path, choices, readSkill)).resolves.toBe(
-        "The organization's newer one.",
+      await expect(
+        readSkillReference(path, choices, readSkill, order),
+      ).resolves.toBe("Dispatch's.");
+    }
+    // Only the Required skills with the same name are ordered.
+    for (const [skills] of order.mock.calls) {
+      expect(skills.map((skill) => skill.path).sort()).toEqual(
+        [DISPATCH, NEWER, ORG].sort(),
       );
     }
   });
 
-  it("finds the Required skills from either place, a path marked in both as the organization's", () => {
+  it("finds the paths of Required skills from either place, each once", () => {
     expect(
-      requiredSkills({
+      requiredSkillPaths({
         switches: {},
         marks: {
           [`workspace:${OTHER}`]: "required",
@@ -509,10 +522,7 @@ describe("readSkillReference", () => {
           [`organization:${MINE}`]: "optional",
         },
       }),
-    ).toEqual([
-      { source: "organization", path: ORG },
-      { source: "workspace", path: OTHER },
-    ]);
+    ).toEqual([OTHER, ORG]);
   });
 });
 

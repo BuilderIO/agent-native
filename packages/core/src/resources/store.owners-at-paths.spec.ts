@@ -36,6 +36,32 @@ afterAll(async () => {
 });
 
 describe("resourceOwnersAtPaths", () => {
+  it("brings an older resources table up to date rather than finding no one", async () => {
+    const { resourceOwnersAtPaths } = await import("./store.js");
+    // Before resources had a visibility column.
+    await pglite.exec(`
+      CREATE TABLE resources (
+        id TEXT PRIMARY KEY,
+        path TEXT NOT NULL,
+        owner TEXT NOT NULL,
+        content TEXT NOT NULL DEFAULT '',
+        mime_type TEXT NOT NULL DEFAULT 'text/markdown',
+        size BIGINT NOT NULL DEFAULT 0,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        UNIQUE(path, owner)
+      );
+      INSERT INTO resources (id, path, owner, content, created_at, updated_at)
+      VALUES ('old', 'skills/a/SKILL.md', 'erin@example.test', 'a', 1, 1);
+    `);
+
+    await expect(
+      resourceOwnersAtPaths(["erin@example.test"], ["skills/a/SKILL.md"]),
+    ).resolves.toEqual([
+      { owner: "erin@example.test", path: "skills/a/SKILL.md" },
+    ]);
+  });
+
   it("lists who keeps a resource at each path, across owner batches, without hidden agent files", async () => {
     const { resourceOwnersAtPaths, resourcePut } = await import("./store.js");
     await resourcePut("Alice@Example.test", "skills/a/SKILL.md", "a");

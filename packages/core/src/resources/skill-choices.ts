@@ -259,36 +259,22 @@ export function skillReferenceResource(
   return chosen?.resource ?? effective.effectiveResource;
 }
 
-/**
- * The organization and Dispatch skills marked Required, each path once. A
- * path marked in both places counts as the organization's, as in
- * `applySkillChoices`.
- */
-export function requiredSkills(
-  choices: SkillChoices,
-): Array<{ source: Exclude<SkillSource, "personal">; path: string }> {
-  const required = new Map<string, Exclude<SkillSource, "personal">>();
-  for (const source of ["organization", "workspace"] as const) {
-    const prefix = skillChoiceKey(source, "");
-    for (const [key, mark] of Object.entries(choices.marks)) {
-      const path = key.slice(prefix.length);
-      if (
-        mark === "required" &&
-        key.startsWith(prefix) &&
-        !required.has(path)
-      ) {
-        required.set(path, source);
-      }
-    }
+/** Paths of the organization and Dispatch skills marked Required. */
+export function requiredSkillPaths(choices: SkillChoices): string[] {
+  const paths = new Set<string>();
+  for (const [key, mark] of Object.entries(choices.marks)) {
+    if (mark === "required") paths.add(key.slice(key.indexOf(":") + 1));
   }
-  return [...required].map(([path, source]) => ({ source, path }));
+  return [...paths];
 }
 
-/** A skill file as a reference reads it. */
-export interface ReferencedSkill {
+/** A skill file as a reference reads it, with what the prompt orders it by. */
+export interface ReferencedSkill extends Pick<
+  ResourceMeta,
+  "owner" | "path" | "updatedAt"
+> {
   name: string;
   content: string;
-  updatedAt: number;
 }
 
 /**
@@ -296,33 +282,27 @@ export interface ReferencedSkill {
  * at a path that `skillReferenceResource` picks, or null when it can't. The
  * prompt knows skills by name and keeps the first Required one with a name,
  * so a Required skill also replaces a same-named one at another path, such
- * as the person's own. Same-named Required skills go in the prompt's order
- * (`sortResourceSkills`): the organization's before Dispatch's, then the
- * most recently changed, then by path.
+ * as the person's own. `orderSkills` puts same-named Required skills in the
+ * prompt's order (`sortResourceSkills`), so the reference reads the one the
+ * prompt keeps.
  */
-export async function readSkillReference(
+export async function readSkillReference<T extends ReferencedSkill>(
   path: string,
   choices: SkillChoices,
-  readSkill: (path: string) => Promise<ReferencedSkill | null>,
+  readSkill: (path: string) => Promise<T | null>,
+  orderSkills: (skills: T[]) => T[],
 ): Promise<string | null> {
   const skill = await readSkill(path);
   if (!skill) return null;
-  const read = await Promise.all(
-    requiredSkills(choices).map(async (required) => {
-      const found =
-        required.path === path ? skill : await readSkill(required.path);
-      return found?.name === skill.name ? { ...required, ...found } : null;
+  const sameName = await Promise.all(
+    requiredSkillPaths(choices).map(async (required) => {
+      const found = required === path ? skill : await readSkill(required);
+      return found?.name === skill.name ? found : null;
     }),
   );
-  const replacement = read
-    .filter((other) => other !== null)
-    .sort(
-      (a, b) =>
-        Number(a.source === "workspace") - Number(b.source === "workspace") ||
-        b.updatedAt - a.updatedAt ||
-        a.path.localeCompare(b.path),
-    )
-    .at(0);
+  const replacement = orderSkills(
+    sameName.filter((other) => other !== null),
+  ).at(0);
   return (replacement ?? skill).content;
 }
 

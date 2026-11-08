@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   NO_SKILL_CHOICES,
@@ -100,6 +100,13 @@ export function useSkillChoices(
   // Saves to one switch or mark go one at a time, so the last change made is
   // the one stored.
   const saving = useRef(new Map<string, Promise<unknown>>());
+  // A saved value whose fresh read failed stays shown until a read succeeds.
+  const unconfirmed = useRef(new Map<string, () => void>());
+  const { dataUpdatedAt } = query;
+  useEffect(() => {
+    for (const clear of unconfirmed.current.values()) clear();
+    unconfirmed.current.clear();
+  }, [dataUpdatedAt]);
 
   const settle = useCallback(
     async <T>(
@@ -129,13 +136,19 @@ export function useSkillChoices(
         ? previous.catch(() => undefined).then(save)
         : save();
       saving.current.set(track, saved);
+      let read = true;
       try {
         await saved;
         // An admin's own switch moves the counts too.
-        await Promise.all([refetch(), canMark ? refetchCounts() : null]);
+        const [answer] = await Promise.all([
+          refetch(),
+          canMark ? refetchCounts() : null,
+        ]);
+        read = !answer.isError;
       } finally {
         if (saving.current.get(track) === saved) saving.current.delete(track);
-        clear();
+        if (read) clear();
+        else unconfirmed.current.set(track, clear);
       }
     },
     [canMark, refetch, refetchCounts],
