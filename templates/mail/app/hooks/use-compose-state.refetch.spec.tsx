@@ -51,12 +51,18 @@ async function mounted() {
   const answers: ((response: Response) => void)[] = [];
   const answer = (index: number, response: Response) =>
     answers[index]?.(response);
+  const drops: ((error: Error) => void)[] = [];
+  const drop = (index: number) =>
+    drops[index]?.(new TypeError("Failed to fetch"));
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === "PATCH") {
         sent.push(JSON.parse(String(init.body)).next);
-        return new Promise<Response>((resolve) => answers.push(resolve));
+        return new Promise<Response>((resolve, reject) => {
+          answers.push(resolve);
+          drops.push(reject);
+        });
       }
       if (url.endsWith("/application-state/compose")) return asJson([stored]);
       if (init?.method === "POST") posted.push(JSON.parse(String(init.body)));
@@ -75,7 +81,7 @@ async function mounted() {
     qc
       .getQueryData<ComposeState[]>(["compose-drafts"])
       ?.find((one) => one.id === id);
-  return { id, stored, sent, posted, answer, result, local };
+  return { id, stored, sent, posted, answer, drop, result, local };
 }
 
 describe("useComposeState", () => {
@@ -227,6 +233,23 @@ describe("useComposeState", () => {
     await waitFor(() => expect(sent).toHaveLength(1));
     await act(async () => {
       answer(0, asJson({ error: "refused" }, 500));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toMatchObject({ subject: "Mine", draftId: "saved" });
+    expect(mocks.callAction).not.toHaveBeenCalled();
+  });
+
+  it("saves the text on screen to the mailbox when the write never reaches the store", async () => {
+    const { id, sent, posted, drop, result } = await mounted();
+
+    act(() => result.current.update(id, { subject: "Mine" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await act(async () => {
+      drop(0);
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);

@@ -73,10 +73,13 @@ async function saveComposeDraftIfCurrent(
       },
       body: JSON.stringify({ expectedRevision, next: draft }),
     },
-  );
+  ).catch((error: unknown) => {
+    unstoredDrafts.add(draft.id);
+    throw error;
+  });
   // A conflict isn't a refusal: Mail holds a newer draft, which a sync can copy.
-  if (res.ok || res.status === 409) refusedDrafts.delete(draft.id);
-  else refusedDrafts.add(draft.id);
+  if (res.ok || res.status === 409) unstoredDrafts.delete(draft.id);
+  else unstoredDrafts.add(draft.id);
   if (res.ok) return res.json();
   if (res.status !== 409) {
     throw Object.assign(new Error(`Request failed (${res.status})`), {
@@ -121,8 +124,9 @@ const dirtyDrafts: Record<string, boolean> = {};
 const draftVersions: Record<string, number> = {};
 const savedDrafts = new Map<string, ComposeState>();
 const pendingDraftMutations = new Map<string, Promise<unknown>>();
-// Drafts whose last write Mail's store refused, so it doesn't hold their text.
-const refusedDrafts = new Set<string>();
+// Drafts whose last write Mail's store refused or never answered, so nothing says
+// it holds their text.
+const unstoredDrafts = new Set<string>();
 let resolveDraftOverlap:
   | ((
       overlap: SaveOverlap<ComposeState>,
@@ -535,15 +539,16 @@ export async function syncDraftToMailboxBestEffort(
 
 /**
  * Keeps a draft's mailbox copy current. When Mail's store refused the draft's
- * last write, it holds nothing current to copy and the text on screen may be the
- * only copy there is, so that text goes to the mailbox instead.
+ * last write or never answered it, nothing says it holds anything current to
+ * copy and the text on screen may be the only copy there is, so that text goes
+ * to the mailbox instead.
  */
 export async function keepMailboxCopyCurrent(
   pendingMutations: Map<string, Promise<unknown>>,
   draft: ComposeState,
 ): Promise<DraftSaveResult> {
   await pendingMutations.get(draft.id)?.catch(() => undefined);
-  return refusedDrafts.has(draft.id)
+  return unstoredDrafts.has(draft.id)
     ? saveDraftToEmailsBestEffort(draft)
     : syncDraftToMailboxBestEffort(pendingMutations, draft.id);
 }

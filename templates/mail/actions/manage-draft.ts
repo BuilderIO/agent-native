@@ -346,17 +346,23 @@ async function storeComposeDraft(
   }
 }
 
-/** The draft as stored now, or `known` if it's gone or can't be read. */
+/**
+ * The draft as stored now, or `known` if it's gone or can't be read. `unconfirmed`
+ * means it couldn't be read, so `known` may not be the newest version.
+ */
 async function latestStoredDraft(
   id: string,
   known: ComposeState,
-): Promise<ComposeState> {
+): Promise<{ draft: ComposeState; unconfirmed: boolean }> {
   try {
     const stored = await readAppState(`compose-${id}`);
-    return stored ? (stored as unknown as ComposeState) : known;
+    return {
+      draft: stored ? (stored as unknown as ComposeState) : known,
+      unconfirmed: false,
+    };
   } catch (error) {
     console.error(`[manage-draft] draft ${id} reread failed:`, error);
-    return known;
+    return { draft: known, unconfirmed: true };
   }
 }
 
@@ -375,8 +381,10 @@ async function updatedDraftResult(
   const sync = ownerEmail
     ? await syncDraftToMailbox({ ownerEmail, id })
     : ({ status: "unavailable" } as const);
-  const current =
-    sync.status === "synced" ? sync.draft : await latestStoredDraft(id, draft);
+  const { draft: current, unconfirmed } =
+    sync.status === "synced"
+      ? { draft: sync.draft, unconfirmed: false }
+      : await latestStoredDraft(id, draft);
   const deepLink = composeDeepLink(current);
   const note =
     sync.status === "pending"
@@ -388,6 +396,9 @@ async function updatedDraftResult(
     "leftoverDraftIds" in sync && sync.leftoverDraftIds
       ? ` A spare copy Mail made (${sync.leftoverDraftIds.join(", ")}) couldn't be removed and stays in the mailbox's drafts.`
       : "";
+  const staleness = unconfirmed
+    ? " Mail couldn't read the draft back, so this shows what this update stored; a newer save may have landed since."
+    : "";
   return {
     id,
     draft: current,
@@ -403,7 +414,7 @@ async function updatedDraftResult(
               : {}),
           }
         : sync,
-    message: `${message}.${note}${leftovers}`,
+    message: `${message}.${note}${leftovers}${staleness}`,
     change: draftChange("updated", current, deepLink),
   };
 }

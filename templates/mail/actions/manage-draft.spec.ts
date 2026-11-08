@@ -760,6 +760,62 @@ describe("manage-draft Gmail budget refusals", () => {
     expect(result.revision).toBe(revisionOf("busy"));
   });
 
+  it("says so when it can't read the draft back while Gmail's copy is pending", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    appState.set("compose-unread", {
+      id: "unread",
+      to: "",
+      subject: "",
+      body: "v1",
+      savedDraftId: "gmail-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+    });
+    mocks.saveGmailDraft.mockImplementation(async () => {
+      mocks.readAppState.mockRejectedValueOnce(new Error("database down"));
+      throw new GmailQuotaRefusedError(5_000);
+    });
+
+    const result = await action.run({
+      action: "update",
+      id: "unread",
+      expectedRevision: revisionOf("unread"),
+      body: "v2",
+    });
+
+    expect(result.mailboxSync).toMatchObject({ status: "pending" });
+    expect(result.draft.body).toBe("v2");
+    expect(result.message).toMatch(/couldn't read the draft back/);
+    consoleError.mockRestore();
+  });
+
+  it("doesn't warn about a stale result when the draft reads back", async () => {
+    appState.set("compose-readable", {
+      id: "readable",
+      to: "",
+      subject: "",
+      body: "v1",
+      savedDraftId: "gmail-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+    });
+    mocks.saveGmailDraft.mockRejectedValue(new GmailQuotaRefusedError(5_000));
+
+    const result = await action.run({
+      action: "update",
+      id: "readable",
+      expectedRevision: revisionOf("readable"),
+      body: "v2",
+    });
+
+    expect(result.mailboxSync).toMatchObject({ status: "pending" });
+    expect(result.message).not.toMatch(/couldn't read the draft back/);
+  });
+
   it("reports a refused lookup of a draft's Gmail account as not saved", async () => {
     const stored = {
       id: "legacy-draft",
