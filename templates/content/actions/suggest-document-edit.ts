@@ -61,7 +61,7 @@ const suggestDocumentEditSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      "Existing proposal ID for another edit in the same review pass. Reuse its summary.",
+      "Adds this edit to an earlier edit's review: the proposalId (not the suggestionId) an earlier suggest-document-edit call on this page returned. Pass that call's summary too.",
     ),
   find: z
     .string()
