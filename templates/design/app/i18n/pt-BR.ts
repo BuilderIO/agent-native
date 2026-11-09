@@ -1049,7 +1049,6 @@ export default {
   },
   designEditor: {
     sourceLoadFailed: "Não foi possível carregar esta tela.",
-    writeFailed: "Não foi possível salvar essa alteração.",
     selectionPublishFailed:
       "O agente pode não ver sua seleção mais recente. Selecione-a novamente.",
     liveCollaboration: {

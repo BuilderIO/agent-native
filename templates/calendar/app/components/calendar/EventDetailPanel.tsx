@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
 import type { CalendarEvent } from "@shared/api";
 import {
@@ -305,8 +306,9 @@ export function EventDetailPanel({
             event,
           ),
           {
-            onError: () => {
+            onError: (error) => {
               lastSavedDescriptionRef.current = prev;
+              reportWriteFailure(error);
             },
           },
         );
@@ -456,6 +458,7 @@ export function EventDetailPanel({
             },
             event,
           ),
+          { onError: (error) => reportWriteFailure(error) },
         );
       })();
     },
