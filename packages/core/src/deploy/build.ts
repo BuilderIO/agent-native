@@ -101,6 +101,7 @@ import {
   readAgentNativeBuildConfigMarker,
   resolveFirstRunOnboardingBuildReplacement,
   resolveHarnessBuildReplacement,
+  resolveRequiredEnvBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
 import { boundedTaskSourcePlugin } from "../vite/bounded-task-plugin.js";
 import { createSentryServerSourceMapUploadPlugins } from "../vite/sentry-source-maps.js";
@@ -6115,6 +6116,7 @@ export function resolveNitroBuildReplacements(
   projectCwd: string = cwd,
   firstRunOnboardingMode: AgentNativeFirstRunOnboardingMode | "" = "",
   harnessMode: string = "",
+  requiredEnv: string = "",
 ): Record<string, string> {
   const isEnabled = (value: string | undefined) =>
     ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
@@ -6174,6 +6176,7 @@ export function resolveNitroBuildReplacements(
       firstRunOnboardingMode,
     ),
     "process.env.AGENT_NATIVE_BUILD_HARNESS": JSON.stringify(harnessMode),
+    "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV": JSON.stringify(requiredEnv),
     // Bare Node/Docker has no platform marker for "this is the deployed
     // server", so the production bundle carries its own. Keep it here only:
     // the Vite config's replacements also apply to `pnpm dev`, which must
@@ -6322,6 +6325,8 @@ export default bundle;
         ),
       buildConfigMarker?.harness ??
         resolveHarnessBuildReplacement(nitroAgentConfig),
+      buildConfigMarker?.requiredEnv ??
+        resolveRequiredEnvBuildReplacement(nitroAgentConfig),
     ),
     rolldownConfig: nitroServerCodeSplittingConfig,
     rollupConfig: {

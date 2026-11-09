@@ -370,6 +370,7 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
+import { readBuildRequiredEnv } from "./required-env-build.js";
 import { startSandboxExecutionSweep } from "./sandbox-execution-sweep.js";
 import {
   findUnsupportedScopedKeyNames,
@@ -3497,6 +3498,7 @@ export function createCoreRoutesPlugin(
               ...(event.url?.searchParams.get("database") === "0"
                 ? { databaseRequired: false }
                 : {}),
+              requiredEnv: readBuildRequiredEnv(),
             };
             return {
               message,
