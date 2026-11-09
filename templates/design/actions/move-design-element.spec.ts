@@ -290,6 +290,23 @@ describe("move-design-element", () => {
     expect(await storedContent(destId)).toBe(DEST_HTML);
   });
 
+  it("refuses to move the document shell and leaves both screens unchanged", async () => {
+    const shell =
+      '<html data-agent-native-node-id="root"><body><main><section data-agent-native-node-id="moved">Card</section></main></body></html>';
+    const { designId, sourceId, destId } = await seedPair(shell);
+
+    expect(
+      await moveError({
+        designId,
+        sourceFileId: sourceId,
+        destFileId: destId,
+        nodeId: "root",
+      }),
+    ).toMatchObject({ errorCode: "move_unsupported", statusCode: 409 });
+    expect(await storedContent(sourceId)).toBe(shell);
+    expect(await storedContent(destId)).toBe(DEST_HTML);
+  });
+
   it("reports a stale write as a conflict and leaves both screens unchanged", async () => {
     const { designId, sourceId, destId } = await seedPair();
     const concurrent =

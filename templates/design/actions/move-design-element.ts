@@ -13,7 +13,10 @@ import {
   SourceWorkspaceEditConflictError,
   writeInlineSourceFilesBatch,
 } from "../server/source-workspace.js";
-import { moveNodeBetweenDocuments } from "../shared/code-layer.js";
+import {
+  buildCodeLayerProjection,
+  moveNodeBetweenDocuments,
+} from "../shared/code-layer.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 
@@ -25,6 +28,26 @@ const errors = defineActionErrors(
   "move_unsupported",
   "design_edit_conflict",
 );
+
+const DOCUMENT_SHELL_TAGS = new Set(["html", "head", "body"]);
+
+/** Moving the document shell would leave the screen with no html, head or body. */
+function targetsDocumentShell(
+  html: string,
+  target: { nodeId?: string | undefined; selector?: string | undefined },
+): boolean {
+  return buildCodeLayerProjection(html).nodes.some(
+    (node) =>
+      DOCUMENT_SHELL_TAGS.has(node.tag) &&
+      ((target.nodeId !== undefined &&
+        (node.id === target.nodeId ||
+          node.dataAttributes["data-agent-native-node-id"] ===
+            target.nodeId)) ||
+        (target.selector !== undefined &&
+          (node.selector === target.selector ||
+            node.path === target.selector))),
+  );
+}
 
 export default defineAction({
   description:
@@ -102,6 +125,11 @@ export default defineAction({
       subject: z.string().optional(),
     }),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async (args, context) => {
     const { designId, sourceFileId, destFileId } = args;
@@ -153,6 +181,13 @@ export default defineAction({
       readLiveSourceFile(source),
       readLiveSourceFile(dest),
     ]);
+    if (targetsDocumentShell(sourceLive.content, args)) {
+      return errors.noWrite(
+        "The html, head and body of a screen cannot be moved. Pick an element inside the screen.",
+        "move_unsupported",
+        { statusCode: 409 },
+      );
+    }
     const moved = moveNodeBetweenDocuments(
       sourceLive.content,
       destLive.content,

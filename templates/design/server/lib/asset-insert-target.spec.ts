@@ -134,6 +134,34 @@ describe("resolveAssetInsertTarget and pickAssetInsertFile", () => {
     });
   });
 
+  it("refuses an empty explicit screen id instead of treating it as omitted", async () => {
+    givenState({
+      navigation: { designId: "design-1", activeFileId: "file-b" },
+    });
+    const target = await resolveAssetInsertTarget({
+      designId: "design-1",
+      fileIds: [""],
+    });
+
+    expect(
+      thrownBy(() => pickAssetInsertFile([cssFile, htmlA, htmlB], target)),
+    ).toMatchObject({
+      errorCode: "asset_target_screen_invalid",
+      statusCode: 400,
+    });
+  });
+
+  it("refuses when the native screenId is empty even if fileId is valid", async () => {
+    const target = await resolveAssetInsertTarget({
+      designId: "design-1",
+      fileIds: ["", htmlB.id],
+    });
+
+    expect(
+      thrownBy(() => pickAssetInsertFile([cssFile, htmlA, htmlB], target)),
+    ).toMatchObject({ errorCode: "asset_target_screen_invalid" });
+  });
+
   it("refuses an explicit fileId that names a non-HTML file", async () => {
     const target = await resolveAssetInsertTarget({
       designId: "design-1",

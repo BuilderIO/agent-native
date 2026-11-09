@@ -100,7 +100,7 @@ export async function resolveAssetInsertTarget(
   return {
     designId,
     explicitFileIds: args.fileIds.filter(
-      (id): id is string => typeof id === "string" && id !== "",
+      (id): id is string => typeof id === "string",
     ),
     stateFileId:
       (canUseSelection
@@ -122,6 +122,15 @@ export function pickAssetInsertFile<T extends HtmlCandidate>(
 ): T | null {
   const htmlFiles = files.filter(isHtmlFile);
   if (target.explicitFileIds.length > 0) {
+    if (target.explicitFileIds.includes("")) {
+      fail(
+        "An empty screen id was passed. Pass the fileId of an HTML screen, or leave it out.",
+        {
+          errorCode: ASSET_INSERT_TARGET_ERROR_CODES.screenInvalid,
+          statusCode: 400,
+        },
+      );
+    }
     for (const id of target.explicitFileIds) {
       const match = htmlFiles.find((file) => file.id === id);
       if (match) return match;

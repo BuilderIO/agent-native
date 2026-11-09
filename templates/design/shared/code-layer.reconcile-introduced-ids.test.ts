@@ -38,11 +38,28 @@ describe("reconcileIntroducedIdsInHtml", () => {
     expect(result.renamedHtmlIds).toBe(1);
   });
 
-  it("keeps the id on whichever holder comes first in document order", () => {
+  it("keeps the id on the original when a differently worded copy is inserted before it", () => {
     const previous = `<main>${card}</main>`;
     const copyBefore =
       '<section data-agent-native-node-id="n1" id="card-3">Copy</section>';
     const next = `<main>${copyBefore}${card}</main>`;
+
+    const result = reconcileIntroducedIdsInHtml(previous, next);
+
+    const nodeIds = attributeValues(result.content, NODE_ID_RE);
+    expect(nodeIds[0]).not.toBe("n1");
+    expect(nodeIds[1]).toBe("n1");
+    expect(attributeValues(result.content, MARKUP_ID_RE)).toEqual([
+      "card-3-2",
+      "card-3",
+    ]);
+    expect(result.restampedNodeIds).toBe(1);
+    expect(result.renamedHtmlIds).toBe(1);
+  });
+
+  it("keeps the id on the first of identical copies in document order", () => {
+    const previous = `<main>${card}</main>`;
+    const next = `<main>${card}${card}</main>`;
 
     const result = reconcileIntroducedIdsInHtml(previous, next);
 
@@ -53,11 +70,23 @@ describe("reconcileIntroducedIdsInHtml", () => {
       "card-3",
       "card-3-2",
     ]);
-    expect(result.content).toContain(
-      `${copyBefore}<section data-agent-native-node-id="${nodeIds[1]}" id="card-3-2">Card</section>`,
-    );
-    expect(result.restampedNodeIds).toBe(1);
-    expect(result.renamedHtmlIds).toBe(1);
+  });
+
+  it("rewrites references inside a renamed subtree to the renamed id", () => {
+    const previous = '<main><p id="card">A</p></main>';
+    const copy =
+      '<section id="card"><label for="card">Name</label><a href="#card">Go</a>' +
+      '<span style="fill:url(#card)" aria-labelledby="card other">x</span></section>';
+    const next = `<main><p id="card">A</p>${copy}</main>`;
+
+    const result = reconcileIntroducedIdsInHtml(previous, next);
+
+    expect(result.content).toContain('<section id="card-2">');
+    expect(result.content).toContain('<label for="card-2">');
+    expect(result.content).toContain('<a href="#card-2">');
+    expect(result.content).toContain('style="fill:url(#card-2)"');
+    expect(result.content).toContain('aria-labelledby="card-2 other"');
+    expect(result.content).toContain('<p id="card">A</p>');
   });
 
   it("leaves ids that already repeated in the previous html as authored", () => {
