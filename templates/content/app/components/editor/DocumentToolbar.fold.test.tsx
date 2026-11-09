@@ -274,7 +274,8 @@ describe("DocumentToolbar at narrow widths", () => {
     await renderToolbar(280);
 
     expect(toolbarButton("comments.discussion")).toBeNull();
-    expect(shareTrigger()).toBeDefined();
+    expect(shareTrigger()?.textContent).toBe("editor.toolbar.share");
+    expect(shareTrigger()?.querySelector("svg")).toBeNull();
 
     const items = await openPageActions();
     expect(menuItem(items, "editor.toolbar.copyPageLink")).toBeUndefined();

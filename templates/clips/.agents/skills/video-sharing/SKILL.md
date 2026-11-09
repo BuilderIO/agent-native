@@ -58,29 +58,16 @@ Read this skill before:
 
 ## Dropping in the share UI
 
-Clips composes its share panels from Toolkit pieces rather than the generic
-`ShareButton`. `app/components/player/share-dialog.tsx` (recordings) and
-`app/components/meetings/share-meeting-dialog.tsx` (meetings) both use
-`useShareButtonController`, `SharePeopleInvite`, `SharePeopleList`, and
-`ShareGeneralAccessRow`, so invites, roles, and the organization confirmation
-match every other app.
+Recordings and meetings use Toolkit `ShareButton` for the standard access,
+copy-link, and Send to controls. Existing recording password and expiry settings
+remain manageable from General access. Meeting transcript visibility remains a
+meeting-specific control. Pending redactions block sharing until they are burned
+into the recording. Private and password-protected recording agent handoffs use
+scoped recording agent links; a password-protected viewer cannot mint one.
 
-- **Tabs:** recordings show People, Agents, Embed, Social; meetings show People
-  and Agents. Keep that order. A viewer resharing someone else's clip gets no
-  People tab, and no Agents tab when the clip has a password.
-- **Copy link** is the link segment of the Share button (`JoinedShareControl`),
-  not a row inside the panel.
-- **Advanced** sits under General access, in `ShareGeneralAccessRow`'s
-  children, with a one-line summary beside it. For recordings it holds
-  Password required and Link expires, which call
-  `update-recording --password=...` / `--expiresAt=...`. For meetings it holds
-  Transcript on the share link (see the meetings skill).
-- **Embed** never changes access itself. When the clip isn't public, it explains
-  why and links back to General access, which opens the access menu so the
-  change goes through the same confirmation as any other. Copy embed code stays
-  disabled until the clip is public.
-
-Put any new generic sharing behavior in Toolkit, not in these Clips wrappers.
+Embed URLs remain available through `build-embed-url`; embedding does not change
+access. Public share pages emit link-preview metadata, while an iframe is a
+separate playback integration.
 
 ## Shared with me
 

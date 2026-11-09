@@ -42,7 +42,6 @@ import {
   IconMessageCircle,
   IconRefresh,
   IconPencil,
-  IconUserPlus,
   IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -897,8 +896,6 @@ const TOOLBAR_SIDEBAR_TRIGGER_WIDTH = 40;
 // the menu, and a phone's room stays above that step.
 const TOOLBAR_FOLD_ROOMS = [384, 320, 260, 152, 112];
 
-const WIDGET_SHARE_CONTROL_SIZE = "sm" as const;
-
 /**
  * How far the toolbar folds its controls at `width`, when `reserved` of it
  * holds the padding, the sidebar trigger and the breadcrumb at their
@@ -1599,23 +1596,14 @@ export function DocumentToolbar({
     }
     onUtilityPanelChange(nextPanel);
   };
-  const shareLabel = (
-    <span className="hidden @min-[40rem]/toolbar:inline">
-      {t("editor.toolbar.share")}
-    </span>
-  );
+  const shareLabel = t("editor.toolbar.share");
   const unopenedShareControl = (
     <JoinedShareControl
       trigger={
         <ShareTrigger
           aria-expanded={false}
           aria-label={t("editor.toolbar.share")}
-          label={
-            <span className="flex items-center gap-2">
-              <IconUserPlus aria-hidden="true" />
-              {shareLabel}
-            </span>
-          }
+          label={shareLabel}
           intent="primary"
           emphasis="solid"
           onPress={() => setShareRequested(true)}
@@ -1624,7 +1612,6 @@ export function DocumentToolbar({
       copyLabel={t("editor.toolbar.copyPageLink")}
       copiedLabel={t("editor.toolbar.copiedPageLink")}
       onCopy={handleCopyPageLink}
-      size={inWidget ? WIDGET_SHARE_CONTROL_SIZE : undefined}
     />
   );
   const openInAgentNativeLabel = t("editor.toolbar.openInAgentNative");
@@ -1637,8 +1624,7 @@ export function DocumentToolbar({
 
   return (
     <>
-      {/* As the toolbar narrows, the Edited label goes first, then the Share
-          and Suggesting labels, then controls fold by `toolbarFoldLevel`;
+      {/* As the toolbar narrows, the Edited label goes first, then the Suggesting label, then controls fold by `toolbarFoldLevel`;
           the breadcrumb folds its ancestors before the page title drops below
           a readable width. */}
       <div
@@ -1702,12 +1688,7 @@ export function DocumentToolbar({
                       pending={shareLocalFile.isPending}
                       disabled={shareLocalFile.isPending}
                       aria-label={t("editor.toolbar.share")}
-                      label={
-                        <span className="flex items-center gap-2">
-                          <IconUserPlus aria-hidden="true" />
-                          {shareLabel}
-                        </span>
-                      }
+                      label={shareLabel}
                     />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
@@ -1739,15 +1720,11 @@ export function DocumentToolbar({
                     shareUrl={shareUrl}
                     mobileSheet
                     triggerContent={shareLabel}
-                    // ShareButton wraps the label in a span gapped from its
-                    // icon; the gap goes with the label.
-                    triggerClassName="[&>span]:gap-0 @min-[40rem]/toolbar:[&>span]:gap-2"
                     showShareLinks={false}
                     quickCopy={{
                       label: t("editor.toolbar.copyPageLink"),
                       copiedLabel: t("editor.toolbar.copiedPageLink"),
                       onCopy: handleCopyPageLink,
-                      size: inWidget ? WIDGET_SHARE_CONTROL_SIZE : undefined,
                     }}
                     basicSharingOnly={inWidget}
                     peopleAccessLabel={t("editor.toolbar.whoHasAccess")}

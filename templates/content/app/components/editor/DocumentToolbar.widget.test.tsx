@@ -327,24 +327,20 @@ describe("DocumentToolbar in an MCP App widget", () => {
     expect(trigger?.className).not.toContain("size-11");
   });
 
-  it("draws the app's bar with Share at the 32px the other apps' widgets use", async () => {
+  it("draws the app's bar with the standard compact Share control", async () => {
     const measure = () => ({
       bar: container.querySelector<HTMLElement>(
         "[data-editor-selection-continuation]",
       )?.className,
-      share: byLabel("editor.toolbar.share")?.parentElement?.className,
+      share: byLabel("editor.toolbar.share")?.className,
       copy: byLabel("editor.toolbar.copyPageLink")?.className,
     });
 
     await renderToolbar(1040);
     const widget = measure();
     expect(widget.bar).toContain("h-12");
-    // The joined control sizes both segments for the compact widget toolbar.
-    expect(widget.share).toContain(
-      "[&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:!h-8",
-    );
-    expect(widget.share).not.toContain(":!h-9");
-    expect(widget.share).not.toContain("[&>*]:h-11");
+    expect(widget.share).toContain("h-8");
+    expect(widget.copy).toContain("size-8");
     expect(openLink()?.className).toContain("size-9");
     expect(openLink()?.className).not.toContain("size-11");
 
@@ -352,10 +348,7 @@ describe("DocumentToolbar in an MCP App widget", () => {
     mocks.widget.write = false;
     await renderToolbar(1040, { readOnly: false });
     const app = measure();
-    expect(app.share).toContain(
-      "[&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:!h-9",
-    );
-    expect(app.share).not.toContain("[&>*]:h-8");
+    expect(app.share).toEqual(widget.share);
     expect(app.bar).toEqual(widget.bar);
     expect(app.copy).toEqual(widget.copy);
   });
@@ -515,7 +508,8 @@ describe("DocumentToolbar in an MCP App widget", () => {
       expect(
         container.querySelector('[data-share-open="true"]'),
       ).not.toBeNull();
-      const props = mocks.shareProps[mocks.shareProps.length - 1];
+      const props = mocks.shareProps.at(-1);
+      if (!props) throw new Error("Missing share props");
       expect(props.resourceType).toBe("document");
       expect(props.resourceId).toBe("widget-fixture");
       expect(props.mobileSheet).toBe(true);
@@ -524,8 +518,9 @@ describe("DocumentToolbar in an MCP App widget", () => {
       // or open the app's agent deep links.
       expect(props.hideInSearchControl).toBeUndefined();
       expect(props.shareTabs).toBeUndefined();
-      // The popover's own trigger group matches the one drawn before it.
-      expect(props.quickCopy.size).toBe("sm");
+      expect(props.triggerContent).toBe("editor.toolbar.share");
+      expect(props.quickCopy.label).toBe("editor.toolbar.copyPageLink");
+      expect(props.quickCopy.onCopy).toEqual(expect.any(Function));
       expect(requests()).toEqual([]);
     });
 

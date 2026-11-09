@@ -56,7 +56,6 @@ import {
   IconLoader2,
   IconSearchOff,
   IconUsersGroup,
-  IconUserPlus,
 } from "@tabler/icons-react";
 import {
   type ComponentPropsWithoutRef,
@@ -100,6 +99,8 @@ export interface ShareButtonProps {
   actionEvent?: string;
   onShareSuccess?: () => void;
   defaultOpen?: boolean;
+  /** Show only link sharing without querying resource permissions. */
+  linkOnly?: boolean;
   shareUrl?: string;
   /** Use a bottom sheet for the share surface below the small-screen breakpoint. */
   mobileSheet?: boolean;
@@ -129,6 +130,7 @@ export interface ShareButtonProps {
     label: string;
     copiedLabel: string;
     onCopy: () => Promise<boolean | void> | boolean | void;
+    /** @deprecated Share controls always use the compact size. */
     size?: "default" | "sm";
     className?: string;
   };
@@ -164,6 +166,8 @@ export interface ShareButtonProps {
   allowedRoles?: readonly ShareButtonRole[] | undefined;
   peopleAccessLabel?: ReactNode;
   generalAccessLabel?: ReactNode;
+  /** Resource-specific controls shown with general access. */
+  generalAccessExtras?: (controller: ShareButtonController) => ReactNode;
   accessNote?: ReactNode;
   shareFooterContent?: ReactNode;
   hideInSearchControl?: {
@@ -380,6 +384,7 @@ export function ShareButton(props: ShareButtonProps) {
     resourceType: props.resourceType,
     resourceId: props.resourceId,
     defaultOpen: props.defaultOpen,
+    linkOnly: props.linkOnly,
     onOpenChange: props.onOpenChange,
     onShareSuccess: props.onShareSuccess,
     shareTabs: props.shareTabs,
@@ -413,36 +418,51 @@ export function ShareButton(props: ShareButtonProps) {
     controller.handleShareTabChange,
   ]);
   const triggerLabel = t("agentChat.share.share", { defaultValue: "Share" });
+  const shareUrl = props.shareUrl;
+  const quickCopy: ShareButtonProps["quickCopy"] =
+    props.quickCopy ??
+    (shareUrl
+      ? {
+          label: t("agentChat.share.copyLink", { defaultValue: "Copy link" }),
+          copiedLabel: t("agentChat.share.copied", { defaultValue: "Copied" }),
+          onCopy: async () => {
+            if (!(await writeClipboardText(shareUrl))) {
+              toast.error(
+                t("agentChat.share.copyLinkFailed", {
+                  defaultValue: "Couldn't copy the link.",
+                }),
+              );
+              return false;
+            }
+            trackEvent("share_link_copied", {
+              resource_type: props.resourceType,
+              resource_id: props.resourceId,
+              link_type: "share",
+            });
+            return true;
+          },
+        }
+      : undefined);
   const trigger = (
     <ShareTrigger
-      label={
-        props.quickCopy ? (
-          <span className="flex items-center gap-2">
-            <IconUserPlus aria-hidden="true" />
-            <span>{props.triggerContent ?? triggerLabel}</span>
-          </span>
-        ) : (
-          (props.triggerContent ?? triggerLabel)
-        )
-      }
+      label={props.triggerContent ?? triggerLabel}
       className={props.triggerClassName}
       aria-label={triggerLabel}
       title={triggerLabel}
-      intent={props.quickCopy ? "primary" : undefined}
-      emphasis={props.quickCopy ? "solid" : undefined}
+      intent={quickCopy ? "primary" : undefined}
+      emphasis={quickCopy ? "solid" : undefined}
     />
   );
   if (isSmallScreen) {
     return (
       <Sheet open={controller.open} onOpenChange={controller.handleOpenChange}>
-        {props.hideTrigger ? null : props.quickCopy ? (
+        {props.hideTrigger ? null : quickCopy ? (
           <JoinedShareControl
             trigger={<SheetTrigger asChild>{trigger}</SheetTrigger>}
-            copyLabel={props.quickCopy.label}
-            copiedLabel={props.quickCopy.copiedLabel}
-            onCopy={props.quickCopy.onCopy}
-            size={props.quickCopy.size}
-            className={props.quickCopy.className}
+            copyLabel={quickCopy.label}
+            copiedLabel={quickCopy.copiedLabel}
+            onCopy={quickCopy.onCopy}
+            className={quickCopy.className}
           />
         ) : (
           <SheetTrigger asChild>{trigger}</SheetTrigger>
@@ -474,15 +494,14 @@ export function ShareButton(props: ShareButtonProps) {
             <span aria-hidden="true" className="fixed end-4 top-16 size-px" />
           )}
         </PopoverAnchor>
-      ) : props.quickCopy ? (
+      ) : quickCopy ? (
         <PopoverAnchor asChild>
           <JoinedShareControl
             trigger={<PopoverTrigger asChild>{trigger}</PopoverTrigger>}
-            copyLabel={props.quickCopy.label}
-            copiedLabel={props.quickCopy.copiedLabel}
-            onCopy={props.quickCopy.onCopy}
-            size={props.quickCopy.size}
-            className={props.quickCopy.className}
+            copyLabel={quickCopy.label}
+            copiedLabel={quickCopy.copiedLabel}
+            onCopy={quickCopy.onCopy}
+            className={quickCopy.className}
           />
         </PopoverAnchor>
       ) : (
@@ -544,9 +563,12 @@ function SharePanel(
     <ShareFooter
       {...props}
       agentReadable={
-        !props.basicSharingOnly && !loadFailed && data?.agentReadable === true
+        !props.linkOnly &&
+        !props.basicSharingOnly &&
+        !loadFailed &&
+        data?.agentReadable === true
       }
-      agentRead={loadFailed ? undefined : data?.agentRead}
+      agentRead={props.linkOnly || loadFailed ? undefined : data?.agentRead}
     />
   );
   const extraTabs = props.shareTabs?.tabs ?? [];
@@ -595,6 +617,7 @@ function SharePanel(
         roleCopy={props.roleCopy}
         allowedRoles={allowedRolesFor(props)}
       >
+        {props.generalAccessExtras?.(controller)}
         {visibility === "org" && props.hideInSearchControl ? (
           <AdvancedAccessPopover
             control={props.hideInSearchControl}
@@ -606,7 +629,9 @@ function SharePanel(
     </section>
   );
 
-  const sharePanel = loadFailed ? (
+  const sharePanel = props.linkOnly ? (
+    <div className="flex flex-col gap-4">{footer}</div>
+  ) : loadFailed ? (
     <div className="flex flex-col gap-4">
       <div
         role="alert"
