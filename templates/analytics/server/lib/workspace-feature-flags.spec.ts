@@ -581,6 +581,68 @@ describe("verified fleet feature flag transaction", () => {
       });
     });
 
+    it("reads a global write back even with the verification flag off", async () => {
+      mocks.isFeatureFlagEnabled.mockImplementation(
+        async (flag: string | { key: string }) =>
+          (typeof flag === "string" ? flag : flag.key) !==
+          "analytics.verified-fleet-flag-mutations",
+      );
+      const targetFetch = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          response(200, listBody(scopes({ state: "unset" }))),
+        )
+        .mockResolvedValueOnce(response(200, globalMutation))
+        .mockResolvedValueOnce(
+          response(200, listBody(scopes({ state: "set", rules: on }))),
+        );
+
+      await expect(
+        setWorkspaceFeatureFlag(admin, {
+          appId: "mail",
+          key: "new-editor",
+          operation: "replace-rules",
+          scope: "global",
+          rules: { mode: "on" },
+        }),
+      ).resolves.toMatchObject({
+        status: "verified",
+        scope: { kind: "global", orgId: null },
+      });
+      expect(targetFetch).toHaveBeenCalledTimes(3);
+    });
+
+    it("fails verification when a global write is read back without its rows", async () => {
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          response(200, listBody(scopes({ state: "unset" }))),
+        )
+        .mockResolvedValueOnce(response(200, globalMutation))
+        .mockResolvedValueOnce(
+          response(200, {
+            ...listBody(undefined),
+            flags: [
+              {
+                key: "new-editor",
+                defaultValue: false,
+                rules: on,
+                enabledForCurrentUser: true,
+              },
+            ],
+          }),
+        );
+
+      await expect(
+        setWorkspaceFeatureFlag(admin, {
+          appId: "mail",
+          key: "new-editor",
+          operation: "replace-rules",
+          scope: "global",
+          rules: { mode: "on" },
+        }),
+      ).rejects.toMatchObject({ phase: "verification" });
+    });
+
     it("refuses before writing when the target cannot report its global rule", async () => {
       const targetFetch = vi
         .spyOn(globalThis, "fetch")

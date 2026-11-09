@@ -1,5 +1,6 @@
 import { getOrgRoleForEmail } from "../mcp/actions/service-token-access.js";
 import { canManageOrg } from "../org/permissions.js";
+import { getRequestContext } from "../server/request-context.js";
 import type { FeatureFlagRuleScope } from "./store.js";
 
 export class FeatureFlagPermissionError extends Error {
@@ -48,6 +49,10 @@ export async function getFeatureFlagManagerAccess(
     );
   }
   const orgId = scope?.orgId?.trim() || null;
+  // An org-member A2A delegation proves membership, not the person: the org's
+  // secret can mint one for any member, so it never carries list authority.
+  const delegatedMember =
+    getRequestContext()?.a2aIdentityAssurance === "org-member";
   return {
     email,
     orgId,
@@ -55,8 +60,9 @@ export async function getFeatureFlagManagerAccess(
       ? canManageOrg(await getOrgRoleForEmail(orgId, email))
       : false,
     canManageGlobal:
-      isFeatureFlagAdminEmail(email) ||
-      (!orgId && process.env.NODE_ENV !== "production"),
+      !delegatedMember &&
+      (isFeatureFlagAdminEmail(email) ||
+        (!orgId && process.env.NODE_ENV !== "production")),
   };
 }
 

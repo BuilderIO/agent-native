@@ -79,6 +79,8 @@ const setAction = (await import("./set-feature-flag.js")).default;
 const listAction = (await import("./list-feature-flags.js")).default;
 const { createFeatureFlagA2AActionRouteAuth } =
   await import("../a2a-action-route.js");
+const { runWithRequestContext } =
+  await import("../../server/request-context.js");
 
 const KEY = "new-editor";
 const GLOBAL_ROW = `feature-flag:${KEY}`;
@@ -324,6 +326,29 @@ describe("A2A global writes", () => {
     ).resolves.toMatchObject({ scope: { kind: "global", orgId: null } });
     expect(consumeOneTimeJti).toHaveBeenCalledWith("jti-2");
     expect(stored(GLOBAL_ROW)).toMatchObject({ mode: "on" });
+  });
+
+  describe("from an org-member delegation", () => {
+    const orgMember = {
+      userEmail: "site-admin@example.test",
+      orgId: "org-1",
+      a2aIdentityAssurance: "org-member" as const,
+    };
+
+    it("refuses a global write even for an email on the list", async () => {
+      await expect(
+        runWithRequestContext(orgMember, () =>
+          delegate("site-admin@example.test", "jti-4"),
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(stored(GLOBAL_ROW)).toBeUndefined();
+    });
+
+    it("gives an email on the list no read access either", async () => {
+      await expect(
+        runWithRequestContext(orgMember, () => listAction.run({}, orgMember)),
+      ).resolves.toMatchObject({ status: "forbidden", flags: [] });
+    });
   });
 
   it("still refuses a replayed delegation before writing", async () => {

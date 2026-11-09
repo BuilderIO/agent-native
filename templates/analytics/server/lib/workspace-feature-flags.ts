@@ -575,9 +575,13 @@ function verifyReadBackFlag(
   if (!verifiedFlag) throw new WorkspaceFeatureFlagFailure("verification");
   const scope = mutationScope(input);
   const scopes = readBackScopes(verifiedFlag);
+  // A list without `scopes` reports only the rule in effect, which can stand
+  // in for an org write but never proves the global row was written.
   const writtenRow: ReadBackRule | null | undefined = scopes
     ? scopes[scope]
-    : { state: "set", rules: verifiedFlag.rules };
+    : scope === "org"
+      ? { state: "set", rules: verifiedFlag.rules }
+      : undefined;
   const decidesOperator = !scopes || scopes.inEffect === scope;
   const enabled = verifiedFlag.enabledForCurrentUser;
   const expectedEnabled =
@@ -816,7 +820,10 @@ export async function setWorkspaceFeatureFlag(
     throw new WorkspaceFeatureFlagFailure("persistence");
   }
 
+  // A global write reaches every org, so it is always read back, whatever the
+  // verification flag says.
   if (
+    targetInput.scope !== "global" &&
     !(await isFeatureFlagEnabled(VERIFIED_FLEET_FLAG_MUTATIONS, {
       userEmail: admin.userEmail,
       userKey: admin.userEmail,
