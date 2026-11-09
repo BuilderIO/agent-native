@@ -9,9 +9,13 @@ const AV_WRITER_STATUS_COMPLETED: i64 = 2;
 const AUDIO_FORMAT_AAC: i64 = 0x6161_6320;
 const OUTPUT_SEGMENT_INTERVAL_SECONDS: i64 = 1;
 const CAPTURE_VIDEO_BPP: f64 = 0.15;
-// Counted in encoded frames, not time: ScreenCaptureKit only delivers a frame
-// when the screen changes, so a still screen produces no keyframes.
-const CAPTURE_MAX_KEYFRAME_INTERVAL_FRAMES: u64 = NATIVE_CAPTURE_FPS as u64 * 3 / 4;
+// AVAssetWriter closes the first media fragment once a second video frame lands
+// past the first segment boundary. ScreenCaptureKit only delivers a frame when
+// the screen changes, so a still screen never gets there.
+const FIRST_FRAGMENT_CLOSING_FRAMES: u64 = 2;
+// Frames arrive at most NATIVE_CAPTURE_FPS a second, so this gives the writer
+// half a second to emit the fragment before startup counts it as stuck.
+const FIRST_FRAGMENT_LATENCY_FRAMES: u64 = NATIVE_CAPTURE_FPS as u64 / 2;
 
 const CAPTURE_STALL_TIMEOUT: Duration = Duration::from_secs(4);
 const CAPTURE_WATCHDOG_POLL: Duration = Duration::from_millis(1000);
@@ -3173,7 +3177,7 @@ unsafe fn av_video_output_settings(
         AVVideoExpectedSourceFrameRateKey,
         &expected_fps,
     );
-    let keyframe_interval = av_number_i64(CAPTURE_MAX_KEYFRAME_INTERVAL_FRAMES.max(1) as i64)
+    let keyframe_interval = av_number_i64((i64::from(NATIVE_CAPTURE_FPS) * 3 / 4).max(1))
         .ok_or_else(|| "NSNumber keyframe interval failed".to_string())?;
     av_dict_set(
         &compression,
@@ -3634,7 +3638,7 @@ fn await_segmented_capture_readiness(
     let frames_past_first_segment = writer.video_frames_past_first_segment();
     if first_fragment_awaits_screen_changes(frames_past_first_segment) {
         crate::logfile::diagnostic(&format!(
-            "[capture-health] segmented capture ready before its first media fragment: {frames_past_first_segment} video frame(s) after the first segment boundary, too few to force a keyframe (screen={screen}, usable_screen={usable_screen}); the fragment follows when the screen changes or the capture stops"
+            "[capture-health] segmented capture ready before its first media fragment: {frames_past_first_segment} video frame(s) after the first segment boundary, too few to close it (screen={screen}, usable_screen={usable_screen}); the fragment follows when the screen changes or the capture stops"
         ));
         return Ok(());
     }
@@ -3651,12 +3655,10 @@ fn await_segmented_capture_readiness(
     ))
 }
 
-// The first fragment closes at the first keyframe past the segment boundary.
-// The encoder owes one within a keyframe interval of frames; the second
-// interval covers encoder and writer latency. Fewer frames than that means the
-// screen hasn't changed enough yet, not that the writer is stuck.
+// Too few frames past the boundary means the screen hasn't changed enough yet,
+// not that the writer is stuck.
 fn first_fragment_awaits_screen_changes(video_frames_past_first_segment: u64) -> bool {
-    video_frames_past_first_segment < 2 * CAPTURE_MAX_KEYFRAME_INTERVAL_FRAMES
+    video_frames_past_first_segment < FIRST_FRAGMENT_CLOSING_FRAMES + FIRST_FRAGMENT_LATENCY_FRAMES
 }
 
 fn spawn_capture_watchdog(
@@ -4304,17 +4306,14 @@ mod fragment_fence_tests {
 
     #[test]
     fn still_screen_cannot_fail_segmented_capture_startup() {
-        // Failed Rewind starts on Oct 21 had 2, 19 and 24 changed frames in
-        // the whole three-second wait.
-        for frames in [0, 2, 19, 24] {
-            assert!(first_fragment_awaits_screen_changes(frames), "{frames}");
-        }
-        assert!(first_fragment_awaits_screen_changes(
-            2 * CAPTURE_MAX_KEYFRAME_INTERVAL_FRAMES - 1
-        ));
-        assert!(!first_fragment_awaits_screen_changes(
-            2 * CAPTURE_MAX_KEYFRAME_INTERVAL_FRAMES
-        ));
+        // A still screen, or one that changed only before the boundary, has at
+        // most one frame past it and no fragment.
+        assert!(first_fragment_awaits_screen_changes(0));
+        assert!(first_fragment_awaits_screen_changes(1));
+        // Two frames close the fragment; the rest is the writer's latency.
+        let stuck_after = FIRST_FRAGMENT_CLOSING_FRAMES + FIRST_FRAGMENT_LATENCY_FRAMES;
+        assert!(first_fragment_awaits_screen_changes(stuck_after - 1));
+        assert!(!first_fragment_awaits_screen_changes(stuck_after));
         // A moving screen fills two seconds past the boundary within the
         // wait, so a writer that produces nothing still fails startup.
         let moving_screen_frames = 2 * u64::from(NATIVE_CAPTURE_FPS);
