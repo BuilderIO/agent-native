@@ -1677,6 +1677,7 @@ export function useEditorToolsAndVectors({
     ],
   );
 
+  const selectionPublishFailedLabel = t("designEditor.selectionPublishFailed");
   const screenFrameTypeCacheRef = useRef<ScreenFrameTypeCache>(new Map());
   const agentSelectionScreens = useMemo(
     () =>
@@ -1708,6 +1709,7 @@ export function useEditorToolsAndVectors({
         },
         interactTheme,
         isSignedIn,
+        selectionPublishFailedLabel,
         mode,
         motionAutoKeyframeEnabled,
         motionDockOpen,
@@ -1758,6 +1760,7 @@ export function useEditorToolsAndVectors({
       selectedStateId,
       openReviewThreadId,
       isSignedIn,
+      selectionPublishFailedLabel,
       interactDeviceName,
       interactDeviceSize.width,
       interactDeviceSize.height,

@@ -1039,7 +1039,6 @@ export default {
   },
   designEditor: {
     sourceLoadFailed: "이 화면을 불러올 수 없습니다.",
-    writeFailed: "변경 사항을 저장하지 못했습니다.",
     selectionPublishFailed:
       "에이전트가 최신 선택 영역을 보지 못할 수 있습니다. 다시 선택해 주세요.",
     liveCollaboration: {

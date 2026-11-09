@@ -34,6 +34,7 @@ import {
 import { type ErrorReportDebugItem } from "@agent-native/core/client/ui";
 import { isFreeEmailProvider } from "@agent-native/core/org/free-email-providers";
 import { commentExcerpt } from "@agent-native/core/review/plain-text";
+import { saveWithMerge } from "@agent-native/core/save-conflict";
 import { docsUrl } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
@@ -61,6 +62,7 @@ import {
   type PlanCommentMention,
   type PlanCommentResolutionTarget,
 } from "@shared/comment-context";
+import { mergePlanBlocks } from "@shared/plan-blocks-merge";
 import type {
   PlanAnnotation,
   PlanBlock,
@@ -290,8 +292,10 @@ import {
   type RuntimeAnnotationParticipant,
 } from "@/lib/plan-annotation-runtime";
 import {
-  saveBlocksMergingConflicts,
-  type PlanBlocksRevision,
+  startBlockSave,
+  type OwnBlockSave,
+  type PlanBlocksOverlapResolver,
+  type SavedPlanBlocks,
 } from "@/lib/plan-block-save";
 import {
   appendMessageToEditor,
@@ -4035,75 +4039,74 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   };
 
-  // The newest block save this tab made, with the blocks it sent. Until the
-  // open document adopts the saved result, that save (not the older revision
+  // The newest block save this tab made, with the blocks the document held. Until
+  // the open document adopts the saved result, that save (not the older revision
   // the document still reports) is what the next edit was made on top of, and
-  // the blocks sent, not the merged result, are what the document holds.
-  const lastBlockSaveRef = useRef<{
-    planId: string;
-    updatedAt: string;
-    sent: PlanBlock[];
-  } | null>(null);
+  // those blocks, not the merged result, are what the document holds.
+  const lastBlockSaveRef = useRef<OwnBlockSave | null>(null);
 
   // `base` is the saved revision the open document's edits were made on top
   // of; without a document (no live editor) the plan as loaded stands in.
   const saveBlocks = async (
     plan: PlanBundleWithHtml["plan"],
     blocks: PlanBlock[],
-    documentBase: PlanBlocksRevision | null | undefined,
+    documentBase: SavedPlanBlocks | null | undefined,
+    resolveOverlap: PlanBlocksOverlapResolver | undefined,
   ) => {
     const planId = plan.id;
-    const toRevision = (saved: PlanBundleWithHtml): PlanBlocksRevision => {
-      if (!saved.plan?.content) {
-        throw new Error("The saved plan has no structured content.");
-      }
-      return {
-        updatedAt: saved.plan.updatedAt,
-        blocks: saved.plan.content.blocks,
-      };
-    };
-    const loaded =
-      documentBase ??
-      (plan.content
-        ? { updatedAt: plan.updatedAt, blocks: plan.content.blocks }
-        : null);
     const own = lastBlockSaveRef.current;
-    const base =
-      own?.planId === planId && (!loaded || own.updatedAt >= loaded.updatedAt)
-        ? { updatedAt: own.updatedAt, blocks: own.sent }
-        : loaded;
-    const saved = await saveBlocksMergingConflicts({
-      base,
+    const { base, mine } = startBlockSave(
+      own?.planId === planId ? own : null,
+      documentBase,
+      plan.content
+        ? { value: plan.content.blocks, revision: plan.updatedAt }
+        : null,
       blocks,
-      save: async (nextBlocks, expectedUpdatedAt) =>
-        toRevision(
-          await savePlanBlocks.mutateAsync({
-            planId,
-            expectedUpdatedAt,
-            contentPatches: [{ op: "replace-blocks", blocks: nextBlocks }],
-            note: "Patched structured visual plan content.",
-          }),
-        ),
-      readLatest: async () =>
-        toRevision(
-          await callAction<PlanBundleWithHtml>(
-            "get-visual-plan",
-            planBundleQueryParams(planId),
-            { method: "GET" },
-          ),
-        ),
+    );
+    // Not `mine`, which can carry what the last save's merge brought in before
+    // the document has it. After a choice the document holds that version.
+    let held = blocks;
+    const saved = await saveWithMerge<PlanBlock[]>({
+      base,
+      mine,
+      merge: mergePlanBlocks,
+      parseCurrent: (current) => (current as PlanContent).blocks,
+      resolveOverlap:
+        resolveOverlap &&
+        (async (overlap, finished) => {
+          held = await resolveOverlap(overlap, finished);
+          return held;
+        }),
+      save: async ({ value, revision }) => {
+        const result = await savePlanBlocks.mutateAsync({
+          planId,
+          ...(revision ? { expectedUpdatedAt: revision } : {}),
+          contentPatches: [{ op: "replace-blocks", blocks: value }],
+          note: "Patched structured visual plan content.",
+        });
+        if (!result.plan?.content) {
+          throw new Error("The saved plan has no structured content.");
+        }
+        return {
+          value: result.plan.content.blocks,
+          revision: result.plan.updatedAt,
+        };
+      },
     });
     lastBlockSaveRef.current = {
       planId,
-      updatedAt: saved.updatedAt,
-      sent: blocks,
+      startedFrom: base.revision,
+      held,
+      saved,
     };
-    return saved;
   };
 
   const patchStructuredContent = async (
     patch: PlanContentPatch,
-    options?: { base?: PlanBlocksRevision | null },
+    options?: {
+      base?: SavedPlanBlocks | null;
+      resolveOverlap?: PlanBlocksOverlapResolver;
+    },
   ) => {
     if (!bundle) return;
     if (localPlanMode) {
@@ -4123,7 +4126,12 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       return;
     }
     if (patch.op === "replace-blocks") {
-      await saveBlocks(bundle.plan, patch.blocks, options?.base);
+      await saveBlocks(
+        bundle.plan,
+        patch.blocks,
+        options?.base,
+        options?.resolveOverlap,
+      );
       return;
     }
     await updatePlan.mutateAsync({
