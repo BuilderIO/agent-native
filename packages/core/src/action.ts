@@ -1713,9 +1713,11 @@ export function defineAction(options: any) {
     }
     if (
       !isMcpReadOnlyTool({
-        readOnly,
-        planMode: options.planMode,
-        mcpAnnotations,
+        readOnly: readOnly === true,
+        ...(options.planMode === undefined
+          ? {}
+          : { planMode: options.planMode }),
+        ...(mcpAnnotations === undefined ? {} : { mcpAnnotations }),
       })
     ) {
       throw new TypeError(

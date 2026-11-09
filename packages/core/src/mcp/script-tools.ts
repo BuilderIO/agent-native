@@ -178,13 +178,14 @@ export function buildMcpScriptCatalog(
   for (const [fn, named] of [...byName].sort(([a], [b]) =>
     a.localeCompare(b),
   )) {
-    const [only, ...others] = named;
-    if (others.length > 0) {
+    if (named.length > 1) {
       collisions.set(fn, named.map(([name]) => name).sort());
       continue;
     }
-    byFunction.set(fn, only[0]);
-    actions[only[0]] = only[1];
+    for (const [name, entry] of named) {
+      byFunction.set(fn, name);
+      actions[name] = entry;
+    }
   }
   return Object.freeze({
     byFunction,
@@ -212,9 +213,20 @@ export function explainMcpScriptDenial(
     const policy = mcpScriptCallPolicy(name, entry);
     if (!policy.allowed) return { action: name, reason: policy.reason };
   }
-  return named.length > 0
-    ? { action: named[0][0], reason: "out-of-scope" }
-    : { action: undefined, reason: "unknown-function" };
+  const first = named.at(0);
+  return first === undefined
+    ? { action: undefined, reason: "unknown-function" }
+    : { action: first[0], reason: "out-of-scope" };
+}
+
+/** The catalog's entry for `action`, if the catalog has one. */
+function scriptCatalogEntry(
+  catalog: McpScriptCatalog,
+  action: string,
+): ActionEntry | undefined {
+  return Object.hasOwn(catalog.actions, action)
+    ? catalog.actions[action]
+    : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -405,7 +417,8 @@ function schemaType(
         union.map((member) => schemaType(member, scope, depth + 1, indent)),
       ),
     ];
-    parts.push(members.length === 1 ? members[0] : `(${members.join(" | ")})`);
+    const joined = members.join(" | ");
+    parts.push(members.length === 1 ? joined : `(${joined})`);
   }
   if (STRUCTURAL_KEYS.some((key) => schema[key] !== undefined)) {
     const base = Object.fromEntries(
@@ -416,9 +429,7 @@ function schemaType(
   const type =
     parts.length === 0
       ? "unknown"
-      : parts.length === 1
-        ? parts[0]
-        : parts.map(parenthesize).join(" & ");
+      : (parts.length === 1 ? parts : parts.map(parenthesize)).join(" & ");
   return schema.nullable === true ? `${parenthesize(type)} | null` : type;
 }
 
@@ -697,7 +708,8 @@ export function searchMcpScriptActions(
     for (const [fn, action] of catalog.byFunction) {
       if (matched.length >= MAX_SEARCH_MATCHES) break;
       if (matched.includes(action)) continue;
-      const entry = catalog.actions[action];
+      const entry = scriptCatalogEntry(catalog, action);
+      if (entry === undefined) continue;
       const haystack = [
         fn,
         action,
@@ -715,7 +727,10 @@ export function searchMcpScriptActions(
     );
   }
   const body = matched
-    .map((action) => mcpScriptDeclaration(action, catalog.actions[action]))
+    .flatMap((action) => {
+      const entry = scriptCatalogEntry(catalog, action);
+      return entry === undefined ? [] : [mcpScriptDeclaration(action, entry)];
+    })
     .join("\n\n");
   const lines = [`declare const api: {\n${body}${body ? "\n" : ""}};`];
   if (missing.length > 0) {
@@ -1111,13 +1126,17 @@ export async function runMcpScript(
                   : `api.${fn} takes one object of JSON data.`;
           }
           const action = input.catalog.byFunction.get(fn);
+          const entry =
+            action === undefined
+              ? undefined
+              : scriptCatalogEntry(input.catalog, action);
           // The catalog holds only what the policy allows; asking again at
           // the call keeps it in force if an entry has changed since.
           const policy =
-            action === undefined
+            action === undefined || entry === undefined
               ? undefined
-              : mcpScriptCallPolicy(action, input.catalog.actions[action]);
-          if (action === undefined || policy?.allowed === false) {
+              : mcpScriptCallPolicy(action, entry);
+          if (action === undefined || policy?.allowed !== true) {
             const denial =
               policy?.allowed === false
                 ? { action, reason: policy.reason }
@@ -1714,7 +1733,7 @@ export async function recordMcpScriptDenial(
     args: denial.args,
     ctx: {
       actionName: denial.action ?? `api.${denial.functionName}`,
-      userEmail: context.userEmail,
+      ...(context.userEmail ? { userEmail: context.userEmail } : {}),
       orgId: context.orgId ?? null,
     },
     attribution: runOutsideActionInvocation(() =>
