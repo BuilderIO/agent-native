@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { resolveChatModelAvailability } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -78,7 +79,7 @@ export async function queueTitleRegenerationRequest({
   transcriptText: string;
   transcriptStatus?: string;
   segmentsJson?: string | null;
-  ownerEmail?: string | null;
+  ownerEmail?: string | null | undefined;
   includeFullVideoInAi?: boolean;
   includeSummary?: boolean;
 }) {
@@ -130,6 +131,13 @@ export async function queueTitleRegenerationRequest({
   return request;
 }
 
+const queueRefusedResult = (recordingId: string, reason: string | null) => ({
+  updated: false,
+  skipped: true,
+  reason: reason ?? "ai_model_unavailable",
+  recordingId,
+});
+
 export default defineAction({
   description:
     "Regenerate this recording's title from its transcript using the configured cleanup/title path, falling back to a local transcript title when unavailable. When the user has enabled Include full video, delegates to the agent so it can watch the recording.",
@@ -171,6 +179,31 @@ export default defineAction({
     const earlierAudioRemovedSinceRead = async () =>
       (await readEarlierAudioRemovedAt(db, args.recordingId)) !==
       earlierAudioRemovedAt;
+    // The queue refuses when no model can run or the check could not be made.
+    // An automatic request keeps the local title and reports why nothing was
+    // queued; a manual one fails loudly so the caller sees it.
+    let queueRefusal:
+      | "ai_model_unavailable"
+      | "ai_model_lookup_unavailable"
+      | null = null;
+    const queueTitle = async (
+      input: Parameters<typeof queueTitleRegenerationRequest>[0],
+    ) => {
+      try {
+        return await queueTitleRegenerationRequest(input);
+      } catch (error) {
+        const code = (error as { errorCode?: unknown }).errorCode;
+        if (
+          args.automatic &&
+          (code === "ai_model_unavailable" ||
+            code === "ai_model_lookup_unavailable")
+        ) {
+          queueRefusal = code;
+          return null;
+        }
+        throw error;
+      }
+    };
     const [rec] = await db
       .select({
         id: schema.recordings.id,
@@ -215,7 +248,7 @@ export default defineAction({
           recordingId: args.recordingId,
         };
       }
-      const queuedRequest = await queueTitleRegenerationRequest({
+      const queuedRequest = await queueTitle({
         recordingId: args.recordingId,
         currentTitle: rec.title,
         currentDescription: rec.description,
@@ -226,6 +259,8 @@ export default defineAction({
         includeFullVideoInAi: true,
         includeSummary: args.includeSummary,
       });
+      if (!queuedRequest)
+        return queueRefusedResult(args.recordingId, queueRefusal);
       console.log(
         `Delegation queued: regenerate-title (full video) for ${args.recordingId}`,
       );
@@ -295,7 +330,14 @@ export default defineAction({
       purpose: "title",
     });
 
+    // Skipped before the title attempt: without a model it fails every time,
+    // and the client bridge re-asks for each candidate whenever it mounts.
+    const modelUnavailable =
+      (await resolveChatModelAvailability()) === "unavailable";
+    const noModel = new Error("No chat model is available");
+
     try {
+      if (modelUnavailable) throw noModel;
       const result = await cleanupTranscript.run({
         transcript: transcriptText,
         task: "title",
@@ -376,10 +418,12 @@ export default defineAction({
       builderCreditsPaused = isBuilderCreditsExhaustedMessage(
         (err as Error)?.message ?? String(err),
       );
-      console.warn(
-        `[clips] AI title generation failed for ${args.recordingId}; falling back to local title:`,
-        (err as Error).message,
-      );
+      if (err !== noModel) {
+        console.warn(
+          `[clips] AI title generation failed for ${args.recordingId}; falling back to local title:`,
+          (err as Error).message,
+        );
+      }
     }
 
     const fallbackTitle = fallbackTitleFromTranscript(transcriptText);
@@ -422,7 +466,7 @@ export default defineAction({
           };
         }
         await writeAppState("refresh-signal", { ts: Date.now() });
-        const queuedRequest = await queueTitleRegenerationRequest({
+        const queuedRequest = await queueTitle({
           recordingId: args.recordingId,
           currentTitle: fallbackTitle,
           currentDescription: rec.description,
@@ -433,6 +477,16 @@ export default defineAction({
           includeFullVideoInAi: false,
           includeSummary: args.includeSummary,
         });
+        if (!queuedRequest) {
+          return {
+            updated: true,
+            queued: false,
+            recordingId: args.recordingId,
+            title: fallbackTitle,
+            provider: "local",
+            queueSkippedReason: queueRefusal,
+          };
+        }
 
         console.log(
           `Set temporary title for ${args.recordingId} via local fallback and queued transcript-backed refinement: ${fallbackTitle}`,
@@ -468,7 +522,7 @@ export default defineAction({
       };
     }
 
-    const queuedRequest = await queueTitleRegenerationRequest({
+    const queuedRequest = await queueTitle({
       recordingId: args.recordingId,
       currentTitle: rec.title,
       currentDescription: rec.description,
@@ -479,6 +533,8 @@ export default defineAction({
       includeFullVideoInAi: false,
       includeSummary: args.includeSummary,
     });
+    if (!queuedRequest)
+      return queueRefusedResult(args.recordingId, queueRefusal);
 
     console.log(`Delegation queued: regenerate-title for ${args.recordingId}`);
     return {

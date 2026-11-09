@@ -56,6 +56,11 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
+const mockChatModelAvailability = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/server", () => ({
+  resolveChatModelAvailability: mockChatModelAvailability,
+}));
+
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: vi.fn(() => "owner@example.com"),
 }));
@@ -153,6 +158,7 @@ describe("regenerate-title fallback refinement", () => {
     mockCompareAndSetManyAppState.mockResolvedValue(true);
     mockUpdateReturning.mockResolvedValue([{ id: "rec_1" }]);
     mockLoadAgentsContext.mockResolvedValue("");
+    mockChatModelAvailability.mockResolvedValue("available");
   });
 
   it("does not automatically replace a manually chosen default title", async () => {
@@ -549,6 +555,110 @@ describe("regenerate-title fallback refinement", () => {
       queued: true,
       provider: "local",
       summaryQueued: true,
+    });
+  });
+  it("keeps the local title and queues no agent work when no chat model is available", async () => {
+    mockChatModelAvailability.mockResolvedValue("unavailable");
+    mockCleanupTranscriptRun.mockRejectedValue(new Error("no model"));
+    mockSelectRows.queue = [
+      [
+        {
+          id: "rec_1",
+          title: "Untitled recording",
+          titleSource: "default",
+          description: "",
+        },
+      ],
+      [
+        {
+          status: "ready",
+          fullText:
+            "The CPQ tool cannot show the SLA fee as a separate line item today.",
+          segmentsJson: "[]",
+          ownerEmail: "owner@example.com",
+        },
+      ],
+      [{ title: "Untitled recording", titleSource: "default" }],
+    ];
+
+    const result = await regenerateTitle.run({
+      recordingId: "rec_1",
+      automatic: true,
+      includeSummary: true,
+    });
+
+    expect(mockCleanupTranscriptRun).not.toHaveBeenCalled();
+    expect(mockUpdateSet).toHaveBeenCalled();
+    expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      updated: true,
+      queued: false,
+      provider: "local",
+    });
+  });
+  it("fails a manual request loudly when no chat model is available", async () => {
+    mockChatModelAvailability.mockResolvedValue("unavailable");
+    mockSelectRows.queue = [
+      [
+        {
+          id: "rec_1",
+          title: "My clip",
+          titleSource: "default",
+          description: "",
+        },
+      ],
+      [
+        {
+          status: "ready",
+          fullText:
+            "The CPQ tool cannot show the SLA fee as a separate line item today.",
+          segmentsJson: "[]",
+          ownerEmail: "owner@example.com",
+        },
+      ],
+      [{ title: "My clip", titleSource: "default" }],
+    ];
+
+    await expect(
+      regenerateTitle.run({ recordingId: "rec_1", automatic: false }),
+    ).rejects.toMatchObject({ errorCode: "ai_model_unavailable" });
+    expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+  });
+  it("keeps the local title and reports the refusal when the model check is unreadable", async () => {
+    mockChatModelAvailability.mockResolvedValue("unknown");
+    mockCleanupTranscriptRun.mockRejectedValue(new Error("no model"));
+    mockSelectRows.queue = [
+      [
+        {
+          id: "rec_1",
+          title: "Untitled recording",
+          titleSource: "default",
+          description: "",
+        },
+      ],
+      [
+        {
+          status: "ready",
+          fullText:
+            "The CPQ tool cannot show the SLA fee as a separate line item today.",
+          segmentsJson: "[]",
+          ownerEmail: "owner@example.com",
+        },
+      ],
+      [{ title: "Untitled recording", titleSource: "default" }],
+    ];
+
+    const result = await regenerateTitle.run({
+      recordingId: "rec_1",
+      automatic: true,
+    });
+
+    expect(mockUpdateSet).toHaveBeenCalled();
+    expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      updated: true,
+      queued: false,
+      queueSkippedReason: "ai_model_lookup_unavailable",
     });
   });
 });

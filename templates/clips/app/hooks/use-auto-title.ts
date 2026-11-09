@@ -70,6 +70,8 @@ type QueuedAiRequest = AiRequest & { recordingId: string };
 interface ListAiRequestsResult {
   requests: QueuedAiRequest[];
   titleCandidates: AutoTitleCandidate[];
+  /** Why candidates were left out; an empty list without it means none to title. */
+  titleCandidatesWithheld?: "model_unavailable" | "model_lookup_failed";
   activeSessions?: ActiveAiRequestSession[];
 }
 
@@ -328,10 +330,14 @@ export function useAutoTitleBridge(): void {
               const outcome = result as {
                 queued?: boolean;
                 updated?: boolean;
+                reason?: string;
               } | null;
               if (outcome?.queued === true) {
                 bumpAiRequestRefresh();
-              } else if (outcome?.updated !== true) {
+              } else if (
+                outcome?.updated !== true &&
+                outcome?.reason !== "ai_model_unavailable"
+              ) {
                 retryTitleFallback(key);
               }
             })

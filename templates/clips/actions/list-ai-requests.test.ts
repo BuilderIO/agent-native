@@ -13,6 +13,7 @@ type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 let client: PGliteClient;
 
 const mocks = vi.hoisted(() => ({
+  availability: "available" as "available" | "unavailable" | "unknown",
   shared: false,
   appState: [] as Array<{ key: string; value: unknown }>,
 }));
@@ -27,6 +28,9 @@ vi.mock("@agent-native/core/action", () => ({
 vi.mock("@agent-native/core/application-state", () => ({
   listAppState: async (prefix: string) =>
     mocks.appState.filter((entry) => entry.key.startsWith(prefix)),
+}));
+vi.mock("@agent-native/core/server", () => ({
+  resolveChatModelAvailability: async () => mocks.availability,
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => "me@example.com",
@@ -62,10 +66,49 @@ beforeEach(async () => {
   )`);
   mocks.appState = [];
   mocks.shared = false;
+  mocks.availability = "available";
 });
 
 afterEach(async () => {
   await client.close();
+});
+
+describe("list-ai-requests title candidates", () => {
+  const seed = async () => {
+    await client.query(
+      `INSERT INTO recordings (id, owner_email, title, title_source, status, created_at)
+       VALUES ('rec_c', 'me@example.com', 'Untitled recording', 'default', 'ready', '2026-09-28T12:00:00.000Z')`,
+    );
+    await client.query(
+      `INSERT INTO recording_transcripts (recording_id, status, full_text, segments_json)
+       VALUES ('rec_c', 'ready', 'Hello world this is a clip', '[]')`,
+    );
+  };
+
+  it("lists candidates when a model is available", async () => {
+    await seed();
+    const result = (await listAiRequests.run({})) as Record<string, unknown>;
+    expect(result.titleCandidates).toHaveLength(1);
+    expect(result).not.toHaveProperty("titleCandidatesWithheld");
+  });
+
+  it("withholds candidates and says why when no model is connected", async () => {
+    await seed();
+    mocks.availability = "unavailable";
+    await expect(listAiRequests.run({})).resolves.toMatchObject({
+      titleCandidates: [],
+      titleCandidatesWithheld: "model_unavailable",
+    });
+  });
+
+  it("tells an unreadable credential store from no model", async () => {
+    await seed();
+    mocks.availability = "unknown";
+    await expect(listAiRequests.run({})).resolves.toMatchObject({
+      titleCandidates: [],
+      titleCandidatesWithheld: "model_lookup_failed",
+    });
+  });
 });
 
 describe("list-ai-requests", () => {
