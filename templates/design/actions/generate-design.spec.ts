@@ -2338,6 +2338,140 @@ describe("generate-design: new-file creation path", () => {
       }),
     );
   });
+
+  it("saves the design and names the labels it could not record", async () => {
+    const evidence = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "figma-frame",
+      label: "Pricing hero",
+      dataRole: "untrusted-reference" as const,
+    };
+    const generated = {
+      kind: "design-file",
+      label: "Net-new hero",
+      dataRole: "untrusted-reference" as const,
+      influence: "generated" as const,
+    };
+    const attachedPhoto = {
+      kind: "image",
+      label: "User's attached photo",
+      dataRole: "untrusted-reference" as const,
+    };
+    const halfLabel = {
+      itemId: "item-2",
+      kind: "figma-frame",
+      label: "Half a label",
+      dataRole: "untrusted-reference" as const,
+    };
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Pricing from the attached photos",
+      reuseLabels: [evidence, generated, attachedPhoto, halfLabel],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Pricing</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({ reuseLabels: [evidence, generated] }),
+    );
+    expect(result).toMatchObject({
+      renderable: true,
+      ignoredReuseLabels: [
+        {
+          kind: "image",
+          label: "User's attached photo",
+          reason: "missing-item-ids",
+        },
+        {
+          kind: "figma-frame",
+          label: "Half a label",
+          reason: "partial-item-ids",
+        },
+      ],
+    });
+  });
+
+  it("ignores every non-generated label while the one-generation override is off", async () => {
+    const evidence = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "figma-frame",
+      label: "Pricing hero",
+      dataRole: "untrusted-reference" as const,
+    };
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Unbranded concept",
+      contextModeOverride: "off",
+      reuseLabels: [evidence],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Concept</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({ contextModeOverride: "off", reuseLabels: [] }),
+    );
+    expect(result).toMatchObject({
+      ignoredReuseLabels: [
+        { kind: "figma-frame", label: "Pricing hero", reason: "context-off" },
+      ],
+    });
+  });
+
+  it("reports no ignored labels when every label is recordable", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Plain page",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Plain</body></html>",
+        },
+      ],
+    });
+
+    expect(result).not.toHaveProperty("ignoredReuseLabels");
+  });
+
+  it("does not refuse the call at input validation when a reference label has no item ids", async () => {
+    const run = vi.fn(async (input: unknown) => input);
+    const result = await executeAgentToolCall({
+      actions: {
+        "generate-design": { ...action, run } as unknown as ActionEntry,
+      },
+      name: "generate-design",
+      callId: "label-without-ids",
+      input: {
+        designId: "design-1",
+        prompt: "From the attached photos",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<html><body>Photos</body></html>",
+          },
+        ],
+        reuseLabels: [{ kind: "image", label: "User's attached photo" }],
+      },
+    });
+
+    expect(result.status).toBe("completed");
+    expect(run).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("generate-design: new screens never stack on existing frames", () => {

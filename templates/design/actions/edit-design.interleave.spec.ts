@@ -190,6 +190,45 @@ describe("edit-design conflict retry", () => {
     expect(mocks.recordGenerationCreativeContext).not.toHaveBeenCalled();
   });
 
+  it("applies the edit and names a reuse label it could not record", async () => {
+    mocks.readLiveSourceFile.mockResolvedValueOnce({
+      content: "<main>Hello base</main>",
+      versionHash: "h0",
+      language: "html",
+    });
+    mocks.writeInlineSourceFile.mockResolvedValueOnce({
+      versionHash: "h1",
+      changed: true,
+      updatedAt: "2026-11-09T00:00:00.000Z",
+    });
+
+    const result = await action.run({
+      designId: "design_1",
+      filename: "index.html",
+      edits: [{ search: "Hello", replace: "Hi" }],
+      reuseLabels: [
+        {
+          kind: "image",
+          label: "User's attached photo",
+          dataRole: "untrusted-reference",
+        },
+      ],
+    } as never);
+
+    expect(result).toMatchObject({
+      changed: true,
+      editsApplied: 1,
+      ignoredReuseLabels: [
+        {
+          kind: "image",
+          label: "User's attached photo",
+          reason: "missing-item-ids",
+        },
+      ],
+    });
+    expect(mocks.validateGenerationCreativeContext).not.toHaveBeenCalled();
+  });
+
   it("preserves a retry no-match after checkpointing and accepts a corrected call", async () => {
     mocks.readLiveSourceFile
       .mockResolvedValueOnce({

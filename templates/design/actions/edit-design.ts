@@ -22,6 +22,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { trackDesign } from "../server/lib/design-tracking.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { partitionReuseLabels } from "../server/lib/generation-reuse-labels.js";
 import {
   readLiveSourceFile,
   SourceWorkspaceEditConflictError,
@@ -262,7 +263,9 @@ export default defineAction({
         .array(reuseLabelSchema)
         .optional()
         .default([])
-        .describe("Exact item versions that influenced this file edit."),
+        .describe(
+          "Exact item versions that influenced this file edit. A label without item ids that is not `generated`, or any non-generated label while Creative Context is off, is ignored and listed as `ignoredReuseLabels` in the result.",
+        ),
     })
     .superRefine((value, ctx) => {
       const mode =
@@ -320,11 +323,15 @@ export default defineAction({
       replacementContent,
       contextPackId,
       contextModeOverride,
-      reuseLabels,
+      reuseLabels: requestedReuseLabels,
     },
     context,
   ) => {
     await assertAccess("design", designId, "editor");
+    const { recordable: reuseLabels, ignored: ignoredReuseLabels } =
+      partitionReuseLabels(requestedReuseLabels, {
+        contextOff: contextModeOverride === "off",
+      });
     const db = getDb();
     const requestedFileId = fileId?.trim();
     const targetFilename = requestedFileId
@@ -598,6 +605,7 @@ export default defineAction({
       _receipt: designOutputWriteReceipt(designId, changed ? 1 : 0),
       bytesBefore: base.length,
       bytesAfter: nextContent.length,
+      ...(ignoredReuseLabels.length > 0 ? { ignoredReuseLabels } : {}),
       ...(creativeContext
         ? {
             contextMode: creativeContext.contextMode,
