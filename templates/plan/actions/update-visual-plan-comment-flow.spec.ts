@@ -159,11 +159,36 @@ type ExistingCommentRow = {
   mentionsJson: string | null;
 };
 
+/**
+ * The section rows a query returns: a row that names its plan is dropped when
+ * the query filters planSections.planId to another plan, as the database does.
+ */
+function sectionsOnPlan(
+  sections: Array<{ id: string; planId?: string }>,
+  predicate: unknown,
+) {
+  const planIds: unknown[] = [];
+  const visit = (node: unknown) => {
+    if (!node || typeof node !== "object") return;
+    const { op, args } = node as { op?: string; args?: unknown[] };
+    if (op === "eq" && args?.[0] === "planSections.planId") {
+      planIds.push(args[1]);
+    }
+    if (op === "and") args?.forEach(visit);
+  };
+  visit(predicate);
+  return sections.filter(
+    (section) =>
+      section.planId === undefined ||
+      planIds.every((planId) => planId === section.planId),
+  );
+}
+
 function buildTransactionDb(
   capturedRows: CapturedRow[],
   capturedUpdates: CapturedCommentUpdate[] = [],
   existingComments: ExistingCommentRow[] = [],
-  sections: Array<{ id: string }> = [],
+  sections: Array<{ id: string; planId?: string }> = [],
   savedSections: Array<{ planId: string }> = [],
 ) {
   const txInsert = vi.fn((table: unknown) => ({
@@ -204,8 +229,10 @@ function buildTransactionDb(
     update: txUpdate,
     select: vi.fn(() => ({
       from: vi.fn((table: { id?: string }) => ({
-        where: vi.fn(async () =>
-          table?.id === "planSections.id" ? sections : existingComments,
+        where: vi.fn(async (predicate: unknown) =>
+          table?.id === "planSections.id"
+            ? sectionsOnPlan(sections, predicate)
+            : existingComments,
         ),
       })),
     })),
@@ -503,6 +530,26 @@ describe("update-visual-plan comment path (integration)", () => {
       sectionId: "sec_2",
       message: "Edited feedback",
     });
+  });
+
+  it("rejects an edit that moves a comment into another plan's section", async () => {
+    request.email = "owner@example.com";
+    const capturedRows: CapturedRow[] = [];
+    const capturedUpdates: CapturedCommentUpdate[] = [];
+    getDbMock.mockReturnValue(
+      buildTransactionDb(
+        capturedRows,
+        capturedUpdates,
+        [pinnedComment],
+        [{ id: "sec_other", planId: "plan_2" }],
+      ),
+    );
+    loadPlanBundleMock.mockResolvedValue(baseBundle);
+
+    await expect(run(pinnedEdit("sec_other"))).rejects.toThrow(
+      "Section sec_other was not found on plan plan_1.",
+    );
+    expect(capturedUpdates).toHaveLength(0);
   });
 
   it("saves an edit that moves a comment into a section the same request adds", async () => {
