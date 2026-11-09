@@ -31,10 +31,46 @@ export function documentSidebarActionAvailability(
 }
 
 /**
+ * The page to open when the open page is going to Trash with `deletedId`.
+ * Home would reopen the last page visited, which is the one being deleted.
+ * The caller knows the open page's path, root first, and the cached
+ * top-level Files rows. Neither the deleted page's parent nor a top-level row
+ * can sit inside the deleted subtree, so either survives the delete. Null
+ * means neither is known, and the caller waits for the server.
+ */
+export function remainingPageAfterDelete(
+  deletedId: string,
+  {
+    activePath,
+    filesRootDocumentIds,
+    pendingTrashIds = new Set(),
+  }: {
+    activePath: readonly {
+      id: string;
+      parentId: string | null;
+      canView?: boolean;
+    }[];
+    filesRootDocumentIds: readonly string[];
+    pendingTrashIds?: ReadonlySet<string>;
+  },
+): string | null {
+  const parentId = activePath.find((entry) => entry.id === deletedId)?.parentId;
+  const parent = activePath.find((entry) => entry.id === parentId);
+  if (parent && parent.canView !== false && !pendingTrashIds.has(parent.id)) {
+    return parent.id;
+  }
+  return (
+    filesRootDocumentIds.find(
+      (documentId) =>
+        documentId !== deletedId && !pendingTrashIds.has(documentId),
+    ) ?? null
+  );
+}
+
+/**
  * Where to go once the server confirms a delete. The server's path matters
- * only when the open page went with a parent the sidebar hadn't loaded; when
- * the sidebar already left the deleted page for a remaining one, following
- * the server would bounce through Home.
+ * only when the sidebar didn't leave the deleted page itself; when it already
+ * opened a remaining page, following the server would bounce through Home.
  */
 export function navigationAfterConfirmedDelete(
   navigationPath: string | null | undefined,

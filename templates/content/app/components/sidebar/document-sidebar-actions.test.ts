@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   documentSidebarActionAvailability,
   navigationAfterConfirmedDelete,
+  remainingPageAfterDelete,
 } from "./document-sidebar-actions";
 
 function access(
@@ -89,6 +90,66 @@ describe("navigation after a confirmed delete", () => {
     ).toBeNull();
     expect(
       navigationAfterConfirmedDelete(undefined, { leftDeletedPage: false }),
+    ).toBeNull();
+  });
+});
+
+describe("the remaining page after a delete", () => {
+  const activePath = [
+    { id: "projects", parentId: null },
+    { id: "launch", parentId: "projects" },
+    { id: "notes", parentId: "launch" },
+  ];
+
+  it("opens the deleted page's parent", () => {
+    expect(
+      remainingPageAfterDelete("launch", {
+        activePath,
+        filesRootDocumentIds: ["projects", "inbox"],
+      }),
+    ).toBe("projects");
+  });
+
+  it("opens a top-level row when the deleted page has no parent", () => {
+    expect(
+      remainingPageAfterDelete("projects", {
+        activePath,
+        filesRootDocumentIds: ["projects", "inbox"],
+      }),
+    ).toBe("inbox");
+  });
+
+  it("skips a parent the person can't open or that is also going to Trash", () => {
+    expect(
+      remainingPageAfterDelete("launch", {
+        activePath: [
+          { id: "projects", parentId: null, canView: false },
+          ...activePath.slice(1),
+        ],
+        filesRootDocumentIds: ["inbox"],
+      }),
+    ).toBe("inbox");
+    expect(
+      remainingPageAfterDelete("launch", {
+        activePath,
+        filesRootDocumentIds: ["projects", "inbox", "archive"],
+        pendingTrashIds: new Set(["projects", "inbox"]),
+      }),
+    ).toBe("archive");
+  });
+
+  it("knows no remaining page without a parent or another top-level row", () => {
+    expect(
+      remainingPageAfterDelete("projects", {
+        activePath,
+        filesRootDocumentIds: ["projects"],
+      }),
+    ).toBeNull();
+    expect(
+      remainingPageAfterDelete("launch", {
+        activePath: [],
+        filesRootDocumentIds: [],
+      }),
     ).toBeNull();
   });
 });

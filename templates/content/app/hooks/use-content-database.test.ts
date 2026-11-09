@@ -34,6 +34,7 @@ import {
   readCachedContentDatabaseResponse,
   removeDocumentPropertyFromDatabaseResponse,
   removeOptimisticItemFromContentDatabase,
+  removeTrashedPagesFromCachedCollections,
   writeContentDatabaseResponseToCache,
   writeBuilderAttachPreviewToCache,
 } from "./use-content-database";
@@ -1033,6 +1034,53 @@ describe("clearDeletedContentDatabaseFromCache", () => {
       queryClient.getQueryState(["action", "list-content-databases"])
         ?.isInvalidated,
     ).toBe(true);
+  });
+});
+
+describe("removeTrashedPagesFromCachedCollections", () => {
+  it("takes a trashed page out of collection reads and Files tree pages", () => {
+    const queryClient = new QueryClient();
+    const collectionKey = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page", limit: 100 },
+    ];
+    const filesKey = [
+      "action",
+      "query-content-database-items",
+      { databaseId: "files", navigation: { parentId: null } },
+    ];
+    const untouchedKey = [
+      "action",
+      "query-content-database-items",
+      { databaseId: "files", navigation: { parentId: "folder" } },
+    ];
+    const untouchedPage = { items: [{ documentId: "document-2" }] };
+    queryClient.setQueryData(collectionKey, databaseResponse());
+    queryClient.setQueryData(filesKey, {
+      items: [{ documentId: "document-1" }, { documentId: "document-2" }],
+    });
+    queryClient.setQueryData(untouchedKey, untouchedPage);
+    // The delete's refresh has already marked the Files page to reread.
+    void queryClient.invalidateQueries(
+      { queryKey: filesKey },
+      { cancelRefetch: false },
+    );
+
+    removeTrashedPagesFromCachedCollections(queryClient, ["document-1"]);
+
+    const collection =
+      queryClient.getQueryData<ContentDatabaseResponse>(collectionKey);
+    expect(collection?.items).toHaveLength(499);
+    expect(
+      collection?.items.some((item) => item.document.id === "document-1"),
+    ).toBe(false);
+    expect(queryClient.getQueryData(filesKey)).toEqual({
+      items: [{ documentId: "document-2" }],
+    });
+    expect(queryClient.getQueryState(filesKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(collectionKey)?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryData(untouchedKey)).toBe(untouchedPage);
   });
 });
 

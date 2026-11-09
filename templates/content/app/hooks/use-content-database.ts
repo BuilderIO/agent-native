@@ -80,10 +80,8 @@ import {
   useContentActionMutation,
   type ContentQueryTarget,
 } from "./use-content-action-mutation";
-import {
-  DELETE_CONTENT_DATABASE_MUTATION_KEY,
-  removeTrashedFromCachedRecent,
-} from "./use-content-recent";
+import { removeTrashedFromCachedRecent } from "./use-content-recent";
+import { DELETE_CONTENT_DATABASE_MUTATION_KEY } from "./use-pending-trash";
 
 export function contentDatabaseQueryKey(documentId: string) {
   return ["action", "get-content-database", { documentId }] as const;
@@ -321,6 +319,56 @@ export function contentDatabaseNavigationQueryFilter(
       );
     },
   };
+}
+
+/**
+ * Takes pages the server just moved to Trash out of every cached collection
+ * read and Files tree page, so Favorites and the Files tree don't show them
+ * again between the end of the pending move and their next read. A delete's
+ * refresh finds the branches to reread by the page's cached rows, so this runs
+ * after that refresh starts, and a read it marked stale stays marked.
+ */
+export function removeTrashedPagesFromCachedCollections(
+  queryClient: Pick<QueryClient, "getQueryCache" | "setQueryData">,
+  documentIds: readonly string[],
+) {
+  const trashed = new Set(documentIds);
+  const queryCache = queryClient.getQueryCache();
+  for (const query of [
+    ...queryCache.findAll({ queryKey: ["action", "get-content-database"] }),
+    ...queryCache.findAll(contentDatabaseNavigationQueryFilter()),
+  ]) {
+    const current = query.state.data;
+    if (!current || isContentDatabaseUnavailable(current)) continue;
+    const next =
+      query.queryKey[1] === "get-content-database"
+        ? documentIds.reduce<ContentDatabaseResponse | undefined>(
+            removeOptimisticItemFromContentDatabase,
+            current as ContentDatabaseResponse,
+          )
+        : withoutTrashedNavigationRows(
+            current as ContentDatabaseNavigationPageResponse,
+            trashed,
+          );
+    if (next === current) continue;
+    const stale = query.state.isInvalidated;
+    queryClient.setQueryData(query.queryKey, next, {
+      updatedAt: query.state.dataUpdatedAt,
+    });
+    if (stale) query.invalidate();
+  }
+}
+
+function withoutTrashedNavigationRows(
+  page: ContentDatabaseNavigationPageResponse,
+  trashed: ReadonlySet<string>,
+) {
+  return page.items.some((item) => trashed.has(item.documentId))
+    ? {
+        ...page,
+        items: page.items.filter((item) => !trashed.has(item.documentId)),
+      }
+    : page;
 }
 
 export function writeContentDatabaseResponseToCache(
@@ -1066,6 +1114,11 @@ export function useDeleteContentDatabase() {
         databaseIds: [data.databaseId],
       });
       return clearDeletedContentDatabaseFromCache(queryClient, data.documentId);
+    },
+    onSettled: (data) => {
+      if (data) {
+        removeTrashedPagesFromCachedCollections(queryClient, [data.documentId]);
+      }
     },
     invalidates: (data) => [
       ...contentPlacementTargets(queryClient, {

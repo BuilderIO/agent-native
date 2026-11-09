@@ -14,6 +14,7 @@ import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { DELETE_DOCUMENT_MUTATION_KEY } from "@/hooks/use-pending-trash";
 import type { SidebarRowsHint } from "@/lib/sidebar-layout-hint";
 
 const useFilesNavigationPage = vi.hoisted(() => vi.fn());
@@ -74,6 +75,7 @@ function Harness({
   initiallyExpanded = [],
   branchPlaceholders,
   onBranchShown,
+  queryClient: providedQueryClient,
 }: {
   activeDocumentId?: string;
   activePathDocuments?: Document[];
@@ -82,11 +84,14 @@ function Harness({
   initiallyExpanded?: string[];
   branchPlaceholders?: Record<string, SidebarRowsHint>;
   onBranchShown?: (documentId: string, shown: SidebarRowsHint) => void;
+  queryClient?: QueryClient;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(initiallyExpanded),
   );
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(
+    () => providedQueryClient ?? new QueryClient(),
+  );
   return (
     <AgentNativeI18nProvider
       initialLocale="en-US"
@@ -501,6 +506,77 @@ describe("PagedContentFilesSidebarView", () => {
 
     await act(async () => root.unmount());
   });
+  it("hides pages on their way to Trash and shows them again when the move fails", async () => {
+    useFilesNavigationPage.mockImplementation(() => ({
+      data: page([navigationItem("first-root"), navigationItem("second-root")]),
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    }));
+    const openRoot = {
+      id: "open-root",
+      parentId: null,
+      title: "Open root",
+      content: "",
+      icon: null,
+      position: 99,
+      isFavorite: false,
+      hideFromSearch: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    } satisfies Document;
+    const queryClient = new QueryClient();
+    let failMove: (error: Error) => void = () => {};
+    const move = new Promise<never>((_resolve, reject) => {
+      failMove = reject;
+    });
+    const trash = (id: string) =>
+      queryClient
+        .getMutationCache()
+        .build(queryClient, {
+          mutationKey: DELETE_DOCUMENT_MUTATION_KEY,
+          mutationFn: (_variables: { id: string }) => move,
+        })
+        .execute({ id })
+        .catch(() => {});
+    const { container, root } = await renderHarness({
+      activeDocumentId: openRoot.id,
+      activePathDocuments: [openRoot],
+      queryClient,
+    });
+    const shown = () =>
+      Array.from(container.querySelectorAll("a"), (link) =>
+        link.getAttribute("href"),
+      );
+    expect(shown()).toEqual([
+      "/page/first-root",
+      "/page/second-root",
+      "/page/open-root",
+    ]);
+
+    let moves: Promise<unknown>[] = [];
+    await act(async () => {
+      moves = [trash("second-root"), trash("open-root")];
+      // TanStack Query tells subscribers about the move on a timer.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(shown()).toEqual(["/page/first-root"]);
+
+    await act(async () => {
+      failMove(new Error("Trash is unavailable"));
+      await Promise.all(moves);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(shown()).toEqual([
+      "/page/first-root",
+      "/page/second-root",
+      "/page/open-root",
+    ]);
+
+    await act(async () => root.unmount());
+  });
+
   it("holds an open folder's last rows while its page loads, then reports what it drew", async () => {
     let childPage: ContentDatabaseNavigationPageResponse | undefined;
     useFilesNavigationPage.mockImplementation((args) =>

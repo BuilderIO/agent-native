@@ -12,9 +12,11 @@ import {
   type ContentRecentResult,
   type ContentRecentTarget,
 } from "@shared/content-personal-navigation";
-import { useMutationState, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+
+import { usePendingTrash, type PendingTrash } from "./use-pending-trash";
 
 const contentRecentRecoveries = new WeakMap<
   ReturnType<typeof useQueryClient>,
@@ -170,7 +172,7 @@ export function useContentRecent(
   // A page on its way to Trash leaves Recent with the click. A read that
   // started before the move can't bring it back, and a failed move shows it
   // again.
-  const pendingTrash = usePendingTrashedRecentTargets();
+  const pendingTrash = usePendingTrash();
   const data = useMemo(
     () => withoutTrashedRecentEntries(scopedData, pendingTrash),
     [scopedData, pendingTrash],
@@ -190,22 +192,9 @@ type ContentRecentQueryData = {
   entries: ContentRecentResult[];
 };
 
-/** Moving a page to Trash; Recent hides the page while the move is pending. */
-export const DELETE_DOCUMENT_MUTATION_KEY = ["content", "delete-document"];
-/** Moving a collection to Trash; Recent hides it while the move is pending. */
-export const DELETE_CONTENT_DATABASE_MUTATION_KEY = [
-  "content",
-  "delete-content-database",
-];
-
-type TrashedRecentTargets = {
-  documentIds: ReadonlySet<string>;
-  databaseIds: ReadonlySet<string>;
-};
-
 function isTrashedRecentTarget(
   target: ContentRecentTarget,
-  trashed: TrashedRecentTargets,
+  trashed: PendingTrash,
 ) {
   return (
     trashed.documentIds.has(target.documentId) ||
@@ -215,7 +204,7 @@ function isTrashedRecentTarget(
 
 function withoutTrashedRecentEntries<T extends ContentRecentQueryData>(
   data: T | undefined,
-  trashed: TrashedRecentTargets,
+  trashed: PendingTrash,
 ): T | undefined {
   return data?.entries.some((entry) =>
     isTrashedRecentTarget(entry.target, trashed),
@@ -248,45 +237,6 @@ export function removeTrashedFromCachedRecent(
   queryClient.setQueriesData<ContentRecentQueryData>(
     { queryKey: ["action", "get-content-recent"] },
     (current) => withoutTrashedRecentEntries(current, trashed),
-  );
-}
-
-/**
- * The pages and collections whose move to Trash is still waiting on the
- * server. A page delete that names a collection may only take the page out
- * of Favorites, so it isn't counted: the page may stay.
- */
-function usePendingTrashedRecentTargets(): TrashedRecentTargets {
-  const documentIds = useMutationState({
-    filters: { mutationKey: DELETE_DOCUMENT_MUTATION_KEY, status: "pending" },
-    select: (mutation) => {
-      const variables = mutation.state.variables as
-        | { id?: string; databaseDocumentId?: string }
-        | undefined;
-      return variables?.id && !variables.databaseDocumentId
-        ? variables.id
-        : null;
-    },
-  });
-  const databaseIds = useMutationState({
-    filters: {
-      mutationKey: DELETE_CONTENT_DATABASE_MUTATION_KEY,
-      status: "pending",
-    },
-    select: (mutation) =>
-      (mutation.state.variables as { databaseId?: string } | undefined)
-        ?.databaseId ?? null,
-  });
-  return useMemo(
-    () => ({
-      documentIds: new Set(
-        documentIds.filter((id): id is string => id !== null),
-      ),
-      databaseIds: new Set(
-        databaseIds.filter((id): id is string => id !== null),
-      ),
-    }),
-    [documentIds, databaseIds],
   );
 }
 

@@ -11,11 +11,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  DELETE_CONTENT_DATABASE_MUTATION_KEY,
-  DELETE_DOCUMENT_MUTATION_KEY,
   removeTrashedFromCachedRecent,
   useContentRecent,
 } from "./use-content-recent";
+import {
+  DELETE_CONTENT_DATABASE_MUTATION_KEY,
+  DELETE_DOCUMENT_MUTATION_KEY,
+} from "./use-pending-trash";
 
 vi.mock("@agent-native/core/client/hooks", async () => {
   const { useQuery } = await import("@tanstack/react-query");

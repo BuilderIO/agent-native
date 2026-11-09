@@ -113,13 +113,12 @@ import {
   contentDatabaseNavigationQueryFilter,
   invalidateContentDatabaseNavigationQueries,
   removeOptimisticItemFromContentDatabase,
+  removeTrashedPagesFromCachedCollections,
   useRestoreContentDatabase,
 } from "./use-content-database";
 import { CONTENT_LINK_TARGETS_QUERY_KEY } from "./use-content-links";
-import {
-  DELETE_DOCUMENT_MUTATION_KEY,
-  removeTrashedFromCachedRecent,
-} from "./use-content-recent";
+import { removeTrashedFromCachedRecent } from "./use-content-recent";
+import { DELETE_DOCUMENT_MUTATION_KEY } from "./use-pending-trash";
 
 export {
   documentQueryFilter,
@@ -1950,6 +1949,11 @@ export function useDeleteDocument() {
         removeTrashedFromCachedRecent(queryClient, {
           documentIds: [variables.id],
         });
+      }
+    },
+    onSettled: (data, _error, variables) => {
+      if (data && data.deleted > 0) {
+        removeTrashedPagesFromCachedCollections(queryClient, [variables.id]);
       }
     },
     invalidates: (_data, variables) => [
