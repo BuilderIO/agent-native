@@ -18,10 +18,12 @@ import {
   contentDatabaseFilterTree,
   contentDatabaseRelativeDateRange,
   contentDatabaseRelativeDateRangeToken,
+  contentDatabaseSortOrder,
   contentDatabaseTableQueryUsesProperties,
   materializeContentDatabaseFilterGroupModes,
   withContentDatabaseFilterGroupMode,
 } from "./database-query";
+import type { DocumentPropertyType, DocumentPropertyValue } from "./properties";
 
 function item(id: string, title: string, date: string): ContentDatabaseItem {
   return {
@@ -1317,5 +1319,109 @@ describe("content database filter today", () => {
       filterMode: "and",
     }).map((row) => row.document.id);
     expect(ids).toEqual(["morning", "whole-day", "evening"]);
+  });
+});
+
+function sortedRow(
+  id: string,
+  type: DocumentPropertyType,
+  value: DocumentPropertyValue | undefined,
+): ContentDatabaseItem {
+  const row = item(id, id, "2026-01-01");
+  return {
+    ...row,
+    properties:
+      value === undefined
+        ? []
+        : [
+            {
+              ...dateProperty,
+              definition: {
+                ...dateProperty.definition,
+                id: "value",
+                name: "Value",
+                type,
+              },
+              value,
+            },
+          ],
+  };
+}
+
+function sortedIds(
+  type: DocumentPropertyType,
+  rows: Array<[string, DocumentPropertyValue | undefined]>,
+  direction: "asc" | "desc" = "asc",
+) {
+  const definition = {
+    ...dateProperty,
+    definition: { ...dateProperty.definition, id: "value", type },
+  };
+  return applyContentDatabaseTableQuery(
+    rows.map(([id, value]) => sortedRow(id, type, value)),
+    [definition],
+    {
+      search: "",
+      filters: [],
+      sorts: [{ key: "value", label: "Value", direction }],
+      filterMode: "and",
+    },
+  ).map((row) => row.document.id);
+}
+
+// The sort controls name each direction after this order ("Old → new"), so
+// each case pins the end an ascending sort starts from.
+describe("content database sort order", () => {
+  it("names the order a sort puts each property type in", () => {
+    expect(contentDatabaseSortOrder("name", undefined)).toBe("text");
+    expect(contentDatabaseSortOrder("value", "select")).toBe("text");
+    expect(contentDatabaseSortOrder("value", "rollup")).toBe("number");
+    expect(contentDatabaseSortOrder("value", "created_time")).toBe("date");
+    expect(contentDatabaseSortOrder("value", "checkbox")).toBe("checkbox");
+    expect(contentDatabaseSortOrder("value", "formula")).toBe("other");
+    expect(contentDatabaseSortOrder("value", null)).toBe("other");
+  });
+
+  it("sorts text A to Z, numbers low to high and dates old to new", () => {
+    expect(
+      sortedIds("text", [
+        ["banana", "banana"],
+        ["apple", "Apple"],
+      ]),
+    ).toEqual(["apple", "banana"]);
+    expect(
+      sortedIds("number", [
+        ["ten", 10],
+        ["nine", 9],
+      ]),
+    ).toEqual(["nine", "ten"]);
+    expect(
+      sortedIds("date", [
+        ["march", { start: "2026-03-01" }],
+        ["january", { start: "2026-01-15" }],
+      ]),
+    ).toEqual(["january", "march"]);
+  });
+
+  it("sorts unset checkboxes with the unchecked ones, unchecked first", () => {
+    const rows: Array<[string, DocumentPropertyValue | undefined]> = [
+      ["checked", true],
+      ["unset", undefined],
+      ["unchecked", false],
+      ["cleared", null],
+    ];
+
+    expect(sortedIds("checkbox", rows)).toEqual([
+      "unset",
+      "unchecked",
+      "cleared",
+      "checked",
+    ]);
+    expect(sortedIds("checkbox", rows, "desc")).toEqual([
+      "checked",
+      "unset",
+      "unchecked",
+      "cleared",
+    ]);
   });
 });
