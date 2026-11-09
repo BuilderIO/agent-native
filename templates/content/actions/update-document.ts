@@ -1562,10 +1562,11 @@ const updateDocumentAction = defineAction({
             lockedContentChanged ||
             lockedDescriptionChanged ||
             lockedIconChanged;
-          const parsedBaseRevision = args.baseRevision
-            ? parseDocumentRevisionToken(args.baseRevision)
-            : null;
-          if (args.baseRevision && !parsedBaseRevision) {
+          const parsedBaseRevision =
+            args.baseRevision === undefined
+              ? null
+              : parseDocumentRevisionToken(args.baseRevision);
+          if (args.baseRevision !== undefined && !parsedBaseRevision) {
             throw new ActionContractError(
               "baseRevision is not a valid document revision token.",
               { errorCode: "INVALID_BASE_REVISION", statusCode: 400 },

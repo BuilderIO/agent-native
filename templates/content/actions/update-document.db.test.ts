@@ -2524,10 +2524,13 @@ describe("update-document compare-and-swap", () => {
   });
 
   it.each(["http", "cli", "automation"] as const)(
-    "requires a base for a %s full-body write",
+    "requires a readable base for a %s full-body write",
     async (caller) => {
       const documentId = await createDocument({ content: "original" });
-      const write = (fields: { baseRevision?: string }) =>
+      const write = (fields: {
+        baseRevision?: string;
+        baseUpdatedAt?: string;
+      }) =>
         runWithRequestContext({ userEmail: OWNER }, () =>
           updateDocumentAction.run(
             { id: documentId, content: "scripted rewrite", ...fields },
@@ -2538,6 +2541,15 @@ describe("update-document compare-and-swap", () => {
       await expect(write({})).rejects.toMatchObject({
         errorCode: "BASE_REVISION_REQUIRED",
         statusCode: 400,
+      });
+      for (const baseRevision of ["", "not-a-revision"]) {
+        await expect(write({ baseRevision })).rejects.toMatchObject({
+          errorCode: "INVALID_BASE_REVISION",
+          statusCode: 400,
+        });
+      }
+      await expect(write({ baseUpdatedAt: "" })).resolves.toMatchObject({
+        conflict: true,
       });
       expect((await documentRow(documentId)).content).toBe("original");
       await expect(
