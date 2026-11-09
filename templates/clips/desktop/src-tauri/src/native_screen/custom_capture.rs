@@ -9,6 +9,9 @@ const AV_WRITER_STATUS_COMPLETED: i64 = 2;
 const AUDIO_FORMAT_AAC: i64 = 0x6161_6320;
 const OUTPUT_SEGMENT_INTERVAL_SECONDS: i64 = 1;
 const CAPTURE_VIDEO_BPP: f64 = 0.15;
+// Counted in encoded frames, not time: ScreenCaptureKit only delivers a frame
+// when the screen changes, so a still screen produces no keyframes.
+const CAPTURE_MAX_KEYFRAME_INTERVAL_FRAMES: u64 = NATIVE_CAPTURE_FPS as u64 * 3 / 4;
 
 const CAPTURE_STALL_TIMEOUT: Duration = Duration::from_secs(4);
 const CAPTURE_WATCHDOG_POLL: Duration = Duration::from_millis(1000);
@@ -552,6 +555,12 @@ struct SegmentProgress {
     has_initialization: bool,
 }
 
+impl SegmentProgress {
+    fn has_media(&self) -> bool {
+        self.has_initialization && self.media_fragments > 0 && self.bytes_written > 0
+    }
+}
+
 pub(super) struct SegmentSink {
     state: Mutex<SegmentSinkState>,
 }
@@ -840,6 +849,9 @@ mod track_labels {
 #[derive(Default, Clone, Copy)]
 struct TrackAppendStats {
     appended: u64,
+    // Segmented output rebases PTS to the session start, so these are the
+    // samples that can close the first media fragment.
+    appended_past_first_segment: u64,
     last_pts_seconds: Option<f64>,
     pts_regressions: u64,
 }
@@ -1549,6 +1561,19 @@ impl CustomScreenCaptureWriter {
             .unwrap_or_default()
     }
 
+    fn video_frames_past_first_segment(&self) -> u64 {
+        self.inner
+            .lock()
+            .ok()
+            .and_then(|guard| {
+                guard
+                    .append_stats
+                    .get(track_labels::VIDEO)
+                    .map(|stats| stats.appended_past_first_segment)
+            })
+            .unwrap_or_default()
+    }
+
     fn failure(&self) -> Option<String> {
         self.inner
             .lock()
@@ -1852,6 +1877,9 @@ impl CustomScreenCaptureWriter {
         }
         let appended_before = stats.appended;
         stats.appended += 1;
+        if pts_seconds.is_some_and(|pts| pts >= OUTPUT_SEGMENT_INTERVAL_SECONDS as f64) {
+            stats.appended_past_first_segment += 1;
+        }
         let pts_report = |outcome: &str| {
             format!(
                 "AVAssetWriter appendSampleBuffer {outcome} on {track} (pts={}, previous={}, appended={appended_before})",
@@ -3145,7 +3173,7 @@ unsafe fn av_video_output_settings(
         AVVideoExpectedSourceFrameRateKey,
         &expected_fps,
     );
-    let keyframe_interval = av_number_i64((i64::from(NATIVE_CAPTURE_FPS) * 3 / 4).max(1))
+    let keyframe_interval = av_number_i64(CAPTURE_MAX_KEYFRAME_INTERVAL_FRAMES.max(1) as i64)
         .ok_or_else(|| "NSNumber keyframe interval failed".to_string())?;
     av_dict_set(
         &compression,
@@ -3580,7 +3608,7 @@ fn await_segmented_capture_readiness(
     }
 
     let fragment_deadline = Instant::now() + CAPTURE_FIRST_FRAGMENT_TIMEOUT;
-    while Instant::now() < fragment_deadline {
+    loop {
         if let Some(error) = watch.take_stream_stopped() {
             return Err(error);
         }
@@ -3588,23 +3616,32 @@ fn await_segmented_capture_readiness(
             return Err(error);
         }
         let progress = writer.segment_progress();
-        if progress.has_initialization && progress.media_fragments > 0 && progress.bytes_written > 0
-        {
+        if progress.has_media() {
             crate::logfile::diagnostic(&format!(
                 "[capture-health] segmented capture ready: {} bytes, {} media fragment(s)",
                 progress.bytes_written, progress.media_fragments
             ));
             return Ok(());
         }
+        if Instant::now() >= fragment_deadline {
+            break;
+        }
         std::thread::sleep(Duration::from_millis(25));
     }
 
     let (screen, usable_screen, system, mic) = watch.sample_counts();
     let progress = writer.segment_progress();
+    let frames_past_first_segment = writer.video_frames_past_first_segment();
+    if first_fragment_awaits_screen_changes(frames_past_first_segment) {
+        crate::logfile::diagnostic(&format!(
+            "[capture-health] segmented capture ready before its first media fragment: {frames_past_first_segment} video frame(s) after the first segment boundary, too few to force a keyframe (screen={screen}, usable_screen={usable_screen}); the fragment follows when the screen changes or the capture stops"
+        ));
+        return Ok(());
+    }
     let _ = stream.stop_capture();
     let finish_error = writer.finish(true).err();
     Err(format!(
-        "capture startup timed out waiting for the first fragmented-media bytes (screen={screen}, usable_screen={usable_screen}, system_audio={system}, microphone={mic}, requested_system_audio={requested_system_audio}, requested_microphone={requested_microphone}, initialization={}, media_fragments={}, bytes={}){}",
+        "capture startup timed out waiting for the first fragmented-media bytes (screen={screen}, usable_screen={usable_screen}, system_audio={system}, microphone={mic}, requested_system_audio={requested_system_audio}, requested_microphone={requested_microphone}, initialization={}, media_fragments={}, bytes={}, video_frames_past_first_segment={frames_past_first_segment}){}",
         progress.has_initialization,
         progress.media_fragments,
         progress.bytes_written,
@@ -3612,6 +3649,14 @@ fn await_segmented_capture_readiness(
             .map(|error| format!("; writer: {error}"))
             .unwrap_or_default()
     ))
+}
+
+// The first fragment closes at the first keyframe past the segment boundary.
+// The encoder owes one within a keyframe interval of frames; the second
+// interval covers encoder and writer latency. Fewer frames than that means the
+// screen hasn't changed enough yet, not that the writer is stuck.
+fn first_fragment_awaits_screen_changes(video_frames_past_first_segment: u64) -> bool {
+    video_frames_past_first_segment < 2 * CAPTURE_MAX_KEYFRAME_INTERVAL_FRAMES
 }
 
 fn spawn_capture_watchdog(
@@ -4255,6 +4300,41 @@ mod fragment_fence_tests {
             true,
             true
         ));
+    }
+
+    #[test]
+    fn still_screen_cannot_fail_segmented_capture_startup() {
+        // Failed Rewind starts on Oct 21 had 2, 19 and 24 changed frames in
+        // the whole three-second wait.
+        for frames in [0, 2, 19, 24] {
+            assert!(first_fragment_awaits_screen_changes(frames), "{frames}");
+        }
+        assert!(first_fragment_awaits_screen_changes(
+            2 * CAPTURE_MAX_KEYFRAME_INTERVAL_FRAMES - 1
+        ));
+        assert!(!first_fragment_awaits_screen_changes(
+            2 * CAPTURE_MAX_KEYFRAME_INTERVAL_FRAMES
+        ));
+        // A moving screen fills two seconds past the boundary within the
+        // wait, so a writer that produces nothing still fails startup.
+        let moving_screen_frames = 2 * u64::from(NATIVE_CAPTURE_FPS);
+        assert!(!first_fragment_awaits_screen_changes(moving_screen_frames));
+    }
+
+    #[test]
+    fn segment_progress_needs_initialization_and_a_media_fragment() {
+        let initialization_only = SegmentProgress {
+            bytes_written: 700,
+            media_fragments: 0,
+            has_initialization: true,
+        };
+        assert!(!initialization_only.has_media());
+        assert!(SegmentProgress {
+            bytes_written: 164_196,
+            media_fragments: 1,
+            has_initialization: true,
+        }
+        .has_media());
     }
 
     #[test]
