@@ -475,6 +475,11 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX फ़ाइल जनरेट नहीं हो सकी।",
     exportFailed: "निर्यात विफल",
+    exportFinishedWithWarnings: "चेतावनियों के साथ निर्यात किया गया",
+    imagesDropped:
+      "{{count}} छवि लोड नहीं हो सकीं और PowerPoint फ़ाइल में शामिल नहीं की गईं (स्लाइड {{slides}})।",
+    pdfSidecarSkipped:
+      "यह PDF संपादन योग्य स्रोत के बिना निर्यात किया गया है। इसे फिर से आयात करने पर स्लाइड पेज की सामग्री से दोबारा बनेंगी।",
     exporting: "निर्यात हो रहा है...",
     exportPptxError: "PPTX के रूप में निर्यात करते समय कुछ गलत हुआ।",
     googleSlidesDownloaded: "Google Slides के लिए डाउनलोड किया गया",

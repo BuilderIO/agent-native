@@ -2,6 +2,10 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
+import {
+  type ExportWarning,
+  readExportWarningsHeader,
+} from "@shared/export-warnings";
 import { IconUpload, IconChevronDown } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -109,7 +113,9 @@ export type ExportStatus =
       description?: string;
       openUrl: string;
       openLabel?: string;
+      warnings?: string[];
     }
+  | { state: "warnings"; messages: string[] }
   | { state: "error"; message: string };
 
 export function ExportStatusDialog({
@@ -169,6 +175,13 @@ export function ExportStatusDialog({
               {status.description ? (
                 <DialogDescription>{status.description}</DialogDescription>
               ) : null}
+              {status.warnings?.length ? (
+                <ul className="list-disc break-words pl-5 text-sm text-muted-foreground">
+                  {status.warnings.map((message) => (
+                    <li key={message}>{message}</li>
+                  ))}
+                </ul>
+              ) : null}
             </DialogHeader>
             <DialogFooter>
               <Button
@@ -179,6 +192,30 @@ export function ExportStatusDialog({
               >
                 {status.openLabel ?? t("editorExport.openInGoogleSlides")}
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onStatusChange({ state: "idle" })}
+              >
+                {t("comments.close")}
+              </Button>
+            </DialogFooter>
+          </>
+        ) : status.state === "warnings" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>
+                {t("editorExport.exportFinishedWithWarnings")}
+              </DialogTitle>
+              <DialogDescription asChild>
+                <ul className="list-disc break-words pl-5">
+                  {status.messages.map((message) => (
+                    <li key={message}>{message}</li>
+                  ))}
+                </ul>
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
               <Button
                 type="button"
                 variant="outline"
@@ -543,20 +580,34 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           ".pptx",
         ),
       );
+      return formatExportWarnings(readExportWarningsHeader(res));
     };
 
-    const handleExportPptx = () =>
-      runExport(
+    const formatExportWarnings = (warnings: ExportWarning[]) =>
+      warnings.map((warning) =>
+        t("editorExport.imagesDropped", {
+          count: warning.count,
+          slides: warning.slides.join(", "),
+        }),
+      );
+
+    const handleExportPptx = async () => {
+      let warnings: string[] = [];
+      await runExport(
         "pptx",
         async (signal) => {
           if (canExportPptxFromServer(getDeck(deckId))) {
-            await exportPptxFromServer(signal);
+            warnings = await exportPptxFromServer(signal);
             return;
           }
           await onExportPptx(signal);
         },
         t("editorExport.exportPptxError"),
       );
+      if (warnings.length > 0) {
+        updateExportStatus({ state: "warnings", messages: warnings });
+      }
+    };
 
     const handleExportPdf = () =>
       runExport(
@@ -639,6 +690,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
             description: t("editorExport.googleSlidesCreatedHint"),
             openUrl: result.url,
             openLabel: t("editorExport.googleSlidesGoTo"),
+            warnings: formatExportWarnings(result.warnings ?? []),
           });
           return;
         }
@@ -649,6 +701,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           description: `${t("editorExport.googleSlidesImportHint")} ${result.reason}`,
           openUrl: GOOGLE_SLIDES_IMPORT_URL,
           openLabel: t("editorExport.googleSlidesOpenImporter"),
+          warnings: formatExportWarnings(result.warnings ?? []),
         });
       } catch (err) {
         console.error("Export failed:", err);

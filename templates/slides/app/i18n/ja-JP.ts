@@ -490,6 +490,11 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX ファイルを生成できませんでした。",
     exportFailed: "エクスポートに失敗しました",
+    exportFinishedWithWarnings: "警告付きでエクスポートしました",
+    imagesDropped:
+      "{{count}} 個の画像を読み込めず、PowerPoint ファイルに含まれませんでした（スライド {{slides}}）。",
+    pdfSidecarSkipped:
+      "この PDF は編集可能なソースなしでエクスポートされました。再インポートすると、ページの内容からスライドを再構築します。",
     exporting: "エクスポート中...",
     exportPptxError: "PPTX としてエクスポート中に問題が発生しました。",
     googleSlidesDownloaded: "Google Slides 用にダウンロードしました",

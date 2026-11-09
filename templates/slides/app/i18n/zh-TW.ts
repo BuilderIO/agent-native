@@ -464,6 +464,11 @@ const messages = {
   editorExport: {
     pptxFailed: "無法生成 PPTX 檔案。",
     exportFailed: "匯出失敗",
+    exportFinishedWithWarnings: "已匯出，但有警告",
+    imagesDropped:
+      "有 {{count}} 張圖片無法載入，未包含在 PowerPoint 檔案中（投影片 {{slides}}）。",
+    pdfSidecarSkipped:
+      "此 PDF 匯出時未包含可編輯來源檔。重新匯入時，將根據頁面內容重建投影片。",
     exporting: "正在匯出...",
     exportPptxError: "匯出為 PPTX 時出了點問題。",
     googleSlidesDownloaded: "已為 Google Slides 下載",
