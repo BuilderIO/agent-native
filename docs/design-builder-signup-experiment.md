@@ -92,8 +92,9 @@ paid billing.
 `builder_signup_experiment_enrolled` links an assignment to the authenticated new
 account at signup, independently of Builder consent or activation success. This
 analytics event never authorizes provisioning or adds a prerequisite SQL write.
-Every attributed activation response emits an outcome, including early ineligibility
-and replayed responses. Missing assignments emit `builder_signup_experiment_unattributed`
+The owning activation emits one outcome, including early ineligibility.
+Polling and returning-user responses read the existing result without replaying
+outcome telemetry; un-enrolled start checks emit no experiment outcome. Missing assignments emit `builder_signup_experiment_unattributed`
 without inventing a variant. Identity-store unavailability has a separate event, and
 owned activation attempts emit a start event and completion duration.
 

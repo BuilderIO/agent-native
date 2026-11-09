@@ -245,6 +245,25 @@ describe("pre-signup Builder experiment", () => {
     ).toBe("original-owner");
   });
 
+  it.each([false, true])(
+    "does not enroll leftover anonymous assignments on start (background=%s)",
+    async (background) => {
+      session = signedSession();
+      mocks.settings.clear();
+      mocks.waitUntil = background ? () => {} : undefined;
+      expect(
+        await (
+          await request(
+            { operation: "start" },
+            encodeBuilderSignupAssignment(accepted()),
+          )
+        ).json(),
+      ).toEqual({ status: "disabled", code: "not_enrolled" });
+      expect(activate).not.toHaveBeenCalled();
+      expect(mocks.track).not.toHaveBeenCalled();
+    },
+  );
+
   it("does not emit a replayed outcome when a completed user returns", async () => {
     session = signedSession();
     mocks.waitUntil = () => {};
@@ -254,6 +273,9 @@ describe("pre-signup Builder experiment", () => {
     expect(await (await request({ operation: "start" })).json()).toEqual({
       status: "disabled",
       code: "already_completed",
+    });
+    expect(await (await request({ operation: "activate" })).json()).toEqual({
+      status: "connected",
     });
     expect(activate).not.toHaveBeenCalled();
     expect(mocks.track).not.toHaveBeenCalled();

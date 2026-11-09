@@ -22,11 +22,11 @@ import { getAppConfig } from "../app-config/index.js";
 import { getSetting, mutateSetting } from "../settings/store.js";
 import { flushTracking, track } from "../tracking/index.js";
 import type { AuthSession } from "./auth.js";
+import { platformWaitUntil } from "./background-work.js";
 import {
   getAuthSecret,
   getBetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
-import { platformWaitUntil } from "./background-work.js";
 import { readBodyWithSizeLimit } from "./h3-helpers.js";
 
 export const BUILDER_SIGNUP_EXPERIMENT = "design_builder_signup_v1";
@@ -411,6 +411,16 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       }
       assignment = saved.data;
     }
+    // start is checked on every signed-in load, including when an unrelated
+    // anonymous assignment cookie survived. Only durable enrollment enters it.
+    if (body.data.operation === "start") {
+      if (!session?.emailVerified || !session.userId)
+        return refuse(401, "verified_session_required");
+      if (!consent) {
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+        return { status: "disabled" as const, code: "not_enrolled" };
+      }
+    }
     if (
       body.data.operation === "status" ||
       (body.data.operation === "start" && !waitUntil)
@@ -500,7 +510,6 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     const terminal = (
       status: "connected" | "fallback",
       code?: string,
-      replayed = false,
       durationMs?: number,
       clearCookie = true,
     ) => {
@@ -510,7 +519,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
           ...experimentProperties(assignment),
           status,
           code: code ?? status,
-          replayed,
+          replayed: false,
           ...(durationMs === undefined
             ? {}
             : { activation_duration_ms: durationMs }),
@@ -588,12 +597,11 @@ export function createBuilderSignupExperimentHandler(dependencies: {
           code: "activation_result_unknown",
         };
       }
-      if (status !== "started")
-        return terminal(
-          status,
-          z.string().nullable().optional().parse(existing.code) ?? undefined,
-          true,
-        );
+      if (status !== "started") {
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+        const code = z.string().nullable().optional().parse(existing.code);
+        return { status, ...(code ? { code } : {}) };
+      }
       return { status: "pending" as const };
     }
     const attempt = randomBytes(16).toString("hex");
@@ -636,7 +644,6 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         const outcome = terminal(
           status,
           committed.code ?? undefined,
-          false,
           Date.now() - z.number().parse(record.startedAt),
           !waitUntil,
         );
