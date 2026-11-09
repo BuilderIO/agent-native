@@ -629,7 +629,9 @@ mod tests {
 
         assert_eq!(released.len(), 1);
         assert_eq!(released[0].pin_id, "abandoned-segments");
-        assert!(take_from_requests(&requests, "abandoned").unwrap().is_none());
+        assert!(take_from_requests(&requests, "abandoned")
+            .unwrap()
+            .is_none());
         assert!(take_from_requests(&requests, "recent").unwrap().is_some());
     }
 
