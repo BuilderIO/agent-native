@@ -80,6 +80,10 @@ import {
   useContentActionMutation,
   type ContentQueryTarget,
 } from "./use-content-action-mutation";
+import {
+  DELETE_CONTENT_DATABASE_MUTATION_KEY,
+  removeTrashedFromCachedRecent,
+} from "./use-content-recent";
 
 export function contentDatabaseQueryKey(documentId: string) {
   return ["action", "get-content-database", { documentId }] as const;
@@ -1055,8 +1059,14 @@ export function useDeleteContentDatabase() {
     },
     { databaseId: string; activeDocumentId?: string }
   >("delete-content-database", {
-    onSuccess: (data) =>
-      clearDeletedContentDatabaseFromCache(queryClient, data.documentId),
+    mutationKey: DELETE_CONTENT_DATABASE_MUTATION_KEY,
+    onSuccess: (data) => {
+      removeTrashedFromCachedRecent(queryClient, {
+        documentIds: [data.documentId],
+        databaseIds: [data.databaseId],
+      });
+      return clearDeletedContentDatabaseFromCache(queryClient, data.documentId);
+    },
     invalidates: (data) => [
       ...contentPlacementTargets(queryClient, {
         documentIds: [data.documentId],

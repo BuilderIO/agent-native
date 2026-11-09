@@ -1,7 +1,10 @@
 import type { Document } from "@shared/api";
 import { describe, expect, it } from "vitest";
 
-import { documentSidebarActionAvailability } from "./document-sidebar-actions";
+import {
+  documentSidebarActionAvailability,
+  navigationAfterConfirmedDelete,
+} from "./document-sidebar-actions";
 
 function access(
   accessRole: NonNullable<Document["accessRole"]>,
@@ -64,5 +67,28 @@ describe("document sidebar action availability", () => {
       canManage: true,
       hasMenuActions: false,
     });
+  });
+});
+
+describe("navigation after a confirmed delete", () => {
+  it("stays on the remaining page the sidebar already opened", () => {
+    expect(
+      navigationAfterConfirmedDelete("/home", { leftDeletedPage: true }),
+    ).toBeNull();
+  });
+
+  it("follows the server when the open page went with an unloaded parent", () => {
+    expect(
+      navigationAfterConfirmedDelete("/home", { leftDeletedPage: false }),
+    ).toBe("/home");
+  });
+
+  it("stays put when the open page survived", () => {
+    expect(
+      navigationAfterConfirmedDelete(null, { leftDeletedPage: false }),
+    ).toBeNull();
+    expect(
+      navigationAfterConfirmedDelete(undefined, { leftDeletedPage: false }),
+    ).toBeNull();
   });
 });

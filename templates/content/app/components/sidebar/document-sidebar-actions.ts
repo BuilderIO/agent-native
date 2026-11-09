@@ -29,3 +29,16 @@ export function documentSidebarActionAvailability(
     hasMenuActions: canFavorite || (canManage && manageAvailable),
   };
 }
+
+/**
+ * Where to go once the server confirms a delete. The server's path matters
+ * only when the open page went with a parent the sidebar hadn't loaded; when
+ * the sidebar already left the deleted page for a remaining one, following
+ * the server would bounce through Home.
+ */
+export function navigationAfterConfirmedDelete(
+  navigationPath: string | null | undefined,
+  { leftDeletedPage }: { leftDeletedPage: boolean },
+): string | null {
+  return leftDeletedPage ? null : (navigationPath ?? null);
+}

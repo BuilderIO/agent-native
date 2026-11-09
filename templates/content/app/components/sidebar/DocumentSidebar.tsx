@@ -188,6 +188,7 @@ import {
 import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
+import { navigationAfterConfirmedDelete } from "./document-sidebar-actions";
 import {
   firstLocalSourceDocumentId,
   localSourceItemIdentity,
@@ -2906,7 +2907,8 @@ export function DocumentSidebar({
         queryClient.removeQueries(documentQueryFilter(deletedId));
       }
 
-      if (activeDeleted) {
+      const leftDeletedPage = activeDeleted;
+      if (leftDeletedPage) {
         void navigate(nextDocument ? `/page/${nextDocument.id}` : "/home", {
           replace: true,
           flushSync: true,
@@ -2914,30 +2916,25 @@ export function DocumentSidebar({
       }
 
       try {
-        if (deletedDocument?.database) {
-          const result = await deleteContentDatabase.mutateAsync({
-            databaseId: deletedDocument.database.id,
-            activeDocumentId: activeDocumentId ?? undefined,
-          });
-          activeDeleted = result.activeTargetDeleted;
-          if (result.navigationPath) {
-            void navigate(result.navigationPath, {
-              replace: true,
-              flushSync: true,
+        const result = deletedDocument?.database
+          ? await deleteContentDatabase.mutateAsync({
+              databaseId: deletedDocument.database.id,
+              activeDocumentId: activeDocumentId ?? undefined,
+            })
+          : await deleteDocument.mutateAsync({
+              id,
+              activeDocumentId: activeDocumentId ?? undefined,
             });
-          }
-        } else {
-          const result = await deleteDocument.mutateAsync({
-            id,
-            activeDocumentId: activeDocumentId ?? undefined,
+        activeDeleted = result.activeTargetDeleted ?? false;
+        const navigationPath = navigationAfterConfirmedDelete(
+          result.navigationPath,
+          { leftDeletedPage },
+        );
+        if (navigationPath) {
+          void navigate(navigationPath, {
+            replace: true,
+            flushSync: true,
           });
-          activeDeleted = result.activeTargetDeleted ?? false;
-          if (result.navigationPath) {
-            void navigate(result.navigationPath, {
-              replace: true,
-              flushSync: true,
-            });
-          }
         }
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
