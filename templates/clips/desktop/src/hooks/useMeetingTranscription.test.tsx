@@ -795,4 +795,118 @@ describe("useMeetingTranscription quit coordination", () => {
     expect(stopAttempts).toBe(2);
     expect(tauri.invoke).toHaveBeenCalledWith("quit_teardown_done");
   });
+
+  describe("meeting session identity", () => {
+    function startedMeetingAction() {
+      return vi.fn((name: string) => {
+        if (name === "start-meeting-recording") {
+          return Promise.resolve({
+            meetingId: "meeting-row-1",
+            recording: { id: "recording-1" },
+          });
+        }
+        if (name === "get-meeting") {
+          return Promise.resolve({ meeting: { title: "Meeting" } });
+        }
+        return Promise.resolve({ actualEnd: new Date().toISOString() });
+      });
+    }
+
+    it("keeps the running session when a start repeats the calendar id it was started with", async () => {
+      transcription.start.mockResolvedValue("whisper");
+      const callClipsAction = startedMeetingAction();
+      await act(async () => {
+        root.render(<Probe callClipsAction={callClipsAction} />);
+      });
+      const startListener = [
+        ...(tauri.listeners.get("meetings:start-transcription") ?? []),
+      ][0];
+      expect(startListener).toBeDefined();
+
+      await act(async () => {
+        startListener({ payload: { meetingId: "calendar-event-1" } });
+        await waitFor(() =>
+          tauri.emit.mock.calls.some(
+            ([name]) => name === "meetings:transcription-started",
+          ),
+        );
+      });
+      tauri.invoke.mockClear();
+
+      await act(async () => {
+        startListener({ payload: { meetingId: "calendar-event-1" } });
+        await waitFor(() =>
+          tauri.invoke.mock.calls.some(
+            ([command]) => command === "recording_pill_show",
+          ),
+        );
+      });
+
+      expect(
+        callClipsAction.mock.calls.some(
+          ([name]) => name === "stop-meeting-recording",
+        ),
+      ).toBe(false);
+      expect(transcription.stop).not.toHaveBeenCalled();
+      expect(tauri.invoke).not.toHaveBeenCalledWith("recording_pill_hide");
+      expect(tauri.invoke).toHaveBeenCalledWith("recording_pill_show", {
+        meetingId: "meeting-row-1",
+        mode: "meeting",
+      });
+    });
+
+    it("marks the meeting active as soon as its pill shows, before the server confirms the start", async () => {
+      transcription.start.mockResolvedValue("whisper");
+      const startRecording = deferred<{
+        meetingId: string;
+        recording: { id: string };
+      }>();
+      const callClipsAction = vi.fn((name: string) => {
+        if (name === "start-meeting-recording") return startRecording.promise;
+        if (name === "get-meeting") {
+          return Promise.resolve({ meeting: { title: "Meeting" } });
+        }
+        return Promise.resolve({ actualEnd: new Date().toISOString() });
+      });
+      await act(async () => {
+        root.render(<Probe callClipsAction={callClipsAction} />);
+      });
+      const startListener = [
+        ...(tauri.listeners.get("meetings:start-transcription") ?? []),
+      ][0];
+
+      await act(async () => {
+        startListener({ payload: { meetingId: "calendar-event-1" } });
+        await waitFor(() =>
+          callClipsAction.mock.calls.some(
+            ([name]) => name === "start-meeting-recording",
+          ),
+        );
+      });
+
+      expect(tauri.invoke).toHaveBeenCalledWith("set_meeting_active", {
+        active: true,
+        meetingId: "calendar-event-1",
+      });
+
+      await act(async () => {
+        startRecording.resolve({
+          meetingId: "meeting-row-1",
+          recording: { id: "recording-1" },
+        });
+        await waitFor(() =>
+          tauri.emit.mock.calls.some(
+            ([name]) => name === "meetings:transcription-started",
+          ),
+        );
+      });
+      const meetingActiveCalls = tauri.invoke.mock.calls.filter(
+        ([command]) => command === "set_meeting_active",
+      );
+      expect(meetingActiveCalls[meetingActiveCalls.length - 1]).toEqual([
+        "set_meeting_active",
+        { active: true, meetingId: "meeting-row-1" },
+      ]);
+    });
+  });
 });

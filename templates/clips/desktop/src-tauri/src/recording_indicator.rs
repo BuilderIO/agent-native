@@ -1,4 +1,3 @@
-
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
@@ -10,9 +9,10 @@ use tauri::{
 
 use crate::dlog;
 use crate::util::{
-    build_overlay_url, configure_overlay_behavior, configure_recording_overlay,
-    raise_to_status_level, set_capture_excluded, show_without_activation,
-    start_topmost_reassert_loop, tray_monitor_physical_rect,
+    advance_loop_generation, build_overlay_url, configure_overlay_behavior,
+    configure_recording_overlay, is_current_loop_generation, raise_to_status_level,
+    set_capture_excluded, show_without_activation, start_topmost_reassert_loop,
+    tray_monitor_physical_rect,
 };
 
 const PILL_LABEL: &str = "recording-pill";
@@ -22,7 +22,7 @@ static PILL_DETACHED: AtomicBool = AtomicBool::new(false);
 static PILL_RIGHT_SIDE: AtomicBool = AtomicBool::new(false);
 static PILL_EXPANDED: AtomicBool = AtomicBool::new(false);
 
-static PILL_HOVER_TRACKING: AtomicBool = AtomicBool::new(false);
+static PILL_HOVER_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 const PILL_W_LOGICAL: u32 = 38;
 const PILL_W_EXPANDED_LOGICAL: u32 = 480;
@@ -464,14 +464,12 @@ fn cursor_inside_pill_frame(window: &WebviewWindow) -> bool {
 }
 
 fn start_pill_hover_tracking(app: &AppHandle) {
-    if PILL_HOVER_TRACKING.swap(true, Ordering::SeqCst) {
-        return;
-    }
+    let generation = advance_loop_generation(&PILL_HOVER_GENERATION);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         use tauri::Emitter;
         let mut prev = false;
-        while PILL_HOVER_TRACKING.load(Ordering::Relaxed) {
+        while is_current_loop_generation(&PILL_HOVER_GENERATION, generation) {
             let Some(win) = app.get_webview_window(PILL_LABEL) else {
                 break;
             };
@@ -482,12 +480,11 @@ fn start_pill_hover_tracking(app: &AppHandle) {
             }
             tokio::time::sleep(Duration::from_millis(80)).await;
         }
-        PILL_HOVER_TRACKING.store(false, Ordering::SeqCst);
     });
 }
 
 fn stop_pill_hover_tracking() {
-    PILL_HOVER_TRACKING.store(false, Ordering::SeqCst);
+    advance_loop_generation(&PILL_HOVER_GENERATION);
 }
 
 #[tauri::command]
