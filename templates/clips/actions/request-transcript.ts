@@ -1,7 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { resolveHasBuilderGatewayCredential } from "@agent-native/core/server";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
@@ -1259,7 +1258,11 @@ const requestTranscriptAction = defineAction({
       };
     }
 
-    if (await resolveHasBuilderGatewayCredential()) {
+    const cloudAccess = await resolveCloudTranscriptionAccess();
+    if (cloudAccess === "unknown") {
+      builderError = "Builder credential lookup is temporarily unavailable.";
+    }
+    if (cloudAccess === "available") {
       if (!regeneratingReadyTranscript) {
         const kept = await writeTranscriptOrKeepImport(db, {
           recordingId: args.recordingId,
@@ -1544,9 +1547,11 @@ const requestTranscriptAction = defineAction({
     const reason = builderError
       ? "No native transcript was captured, and Builder transcription could not finish. Retry transcription or check Builder connection and recording audio."
       : "No transcript was captured by native speech recognition, and Builder transcription is not configured.";
-    const cloudTransient = builderError
-      ? isTransientTranscriptionError(new Error(builderError))
-      : false;
+    const cloudTransient =
+      cloudAccess === "unknown" ||
+      (builderError
+        ? isTransientTranscriptionError(new Error(builderError))
+        : false);
     const cloudNextRetryCount = currentRetryCount + 1;
     const kept = await writeTranscriptOrKeepImport(db, {
       recordingId: args.recordingId,

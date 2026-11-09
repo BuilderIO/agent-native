@@ -927,12 +927,25 @@ async function completeReadyRecordingBookkeeping(params: {
   // Without a Builder gateway credential no cloud job can run, so record the
   // setup-needed failure now rather than show "Transcribing…" or depend on a
   // dispatch that may not land. When the credential store can't be read the
-  // job decides, since it checks again before writing anything. Existing rows
-  // keep their state so reconnecting can retry them; a browser transcript
-  // still replaces a failed one.
+  // job decides and retries. Existing rows keep their state so reconnecting
+  // can retry them; a browser transcript still replaces a failed one.
   const cloudAccess = await resolveCloudTranscriptionAccess();
   if (!existingTranscript) {
-    if (cloudAccess === "available") {
+    if (cloudAccess === "unavailable") {
+      await db
+        .insert(schema.recordingTranscripts)
+        .values({
+          recordingId: params.id,
+          ownerEmail: params.ownerEmail,
+          status: "failed",
+          failureReason: transcriptFailureMessage("CLOUD_UNCONFIGURED"),
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing({
+          target: schema.recordingTranscripts.recordingId,
+        });
+    } else {
       // A transcript import can create the row after the read above; keep it.
       const [insertedTranscript] = await db
         .insert(schema.recordingTranscripts)
@@ -948,28 +961,9 @@ async function completeReadyRecordingBookkeeping(params: {
         })
         .returning({ recordingId: schema.recordingTranscripts.recordingId });
       shouldDispatchTranscript = Boolean(insertedTranscript);
-    } else if (cloudAccess === "unavailable") {
-      await db
-        .insert(schema.recordingTranscripts)
-        .values({
-          recordingId: params.id,
-          ownerEmail: params.ownerEmail,
-          status: "failed",
-          failureReason: transcriptFailureMessage("CLOUD_UNCONFIGURED"),
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoNothing({
-          target: schema.recordingTranscripts.recordingId,
-        });
-    } else {
-      console.warn("[finalize] Builder credential lookup unavailable", {
-        id: params.id,
-      });
-      shouldDispatchTranscript = true;
     }
   } else if (
-    cloudAccess === "available" &&
+    cloudAccess !== "unavailable" &&
     existingTranscript.source !== "imported" &&
     (existingTranscript.status === "failed" ||
       (existingTranscript.status === "pending" &&

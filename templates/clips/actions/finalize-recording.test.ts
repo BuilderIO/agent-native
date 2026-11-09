@@ -1946,7 +1946,7 @@ describe("finalize-recording media serve verification", () => {
     );
   });
 
-  it("leaves the transcript to the job when the Builder credential lookup is unavailable", async () => {
+  it("queues the transcript job behind a pending row when the Builder credential lookup is unavailable", async () => {
     const { resolveHasBuilderGatewayCredential, BuilderCredentialLookupError } =
       await import("@agent-native/core/server");
     vi.mocked(resolveHasBuilderGatewayCredential).mockRejectedValueOnce(
@@ -1962,11 +1962,8 @@ describe("finalize-recording media serve verification", () => {
     });
 
     expect(result).toEqual(expect.objectContaining({ status: "ready" }));
-    expect(mockInsertValues).not.toHaveBeenCalledWith(
+    expect(mockInsertValues).toHaveBeenCalledWith(
       expect.objectContaining({ recordingId: "rec_1", status: "pending" }),
-    );
-    expect(mockInsertValues).not.toHaveBeenCalledWith(
-      expect.objectContaining({ recordingId: "rec_1", status: "failed" }),
     );
     expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith(
       expect.objectContaining({ recordingId: "rec_1", kind: "transcript" }),

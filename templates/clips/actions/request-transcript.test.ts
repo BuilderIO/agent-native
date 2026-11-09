@@ -1002,6 +1002,26 @@ describe("requestTranscript regeneration", () => {
     expect(mockTrack).not.toHaveBeenCalled();
   });
 
+  it("records a retryable failure and schedules a retry when the Builder credential lookup is unavailable", async () => {
+    const { BuilderCredentialLookupError } =
+      await import("@agent-native/core/server");
+    mockResolveHasBuilderGatewayCredential.mockRejectedValue(
+      new BuilderCredentialLookupError(),
+    );
+    mockSelectRows.queue = [[]];
+
+    const result = await requestTranscript.run({ recordingId: "rec_new" });
+
+    expect(result).toMatchObject({ recordingId: "rec_new", status: "failed" });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "rec_new",
+        kind: "transcript",
+        retryAttempt: 1,
+      }),
+    );
+  });
+
   it("falls back to Builder when native transcription is unavailable", async () => {
     mockTranscribeWithBuilder.mockResolvedValue({
       text: "Recovered from the spoken recording.",
