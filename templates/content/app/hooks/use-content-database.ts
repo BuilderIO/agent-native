@@ -68,6 +68,11 @@ import { useMemo } from "react";
 
 import { documentQueryFilter } from "../lib/document-query";
 import {
+  confirmCreatedFilesRow,
+  forgetCreatedFilesRows,
+  removeCreatedFilesRows,
+} from "../lib/files-navigation";
+import {
   openingDatabaseQueryKey,
   usePageOpenCollectionClaim,
 } from "../lib/page-open-collection";
@@ -974,6 +979,14 @@ export function useCreateContentDatabase(
   >("create-content-database", {
     skipActionQueryInvalidation: true,
     onSuccess: (data, variables) => {
+      // Before the rereads below start, so they can settle the sidebar row.
+      confirmCreatedFilesRow(queryClient, data.database.documentId);
+      if (
+        variables.newDocumentId &&
+        variables.newDocumentId !== data.database.documentId
+      ) {
+        removeCreatedFilesRows(queryClient, [variables.newDocumentId]);
+      }
       if (documentId) {
         void queryClient.invalidateQueries(documentQueryFilter(documentId));
         void queryClient.invalidateQueries({
@@ -1055,8 +1068,10 @@ export function useDeleteContentDatabase() {
     },
     { databaseId: string; activeDocumentId?: string }
   >("delete-content-database", {
-    onSuccess: (data) =>
-      clearDeletedContentDatabaseFromCache(queryClient, data.documentId),
+    onSuccess: (data) => {
+      forgetCreatedFilesRows(queryClient, [data.documentId]);
+      clearDeletedContentDatabaseFromCache(queryClient, data.documentId);
+    },
     invalidates: (data) => [
       ...contentPlacementTargets(queryClient, {
         documentIds: [data.documentId],

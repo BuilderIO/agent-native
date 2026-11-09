@@ -1,9 +1,16 @@
 import { callActionWithRetry } from "@agent-native/core/client/hooks";
+import {
+  safeParseIconValue,
+  serializeIconValue,
+} from "@agent-native/core/icons";
 import type {
+  ContentDatabaseNavigationItem,
+  ContentDatabaseNavigationPage,
   ContentDatabaseNavigationPageResponse,
   ContentDatabasePersonalViewOverrides,
   ContentDatabaseUnavailableResponse,
   ContentSidebarViewOrder,
+  Document,
 } from "@shared/api";
 import {
   useQuery,
@@ -11,6 +18,8 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+
+import { isDocumentCreationPending } from "./optimistic-document";
 
 export const FILES_NAVIGATION_PAGE_SIZE = 20;
 
@@ -43,9 +52,13 @@ export function filesNavigationOrder(
 }
 
 // Every reader of one Files branch must build the same params so the sidebar
-// tree and breadcrumb menus share one cached request per page. The server
-// orders a branch by the person's saved view, so the order is not part of
-// the key: a branch can be read before that view arrives.
+// tree and breadcrumb menus share one cached request per page. Every reader
+// must also read it through `useFilesNavigationPage`: a query refetches with
+// the read function of whichever reader mounted last, so a reader with its own
+// function would drop this tab's new pages and the expanded folders the shared
+// read loads with the branch. The server orders a branch by the person's saved
+// view, so the order is not part of the key: a branch can be read before that
+// view arrives.
 export function filesNavigationPageParams(args: {
   databaseId: string;
   parentId: string | null;
@@ -69,6 +82,218 @@ export function filesNavigationQueryKey(params: FilesNavigationPageParams) {
 type FilesNavigationRead =
   | ContentDatabaseNavigationPageResponse
   | ContentDatabaseUnavailableResponse;
+
+// Pages this tab created, by page ID. The server lists a page only once its
+// create commits, and lists a new page last, after the first page of a branch
+// longer than one page. Each read of a branch's first page keeps these rows at
+// its end, so a new page stays in the sidebar while its create is in flight,
+// when another create or a move rereads the branch, and after the person opens
+// another page.
+type CreatedFilesRow = {
+  databaseId: string;
+  item: ContentDatabaseNavigationItem;
+  /** When the create's answer arrived; null while it is in flight. */
+  confirmedAt: number | null;
+};
+
+const createdFilesRows = new WeakMap<
+  QueryClient,
+  Map<string, CreatedFilesRow>
+>();
+const CREATED_ROW_MEMBERSHIP_PREFIX = "created-";
+
+function isCreatedRow(item: ContentDatabaseNavigationItem) {
+  return item.membershipId.startsWith(CREATED_ROW_MEMBERSHIP_PREFIX);
+}
+
+/** Rewrites cached Files pages; `update` returns undefined to leave one as is. */
+function updateCachedFilesPages(
+  queryClient: QueryClient,
+  update: (
+    page: ContentDatabaseNavigationPage,
+    params: FilesNavigationPageParams,
+  ) => ContentDatabaseNavigationPage | undefined,
+) {
+  for (const query of queryClient
+    .getQueryCache()
+    .findAll({ queryKey: ["action", "query-content-database-items"] })) {
+    const params = query.queryKey[2] as FilesNavigationPageParams | undefined;
+    const page = query.state.data as FilesNavigationRead | undefined;
+    if (!params?.navigation || !page || "available" in page) continue;
+    const next = update(page, params);
+    if (!next) continue;
+    // Writing a page marks it fresh. One already marked stale still rereads
+    // the next time it draws.
+    const stale = query.state.isInvalidated;
+    queryClient.setQueryData(query.queryKey, next);
+    if (stale) {
+      void queryClient.invalidateQueries({
+        queryKey: query.queryKey,
+        exact: true,
+        refetchType: "none",
+      });
+    }
+  }
+}
+
+/**
+ * Shows a page this tab is creating at the end of its Files branch until the
+ * server lists it. A page whose create already committed (one restored after
+ * a reload) counts as confirmed now.
+ */
+export function showCreatedFilesRow(
+  queryClient: QueryClient,
+  databaseId: string,
+  document: Document,
+  type: ContentDatabaseNavigationItem["type"] = "page",
+) {
+  let rows = createdFilesRows.get(queryClient);
+  if (!rows) {
+    rows = new Map();
+    createdFilesRows.set(queryClient, rows);
+  }
+  const icon = safeParseIconValue(document.icon ?? null);
+  const item: ContentDatabaseNavigationItem = {
+    membershipId: `${CREATED_ROW_MEMBERSHIP_PREFIX}${document.id}`,
+    membershipPosition: document.position,
+    documentId: document.id,
+    parentId: document.parentId ?? null,
+    title: document.title,
+    icon: icon.success ? serializeIconValue(icon.data) : null,
+    type,
+    hasChildren: false,
+    spaceId: document.spaceId ?? null,
+    sourceKind: document.source?.kind ?? null,
+    isFavorite: document.isFavorite,
+    canEdit: document.canEdit !== false,
+    canManage: document.canManage !== false,
+    createdAt: document.createdAt,
+    updatedAt: document.updatedAt,
+  };
+  rows.set(document.id, {
+    databaseId,
+    item,
+    confirmedAt: isDocumentCreationPending(queryClient, document)
+      ? null
+      : Date.now(),
+  });
+  updateCachedFilesPages(queryClient, (page, params) =>
+    params.databaseId === databaseId &&
+    params.navigation.parentId === item.parentId &&
+    params.navigation.cursor === undefined &&
+    !page.items.some((listed) => listed.documentId === document.id)
+      ? { ...page, items: [...page.items, item] }
+      : undefined,
+  );
+}
+
+/**
+ * The server answered a create: a read that starts from now on lists the page
+ * if it is still in its branch's first page.
+ */
+export function confirmCreatedFilesRow(
+  queryClient: QueryClient,
+  documentId: string,
+) {
+  const row = createdFilesRows.get(queryClient)?.get(documentId);
+  if (row) row.confirmedAt ??= Date.now();
+}
+
+/**
+ * Stops keeping pages in their branches, for a page deleted or moved: the
+ * write's own reread of the branch then draws what the server has.
+ */
+export function forgetCreatedFilesRows(
+  queryClient: QueryClient,
+  documentIds: Iterable<string>,
+) {
+  const rows = createdFilesRows.get(queryClient);
+  if (!rows) return;
+  for (const documentId of documentIds) rows.delete(documentId);
+}
+
+/**
+ * Takes pages out of the sidebar whose create failed or was discarded. The
+ * server never had them, so no reread would remove their rows.
+ */
+export function removeCreatedFilesRows(
+  queryClient: QueryClient,
+  documentIds: Iterable<string>,
+) {
+  if (!createdFilesRows.has(queryClient)) return;
+  const removed = new Set(documentIds);
+  forgetCreatedFilesRows(queryClient, removed);
+  updateCachedFilesPages(queryClient, (page) =>
+    page.items.some(
+      (item) => removed.has(item.documentId) && isCreatedRow(item),
+    )
+      ? {
+          ...page,
+          items: page.items.filter(
+            (item) => !(removed.has(item.documentId) && isCreatedRow(item)),
+          ),
+        }
+      : undefined,
+  );
+}
+
+/**
+ * Adds this tab's new pages to a page the server just read. A row leaves once
+ * a read that started after its create was confirmed lists it, or reads its
+ * whole branch without it (the page was deleted or moved). In a branch longer
+ * than one page it stays at the end of the first page, where the person last
+ * saw it.
+ */
+function withCreatedFilesRows(
+  queryClient: QueryClient,
+  params: FilesNavigationPageParams,
+  page: ContentDatabaseNavigationPage,
+  readStartedAt: number,
+): ContentDatabaseNavigationPage {
+  const rows = createdFilesRows.get(queryClient);
+  if (!rows?.size) return page;
+  const { databaseId, navigation } = params;
+  const firstPage = navigation.cursor === undefined;
+  const listed = new Set(page.items.map((item) => item.documentId));
+  // A shown row keeps the title and icon given to it since it was added.
+  const cached = firstPage
+    ? queryClient.getQueryData<FilesNavigationRead>(
+        filesNavigationQueryKey(params),
+      )
+    : undefined;
+  const cachedItems = cached && !("available" in cached) ? cached.items : [];
+  const parentIds = new Set<string | null>();
+  const shown: ContentDatabaseNavigationItem[] = [];
+  for (const [documentId, row] of rows) {
+    if (row.databaseId !== databaseId) continue;
+    parentIds.add(row.item.parentId);
+    if (!firstPage || row.item.parentId !== navigation.parentId) continue;
+    const readAfterCreate =
+      row.confirmedAt !== null && row.confirmedAt <= readStartedAt;
+    if (listed.has(documentId)) {
+      if (readAfterCreate) rows.delete(documentId);
+      continue;
+    }
+    if (readAfterCreate && !page.pagination.hasMore) {
+      rows.delete(documentId);
+      continue;
+    }
+    row.item =
+      cachedItems.find((item) => item.documentId === documentId) ?? row.item;
+    shown.push(row.item);
+  }
+  const items = [...page.items, ...shown];
+  // A folder whose first child is still being created has children already.
+  const withChildren = items.map((item) =>
+    parentIds.has(item.documentId) && !item.hasChildren
+      ? { ...item, hasChildren: true }
+      : item,
+  );
+  return shown.length > 0 ||
+    withChildren.some((item, index) => item !== items[index])
+    ? { ...page, items: withChildren }
+    : page;
+}
 
 /**
  * Reads one Files page and asks for any expanded folders that do not have a
@@ -102,6 +327,7 @@ export async function readFilesNavigationPage(
     }
     pending.add(expansionKey);
   }
+  const readStartedAt = Date.now();
   try {
     const response = await callActionWithRetry<FilesNavigationRead>(
       "query-content-database-items",
@@ -116,19 +342,26 @@ export async function readFilesNavigationPage(
     // empty: it reads its own page when it draws.
     const { branches, branchesTruncated, ...page } = response;
     for (const [parentId, branch] of Object.entries(branches ?? {})) {
-      const key = filesNavigationQueryKey(
-        filesNavigationPageParams({
-          databaseId: params.databaseId,
-          parentId,
-        }),
-      );
+      const branchParams = filesNavigationPageParams({
+        databaseId: params.databaseId,
+        parentId,
+      });
+      const key = filesNavigationQueryKey(branchParams);
       // A folder that already has its own page keeps it; that read is the
       // one its later changes refresh.
       if (queryClient.getQueryData(key) === undefined) {
-        queryClient.setQueryData(key, branch);
+        queryClient.setQueryData(
+          key,
+          withCreatedFilesRows(
+            queryClient,
+            branchParams,
+            branch,
+            readStartedAt,
+          ),
+        );
       }
     }
-    return page;
+    return withCreatedFilesRows(queryClient, params, page, readStartedAt);
   } finally {
     if (expansionKey && pending) pending.delete(expansionKey);
   }
@@ -155,9 +388,12 @@ function isExpansionReadPending(
   );
 }
 
+const NO_EXPANDED_FOLDERS: ReadonlySet<string> = new Set();
+
 export function useFilesNavigationPage(
   params: FilesNavigationPageParams,
-  expanded: ReadonlySet<string>,
+  expanded: ReadonlySet<string> = NO_EXPANDED_FOLDERS,
+  { enabled = true }: { enabled?: boolean } = {},
 ) {
   const queryClient = useQueryClient();
   const expansionKey = JSON.stringify([
@@ -174,6 +410,7 @@ export function useFilesNavigationPage(
       return readFilesNavigationPage(queryClient, params, expanded, signal);
     },
     retry: false,
+    enabled,
   });
   useEffect(() => {
     if (
