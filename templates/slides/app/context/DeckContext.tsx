@@ -838,10 +838,10 @@ export function getDuplicateSourceSlides(deck: Deck): Slide[] {
 const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>();
 const inFlightSaves = new Set<string>();
 const inFlightSaveChains = new Map<string, Promise<void>>();
-const inFlightKeepaliveSaves = new Map<string, Promise<void>>();
+const inFlightKeepaliveSaves = new Map<string, Promise<void | boolean>>();
 // A plain request started when the tab hides can be cancelled by unload, so a
 // pagehide keepalive replay must still be allowed to supersede it.
-const plainHiddenSaves = new WeakSet<Promise<void>>();
+const plainHiddenSaves = new WeakSet<Promise<void | boolean>>();
 const inFlightSaveControllers = new Map<string, AbortController>();
 const deckSaveGenerations = new Map<string, number>();
 const immediateFlushRequests = new Map<string, boolean>();
@@ -2327,7 +2327,7 @@ function drainPendingDeckOps(
                 "errorCode" in err &&
                 err.errorCode === "slide_content_stale",
               );
-            if (landedFirst) return;
+            if (landedFirst) return false;
             if (!controller?.signal.aborted) {
               console.error(`Failed to keepalive save deck ${deckId}:`, err);
             }
@@ -2447,7 +2447,9 @@ function drainPendingDeckOps(
         keepaliveSuccessGenerationAtStart;
       if (!replayedByKeepalive && keepaliveSave) {
         const [keepaliveResult] = await Promise.allSettled([keepaliveSave]);
-        replayedByKeepalive = keepaliveResult?.status === "fulfilled";
+        replayedByKeepalive =
+          keepaliveResult?.status === "fulfilled" &&
+          keepaliveResult.value !== false;
       }
       if (!isCurrentGeneration()) return;
       const refusedSlideId = slideAnimationRefusalSlideId(err);
