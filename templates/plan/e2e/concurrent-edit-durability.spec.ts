@@ -665,6 +665,11 @@ test("saving twice more before the document has what a merged save brought in ke
   const savesReleased = new Promise<void>((resolve) => {
     releaseSaves = resolve;
   });
+  await page.evaluate(() => {
+    window.addEventListener("agent-native:write-failure", () => {
+      document.documentElement.dataset.writeFailed = "true";
+    });
+  });
   // The document can't see the other write through any of these saves.
   await page.route(`**${GET_ACTION}*`, async (route) => {
     const response = await route.fetch();
@@ -710,8 +715,10 @@ test("saving twice more before the document has what a merged save brought in ke
     .poll(() => persistedText(page, planId), { timeout: 20_000 })
     .toContain(third);
   expect(await persistedText(page, planId)).toContain(theirs);
-  // The first save's conflict merged by itself, so nothing reports a failure.
-  await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
+  // The first save's conflict merged by itself, so nothing reported a failure.
+  expect(
+    await page.evaluate(() => document.documentElement.dataset.writeFailed),
+  ).toBeUndefined();
   releaseReads();
   await expect(surface(page)).toContainText(theirs, { timeout: 20_000 });
   await expect(surface(page)).toContainText(third);
