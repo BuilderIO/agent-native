@@ -212,6 +212,57 @@ describe("TranscriptPanel no-audio failures", () => {
     expect(container.textContent).not.toContain("transcriptPanel.noMatches");
   });
 
+  it("offers to regenerate an unreadable transcript under the message when the clip can be regenerated", () => {
+    const onRegenerate = vi.fn();
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <TranscriptPanel
+            segments={[]}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="ready"
+            unreadable
+            onRegenerate={onRegenerate}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const emptyState = container.querySelector('[data-slot="empty"]');
+    const button = Array.from(
+      emptyState?.querySelectorAll("button") ?? [],
+    ).find((el) => el.textContent === "transcriptPanel.regenerate");
+    expect(button).toBeDefined();
+
+    act(() => button?.click());
+    expect(onRegenerate).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers no regenerate button under the message without a way to regenerate, or when there is simply no transcript", () => {
+    for (const unreadable of [true, false]) {
+      act(() => {
+        root.render(
+          <TooltipProvider>
+            <TranscriptPanel
+              segments={[]}
+              currentMs={0}
+              onSeek={vi.fn()}
+              status="ready"
+              unreadable={unreadable}
+              {...(unreadable
+                ? { audience: "viewer" as const }
+                : { onRegenerate: vi.fn() })}
+            />
+          </TooltipProvider>,
+        );
+      });
+
+      const emptyState = container.querySelector('[data-slot="empty"]');
+      expect(emptyState?.querySelector("button")).toBeNull();
+    }
+  });
+
   it("still says there is no transcript yet when there is none", () => {
     act(() => {
       root.render(

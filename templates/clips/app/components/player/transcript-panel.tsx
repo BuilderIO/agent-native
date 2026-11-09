@@ -29,7 +29,12 @@ import { toast } from "sonner";
 import { useAiSetupHref } from "@/components/settings/settings-links";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import {
+  Empty,
+  EmptyContent,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import {
   Tooltip,
@@ -414,6 +419,8 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   }
 
+  const transcriptUnreadable = unreadable && displaySegments.length === 0;
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 border-b border-border p-3">
@@ -525,13 +532,30 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           <Empty className="min-h-full gap-2 rounded-none p-4 md:p-6">
             <EmptyHeader>
               <EmptyTitle className="text-sm font-medium text-muted-foreground">
-                {unreadable && displaySegments.length === 0
+                {transcriptUnreadable
                   ? t("transcriptBubbles.unreadable")
                   : query
                     ? t("transcriptPanel.noMatches")
                     : t("transcriptPanel.noTranscript")}
               </EmptyTitle>
             </EmptyHeader>
+            {transcriptUnreadable && onRegenerate ? (
+              <EmptyContent className="mt-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onRegenerate}
+                  disabled={isRegenerating}
+                >
+                  {isRegenerating ? (
+                    <IconLoader2 className="size-4 animate-spin" />
+                  ) : null}
+                  {isRegenerating
+                    ? t("transcriptPanel.transcribing")
+                    : t("transcriptPanel.regenerate")}
+                </Button>
+              </EmptyContent>
+            ) : null}
           </Empty>
         ) : (
           <ul className="py-1">
