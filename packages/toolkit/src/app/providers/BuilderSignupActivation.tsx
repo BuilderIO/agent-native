@@ -6,7 +6,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { useSession } from "@agent-native/core/client/use-session";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "../../ui/button.js";
 import { Skeleton } from "../../ui/skeleton.js";
@@ -28,6 +28,7 @@ export function useBuilderSignupActivation(
 } {
   const queryClient = useQueryClient();
   const attemptKey = `${experimentId}:${userId}`;
+  const recoveryAttempts = useRef(new Map<string, number>());
   const [activation, setActivation] = useState<{
     userId: string;
     status: "running" | "checking" | "settled";
@@ -115,7 +116,11 @@ export function useBuilderSignupActivation(
       // A fresh start/status read can still be eligible on a host without
       // background execution. Re-enter activate; the server reservation owns
       // idempotency and never repeats an uncertain provider creation.
-      setActivation(undefined);
+      const retries = recoveryAttempts.current.get(attemptKey) ?? 0;
+      if (retries < 2) {
+        recoveryAttempts.current.set(attemptKey, retries + 1);
+        setActivation(undefined);
+      }
     }
   }, [
     activation,
@@ -123,6 +128,7 @@ export function useBuilderSignupActivation(
     eligibility.data,
     eligibility.dataUpdatedAt,
     eligibility.isSuccess,
+    attemptKey,
     queryClient,
   ]);
   return {
@@ -134,6 +140,7 @@ export function useBuilderSignupActivation(
     resolving: Boolean(userId) && eligibility.isPending,
     statusError: activation?.status === "checking",
     retryStatus: () => {
+      recoveryAttempts.current.set(attemptKey, 0);
       attempts.delete(attemptKey);
       setActivation(undefined);
       void eligibility.refetch();

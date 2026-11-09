@@ -143,6 +143,32 @@ describe("BuilderSignupActivation", () => {
     );
   });
 
+  it("caps automatic activation retries and leaves further recovery to the Retry button", async () => {
+    mocks.status.mockResolvedValue("eligible");
+    mocks.activate.mockRejectedValue(
+      new Error("persistent activation transport failure"),
+    );
+    await render("bounded-retry-user");
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(3), {
+      timeout: 6000,
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2300));
+    });
+    expect(mocks.activate).toHaveBeenCalledTimes(3);
+    expect(container.querySelector("[role='alert']")).not.toBeNull();
+    mocks.activate.mockResolvedValue("connected");
+    await act(async () => {
+      container
+        .querySelector("[role='alert'] button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(4));
+    await vi.waitFor(() =>
+      expect(container.querySelector("[role='status']")).toBeNull(),
+    );
+  }, 10000);
+
   it("shows a retry state when confirmed activation status becomes unavailable", async () => {
     mocks.status.mockResolvedValue("eligible");
     mocks.activate.mockRejectedValue(new Error("polling timed out"));
