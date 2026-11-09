@@ -172,8 +172,16 @@ export function useBuilderSignupActivation(
     retryStatus: () => {
       recoveryAttempts.current.set(attemptKey, 0);
       attempts.delete(attemptKey);
-      setActivation(undefined);
-      void eligibility.refetch();
+      const confirmed =
+        activation !== undefined &&
+        activation.userId === userId &&
+        activation.status !== "settled";
+      if (confirmed) setActivation({ ...activation, status: "paused" });
+      else setActivation(undefined);
+      void eligibility.refetch().then((result) => {
+        if (confirmed && result.isSuccess && result.data === "eligible")
+          setActivation(undefined);
+      });
     },
   };
 }

@@ -5139,11 +5139,17 @@ export function createCoreRoutesPlugin(
               null,
             );
             if ("deny" in authorization) return false;
+            const member =
+              authorization.member ??
+              (await resolveBuilderOrgMutation(event, {
+                allowMemberInitiation: true,
+              }));
+            if (member.deny) return false;
             return hasCompletedAutomaticBuilderSignup(
               session.email,
               `${owner.experimentId}:${owner.attempt}`,
               owner.startedAt,
-              authorization.member ?? undefined,
+              member,
             );
           },
         }),

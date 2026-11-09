@@ -301,6 +301,21 @@ describe("BuilderSignupActivation", () => {
       await new Promise((resolve) => setTimeout(resolve, 2300));
     });
     expect(mocks.status).toHaveBeenCalledTimes(statusReadsAfterError);
+    await act(async () => {
+      container
+        .querySelector("[role='alert'] button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await vi.waitFor(() =>
+      expect(mocks.status.mock.calls.length).toBeGreaterThan(
+        statusReadsAfterError,
+      ),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    });
+    expect(container.querySelector("[role='alert'] button")).not.toBeNull();
+    expect(container.querySelector("[inert]")).not.toBeNull();
     mocks.status.mockResolvedValue("disabled");
     await act(async () => {
       container

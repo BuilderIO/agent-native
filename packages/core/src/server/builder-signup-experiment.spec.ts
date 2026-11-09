@@ -64,6 +64,7 @@ import {
   getBuilderSignupConnectError,
   getBuilderSignupTrackingIdentity,
   createBuilderSignupExperimentHandler,
+  builderSignupAssignmentCookieName,
   decodeBuilderSignupAssignment,
   encodeBuilderSignupAssignment,
 } from "./builder-signup-experiment.js";
@@ -105,7 +106,9 @@ function request(body?: unknown, cookie?: string) {
       method: body ? "POST" : "GET",
       headers: {
         "content-type": "application/json",
-        ...(cookie ? { cookie: `an_builder_signup=${cookie}` } : {}),
+        ...(cookie
+          ? { cookie: `${builderSignupAssignmentCookieName()}=${cookie}` }
+          : {}),
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
     }),
@@ -127,7 +130,7 @@ function bindRequest(
   );
   return app.fetch(
     new Request("https://design.example.com/bind", {
-      headers: { cookie: `an_builder_signup=${cookie}` },
+      headers: { cookie: `${builderSignupAssignmentCookieName()}=${cookie}` },
     }),
   );
 }
@@ -155,6 +158,20 @@ beforeEach(() => {
 });
 
 describe("pre-signup Builder experiment", () => {
+  it("keeps assignment cookie names independent across same-origin apps", async () => {
+    const names = new Set<string>();
+    for (const app of ["design", "clips", "slides"]) {
+      mocks.experimentId = `${app}_builder_signup_v1`;
+      const response = await request();
+      const name = response.headers.getSetCookie()[0]?.split("=")[0];
+      expect(name).toBeTruthy();
+      if (!name) throw new Error("Assignment cookie missing");
+      names.add(name);
+    }
+    expect(names.size).toBe(3);
+    expect(names.has("an_builder_signup")).toBe(true);
+  });
+
   it.each(["clips", "slides"])(
     "isolates %s assignments and consent from Design",
     async (app) => {

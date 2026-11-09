@@ -95,6 +95,15 @@ function experimentId(): string {
   return getAppConfig().onboarding.builderSignupExperimentId;
 }
 
+export function builderSignupAssignmentCookieName(): string {
+  const id = experimentId();
+  // Preserve existing Design assignments; other experiments get distinct names
+  // even when apps share an origin under different base paths.
+  return id === BUILDER_SIGNUP_EXPERIMENT
+    ? BUILDER_SIGNUP_COOKIE
+    : `${BUILDER_SIGNUP_COOKIE}_${Buffer.from(id).toString("hex")}`;
+}
+
 function experimentProperties(
   assignment?: Assignment,
 ): Record<string, unknown> {
@@ -159,7 +168,7 @@ export function decodeBuilderSignupAssignment(
 function writeAssignment(event: H3Event, assignment: Assignment): void {
   setCookie(
     event,
-    BUILDER_SIGNUP_COOKIE,
+    builderSignupAssignmentCookieName(),
     encodeBuilderSignupAssignment(assignment),
     {
       httpOnly: true,
@@ -188,7 +197,7 @@ export async function bindBuilderSignupAttempt(
 ): Promise<boolean> {
   if (!isBuilderSignupExperimentEnabled()) return false;
   const assignment = decodeBuilderSignupAssignment(
-    getCookie(event, BUILDER_SIGNUP_COOKIE),
+    getCookie(event, builderSignupAssignmentCookieName()),
   );
   if (!assignment) return false;
   const normalizedEmail = email.trim().toLowerCase();
@@ -423,7 +432,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     if (!dependencies.sameOrigin(event)) return refuse(403, "cross_origin");
     const session = await dependencies.getSession(event);
     let assignment = decodeBuilderSignupAssignment(
-      getCookie(event, BUILDER_SIGNUP_COOKIE),
+      getCookie(event, builderSignupAssignmentCookieName()),
     );
     if (method === "GET") {
       if (session) return { status: "disabled" as const };
