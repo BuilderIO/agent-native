@@ -547,6 +547,7 @@ const messages = {
   share: {
     createFailed: "Freigabelink konnte nicht erstellt werden",
     snapshotLinks: "Snapshot-Links",
+    snapshotLinksLoadFailed: "Snapshot-Links konnten nicht geladen werden",
     revokeLink: "Widerrufen",
     revokeFailed: "Freigabelink konnte nicht widerrufen werden",
     title: "Präsentation teilen",

@@ -541,6 +541,7 @@ const messages = {
   share: {
     createFailed: "Não foi possível criar o link de compartilhamento",
     snapshotLinks: "Links de snapshot",
+    snapshotLinksLoadFailed: "Não foi possível carregar os links de snapshot",
     revokeLink: "Revogar",
     revokeFailed: "Não foi possível revogar o link de compartilhamento",
     title: "Compartilhar apresentação",

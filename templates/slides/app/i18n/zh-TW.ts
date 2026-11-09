@@ -508,6 +508,7 @@ const messages = {
   share: {
     createFailed: "無法建立共用連結",
     snapshotLinks: "快照連結",
+    snapshotLinksLoadFailed: "無法載入快照連結",
     revokeLink: "撤銷",
     revokeFailed: "無法撤銷分享連結",
     title: "共用簡報",

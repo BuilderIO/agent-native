@@ -528,6 +528,7 @@ const messages = {
   share: {
     createFailed: "تعذر إنشاء رابط المشاركة",
     snapshotLinks: "روابط اللقطات",
+    snapshotLinksLoadFailed: "تعذّر تحميل روابط اللقطات",
     revokeLink: "إلغاء",
     revokeFailed: "تعذّر إلغاء رابط المشاركة",
     title: "مشاركة العرض التقديمي",
