@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { PlanBlock, PlanContent } from "@shared/plan-content";
+import type { Editor } from "@tiptap/react";
 import { act, createElement, type MutableRefObject } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -114,5 +115,77 @@ describe("PlanDocumentEditor save reader", () => {
     const saved = reader.current?.([staleCallout]);
 
     expect(saved?.find((block) => block.id === "divider")).toEqual(CALLOUT);
+  });
+});
+
+describe("PlanDocumentEditor content revisions", () => {
+  const reader: MutableRefObject<
+    ((pending: PlanBlock[]) => PlanBlock[] | null) | null
+  > = { current: null };
+
+  async function renderAt(
+    contentUpdatedAt: string,
+    blocks: PlanBlock[],
+    onBlocksChange: (blocks: PlanBlock[]) => void = vi.fn(),
+  ) {
+    act(() => {
+      root.render(
+        createElement(PlanDocumentEditor, {
+          content: { ...content, blocks },
+          contentUpdatedAt,
+          editable: true,
+          onBlocksChange,
+          blocksReaderRef: reader,
+        }),
+      );
+    });
+    await flushEditorEffects();
+    await flushEditorEffects();
+  }
+
+  async function deleteCallout() {
+    const dom = container.querySelector(".ProseMirror") as
+      | (Element & { editor?: Editor })
+      | null;
+    const editor = dom?.editor;
+    let position = -1;
+    editor?.state.doc.descendants((node, at) => {
+      if (node.attrs.blockId === CALLOUT.id) position = at;
+    });
+    expect(position).toBeGreaterThanOrEqual(0);
+    await act(async () => {
+      editor?.chain().setNodeSelection(position).deleteSelection().run();
+    });
+  }
+
+  const blockIds = () => reader.current?.([])?.map((block) => block.id);
+
+  it("keeps a deletion when the saved copy comes back over the optimistic one", async () => {
+    let edited: PlanBlock[] | null = null;
+    const onBlocksChange = (blocks: PlanBlock[]) => {
+      edited = blocks;
+    };
+    await renderAt("r1", content.blocks, onBlocksChange);
+    await deleteCallout();
+    expect(edited).not.toBeNull();
+
+    await renderAt("r1", edited!, onBlocksChange);
+    await renderAt("r1", content.blocks, onBlocksChange);
+
+    expect(blockIds()).not.toContain(CALLOUT.id);
+  });
+
+  it("takes in what a new revision brings", async () => {
+    await renderAt("r1", content.blocks);
+    const theirs = {
+      ...CALLOUT,
+      data: { tone: "info", body: "Their callout." },
+    } as PlanBlock;
+
+    await renderAt("r2", [content.blocks[0], theirs, content.blocks[2]]);
+
+    expect(
+      reader.current?.([])?.find((block) => block.id === CALLOUT.id),
+    ).toEqual(theirs);
   });
 });

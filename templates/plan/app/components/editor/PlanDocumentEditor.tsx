@@ -702,7 +702,7 @@ function resolveBlockDataChange(
 }
 
 export function PlanDocumentEditor({
-  content,
+  content: contentAsGiven,
   contentUpdatedAt,
   planId,
   collabUser,
@@ -752,6 +752,25 @@ export function PlanDocumentEditor({
   const { uploadImage, storagePrompt } = usePlanImageUpload();
   const registryValue = useOptionalBlockRegistry();
   const registry = registryValue?.registry ?? null;
+
+  // Only a new revision is news to the document. An optimistic copy of this tab's
+  // edit keeps the revision it was made on, and so does the saved copy when a
+  // refetch brings it back over that one. Taken in, it reads as someone else
+  // undoing the edit, and the data of a block only the document has is lost.
+  const savedContentRef = useRef({
+    revision: contentUpdatedAt,
+    content: contentAsGiven,
+  });
+  if (
+    !contentUpdatedAt ||
+    contentUpdatedAt !== savedContentRef.current.revision
+  ) {
+    savedContentRef.current = {
+      revision: contentUpdatedAt,
+      content: contentAsGiven,
+    };
+  }
+  const content = savedContentRef.current.content;
 
   const [blocks, setBlocks] = useState<PlanBlock[]>(content.blocks);
   const blocksRef = useRef(blocks);
