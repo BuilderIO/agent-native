@@ -23,6 +23,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
+
 import {
   createPlanBlockRenderContext,
   planBlockRegistry,
