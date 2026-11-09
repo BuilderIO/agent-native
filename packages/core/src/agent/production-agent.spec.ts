@@ -27694,6 +27694,11 @@ describe("runAgentLoop tool-result images", () => {
       mediaType: "text/plain",
       mirrored: false,
     },
+    {
+      prefix: "data:text/plain,sample]tail",
+      mediaType: "text/plain",
+      mirrored: false,
+    },
   ])(
     "omits inline bytes before applying the model budget without changing other JSON data ($prefix, mirrored Blocks: $mirrored)",
     async ({ prefix, mediaType, mirrored }) => {

@@ -327,11 +327,42 @@ describe("stripInlineBytes", () => {
   });
 
   it.each([
+    ["data:text/plain,sample)tail", "[inline text/plain data omitted]"],
+    ["data:text/plain,sample]tail", "[inline text/plain data omitted]"],
+    [
+      "![x](data:text/plain,sample]tail) after",
+      "![x]([inline text/plain data omitted]) after",
+    ],
+    [
+      "[data:text/plain,sample)tail] after",
+      "[[inline text/plain data omitted]] after",
+    ],
+  ])(
+    "keeps payload closers distinct from the enclosing wrapper: %s",
+    (text, expected) => {
+      expect(stripInlineBytes({ text }, "reject")).toEqual({ text: expected });
+    },
+  );
+
+  it.each(["![chart]", "[chart]"])(
+    "scrubs an adjacent %s destination after a bare outer URL",
+    (label) => {
+      const text = `See https://example.com/${label}(${PIXELS}) end`;
+      expect(stripInlineBytes({ text }, "reject")).toEqual({
+        text: `See https://example.com/${label}([inline image/png data omitted]) end`,
+      });
+    },
+  );
+
+  it.each([
     "https://a.com/?q=data:,foo&x=1",
     "[site](https://a.com/?q=data:,foo&x=1)",
     "ftp://a.test/?q=data:,foo&x=1",
     "mailto:test@example.test?body=data:,foo&subject=kept",
     "agentnative://page?q=data:,foo&x=1",
+    "https://a.test/?q=![chart](data:,foo)&x=1",
+    "https://a.test/#q=![chart](data:,foo)",
+    "https://[::1]/?q=data:,foo&x=1",
   ])("preserves data URL text inside an outer URL: %s", (text) => {
     expect(stripInlineBytes({ text }, "reject")).toEqual({ text });
   });

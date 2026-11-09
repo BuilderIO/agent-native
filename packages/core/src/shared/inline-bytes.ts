@@ -160,17 +160,36 @@ function findUrlSpan(
   isData: boolean,
 ): { end: number; comma: number } {
   const wrapped = opening === "(" || opening === "[";
-  const closings = wrapped ? [opening === "(" ? ")" : "]"] : [];
+  const closing = opening === "(" ? ")" : "]";
+  let depth = 1;
   let comma = -1;
   let escaped = false;
+  let inQuery = false;
+  let markdownStart = -1;
   for (let index = start; index < value.length; index += 1) {
     const char = value.charAt(index);
     if (URL_TOKEN_BOUNDARY.test(char)) return { end: index, comma };
+    if (!isData && !wrapped) {
+      if (char === "?" || char === "#") inQuery = true;
+      if (!inQuery) {
+        if (char === "[") {
+          markdownStart = index - (value.charAt(index - 1) === "!" ? 1 : 0);
+        } else if (char === "]" && markdownStart !== -1) {
+          if (
+            value.charAt(index + 1) === "(" &&
+            value.slice(index + 2, index + 7).toLowerCase() === "data:"
+          ) {
+            return { end: markdownStart, comma };
+          }
+          markdownStart = -1;
+        }
+      }
+    }
     if (isData && comma === -1 && char === ",") {
       comma = index;
       continue;
     }
-    if (!wrapped && (!isData || comma === -1)) continue;
+    if (!wrapped) continue;
     if (escaped) {
       escaped = false;
       continue;
@@ -179,12 +198,10 @@ function findUrlSpan(
       escaped = true;
       continue;
     }
-    if (char === "(" || char === "[") {
-      closings.push(char === "(" ? ")" : "]");
-    } else if (char === ")" || char === "]") {
-      if (closings[closings.length - 1] !== char) return { end: index, comma };
-      closings.pop();
-      if (wrapped && closings.length === 0) return { end: index, comma };
+    if (char === opening) depth += 1;
+    if (char === closing) {
+      depth -= 1;
+      if (depth === 0) return { end: index, comma };
     }
   }
   return { end: value.length, comma };
