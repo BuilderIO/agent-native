@@ -30,13 +30,21 @@ const CALLOUT = {
   data: { tone: "info", body: "Separator callout." },
 } as PlanBlock;
 
+const ALPHA = {
+  id: "alpha",
+  type: "rich-text",
+  data: { markdown: "Alpha block seed." },
+} as PlanBlock;
+
+const BRAVO = {
+  id: "bravo",
+  type: "rich-text",
+  data: { markdown: "Bravo block seed." },
+} as PlanBlock;
+
 const content: PlanContent = {
   version: 2,
-  blocks: [
-    { id: "alpha", type: "rich-text", data: { markdown: "Alpha block seed." } },
-    CALLOUT,
-    { id: "bravo", type: "rich-text", data: { markdown: "Bravo block seed." } },
-  ],
+  blocks: [ALPHA, CALLOUT, BRAVO],
 };
 
 let container: HTMLElement;
@@ -182,7 +190,7 @@ describe("PlanDocumentEditor content revisions", () => {
       data: { tone: "info", body: "Their callout." },
     } as PlanBlock;
 
-    await renderAt("r2", [content.blocks[0], theirs, content.blocks[2]]);
+    await renderAt("r2", [ALPHA, theirs, BRAVO]);
 
     expect(
       reader.current?.([])?.find((block) => block.id === CALLOUT.id),
