@@ -10,6 +10,7 @@ import {
   AGENT_TEAM_PROCESS_RUN_PATH,
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
+import { WORKSPACE_DEPLOY_BUILD_ENV } from "../cli/process.js";
 import { addVercelSweepCron } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 import {
@@ -249,6 +250,26 @@ afterEach(() => {
 });
 
 describe("workspace deploy", () => {
+  it("reports its progress and keeps app builds from reporting for themselves", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    const progress: Array<{ step: string; preset?: string }> = [];
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+      onProgress: (update) => progress.push(update),
+    });
+
+    expect(progress).toEqual([
+      { step: "build", preset: "netlify" },
+      { step: "package" },
+    ]);
+    expect(buildCallForApp("dispatch")?.env).toMatchObject({
+      [WORKSPACE_DEPLOY_BUILD_ENV]: "1",
+    });
+  });
+
   it("preserves an explicitly configured hosted feedback URL", async () => {
     process.env.VITE_AGENT_NATIVE_FEEDBACK_URL =
       "https://feedback.example.com/f/workspace/form-id";
@@ -264,6 +285,60 @@ describe("workspace deploy", () => {
       VITE_AGENT_NATIVE_FEEDBACK_URL:
         "https://feedback.example.com/f/workspace/form-id",
     });
+  });
+
+  it("sends / to WORKSPACE_DEFAULT_APP from the root .env while keeping Dispatch redirects", async () => {
+    const previous = process.env.WORKSPACE_DEFAULT_APP;
+    delete process.env.WORKSPACE_DEFAULT_APP;
+    try {
+      makeWorkspaceApp(tmpDir, "dispatch");
+      makeWorkspaceApp(tmpDir, "programs");
+      fs.writeFileSync(
+        path.join(tmpDir, ".env"),
+        "WORKSPACE_DEFAULT_APP=programs\n",
+      );
+
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "netlify",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+      const redirects = fs.readFileSync(
+        path.join(tmpDir, "dist", "_redirects"),
+        "utf-8",
+      );
+      const lines = redirects.split("\n");
+      expect(lines).toContain("/ /programs/ 302");
+      expect(lines).not.toContain("/ /dispatch/overview 302");
+      expect(redirects).toContain("/dispatch /dispatch/overview 302");
+      expect(redirects).toContain("/dispatch/ /dispatch/overview 302");
+
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "vercel",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+      const config = JSON.parse(
+        fs.readFileSync(
+          path.join(tmpDir, ".vercel", "output", "config.json"),
+          "utf-8",
+        ),
+      );
+      expect(config.routes).toContainEqual({
+        src: "/",
+        status: 302,
+        headers: { Location: "/programs/" },
+      });
+      expect(config.routes).toContainEqual({
+        src: "/dispatch",
+        status: 302,
+        headers: { Location: "/dispatch/overview" },
+      });
+    } finally {
+      restoreEnv("WORKSPACE_DEFAULT_APP", previous);
+    }
   });
 
   it("omits an empty framework route prefix and forwards a configured prefix", async () => {

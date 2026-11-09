@@ -13,6 +13,7 @@ import {
   isFirstRunOnboardingEnabled,
 } from "@agent-native/core/client/onboarding";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { parseAgentChatReferences } from "@agent-native/core/shared";
 import {
   AgentSuggestionBar,
   agentSuggestionPrompt,
@@ -234,7 +235,7 @@ const PENDING_PROMPT_REFERENCE_SELECTION_KEY =
 
 type DeckModelSelection = Pick<
   PromptComposerSubmitOptions,
-  "model" | "engine" | "effort"
+  "model" | "engine" | "effort" | "references"
 >;
 
 const RETRY_REASONING_EFFORTS = new Set([
@@ -325,13 +326,17 @@ function readStoredModelSelection(): StoredModelSelectionResult {
     if (
       value.model === undefined &&
       value.engine === undefined &&
-      value.effort === undefined
+      value.effort === undefined &&
+      value.references === undefined
     ) {
       return { state: "unreadable" };
     }
     return {
       state: "available",
       selection: {
+        ...(value.references !== undefined
+          ? { references: parseAgentChatReferences(value.references) }
+          : {}),
         ...(typeof value.model === "string" ? { model: value.model } : {}),
         ...(typeof value.engine === "string" ? { engine: value.engine } : {}),
         ...(typeof value.effort === "string"
@@ -685,7 +690,10 @@ export default function Index({ active = true }: { active?: boolean }) {
   const agentEngineConfigured = agentEngine.canChat;
   const agentEngineMissing = agentEngine.missing;
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
-  const bounceSetupCard = () => {
+  // Portaled menus (the model picker) bubble their events through React to
+  // this wrapper; only a click or focus inside its own DOM should bounce.
+  const bounceSetupCard = (event: React.SyntheticEvent) => {
+    if (!event.currentTarget.contains(event.target as Node)) return;
     if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
   };
   const retryAgentEngineStatus = useCallback(() => {
@@ -2087,6 +2095,7 @@ export default function Index({ active = true }: { active?: boolean }) {
               model: options.model,
               engine: options.engine,
               effort: options.effort,
+              references: options.references,
             }
           : newDeckRetryModelSelection,
       );
@@ -2926,6 +2935,7 @@ export default function Index({ active = true }: { active?: boolean }) {
                         model: options.model,
                         engine: options.engine,
                         effort: options.effort,
+                        references: options.references,
                       }
                     : undefined,
                   referenceSelection: {

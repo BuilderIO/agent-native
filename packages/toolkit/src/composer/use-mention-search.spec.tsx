@@ -4,7 +4,10 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useMentionSearch } from "./use-mention-search.js";
+import {
+  useMentionSearch,
+  loadWorkspaceMentionItems,
+} from "./use-mention-search.js";
 
 const resolvePath = (path: string) => `/design${path}`;
 const file = {
@@ -45,6 +48,68 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 describe("shared launcher mention discovery", () => {
+  it("surfaces localized structured source failures and rejects malformed HTTP errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              error: {
+                code: "mention_source_unavailable",
+                message: "Impossible de charger les références.",
+                source: "dashboards",
+              },
+            }),
+            { status: 503 },
+          ),
+        )
+        .mockResolvedValueOnce(new Response("not json", { status: 503 })),
+    );
+    await expect(
+      loadWorkspaceMentionItems(
+        "",
+        resolvePath,
+        new AbortController().signal,
+        "dashboards",
+      ),
+    ).rejects.toMatchObject({
+      message: "Impossible de charger les références.",
+      code: "mention_source_unavailable",
+      source: "dashboards",
+    });
+    await expect(
+      loadWorkspaceMentionItems(
+        "",
+        resolvePath,
+        new AbortController().signal,
+        "dashboards",
+      ),
+    ).rejects.toThrow("Mention search unavailable");
+  });
+  it("rejects a failed source after earlier batches instead of returning a partial workspace result", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ items: [file] }) +
+              "\n" +
+              JSON.stringify({
+                error: {
+                  code: "mention_source_unavailable",
+                  message: "Could not load workspace references.",
+                  source: "dashboards",
+                },
+              }),
+          ),
+      ),
+    );
+    await expect(
+      loadWorkspaceMentionItems("", resolvePath, new AbortController().signal),
+    ).rejects.toThrow("Could not load workspace references.");
+  });
   it("does not load until the launcher opens", async () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
@@ -66,6 +131,39 @@ describe("shared launcher mention discovery", () => {
     expect(result.error).toBeNull();
     expect(result.isLoading).toBe(false);
   });
+  it.each([false, true])(
+    "keeps healthy streamed batches around a source error (earlier batch: %s)",
+    async (earlier) => {
+      const second = { ...file, id: "file:two", label: "Notes" };
+      const lines = [
+        ...(earlier ? [{ items: [file] }] : []),
+        { error: { message: "Source unavailable" } },
+        { items: [second] },
+      ];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(
+              new ReadableStream({
+                start(controller) {
+                  for (const line of lines)
+                    controller.enqueue(
+                      new TextEncoder().encode(JSON.stringify(line) + "\n"),
+                    );
+                  controller.close();
+                },
+              }),
+            ),
+        ),
+      );
+      await render();
+      expect(result.items).toEqual(earlier ? [file, second] : [second]);
+      expect(result.error?.message).toBe("Source unavailable");
+      expect(result.settledQuery).toBeNull();
+      expect(result.isLoading).toBe(false);
+    },
+  );
   it.each([
     new Response("{}"),
     new Response("{broken"),

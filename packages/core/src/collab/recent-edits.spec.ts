@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { OtherPresence } from "./presence.js";
+import { appendRecentEdit as appendToRing } from "./recent-edit-ring.js";
 import {
-  RECENT_EDITS_MAX,
   appendRecentEdit,
   collectRecentEdits,
   publishRecentEdit,
@@ -26,80 +26,10 @@ function other(
   };
 }
 
+// oracle-change: the ring's tests moved to recent-edit-ring.spec.ts with the ring.
 describe("appendRecentEdit", () => {
-  it("appends to an empty ring", () => {
-    const edit: RecentEdit = { descriptor: { kind: "doc" }, at: 1 };
-    expect(appendRecentEdit(undefined, edit)).toEqual([edit]);
-  });
-
-  it("keeps only the newest RECENT_EDITS_MAX entries", () => {
-    let ring: RecentEdit[] | undefined;
-    for (let i = 0; i < RECENT_EDITS_MAX + 4; i++) {
-      ring = appendRecentEdit(ring, {
-        descriptor: { kind: "text", quote: `q${i}` },
-        at: i,
-      });
-    }
-    expect(ring).toHaveLength(RECENT_EDITS_MAX);
-    expect(ring![0].at).toBe(4);
-    expect(ring![RECENT_EDITS_MAX - 1].at).toBe(RECENT_EDITS_MAX + 3);
-  });
-
-  it("does not mutate the input array", () => {
-    const original: RecentEdit[] = [{ descriptor: { kind: "doc" }, at: 1 }];
-    appendRecentEdit(original, { descriptor: { kind: "doc" }, at: 2 });
-    expect(original).toHaveLength(1);
-  });
-
-  it("truncates an oversized quote so a caller forgetting to trim can't blow up the awareness payload", () => {
-    const hugeQuote = "x".repeat(50_000);
-    const [entry] = appendRecentEdit(undefined, {
-      descriptor: { kind: "text", quote: hugeQuote },
-      at: 1,
-    });
-    expect(
-      (entry.descriptor as { kind: "text"; quote: string }).quote.length,
-    ).toBe(500);
-  });
-
-  it("truncates an oversized selector and each oversized path entry", () => {
-    const huge = "a".repeat(10_000);
-    const [selectorEntry] = appendRecentEdit(undefined, {
-      descriptor: { kind: "selector", selector: huge },
-      at: 1,
-    });
-    expect(
-      (selectorEntry.descriptor as { kind: "selector"; selector: string })
-        .selector.length,
-    ).toBe(500);
-
-    const [pathsEntry] = appendRecentEdit(undefined, {
-      descriptor: { kind: "paths", paths: [huge, "short.path"] },
-      at: 1,
-    });
-    const paths = (pathsEntry.descriptor as { kind: "paths"; paths: string[] })
-      .paths;
-    expect(paths[0]!.length).toBe(500);
-    expect(paths[1]).toBe("short.path");
-  });
-
-  it("truncates an oversized label", () => {
-    const [entry] = appendRecentEdit(undefined, {
-      descriptor: { kind: "doc" },
-      label: "y".repeat(2_000),
-      at: 1,
-    });
-    expect(entry.label!.length).toBe(500);
-  });
-
-  it("leaves short descriptors and labels untouched", () => {
-    const [entry] = appendRecentEdit(undefined, {
-      descriptor: { kind: "text", quote: "hello world" },
-      label: "Edited",
-      at: 1,
-    });
-    expect(entry.descriptor).toEqual({ kind: "text", quote: "hello world" });
-    expect(entry.label).toBe("Edited");
+  it("is the ring's own function, re-exported", () => {
+    expect(appendRecentEdit).toBe(appendToRing);
   });
 });
 

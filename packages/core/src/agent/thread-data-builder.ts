@@ -4464,6 +4464,10 @@ function omitPrivateSnapshotContent(
           ),
         ]),
     ),
+    ...(typeof record.runId !== "string" &&
+    typeof (metadata?.runId ?? custom?.runId) === "string"
+      ? { runId: metadata?.runId ?? custom?.runId }
+      : {}),
     omitFromPersistedHistory: true,
   };
 }

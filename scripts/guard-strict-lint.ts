@@ -46,6 +46,7 @@ import {
   pnpmCommand,
   type PnpmCommand,
   WINDOWS_COMMAND_LINE_LIMIT,
+  windowsCommandLine,
 } from "./lib/pnpm-command.ts";
 
 const GUARD_NAME = "guard:strict-lint";
@@ -158,7 +159,7 @@ export function oxlintArgs(files: string[]): string[] {
 }
 
 /**
- * Splits files into oxlint runs of at most BATCH_SIZE. On Windows pnpm runs
+ * Splits files into oxlint runs of at most BATCH_SIZE. On Windows pnpm can run
  * through cmd.exe, so a run there also ends before its command line passes
  * WINDOWS_COMMAND_LINE_LIMIT, the length that fits cmd.exe's limit.
  */
@@ -170,7 +171,8 @@ export function lintBatches(
     platform === "win32"
       ? WINDOWS_COMMAND_LINE_LIMIT
       : Number.POSITIVE_INFINITY;
-  const baseLength = pnpmCommand(oxlintArgs([]), platform).command.length;
+  const baseLength =
+    platform === "win32" ? windowsCommandLine(oxlintArgs([])).length : 0;
   const batches: string[][] = [];
   let batch: string[] = [];
   let length = baseLength;

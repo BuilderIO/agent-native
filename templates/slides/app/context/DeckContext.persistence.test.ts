@@ -41,6 +41,19 @@ vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => orgQueryState,
 }));
 
+// The real error reporter loads @sentry/browser on its first call. That import
+// finishes during whichever test runs next and can stall it past waitFor's
+// one-second default, so a refused write here failed a later test at random.
+const errorReports = vi.hoisted(() => ({ captureError: vi.fn() }));
+
+vi.mock("@agent-native/core/client/analytics", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/analytics")
+  >()),
+  captureError: errorReports.captureError,
+  captureClientException: errorReports.captureError,
+}));
+
 import {
   registerInlineEditRemoteApplier,
   requestInlineEditRemoteRetry,
@@ -135,7 +148,6 @@ function setupFetch(options?: {
   };
   staleContentConflicts?: boolean;
   staleContentFailures?: { deckId: string; count: number };
-  getDeckFailures?: { deckId: string; count: number };
   missingDeckStatus?: number;
   putFailures?: { deckId: string; count: number };
   patchStatus?: number;
@@ -173,7 +185,6 @@ function setupFetch(options?: {
   >();
   const patchAttempts = new Map<string, number>();
   const revisionConflictRevisions = new Map<string, string[]>();
-  const getDeckAttempts = new Map<string, number>();
   const putAttempts = new Map<string, number>();
   const cloneDeck = (deck: Deck | null): Deck | null =>
     deck ? (JSON.parse(JSON.stringify(deck)) as Deck) : null;
@@ -461,18 +472,6 @@ function setupFetch(options?: {
         return Promise.reject(new Error("get-deck unavailable"));
       }
       if (accessibleDeck) {
-        const attempts = (getDeckAttempts.get(deckId) ?? 0) + 1;
-        getDeckAttempts.set(deckId, attempts);
-        if (
-          deckId === options?.getDeckFailures?.deckId &&
-          attempts <= options.getDeckFailures.count
-        ) {
-          return Promise.resolve(
-            new Response(JSON.stringify({ error: "Temporary read failure" }), {
-              status: 500,
-            }),
-          );
-        }
         if (deferNextGetDeck) {
           deferNextGetDeck = false;
           const deferredDeck = cloneDeck(accessibleDeck)!;
@@ -926,6 +925,7 @@ function deletedDeck(
 describe("DeckContext deck creation persistence", () => {
   beforeEach(() => {
     _resetSyncTransportRegistryForTests();
+    errorReports.captureError.mockClear();
     orgQueryState.data = { orgId: null };
     orgQueryState.isLoading = false;
     vi.stubGlobal("EventSource", MockEventSource);
@@ -2759,6 +2759,60 @@ describe("DeckContext deck creation persistence", () => {
 
     expect(getPatchAttempts(initial.id)).toBe(1);
     expect(deckFetchCalls(fetchMock)).toHaveLength(readsBeforeConflict);
+  });
+
+  it("reverts a slide the server refuses for a reveal and keeps the refusal visible", async () => {
+    const { setAccessibleDeck, getPatchAttempts } = setupFetch({
+      patchStatus: 400,
+      patchResponse: {
+        error:
+          "Cannot save animations for slide slide-1: step 1 (reveal-first) now lands on a different element in the final HTML.",
+        errorCode: "slide_animation_retargeted",
+        details: {
+          reason: "retargeted",
+          slideId: "slide-1",
+          animationIndex: 0,
+          animationId: "reveal-first",
+        },
+      },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "reveal-refused-deck",
+      title: "Reveal refused deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "One", notes: "", layout: "title" }],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => result.current.reloadDecks());
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Edited one" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id).catch(() => {});
+    });
+
+    expect(getPatchAttempts(initial.id)).toBe(1);
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe("One");
+    expect(getDeckSaveError(initial.id)).toMatchObject({
+      status: 400,
+      errorCode: "slide_animation_retargeted",
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(getPatchAttempts(initial.id)).toBe(1);
   });
 
   it("fails fast on validation errors without exposing a redundant retry", async () => {
@@ -5429,30 +5483,30 @@ describe("DeckContext deck creation persistence", () => {
     const deckId = "resolve-latest-pending-fields-deck";
     window.history.pushState({}, "", `/deck/${deckId}`);
     let safeWriteStartedWithFailedSave = false;
-    const { fetchMock, setAccessibleDeck, getPatchAttempts } = setupFetch({
-      staleContentConflicts: true,
-      getDeckFailures: { deckId, count: 2 },
-      patchResponse: (body: Record<string, unknown>) => {
-        const operations = Array.isArray(body.operations)
-          ? body.operations
-          : [];
-        if (
-          operations.some(
-            (operation: unknown) =>
-              !!operation &&
-              typeof operation === "object" &&
-              "fields" in operation &&
-              !!operation.fields &&
-              typeof operation.fields === "object" &&
-              "notes" in operation.fields &&
-              operation.fields.notes === "Pending local notes",
-          )
-        ) {
-          safeWriteStartedWithFailedSave = hasFailedDeckSave(deckId);
-        }
-        return { ok: true };
-      },
-    });
+    const { fetchMock, setAccessibleDeck, getPatchAttempts, failNextGetDeck } =
+      setupFetch({
+        staleContentConflicts: true,
+        patchResponse: (body: Record<string, unknown>) => {
+          const operations = Array.isArray(body.operations)
+            ? body.operations
+            : [];
+          if (
+            operations.some(
+              (operation: unknown) =>
+                !!operation &&
+                typeof operation === "object" &&
+                "fields" in operation &&
+                !!operation.fields &&
+                typeof operation.fields === "object" &&
+                "notes" in operation.fields &&
+                operation.fields.notes === "Pending local notes",
+            )
+          ) {
+            safeWriteStartedWithFailedSave = hasFailedDeckSave(deckId);
+          }
+          return { ok: true };
+        },
+      });
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -5486,6 +5540,7 @@ describe("DeckContext deck creation persistence", () => {
       ],
     });
 
+    failNextGetDeck(2);
     act(() => {
       result.current.updateSlide(
         deckId,
@@ -7492,6 +7547,7 @@ describe("DeckContext deck creation persistence", () => {
       );
       expect(toastSpy).toHaveBeenCalledTimes(1);
       expect(errorSpy).toHaveBeenCalled();
+      expect(errorReports.captureError).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -9281,6 +9337,84 @@ describe("DeckContext deck creation persistence", () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(duplicate).toEqual({ status: "cancelled" });
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        requestString(url).includes("/_agent-native/actions/duplicate-deck"),
+      ),
+    ).toBe(false);
+  });
+
+  it("holds a duplicate of a pending copy until the copy is persisted", async () => {
+    window.history.pushState({}, "", "/");
+    orgQueryState.data = { orgId: "org-a" };
+    const source: Deck = {
+      id: "pending-copy-source",
+      title: "Source",
+      createdAt: "2026-09-14T00:00:00.000Z",
+      updatedAt: "2026-09-14T00:00:00.000Z",
+      slides: [
+        {
+          id: "source-slide",
+          content: "<div>Source</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck, pendingDuplicateCount } = setupFetch({
+      deferredDuplicate: true,
+    });
+    setAccessibleDeck(source);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.duplicateDeck(source.id, "first-copy");
+    });
+    expect(pendingDuplicateCount()).toBe(1);
+
+    const secondFailure = vi.fn();
+    await act(async () => {
+      await result.current.duplicateDeck(
+        "first-copy",
+        "second-copy",
+        undefined,
+        secondFailure,
+      );
+    });
+
+    expect(pendingDuplicateCount()).toBe(1);
+    expect(secondFailure).not.toHaveBeenCalled();
+  });
+
+  it("does not send a held duplicate after switching organizations", async () => {
+    window.history.pushState({}, "", "/");
+    orgQueryState.data = { orgId: "org-a" };
+    const { fetchMock, resolveCreate } = setupFetch();
+    const { result, rerender } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let sourceId = "";
+    act(() => {
+      sourceId = result.current.createDeck(undefined, {
+        noDefaultSlides: true,
+      }).id;
+    });
+    await act(async () => {
+      await result.current.duplicateDeck(sourceId, "held-copy");
+    });
+
+    act(() => {
+      orgQueryState.data = { orgId: "org-b" };
+      rerender();
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      resolveCreate(new Response("", { status: 200 }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
     expect(
       fetchMock.mock.calls.some(([url]) =>
         requestString(url).includes("/_agent-native/actions/duplicate-deck"),

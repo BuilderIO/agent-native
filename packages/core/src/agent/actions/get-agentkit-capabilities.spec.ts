@@ -17,7 +17,7 @@ describe("get-agentkit-capabilities", () => {
       errorCode: "unauthorized",
     });
     await expect(
-      action.run({}, { appId: "templates", userEmail: "a@example.test" }),
+      action.run({}, { userEmail: "a@example.test" }),
     ).rejects.toMatchObject({
       statusCode: 400,
       errorCode: "agentkit_capabilities_unsupported_app",
@@ -54,26 +54,29 @@ describe("get-agentkit-capabilities", () => {
     });
   });
 
-  it("preserves the Slides app identity for capability discovery", async () => {
-    const result = {
-      sources: { figma: { available: false } },
-      integrations: [],
-    };
-    mocks.list.mockResolvedValue(result);
+  it.each(["slides", "chat", "analytics", "clips", "custom-workspace-app"])(
+    "preserves the trusted %s app identity for capability discovery",
+    async (appId) => {
+      const result = {
+        sources: { figma: { available: false } },
+        integrations: [],
+      };
+      mocks.list.mockResolvedValue(result);
 
-    await expect(
-      action.run(
-        {},
-        {
-          appId: "slides",
-          userEmail: "member@example.test",
-          orgId: "org-1",
-        },
-      ),
-    ).resolves.toEqual(result);
-    expect(mocks.list).toHaveBeenCalledWith("slides", {
-      userEmail: "member@example.test",
-      orgId: "org-1",
-    });
-  });
+      await expect(
+        action.run(
+          {},
+          {
+            appId,
+            userEmail: "member@example.test",
+            orgId: "org-1",
+          },
+        ),
+      ).resolves.toEqual(result);
+      expect(mocks.list).toHaveBeenCalledWith(appId, {
+        userEmail: "member@example.test",
+        orgId: "org-1",
+      });
+    },
+  );
 });

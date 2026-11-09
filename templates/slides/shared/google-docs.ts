@@ -66,3 +66,19 @@ export function normalizeGoogleDocText(text: string): string {
     .replace(/[ \t]+\n/g, "\n")
     .trim();
 }
+
+export function parseGoogleSlidesReferenceUrl(value: string) {
+  const trimmed = value.trim();
+  if (
+    trimmed.length > 2048 ||
+    !extractGoogleSlidesUrls(trimmed).includes(trimmed)
+  )
+    return null;
+  const match = new URL(trimmed).pathname.match(
+    /^\/presentation\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]+)(?:\/|$)/,
+  );
+  const id = match?.[1];
+  return id && id.length <= 200
+    ? { id, url: `https://docs.google.com/presentation/d/${id}/edit` }
+    : null;
+}
