@@ -12,7 +12,6 @@
       "Design import · screens": "3370:20630",
       "Import/Dialog": "3368:20517",
       "Announcement/Dialog": "3405:23271",
-      "Announcement/Card": "3405:22666",
       "Sidebar · What's new card": "3370:20631",
       "Import · Announcement": "3370:20731",
       "Import · Picker": "3370:21161",
@@ -43,7 +42,14 @@
       "Sidebar · What's new card · Builder.io": "3423:23005",
       "Sidebar · What's new card · Builder.io · Dark": "3423:23040",
       "Import · Announcement · Builder.io": "3424:23204",
-      "Import · Announcement · Builder.io · Dark": "3424:23269"
+      "Import · Announcement · Builder.io · Dark": "3424:23269",
+      "Sidebar card/Feature": "3405:22666",
+      "Sidebar card/Prompt": "3550:23091",
+      "Sidebar card/Row": "3550:23104",
+      "Sidebar · Card stack · 1 New feature": "3550:23318",
+      "Sidebar · Card stack · 2 Feature minimized": "3550:23427",
+      "Sidebar · Card stack · 3 All minimized": "3550:23454",
+      "Sidebar · Card stack · 2 Feature minimized · Dark": "3550:23475"
     }
   }
 }

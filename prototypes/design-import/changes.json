@@ -1,5 +1,9 @@
 [
   {
+    "date": "2026-11-09",
+    "text": "The sidebar holds a card stack: one definition per item draws as a feature card (image, title, description, link) for something new, a prompt (title, description, button) such as Invite your team, or a row (icon, title, one-line description) such as Connect with MCP. The first open item shows expanded with rows under it; Minimize steps a card down to its row, finishing it removes it, and Reset cards in the review strip brings them all back"
+  },
+  {
     "date": "2026-11-05",
     "text": "The Builder.io card opens its own announcement: Get free AI credits, Use your Builder.io account, or create a free one in one click, with Chat with the agent without adding API keys, Build working apps from your designs, and Store images and files for free. Use Builder.io runs the one-click setup from the card or the dialog, and the card goes away once connected"
   },

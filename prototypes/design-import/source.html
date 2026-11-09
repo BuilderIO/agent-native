@@ -223,6 +223,7 @@ a.b { color: inherit; text-decoration: none; }
   <button class="chip" id="ann-btn">Announcement</button>
   <button class="chip" id="fig-btn" aria-pressed="false" title="Switch the sidebar card and the announcement to Figma import only">Figma only</button>
   <button class="chip" id="bld-btn" aria-pressed="false" title="Switch the sidebar card to the Builder.io card, shown while Builder.io isn't connected">Builder.io card</button>
+  <button class="chip" id="cards-btn" title="Bring back every sidebar card you minimized or finished">Reset cards</button>
   <button class="chip" id="fail-btn" aria-pressed="false" title="Imports stop with an error on the second step">Import fails</button>
   <button class="chip" id="theme-btn">Theme</button>
   <button class="chip" id="changes-btn" aria-pressed="false">Changes</button>
@@ -767,11 +768,36 @@ addEventListener("message", (e) => {
   else if (e.data?.proto === "builder-done") builderConnected();
   else if (e.data?.proto === "announce") open("announcement");
   else if (e.data?.proto === "escape" && S.open) close();
+  else if (e.data?.proto === "min") { cards[e.data.id] = "min"; syncCard(); }
+  else if (e.data?.proto === "invite") toast("Opens Members in Settings");
+  else if (e.data?.proto === "mcp") toast("Opens MCP in Settings");
 });
 // The announcement lives in the sidebar card where Getting started sat: the card opens the dialog, its
 // button goes straight to the picker. Its preview is the dialog's galaxy at card size, from the same math.
 const CARD_CSS = `${NEBULA_CSS}${MELD_CSS}
+.an-stack { margin: 0 8px 8px; display: flex; flex-direction: column; gap: 8px; }
+.an-stack:empty { display: none; }
+.an-box { position: relative; overflow: hidden; border-radius: 14px; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); color: hsl(var(--card-foreground)); box-shadow: 0 1px 2px 0 rgb(0 0 0 / 5%); }
+.an-stack svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.an-stack svg.lg { width: 16px; height: 16px; flex: none; fill: currentColor; }
 .an-card { padding: 8px; }
+.an-card .an-title { padding-right: 28px; }
+/* Minimize steps a card down to a row, so the item stays one click away. */
+.an-min { position: absolute; top: 130px; right: 12px; width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; color: hsl(var(--muted-foreground)); cursor: pointer; }
+.an-min:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.an-min:focus-visible, .an-btn:focus-visible, .an-row:focus-visible { outline: none; box-shadow: 0 0 0 2px hsl(var(--ring)); }
+.an-prompt { padding: 14px 16px 16px; }
+.an-ph { display: flex; align-items: center; gap: 8px; }
+.an-ph .an-title { flex: 1; min-width: 0; }
+.an-prompt .an-min { position: static; margin-right: -6px; }
+.an-btn { margin-top: 12px; width: 100%; height: 32px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--background)); box-shadow: 0 1px 2px 0 rgb(0 0 0 / 5%); font-size: 13px; line-height: 16px; font-weight: 500; color: hsl(var(--foreground)); cursor: pointer; transition: background-color .15s; }
+.an-btn:hover { background: hsl(var(--accent)); }
+.an-rows { display: flex; flex-direction: column; gap: 6px; }
+.an-row { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: hsl(var(--muted)); text-align: start; color: hsl(var(--muted-foreground)); cursor: pointer; transition: background-color .15s; }
+.an-row:hover { background: color-mix(in oklab, hsl(var(--muted)), hsl(var(--foreground)) 6%); }
+.an-rt { min-width: 0; display: flex; flex-direction: column; }
+.an-rt b { font-size: 13px; line-height: 18px; font-weight: 500; color: hsl(var(--foreground)); }
+.an-rt span { font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .an-open { display: block; width: 100%; text-align: start; border-radius: 10px; outline: none; cursor: pointer; }
 .an-open:focus-visible { box-shadow: 0 0 0 2px hsl(var(--ring)); }
 .an-hero { position: relative; display: block; height: 112px; border-radius: 10px; overflow: hidden; background: var(--c-neutral-950); isolation: isolate; --nebula-blur: 12px; }
@@ -794,7 +820,37 @@ function cardHTML(kind) {
   const hero = kind === "figma" ? `<span class="an-hero fig">${MELD}${FIG_PAIR}</span>`
     : kind === "builder" ? `<span class="an-hero fig">${MELD_AN}${BUILDER_PAIR}</span>`
     : `<span class="an-hero">${NEBULA}${RINGS}<span class="an-orbit" aria-hidden="true">${ORBITS.flatMap((o, oi) => o.ids.map((id, i) => `<span class="an-orb" data-o="${oi}" data-i="${i}">${logo(id, "", true)}</span>`)).join("")}</span><span class="an-core" aria-hidden="true">${MARK}</span></span>`;
-  return `<div class="an-card"><button type="button" class="an-open" data-proto="announce">${hero}<span class="an-text"><span class="an-title">${a.title}</span><span class="an-desc">${a.desc}</span></span></button><button type="button" class="an-cta" data-proto="${a.proto}">${a.cta}</button></div>`;
+  return `<div class="an-box an-card"><button type="button" class="an-open" data-proto="announce">${hero}<span class="an-text"><span class="an-title">${a.title}</span><span class="an-desc">${a.desc}</span></span></button><button type="button" class="an-cta" data-proto="${a.proto}">${a.cta}</button><button type="button" class="an-min" data-proto="min" data-id="ann" aria-label="Minimize" title="Minimize">${ic("minus")}</button></div>`;
+}
+
+/* ───────── sidebar cards ───────── */
+// One definition per item draws at three densities: a feature card (image, title, description, a link) for
+// something new, a prompt (title, description, a button) for something not set up yet, and a row (icon,
+// title, one-line description, the whole row a button) for something always worth a click. The sidebar
+// shows the first open item expanded and, under it, every minimized or always-on item as a row. Minimizing
+// steps an item down to its row, so nothing a person waved away is lost; finishing it removes it.
+const ITEMS = {
+  ann: () => { const a = ANNS[annKind]; return { tier: "feature", icon: annKind === "figma" ? logo("figma") : annKind === "builder" ? BUILDER_MARK : ic("file-import"), title: a.title, desc: a.desc, go: "announce" }; },
+  invite: () => ({ tier: "prompt", icon: ic("user-plus"), title: "Invite your team", desc: "Share designs and work on them together.", cta: "Invite members", go: "invite" }),
+  mcp: () => ({ tier: "row", icon: ic("plug-connected"), title: "Connect with MCP", desc: "Work in Design from Claude, ChatGPT, or Cursor.", go: "mcp" }),
+};
+const CARD_ORDER = ["ann", "invite", "mcp"];
+const CARD_START = { ann: "open", invite: "open", mcp: "row" };
+let cards = { ...CARD_START };
+function promptHTML(id) {
+  const i = ITEMS[id]();
+  return `<div class="an-box an-prompt"><div class="an-ph"><span class="an-title">${i.title}</span><button type="button" class="an-min" data-proto="min" data-id="${id}" aria-label="Minimize" title="Minimize">${ic("minus")}</button></div><span class="an-desc">${i.desc}</span><button type="button" class="an-btn" data-proto="${i.go}">${i.icon}${i.cta}</button></div>`;
+}
+function rowHTML(id) {
+  const i = ITEMS[id]();
+  return `<button type="button" class="an-row" data-proto="${i.go}">${i.icon}<span class="an-rt"><b>${i.title}</b><span>${i.desc}</span></span></button>`;
+}
+function stackHTML() {
+  const live = CARD_ORDER.filter((id) => cards[id] !== "done");
+  const top = live.find((id) => cards[id] === "open");
+  const rows = live.filter((id) => cards[id] === "min" || cards[id] === "row");
+  const expanded = !top ? "" : ITEMS[top]().tier === "feature" ? cardHTML(annKind) : promptHTML(top);
+  return expanded + (rows.length ? `<div class="an-rows">${rows.map(rowHTML).join("")}</div>` : "");
 }
 // Only Import and the card are live; links and forms in the snapshot stay put.
 const DASH_SCRIPT = `<script>
@@ -809,16 +865,16 @@ addEventListener("click", (e) => {
     setTimeout(() => parent.postMessage({ proto: "builder-done" }, "*"), 1600);
     return;
   }
-  if (e.target.closest('[data-proto="import-figma"]')) { e.preventDefault(); parent.postMessage({ proto: "import-figma" }, "*"); return; }
-  if (e.target.closest('[data-proto="import"]')) { e.preventDefault(); parent.postMessage({ proto: "import" }, "*"); return; }
-  if (e.target.closest('[data-proto="announce"]')) { e.preventDefault(); parent.postMessage({ proto: "announce" }, "*"); return; }
+  const el = e.target.closest("[data-proto]");
+  if (el) { e.preventDefault(); parent.postMessage({ proto: el.dataset.proto, id: el.dataset.id }, "*"); return; }
   if (e.target.closest("a[href], button[type=submit]")) e.preventDefault();
 });
 addEventListener("submit", (e) => e.preventDefault());
 addEventListener("keydown", (e) => { if (e.key === "Escape") parent.postMessage({ proto: "escape" }, "*"); });
 addEventListener("message", (e) => { if (e.data && "protoCard" in e.data && slot) { slot.innerHTML = e.data.protoCard; if (still) frame(performance.now()); return; } const t = e.data && e.data.protoTheme; if (!t) return; const h = document.documentElement; h.className = t; h.dataset.theme = t; h.style.colorScheme = t; });
 const slot = document.querySelector('section[aria-label="Getting started"]');
-if (slot) { slot.setAttribute("aria-label", "What's new"); slot.innerHTML = ${JSON.stringify(cardHTML("all"))}; }
+// The slot becomes a stack of its own boxes, so rows can sit outside the expanded card.
+if (slot) { slot.setAttribute("aria-label", "What's new"); slot.className = "an-stack"; slot.innerHTML = ${JSON.stringify(stackHTML())}; }
 // The card's galaxy: the dialog's orbit, scaled to the card as a whole so its spacing holds.
 const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
 let t0 = performance.now();
@@ -845,12 +901,13 @@ new MutationObserver(syncDashTheme).observe(document.documentElement, { attribut
 function toggleTheme() { document.documentElement.dataset.theme = themeNow() === "dark" ? "light" : "dark"; }
 $("#theme-btn").addEventListener("click", toggleTheme);
 $("#ann-btn").addEventListener("click", () => { root.innerHTML = ""; S.open = false; open("announcement"); });
-function syncCard() { dash.contentWindow?.postMessage({ protoCard: cardHTML(annKind) }, "*"); }
-// Once Builder.io is connected its card has nothing left to offer, so the slot empties.
-function builderConnected() { dash.contentWindow?.postMessage({ protoCard: "" }, "*"); toast("Builder.io account created and connected."); }
-dash.addEventListener("load", () => { if (annKind !== "all") syncCard(); });
+function syncCard() { dash.contentWindow?.postMessage({ protoCard: stackHTML() }, "*"); }
+// Once Builder.io is connected its card has nothing left to offer, so it leaves the stack.
+function builderConnected() { cards.ann = "done"; syncCard(); toast("Builder.io account created and connected."); }
+dash.addEventListener("load", () => { if (annKind !== "all" || CARD_ORDER.some((id) => cards[id] !== CARD_START[id])) syncCard(); });
 function setKind(kind) {
   annKind = annKind === kind ? "all" : kind;
+  cards.ann = "open";
   $("#fig-btn").setAttribute("aria-pressed", String(annKind === "figma"));
   $("#bld-btn").setAttribute("aria-pressed", String(annKind === "builder"));
   syncCard();
@@ -858,6 +915,7 @@ function setKind(kind) {
 }
 $("#fig-btn").addEventListener("click", () => setKind("figma"));
 $("#bld-btn").addEventListener("click", () => setKind("builder"));
+$("#cards-btn").addEventListener("click", () => { cards = { ...CARD_START }; syncCard(); toast("Sidebar cards reset"); });
 $("#fail-btn").addEventListener("click", (e) => { S.fail = !S.fail; e.currentTarget.setAttribute("aria-pressed", String(S.fail)); toast(S.fail ? "Imports now stop on the second step" : "Imports now finish"); });
 kitChangesInit($("#changes-btn"));
 addEventListener("resize", () => { if (S.view === "announcement") placeOrbit(); if (S.view === "picker") placeBelt(); });
