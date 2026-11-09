@@ -106,7 +106,10 @@ import {
   useContentUtilityRail,
 } from "@/components/layout/use-content-layout";
 import { QueryErrorState } from "@/components/QueryErrorState";
-import { remainingPageAfterDelete } from "@/components/sidebar/document-sidebar-actions";
+import {
+  remainingPageAfterDelete,
+  stillOnPageOpenedForDelete,
+} from "@/components/sidebar/document-sidebar-actions";
 import {
   createContentSpaceSelectionQueue,
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
@@ -167,6 +170,7 @@ import {
   refreshLandingTitleHintCache,
 } from "@/hooks/use-optimistic-document-title";
 import { usePageTabTitle } from "@/hooks/use-page-tab-title";
+import { usePendingTrash } from "@/hooks/use-pending-trash";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
@@ -3069,6 +3073,7 @@ function PageEditorSessionBody({
   );
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
+  const pendingTrash = usePendingTrash();
   const processBuilderBodies = useProcessBuilderBodyHydration(
     document.bodyHydration?.databaseDocumentId ?? documentId,
   );
@@ -3495,6 +3500,7 @@ function PageEditorSessionBody({
               queryClient,
               documentId,
             ),
+            pendingTrashIds: pendingTrash.documentIds,
           });
     const previousPath = `${location.pathname}${location.search}${location.hash}`;
     if (remainingPageId) {
@@ -3519,7 +3525,9 @@ function PageEditorSessionBody({
         void navigate("/home", { replace: true, flushSync: true });
       }
     } catch (error) {
-      if (remainingPageId) {
+      if (
+        stillOnPageOpenedForDelete(window.location.pathname, remainingPageId)
+      ) {
         void navigate(previousPath, { replace: true, flushSync: true });
       }
       toast.error(t("sidebar.failedDeletePage"), {
@@ -3539,6 +3547,7 @@ function PageEditorSessionBody({
     navigate,
     navigationPath,
     onDelete,
+    pendingTrash.documentIds,
     queryClient,
     t,
   ]);

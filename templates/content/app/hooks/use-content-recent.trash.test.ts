@@ -177,11 +177,25 @@ describe("Recent while a page or collection moves to Trash", () => {
     expect(shown).toEqual(["page-a", "page-b"]);
   });
 
-  it("leaves a page in place when the delete only takes it out of a collection", async () => {
+  it("leaves a page in place when the delete only takes it out of Favorites", async () => {
+    queryClient.setQueryData(["action", "list-content-spaces", undefined], {
+      favoritesDocumentId: "favorites-doc",
+    });
     act(() => {
       void trashPage({ id: "page-a", databaseDocumentId: "favorites-doc" });
     });
     await flush();
     expect(shown).toEqual(["page-a", "page-b", "table-c"]);
+  });
+
+  it("hides a page deleted from inside an ordinary collection", async () => {
+    queryClient.setQueryData(["action", "list-content-spaces", undefined], {
+      favoritesDocumentId: "favorites-doc",
+    });
+    act(() => {
+      void trashPage({ id: "page-a", databaseDocumentId: "launches-doc" });
+    });
+    await flush();
+    expect(shown).toEqual(["page-b", "table-c"]);
   });
 });

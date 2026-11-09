@@ -193,6 +193,7 @@ import { cn } from "@/lib/utils";
 import {
   navigationAfterConfirmedDelete,
   remainingPageAfterDelete,
+  stillOnPageOpenedForDelete,
 } from "./document-sidebar-actions";
 import {
   firstLocalSourceDocumentId,
@@ -1303,12 +1304,17 @@ export function DocumentSidebar({
   const favoritesData = isContentDatabaseUnavailable(favoritesDatabase.data)
     ? undefined
     : favoritesDatabase.data;
-  // A page on its way to Trash leaves Favorites with the click.
+  // A page or collection on its way to Trash leaves Favorites with the click.
   const pendingTrash = usePendingTrash();
   const favoriteItems = useMemo(
     () =>
       (favoritesData?.items ?? []).filter(
-        (item) => !pendingTrash.documentIds.has(item.document.id),
+        (item) =>
+          !pendingTrash.documentIds.has(item.document.id) &&
+          !(
+            item.document.database &&
+            pendingTrash.databaseIds.has(item.document.database.id)
+          ),
       ),
     [favoritesData?.items, pendingTrash],
   );
@@ -1433,7 +1439,7 @@ export function DocumentSidebar({
       ? 0
       : favoritesDatabase.isPending || favoritesPersonalView.isPending
         ? null
-        : (favoritesData?.items.length ?? 0); // coercion-ok: an unavailable database draws as an empty Pinned list.
+        : favoriteItems.length;
   const handleRetryContentSpaces = useCallback(() => {
     if (contentSpacesQuery.isError) {
       attemptedSpaceReconciliationKeyRef.current = null;
@@ -2986,7 +2992,9 @@ export function DocumentSidebar({
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        if (leftDeletedPage) {
+        if (
+          stillOnPageOpenedForDelete(window.location.pathname, remainingPageId)
+        ) {
           void navigate(previousPath, {
             replace: true,
             flushSync: true,

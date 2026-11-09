@@ -68,6 +68,22 @@ export function remainingPageAfterDelete(
 }
 
 /**
+ * Whether a failed delete should go back to the page it left: only while the
+ * person is still on the page the delete opened. Someone who has moved on
+ * since gets the failure toast where they are. The pathname may carry the
+ * app's base path, so only its end is compared.
+ */
+export function stillOnPageOpenedForDelete(
+  currentPathname: string,
+  remainingPageId: string | null,
+): boolean {
+  return (
+    remainingPageId !== null &&
+    currentPathname.endsWith(`/page/${remainingPageId}`)
+  );
+}
+
+/**
  * Where to go once the server confirms a delete. The server's path matters
  * only when the sidebar didn't leave the deleted page itself; when it already
  * opened a remaining page, following the server would bounce through Home.

@@ -5,6 +5,7 @@ import {
   documentSidebarActionAvailability,
   navigationAfterConfirmedDelete,
   remainingPageAfterDelete,
+  stillOnPageOpenedForDelete,
 } from "./document-sidebar-actions";
 
 function access(
@@ -151,5 +152,20 @@ describe("the remaining page after a delete", () => {
         filesRootDocumentIds: [],
       }),
     ).toBeNull();
+  });
+});
+
+describe("going back after a failed delete", () => {
+  it("goes back only from the page the delete opened", () => {
+    expect(stillOnPageOpenedForDelete("/page/projects", "projects")).toBe(true);
+    expect(
+      stillOnPageOpenedForDelete("/content/page/projects", "projects"),
+    ).toBe(true);
+    expect(stillOnPageOpenedForDelete("/page/inbox", "projects")).toBe(false);
+    expect(stillOnPageOpenedForDelete("/home", "projects")).toBe(false);
+  });
+
+  it("stays put when the delete never left the page", () => {
+    expect(stillOnPageOpenedForDelete("/page/launch", null)).toBe(false);
   });
 });
