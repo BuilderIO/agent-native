@@ -231,7 +231,15 @@ describe("edit-design conflict retry", () => {
         },
       ],
     });
-    expect(mocks.validateGenerationCreativeContext).not.toHaveBeenCalled();
+    // The call still asked for provenance, so the edit is recorded as net-new
+    // work instead of keeping the previous attribution.
+    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reuseLabels: [expect.objectContaining({ influence: "generated" })],
+        reuseLabelsSource: "inherited",
+      }),
+    );
+    expect(mocks.recordGenerationCreativeContext).toHaveBeenCalledTimes(1);
   });
 
   it("ignores an item-backed label when Creative Context is off for the effective mode", async () => {
@@ -268,7 +276,11 @@ describe("edit-design conflict retry", () => {
         { kind: "figma-frame", label: "Pricing hero", reason: "context-off" },
       ],
     });
-    expect(mocks.validateGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reuseLabels: [expect.objectContaining({ influence: "generated" })],
+      }),
+    );
   });
 
   it("preserves a retry no-match after checkpointing and accepts a corrected call", async () => {
