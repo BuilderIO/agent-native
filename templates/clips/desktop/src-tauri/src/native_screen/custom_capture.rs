@@ -838,6 +838,9 @@ struct CustomScreenCaptureWriterState {
     #[allow(dead_code)]
     segment_delegate: Option<objc2::rc::Retained<SegmentWriterDelegate>>,
     session_start_time: Option<(i64, i32)>,
+    // Counted before the writer can drop a frame, so a backed-up writer isn't
+    // mistaken for a still screen.
+    video_frames_past_first_segment: u64,
     finished: bool,
     failed: Option<String>,
     append_stats: std::collections::HashMap<&'static str, TrackAppendStats>,
@@ -853,9 +856,6 @@ mod track_labels {
 #[derive(Default, Clone, Copy)]
 struct TrackAppendStats {
     appended: u64,
-    // Segmented output rebases PTS to the session start, so these are the
-    // samples that can close the first media fragment.
-    appended_past_first_segment: u64,
     last_pts_seconds: Option<f64>,
     pts_regressions: u64,
 }
@@ -1455,6 +1455,7 @@ impl CustomScreenCaptureWriter {
                     segment_sink,
                     segment_delegate,
                     session_start_time: None,
+                    video_frames_past_first_segment: 0,
                     finished: false,
                     failed: None,
                     append_stats: std::collections::HashMap::new(),
@@ -1568,14 +1569,15 @@ impl CustomScreenCaptureWriter {
     fn video_frames_past_first_segment(&self) -> u64 {
         self.inner
             .lock()
-            .ok()
-            .and_then(|guard| {
-                guard
-                    .append_stats
-                    .get(track_labels::VIDEO)
-                    .map(|stats| stats.appended_past_first_segment)
-            })
+            .map(|guard| guard.video_frames_past_first_segment)
             .unwrap_or_default()
+    }
+
+    fn segment_failure(&self) -> Option<String> {
+        self.inner
+            .lock()
+            .ok()
+            .and_then(|guard| guard.segment_sink.as_ref().and_then(|sink| sink.failure()))
     }
 
     fn failure(&self) -> Option<String> {
@@ -1674,6 +1676,12 @@ impl CustomScreenCaptureWriter {
                             .sample_timing_info(0)
                             .ok()
                             .and_then(|t| t.presentation_time_stamp.as_seconds());
+                        if track == track_labels::VIDEO
+                            && rebased_pts
+                                .is_some_and(|pts| pts >= OUTPUT_SEGMENT_INTERVAL_SECONDS as f64)
+                        {
+                            guard.video_frames_past_first_segment += 1;
+                        }
                         self.append_sample_ptr(
                             &mut guard,
                             &input,
@@ -1881,9 +1889,6 @@ impl CustomScreenCaptureWriter {
         }
         let appended_before = stats.appended;
         stats.appended += 1;
-        if pts_seconds.is_some_and(|pts| pts >= OUTPUT_SEGMENT_INTERVAL_SECONDS as f64) {
-            stats.appended_past_first_segment += 1;
-        }
         let pts_report = |outcome: &str| {
             format!(
                 "AVAssetWriter appendSampleBuffer {outcome} on {track} (pts={}, previous={}, appended={appended_before})",
@@ -3636,7 +3641,9 @@ fn await_segmented_capture_readiness(
     let (screen, usable_screen, system, mic) = watch.sample_counts();
     let progress = writer.segment_progress();
     let frames_past_first_segment = writer.video_frames_past_first_segment();
-    if first_fragment_awaits_screen_changes(frames_past_first_segment) {
+    let segment_failure = writer.segment_failure();
+    if segment_failure.is_none() && first_fragment_awaits_screen_changes(frames_past_first_segment)
+    {
         crate::logfile::diagnostic(&format!(
             "[capture-health] segmented capture ready before its first media fragment: {frames_past_first_segment} video frame(s) after the first segment boundary, too few to close it (screen={screen}, usable_screen={usable_screen}); the fragment follows when the screen changes or the capture stops"
         ));
@@ -3645,10 +3652,13 @@ fn await_segmented_capture_readiness(
     let _ = stream.stop_capture();
     let finish_error = writer.finish(true).err();
     Err(format!(
-        "capture startup timed out waiting for the first fragmented-media bytes (screen={screen}, usable_screen={usable_screen}, system_audio={system}, microphone={mic}, requested_system_audio={requested_system_audio}, requested_microphone={requested_microphone}, initialization={}, media_fragments={}, bytes={}, video_frames_past_first_segment={frames_past_first_segment}){}",
+        "capture startup timed out waiting for the first fragmented-media bytes (screen={screen}, usable_screen={usable_screen}, system_audio={system}, microphone={mic}, requested_system_audio={requested_system_audio}, requested_microphone={requested_microphone}, initialization={}, media_fragments={}, bytes={}, video_frames_past_first_segment={frames_past_first_segment}){}{}",
         progress.has_initialization,
         progress.media_fragments,
         progress.bytes_written,
+        segment_failure
+            .map(|error| format!("; segment output: {error}"))
+            .unwrap_or_default(),
         finish_error
             .map(|error| format!("; writer: {error}"))
             .unwrap_or_default()
@@ -4334,6 +4344,33 @@ mod fragment_fence_tests {
             has_initialization: true,
         }
         .has_media());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn segment_output_failure_reaches_capture_startup() {
+        let output = path("startup-segment-failure");
+        let writer = CustomScreenCaptureWriter::new(
+            &output,
+            1280,
+            800,
+            false,
+            false,
+            false,
+            false,
+            CustomWriterOutput::RewindCmaf,
+            false,
+            None,
+        )
+        .unwrap();
+        let sink = writer.inner.lock().unwrap().segment_sink.clone().unwrap();
+        sink.append(b"A", AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE, Some(0.0));
+        assert!(writer.failure().is_none());
+        assert!(writer
+            .segment_failure()
+            .is_some_and(|error| error.contains("before initialization segment")));
+        drop(writer);
+        remove(&[&output]);
     }
 
     #[test]
