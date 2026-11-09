@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import type { Plugin } from "vite";
 
 export function browserChunkNamesPlugin(): Plugin {
@@ -14,12 +16,16 @@ export function browserChunkNamesPlugin(): Plugin {
 
       const build = (config.build ??= {});
       const options = (build.rolldownOptions ??= {});
+      const fileName = path.posix.join(
+        build.assetsDir ?? "assets",
+        "m-[hash].js",
+      );
       const defaults = {
         // Source-derived script names can match privacy lists and prevent the
         // entire module graph from loading, including authentication popups.
         // A neutral prefix preserves the shared name-hash cache contract.
-        entryFileNames: `${build.assetsDir ?? "assets"}/m-[hash].js`,
-        chunkFileNames: `${build.assetsDir ?? "assets"}/m-[hash].js`,
+        entryFileNames: fileName,
+        chunkFileNames: fileName,
       };
       options.output = Array.isArray(options.output)
         ? options.output.map((output) => ({ ...defaults, ...output }))

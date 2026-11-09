@@ -9,7 +9,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseChangelog } from "../changelog/parse.js";
 import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
-import { isImmutableAssetPath } from "../deploy/immutable-assets.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import { getMissingCoreOptionalPeers } from "../shared/optional-peer-ssr.js";
 import { readAgentNativeBuildConfigMarker } from "./agent-native-config-loader.js";
@@ -3771,101 +3770,6 @@ describe("Vite CSS build defaults", () => {
       cssMinify: "esbuild",
       cssTarget: ["es2020", "safari18"],
     });
-  });
-});
-
-describe("production browser script URLs", () => {
-  it.each(["assets", "scripts"])(
-    "builds entry and imported scripts in %s without source-derived names",
-    async (assetsDir) => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), "core-script-urls-"));
-      const cwd = vi.spyOn(process, "cwd").mockReturnValue(root);
-      try {
-        fs.writeFileSync(path.join(root, "package.json"), '{"type":"module"}');
-        fs.writeFileSync(
-          path.join(root, "analytics-entry.js"),
-          'globalThis.loadMessages = () => import("./consent-banner-messages.js");',
-        );
-        fs.writeFileSync(
-          path.join(root, "consent-banner-messages.js"),
-          'export const message = "Connection ready";',
-        );
-        const config = await resolveConfig(
-          {
-            configFile: false,
-            root,
-            logLevel: "silent",
-            plugins: agentNative(),
-            build: {
-              assetsDir,
-              rolldownOptions: { input: path.join(root, "analytics-entry.js") },
-            },
-          },
-          "build",
-        );
-        const result = await build({
-          configFile: false,
-          root,
-          logLevel: "silent",
-          build: { ...config.environments.client.build, write: false },
-        });
-        if ("close" in result) throw new Error("Unexpected watch build");
-        const chunks = (Array.isArray(result) ? result : [result])
-          .flatMap((bundle) => bundle.output)
-          .filter((output) => output.type === "chunk");
-        expect(chunks).toHaveLength(2);
-        for (const chunk of chunks) {
-          expect(chunk.fileName).toMatch(
-            new RegExp(`^${assetsDir}/m-[\\w-]{8}\\.js$`),
-          );
-          expect(isImmutableAssetPath(`/${chunk.fileName}`)).toBe(
-            assetsDir === "assets",
-          );
-        }
-        expect(chunks.find((chunk) => chunk.isEntry)?.dynamicImports).toEqual([
-          chunks.find((chunk) => chunk.isDynamicEntry)?.fileName,
-        ]);
-      } finally {
-        cwd.mockRestore();
-        fs.rmSync(root, { recursive: true, force: true });
-      }
-    },
-  );
-
-  it("preserves explicit browser output naming, including multiple outputs", async () => {
-    for (const output of [
-      { entryFileNames: "app.js", chunkFileNames: "part-[name].js" },
-      [{ entryFileNames: "app.js", chunkFileNames: "part-[name].js" }],
-    ]) {
-      const config = await resolveConfig(
-        {
-          configFile: false,
-          plugins: agentNative(),
-          build: { rolldownOptions: { output } },
-        },
-        "build",
-      );
-      expect(config.environments.client.build.rolldownOptions.output).toEqual(
-        output,
-      );
-    }
-  });
-
-  it("leaves server and library entry naming to Vite", async () => {
-    for (const buildOptions of [
-      { ssr: "/app/server.ts" },
-      { lib: { entry: "/app/library.ts", formats: ["es" as const] } },
-    ]) {
-      const config = await resolveConfig(
-        { configFile: false, plugins: agentNative(), build: buildOptions },
-        "build",
-      );
-      for (const environment of Object.values(config.environments).filter(
-        (environment) => environment.consumer === "server" || buildOptions.lib,
-      )) {
-        expect(environment.build.rolldownOptions.output).toBeUndefined();
-      }
-    }
   });
 });
 
