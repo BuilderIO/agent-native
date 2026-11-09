@@ -334,7 +334,9 @@ export async function readFeatureFlagRuleLayers(
   if (!getFeatureFlagDefinition(key))
     throw new FeatureFlagRulesError("unregistered", key, "not registered");
   const orgId = scope.orgId?.trim() || null;
-  const options = { transaction: scope.transaction };
+  const options = scope.transaction
+    ? { transaction: scope.transaction }
+    : undefined;
   const [global, org] = await Promise.all([
     readStoredRule(() => getSettingEntry(settingKey(key), options)),
     orgId
