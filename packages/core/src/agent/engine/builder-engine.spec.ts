@@ -2698,6 +2698,81 @@ describe("createBuilderEngine", () => {
     );
   });
 
+  it("treats an uncoded masked envelope on invalid_request as a non-retryable internal error", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_masked_envelope",
+            error:
+              "Sorry, this was caused by an internal error. ERROR ID: ee0d523bbb22473387d71fd97da220ea",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(false);
+    const logged = warning.mock.calls.flat().join(" ");
+    expect(logged).toContain("errorId=ee0d523bbb22473387d71fd97da220ea");
+    expect(logged).toContain("payloadBytes=");
+    expect(logged).not.toContain("Sorry, this was caused by an internal error");
+  });
+
+  it("keeps a provider_internal_error envelope on invalid_request retryable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_coded_envelope",
+            errorCode: "provider_internal_error",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(true);
+  });
+
+  it("keeps an uncoded non-envelope invalid_request terminal as invalid_request", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_plain_invalid",
+            error:
+              "messages.3: tool_use block must have a corresponding tool_result",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("invalid_request");
+    expect(stop?.providerRetryable).toBe(false);
+  });
+
   it("marks unclassified no-detail gateway stop errors as retryable", async () => {
     vi.stubGlobal(
       "fetch",

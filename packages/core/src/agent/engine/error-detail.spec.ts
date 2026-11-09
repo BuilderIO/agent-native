@@ -6,6 +6,7 @@ import {
   classifyProviderError,
   classifyTerminalErrorCode,
   describeErrorWithCauses,
+  getBuilderGatewayErrorId,
   isBareProviderRejectionMessage,
   isBuilderGatewayInternalErrorMessage,
   isGenericInternalServerErrorMessage,
@@ -490,5 +491,41 @@ describe("classifyProviderError retryAfterMs", () => {
       responseHeaders: { "retry-after": "600" },
     });
     expect(classifyProviderError(apiError).retryAfterMs).toBe(60_000);
+  });
+});
+
+describe("getBuilderGatewayErrorId", () => {
+  it("returns the id from the 'ran into an issue' envelope prefix", () => {
+    expect(
+      getBuilderGatewayErrorId(
+        "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+      ),
+    ).toBe("bebaeb5da13441539790834b63ff955a");
+  });
+
+  it("returns the id from the internal-error envelope prefix", () => {
+    expect(
+      getBuilderGatewayErrorId(
+        "Sorry, this was caused by an internal error. ERROR ID: ee0d523bbb22473387d71fd97da220ea",
+      ),
+    ).toBe("ee0d523bbb22473387d71fd97da220ea");
+  });
+
+  it("returns undefined for a request id", () => {
+    expect(getBuilderGatewayErrorId("Bad request (request id: req_9)")).toBe(
+      undefined,
+    );
+  });
+
+  it("returns undefined for a short error id", () => {
+    expect(getBuilderGatewayErrorId("error id: abc")).toBe(undefined);
+  });
+
+  it("returns undefined for a long hex error id outside an envelope", () => {
+    expect(
+      getBuilderGatewayErrorId(
+        "upstream failed. ERROR ID: bebaeb5da13441539790834b63ff955a",
+      ),
+    ).toBe(undefined);
   });
 });

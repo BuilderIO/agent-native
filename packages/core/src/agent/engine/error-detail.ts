@@ -197,6 +197,13 @@ export function isBuilderGatewayInternalErrorMessage(message: string): boolean {
   );
 }
 
+/** The gateway's own id from its masked envelope, for matching a run to its logs. */
+export function getBuilderGatewayErrorId(message: string): string | undefined {
+  return isBuilderGatewayInternalErrorMessage(message)
+    ? BUILDER_GATEWAY_ERROR_ID_PATTERN.exec(message)?.[1]
+    : undefined;
+}
+
 export function isGenericInternalServerErrorMessage(message: string): boolean {
   return /^(?:http\s+)?500(?:\s+internal server error)?$|^internal server error$/i.test(
     message.trim(),
