@@ -4213,9 +4213,13 @@ export default function DeckEditor() {
 
   const deleteSlidesWithUndo = useCallback(
     (deckId: string, slideIds: string[]) => {
-      const historyToken = deleteSlides(deckId, slideIds);
+      // A refused delete is restored by the deck resync and reported by the save
+      // banner, so "Slide deleted" with Undo would contradict both.
+      const historyToken = deleteSlides(deckId, slideIds, () =>
+        toast.dismiss(toastId),
+      );
       if (!historyToken) return;
-      toast(t("editorSidebar.slideDeleted"), {
+      const toastId = toast(t("editorSidebar.slideDeleted"), {
         className: "!bg-background !text-foreground !border-border",
         duration: 6000,
         closeButton: true,
