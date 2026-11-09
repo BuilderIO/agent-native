@@ -3,6 +3,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   IconBook2,
   IconDownload,
@@ -251,11 +252,13 @@ export function VocabularyManager({
         );
         return { previous };
       },
-      onError: (_error, _variables, context: any) => {
+      onError: (error, _variables, context: any) => {
         if (context?.previous) {
           queryClient.setQueryData(QUERY_KEY, context.previous);
         }
-        toast.error(t("dictateRoute.vocabularyRemoveFailed"));
+        reportWriteFailure(error, {
+          label: t("dictateRoute.vocabularyRemoveFailed"),
+        });
       },
       onSettled: () => {
         void queryClient.invalidateQueries({ queryKey: QUERY_KEY });
