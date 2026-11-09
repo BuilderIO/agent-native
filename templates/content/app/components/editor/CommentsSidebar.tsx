@@ -4383,13 +4383,12 @@ function letterDiff(removed: string, inserted: string) {
     const shown = parts.filter(
       (part) => part.type === "equal" || part.type === side,
     );
-    return shown.some((part, index) => {
-      const next = shown[index + 1];
+    return shown.slice(1).some((next, index) => {
+      const part = shown[index];
       return (
-        next !== undefined &&
         (part.type === "equal") !== (next.type === "equal") &&
         WORD_CHARACTER.test(part.text.slice(-1)) &&
-        WORD_CHARACTER.test(next.text[0] ?? "")
+        WORD_CHARACTER.test(next.text.charAt(0))
       );
     });
   });

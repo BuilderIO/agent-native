@@ -1415,7 +1415,9 @@ it("marks whole words, not scattered letters, when a suggestion rewrites words",
     }
     try {
       await act(async () => root.render(<Harness />));
-      check(container.querySelector(`[data-suggestion-id="${id}"]`)!);
+      const shown = container.querySelector(`[data-suggestion-id="${id}"]`);
+      if (!shown) throw new Error(`No card for ${id}`);
+      check(shown);
     } finally {
       await act(async () => root.unmount());
     }
@@ -1425,7 +1427,7 @@ it("marks whole words, not scattered letters, when a suggestion rewrites words",
       .filter((span) =>
         span.className.includes("decoration-[hsl(var(--suggestion))]"),
       )
-      .map((span) => span.textContent?.trim());
+      .map((span) => span.textContent.trim());
 
   // By letters, this marks "m", "de n", "e" and "d" of the new sentence.
   await card(
