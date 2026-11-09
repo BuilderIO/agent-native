@@ -43,7 +43,6 @@ import {
   canonicalizeBuilderGatewayErrorCode,
   describeErrorWithCauses,
   extractRetryAfterMs,
-  getBuilderGatewayErrorId,
   isBareProviderRejectionMessage,
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowCode,
@@ -1113,10 +1112,8 @@ async function* parseJsonlStream(
               "invalid_request";
             const gatewayRequestId =
               typeof event.requestId === "string" ? event.requestId : undefined;
-            const gatewayErrorId = getBuilderGatewayErrorId(String(errMsg));
-            const shape = captureContext.requestShape;
             console.warn(
-              `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} requestId=${gatewayRequestId ?? "(none)"} errorId=${gatewayErrorId ?? "(none)"} payloadBytes=${shape?.payloadBytes ?? "(none)"} toolCount=${shape?.toolCount ?? "(none)"} messageCount=${shape?.messageCount ?? "(none)"} providerMessagePresent=${Boolean(event.error || event.message || event.detail)}`,
+              `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} requestId=${gatewayRequestId ?? "(none)"} requestShape=${JSON.stringify(captureContext.requestShape)} providerMessagePresent=${Boolean(event.error || event.message || event.detail)}`,
             );
             if (isExplicitBuilderCreditsLimitCode(errCode)) {
               await notifyBuilderCreditLimit();

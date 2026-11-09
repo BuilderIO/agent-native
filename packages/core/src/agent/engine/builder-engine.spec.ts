@@ -2721,10 +2721,58 @@ describe("createBuilderEngine", () => {
     expect(stop?.errorCode).toBe("builder_gateway_internal_error");
     expect(stop?.providerRetryable).toBe(false);
     const logged = warning.mock.calls.flat().join(" ");
-    expect(logged).toContain("errorId=ee0d523bbb22473387d71fd97da220ea");
-    expect(logged).toContain("payloadBytes=");
+    expect(logged).toContain("requestId=req_masked_envelope");
+    expect(logged).toContain("providerMessagePresent=true");
+    expect(logged).toContain("code=builder_gateway_internal_error");
+    expect(logged).toMatch(
+      /requestShape=\{"model":"[^"]+","payloadBytes":\d+,"toolCount":\d+,"messageCount":\d+\}/,
+    );
     expect(logged).not.toContain("Sorry, this was caused by an internal error");
   });
+
+  it.each([
+    {
+      name: "only error",
+      event: { error: "x" },
+      expected: "providerMessagePresent=true",
+    },
+    {
+      name: "only message",
+      event: { message: "x" },
+      expected: "providerMessagePresent=true",
+    },
+    {
+      name: "only detail",
+      event: { detail: "x" },
+      expected: "providerMessagePresent=true",
+    },
+    {
+      name: "none of them",
+      event: {},
+      expected: "providerMessagePresent=false",
+    },
+  ])(
+    "logs whether the gateway sent a message ($name)",
+    async ({ event, expected }) => {
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            jsonlResponse([
+              { type: "stop", reason: "invalid_request", ...event },
+            ]),
+          ),
+      );
+
+      await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+      const logged = warning.mock.calls.flat().join(" ");
+      expect(logged).toContain(expected);
+      expect(logged).toContain("requestId=(none)");
+    },
+  );
 
   it("keeps a provider_internal_error envelope on invalid_request retryable", async () => {
     vi.stubGlobal(
