@@ -33,7 +33,7 @@ export const SHELL_RUNNING_MESSAGE = "content-shell:running";
 // Same rule as core's IMMUTABLE_ASSET_PATH_PATTERN: only files whose name
 // carries a content hash, so a cached copy can never go stale.
 export const IMMUTABLE_ASSET_PATH =
-  /^\/assets\/(?:[^/]+\/)*[^/]+-[A-Za-z0-9_-]{8}\.[a-z0-9]+$/;
+  /^\/assets\/(?:[^/]+\/)*[^/]+-[A-Za-z0-9_-]{8}[0-9]*\.[a-z0-9]+$/;
 
 export interface ShellRoute {
   id: string;

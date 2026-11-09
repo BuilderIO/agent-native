@@ -24,6 +24,9 @@ describe("immutable assets", () => {
       recursive: true,
     });
     fs.writeFileSync(path.join(assetsDir, "app-aB12_cdE.js"), "");
+    fs.writeFileSync(path.join(assetsDir, "m-aB12_cdE2.js"), "");
+    fs.writeFileSync(path.join(assetsDir, "m-aB12_cdE32.js"), "");
+    fs.writeFileSync(path.join(assetsDir, "m-aB12_cdEx.js"), "");
     fs.writeFileSync(
       path.join(assetsDir, "chunks", "nested", "chunk-12345678.css"),
       "",
@@ -37,6 +40,8 @@ describe("immutable assets", () => {
     expect(collectImmutableAssetPaths(tempDir)).toEqual([
       "/assets/app-aB12_cdE.js",
       "/assets/chunks/nested/chunk-12345678.css",
+      "/assets/m-aB12_cdE2.js",
+      "/assets/m-aB12_cdE32.js",
     ]);
     expect(
       isImmutableAssetPath("/assets/chunks/nested/chunk-12345678.css"),
