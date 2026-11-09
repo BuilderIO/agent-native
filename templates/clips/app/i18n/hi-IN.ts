@@ -606,6 +606,8 @@ const messages = {
     them: "उन्हें",
     me: "मुझे",
     regeneratingNotes: "सारांश पुन: उत्पन्न कर रहे हैं",
+    notesAlreadyGenerating:
+      "सारांश पहले से बनाया जा रहा है। तैयार होने पर यह यहाँ दिखेगा।",
     meetingRemoved: "मीटिंग हटा दी गई",
     couldNotRemoveMeeting: "मीटिंग को हटाया नहीं जा सका",
     couldNotLoadMeeting: "इस मीटिंग को लोड नहीं किया जा सका.",

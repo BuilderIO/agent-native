@@ -643,6 +643,8 @@ const messages = {
     them: "Eux",
     me: "Moi",
     regeneratingNotes: "Régénération du résumé",
+    notesAlreadyGenerating:
+      "Un résumé est déjà en cours de génération. Il s'affichera ici dès qu'il sera prêt.",
     meetingRemoved: "Réunion supprimée",
     couldNotRemoveMeeting: "Impossible de supprimer la réunion",
     couldNotLoadMeeting: "Impossible de charger cette réunion.",
