@@ -155,6 +155,7 @@ const DESIGN_EDIT_TOOLS = new Set([
   "hydrate-figma-paste-images",
   "insert-asset",
   "insert-design-native-asset",
+  "move-design-element",
   "remove-breakpoint",
   "remove-motion-timeline",
   "rename-screen",
