@@ -72,8 +72,18 @@ vi.mock("../store.js", () => ({
   FeatureFlagRulesError: class extends Error {},
   defaultFeatureFlagRules: () => defaultFeatureFlagRulesMock(),
   getFeatureFlagRules: (...args: any[]) => getFeatureFlagRulesMock(...args),
-  readFeatureFlagRuleLayers: (...args: any[]) =>
-    readFeatureFlagRuleLayersMock(...args),
+  readFeatureFlagRuleLayersForKeys: async (
+    keys: readonly string[],
+    scope: unknown,
+  ) =>
+    new Map(
+      await Promise.all(
+        keys.map(
+          async (key) =>
+            [key, await readFeatureFlagRuleLayersMock(key, scope)] as const,
+        ),
+      ),
+    ),
   featureFlagRuleInEffect: (layers: any) =>
     layers.inEffect === "org" && layers.org ? layers.org : layers.global,
   evaluateStoredFeatureFlagRule: (key: string, stored: any, scope: unknown) =>

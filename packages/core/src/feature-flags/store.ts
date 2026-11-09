@@ -349,21 +349,31 @@ export async function getFeatureFlagRulesStrict(
   return inEffect.state === "set" ? inEffect.rules : defaultFeatureFlagRules();
 }
 
+/** Both rule rows for each registered key, read in one settings batch. */
+export async function readFeatureFlagRuleLayersForKeys(
+  keys: readonly string[],
+  scope: Pick<FeatureFlagScope, "orgId" | "transaction">,
+): Promise<Map<string, FeatureFlagRuleLayers>> {
+  const uniqueKeys = [...new Set(keys)].filter((key) =>
+    getFeatureFlagDefinition(key),
+  );
+  const result = new Map<string, FeatureFlagRuleLayers>();
+  if (uniqueKeys.length === 0) return result;
+  const orgId = scope.orgId?.trim() || null;
+  const rows = await readRuleRows(uniqueKeys, orgId, scope.transaction);
+  for (const key of uniqueKeys) result.set(key, ruleLayers(rows, key, orgId));
+  return result;
+}
+
 /** The row in effect for each registered key, read in one settings batch. */
 export async function getFeatureFlagRulesForKeys(
   keys: readonly string[],
   scope: Pick<FeatureFlagScope, "orgId" | "transaction">,
 ): Promise<Map<string, FeatureFlagStoredRule>> {
-  const uniqueKeys = [...new Set(keys)].filter((key) =>
-    getFeatureFlagDefinition(key),
+  const layers = await readFeatureFlagRuleLayersForKeys(keys, scope);
+  return new Map(
+    [...layers].map(([key, layer]) => [key, featureFlagRuleInEffect(layer)]),
   );
-  const result = new Map<string, FeatureFlagStoredRule>();
-  if (uniqueKeys.length === 0) return result;
-  const orgId = scope.orgId?.trim() || null;
-  const rows = await readRuleRows(uniqueKeys, orgId, scope.transaction);
-  for (const key of uniqueKeys)
-    result.set(key, featureFlagRuleInEffect(ruleLayers(rows, key, orgId)));
-  return result;
 }
 
 /**

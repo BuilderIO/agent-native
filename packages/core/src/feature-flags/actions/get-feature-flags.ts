@@ -10,6 +10,7 @@ import {
   featureFlagRuleInEffect,
   getFeatureFlagRulesForKeys,
   readFeatureFlagRuleLayers,
+  type FeatureFlagScope,
   type FeatureFlagStoredRule,
 } from "../store.js";
 
@@ -19,7 +20,10 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   run: async (_args, ctx) => {
-    const scope = { userEmail: ctx?.userEmail, orgId: ctx?.orgId };
+    const scope: FeatureFlagScope = {
+      ...(ctx?.userEmail ? { userEmail: ctx.userEmail } : {}),
+      ...(ctx?.orgId ? { orgId: ctx.orgId } : {}),
+    };
     const definitions = listFeatureFlags();
     const rules = await getFeatureFlagRulesForKeys(
       definitions.map(({ key }) => key),

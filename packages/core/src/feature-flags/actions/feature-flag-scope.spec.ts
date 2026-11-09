@@ -21,6 +21,10 @@ const mutateRow = async (
   return next;
 };
 const orgKey = (orgId: string, key: string) => `o:${orgId}:${key}`;
+const getSettingsRawMock = vi.fn(
+  async (keys: readonly string[]) =>
+    new Map(keys.map((key) => [key, rows.get(key) ?? null])),
+);
 
 vi.mock("../../settings/store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../settings/store.js")>()),
@@ -28,8 +32,7 @@ vi.mock("../../settings/store.js", async (importOriginal) => ({
     const raw = rows.get(key);
     return raw === undefined ? null : JSON.parse(raw);
   },
-  getSettingsRaw: async (keys: readonly string[]) =>
-    new Map(keys.map((key) => [key, rows.get(key) ?? null])),
+  getSettingsRaw: (...args: [readonly string[]]) => getSettingsRawMock(...args),
   putSetting: putRow,
   mutateSetting: (key: string, updater: any) => mutateRow(key, updater),
 }));
@@ -401,6 +404,19 @@ describe("list-feature-flags precedence", () => {
       },
     });
     expect(JSON.stringify(result)).not.toContain("a@example.test");
+  });
+
+  it("reads every flag's rules in one settings query", async () => {
+    registry.registerFeatureFlags([
+      { key: "beta-export" },
+      { key: "dark-mode" },
+    ]);
+    rows.set(GLOBAL_ROW, JSON.stringify({ version: 1, mode: "on" }));
+
+    const result = await listAction.run({}, owner);
+
+    expect(result.flags).toHaveLength(3);
+    expect(getSettingsRawMock).toHaveBeenCalledTimes(1);
   });
 
   it("stays forbidden for a member who is not on the admin list", async () => {

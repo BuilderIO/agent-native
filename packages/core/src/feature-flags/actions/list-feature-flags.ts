@@ -8,7 +8,8 @@ import {
   defaultFeatureFlagRules,
   evaluateStoredFeatureFlagRule,
   featureFlagRuleInEffect,
-  readFeatureFlagRuleLayers,
+  FeatureFlagRulesError,
+  readFeatureFlagRuleLayersForKeys,
   type FeatureFlagStoredRule,
 } from "../store.js";
 
@@ -60,45 +61,53 @@ export default defineAction({
         flags: [],
         canManage: true,
       };
-    const flags = await Promise.all(
-      definitions.map(async (definition) => {
-        const layers = await readFeatureFlagRuleLayers(definition.key, access);
-        const inEffect = featureFlagRuleInEffect(layers);
-        const canManageInEffect =
-          layers.inEffect === "org"
-            ? access.canManageOrg
-            : access.canManageGlobal;
-        const rules =
-          inEffect.state === "unset"
-            ? defaultFeatureFlagRules()
-            : inEffect.state === "set" && canManageInEffect
-              ? inEffect.rules
-              : null;
-        const movedToLab = getLabForLegacyFlag(definition.key)?.key;
-        return {
-          ...definition,
-          ...(movedToLab && { movedToLab, canManage: false }),
-          ...(rules && { rules }),
-          enabledForCurrentUser: evaluateStoredFeatureFlagRule(
-            definition.key,
-            inEffect,
-            {
-              userEmail: access.email,
-              userKey: access.email,
-              orgId: access.orgId,
-            },
-          ),
-          scopes: {
-            inEffect: layers.inEffect,
-            global: asSeenBy(layers.global, access.canManageGlobal),
-            org: layers.org && {
-              ...asSeenBy(layers.org, access.canManageOrg),
-              orgId: layers.org.orgId,
-            },
-          },
-        };
-      }),
+    const layersByKey = await readFeatureFlagRuleLayersForKeys(
+      definitions.map(({ key }) => key),
+      access,
     );
+    const flags = definitions.map((definition) => {
+      const layers = layersByKey.get(definition.key);
+      if (!layers)
+        throw new FeatureFlagRulesError(
+          "unregistered",
+          definition.key,
+          "unregistered while it was being listed",
+        );
+      const inEffect = featureFlagRuleInEffect(layers);
+      const canManageInEffect =
+        layers.inEffect === "org"
+          ? access.canManageOrg
+          : access.canManageGlobal;
+      const rules =
+        inEffect.state === "unset"
+          ? defaultFeatureFlagRules()
+          : inEffect.state === "set" && canManageInEffect
+            ? inEffect.rules
+            : null;
+      const movedToLab = getLabForLegacyFlag(definition.key)?.key;
+      return {
+        ...definition,
+        ...(movedToLab && { movedToLab, canManage: false }),
+        ...(rules && { rules }),
+        enabledForCurrentUser: evaluateStoredFeatureFlagRule(
+          definition.key,
+          inEffect,
+          {
+            userEmail: access.email,
+            userKey: access.email,
+            orgId: access.orgId,
+          },
+        ),
+        scopes: {
+          inEffect: layers.inEffect,
+          global: asSeenBy(layers.global, access.canManageGlobal),
+          org: layers.org && {
+            ...asSeenBy(layers.org, access.canManageOrg),
+            orgId: layers.org.orgId,
+          },
+        },
+      };
+    });
     return {
       contractVersion: 1,
       status: "ready" as const,
