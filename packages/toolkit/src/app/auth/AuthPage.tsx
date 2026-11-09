@@ -305,7 +305,9 @@ function trackAuth(
     const legacyProperties = {
       app,
       hostname: window.location.hostname,
-      ...(app === "design" ? builderSignupTelemetry : {}),
+      ...(["design", "clips", "slides"].includes(app)
+        ? builderSignupTelemetry
+        : {}),
       ...properties,
     };
     const events: Array<{
@@ -670,12 +672,14 @@ export function AuthPage(props: AuthPageProps) {
   } = props;
   const [builderSignup, setBuilderSignup] =
     React.useState<BuilderSignupAssignment | null>(
-      trackingApp === "design" ? null : { status: "disabled" },
+      ["design", "clips", "slides"].includes(trackingApp)
+        ? null
+        : { status: "disabled" },
     );
   const builderSignupRequest =
     React.useRef<Promise<BuilderSignupAssignment> | null>(null);
   React.useEffect(() => {
-    if (trackingApp !== "design") return;
+    if (!["design", "clips", "slides"].includes(trackingApp)) return;
     builderSignupTelemetry = {};
     let disposed = false;
     builderSignupRequest.current ??= getBuilderSignupAssignment();
@@ -714,7 +718,8 @@ export function AuthPage(props: AuthPageProps) {
       return;
     builderSignupExposure.current = builderSignup.id;
     builderSignupTelemetry = {
-      experiment_id: "design_builder_signup_v1",
+      experiment_id:
+        builderSignup.experimentId ?? `${trackingApp}_builder_signup_v1`,
       experiment_variant: builderSignup.variant,
       assignment_id: builderSignup.id,
     };
