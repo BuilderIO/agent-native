@@ -970,7 +970,6 @@ export default {
   },
   designEditor: {
     sourceLoadFailed: "Could not load this screen.",
-    writeFailed: "Couldn't save that change.",
     selectionPublishFailed:
       "The agent may not see your latest selection. Select it again.",
     liveCollaboration: {

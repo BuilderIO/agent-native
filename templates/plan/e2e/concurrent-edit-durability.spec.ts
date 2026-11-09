@@ -710,6 +710,8 @@ test("saving twice more before the document has what a merged save brought in ke
     .poll(() => persistedText(page, planId), { timeout: 20_000 })
     .toContain(third);
   expect(await persistedText(page, planId)).toContain(theirs);
+  // The first save's conflict merged by itself, so nothing reports a failure.
+  await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
   releaseReads();
   await expect(surface(page)).toContainText(theirs, { timeout: 20_000 });
   await expect(surface(page)).toContainText(third);

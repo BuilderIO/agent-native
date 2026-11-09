@@ -1056,7 +1056,6 @@ export default {
   },
   designEditor: {
     sourceLoadFailed: "Dieser Bildschirm konnte nicht geladen werden.",
-    writeFailed: "Die Änderung konnte nicht gespeichert werden.",
     selectionPublishFailed:
       "Der Agent sieht deine neueste Auswahl möglicherweise nicht. Wähle sie erneut aus.",
     liveCollaboration: {

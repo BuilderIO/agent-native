@@ -59,6 +59,20 @@ function designDataWriteError(path: string[], value: unknown): string | null {
   return null;
 }
 
+function failInvalidDesignData(message: string): never {
+  return fail(message, {
+    errorCode: "invalid_design_data",
+    statusCode: 400,
+  });
+}
+
+function failInvalidTweakDefinitions(message: string): never {
+  return fail(message, {
+    errorCode: "invalid_tweak_definitions",
+    statusCode: 400,
+  });
+}
+
 const dataPathSchema = z
   .array(
     z
@@ -470,8 +484,9 @@ function applyDataOperations(
         continue;
       }
       if (!isRecord(value)) {
-        throw new Error(
+        fail(
           `Cannot apply design data operation through non-object path "${operation.path.join(".")}".`,
+          { errorCode: "design_data_path_conflict", statusCode: 409 },
         );
       }
       const cloned = { ...value };
@@ -503,7 +518,7 @@ function validatePersistedDataSnapshot(
     if (key === "tweaks") {
       if (touchedMaps && !touchedMaps.has(key)) continue;
       if (tweakDefinitionsWriteError(value)) {
-        throw new Error(
+        failInvalidTweakDefinitions(
           `Design ${designId} has invalid tweak definitions. Refusing to save them.`,
         );
       }
@@ -519,18 +534,18 @@ function validatePersistedDataSnapshot(
     if (key === "canvasFrames" && touchedCanvasFrameIds) {
       if (!isRecord(value)) {
         const message = numericDesignDataWriteError([key], value);
-        if (message) throw new Error(message);
+        if (message) failInvalidDesignData(message);
         continue;
       }
       for (const [frameId, frame] of Object.entries(value)) {
         if (!touchedCanvasFrameIds.has(frameId)) continue;
         const message = numericDesignDataWriteError([key, frameId], frame);
-        if (message) throw new Error(message);
+        if (message) failInvalidDesignData(message);
       }
       continue;
     }
     const message = numericDesignDataWriteError([key], value);
-    if (message) throw new Error(message);
+    if (message) failInvalidDesignData(message);
   }
 }
 
@@ -722,17 +737,18 @@ export default defineAction({
       try {
         parsedSnapshot = JSON.parse(data);
       } catch {
-        throw new Error("data must be a valid JSON string");
+        failInvalidDesignData("data must be a valid JSON string");
       }
-      if (isRecord(parsedSnapshot)) {
-        for (const [key, value] of Object.entries(parsedSnapshot)) {
-          if (key === "tweaks") {
-            const tweakError = tweakDefinitionsWriteError(value);
-            if (tweakError) throw new Error(tweakError);
-          }
-          const message = numericDesignDataWriteError([key], value);
-          if (message) throw new Error(message);
+      if (!isRecord(parsedSnapshot)) {
+        failInvalidDesignData("data must be a JSON object");
+      }
+      for (const [key, value] of Object.entries(parsedSnapshot)) {
+        if (key === "tweaks") {
+          const tweakError = tweakDefinitionsWriteError(value);
+          if (tweakError) failInvalidTweakDefinitions(tweakError);
         }
+        const message = numericDesignDataWriteError([key], value);
+        if (message) failInvalidDesignData(message);
       }
     }
 
@@ -750,9 +766,10 @@ export default defineAction({
       projectType === undefined &&
       designSystemId === undefined
     ) {
-      throw new Error(
-        "At least one design field or data operation is required.",
-      );
+      fail("At least one design field or data operation is required.", {
+        errorCode: "design_update_empty",
+        statusCode: 400,
+      });
     }
 
     const db = getDb();
@@ -1193,12 +1210,14 @@ export default defineAction({
     }
 
     if (dataOperations) {
-      throw new Error(
+      fail(
         `Could not update design ${id} after ${MAX_DATA_CAS_ATTEMPTS} concurrent attempts. Re-read the design and retry.`,
+        { errorCode: "design_data_conflict", statusCode: 409 },
       );
     }
-    throw new Error(
+    fail(
       "Design data changed while this snapshot was being saved. Re-read the design and retry, or use dataOperations for path-addressed map edits.",
+      { errorCode: "design_data_conflict", statusCode: 409 },
     );
   },
   changeResource: (p, result) => designChangeResource(p.id, result),
