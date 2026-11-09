@@ -1298,11 +1298,11 @@ jobs:
                   if ((await getRun(stage.run.id)).status === "completed") return true;
                 }
                 core.warning(
-                  `${label} was cancelled but has not finished, so ${stage.tag} and its draft stay for removal once it ends: ${stage.run.url}`,
+                  `${label} was cancelled but has not finished, so ${stage.tag} and its draft were kept: ${stage.run.url}`,
                 );
               } catch (error) {
                 core.warning(
-                  `Could not stop ${label}, so ${stage.tag} and its draft stay for removal once it ends: ${error instanceof Error ? error.message : String(error)}`,
+                  `Could not stop ${label}, so ${stage.tag} and its draft were kept: ${error instanceof Error ? error.message : String(error)}`,
                 );
               }
               return false;
@@ -1316,9 +1316,12 @@ jobs:
                     `${stage.label} build failed and is discarded with npm unpublished: ${stage.error instanceof Error ? stage.error.message : String(stage.error)}`,
                   );
                 }
-                if (!stage.error || (await stopStageRun(stage))) {
-                  await cleanupReservedTags([stage.tag]);
+                // No later run deletes a kept tag: a failed build whose npm
+                // published keeps its draft on purpose, and looks the same.
+                if (stage.error && !(await stopStageRun(stage))) {
+                  return { stageRun: stage.run, run: null, error: null, skipped: true, keptTag: stage.tag };
                 }
+                await cleanupReservedTags([stage.tag]);
                 return { stageRun: stage.run, run: null, error: null, skipped: true };
               }
               if (stage.error) {
@@ -1459,7 +1462,13 @@ jobs:
               }
               const stageRun = result.value.stageRun ?? null;
               if (result.value.skipped) {
-                return { run: null, stageRun, error: null, dispatchFailed: false, skipped: true };
+                const keptTag = result.value.keptTag ?? null;
+                if (keptTag) {
+                  failures.push(
+                    `${targetLabels[index]} build had not stopped, so ${keptTag} and its draft were kept. Once ${stageRun.url} ends, delete them by hand: gh release delete ${keptTag} --cleanup-tag --yes -R ${owner}/${repo}`,
+                  );
+                }
+                return { run: null, stageRun, keptTag, error: null, dispatchFailed: false, skipped: true };
               }
               if (result.value.error) {
                 const error = result.value.error instanceof Error
@@ -1473,9 +1482,12 @@ jobs:
             const [desktop, clips, production, docs] = childResults;
             const outcomes = childResults.map((result) => {
               if (result.skipped) {
-                return publicationError
-                  ? "skipped: stable npm publication failed"
-                  : "skipped: stable npm publication status unknown";
+                const reason = publicationError
+                  ? "stable npm publication failed"
+                  : "stable npm publication status unknown";
+                return result.keptTag
+                  ? `skipped: ${reason}; ${result.keptTag} and its draft need deleting`
+                  : `skipped: ${reason}`;
               }
               if (result.dispatchFailed) return "failed: dispatch";
               return result.error ? "failed" : "released";

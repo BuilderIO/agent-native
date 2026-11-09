@@ -2283,6 +2283,7 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
     const discardFailedBuild = async (
       runStatuses: string[],
       cancel?: () => Promise<void>,
+      kept: Workflow = {},
     ) => {
       const discarded = await stage(
         new Error("npm publication failed"),
@@ -2299,6 +2300,7 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
           run: null,
           error: null,
           skipped: true,
+          ...kept,
         },
       );
       assert.equal(discarded.dispatches.length, 2);
@@ -2331,12 +2333,14 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
     );
     assert.deepEqual(finishedBeforeCancel.cleaned, ["v1.2.3"]);
 
-    const stillRunning = await discardFailedBuild(["in_progress"]);
+    const stillRunning = await discardFailedBuild(["in_progress"], undefined, {
+      keptTag: "v1.2.3",
+    });
     assert.deepEqual(stillRunning.cancelled, [7]);
     assert.deepEqual(stillRunning.cleaned, []);
     assert.match(
       stillRunning.warnings[1],
-      /build was cancelled but has not finished, so v1\.2\.3 and its draft stay for removal once it ends: staged-v1\.2\.3/,
+      /build was cancelled but has not finished, so v1\.2\.3 and its draft were kept: staged-v1\.2\.3/,
     );
 
     const uncancellable = await discardFailedBuild(
@@ -2344,11 +2348,12 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
       async () => {
         throw Object.assign(new Error("HTTP 500"), { status: 500 });
       },
+      { keptTag: "v1.2.3" },
     );
     assert.deepEqual(uncancellable.cleaned, []);
     assert.match(
       uncancellable.warnings[1],
-      /Could not stop Agent-Native desktop stable release build, so v1\.2\.3 and its draft stay for removal once it ends: HTTP 500/,
+      /Could not stop Agent-Native desktop stable release build, so v1\.2\.3 and its draft were kept: HTTP 500/,
     );
 
     const unhandled: unknown[] = [];
@@ -2367,6 +2372,85 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
       await assert.rejects(rejected.clipsStage, /HTTP 404/);
     } finally {
       process.off("unhandledRejection", recordUnhandled);
+    }
+  });
+
+  it("reports a desktop tag kept after an unstoppable build as a failure with its cleanup", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const start = source.indexOf("const targetLabels = [");
+    const end = source.indexOf(
+      "if (downstreamNotificationFailureUrl || downstreamNotificationRecoveryError)",
+      start,
+    );
+    assert.ok(start >= 0 && end > start);
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const mapResults = new AsyncFunction(
+      "downstream",
+      "reconciledDocsRun",
+      "failures",
+      "publicationError",
+      "owner",
+      "repo",
+      `${source.slice(start, end)}
+return { childResults, outcomes };`,
+    ) as (...args: unknown[]) => Promise<{
+      childResults: Workflow[];
+      outcomes: string[];
+    }>;
+
+    const released = (url: string) => ({
+      status: "fulfilled",
+      value: { run: { id: 9, url }, error: null },
+    });
+    const downstream = [
+      {
+        status: "fulfilled",
+        value: {
+          stageRun: { id: 7, url: "staged-v1.2.3" },
+          run: null,
+          error: null,
+          skipped: true,
+          keptTag: "v1.2.3",
+        },
+      },
+      {
+        status: "fulfilled",
+        value: {
+          stageRun: { id: 8, url: "staged-clips-v2.3.4" },
+          run: null,
+          error: null,
+          skipped: true,
+        },
+      },
+      released("sites"),
+      released("docs"),
+    ];
+    for (const [publicationError, reason] of [
+      [new Error("npm failed"), "stable npm publication failed"],
+      [null, "stable npm publication status unknown"],
+    ] as const) {
+      const failures: string[] = [];
+      const { childResults, outcomes } = await mapResults(
+        downstream,
+        null,
+        failures,
+        publicationError,
+        "BuilderIO",
+        "agent-native",
+      );
+      assert.deepEqual(failures, [
+        "Agent-Native desktop stable release build had not stopped, so v1.2.3 and its draft were kept. Once staged-v1.2.3 ends, delete them by hand: gh release delete v1.2.3 --cleanup-tag --yes -R BuilderIO/agent-native",
+      ]);
+      assert.deepEqual(outcomes, [
+        `skipped: ${reason}; v1.2.3 and its draft need deleting`,
+        `skipped: ${reason}`,
+        "released",
+        "released",
+      ]);
+      assert.equal(childResults[0].keptTag, "v1.2.3");
+      assert.equal(childResults[1].keptTag, null);
     }
   });
 
@@ -2667,7 +2751,7 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
     );
     assert.match(
       source,
-      /if \(publicationUnavailable\) \{[\s\S]*?if \(!stage\.error \|\| \(await stopStageRun\(stage\)\)\) \{\s*await cleanupReservedTags\(\[stage\.tag\]\);[\s\S]*?\}\s*if \(stage\.error\) \{/,
+      /if \(publicationUnavailable\) \{[\s\S]*?if \(stage\.error && !\(await stopStageRun\(stage\)\)\) \{[\s\S]*?keptTag: stage\.tag[\s\S]*?\}\s*await cleanupReservedTags\(\[stage\.tag\]\);[\s\S]*?\}\s*if \(stage\.error\) \{/,
     );
     assert.match(
       source,
