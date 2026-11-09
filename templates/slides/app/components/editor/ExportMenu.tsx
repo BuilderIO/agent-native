@@ -36,6 +36,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useDecks } from "@/context/DeckContext";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import {
+  disconnectGoogleDocs,
   fetchGoogleSlidesExportAvailability,
   invalidateGoogleSlidesExportAvailability,
   useGoogleSlidesExportAvailability,
@@ -90,6 +91,7 @@ export interface ExportMenuHandle {
   exportHtml: () => Promise<void>;
   exportPdf: () => Promise<void>;
   exportPptx: () => Promise<void>;
+  disconnectGoogle: () => Promise<void>;
 }
 
 export interface ExportDropdownActionHandle {
@@ -204,18 +206,24 @@ export function ExportStatusDialog({
 function ExportActionItems({
   hasSlides,
   googleSlidesAvailable,
+  googleSlidesChecked,
+  googleDisconnectable,
   onExportHtml,
   onExportPdf,
   onExportPptx,
   onExportGoogleSlides,
+  onDisconnectGoogle,
   downloadLabels = false,
 }: {
   hasSlides: boolean;
   googleSlidesAvailable: boolean;
+  googleSlidesChecked: boolean;
+  googleDisconnectable: boolean;
   onExportHtml: () => void;
   onExportPdf?: () => void;
   onExportPptx: () => void;
   onExportGoogleSlides?: () => void;
+  onDisconnectGoogle?: () => void;
   downloadLabels?: boolean;
 }) {
   const t = useT();
@@ -257,7 +265,19 @@ function ExportActionItems({
             <span className="ml-auto text-[11px] text-muted-foreground">
               {t("editorExport.googleSlidesUnavailable")}
             </span>
+          ) : hasSlides && !googleSlidesChecked ? (
+            <span className="ml-auto text-[11px] text-muted-foreground">
+              {t("editorExport.googleSlidesStatusUnknown")}
+            </span>
           ) : null}
+        </DropdownMenuItem>
+      )}
+      {onDisconnectGoogle && googleDisconnectable && (
+        <DropdownMenuItem
+          onClick={onDisconnectGoogle}
+          className="cursor-pointer"
+        >
+          {t("editorExport.disconnectGoogle")}
         </DropdownMenuItem>
       )}
       <DropdownMenuItem
@@ -298,6 +318,8 @@ export function ExportSubmenu({
         <ExportActionItems
           hasSlides={hasSlides}
           googleSlidesAvailable={googleSlidesExport.available}
+          googleSlidesChecked={googleSlidesExport.checked}
+          googleDisconnectable={googleSlidesExport.disconnectable}
           onExportHtml={() => void exportMenuRef.current?.exportHtml()}
           onExportPdf={
             showPdf ? () => void exportMenuRef.current?.exportPdf() : undefined
@@ -306,6 +328,11 @@ export function ExportSubmenu({
           onExportGoogleSlides={
             showGoogleSlides
               ? () => void exportMenuRef.current?.exportGoogleSlides()
+              : undefined
+          }
+          onDisconnectGoogle={
+            showGoogleSlides
+              ? () => void exportMenuRef.current?.disconnectGoogle()
               : undefined
           }
         />
@@ -356,6 +383,8 @@ export function ExportDropdown({
         <ExportActionItems
           hasSlides={hasSlides}
           googleSlidesAvailable={googleSlidesExport.available}
+          googleSlidesChecked={googleSlidesExport.checked}
+          googleDisconnectable={googleSlidesExport.disconnectable}
           downloadLabels
           onExportHtml={() => void exportMenuRef.current?.exportHtml()}
           onExportPdf={
@@ -365,6 +394,11 @@ export function ExportDropdown({
           onExportGoogleSlides={
             showGoogleSlides
               ? () => void exportMenuRef.current?.exportGoogleSlides()
+              : undefined
+          }
+          onDisconnectGoogle={
+            showGoogleSlides
+              ? () => void exportMenuRef.current?.disconnectGoogle()
               : undefined
           }
         />
@@ -630,10 +664,22 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       }
     };
 
+    const handleDisconnectGoogle = async () => {
+      try {
+        await disconnectGoogleDocs(queryClient);
+      } catch {
+        updateExportStatus({
+          state: "error",
+          message: t("editorExport.googleDisconnectFailed"),
+        });
+      }
+    };
+
     useImperativeHandle(
       ref,
       () => ({
         cancelExport,
+        disconnectGoogle: handleDisconnectGoogle,
         exportGoogleSlides: handleExportGoogleSlides,
         exportHtml: handleExportHtml,
         exportPdf: handleExportPdf,
@@ -641,6 +687,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       }),
       [
         cancelExport,
+        handleDisconnectGoogle,
         handleExportGoogleSlides,
         handleExportHtml,
         handleExportPdf,
@@ -652,6 +699,8 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       <ExportActionItems
         hasSlides={hasSlides}
         googleSlidesAvailable={googleSlidesExport.available}
+        googleSlidesChecked={googleSlidesExport.checked}
+        googleDisconnectable={googleSlidesExport.disconnectable}
         onExportHtml={() => void handleExportHtml()}
         onExportPdf={onExportPdf ? () => void handleExportPdf() : undefined}
         onExportPptx={() => void handleExportPptx()}
@@ -659,6 +708,9 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           onExportGoogleSlides
             ? () => void handleExportGoogleSlides()
             : undefined
+        }
+        onDisconnectGoogle={
+          onExportGoogleSlides ? () => void handleDisconnectGoogle() : undefined
         }
       />
     );
