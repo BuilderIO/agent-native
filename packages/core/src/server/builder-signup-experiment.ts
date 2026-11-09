@@ -74,13 +74,15 @@ function hasSignupConsentOwnership(
   );
 }
 
+function experimentId(): string {
+  return getAppConfig().onboarding.builderSignupExperimentId;
+}
+
 function experimentProperties(
   assignment?: Assignment,
 ): Record<string, unknown> {
   return {
-    app_name: "design",
-    template_name: "design",
-    experiment_id: BUILDER_SIGNUP_EXPERIMENT,
+    experiment_id: experimentId(),
     ...(assignment
       ? { experiment_variant: assignment.variant, assignment_id: assignment.id }
       : {}),
@@ -89,7 +91,7 @@ function experimentProperties(
 
 function mac(body: string): Buffer {
   return createHmac("sha256", getAuthSecret())
-    .update(`${BUILDER_SIGNUP_EXPERIMENT}:${body}`)
+    .update(`${experimentId()}:${body}`)
     .digest();
 }
 
@@ -189,7 +191,7 @@ export async function bindBuilderSignupAttempt(
     { authUserId: identity.user.id, userId: normalizedEmail },
   );
   if (assignment.variant === "control") {
-    const key = `${BUILDER_SIGNUP_EXPERIMENT}:${identity.user.id}`;
+    const key = `${experimentId()}:${identity.user.id}`;
     const record = await mutateSetting(
       key,
       (current) =>
@@ -221,7 +223,7 @@ export async function bindBuilderSignupAttempt(
     assignment.attemptId !== attemptId
   )
     return false;
-  const key = `${BUILDER_SIGNUP_EXPERIMENT}:attempt:${attemptId}`;
+  const key = `${experimentId()}:attempt:${attemptId}`;
   if (
     assignment.method !== method ||
     (assignment.email && assignment.email !== normalizedEmail)
@@ -240,7 +242,7 @@ export async function bindBuilderSignupAttempt(
   if (bound.id !== assignment.id || bound.boundUserId !== identity.user.id)
     return false;
   await mutateSetting(
-    `${BUILDER_SIGNUP_EXPERIMENT}:consent:${identity.user.id}`,
+    `${experimentId()}:consent:${identity.user.id}`,
     (current) =>
       current ?? {
         ...assignment,
@@ -263,7 +265,7 @@ export async function getBuilderSignupConnectError(
   { code: "account_exists"; message: string; at: number } | undefined
 > {
   if (!userId || !isBuilderSignupExperimentEnabled()) return undefined;
-  const record = await getSetting(`${BUILDER_SIGNUP_EXPERIMENT}:${userId}`);
+  const record = await getSetting(`${experimentId()}:${userId}`);
   if (record?.status !== "fallback" || record.code !== "account_exists")
     return undefined;
   const error = z
@@ -353,7 +355,11 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         };
         writeAssignment(event, assignment);
       }
-      return { status: "assigned" as const, ...assignment };
+      return {
+        status: "assigned" as const,
+        ...assignment,
+        experimentId: experimentId(),
+      };
     }
     if (
       !/^application\/json\s*(;|$)/i.test(
@@ -381,9 +387,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       body.data.operation !== "accept" &&
       session?.emailVerified &&
       session.userId
-        ? await getSetting(
-            `${BUILDER_SIGNUP_EXPERIMENT}:consent:${session.userId}`,
-          )
+        ? await getSetting(`${experimentId()}:consent:${session.userId}`)
         : null;
     if (consent && session?.userId) {
       const saved = consentSchema.safeParse(consent);
@@ -433,9 +437,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "not_enrolled" };
       }
-      const existing = await getSetting(
-        `${BUILDER_SIGNUP_EXPERIMENT}:${session.userId}`,
-      );
+      const existing = await getSetting(`${experimentId()}:${session.userId}`);
       if (existing) {
         const status = existingSignupStatusSchema.parse(existing.status);
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
@@ -568,7 +570,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       createdAtMs < assignment.acceptedAt
     )
       return terminal("fallback", "identity_ineligible");
-    const key = `${BUILDER_SIGNUP_EXPERIMENT}:${session.userId}`;
+    const key = `${experimentId()}:${session.userId}`;
     const existing = await getSetting(key);
     if (existing) {
       const status = existingSignupStatusSchema.parse(existing.status);

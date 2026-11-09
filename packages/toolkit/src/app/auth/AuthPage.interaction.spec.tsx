@@ -43,9 +43,13 @@ describe("AuthPage interactions", () => {
     vi.unstubAllGlobals();
   });
 
-  it.each(["control", "automatic"] as const)(
-    "shows Builder legal disclosure before Google-only signup only for the %s assignment",
-    async (variant) => {
+  it.each(
+    ["design", "clips", "slides"].flatMap((app) =>
+      (["control", "automatic"] as const).map((variant) => ({ app, variant })),
+    ),
+  )(
+    "shows Builder legal disclosure before $app signup only for $variant",
+    async ({ app, variant }) => {
       vi.stubGlobal(
         "fetch",
         vi.fn(async (input: RequestInfo | URL) => ({
@@ -71,7 +75,7 @@ describe("AuthPage interactions", () => {
                 requestPath: "/signup",
               }),
             )}
-            trackingApp="design"
+            trackingApp={app}
             googleOnly
             showGoogle
             signupLegalNotice={{

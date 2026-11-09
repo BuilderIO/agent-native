@@ -628,6 +628,7 @@ export default function Root() {
     >
       <AppToolkitProvider>
         <AppProviders
+          builderSignupExperiment="slides_builder_signup_v1"
           queryClient={queryClient}
           skeletonLayout="prompt-library"
           {...(firstPaintHome ? { clientOnlyFallback: firstPaintHome } : {})}

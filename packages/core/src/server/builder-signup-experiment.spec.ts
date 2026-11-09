@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   enabled: true,
+  experimentId: "design_builder_signup_v1",
   failTerminalWrites: 0,
   waitUntil: undefined as ((work: Promise<unknown>) => void) | undefined,
   override: undefined as boolean | undefined,
@@ -14,6 +15,7 @@ vi.mock("../app-config/index.js", () => ({
   getAppConfig: () => ({
     onboarding: {
       builderSignupExperiment: mocks.enabled,
+      builderSignupExperimentId: mocks.experimentId,
       builderSignupExperimentOverride: mocks.override,
     },
   }),
@@ -128,6 +130,7 @@ function bindRequest(
 beforeEach(() => {
   testTime = Date.now();
   mocks.enabled = true;
+  mocks.experimentId = "design_builder_signup_v1";
   mocks.failTerminalWrites = 0;
   mocks.waitUntil = undefined;
   mocks.override = undefined;
@@ -145,6 +148,41 @@ beforeEach(() => {
 });
 
 describe("pre-signup Builder experiment", () => {
+  it.each(["clips", "slides"])(
+    "isolates %s assignments and consent from Design",
+    async (app) => {
+      const designCookie = encodeBuilderSignupAssignment(accepted());
+      mocks.experimentId = `${app}_builder_signup_v1`;
+      const assignment = await (await request(undefined, designCookie)).json();
+      expect(assignment.experimentId).toBe(`${app}_builder_signup_v1`);
+      expect(assignment.acceptedAt).toBeUndefined();
+      session = signedSession();
+      const response = await (
+        await request({ operation: "start" }, designCookie)
+      ).json();
+      expect(response.status).not.toBe("pending");
+      expect(activate).not.toHaveBeenCalled();
+      mocks.settings.set(`${app}_builder_signup_v1:consent:new-user`, {
+        ...accepted(),
+        userId: "new-user",
+        email: "new@example.com",
+      });
+      const appCookie = encodeBuilderSignupAssignment(accepted());
+      const activated = await (
+        await request({ operation: "activate" }, appCookie)
+      ).json();
+      expect(activated.status).toBe("connected");
+      expect(
+        mocks.settings.get(`${app}_builder_signup_v1:new-user`)?.status,
+      ).toBe("connected");
+      expect(mocks.track).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ experiment_id: `${app}_builder_signup_v1` }),
+        expect.anything(),
+      );
+    },
+  );
+
   it("starts provisioning on the first request and finishes after the browser stops polling", async () => {
     session = signedSession();
     let finish!: (result: { ok: boolean }) => void;

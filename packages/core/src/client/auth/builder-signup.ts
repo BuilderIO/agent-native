@@ -6,6 +6,7 @@ export type BuilderSignupAssignment =
       id: string;
       variant: "control" | "automatic";
       policy: string;
+      experimentId?: string;
     }
   | { status: "disabled" }
   | { status: "unavailable" };
@@ -50,6 +51,9 @@ export async function getBuilderSignupAssignment(): Promise<BuilderSignupAssignm
       status: "assigned",
       id: result.id,
       policy: result.policy,
+      ...(typeof result.experimentId === "string"
+        ? { experimentId: result.experimentId }
+        : {}),
       variant: result.variant,
     };
   throw new Error("Invalid Builder signup assignment");

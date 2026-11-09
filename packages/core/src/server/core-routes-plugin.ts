@@ -5118,8 +5118,8 @@ export function createCoreRoutesPlugin(
               member: authorization.member,
               connectAttemptId: null,
               tracking: {
-                agentNativeApp: "design",
-                agentNativeTemplate: "design",
+                agentNativeApp: resolveRunningAppIdentity() ?? undefined,
+                agentNativeTemplate: resolveRunningAppIdentity() ?? undefined,
               },
               newAccountOnly: true,
             });
