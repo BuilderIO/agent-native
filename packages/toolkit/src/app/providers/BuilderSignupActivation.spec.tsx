@@ -19,12 +19,26 @@ vi.mock("@agent-native/core/client/auth/builder-signup", () => ({
   activateBuilderSignupAssignment: mocks.activate,
 }));
 
+vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/use-session")
+  >()),
+  useSession: () => ({
+    session: { userId: "startup-cover-user", emailVerified: true },
+  }),
+}));
+
+vi.mock("@agent-native/core/client/onboarding/first-run-enabled", () => ({
+  isFirstRunOnboardingEnabled: () => false,
+}));
+
 vi.mock("@agent-native/core/client/analytics", () => ({
   track: vi.fn(),
 }));
 
 import {
   BuilderSignupActivationCover,
+  BuilderSignupStartupGate,
   useBuilderSignupActivation,
 } from "./BuilderSignupActivation.js";
 
@@ -87,7 +101,7 @@ describe("BuilderSignupActivation", () => {
     container.remove();
   });
 
-  it("keeps first-run onboarding suppressed while eligibility resolves without covering existing content", async () => {
+  it("reports eligibility resolution separately from confirmed activation", async () => {
     mocks.status.mockReturnValue(new Promise(() => {}));
     await render("pending-user");
     expect(
@@ -96,6 +110,38 @@ describe("BuilderSignupActivation", () => {
         ?.getAttribute("data-resolving"),
     ).toBe("true");
     expect(container.querySelector("[role='status']")).toBeNull();
+  });
+
+  it("visibly covers inert startup content while eligibility resolves, then releases it", async () => {
+    let finish!: (value: "disabled") => void;
+    mocks.status.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <BuilderSignupStartupGate
+            experimentId="clips_builder_signup_v1"
+            suppressSurface
+          >
+            <Counter />
+          </BuilderSignupStartupGate>
+        </QueryClientProvider>,
+      );
+    });
+    expect(container.querySelector("[role='status']")).not.toBeNull();
+    expect(
+      container.querySelector("button")?.closest("[inert]"),
+    ).not.toBeNull();
+    await act(async () => {
+      finish("disabled");
+    });
+    await vi.waitFor(() =>
+      expect(container.querySelector("[role='status']")).toBeNull(),
+    );
+    expect(container.querySelector("button")?.closest("[inert]")).toBeNull();
   });
 
   it("keeps the cover after a polling timeout until the server confirms a terminal result", async () => {

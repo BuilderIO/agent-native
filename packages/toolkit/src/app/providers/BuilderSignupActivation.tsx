@@ -188,7 +188,9 @@ export function BuilderSignupActivationCover({
               role="alert"
               className="m-auto flex flex-col items-center gap-3"
             >
-              <span>{t("agentChat.common.chunkLoadFailed")}</span>
+              <span>
+                {t("agentChat.onboarding.builderActivationCheckFailed")}
+              </span>
               <Button onClick={retryStatus}>
                 {t("agentChat.common.retry")}
               </Button>
@@ -224,7 +226,7 @@ export function BuilderSignupStartupGate({
     );
   return (
     <BuilderSignupActivationCover
-      activating={activating}
+      activating={activating || resolving}
       statusError={statusError}
       retryStatus={retryStatus}
     >

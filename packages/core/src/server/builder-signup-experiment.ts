@@ -461,25 +461,9 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       if (existing) {
         const status = existingSignupStatusSchema.parse(existing.status);
         if (status === "started") {
-          if (
-            typeof existing.startedAt !== "number" ||
-            Date.now() - existing.startedAt <= 60_000
-          ) {
-            return { status: "pending" as const };
-          }
-          track(
-            "builder_signup_experiment_activation_unavailable",
-            {
-              ...experimentProperties(assignment ?? undefined),
-              code: "activation_result_unknown",
-            },
-            { userId: session.email, authUserId: session.userId },
-          );
-          deleteCookie(event, "an_builder_signup_pending", { path: "/" });
-          return {
-            status: "fallback" as const,
-            code: "activation_result_unknown",
-          };
+          // Age cannot prove the provider has stopped. Keep the reservation
+          // until its owner records an outcome; the client offers bounded Retry.
+          return { status: "pending" as const };
         }
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "already_completed" };
@@ -616,27 +600,6 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       if (status !== "started" && body.data.operation === "start") {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "already_completed" };
-      }
-      if (
-        status === "started" &&
-        typeof existing.startedAt === "number" &&
-        Date.now() - existing.startedAt > 60_000
-      ) {
-        // An uncertain provider result must never cause a second provision call.
-        // Let the old owner finish, but release later visits to manual setup.
-        track(
-          "builder_signup_experiment_activation_unavailable",
-          {
-            ...experimentProperties(assignment),
-            code: "activation_result_unknown",
-          },
-          trackingSource,
-        );
-        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
-        return {
-          status: "fallback" as const,
-          code: "activation_result_unknown",
-        };
       }
       if (status !== "started") {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });

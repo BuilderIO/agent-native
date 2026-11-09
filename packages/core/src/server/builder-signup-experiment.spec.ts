@@ -291,8 +291,8 @@ describe("pre-signup Builder experiment", () => {
     }
   });
 
-  it.each(["start", "activate"])(
-    "releases an expired uncertain reservation during %s without calling the provider",
+  it.each(["status", "start", "activate"])(
+    "preserves an uncertain reservation during %s without calling the provider",
     async (operation) => {
       session = signedSession();
       mocks.waitUntil = () => {};
@@ -302,8 +302,7 @@ describe("pre-signup Builder experiment", () => {
         attempt: "original-owner",
       });
       expect(await (await request({ operation })).json()).toEqual({
-        status: "fallback",
-        code: "activation_result_unknown",
+        status: "pending",
       });
       expect(activate).not.toHaveBeenCalled();
       expect(
@@ -432,15 +431,10 @@ describe("pre-signup Builder experiment", () => {
       startedAt: testTime - 61000,
     });
     expect(await (await request({ operation: "start" })).json()).toEqual({
-      status: "fallback",
-      code: "activation_result_unknown",
+      status: "pending",
     });
     expect(activate).not.toHaveBeenCalled();
-    expect(mocks.track).toHaveBeenCalledWith(
-      "builder_signup_experiment_activation_unavailable",
-      expect.objectContaining({ code: "activation_result_unknown" }),
-      expect.anything(),
-    );
+    expect(mocks.track).not.toHaveBeenCalled();
     mocks.track.mockClear();
     mocks.settings.clear();
     const skipped = await request({ operation: "status" });
@@ -734,11 +728,7 @@ describe("pre-signup Builder experiment", () => {
       mocks.settings.set(key, { ...running, startedAt: Date.now() - age });
       expect(
         await (await request({ operation: "activate" }, cookie)).json(),
-      ).toEqual(
-        age > 60_000
-          ? { status: "fallback", code: "activation_result_unknown" }
-          : { status: "pending" },
-      );
+      ).toEqual({ status: "pending" });
       expect(activate).toHaveBeenCalledOnce();
       finish({ ok: true });
       expect(await (await first).json()).toEqual({ status: "connected" });
