@@ -41,6 +41,7 @@ describe("AuthPage interactions", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it.each(["control", "automatic"] as const)(
@@ -278,8 +279,6 @@ describe("AuthPage interactions", () => {
     expect(target.pathname).toBe("/_agent-native/google/auth-url");
     expect(target.searchParams.get("redirect")).toBe("1");
     expect(target.searchParams.get("return")).toBeTruthy();
-    open.mockRestore();
-    replace.mockRestore();
   });
 
   it("keeps automatic Google sign-in in a popup when embedded", async () => {
@@ -310,7 +309,6 @@ describe("AuthPage interactions", () => {
     );
     expect(open).toHaveBeenCalledOnce();
     expect(open.mock.calls[0]?.[1]).toBe("_blank");
-    open.mockRestore();
   });
 
   it("shows a loader in the disabled Google button while OAuth starts", async () => {
