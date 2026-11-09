@@ -118,7 +118,7 @@ export default defineAction({
     const nodeIds = Object.keys(target.nodesById);
     const pageWarnings = target.truncated
       ? [
-          `This Figma page has more than ${MAX_PAGE_IMPORT_NODES} top-level frames; imported the first ${MAX_PAGE_IMPORT_NODES}. Link to a frame to import the rest.`,
+          `Imported the first ${nodeIds.length} top-level frames of this Figma page, which has more (a page imports up to ${MAX_PAGE_IMPORT_NODES}). Link to a frame to import the rest.`,
         ]
       : [];
 

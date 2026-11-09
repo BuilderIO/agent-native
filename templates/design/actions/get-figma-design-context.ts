@@ -155,10 +155,12 @@ export default defineAction({
     // One bounded request serves both a page (its frames, sections opened)
     // and a frame (the summary reads `depth` levels; one more shows where it
     // was truncated). The summary needs no vector geometry.
-    const node = await fetchBoundedNode(
+    const { node, sectionsTruncated } = await fetchBoundedNode(
       fileKey,
       nodeId,
       Math.max(2, args.depth + 1),
+      // One past `maxNodes`, so a page with more is known to be cut short.
+      args.maxNodes + 1,
     );
     if (!node) {
       failFigmaImport(
@@ -181,16 +183,22 @@ export default defineAction({
         0,
       );
       const listed = pages.reduce((sum, page) => sum + page.frames.length, 0);
+      const truncated = sectionsTruncated || total > listed;
       return {
         source: "figma",
         fileKey,
         mode: "overview" as const,
         pages,
-        ...(total > listed ? { truncated: true, totalFrames: total } : {}),
-        guidance:
-          total > listed
-            ? `This link names a page with ${total} top-level layers; the first ${listed} are listed (maxNodes). Call again with a larger maxNodes to see more, or with a frame id for its structural summary and screenshot.`
-            : "This link names a page, so this lists its top-level frames, with sections opened. Call get-figma-design-context again with a frame id for its structural summary and screenshot.",
+        // The total is known only when every section was opened.
+        ...(truncated
+          ? {
+              truncated: true,
+              ...(sectionsTruncated ? {} : { totalFrames: total }),
+            }
+          : {}),
+        guidance: truncated
+          ? `This link names a page with more top-level layers than maxNodes${sectionsTruncated ? "" : ` (${total})`}; the first ${listed} are listed. Call again with a larger maxNodes to see more, or with a frame id for its structural summary and screenshot.`
+          : "This link names a page, so this lists its top-level frames, with sections opened. Call get-figma-design-context again with a frame id for its structural summary and screenshot.",
       };
     }
     const {
@@ -231,31 +239,34 @@ async function fetchBoundedNode(
   fileKey: string,
   nodeId: string,
   depth: number,
-): Promise<FigmaNode | undefined> {
+  /** Layers a page lists before it stops opening sections. */
+  limit: number,
+): Promise<{ node: FigmaNode | undefined; sectionsTruncated: boolean }> {
   const read = async (levels: number) => {
     const node = Object.values(
       await fetchFigmaNodes(fileKey, [nodeId], false, levels),
     ).find((candidate) => candidate.id === nodeId);
-    return node?.type === "CANVAS" && node.children
-      ? {
-          ...node,
-          children: await openOutlineSections(fileKey, node.children),
-        }
-      : node;
+    if (node?.type !== "CANVAS" || !node.children)
+      return { node, sectionsTruncated: false };
+    const opened = await openOutlineSections(fileKey, node.children, limit);
+    return {
+      node: { ...node, children: opened.nodes },
+      sectionsTruncated: opened.truncated,
+    };
   };
   try {
     return await read(depth);
   } catch (error) {
     if (!isFigmaPayloadTooLargeError(error)) throw error;
     for (const levels of [2, 1].filter((value) => value < depth)) {
-      let outline: FigmaNode | undefined;
+      let outline: Awaited<ReturnType<typeof read>>;
       try {
         outline = await read(levels);
       } catch (outlineError) {
         if (isFigmaPayloadTooLargeError(outlineError)) continue;
         throw outlineError;
       }
-      if (outline?.type === "CANVAS") return outline;
+      if (outline.node?.type === "CANVAS") return outline;
       break;
     }
     throw error;

@@ -142,6 +142,70 @@ describe("resolveImportTargets on a page too large to fetch whole", () => {
     expect(Object.keys(targets.nodesById)).toEqual(["1:2", "1:3"]);
   });
 
+  it("stops opening sections once the page has more frames than one import takes", async () => {
+    const sectionIds = Array.from({ length: 30 }, (_, index) => `5:${index}`);
+    const sectionReads: string[] = [];
+    provider.request.mockImplementation(
+      async ({ query }: { query: { ids: string; depth?: number } }) => {
+        if (query.ids === "6913:4184") {
+          return query.depth === 1
+            ? ok({
+                nodes: {
+                  "6913:4184": {
+                    document: {
+                      id: "6913:4184",
+                      name: "One pager",
+                      type: "CANVAS",
+                      children: sectionIds.map((id) => ({
+                        id,
+                        name: `Section ${id}`,
+                        type: "SECTION",
+                      })),
+                    },
+                  },
+                },
+              })
+            : tooLarge;
+        }
+        const ids = query.ids.split(",");
+        if (query.depth === 1) {
+          sectionReads.push(...ids);
+          return ok({
+            nodes: Object.fromEntries(
+              ids.map((id) => [
+                id,
+                {
+                  document: {
+                    id,
+                    name: `Section ${id}`,
+                    type: "SECTION",
+                    children: Array.from({ length: 10 }, (_, index) => ({
+                      id: `${id}-${index}`,
+                      name: `Frame ${index}`,
+                      type: "FRAME",
+                    })),
+                  },
+                },
+              ]),
+            ),
+          });
+        }
+        return ok({
+          nodes: Object.fromEntries(
+            ids.map((id) => [id, { document: frame(id, `Frame ${id}`) }]),
+          ),
+        });
+      },
+    );
+
+    const targets = await resolveImportTargets("abcDEF12345", "6913:4184");
+
+    // One batch of ten sections already lists 100 frames, past the cap.
+    expect(sectionReads).toHaveLength(10);
+    expect(Object.keys(targets.nodesById)).toHaveLength(50);
+    expect(targets.truncated).toBe(true);
+  });
+
   it("keeps a frame too large to fetch as an error", async () => {
     provider.request.mockImplementation(
       async ({ query }: { query: { depth?: number } }) =>

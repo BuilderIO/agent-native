@@ -21,6 +21,7 @@ import {
   type ComposerContextPickerConfig,
   type ComposerContextPickerItem,
 } from "@agent-native/toolkit/app/chat/composer/index";
+import { COMPOSER_CONTEXT_MAX_BYTES } from "@agent-native/toolkit/composer";
 import { parseFigmaFileKey, parseFigmaNodeId } from "@shared/figma-url";
 import { IconLayoutGrid, IconPalette, IconWorld } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -45,6 +46,7 @@ import {
 } from "@/lib/composer-context";
 import {
   clampFigmaContext,
+  figmaContextRoom,
   figFileReferenceKey,
   figmaReferenceContext,
   isFigmaReferenceKey,
@@ -130,7 +132,7 @@ const figmaLinkSchema = z.union([
       }),
     ),
     // A page link past `maxNodes` lists only its first frames.
-    totalFrames: z.number().optional(),
+    truncated: z.boolean().optional(),
   }),
   z.object({
     mode: z.literal("node"),
@@ -216,6 +218,8 @@ export function useHomePromptContext({
     discardFigmaChip(figmaSources.current.get(key));
   /** Each linked Figma page or frame's context as read, before its share. */
   const figmaLinkContexts = useRef(new Map<string, string>());
+  /** What the composer's total leaves Figma after the other references. */
+  const figmaRoom = useRef(FIGMA_REFERENCE_CONTEXT_BUDGET);
   /**
    * Figma chips share one context budget: the composer refuses a send past
    * its total, so each decoded or linked chip gets an even share, recomputed
@@ -224,7 +228,7 @@ export function useHomePromptContext({
   const figmaContextShare = useCallback(
     () =>
       Math.floor(
-        FIGMA_REFERENCE_CONTEXT_BUDGET /
+        figmaRoom.current /
           Math.max(
             1,
             [...figmaSources.current.values()].filter((entry) => entry.resolved)
@@ -597,6 +601,18 @@ export function useHomePromptContext({
       t,
     ],
   );
+  useEffect(() => {
+    const room = figmaContextRoom(
+      contextItems,
+      (key) =>
+        Boolean(figmaSources.current.get(key)?.resolved) ||
+        figmaLinkContexts.current.has(key),
+      COMPOSER_CONTEXT_MAX_BYTES,
+    );
+    if (room === figmaRoom.current) return;
+    figmaRoom.current = room;
+    rebudgetFigmaChips();
+  }, [contextItems, rebudgetFigmaChips]);
   const designListSchema = z.object({
     designs: z.array(
       z.object({
@@ -994,9 +1010,7 @@ export function useHomePromptContext({
               ]
             : [],
         ) ?? null,
-      ...(result.totalFrames !== undefined
-        ? { totalFrames: result.totalFrames }
-        : {}),
+      ...(result.truncated ? { partial: true as const } : {}),
     }));
     return { result, nodeUrl, pages };
   };
@@ -1051,9 +1065,7 @@ export function useHomePromptContext({
     if (!loaded?.frames) throw new Error(loadFailed);
     return {
       frames: loaded.frames,
-      ...(loaded.totalFrames !== undefined
-        ? { totalFrames: loaded.totalFrames }
-        : {}),
+      ...(loaded.partial ? { partial: true as const } : {}),
     };
   };
   const dialogs = (

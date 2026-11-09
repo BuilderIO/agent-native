@@ -2659,8 +2659,8 @@ export default {
     figmaSelectedCount: "{{count}} selected",
     figmaShowFrames: "Show frames in {{name}}",
     figmaLinkNotFrame: "Link to a Figma page or frame.",
-    figmaFramesPartial:
-      "Only part of this page is listed. Check the page to add all of it.",
+    figmaPageFrameCap:
+      "Adds the first {{limit}} frames. Select frames to choose which ones.",
     referenceDeck: "Reference a presentation",
     quickSaas: "Create a SaaS landing page",
     quickDashboard: "Create a dashboard",

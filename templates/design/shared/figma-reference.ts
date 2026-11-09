@@ -18,6 +18,9 @@ export const figmaReferenceFrameSchema = z.object({
 
 export const MAX_FIGMA_REFERENCE_FRAMES = 1000;
 
+/** A linked Figma page imports at most this many of its top-level frames. */
+export const MAX_FIGMA_PAGE_IMPORT_FRAMES = 50;
+
 export const figmaReferencePayloadSchema = z
   .object({
     frames: z

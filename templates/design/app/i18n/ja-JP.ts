@@ -2755,8 +2755,8 @@ export default {
     figmaShowFrames: "{{name}} のフレームを表示",
     figmaLinkNotFrame:
       "Figma のページまたはフレームへのリンクを指定してください。",
-    figmaFramesPartial:
-      "このページの一部のみ表示されています。ページ全体を追加するにはページにチェックを入れてください。",
+    figmaPageFrameCap:
+      "最初の {{limit}} 個のフレームを追加します。追加するフレームを選ぶには、フレームにチェックを入れてください。",
     referenceDeck: "プレゼンテーションを参照",
     quickSaas: "SaaS ランディングページを作成",
     quickDashboard: "ダッシュボードを作成",

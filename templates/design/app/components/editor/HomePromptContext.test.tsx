@@ -1017,6 +1017,46 @@ describe("home prompt context", () => {
     );
   });
 
+  it("gives Figma only the room a large design system leaves in one send", async () => {
+    const structure = `Frame structure: ${"x".repeat(15_000)}`;
+    mocks.call.mockImplementation(
+      async (action: string, params: { nodeId?: string }) =>
+        action === "read-composer-source"
+          ? { id: params.nodeId, title: params.nodeId, context: structure }
+          : { id: "system", agentContext: "s".repeat(50_000) },
+    );
+    const { result } = renderHook(() =>
+      useHomePromptContext({ ...defaults, systemId: "system" }),
+    );
+    const dialog = result.current.dialogs as ReactElement<
+      ComponentProps<typeof FigmaAttachDialog>
+    >;
+    act(() =>
+      dialog.props.onAttachLinks(
+        [0, 1, 2].map((index) => ({
+          id: `1:${index}`,
+          title: `Frame ${index}`,
+          url: `https://www.figma.com/design/abcDEF12345?node-id=1-${index}`,
+        })),
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        result.current.contextItems.length === 4 &&
+          result.current.contextItems.every((item) => item.status === "ready"),
+      ).toBe(true),
+    );
+    await waitFor(() =>
+      expect(() =>
+        snapshotComposerContextItems(result.current.contextItems),
+      ).not.toThrow(),
+    );
+    const prepared = await result.current.prepareSubmission(
+      snapshotComposerContextItems(result.current.contextItems),
+    );
+    expect(() => snapshotComposerContextItems(prepared)).not.toThrow();
+  });
+
   it("shows a failed Figma decode on its chip and retries it", async () => {
     mocks.call.mockRejectedValueOnce(
       Object.assign(new Error("Action failed: Too large"), {

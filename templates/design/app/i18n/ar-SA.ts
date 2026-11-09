@@ -2693,7 +2693,8 @@ export default {
     figmaSelectedCount: "تم تحديد {{count}}",
     figmaShowFrames: "إظهار الإطارات في {{name}}",
     figmaLinkNotFrame: "استخدم رابطًا إلى صفحة أو إطار في Figma.",
-    figmaFramesPartial: "يظهر جزء من هذه الصفحة فقط. حدّد الصفحة لإضافتها كاملة.",
+    figmaPageFrameCap:
+      "تُضاف أول {{limit}} إطارات فقط. حدّد الإطارات لتختار ما يُضاف.",
     referenceDeck: "استخدام عرض تقديمي كمرجع",
     quickSaas: "إنشاء صفحة هبوط لخدمة SaaS",
     quickDashboard: "إنشاء لوحة معلومات",

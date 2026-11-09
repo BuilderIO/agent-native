@@ -20,7 +20,8 @@ const FIGMA_REFERENCE_KEY_PREFIX = "figma-reference:";
  * What every Figma chip in one prompt may use together, in UTF-8 bytes. The
  * composer refuses a send past its 64 KiB `COMPOSER_CONTEXT_MAX_BYTES` (a test
  * pins the relation), so Figma takes three quarters and leaves the rest for
- * other references. Kept a literal: the composer module loads lazily.
+ * other references; `figmaContextRoom` shrinks it when they need more. Kept a
+ * literal: the composer module loads lazily.
  */
 export const FIGMA_REFERENCE_CONTEXT_BUDGET = 48 * 1024;
 // Room for the closing notes about omitted and undecoded frames.
@@ -31,6 +32,41 @@ const CONTEXT_NOTES_RESERVE_BYTES = 600;
  */
 const contextBytes = (text: string) =>
   new TextEncoder().encode(JSON.stringify(text)).length - 2;
+
+/**
+ * What the composer's total leaves every Figma chip together: the total, less
+ * each item's snapshot fields and every other item's context. Capped at the
+ * Figma budget, and zero when the other references already fill the total.
+ */
+export function figmaContextRoom(
+  items: ReadonlyArray<{
+    key: string;
+    title: string;
+    context: string;
+    removable?: boolean;
+    blocksSubmission?: boolean;
+    status?: string;
+    statusMessage?: string;
+  }>,
+  isFigma: (key: string) => boolean,
+  totalBytes: number,
+): number {
+  // The same fields, in the same shape, as the composer's snapshot.
+  const others = items.map((item) => ({
+    key: item.key,
+    title: item.title,
+    context: isFigma(item.key) ? "" : item.context,
+    removable: item.removable,
+    blocksSubmission: item.blocksSubmission,
+    status: item.status,
+    statusMessage: item.statusMessage,
+  }));
+  const used = new TextEncoder().encode(JSON.stringify(others)).length;
+  return Math.max(
+    0,
+    Math.min(FIGMA_REFERENCE_CONTEXT_BUDGET, totalBytes - used),
+  );
+}
 
 const TRUNCATED_MARK = " [truncated]";
 

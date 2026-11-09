@@ -2,6 +2,7 @@ import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
+import { MAX_FIGMA_PAGE_IMPORT_FRAMES } from "../../shared/figma-reference.js";
 import {
   FIGMA_IMPORT_ERROR_CODES,
   failFigmaImport,
@@ -493,7 +494,7 @@ export async function fetchFileStructure(
 }
 
 /** A page link imports at most this many of the page's top-level nodes. */
-export const MAX_PAGE_IMPORT_NODES = 50;
+export const MAX_PAGE_IMPORT_NODES = MAX_FIGMA_PAGE_IMPORT_FRAMES;
 
 const SCREEN_NODE_TYPES = new Set([
   "FRAME",
@@ -549,9 +550,11 @@ export async function resolveImportTargets(
       );
     }
   }
-  const { node, outline } = await fetchFigmaNodeOrPageOutline(
+  // One past the cap, so a page with more is known to be truncated.
+  const { node, outline, truncated } = await fetchFigmaNodeOrPageOutline(
     fileKey,
     targetId,
+    MAX_PAGE_IMPORT_NODES + 1,
   );
   if (node.type !== "CANVAS") {
     return {
@@ -582,7 +585,7 @@ export async function resolveImportTargets(
       (kept.length === 1
         ? kept.find((child) => child.name)?.name
         : node.name) ?? null,
-    truncated: nodes.length > kept.length,
+    truncated: truncated || nodes.length > kept.length,
   };
 }
 
@@ -669,50 +672,92 @@ export async function fetchFigmaNode(
  * and the node is a page, the page with only two levels below it: enough to
  * list its frames (sections opened). Anything else too large stays an error.
  */
+/** Sections opened per request, so a page of many sections stays bounded. */
+const SECTION_READ_BATCH = 10;
+
+const isClosedSection = (node: FigmaNode) =>
+  node.type === "SECTION" &&
+  node.visible !== false &&
+  node.children === undefined;
+
+/** Visible layers listed so far, sections opened; closed sections list none. */
+function listedLayers(nodes: readonly FigmaNode[]): number {
+  return nodes.reduce(
+    (count, node) =>
+      node.visible === false
+        ? count
+        : node.type === "SECTION"
+          ? count + listedLayers(node.children ?? [])
+          : count + 1,
+    0,
+  );
+}
+
 /**
  * A depth-limited read stops at sections: one past the limit comes back with
- * no children, which reads as empty. Each such section is read one level
- * deeper, so the frames inside it are still listed.
+ * no children, which reads as empty. Sections are read one level deeper, in
+ * order, until `limit` layers are listed; any left closed past that mark the
+ * outline `truncated`, since their frames are not listed.
  */
 export async function openOutlineSections(
   fileKey: string,
   nodes: readonly FigmaNode[],
-): Promise<FigmaNode[]> {
-  const closed = nodes.filter(
-    (node) =>
-      node.type === "SECTION" &&
-      node.visible !== false &&
-      node.children === undefined,
-  );
-  if (!closed.length) return [...nodes];
-  const opened = await fetchFigmaNodes(
-    fileKey,
-    closed.map((section) => section.id),
-    false,
-    1,
-  );
-  return Promise.all(
-    nodes.map(async (node) => {
-      const section = closed.includes(node) ? opened[node.id] : undefined;
-      return section
-        ? {
-            ...node,
-            children: await openOutlineSections(
-              fileKey,
-              section.children ?? [],
-            ),
-          }
-        : node;
-    }),
-  );
+  limit: number,
+): Promise<{ nodes: FigmaNode[]; truncated: boolean }> {
+  let listed = listedLayers(nodes);
+  let truncated = false;
+  const open = async (level: readonly FigmaNode[]): Promise<FigmaNode[]> => {
+    const result = [...level];
+    const closed = level.flatMap((node, index) =>
+      isClosedSection(node) ? [{ node, index }] : [],
+    );
+    for (let at = 0; at < closed.length; at += SECTION_READ_BATCH) {
+      if (listed >= limit) {
+        truncated = true;
+        break;
+      }
+      const batch = closed.slice(at, at + SECTION_READ_BATCH);
+      const opened: Record<string, FigmaNode | undefined> =
+        await fetchFigmaNodes(
+          fileKey,
+          batch.map(({ node }) => node.id),
+          false,
+          1,
+        );
+      for (const { node, index } of batch) {
+        const children = opened[node.id]?.children;
+        if (!children) {
+          truncated = true;
+          continue;
+        }
+        listed += listedLayers(children);
+        result[index] = { ...node, children };
+      }
+    }
+    // Sections opened here may hold closed sections of their own. In order,
+    // so the budget goes to the page's first sections.
+    for (const [index, node] of result.entries()) {
+      if (node.type === "SECTION" && node.children)
+        result[index] = { ...node, children: await open(node.children) };
+    }
+    return result;
+  };
+  const opened = await open(nodes);
+  return { nodes: opened, truncated };
 }
 
 export async function fetchFigmaNodeOrPageOutline(
   fileKey: string,
   nodeId: string,
-): Promise<{ node: FigmaNode; outline: boolean }> {
+  /** Layers an outline lists before it stops opening sections. */
+  limit: number,
+): Promise<{ node: FigmaNode; outline: boolean; truncated: boolean }> {
   try {
-    return { node: await fetchFigmaNode(fileKey, nodeId), outline: false };
+    return {
+      node: await fetchFigmaNode(fileKey, nodeId),
+      outline: false,
+      truncated: false,
+    };
   } catch (error) {
     if (!isFigmaPayloadTooLargeError(error)) throw error;
     // Two levels opens sections; one level still lists the page's frames.
@@ -726,17 +771,19 @@ export async function fetchFigmaNodeOrPageOutline(
         if (isFigmaPayloadTooLargeError(outlineError)) continue;
         throw outlineError;
       }
-      if (outline)
-        return {
-          node: outline.children
-            ? {
-                ...outline,
-                children: await openOutlineSections(fileKey, outline.children),
-              }
-            : outline,
-          outline: true,
-        };
-      break;
+      if (!outline) break;
+      if (!outline.children)
+        return { node: outline, outline: true, truncated: false };
+      const opened = await openOutlineSections(
+        fileKey,
+        outline.children,
+        limit,
+      );
+      return {
+        node: { ...outline, children: opened.nodes },
+        outline: true,
+        truncated: opened.truncated,
+      };
     }
     throw error;
   }

@@ -1,3 +1,4 @@
+import { parse, serialize } from "parse5";
 import { describe, expect, it } from "vitest";
 
 import { stripExecutableMarkup } from "./strip-executable-markup.js";
@@ -17,6 +18,11 @@ describe("stripExecutableMarkup", () => {
       "an animation that rewrites a link",
       '<svg><a href="#"><set attributeName="href" to="javascript:alert(1)"/><text>x</text></a></svg>',
     ],
+    ["a data URL link", '<a href="data:text/html,&lt;b&gt;x&lt;/b&gt;">x</a>'],
+    [
+      "a data URL form action",
+      '<form action="data:text/html;base64,PGI+">x</form>',
+    ],
     [
       "an animation to an encoded script URL",
       '<svg><a href="#"><animate attributeName="xlink:href" values="#;jav&#x61;script:alert(1)"/></a></svg>',
@@ -24,7 +30,7 @@ describe("stripExecutableMarkup", () => {
   ])("removes %s", (_, html) => {
     const result = stripExecutableMarkup(html);
     expect(result).not.toMatch(
-      /onload|onerror|javascript|jav&#x61;|java&#9;|expression\(|srcdoc|<script|<iframe|<set|<animate/i,
+      /onload|onerror|javascript|jav&#x61;|java&#9;|expression\(|srcdoc|data:text|<script|<iframe|<set|<animate/i,
     );
   });
 
@@ -46,6 +52,38 @@ describe("stripExecutableMarkup", () => {
     expect(stripExecutableMarkup("<svg/onload=x><rect/></svg>")).toBe(
       "<svg/ ><rect/></svg>",
     );
+  });
+
+  it("removes markup that hides a handler from a parse with scripting on", () => {
+    const html =
+      '<noscript><p title="</noscript><img src=x onerror=alert(1)>"></p></noscript><p>Kept</p>';
+    const result = stripExecutableMarkup(html);
+    for (const scriptingEnabled of [true, false]) {
+      expect(serialize(parse(result, { scriptingEnabled }))).not.toMatch(
+        /onerror/i,
+      );
+    }
+    expect(result).toContain("<p>Kept</p>");
+  });
+
+  it("never returns markup that turns executable once serialized and reparsed", () => {
+    const html =
+      "<form><math><mtext></form><form><mglyph><style></math><img src onerror=alert(1)>";
+    let result: string;
+    try {
+      result = stripExecutableMarkup(html);
+    } catch (error) {
+      expect(String(error)).toMatch(/parsed again/);
+      return;
+    }
+    const reparsed = serialize(parse(serialize(parse(result))));
+    expect(serialize(parse(reparsed))).not.toMatch(/onerror/i);
+  });
+
+  it("keeps an image data URL on an SVG image", () => {
+    const html =
+      '<svg><image href="data:image/svg+xml;base64,PHN2Zy8+" width="4" height="4"/></svg>';
+    expect(stripExecutableMarkup(html)).toBe(html);
   });
 
   it("leaves safe markup byte for byte", () => {

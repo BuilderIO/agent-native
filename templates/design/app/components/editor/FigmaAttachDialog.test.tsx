@@ -141,19 +141,22 @@ describe("FigmaAttachDialog link picker", () => {
     ]);
   });
 
-  it("says when a page lists only its first frames, and adds the whole page", async () => {
+  it("says a checked page adds only its first frames when it has more", async () => {
     render({
-      pages: [{ ...launch, totalFrames: 1_200 }],
+      pages: [{ ...launch, partial: true }],
       preselected: [],
       preselectedPages: [],
       expandedPages: [launch.id],
     });
     await typeLink(`${FILE}?node-id=1-1`);
 
-    expect(document.body.textContent).toContain(
-      "homeContext.figmaFramesPartial",
+    expect(document.body.textContent).not.toContain(
+      "homeContext.figmaPageFrameCap",
     );
     await click(checkbox("Launch"));
+    expect(document.body.textContent).toContain(
+      "homeContext.figmaPageFrameCap",
+    );
     await click(addButton());
 
     expect(attached).toEqual([

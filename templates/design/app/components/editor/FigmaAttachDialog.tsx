@@ -1,6 +1,7 @@
 import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { MAX_FIGMA_PAGE_IMPORT_FRAMES } from "@shared/figma-reference";
 import { parseFigmaFileKey } from "@shared/figma-url";
 import {
   IconAlertTriangle,
@@ -55,8 +56,8 @@ export interface FigmaPageOption {
   url: string;
   /** Null until loaded, for a large file that listed only its pages. */
   frames: FigmaLinkReference[] | null;
-  /** The page's layer count, when `frames` lists only the first of them. */
-  totalFrames?: number;
+  /** Set when `frames` lists only the page's first layers. */
+  partial?: true;
 }
 
 export interface FigmaLinkTree {
@@ -94,7 +95,7 @@ export function FigmaAttachDialog({
   figmaConnected: boolean | undefined;
   loadLink: (url: string) => Promise<FigmaLinkTree>;
   loadPage: (page: FigmaPageOption) => Promise<
-    Pick<FigmaPageOption, "totalFrames"> & {
+    Pick<FigmaPageOption, "partial"> & {
       frames: FigmaLinkReference[];
     }
   >;
@@ -599,6 +600,13 @@ function FigmaPageRow({
   ));
   // A frame link has no page to group under.
   if (!page.name) return <>{frames}</>;
+  // A checked page goes to the prompt as one link, which imports only the
+  // page's first frames.
+  const capped =
+    state === true &&
+    (page.partial === true ||
+      (page.frames !== null &&
+        page.frames.length > MAX_FIGMA_PAGE_IMPORT_FRAMES));
   return (
     <Collapsible open={open} onOpenChange={onOpenChange}>
       <div
@@ -644,6 +652,13 @@ function FigmaPageRow({
           </span>
         ) : null}
       </div>
+      {capped ? (
+        <p className="pb-1.5 ps-12 pe-2 text-xs text-muted-foreground">
+          {t("homeContext.figmaPageFrameCap", {
+            limit: MAX_FIGMA_PAGE_IMPORT_FRAMES,
+          })}
+        </p>
+      ) : null}
       <CollapsibleContent>
         {loadingFrames ? (
           <div aria-busy="true">
@@ -655,14 +670,7 @@ function FigmaPageRow({
             ))}
           </div>
         ) : (
-          <>
-            {frames}
-            {page.totalFrames !== undefined ? (
-              <p className="py-1.5 ps-12 pe-2 text-xs text-muted-foreground">
-                {t("homeContext.figmaFramesPartial")}
-              </p>
-            ) : null}
-          </>
+          frames
         )}
       </CollapsibleContent>
     </Collapsible>
