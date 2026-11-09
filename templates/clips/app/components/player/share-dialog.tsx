@@ -188,6 +188,7 @@ function RecordingShareButton({
   recordingId,
   recordingTitle,
   initialVisibility,
+  initialRole,
   hasPassword,
   expiresAt,
   viewerReshareOnly,
@@ -284,18 +285,19 @@ function RecordingShareButton({
       })}
       {...(viewerReshareOnly !== undefined && { linkOnly: viewerReshareOnly })}
       hideSendTo={Boolean(viewerReshareOnly && hasPassword !== false)}
-      generalAccessExtras={(controller) =>
-        !viewerReshareOnly && (passwordProtected || currentExpiry) ? (
+      generalAccessExtras={(controller) => {
+        const role = controller.data?.role ?? initialRole;
+        return !viewerReshareOnly && (passwordProtected || currentExpiry) ? (
           <RecordingAdvancedAccess
             recordingId={recordingId}
             hasPassword={passwordProtected}
             expiresAt={currentExpiry}
-            canEdit={controller.canManage}
+            canEdit={role === "owner" || role === "admin" || role === "editor"}
             onPasswordChange={setPasswordProtected}
             onExpiryChange={setCurrentExpiry}
           />
-        ) : null
-      }
+        ) : null;
+      }}
     />
   );
 }

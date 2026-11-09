@@ -45,6 +45,16 @@ describe("recording sharing adoption", () => {
     expect(summary).toContain("shareDialog.expiresOn");
   });
 
+  it("lets editors manage existing protection while viewers cannot", async () => {
+    if (!mocks.data) throw new Error("Missing share data");
+    mocks.data.role = "editor";
+    await render({ hasPassword: true, initialRole: "editor" });
+    expect(button("shareDialog.advanced").disabled).toBe(false);
+    mocks.data.role = "viewer";
+    await render({ hasPassword: true, initialRole: "viewer" });
+    expect(button("shareDialog.advanced").disabled).toBe(true);
+  });
+
   it("shares private with the organization at once", async () => {
     await render();
     await select(button("General access"), "Anyone in your organization");
