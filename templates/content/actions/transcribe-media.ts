@@ -20,6 +20,7 @@ import { transcribeWithBuilder } from "@agent-native/core/transcription/builder"
 import { z } from "zod";
 
 import "../server/db/index.js";
+import { documentRevisionToken } from "../server/lib/document-revision.js";
 import { rewriteContentLiveCopyBody } from "../server/live-copy/write.js";
 import {
   assertAudioHasAudibleSignal,
@@ -406,7 +407,17 @@ async function applyTranscriptToDocument({
       candidate: nextContent,
     });
     if (wroteLiveCopy) return { sqlUpdated: true, collabUpdated: true };
-    await updateDocument.run({ id: documentId, content: nextContent });
+    const saved = await updateDocument.run({
+      id: documentId,
+      content: nextContent,
+      baseRevision: documentRevisionToken(freshDoc.bodyRevision, content),
+    });
+    if ("conflict" in saved) {
+      fail("The document changed while the transcript was added. Try again.", {
+        errorCode: "DOCUMENT_REVISION_CONFLICT",
+        statusCode: 409,
+      });
+    }
     return { sqlUpdated: true, collabUpdated: false };
   }
 

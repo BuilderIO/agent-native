@@ -84,7 +84,9 @@ interface LockPrimaryBlocksFieldsOptions {
   /**
    * Memberships the caller locked before the page. Any other membership was
    * added since, and locking it after the page deadlocks against an edit or
-   * restore that locks memberships first, so it is refused instead.
+   * restore that locks memberships first. A late Files row is left out and
+   * its alias lags until a later save: body writes prove freshness with the
+   * page's own revision, not an alias's. Any other late row is refused.
    */
   heldMembershipIds?: ReadonlySet<string>;
 }
@@ -98,6 +100,7 @@ export async function lockPrimaryBlocksFieldsForDocuments(
   const memberships: Array<{
     id: string;
     documentId: string;
+    systemRole: string | null;
   }> = [];
   for (const documentIdGroup of groups(uniqueDocumentIds, 90)) {
     memberships.push(
@@ -105,16 +108,29 @@ export async function lockPrimaryBlocksFieldsForDocuments(
         .select({
           id: schema.contentDatabaseItems.id,
           documentId: schema.contentDatabaseItems.documentId,
+          systemRole: schema.contentDatabases.systemRole,
         })
         .from(schema.contentDatabaseItems)
+        .leftJoin(
+          schema.contentDatabases,
+          eq(
+            schema.contentDatabases.id,
+            schema.contentDatabaseItems.databaseId,
+          ),
+        )
         .where(
           inArray(schema.contentDatabaseItems.documentId, documentIdGroup),
         )),
     );
   }
-  const membershipIds = memberships.map((membership) => membership.id);
   const held = options.heldMembershipIds;
-  if (held && membershipIds.some((membershipId) => !held.has(membershipId))) {
+  const late = memberships.filter(
+    (membership) => held && !held.has(membership.id),
+  );
+  const membershipIds = memberships
+    .filter((membership) => !late.includes(membership))
+    .map((membership) => membership.id);
+  if (late.some((membership) => membership.systemRole !== "files")) {
     throw new ActionContractError(
       "The document was added to a collection while it saved. Read the document again and retry.",
       { errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED", statusCode: 409 },

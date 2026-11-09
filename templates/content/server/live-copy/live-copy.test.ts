@@ -4224,9 +4224,16 @@ describe("a SQL body write to a switched page", () => {
 
   async function cliUpdate(id: string, content: string) {
     const action = (await import("../../actions/update-document.js")).default;
+    const { documentRevisionToken } =
+      await import("../../actions/_document-edit-mutation.js");
+    const base = await page(id);
     return asOwner(async () =>
       action.run(
-        { id, content } as never,
+        {
+          id,
+          content,
+          baseRevision: documentRevisionToken(base.bodyRevision, base.content),
+        } as never,
         { caller: "cli", userEmail: OWNER } as never,
       ),
     );

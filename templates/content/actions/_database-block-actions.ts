@@ -7,6 +7,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { documentRevisionToken } from "../server/lib/document-revision.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
@@ -400,6 +401,13 @@ export async function listDatabaseBlocks(
     schemaRevision: loaded.context.schemaRevision,
     rowRevision: loaded.row.revision,
     fieldRevision: loaded.identity.revision,
+    baseRevision:
+      loaded.storageTarget === "document_body"
+        ? documentRevisionToken(
+            loaded.row.document.bodyRevision,
+            loaded.markdown,
+          )
+        : null,
     identityStatus: loaded.identity.identityStatus,
     total: blocks.length,
     order: blocks.map((block) => block.id),

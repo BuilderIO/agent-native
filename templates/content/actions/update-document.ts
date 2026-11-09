@@ -603,7 +603,7 @@ const updateDocumentAction = defineAction({
       .string()
       .optional()
       .describe(
-        "Opaque body revision from get-document; guards browser content saves without treating metadata changes as body conflicts",
+        "Opaque body revision from get-document; guards content saves without treating metadata changes as body conflicts. Required with content from scripts, the CLI and automations.",
       ),
     authoredBaseRevision: z.string().optional(),
     // Body copies take any length `content` takes. A tighter cap here refused
@@ -812,14 +812,32 @@ const updateDocumentAction = defineAction({
           { errorCode: "INVALID_BROWSER_SAVE_ATTEMPT", statusCode: 400 },
         );
       }
-      if (isExternalCaller && args.content !== undefined) {
-        throw new ActionContractError(
-          "External document body updates require get-document followed by edit-document with baseRevision and idempotencyKey.",
-          {
-            errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED",
-            statusCode: 400,
-          },
-        );
+      if (
+        args.content !== undefined &&
+        ctx !== undefined &&
+        ctx.caller !== "frontend" &&
+        !isScopedWidgetDocumentWriter(ctx, id)
+      ) {
+        if (isExternalCaller) {
+          throw new ActionContractError(
+            "External document body updates require get-document followed by edit-document with baseRevision and idempotencyKey.",
+            {
+              errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED",
+              statusCode: 400,
+            },
+          );
+        }
+        // Without a base, the body replaces whatever was saved since the
+        // caller read the page.
+        if (
+          args.baseRevision === undefined &&
+          args.baseUpdatedAt === undefined
+        ) {
+          throw new ActionContractError(
+            "Replacing a document body from outside the app requires baseRevision from get-document.",
+            { errorCode: "BASE_REVISION_REQUIRED", statusCode: 400 },
+          );
+        }
       }
 
       const isAgentCaller =

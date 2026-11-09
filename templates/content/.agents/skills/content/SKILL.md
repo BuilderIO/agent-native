@@ -69,7 +69,7 @@ Prefer JSON input for action calls:
 pnpm action list-documents
 pnpm action get-document '{"id":"<document-id>"}'
 pnpm action edit-document '{"id":"<document-id>","find":"old copy","replace":"new copy"}'
-pnpm action update-document '{"id":"<document-id>","content":"# Updated\n\nBody"}'
+pnpm action update-document '{"id":"<document-id>","baseRevision":"<revision from get-document>","content":"# Updated\n\nBody"}'
 pnpm action connect-local-folder-source '{"connectionId":"<opaque-bridge-id>","label":"Docs","createSourceBackedSpace":true,"truthPolicy":"source_primary"}'
 ```
 

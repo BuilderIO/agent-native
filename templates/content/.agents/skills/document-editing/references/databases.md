@@ -164,6 +164,13 @@ idempotency key only for an exact retry. Unsupported kinds, kind conversion,
 tombstone reuse, cross-parent reorder, schema drift, and stale row or field
 revisions fail explicitly.
 
+To replace a whole Blocks field with `set-document-property`, pass the field
+revision `list-content-database-blocks` returns as
+`expectedBlocksFieldRevision`. The collection's main Blocks field is the
+page's body, so pass the read's `baseRevision` instead; a field revision alone
+is refused there with `BASE_REVISION_REQUIRED`, and a page that changed since
+the read fails with `DOCUMENT_REVISION_CONFLICT`. Read again and retry.
+
 Formula properties store their expression in property options and support
 `{Property name}` substitution plus simple numeric math such as `{MSV} * 2`.
 

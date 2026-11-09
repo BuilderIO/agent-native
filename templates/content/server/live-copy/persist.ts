@@ -341,10 +341,24 @@ async function assertMembershipsLocked(
   lockedMemberships: ReadonlyMap<string, string>,
 ): Promise<void> {
   const current = await pageMemberships(db, documentId);
+  const added = [...current]
+    .filter(([id]) => !lockedMemberships.has(id))
+    .map(([, databaseId]) => databaseId);
+  // A Files row added since discovery stays unlocked and its alias lags.
+  const addedCollections =
+    added.length > 0
+      ? await db
+          .select({ systemRole: schema.contentDatabases.systemRole })
+          .from(schema.contentDatabases)
+          .where(inArray(schema.contentDatabases.id, added))
+      : [];
+  const addedOutsideFiles =
+    addedCollections.length < new Set(added).size ||
+    addedCollections.some((database) => database.systemRole !== "files");
   if (
-    current.size !== lockedMemberships.size ||
-    [...current].some(
-      ([id, databaseId]) => lockedMemberships.get(id) !== databaseId,
+    addedOutsideFiles ||
+    [...lockedMemberships].some(
+      ([id, databaseId]) => current.get(id) !== databaseId,
     )
   ) {
     scopeChanged(

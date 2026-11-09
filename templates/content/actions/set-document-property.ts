@@ -1,5 +1,6 @@
 import { ActionContractError } from "@agent-native/core";
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
+import type { DbExec } from "@agent-native/core/db";
 import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -7,6 +8,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import {
+  documentRevisionToken,
+  parseDocumentRevisionToken,
+} from "../server/lib/document-revision.js";
 import { firstRow } from "../server/lib/first-row.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
@@ -68,6 +73,26 @@ import {
 import { validateRelationWrite } from "./_relation-values.js";
 import { lockDocumentRows } from "./_row-lock-order.js";
 
+function assertPageRevision(
+  baseRevision: string,
+  page: { content: string; bodyRevision: number },
+) {
+  const currentRevision = documentRevisionToken(
+    page.bodyRevision,
+    page.content,
+  );
+  if (baseRevision !== currentRevision) {
+    throw new ActionContractError(
+      "The page changed after it was read. Read it again and retry.",
+      {
+        errorCode: "DOCUMENT_REVISION_CONFLICT",
+        details: { currentRevision },
+        statusCode: 409,
+      },
+    );
+  }
+}
+
 /**
  * Writes a primary Blocks value, which is the page's body, to a switched page
  * through its live copy, as edit-document does; the live copy's commit keeps
@@ -84,11 +109,16 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
   propertyId: string;
   content: string;
   expectedRevision: number | undefined;
+  baseRevision: string | undefined;
 }): Promise<string | false> {
   if (!(await isLiveBodyWriterPage(args.documentId))) return false;
+  const { baseRevision } = args;
   // guard:allow-unscoped — the caller's editor access was checked above.
   const rows = await getDb()
-    .select({ content: schema.documents.content })
+    .select({
+      content: schema.documents.content,
+      bodyRevision: schema.documents.bodyRevision,
+    })
     .from(schema.documents)
     .where(eq(schema.documents.id, args.documentId));
   const current = firstRow(rows);
@@ -99,6 +129,7 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
     });
   }
   assertNoNewlySharedVideoIds(current.content, args.content);
+  if (baseRevision !== undefined) assertPageRevision(baseRevision, current);
   if (args.expectedRevision !== undefined) {
     const { revision } = await readBlocksFieldIdentity({
       documentId: args.documentId,
@@ -119,6 +150,30 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
         ctx: args.ctx,
         operation: "set-document-property",
         lockCollections: [args.databaseId],
+        // replace-body compares text only, so a body that went A→B→A after
+        // the read above still matches it; the page row is locked here.
+        ...(baseRevision !== undefined
+          ? {
+              beforeWrite: async (tx: DbExec) => {
+                const locked = firstRow(
+                  await drizzleOverExec(tx)
+                    .select({
+                      content: schema.documents.content,
+                      bodyRevision: schema.documents.bodyRevision,
+                    })
+                    .from(schema.documents)
+                    .where(eq(schema.documents.id, args.documentId)),
+                );
+                if (!locked) {
+                  throw new ActionContractError(
+                    `Document "${args.documentId}" not found`,
+                    { errorCode: "DOCUMENT_NOT_FOUND", statusCode: 404 },
+                  );
+                }
+                assertPageRevision(baseRevision, locked);
+              },
+            }
+          : {}),
         ...(args.expectedRevision !== undefined
           ? {
               expectedBlocksFieldRevision: {
@@ -220,7 +275,13 @@ export default defineAction({
       .nonnegative()
       .optional()
       .describe(
-        "Expected Blocks field revision from list-content-database-blocks; required for Blocks field writes from anything other than the app's own UI (agents, CLI, automations, HTTP)",
+        "Expected Blocks field revision from list-content-database-blocks; required for writes to a collection's other Blocks fields from anything other than the app's own UI (agents, CLI, automations, HTTP)",
+      ),
+    baseRevision: z
+      .string()
+      .optional()
+      .describe(
+        "The page's baseRevision from get-document or list-content-database-blocks. A collection's main Blocks field is the page's body, so writes to it from anything other than the app's own UI send this instead of expectedBlocksFieldRevision.",
       ),
     expectedGeneration: z
       .number()
@@ -240,6 +301,7 @@ export default defineAction({
       value,
       expectedBlocksFieldRevision,
       expectedGeneration,
+      baseRevision,
     },
     ctx,
   ) => {
@@ -300,9 +362,48 @@ export default defineAction({
         ctx?.caller === "frontend" ||
         ctx?.caller === "mcp-widget" ||
         ctx?.caller === "mcp-widget-write";
+      let target = blocksStorageTarget(
+        parsePropertyOptions(definition.optionsJson),
+      );
+      if (baseRevision !== undefined) {
+        if (target !== "document_body") {
+          throw new ActionContractError(
+            "baseRevision guards a page's body; this Blocks field takes expectedBlocksFieldRevision from list-content-database-blocks.",
+            {
+              errorCode: "BASE_REVISION_UNSUPPORTED",
+              details: { propertyId },
+              statusCode: 400,
+            },
+          );
+        }
+        if (!parseDocumentRevisionToken(baseRevision)) {
+          throw new ActionContractError(
+            "baseRevision is not a valid document revision token.",
+            { errorCode: "INVALID_BASE_REVISION", statusCode: 400 },
+          );
+        }
+      }
+      // A field's own revision can't vouch for the page's body: an alias the
+      // body commit didn't see keeps an old revision while the text moves on.
       if (
         ctx !== undefined &&
         !isAppUiCaller &&
+        target === "document_body" &&
+        baseRevision === undefined
+      ) {
+        throw new ActionContractError(
+          "Writing a collection's main Blocks field changes the page's body, so it requires baseRevision from get-document or list-content-database-blocks.",
+          {
+            errorCode: "BASE_REVISION_REQUIRED",
+            details: { propertyId },
+            statusCode: 400,
+          },
+        );
+      }
+      if (
+        ctx !== undefined &&
+        !isAppUiCaller &&
+        target !== "document_body" &&
         expectedBlocksFieldRevision === undefined
       ) {
         throw new ActionContractError(
@@ -314,12 +415,11 @@ export default defineAction({
           },
         );
       }
+      const fieldRevision =
+        baseRevision === undefined ? expectedBlocksFieldRevision : undefined;
       await assertAccess("document", documentId, "editor");
       const normalized = normalizePropertyValue(type, value);
       const content = typeof normalized === "string" ? normalized : "";
-      let target = blocksStorageTarget(
-        parsePropertyOptions(definition.optionsJson),
-      );
       const blocksResult = async (stored: string) => ({
         documentId,
         databaseId: database.id,
@@ -348,7 +448,8 @@ export default defineAction({
           definition,
           propertyId,
           content,
-          expectedRevision: expectedBlocksFieldRevision,
+          expectedRevision: fieldRevision,
+          baseRevision,
         }));
       if (stored !== false) return blocksResult(stored);
       await db.transaction(async (tx) => {
@@ -405,6 +506,12 @@ export default defineAction({
         target = blocksStorageTarget(
           parsePropertyOptions(lockedDefinition.optionsJson),
         );
+        if (baseRevision !== undefined && target !== "document_body") {
+          throw new ActionContractError(
+            "Property storage changed before the operation completed.",
+            { errorCode: "PROPERTY_STORAGE_CHANGED", statusCode: 409 },
+          );
+        }
         if (target === "block_field_store") {
           await writeStoredBlocksField(
             tx as unknown as ReturnType<typeof getDb>,
@@ -425,7 +532,10 @@ export default defineAction({
         });
         const currentDocument = firstRow(
           await tx
-            .select({ content: schema.documents.content })
+            .select({
+              content: schema.documents.content,
+              bodyRevision: schema.documents.bodyRevision,
+            })
             .from(schema.documents)
             .where(eq(schema.documents.id, documentId)),
         );
@@ -434,6 +544,9 @@ export default defineAction({
             errorCode: "DOCUMENT_NOT_FOUND",
             statusCode: 404,
           });
+        }
+        if (baseRevision !== undefined) {
+          assertPageRevision(baseRevision, currentDocument);
         }
         const previousContent = currentDocument.content;
         assertNoNewlySharedVideoIds(previousContent, content);
@@ -461,9 +574,7 @@ export default defineAction({
             previousMarkdown: previousContent,
             markdown: content,
             expectedRevision:
-              field.propertyId === propertyId
-                ? expectedBlocksFieldRevision
-                : undefined,
+              field.propertyId === propertyId ? fieldRevision : undefined,
             now,
           });
         }

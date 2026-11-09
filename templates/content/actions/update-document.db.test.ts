@@ -2523,6 +2523,74 @@ describe("update-document compare-and-swap", () => {
     expect((await documentRow(documentId)).content).toBe("original");
   });
 
+  it.each(["http", "cli", "automation"] as const)(
+    "requires a base for a %s full-body write",
+    async (caller) => {
+      const documentId = await createDocument({ content: "original" });
+      const write = (fields: { baseRevision?: string }) =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          updateDocumentAction.run(
+            { id: documentId, content: "scripted rewrite", ...fields },
+            { caller, userEmail: OWNER },
+          ),
+        );
+
+      await expect(write({})).rejects.toMatchObject({
+        errorCode: "BASE_REVISION_REQUIRED",
+        statusCode: 400,
+      });
+      expect((await documentRow(documentId)).content).toBe("original");
+      await expect(
+        write({ baseRevision: documentRevisionToken(0, "An older body") }),
+      ).resolves.toMatchObject({ conflict: true });
+      expect((await documentRow(documentId)).content).toBe("original");
+
+      const row = await documentRow(documentId);
+      await write({
+        baseRevision: documentRevisionToken(row.bodyRevision, row.content),
+      });
+      expect((await documentRow(documentId)).content).toBe("scripted rewrite");
+    },
+  );
+
+  it("refuses alt text for a page that changed after the action read it", async () => {
+    const setImageAltText = (await import("./set-image-alt-text.js")).default;
+    const image = "![](/uploads/alt-text-race.png)";
+    const documentId = await createDocument({ content: `Intro\n${image}` });
+    const update = updateDocumentAction.run.bind(updateDocumentAction);
+    const spy = vi
+      .spyOn(updateDocumentAction, "run")
+      .mockImplementationOnce(async (args, ctx) => {
+        await getDb()
+          .update(schema.documents)
+          .set({ content: `Edited meanwhile\n${image}` })
+          .where(eq(schema.documents.id, documentId));
+        return update(args, ctx);
+      });
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          setImageAltText.run(
+            {
+              documentId,
+              imageUrl: "/uploads/alt-text-race.png",
+              altText: "Chart",
+            },
+            { caller: "mcp", userEmail: OWNER },
+          ),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "DOCUMENT_REVISION_CONFLICT",
+        statusCode: 409,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await documentRow(documentId)).content).toBe(
+      `Edited meanwhile\n${image}`,
+    );
+  });
+
   it("uses a canonical Files database rename as the workspace name", async () => {
     const { provisionContentSpaces, systemIdsForContentSpace } =
       await import("./_content-spaces.js");

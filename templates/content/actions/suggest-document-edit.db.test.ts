@@ -54,6 +54,14 @@ const ctx = {
   userEmail: "owner@example.com",
 };
 
+/** A script rewriting the page from its latest read. */
+async function rewriteBody(id: string, content: string) {
+  const { revision } = (await getDocument.run({ id }, ctx)) as {
+    revision: string;
+  };
+  await updateDocument.run({ id, content, baseRevision: revision }, ctx);
+}
+
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
@@ -226,7 +234,7 @@ describe("suggest-document-edit", () => {
         expect(replay.suggestionIds).toEqual(result.suggestionIds);
         expect(replay.proposalId).toBe(result.proposalId);
 
-        await updateDocument.run({ id, content: "A newer body." }, ctx);
+        await rewriteBody(id, "A newer body.");
         const staleReplay = (await suggestDocumentEdit.run(
           args,
           ctx,
@@ -529,10 +537,7 @@ describe("suggest-document-edit", () => {
         const first = (await suggestDocumentEdit.run(args, ctx)) as {
           suggestionId: string;
         };
-        await updateDocument.run(
-          { id, content: "The page changed underneath the proposal." },
-          ctx,
-        );
+        await rewriteBody(id, "The page changed underneath the proposal.");
         const retry = (await suggestDocumentEdit.run(args, ctx)) as {
           suggestionId: string;
         };
@@ -1084,7 +1089,7 @@ describe("suggest-document-edit", () => {
             "<details>",
             "<details open>",
           );
-          await updateDocument.run({ id, content: opened }, ctx);
+          await rewriteBody(id, opened);
           const before = (await getDocument.run({ id }, ctx)) as {
             content: string;
           };
@@ -1159,7 +1164,7 @@ describe("suggest-document-edit", () => {
             ctx,
           )) as { id: string };
           const edited = canonicalizeNfm(content).replace("Waiting", "Blocked");
-          await updateDocument.run({ id, content: edited }, ctx);
+          await rewriteBody(id, edited);
           const suggestion = await getResourceSuggestion.run(
             { id: created.id },
             ctx,
