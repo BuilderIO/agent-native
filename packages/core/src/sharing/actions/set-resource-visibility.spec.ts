@@ -967,6 +967,23 @@ describe("set-resource-visibility approval", () => {
     ).toBe(
       "Make 2 visibility docs public, so anyone with the link can comment?",
     );
+    expect(
+      label({
+        resourceType,
+        resourceIds: ["doc-a", "doc-b"],
+        visibility: "public",
+        role: "viewer",
+      }),
+    ).toBe("Make 2 visibility docs public?");
+
+    register({ displayName: "Visibility Library" });
+    expect(
+      label({
+        resourceType,
+        resourceIds: ["doc-a", "doc-b"],
+        visibility: "public",
+      }),
+    ).toBe("Make 2 visibility libraries public?");
   });
 
   it("doesn't ask for a type that can't be made public", async () => {

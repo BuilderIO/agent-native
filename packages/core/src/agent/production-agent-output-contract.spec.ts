@@ -12,6 +12,7 @@ import {
   type ActionRunContext,
 } from "../action.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { stripInlineBytes } from "../shared/inline-bytes.js";
 import { approvalKeyWithArguments } from "./approval-key.js";
 import * as journalSeed from "./engine/tool-call-journal-seed.js";
@@ -791,11 +792,19 @@ describe("runAgentLoop — one prepared invocation", () => {
         new Promise<string>(() => {})) as unknown as () => string,
       run: async () => ({ ok: true }),
     }) as unknown as ActionEntry;
+    const blank = defineAction({
+      description: "Publish the draft quietly.",
+      schema: z.object({}),
+      needsApproval: true,
+      approvalLabel: () => "   ",
+      run: async () => ({ ok: true }),
+    }) as unknown as ActionEntry;
 
     const asked = await runOneCall({ publish: labelled }, "publish");
     // Wording that fails still asks, with the card's generic question.
     const fallback = await runOneCall({ publish: failing }, "publish");
     const pending = await runOneCall({ publish: promised }, "publish");
+    const empty = await runOneCall({ publish: blank }, "publish");
 
     expect(
       asked.find((event) => event.type === "approval_required"),
@@ -810,6 +819,52 @@ describe("runAgentLoop — one prepared invocation", () => {
     );
     expect(unworded).toBeDefined();
     expect(unworded).not.toHaveProperty("label");
+    const unspoken = empty.find((event) => event.type === "approval_required");
+    expect(unspoken).toBeDefined();
+    expect(unspoken).not.toHaveProperty("label");
+  });
+
+  it("words the question from the context the approval reads", async () => {
+    const contexts: unknown[] = [];
+    const publish = defineAction({
+      description: "Publish the draft.",
+      schema: z.object({}),
+      needsApproval: true,
+      approvalLabel: (_args, ctx) => {
+        contexts.push(ctx);
+        return "Publish the draft?";
+      },
+      run: async () => ({ ok: true }),
+    }) as unknown as ActionEntry;
+    const automation = { triggerId: "trigger-1", triggerName: "Nightly" };
+
+    await runOneCall({ publish }, "publish");
+    await runWithRequestContext(
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      () =>
+        runOneCall({ publish }, "publish", {
+          appId: "content",
+          actionCaller: "mcp",
+          automation,
+          networkProtocol: "mcp",
+          networkId: "network-1",
+          networkPeer: "peer-app",
+        }),
+    );
+
+    expect(contexts).toStrictEqual([
+      { orgId: null, caller: "tool" },
+      {
+        userEmail: "owner@example.com",
+        orgId: "org-1",
+        appId: "content",
+        caller: "mcp",
+        automation,
+        networkProtocol: "mcp",
+        networkId: "network-1",
+        networkPeer: "peer-app",
+      },
+    ]);
   });
 
   it("runs an approval only for the arguments it was bound to", async () => {

@@ -2511,18 +2511,18 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   // does after a reload; drawing it here too would show a live run's card
   // twice. A widget with no message or nothing to draw it leaves the card here.
   const showsAsMessageWidget = (tool: AgentToolCall) =>
-    [`${tool.id}:chat-ui`, `${tool.id}:mcp-app`].some(
-      (id) =>
-        id in thread.widgets &&
-        id in thread.widgetMessageIds &&
-        messagesById.has(thread.widgetMessageIds[id]) &&
-        widgetHasVisibleAssistantOutput(
-          thread.widgets[id],
-          slots.widget,
-          registry.widgets,
-          registry.messageParts,
-        ),
-    );
+    [`${tool.id}:chat-ui`, `${tool.id}:mcp-app`].some((id) => {
+      const widget = id in thread.widgets ? thread.widgets[id] : undefined;
+      const messageId =
+        id in thread.widgetMessageIds ? thread.widgetMessageIds[id] : undefined;
+      if (!widget || !messageId || !messagesById.has(messageId)) return false;
+      return widgetHasVisibleAssistantOutput(
+        widget,
+        slots.widget,
+        registry.widgets,
+        registry.messageParts,
+      );
+    });
   const durableToolResults = items.flatMap((activity) => {
     const tool = toolMap.get(activity.id);
     const Renderer = tool ? registry.tools?.[tool.name] : undefined;
