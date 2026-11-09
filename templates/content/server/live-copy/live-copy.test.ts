@@ -4227,6 +4227,7 @@ describe("a SQL body write to a switched page", () => {
     const { documentRevisionToken } =
       await import("../../actions/_document-edit-mutation.js");
     const base = await page(id);
+    if (!base) throw new Error(`Page ${id} must exist before a CLI update.`);
     return asOwner(async () =>
       action.run(
         {
