@@ -19,7 +19,8 @@ const COVERAGE_TOLERANCE_MS: i64 = 2_500;
 const MAX_MEETING_HISTORY_HOURS: i64 = 8;
 const INDEX_WAIT_TIMEOUT: Duration = Duration::from_secs(45);
 const INDEX_POLL_INTERVAL: Duration = Duration::from_millis(200);
-// Notes collect within seconds of preparing, once transcription starts.
+// Notes collect within seconds of transcription starting. A Whisper model download can hold
+// that start back, so the lifetime counts only while no download runs.
 const UNCOLLECTED_REQUEST_LIFETIME: Duration = Duration::from_secs(10 * 60);
 const UNCOLLECTED_REQUEST_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 static HISTORY_REQUEST_COUNTER: AtomicU64 = AtomicU64::new(1);
