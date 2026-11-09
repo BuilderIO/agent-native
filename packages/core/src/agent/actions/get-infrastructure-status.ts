@@ -94,6 +94,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  audit: { onRead: true, recordInputs: false },
   persistInBrowser: false,
   persistInChatHistory: false,
   // The database host and deploy layout are not for sandboxed extensions.

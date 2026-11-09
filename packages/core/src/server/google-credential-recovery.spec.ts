@@ -102,6 +102,14 @@ describe("recoverGoogleCredential", () => {
     expectFailure("google_recovery_wrong_operator", {
       userEmail: "other@example.test",
     });
+    expectFailure("google_recovery_wrong_operator", {
+      userEmail: "other@example.test",
+      config: {
+        ...baseConfig,
+        notBefore: "invalid timestamp",
+        expiresAt: "also invalid",
+      },
+    });
     expectFailure("google_recovery_not_recorded", { recorded: false });
     expectFailure("google_recovery_credentials_missing", {
       credentials: null,

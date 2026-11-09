@@ -130,10 +130,31 @@ export function recoverGoogleCredential(options: {
   now?: number;
 }): GoogleCredentialRecoveryEnvelope {
   const config = options.config;
+  const operatorEmail = present(config.operatorEmail);
+  const configuredRecoveryValues = [
+    config.recipientPublicKey,
+    config.expectedClientId,
+    config.expectedSecretSha256,
+    config.notBefore,
+    config.expiresAt,
+  ];
+  const hasRecoveryConfig = configuredRecoveryValues.some(
+    (value) => present(value) !== null,
+  );
+
+  if (!hasRecoveryConfig && operatorEmail === null) {
+    fail("google_recovery_off");
+  }
+  if (
+    operatorEmail === null ||
+    options.userEmail.trim().toLowerCase() !== operatorEmail.toLowerCase()
+  ) {
+    fail("google_recovery_wrong_operator");
+  }
+
   const recipientPublicKey = present(config.recipientPublicKey);
   const expectedClientId = present(config.expectedClientId);
   const expectedSecretSha256 = present(config.expectedSecretSha256);
-  const operatorEmail = present(config.operatorEmail);
   const notBefore = present(config.notBefore);
   const expiresAt = present(config.expiresAt);
   const values = [
@@ -145,9 +166,6 @@ export function recoverGoogleCredential(options: {
     expiresAt,
   ];
 
-  if (values.every((value) => value === null)) {
-    fail("google_recovery_off");
-  }
   if (values.some((value) => value === null)) {
     fail("google_recovery_incomplete_config");
   }
@@ -179,12 +197,6 @@ export function recoverGoogleCredential(options: {
   if (now < start) fail("google_recovery_not_yet_valid");
   if (now >= end) fail("google_recovery_expired");
 
-  if (
-    options.userEmail.trim().toLowerCase() !==
-    activeConfig.operatorEmail.toLowerCase()
-  ) {
-    fail("google_recovery_wrong_operator");
-  }
   if (!options.recorded) fail("google_recovery_not_recorded");
   const credentials = options.credentials;
   if (!credentials?.clientId || !credentials.clientSecret) {
