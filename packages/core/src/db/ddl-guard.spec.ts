@@ -6,6 +6,7 @@ describe("ddl-guard", () => {
     originalEnv = { ...process.env };
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     process.env = originalEnv;
     vi.resetModules();
@@ -515,7 +516,6 @@ describe("ddl-guard", () => {
         const logged = warn.mock.calls.flat().join(" ");
         expect(logged).toMatch(/\(code: (28P01|ECONNRESET|ETIMEDOUT)\)/);
         expect(logged).not.toContain("secret host details");
-        warn.mockRestore();
       },
     );
 
@@ -532,7 +532,6 @@ describe("ddl-guard", () => {
       const logged = warn.mock.calls.flat().join(" ");
       expect(logged).toContain("(code: unknown)");
       expect(logged).not.toContain("XX000");
-      warn.mockRestore();
     });
 
     it("logs a repeated unreadable probe once per table and code", async () => {
@@ -556,7 +555,6 @@ describe("ddl-guard", () => {
       await pgTableExists("app_secrets", failWith("28P01"));
       await pgTableExists("settings", failWith("ECONNRESET"));
       expect(probeWarnings()).toBe(3);
-      warn.mockRestore();
     });
 
     it("never issues DDL when the table probe is unreadable", async () => {
