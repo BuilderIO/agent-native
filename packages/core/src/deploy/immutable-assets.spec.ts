@@ -27,6 +27,9 @@ describe("immutable assets", () => {
     fs.writeFileSync(path.join(assetsDir, "m-aB12_cdE2.js"), "");
     fs.writeFileSync(path.join(assetsDir, "m-aB12_cdE32.js"), "");
     fs.writeFileSync(path.join(assetsDir, "m-aB12_cdEx.js"), "");
+    fs.writeFileSync(path.join(assetsDir, "backup-2026110917.pdf"), "");
+    fs.writeFileSync(path.join(assetsDir, "script-2026110917.js"), "");
+    fs.writeFileSync(path.join(assetsDir, "m-aB12_cdE2.css"), "");
     fs.writeFileSync(
       path.join(assetsDir, "chunks", "nested", "chunk-12345678.css"),
       "",
