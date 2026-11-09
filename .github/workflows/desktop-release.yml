@@ -21,7 +21,7 @@ on:
           - production
           - nightly
       version:
-        description: "Stable version to release (e.g. 0.2.0). Required for production; Nightly may use the package.json version."
+        description: "Version to release (e.g. 0.2.0). Leave blank for production to reserve the next stable version; Nightly uses the package.json version. Publish mode needs the staged version."
         required: false
         type: string
       source_ref:
@@ -59,7 +59,7 @@ jobs:
   resolve-version:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.v.outputs.version }}
+      version: ${{ steps.v.outputs.version || steps.reserve.outputs.version }}
       source_ref: ${{ steps.v.outputs.source_ref }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -104,11 +104,45 @@ jobs:
               # silently strips +metadata, which would make release assets
               # collide across automatic runs.
               echo "version=${BASE}-nightly.${AUTO_VERSION_SUFFIX}" >> "$GITHUB_OUTPUT"
-            else
-              echo "::error::Production releases require an explicit stable version input."
+            elif [ "$RELEASE_MODE" = "publish" ]; then
+              echo "::error::Publish mode needs the version of the staged draft to publish."
               exit 1
+            else
+              echo "No version given; reserving the next stable version."
             fi
           fi
+
+      # The release commit can predate the version script, so it comes from
+      # this workflow's revision.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        if: ${{ steps.v.outputs.version == '' }}
+        with:
+          path: workflow-revision
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - name: Reserve the next stable version
+        id: reserve
+        if: ${{ steps.v.outputs.version == '' }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RELEASE_SOURCE_REF: ${{ steps.v.outputs.source_ref }}
+        with:
+          script: |
+            const { reserveStableVersion } = await import(
+              `${process.env.GITHUB_WORKSPACE}/workflow-revision/scripts/stable-release-version.ts`
+            );
+            const desktopPackage = require(
+              `${process.env.GITHUB_WORKSPACE}/packages/desktop-app/package.json`,
+            );
+            const version = await reserveStableVersion(github, context.repo, {
+              tagPrefix: "v",
+              baseVersion: desktopPackage.version,
+              sourceSha: process.env.RELEASE_SOURCE_REF,
+              warn: (message) => core.warning(message),
+            });
+            core.info(`Reserved v${version} at ${process.env.RELEASE_SOURCE_REF}.`);
+            core.setOutput("version", version);
 
   prepare-release:
     needs: resolve-version
