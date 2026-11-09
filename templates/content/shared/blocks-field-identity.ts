@@ -183,6 +183,8 @@ function nodeMarkdown(node: PMNode): string {
   return docToNfm({ type: "doc", content: [node] });
 }
 
+const EMPTY_PARAGRAPH_MARKDOWN = nodeMarkdown({ type: "paragraph" });
+
 export function snapshotBlocksFieldMarkdown(
   markdown: string,
 ): BlocksFieldBlockSnapshot[] {
@@ -354,6 +356,17 @@ function editSimilarity(left: string, right: string): number {
   return (2 * shared) / (leftBigrams.size + rightBigrams.size);
 }
 
+function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
+  const values = map.get(key);
+  if (values) values.push(value);
+  else map.set(key, [value]);
+}
+
+function startsWithBlock(whole: string, part: string): boolean {
+  const prefix = part.trim();
+  return prefix.length > 0 && whole.trimStart().startsWith(prefix);
+}
+
 export function reconcileBlocksFieldIdentity(args: {
   documentId: string;
   propertyId: string;
@@ -404,34 +417,172 @@ export function reconcileBlocksFieldIdentity(args: {
     assigned.set(nextIndex, previousLive[previousIndex]!);
   }
 
-  const unmatchedKinds = new Set([
-    ...previousLive
-      .filter((_block, index) => !matchedPrevious.has(index))
-      .map((block) => block.kind),
-    ...snapshots
-      .filter((_snapshot, index) => !assigned.has(index))
-      .map((snapshot) => snapshot.kind),
-  ]);
-  for (const kind of unmatchedKinds) {
-    const previousIndexes = previousLive.flatMap((block, index) =>
-      !matchedPrevious.has(index) && block.kind === kind ? [index] : [],
-    );
-    const nextIndexes = snapshots.flatMap((snapshot, index) =>
-      !assigned.has(index) && snapshot.kind === kind ? [index] : [],
-    );
-    if (previousIndexes.length !== 1 && nextIndexes.length !== 1) {
-      continue;
+  const pair = (previousIndex: number, nextIndex: number) => {
+    matchedPrevious.add(previousIndex);
+    assigned.set(nextIndex, previousLive[previousIndex]);
+  };
+  const nextIndexByPath = new Map(
+    snapshots.map((snapshot, index) => [snapshot.path, index]),
+  );
+
+  // A leftover block's place is its parent plus the nearest siblings before
+  // and after it that kept their identity under that same parent. Nested
+  // blocks have no place until their parent is matched.
+  const leftoverPlaces = () => {
+    const nextIndexForPrevious = new Map<number, number>();
+    for (const [nextIndex, block] of assigned) {
+      const previousIndex = previousLiveById.get(block.id);
+      if (previousIndex !== undefined) {
+        nextIndexForPrevious.set(previousIndex, nextIndex);
+      }
     }
-    if (previousIndexes.length === 0 || nextIndexes.length === 0) continue;
-    const samePosition = nextIndexes.find(
-      (nextIndex) =>
-        snapshots[nextIndex]!.position ===
-        previousLive[previousIndexes[0]!]!.position,
+    const nextParentKey = (nextIndex: number): string | null => {
+      const parentPath = snapshots[nextIndex].parentPath;
+      if (parentPath === null) return "";
+      const parentIndex = nextIndexByPath.get(parentPath);
+      if (parentIndex === undefined) return null;
+      return assigned.get(parentIndex)?.id ?? null;
+    };
+    const places = new Map<string, { previous: number[]; next: number[] }>();
+    const collect = (
+      side: "previous" | "next",
+      siblingsByParent: Map<string, number[]>,
+      anchorId: (index: number, parentKey: string) => string | null,
+      isLeftover: (index: number) => boolean,
+    ) => {
+      for (const [parentKey, siblings] of siblingsByParent) {
+        let before = "";
+        let pending: number[] = [];
+        const flush = (after: string) => {
+          const key = JSON.stringify([parentKey, before, after]);
+          let place = places.get(key);
+          if (!place) {
+            place = { previous: [], next: [] };
+            places.set(key, place);
+          }
+          place[side].push(...pending);
+          pending = [];
+        };
+        for (const index of siblings) {
+          const anchor = anchorId(index, parentKey);
+          if (anchor !== null) {
+            flush(anchor);
+            before = anchor;
+          } else if (isLeftover(index)) {
+            pending.push(index);
+          }
+        }
+        flush("");
+      }
+    };
+
+    const previousByParent = new Map<string, number[]>();
+    previousLive.forEach((block, index) => {
+      appendTo(previousByParent, block.parentId ?? "", index);
+    });
+    collect(
+      "previous",
+      previousByParent,
+      (index, parentKey) => {
+        const nextIndex = nextIndexForPrevious.get(index);
+        return nextIndex !== undefined && nextParentKey(nextIndex) === parentKey
+          ? previousLive[index].id
+          : null;
+      },
+      (index) => !matchedPrevious.has(index),
     );
-    if (samePosition === undefined) continue;
-    matchedPrevious.add(previousIndexes[0]!);
-    assigned.set(samePosition, previousLive[previousIndexes[0]!]!);
-  }
+
+    const nextByParent = new Map<string, number[]>();
+    snapshots.forEach((_snapshot, index) => {
+      const parentKey = nextParentKey(index);
+      if (parentKey !== null) appendTo(nextByParent, parentKey, index);
+    });
+    collect(
+      "next",
+      nextByParent,
+      (index, parentKey) => {
+        const block = assigned.get(index);
+        return block && (block.parentId ?? "") === parentKey ? block.id : null;
+      },
+      (index) => !assigned.has(index),
+    );
+    return places.values();
+  };
+
+  // Pair leftovers only where their place says which block is which:
+  // identical blocks in order, the first part of a split or merge, the first
+  // block written into an empty paragraph, and, once `allowRewrite` is set,
+  // the one block of a kind that was rewritten in place.
+  // A place with several unrelated candidates pairs nothing, so a deleted
+  // block's ID never moves to new text.
+  const pairWithinPlaces = (allowRewrite: boolean) => {
+    let paired: boolean;
+    do {
+      paired = false;
+      for (const place of leftoverPlaces()) {
+        const kinds = new Set(
+          place.previous.map((index) => previousLive[index].kind),
+        );
+        for (const kind of kinds) {
+          const previous = place.previous.filter(
+            (index) => previousLive[index].kind === kind,
+          );
+          const next = place.next.filter(
+            (index) => snapshots[index].kind === kind,
+          );
+          for (const previousIndex of [...previous]) {
+            const nextPosition = next.findIndex(
+              (nextIndex) =>
+                snapshots[nextIndex].contentHash ===
+                previousLive[previousIndex].contentHash,
+            );
+            if (nextPosition === -1) continue;
+            pair(previousIndex, next[nextPosition]);
+            previous.splice(previous.indexOf(previousIndex), 1);
+            next.splice(nextPosition, 1);
+            paired = true;
+          }
+          if (previous.length === 0 || next.length === 0) continue;
+          const firstPrevious = previous[0];
+          const firstNext = next[0];
+          const previousMarkdown = previousLive[firstPrevious].markdown;
+          const split =
+            previous.length === 1 &&
+            next.length > 1 &&
+            (previousMarkdown === EMPTY_PARAGRAPH_MARKDOWN ||
+              startsWithBlock(previousMarkdown, snapshots[firstNext].markdown));
+          const merge =
+            previous.length > 1 &&
+            next.length === 1 &&
+            startsWithBlock(snapshots[firstNext].markdown, previousMarkdown);
+          const rewrite =
+            allowRewrite && previous.length === 1 && next.length === 1;
+          if (split || merge || rewrite) {
+            pair(firstPrevious, firstNext);
+            paired = true;
+          }
+        }
+      }
+    } while (paired);
+  };
+  pairWithinPlaces(false);
+
+  const leftoverNextByContent = new Map<string, number[]>();
+  snapshots.forEach((snapshot, nextIndex) => {
+    if (assigned.has(nextIndex)) return;
+    appendTo(
+      leftoverNextByContent,
+      `${snapshot.kind}\0${snapshot.contentHash}`,
+      nextIndex,
+    );
+  });
+  previousLive.forEach((block, previousIndex) => {
+    if (matchedPrevious.has(previousIndex)) return;
+    const nextIndex = leftoverNextByContent
+      .get(`${block.kind}\0${block.contentHash}`)
+      ?.shift();
+    if (nextIndex !== undefined) pair(previousIndex, nextIndex);
+  });
 
   const bestNextForPrevious = new Map<
     number,
@@ -471,29 +622,7 @@ export function reconcileBlocksFieldIdentity(args: {
     assigned.set(nextBest.index, previousLive[previousIndex]!);
   }
 
-  for (let nextIndex = 0; nextIndex < snapshots.length; nextIndex++) {
-    if (assigned.has(nextIndex)) continue;
-    const snapshot = snapshots[nextIndex]!;
-    const samePosition = previousLive.findIndex(
-      (block, previousIndex) =>
-        !matchedPrevious.has(previousIndex) &&
-        block.kind === snapshot.kind &&
-        block.position === snapshot.position,
-    );
-    if (samePosition !== -1) {
-      matchedPrevious.add(samePosition);
-      assigned.set(nextIndex, previousLive[samePosition]!);
-      continue;
-    }
-    const sameKind = previousLive.findIndex(
-      (block, previousIndex) =>
-        !matchedPrevious.has(previousIndex) && block.kind === snapshot.kind,
-    );
-    if (sameKind !== -1) {
-      matchedPrevious.add(sameKind);
-      assigned.set(nextIndex, previousLive[sameKind]!);
-    }
-  }
+  pairWithinPlaces(true);
 
   const recoverable = uniqueIndexByKey(
     previousDeleted,

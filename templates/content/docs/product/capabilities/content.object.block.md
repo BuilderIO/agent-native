@@ -24,11 +24,12 @@ proof_requirements:
 evidence:
   [
     "shared/blocks-field-identity.ts",
+    "shared/blocks-field-identity.spec.ts",
     "actions/blocks-seeding.db.test.ts",
     "actions/content-database-block-actions.db.test.ts",
   ]
 superseded_by: null
-last_reviewed: "2026-08-10"
+last_reviewed: "2026-11-08"
 ---
 
 # Blocks
@@ -45,6 +46,7 @@ An editor moves a callout above a heading while a reviewer comments on it and an
 
 - A Block is a stable, typed content unit owned by one Blocks field; it is not a Page.
 - Editing text or typed props and reordering Blocks preserve identity whenever the logical Block survives.
+- Block identity lives in the field's identity sidecar beside the body, never in the saved body text, so Markdown, export, and synced copies carry no Block IDs. Each save matches Blocks again by exact caller IDs, identical content, the first part of a split or merge, similar text, and finally a Block rewritten in place between the same kept neighbors under the same parent. A Block that none of these tells apart gets a new ID; the earlier Block it might have been becomes a tombstone.
 - References store Block identity, not renderer position. Comments remain Page-owned while targeting one or more Block anchors.
 - Deletion records an attributable historical target; recovery never silently reassigns an old anchor to unrelated new text.
 - One Action surface applies validation, access, Events, and concurrency behavior for people and agents.
@@ -67,7 +69,7 @@ Given a Block reference in another Page, when an authorized reader opens it, the
 
 ## Current evidence
 
-Collection Blocks fields now have a field-scoped ordered identity sidecar with deterministic legacy IDs, persisted revisions, and bounded tombstone recovery. Exact collection-row actions list stable Blocks and apply supported insert, update, upsert, delete, and same-parent reorder operations with schema, row, and field conflicts plus durable retry receipts. Deterministic tests cover sibling preservation, operation capabilities, deletion, recovery, reload, and field independence. Reference/comment anchors, actor-aware history, other Blocks-field owners, and real-interface proof remain incomplete, so this is `in_progress`, not verified.
+Collection Blocks fields now have a field-scoped ordered identity sidecar with deterministic legacy IDs, persisted revisions, and bounded tombstone recovery. Exact collection-row actions list stable Blocks and apply supported insert, update, upsert, delete, and same-parent reorder operations with schema, row, and field conflicts plus durable retry receipts. Deterministic tests cover sibling preservation, operation capabilities, deletion, recovery, reload, and field independence. Body saves without caller IDs re-match by content and place; tests prove that a save which deletes one paragraph and rewrites another, moves and rewrites one, or edits a list item never hands a deleted Block's ID to other text. Reference/comment anchors, actor-aware history, other Blocks-field owners, and real-interface proof remain incomplete, so this is `in_progress`, not verified.
 
 ## Proof plan
 
@@ -78,4 +80,4 @@ Collection Blocks fields now have a field-scoped ordered identity sidecar with d
 
 ## Open questions
 
-Storage encoding and identity assignment timing remain implementation choices, provided logical Block identity and historical anchors survive.
+Storage is settled in the Product contract: the sidecar, not in-text IDs, because in-text video IDs needed duplicate-ID checks on every write path, fresh IDs on paste and duplicate, and rematching after source pulls. Still open is when the editor should hand its own saves exact Block IDs instead of relying on matching; that waits for the first feature that links to a single Block, since agent Markdown edits would still be matched.
