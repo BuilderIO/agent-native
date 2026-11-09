@@ -1477,7 +1477,7 @@ export function AuthPage(props: AuthPageProps) {
     if (googleAuthMode === "popup" || googleAuthMode === "redirect") {
       return googleAuthMode;
     }
-    return isAgentNativeDesktop() ? "redirect" : "popup";
+    return isInFrame() && !isAgentNativeDesktop() ? "popup" : "redirect";
   }, [googleAuthMode]);
 
   const googleAuthUrlPath = React.useCallback(
