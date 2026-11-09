@@ -140,3 +140,5 @@ Clips and Slides use the same pre-signup 50/50 assignment, Builder terms/privacy
 Their AppProviders startup gate waits for confirmed activation before presenting first-run onboarding, then refreshes connection queries. Controls and ineligible or fallback users retain the existing connection flow. Public and embedded routes do not provision accounts.
 
 Analyze each app separately using its experiment ID and production app identity; do not pool Clips or Slides into the Design dashboard. Use common exposure/enrollment/activation/outcome events for connection funnels, and the app's native creation events for activation.
+
+Design, Clips, and Slides now share the AppProviders activation gate and bounded retry UI. Pending reservations remain pending on hosts without background execution; stale uncertain reservations release to manual setup without repeating provider creation.

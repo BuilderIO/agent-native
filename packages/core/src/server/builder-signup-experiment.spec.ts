@@ -390,17 +390,31 @@ describe("pre-signup Builder experiment", () => {
     expect(activate).not.toHaveBeenCalled();
     mocks.settings.set("design_builder_signup_v1:new-user", {
       status: "started",
-      startedAt: testTime - 60000,
+      startedAt: testTime - 1000,
     });
     const uncertain = await request({ operation: "status" });
     expect(await uncertain.json()).toEqual({
-      status: "disabled",
-      code: "activation_in_progress",
+      status: "pending",
     });
-    expect(uncertain.headers.get("set-cookie")).toContain(
-      "an_builder_signup_pending=",
-    );
+    expect(uncertain.headers.get("set-cookie")).toBeNull();
+    expect(await (await request({ operation: "start" })).json()).toEqual({
+      status: "pending",
+    });
+    mocks.settings.set("design_builder_signup_v1:new-user", {
+      status: "started",
+      startedAt: testTime - 61000,
+    });
+    expect(await (await request({ operation: "start" })).json()).toEqual({
+      status: "fallback",
+      code: "activation_result_unknown",
+    });
     expect(activate).not.toHaveBeenCalled();
+    expect(mocks.track).toHaveBeenCalledWith(
+      "builder_signup_experiment_activation_unavailable",
+      expect.objectContaining({ code: "activation_result_unknown" }),
+      expect.anything(),
+    );
+    mocks.track.mockClear();
     mocks.settings.clear();
     const skipped = await request({ operation: "status" });
     expect(skipped.headers.get("set-cookie")).toContain(

@@ -444,14 +444,29 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       const existing = await getSetting(`${experimentId()}:${session.userId}`);
       if (existing) {
         const status = existingSignupStatusSchema.parse(existing.status);
+        if (status === "started") {
+          if (
+            typeof existing.startedAt !== "number" ||
+            Date.now() - existing.startedAt <= 60_000
+          ) {
+            return { status: "pending" as const };
+          }
+          track(
+            "builder_signup_experiment_activation_unavailable",
+            {
+              ...experimentProperties(assignment ?? undefined),
+              code: "activation_result_unknown",
+            },
+            { userId: session.email, authUserId: session.userId },
+          );
+          deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+          return {
+            status: "fallback" as const,
+            code: "activation_result_unknown",
+          };
+        }
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
-        return {
-          status: "disabled" as const,
-          code:
-            status === "started"
-              ? "activation_in_progress"
-              : "already_completed",
-        };
+        return { status: "disabled" as const, code: "already_completed" };
       }
       return { status: "eligible" as const };
     }

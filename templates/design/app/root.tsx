@@ -26,6 +26,7 @@ import {
   useHomeSuggestionSeedForHome,
 } from "@agent-native/toolkit/app-shell";
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import { useFirstRunOnboardingGateOwnsSurface } from "@agent-native/toolkit/app/onboarding";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import {
   AppShellSkeleton,
@@ -59,10 +60,6 @@ import {
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
-import {
-  BuilderSignupActivationCover,
-  useBuilderSignupActivation,
-} from "@/components/BuilderSignupActivation";
 import {
   DesignHomeLibrary,
   type DesignHomeLibraryTab,
@@ -445,9 +442,7 @@ function PrivateRootContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const hasSession = Boolean(session?.email);
   const isPublicVisualEdit = location.pathname === "/visual-edit";
-  const activatingBuilderSignup = useBuilderSignupActivation(
-    hasSession && session?.emailVerified === true ? session.userId : undefined,
-  );
+  const activatingBuilderSignup = useFirstRunOnboardingGateOwnsSurface();
   useDesignVariantPickTracking();
   // The home prompt composer takes focus on load, and without this the shortcut
   // is swallowed whenever a contenteditable has focus.
@@ -477,9 +472,7 @@ function PrivateRootContent() {
           onOpenChange={setCmdkOpen}
         />
       )}
-      <BuilderSignupActivationCover activating={activatingBuilderSignup}>
-        {content}
-      </BuilderSignupActivationCover>
+      {content}
     </>
   );
 }
@@ -571,6 +564,7 @@ export default function Root() {
     >
       <AppToolkitProvider>
         <AppProviders
+          builderSignupExperiment="design_builder_signup_v1"
           queryClient={queryClient}
           skeletonLayout="prompt-library"
           {...(firstPaintHome ? { clientOnlyFallback: firstPaintHome } : {})}

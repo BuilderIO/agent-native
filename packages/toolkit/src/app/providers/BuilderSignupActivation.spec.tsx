@@ -153,9 +153,14 @@ describe("BuilderSignupActivation", () => {
       timeout: 6000,
     });
     await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    const statusReadsAtCap = mocks.status.mock.calls.length;
+    await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 2300));
     });
     expect(mocks.activate).toHaveBeenCalledTimes(3);
+    expect(mocks.status).toHaveBeenCalledTimes(statusReadsAtCap);
     expect(container.querySelector("[role='alert']")).not.toBeNull();
     mocks.activate.mockResolvedValue("connected");
     await act(async () => {

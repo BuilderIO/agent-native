@@ -31,7 +31,7 @@ export function useBuilderSignupActivation(
   const recoveryAttempts = useRef(new Map<string, number>());
   const [activation, setActivation] = useState<{
     userId: string;
-    status: "running" | "checking" | "settled";
+    status: "running" | "checking" | "paused" | "settled";
     failedAt?: number;
   }>();
   const eligibility = useQuery({
@@ -85,7 +85,14 @@ export function useBuilderSignupActivation(
       });
       setActivation((current) =>
         current?.userId === userId
-          ? { userId, status: "checking", failedAt: Date.now() }
+          ? {
+              userId,
+              status:
+                (recoveryAttempts.current.get(attemptKey) ?? 0) >= 2
+                  ? "paused"
+                  : "checking",
+              failedAt: Date.now(),
+            }
           : current,
       );
     });
@@ -99,7 +106,7 @@ export function useBuilderSignupActivation(
   ]);
   useEffect(() => {
     if (
-      activation?.status === "checking" &&
+      (activation?.status === "checking" || activation?.status === "paused") &&
       activation.userId === userId &&
       eligibility.data === "disabled"
     ) {
@@ -138,7 +145,8 @@ export function useBuilderSignupActivation(
         ? activation.status !== "settled"
         : eligibility.data === "eligible"),
     resolving: Boolean(userId) && eligibility.isPending,
-    statusError: activation?.status === "checking",
+    statusError:
+      activation?.status === "checking" || activation?.status === "paused",
     retryStatus: () => {
       recoveryAttempts.current.set(attemptKey, 0);
       attempts.delete(attemptKey);
