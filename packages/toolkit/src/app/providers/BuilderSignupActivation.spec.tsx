@@ -144,6 +144,36 @@ describe("BuilderSignupActivation", () => {
     expect(container.querySelector("button")?.closest("[inert]")).toBeNull();
   });
 
+  it("retains confirmed disabled eligibility when a background refetch fails", async () => {
+    mocks.status.mockResolvedValue("disabled");
+    await render("confirmed-disabled-user");
+    await vi.waitFor(() =>
+      expect(
+        container
+          .querySelector("[data-resolving]")
+          ?.getAttribute("data-resolving"),
+      ).toBe("false"),
+    );
+    mocks.status.mockRejectedValue(new Error("background refetch failed"));
+    await act(async () => {
+      await queryClient.refetchQueries({
+        queryKey: [
+          "builder-signup-eligibility",
+          "clips_builder_signup_v1",
+          "confirmed-disabled-user",
+        ],
+      });
+    });
+    expect(
+      container
+        .querySelector("[data-resolving]")
+        ?.getAttribute("data-resolving"),
+    ).toBe("false");
+    expect(container.querySelector("[role='alert']")).toBeNull();
+    expect(container.querySelector("[inert]")).toBeNull();
+    expect(mocks.activate).not.toHaveBeenCalled();
+  });
+
   it("keeps the cover after a polling timeout until the server confirms a terminal result", async () => {
     mocks.status.mockResolvedValue("eligible");
     mocks.activate.mockRejectedValue(new Error("polling timed out"));

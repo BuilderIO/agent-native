@@ -138,6 +138,10 @@ export function useBuilderSignupActivation(
     attemptKey,
     queryClient,
   ]);
+  // React Query retains confirmed data when a background refetch fails.
+  // Only an initial failure leaves eligibility unknown.
+  const initialStatusError =
+    eligibility.isError && eligibility.data === undefined;
   return {
     activating:
       userId !== undefined &&
@@ -147,9 +151,9 @@ export function useBuilderSignupActivation(
     resolving:
       Boolean(userId) &&
       (eligibility.isPending ||
-        (eligibility.isError && activation?.userId !== userId)),
+        (initialStatusError && activation?.userId !== userId)),
     statusError:
-      eligibility.isError ||
+      initialStatusError ||
       activation?.status === "checking" ||
       activation?.status === "paused",
     retryStatus: () => {
