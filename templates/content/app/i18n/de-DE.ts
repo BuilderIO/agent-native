@@ -837,6 +837,7 @@ const editor = {
     generatingAltText: "Alternativtext wird generiert...",
     image: "Bild",
     imageAdded: "Bild hinzugefügt",
+    imagesAdded: "Bilder hinzugefügt",
     imageBroken: "Bild konnte nicht geladen werden",
     imageCommentWithAlt: "Bild: {{alt}}",
     imageCopied: "Bild kopiert.",
@@ -845,6 +846,8 @@ const editor = {
     imagePreview: "Bildvorschau",
     imageUnavailable: "Bild nicht verfügbar",
     imageUploadFailed: "Bild konnte nicht hochgeladen werden",
+    imageUploadsFailed:
+      "{{failed}} von {{total}} Bildern konnten nicht hochgeladen werden.",
     imageView: "Bildansicht",
     link: "Link [de-DE]",
     loadingAssetsPicker: "Assets-Auswahl wird geladen",

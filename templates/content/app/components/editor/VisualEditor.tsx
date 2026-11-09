@@ -2583,12 +2583,16 @@ function hasPendingImageNode(view: EditorView, uploadId: string) {
 
 interface ImageUploadMessages {
   added: string;
+  addedMany: string;
   broken: string;
+  someFailed: (failed: number, total: number) => string;
 }
 
 const DEFAULT_IMAGE_UPLOAD_MESSAGES: ImageUploadMessages = {
   added: "Image added",
+  addedMany: "Images added",
   broken: "Image could not be loaded",
+  someFailed: (failed, total) => `${failed} of ${total} image uploads failed.`,
 };
 
 export interface ImageUploadOptions {
@@ -2655,6 +2659,11 @@ export async function runImageUpload(
     wasImageUploadBlockRemoved(uploadId) &&
     !hasPendingImageNode(view, uploadId);
   const canWrite = () => !closed() && !removed() && !isBlocked?.();
+  // Deleted while it waited behind earlier files in the same drop.
+  if (removed()) {
+    releaseImageUploadPreview(uploadId);
+    return { status: "stopped" };
+  }
   let stagedSrc: string | null = null;
   // Set from the upload's callbacks, so it is read through the object.
   const progress = { committed: false };
@@ -2956,13 +2965,13 @@ export async function uploadAndInsertImageFiles(
 
   if (failed === 0) {
     if (added > 0) {
-      toast.success(added === 1 ? messages.added : "Images added");
+      toast.success(added === 1 ? messages.added : messages.addedMany);
     }
   } else if (files.length === 1) {
     toast.error(imageUploadFailureMessage(firstError, messages));
   } else {
     toast.error(
-      `${failed} of ${files.length} image uploads failed. ${imageUploadFailureMessage(firstError, messages)}`,
+      `${messages.someFailed(failed, files.length)} ${imageUploadFailureMessage(firstError, messages)}`,
     );
   }
 }
@@ -3657,7 +3666,10 @@ export function VisualEditor({
       owner: imageUploadOwner,
       messages: {
         added: tRef.current("editor.media.imageAdded"),
+        addedMany: tRef.current("editor.media.imagesAdded"),
         broken: tRef.current("editor.media.imageBroken"),
+        someFailed: (failed, total) =>
+          tRef.current("editor.media.imageUploadsFailed", { failed, total }),
       },
     }),
     [imageUploadOwner],

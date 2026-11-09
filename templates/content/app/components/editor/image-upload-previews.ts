@@ -152,14 +152,14 @@ export function releaseImageUploadPreviewsFor(owner: object) {
 }
 
 /**
- * The user deleted the block for `uploadId`. A running upload then ends
- * without putting the block back; a stopped one has nothing left to show.
+ * The user deleted the block for `uploadId`. A running or queued upload then
+ * ends without putting the block back; a failed one has nothing left to show.
  */
 export function noteImageUploadBlockRemoved(uploadId: unknown) {
   const key = previewKey(uploadId);
   const entry = key ? held.get(key) : undefined;
   if (!key || !entry) return;
-  if (entry.running) {
+  if (entry.running || entry.preview.failure === null) {
     entry.removed = true;
     return;
   }

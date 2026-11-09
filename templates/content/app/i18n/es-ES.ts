@@ -828,6 +828,7 @@ const editor = {
     generatingAltText: "Generando texto alternativo...",
     image: "Imagen",
     imageAdded: "Imagen agregada",
+    imagesAdded: "Imágenes agregadas",
     imageBroken: "No se pudo cargar la imagen",
     imageCommentWithAlt: "Imagen: {{alt}}",
     imageCopied: "Imagen copiada.",
@@ -836,6 +837,8 @@ const editor = {
     imagePreview: "Vista previa de la imagen",
     imageUnavailable: "Imagen no disponible",
     imageUploadFailed: "No se pudo subir esta imagen",
+    imageUploadsFailed:
+      "No se pudieron subir {{failed}} de {{total}} imágenes.",
     imageView: "Vista de imagen",
     link: "Enlace",
     loadingAssetsPicker: "Cargando selector de recursos",

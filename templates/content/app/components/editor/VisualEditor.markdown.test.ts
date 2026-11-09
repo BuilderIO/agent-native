@@ -3983,7 +3983,13 @@ describe("slash image picker lifecycle", () => {
 describe("image upload previews", () => {
   const file = new File(["image-bytes"], "diagram.png", { type: "image/png" });
   const uploadedSrc = "https://cdn.example.com/diagram.png";
-  const messages = { added: "Image added", broken: "Image broken" };
+  const messages = {
+    added: "Image added",
+    addedMany: "Images added",
+    broken: "Image broken",
+    someFailed: (failed: number, total: number) =>
+      `${failed} of ${total} failed.`,
+  };
 
   function images(editor: Editor) {
     return editor.getJSON().content.filter((node) => node.type === "image");
@@ -4147,6 +4153,40 @@ describe("image upload previews", () => {
         src: uploadedSrc,
         uploadId: null,
       });
+    });
+  });
+
+  it("keeps a queued block deleted when it is removed behind an earlier upload", async () => {
+    await withMountedEditor(async (editor) => {
+      const first = deferred<string>();
+      const upload = vi.fn(() => first.promise);
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(editor.view, [file, file], 0, upload);
+      });
+      expect(images(editor)).toHaveLength(2);
+      expect(upload).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        const { state } = editor.view;
+        const from = state.doc.child(0).nodeSize;
+        const queued = state.doc.child(1);
+        expect(queued.type.name).toBe("image");
+        editor.view.dispatch(state.tr.delete(from, from + queued.nodeSize));
+      });
+      expect(images(editor)).toHaveLength(1);
+
+      await act(async () => {
+        first.resolve(uploadedSrc);
+        await done;
+      });
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(images(editor)).toHaveLength(1);
+      expect(images(editor)[0]?.attrs).toMatchObject({
+        src: uploadedSrc,
+        uploadId: null,
+      });
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-2");
     });
   });
 

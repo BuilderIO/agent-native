@@ -818,6 +818,7 @@ const editor = {
     generatingAltText: "代替テキストを生成しています...",
     image: "画像",
     imageAdded: "画像追加",
+    imagesAdded: "画像を追加しました",
     imageBroken: "画像を読み込めませんでした",
     imageCommentWithAlt: "画像: {{alt}}",
     imageCopied: "画像をコピーしました。",
@@ -826,6 +827,8 @@ const editor = {
     imagePreview: "画像プレビュー",
     imageUnavailable: "画像を表示できません",
     imageUploadFailed: "この画像をアップロードできませんでした",
+    imageUploadsFailed:
+      "{{total}} 件中 {{failed}} 件の画像をアップロードできませんでした。",
     imageView: "イメージビュー",
     link: "リンク",
     loadingAssetsPicker: "アセットピッカーのロード",

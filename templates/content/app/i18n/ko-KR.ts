@@ -810,6 +810,7 @@ const editor = {
     generatingAltText: "대체 텍스트 생성 중...",
     image: "이미지",
     imageAdded: "이미지가 추가됨",
+    imagesAdded: "이미지가 추가됨",
     imageBroken: "이미지를 불러올 수 없습니다",
     imageCommentWithAlt: "이미지: {{alt}}",
     imageCopied: "이미지가 복사되었습니다.",
@@ -818,6 +819,8 @@ const editor = {
     imagePreview: "이미지 미리보기",
     imageUnavailable: "이미지를 사용할 수 없음",
     imageUploadFailed: "이 이미지를 업로드할 수 없습니다",
+    imageUploadsFailed:
+      "이미지 {{total}}개 중 {{failed}}개를 업로드할 수 없습니다.",
     imageView: "이미지 보기",
     link: "링크",
     loadingAssetsPicker: "자산 선택기 로드 중",

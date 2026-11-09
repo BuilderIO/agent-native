@@ -839,6 +839,7 @@ const editor = {
     generatingAltText: "Génération du texte alternatif...",
     image: "Images",
     imageAdded: "Image ajoutée",
+    imagesAdded: "Images ajoutées",
     imageBroken: "L'image n'a pas pu être chargée",
     imageCommentWithAlt: "Image : {{alt}}",
     imageCopied: "Image copiée.",
@@ -847,6 +848,8 @@ const editor = {
     imagePreview: "Aperçu de l'image",
     imageUnavailable: "Image non disponible",
     imageUploadFailed: "Impossible d'importer cette image",
+    imageUploadsFailed:
+      "{{failed}} images sur {{total}} n'ont pas pu être importées.",
     imageView: "Vue des images",
     link: "Lien",
     loadingAssetsPicker: "Chargement du sélecteur d'actifs",

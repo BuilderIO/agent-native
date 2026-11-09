@@ -128,12 +128,17 @@ describe("image upload previews", () => {
     expect(URL.revokeObjectURL).not.toHaveBeenCalled();
   });
 
-  it("marks a running upload's deleted block, and drops a stopped one's preview", () => {
+  it("marks a running or queued upload's deleted block, and drops a failed one's preview", () => {
     holdImageUploadPreview("image-upload-1", file, owner);
     startImageUploadPreview("image-upload-1");
     noteImageUploadBlockRemoved("image-upload-1");
     expect(wasImageUploadBlockRemoved("image-upload-1")).toBe(true);
     expect(hasImageUploadPreview("image-upload-1")).toBe(true);
+
+    holdImageUploadPreview("image-upload-2", file, owner);
+    noteImageUploadBlockRemoved("image-upload-2");
+    expect(wasImageUploadBlockRemoved("image-upload-2")).toBe(true);
+    expect(hasImageUploadPreview("image-upload-2")).toBe(true);
 
     failImageUploadPreview("image-upload-1", "upload", vi.fn());
     noteImageUploadBlockRemoved("image-failed-1");
