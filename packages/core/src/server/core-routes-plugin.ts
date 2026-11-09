@@ -51,6 +51,7 @@ import {
 import {
   createBuilderSignupExperimentHandler,
   getBuilderSignupConnectError,
+  getBuilderSignupTrackingIdentity,
 } from "./builder-signup-experiment.js";
 export {
   normalizeAgentEngineStatusModel,
@@ -5117,10 +5118,7 @@ export function createCoreRoutesPlugin(
               requestedScope: null,
               member: authorization.member,
               connectAttemptId: null,
-              tracking: {
-                agentNativeApp: resolveRunningAppIdentity() ?? undefined,
-                agentNativeTemplate: resolveRunningAppIdentity() ?? undefined,
-              },
+              tracking: getBuilderSignupTrackingIdentity(),
               newAccountOnly: true,
             });
           },

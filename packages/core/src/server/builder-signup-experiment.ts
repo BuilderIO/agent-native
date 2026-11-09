@@ -75,6 +75,15 @@ function hasSignupConsentOwnership(
   );
 }
 
+/** Keep deployment identity distinct from its source template, as in manual connect. */
+export function getBuilderSignupTrackingIdentity() {
+  const { app } = getAppConfig();
+  return {
+    agentNativeApp: app.workspaceId ?? app.id,
+    agentNativeTemplate: app.template ?? app.sourceTemplate ?? app.slug,
+  };
+}
+
 function experimentId(): string {
   return getAppConfig().onboarding.builderSignupExperimentId;
 }
@@ -603,7 +612,6 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       }
       if (
         status === "started" &&
-        body.data.operation === "start" &&
         typeof existing.startedAt === "number" &&
         Date.now() - existing.startedAt > 60_000
       ) {

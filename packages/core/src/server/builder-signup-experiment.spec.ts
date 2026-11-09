@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("../app-config/index.js", () => ({
   getAppConfig: () => ({
+    app: { id: "agent-native-clips", slug: "clips" },
     onboarding: {
       builderSignupExperiment: mocks.enabled,
       builderSignupExperimentId: mocks.experimentId,
@@ -60,6 +61,7 @@ import {
   BUILDER_SIGNUP_POLICY,
   bindBuilderSignupAttempt,
   getBuilderSignupConnectError,
+  getBuilderSignupTrackingIdentity,
   createBuilderSignupExperimentHandler,
   decodeBuilderSignupAssignment,
   encodeBuilderSignupAssignment,
@@ -267,23 +269,33 @@ describe("pre-signup Builder experiment", () => {
     ).toBe("started");
   });
 
-  it("releases an expired uncertain reservation to manual setup without calling the provider", async () => {
-    session = signedSession();
-    mocks.waitUntil = () => {};
-    mocks.settings.set("design_builder_signup_v1:new-user", {
-      status: "started",
-      startedAt: Date.now() - 61_000,
-      attempt: "original-owner",
+  it("preserves the distinct deployment and template provisioning identities", () => {
+    expect(getBuilderSignupTrackingIdentity()).toEqual({
+      agentNativeApp: "agent-native-clips",
+      agentNativeTemplate: "clips",
     });
-    expect(await (await request({ operation: "start" })).json()).toEqual({
-      status: "fallback",
-      code: "activation_result_unknown",
-    });
-    expect(activate).not.toHaveBeenCalled();
-    expect(
-      mocks.settings.get("design_builder_signup_v1:new-user")?.attempt,
-    ).toBe("original-owner");
   });
+
+  it.each(["start", "activate"])(
+    "releases an expired uncertain reservation during %s without calling the provider",
+    async (operation) => {
+      session = signedSession();
+      mocks.waitUntil = () => {};
+      mocks.settings.set("design_builder_signup_v1:new-user", {
+        status: "started",
+        startedAt: Date.now() - 61_000,
+        attempt: "original-owner",
+      });
+      expect(await (await request({ operation })).json()).toEqual({
+        status: "fallback",
+        code: "activation_result_unknown",
+      });
+      expect(activate).not.toHaveBeenCalled();
+      expect(
+        mocks.settings.get("design_builder_signup_v1:new-user")?.attempt,
+      ).toBe("original-owner");
+    },
+  );
 
   it.each([false, true])(
     "does not enroll leftover anonymous assignments on start (background=%s)",
@@ -734,7 +746,7 @@ describe("pre-signup Builder experiment", () => {
     session = signedSession();
     mocks.settings.set("design_builder_signup_v1:new-user", {
       status: "started",
-      startedAt: Date.now() - 60000,
+      startedAt: Date.now() - 1000,
       attempt: "stopped",
     });
     const result = await request(
