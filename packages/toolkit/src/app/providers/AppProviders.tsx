@@ -53,6 +53,7 @@ import {
   UnsupportedDeviceGate,
   type UnsupportedDeviceGateProps,
 } from "../shared/UnsupportedDeviceGate.js";
+import { WriteFailureToaster } from "../shared/WriteFailureToaster.js";
 
 export interface AppProvidersProps {
   queryClient: QueryClient;
@@ -507,17 +508,20 @@ function ProvidersInner({
   settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
-  // The banner reads the app's locale, so it sits inside the same provider.
+  // The banner and the failure toasts read the app's locale, so they sit
+  // inside the same provider.
   const localizedChildren =
     i18n === false ? (
       <>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
+        <WriteFailureToaster />
       </>
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
+        <WriteFailureToaster />
       </AgentNativeI18nProvider>
     );
 

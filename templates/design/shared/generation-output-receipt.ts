@@ -49,6 +49,7 @@ export const DESIGN_OUTPUT_ACTIONS = new Set([
   "insert-design-native-asset",
   "insert-figma-library-asset",
   "migrate-board-objects-to-file",
+  "move-design-element",
   "present-design-variants",
   "remove-motion-timeline",
   "rename-component",

@@ -48,6 +48,7 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames |
 | `edit-design` | Adapt a design/screen |
 | `apply-visual-edit` | Apply deterministic layer edits |
+| `move-design-element` | Move a layer between screens |
 | `get-motion-timeline` / `apply-motion-edit` / `remove-motion-timeline` | Read/edit/remove motion timelines |
 | `create-design` / `generate-design` | Start empty design / generate a fresh screen |
 | `present-design-variants` | Generate 2–5 variants |
