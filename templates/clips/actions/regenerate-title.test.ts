@@ -622,6 +622,7 @@ describe("regenerate-title fallback refinement", () => {
     await expect(
       regenerateTitle.run({ recordingId: "rec_1", automatic: false }),
     ).rejects.toMatchObject({ errorCode: "ai_model_unavailable" });
+    expect(mockUpdateSet).not.toHaveBeenCalled();
     expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
   });
   it("keeps the local title and reports the refusal when the model check is unreadable", async () => {

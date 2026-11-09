@@ -18,6 +18,7 @@ import {
 import cleanupTranscript from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 import {
+  assertAiModelAvailable,
   queueAiRequest,
   withAiRequestStatusInstructions,
 } from "./lib/ai-request-status.js";
@@ -169,6 +170,10 @@ export default defineAction({
       await assertAccess("recording", args.recordingId, "editor"),
     );
 
+    // A manual request cannot succeed without a model, and the local fallback
+    // below writes a title: refuse before that write, not after it.
+    if (!args.automatic) await assertAiModelAvailable();
+
     const db = getDb();
     // Read before anything the model sees: a removal after this read fails the
     // checks below, and one before it has already reset what is read next.
@@ -181,7 +186,7 @@ export default defineAction({
       earlierAudioRemovedAt;
     // The queue refuses when no model can run or the check could not be made.
     // An automatic request keeps the local title and reports why nothing was
-    // queued; a manual one fails loudly so the caller sees it.
+    // queued.
     let queueRefusal:
       | "ai_model_unavailable"
       | "ai_model_lookup_unavailable"
@@ -194,9 +199,8 @@ export default defineAction({
       } catch (error) {
         const code = (error as { errorCode?: unknown }).errorCode;
         if (
-          args.automatic &&
-          (code === "ai_model_unavailable" ||
-            code === "ai_model_lookup_unavailable")
+          code === "ai_model_unavailable" ||
+          code === "ai_model_lookup_unavailable"
         ) {
           queueRefusal = code;
           return null;

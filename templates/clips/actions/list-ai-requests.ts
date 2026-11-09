@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
 import { listAppState } from "@agent-native/core/application-state";
-import { resolveChatModelAvailability } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -183,30 +182,6 @@ async function listQueuedRequests(requesterEmail?: string | null): Promise<{
   };
 }
 
-type TitleCandidatesWithheld = "model_unavailable" | "model_lookup_failed";
-
-// Candidates only drive `regenerate-title` calls; without a model each would
-// fail, and the client re-asks for all of them on every mount. Withholding is
-// reported, so an empty list still means "nothing to title".
-async function listTitleCandidatesWithModel(email: string): Promise<{
-  titleCandidates: Awaited<ReturnType<typeof listAutoTitleCandidates>>;
-  titleCandidatesWithheld?: TitleCandidatesWithheld;
-}> {
-  const availability = await resolveChatModelAvailability({
-    ownerEmail: email,
-  });
-  if (availability === "available") {
-    return { titleCandidates: await listAutoTitleCandidates(email) };
-  }
-  return {
-    titleCandidates: [],
-    titleCandidatesWithheld:
-      availability === "unavailable"
-        ? "model_unavailable"
-        : "model_lookup_failed",
-  };
-}
-
 export default defineAction({
   description:
     "List pending clips AI requests and active background AI sessions for recordings the current user can access, plus ready recordings that still need an auto-generated title.",
@@ -214,10 +189,10 @@ export default defineAction({
   http: { method: "GET" },
   run: async () => {
     const email = getRequestUserEmail();
-    const [{ requests, activeSessions }, candidates] = await Promise.all([
+    const [{ requests, activeSessions }, titleCandidates] = await Promise.all([
       listQueuedRequests(email),
-      email ? listTitleCandidatesWithModel(email) : { titleCandidates: [] },
+      email ? listAutoTitleCandidates(email) : [],
     ]);
-    return { requests, activeSessions, ...candidates };
+    return { requests, activeSessions, titleCandidates };
   },
 });

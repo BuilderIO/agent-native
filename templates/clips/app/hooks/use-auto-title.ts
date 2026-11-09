@@ -70,8 +70,6 @@ type QueuedAiRequest = AiRequest & { recordingId: string };
 interface ListAiRequestsResult {
   requests: QueuedAiRequest[];
   titleCandidates: AutoTitleCandidate[];
-  /** Why candidates were left out; an empty list without it means none to title. */
-  titleCandidatesWithheld?: "model_unavailable" | "model_lookup_failed";
   activeSessions?: ActiveAiRequestSession[];
 }
 
