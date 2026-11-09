@@ -345,10 +345,6 @@ function isVoicePreviewIntact(
   });
 }
 
-function normalizeVoiceWords(text: string): string {
-  return text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
-}
-
 export function getComposerSendTooltipKey(
   willQueue: boolean,
 ): "composer.queueMessage" | "composer.sendMessage" {
@@ -4559,28 +4555,6 @@ function TiptapComposerSurface({
   // --- Live voice transcription: text appears in the editor as the user speaks ---
   const voiceAnchorRef = useRef<number | null>(null);
   const prevVoiceInsertRef = useRef("");
-  // Dictated text left in the draft after its anchor went stale; the recognizer's cumulative output must not re-insert it.
-  const abandonedVoiceTextRef = useRef("");
-  const stripAbandonedVoiceText = (text: string) => {
-    const abandoned = normalizeVoiceWords(abandonedVoiceTextRef.current);
-    if (!abandoned) return text;
-    let matched = 0;
-    for (let i = 0; i < text.length; i++) {
-      const ch = normalizeVoiceWords(text.charAt(i));
-      if (!ch) continue;
-      if (abandoned[matched] !== ch) return text;
-      matched += 1;
-      if (matched === abandoned.length) {
-        if (normalizeVoiceWords(text.charAt(i + 1))) return text;
-        return text
-          .slice(i + 1)
-          .replace(/^[^\p{L}\p{N}\s]+/u, "")
-          .trimStart();
-      }
-    }
-    return "";
-  };
-
   const handleLiveUpdate = useCallback(
     (finalText: string, interimText: string) => {
       const ed = editor;
@@ -4594,7 +4568,6 @@ function TiptapComposerSurface({
           prevVoiceInsertRef.current,
         )
       ) {
-        abandonedVoiceTextRef.current += prevVoiceInsertRef.current;
         voiceAnchorRef.current = null;
         prevVoiceInsertRef.current = "";
       }
@@ -4612,7 +4585,7 @@ function TiptapComposerSurface({
 
       const anchor = voiceAnchorRef.current;
       const prevLen = prevVoiceInsertRef.current.length;
-      const newText = stripAbandonedVoiceText(finalText + interimText);
+      const newText = finalText + interimText;
 
       if (newText === prevVoiceInsertRef.current) return;
 
@@ -4635,12 +4608,9 @@ function TiptapComposerSurface({
         anchor != null &&
         !isVoicePreviewIntact(ed, anchor, prevVoiceInsertRef.current)
       ) {
-        abandonedVoiceTextRef.current += prevVoiceInsertRef.current;
         anchor = null;
       }
-      const formattedText = formatVoiceTranscriptForComposer(
-        stripAbandonedVoiceText(text),
-      );
+      const formattedText = formatVoiceTranscriptForComposer(text);
       if (anchor != null) {
         const prevLen = prevVoiceInsertRef.current.length;
         if (formattedText) {
@@ -4666,7 +4636,6 @@ function TiptapComposerSurface({
       }
       voiceAnchorRef.current = null;
       prevVoiceInsertRef.current = "";
-      abandonedVoiceTextRef.current = "";
     },
     [editor],
   );
@@ -4757,10 +4726,6 @@ function TiptapComposerSurface({
   voiceCapturingRef.current =
     voice.state === "recording" || voice.state === "starting";
 
-  useEffect(() => {
-    if (voice.state === "starting") abandonedVoiceTextRef.current = "";
-  }, [voice.state]);
-
   // Clean up live text if voice session ends without a final transcript (cancel/error)
   useEffect(() => {
     if (voice.state === "idle" && voiceAnchorRef.current != null) {
@@ -4776,7 +4741,6 @@ function TiptapComposerSurface({
       }
       voiceAnchorRef.current = null;
       prevVoiceInsertRef.current = "";
-      abandonedVoiceTextRef.current = "";
     }
   }, [voice.state, editor]);
 
@@ -6304,7 +6268,6 @@ function TiptapComposerSurface({
     if (draftKeyChanged) {
       voiceAnchorRef.current = null;
       prevVoiceInsertRef.current = "";
-      abandonedVoiceTextRef.current = "";
       voiceCancelRef.current();
       editor.commands.clearContent(false);
       initialTextKeyRef.current = undefined;
