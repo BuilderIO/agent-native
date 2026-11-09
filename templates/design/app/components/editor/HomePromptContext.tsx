@@ -94,7 +94,12 @@ type FigmaChip = {
  */
 function discardFigmaChip(chip: FigmaChip | undefined) {
   if (!chip) return;
-  void chip.images?.discard();
+  void chip.images?.discard().catch((error: unknown) => {
+    console.warn(
+      "Could not delete a removed Figma attachment's images.",
+      error,
+    );
+  });
   const ref = chip.resolved?.reference.ref;
   if (!ref) return;
   void callAction("discard-figma-reference", { ref }).catch(
@@ -954,12 +959,20 @@ export function useHomePromptContext({
       void figmaSources.current
         .get(key)
         ?.images?.release()
-        .then((failed) => {
-          if (failed > 0)
+        .then(
+          (failed) => {
+            if (failed > 0)
+              console.warn(
+                `Could not keep ${failed} image(s) from a sent Figma attachment; they stay staged.`,
+              );
+          },
+          (error: unknown) => {
             console.warn(
-              `Could not keep ${failed} image(s) from a sent Figma attachment; they stay staged.`,
+              "Could not keep the images from a sent Figma attachment; they stay staged.",
+              error,
             );
-        });
+          },
+        );
       figmaSources.current.delete(key);
       removed.add(key);
     }
