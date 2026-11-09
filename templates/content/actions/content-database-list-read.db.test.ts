@@ -440,17 +440,18 @@ describe("content database list reads", () => {
     await getDb()
       .insert(schema.documentShares)
       .values(
-        [fixture.documentId, fixture.rows[1]!.documentId].map(
-          (resourceId, index) => ({
-            id: `share-page-text-${index}`,
-            resourceId,
-            principalType: "user" as const,
-            principalId: VIEWER,
-            role: "viewer" as const,
-            createdBy: OWNER,
-            createdAt: now,
-          }),
-        ),
+        [
+          fixture.documentId,
+          ...fixture.rows.slice(1, 2).map((row) => row.documentId),
+        ].map((resourceId, index) => ({
+          id: `share-page-text-${index}`,
+          resourceId,
+          principalType: "user" as const,
+          principalId: VIEWER,
+          role: "viewer" as const,
+          createdBy: OWNER,
+          createdAt: now,
+        })),
       );
     const pageText = async (includePageText?: boolean, userEmail = OWNER) => {
       const response = await runWithRequestContext({ userEmail }, () =>

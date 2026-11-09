@@ -1374,7 +1374,7 @@ export async function getContentDatabasePageResponse(
               })
               .from(schema.documents)
               .where(inArray(schema.documents.id, pageTextDocumentIds))
-          ).map((row) => [row.id, row.content ?? ""]),
+          ).map((row) => [row.id, row.content]),
         )
       : new Map<string, string>();
   const pageItems = primaryBlocksPropertyId
