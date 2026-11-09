@@ -32,9 +32,8 @@ export function useBuilderSignupActivation(
     enabled: Boolean(userId),
     staleTime: Infinity,
     retry: 1,
-    refetchInterval: (query) =>
-      query.state.status === "error" ||
-      (activation?.status === "checking" && activation.userId === userId)
+    refetchInterval:
+      activation?.status === "checking" && activation.userId === userId
         ? 2000
         : false,
   });
