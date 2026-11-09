@@ -23,7 +23,11 @@ describe("cachedFilesRootDocumentIds", () => {
       cursor?: string,
     ) =>
       filesNavigationQueryKey(
-        filesNavigationPageParams({ databaseId, parentId, cursor }),
+        filesNavigationPageParams({
+          databaseId,
+          parentId,
+          ...(cursor ? { cursor } : {}),
+        }),
       );
     queryClient.setQueryData(key("team", null), rows("roadmap", "hiring"));
     queryClient.setQueryData(key("personal", null), rows("journal", "draft"));

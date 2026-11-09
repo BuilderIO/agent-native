@@ -33,7 +33,7 @@ vi.mock("@agent-native/core/client/hooks", async () => {
       useQuery({
         queryKey: ["action", action, args],
         queryFn: () => new Promise(() => {}),
-        enabled: options?.enabled,
+        enabled: options?.enabled ?? true,
       }),
   };
 });

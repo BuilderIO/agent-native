@@ -2910,8 +2910,13 @@ export function DocumentSidebar({
         : survivingDocuments;
       const nextDocument =
         navigationCandidates.find((doc) => doc.isFavorite) ??
-        [...navigationCandidates].sort(compareDocumentsByPosition)[0] ??
-        null;
+        navigationCandidates.reduce<Document | null>(
+          (first, doc) =>
+            first === null || compareDocumentsByPosition(doc, first) < 0
+              ? doc
+              : first,
+          null,
+        );
       const previousDocuments = queryClient.getQueryData(
         LIST_DOCUMENTS_QUERY_KEY,
       );
@@ -2938,8 +2943,7 @@ export function DocumentSidebar({
       // Home would reopen the last page visited, which is the one going to
       // Trash, so the sidebar opens a remaining page itself or, knowing none,
       // stays until the server confirms and names a destination.
-      const nextLocalPageId =
-        navigationCandidates.length > 0 ? nextDocument.id : null;
+      const nextLocalPageId = nextDocument?.id ?? null;
       const remainingPageId = !activeDeleted
         ? null
         : localFileMode
@@ -2961,11 +2965,11 @@ export function DocumentSidebar({
         const result = deletedDocument?.database
           ? await deleteContentDatabase.mutateAsync({
               databaseId: deletedDocument.database.id,
-              activeDocumentId: activeDocumentId ?? undefined,
+              ...(activeDocumentId ? { activeDocumentId } : {}),
             })
           : await deleteDocument.mutateAsync({
               id,
-              activeDocumentId: activeDocumentId ?? undefined,
+              ...(activeDocumentId ? { activeDocumentId } : {}),
             });
         const navigationPath = navigationAfterConfirmedDelete(
           result.navigationPath,
