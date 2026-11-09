@@ -26,7 +26,7 @@ import {
   IconVideoPlus,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
-import { type ComponentProps, useCallback, useMemo } from "react";
+import { type ComponentProps, useCallback, useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import {
@@ -394,6 +394,9 @@ export function ClipsCommandMenu({
   onOpenChange,
 }: ClipsCommandMenuProps) {
   const startupInteractionBlocked = useStartupInteractionBlocked();
+  useEffect(() => {
+    if (startupInteractionBlocked) onOpenChange(false);
+  }, [startupInteractionBlocked, onOpenChange]);
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();

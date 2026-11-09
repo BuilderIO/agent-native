@@ -5132,12 +5132,20 @@ export function createCoreRoutesPlugin(
             });
           },
 
-          reconcile: async (_event, session, owner) =>
-            hasCompletedAutomaticBuilderSignup(
+          reconcile: async (event, session, owner) => {
+            const authorization = await authorizeBuilderConnectScope(
+              event,
+              session.email,
+              null,
+            );
+            if ("deny" in authorization) return false;
+            return hasCompletedAutomaticBuilderSignup(
               session.email,
               `${owner.experimentId}:${owner.attempt}`,
               owner.startedAt,
-            ),
+              authorization.member ?? undefined,
+            );
+          },
         }),
       );
 

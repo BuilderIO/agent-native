@@ -417,6 +417,9 @@ function AppContent() {
   const isDark = resolvedTheme === "dark";
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const startupInteractionBlocked = useStartupInteractionBlocked();
+  useEffect(() => {
+    if (startupInteractionBlocked) setCmdkOpen(false);
+  }, [startupInteractionBlocked]);
   const t = useT();
   const navigate = useNavigate();
   const handleCommandMenuShortcut = useCallback(() => {

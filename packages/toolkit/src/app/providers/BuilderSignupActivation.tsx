@@ -44,8 +44,10 @@ export function useBuilderSignupActivation(
     enabled: Boolean(userId),
     staleTime: Infinity,
     retry: 1,
-    refetchInterval:
-      activation?.status === "checking" && activation.userId === userId
+    refetchInterval: (query) =>
+      activation?.status === "checking" &&
+      activation.userId === userId &&
+      !query.state.error
         ? 2000
         : false,
   });
@@ -119,6 +121,12 @@ export function useBuilderSignupActivation(
     } else if (
       activation?.status === "checking" &&
       activation.userId === userId &&
+      eligibility.isError
+    ) {
+      setActivation({ ...activation, status: "paused" });
+    } else if (
+      activation?.status === "checking" &&
+      activation.userId === userId &&
       activation.failedAt !== undefined &&
       eligibility.isSuccess &&
       eligibility.data === "eligible" &&
@@ -139,6 +147,7 @@ export function useBuilderSignupActivation(
     eligibility.data,
     eligibility.dataUpdatedAt,
     eligibility.isSuccess,
+    eligibility.isError,
     attemptKey,
     queryClient,
   ]);

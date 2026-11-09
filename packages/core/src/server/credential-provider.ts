@@ -1951,18 +1951,24 @@ function automaticSignupReceiptDescription(receipt: string): string {
   return `Automatic Builder signup: ${receipt}`;
 }
 
-/** Recover only this provider attempt's completed personal credential write. */
+/** Recover only this provider attempt's completed authorized credential write. */
 export async function hasCompletedAutomaticBuilderSignup(
   email: string,
   receipt: string,
   startedAt: number,
+  options?: { orgId?: string | null; role?: string | null },
 ): Promise<boolean> {
+  const target = resolveCredentialWriteScope(
+    email,
+    options?.orgId ?? null,
+    options?.role ?? null,
+  );
   const { readAppSecretMeta, readAppSecrets } =
     await import("../secrets/storage.js");
   const meta = await readAppSecretMeta({
     key: "BUILDER_PRIVATE_KEY",
-    scope: "user",
-    scopeId: email,
+    scope: target.scope,
+    scopeId: target.scopeId,
   });
   if (
     !meta ||
@@ -1973,8 +1979,8 @@ export async function hasCompletedAutomaticBuilderSignup(
     return false;
   const keys = await readAppSecrets({
     keys: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
-    scope: "user",
-    scopeId: email,
+    scope: target.scope,
+    scopeId: target.scopeId,
   });
   const privateKey = keys.get("BUILDER_PRIVATE_KEY");
   const publicKey = keys.get("BUILDER_PUBLIC_KEY");

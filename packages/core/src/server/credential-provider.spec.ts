@@ -365,6 +365,26 @@ describe("writeBuilderCredentials", () => {
       scope: "user",
       scopeId: "a@b.com",
     });
+    mockReadAppSecretMeta.mockClear();
+    mockReadAppSecrets.mockClear();
+    expect(
+      await hasCompletedAutomaticBuilderSignup(
+        "a@b.com",
+        "clips:attempt",
+        150,
+        { orgId: "qa-org", role: "owner" },
+      ),
+    ).toBe(true);
+    expect(mockReadAppSecretMeta).toHaveBeenCalledWith({
+      key: "BUILDER_PRIVATE_KEY",
+      scope: "org",
+      scopeId: "qa-org",
+    });
+    expect(mockReadAppSecrets).toHaveBeenCalledWith({
+      keys: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+      scope: "org",
+      scopeId: "qa-org",
+    });
     expect(
       await hasCompletedAutomaticBuilderSignup(
         "a@b.com",

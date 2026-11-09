@@ -286,7 +286,8 @@ for (const target of targets) {
               return (
                 connection.status === 200 &&
                 status.configured === true &&
-                status.credentialSource === "user"
+                (status.credentialSource === "user" ||
+                  status.credentialSource === "org")
               );
             },
             {

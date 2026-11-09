@@ -47,7 +47,7 @@ import {
 } from "@tabler/icons-react";
 import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Links,
   Meta,
@@ -443,6 +443,9 @@ function PrivateRootContent() {
   const hasSession = Boolean(session?.email);
   const isPublicVisualEdit = location.pathname === "/visual-edit";
   const activatingBuilderSignup = useStartupInteractionBlocked();
+  useEffect(() => {
+    if (activatingBuilderSignup) setCmdkOpen(false);
+  }, [activatingBuilderSignup]);
   useDesignVariantPickTracking();
   // The home prompt composer takes focus on load, and without this the shortcut
   // is swallowed whenever a contenteditable has focus.
@@ -469,7 +472,9 @@ function PrivateRootContent() {
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu
           open={cmdkOpen && !activatingBuilderSignup}
-          onOpenChange={setCmdkOpen}
+          onOpenChange={(open) => {
+            if (!open || !activatingBuilderSignup) setCmdkOpen(open);
+          }}
         />
       )}
       {content}

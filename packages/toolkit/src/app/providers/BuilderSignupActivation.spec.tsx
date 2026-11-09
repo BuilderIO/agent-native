@@ -280,7 +280,7 @@ describe("BuilderSignupActivation", () => {
     );
   }, 10000);
 
-  it("shows a retry state when confirmed activation status becomes unavailable", async () => {
+  it("stops polling and offers Retry when confirmed activation status becomes unavailable", async () => {
     mocks.status.mockResolvedValue("eligible");
     mocks.activate.mockRejectedValue(new Error("polling timed out"));
     await render("retry-status-user");
@@ -293,6 +293,14 @@ describe("BuilderSignupActivation", () => {
       () => expect(container.querySelector("[role='alert']")).not.toBeNull(),
       { timeout: 4000 },
     );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    });
+    const statusReadsAfterError = mocks.status.mock.calls.length;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2300));
+    });
+    expect(mocks.status).toHaveBeenCalledTimes(statusReadsAfterError);
     mocks.status.mockResolvedValue("disabled");
     await act(async () => {
       container
@@ -302,7 +310,7 @@ describe("BuilderSignupActivation", () => {
     await vi.waitFor(() =>
       expect(container.querySelector("[role='status']")).toBeNull(),
     );
-  });
+  }, 10000);
 
   it("keeps children mounted when the session resolves", async () => {
     await render(undefined);
