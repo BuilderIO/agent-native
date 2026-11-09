@@ -203,6 +203,34 @@ a.b { color: inherit; text-decoration: none; }
 .ann .acts { margin-top: 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .ann .acts .b { width: 100%; }
 
+/* Invite members: the share dialog's add row, options and people list in the toolkit Dialog. */
+.imd.inv { width: min(480px, 100%); }
+.inv-add { margin-top: 16px; display: flex; gap: 6px; }
+.inv-field { position: relative; flex: 1; min-width: 0; }
+.inv-field .in { padding-right: 96px; }
+.inv-role { position: absolute; right: 4px; top: 4px; height: 24px; padding: 0 6px 0 8px; display: inline-flex; align-items: center; gap: 4px; border-radius: 4px; font-size: 13px; color: var(--color-muted-foreground); }
+.inv-role:hover { background: var(--color-accent); color: var(--color-foreground); }
+.inv-role svg.i { width: 14px; height: 14px; }
+.inv-opts { margin-top: 8px; display: flex; align-items: center; gap: 12px; font-size: 12px; line-height: 16px; color: var(--color-muted-foreground); }
+.inv-opts label { display: inline-flex; align-items: center; gap: 8px; }
+.inv-opts input { width: 16px; height: 16px; accent-color: hsl(var(--primary)); }
+.inv-msg-t { padding: 2px 4px; border-radius: 4px; font-weight: 500; color: var(--color-foreground); text-decoration: underline; text-decoration-color: var(--color-border); text-underline-offset: 2px; }
+.inv-msg-t:hover { background: var(--color-accent); }
+.inv-msg { margin-top: 8px; width: 100%; resize: vertical; padding: 8px 12px; border-radius: 6px; border: 1px solid hsl(var(--input)); background: var(--color-background); font: inherit; font-size: 14px; color: var(--color-foreground); outline: none; }
+.inv-msg:focus-visible { box-shadow: 0 0 0 2px var(--imp-ring); }
+.inv .sec > h3 { font-size: 12px; line-height: 16px; font-weight: 500; color: var(--color-muted-foreground); }
+.inv-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.inv-list li { min-height: 40px; display: flex; align-items: center; gap: 10px; padding: 4px; }
+.inv-av { width: 28px; height: 28px; flex: none; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 600; background: var(--color-muted); }
+.inv-who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.inv-who b { font-size: 14px; line-height: 20px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-who small { font-size: 12px; line-height: 16px; color: var(--color-muted-foreground); }
+.inv-role-t { font-size: 13px; color: var(--color-muted-foreground); }
+.inv-domain { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 14px; line-height: 20px; }
+.sw { appearance: none; width: 32px; height: 18px; flex: none; border-radius: 9px; background: hsl(var(--input)); position: relative; cursor: pointer; transition: background-color .15s; }
+.sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--color-background); box-shadow: 0 1px 2px rgb(0 0 0 / 20%); transition: transform .15s; }
+.sw:checked { background: hsl(var(--primary)); }
+.sw:checked::after { transform: translateX(14px); }
 .view { animation: view-in .18s ease-out; }
 @keyframes view-in { from { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .imo, .imd, .view, .relay i, .spin { animation: none !important; } .imd-frame { transition: none; } }
@@ -447,10 +475,39 @@ function viewAnnouncement() {
   <div class="acts"><button class="b outline" data-act="learn">Learn more</button><button class="b primary" data-act="${a.act}">${a.cta}</button></div></div>`;
 }
 
+function viewInvite() {
+  const d = invite.draft, has = d.value.trim().length > 0;
+  const avatar = (who) => `<span class="inv-av">${who}</span>`;
+  const people = [`<li>${avatar(ME.initials)}<span class="inv-who"><b>${ME.email}</b><small>you</small></span><span class="inv-role-t">Owner</span></li>`]
+    .concat(invite.list.map((p) => `<li>${avatar(initials(p.email))}<span class="inv-who"><b>${esc(p.email)}</b><small>Invited</small></span><span class="inv-role-t">${ROLES[p.role]}</span></li>`)).join("");
+  const notify = has ? `<div class="inv-opts"><label><input type="checkbox" id="inv-notify" ${d.notify ? "checked" : ""}>Notify people</label>${d.notify ? `<button type="button" class="inv-msg-t" data-act="inv-msg" aria-expanded="${d.msgOpen}">${d.msgOpen ? "Hide message" : "Add a message"}</button>` : ""}</div>${d.notify && d.msgOpen ? `<textarea class="inv-msg" id="inv-msg" rows="3" maxlength="500" placeholder="Add a short note (optional)" aria-label="Message">${esc(d.msg)}</textarea>` : ""}` : "";
+  const err = d.err ? `<p class="warn" id="inv-err" role="alert">${ic("alert-triangle")}<span>${esc(d.err)}</span></p>` : `<p class="help">Each person signs in with this exact email to accept.</p>`;
+  return `<div class="imb"><h2 id="imd-title">Invite members</h2><p class="lead">Add your teammates by email so you can share designs and work on them together.</p>
+    <div class="inv-add"><div class="inv-field"><input class="in" id="inv-email" type="text" inputmode="email" autocomplete="off" spellcheck="false" placeholder="Add people by email" aria-label="Email addresses" value="${esc(d.value)}" ${d.err ? 'aria-invalid="true" aria-describedby="inv-err"' : ""}><button type="button" class="inv-role" data-act="inv-role" aria-haspopup="menu" aria-label="Role">${ROLES[d.role]}${ic("chevron-down")}</button></div><button class="b primary" data-act="inv-send" ${has ? "" : "disabled"}>Invite</button></div>
+    <div class="after">${err}</div>${notify}
+    <div class="sec"><h3>Members</h3><ul class="inv-list">${people}</ul></div>
+    <div class="sec"><h3>Email domain auto-join</h3><label class="inv-domain"><span>Add people with a @${ME_DOMAIN} email automatically.</span><input type="checkbox" role="switch" class="sw" id="inv-domain" ${invite.domain ? "checked" : ""}></label></div></div>`;
+}
+function sendInvites() {
+  const d = invite.draft, emails = d.value.split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter(Boolean);
+  if (!emails.length) return;
+  const bad = emails.find((e) => !validEmail(e)), dup = emails.find((e) => invite.list.some((p) => p.email === e) || e === ME.email);
+  if (bad) d.err = "Enter a full email address.";
+  else if (dup) d.err = `${dup} is already in your organization.`;
+  else {
+    emails.forEach((email) => invite.list.push({ email, role: d.role }));
+    invite.draft = { ...draftStart(), role: d.role, notify: d.notify };
+    toast(emails.length > 1 ? `Invited ${emails.length} people` : `Invited ${emails[0]}`);
+    syncCard();
+  }
+  render({ animate: false });
+}
+
 /* ───────── render ───────── */
 function html() {
   if (S.view === "announcement") return viewAnnouncement();
   if (S.view === "picker") return viewPicker();
+  if (S.view === "invite") return viewInvite();
   if (S.view === "progress") return viewProgress();
   const s = SRC[S.src];
   if (S.view === "upload") return viewUpload(S.src);
@@ -470,6 +527,7 @@ function render({ focus = true, animate = true } = {}) {
   const view = ov.querySelector(".view");
   const keep = view.dataset.key === key();
   dlg.classList.toggle("ann", S.view === "announcement");
+  dlg.classList.toggle("inv", S.view === "invite");
   dlg.classList.toggle("ann-light", S.view === "announcement" && dialogKind() !== "all");
   // Re-rendering the same view (typing, progress ticks) keeps the field focused and skips the fade.
   const active = document.activeElement?.id, caret = active === "imp-url" ? document.activeElement.selectionStart : null;
@@ -490,7 +548,7 @@ function render({ focus = true, animate = true } = {}) {
     const el = document.getElementById(active);
     if (el) { el.focus(); if (caret != null) el.setSelectionRange(caret, caret); }
   } else if (focus) {
-    (fresh.querySelector("#imp-url") || fresh.querySelector(".src, .b, a, button"))?.focus({ preventScroll: true });
+    (fresh.querySelector("#imp-url, #inv-email") || fresh.querySelector(".src, .b, a, button"))?.focus({ preventScroll: true });
   }
   if (S.view === "announcement") startOrbit(); else stopOrbit();
   if (S.view === "picker") startBelt(); else stopBelt();
@@ -552,6 +610,20 @@ function bindView(v) {
     drop.addEventListener("drop", (e) => { e.preventDefault(); depth = 0; drop.classList.remove("over"); pick(e.dataTransfer.files?.[0]); });
   }
   v.querySelector("#pause")?.addEventListener("click", togglePause);
+  const ie = v.querySelector("#inv-email");
+  if (ie) {
+    const d = invite.draft;
+    ie.addEventListener("input", () => {
+      const had = d.value.trim().length > 0;
+      d.value = ie.value;
+      if (d.err) { d.err = ""; render({ animate: false }); }
+      else if (had !== d.value.trim().length > 0) render({ animate: false });
+    });
+    ie.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); sendInvites(); } });
+    v.querySelector("#inv-notify")?.addEventListener("change", (e) => { d.notify = e.target.checked; render({ animate: false }); });
+    v.querySelector("#inv-msg")?.addEventListener("input", (e) => { d.msg = e.target.value; });
+    v.querySelector("#inv-domain")?.addEventListener("change", (e) => { invite.domain = e.target.checked; toast(invite.domain ? `People with a @${ME_DOMAIN} email now join automatically` : "Email domain auto-join is off"); });
+  }
 }
 function pick(f) {
   if (!f) return;
@@ -587,6 +659,9 @@ root.addEventListener("click", (e) => {
   else if (act === "import-now") go("picker");
   else if (act === "import-figma") go("upload", { src: "figma", from: null, file: null });
   else if (act === "learn") toast(ANNS[dialogKind()].learn || "Opens the import guide in the Design docs");
+  else if (act === "inv-send") sendInvites();
+  else if (act === "inv-msg") { invite.draft.msgOpen = !invite.draft.msgOpen; render({ animate: false }); }
+  else if (act === "inv-role") openMenu(t, Object.entries(ROLES).map(([k, label]) => ({ t: label, radio: true, on: invite.draft.role === k, run: () => { invite.draft.role = k; render({ animate: false }); } })), { align: "right" });
   else if (act === "builder-connect") {
     t.textContent = "Setting up Builder.io…"; t.disabled = true;
     setTimeout(() => { close(); builderConnected(); }, 1600);
@@ -769,7 +844,7 @@ addEventListener("message", (e) => {
   else if (e.data?.proto === "announce") open("announcement");
   else if (e.data?.proto === "escape" && S.open) close();
   else if (e.data?.proto === "min") { cards[e.data.id] = "min"; syncCard(); }
-  else if (e.data?.proto === "invite") toast("Opens Members in Settings");
+  else if (e.data?.proto === "invite-open") open("invite");
   else if (e.data?.proto === "mcp") toast("Opens MCP in Settings");
 });
 // The announcement lives in the sidebar card where Getting started sat: the card opens the dialog, its
@@ -792,6 +867,18 @@ const CARD_CSS = `${NEBULA_CSS}${MELD_CSS}
 .an-prompt .an-min { position: static; margin-right: -6px; }
 .an-btn { margin-top: 12px; width: 100%; height: 32px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--background)); box-shadow: 0 1px 2px 0 rgb(0 0 0 / 5%); font-size: 13px; line-height: 16px; font-weight: 500; color: hsl(var(--foreground)); cursor: pointer; transition: background-color .15s; }
 .an-btn:hover { background: hsl(var(--accent)); }
+/* The invite prompt: faces instead of a picture, and the invite itself in the card. */
+.an-invite .an-min { position: absolute; top: 16px; right: 12px; }
+.an-seats { display: flex; margin-bottom: 12px; }
+.an-seat { width: 28px; height: 28px; flex: none; border-radius: 50%; display: grid; place-items: center; font-size: 11px; line-height: 1; font-weight: 600; letter-spacing: .02em; margin-left: -6px; box-shadow: 0 0 0 2px hsl(var(--card)); }
+.an-seat:first-child { margin-left: 0; }
+.an-seat.me { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
+.an-seat.in { background: color-mix(in oklab, var(--c-blue-500) 22%, hsl(var(--card))); color: hsl(var(--foreground)); }
+.an-seat.open { background: hsl(var(--card)); color: hsl(var(--muted-foreground)); border: 1.5px dashed color-mix(in oklab, hsl(var(--border)), hsl(var(--foreground)) 22%); }
+.an-seat.open svg.i { width: 12px; height: 12px; stroke-width: 2; }
+.an-note { margin-top: 8px; display: flex; align-items: flex-start; gap: 6px; font-size: 12px; line-height: 16px; color: hsl(var(--muted-foreground)); }
+.an-note svg.i { width: 14px; height: 14px; margin-top: 1px; }
+.an-note b { font-weight: 500; color: hsl(var(--foreground)); overflow-wrap: anywhere; }
 .an-rows { display: flex; flex-direction: column; gap: 6px; }
 .an-row { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: hsl(var(--muted)); text-align: start; color: hsl(var(--muted-foreground)); cursor: pointer; transition: background-color .15s; }
 .an-row:hover { background: color-mix(in oklab, hsl(var(--muted)), hsl(var(--foreground)) 6%); }
@@ -831,13 +918,34 @@ function cardHTML(kind) {
 // steps an item down to its row, so nothing a person waved away is lost; finishing it removes it.
 const ITEMS = {
   ann: () => { const a = ANNS[annKind]; return { tier: "feature", icon: annKind === "figma" ? logo("figma") : annKind === "builder" ? BUILDER_MARK : ic("file-import"), title: a.title, desc: a.desc, go: "announce" }; },
-  invite: () => ({ tier: "prompt", icon: ic("user-plus"), title: "Invite your team", desc: "Share designs and work on them together.", cta: "Invite members", go: "invite" }),
+  invite: () => ({ tier: "prompt", icon: ic("user-plus"), title: "Invite your team", desc: "Share designs and work on them together.", cta: "Invite members", go: "invite-open" }),
   mcp: () => ({ tier: "row", icon: ic("plug-connected"), title: "Connect with MCP", desc: "Work in Design from Claude, ChatGPT, or Cursor.", go: "mcp" }),
 };
 const CARD_ORDER = ["ann", "invite", "mcp"];
 const CARD_START = { ann: "open", invite: "open", mcp: "row" };
 let cards = { ...CARD_START };
+// The invite prompt shows faces instead of a picture: you, then open seats that fill as people are invited.
+// Inviting happens in the Invite members dialog, which reuses the share dialog's add row (email field with the
+// role inside, then Invite), its Notify people and Add a message options, and its people list. ME_DOMAIN is
+// the captured dashboard's account (dev@local.test).
+const ME = { initials: "DL", email: "dev@local.test" }, ME_DOMAIN = "local.test", SEATS = 3;
+const draftStart = () => ({ value: "", role: "member", notify: true, msgOpen: false, msg: "", err: "" });
+const inviteStart = () => ({ list: [], domain: false, draft: draftStart() });
+let invite = inviteStart();
+const initials = (email) => { const parts = email.split("@")[0].split(/[._-]+/).filter(Boolean); return ((parts[0]?.[0] || "") + (parts[1]?.[0] || parts[0]?.[1] || "")).toUpperCase(); };
+const validEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
+const ROLES = { member: "Member", admin: "Admin" };
+function invitePromptHTML() {
+  const i = ITEMS.invite(), list = invite.list, n = list.length;
+  const filled = list.slice(0, n > SEATS ? SEATS - 1 : SEATS).map((p) => `<span class="an-seat in" title="${esc(p.email)}">${initials(p.email)}</span>`);
+  if (n > SEATS) filled.push(`<span class="an-seat in">+${n - SEATS + 1}</span>`);
+  const open = Array.from({ length: Math.max(0, SEATS - filled.length) }, () => `<span class="an-seat open">${ic("plus")}</span>`);
+  const seats = `<span class="an-seats" aria-hidden="true"><span class="an-seat me">${ME.initials}</span>${filled.join("")}${open.join("")}</span>`;
+  const note = n ? `<span class="an-note">${ic("check")}<span>Invited <b>${esc(list[n - 1].email)}</b>${n > 1 ? ` and ${n - 1} more` : ""}</span></span>` : "";
+  return `<div class="an-box an-prompt an-invite"><button type="button" class="an-min" data-proto="min" data-id="invite" aria-label="Minimize" title="Minimize">${ic("minus")}</button>${seats}<span class="an-title">${i.title}</span><span class="an-desc">${i.desc}</span><button type="button" class="an-btn" data-proto="invite-open">${i.icon}${i.cta}</button>${note}</div>`;
+}
 function promptHTML(id) {
+  if (id === "invite") return invitePromptHTML();
   const i = ITEMS[id]();
   return `<div class="an-box an-prompt"><div class="an-ph"><span class="an-title">${i.title}</span><button type="button" class="an-min" data-proto="min" data-id="${id}" aria-label="Minimize" title="Minimize">${ic("minus")}</button></div><span class="an-desc">${i.desc}</span><button type="button" class="an-btn" data-proto="${i.go}">${i.icon}${i.cta}</button></div>`;
 }
@@ -871,7 +979,7 @@ addEventListener("click", (e) => {
 });
 addEventListener("submit", (e) => e.preventDefault());
 addEventListener("keydown", (e) => { if (e.key === "Escape") parent.postMessage({ proto: "escape" }, "*"); });
-addEventListener("message", (e) => { if (e.data && "protoCard" in e.data && slot) { slot.innerHTML = e.data.protoCard; if (still) frame(performance.now()); return; } const t = e.data && e.data.protoTheme; if (!t) return; const h = document.documentElement; h.className = t; h.dataset.theme = t; h.style.colorScheme = t; });
+addEventListener("message", (e) => { if (e.data && "protoCard" in e.data && slot) { slot.innerHTML = e.data.protoCard; if (e.data.focus) document.getElementById(e.data.focus)?.focus(); if (still) frame(performance.now()); return; } const t = e.data && e.data.protoTheme; if (!t) return; const h = document.documentElement; h.className = t; h.dataset.theme = t; h.style.colorScheme = t; });
 const slot = document.querySelector('section[aria-label="Getting started"]');
 // The slot becomes a stack of its own boxes, so rows can sit outside the expanded card.
 if (slot) { slot.setAttribute("aria-label", "What's new"); slot.className = "an-stack"; slot.innerHTML = ${JSON.stringify(stackHTML())}; }
@@ -901,7 +1009,7 @@ new MutationObserver(syncDashTheme).observe(document.documentElement, { attribut
 function toggleTheme() { document.documentElement.dataset.theme = themeNow() === "dark" ? "light" : "dark"; }
 $("#theme-btn").addEventListener("click", toggleTheme);
 $("#ann-btn").addEventListener("click", () => { root.innerHTML = ""; S.open = false; open("announcement"); });
-function syncCard() { dash.contentWindow?.postMessage({ protoCard: stackHTML() }, "*"); }
+function syncCard(focus) { dash.contentWindow?.postMessage({ protoCard: stackHTML(), focus }, "*"); }
 // Once Builder.io is connected its card has nothing left to offer, so it leaves the stack.
 function builderConnected() { cards.ann = "done"; syncCard(); toast("Builder.io account created and connected."); }
 dash.addEventListener("load", () => { if (annKind !== "all" || CARD_ORDER.some((id) => cards[id] !== CARD_START[id])) syncCard(); });
@@ -915,7 +1023,7 @@ function setKind(kind) {
 }
 $("#fig-btn").addEventListener("click", () => setKind("figma"));
 $("#bld-btn").addEventListener("click", () => setKind("builder"));
-$("#cards-btn").addEventListener("click", () => { cards = { ...CARD_START }; syncCard(); toast("Sidebar cards reset"); });
+$("#cards-btn").addEventListener("click", () => { cards = { ...CARD_START }; invite = inviteStart(); syncCard(); toast("Sidebar cards reset"); });
 $("#fail-btn").addEventListener("click", (e) => { S.fail = !S.fail; e.currentTarget.setAttribute("aria-pressed", String(S.fail)); toast(S.fail ? "Imports now stop on the second step" : "Imports now finish"); });
 kitChangesInit($("#changes-btn"));
 addEventListener("resize", () => { if (S.view === "announcement") placeOrbit(); if (S.view === "picker") placeBelt(); });

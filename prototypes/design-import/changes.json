@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-09",
+    "text": "The invite card shows faces instead of a picture: you, then open seats that fill as people are invited, with Invited and the latest email under its button. Invite members opens a dialog built from the share dialog's parts: an email field with the role inside it and Invite, Notify people and Add a message, the Members list, and Email domain auto-join"
+  },
+  {
+    "date": "2026-11-09",
     "text": "The sidebar holds a card stack: one definition per item draws as a feature card (image, title, description, link) for something new, a prompt (title, description, button) such as Invite your team, or a row (icon, title, one-line description) such as Connect with MCP. The first open item shows expanded with rows under it; Minimize steps a card down to its row, finishing it removes it, and Reset cards in the review strip brings them all back"
   },
   {

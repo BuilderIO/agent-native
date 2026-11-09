@@ -44,12 +44,16 @@
       "Import · Announcement · Builder.io": "3424:23204",
       "Import · Announcement · Builder.io · Dark": "3424:23269",
       "Sidebar card/Feature": "3405:22666",
-      "Sidebar card/Prompt": "3550:23091",
+      "Sidebar card/Prompt": "3554:23309",
       "Sidebar card/Row": "3550:23104",
       "Sidebar · Card stack · 1 New feature": "3550:23318",
       "Sidebar · Card stack · 2 Feature minimized": "3550:23427",
       "Sidebar · Card stack · 3 All minimized": "3550:23454",
-      "Sidebar · Card stack · 2 Feature minimized · Dark": "3550:23475"
+      "Sidebar · Card stack · 2 Feature minimized · Dark": "3550:23475",
+      "Sidebar card/Seat": "3554:23284",
+      "Invite/Members dialog": "3554:23310",
+      "Invite members": "3554:23431",
+      "Invite members · Dark": "3554:23488"
     }
   }
 }
