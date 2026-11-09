@@ -78,9 +78,11 @@ function hasSignupConsentOwnership(
 /** Keep deployment identity distinct from its source template, as in manual connect. */
 export function getBuilderSignupTrackingIdentity() {
   const { app } = getAppConfig();
+  const deployment = app.workspaceId ?? app.id;
+  const template = app.template ?? app.sourceTemplate ?? app.slug;
   return {
-    agentNativeApp: app.workspaceId ?? app.id,
-    agentNativeTemplate: app.template ?? app.sourceTemplate ?? app.slug,
+    ...(deployment ? { agentNativeApp: deployment } : {}),
+    ...(template ? { agentNativeTemplate: template } : {}),
   };
 }
 
