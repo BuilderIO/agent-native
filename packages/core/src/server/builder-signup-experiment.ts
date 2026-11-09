@@ -285,21 +285,26 @@ async function finishSignupActivation(
     message?: string;
   },
 ) {
-  const committed = await mutateSetting(key, (current) => {
-    if (!current || current.attempt !== attempt)
-      throw new Error("Signup activation reservation ownership changed");
-    const status = z
-      .enum(["started", "connected", "fallback"])
-      .parse(current.status);
-    if (status !== "started") return current;
-    return {
-      ...current,
-      status: outcome.status,
-      code: outcome.code ?? null,
-      message: outcome.message ?? null,
-      completedAt: Date.now(),
-    };
-  });
+  const commit = () =>
+    mutateSetting(key, (current) => {
+      if (!current || current.attempt !== attempt)
+        throw new Error("Signup activation reservation ownership changed");
+      const status = z
+        .enum(["started", "connected", "fallback"])
+        .parse(current.status);
+      if (status !== "started") return current;
+      return {
+        ...current,
+        status: outcome.status,
+        code: outcome.code ?? null,
+        message: outcome.message ?? null,
+        completedAt: Date.now(),
+      };
+    });
+  // Retrying the owned terminal write is idempotent; the provider is never retried.
+  const committed = await commit()
+    .catch(() => commit())
+    .catch(() => commit());
   return z
     .object({
       status: z.enum(["connected", "fallback"]),
@@ -364,6 +369,10 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       })
       .safeParse(await readBodyWithSizeLimit(event, 4096));
     if (!body.success) return refuse(400, "invalid_request");
+    const waitUntil =
+      body.data.operation === "start"
+        ? platformWaitUntil(event.req)
+        : undefined;
     // Consent was bound to the newly created identity during signup. Browser
     // cookies are transport hints; a callback or later visit can lose them.
     const consent =
@@ -402,7 +411,10 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       }
       assignment = saved.data;
     }
-    if (body.data.operation === "status") {
+    if (
+      body.data.operation === "status" ||
+      (body.data.operation === "start" && !waitUntil)
+    ) {
       if (!session?.emailVerified || !session.userId)
         return refuse(401, "verified_session_required");
       if (!consent) {
@@ -553,6 +565,29 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "control" };
       }
+      if (status !== "started" && body.data.operation === "start")
+        return { status: "disabled" as const, code: "already_completed" };
+      if (
+        status === "started" &&
+        body.data.operation === "start" &&
+        typeof existing.startedAt === "number" &&
+        Date.now() - existing.startedAt > 60_000
+      ) {
+        // An uncertain provider result must never cause a second provision call.
+        // Let the old owner finish, but release later visits to manual setup.
+        track(
+          "builder_signup_experiment_activation_unavailable",
+          {
+            ...experimentProperties(assignment),
+            code: "activation_result_unknown",
+          },
+          trackingSource,
+        );
+        return {
+          status: "fallback" as const,
+          code: "activation_result_unknown",
+        };
+      }
       if (status !== "started")
         return terminal(
           status,
@@ -584,10 +619,6 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     // Start and own the provider request in this first POST, rather than
     // waiting for a second browser round trip. Netlify keeps it alive when
     // a new user closes the page; the atomic reservation still permits one call.
-    const waitUntil =
-      body.data.operation === "start"
-        ? platformWaitUntil(event.req)
-        : undefined;
     const complete = async () => {
       let result: { ok: boolean; code?: string; message?: string };
       try {
@@ -595,21 +626,34 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       } catch {
         result = { ok: false, code: "activation_interrupted" };
       }
-      const committed = await finishSignupActivation(key, attempt, {
-        status: result.ok ? "connected" : "fallback",
-        ...(result.code ? { code: result.code } : {}),
-        ...(result.message ? { message: result.message } : {}),
-      });
-      const status = committed.status;
-      const outcome = terminal(
-        status,
-        committed.code ?? undefined,
-        false,
-        Date.now() - z.number().parse(record.startedAt),
-        !waitUntil,
-      );
-      if (waitUntil) await flushTracking();
-      return outcome;
+      try {
+        const committed = await finishSignupActivation(key, attempt, {
+          status: result.ok ? "connected" : "fallback",
+          ...(result.code ? { code: result.code } : {}),
+          ...(result.message ? { message: result.message } : {}),
+        });
+        const status = committed.status;
+        const outcome = terminal(
+          status,
+          committed.code ?? undefined,
+          false,
+          Date.now() - z.number().parse(record.startedAt),
+          !waitUntil,
+        );
+        return outcome;
+      } catch {
+        track(
+          "builder_signup_experiment_activation_unavailable",
+          {
+            ...experimentProperties(assignment),
+            code: "outcome_write_failed",
+          },
+          trackingSource,
+        );
+        return { status: "fallback" as const, code: "outcome_write_failed" };
+      } finally {
+        if (waitUntil) await flushTracking();
+      }
     };
     const completion = complete();
     if (waitUntil) {

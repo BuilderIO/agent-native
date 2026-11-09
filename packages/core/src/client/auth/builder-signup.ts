@@ -86,7 +86,8 @@ export async function startBuilderSignupActivation(): Promise<
   "eligible" | "disabled"
 > {
   const result = await request({ operation: "start" });
-  if (result.status === "pending") return "eligible";
+  if (result.status === "pending" || result.status === "eligible")
+    return "eligible";
   if (["connected", "fallback", "disabled"].includes(String(result.status)))
     return "disabled";
   throw new Error("Invalid Builder signup start response");

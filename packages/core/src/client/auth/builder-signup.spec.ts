@@ -38,6 +38,8 @@ describe("Builder signup client contract", () => {
         keepalive: true,
       }),
     );
+    fetch.mockResolvedValueOnce(response({ status: "eligible" }));
+    expect(await startBuilderSignupActivation()).toBe("eligible");
     for (const status of ["connected", "fallback", "disabled"]) {
       fetch.mockResolvedValueOnce(response({ status }));
       expect(await startBuilderSignupActivation()).toBe("disabled");
