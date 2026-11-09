@@ -335,6 +335,8 @@ export function MeetingPill() {
         setError(null);
         hoverPeek.reset();
         setExpanded(false);
+        // The reused window may still be expanded from the last session.
+        invoke("recording_pill_expand", { expanded: false }).catch(() => {});
         // Reset transcript state for the new session.
         setPreloadedLines([]);
         transcriptLinesRef.current = [];

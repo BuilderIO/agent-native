@@ -468,14 +468,16 @@ fn start_pill_hover_tracking(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         use tauri::Emitter;
-        let mut prev = false;
+        // `None` so a replacement tracker always reports where the pointer is,
+        // even "not hovered": the one it replaced may have last said "hovered".
+        let mut prev: Option<bool> = None;
         while is_current_loop_generation(&PILL_HOVER_GENERATION, generation) {
             let Some(win) = app.get_webview_window(PILL_LABEL) else {
                 break;
             };
             let inside = cursor_inside_pill_frame(&win);
-            if inside != prev {
-                prev = inside;
+            if prev != Some(inside) {
+                prev = Some(inside);
                 let _ = win.emit("clips:pill-hover", serde_json::json!({ "hovered": inside }));
             }
             tokio::time::sleep(Duration::from_millis(80)).await;

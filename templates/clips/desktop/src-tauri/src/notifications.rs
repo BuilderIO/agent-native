@@ -81,14 +81,16 @@ fn start_meeting_notification_hover_tracking(app: &AppHandle) {
     let generation = advance_loop_generation(&MEETING_NOTIF_HOVER_GENERATION);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let mut prev = false;
+        // `None` so a replacement tracker always reports where the pointer is,
+        // even "not hovered": the one it replaced may have last said "hovered".
+        let mut prev: Option<bool> = None;
         while is_current_loop_generation(&MEETING_NOTIF_HOVER_GENERATION, generation) {
             let Some(win) = app.get_webview_window(MEETING_NOTIFICATION_LABEL) else {
                 break;
             };
             if !win.is_visible().unwrap_or(false) {
-                if prev {
-                    prev = false;
+                if prev != Some(false) {
+                    prev = Some(false);
                     let _ = win.emit(
                         "meetings:notification-hover",
                         serde_json::json!({ "hovered": false }),
@@ -98,8 +100,8 @@ fn start_meeting_notification_hover_tracking(app: &AppHandle) {
                 continue;
             }
             let inside = cursor_inside_notification_frame(&win);
-            if inside != prev {
-                prev = inside;
+            if prev != Some(inside) {
+                prev = Some(inside);
                 let _ = win.emit(
                     "meetings:notification-hover",
                     serde_json::json!({ "hovered": inside }),
