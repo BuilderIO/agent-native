@@ -108,6 +108,7 @@ vi.mock("@agent-native/core/credentials", () => ({
 vi.mock("@agent-native/core/server", () => ({
   resolveHasBuilderGatewayCredential: (...args: unknown[]) =>
     mockResolveHasBuilderGatewayCredential(...args),
+  BuilderCredentialLookupError: class BuilderCredentialLookupError extends Error {},
 }));
 
 vi.mock("@agent-native/core/transcription/builder", () => ({
@@ -892,6 +893,58 @@ describe("requestTranscript regeneration", () => {
     });
   });
 
+  it("reports an unavailable AI model instead of queuing a regeneration", async () => {
+    mockResolveHasBuilderGatewayCredential.mockResolvedValue(false);
+    mockSelectRows.queue = [
+      [{ status: "ready", updatedAt: new Date().toISOString() }],
+    ];
+
+    await expect(
+      requestTranscript.run(
+        { recordingId: "rec_ready", force: true, regenerate: true },
+        { caller: "frontend" } as Parameters<typeof requestTranscript.run>[1],
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "ai_model_unavailable",
+      statusCode: 409,
+    });
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+  });
+
+  it("reports a retryable error when the Builder connection can't be checked", async () => {
+    const { BuilderCredentialLookupError } =
+      await import("@agent-native/core/server");
+    mockResolveHasBuilderGatewayCredential.mockRejectedValue(
+      new BuilderCredentialLookupError(),
+    );
+    mockSelectRows.queue = [
+      [{ status: "failed", updatedAt: new Date().toISOString() }],
+    ];
+
+    await expect(
+      requestTranscript.run({ recordingId: "rec_ready", force: true }, {
+        caller: "frontend",
+      } as Parameters<typeof requestTranscript.run>[1]),
+    ).rejects.toMatchObject({
+      errorCode: "ai_model_lookup_unavailable",
+      statusCode: 503,
+    });
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+  });
+
+  it("still queues a forced request for a ready transcript without an AI model", async () => {
+    mockResolveHasBuilderGatewayCredential.mockResolvedValue(false);
+    mockSelectRows.queue = [
+      [{ status: "ready", updatedAt: new Date().toISOString() }],
+    ];
+
+    await requestTranscript.run({ recordingId: "rec_ready", force: true }, {
+      caller: "frontend",
+    } as Parameters<typeof requestTranscript.run>[1]);
+
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the ready transcript when regeneration fails", async () => {
     mockTranscribeWithBuilder.mockRejectedValue(
       new Error("Builder transcription failed (503 Service Unavailable)"),
@@ -947,6 +1000,26 @@ describe("requestTranscript regeneration", () => {
     });
     expect(mockUpdateSet).not.toHaveBeenCalled();
     expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("records a retryable failure and schedules a retry when the Builder credential lookup is unavailable", async () => {
+    const { BuilderCredentialLookupError } =
+      await import("@agent-native/core/server");
+    mockResolveHasBuilderGatewayCredential.mockRejectedValue(
+      new BuilderCredentialLookupError(),
+    );
+    mockSelectRows.queue = [[]];
+
+    const result = await requestTranscript.run({ recordingId: "rec_new" });
+
+    expect(result).toMatchObject({ recordingId: "rec_new", status: "failed" });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "rec_new",
+        kind: "transcript",
+        retryAttempt: 1,
+      }),
+    );
   });
 
   it("falls back to Builder when native transcription is unavailable", async () => {

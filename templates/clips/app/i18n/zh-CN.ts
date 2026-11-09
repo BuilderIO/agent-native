@@ -1924,6 +1924,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "还剩 {{count}} 个免费片段",
     freeClipsLeft_other: "还剩 {{count}} 个免费片段",
+    activateBuilder: "激活 Builder.io",
     hostedClipsExhaustedTitle: "免费连接 Builder.io，继续录制",
     hostedClipsExhaustedDescription:
       "免费托管录制次数已用完。连接 Builder.io 存储，即可继续将片段保存到资料库。",
