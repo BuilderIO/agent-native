@@ -225,6 +225,7 @@ describe("import-figma-frame", () => {
     expect(result.figma).toEqual({
       fileKey: "abcDEF12345",
       nodeId: "1:2",
+      nodeIds: ["1:2"],
       nodeName: "Hero",
     });
     expect(result._receipt).toMatchObject({
@@ -267,29 +268,28 @@ describe("import-figma-frame", () => {
     );
   });
 
-  it("falls back to the first top-level frame when no node-id is given", async () => {
+  it("imports the first page's frames, not its loose layers, when no node-id is given", async () => {
     mocks.executeProviderApiRequest.mockImplementation(
       async ({ path, query }: any) => {
-        if (path === "/files/abcDEF12345" && query?.depth === 2) {
+        if (path === "/files/abcDEF12345" && query?.depth === 1) {
           return jsonEnvelope({
-            document: {
-              children: [
-                {
-                  id: "page-1",
-                  children: [
-                    { id: "9:8", type: "RECTANGLE", name: "Cover shape" },
-                    { id: "9:9", type: "FRAME", name: "First Frame" },
-                  ],
-                },
-              ],
-            },
+            document: { children: [{ id: "0:1", type: "CANVAS" }] },
           });
         }
-        if (path === "/files/abcDEF12345/nodes") {
-          expect(query).toEqual(expect.objectContaining({ ids: "9:9" }));
+        if (path === "/files/abcDEF12345/nodes" && query?.ids === "0:1") {
           return jsonEnvelope({
             nodes: {
-              "9:9": { document: { ...SIMPLE_FRAME.document, id: "9:9" } },
+              "0:1": {
+                document: {
+                  id: "0:1",
+                  name: "Page 1",
+                  type: "CANVAS",
+                  children: [
+                    { id: "9:8", type: "RECTANGLE", name: "Cover shape" },
+                    { ...SIMPLE_FRAME.document, id: "9:9", name: "First" },
+                  ],
+                },
+              },
             },
           });
         }
@@ -298,7 +298,111 @@ describe("import-figma-frame", () => {
     );
 
     const result = await action.run({ fileKey: "abcDEF12345" } as any);
-    expect(result.figma.nodeId).toBe("9:9");
+    expect(result.figma.nodeIds).toEqual(["9:9"]);
+    expect(
+      mocks.saveImportedDesignFiles.mock.calls[0]![0].files.map(
+        (file: { filename: string }) => file.filename,
+      ),
+    ).toEqual(["First.html"]);
+  });
+
+  it("imports every frame on a linked page, sections opened, instead of an empty page frame", async () => {
+    mocks.executeProviderApiRequest.mockImplementation(
+      async ({ path, query }: any) => {
+        expect(path).toBe("/files/abcDEF12345/nodes");
+        expect(query).toEqual(expect.objectContaining({ ids: "0:1" }));
+        return jsonEnvelope({
+          nodes: {
+            "0:1": {
+              document: {
+                id: "0:1",
+                name: "Page 1",
+                type: "CANVAS",
+                children: [
+                  { ...SIMPLE_FRAME.document, id: "1:234", name: "Upload" },
+                  {
+                    id: "5:1",
+                    type: "SECTION",
+                    name: "Flows",
+                    children: [
+                      { ...SIMPLE_FRAME.document, id: "5:2", name: "Checkout" },
+                    ],
+                  },
+                  {
+                    ...SIMPLE_FRAME.document,
+                    id: "5:3",
+                    name: "Hidden",
+                    visible: false,
+                  },
+                ],
+              },
+            },
+          },
+        });
+      },
+    );
+
+    const result = await action.run({
+      figmaUrl:
+        "https://www.figma.com/design/abcDEF12345/Test?node-id=0-1&t=abc-1",
+    } as any);
+    expect(result.figma).toMatchObject({
+      nodeIds: ["1:234", "5:2"],
+      nodeName: "Page 1",
+    });
+    expect(
+      mocks.saveImportedDesignFiles.mock.calls[0]![0].files.map(
+        (file: { filename: string }) => file.filename,
+      ),
+    ).toEqual(["Upload.html", "Checkout.html"]);
+  });
+
+  it("imports a page's loose layers when it has no frames, and refuses an empty page", async () => {
+    mocks.executeProviderApiRequest.mockImplementationOnce(async () =>
+      jsonEnvelope({
+        nodes: {
+          "0:1": {
+            document: {
+              id: "0:1",
+              name: "Sketches",
+              type: "CANVAS",
+              children: [
+                {
+                  id: "7:1",
+                  type: "GROUP",
+                  name: "Logo",
+                  absoluteBoundingBox: { x: 0, y: 0, width: 40, height: 40 },
+                  children: [],
+                },
+              ],
+            },
+          },
+        },
+      }),
+    );
+    const result = await action.run({
+      fileKey: "abcDEF12345",
+      nodeId: "0:1",
+    } as any);
+    expect(result.figma.nodeIds).toEqual(["7:1"]);
+
+    mocks.executeProviderApiRequest.mockImplementationOnce(async () =>
+      jsonEnvelope({
+        nodes: {
+          "0:1": {
+            document: {
+              id: "0:1",
+              name: "Blank",
+              type: "CANVAS",
+              children: [],
+            },
+          },
+        },
+      }),
+    );
+    await expect(
+      action.run({ fileKey: "abcDEF12345", nodeId: "0:1" } as any),
+    ).rejects.toThrow(/"Blank" is empty/);
   });
 
   it("throws a clear error when the requested node is not found", async () => {

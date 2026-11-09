@@ -531,6 +531,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
   const addComment = useActionMutation("add-comment", {
     headers: commentHeaders,
+    errorNotification: "shared",
     onMutate: async (vars: any) => {
       const optimistic = optimisticComment(vars);
       const tempId = optimistic.id;
@@ -565,6 +566,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
   const reactToComment = useActionMutation("react-to-comment", {
     headers: commentHeaders,
+    errorNotification: "shared",
     onMutate: async (vars: any) => {
       const currentUser = currentUserEmail;
       if (!currentUser) {
@@ -648,6 +650,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
   const remove = useActionMutation("delete-comment", {
     headers: commentHeaders,
+    errorNotification: "shared",
     onMutate: async (vars: any) => {
       const current = visibleCommentsRef.current;
       const target = current.find((comment) => comment.id === vars.id);
@@ -687,6 +690,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
   const updateComment = useActionMutation("update-comment", {
     headers: commentHeaders,
+    errorNotification: "shared",
     onMutate: async (vars: any) => {
       const updatedAt = new Date().toISOString();
       const current = visibleCommentsRef.current.find(
