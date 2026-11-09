@@ -944,9 +944,10 @@ export default function MeetingDetailRoute() {
       {
         onSuccess: (result) => {
           if (!skippedForRunningNotes(result)) return;
-          toast.info(t("meetingDetail.notesAlreadyGenerating"), {
-            id: toastId,
-          });
+          toast.info(
+            t("meetingDetail.notesAlreadyGenerating"),
+            toastId === undefined ? undefined : { id: toastId },
+          );
         },
       },
     );
