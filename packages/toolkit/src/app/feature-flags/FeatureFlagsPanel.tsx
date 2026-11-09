@@ -5,6 +5,7 @@ import {
 import type {
   FeatureFlagMetadata,
   FeatureFlagRuleScope,
+  FeatureFlagRuleSummary,
   FeatureFlagRules,
   FeatureFlagStoredRule,
   SetFeatureFlagInput,
@@ -79,50 +80,73 @@ function formatWhen(value: number | null | undefined): string | null {
   }).format(date);
 }
 
+function summarize(rules: FeatureFlagRules): FeatureFlagRuleSummary {
+  return {
+    mode: rules.mode,
+    emailCount: rules.emails.length,
+    orgIdCount: rules.orgIds.length,
+    percentage: rules.percentage,
+    updatedAt: rules.updatedAt ?? null,
+  };
+}
+
 function rolloutLabel(
-  rules: FeatureFlagRules,
+  audience: FeatureFlagRuleSummary,
   t: ReturnType<typeof useT>,
 ): string {
-  if (rules.mode === "off") return t("featureFlags.off");
-  if (rules.mode === "on") return t("featureFlags.everyone");
+  if (audience.mode === "off") return t("featureFlags.off");
+  if (audience.mode === "on") return t("featureFlags.everyone");
   const parts = [
-    rules.emails.length
-      ? t("featureFlags.emailCount", { count: rules.emails.length })
+    audience.emailCount
+      ? t("featureFlags.emailCount", { count: audience.emailCount })
       : null,
-    rules.orgIds.length
-      ? t("featureFlags.organizationCount", { count: rules.orgIds.length })
+    audience.orgIdCount
+      ? t("featureFlags.organizationCount", { count: audience.orgIdCount })
       : null,
-    rules.percentage
-      ? t("featureFlags.percentageRollout", { count: rules.percentage })
+    audience.percentage
+      ? t("featureFlags.percentageRollout", { count: audience.percentage })
       : null,
   ].filter(Boolean);
   return parts.join(" · ") || t("featureFlags.inherited");
 }
 
 function audienceLabel(
-  rules: FeatureFlagRules,
+  audience: FeatureFlagRuleSummary,
   t: ReturnType<typeof useT>,
 ): string {
-  if (rules.mode === "off") return t("featureFlags.off");
-  if (rules.mode === "on") return t("featureFlags.everyoneAudience");
-  return rolloutLabel(rules, t);
+  if (audience.mode === "off") return t("featureFlags.off");
+  if (audience.mode === "on") return t("featureFlags.everyoneAudience");
+  return rolloutLabel(audience, t);
 }
 
-function modeLabel(rules: FeatureFlagRules, t: ReturnType<typeof useT>) {
-  if (rules.mode === "off") return t("featureFlags.off");
-  if (rules.mode === "on") return t("featureFlags.everyone");
+function modeLabel(
+  audience: FeatureFlagRuleSummary,
+  t: ReturnType<typeof useT>,
+) {
+  if (audience.mode === "off") return t("featureFlags.off");
+  if (audience.mode === "on") return t("featureFlags.everyone");
   return t("featureFlags.targeted");
+}
+
+/** Who a stored rule reaches; null when it couldn't be read. */
+function storedAudience(
+  stored: FeatureFlagStoredRule,
+): FeatureFlagRuleSummary | null {
+  if (stored.state === "set")
+    return summarize(normalizeFeatureFlagRules(stored.rules));
+  if (stored.state === "withheld") return stored.summary;
+  if (stored.state === "unreadable") return null;
+  return summarize(normalizeFeatureFlagRules({ mode: "off" }));
 }
 
 function storedAudienceLabel(
   stored: FeatureFlagStoredRule,
   t: ReturnType<typeof useT>,
 ): string {
-  if (stored.state === "set")
-    return audienceLabel(normalizeFeatureFlagRules(stored.rules), t);
-  if (stored.state === "unreadable")
-    return t("agentChat.featureFlags.scope.unreadable");
-  return t("featureFlags.off");
+  const audience = storedAudience(stored);
+  return audience
+    ? audienceLabel(audience, t)
+    : t("agentChat.featureFlags.scope.unreadable");
 }
 
 function storedRule(
@@ -131,6 +155,19 @@ function storedRule(
 ): FeatureFlagStoredRule | null {
   if (!flag.scopes) return null;
   return scope === "org" ? flag.scopes.org : flag.scopes.global;
+}
+
+/** Who the rule in effect reaches; null when it couldn't be read. */
+function inEffectAudience(
+  flag: FeatureFlagMetadata,
+): FeatureFlagRuleSummary | null {
+  if (flag.rules) return summarize(flag.rules);
+  const inEffect = flag.scopes?.inEffect;
+  const stored =
+    inEffect === "org" || inEffect === "global"
+      ? storedRule(flag, inEffect)
+      : null;
+  return stored ? storedAudience(stored) : null;
 }
 
 /** A target without `scopes` predates explicit scope and writes the caller's org. */
@@ -153,18 +190,24 @@ function startingRules(
 }
 
 /**
- * Adds the caller to whichever rule decides their access. Writing the org
- * rule when the global rule is in effect would create an org rule, and the
- * org would then stop following later changes to the global rule.
+ * Adds the caller to the rule that decides their access, or to none. Writing
+ * the org rule while the global rule decides would create an org rule, and
+ * the org would then stop following later changes to the global rule; a rule
+ * that couldn't be read has nothing to add to.
  */
 function enableForMeScope(
   flag: FeatureFlagMetadata,
 ): FeatureFlagRuleScope | null {
   const scopes = manageableScopes(flag);
-  if (flag.scopes?.inEffect === "org")
-    return scopes.includes("org") ? "org" : null;
-  if (scopes.includes("global")) return "global";
-  return scopes.includes("org") ? "org" : null;
+  const inEffect = flag.scopes?.inEffect;
+  const target: FeatureFlagRuleScope =
+    inEffect === "org" || inEffect === "global"
+      ? inEffect
+      : scopes.includes("global")
+        ? "global"
+        : "org";
+  if (!scopes.includes(target)) return null;
+  return storedRule(flag, target)?.state === "unreadable" ? null : target;
 }
 
 function isOff(stored: FeatureFlagStoredRule | null): boolean {
@@ -362,12 +405,14 @@ function TargetingDialog({
               : "agentChat.featureFlags.scope.summaryGlobal",
             {
               audience: audienceLabel(
-                normalizeFeatureFlagRules({
-                  mode,
-                  emails: parseList(emails),
-                  orgIds: parseList(orgIds),
-                  percentage: normalizeFeatureFlagPercentage(percentage),
-                }),
+                summarize(
+                  normalizeFeatureFlagRules({
+                    mode,
+                    emails: parseList(emails),
+                    orgIds: parseList(orgIds),
+                    percentage: normalizeFeatureFlagPercentage(percentage),
+                  }),
+                ),
                 t,
               ),
             },
@@ -445,8 +490,9 @@ function FeatureFlagRow({
     null,
   );
   const rules = flag.rules;
+  const audience = inEffectAudience(flag);
   const actor = rules ? formatActor(rules.updatedBy) : null;
-  const when = rules ? formatWhen(rules.updatedAt) : null;
+  const when = formatWhen(audience?.updatedAt);
   const metadata = [actor, when].filter(Boolean).join(" · ");
   const scopes = manageableScopes(flag);
   const enableScope = enableForMeScope(flag);
@@ -482,16 +528,16 @@ function FeatureFlagRow({
           ) : null}
           <Badge
             variant={
-              !rules
+              !audience
                 ? "destructive"
-                : rules.mode === "on"
+                : audience.mode === "on"
                   ? "secondary"
                   : "outline"
             }
             className="ms-auto shrink-0"
           >
-            {rules
-              ? modeLabel(rules, t)
+            {audience
+              ? modeLabel(audience, t)
               : t("agentChat.featureFlags.scope.unreadable")}
           </Badge>
         </div>
@@ -501,8 +547,8 @@ function FeatureFlagRow({
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span>
             {t("featureFlags.enabledFor")}:{" "}
-            {rules
-              ? audienceLabel(rules, t)
+            {audience
+              ? audienceLabel(audience, t)
               : t("agentChat.featureFlags.scope.unreadable")}
           </span>
           <RuleSource flag={flag} />
@@ -595,7 +641,7 @@ function FeatureFlagRow({
               {scopes.includes("org") ? (
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
-                  disabled={rules?.mode === "off"}
+                  disabled={audience?.mode === "off"}
                   onSelect={() => setTurnOffScope("org")}
                 >
                   {t("agentChat.featureFlags.scope.turnOffOrg")}

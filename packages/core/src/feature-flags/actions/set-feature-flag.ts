@@ -1,14 +1,16 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, fail } from "../../action.js";
 import { getLabForLegacyFlag } from "../../labs/registry.js";
 import { getOrgDomain } from "../../org/context.js";
 import { requireFeatureFlagManager } from "../permissions.js";
 import { getFeatureFlagDefinition } from "../registry.js";
 import {
   defaultFeatureFlagRules,
+  FeatureFlagRulesError,
   mutateFeatureFlagRules,
   normalizeFeatureFlagRules,
+  replaceFeatureFlagRules,
 } from "../store.js";
 
 const rulesSchema = z.object({
@@ -41,7 +43,7 @@ const schema = z.discriminatedUnion("operation", [
 
 export default defineAction({
   description:
-    "Atomically manage one registered feature flag: enable it for the current user, turn it off, or replace its full rules. `scope: \"org\"` writes the active organization's own rule (organization owner/admin only); `scope: \"global\"` writes the rule for every organization (this app's feature flag admin list only). An organization's own rule replaces the global rule for that organization. Omitting scope writes the active organization's rule, or the global rule for a caller with no organization; the result names the rule written.",
+    "Atomically manage one registered feature flag: enable it for the current user, turn it off, or replace its full rules. `scope: \"org\"` writes the active organization's own rule (organization owner/admin only); `scope: \"global\"` writes the rule for every organization (this app's feature flag admin list only). An organization's own rule replaces the global rule for that organization. Omitting scope writes the active organization's rule, or the global rule for a caller with no organization; the result names the rule written. Enabling for the current user adds to the rule that exists: it fails on a rule that could not be read, and on an organization that follows the global rule, rather than creating that organization's own rule; turning off or replacing the rules writes the whole rule either way.",
   schema,
   agentInputSchema: z.object({
     operation: z.enum(["enable-for-current-user", "off", "replace-rules"]),
@@ -86,25 +88,38 @@ export default defineAction({
       throw new Error("Feature flag organization domain is unavailable.");
     }
 
-    const persistedRules = await mutateFeatureFlagRules(
-      args.key,
-      { orgId: manager.orgId },
-      (current) => {
-        let rules;
-        if (args.operation === "off") {
-          rules = defaultFeatureFlagRules();
-        } else if (args.operation === "replace-rules") {
-          rules = normalizeFeatureFlagRules(args.rules);
-        } else {
-          rules = normalizeFeatureFlagRules({
+    const changed = { updatedAt: Date.now(), updatedBy: manager.email };
+    const scope = { orgId: manager.orgId };
+    const enableForCurrentUser = async () => {
+      try {
+        return await mutateFeatureFlagRules(args.key, scope, (current) => ({
+          ...normalizeFeatureFlagRules({
             ...current,
             mode: current.mode === "on" ? "on" : "rules",
             emails: [...current.emails, manager.email],
+          }),
+          ...changed,
+        }));
+      } catch (error) {
+        if (!(error instanceof FeatureFlagRulesError)) throw error;
+        return fail(error.message, {
+          errorCode:
+            error.code === "follows-global"
+              ? "follows_global_rule"
+              : "rule_unreadable",
+          statusCode: 409,
+        });
+      }
+    };
+    const persistedRules =
+      args.operation === "enable-for-current-user"
+        ? await enableForCurrentUser()
+        : await replaceFeatureFlagRules(args.key, scope, {
+            ...(args.operation === "off"
+              ? defaultFeatureFlagRules()
+              : normalizeFeatureFlagRules(args.rules)),
+            ...changed,
           });
-        }
-        return { ...rules, updatedAt: Date.now(), updatedBy: manager.email };
-      },
-    );
     return {
       contractVersion: 2 as const,
       status: "ready" as const,

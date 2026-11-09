@@ -64,15 +64,27 @@ const mutateFeatureFlagRulesMock = vi.fn(
     updater: (current: Record<string, unknown>) => Record<string, unknown>,
   ) => updater(await getFeatureFlagRulesMock(key, scope)),
 );
+const replaceFeatureFlagRulesMock = vi.fn(
+  async (_key: string, _scope: unknown, rules: Record<string, unknown>) =>
+    rules,
+);
 vi.mock("../store.js", () => ({
+  FeatureFlagRulesError: class extends Error {},
   defaultFeatureFlagRules: () => defaultFeatureFlagRulesMock(),
   getFeatureFlagRules: (...args: any[]) => getFeatureFlagRulesMock(...args),
   readFeatureFlagRuleLayers: (...args: any[]) =>
     readFeatureFlagRuleLayersMock(...args),
+  featureFlagRuleInEffect: (layers: any) =>
+    layers.inEffect === "org" && layers.org ? layers.org : layers.global,
+  evaluateStoredFeatureFlagRule: (key: string, stored: any, scope: unknown) =>
+    stored.state === "set" &&
+    evaluateFeatureFlagRulesMock(key, stored.rules, scope),
   evaluateFeatureFlagRules: (...args: any[]) =>
     evaluateFeatureFlagRulesMock(...args),
   mutateFeatureFlagRules: (...args: any[]) =>
     mutateFeatureFlagRulesMock(...args),
+  replaceFeatureFlagRules: (...args: any[]) =>
+    replaceFeatureFlagRulesMock(...args),
   normalizeFeatureFlagRules: (...args: any[]) =>
     normalizeFeatureFlagRulesMock(...args),
 }));
@@ -204,6 +216,7 @@ describe("feature flag action contracts", () => {
       ),
     ).rejects.toThrow("managed in Labs");
     expect(mutateFeatureFlagRulesMock).not.toHaveBeenCalled();
+    expect(replaceFeatureFlagRulesMock).not.toHaveBeenCalled();
   });
 
   it("keeps administrative mutation out of extensions and returns persisted rules", async () => {
@@ -220,10 +233,10 @@ describe("feature flag action contracts", () => {
         summary: expect.any(Function),
       }),
     );
-    expect(mutateFeatureFlagRulesMock).toHaveBeenCalledWith(
+    expect(replaceFeatureFlagRulesMock).toHaveBeenCalledWith(
       "new-editor",
       { orgId: "org-1" },
-      expect.any(Function),
+      expect.objectContaining({ mode: "off", updatedBy: "admin@example.com" }),
     );
     expect(result).toEqual({
       contractVersion: 2,
@@ -247,6 +260,7 @@ describe("feature flag action contracts", () => {
       ),
     ).rejects.toThrow("organization domain is unavailable");
     expect(mutateFeatureFlagRulesMock).not.toHaveBeenCalled();
+    expect(replaceFeatureFlagRulesMock).not.toHaveBeenCalled();
   });
 
   it("keeps local mutations available when the organization has no domain", async () => {
@@ -262,7 +276,7 @@ describe("feature flag action contracts", () => {
         scope: { kind: "org", orgId: "org-1", orgDomain: null },
       }),
     );
-    expect(mutateFeatureFlagRulesMock).toHaveBeenCalledOnce();
+    expect(replaceFeatureFlagRulesMock).toHaveBeenCalledOnce();
   });
 
   it("does not narrow a globally-on flag when enabling the current user", async () => {
@@ -286,7 +300,7 @@ describe("feature flag action contracts", () => {
     );
   });
 
-  it("derives replacement rules inside the atomic mutation", async () => {
+  it("writes replacement rules whole, without reading the stored rule", async () => {
     await setAction.run(
       {
         operation: "replace-rules",
@@ -296,8 +310,10 @@ describe("feature flag action contracts", () => {
       { caller: "tool", userEmail: "admin@example.com", orgId: "org-1" },
     );
 
-    expect(mutateFeatureFlagRulesMock).toHaveBeenCalledOnce();
-    expect(normalizeFeatureFlagRulesMock).toHaveBeenCalledWith(
+    expect(mutateFeatureFlagRulesMock).not.toHaveBeenCalled();
+    expect(replaceFeatureFlagRulesMock).toHaveBeenCalledWith(
+      "new-editor",
+      { orgId: "org-1" },
       expect.objectContaining({ mode: "rules", percentage: 50 }),
     );
   });

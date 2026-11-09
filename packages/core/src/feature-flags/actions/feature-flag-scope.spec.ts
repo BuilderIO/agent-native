@@ -1,16 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../action.js", () => ({
+vi.mock("../../action.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../action.js")>()),
   defineAction: (definition: unknown) => definition,
 }));
 
 const rows = new Map<string, string>();
-const corruptKeys = new Set<string>();
-const readRow = (key: string) => {
-  const raw = rows.get(key);
-  if (raw === undefined) return { found: false as const };
-  if (corruptKeys.has(key)) throw new SyntaxError("Unexpected token");
-  return { found: true as const, value: JSON.parse(raw) };
+const putRow = async (key: string, value: Record<string, unknown>) => {
+  rows.set(key, JSON.stringify(value));
 };
 const mutateRow = async (
   key: string,
@@ -28,19 +25,17 @@ const orgKey = (orgId: string, key: string) => `o:${orgId}:${key}`;
 vi.mock("../../settings/store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../settings/store.js")>()),
   getSetting: async (key: string) => {
-    const entry = readRow(key);
-    return entry.found ? entry.value : null;
+    const raw = rows.get(key);
+    return raw === undefined ? null : JSON.parse(raw);
   },
-  getSettingEntry: async (key: string) => readRow(key),
+  getSettingsRaw: async (keys: readonly string[]) =>
+    new Map(keys.map((key) => [key, rows.get(key) ?? null])),
+  putSetting: putRow,
   mutateSetting: (key: string, updater: any) => mutateRow(key, updater),
 }));
 vi.mock("../../settings/org-settings.js", () => ({
-  getOrgSetting: async (orgId: string, key: string) => {
-    const entry = readRow(orgKey(orgId, key));
-    return entry.found ? entry.value : null;
-  },
-  getOrgSettingEntry: async (orgId: string, key: string) =>
-    readRow(orgKey(orgId, key)),
+  putOrgSetting: (orgId: string, key: string, value: Record<string, unknown>) =>
+    putRow(orgKey(orgId, key), value),
   mutateOrgSetting: (orgId: string, key: string, updater: any) =>
     mutateRow(orgKey(orgId, key), updater),
 }));
@@ -74,6 +69,7 @@ vi.mock("../../server/identity-sso-store.js", () => ({
 }));
 
 const registry = await import("../registry.js");
+const store = await import("../store.js");
 const labsRegistry = await import("../../labs/registry.js");
 const setAction = (await import("./set-feature-flag.js")).default;
 const listAction = (await import("./list-feature-flags.js")).default;
@@ -99,7 +95,6 @@ const stored = (key: string) => {
 
 beforeEach(() => {
   rows.clear();
-  corruptKeys.clear();
   roles.clear();
   vi.clearAllMocks();
   registry._resetFeatureFlagRegistryForTests();
@@ -205,6 +200,52 @@ describe("set-feature-flag scope", () => {
   });
 });
 
+describe("set-feature-flag enable for the current user", () => {
+  const enableForOrg = {
+    operation: "enable-for-current-user" as const,
+    key: KEY,
+    scope: "org" as const,
+  };
+
+  it("refuses to start an org's own rule while the org follows the global rule", async () => {
+    rows.set(GLOBAL_ROW, JSON.stringify({ version: 1, mode: "on" }));
+
+    await expect(setAction.run(enableForOrg, owner)).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "follows_global_rule",
+    });
+    expect(stored(ORG_ROW)).toBeUndefined();
+
+    rows.delete(GLOBAL_ROW);
+    await setAction.run(enableForOrg, owner);
+    expect(stored(ORG_ROW)).toMatchObject({
+      mode: "rules",
+      emails: ["owner@example.test"],
+    });
+  });
+
+  it("refuses a rule that can't be read, which off and replace still overwrite", async () => {
+    for (const unreadable of [
+      JSON.stringify({ version: 1, mode: "everyone" }),
+      "{",
+    ]) {
+      rows.set(ORG_ROW, unreadable);
+      await expect(setAction.run(enableForOrg, owner)).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "rule_unreadable",
+      });
+      expect(rows.get(ORG_ROW)).toBe(unreadable);
+    }
+
+    await setAction.run({ operation: "off", key: KEY, scope: "org" }, owner);
+    expect(stored(ORG_ROW)).toMatchObject({ version: 1, mode: "off" });
+
+    rows.set(ORG_ROW, "{");
+    await setAction.run({ ...turnOn, scope: "org" }, owner);
+    expect(stored(ORG_ROW)).toMatchObject({ version: 1, mode: "on" });
+  });
+});
+
 describe("list-feature-flags precedence", () => {
   it("reports the global rule, the org rule, and that the org rule applies", async () => {
     rows.set(GLOBAL_ROW, JSON.stringify({ version: 1, mode: "on" }));
@@ -223,8 +264,8 @@ describe("list-feature-flags precedence", () => {
         scopes: {
           inEffect: "org",
           global: expect.objectContaining({
-            state: "set",
-            rules: expect.objectContaining({ mode: "on" }),
+            state: "withheld",
+            summary: expect.objectContaining({ mode: "on" }),
             canManage: false,
           }),
           org: expect.objectContaining({
@@ -263,19 +304,14 @@ describe("list-feature-flags precedence", () => {
 
     rows.set(ORG_ROW, JSON.stringify({ version: 1, mode: "everyone" }));
     rows.set(GLOBAL_ROW, "{");
-    corruptKeys.add(GLOBAL_ROW);
     result = await listAction.run({}, owner);
 
     const [flag] = result.flags;
     expect(flag).not.toHaveProperty("rules");
-    expect(flag).not.toHaveProperty("enabledForCurrentUser");
+    expect(flag?.enabledForCurrentUser).toBe(false);
     expect(flag?.scopes).toEqual({
       inEffect: "org",
-      global: {
-        state: "unreadable",
-        problem: "stored rules are not JSON",
-        canManage: false,
-      },
+      global: { state: "unreadable", canManage: false },
       org: {
         orgId: "org-1",
         state: "unreadable",
@@ -283,6 +319,88 @@ describe("list-feature-flags precedence", () => {
         canManage: true,
       },
     });
+  });
+
+  it("lists an unreadable org rule as off for the org, as evaluation does", async () => {
+    rows.set(GLOBAL_ROW, JSON.stringify({ version: 1, mode: "on" }));
+    for (const unreadable of [
+      JSON.stringify({ mode: "on" }),
+      JSON.stringify({ version: 1, mode: "everyone" }),
+      "{",
+    ]) {
+      rows.set(ORG_ROW, unreadable);
+      const [flag] = (await listAction.run({}, owner)).flags;
+
+      expect(flag).toMatchObject({
+        enabledForCurrentUser: false,
+        scopes: { inEffect: "org", org: { state: "unreadable" } },
+      });
+      await expect(
+        store.evaluateFeatureFlag(KEY, {
+          userEmail: owner.userEmail,
+          orgId: "org-1",
+        }),
+      ).resolves.toBe(false);
+    }
+  });
+
+  it("withholds the global rule's lists from an org-only manager", async () => {
+    rows.set(
+      GLOBAL_ROW,
+      JSON.stringify({
+        version: 1,
+        mode: "rules",
+        emails: ["someone@elsewhere.test", "owner@example.test"],
+        orgIds: ["org-9"],
+        percentage: 10,
+      }),
+    );
+
+    const result = await listAction.run({}, owner);
+    const [flag] = result.flags;
+
+    expect(flag).not.toHaveProperty("rules");
+    expect(flag?.scopes?.global).toEqual({
+      state: "withheld",
+      summary: {
+        mode: "rules",
+        emailCount: 2,
+        orgIdCount: 1,
+        percentage: 10,
+        updatedAt: null,
+      },
+      canManage: false,
+    });
+    expect(JSON.stringify(result)).not.toMatch(/someone@elsewhere|org-9/);
+    expect(flag?.enabledForCurrentUser).toBe(true);
+    await expect(
+      store.evaluateFeatureFlag(KEY, {
+        userEmail: owner.userEmail,
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("withholds an org rule's lists from a global-only manager", async () => {
+    rows.set(
+      ORG_ROW,
+      JSON.stringify({ version: 1, mode: "rules", emails: ["a@example.test"] }),
+    );
+
+    const result = await listAction.run({}, siteAdmin);
+    const [flag] = result.flags;
+
+    expect(flag).not.toHaveProperty("rules");
+    expect(flag?.scopes).toMatchObject({
+      inEffect: "org",
+      global: { state: "unset", canManage: true },
+      org: {
+        state: "withheld",
+        summary: { mode: "rules", emailCount: 1, orgIdCount: 0 },
+        canManage: false,
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("a@example.test");
   });
 
   it("stays forbidden for a member who is not on the admin list", async () => {

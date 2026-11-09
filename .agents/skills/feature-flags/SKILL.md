@@ -146,16 +146,22 @@ organization's own rule (`o:<orgId>:feature-flag:<key>`) applies only there,
 and only that organization's owners and admins can change it; the admin list
 grants nothing at organization level. Evaluation uses the organization's rule
 when one exists and the global rule otherwise. They never merge: a global
-change does not reach an organization with its own rule, and an organization's
-first change copies the global rule into a rule of its own.
+change does not reach an organization with its own rule. An organization gets
+a rule of its own only from `off` or `replace-rules`, which write a whole
+rule; `enable-for-current-user` adds to the rule in effect, so it refuses an
+organization that follows the global rule (409 `follows_global_rule`) and a
+row that can't be read (409 `rule_unreadable`).
 
 `set-feature-flag` takes `scope: "org" | "global"`. Without it, the active
 organization's rule is written, or the global rule for a caller with no
 organization, so a caller that predates scope never writes wider than before.
 The result's `scope.kind` names the rule written. `list-feature-flags` returns
 `scopes` per flag: the global rule, the caller's organization rule, which one
-is `inEffect`, and whether the caller can change each. A row that cannot be
-parsed is `unreadable`, never reported as unset, and still takes precedence.
+is `inEffect`, and whether the caller can change each. A rule the caller
+can't change is `withheld`: its mode, percentage, and how many emails and
+organizations it targets, never which. A row that cannot be parsed is
+`unreadable`, never reported as unset; it still takes precedence and
+evaluates off, and `getFeatureFlagRulesStrict` throws on it.
 Over A2A, a global write passes only when the delegated email is on the target
 app's own list. Analytics checks that the target lists `scopes` before a
 global write, so a target that predates scope is refused rather than quietly

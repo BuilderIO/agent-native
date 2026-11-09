@@ -6,8 +6,10 @@ import { getFeatureFlagManagerAccess } from "../permissions.js";
 import { listFeatureFlags } from "../registry.js";
 import {
   defaultFeatureFlagRules,
-  evaluateFeatureFlagRules,
+  evaluateStoredFeatureFlagRule,
+  featureFlagRuleInEffect,
   readFeatureFlagRuleLayers,
+  type FeatureFlagStoredRule,
 } from "../store.js";
 
 const forbidden = {
@@ -18,9 +20,31 @@ const forbidden = {
   canManage: false,
 };
 
+/**
+ * A rule the caller can't change shows who it reaches, not who is on it: its
+ * email and organization lists can name people in other organizations.
+ */
+function asSeenBy(stored: FeatureFlagStoredRule, canManage: boolean) {
+  if (canManage || stored.state === "unset") return { ...stored, canManage };
+  if (stored.state === "unreadable")
+    return { state: "unreadable" as const, canManage };
+  const { mode, emails, orgIds, percentage, updatedAt } = stored.rules;
+  return {
+    state: "withheld" as const,
+    summary: {
+      mode,
+      emailCount: emails.length,
+      orgIdCount: orgIds.length,
+      percentage,
+      updatedAt,
+    },
+    canManage,
+  };
+}
+
 export default defineAction({
   description:
-    "List this app's registered feature flags for an operator. Each flag reports the global rule, the active organization's own rule, which of the two is in effect for that organization, and whether the caller can change each one; a rule that could not be read is reported as unreadable, never as off. Organization owners/admins and this app's feature flag admin list only.",
+    "List this app's registered feature flags for an operator. Each flag reports the global rule, the active organization's own rule, which of the two is in effect for that organization, and whether the caller can change each one; a rule that could not be read is reported as unreadable, never as off, and evaluates off. A rule the caller can't change is reported as withheld, with its mode, percentage, and how many emails and organizations it targets, but not which. Organization owners/admins and this app's feature flag admin list only.",
   schema: z.object({}),
   http: { method: "GET" },
   toolCallable: false,
@@ -39,39 +63,37 @@ export default defineAction({
     const flags = await Promise.all(
       definitions.map(async (definition) => {
         const layers = await readFeatureFlagRuleLayers(definition.key, access);
-        const inEffect =
+        const inEffect = featureFlagRuleInEffect(layers);
+        const canManageInEffect =
           layers.inEffect === "org"
-            ? layers.org
-            : layers.inEffect === "global"
-              ? layers.global
+            ? access.canManageOrg
+            : access.canManageGlobal;
+        const rules =
+          inEffect.state === "unset"
+            ? defaultFeatureFlagRules()
+            : inEffect.state === "set" && canManageInEffect
+              ? inEffect.rules
               : null;
-        const rules = !inEffect
-          ? defaultFeatureFlagRules()
-          : inEffect.state === "set"
-            ? inEffect.rules
-            : null;
         const movedToLab = getLabForLegacyFlag(definition.key)?.key;
         return {
           ...definition,
           ...(movedToLab && { movedToLab, canManage: false }),
-          ...(rules && {
-            rules,
-            enabledForCurrentUser: evaluateFeatureFlagRules(
-              definition.key,
-              rules,
-              {
-                userEmail: access.email,
-                userKey: access.email,
-                orgId: access.orgId,
-              },
-            ),
-          }),
+          ...(rules && { rules }),
+          enabledForCurrentUser: evaluateStoredFeatureFlagRule(
+            definition.key,
+            inEffect,
+            {
+              userEmail: access.email,
+              userKey: access.email,
+              orgId: access.orgId,
+            },
+          ),
           scopes: {
             inEffect: layers.inEffect,
-            global: { ...layers.global, canManage: access.canManageGlobal },
+            global: asSeenBy(layers.global, access.canManageGlobal),
             org: layers.org && {
-              ...layers.org,
-              canManage: access.canManageOrg,
+              ...asSeenBy(layers.org, access.canManageOrg),
+              orgId: layers.org.orgId,
             },
           },
         };

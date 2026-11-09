@@ -10,7 +10,10 @@ export interface FeatureFlagMetadata {
   displayName?: string | null;
   description?: string | null;
   defaultValue: boolean;
-  /** Absent when the rule in effect could not be read. */
+  /**
+   * Absent when the rule in effect could not be read, or is withheld because
+   * the caller can't change it; `scopes` says which.
+   */
   rules?: FeatureFlagRules;
   enabledForCurrentUser?: boolean;
   scopes?: FeatureFlagRuleScopes;
@@ -18,8 +21,19 @@ export interface FeatureFlagMetadata {
 
 export type FeatureFlagRuleScope = "org" | "global";
 
+/** Who a rule reaches, without the emails and organizations it names. */
+export interface FeatureFlagRuleSummary {
+  mode: FeatureFlagRules["mode"];
+  emailCount: number;
+  orgIdCount: number;
+  percentage: number;
+  updatedAt?: number | null;
+}
+
 export type FeatureFlagStoredRule = { canManage: boolean } & (
   | { state: "set"; rules: FeatureFlagRules }
+  /** Set, but the caller can't change it, so only its summary is shown. */
+  | { state: "withheld"; summary: FeatureFlagRuleSummary }
   | { state: "unset" }
   | { state: "unreadable"; problem?: string }
 );
