@@ -114,3 +114,18 @@ export function threeWayMergeContent({
   }
   return result + base.slice(position);
 }
+
+/**
+ * The merge for an edit that was saved against a file that has since moved on,
+ * shared by the live save and the outbox replay so both resolve alike.
+ */
+export function mergeQueuedEdit(input: {
+  base: string;
+  mine: string;
+  theirs: string;
+}): string | null {
+  return threeWayMergeContent({
+    ...input,
+    keepBothInsertionsAtSamePoint: true,
+  });
+}

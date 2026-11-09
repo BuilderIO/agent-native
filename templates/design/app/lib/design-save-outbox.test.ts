@@ -1,18 +1,22 @@
 import { sourceContentHash } from "@shared/source-workspace";
 import { describe, expect, it, vi } from "vitest";
 
+import { mergeQueuedEdit } from "@/pages/design-editor/three-way-merge";
+
 import {
   acknowledgeDesignSaveOutboxEntry,
   createDesignSaveOutboxEntry,
   DESIGN_SAVE_OUTBOX_RETENTION_MS,
   discardDesignSaveOutboxEntry,
   drainDesignSaveOutbox,
+  isConflictSaveError,
   isRejectedRestoreClaimError,
   journalDesignSaveOutboxEntry,
   reconcileRejectedRestoreClaimOutboxEntry,
   reconcileRejectedRestoreClaimOutboxEntryResult,
   type DesignSaveOutboxEntry,
   type DesignSaveOutboxStorage,
+  withVerifiedBaseContent,
 } from "./design-save-outbox";
 
 class MemoryOutboxStorage implements DesignSaveOutboxStorage {
@@ -92,6 +96,50 @@ function deferred<T>() {
     resolve = resolvePromise;
   });
   return { promise, resolve };
+}
+
+const BASE = [
+  "<main>",
+  '  <button data-agent-native-node-id="alpha" style="border-radius:10px;background:#6366f1">Alpha</button>',
+  '  <button data-agent-native-node-id="beta" style="border-radius:10px;background:#22c55e">Beta</button>',
+  "</main>",
+].join("\n");
+const MINE = BASE.replace(
+  'beta" style="border-radius:10px',
+  'beta" style="border-radius:30px',
+);
+const THEIRS = BASE.replace("#6366f1", "#ff0000");
+// Edits the same `beta` span as MINE, so the two cannot be merged.
+const OVERLAPPING_THEIRS = BASE.replace(
+  'beta" style="border-radius:10px',
+  'beta" style="border-radius:50px',
+);
+
+function queuedEdit(): DesignSaveOutboxEntry {
+  return createDesignSaveOutboxEntry({
+    designId: "design-1",
+    actorScope: "user-1",
+    actionName: "update-file",
+    resourceId: "file-1",
+    operationSource: "editor-session-1",
+    operationRevision: 1,
+    payload: {
+      id: "file-1",
+      content: MINE,
+      expectedVersionHash: sourceContentHash(BASE),
+      syncCollab: true,
+      operationSource: "editor-session-1",
+      operationRevision: 1,
+    },
+    updatedAt: Date.now(),
+  });
+}
+
+function liveConflict(): Error {
+  return Object.assign(
+    new Error("File changed since it was read. Re-read the file and retry."),
+    { status: 409, errorCode: "source_version_conflict" },
+  );
 }
 
 describe("design save outbox", () => {
@@ -605,7 +653,13 @@ describe("design save outbox", () => {
       storage,
     });
 
-    expect(result).toEqual({ saved: [], failed: [], dropped: [], rebased: [] });
+    expect(result).toEqual({
+      saved: [],
+      merged: [],
+      failed: [],
+      dropped: [],
+      rebased: [],
+    });
     expect(invokeAction).not.toHaveBeenCalled();
     expect(await storage.list("design-1", "user-1")).toHaveLength(1);
   });
@@ -664,6 +718,223 @@ describe("design save outbox", () => {
 
     expect(result.dropped).toEqual([]);
     expect(result.failed).toHaveLength(1);
+    expect(await storage.list("design-1", "user-1")).toHaveLength(1);
+  });
+
+  it("attaches a base only when it is the exact text the edit was made from", () => {
+    const entry = queuedEdit();
+
+    expect(withVerifiedBaseContent(entry, BASE).baseContent).toBe(BASE);
+    expect(withVerifiedBaseContent(entry, THEIRS)).not.toHaveProperty(
+      "baseContent",
+    );
+    expect(withVerifiedBaseContent(entry, undefined)).not.toHaveProperty(
+      "baseContent",
+    );
+    expect(
+      withVerifiedBaseContent({ ...entry, actionName: "update-design" }, BASE),
+    ).not.toHaveProperty("baseContent");
+    expect(
+      withVerifiedBaseContent(
+        { ...entry, payload: { ...entry.payload, identityOnly: true } },
+        BASE,
+      ),
+    ).not.toHaveProperty("baseContent");
+  });
+
+  it("merges a queued edit into a file that moved on instead of dropping it", async () => {
+    const storage = new MemoryOutboxStorage();
+    const entry = { ...queuedEdit(), baseContent: BASE };
+    await journalDesignSaveOutboxEntry(entry, storage);
+    const merged = mergeQueuedEdit({ base: BASE, mine: MINE, theirs: THEIRS });
+    if (merged === null)
+      throw new Error("the fixture edits must merge cleanly");
+    const readLiveFileContent = vi.fn().mockResolvedValue(THEIRS);
+    const invokeAction = vi
+      .fn()
+      .mockRejectedValueOnce(liveConflict())
+      .mockResolvedValueOnce({
+        updated: true,
+        versionHash: sourceContentHash(merged),
+      });
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction,
+      storage,
+      merge: { readLiveFileContent, mergeContent: mergeQueuedEdit },
+    });
+
+    expect(result.merged).toHaveLength(1);
+    expect(result.saved).toEqual([]);
+    expect(result.rebased).toEqual([]);
+    expect(result.failed).toEqual([]);
+    expect(result.dropped).toEqual([]);
+    expect(invokeAction).toHaveBeenCalledTimes(2);
+    expect(invokeAction.mock.calls[1]?.[1]).toMatchObject({
+      content: merged,
+      expectedVersionHash: sourceContentHash(THEIRS),
+      operationSource: "editor-session-1",
+      operationRevision: 1,
+    });
+    expect(readLiveFileContent).toHaveBeenCalledWith("file-1");
+    expect(await storage.list("design-1", "user-1")).toEqual([]);
+  });
+
+  it("rebases an overlapping edit loudly instead of merging it", async () => {
+    const storage = new MemoryOutboxStorage();
+    await journalDesignSaveOutboxEntry(
+      { ...queuedEdit(), baseContent: BASE },
+      storage,
+    );
+    expect(
+      mergeQueuedEdit({ base: BASE, mine: MINE, theirs: OVERLAPPING_THEIRS }),
+    ).toBeNull();
+    const invokeAction = vi.fn().mockRejectedValue(liveConflict());
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction,
+      storage,
+      merge: {
+        readLiveFileContent: vi.fn().mockResolvedValue(OVERLAPPING_THEIRS),
+        mergeContent: mergeQueuedEdit,
+      },
+    });
+
+    expect(result.rebased).toHaveLength(1);
+    expect(result.merged).toEqual([]);
+    expect(await storage.list("design-1", "user-1")).toEqual([]);
+    expect(invokeAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("rebases a conflicted edit without a known base and never reads the live file", async () => {
+    const storage = new MemoryOutboxStorage();
+    await journalDesignSaveOutboxEntry(queuedEdit(), storage);
+    const readLiveFileContent = vi.fn().mockResolvedValue(THEIRS);
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction: vi.fn().mockRejectedValue(liveConflict()),
+      storage,
+      merge: { readLiveFileContent, mergeContent: mergeQueuedEdit },
+    });
+
+    expect(result.rebased).toHaveLength(1);
+    expect(readLiveFileContent).not.toHaveBeenCalled();
+    expect(await storage.list("design-1", "user-1")).toEqual([]);
+  });
+
+  it("bounds merge attempts when the file keeps moving", async () => {
+    const storage = new MemoryOutboxStorage();
+    await journalDesignSaveOutboxEntry(
+      { ...queuedEdit(), baseContent: BASE },
+      storage,
+    );
+    let reads = 0;
+    const invokeAction = vi.fn().mockRejectedValue(liveConflict());
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction,
+      storage,
+      merge: {
+        readLiveFileContent: vi.fn(
+          async () => `${THEIRS}<!-- ${(reads += 1)} -->`,
+        ),
+        mergeContent: vi.fn(({ mine }) => `${mine}x`),
+      },
+    });
+
+    expect(invokeAction).toHaveBeenCalledTimes(4);
+    expect(result.rebased).toHaveLength(1);
+    expect(result.merged).toEqual([]);
+  });
+
+  it("keeps the edit when the live file cannot be read for the merge", async () => {
+    const storage = new MemoryOutboxStorage();
+    await journalDesignSaveOutboxEntry(
+      { ...queuedEdit(), baseContent: BASE },
+      storage,
+    );
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction: vi.fn().mockRejectedValue(liveConflict()),
+      storage,
+      merge: {
+        readLiveFileContent: vi
+          .fn()
+          .mockRejectedValue(new Error("Failed to fetch")),
+        mergeContent: mergeQueuedEdit,
+      },
+    });
+
+    expect(result.failed).toHaveLength(1);
+    expect((result.failed[0]?.error as Error).message).toBe("Failed to fetch");
+    expect(result.rebased).toEqual([]);
+    expect(await storage.list("design-1", "user-1")).toHaveLength(1);
+  });
+
+  it("classifies conflicts by typed code first and by wording only when no code is present", () => {
+    expect(
+      isConflictSaveError({
+        status: 409,
+        errorCode: "source_version_unverifiable",
+        message:
+          "Could not verify a source file's live version. Re-read the file and retry.",
+      }),
+    ).toBe(false);
+    expect(
+      isConflictSaveError({
+        errorCode: "source_version_conflict",
+        message: "anything",
+      }),
+    ).toBe(true);
+    expect(
+      isConflictSaveError({
+        message: "File changed since it was read. Re-read the file and retry.",
+      }),
+    ).toBe(true);
+    expect(
+      isConflictSaveError({
+        code: "client_build_mismatch",
+        message: "File changed since it was read",
+      }),
+    ).toBe(false);
+    expect(isConflictSaveError(new Error("boom"))).toBe(false);
+  });
+
+  it("keeps an unverifiable live version in the outbox instead of rebasing it", async () => {
+    const storage = new MemoryOutboxStorage();
+    await journalDesignSaveOutboxEntry(
+      { ...queuedEdit(), baseContent: BASE },
+      storage,
+    );
+    const readLiveFileContent = vi.fn().mockResolvedValue(THEIRS);
+    const unverifiable = Object.assign(
+      new Error(
+        "Could not verify a source file's live version. Re-read the design and retry.",
+      ),
+      { status: 409, errorCode: "source_version_unverifiable" },
+    );
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction: vi.fn().mockRejectedValue(unverifiable),
+      storage,
+      merge: { readLiveFileContent, mergeContent: mergeQueuedEdit },
+    });
+
+    expect(result.failed).toHaveLength(1);
+    expect(result.rebased).toEqual([]);
+    expect(readLiveFileContent).not.toHaveBeenCalled();
     expect(await storage.list("design-1", "user-1")).toHaveLength(1);
   });
 });

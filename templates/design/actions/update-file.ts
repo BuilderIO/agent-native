@@ -63,12 +63,10 @@ function logSaveConflictDebug(
   console.warn(`[update-file:debug] ${event}`, detail);
 }
 
-function contentChangedConflict(): Error & { statusCode?: number } {
-  const conflict = new Error(
+function contentChangedConflict(): SourceWorkspaceEditConflictError {
+  return new SourceWorkspaceEditConflictError(
     "File changed since it was read. Re-read the file and retry.",
-  ) as Error & { statusCode?: number };
-  conflict.statusCode = 409;
-  return conflict;
+  );
 }
 
 function contentFromPatch(
@@ -824,11 +822,9 @@ export default defineAction({
           operationRevision: operationRevision ?? null,
           expectedVersionHash,
         });
-        const exhausted = new Error(
+        throw new SourceWorkspaceEditConflictError(
           "File changed repeatedly while it was being saved. Re-read the file and retry.",
-        ) as Error & { statusCode?: number };
-        exhausted.statusCode = 409;
-        throw exhausted;
+        );
       });
 
     try {

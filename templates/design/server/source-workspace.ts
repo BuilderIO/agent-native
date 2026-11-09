@@ -26,6 +26,10 @@ import { assertHubSpotEmailFileType } from "../shared/hubspot-email-authoring.js
 import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import {
+  SOURCE_VERSION_CONFLICT_ERROR_CODE,
+  SOURCE_VERSION_UNVERIFIABLE_ERROR_CODE,
+} from "../shared/save-conflict.js";
+import {
   frameTypeFromStored,
   sourceWriteFrameType,
   resolveScreenFrameType,
@@ -399,9 +403,7 @@ export async function readLiveSourceFile(file: SourceWorkspaceFile): Promise<{
       source = "collab";
     }
   } catch {
-    throw new SourceWorkspaceEditConflictError(
-      "Could not verify a source file's live version. Re-read the design and retry.",
-    );
+    throw sourceVersionUnverifiable();
   }
   return {
     content,
@@ -434,10 +436,18 @@ export class SourceWorkspaceEditConflictError extends Error {
 
   constructor(
     message = "Source file changed since the editor snapshot was prepared.",
+    readonly errorCode: string = SOURCE_VERSION_CONFLICT_ERROR_CODE,
   ) {
     super(message);
     this.name = "SourceWorkspaceEditConflictError";
   }
+}
+
+function sourceVersionUnverifiable(): SourceWorkspaceEditConflictError {
+  return new SourceWorkspaceEditConflictError(
+    "Could not verify a source file's live version. Re-read the design and retry.",
+    SOURCE_VERSION_UNVERIFIABLE_ERROR_CODE,
+  );
 }
 
 export function readPreparedSourceText(
@@ -450,9 +460,7 @@ export function readPreparedSourceText(
     }
     return content;
   } catch {
-    throw new SourceWorkspaceEditConflictError(
-      "Could not verify a source file's live version. Re-read the design and retry.",
-    );
+    throw sourceVersionUnverifiable();
   }
 }
 
@@ -468,9 +476,7 @@ export async function lockPreparedSourceCollaboration(
       args: [fileId],
     })) as { rows: unknown[] };
   } catch {
-    throw new SourceWorkspaceEditConflictError(
-      "Could not verify a source file's live version. Re-read the design and retry.",
-    );
+    throw sourceVersionUnverifiable();
   }
 
   const row = result.rows[0] as
@@ -607,9 +613,7 @@ async function writeInlineSourceFileContent(
       try {
         hasCollaborationState = await hasCollabState(args.file.id);
       } catch {
-        throw new SourceWorkspaceEditConflictError(
-          "Could not verify a source file's live version. Re-read the design and retry.",
-        );
+        throw sourceVersionUnverifiable();
       }
       const needsCollabSeed =
         !hasCollaborationState || lease.baseVersion === null;

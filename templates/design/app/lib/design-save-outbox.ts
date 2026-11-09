@@ -1,4 +1,9 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import {
+  SOURCE_VERSION_CONFLICT_ERROR_CODE,
+  SOURCE_VERSION_UNVERIFIABLE_ERROR_CODE,
+  saveErrorCode,
+} from "@shared/save-conflict";
 import { sourceContentHash } from "@shared/source-workspace";
 
 export type DesignSaveActionName =
@@ -15,6 +20,13 @@ export interface DesignSaveOutboxEntry {
   operationSource: string;
   operationRevision: number;
   payload: Record<string, unknown>;
+  /**
+   * The file text `payload.content` was edited from. Kept beside the payload,
+   * never inside it, so replay can merge into a file that moved on while the
+   * edit was queued. Absent when the text was not known to match
+   * `payload.expectedVersionHash`.
+   */
+  baseContent?: string;
   updatedAt: number;
 }
 
@@ -27,10 +39,23 @@ export interface DesignSaveOutboxStorage {
 
 export interface DrainDesignSaveOutboxResult {
   saved: DesignSaveOutboxEntry[];
+  /** Saved after merging the queued edit into newer server content. */
+  merged: DesignSaveOutboxEntry[];
   failed: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
   dropped: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
   rebased: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
 }
+
+export interface DesignSaveReplayMerge {
+  readLiveFileContent: (fileId: string) => Promise<string>;
+  mergeContent: (input: {
+    base: string;
+    mine: string;
+    theirs: string;
+  }) => string | null;
+}
+
+const MAX_REPLAY_MERGES = 3;
 
 export function isTerminalSaveError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -44,11 +69,15 @@ export function isTerminalSaveError(error: unknown): boolean {
 
 export function isConflictSaveError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
-  const candidate = error as { code?: unknown; message?: unknown };
-  if (candidate.code === "client_build_mismatch") return false;
+  const code = saveErrorCode(error);
+  if (code === "client_build_mismatch") return false;
+  if (code === SOURCE_VERSION_UNVERIFIABLE_ERROR_CODE) return false;
+  if (code === SOURCE_VERSION_CONFLICT_ERROR_CODE) return true;
+  // A server that predates typed codes only says it in words.
+  const message = (error as { message?: unknown }).message;
   return (
-    typeof candidate.message === "string" &&
-    /changed since it was read|re-read the file/i.test(candidate.message)
+    typeof message === "string" &&
+    /changed since it was read|re-read the file/i.test(message)
   );
 }
 
@@ -458,6 +487,26 @@ export function createDesignSaveOutboxEntry(input: {
   };
 }
 
+/**
+ * Keeps `baseContent` only when it provably is the version the edit was based
+ * on. A base that cannot be proven would merge against the wrong ancestor, so
+ * an entry without one is replayed without merging.
+ */
+export function withVerifiedBaseContent(
+  entry: DesignSaveOutboxEntry,
+  baseContent: string | undefined,
+): DesignSaveOutboxEntry {
+  if (
+    baseContent === undefined ||
+    entry.actionName !== "update-file" ||
+    entry.payload.identityOnly === true ||
+    sourceContentHash(baseContent) !== entry.payload.expectedVersionHash
+  ) {
+    return entry;
+  }
+  return { ...entry, baseContent };
+}
+
 export async function journalDesignSaveOutboxEntry(
   entry: DesignSaveOutboxEntry,
   storage: DesignSaveOutboxStorage = indexedDbStorage,
@@ -526,6 +575,96 @@ export function updateFileResultPersistedContent(
   return !result.skippedStaleOperation;
 }
 
+async function mergeQueuedFileEdit(
+  entry: DesignSaveOutboxEntry,
+  payload: Record<string, unknown>,
+  base: string | undefined,
+  merge: DesignSaveReplayMerge | undefined,
+): Promise<{ payload: Record<string, unknown>; base: string } | null> {
+  const mine = payload.content;
+  if (
+    !merge ||
+    base === undefined ||
+    typeof mine !== "string" ||
+    entry.actionName !== "update-file" ||
+    payload.identityOnly === true ||
+    sourceContentHash(base) !== payload.expectedVersionHash
+  ) {
+    return null;
+  }
+  // A failed read propagates: the server's version is unknown, not conflicting.
+  const theirs = await merge.readLiveFileContent(entry.resourceId);
+  const merged = merge.mergeContent({ base, mine, theirs });
+  if (merged === null) return null;
+  return {
+    payload: {
+      ...payload,
+      content: merged,
+      expectedVersionHash: sourceContentHash(theirs),
+    },
+    base: theirs,
+  };
+}
+
+async function replayEntry(
+  entry: DesignSaveOutboxEntry,
+  invokeAction: (
+    actionName: DesignSaveActionName,
+    payload: Record<string, unknown>,
+  ) => Promise<unknown>,
+  merge: DesignSaveReplayMerge | undefined,
+): Promise<{ merged: boolean }> {
+  if (
+    entry.actionName === "update-file" &&
+    typeof entry.payload.content === "string" &&
+    (typeof entry.payload.expectedVersionHash !== "string" ||
+      entry.payload.expectedVersionHash.trim().length === 0)
+  ) {
+    const conflict = new Error(
+      "File changed since it was read. Re-read the file before retrying this saved change.",
+    );
+    (conflict as Error & { status?: number }).status = 409;
+    throw conflict;
+  }
+  if (
+    entry.actionName === "apply-tweaks" &&
+    typeof entry.payload.expectedSelectionsHash !== "string"
+  ) {
+    const conflict = new Error(
+      "A full tweak snapshot cannot be replayed without a known base version",
+    );
+    (conflict as Error & { status?: number }).status = 409;
+    throw conflict;
+  }
+  let payload = entry.payload;
+  let base = entry.baseContent;
+  for (let merges = 0; ; merges += 1) {
+    try {
+      const actionResult = await invokeAction(entry.actionName, payload);
+      if (
+        entry.actionName === "update-file" &&
+        typeof payload.content === "string" &&
+        !updateFileResultPersistedContent(actionResult, payload.content)
+      ) {
+        const conflict = new Error(
+          "The saved file changed elsewhere before this edit could be replayed",
+        );
+        (conflict as Error & { status?: number }).status = 409;
+        throw conflict;
+      }
+      return { merged: merges > 0 };
+    } catch (error) {
+      if (merges >= MAX_REPLAY_MERGES || !isConflictSaveError(error)) {
+        throw error;
+      }
+      const next = await mergeQueuedFileEdit(entry, payload, base, merge);
+      if (next === null) throw error;
+      payload = next.payload;
+      base = next.base;
+    }
+  }
+}
+
 async function drainEntries(
   designId: string,
   actorScope: string,
@@ -534,51 +673,20 @@ async function drainEntries(
     payload: Record<string, unknown>,
   ) => Promise<unknown>,
   storage: DesignSaveOutboxStorage,
+  merge: DesignSaveReplayMerge | undefined,
 ): Promise<DrainDesignSaveOutboxResult> {
   const result: DrainDesignSaveOutboxResult = {
     saved: [],
+    merged: [],
     failed: [],
     dropped: [],
     rebased: [],
   };
   for (const entry of await storage.list(designId, actorScope)) {
     try {
-      if (
-        entry.actionName === "update-file" &&
-        typeof entry.payload.content === "string" &&
-        (typeof entry.payload.expectedVersionHash !== "string" ||
-          entry.payload.expectedVersionHash.trim().length === 0)
-      ) {
-        const conflict = new Error(
-          "File changed since it was read. Re-read the file before retrying this saved change.",
-        );
-        (conflict as Error & { status?: number }).status = 409;
-        throw conflict;
-      }
-      if (
-        entry.actionName === "apply-tweaks" &&
-        typeof entry.payload.expectedSelectionsHash !== "string"
-      ) {
-        const conflict = new Error(
-          "A full tweak snapshot cannot be replayed without a known base version",
-        );
-        (conflict as Error & { status?: number }).status = 409;
-        throw conflict;
-      }
-      const actionResult = await invokeAction(entry.actionName, entry.payload);
-      if (
-        entry.actionName === "update-file" &&
-        typeof entry.payload.content === "string" &&
-        !updateFileResultPersistedContent(actionResult, entry.payload.content)
-      ) {
-        const conflict = new Error(
-          "The saved file changed elsewhere before this edit could be replayed",
-        );
-        (conflict as Error & { status?: number }).status = 409;
-        throw conflict;
-      }
+      const replay = await replayEntry(entry, invokeAction, merge);
       await storage.deleteIfRevision(entry);
-      result.saved.push(entry);
+      (replay.merged ? result.merged : result.saved).push(entry);
     } catch (error) {
       if (
         isRejectedRestoreClaimError(error) &&
@@ -643,6 +751,7 @@ export async function drainDesignSaveOutbox(options: {
     payload: Record<string, unknown>,
   ) => Promise<unknown>;
   storage?: DesignSaveOutboxStorage;
+  merge?: DesignSaveReplayMerge;
 }): Promise<DrainDesignSaveOutboxResult> {
   const invokeAction =
     options.invokeAction ??
@@ -656,7 +765,13 @@ export async function drainDesignSaveOutbox(options: {
   const storage = options.storage ?? indexedDbStorage;
   await storage.pruneOlderThan(Date.now() - DESIGN_SAVE_OUTBOX_RETENTION_MS);
   const run = () =>
-    drainEntries(options.designId, options.actorScope, invokeAction, storage);
+    drainEntries(
+      options.designId,
+      options.actorScope,
+      invokeAction,
+      storage,
+      options.merge,
+    );
   const lockManager =
     typeof navigator === "undefined"
       ? undefined

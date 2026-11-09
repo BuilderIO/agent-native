@@ -309,6 +309,37 @@ describe("runSaveFileContent concurrent edit merge", () => {
     expect(rollbackPendingLocalFileContent).toHaveBeenCalled();
   });
 
+  it("keeps a save the server could not verify queued for retry, without a conflict toast", async () => {
+    const warningToast = vi
+      .spyOn(toast, "warning")
+      .mockImplementation(() => "test-toast");
+    const { args, pending, mutateAsync, rollbackPendingLocalFileContent } =
+      setup({
+        mutate: async () => {
+          throw Object.assign(
+            new Error(
+              "Could not verify a source file's live version. Re-read the design and retry.",
+            ),
+            { status: 409, errorCode: "source_version_unverifiable" },
+          );
+        },
+      });
+    const entry = { key: "outbox-entry" };
+    args.createFileSaveOutboxEntry = vi.fn(() => entry as never);
+
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("retryable");
+
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    expect(rollbackPendingLocalFileContent).not.toHaveBeenCalled();
+    expect(args.acknowledgeOutboxEntry).not.toHaveBeenCalled();
+    expect(errorToast).not.toHaveBeenCalledWith(
+      "designEditor.toasts.saveConflict",
+      expect.anything(),
+    );
+    expect(warningToast).toHaveBeenCalled();
+    warningToast.mockRestore();
+  });
+
   it("stops merging after bounded retries when the file keeps moving", async () => {
     let version = 0;
     const { args, pending, mutateAsync, rollbackPendingLocalFileContent } =

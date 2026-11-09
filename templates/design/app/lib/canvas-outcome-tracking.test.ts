@@ -506,6 +506,7 @@ describe("canvas outcome tracking", () => {
     const geometry = { actionName: "update-design" };
     const drain = {
       saved: [fileSave, fileSave, geometry],
+      merged: [fileSave, geometry],
       rebased: [
         {
           entry: fileSave,
@@ -522,11 +523,15 @@ describe("canvas outcome tracking", () => {
     };
     recordSaveReplayOutcomes(drain, "design-a");
     // The still-failing entry comes back on the next drain and is not counted.
-    recordSaveReplayOutcomes({ ...drain, saved: [], rebased: [] }, "design-a");
+    recordSaveReplayOutcomes(
+      { ...drain, saved: [], merged: [], rebased: [] },
+      "design-a",
+    );
     flushCanvasOutcomeCounts();
     expect(sent().every((event) => event.design_id === "design-a")).toBe(true);
     expect(totals()).toEqual({
       "save_replay/succeeded/none": 2,
+      "save_replay/succeeded/merged": 1,
       "save_replay/failed/rebased": 1,
     });
   });

@@ -43,6 +43,7 @@ import {
   discardDesignSaveOutboxEntry,
   drainDesignSaveOutbox,
   journalDesignSaveOutboxEntry,
+  withVerifiedBaseContent,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
@@ -56,6 +57,7 @@ import type {
 import { runPublishCanonicalContent } from "../commands/publish-canonical-content";
 import { runClearVisualEditSnapshotPublications } from "../commands/publish-visual-edit-snapshot";
 import {
+  knownSaveContentForHash,
   runFileContentSaveKeepalive,
   runQueueFileContentSave,
   runSaveFileContent,
@@ -115,6 +117,7 @@ import {
   reuseIdenticalList,
   type IdentityCache,
 } from "../stable-file-identity";
+import { mergeQueuedEdit } from "../three-way-merge";
 import { shouldAskOnNewDesignArrival } from "../tool-state";
 import type { DesignFile, DesignFileMetadata } from "../types";
 import type { EditorCore } from "./use-editor-core";
@@ -145,6 +148,10 @@ function codeLayerSourceForDesignFile(args: {
       : "";
   return connectionId ? { ...source, connectionId } : source;
 }
+
+// A queued edit the server keeps refusing is retried with growing gaps.
+const OUTBOX_RETRY_DELAYS_MS = [5_000, 15_000, 45_000, 120_000, 300_000];
+const OUTBOX_BUSY_RETRY_MS = 1_000;
 
 export function useEditorFilesAndSaving({
   editorCore,
@@ -323,27 +330,78 @@ export function useEditorFilesAndSaving({
     [],
   );
 
+  const readLiveFileContent = useCallback(
+    async (fileId: string) =>
+      (
+        await callAction<{ content: string }>(
+          "read-source-file",
+          { designId: id, fileId },
+          { method: "GET" },
+        )
+      ).content,
+    [id],
+  );
+
+  const [unsavedChangeCount, setUnsavedChangeCount] = useState(0);
+  const outboxRetryTimerRef = useRef<number | null>(null);
+  const outboxRetryAttemptRef = useRef(0);
+  const retryDesignSaveOutboxRef = useRef<() => Promise<void>>(async () => {});
+
+  const scheduleOutboxRetry = useCallback((delayMs?: number) => {
+    if (outboxRetryTimerRef.current !== null) return;
+    const attempt = outboxRetryAttemptRef.current;
+    if (delayMs === undefined) outboxRetryAttemptRef.current = attempt + 1;
+    outboxRetryTimerRef.current = window.setTimeout(
+      () => {
+        outboxRetryTimerRef.current = null;
+        void retryDesignSaveOutboxRef.current();
+      },
+      delayMs ??
+        OUTBOX_RETRY_DELAYS_MS[
+          Math.min(attempt, OUTBOX_RETRY_DELAYS_MS.length - 1)
+        ],
+    );
+  }, []);
+
   const retryDesignSaveOutbox = useCallback(async () => {
     if (!id) return;
+    // Replaying an entry a live save is still sending would send it twice.
+    if (
+      Object.keys(fileSaveChainsRef.current).length > 0 ||
+      Object.keys(pendingFileSavesRef.current).length > 0
+    ) {
+      scheduleOutboxRetry(OUTBOX_BUSY_RETRY_MS);
+      return;
+    }
     try {
       const result = await drainDesignSaveOutbox({
         designId: id,
         actorScope: designSaveActorScope,
+        merge: { readLiveFileContent, mergeContent: mergeQueuedEdit },
       });
       recordSaveReplayOutcomes(result, id);
       if (result.rebased.length > 0) {
         toast.error(t("designEditor.toasts.saveConflict"), {
           id: "design-save-conflict:outbox",
         });
-        for (const { entry } of result.rebased) {
-          const content = entry.payload.content;
-          if (typeof content === "string") {
-            rollbackPendingLocalFileContent(entry.resourceId, content);
-          }
+      }
+      for (const { entry } of result.rebased) {
+        const content = entry.payload.content;
+        if (typeof content === "string") {
+          rollbackPendingLocalFileContent(entry.resourceId, content);
+        }
+      }
+      // The server now holds the merge of this edit and the newer content, so
+      // the editor drops its unmerged copy and reloads the merged file.
+      for (const entry of result.merged) {
+        const content = entry.payload.content;
+        if (typeof content === "string") {
+          rollbackPendingLocalFileContent(entry.resourceId, content);
         }
       }
       for (const entry of [
         ...result.saved,
+        ...result.merged,
         ...result.rebased.map(({ entry }) => entry),
         ...result.dropped.map(({ entry }) => entry),
       ]) {
@@ -366,7 +424,11 @@ export function useEditorFilesAndSaving({
           delete latestFileSaveForUnloadRef.current[entry.resourceId];
         }
       }
-      if (result.saved.length > 0 || result.rebased.length > 0) {
+      if (
+        result.saved.length > 0 ||
+        result.merged.length > 0 ||
+        result.rebased.length > 0
+      ) {
         void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
         });
@@ -377,6 +439,9 @@ export function useEditorFilesAndSaving({
       if (result.dropped.length > 0) {
         warnChangesDiscarded();
       }
+      setUnsavedChangeCount(result.failed.length);
+      if (result.failed.length > 0) scheduleOutboxRetry();
+      else outboxRetryAttemptRef.current = 0;
     } catch (error) {
       if (classifyDesignSaveFailure(error, navigator.onLine) === "offline") {
         warnChangesWillRetry();
@@ -385,12 +450,26 @@ export function useEditorFilesAndSaving({
   }, [
     designSaveActorScope,
     id,
+    readLiveFileContent,
     rollbackPendingLocalFileContent,
     queryClient,
+    scheduleOutboxRetry,
     t,
     warnChangesWillRetry,
     warnChangesDiscarded,
   ]);
+
+  useEffect(() => {
+    retryDesignSaveOutboxRef.current = retryDesignSaveOutbox;
+  }, [retryDesignSaveOutbox]);
+
+  const retryUnsavedChanges = useCallback(() => {
+    if (outboxRetryTimerRef.current !== null) {
+      window.clearTimeout(outboxRetryTimerRef.current);
+      outboxRetryTimerRef.current = null;
+    }
+    void retryDesignSaveOutbox();
+  }, [retryDesignSaveOutbox]);
 
   useEffect(() => {
     const handleRetryOpportunity = () => void retryDesignSaveOutbox();
@@ -403,10 +482,20 @@ export function useEditorFilesAndSaving({
     };
   }, [retryDesignSaveOutbox, sessionResolved]);
 
+  useEffect(
+    () => () => {
+      if (outboxRetryTimerRef.current !== null) {
+        window.clearTimeout(outboxRetryTimerRef.current);
+        outboxRetryTimerRef.current = null;
+      }
+    },
+    [],
+  );
+
   const createFileSaveOutboxEntry = useCallback(
     (pending: FileContentSaveRequest) => {
       if (!id || shellMode) return null;
-      return createDesignSaveOutboxEntry({
+      const entry = createDesignSaveOutboxEntry({
         designId: id ?? "",
         actorScope: designSaveActorScope,
         actionName: "update-file",
@@ -426,8 +515,16 @@ export function useEditorFilesAndSaving({
             : {}),
         },
       });
+      const expectedVersionHash = entry.payload.expectedVersionHash;
+      return withVerifiedBaseContent(
+        entry,
+        (typeof expectedVersionHash === "string"
+          ? knownSaveContentForHash(pending.id, expectedVersionHash)
+          : undefined) ??
+          pendingLocalFileContentsRef.current.get(pending.id)?.baseContent,
+      );
     },
-    [designSaveActorScope, id, shellMode],
+    [designSaveActorScope, id, pendingLocalFileContentsRef, shellMode],
   );
 
   const cancelQueuedFileContentSave = useCallback(
@@ -451,12 +548,12 @@ export function useEditorFilesAndSaving({
   );
 
   const saveFileContent = useCallback(
-    (
+    async (
       pending: FileContentSaveRequest,
       outboxJournalPromise?: Promise<boolean>,
       onPersistedContent?: (acceptedContent: string) => void,
-    ) =>
-      runSaveFileContent(
+    ) => {
+      const completion = await runSaveFileContent(
         {
           acknowledgeOutboxEntry,
           canEditDesignRef,
@@ -470,16 +567,7 @@ export function useEditorFilesAndSaving({
           markPendingLocalFileContent,
           getPendingBaseContent: (fileId) =>
             pendingLocalFileContentsRef.current.get(fileId)?.baseContent,
-          readLiveFileContent: id
-            ? async (fileId) =>
-                (
-                  await callAction<{ content: string }>(
-                    "read-source-file",
-                    { designId: id, fileId },
-                    { method: "GET" },
-                  )
-                ).content
-            : undefined,
+          readLiveFileContent: id ? readLiveFileContent : undefined,
           queryClient,
           setPatchProof,
           t,
@@ -489,15 +577,24 @@ export function useEditorFilesAndSaving({
         pending,
         outboxJournalPromise,
         onPersistedContent,
-      ),
+      );
+      // A save that did not land leaves its journal entry for the replay to
+      // settle; start the replay clock instead of waiting for a page event.
+      if (completion === "retryable" || completion === "failed") {
+        scheduleOutboxRetry();
+      }
+      return completion;
+    },
     [
       acknowledgeOutboxEntry,
       createFileSaveOutboxEntry,
       id,
       journalOutboxEntry,
+      readLiveFileContent,
       rollbackPendingLocalFileContent,
       markPendingLocalFileContent,
       queryClient,
+      scheduleOutboxRetry,
       t,
       updateFileMutation,
       warnChangesWillRetry,
@@ -1806,6 +1903,8 @@ export function useEditorFilesAndSaving({
     updateLiveScreenSnapshotContent,
     addLocalhostScreenPosition,
     handleTokensApplied,
+    unsavedChangeCount: readOnlyWidget ? 0 : unsavedChangeCount,
+    retryUnsavedChanges,
   };
 }
 

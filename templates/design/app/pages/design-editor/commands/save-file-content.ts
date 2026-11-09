@@ -31,7 +31,7 @@ import {
   patchProofStatusAfterPersistedSave,
   type DesignSaveFailureKind,
 } from "@/pages/design-editor/save-failure";
-import { threeWayMergeContent } from "@/pages/design-editor/three-way-merge";
+import { mergeQueuedEdit } from "@/pages/design-editor/three-way-merge";
 
 import { designMetadataQueryKey } from "../design-query-key";
 
@@ -59,6 +59,14 @@ function rememberSaveContent(fileId: string, content: string): void {
   if (knownSaveContents.size > KNOWN_SAVE_CONTENT_LIMIT) {
     knownSaveContents.delete(knownSaveContents.keys().next().value!);
   }
+}
+
+/** Content this tab sent or merged against, by the hash a later save expects. */
+export function knownSaveContentForHash(
+  fileId: string,
+  versionHash: string,
+): string | undefined {
+  return knownSaveContents.get(`${fileId}\0${versionHash}`);
 }
 
 export function __clearKnownSaveContentsForTests(): void {
@@ -339,6 +347,7 @@ const SAVE_FAILURE_REASONS: Record<DesignSaveFailureKind, CanvasOutcomeReason> =
     "intentional-abort": "aborted",
     "invalid-html": "invalid_html",
     offline: "offline",
+    unverified: "unverified",
     other: "error",
   };
 
@@ -417,12 +426,7 @@ export function runSaveFileContent(
     }
     rememberSaveContent(request.id, base);
     rememberSaveContent(request.id, theirs);
-    const merged = threeWayMergeContent({
-      base,
-      mine: request.content,
-      theirs,
-      keepBothInsertionsAtSamePoint: true,
-    });
+    const merged = mergeQueuedEdit({ base, mine: request.content, theirs });
     if (merged === null) return null;
     const theirsHash = sourceContentHash(theirs);
     const mergedRequest: FileContentSaveRequest = {
@@ -708,6 +712,10 @@ export function runSaveFileContent(
       });
       if (failureKind === "offline" && outboxEntryJournaled) {
         warnChangesWillRetry();
+      } else if (failureKind === "unverified" && outboxEntryJournaled) {
+        toast.warning(t("visualEditor.saveRetrying"), {
+          id: "design-save-outbox-warning",
+        });
       } else if (failureKind === "offline") {
         toast.error(t("common.genericError"), {
           id: `design-save-error:${pending.id}`,
@@ -733,11 +741,16 @@ export function runSaveFileContent(
             }
           : prev,
       );
+      const keptForRetry =
+        outboxEntryJournaled &&
+        (failureKind === "offline" || failureKind === "unverified");
       if (failureKind === "intentional-abort") op.skip("aborted");
-      else if (failureKind === "offline" && outboxEntryJournaled) {
-        op.defer("offline_queued");
+      else if (keptForRetry) {
+        op.defer(
+          failureKind === "unverified" ? "unverified" : "offline_queued",
+        );
       } else op.fail(SAVE_FAILURE_REASONS[failureKind]);
-      return failureKind === "offline" && outboxEntryJournaled
+      return keptForRetry
         ? "retryable"
         : failureKind === "conflict"
           ? "conflict"
