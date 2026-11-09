@@ -2068,6 +2068,13 @@ return downstream;`,
       "cleanupReservedTags",
       "dispatchAndWait",
       "core",
+      "getRun",
+      "github",
+      "owner",
+      "repo",
+      "phaseDeadline",
+      "sleep",
+      "pollIntervalMs",
       `${source.slice(stagingStart, stagingEnd)}
 return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBuild };`,
     ) as (...args: unknown[]) => Promise<{
@@ -2090,10 +2097,20 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
     const stage = async (
       publicationUnavailable: Error | null,
       stageResult: (dispatch: Dispatch) => Promise<Workflow>,
+      {
+        runStatuses = ["completed"],
+        cancel = async () => {},
+      }: {
+        runStatuses?: string[];
+        cancel?: () => Promise<void>;
+      } = {},
     ) => {
       const dispatches: Dispatch[] = [];
       const reservations: string[] = [];
       const cleaned: string[] = [];
+      const cancelled: number[] = [];
+      const warnings: string[] = [];
+      const waits: number[] = [];
       const staging = await startStaging(
         publicationUnavailable,
         releaseSha,
@@ -2132,9 +2149,42 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
                 error: null,
               });
         },
-        { info: () => {} },
+        {
+          info: () => {},
+          warning: (message: string) => warnings.push(message),
+        },
+        async (runId: number) => ({
+          id: runId,
+          status: runStatuses.length > 1 ? runStatuses.shift() : runStatuses[0],
+        }),
+        {
+          rest: {
+            actions: {
+              cancelWorkflowRun: async ({ run_id }: { run_id: number }) => {
+                cancelled.push(run_id);
+                await cancel();
+              },
+            },
+          },
+        },
+        "owner",
+        "repo",
+        (timeoutMs: number) => {
+          waits.push(timeoutMs);
+          return Date.now() + 40;
+        },
+        (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
+        10,
       );
-      return { ...staging, dispatches, reservations, cleaned };
+      return {
+        ...staging,
+        dispatches,
+        reservations,
+        cleaned,
+        cancelled,
+        warnings,
+        waits,
+      };
     };
     const stagedRun = async (dispatch: Dispatch) => ({
       run: { id: 1, url: `staged-${dispatch.ref}` },
@@ -2227,6 +2277,79 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
     );
     assert.equal(failedBuild.dispatches.length, 2);
     assert.deepEqual(failedBuild.cleaned, []);
+
+    // With npm unpublished, a failed build is discarded like a finished one,
+    // and one still running is cancelled before its draft is deleted.
+    const discardFailedBuild = async (
+      runStatuses: string[],
+      cancel?: () => Promise<void>,
+    ) => {
+      const discarded = await stage(
+        new Error("npm publication failed"),
+        async (dispatch) => ({
+          run: { id: 7, url: `staged-${dispatch.ref}` },
+          error: new Error(`${dispatch.ref} build ended failure`),
+        }),
+        { runStatuses, cancel },
+      );
+      assert.deepEqual(
+        await discarded.publishStagedBuild(discarded.desktopStage),
+        {
+          stageRun: { id: 7, url: "staged-v1.2.3" },
+          run: null,
+          error: null,
+          skipped: true,
+        },
+      );
+      assert.equal(discarded.dispatches.length, 2);
+      assert.match(
+        discarded.warnings[0],
+        /Agent-Native desktop stable release build failed and is discarded with npm unpublished: v1\.2\.3 build ended failure/,
+      );
+      return discarded;
+    };
+    const finishedFailure = await discardFailedBuild(["completed"]);
+    assert.deepEqual(finishedFailure.cleaned, ["v1.2.3"]);
+    assert.deepEqual(finishedFailure.cancelled, []);
+
+    const runningFailure = await discardFailedBuild([
+      "in_progress",
+      "in_progress",
+      "completed",
+    ]);
+    assert.deepEqual(runningFailure.cancelled, [7]);
+    assert.deepEqual(runningFailure.waits, [5 * 60_000]);
+    assert.deepEqual(runningFailure.cleaned, ["v1.2.3"]);
+
+    const finishedBeforeCancel = await discardFailedBuild(
+      ["in_progress", "completed"],
+      async () => {
+        throw Object.assign(new Error("Cannot cancel a completed run"), {
+          status: 409,
+        });
+      },
+    );
+    assert.deepEqual(finishedBeforeCancel.cleaned, ["v1.2.3"]);
+
+    const stillRunning = await discardFailedBuild(["in_progress"]);
+    assert.deepEqual(stillRunning.cancelled, [7]);
+    assert.deepEqual(stillRunning.cleaned, []);
+    assert.match(
+      stillRunning.warnings[1],
+      /build was cancelled but has not finished, so v1\.2\.3 and its draft stay for removal once it ends: staged-v1\.2\.3/,
+    );
+
+    const uncancellable = await discardFailedBuild(
+      ["in_progress"],
+      async () => {
+        throw Object.assign(new Error("HTTP 500"), { status: 500 });
+      },
+    );
+    assert.deepEqual(uncancellable.cleaned, []);
+    assert.match(
+      uncancellable.warnings[1],
+      /Could not stop Agent-Native desktop stable release build, so v1\.2\.3 and its draft stay for removal once it ends: HTTP 500/,
+    );
 
     const unhandled: unknown[] = [];
     const recordUnhandled = (reason: unknown) => unhandled.push(reason);
@@ -2544,7 +2667,7 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
     );
     assert.match(
       source,
-      /if \(publicationUnavailable\) \{\s*await cleanupReservedTags\(\[stage\.tag\]\);/,
+      /if \(publicationUnavailable\) \{[\s\S]*?if \(!stage\.error \|\| \(await stopStageRun\(stage\)\)\) \{\s*await cleanupReservedTags\(\[stage\.tag\]\);[\s\S]*?\}\s*if \(stage\.error\) \{/,
     );
     assert.match(
       source,

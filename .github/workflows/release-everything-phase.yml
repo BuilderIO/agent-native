@@ -1276,14 +1276,53 @@ jobs:
               return staged;
             }
 
+            // A build that outran the coordinator's wait may still be uploading
+            // to its draft, and deleting the draft under it leaves a new orphan.
+            async function stopStageRun(stage) {
+              const label = `${stage.label} build`;
+              try {
+                if ((await getRun(stage.run.id)).status === "completed") return true;
+                try {
+                  await github.rest.actions.cancelWorkflowRun({
+                    owner,
+                    repo,
+                    run_id: stage.run.id,
+                  });
+                } catch (error) {
+                  // 409: the run finished after it was read.
+                  if (error.status !== 409) throw error;
+                }
+                const deadline = phaseDeadline(5 * 60_000);
+                while (Date.now() < deadline) {
+                  await sleep(Math.min(pollIntervalMs, deadline - Date.now()));
+                  if ((await getRun(stage.run.id)).status === "completed") return true;
+                }
+                core.warning(
+                  `${label} was cancelled but has not finished, so ${stage.tag} and its draft stay for removal once it ends: ${stage.run.url}`,
+                );
+              } catch (error) {
+                core.warning(
+                  `Could not stop ${label}, so ${stage.tag} and its draft stay for removal once it ends: ${error instanceof Error ? error.message : String(error)}`,
+                );
+              }
+              return false;
+            }
+
             async function publishStagedBuild(staged) {
               const stage = await staged;
+              if (publicationUnavailable) {
+                if (stage.error) {
+                  core.warning(
+                    `${stage.label} build failed and is discarded with npm unpublished: ${stage.error instanceof Error ? stage.error.message : String(stage.error)}`,
+                  );
+                }
+                if (!stage.error || (await stopStageRun(stage))) {
+                  await cleanupReservedTags([stage.tag]);
+                }
+                return { stageRun: stage.run, run: null, error: null, skipped: true };
+              }
               if (stage.error) {
                 return { stageRun: stage.run, run: null, error: stage.error };
-              }
-              if (publicationUnavailable) {
-                await cleanupReservedTags([stage.tag]);
-                return { stageRun: stage.run, run: null, error: null, skipped: true };
               }
               const published = await dispatchAndWait(
                 stage.workflow,
