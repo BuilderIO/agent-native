@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { DESIGN_TEMPLATE_PRESETS } from "./design-template-presets.js";
+import {
+  DESIGN_TEMPLATE_PRESETS,
+  presetFiles,
+} from "./design-template-presets.js";
 import { countLockedLayers } from "./locked-layers.js";
 
 describe("Design template presets", () => {
@@ -34,12 +37,12 @@ describe("Design template presets", () => {
       "preset-one-pager",
       "preset-landing-page",
     ]);
-    for (const preset of DESIGN_TEMPLATE_PRESETS) {
-      expect(countLockedLayers(preset.content)).toBe(2);
-      expect(preset.content).toMatch(
+    for (const file of DESIGN_TEMPLATE_PRESETS.flatMap(presetFiles)) {
+      expect(countLockedLayers(file.content)).toBe(2);
+      expect(file.content).toMatch(
         /data-agent-native-node-id="template-background"[^>]*style=|style="[^"]*"[^>]*data-agent-native-node-id="template-background"/,
       );
-      expect(preset.content).toMatch(
+      expect(file.content).toMatch(
         /data-agent-native-node-id="template-logo"[^>]*style=|style="[^"]*"[^>]*data-agent-native-node-id="template-logo"/,
       );
     }
@@ -57,6 +60,24 @@ describe("Design template presets", () => {
       expect([preset.width, preset.height]).toEqual([1440, 900]);
       expect(preset.description).not.toMatch(/\n/);
       expect(preset.description.length).toBeLessThanOrEqual(60);
+    }
+  });
+
+  it("spaces multi-frame presets so canvas labels stay readable", () => {
+    for (const preset of DESIGN_TEMPLATE_PRESETS) {
+      const files = presetFiles(preset);
+      expect(new Set(files.map((file) => file.id)).size).toBe(files.length);
+      for (const [i, a] of files.entries()) {
+        for (const b of files.slice(i + 1)) {
+          // Frame labels sit above each frame, so stacked frames need more room.
+          const apart =
+            a.x + a.width + 120 <= b.x ||
+            b.x + b.width + 120 <= a.x ||
+            a.y + a.height + 240 <= b.y ||
+            b.y + b.height + 240 <= a.y;
+          expect(apart, `${a.id} overlaps ${b.id}`).toBe(true);
+        }
+      }
     }
   });
 });

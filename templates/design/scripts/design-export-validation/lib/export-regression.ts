@@ -12,7 +12,10 @@ import { fileURLToPath } from "node:url";
 import type { Browser } from "@playwright/test";
 
 import { renderDesignToFigmaSvg } from "../../../server/lib/design-to-figma-svg.js";
-import { DESIGN_TEMPLATE_PRESETS } from "../../../shared/design-template-presets.js";
+import {
+  DESIGN_TEMPLATE_PRESETS,
+  presetFiles,
+} from "../../../shared/design-template-presets.js";
 import { comparePngs, type CompareResult } from "./compare.js";
 import { renderDocumentToPng, renderSvgToPng } from "./render.js";
 
@@ -65,13 +68,15 @@ export function hashExportSource(html: string): string {
 }
 
 function presetCases(): ExportCase[] {
-  return DESIGN_TEMPLATE_PRESETS.map((preset) => ({
-    id: preset.id,
-    html: preset.content,
-    width: preset.width,
-    height: preset.height,
-    rootSelector: '[data-agent-native-node-id="template-artboard"]',
-  }));
+  return DESIGN_TEMPLATE_PRESETS.flatMap((preset) =>
+    presetFiles(preset).map((file, index) => ({
+      id: index === 0 ? preset.id : file.id.replace(/^file:/, ""),
+      html: file.content,
+      width: file.width,
+      height: file.height,
+      rootSelector: '[data-agent-native-node-id="template-artboard"]',
+    })),
+  );
 }
 
 function corpusCases(): ExportCase[] {

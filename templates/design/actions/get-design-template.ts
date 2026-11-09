@@ -9,7 +9,10 @@ import {
   readDesignTemplateSource,
   templateFileDimensions,
 } from "../server/lib/design-template-data.js";
-import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
+import {
+  getDesignTemplatePreset,
+  presetFiles,
+} from "../shared/design-template-presets.js";
 import { lockedLayerSnapshots } from "../shared/locked-layers.js";
 
 interface OriginalTemplateFile {
@@ -93,16 +96,14 @@ export default defineAction({
       category = preset.category;
       description = preset.description;
       templateDesignSystemId = null;
-      files = [
-        {
-          templateFileId: `file:${preset.id}`,
-          filename: preset.filename,
-          fileType: "html",
-          content: preset.content,
-          width: preset.width,
-          height: preset.height,
-        },
-      ];
+      files = presetFiles(preset).map((file) => ({
+        templateFileId: file.id,
+        filename: file.filename,
+        fileType: "html",
+        content: file.content,
+        width: file.width,
+        height: file.height,
+      }));
     } else {
       const access = await resolveAccess("design-template", resolvedTemplateId);
       if (!access) throw new Error("Template not found");

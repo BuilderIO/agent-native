@@ -19,7 +19,10 @@ import {
 } from "../server/lib/design-template-data.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import { BOARD_FILENAME } from "../shared/board-file.js";
-import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
+import {
+  getDesignTemplatePreset,
+  presetFiles,
+} from "../shared/design-template-presets.js";
 import { designTemplateRetryKey } from "../shared/design-template-retry.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
@@ -223,30 +226,26 @@ export default defineAction({
     let files: TemplateFile[];
 
     if (preset) {
-      const presetFileId = `file:${preset.id}`;
+      const frames = presetFiles(preset);
       templateTitle = preset.title;
       templateDescription = preset.description;
       templateCategory = preset.category;
       templateDesignSystemId = null;
       templateUpdatedAt = null;
       templateData = JSON.stringify({
-        canvasFrames: {
-          [presetFileId]: {
-            x: 0,
-            y: 0,
-            width: preset.width,
-            height: preset.height,
-          },
-        },
+        canvasFrames: Object.fromEntries(
+          frames.map((file) => [
+            file.id,
+            { x: file.x, y: file.y, width: file.width, height: file.height },
+          ]),
+        ),
       });
-      files = [
-        {
-          id: presetFileId,
-          filename: preset.filename,
-          fileType: "html",
-          content: preset.content,
-        },
-      ];
+      files = frames.map((file) => ({
+        id: file.id,
+        filename: file.filename,
+        fileType: "html",
+        content: file.content,
+      }));
     } else {
       const access = await resolveAccess("design-template", templateId);
       if (!access) throw new Error("Template not found");
