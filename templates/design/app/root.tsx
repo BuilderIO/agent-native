@@ -63,7 +63,6 @@ import {
   BuilderSignupActivationCover,
   useBuilderSignupActivation,
 } from "@/components/BuilderSignupActivation";
-import { DesignWriteFailureToasts } from "@/components/design/DesignWriteFailureToasts";
 import {
   DesignHomeLibrary,
   type DesignHomeLibraryTab,
@@ -471,7 +470,6 @@ function PrivateRootContent() {
   return (
     <>
       {hasSession && <DbSyncSetup />}
-      <DesignWriteFailureToasts />
       <OpenVisualEditWebMcp />
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu

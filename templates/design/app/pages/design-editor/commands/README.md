@@ -152,6 +152,12 @@ a module breaks those — re-point the spec in the same commit.
 | `apply-design-editor-command.ts` | Execute a URL/agent-driven editor command       |
 | `persist-tweak-save.ts`          | Persist the debounced tweak-selection save      |
 
+## Import
+
+| Module                  | Does                                                                                     |
+| ----------------------- | ---------------------------------------------------------------------------------------- |
+| `import-design-file.ts` | File → Import: import a whole .fig or HTML file, refusing a .fig over the browser limits |
+
 ## Export
 
 | Module                        | Does                                      |

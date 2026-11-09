@@ -33,7 +33,11 @@ vi.mock("@/components/deck/SlideRenderer", () => ({
 }));
 
 vi.mock("@/lib/export-pdf-client", () => ({ exportDeckAsPdf: vi.fn() }));
-vi.mock("./present-channel", () => ({ openPresentChannel: () => null }));
+const presentChannel = vi.hoisted(() => ({ supported: true }));
+vi.mock("./present-channel", () => ({
+  openPresentChannel: () => null,
+  presentChannelSupported: () => presentChannel.supported,
+}));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
 import { toast } from "sonner";
@@ -517,6 +521,7 @@ describe("PresentationView presenter window", () => {
 
   beforeEach(() => {
     vi.mocked(toast.error).mockClear();
+    presentChannel.supported = true;
   });
 
   afterEach(() => vi.restoreAllMocks());
@@ -570,6 +575,22 @@ describe("PresentationView presenter window", () => {
     pressS();
     expect(toast.error).toHaveBeenCalledWith(
       "editorToolbar.presenterViewBlocked",
+    );
+  });
+
+  it("tells the user instead of opening an unsyncable presenter window", () => {
+    presentChannel.supported = false;
+    const open = vi.spyOn(window, "open");
+    render(
+      <MemoryRouter>
+        <PresentationView slides={slides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    pressS();
+    expect(open).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(
+      "editorToolbar.presenterViewUnsupported",
     );
   });
 });

@@ -769,6 +769,26 @@ describe("useCollabReconcile — snapshot adoption", () => {
     }
   });
 
+  it("keeps typing when a newer timestamp arrives on the body it already holds", async () => {
+    vi.useFakeTimers();
+    const tabs = makeTabs(1, { visible: true, adoption: "server" });
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      tabs.type(0, "Unsaved ");
+      // A rename elsewhere moves the page's timestamp and leaves its body.
+      tabs.render({ ...FIRST, updatedAt: SECOND.updatedAt });
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      tabs.settleAdoptions();
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+
+      expect(tabs.adoptionCalls).toEqual([]);
+      expect(tabs.markdown()).toEqual([`Unsaved ${BASELINE}`]);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
   it("stops when the server keeps sending a proposal back without a revision to rebuild on", async () => {
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
