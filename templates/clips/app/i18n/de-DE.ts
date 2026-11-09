@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Aufnahme referenzieren…",
+    group: "Aufnahmen",
+    authentication: "Melde dich an, um eine Referenz hinzuzufügen.",
+    invalid: "Wähle vor dem Senden eine gültige Referenz.",
+    unavailable:
+      "Eine ausgewählte Referenz ist nicht mehr verfügbar. Entferne sie oder wähle sie erneut.",
+  },
   meetingAsk: { resizeOrDismissAnswers: "Antworten anpassen oder schließen" },
   meetingBrowserConfirmation:
     "Clips erkennt Mikrofonaktivität in diesem Browser, kann aber nicht feststellen, welcher Tab an der Besprechung teilnimmt.",
@@ -2286,6 +2294,14 @@ const messages = {
       "Textbereinigung übersprungen; Originaltext beibehalten",
     flowBacktrackSkipped:
       "Textbearbeitung übersprungen; erkannter Text beibehalten",
+    flowAppleSpeechParakeetMissing:
+      "Apple Speech · Parakeet nicht heruntergeladen",
+    flowAppleSpeechParakeetDownloading:
+      "Apple Speech · Parakeet wird heruntergeladen",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet wird geladen",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet ist beschäftigt",
+    flowAppleSpeechParakeetFailed:
+      "Apple Speech · Parakeet konnte nicht geladen werden",
     flowCancelDictation: "Diktat abbrechen",
     flowCopying: "Transkript wird kopiert…",
     aiProcessed: "KI-verarbeitet",

@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "引用录制内容…",
+    group: "录制内容",
+    authentication: "登录以添加引用。",
+    invalid: "发送前请选择有效的引用。",
+    unavailable: "所选引用已不可用。请移除或重新选择。",
+  },
   meetingAsk: { resizeOrDismissAnswers: "调整答案区域大小或关闭" },
   meetingBrowserConfirmation:
     "Clips 检测到此浏览器正在使用麦克风，但无法判断会议在哪个标签页中进行。",
@@ -2111,6 +2118,11 @@ const messages = {
     flowOriginalTranscript: "显示原始转写文本",
     flowCleanupSkipped: "未整理文本，已保留原始文本",
     flowBacktrackSkipped: "未应用文本编辑，已保留识别结果",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet 未下载",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Parakeet 下载中",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet 加载中",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet 正忙",
+    flowAppleSpeechParakeetFailed: "Apple Speech · Parakeet 加载失败",
     flowCancelDictation: "取消听写",
     flowCopying: "正在复制转写文本…",
     aiProcessed: "AI 已处理",

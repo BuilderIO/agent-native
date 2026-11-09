@@ -590,6 +590,7 @@ import {
   cloneFrameGeometryById,
   findTopFrameEntryAtPoint,
   frameGeometryWithOverrides,
+  type FrameGeometryInputScreen,
   frameStyleLeftTop,
   geometryContainsPoint,
   getBreakpointFrameGeometry,
@@ -603,6 +604,7 @@ import {
   getSelectableBounds,
   rectContainsPoint,
   resolveFrameGeometrySync,
+  reuseFrameGeometryInputs,
   resolveHitTestForegroundId,
   rotatePointAroundCenter,
   sameFrameGeometry,
@@ -2558,15 +2560,29 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     zoom,
   ]);
 
+  const frameGeometryInputsRef = useRef<
+    readonly FrameGeometryInputScreen[] | undefined
+  >(undefined);
+  const frameGeometryInputs = useMemo(() => {
+    const inputs = reuseFrameGeometryInputs(
+      frameGeometryInputsRef.current,
+      screens.map((screen) => {
+        const metadata = getResolvedMetadata(screen);
+        return {
+          id: screen.id,
+          metadata: { width: metadata.width, height: metadata.height },
+          breakpointWidths: screen.breakpointWidths,
+          layoutGroupId: screen.layoutGroupId,
+        };
+      }),
+    );
+    frameGeometryInputsRef.current = inputs;
+    return inputs;
+  }, [getResolvedMetadata, screens]);
+
   useLayoutEffect(() => {
-    const selectableIds = new Set(selectableScreens.map((screen) => screen.id));
     const { next, changed, shouldNotifyParent } = resolveFrameGeometrySync({
-      screens: screens.map((screen) => ({
-        id: screen.id,
-        metadata: getResolvedMetadata(screen),
-        breakpointWidths: screen.breakpointWidths,
-        layoutGroupId: screen.layoutGroupId,
-      })),
+      screens: frameGeometryInputs,
       currentGeometryById: frameGeometryRef.current,
       persistedGeometryById: geometryById,
       geometryOverridesById,
@@ -2580,20 +2596,21 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         setFrameGeometry(next);
       }
     }
+  }, [
+    frameGeometryInputs,
+    geometryById,
+    geometryOverridesById,
+    updateFrameGeometry,
+    updateFrameGeometryRefOnly,
+  ]);
+
+  useLayoutEffect(() => {
+    const selectableIds = new Set(selectableScreens.map((screen) => screen.id));
     updateSelectedIds((current) => {
       const next = current.filter((id) => selectableIds.has(id));
       return next.length === current.length ? current : next;
     });
-  }, [
-    geometryById,
-    geometryOverridesById,
-    getResolvedMetadata,
-    screens,
-    selectableScreens,
-    updateFrameGeometry,
-    updateFrameGeometryRefOnly,
-    updateSelectedIds,
-  ]);
+  }, [selectableScreens, updateSelectedIds]);
 
   useLayoutEffect(() => {
     renderedScreenIdsRef.current = new Set(screens.map((screen) => screen.id));
@@ -11894,41 +11911,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     protectedLiveScreenIds,
     surfaceSize,
   ]);
-  const sourceDemandKey = useMemo(
-    () =>
-      selectSourceDemand(
-        canvasFrames.map(({ screen, geometry }) => ({
-          id: screen.id,
-          width: geometry.width,
-        })),
-        liveScreenIdsRef.current,
-        protectedLiveScreenIds,
-        canvasZoom / 100,
-        new Set(
-          [
-            selectedIdSet.size === 1 ? [...selectedIdSet][0] : undefined,
-            activeId,
-            interactScreenId,
-            exportPreviewScreenId,
-          ].filter((id): id is string => Boolean(id)),
-        ),
-      ).join("\u0000"),
-    [
-      activeId,
-      canvasFrames,
-      canvasZoom,
-      exportPreviewScreenId,
-      interactScreenId,
-      protectedLiveScreenIds,
-      screenCullTierById,
-      selectedIdSet,
-    ],
-  );
-  useEffect(() => {
-    onSourceDemandChange?.(
-      sourceDemandKey ? sourceDemandKey.split("\u0000") : [],
-    );
-  }, [onSourceDemandChange, sourceDemandKey]);
   // The widget camera: the opened screen with its breakpoint frames, as they
   // render now, fit whole and centered in the pane. It is a function of the
   // pane and the rendered group only, so every size, measured-height or
@@ -12167,6 +12149,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           canvasZoom,
           OVERVIEW_STATIC_PREVIEW_OVERSCAN_FACTOR,
         ),
+        visibleViewport: getOverscannedViewportCanvasBounds(
+          surfaceSize,
+          pan,
+          canvasZoom,
+          0,
+        ),
         retainedIds: hasBeenVisibleScreenIdsRef.current,
       }),
     [canvasFrames, canvasZoom, pan, screenCullTierById, surfaceSize],
@@ -12236,15 +12224,55 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     renderScreenContent,
     screenCullTierById,
   ]);
+  const staticPreviewContentById = useMemo(
+    () =>
+      new Map(
+        canvasFrames
+          .filter(({ metadata }) => !metadata.previewUrl)
+          .map(({ screen }) => [screen.id, screen.content]),
+      ),
+    [canvasFrames],
+  );
+  // An editor off screen paints nothing worth covering while it boots.
+  const undrawnEditorIds = useMemo(() => {
+    if (!levelOfDetail) return [];
+    const visible = getOverscannedViewportCanvasBounds(
+      surfaceSize,
+      pan,
+      canvasZoom,
+      0,
+    );
+    if (!visible) return [];
+    return canvasFrames
+      .filter(
+        ({ screen, geometry }) =>
+          editorScreenIds.has(screen.id) &&
+          staticPreviewContentById.has(screen.id) &&
+          !drawnEditorIdsRef.current.has(screen.id) &&
+          isFrameWithinOverscannedViewport(geometry, visible),
+      )
+      .map(({ screen }) => screen.id);
+  }, [
+    bootStatusRevision,
+    canvasFrames,
+    canvasZoom,
+    editorScreenIds,
+    levelOfDetail,
+    pan,
+    staticPreviewContentById,
+    surfaceSize,
+  ]);
+  // An undrawn editor's cover is a preview iframe too, admitted like any.
   const iframeAdmissionOrder = useMemo(
     () =>
       orderByViewportDistance(
         screenPaintCandidatesRef.current.filter(
           ({ id }) =>
-            !editorScreenIds.has(id) &&
-            (liveScreenIdsRef.current.has(id) ||
-              staticPreviewScreenIds.has(id) ||
-              id === exportPreviewScreenId),
+            undrawnEditorIds.includes(id) ||
+            (!editorScreenIds.has(id) &&
+              (liveScreenIdsRef.current.has(id) ||
+                staticPreviewScreenIds.has(id) ||
+                id === exportPreviewScreenId)),
         ),
         getOverscannedViewportCanvasBounds(surfaceSize, pan, canvasZoom, 0),
       ),
@@ -12256,20 +12284,29 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       screenCullTierById,
       staticPreviewScreenIds,
       surfaceSize,
+      undrawnEditorIds,
     ],
   );
+  const undrawnEditorPreviewReady = useCallback(
+    (id: string) => {
+      const content = staticPreviewContentById.get(id);
+      return (
+        content !== undefined &&
+        undrawnEditorIds.includes(id) &&
+        !isPreviewParsePending(content)
+      );
+    },
+    [previewParseRevision, staticPreviewContentById, undrawnEditorIds],
+  );
   useEffect(() => {
-    const inlineContentById = new Map(
-      canvasFrames
-        .filter(({ metadata }) => !metadata.previewUrl)
-        .map(({ screen }) => [screen.id, screen.content]),
-    );
     // Only screens about to mount: the parse caches are bounded, so warming the
     // whole board evicts earlier results and re-parses them on every camera move.
     wantPreviewParses(
-      iframeAdmissionOrder.flatMap((id) => inlineContentById.get(id) ?? []),
+      [...undrawnEditorIds, ...iframeAdmissionOrder].flatMap(
+        (id) => staticPreviewContentById.get(id) ?? [],
+      ),
     );
-  }, [canvasFrames, iframeAdmissionOrder]);
+  }, [iframeAdmissionOrder, staticPreviewContentById, undrawnEditorIds]);
   const iframeAdmissionImmediateIds = useMemo(() => {
     const ids = new Set(protectedLiveScreenIds);
     if (exportPreviewScreenId) ids.add(exportPreviewScreenId);
@@ -12340,9 +12377,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (!editorScreenIds.has(id)) drawnEditorIdsRef.current.delete(id);
     }
     for (const id of editorScreenIds) {
+      if (drawnEditorIdsRef.current.has(id)) continue;
+      // On a large board an editor waits behind the boot budget and paints
+      // white until it is drawn; its static preview covers that wait.
       if (
-        paintedStaticPreviewIds.has(id) &&
-        !drawnEditorIdsRef.current.has(id)
+        paintedStaticPreviewIds.has(id) ||
+        (levelOfDetail &&
+          admittedIframeIds.has(id) &&
+          undrawnEditorPreviewReady(id))
       ) {
         handoffs.set(id, "over-editor");
       }
@@ -12355,8 +12397,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     admittedIframeIds,
     bootStatusRevision,
     editorScreenIds,
+    levelOfDetail,
     paintedStaticPreviewIds,
     retainedEditorScreenIds,
+    undrawnEditorPreviewReady,
   ]);
   const screenContentById = useMemo(() => {
     if (!renderScreenContent) return new Map<string, ReactNode>();
@@ -12403,6 +12447,112 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     screenContentRenderKey,
     retainedEditorScreenIds,
   ]);
+  const sourceDemandRef = useRef<{
+    pinned: readonly string[];
+    settledPinned: readonly string[];
+    preview: readonly string[];
+  }>({ pinned: [], settledPinned: [], preview: [] });
+  const sourceDemandKey = useMemo(() => {
+    // Re-ranking previews on every pan frame would re-render the editor per
+    // frame; they follow the camera once it rests. Without live-editor
+    // admission there is no settle tick, so previews keep board order, which
+    // changes only as screens come and go.
+    const cameraMoving =
+      needsLiveEditorAdmission &&
+      (isPanning ||
+        wheelGestureActiveRef.current ||
+        performance.now() - lastCameraMoveAtRef.current <
+          LIVE_EDITOR_ADMIT_IDLE_MS);
+    const nearby = getOverscannedViewportCanvasBounds(
+      surfaceSize,
+      pan,
+      canvasZoom,
+      OVERVIEW_STATIC_PREVIEW_OVERSCAN_FACTOR,
+    );
+    const demand = selectSourceDemand({
+      frames: canvasFrames.map(({ screen, geometry }) => ({
+        id: screen.id,
+        geometry,
+      })),
+      liveIds: liveScreenIdsRef.current,
+      protectedIds: protectedLiveScreenIds,
+      zoom: canvasZoom / 100,
+      requiredIds: new Set(
+        [
+          selectedIdSet.size === 1 ? [...selectedIdSet][0] : undefined,
+          activeId,
+          interactScreenId,
+          exportPreviewScreenId,
+        ].filter((id): id is string => Boolean(id)),
+      ),
+      // Painted counts from the mount: a preview reports paint frames after
+      // its document shows, and a demoted editor stays up until its preview
+      // paints. Either needs its source the whole time.
+      paintedIds: new Set([
+        ...paintedStaticPreviewIds,
+        ...screenContentById.keys(),
+        ...canvasFrames
+          .filter(
+            ({ screen }) =>
+              admittedIframeIds.has(screen.id) &&
+              (screen.sourceState ?? "ready") === "ready",
+          )
+          .map(({ screen }) => screen.id),
+      ]),
+      viewport: cameraMoving
+        ? null
+        : getOverscannedViewportCanvasBounds(surfaceSize, pan, canvasZoom, 0),
+      overscannedViewport: nearby,
+      previewOrder: needsLiveEditorAdmission ? "distance" : "board",
+    });
+    const previous = sourceDemandRef.current;
+    // Mid-gesture the new view is unknown, so every source the last settled
+    // view held stays held: releasing one before the view settles drops a
+    // screen that is still on screen.
+    const settledPinned = cameraMoving ? previous.settledPinned : demand.pinned;
+    const pinned = cameraMoving
+      ? [...new Set([...demand.pinned, ...settledPinned])]
+      : demand.pinned;
+    const pinnedSet = new Set(pinned);
+    const preview = (cameraMoving ? previous.preview : demand.preview).filter(
+      (id) => !pinnedSet.has(id),
+    );
+    sourceDemandRef.current = { pinned, settledPinned, preview };
+    return JSON.stringify({ pinned, preview });
+  }, [
+    activeId,
+    admittedIframeIds,
+    cameraSettledTick,
+    canvasFrames,
+    canvasZoom,
+    exportPreviewScreenId,
+    interactScreenId,
+    isPanning,
+    needsLiveEditorAdmission,
+    paintedStaticPreviewIds,
+    pan,
+    protectedLiveScreenIds,
+    screenContentById,
+    screenCullTierById,
+    selectedIdSet,
+    surfaceSize,
+  ]);
+  useEffect(() => {
+    onSourceDemandChange?.(
+      JSON.parse(sourceDemandKey) as {
+        pinned: string[];
+        preview: string[];
+      },
+    );
+  }, [onSourceDemandChange, sourceDemandKey]);
+  const onSourceDemandChangeRef = useRef(onSourceDemandChange);
+  onSourceDemandChangeRef.current = onSourceDemandChange;
+  // Sources stay cached after the overview goes, but nothing it pinned is
+  // held: the next view pins what it shows.
+  useEffect(
+    () => () => onSourceDemandChangeRef.current?.({ pinned: [], preview: [] }),
+    [],
+  );
   const selectedFrameEntries = useMemo(
     () =>
       canvasFrames
@@ -15110,7 +15260,10 @@ const Screen = memo(function Screen({
                   </button>
                 </div>
               </div>
-            ) : screen.sourceState === "deferred" ? (
+            ) : screen.sourceState === "deferred" ||
+              screen.sourceState === "unloaded" ? (
+              // Nothing is fetching this source, so it must not pulse as if
+              // it were on its way.
               <div
                 data-screen-placeholder
                 aria-hidden="true"

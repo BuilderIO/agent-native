@@ -476,7 +476,7 @@ const overrides = {
     previewDraftUseSaved: "使用已儲存版本",
     previewDraftSaveSeparately: "將我的版本另存為頁面",
     previewDraftSavedToHistory: "你的編輯已儲存到版本記錄",
-    previewDraftSavedSeparately: "你的編輯已另存為頁面",
+    previewDraftSavedSeparately: "你的編輯已儲存為你空間中的私人頁面",
     previewDraftOpenSavedPage: "開啟頁面",
     previewDraftMoreOptions: "更多選項",
     previewDraftViewFullVersions: "檢視完整版本",

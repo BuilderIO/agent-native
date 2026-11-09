@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "الإشارة إلى تسجيل…",
+    group: "التسجيلات",
+    authentication: "سجّل الدخول لإضافة مرجع.",
+    invalid: "اختر مرجعًا صالحًا قبل الإرسال.",
+    unavailable: "لم يعد المرجع المحدد متاحًا. أزله أو اختره مرة أخرى.",
+  },
   meetingAsk: {
     resizeOrDismissAnswers: "تغيير حجم الإجابات أو إغلاقها",
   },
@@ -2214,6 +2221,11 @@ const messages = {
     flowOriginalTranscript: "عرض النص الأصلي",
     flowCleanupSkipped: "تم تخطي تنقيح النص مع الاحتفاظ بالنص الأصلي",
     flowBacktrackSkipped: "تم تخطي تعديل النص مع الاحتفاظ بالنص المتعرّف عليه",
+    flowAppleSpeechParakeetMissing: "Apple Speech · لم يتم تنزيل Parakeet",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · جارٍ تنزيل Parakeet",
+    flowAppleSpeechParakeetLoading: "Apple Speech · جارٍ تحميل Parakeet",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet مشغول",
+    flowAppleSpeechParakeetFailed: "Apple Speech · تعذّر تحميل Parakeet",
     flowCancelDictation: "إلغاء الإملاء",
     flowCopying: "جارٍ نسخ النص…",
     aiProcessed: "تمت المعالجة بالذكاء الاصطناعي",

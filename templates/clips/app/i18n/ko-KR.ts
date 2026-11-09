@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "녹화 참조…",
+    group: "녹화",
+    authentication: "참조를 추가하려면 로그인하세요.",
+    invalid: "전송하기 전에 유효한 참조를 선택하세요.",
+    unavailable:
+      "선택한 참조를 더 이상 사용할 수 없습니다. 제거하거나 다시 선택하세요.",
+  },
   meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
   meetingBrowserConfirmation:
     "Clips는 이 브라우저의 마이크 활동을 감지하지만 회의 중인 탭을 구분할 수 없습니다.",
@@ -2215,6 +2223,11 @@ const messages = {
     flowOriginalTranscript: "원본 텍스트 보기",
     flowCleanupSkipped: "텍스트 정리를 건너뛰고 원문을 유지했습니다",
     flowBacktrackSkipped: "텍스트 편집을 건너뛰고 인식된 내용을 유지했습니다",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet 다운로드 안 됨",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Parakeet 다운로드 중",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet 불러오는 중",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet 사용 중",
+    flowAppleSpeechParakeetFailed: "Apple Speech · Parakeet를 불러오지 못함",
     flowCancelDictation: "받아쓰기 취소",
     flowCopying: "텍스트를 복사하는 중…",
     aiProcessed: "AI 처리됨",

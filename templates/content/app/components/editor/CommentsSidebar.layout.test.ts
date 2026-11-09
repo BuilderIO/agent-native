@@ -586,7 +586,8 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain('suggestion.status === "pending"');
-    expect(source).toContain("!anchoredSuggestionIds?.includes(suggestion.id)");
+    expect(source).toContain("anchoredSuggestionIds?.includes(member.id)");
+    expect(source).toContain("anchored.length === 0");
     expect(source).toContain('t("comments.unanchored")');
   });
 
@@ -682,7 +683,7 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
     expect(source).toContain(
-      'if (presentation !== "history") onActivateSuggestion?.(suggestion.id)',
+      'if (presentation !== "history") onActivateSuggestion?.(activated.id)',
     );
   });
 

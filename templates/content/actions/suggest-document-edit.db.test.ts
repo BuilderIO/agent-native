@@ -5,11 +5,22 @@ import { join } from "node:path";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { canonicalizeNfm } from "../shared/nfm.js";
 import { resolveMarkdownSuggestionRange } from "../shared/suggestion-rebase.js";
 import { suggestionTextPresentationForSource } from "../shared/suggestion-text.js";
+
+const decide = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/decisions", () => ({ decide }));
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -73,6 +84,11 @@ afterAll(() => {
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
+beforeEach(() => {
+  decide.mockReset();
+  decide.mockResolvedValue({ status: "not_configured" });
+});
+
 let sequence = 0;
 
 async function createPage(content: string) {
@@ -96,6 +112,55 @@ async function createPage(content: string) {
 }
 
 describe("suggest-document-edit", () => {
+  it("keeps one proposal when racing calls get different answers from a model", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const before =
+          "We recieved three invoices and payed two of them yesterday.";
+        const { id, revision } = await createPage(before);
+        const args = {
+          id,
+          baseRevision: revision,
+          idempotencyKey: `race-${id}`,
+          find: before,
+          replace: "We received three invoices and paid two of them yesterday.",
+        };
+        // One answer splits the two fixes and the other doesn't. Neither call
+        // goes on until both are past the receipt lookup and waiting on a model.
+        const answers = [0.04, 0.5];
+        let bothAsked = () => {};
+        const waiting = new Promise<void>((resolve) => {
+          bothAsked = resolve;
+        });
+        decide.mockImplementation(async () => {
+          const probability = answers.shift();
+          if (!answers.length) bothAsked();
+          await waiting;
+          return {
+            status: "ok",
+            provider: "jev",
+            model: "jev-latest",
+            answers: {
+              pair_0: { type: "predicate", name: "pair_0", probability },
+            },
+          };
+        });
+
+        const [first = null, second = null] = (await Promise.all([
+          suggestDocumentEdit.run(args, ctx),
+          suggestDocumentEdit.run(args, ctx),
+        ])) as { proposalId: string; suggestionIds: string[] }[];
+        if (!first || !second) throw new Error("Both calls return a proposal");
+
+        expect(decide).toHaveBeenCalledTimes(2);
+        expect(first.suggestionIds).toHaveLength(2);
+        expect(second.proposalId).toBe(first.proposalId);
+        expect(second.suggestionIds).toEqual(first.suggestionIds);
+      },
+    );
+  });
+
   it("creates independent edits under one proposal and replays its membership", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },
@@ -126,6 +191,7 @@ describe("suggest-document-edit", () => {
           suggestions: Array<{
             id: string;
             proposalId?: string;
+            metadata?: { reviewUnit?: string };
             operations: Array<{
               before: { markdown: string; changedText: string };
               after: { changedText: string };
@@ -139,6 +205,11 @@ describe("suggest-document-edit", () => {
         expect(
           children.every((item) => item.proposalId === result.proposalId),
         ).toBe(true);
+        // One sentence, so one unit, labeled so a retry writes the same label.
+        expect(children.map((item) => item.metadata?.reviewUnit)).toEqual([
+          `granular-${id}:0`,
+          `granular-${id}:0`,
+        ]);
         expect(
           children.map((item) => [
             item.operations[0]!.before.changedText,
@@ -268,6 +339,20 @@ describe("suggest-document-edit", () => {
         expect(second.proposalId).toBe(first.proposalId);
         expect(second.suggestionIds).toHaveLength(1);
         expect(second.suggestionIds[0]).not.toBe(first.suggestionIds[0]);
+        // A later call on the proposal is its own decision, never part of a unit.
+        const listed = (await listResourceSuggestions.run(
+          { resourceType: "document", resourceId: id },
+          ctx,
+        )) as {
+          suggestions: Array<{
+            id: string;
+            metadata?: { reviewUnit?: string };
+          }>;
+        };
+        const added = listed.suggestions.find(
+          (item) => item.id === second.suggestionIds[0],
+        );
+        expect(added?.metadata?.reviewUnit).toBeUndefined();
       },
     );
   });

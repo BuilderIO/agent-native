@@ -8,6 +8,10 @@
 //     fix-proof: proven, red at 1a2b3c4d5 (exit 1), green at 6e7f8a9b0: pnpm ... vitest run x.spec.ts
 //   - https://app.slack.com/archives/C0.../p456
 //     visual: <before screenshot url> <after screenshot url>
+//   - chat-health:design:2026-11-06
+//     fix-proof: proven, ...
+//
+// A report is a URL, or a factory chat-health key, which has no URL.
 //
 // Visual-only evidence is not machine proof. A passing run names each report
 // that still needs a human to inspect its before/after screenshots before merge.
@@ -192,6 +196,9 @@ export function isTrackedRepositoryTest(
   throw new Error("Git failed to verify whether the proof test is tracked.");
 }
 
+const REPORT_LINK =
+  /https?:\/\/[^\s)>]+|\bchat-health:[a-z0-9-]+:\d{4}-\d{2}-\d{2}\b/g;
+
 export function parseReports(body: string): Report[] | null {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
   // Everything after the first Reports heading is the Reports section, so
@@ -209,18 +216,16 @@ export function parseReports(body: string): Report[] | null {
       .trim()
       .replace(/^(?:[-*+]|\d+[.)])\s+/, "")
       .replace(/^`/, "");
-    // Every URL on any other line starts a report, whatever its format; a
+    // Every report link on any other line starts a report, whatever its format; a
     // proof later on that line covers each of them. A detail link read as a
     // report fails as NO PROOF, which is the safe direction. URLs inside the
     // proof's own command are not reports.
     const at = line.indexOf("fix-proof: proven");
     const onLine = /^(fix-proof|visual):/.test(evidence)
       ? []
-      : [
-          ...(at === -1 ? line : line.slice(0, at)).matchAll(
-            /https?:\/\/[^\s)>]+/g,
-          ),
-        ].map(([link]): Report => ({ link, proven: [], visual: null }));
+      : [...(at === -1 ? line : line.slice(0, at)).matchAll(REPORT_LINK)].map(
+          ([link]): Report => ({ link, proven: [], visual: null }),
+        );
     reports.push(...onLine);
     const targets = onLine.length ? onLine : reports.slice(-1);
     const proof =

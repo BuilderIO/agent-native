@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Referenciar una grabación…",
+    group: "Grabaciones",
+    authentication: "Inicia sesión para añadir una referencia.",
+    invalid: "Elige una referencia válida antes de enviar.",
+    unavailable:
+      "Una referencia seleccionada ya no está disponible. Elimínala o selecciónala de nuevo.",
+  },
   meetingAsk: {
     resizeOrDismissAnswers: "Cambiar el tamaño o cerrar las respuestas",
   },
@@ -2280,6 +2288,11 @@ const messages = {
     flowCleanupSkipped: "Se omitió la revisión y se conservó el texto original",
     flowBacktrackSkipped:
       "Se omitió la edición y se conservó el texto reconocido",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet no descargado",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Descargando Parakeet",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Cargando Parakeet",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet ocupado",
+    flowAppleSpeechParakeetFailed: "Apple Speech · No se pudo cargar Parakeet",
     flowCancelDictation: "Cancelar dictado",
     flowCopying: "Copiando la transcripción…",
     aiProcessed: "Procesado por IA",
