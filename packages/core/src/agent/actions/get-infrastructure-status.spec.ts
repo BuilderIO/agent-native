@@ -230,6 +230,23 @@ describe("get-infrastructure-status", () => {
     ).resolves.toEqual(mocks.status);
   });
 
+  it("refuses credential fingerprints without an organization even on a trusted self-hosted deployment", async () => {
+    mocks.trustedSelfHosted = true;
+    const error = await failure(
+      action.run(
+        { includeGoogleCredentialFingerprints: true },
+        ctx("solo@example.com", null),
+      ),
+    );
+    expect(error.statusCode).toBe(403);
+    expect(error.errorCode).toBe(INFRASTRUCTURE_ADMIN_REQUIRED_ERROR_CODE);
+    expect(mocks.getInfrastructureStatus).not.toHaveBeenCalled();
+    expect(mocks.getActiveGoogleSignInCredentials).not.toHaveBeenCalled();
+    expect(mocks.resolveGoogleSignInCredentials).not.toHaveBeenCalled();
+    expect(mocks.resolveGoogleProviderCredentials).not.toHaveBeenCalled();
+    expect(mocks.resolveGoogleLegacyProviderCredentials).not.toHaveBeenCalled();
+  });
+
   it("refuses a caller with no organization on a shared deployment", async () => {
     const error = await failure(
       action.run({}, ctx("signup@example.com", null)),

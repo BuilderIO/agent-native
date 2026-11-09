@@ -92,7 +92,10 @@ export default defineAction({
     // organization reads it only where the deployment has a single tenant. On
     // a shared hosted deployment anyone who signs up starts with no org.
     if (!orgId) {
-      if (!isTrustedSelfHostedRuntime()) {
+      if (
+        !isTrustedSelfHostedRuntime() ||
+        args.includeGoogleCredentialFingerprints
+      ) {
         fail("Only organization owners and admins can view infrastructure.", {
           statusCode: 403,
           errorCode: INFRASTRUCTURE_ADMIN_REQUIRED_ERROR_CODE,
