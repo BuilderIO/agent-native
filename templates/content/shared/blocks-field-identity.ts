@@ -367,6 +367,16 @@ function startsWithBlock(whole: string, part: string): boolean {
   return prefix.length > 0 && whole.trimStart().startsWith(prefix);
 }
 
+interface PreviousSibling {
+  index: number;
+  block: StoredBlocksFieldBlock;
+}
+
+interface NextSibling {
+  index: number;
+  snapshot: BlocksFieldBlockSnapshot;
+}
+
 export function reconcileBlocksFieldIdentity(args: {
   documentId: string;
   propertyId: string;
@@ -417,9 +427,9 @@ export function reconcileBlocksFieldIdentity(args: {
     assigned.set(nextIndex, previousLive[previousIndex]!);
   }
 
-  const pair = (previousIndex: number, nextIndex: number) => {
-    matchedPrevious.add(previousIndex);
-    assigned.set(nextIndex, previousLive[previousIndex]);
+  const pair = (previous: PreviousSibling, nextIndex: number) => {
+    matchedPrevious.add(previous.index);
+    assigned.set(nextIndex, previous.block);
   };
   const nextIndexByPath = new Map(
     snapshots.map((snapshot, index) => [snapshot.path, index]),
@@ -436,77 +446,79 @@ export function reconcileBlocksFieldIdentity(args: {
         nextIndexForPrevious.set(previousIndex, nextIndex);
       }
     }
-    const nextParentKey = (nextIndex: number): string | null => {
-      const parentPath = snapshots[nextIndex].parentPath;
-      if (parentPath === null) return "";
-      const parentIndex = nextIndexByPath.get(parentPath);
+    const nextParentKey = (
+      snapshot: BlocksFieldBlockSnapshot,
+    ): string | null => {
+      if (snapshot.parentPath === null) return "";
+      const parentIndex = nextIndexByPath.get(snapshot.parentPath);
       if (parentIndex === undefined) return null;
       return assigned.get(parentIndex)?.id ?? null;
     };
-    const places = new Map<string, { previous: number[]; next: number[] }>();
-    const collect = (
-      side: "previous" | "next",
-      siblingsByParent: Map<string, number[]>,
-      anchorId: (index: number, parentKey: string) => string | null,
-      isLeftover: (index: number) => boolean,
+    const groupByPlace = <T>(
+      siblingsByParent: Map<string, T[]>,
+      anchorId: (sibling: T, parentKey: string) => string | null,
+      isLeftover: (sibling: T) => boolean,
     ) => {
+      const groups = new Map<string, T[]>();
       for (const [parentKey, siblings] of siblingsByParent) {
         let before = "";
-        let pending: number[] = [];
+        let pending: T[] = [];
         const flush = (after: string) => {
           const key = JSON.stringify([parentKey, before, after]);
-          let place = places.get(key);
-          if (!place) {
-            place = { previous: [], next: [] };
-            places.set(key, place);
-          }
-          place[side].push(...pending);
+          groups.set(key, [...(groups.get(key) ?? []), ...pending]);
           pending = [];
         };
-        for (const index of siblings) {
-          const anchor = anchorId(index, parentKey);
+        for (const sibling of siblings) {
+          const anchor = anchorId(sibling, parentKey);
           if (anchor !== null) {
             flush(anchor);
             before = anchor;
-          } else if (isLeftover(index)) {
-            pending.push(index);
+          } else if (isLeftover(sibling)) {
+            pending.push(sibling);
           }
         }
         flush("");
       }
+      return groups;
     };
 
-    const previousByParent = new Map<string, number[]>();
-    previousLive.forEach((block, index) => {
-      appendTo(previousByParent, block.parentId ?? "", index);
+    const nextParentKeys: (string | null)[] = [];
+    const nextByParent = new Map<string, NextSibling[]>();
+    snapshots.forEach((snapshot, index) => {
+      const parentKey = nextParentKey(snapshot);
+      nextParentKeys.push(parentKey);
+      if (parentKey !== null) {
+        appendTo(nextByParent, parentKey, { index, snapshot });
+      }
     });
-    collect(
-      "previous",
+    const previousByParent = new Map<string, PreviousSibling[]>();
+    previousLive.forEach((block, index) => {
+      appendTo(previousByParent, block.parentId ?? "", { index, block });
+    });
+
+    const previousPlaces = groupByPlace(
       previousByParent,
-      (index, parentKey) => {
-        const nextIndex = nextIndexForPrevious.get(index);
-        return nextIndex !== undefined && nextParentKey(nextIndex) === parentKey
-          ? previousLive[index].id
+      (sibling, parentKey) => {
+        const nextIndex = nextIndexForPrevious.get(sibling.index);
+        return nextIndex !== undefined &&
+          nextParentKeys[nextIndex] === parentKey
+          ? sibling.block.id
           : null;
       },
-      (index) => !matchedPrevious.has(index),
+      (sibling) => !matchedPrevious.has(sibling.index),
     );
-
-    const nextByParent = new Map<string, number[]>();
-    snapshots.forEach((_snapshot, index) => {
-      const parentKey = nextParentKey(index);
-      if (parentKey !== null) appendTo(nextByParent, parentKey, index);
-    });
-    collect(
-      "next",
+    const nextPlaces = groupByPlace(
       nextByParent,
-      (index, parentKey) => {
-        const block = assigned.get(index);
+      (sibling, parentKey) => {
+        const block = assigned.get(sibling.index);
         return block && (block.parentId ?? "") === parentKey ? block.id : null;
       },
-      (index) => !assigned.has(index),
+      (sibling) => !assigned.has(sibling.index),
     );
-    return places.values();
+    return [...previousPlaces].map(([key, previous]) => ({
+      previous,
+      next: nextPlaces.get(key) ?? [],
+    }));
   };
 
   // Pair leftovers only where their place says which block is which:
@@ -521,44 +533,46 @@ export function reconcileBlocksFieldIdentity(args: {
       paired = false;
       for (const place of leftoverPlaces()) {
         const kinds = new Set(
-          place.previous.map((index) => previousLive[index].kind),
+          place.previous.map((sibling) => sibling.block.kind),
         );
         for (const kind of kinds) {
           const previous = place.previous.filter(
-            (index) => previousLive[index].kind === kind,
+            (sibling) => sibling.block.kind === kind,
           );
           const next = place.next.filter(
-            (index) => snapshots[index].kind === kind,
+            (sibling) => sibling.snapshot.kind === kind,
           );
-          for (const previousIndex of [...previous]) {
-            const nextPosition = next.findIndex(
-              (nextIndex) =>
-                snapshots[nextIndex].contentHash ===
-                previousLive[previousIndex].contentHash,
+          for (const previousSibling of [...previous]) {
+            const match = next.find(
+              (sibling) =>
+                sibling.snapshot.contentHash ===
+                previousSibling.block.contentHash,
             );
-            if (nextPosition === -1) continue;
-            pair(previousIndex, next[nextPosition]);
-            previous.splice(previous.indexOf(previousIndex), 1);
-            next.splice(nextPosition, 1);
+            if (!match) continue;
+            pair(previousSibling, match.index);
+            previous.splice(previous.indexOf(previousSibling), 1);
+            next.splice(next.indexOf(match), 1);
             paired = true;
           }
-          if (previous.length === 0 || next.length === 0) continue;
-          const firstPrevious = previous[0];
-          const firstNext = next[0];
-          const previousMarkdown = previousLive[firstPrevious].markdown;
+          const manyPrevious = previous.length > 1;
+          const manyNext = next.length > 1;
+          const firstPrevious = previous.shift();
+          const firstNext = next.shift();
+          if (!firstPrevious || !firstNext) continue;
+          const previousMarkdown = firstPrevious.block.markdown;
+          const nextMarkdown = firstNext.snapshot.markdown;
           const split =
-            previous.length === 1 &&
-            next.length > 1 &&
+            !manyPrevious &&
+            manyNext &&
             (previousMarkdown === EMPTY_PARAGRAPH_MARKDOWN ||
-              startsWithBlock(previousMarkdown, snapshots[firstNext].markdown));
+              startsWithBlock(previousMarkdown, nextMarkdown));
           const merge =
-            previous.length > 1 &&
-            next.length === 1 &&
-            startsWithBlock(snapshots[firstNext].markdown, previousMarkdown);
-          const rewrite =
-            allowRewrite && previous.length === 1 && next.length === 1;
+            manyPrevious &&
+            !manyNext &&
+            startsWithBlock(nextMarkdown, previousMarkdown);
+          const rewrite = allowRewrite && !manyPrevious && !manyNext;
           if (split || merge || rewrite) {
-            pair(firstPrevious, firstNext);
+            pair(firstPrevious, firstNext.index);
             paired = true;
           }
         }
@@ -581,7 +595,8 @@ export function reconcileBlocksFieldIdentity(args: {
     const nextIndex = leftoverNextByContent
       .get(`${block.kind}\0${block.contentHash}`)
       ?.shift();
-    if (nextIndex !== undefined) pair(previousIndex, nextIndex);
+    if (nextIndex !== undefined)
+      pair({ index: previousIndex, block }, nextIndex);
   });
 
   const bestNextForPrevious = new Map<
