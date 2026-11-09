@@ -508,7 +508,9 @@ describe("DocumentToolbar in an MCP App widget", () => {
       expect(
         container.querySelector('[data-share-open="true"]'),
       ).not.toBeNull();
-      const props = mocks.shareProps.at(-1);
+      const props = mocks.shareProps.find(
+        (_, index) => index === mocks.shareProps.length - 1,
+      );
       if (!props) throw new Error("Missing share props");
       expect(props.resourceType).toBe("document");
       expect(props.resourceId).toBe("widget-fixture");
