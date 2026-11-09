@@ -15,6 +15,11 @@ describe("import design file helpers", () => {
     );
   });
 
+  it("names a file whose name has no Latin letters instead of hiding it", () => {
+    expect(sanitizeImportedFilename("プライシング.html")).toBe("untitled.html");
+    expect(sanitizeImportedFilename("Pricing.html")).toBe("Pricing.html");
+  });
+
   it("normalizes plain snippets into standalone HTML", () => {
     const html = normalizeImportedHtmlDocument("<main>Hello</main>", "test");
 
@@ -32,6 +37,15 @@ describe("import design file helpers", () => {
     expect(html).toContain(
       "<head>\n  <!-- Imported into Design from upload. -->",
     );
+  });
+
+  it("strips a handler the document wrapper would complete", () => {
+    const html = normalizeImportedHtmlDocument(
+      "<main>Hi</main><img src=x onerror=alert(1)",
+      "test",
+    );
+    expect(html).toContain("<main>Hi</main>");
+    expect(html).not.toMatch(/onerror/i);
   });
 
   it("strips executable HTML before persistence", () => {

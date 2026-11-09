@@ -897,6 +897,19 @@ function deckFetchCalls(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
   );
 }
 
+function sentPatchOperations(
+  fetchMock: ReturnType<typeof setupFetch>["fetchMock"],
+): unknown[] {
+  return fetchMock.mock.calls
+    .filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    )
+    .flatMap(([, init]) => {
+      const { operations } = actionCallBody(init);
+      return Array.isArray(operations) ? operations : [];
+    });
+}
+
 function actionCallBody(
   init: RequestInit | undefined,
 ): Record<string, unknown> {
@@ -2187,6 +2200,134 @@ describe("DeckContext deck creation persistence", () => {
     expect(hasUnsavedDeckChanges(deckId)).toBe(false);
   });
 
+  it("reports a slide delete that ends in a terminal revision conflict", async () => {
+    const deckId = "terminal-delete-revision-conflict-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const { setAccessibleDeck } = setupFetch({
+      revisionConflicts: { deckId, count: 100 },
+      serverFaithfulClientWrites: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck({
+      id: deckId,
+      title: "Terminal delete conflict",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "One", notes: "", layout: "title" },
+        { id: "slide-4", content: "Remote", notes: "", layout: "content" },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    const onSaveFailed = vi.fn();
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlides(deckId, ["slide-1"], onSaveFailed);
+    });
+    expect(onSaveFailed).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(getDeckSaveError(deckId)).toMatchObject({
+      errorCode: "deck_revision_conflict",
+    });
+    expect(onSaveFailed).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not report a saved slide delete for another slide's field conflict", async () => {
+    const deckId = "delete-beside-field-conflict-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const fetchOptions: NonNullable<Parameters<typeof setupFetch>[0]> = {
+      slideFieldConflicts: {
+        deckId,
+        count: 1,
+        slideId: "slide-1",
+        field: "notes",
+        remoteValue: "Peer notes",
+      },
+      serverFaithfulClientWrites: true,
+    };
+    const { setAccessibleDeck, getAccessibleDeck, getPatchAttempts } =
+      setupFetch(fetchOptions);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck({
+      id: deckId,
+      title: "Delete beside field conflict",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "One", notes: "Old notes", layout: "title" },
+        { id: "slide-2", content: "Two", notes: "", layout: "content" },
+        { id: "slide-3", content: "Three", notes: "", layout: "content" },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        deckId,
+        "slide-1",
+        { notes: "Local notes" },
+        { persistence: "immediate" },
+      );
+    });
+    await waitFor(() =>
+      expect(getDeckSaveError(deckId)).toMatchObject({
+        errorCode: "slide_field_conflict",
+      }),
+    );
+
+    const onSaveFailed = vi.fn();
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlides(deckId, ["slide-2"], onSaveFailed);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(getAccessibleDeck()?.slides.map((slide) => slide.id)).toEqual([
+      "slide-1",
+      "slide-3",
+    ]);
+    expect(hasFailedDeckSave(deckId)).toBe(true);
+    expect(onSaveFailed).not.toHaveBeenCalled();
+
+    fetchOptions.slideFieldConflicts = {
+      deckId,
+      count: getPatchAttempts(deckId) + 1,
+      slideId: "slide-3",
+      field: "notes",
+      remoteValue: "Peer notes",
+    };
+    act(() => {
+      result.current.updateSlide(
+        deckId,
+        "slide-3",
+        { notes: "Local notes" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(getAccessibleDeck()?.slides[1]).toMatchObject({
+      id: "slide-3",
+      notes: "Peer notes",
+    });
+    expect(onSaveFailed).not.toHaveBeenCalled();
+  });
+
   it("retries a mixed content and metadata patch across an unrelated revision conflict", async () => {
     const deckId = "mixed-slide-revision-conflict-deck";
     window.history.pushState({}, "", `/deck/${deckId}`);
@@ -2813,6 +2954,170 @@ describe("DeckContext deck creation persistence", () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
     expect(getPatchAttempts(initial.id)).toBe(1);
+  });
+
+  it("carries a slide's reveals along when an edit moves their elements", async () => {
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const reveal = {
+      id: "b",
+      type: "fade" as const,
+      elementIndex: 2,
+      elementPath: [2],
+    };
+    const initial: Deck = {
+      id: "reveal-follow-deck",
+      title: "Reveal follow deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: `<div class="fmd-slide"><h1>T</h1><p>A</p><p>B</p></div>`,
+          notes: "",
+          layout: "title",
+          animations: [reveal],
+        },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => result.current.reloadDecks());
+
+    act(() => {
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: `<div class="fmd-slide"><h1>T</h1><p>A</p><p>A</p><p>B</p></div>`,
+      });
+    });
+
+    const slide = result.current.decks
+      .find((deck) => deck.id === initial.id)
+      ?.slides.find((candidate) => candidate.id === "slide-1");
+    expect(slide?.animations).toEqual([
+      { id: "b", type: "fade", elementIndex: 3, elementPath: [3] },
+    ]);
+
+    await act(async () => result.current.flushDeckSave(initial.id));
+    expect(sentPatchOperations(fetchMock).at(-1)).toMatchObject({
+      op: "patch-slide",
+      slideId: "slide-1",
+      fields: {
+        animations: [
+          { id: "b", type: "fade", elementIndex: 3, elementPath: [3] },
+        ],
+      },
+    });
+
+    act(() => result.current.undo(initial.id));
+    expect(result.current.getDeck(initial.id)?.slides[0]).toMatchObject({
+      content: initial.slides[0]?.content,
+      animations: [reveal],
+    });
+    await act(async () => result.current.flushDeckSave(initial.id));
+    expect(sentPatchOperations(fetchMock).at(-1)).toMatchObject({
+      fields: { content: initial.slides[0]?.content, animations: [reveal] },
+    });
+  });
+
+  it("skips a no-op content write on a slide with reveals", async () => {
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const reveal = {
+      id: "b",
+      type: "fade" as const,
+      elementIndex: 1,
+      elementPath: [1, 1],
+    };
+    const content = `<div class="fmd-slide"><h1>T</h1><div class="text-box"><p>A</p><p>B</p></div></div>`;
+    const initial: Deck = {
+      id: "reveal-noop-deck",
+      title: "Reveal no-op deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content,
+          notes: "",
+          layout: "title",
+          animations: [reveal],
+        },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => result.current.reloadDecks());
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content },
+        { preserveLocalState: true },
+      );
+    });
+    await act(async () => result.current.flushDeckSave(initial.id));
+
+    expect(sentPatchOperations(fetchMock)).toHaveLength(0);
+  });
+
+  it("sends the reveal list with a batched save of typing and inserting a shape, so the server only checks that it resolves", async () => {
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const reveal = {
+      id: "b",
+      type: "fade" as const,
+      elementIndex: 1,
+      elementPath: [1, 1],
+    };
+    const slideHtml = (box: string, extra = "") =>
+      `<div class="fmd-slide"><h1>T</h1><div class="text-box">${box}</div>${extra}</div>`;
+    const shape = '<div class="fmd-shape"></div>';
+    const initial: Deck = {
+      id: "reveal-batch-deck",
+      title: "Reveal batch deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: slideHtml("<p>A</p><p>B</p>"),
+          notes: "",
+          layout: "title",
+          animations: [reveal],
+        },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => result.current.reloadDecks());
+
+    act(() => {
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: slideHtml("<p>A</p><p>B</p>", shape),
+      });
+    });
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: slideHtml("<p>A</p><p>B!</p>", shape) },
+        { preserveLocalState: true },
+      );
+    });
+    await act(async () => result.current.flushDeckSave(initial.id));
+
+    expect(sentPatchOperations(fetchMock)).toMatchObject([
+      {
+        fields: {
+          content: slideHtml("<p>A</p><p>B!</p>", shape),
+          animations: [reveal],
+        },
+      },
+    ]);
   });
 
   it("fails fast on validation errors without exposing a redundant retry", async () => {
