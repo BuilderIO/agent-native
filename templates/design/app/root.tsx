@@ -26,7 +26,7 @@ import {
   useHomeSuggestionSeedForHome,
 } from "@agent-native/toolkit/app-shell";
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
-import { useFirstRunOnboardingGateOwnsSurface } from "@agent-native/toolkit/app/onboarding";
+import { useStartupInteractionBlocked } from "@agent-native/toolkit/app/onboarding";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import {
   AppShellSkeleton,
@@ -442,7 +442,7 @@ function PrivateRootContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const hasSession = Boolean(session?.email);
   const isPublicVisualEdit = location.pathname === "/visual-edit";
-  const activatingBuilderSignup = useFirstRunOnboardingGateOwnsSurface();
+  const activatingBuilderSignup = useStartupInteractionBlocked();
   useDesignVariantPickTracking();
   // The home prompt composer takes focus on load, and without this the shortcut
   // is swallowed whenever a contenteditable has focus.

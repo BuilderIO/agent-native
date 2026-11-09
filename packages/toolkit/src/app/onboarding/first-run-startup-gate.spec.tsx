@@ -43,6 +43,7 @@ import { FIRST_RUN_ONBOARDING_COOKIE } from "@agent-native/core/shared/first-run
 import {
   FirstRunOnboardingStartupGate,
   useFirstRunOnboardingGateOwnsSurface,
+  useStartupInteractionBlocked,
 } from "./first-run-startup-gate.js";
 
 function deferred<T>() {
@@ -64,7 +65,12 @@ function StatefulApp() {
 
 function GateOwnershipProbe() {
   const ownsSurface = useFirstRunOnboardingGateOwnsSurface();
-  return <div data-testid="gate-ownership">{String(ownsSurface)}</div>;
+  const blocked = useStartupInteractionBlocked();
+  return (
+    <div data-blocked={blocked} data-testid="gate-ownership">
+      {String(ownsSurface)}
+    </div>
+  );
 }
 
 describe("FirstRunOnboardingStartupGate", () => {
@@ -109,6 +115,11 @@ describe("FirstRunOnboardingStartupGate", () => {
       container.querySelector('[data-first-run-app-inert="true"]'),
     ).toBeNull();
     expect(container.querySelector("[aria-hidden='true']")).toBeNull();
+    expect(
+      container
+        .querySelector("[data-testid='gate-ownership']")
+        ?.getAttribute("data-blocked"),
+    ).toBe("false");
     expect(
       container.querySelector('[data-testid="first-run-onboarding"]'),
     ).toBeNull();

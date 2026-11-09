@@ -1947,6 +1947,45 @@ export async function clearBuilderGatewayAuthFailure(creds: {
   });
 }
 
+function automaticSignupReceiptDescription(receipt: string): string {
+  return `Automatic Builder signup: ${receipt}`;
+}
+
+/** Recover only this provider attempt's completed personal credential write. */
+export async function hasCompletedAutomaticBuilderSignup(
+  email: string,
+  receipt: string,
+  startedAt: number,
+): Promise<boolean> {
+  const { readAppSecretMeta, readAppSecrets } =
+    await import("../secrets/storage.js");
+  const meta = await readAppSecretMeta({
+    key: "BUILDER_PRIVATE_KEY",
+    scope: "user",
+    scopeId: email,
+  });
+  if (
+    !meta ||
+    !meta.last4 ||
+    meta.description !== automaticSignupReceiptDescription(receipt) ||
+    meta.updatedAt < startedAt
+  )
+    return false;
+  const keys = await readAppSecrets({
+    keys: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+    scope: "user",
+    scopeId: email,
+  });
+  const privateKey = keys.get("BUILDER_PRIVATE_KEY");
+  const publicKey = keys.get("BUILDER_PUBLIC_KEY");
+  if (!privateKey || !publicKey || privateKey.updatedAt !== meta.updatedAt)
+    return false;
+  return !(await getBuilderCredentialAuthFailure({
+    privateKey: privateKey.value,
+    publicKey: publicKey.value,
+  }));
+}
+
 export async function writeBuilderCredentials(
   email: string,
   creds: {
@@ -1961,7 +2000,11 @@ export async function writeBuilderCredentials(
     isEnterprise?: boolean | null;
     isFreeAccount?: boolean | null;
   },
-  options?: { orgId?: string | null; role?: string | null },
+  options?: {
+    orgId?: string | null;
+    role?: string | null;
+    automaticSignupReceipt?: string;
+  },
 ): Promise<{ scope: "user" | "org"; scopeId: string }> {
   const privateKey = creds.privateKey.trim();
   const publicKey = creds.publicKey.trim();
@@ -2040,8 +2083,15 @@ export async function writeBuilderCredentials(
       value: String(creds.isFreeAccount),
     });
   }
-  await Promise.all(
-    entries.map(({ key, value }) =>
+  // For automatic signup, commit the private key last. Its atomic metadata
+  // receipt proves every other credential write finished before recovery
+  // releases the activation cover, even if the terminal settings write fails.
+  const receipt = options?.automaticSignupReceipt;
+  const firstEntries = receipt
+    ? entries.filter(({ key }) => key !== "BUILDER_PRIVATE_KEY")
+    : entries;
+  const writes = await Promise.allSettled(
+    firstEntries.map(({ key, value }) =>
       writeAppSecret({
         key,
         value,
@@ -2050,6 +2100,21 @@ export async function writeBuilderCredentials(
       }),
     ),
   );
+  const failedWrite = writes.find((result) => result.status === "rejected");
+  if (failedWrite?.status === "rejected") {
+    throw new Error("Could not persist Builder credentials", {
+      cause: failedWrite.reason,
+    });
+  }
+  if (receipt) {
+    await writeAppSecret({
+      key: "BUILDER_PRIVATE_KEY",
+      value: privateKey,
+      scope: target.scope,
+      scopeId: target.scopeId,
+      description: automaticSignupReceiptDescription(receipt),
+    });
+  }
   await clearBuilderCredentialAuthFailure({
     privateKey,
     publicKey,

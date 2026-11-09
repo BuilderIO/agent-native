@@ -297,6 +297,7 @@ import {
   CredentialStoreUnavailableError,
   builderCreditsRefusalStatus,
   getBuilderKeyConnections,
+  hasCompletedAutomaticBuilderSignup,
   prefetchSecrets,
   resolveSecret,
   resolveSecretDetailed,
@@ -2528,6 +2529,7 @@ export type BuilderAccountActivationResult =
 
 interface BuilderAccountActivationInput {
   newAccountOnly?: boolean;
+  signupActivationReceipt?: string;
   ownerEmail: string;
   session: AuthSession | null;
   provisioningToken: string | null | undefined;
@@ -2616,10 +2618,16 @@ export async function activateBuilderAccount(
       await import("./credential-provider.js");
     let written: Awaited<ReturnType<typeof writeBuilderCredentials>>;
     try {
+      const writeOptions = input.signupActivationReceipt
+        ? {
+            ...activationOrg,
+            automaticSignupReceipt: input.signupActivationReceipt,
+          }
+        : (activationOrg ?? undefined);
       written = await writeBuilderCredentials(
         ownerEmail,
         credentials,
-        activationOrg ?? undefined,
+        writeOptions,
       );
     } catch (error) {
       captureError(error, { route: "builder.provision.credential-write" });
@@ -5100,7 +5108,7 @@ export function createCoreRoutesPlugin(
         createBuilderSignupExperimentHandler({
           getSession,
           sameOrigin: isSameOriginConnect,
-          activate: async (event, session) => {
+          activate: async (event, session, owner) => {
             const authorization = await authorizeBuilderConnectScope(
               event,
               session.email,
@@ -5120,8 +5128,16 @@ export function createCoreRoutesPlugin(
               connectAttemptId: null,
               tracking: getBuilderSignupTrackingIdentity(),
               newAccountOnly: true,
+              signupActivationReceipt: `${owner.experimentId}:${owner.attempt}`,
             });
           },
+
+          reconcile: async (_event, session, owner) =>
+            hasCompletedAutomaticBuilderSignup(
+              session.email,
+              `${owner.experimentId}:${owner.attempt}`,
+              owner.startedAt,
+            ),
         }),
       );
 

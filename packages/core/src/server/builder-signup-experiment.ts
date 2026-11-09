@@ -307,14 +307,17 @@ async function finishSignupActivation(
     message?: string;
   },
 ) {
+  let changed = false;
   const commit = () =>
     mutateSetting(key, (current) => {
+      changed = false;
       if (!current || current.attempt !== attempt)
         throw new Error("Signup activation reservation ownership changed");
       const status = z
         .enum(["started", "connected", "fallback"])
         .parse(current.status);
       if (status !== "started") return current;
+      changed = true;
       return {
         ...current,
         status: outcome.status,
@@ -329,12 +332,15 @@ async function finishSignupActivation(
     return commit();
   };
   const committed = await commit().catch(retryCommit).catch(retryCommit);
-  return z
-    .object({
-      status: z.enum(["connected", "fallback"]),
-      code: z.string().nullable().optional(),
-    })
-    .parse(committed);
+  return {
+    ...z
+      .object({
+        status: z.enum(["connected", "fallback"]),
+        code: z.string().nullable().optional(),
+      })
+      .parse(committed),
+    changed,
+  };
 }
 
 export function createBuilderSignupExperimentHandler(dependencies: {
@@ -343,8 +349,63 @@ export function createBuilderSignupExperimentHandler(dependencies: {
   activate: (
     event: H3Event,
     session: AuthSession,
+    owner: { experimentId: string; attempt: string },
   ) => Promise<{ ok: boolean; code?: string; message?: string }>;
+  reconcile?: (
+    event: H3Event,
+    session: AuthSession,
+    owner: { experimentId: string; attempt: string; startedAt: number },
+  ) => Promise<boolean>;
 }) {
+  const reconcile = async (
+    event: H3Event,
+    session: AuthSession,
+    key: string,
+    existing: Record<string, unknown>,
+    assignment: Assignment | null,
+  ) => {
+    const { attempt, startedAt } = existing;
+    if (
+      !session.userId ||
+      !dependencies.reconcile ||
+      typeof attempt !== "string" ||
+      typeof startedAt !== "number" ||
+      !Number.isFinite(startedAt) ||
+      Date.now() - startedAt < 60_000
+    )
+      return null;
+    if (
+      !(await dependencies.reconcile(event, session, {
+        experimentId: experimentId(),
+        attempt,
+        startedAt,
+      }))
+    )
+      return null;
+    const result = await finishSignupActivation(key, attempt, {
+      status: "connected",
+      code: "connection_reconciled",
+    });
+    if (result.changed) {
+      track(
+        "builder_signup_experiment_outcome",
+        {
+          ...experimentProperties(assignment ?? undefined),
+          status: result.status,
+          code: result.code ?? result.status,
+          replayed: false,
+          activation_duration_ms: Date.now() - startedAt,
+        },
+        { userId: session.email, authUserId: session.userId },
+      );
+      await flushTracking();
+    }
+    deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+    return {
+      status: result.status,
+      ...(result.code ? { code: result.code } : {}),
+    };
+  };
   return defineEventHandler(async (event) => {
     setResponseHeader(event, "Cache-Control", "no-store");
     const refuse = (status: number, code: string) => {
@@ -463,7 +524,15 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         if (status === "started") {
           // Age cannot prove the provider has stopped. Keep the reservation
           // until its owner records an outcome; the client offers bounded Retry.
-          return { status: "pending" as const };
+          return (
+            (await reconcile(
+              event,
+              session,
+              `${experimentId()}:${session.userId}`,
+              existing,
+              assignment ?? null,
+            )) ?? { status: "pending" as const }
+          );
         }
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "already_completed" };
@@ -601,6 +670,16 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "already_completed" };
       }
+      if (status === "started") {
+        const recovered = await reconcile(
+          event,
+          session,
+          key,
+          existing,
+          assignment,
+        );
+        if (recovered) return recovered;
+      }
       if (status !== "started") {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         const code = z.string().nullable().optional().parse(existing.code);
@@ -634,7 +713,10 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     const complete = async () => {
       let result: { ok: boolean; code?: string; message?: string };
       try {
-        result = await dependencies.activate(event, session);
+        result = await dependencies.activate(event, session, {
+          experimentId: experimentId(),
+          attempt,
+        });
       } catch {
         result = { ok: false, code: "activation_interrupted" };
       }
@@ -645,6 +727,11 @@ export function createBuilderSignupExperimentHandler(dependencies: {
           ...(result.message ? { message: result.message } : {}),
         });
         const status = committed.status;
+        if (!committed.changed)
+          return {
+            status,
+            ...(committed.code ? { code: committed.code } : {}),
+          };
         const outcome = terminal(
           status,
           committed.code ?? undefined,

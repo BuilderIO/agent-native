@@ -88,6 +88,7 @@ const signedSession = (): AuthSession => ({
 let session: AuthSession | null;
 let sameOrigin: boolean;
 let activate: ReturnType<typeof vi.fn>;
+let reconcile: ReturnType<typeof vi.fn>;
 function request(body?: unknown, cookie?: string) {
   const app = createApp();
   app.use(
@@ -96,6 +97,7 @@ function request(body?: unknown, cookie?: string) {
       getSession: async () => session,
       sameOrigin: () => sameOrigin,
       activate,
+      reconcile,
     }),
   );
   return app.fetch(
@@ -149,6 +151,7 @@ beforeEach(() => {
   session = null;
   sameOrigin = true;
   activate = vi.fn(async () => ({ ok: true }));
+  reconcile = vi.fn(async () => false);
 });
 
 describe("pre-signup Builder experiment", () => {
@@ -270,6 +273,55 @@ describe("pre-signup Builder experiment", () => {
       mocks.settings.get("design_builder_signup_v1:new-user")?.status,
     ).toBe("started");
   });
+
+  it.each(["status", "start", "activate"])(
+    "reconciles a completed credential write during %s without re-provisioning",
+    async (operation) => {
+      session = signedSession();
+      mocks.failTerminalWrites = 3;
+      const background: Promise<unknown>[] = [];
+      mocks.waitUntil = (work) => {
+        background.push(work);
+      };
+      expect(await (await request({ operation: "start" })).json()).toEqual({
+        status: "pending",
+      });
+      await Promise.all(background);
+      const key = "design_builder_signup_v1:new-user";
+      const reserved = mocks.settings.get(key);
+      if (!reserved) throw new Error("Reservation missing");
+      mocks.settings.set(key, { ...reserved, startedAt: Date.now() - 61_000 });
+      reconcile.mockResolvedValue(true);
+      const result = await request({ operation });
+      expect(await result.json()).toEqual({
+        status: "connected",
+        code: "connection_reconciled",
+      });
+      expect(activate).toHaveBeenCalledOnce();
+      expect(reconcile).toHaveBeenCalledWith(
+        expect.anything(),
+        session,
+        expect.objectContaining({
+          experimentId: "design_builder_signup_v1",
+          attempt: reserved.attempt,
+        }),
+      );
+      expect(
+        mocks.track.mock.calls.filter(
+          ([name]) => name === "builder_signup_experiment_outcome",
+        ),
+      ).toHaveLength(1);
+      expect(await (await request({ operation: "status" })).json()).toEqual({
+        status: "disabled",
+        code: "already_completed",
+      });
+      expect(
+        mocks.track.mock.calls.filter(
+          ([name]) => name === "builder_signup_experiment_outcome",
+        ),
+      ).toHaveLength(1);
+    },
+  );
 
   it("preserves the distinct deployment and template provisioning identities", () => {
     expect(getBuilderSignupTrackingIdentity()).toEqual({

@@ -2,6 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
 import { useOrgRole } from "@agent-native/core/client/org";
 import { docsUrl } from "@agent-native/core/shared";
+import { useStartupInteractionBlocked } from "@agent-native/toolkit/app/onboarding";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { CLIPS_SCREENSHOTS } from "@shared/labs";
@@ -392,6 +393,7 @@ export function ClipsCommandMenu({
   open,
   onOpenChange,
 }: ClipsCommandMenuProps) {
+  const startupInteractionBlocked = useStartupInteractionBlocked();
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
@@ -433,7 +435,11 @@ export function ClipsCommandMenu({
     [folders, navigate, spaces, t],
   );
 
-  useCommandMenuShortcut(useCallback(() => onOpenChange(true), [onOpenChange]));
+  useCommandMenuShortcut(
+    useCallback(() => {
+      if (!startupInteractionBlocked) onOpenChange(true);
+    }, [onOpenChange, startupInteractionBlocked]),
+  );
 
   const scopedRecordPath =
     context.kind === "folder"
@@ -447,8 +453,10 @@ export function ClipsCommandMenu({
 
   return (
     <CommandMenu
-      open={open}
-      onOpenChange={onOpenChange}
+      open={open && !startupInteractionBlocked}
+      onOpenChange={(next) => {
+        if (!next || !startupInteractionBlocked) onOpenChange(next);
+      }}
       changelog={changelog
         .split(
           "The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.",

@@ -10,6 +10,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "../../ui/button.js";
 import { Skeleton } from "../../ui/skeleton.js";
+import {
+  StartupInteractionContext,
+  useStartupInteractionBlocked,
+} from "../onboarding/first-run-startup-gate-context.js";
 import { FirstRunOnboardingStartupGate } from "../onboarding/first-run-startup-gate.js";
 
 const attempts = new Map<string, Promise<unknown>>();
@@ -182,6 +186,7 @@ export function BuilderSignupActivationCover({
   children: ReactNode;
 }) {
   const t = useT();
+  const inheritedInteractionBlock = useStartupInteractionBlocked();
   const retryContent = (
     <>
       <span>{t("agentChat.onboarding.builderActivationCheckFailed")}</span>
@@ -189,7 +194,9 @@ export function BuilderSignupActivationCover({
     </>
   );
   return (
-    <>
+    <StartupInteractionContext.Provider
+      value={inheritedInteractionBlock || activating}
+    >
       <div className="contents" inert={activating}>
         {children}
       </div>
@@ -220,7 +227,7 @@ export function BuilderSignupActivationCover({
           {retryContent}
         </div>
       ) : null}
-    </>
+    </StartupInteractionContext.Provider>
   );
 }
 

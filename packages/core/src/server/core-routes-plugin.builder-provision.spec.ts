@@ -1,4 +1,4 @@
-import { createApp } from "h3";
+import { createApp, defineEventHandler } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -56,6 +56,7 @@ import {
 } from "./builder-browser.js";
 import {
   createBuilderProvisionHandler,
+  activateBuilderAccount,
   getBuilderConnectErrorKey,
   type BuilderOwnerContext,
 } from "./core-routes-plugin.js";
@@ -168,6 +169,36 @@ afterEach(() => {
 });
 
 describe("POST /builder/provision", () => {
+  it("passes the server-owned signup receipt into credential persistence", async () => {
+    const app = createApp();
+    app.use(
+      PATH,
+      defineEventHandler((event) =>
+        activateBuilderAccount(event, {
+          ownerEmail: OWNER,
+          session: session(),
+          provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+          requestedScope: null,
+          connectAttemptId: null,
+          tracking: {},
+          newAccountOnly: true,
+          signupActivationReceipt: "design_builder_signup_v1:server-attempt",
+        }),
+      ),
+    );
+    const response = await app.fetch(
+      new Request(`${ORIGIN}${PATH}`, { method: "POST" }),
+    );
+    expect(await response.json()).toEqual(
+      expect.objectContaining({ ok: true, scope: "user" }),
+    );
+    expect(mocks.writeBuilderCredentials).toHaveBeenCalledWith(
+      OWNER,
+      expect.anything(),
+      { automaticSignupReceipt: "design_builder_signup_v1:server-attempt" },
+    );
+  });
+
   it("offers existing-account sign-in when a newly provisioned credential cannot be saved", async () => {
     mocks.writeBuilderCredentials.mockRejectedValueOnce(
       new Error("credential store unavailable"),

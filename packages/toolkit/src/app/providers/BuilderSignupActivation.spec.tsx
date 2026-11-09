@@ -36,6 +36,7 @@ vi.mock("@agent-native/core/client/analytics", () => ({
   track: vi.fn(),
 }));
 
+import { useStartupInteractionBlocked } from "../onboarding/first-run-startup-gate-context.js";
 import {
   BuilderSignupActivationCover,
   BuilderSignupStartupGate,
@@ -44,8 +45,13 @@ import {
 
 function Counter() {
   const [count, setCount] = useState(0);
+  const blocked = useStartupInteractionBlocked();
   return (
-    <button type="button" onClick={() => setCount((value) => value + 1)}>
+    <button
+      data-startup-interaction-blocked={blocked}
+      type="button"
+      onClick={() => setCount((value) => value + 1)}
+    >
       {`count ${count}`}
     </button>
   );
@@ -133,6 +139,11 @@ describe("BuilderSignupActivation", () => {
     });
     expect(container.querySelector("[role='status']")).toBeNull();
     expect(container.querySelector("button")?.closest("[inert]")).toBeNull();
+    expect(
+      container
+        .querySelector("button")
+        ?.getAttribute("data-startup-interaction-blocked"),
+    ).toBe("false");
     await clickCounter();
     expect(container.textContent).toContain("count 1");
     await act(async () => {
@@ -180,6 +191,11 @@ describe("BuilderSignupActivation", () => {
     await render("timeout-user");
     await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledOnce());
     expect(container.querySelector("[role='status']")).not.toBeNull();
+    expect(
+      container
+        .querySelector("button")
+        ?.getAttribute("data-startup-interaction-blocked"),
+    ).toBe("true");
     mocks.status.mockResolvedValue("disabled");
     await act(async () => {
       await queryClient.invalidateQueries();

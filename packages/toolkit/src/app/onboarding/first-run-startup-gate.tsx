@@ -8,9 +8,16 @@ import { FIRST_RUN_ONBOARDING_COOKIE } from "@agent-native/core/shared/first-run
 import { Button } from "@agent-native/toolkit/ui/button";
 import React, { Suspense, lazy, useEffect, useState } from "react";
 
-import { FirstRunOnboardingGateContext } from "./first-run-startup-gate-context.js";
+import {
+  FirstRunOnboardingGateContext,
+  StartupInteractionContext,
+  useStartupInteractionBlocked,
+} from "./first-run-startup-gate-context.js";
 
-export { useFirstRunOnboardingGateOwnsSurface } from "./first-run-startup-gate-context.js";
+export {
+  useFirstRunOnboardingGateOwnsSurface,
+  useStartupInteractionBlocked,
+} from "./first-run-startup-gate-context.js";
 
 const FirstRunOnboarding = lazy(() =>
   import("./FirstRunOnboarding.js").then((module) => ({
@@ -57,6 +64,7 @@ export function FirstRunOnboardingStartupGate({
   deferSurface?: boolean;
 }) {
   const t = useT();
+  const inheritedInteractionBlock = useStartupInteractionBlocked();
   const previewMode = useOnboardingPreviewMode();
   const preloading = useSessionPreloading();
   const [firstRunCookieState] = useState(readFirstRunOnboardingCookieState);
@@ -141,38 +149,42 @@ export function FirstRunOnboardingStartupGate({
 
   return (
     <FirstRunOnboardingGateContext.Provider value={gateOwnsSurface}>
-      <div
-        aria-hidden={appIsInert ? "true" : undefined}
-        data-first-run-app-inert={appIsInert ? "true" : undefined}
-        inert={appIsInert}
-        style={{ display: "contents" }}
+      <StartupInteractionContext.Provider
+        value={inheritedInteractionBlock || appIsInert}
       >
-        {children}
-      </div>
-      {!suppressSurface && !deferSurface && decision === "unavailable" && (
         <div
-          role="alert"
-          data-first-run-status-error="true"
-          className="fixed inset-x-4 bottom-4 z-[110] mx-auto flex max-w-md items-center justify-between gap-3 rounded-lg border border-border bg-background px-4 py-3 text-start shadow-lg"
+          aria-hidden={appIsInert ? "true" : undefined}
+          data-first-run-app-inert={appIsInert ? "true" : undefined}
+          inert={appIsInert}
+          style={{ display: "contents" }}
         >
-          <span className="text-sm text-muted-foreground">
-            {t("agentChat.common.chunkLoadFailed")}
-          </span>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setRetryNumber((current) => current + 1)}
-          >
-            {t("agentChat.common.retry")}
-          </Button>
+          {children}
         </div>
-      )}
-      {ownsSurface && (
-        <Suspense fallback={null}>
-          <FirstRunOnboarding initialFirstRun />
-        </Suspense>
-      )}
+        {!suppressSurface && !deferSurface && decision === "unavailable" && (
+          <div
+            role="alert"
+            data-first-run-status-error="true"
+            className="fixed inset-x-4 bottom-4 z-[110] mx-auto flex max-w-md items-center justify-between gap-3 rounded-lg border border-border bg-background px-4 py-3 text-start shadow-lg"
+          >
+            <span className="text-sm text-muted-foreground">
+              {t("agentChat.common.chunkLoadFailed")}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setRetryNumber((current) => current + 1)}
+            >
+              {t("agentChat.common.retry")}
+            </Button>
+          </div>
+        )}
+        {ownsSurface && (
+          <Suspense fallback={null}>
+            <FirstRunOnboarding initialFirstRun />
+          </Suspense>
+        )}
+      </StartupInteractionContext.Provider>
     </FirstRunOnboardingGateContext.Provider>
   );
 }
