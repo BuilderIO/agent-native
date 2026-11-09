@@ -1660,8 +1660,7 @@ export default {
         "इस क्लिपबोर्ड में कोई कॉपी की गई Figma लेयर नहीं है। Figma में एक frame चुनें, उसे Cmd+C से कॉपी करें और दोबारा paste करें, या Import पैनल से Figma लिंक आयात करें।",
       figmaPasteRestLabel: "Figma API के ज़रिए आयात किया गया",
       figmaPasteHtmlLabel: "क्लिपबोर्ड पूर्वावलोकन से आयात किया गया",
-      figmaPasteLocalKiwiLabel:
-        "बिना token के आयात किया गया — केवल geometry और text",
+      figmaPasteLocalKiwiLabel: "Figma क्लिपबोर्ड से इंपोर्ट किया गया",
       figmaPasteImagesNeedToken:
         "{{count}} छवि{{plural}} को लोड करने के लिए Figma की पहुँच चाहिए।",
       figmaPasteImagesDontShowAgain: "फिर से न दिखाएँ",
@@ -2663,7 +2662,6 @@ export default {
     websiteReferenceMenu: "वेबसाइट जोड़ें…",
     websiteUrlLabel: "वेबसाइट URL",
     websiteUrl: "वेबसाइट का URL पेस्ट करें",
-    figmaUrlLabel: "Figma लिंक",
     invalidFigmaUrl: "figma.com फ़्रेम या फ़ाइल का मान्य URL दर्ज करें।",
     tooMany: "अधिकतम 20 संदर्भ चुनें।",
     invalidWebsiteUrl: "मान्य HTTP या HTTPS URL दर्ज करें।",
@@ -2671,7 +2669,6 @@ export default {
     noSystems:
       "आपके पास अभी कोई डिज़ाइन सिस्टम नहीं है। वेबसाइट, फ़ाइलों या Figma से एक बनाएँ।",
     searchSystems: "डिज़ाइन सिस्टम खोजें…",
-    searchFrames: "Figma फ़्रेम खोजें…",
     searchDesigns: "डिज़ाइन खोजें…",
     searchPresentations: "प्रस्तुतियाँ खोजें…",
     searchDesign: "डिज़ाइन खोजें…",
@@ -2679,8 +2676,6 @@ export default {
     notReady:
       "प्रॉम्प्ट अभी भेजने के लिए तैयार नहीं है। चुना गया संदर्भ और कनेक्शन जाँचें, फिर प्रयास करें।",
     search: "संदर्भ खोजें…",
-    figmaUrl: "Figma लिंक पेस्ट करें",
-    browse: "फ़्रेम देखें",
     loadFailed: "यह संदर्भ लोड नहीं हो सका।",
     retry: "फिर प्रयास करें",
     empty: "कोई मिलते-जुलते संदर्भ नहीं हैं।",
@@ -2689,8 +2684,26 @@ export default {
     slides: "स्लाइड",
     referenceDesign: "डिज़ाइन को संदर्भ बनाएँ",
     connectFigma: "Figma कनेक्ट करें",
-    figmaDisconnected: "डिज़ाइन ब्राउज़ करने के लिए Figma कनेक्ट करें।",
-    figmaReference: "Figma डिज़ाइन",
+    figmaReference: "Figma डिज़ाइन…",
+    figmaDialogTitle: "Figma डिज़ाइन जोड़ें",
+    figmaDropTitle: ".fig फ़ाइल यहाँ छोड़ें",
+    figmaChooseFile: "फ़ाइल चुनें",
+    figmaPasteHint: "आप कॉपी किया गया फ़्रेम सीधे प्रॉम्प्ट में भी पेस्ट कर सकते हैं।",
+    figmaAddToPrompt: "प्रॉम्प्ट में जोड़ें",
+    figmaLinkNeedsConnection:
+      "लिंक के लिए कनेक्टेड Figma खाता चाहिए। इसके बजाय .fig फ़ाइल छोड़ें या कॉपी किया गया फ़्रेम पेस्ट करें।",
+    figmaReferenceMore: "{{name}} और {{count}} अन्य",
+    figmaReferenceEmpty:
+      "कोई फ़्रेम नहीं आया। Figma में एक फ़्रेम कॉपी करें और फिर से कोशिश करें।",
+    figmaSelection: "Figma चयन",
+    figmaFileTooLarge:
+      "यह फ़ाइल यहाँ पढ़ने के लिए बहुत बड़ी है। इसके बजाय इसके पेज या फ़्रेम का लिंक पेस्ट करें।",
+    figmaSearch: "पेज और फ़्रेम खोजें",
+    figmaSelectedCount: "{{count}} चुने गए",
+    figmaShowFrames: "{{name}} के फ़्रेम दिखाएँ",
+    figmaLinkNotFrame: "किसी Figma पेज या फ़्रेम का लिंक दें।",
+    figmaPageFrameCap:
+      "पहले {{limit}} फ़्रेम जोड़े जाते हैं। कौन से जोड़ने हैं, यह चुनने के लिए फ़्रेम चुनें।",
     referenceDeck: "प्रस्तुति को संदर्भ बनाएँ",
     quickSaas: "SaaS लैंडिंग पेज बनाएँ",
     quickDashboard: "डैशबोर्ड बनाएँ",

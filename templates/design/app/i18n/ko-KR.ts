@@ -1666,7 +1666,7 @@ export default {
         "클립보드에 복사된 Figma 레이어가 없습니다. Figma에서 프레임을 선택해 Cmd+C로 복사한 뒤 다시 붙여넣거나, 가져오기 패널에서 Figma 링크를 가져오세요.",
       figmaPasteRestLabel: "Figma API로 가져옴",
       figmaPasteHtmlLabel: "클립보드 미리보기에서 가져옴",
-      figmaPasteLocalKiwiLabel: "토큰 없이 가져옴 — 기하학적 구조와 텍스트만",
+      figmaPasteLocalKiwiLabel: "Figma 클립보드에서 가져옴",
       figmaPasteImagesNeedToken:
         "{{count}}개의 이미지{{plural}}를 로드하려면 Figma 접근이 필요합니다.",
       figmaPasteImagesDontShowAgain: "다시 표시하지 않기",
@@ -2685,7 +2685,6 @@ export default {
     websiteReferenceMenu: "웹사이트 추가…",
     websiteUrlLabel: "웹사이트 URL",
     websiteUrl: "웹사이트 URL 붙여넣기",
-    figmaUrlLabel: "Figma 링크",
     invalidFigmaUrl: "유효한 figma.com 프레임 또는 파일 URL을 입력하세요.",
     tooMany: "참조는 최대 20개까지 선택하세요.",
     invalidWebsiteUrl: "유효한 HTTP 또는 HTTPS URL을 입력하세요.",
@@ -2693,7 +2692,6 @@ export default {
     noSystems:
       "아직 디자인 시스템이 없습니다. 웹사이트, 파일 또는 Figma에서 만들어 보세요.",
     searchSystems: "디자인 시스템 검색…",
-    searchFrames: "Figma 프레임 검색…",
     searchDesigns: "디자인 검색…",
     searchPresentations: "프레젠테이션 검색…",
     searchDesign: "디자인 검색…",
@@ -2701,8 +2699,6 @@ export default {
     notReady:
       "아직 요청을 제출할 수 없습니다. 선택한 컨텍스트와 연결을 확인한 후 다시 시도하세요.",
     search: "컨텍스트 검색…",
-    figmaUrl: "Figma 링크 붙여넣기",
-    browse: "프레임 찾아보기",
     loadFailed: "이 참조를 불러오지 못했습니다.",
     retry: "다시 시도",
     empty: "일치하는 참조가 없습니다.",
@@ -2711,8 +2707,26 @@ export default {
     slides: "슬라이드",
     referenceDesign: "디자인 참조",
     connectFigma: "Figma 연결",
-    figmaDisconnected: "디자인을 찾아보려면 Figma를 연결하세요.",
-    figmaReference: "Figma 디자인",
+    figmaReference: "Figma 디자인…",
+    figmaDialogTitle: "Figma 디자인 추가",
+    figmaDropTitle: ".fig 파일을 끌어다 놓기",
+    figmaChooseFile: "파일 선택",
+    figmaPasteHint: "복사한 프레임을 프롬프트에 바로 붙여넣을 수도 있습니다.",
+    figmaAddToPrompt: "프롬프트에 추가",
+    figmaLinkNeedsConnection:
+      "링크를 사용하려면 Figma 계정을 연결해야 합니다. 대신 .fig 파일을 끌어다 놓거나 복사한 프레임을 붙여넣으세요.",
+    figmaReferenceMore: "{{name}} 외 {{count}}개",
+    figmaReferenceEmpty:
+      "프레임을 가져오지 못했습니다. Figma에서 프레임을 복사한 다음 다시 시도하세요.",
+    figmaSelection: "Figma 선택 항목",
+    figmaFileTooLarge:
+      "이 파일은 너무 커서 여기서 읽을 수 없습니다. 대신 페이지나 프레임 링크를 붙여 넣으세요.",
+    figmaSearch: "페이지 및 프레임 검색",
+    figmaSelectedCount: "{{count}}개 선택됨",
+    figmaShowFrames: "{{name}}의 프레임 보기",
+    figmaLinkNotFrame: "Figma 페이지나 프레임 링크를 사용하세요.",
+    figmaPageFrameCap:
+      "처음 {{limit}}개 프레임을 추가합니다. 추가할 프레임을 고르려면 프레임을 선택하세요.",
     referenceDeck: "프레젠테이션 참조",
     quickSaas: "SaaS 랜딩 페이지 만들기",
     quickDashboard: "대시보드 만들기",

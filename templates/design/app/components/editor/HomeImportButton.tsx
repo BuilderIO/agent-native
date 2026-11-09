@@ -96,9 +96,18 @@ export function HomeImportButton() {
       void navigate(`/design/${result.id}?panel=import`);
     } catch (cause) {
       releaseFigImportToast(toastOwner);
-      toast.error(actionErrorMessage(cause) ?? t("home.failedToCreateDesign"), {
+      const actionMessage = actionErrorMessage(cause);
+      // A network or auth failure is not an action error; name it rather
+      // than leaving only the generic title.
+      const detail =
+        !actionMessage &&
+        cause instanceof Error &&
+        cause.message !== t("home.failedToCreateDesign")
+          ? cause.message
+          : undefined;
+      toast.error(actionMessage ?? t("home.failedToCreateDesign"), {
         id: FIG_IMPORT_TOAST_ID,
-        description: undefined,
+        description: detail,
         action: {
           label: t("homeContext.retry"),
           onClick: () => void importFile(file),

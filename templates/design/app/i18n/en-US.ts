@@ -1601,8 +1601,7 @@ export default {
         "That clipboard has no copied Figma layers in it. Select a frame in Figma, copy it with Cmd+C, and paste again — or import a Figma link from the Import panel.",
       figmaPasteRestLabel: "Imported via Figma API",
       figmaPasteHtmlLabel: "Imported from clipboard preview",
-      figmaPasteLocalKiwiLabel:
-        "Imported without token — geometry and text only",
+      figmaPasteLocalKiwiLabel: "Imported from the Figma clipboard",
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} need Figma access to load.",
       figmaPasteImagesDontShowAgain: "Don't show again",
@@ -2619,7 +2618,6 @@ export default {
     websiteReferenceMenu: "Add website…",
     websiteUrlLabel: "Website URL",
     websiteUrl: "Paste a website URL",
-    figmaUrlLabel: "Figma link",
     invalidFigmaUrl: "Enter a valid figma.com frame or file URL.",
     tooMany: "Choose up to 20 references.",
     invalidWebsiteUrl: "Enter a valid HTTP or HTTPS URL.",
@@ -2627,7 +2625,6 @@ export default {
     noSystems:
       "You don’t have a design system yet. Create one from website, files, or Figma.",
     searchSystems: "Search design systems…",
-    searchFrames: "Search Figma frames…",
     searchDesigns: "Search designs…",
     searchPresentations: "Search presentations…",
     searchDesign: "Search design…",
@@ -2635,8 +2632,6 @@ export default {
     notReady:
       "The prompt is not ready to submit. Check the selected context and connection, then try again.",
     search: "Search context…",
-    figmaUrl: "Paste a Figma link",
-    browse: "Browse frames",
     loadFailed: "Could not load this reference.",
     retry: "Retry",
     empty: "No matching references.",
@@ -2645,8 +2640,27 @@ export default {
     slides: "Slides",
     referenceDesign: "Reference a design",
     connectFigma: "Connect Figma",
-    figmaDisconnected: "Connect Figma to browse designs.",
-    figmaReference: "Figma design",
+    figmaReference: "Figma design…",
+    figmaDialogTitle: "Add Figma design",
+    figmaDropTitle: "Drop a .fig file",
+    figmaChooseFile: "Choose file",
+    figmaPasteHint:
+      "You can also paste a copied frame straight into the prompt.",
+    figmaAddToPrompt: "Add to prompt",
+    figmaLinkNeedsConnection:
+      "Links need a connected Figma account. Drop a .fig file or paste a copied frame instead.",
+    figmaReferenceMore: "{{name}} and {{count}} more",
+    figmaReferenceEmpty:
+      "No frames came through. Copy a frame in Figma and try again.",
+    figmaSelection: "Figma selection",
+    figmaFileTooLarge:
+      "This file is too large to read here. Paste a link to its page or frame instead.",
+    figmaSearch: "Search pages and frames",
+    figmaSelectedCount: "{{count}} selected",
+    figmaShowFrames: "Show frames in {{name}}",
+    figmaLinkNotFrame: "Link to a Figma page or frame.",
+    figmaPageFrameCap:
+      "Adds the first {{limit}} frames. Select frames to choose which ones.",
     referenceDeck: "Reference a presentation",
     quickSaas: "Create a SaaS landing page",
     quickDashboard: "Create a dashboard",

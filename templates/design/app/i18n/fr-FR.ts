@@ -1691,8 +1691,7 @@ export default {
         "Ce presse-papiers ne contient aucun calque Figma copié. Sélectionnez un cadre dans Figma, copiez-le avec Cmd+C puis recollez, ou importez un lien Figma depuis le panneau Importer.",
       figmaPasteRestLabel: "Importé via l'API Figma",
       figmaPasteHtmlLabel: "Importé depuis l'aperçu du presse-papiers",
-      figmaPasteLocalKiwiLabel:
-        "Importé sans token — géométrie et texte uniquement",
+      figmaPasteLocalKiwiLabel: "Importé depuis le presse-papiers Figma",
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} nécessite{{plural}} un accès Figma pour être chargée{{plural}}.",
       figmaPasteImagesDontShowAgain: "Ne plus afficher",
@@ -2733,7 +2732,6 @@ export default {
     websiteReferenceMenu: "Ajouter un site web…",
     websiteUrlLabel: "URL du site web",
     websiteUrl: "Collez l’URL d’un site web",
-    figmaUrlLabel: "Lien Figma",
     invalidFigmaUrl:
       "Saisissez une URL valide de cadre ou de fichier figma.com.",
     tooMany: "Choisissez jusqu’à 20 références.",
@@ -2742,7 +2740,6 @@ export default {
     noSystems:
       "Vous n’avez pas encore de système de design. Créez-en un à partir d’un site web, de fichiers ou de Figma.",
     searchSystems: "Rechercher des systèmes de design…",
-    searchFrames: "Rechercher des cadres Figma…",
     searchDesigns: "Rechercher des designs…",
     searchPresentations: "Rechercher des présentations…",
     searchDesign: "Rechercher un design…",
@@ -2750,8 +2747,6 @@ export default {
     notReady:
       "La demande n’est pas prête. Vérifiez le contexte sélectionné et la connexion, puis réessayez.",
     search: "Rechercher du contexte…",
-    figmaUrl: "Collez un lien Figma",
-    browse: "Parcourir les cadres",
     loadFailed: "Impossible de charger cette référence.",
     retry: "Réessayer",
     empty: "Aucune référence correspondante.",
@@ -2760,8 +2755,27 @@ export default {
     slides: "Diapositives",
     referenceDesign: "Utiliser un design comme référence",
     connectFigma: "Connecter Figma",
-    figmaDisconnected: "Connectez Figma pour parcourir les designs.",
-    figmaReference: "Design Figma",
+    figmaReference: "Design Figma…",
+    figmaDialogTitle: "Ajouter un design Figma",
+    figmaDropTitle: "Déposez un fichier .fig",
+    figmaChooseFile: "Choisir un fichier",
+    figmaPasteHint:
+      "Vous pouvez aussi coller un cadre copié directement dans le prompt.",
+    figmaAddToPrompt: "Ajouter au prompt",
+    figmaLinkNeedsConnection:
+      "Les liens nécessitent un compte Figma connecté. Déposez plutôt un fichier .fig ou collez un cadre copié.",
+    figmaReferenceMore: "{{name}} et {{count}} de plus",
+    figmaReferenceEmpty:
+      "Aucun cadre n’est arrivé. Copiez un cadre dans Figma et réessayez.",
+    figmaSelection: "Sélection Figma",
+    figmaFileTooLarge:
+      "Ce fichier est trop volumineux pour être lu ici. Collez plutôt un lien vers sa page ou son cadre.",
+    figmaSearch: "Rechercher des pages et des cadres",
+    figmaSelectedCount: "{{count}} sélectionné(s)",
+    figmaShowFrames: "Afficher les cadres de {{name}}",
+    figmaLinkNotFrame: "Indiquez un lien vers une page ou un cadre Figma.",
+    figmaPageFrameCap:
+      "Ajoute les {{limit}} premiers cadres. Cochez des cadres pour choisir lesquels.",
     referenceDeck: "Utiliser une présentation comme référence",
     quickSaas: "Créer une page SaaS",
     quickDashboard: "Créer un tableau de bord",

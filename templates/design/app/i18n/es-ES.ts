@@ -1687,7 +1687,7 @@ export default {
         "Ese portapapeles no contiene capas copiadas de Figma. Selecciona un marco en Figma, cópialo con Cmd+C y vuelve a pegar, o importa un enlace de Figma desde el panel Importar.",
       figmaPasteRestLabel: "Importado mediante la API de Figma",
       figmaPasteHtmlLabel: "Importado desde la vista previa del portapapeles",
-      figmaPasteLocalKiwiLabel: "Importado sin token — solo geometría y texto",
+      figmaPasteLocalKiwiLabel: "Importado desde el portapapeles de Figma",
       figmaPasteImagesNeedToken:
         "{{count}} imagen{{plural}} necesita{{plural}} acceso a Figma para cargarse.",
       figmaPasteImagesDontShowAgain: "No mostrar de nuevo",
@@ -2715,7 +2715,6 @@ export default {
     websiteReferenceMenu: "Añadir sitio web…",
     websiteUrlLabel: "URL del sitio web",
     websiteUrl: "Pega la URL de un sitio web",
-    figmaUrlLabel: "Enlace de Figma",
     invalidFigmaUrl:
       "Introduce una URL válida de un marco o archivo de figma.com.",
     tooMany: "Elige hasta 20 referencias.",
@@ -2724,7 +2723,6 @@ export default {
     noSystems:
       "Aún no tienes un sistema de diseño. Crea uno a partir de un sitio web, archivos o Figma.",
     searchSystems: "Buscar sistemas de diseño…",
-    searchFrames: "Buscar marcos de Figma…",
     searchDesigns: "Buscar diseños…",
     searchPresentations: "Buscar presentaciones…",
     searchDesign: "Buscar diseño…",
@@ -2732,8 +2730,6 @@ export default {
     notReady:
       "La solicitud aún no está lista. Revisa el contexto seleccionado y la conexión, e inténtalo de nuevo.",
     search: "Buscar contexto…",
-    figmaUrl: "Pega un enlace de Figma",
-    browse: "Explorar marcos",
     loadFailed: "No se pudo cargar esta referencia.",
     retry: "Reintentar",
     empty: "No hay referencias coincidentes.",
@@ -2742,8 +2738,27 @@ export default {
     slides: "Diapositivas",
     referenceDesign: "Usar un diseño como referencia",
     connectFigma: "Conectar Figma",
-    figmaDisconnected: "Conecta Figma para explorar diseños.",
-    figmaReference: "Diseño de Figma",
+    figmaReference: "Diseño de Figma…",
+    figmaDialogTitle: "Añadir diseño de Figma",
+    figmaDropTitle: "Suelta un archivo .fig",
+    figmaChooseFile: "Elegir archivo",
+    figmaPasteHint:
+      "También puedes pegar un marco copiado directamente en la indicación.",
+    figmaAddToPrompt: "Añadir a la indicación",
+    figmaLinkNeedsConnection:
+      "Los enlaces necesitan una cuenta de Figma conectada. Suelta un archivo .fig o pega un marco copiado.",
+    figmaReferenceMore: "{{name}} y {{count}} más",
+    figmaReferenceEmpty:
+      "No llegó ningún marco. Copia un marco en Figma e inténtalo de nuevo.",
+    figmaSelection: "Selección de Figma",
+    figmaFileTooLarge:
+      "Este archivo es demasiado grande para leerlo aquí. Pega en su lugar un enlace a su página o marco.",
+    figmaSearch: "Buscar páginas y marcos",
+    figmaSelectedCount: "{{count}} seleccionados",
+    figmaShowFrames: "Mostrar los marcos de {{name}}",
+    figmaLinkNotFrame: "Enlaza a una página o un marco de Figma.",
+    figmaPageFrameCap:
+      "Añade los primeros {{limit}} marcos. Marca marcos para elegir cuáles.",
     referenceDeck: "Usar una presentación como referencia",
     quickSaas: "Crear una página de SaaS",
     quickDashboard: "Crear un panel",

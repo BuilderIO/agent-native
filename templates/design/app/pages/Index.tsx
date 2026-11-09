@@ -688,6 +688,10 @@ export default function Index() {
     systemsError: designSystemsError,
     retrySystems: () => void refetchDesignSystems(),
   });
+  // Submitting navigates away, and unmounting discards every Figma
+  // attachment the context still holds; accepting hands the sent ones over.
+  const acceptHomeContext = useRef(homeContext.submissionAccepted);
+  acceptHomeContext.current = homeContext.submissionAccepted;
 
   const resolveAppDesignSystemId = useCallback(async () => {
     const linkedSystemId = selectedTemplate?.designSystemId;
@@ -1028,6 +1032,8 @@ export default function Index() {
               queryKey: ["action", "list-designs"],
             })
             .catch(() => {});
+          if (result.adaptationPending && options.contextItems)
+            acceptHomeContext.current(options.contextItems);
           reportPromptSubmitted(result.id);
           void navigate(`/design/${result.id}`);
           return;
@@ -1127,6 +1133,11 @@ export default function Index() {
         }
       }
 
+      if (
+        !(fullAppBuildingEnabled && newDesignMode === "app") &&
+        options.contextItems
+      )
+        acceptHomeContext.current(options.contextItems);
       reportPromptSubmitted(id);
       homeSuggestionPromptSourceRef.current = false;
       homeSuggestionPromptTextRef.current = null;
@@ -1391,6 +1402,7 @@ export default function Index() {
   return (
     <>
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
+      {homeContext.dialogs}
       <PromptHome
         title={t("home.designPromptTitle")}
         focusComposer={focusComposer}
@@ -1460,6 +1472,7 @@ export default function Index() {
                 submissionErrorRef.current = true;
               }}
               beforeSubmitContext={homeContext.prepareSubmission}
+              onPasteContext={homeContext.onPasteContext}
               submissionIdentity={homeContext.identity}
               contextItems={homeContext.contextItems}
               contextMenuItems={homeContext.menuItems}
