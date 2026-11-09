@@ -285,7 +285,9 @@ test("a save the server keeps refusing shows Not saved and recovers", async ({
     }),
   );
   await setCardFontSize(app, "28");
-  await expect(page.locator(SAVE_CHIP)).toBeVisible({ timeout: 15_000 });
+  // Shorter than the first 5 s retry, so the chip comes from the failed save
+  // itself, not from a replay that happens to run later.
+  await expect(page.locator(SAVE_CHIP)).toBeVisible({ timeout: 4_000 });
 
   await page.unroute(UPDATE_FILE);
   await page.locator(SAVE_CHIP).click();

@@ -12,10 +12,12 @@ import {
   isConflictSaveError,
   isRejectedRestoreClaimError,
   journalDesignSaveOutboxEntry,
+  listDesignSaveOutboxEntries,
   reconcileRejectedRestoreClaimOutboxEntry,
   reconcileRejectedRestoreClaimOutboxEntryResult,
   type DesignSaveOutboxEntry,
   type DesignSaveOutboxStorage,
+  stuckDesignSaveOutboxEntries,
   withVerifiedBaseContent,
 } from "./design-save-outbox";
 
@@ -994,6 +996,25 @@ describe("design save outbox", () => {
     expect(await storage.list("design-1", "user-1")).toHaveLength(1);
   });
 
+  it("never reads a typed non-conflict error by its wording", () => {
+    for (const errorCode of [
+      "design_data_conflict",
+      "filename_taken",
+      "content_patch_mismatch",
+      "some_future_code",
+    ]) {
+      expect(
+        isConflictSaveError({
+          status: 409,
+          errorCode,
+          message:
+            "File changed since it was read. Re-read the file and retry.",
+        }),
+        errorCode,
+      ).toBe(false);
+    }
+  });
+
   it("classifies conflicts by typed code first and by wording only when no code is present", () => {
     expect(
       isConflictSaveError({
@@ -1145,5 +1166,94 @@ describe("copies another open tab is still sending", () => {
     });
 
     expect(listLiveWriters).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("which queued saves are stuck", () => {
+  function entryFor(resourceId: string, operationSource: string) {
+    const entry = fileEntry(1, `content of ${resourceId}`);
+    return {
+      ...entry,
+      key: `key-${resourceId}`,
+      resourceId,
+      operationSource,
+      payload: { ...entry.payload, id: resourceId, operationSource },
+    };
+  }
+  const own = "tab-a:save:1";
+
+  it("counts a queued save that nothing is sending", () => {
+    const stuck = stuckDesignSaveOutboxEntries([entryFor("file-1", own)], {
+      ownOperationSource: own,
+      liveWriterSources: new Set([own]),
+      sendingResourceIds: new Set(),
+    });
+
+    expect(stuck.map((entry) => entry.resourceId)).toEqual(["file-1"]);
+  });
+
+  it("does not count a save a live save in this tab is still sending", () => {
+    const stuck = stuckDesignSaveOutboxEntries(
+      [entryFor("file-1", own), entryFor("file-2", own)],
+      {
+        ownOperationSource: own,
+        liveWriterSources: new Set([own]),
+        sendingResourceIds: new Set(["file-1"]),
+      },
+    );
+
+    expect(stuck.map((entry) => entry.resourceId)).toEqual(["file-2"]);
+  });
+
+  it("does not count another open tab's saves, but counts a closed tab's", () => {
+    const stuck = stuckDesignSaveOutboxEntries(
+      [entryFor("file-1", "tab-b:save:1"), entryFor("file-2", "tab-c:save:1")],
+      {
+        ownOperationSource: own,
+        liveWriterSources: new Set([own, "tab-b:save:1"]),
+        sendingResourceIds: new Set(),
+      },
+    );
+
+    expect(stuck.map((entry) => entry.resourceId)).toEqual(["file-2"]);
+  });
+
+  it("counts every unsent save when the browser cannot say which editors are open", () => {
+    const stuck = stuckDesignSaveOutboxEntries(
+      [entryFor("file-1", "tab-b:save:1"), entryFor("file-2", "tab-c:save:1")],
+      {
+        ownOperationSource: own,
+        liveWriterSources: null,
+        sendingResourceIds: new Set(),
+      },
+    );
+
+    expect(stuck).toHaveLength(2);
+  });
+
+  it("is empty once the last queued save is acknowledged", async () => {
+    const storage = new MemoryOutboxStorage();
+    const entry = entryFor("file-1", own);
+    await journalDesignSaveOutboxEntry(entry, storage);
+    const options = {
+      ownOperationSource: own,
+      liveWriterSources: null,
+      sendingResourceIds: new Set<string>(),
+    };
+    expect(
+      stuckDesignSaveOutboxEntries(
+        await listDesignSaveOutboxEntries("design-1", "user-1", storage),
+        options,
+      ),
+    ).toHaveLength(1);
+
+    await acknowledgeDesignSaveOutboxEntry(entry, storage);
+
+    expect(
+      stuckDesignSaveOutboxEntries(
+        await listDesignSaveOutboxEntries("design-1", "user-1", storage),
+        options,
+      ),
+    ).toEqual([]);
   });
 });

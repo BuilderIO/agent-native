@@ -1,6 +1,9 @@
 // A queued edit the server keeps refusing is retried with growing gaps.
 const RETRY_DELAYS_MS = [5_000, 15_000, 45_000, 120_000, 300_000];
 
+/** How often a drain that threw before settling any entry is retried before it waits for a page event. */
+export const MAX_DRAIN_FAILURE_RETRIES = 3;
+
 /** The gap before re-checking while this tab's own saves are still in flight. */
 export const OUTBOX_BUSY_RETRY_MS = 1_000;
 

@@ -43,14 +43,20 @@ import {
   discardDesignSaveOutboxEntry,
   drainDesignSaveOutbox,
   journalDesignSaveOutboxEntry,
+  listDesignSaveOutboxEntries,
+  stuckDesignSaveOutboxEntries,
   withVerifiedBaseContent,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
 import {
   createOutboxRetryScheduler,
+  MAX_DRAIN_FAILURE_RETRIES,
   OUTBOX_BUSY_RETRY_MS,
 } from "@/lib/design-save-outbox-retry";
-import { holdDesignSaveWriter } from "@/lib/design-save-outbox-writers";
+import {
+  holdDesignSaveWriter,
+  liveDesignSaveWriterSources,
+} from "@/lib/design-save-outbox-writers";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 
 import type {
@@ -317,6 +323,16 @@ export function useEditorFilesAndSaving({
     [],
   );
 
+  const [unsavedChangeCount, setUnsavedChangeCount] = useState(0);
+  const unsavedChangeCountRef = useRef(0);
+  const refreshUnsavedChangeCountRef = useRef<() => Promise<void>>(
+    async () => {},
+  );
+  const applyUnsavedChangeCount = useCallback((count: number) => {
+    unsavedChangeCountRef.current = count;
+    setUnsavedChangeCount(count);
+  }, []);
+
   const acknowledgeOutboxEntry = useCallback(
     async (entry: DesignSaveOutboxEntry) => {
       try {
@@ -326,6 +342,11 @@ export function useEditorFilesAndSaving({
         // is neither data loss nor a connectivity warning; operation ids make
         // a later replay idempotent.
         // coercion-ok: the server mutation already succeeded; cleanup is best effort.
+      }
+      // A settled save may have been the last stuck one, and the chip must not
+      // outlive it until the next retry.
+      if (unsavedChangeCountRef.current > 0) {
+        void refreshUnsavedChangeCountRef.current();
       }
     },
     [],
@@ -343,7 +364,32 @@ export function useEditorFilesAndSaving({
     [id],
   );
 
-  const [unsavedChangeCount, setUnsavedChangeCount] = useState(0);
+  const refreshUnsavedChangeCount = useCallback(async () => {
+    if (!id) return;
+    try {
+      const [entries, liveWriterSources] = await Promise.all([
+        listDesignSaveOutboxEntries(id, designSaveActorScope),
+        liveDesignSaveWriterSources(),
+      ]);
+      applyUnsavedChangeCount(
+        stuckDesignSaveOutboxEntries(entries, {
+          ownOperationSource: designSaveOperationSourceRef.current,
+          liveWriterSources,
+          sendingResourceIds: new Set([
+            ...Object.keys(fileSaveChainsRef.current),
+            ...Object.keys(pendingFileSavesRef.current),
+          ]),
+        }).length,
+      );
+    } catch {
+      // coercion-ok: an unreadable outbox says nothing about what is stuck, so the chip keeps what it showed.
+    }
+  }, [applyUnsavedChangeCount, designSaveActorScope, id]);
+  useEffect(() => {
+    refreshUnsavedChangeCountRef.current = refreshUnsavedChangeCount;
+  }, [refreshUnsavedChangeCount]);
+
+  const drainFailureCountRef = useRef(0);
   const retryDesignSaveOutboxRef = useRef<() => Promise<void>>(async () => {});
   const [outboxRetryScheduler] = useState(() =>
     createOutboxRetryScheduler(() => void retryDesignSaveOutboxRef.current()),
@@ -437,15 +483,24 @@ export function useEditorFilesAndSaving({
       if (result.dropped.length > 0) {
         warnChangesDiscarded();
       }
-      setUnsavedChangeCount(result.failed.length);
+      drainFailureCountRef.current = 0;
+      applyUnsavedChangeCount(result.failed.length);
       if (result.failed.length > 0) scheduleOutboxRetry();
       else outboxRetryScheduler.resetBackoff();
     } catch (error) {
       if (classifyDesignSaveFailure(error, navigator.onLine) === "offline") {
         warnChangesWillRetry();
       }
+      // The drain threw before settling any entry (browser storage or lock
+      // trouble). A few retries cover a passing fault; blocked storage then
+      // waits for the next page event instead of retrying forever.
+      if (drainFailureCountRef.current < MAX_DRAIN_FAILURE_RETRIES) {
+        drainFailureCountRef.current += 1;
+        scheduleOutboxRetry();
+      }
     }
   }, [
+    applyUnsavedChangeCount,
     designSaveActorScope,
     id,
     outboxRetryScheduler,
@@ -580,6 +635,7 @@ export function useEditorFilesAndSaving({
       // settle; start the replay clock instead of waiting for a page event.
       if (completion === "retryable" || completion === "failed") {
         scheduleOutboxRetry();
+        void refreshUnsavedChangeCount();
       }
       return completion;
     },
@@ -589,6 +645,7 @@ export function useEditorFilesAndSaving({
       id,
       journalOutboxEntry,
       readLiveFileContent,
+      refreshUnsavedChangeCount,
       rollbackPendingLocalFileContent,
       markPendingLocalFileContent,
       queryClient,

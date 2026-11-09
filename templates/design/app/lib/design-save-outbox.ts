@@ -2,7 +2,6 @@ import { callAction } from "@agent-native/core/client/hooks";
 import {
   SOURCE_FILE_NOT_FOUND_ERROR_CODE,
   SOURCE_VERSION_CONFLICT_ERROR_CODE,
-  SOURCE_VERSION_UNVERIFIABLE_ERROR_CODE,
   saveErrorCode,
 } from "@shared/save-conflict";
 import { sourceContentHash } from "@shared/source-workspace";
@@ -78,10 +77,9 @@ export function isTerminalSaveError(error: unknown): boolean {
 export function isConflictSaveError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const code = saveErrorCode(error);
-  if (code === "client_build_mismatch") return false;
-  if (code === SOURCE_VERSION_UNVERIFIABLE_ERROR_CODE) return false;
-  if (code === SOURCE_VERSION_CONFLICT_ERROR_CODE) return true;
-  // A server that predates typed codes only says it in words.
+  if (code !== undefined) return code === SOURCE_VERSION_CONFLICT_ERROR_CODE;
+  // Only a server that predates typed codes says it in words; a typed error
+  // that is not a conflict can still quote the wording.
   const message = (error as { message?: unknown }).message;
   return (
     typeof message === "string" &&
@@ -773,6 +771,34 @@ async function drainEntries(
     }
   }
   return result;
+}
+
+export async function listDesignSaveOutboxEntries(
+  designId: string,
+  actorScope: string,
+  storage: DesignSaveOutboxStorage = indexedDbStorage,
+): Promise<DesignSaveOutboxEntry[]> {
+  return await storage.list(designId, actorScope);
+}
+
+/**
+ * The queued saves nothing is sending: not a live save in this tab, and not an
+ * editor open in another tab. Only these are stuck, so only these are unsaved.
+ */
+export function stuckDesignSaveOutboxEntries(
+  entries: readonly DesignSaveOutboxEntry[],
+  options: {
+    ownOperationSource: string;
+    liveWriterSources: ReadonlySet<string> | null;
+    sendingResourceIds: ReadonlySet<string>;
+  },
+): DesignSaveOutboxEntry[] {
+  return entries.filter(
+    (entry) =>
+      !options.sendingResourceIds.has(entry.resourceId) &&
+      (entry.operationSource === options.ownOperationSource ||
+        !options.liveWriterSources?.has(entry.operationSource)),
+  );
 }
 
 export async function drainDesignSaveOutbox(options: {
