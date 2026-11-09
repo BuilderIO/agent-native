@@ -2540,6 +2540,27 @@ interface BuilderAccountActivationInput {
   tracking: BuilderConnectTrackingParams;
 }
 
+/** Read the exact automatic-write receipt using the same membership policy as activation. */
+export async function reconcileBuilderSignupActivation(
+  event: H3Event,
+  session: AuthSession,
+  owner: { experimentId: string; attempt: string; startedAt: number },
+): Promise<boolean> {
+  const member = await resolveBuilderOrgMutation(event, {
+    allowMemberInitiation: true,
+  });
+  // Activation permits solo users at personal scope; only an unreadable
+  // membership prevents determining custody. Do not refuse an existing org
+  // connection here: that completed write is precisely what we are recovering.
+  if (member.deny === BUILDER_ORG_MEMBERSHIP_UNREADABLE) return false;
+  return hasCompletedAutomaticBuilderSignup(
+    session.email,
+    `${owner.experimentId}:${owner.attempt}`,
+    owner.startedAt,
+    member,
+  );
+}
+
 /**
  * One-click Builder.io account activation: create the account with one
  * signed server-to-server call and store its keys for the signed-in owner.
@@ -5132,26 +5153,7 @@ export function createCoreRoutesPlugin(
             });
           },
 
-          reconcile: async (event, session, owner) => {
-            const authorization = await authorizeBuilderConnectScope(
-              event,
-              session.email,
-              null,
-            );
-            if ("deny" in authorization) return false;
-            const member =
-              authorization.member ??
-              (await resolveBuilderOrgMutation(event, {
-                allowMemberInitiation: true,
-              }));
-            if (member.deny) return false;
-            return hasCompletedAutomaticBuilderSignup(
-              session.email,
-              `${owner.experimentId}:${owner.attempt}`,
-              owner.startedAt,
-              member,
-            );
-          },
+          reconcile: reconcileBuilderSignupActivation,
         }),
       );
 
