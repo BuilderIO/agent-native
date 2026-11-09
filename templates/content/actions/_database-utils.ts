@@ -644,6 +644,13 @@ export async function getContentDatabasePageResponse(
     sidebarOrder?: ContentSidebarViewOrder;
     database?: typeof schema.contentDatabases.$inferSelect;
     propertySchema?: DatabasePropertySchema;
+    /**
+     * The primary Content field of each returned row. A list read leaves page
+     * bodies out, so without this the field reads "". "include" reads the text
+     * of each returned row the reader can view; "omit" sends null, so a caller
+     * can't mistake an unread page for an empty one.
+     */
+    pageText?: "include" | "omit";
   } = {},
 ): Promise<ContentDatabasePageBuild> {
   const db = getDb();
@@ -1332,7 +1339,7 @@ export async function getContentDatabasePageResponse(
           )
       : new Map<string, string>(),
   ]);
-  const pageItems = includeExcerpts
+  const excerptItems = includeExcerpts
     ? serializedItems.map((item) => ({
         ...item,
         excerpt: item.document.canView
@@ -1343,6 +1350,46 @@ export async function getContentDatabasePageResponse(
           : "",
       }))
     : serializedItems;
+  const primaryBlocksPropertyId = options.pageText
+    ? responseProperties.find(
+        (property) =>
+          isBlocksPropertyType(property.definition.type) &&
+          isPrimaryBlocksField(property.definition.options),
+      )?.definition.id
+    : undefined;
+  const pageTextDocumentIds =
+    primaryBlocksPropertyId && options.pageText === "include"
+      ? serializedItems
+          .filter((item) => item.document.canView)
+          .map((item) => item.document.id)
+      : [];
+  const bodyByDocumentId =
+    pageTextDocumentIds.length > 0
+      ? new Map(
+          (
+            await db
+              .select({
+                id: schema.documents.id,
+                content: schema.documents.content,
+              })
+              .from(schema.documents)
+              .where(inArray(schema.documents.id, pageTextDocumentIds))
+          ).map((row) => [row.id, row.content ?? ""]),
+        )
+      : new Map<string, string>();
+  const pageItems = primaryBlocksPropertyId
+    ? excerptItems.map((item) => ({
+        ...item,
+        properties: item.properties.map((property) =>
+          property.definition.id === primaryBlocksPropertyId
+            ? {
+                ...property,
+                value: bodyByDocumentId.get(item.document.id) ?? null,
+              }
+            : property,
+        ),
+      }))
+    : excerptItems;
   const organizationVisibleDocumentIds =
     organizationFilesItemFilter && sourceSnapshots.length > 0
       ? new Set(
@@ -1431,6 +1478,8 @@ export async function getContentDatabaseResponse(
     database?: typeof schema.contentDatabases.$inferSelect;
     /** The caller's role on the database page, when it already resolved it. */
     accessRole?: ResolvedAccess["role"] | null;
+    /** See `getContentDatabasePageResponse`. */
+    pageText?: "include" | "omit";
   } = {},
 ): Promise<ContentDatabaseResponse> {
   const db = getDb();

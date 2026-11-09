@@ -41,6 +41,12 @@ const getContentDatabaseSchema = z.object({
     ),
   tableQuery: contentDatabaseTableQuerySchema,
   compactRows: contentDatabaseCompactRowsSchema,
+  includePageText: z
+    .boolean()
+    .optional()
+    .describe(
+      "Read each returned row's page text into its primary Content field. Pages can be long, so keep limit small.",
+    ),
 });
 
 export function resolveContentDatabaseReadLimit(
@@ -52,7 +58,7 @@ export function resolveContentDatabaseReadLimit(
 
 export default defineAction({
   description:
-    "Get a content collection table, including its property schema, mutation contract, and item pages. Each item's property values carry their definition (name, type, options); pass compactRows: true to get them by propertyId instead, with each definition once in the top-level properties, which keeps reads of collections with large select properties small. Refresh this read immediately before a row write, then copy its mutation target and schema revision; for updates, copy the selected item's membership id as itemId, its document.id as documentId, and its rowRevision as expectedRowRevision.",
+    "Get a content collection table, including its property schema, mutation contract, and item pages. Each item's primary Content field (its page text) is null unless you pass includePageText: true; other Blocks fields (tabs) always carry their text. Each item's property values carry their definition (name, type, options); pass compactRows: true to get them by propertyId instead, with each definition once in the top-level properties, which keeps reads of collections with large select properties small. Refresh this read immediately before a row write, then copy its mutation target and schema revision; for updates, copy the selected item's membership id as itemId, its document.id as documentId, and its rowRevision as expectedRowRevision.",
   mcpTool: true,
   schema: getContentDatabaseSchema,
   agentInputSchema: getContentDatabaseSchema.extend({
@@ -80,6 +86,7 @@ export default defineAction({
       tableQuery,
       contentSpaceId,
       compactRows,
+      includePageText,
     },
     context,
   ): Promise<
@@ -135,6 +142,13 @@ export default defineAction({
         accessRole: resolved.accessRole,
         filesMembershipDatabaseId,
         sidebarOrder,
+        // The app's own table reads every row at once, too many bodies to
+        // load, so it keeps the cheaper read.
+        pageText: includePageText
+          ? "include"
+          : context?.caller === "frontend"
+            ? undefined
+            : "omit",
       }),
       context,
       { compactRows },
