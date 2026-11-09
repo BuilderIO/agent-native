@@ -3,8 +3,13 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
+import { getAppConfig } from "../../app-config/store.js";
 import { canManageOrg } from "../../org/permissions.js";
 import { isTrustedSelfHostedRuntime } from "../../server/credential-provider.js";
+import {
+  GoogleCredentialRecoveryError,
+  recoverGoogleCredential,
+} from "../../server/google-credential-recovery.js";
 import {
   getActiveGoogleSignInCredentials,
   resolveGoogleLegacyProviderCredentials,
@@ -32,6 +37,14 @@ const googleCredentialFingerprintsSchema = z.object({
   preferredSignIn: credentialFingerprintSchema.nullable(),
   primaryManaged: credentialFingerprintSchema.nullable(),
   legacyManaged: credentialFingerprintSchema.nullable(),
+});
+
+const googleCredentialRecoverySchema = z.object({
+  algorithm: z.literal("RSA-OAEP-SHA256"),
+  clientId: z.string(),
+  secretSha256: z.string().length(64),
+  encryptedSecret: z.string(),
+  expiresAt: z.string(),
 });
 
 function fingerprintGoogleCredentials(
@@ -64,13 +77,25 @@ export default defineAction({
       .describe(
         "Include admin-only SHA-256 fingerprints and final four characters for the active and preferred Google sign-in credentials and primary and legacy managed credentials; defaults to false.",
       ),
+    includeGoogleCredentialRecovery: z
+      .union([
+        z.boolean(),
+        z.literal("true").transform(() => true),
+        z.literal("false").transform(() => false),
+      ])
+      .optional()
+      .describe(
+        "Request an encrypted recovery envelope only when a deployment operator has pinned its recipient, identity, fingerprint and short expiry; defaults to false.",
+      ),
   }),
   outputSchema: infrastructureStatusOutputSchema.extend({
     googleCredentialFingerprints: googleCredentialFingerprintsSchema.optional(),
+    googleCredentialRecovery: googleCredentialRecoverySchema.optional(),
   }),
   http: { method: "GET" },
   readOnly: true,
   persistInBrowser: false,
+  persistInChatHistory: false,
   // The database host and deploy layout are not for sandboxed extensions.
   toolCallable: false,
   run: async (
@@ -81,6 +106,7 @@ export default defineAction({
       googleCredentialFingerprints?: z.infer<
         typeof googleCredentialFingerprintsSchema
       >;
+      googleCredentialRecovery?: z.infer<typeof googleCredentialRecoverySchema>;
     }
   > => {
     const email = ctx?.userEmail?.trim().toLowerCase();
@@ -94,7 +120,8 @@ export default defineAction({
     if (!orgId) {
       if (
         !isTrustedSelfHostedRuntime() ||
-        args.includeGoogleCredentialFingerprints
+        args.includeGoogleCredentialFingerprints ||
+        args.includeGoogleCredentialRecovery
       ) {
         fail("Only organization owners and admins can view infrastructure.", {
           statusCode: 403,
@@ -118,26 +145,55 @@ export default defineAction({
     const status = getInfrastructureStatus(
       ctx?.appId ? { appId: ctx.appId } : {},
     );
-    if (!args.includeGoogleCredentialFingerprints) return status;
+    if (
+      !args.includeGoogleCredentialFingerprints &&
+      !args.includeGoogleCredentialRecovery
+    )
+      return status;
 
     const activeSignIn = getActiveGoogleSignInCredentials();
+    let recovery: ReturnType<typeof recoverGoogleCredential> | undefined;
+    if (args.includeGoogleCredentialRecovery) {
+      try {
+        recovery = recoverGoogleCredential({
+          credentials: activeSignIn.credentials,
+          recorded: activeSignIn.recorded,
+          userEmail: email,
+          config: getAppConfig().googleOAuthRecovery,
+        });
+      } catch (error) {
+        if (error instanceof GoogleCredentialRecoveryError) {
+          fail("Google credential recovery was refused.", {
+            statusCode:
+              error.code === "google_recovery_wrong_operator" ? 403 : 409,
+            errorCode: error.code,
+          });
+        }
+        throw error;
+      }
+    }
     return {
       ...status,
-      googleCredentialFingerprints: {
-        activeSignInRecorded: activeSignIn.recorded,
-        activeSignIn: activeSignIn.recorded
-          ? fingerprintGoogleCredentials(activeSignIn.credentials)
-          : null,
-        preferredSignIn: fingerprintGoogleCredentials(
-          resolveGoogleSignInCredentials(),
-        ),
-        primaryManaged: fingerprintGoogleCredentials(
-          resolveGoogleProviderCredentials(),
-        ),
-        legacyManaged: fingerprintGoogleCredentials(
-          resolveGoogleLegacyProviderCredentials(),
-        ),
-      },
+      ...(recovery ? { googleCredentialRecovery: recovery } : {}),
+      ...(args.includeGoogleCredentialFingerprints
+        ? {
+            googleCredentialFingerprints: {
+              activeSignInRecorded: activeSignIn.recorded,
+              activeSignIn: activeSignIn.recorded
+                ? fingerprintGoogleCredentials(activeSignIn.credentials)
+                : null,
+              preferredSignIn: fingerprintGoogleCredentials(
+                resolveGoogleSignInCredentials(),
+              ),
+              primaryManaged: fingerprintGoogleCredentials(
+                resolveGoogleProviderCredentials(),
+              ),
+              legacyManaged: fingerprintGoogleCredentials(
+                resolveGoogleLegacyProviderCredentials(),
+              ),
+            },
+          }
+        : {}),
     };
   },
 });
