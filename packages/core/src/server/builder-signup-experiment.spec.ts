@@ -2,6 +2,7 @@ import { createApp, defineEventHandler } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  appId: "agent-native-clips" as string | undefined,
   enabled: true,
   experimentId: "design_builder_signup_v1",
   failTerminalWrites: 0,
@@ -13,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("../app-config/index.js", () => ({
   getAppConfig: () => ({
-    app: { id: "agent-native-clips", slug: "clips" },
+    app: { id: mocks.appId, slug: "clips" },
     onboarding: {
       builderSignupExperiment: mocks.enabled,
       builderSignupExperimentId: mocks.experimentId,
@@ -131,6 +132,7 @@ function bindRequest(
 
 beforeEach(() => {
   testTime = Date.now();
+  mocks.appId = "agent-native-clips";
   mocks.enabled = true;
   mocks.experimentId = "design_builder_signup_v1";
   mocks.failTerminalWrites = 0;
@@ -274,6 +276,19 @@ describe("pre-signup Builder experiment", () => {
       agentNativeApp: "agent-native-clips",
       agentNativeTemplate: "clips",
     });
+  });
+
+  it("uses the hosted tracking identity when no app id is configured", () => {
+    mocks.appId = undefined;
+    vi.stubEnv("AGENT_NATIVE_APP", "agent-native-clips");
+    try {
+      expect(getBuilderSignupTrackingIdentity()).toEqual({
+        agentNativeApp: "agent-native-clips",
+        agentNativeTemplate: "clips",
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it.each(["start", "activate"])(
