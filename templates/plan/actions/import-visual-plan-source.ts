@@ -298,6 +298,7 @@ export default defineAction({
         : {}),
     });
 
+    const warnings: string[] = [];
     const incomingAssetsCreate = args.mdx["assets/"];
     if (incomingAssetsCreate && Object.keys(incomingAssetsCreate).length > 0) {
       const srcByFilename = await importPlanAssets(id, incomingAssetsCreate);
@@ -305,12 +306,12 @@ export default defineAction({
       // it open, and can save it while the assets upload. Rewrite what the plan
       // holds at a revision only while it still holds that revision, and move
       // the revision, which is what tells an open editor the content changed.
-      let base: { content: PlanContent | null; updatedAt: string } = {
+      let base: { content: PlanContent; updatedAt: string } = {
         content,
         updatedAt: now,
       };
       let rewritten = false;
-      for (let attempt = 0; attempt < 3 && base.content; attempt++) {
+      for (let attempt = 0; attempt < 3; attempt++) {
         const written = await db
           .update(schema.plans)
           .set({
@@ -331,11 +332,17 @@ export default defineAction({
           break;
         }
         const { plan } = await loadPlanBundle(id);
-        base = { content: plan.content ?? null, updatedAt: plan.updatedAt };
+        // Content that only reads with some blocks salvaged would lose those
+        // blocks' stored data if it were written back, so leave it as it is.
+        if (!plan.content || containsSalvagedBlock(plan.content.blocks)) break;
+        base = { content: plan.content, updatedAt: plan.updatedAt };
       }
       if (!rewritten) {
-        console.warn(
-          `[import-visual-plan-source] plan ${id} kept changing while its assets uploaded, so their links weren't rewritten`,
+        const uploaded = Object.entries(srcByFilename)
+          .map(([filename, src]) => `assets/${filename} is at ${src}`)
+          .join(", ");
+        warnings.push(
+          `The plan changed while its assets uploaded, so its image links weren't rewritten and still point at assets/ paths. ${uploaded}.`,
         );
       }
     }
@@ -374,6 +381,7 @@ export default defineAction({
       path: planPath(id, kind),
       url: planPath(id, kind),
       ...(local?.written ? { localFiles: local } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   },
   link: ({ result }) => {

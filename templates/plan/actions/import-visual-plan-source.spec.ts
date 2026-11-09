@@ -137,6 +137,21 @@ function legacyContent() {
   });
 }
 
+/** The source of a new plan with one image asset. */
+function photoPlanSource() {
+  return {
+    "plan.mdx": [
+      "---",
+      'title: "New plan"',
+      "version: 2",
+      "---",
+      "",
+      "The plan's prose.",
+    ].join("\n"),
+    "assets/": { "photo.png": "cGhvdG8=" },
+  };
+}
+
 describe("import-visual-plan-source stored legacy defaults", () => {
   beforeEach(() => {
     state.content = legacyContent();
@@ -337,6 +352,77 @@ describe("import-visual-plan-source stored legacy defaults", () => {
     ]);
     expect(JSON.parse(writes[1]?.content ?? "null")).toEqual(saved);
     expect(writes[1]?.updatedAt).toBe("2026-10-12T00:00:05.001Z");
+  });
+
+  it("leaves a plan that reads only with a block salvaged as it is, and says its links weren't rewritten", async () => {
+    const { importPlanAssets } = await import("../server/lib/plan-assets.js");
+    vi.mocked(importPlanAssets).mockResolvedValueOnce({
+      "photo.png": "/assets/photo.png",
+    });
+    const writes: unknown[] = [];
+    updateMock.mockImplementation(() => ({
+      set: (values: unknown) => ({
+        where: () => ({
+          returning: async () => {
+            writes.push(values);
+            // An editor saved first, and the plan now reads with a block salvaged.
+            state.content = {
+              version: 2,
+              blocks: [
+                {
+                  id: "unreadable",
+                  type: "callout",
+                  data: {
+                    tone: "warning",
+                    body: `${String.fromCharCode(0x200b)}__unknown_block__:{}`,
+                  },
+                },
+              ],
+            };
+            state.updatedAt = "2026-10-12T00:00:05.000Z";
+            return [];
+          },
+        }),
+      }),
+    }));
+
+    const result = (await runAction({ mdx: photoPlanSource() })) as {
+      warnings?: string[];
+    };
+
+    expect(writes).toHaveLength(1);
+    expect(result.warnings).toEqual([
+      expect.stringContaining("assets/photo.png is at /assets/photo.png"),
+    ]);
+  });
+
+  it("stops after three tries when the plan keeps changing, and says its links weren't rewritten", async () => {
+    const { importPlanAssets } = await import("../server/lib/plan-assets.js");
+    vi.mocked(importPlanAssets).mockResolvedValueOnce({
+      "photo.png": "/assets/photo.png",
+    });
+    const writes: unknown[] = [];
+    updateMock.mockImplementation(() => ({
+      set: (values: unknown) => ({
+        where: () => ({
+          returning: async () => {
+            writes.push(values);
+            // An editor saves again before each rewrite lands.
+            state.updatedAt = `2026-10-12T00:00:0${writes.length}.000Z`;
+            return [];
+          },
+        }),
+      }),
+    }));
+
+    const result = (await runAction({ mdx: photoPlanSource() })) as {
+      warnings?: string[];
+    };
+
+    expect(writes).toHaveLength(3);
+    expect(result.warnings).toEqual([
+      expect.stringContaining("image links weren't rewritten"),
+    ]);
   });
 
   it("keeps new imports strict even when the source was exported from a legacy plan", async () => {
