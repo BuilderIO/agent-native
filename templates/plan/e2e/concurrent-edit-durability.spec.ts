@@ -645,6 +645,78 @@ test("typing over what a merged save brought in asks instead of overwriting it",
   expect(await persistedText(page, planId)).toContain(mine);
 });
 
+test("saving twice more before the document has what a merged save brought in keeps it", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Alpha block seed.");
+  const stamp = Date.now() % 100000;
+  const mine = `MINE${stamp}`;
+  const theirs = `THEIRS${stamp}`;
+  const second = `SECOND${stamp}`;
+  const third = `THIRD${stamp}`;
+  let releaseReads = () => {};
+  const readsReleased = new Promise<void>((resolve) => {
+    releaseReads = resolve;
+  });
+  let heldSaves = 0;
+  let releaseSaves = () => {};
+  const savesReleased = new Promise<void>((resolve) => {
+    releaseSaves = resolve;
+  });
+  // The document can't see the other write through any of these saves.
+  await page.route(`**${GET_ACTION}*`, async (route) => {
+    const response = await route.fetch();
+    await readsReleased;
+    await route.fulfill({ response }).catch(() => {});
+  });
+  await page.route(
+    "**/_agent-native/actions/update-visual-plan",
+    async (route) => {
+      heldSaves += 1;
+      await savesReleased;
+      await route.continue().catch(() => {});
+    },
+  );
+  await typeAtEndOf(page, "Alpha block seed.", ` ${mine}`);
+  await expect.poll(() => heldSaves, { timeout: 20_000 }).toBeGreaterThan(0);
+  const otherWrite = await page.request.post(
+    "/_agent-native/actions/update-visual-plan",
+    {
+      data: {
+        planId,
+        contentPatches: [
+          {
+            op: "update-rich-text",
+            blockId: BRAVO,
+            markdown: `Bravo block seed. ${theirs}`,
+          },
+        ],
+      },
+    },
+  );
+  expect(otherWrite.ok(), await otherWrite.text()).toBeTruthy();
+  releaseSaves();
+  await expect
+    .poll(() => persistedText(page, planId), { timeout: 20_000 })
+    .toContain(mine);
+  await typeAtEndOf(page, mine, ` ${second}`);
+  await expect
+    .poll(() => persistedText(page, planId), { timeout: 20_000 })
+    .toContain(second);
+  await typeAtEndOf(page, second, ` ${third}`);
+  await expect
+    .poll(() => persistedText(page, planId), { timeout: 20_000 })
+    .toContain(third);
+  expect(await persistedText(page, planId)).toContain(theirs);
+  releaseReads();
+  await expect(surface(page)).toContainText(theirs, { timeout: 20_000 });
+  await expect(surface(page)).toContainText(third);
+  // A read can still be on its way when the test ends.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+});
+
 test("the other version arriving just after I keep mine doesn't replace my choice", async ({
   page,
 }) => {

@@ -18,7 +18,7 @@ const loaded = {
 const own = (): OwnBlockSave => ({
   planId: "plan_1",
   startedFrom: loaded.revision,
-  sent: [prose("a", "Alpha. mine"), prose("b", "Bravo.")],
+  held: [prose("a", "Alpha. mine"), prose("b", "Bravo.")],
   saved: {
     value: [prose("a", "Alpha. mine"), prose("b", "Bravo. theirs")],
     revision: "2026-10-01T00:00:05.000Z",
@@ -149,13 +149,36 @@ describe("startBlockSave", () => {
     ]);
   });
 
+  it("keeps what a merged save brought in across saves until the document has it", () => {
+    const later: OwnBlockSave = {
+      planId: "plan_1",
+      startedFrom: own().saved.revision,
+      held: [prose("a", "Alpha. mine, and more"), prose("b", "Bravo.")],
+      saved: {
+        value: [
+          prose("a", "Alpha. mine, and more"),
+          prose("b", "Bravo. theirs"),
+        ],
+        revision: "2026-10-01T00:00:06.000Z",
+      },
+    };
+    const start = startBlockSave(later, loaded, null, [
+      prose("a", "Alpha. mine, and more again"),
+      prose("b", "Bravo."),
+    ]);
+    expect(start.mine).toEqual([
+      prose("a", "Alpha. mine, and more again"),
+      prose("b", "Bravo. theirs"),
+    ]);
+  });
+
   it("sends a change to what the save brought in from a passed revision, so it asks", () => {
     const blocks = [
       prose("a", "Alpha. mine"),
       prose("b", "Bravo. newer local"),
     ];
     expect(startBlockSave(own(), loaded, null, blocks)).toEqual({
-      base: { value: own().sent, revision: loaded.revision },
+      base: { value: own().held, revision: loaded.revision },
       mine: blocks,
     });
   });

@@ -4039,10 +4039,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   };
 
-  // The newest block save this tab made, with the blocks it sent. Until the
-  // open document adopts the saved result, that save (not the older revision
+  // The newest block save this tab made, with the blocks the document held. Until
+  // the open document adopts the saved result, that save (not the older revision
   // the document still reports) is what the next edit was made on top of, and
-  // the blocks sent, not the merged result, are what the document holds.
+  // those blocks, not the merged result, are what the document holds.
   const lastBlockSaveRef = useRef<OwnBlockSave | null>(null);
 
   // `base` is the saved revision the open document's edits were made on top
@@ -4063,8 +4063,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         : null,
       blocks,
     );
-    // After a choice the document holds that version, not what this save read.
-    let sent = mine;
+    // Not `mine`, which can carry what the last save's merge brought in before
+    // the document has it. After a choice the document holds that version.
+    let held = blocks;
     const saved = await saveWithMerge<PlanBlock[]>({
       base,
       mine,
@@ -4073,8 +4074,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       resolveOverlap:
         resolveOverlap &&
         (async (overlap, finished) => {
-          sent = await resolveOverlap(overlap, finished);
-          return sent;
+          held = await resolveOverlap(overlap, finished);
+          return held;
         }),
       save: async ({ value, revision }) => {
         const result = await savePlanBlocks.mutateAsync({
@@ -4095,7 +4096,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     lastBlockSaveRef.current = {
       planId,
       startedFrom: base.revision,
-      sent,
+      held,
       saved,
     };
   };

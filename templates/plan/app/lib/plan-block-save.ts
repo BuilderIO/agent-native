@@ -87,7 +87,8 @@ export interface OwnBlockSave {
   planId: string;
   /** The revision that save started from, which the plan has since moved past. */
   startedFrom: string | null;
-  sent: PlanBlock[];
+  /** What the document held then, which is less than what a rebased save sent. */
+  held: PlanBlock[];
   saved: SavedPlanBlocks;
 }
 
@@ -112,12 +113,12 @@ export function startBlockSave(
     own &&
     (!loaded || (own.saved.revision ?? "") >= (loaded.revision ?? ""))
   ) {
-    const rebased = mergePlanBlocks(own.sent, blocks, own.saved.value);
+    const rebased = mergePlanBlocks(own.held, blocks, own.saved.value);
     if (rebased.ok) return { base: own.saved, mine: rebased.merged };
     // The document changed something that save's merge brought in. Sent from a
     // revision the plan has moved past, this comes back as a conflict, which asks.
     return {
-      base: { value: own.sent, revision: own.startedFrom },
+      base: { value: own.held, revision: own.startedFrom },
       mine: blocks,
     };
   }
