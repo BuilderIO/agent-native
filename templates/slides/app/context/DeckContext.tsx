@@ -2514,7 +2514,7 @@ function drainPendingDeckOps(
       ) {
         const [keepaliveResult] = await Promise.allSettled([keepaliveSave]);
         replayedByKeepalive =
-          keepaliveResult?.status === "fulfilled" &&
+          keepaliveResult.status === "fulfilled" &&
           keepaliveResult.value !== false;
       }
       if (!isCurrentGeneration()) return;
