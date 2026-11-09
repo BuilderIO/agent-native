@@ -56,6 +56,7 @@ import {
   joinChunkTranscripts,
   transcribeAudioChunks,
 } from "./lib/chunked-transcription.js";
+import { resolveCloudTranscriptionAccess } from "./lib/cloud-transcription-access.js";
 import { finalizeEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
 import { notImportedTranscript } from "./lib/imported-transcript.js";
 import {
@@ -1076,14 +1077,25 @@ const requestTranscriptAction = defineAction({
       // Only a regeneration or a clip without a ready transcript needs the
       // cloud; a ready one still queues for its title and summary work.
       if (
-        (args.regenerate ||
-          !existingRows.some((row) => row.status === "ready")) &&
-        !(await resolveHasBuilderGatewayCredential())
+        args.regenerate ||
+        !existingRows.some((row) => row.status === "ready")
       ) {
-        fail(transcriptFailureMessage("CLOUD_UNCONFIGURED"), {
-          errorCode: "ai_model_unavailable",
-          statusCode: 409,
-        });
+        const cloudAccess = await resolveCloudTranscriptionAccess();
+        if (cloudAccess === "unavailable") {
+          fail(transcriptFailureMessage("CLOUD_UNCONFIGURED"), {
+            errorCode: "ai_model_unavailable",
+            statusCode: 409,
+          });
+        }
+        if (cloudAccess === "unknown") {
+          fail(
+            "Couldn't check the Builder connection. Try again in a moment.",
+            {
+              errorCode: "ai_model_lookup_unavailable",
+              statusCode: 503,
+            },
+          );
+        }
       }
 
       await dispatchPostFinalizeJob({

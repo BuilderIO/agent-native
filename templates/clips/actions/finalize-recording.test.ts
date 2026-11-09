@@ -158,6 +158,7 @@ vi.mock("@agent-native/core/server", () => ({
   }),
   getRequestOrgId: vi.fn(() => undefined),
   resolveHasBuilderGatewayCredential: vi.fn(async () => true),
+  BuilderCredentialLookupError: class BuilderCredentialLookupError extends Error {},
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -1945,11 +1946,11 @@ describe("finalize-recording media serve verification", () => {
     );
   });
 
-  it("still queues transcription when the Builder credential lookup fails", async () => {
-    const { resolveHasBuilderGatewayCredential } =
+  it("leaves the transcript to the job when the Builder credential lookup is unavailable", async () => {
+    const { resolveHasBuilderGatewayCredential, BuilderCredentialLookupError } =
       await import("@agent-native/core/server");
     vi.mocked(resolveHasBuilderGatewayCredential).mockRejectedValueOnce(
-      new Error("lookup failed"),
+      new BuilderCredentialLookupError(),
     );
     seedBufferedRecording();
     mockUploadFile.mockResolvedValue({ url: "/api/uploads/rec_1/blob" });
@@ -1961,12 +1962,30 @@ describe("finalize-recording media serve verification", () => {
     });
 
     expect(result).toEqual(expect.objectContaining({ status: "ready" }));
-    expect(mockInsertValues).toHaveBeenCalledWith(
+    expect(mockInsertValues).not.toHaveBeenCalledWith(
       expect.objectContaining({ recordingId: "rec_1", status: "pending" }),
+    );
+    expect(mockInsertValues).not.toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1", status: "failed" }),
     );
     expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith(
       expect.objectContaining({ recordingId: "rec_1", kind: "transcript" }),
     );
+  });
+
+  it("fails finalization on an unexpected credential error", async () => {
+    const { resolveHasBuilderGatewayCredential } =
+      await import("@agent-native/core/server");
+    vi.mocked(resolveHasBuilderGatewayCredential).mockRejectedValueOnce(
+      new Error("unexpected"),
+    );
+    seedBufferedRecording();
+    mockUploadFile.mockResolvedValue({ url: "/api/uploads/rec_1/blob" });
+    mockState.transcriptRows = [];
+
+    await expect(
+      finalizeRecording.run({ id: "rec_1", mimeType: "video/webm" }),
+    ).rejects.toThrow("unexpected");
   });
 
   it("parks a recording waiting for storage on a days-long lease", async () => {

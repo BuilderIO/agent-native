@@ -5538,6 +5538,7 @@ export function App({
 
         {!isRecording &&
         localRecordingMode === "off" &&
+        videoStorageStatus === "configured" &&
         hostedClipsRemaining !== null ? (
           <p className="hosted-clips-left">
             {t("recordRoute.freeClipsLeft", { count: hostedClipsRemaining })}
