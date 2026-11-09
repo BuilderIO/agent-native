@@ -131,7 +131,7 @@ describe("get-infrastructure-status", () => {
     const activeSecret = "fake-active-google-secret-0123456789";
     const preferredSecret = "fake-preferred-google-secret-abcdefgh";
     const primarySecret = "fake-primary-google-secret-12345678";
-    const legacySecret = "fake";
+    const legacySecret = "fake1234";
     mocks.getActiveGoogleSignInCredentials.mockReturnValue({
       credentials: {
         clientId: "active-client.apps.googleusercontent.com",
@@ -194,6 +194,21 @@ describe("get-infrastructure-status", () => {
     ]) {
       expect(serialized).not.toContain(secret);
     }
+  });
+
+  it("keeps unavailable Google credential pairs explicitly null", async () => {
+    const result = await action.run(
+      { includeGoogleCredentialFingerprints: true },
+      ctx("owner@example.com"),
+    );
+
+    expect(result.googleCredentialFingerprints).toEqual({
+      activeSignInRecorded: false,
+      activeSignIn: null,
+      preferredSignIn: null,
+      primaryManaged: null,
+      legacyManaged: null,
+    });
   });
 
   it("refuses members with a typed 403 and never reads the environment", async () => {
