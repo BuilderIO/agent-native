@@ -11,6 +11,7 @@ import {
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import {
   getGenerationCreativeContext,
+  isCreativeContextOffForUser,
   recordGenerationCreativeContext,
   replaceCreativeContextElementProvenance,
   validateGenerationCreativeContext,
@@ -328,10 +329,11 @@ export default defineAction({
     context,
   ) => {
     await assertAccess("design", designId, "editor");
+    const contextOff =
+      requestedReuseLabels.length > 0 &&
+      (contextModeOverride === "off" || (await isCreativeContextOffForUser()));
     const { recordable: reuseLabels, ignored: ignoredReuseLabels } =
-      partitionReuseLabels(requestedReuseLabels, {
-        contextOff: contextModeOverride === "off",
-      });
+      partitionReuseLabels(requestedReuseLabels, { contextOff });
     const db = getDb();
     const requestedFileId = fileId?.trim();
     const targetFilename = requestedFileId

@@ -133,6 +133,7 @@ const mocks = vi.hoisted(() => {
     readAppState: vi.fn().mockResolvedValue(null),
     writeAppState: vi.fn().mockResolvedValue(undefined),
     getGenerationCreativeContext: vi.fn().mockResolvedValue(null),
+    isCreativeContextOffForUser: vi.fn().mockResolvedValue(false),
     recordGenerationCreativeContext: vi.fn().mockResolvedValue(undefined),
     resolveGenerationCreativeContext: vi.fn().mockResolvedValue({
       contextMode: "auto",
@@ -268,6 +269,7 @@ vi.mock("../server/lib/design-versions.js", () => ({
 
 vi.mock("@agent-native/creative-context/server", () => ({
   getGenerationCreativeContext: mocks.getGenerationCreativeContext,
+  isCreativeContextOffForUser: mocks.isCreativeContextOffForUser,
   recordGenerationCreativeContext: mocks.recordGenerationCreativeContext,
   resolveGenerationCreativeContext: mocks.resolveGenerationCreativeContext,
   validateGenerationCreativeContext: mocks.validateGenerationCreativeContext,
@@ -2427,6 +2429,143 @@ describe("generate-design: new-file creation path", () => {
     expect(result).toMatchObject({
       ignoredReuseLabels: [
         { kind: "figma-frame", label: "Pricing hero", reason: "context-off" },
+      ],
+    });
+  });
+
+  it("ignores item-backed labels when Creative Context is off by preference or lab availability", async () => {
+    mocks.isCreativeContextOffForUser.mockResolvedValueOnce(true);
+    const evidence = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "figma-frame",
+      label: "Pricing hero",
+      dataRole: "untrusted-reference" as const,
+    };
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Pricing",
+      reuseLabels: [evidence],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Pricing</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({ reuseLabels: [] }),
+    );
+    expect(result).toMatchObject({
+      renderable: true,
+      ignoredReuseLabels: [
+        { kind: "figma-frame", label: "Pricing hero", reason: "context-off" },
+      ],
+    });
+  });
+
+  it("treats a generation session without a pack as Creative Context off for labels", async () => {
+    mocks.readAppState.mockResolvedValue({
+      id: "session-1",
+      designId: "design-1",
+      status: "generating",
+      prompt: "Pricing",
+      contextRefs: [],
+      creativeContext: {
+        contextMode: "auto",
+        contextPackId: null,
+        reuseLabels: [],
+      },
+      frames: [],
+      startedAt: "2026-11-09T00:00:00.000Z",
+    });
+    const evidence = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "figma-frame",
+      label: "Pricing hero",
+      dataRole: "untrusted-reference" as const,
+    };
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Pricing",
+      reuseLabels: [evidence],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Pricing</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.isCreativeContextOffForUser).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      ignoredReuseLabels: [
+        { kind: "figma-frame", label: "Pricing hero", reason: "context-off" },
+      ],
+    });
+  });
+
+  it("keeps the session's evidence when every label the model sent was ignored", async () => {
+    const evidence = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "figma-frame",
+      label: "Pricing hero",
+      dataRole: "untrusted-reference" as const,
+    };
+    mocks.readAppState.mockResolvedValue({
+      id: "session-1",
+      designId: "design-1",
+      status: "generating",
+      prompt: "Pricing",
+      contextRefs: [],
+      creativeContext: {
+        contextMode: "pinned",
+        contextPackId: "pack-1",
+        reuseLabels: [evidence],
+      },
+      frames: [],
+      startedAt: "2026-11-09T00:00:00.000Z",
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Pricing from the attached photos",
+      reuseLabels: [
+        {
+          kind: "image",
+          label: "User's attached photo",
+          dataRole: "untrusted-reference",
+        },
+      ],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Pricing</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith({
+      contextPackId: "pack-1",
+      contextPackSource: "inherited",
+      reuseLabels: [evidence],
+      reuseLabelsSource: "inherited",
+    });
+    expect(result).toMatchObject({
+      ignoredReuseLabels: [
+        {
+          kind: "image",
+          label: "User's attached photo",
+          reason: "missing-item-ids",
+        },
       ],
     });
   });

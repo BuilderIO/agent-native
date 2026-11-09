@@ -14,6 +14,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   getGenerationCreativeContext,
+  isCreativeContextOffForUser,
   recordGenerationCreativeContext,
   replaceCreativeContextElementProvenance,
   resolveGenerationCreativeContext,
@@ -850,10 +851,18 @@ const generateDesignAction = defineAction({
       );
     }
 
+    // A session without a pack records generated labels only, like every
+    // generation the shared validator treats as Creative Context off.
+    const contextOff =
+      reuseLabels.length > 0 &&
+      (contextModeOverride === "off" ||
+        Boolean(
+          generationSession?.creativeContext &&
+          !generationSession.creativeContext.contextPackId,
+        ) ||
+        (await isCreativeContextOffForUser()));
     const { recordable: recordableReuseLabels, ignored: ignoredReuseLabels } =
-      partitionReuseLabels(reuseLabels, {
-        contextOff: contextModeOverride === "off",
-      });
+      partitionReuseLabels(reuseLabels, { contextOff });
     const creativeContextProvenance = await resolveDesignCreativeContext({
       prompt,
       generationSession,
