@@ -8,6 +8,7 @@ import {
   type DocumentPagePanelTab,
   escapeWasHandled,
   firstFocusableIn,
+  keepFocusInPagePanel,
   PAGE_PANEL_MARGIN_FADE_MS,
   pagePanelShortcut,
   leaveEscapeToPagePanel,
@@ -271,6 +272,58 @@ describe("returnFocusFromPagePanel", () => {
     elsewhere?.focus();
     returnFocusFromPagePanel({ panel, target: opener, tab, fallback });
     expect(document.activeElement).toBe(elsewhere);
+  });
+});
+
+describe("keepFocusInPagePanel", () => {
+  let host: HTMLDivElement;
+  let heading: HTMLHeadingElement;
+  let box: HTMLButtonElement;
+  let stop: () => void;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    host = document.createElement("div");
+    host.innerHTML = `<h2 tabindex="-1">Agent</h2><button>Message agent</button>`;
+    document.body.append(host);
+    const h2 = host.querySelector("h2");
+    const button = host.querySelector("button");
+    if (!h2 || !button) throw new Error("No panel");
+    heading = h2;
+    box = button;
+    box.focus();
+    stop = keepFocusInPagePanel(() => heading);
+  });
+
+  afterEach(() => {
+    stop();
+    host.remove();
+    vi.useRealTimers();
+  });
+
+  it("gives the heading focus that the agent's box drops", () => {
+    box.remove();
+    vi.advanceTimersByTime(100);
+    expect(document.activeElement).toBe(heading);
+  });
+
+  it("leaves focus that is still somewhere", () => {
+    vi.advanceTimersByTime(300);
+    expect(document.activeElement).toBe(box);
+  });
+
+  it("stops at a click, so a click away from the panel keeps its focus", () => {
+    document.dispatchEvent(new PointerEvent("pointerdown"));
+    box.remove();
+    vi.advanceTimersByTime(300);
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("stops after a while", () => {
+    vi.advanceTimersByTime(5000);
+    box.remove();
+    vi.advanceTimersByTime(300);
+    expect(document.activeElement).toBe(document.body);
   });
 });
 

@@ -281,6 +281,7 @@ import {
 import { createHistorySession } from "./document-history-session";
 import {
   type DocumentPagePanelTab,
+  keepFocusInPagePanel,
   pagePanelEscapeCloses,
   returnFocusFromPagePanel,
   sendPagePanelAgentCommand,
@@ -8915,12 +8916,13 @@ function PageEditorSessionBody({
         composer.focus();
         return;
       }
-      // The agent's own open event moves on to its composer once the chat loads.
-      if (
-        pagePanelTab === "agent" &&
-        panel?.contains(globalThis.document.activeElement)
-      ) {
-        return;
+      // The agent's own open event moves on to its composer once the chat
+      // loads, and the heading takes focus back if that box then switches off.
+      if (pagePanelTab === "agent") {
+        if (!panel?.contains(globalThis.document.activeElement)) {
+          pagePanelHeadingRef.current?.focus({ preventScroll: true });
+        }
+        return keepFocusInPagePanel(() => pagePanelHeadingRef.current);
       }
       pagePanelHeadingRef.current?.focus({ preventScroll: true });
       return;

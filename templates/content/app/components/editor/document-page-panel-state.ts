@@ -253,6 +253,34 @@ export function returnFocusFromPagePanel({
   });
 }
 
+const PAGE_PANEL_FOCUS_WATCH_MS = 5000;
+const PAGE_PANEL_FOCUS_CHECK_MS = 100;
+
+/**
+ * For a while after a key opens the agent, focus that drops to the page's body
+ * goes to `heading`: a chat with no AI connected switches off the box it has
+ * just focused. A click or key press ends the watch, and so does the returned
+ * stop.
+ */
+export function keepFocusInPagePanel(heading: () => HTMLElement | null) {
+  let timeout = 0;
+  const check = window.setInterval(() => {
+    const activeElement = globalThis.document.activeElement;
+    if (activeElement && activeElement !== globalThis.document.body) return;
+    heading()?.focus({ preventScroll: true });
+  }, PAGE_PANEL_FOCUS_CHECK_MS);
+  const stop = () => {
+    window.clearInterval(check);
+    window.clearTimeout(timeout);
+    globalThis.document.removeEventListener("pointerdown", stop, true);
+    globalThis.document.removeEventListener("keydown", stop, true);
+  };
+  timeout = window.setTimeout(stop, PAGE_PANEL_FOCUS_WATCH_MS);
+  globalThis.document.addEventListener("pointerdown", stop, true);
+  globalThis.document.addEventListener("keydown", stop, true);
+  return stop;
+}
+
 // Radix hands Escape to the top layer, which marks the key handled. A tab's
 // tooltip is no layer to close first, and the row preview around a page closes
 // after its panel: the panel still takes this press.
