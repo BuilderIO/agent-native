@@ -250,18 +250,30 @@ describe('tools/list with mcpTool: "search" actions', () => {
     expect(tools.has("draft-plan")).toBe(false);
   });
 
-  it("lists the tools it would hide when tool-search is denied", async () => {
-    const tools = await listed(
+  it.each(["tool-search", "call-tool"])(
+    "lists the tools it would hide when %s is denied",
+    async (denied) => {
+      const tools = await listed(
+        await clientFor(config({ externalAgents: { denyActions: [denied] } })),
+      );
+      expect(tools.has(denied)).toBe(false);
+      expect(tools.has("call-tool")).toBe(false);
+      for (const name of ["archive-plan", "purge-plan", "plan-history"]) {
+        expect(tools.has(name)).toBe(true);
+      }
+      expect(tools.has("plan-settings")).toBe(false);
+    },
+  );
+
+  it("doesn't mark a search result for a denied call-tool", async () => {
+    const found = await searched(
       await clientFor(
-        config({ externalAgents: { denyActions: ["tool-search"] } }),
+        config({ externalAgents: { denyActions: ["call-tool"] } }),
       ),
+      ["archive-plan"],
     );
-    expect(tools.has("tool-search")).toBe(false);
-    expect(tools.has("call-tool")).toBe(false);
-    for (const name of ["archive-plan", "purge-plan", "plan-history"]) {
-      expect(tools.has(name)).toBe(true);
-    }
-    expect(tools.has("plan-settings")).toBe(false);
+    expect(found.get("archive-plan")).toBeDefined();
+    expect(found.get("archive-plan").callWith).toBeUndefined();
   });
 
   it("lists no call-tool when nothing is unlisted", async () => {

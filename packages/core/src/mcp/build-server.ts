@@ -3185,10 +3185,11 @@ export async function createMCPServerForRequest(
         ),
       );
   // An unlisted action takes `tool-search` to find and `call-tool` to run. An
-  // app that denies the first or has its own action with the second's name
-  // lists them instead.
+  // app that denies either or has its own action named `call-tool` lists them
+  // instead.
   const listsSearchServed =
     !Object.hasOwn(visibleActions, TOOL_SEARCH_TOOL_NAME) ||
+    deniedToolNames.has(CALL_TOOL_NAME) ||
     Object.hasOwn(actions, CALL_TOOL_NAME);
   const unlistedActions = listsSearchServed ? {} : searchServedActions;
   const advertisedActions = scopeToolSearchToAdvertised(

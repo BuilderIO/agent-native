@@ -28,6 +28,29 @@ describe("external result contract guard", () => {
     );
   });
 
+  it("treats an action served unlisted as external", () => {
+    const source = `
+      export default defineAction({
+        description:
+          "Ask a question, then wait for the user to answer before continuing.",
+        mcpTool: "search",
+        run: async () => ({}),
+      });
+    `;
+    const added = new Set(source.split("\n").map((_, index) => index + 1));
+
+    const violations = findExternalResultContractViolations(
+      "templates/tasks/actions/create-question.ts",
+      source,
+      added,
+    );
+
+    assert.deepEqual(violations.map((v) => v.kind).sort(), [
+      "missing-deep-link",
+      "wait-language",
+    ]);
+  });
+
   it("flags a create-* action with no link and no url/urlPath", () => {
     const source = `
       export default defineAction({

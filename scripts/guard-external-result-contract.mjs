@@ -18,10 +18,10 @@
  *
  * "External" classification mirrors `isActionExposedToExternalAgents` in
  * packages/core/src/action.ts:1234 — an action is external when `agentTool`
- * is not literally `false`, and either `mcpTool: true` is set, or `mcpTool`
- * is absent and `endsTurn` is not literally `true` (an action that ends the
- * in-app agent's turn is in-app only by default, because the answer flows
- * back through a chat surface an external caller isn't on).
+ * is not literally `false`, and either `mcpTool: true` or `mcpTool: "search"`
+ * is set, or `mcpTool` is absent and `endsTurn` is not literally `true` (an
+ * action that ends the in-app agent's turn is in-app only by default, because
+ * the answer flows back through a chat surface an external caller isn't on).
  *
  * Checks:
  *   A. Wait-language — an external action's `description:` or
@@ -70,7 +70,7 @@ const RESULT_KEY_RE = /\b(description|nextRequiredAction)\s*:/g;
 
 function isExternal(source) {
   if (/\bagentTool\s*:\s*false\b/.test(source)) return false;
-  if (/\bmcpTool\s*:\s*true\b/.test(source)) return true;
+  if (/\bmcpTool\s*:\s*(?:true\b|["'`]search["'`])/.test(source)) return true;
   const mcpToolPresent = /\bmcpTool\s*:/.test(source);
   const endsTurnTrue = /\bendsTurn\s*:\s*true\b/.test(source);
   return !mcpToolPresent && !endsTurnTrue;
