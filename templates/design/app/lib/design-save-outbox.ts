@@ -7,6 +7,8 @@ import {
 } from "@shared/save-conflict";
 import { sourceContentHash } from "@shared/source-workspace";
 
+import { liveDesignSaveWriterSources } from "./design-save-outbox-writers";
+
 export type DesignSaveActionName =
   | "update-file"
   | "update-design"
@@ -42,6 +44,8 @@ export interface DrainDesignSaveOutboxResult {
   saved: DesignSaveOutboxEntry[];
   /** Saved after merging the queued edit into newer server content. */
   merged: DesignSaveOutboxEntry[];
+  /** The server had already applied this save, so the copy was dropped, not replayed. */
+  alreadyApplied: DesignSaveOutboxEntry[];
   failed: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
   dropped: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
   rebased: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
@@ -579,6 +583,16 @@ export function updateFileResultPersistedContent(
   return !result.skippedStaleOperation;
 }
 
+/** The server's answer that it already applied this save, though the file has since moved on. */
+function isOperationAlreadyApplied(actionResult: unknown): boolean {
+  if (!actionResult || typeof actionResult !== "object") return false;
+  const result = actionResult as {
+    updated?: unknown;
+    operationAlreadyApplied?: unknown;
+  };
+  return result.updated === true && result.operationAlreadyApplied === true;
+}
+
 async function mergeQueuedFileEdit(
   entry: DesignSaveOutboxEntry,
   payload: Record<string, unknown>,
@@ -617,7 +631,7 @@ async function replayEntry(
     payload: Record<string, unknown>,
   ) => Promise<unknown>,
   merge: DesignSaveReplayMerge | undefined,
-): Promise<{ merged: boolean }> {
+): Promise<"saved" | "merged" | "alreadyApplied"> {
   if (
     entry.actionName === "update-file" &&
     typeof entry.payload.content === "string" &&
@@ -647,16 +661,20 @@ async function replayEntry(
       const actionResult = await invokeAction(entry.actionName, payload);
       if (
         entry.actionName === "update-file" &&
-        typeof payload.content === "string" &&
-        !updateFileResultPersistedContent(actionResult, payload.content)
+        typeof payload.content === "string"
       ) {
-        const conflict = new Error(
-          "The saved file changed elsewhere before this edit could be replayed",
-        );
-        (conflict as Error & { status?: number }).status = 409;
-        throw conflict;
+        // Merging a save the file already took would write it again into
+        // content others have changed since, bringing back what they undid.
+        if (isOperationAlreadyApplied(actionResult)) return "alreadyApplied";
+        if (!updateFileResultPersistedContent(actionResult, payload.content)) {
+          const conflict = new Error(
+            "The saved file changed elsewhere before this edit could be replayed",
+          );
+          (conflict as Error & { status?: number }).status = 409;
+          throw conflict;
+        }
       }
-      return { merged: merges > 0 };
+      return merges > 0 ? "merged" : "saved";
     } catch (error) {
       if (!isConflictSaveError(error)) throw error;
       // Out of attempts is not a clash: the edit merged, the file just kept
@@ -684,19 +702,23 @@ async function drainEntries(
   ) => Promise<unknown>,
   storage: DesignSaveOutboxStorage,
   merge: DesignSaveReplayMerge | undefined,
+  isReplayable: (entry: DesignSaveOutboxEntry) => Promise<boolean>,
 ): Promise<DrainDesignSaveOutboxResult> {
   const result: DrainDesignSaveOutboxResult = {
     saved: [],
     merged: [],
+    alreadyApplied: [],
     failed: [],
     dropped: [],
     rebased: [],
   };
   for (const entry of await storage.list(designId, actorScope)) {
+    // An editor open in another tab is still sending this copy itself.
+    if (!(await isReplayable(entry))) continue;
     try {
-      const replay = await replayEntry(entry, invokeAction, merge);
+      const outcome = await replayEntry(entry, invokeAction, merge);
       await storage.deleteIfRevision(entry);
-      (replay.merged ? result.merged : result.saved).push(entry);
+      result[outcome].push(entry);
     } catch (error) {
       if (
         isRejectedRestoreClaimError(error) &&
@@ -762,6 +784,12 @@ export async function drainDesignSaveOutbox(options: {
   ) => Promise<unknown>;
   storage?: DesignSaveOutboxStorage;
   merge?: DesignSaveReplayMerge;
+  /**
+   * The caller's own save session. With it, copies whose session is held open
+   * by another tab are left for that tab; without it every copy is replayed.
+   */
+  ownOperationSource?: string;
+  listLiveWriters?: () => Promise<ReadonlySet<string> | null>;
 }): Promise<DrainDesignSaveOutboxResult> {
   const invokeAction =
     options.invokeAction ??
@@ -774,6 +802,14 @@ export async function drainDesignSaveOutbox(options: {
       )(actionName, payload));
   const storage = options.storage ?? indexedDbStorage;
   await storage.pruneOlderThan(Date.now() - DESIGN_SAVE_OUTBOX_RETENTION_MS);
+  const { ownOperationSource } = options;
+  const listLiveWriters =
+    options.listLiveWriters ?? liveDesignSaveWriterSources;
+  // Asked again for each copy: an editor can open while the drain is running.
+  const isReplayable = async (entry: DesignSaveOutboxEntry) =>
+    ownOperationSource === undefined ||
+    entry.operationSource === ownOperationSource ||
+    !(await listLiveWriters())?.has(entry.operationSource);
   const run = () =>
     drainEntries(
       options.designId,
@@ -781,6 +817,7 @@ export async function drainDesignSaveOutbox(options: {
       invokeAction,
       storage,
       options.merge,
+      isReplayable,
     );
   const lockManager =
     typeof navigator === "undefined"

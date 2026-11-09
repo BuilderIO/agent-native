@@ -227,6 +227,10 @@ vi.mock("../server/db/index.js", async () => {
     contentOperationResultHash: pgliteCore.text(
       "content_operation_result_hash",
     ),
+    contentOperationRevisions: pgliteCore
+      .text("content_operation_revisions")
+      .notNull()
+      .default("{}"),
     fileType: pgliteCore.text("file_type").notNull(),
     createdAt: pgliteCore.text("created_at"),
     updatedAt: pgliteCore.text("updated_at"),
@@ -291,6 +295,7 @@ vi.mock("../server/db/index.js", async () => {
       content_operation_source TEXT,
       content_operation_revision INTEGER,
       content_operation_result_hash TEXT,
+      content_operation_revisions TEXT NOT NULL DEFAULT '{}',
       file_type TEXT NOT NULL,
       created_at TEXT,
       updated_at TEXT
@@ -640,6 +645,190 @@ describe("update-file browser operation ordering with real PostgreSQL", () => {
     });
     expect((await persistedFile()).content).toBe(latestContent);
     expect(collabState.content).toBe(latestContent);
+  });
+
+  describe("receipts for saves a later writer replaced", () => {
+    async function receipts(): Promise<Record<string, number>> {
+      const row = (await localDb.pglite
+        ?.prepare(
+          `SELECT content_operation_revisions FROM design_files WHERE id = ?`,
+        )
+        .get(FILE_ID)) as { content_operation_revisions: string };
+      return JSON.parse(row.content_operation_revisions);
+    }
+
+    it("records the newest applied revision for each session", async () => {
+      const first = "<main>first</main>";
+      const second = "<main>second</main>";
+      await save({
+        content: first,
+        expectedVersionHash: sourceContentHash(BASE),
+        operationSource: "tab-a",
+        operationRevision: 1,
+      });
+      await save({
+        content: second,
+        expectedVersionHash: sourceContentHash(first),
+        operationSource: "tab-b",
+        operationRevision: 4,
+      });
+
+      expect(await receipts()).toEqual({ "tab-a": 1, "tab-b": 4 });
+    });
+
+    it("skips a replayed save its session already applied once another writer replaced the file", async () => {
+      const copy = "<main>the copy that already landed</main>";
+      await save({
+        content: copy,
+        expectedVersionHash: sourceContentHash(BASE),
+        operationSource: "tab-a",
+        operationRevision: 1,
+      });
+      const otherWriter =
+        "<main>another writer undid it and changed more</main>";
+      await save({
+        content: otherWriter,
+        expectedVersionHash: sourceContentHash(copy),
+        operationSource: "tab-b",
+        operationRevision: 1,
+      });
+
+      const result = await save({
+        content: copy,
+        expectedVersionHash: sourceContentHash(BASE),
+        operationSource: "tab-a",
+        operationRevision: 1,
+      });
+
+      expect(result).toMatchObject({
+        updated: true,
+        skippedStaleOperation: true,
+        operationAlreadyApplied: true,
+        versionHash: sourceContentHash(otherWriter),
+      });
+      expect(await persistedFile()).toMatchObject({
+        content: otherWriter,
+        content_operation_source: "tab-b",
+        content_operation_revision: 1,
+      });
+    });
+
+    it("skips it after an unversioned writer too", async () => {
+      const copy = "<main>landed before the agent edited</main>";
+      await save({
+        content: copy,
+        expectedVersionHash: sourceContentHash(BASE),
+        operationSource: "tab-a",
+        operationRevision: 2,
+      });
+      const agentEdit = "<main>agent edit</main>";
+      await save({ content: agentEdit });
+
+      const result = await save({
+        content: copy,
+        expectedVersionHash: sourceContentHash(BASE),
+        operationSource: "tab-a",
+        operationRevision: 2,
+      });
+
+      expect(result).toMatchObject({ operationAlreadyApplied: true });
+      expect((await persistedFile()).content).toBe(agentEdit);
+    });
+
+    it("still reports a conflict for a save the file never took", async () => {
+      const otherWriter = "<main>another writer</main>";
+      await save({
+        content: otherWriter,
+        expectedVersionHash: sourceContentHash(BASE),
+        operationSource: "tab-b",
+        operationRevision: 1,
+      });
+
+      await expect(
+        save({
+          content: "<main>a copy that never landed</main>",
+          expectedVersionHash: sourceContentHash(BASE),
+          operationSource: "tab-a",
+          operationRevision: 1,
+        }),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect((await persistedFile()).content).toBe(otherWriter);
+    });
+
+    it("applies a newer revision from a session whose older save was skipped", async () => {
+      const copy = "<main>landed</main>";
+      await save({
+        content: copy,
+        expectedVersionHash: sourceContentHash(BASE),
+        operationSource: "tab-a",
+        operationRevision: 1,
+      });
+      const otherWriter = "<main>other</main>";
+      await save({ content: otherWriter });
+      const next = "<main>the session's next edit</main>";
+
+      const result = await save({
+        content: next,
+        expectedVersionHash: sourceContentHash(otherWriter),
+        operationSource: "tab-a",
+        operationRevision: 2,
+      });
+
+      expect(result).not.toHaveProperty("operationAlreadyApplied");
+      expect((await persistedFile()).content).toBe(next);
+      expect(await receipts()).toEqual({ "tab-a": 2 });
+    });
+
+    it("keeps saving, with fresh receipts, when the stored map is unreadable", async () => {
+      await localDb.pglite
+        ?.prepare(
+          `UPDATE design_files SET content_operation_revisions = ? WHERE id = ?`,
+        )
+        .run("not json", FILE_ID);
+      const next = "<main>saved over a damaged map</main>";
+
+      await save({
+        content: next,
+        expectedVersionHash: sourceContentHash(BASE),
+        operationSource: "tab-a",
+        operationRevision: 1,
+      });
+
+      expect((await persistedFile()).content).toBe(next);
+      expect(await receipts()).toEqual({ "tab-a": 1 });
+    });
+
+    it("falls back to the usual conflict for a copy when the stored map is unreadable", async () => {
+      const copy = "<main>a copy that landed</main>";
+      await save({
+        content: copy,
+        expectedVersionHash: sourceContentHash(BASE),
+        operationSource: "tab-a",
+        operationRevision: 1,
+      });
+      const otherWriter = "<main>another writer</main>";
+      await save({
+        content: otherWriter,
+        expectedVersionHash: sourceContentHash(copy),
+        operationSource: "tab-b",
+        operationRevision: 1,
+      });
+      await localDb.pglite
+        ?.prepare(
+          `UPDATE design_files SET content_operation_revisions = ? WHERE id = ?`,
+        )
+        .run("[1,2]", FILE_ID);
+
+      await expect(
+        save({
+          content: copy,
+          expectedVersionHash: sourceContentHash(BASE),
+          operationSource: "tab-a",
+          operationRevision: 1,
+        }),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect((await persistedFile()).content).toBe(otherWriter);
+    });
   });
 
   it("rejects a mirror when a peer commits live collaboration content before the SQL mirror", async () => {

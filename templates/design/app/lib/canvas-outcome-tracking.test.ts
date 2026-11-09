@@ -507,6 +507,7 @@ describe("canvas outcome tracking", () => {
     const drain = {
       saved: [fileSave, fileSave, geometry],
       merged: [fileSave, geometry],
+      alreadyApplied: [fileSave, fileSave, geometry],
       rebased: [
         {
           entry: fileSave,
@@ -524,7 +525,7 @@ describe("canvas outcome tracking", () => {
     recordSaveReplayOutcomes(drain, "design-a");
     // The still-failing entry comes back on the next drain and is not counted.
     recordSaveReplayOutcomes(
-      { ...drain, saved: [], merged: [], rebased: [] },
+      { ...drain, saved: [], merged: [], alreadyApplied: [], rebased: [] },
       "design-a",
     );
     flushCanvasOutcomeCounts();
@@ -532,6 +533,7 @@ describe("canvas outcome tracking", () => {
     expect(totals()).toEqual({
       "save_replay/succeeded/none": 2,
       "save_replay/succeeded/merged": 1,
+      "save_replay/succeeded/already_applied": 2,
       "save_replay/failed/rebased": 1,
     });
   });

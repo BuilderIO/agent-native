@@ -50,6 +50,7 @@ import {
   createOutboxRetryScheduler,
   OUTBOX_BUSY_RETRY_MS,
 } from "@/lib/design-save-outbox-retry";
+import { holdDesignSaveWriter } from "@/lib/design-save-outbox-writers";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 
 import type {
@@ -121,7 +122,7 @@ import {
   reuseIdenticalList,
   type IdentityCache,
 } from "../stable-file-identity";
-import { mergeQueuedEdit } from "../three-way-merge";
+import { mergeReplayedEdit } from "../three-way-merge";
 import { shouldAskOnNewDesignArrival } from "../tool-state";
 import type { DesignFile, DesignFileMetadata } from "../types";
 import type { EditorCore } from "./use-editor-core";
@@ -363,7 +364,8 @@ export function useEditorFilesAndSaving({
       const result = await drainDesignSaveOutbox({
         designId: id,
         actorScope: designSaveActorScope,
-        merge: { readLiveFileContent, mergeContent: mergeQueuedEdit },
+        merge: { readLiveFileContent, mergeContent: mergeReplayedEdit },
+        ownOperationSource: designSaveOperationSourceRef.current,
       });
       recordSaveReplayOutcomes(result, id);
       if (result.rebased.length > 0) {
@@ -385,9 +387,18 @@ export function useEditorFilesAndSaving({
           rollbackPendingLocalFileContent(entry.resourceId, content);
         }
       }
+      // The server took this save earlier and others have changed the file
+      // since; nothing was lost, so the editor reloads without a warning.
+      for (const entry of result.alreadyApplied) {
+        const content = entry.payload.content;
+        if (typeof content === "string") {
+          rollbackPendingLocalFileContent(entry.resourceId, content);
+        }
+      }
       for (const entry of [
         ...result.saved,
         ...result.merged,
+        ...result.alreadyApplied,
         ...result.rebased.map(({ entry }) => entry),
         ...result.dropped.map(({ entry }) => entry),
       ]) {
@@ -413,6 +424,7 @@ export function useEditorFilesAndSaving({
       if (
         result.saved.length > 0 ||
         result.merged.length > 0 ||
+        result.alreadyApplied.length > 0 ||
         result.rebased.length > 0
       ) {
         void queryClient.invalidateQueries({
@@ -471,6 +483,12 @@ export function useEditorFilesAndSaving({
     outboxRetryScheduler.activate();
     return outboxRetryScheduler.dispose;
   }, [outboxRetryScheduler]);
+
+  // Other tabs leave this editor's unsent saves to it while it stays open.
+  useEffect(
+    () => holdDesignSaveWriter(designSaveOperationSourceRef.current),
+    [],
+  );
 
   const createFileSaveOutboxEntry = useCallback(
     (pending: FileContentSaveRequest) => {

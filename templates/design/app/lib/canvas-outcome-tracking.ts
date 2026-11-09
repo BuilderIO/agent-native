@@ -45,6 +45,7 @@ export const CANVAS_OUTCOME_REASONS = [
   "stalled",
   // save / save_replay
   "aborted",
+  "already_applied",
   "conflict",
   "dropped",
   "error",
@@ -490,6 +491,7 @@ export function recordSaveReplayOutcomes(
   result: {
     saved: ReadonlyArray<{ actionName?: string }>;
     merged: ReadonlyArray<{ actionName?: string }>;
+    alreadyApplied: ReadonlyArray<{ actionName?: string }>;
     rebased: ReadonlyArray<{ entry: { actionName?: string }; error: unknown }>;
     dropped: ReadonlyArray<{ entry: { actionName?: string } }>;
   },
@@ -500,6 +502,7 @@ export function recordSaveReplayOutcomes(
   const replays = [
     ["succeeded", "none", fileSaves(result.saved)],
     ["succeeded", "merged", fileSaves(result.merged)],
+    ["succeeded", "already_applied", fileSaves(result.alreadyApplied)],
     [
       "failed",
       "rebased",

@@ -1,6 +1,5 @@
 // A queued edit the server keeps refusing is retried with growing gaps.
 const RETRY_DELAYS_MS = [5_000, 15_000, 45_000, 120_000, 300_000];
-const LONGEST_RETRY_DELAY_MS = 300_000;
 
 /** The gap before re-checking while this tab's own saves are still in flight. */
 export const OUTBOX_BUSY_RETRY_MS = 1_000;
@@ -31,7 +30,9 @@ export function createOutboxRetryScheduler(
   return {
     schedule(delayMs) {
       if (disposed || timer !== null) return;
-      const gap = delayMs ?? RETRY_DELAYS_MS[attempt] ?? LONGEST_RETRY_DELAY_MS;
+      const gap =
+        delayMs ??
+        RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
       if (delayMs === undefined) attempt += 1;
       timer = setTimeout(() => {
         timer = null;

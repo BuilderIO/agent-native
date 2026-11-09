@@ -57,17 +57,22 @@ function hunksFromBase(
  * point are an overlap too, unless the caller opts into
  * `keepBothInsertionsAtSamePoint`, which keeps both with theirs first and mine
  * last (right for appended declarations, where the later writer should win).
+ * With `refuseContainedInsertions`, that same-point pair is refused instead
+ * when one insertion contains the other: a copy replayed after it already
+ * landed reads as theirs holding mine, and keeping both would write it twice.
  */
 export function threeWayMergeContent({
   base,
   mine,
   theirs,
   keepBothInsertionsAtSamePoint = false,
+  refuseContainedInsertions = false,
 }: {
   base: string;
   mine: string;
   theirs: string;
   keepBothInsertionsAtSamePoint?: boolean;
+  refuseContainedInsertions?: boolean;
 }): string | null {
   if (theirs === mine) return theirs;
   if (theirs === base) return mine;
@@ -95,6 +100,13 @@ export function threeWayMergeContent({
         hunk.side !== previous.side &&
         previous.side !== "both"
       ) {
+        if (
+          refuseContainedInsertions &&
+          (previous.text.includes(hunk.text) ||
+            hunk.text.includes(previous.text))
+        ) {
+          return null;
+        }
         previous.text =
           previous.side === "theirs"
             ? previous.text + hunk.text
@@ -127,5 +139,22 @@ export function mergeQueuedEdit(input: {
   return threeWayMergeContent({
     ...input,
     keepBothInsertionsAtSamePoint: true,
+  });
+}
+
+/**
+ * The merge for a copy replayed from the outbox. Unlike a live save, the copy
+ * may have landed already, so an insertion that holds or sits inside the
+ * other side's at the same point is refused rather than written twice.
+ */
+export function mergeReplayedEdit(input: {
+  base: string;
+  mine: string;
+  theirs: string;
+}): string | null {
+  return threeWayMergeContent({
+    ...input,
+    keepBothInsertionsAtSamePoint: true,
+    refuseContainedInsertions: true,
   });
 }

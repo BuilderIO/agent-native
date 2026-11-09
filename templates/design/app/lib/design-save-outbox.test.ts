@@ -656,6 +656,7 @@ describe("design save outbox", () => {
     expect(result).toEqual({
       saved: [],
       merged: [],
+      alreadyApplied: [],
       failed: [],
       dropped: [],
       rebased: [],
@@ -889,6 +890,58 @@ describe("design save outbox", () => {
     expect(await storage.list("design-1", "user-1")).toEqual([]);
   });
 
+  it("drops a copy the server reports as already applied, without merging or warning", async () => {
+    const storage = new MemoryOutboxStorage();
+    const entry = { ...queuedEdit(), baseContent: BASE };
+    await journalDesignSaveOutboxEntry(entry, storage);
+    const readLiveFileContent = vi.fn().mockResolvedValue(THEIRS);
+    const invokeAction = vi.fn().mockResolvedValue({
+      updated: true,
+      skippedStaleOperation: true,
+      operationAlreadyApplied: true,
+      versionHash: sourceContentHash(THEIRS),
+    });
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction,
+      storage,
+      merge: { readLiveFileContent, mergeContent: mergeQueuedEdit },
+    });
+
+    expect(result.alreadyApplied).toEqual([entry]);
+    expect(result.saved).toEqual([]);
+    expect(result.merged).toEqual([]);
+    expect(result.failed).toEqual([]);
+    expect(result.rebased).toEqual([]);
+    expect(result.dropped).toEqual([]);
+    expect(invokeAction).toHaveBeenCalledTimes(1);
+    expect(readLiveFileContent).not.toHaveBeenCalled();
+    expect(await storage.list("design-1", "user-1")).toEqual([]);
+  });
+
+  it("does not trust an already-applied flag on a response that did not confirm the save", async () => {
+    const storage = new MemoryOutboxStorage();
+    await journalDesignSaveOutboxEntry(
+      { ...queuedEdit(), baseContent: BASE },
+      storage,
+    );
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction: vi
+        .fn()
+        .mockResolvedValue({ operationAlreadyApplied: true }),
+      storage,
+    });
+
+    expect(result.alreadyApplied).toEqual([]);
+    expect(result.failed).toHaveLength(1);
+    expect(await storage.list("design-1", "user-1")).toHaveLength(1);
+  });
+
   it("does not merge a save the server skipped as already applied", async () => {
     const storage = new MemoryOutboxStorage();
     await journalDesignSaveOutboxEntry(
@@ -996,5 +1049,101 @@ describe("design save outbox", () => {
     expect(result.rebased).toEqual([]);
     expect(readLiveFileContent).not.toHaveBeenCalled();
     expect(await storage.list("design-1", "user-1")).toHaveLength(1);
+  });
+});
+
+describe("copies another open tab is still sending", () => {
+  async function drainWith(options: {
+    own?: string;
+    live: ReadonlySet<string> | null | Error;
+    sources: string[];
+  }) {
+    const storage = new MemoryOutboxStorage();
+    for (const [index, source] of options.sources.entries()) {
+      const entry = fileEntry(1, `content ${index}`);
+      await journalDesignSaveOutboxEntry(
+        {
+          ...entry,
+          key: `key-${index}`,
+          resourceId: `file-${index}`,
+          operationSource: source,
+          payload: { ...entry.payload, operationSource: source },
+        },
+        storage,
+      );
+    }
+    const invokeAction = vi.fn().mockResolvedValue({
+      updated: true,
+      versionHash: undefined,
+    });
+    const listLiveWriters = vi.fn(async () => {
+      if (options.live instanceof Error) throw options.live;
+      return options.live;
+    });
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction,
+      storage,
+      ...(options.own === undefined ? {} : { ownOperationSource: options.own }),
+      listLiveWriters,
+    });
+    return { result, invokeAction, listLiveWriters, storage };
+  }
+
+  it("leaves a copy whose editor is open in another tab, and replays the rest", async () => {
+    const { result, invokeAction, storage } = await drainWith({
+      own: "tab-a:save:1",
+      live: new Set(["tab-a:save:1", "tab-b:save:1"]),
+      sources: ["tab-b:save:1", "tab-a:save:1", "tab-c:save:1"],
+    });
+
+    expect(invokeAction).toHaveBeenCalledTimes(2);
+    expect(
+      invokeAction.mock.calls.map(([, payload]) => payload.operationSource),
+    ).toEqual(["tab-a:save:1", "tab-c:save:1"]);
+    expect(result.saved).toHaveLength(2);
+    expect(result.failed).toEqual([]);
+    expect(await storage.list("design-1", "user-1")).toHaveLength(1);
+  });
+
+  it("replays this editor's own copies even though its lock is held", async () => {
+    const { invokeAction } = await drainWith({
+      own: "tab-a:save:1",
+      live: new Set(["tab-a:save:1"]),
+      sources: ["tab-a:save:1"],
+    });
+
+    expect(invokeAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays every copy when the browser cannot say which editors are open", async () => {
+    const { invokeAction } = await drainWith({
+      own: "tab-a:save:1",
+      live: null,
+      sources: ["tab-b:save:1", "tab-c:save:1"],
+    });
+
+    expect(invokeAction).toHaveBeenCalledTimes(2);
+  });
+
+  it("replays every copy when no own session is given", async () => {
+    const { invokeAction, listLiveWriters } = await drainWith({
+      live: new Set(["tab-b:save:1"]),
+      sources: ["tab-b:save:1"],
+    });
+
+    expect(invokeAction).toHaveBeenCalledTimes(1);
+    expect(listLiveWriters).not.toHaveBeenCalled();
+  });
+
+  it("asks which editors are open again for each copy", async () => {
+    const { listLiveWriters } = await drainWith({
+      own: "tab-a:save:1",
+      live: new Set(),
+      sources: ["tab-b:save:1", "tab-c:save:1", "tab-d:save:1"],
+    });
+
+    expect(listLiveWriters).toHaveBeenCalledTimes(3);
   });
 });

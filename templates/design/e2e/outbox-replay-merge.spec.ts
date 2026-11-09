@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 
-import { appPath, selectByText } from "./helpers";
+import { appPath, gotoEditor, selectByText } from "./helpers";
 import { expect, savedNodeMap, styleOf, test, type App } from "./rails";
 
 const OUTBOX_DATABASE = "agent-native-design-save-outbox";
@@ -168,10 +168,21 @@ function allowOfflineReplayNoise(app: App) {
   );
 }
 
-/** Opens the design, journals one offline card edit, and returns the journaled entry. */
-async function journalOfflineCardEdit(app: App, fileId: string) {
+/**
+ * Journals one card edit whose save never gets an answer, and returns the
+ * journaled entry. With `landsOnServer` the server still takes the save, as when
+ * a tab closes before the response arrives.
+ */
+async function journalOfflineCardEdit(
+  app: App,
+  fileId: string,
+  options: { landsOnServer?: boolean } = {},
+) {
   const { page } = app;
-  await page.route(UPDATE_FILE, (route) => route.abort("connectionreset"));
+  await page.route(UPDATE_FILE, async (route) => {
+    if (options.landsOnServer) await route.fetch();
+    await route.abort("connectionreset");
+  });
   await setCardFontSize(app, "28");
   await expect
     .poll(async () => (await outboxEntriesFor(page, fileId)).length, {
@@ -289,4 +300,125 @@ test("a save the server keeps refusing shows Not saved and recovers", async ({
   await expect
     .poll(async () => (await outboxEntriesFor(page, fileId)).length)
     .toBe(0);
+});
+
+test("a copy that already landed is dropped, not merged back, after another writer undid it", async ({
+  app,
+  page,
+}) => {
+  test.setTimeout(120_000);
+  allowOfflineReplayNoise(app);
+  const designId = await app.seed(ORIGINAL_HTML);
+  const fileId = await indexFileId(page, designId);
+  await app.open(designId);
+
+  const entry = await journalOfflineCardEdit(app, fileId, {
+    landsOnServer: true,
+  });
+  await expect
+    .poll(
+      async () =>
+        styleOf(
+          savedNodeMap(await storedContent(page, designId, fileId)).get(
+            "card-a",
+          ),
+        )["font-size"],
+    )
+    .toBe("28px");
+  // Another writer undoes the edit and changes the heading.
+  const otherWriterHtml = designHtml({ heading: "Heading changed elsewhere" });
+  await writeOnServer(page, fileId, otherWriterHtml);
+
+  await page.unroute(UPDATE_FILE);
+  await replayOutbox(page);
+
+  await expect
+    .poll(() => hasOutboxEntry(page, entry.key), { timeout: 20_000 })
+    .toBe(false);
+  expect(await storedContent(page, designId, fileId)).toBe(otherWriterHtml);
+  await expect(page.getByText(STALE_NOTICE, { exact: true })).not.toBeVisible();
+});
+
+test("another open tab leaves an editor's unsent copy to it until that tab closes", async ({
+  app,
+  page,
+}) => {
+  test.setTimeout(150_000);
+  allowOfflineReplayNoise(app);
+  const designId = await app.seed(ORIGINAL_HTML);
+  const fileId = await indexFileId(page, designId);
+  await app.open(designId);
+  const entry = await journalOfflineCardEdit(app, fileId);
+
+  const otherTab = await page.context().newPage();
+  try {
+    const sentByOtherTab: string[] = [];
+    otherTab.on("request", (request) => {
+      if (request.method() === "POST" && UPDATE_FILE.test(request.url())) {
+        sentByOtherTab.push(request.postData() ?? "");
+      }
+    });
+    // Counts the open-editor checks the other tab's drain makes, so the test
+    // waits for the drain to have looked at the copy instead of for a clock.
+    await otherTab.addInitScript(() => {
+      const counter = window as unknown as { __writerQueries?: number };
+      counter.__writerQueries = 0;
+      const query = navigator.locks.query.bind(navigator.locks);
+      navigator.locks.query = () => {
+        counter.__writerQueries = (counter.__writerQueries ?? 0) + 1;
+        return query();
+      };
+    });
+    await gotoEditor(otherTab, designId);
+    await replayOutbox(otherTab);
+    await expect
+      .poll(() =>
+        otherTab.evaluate(
+          () =>
+            (window as unknown as { __writerQueries?: number })
+              .__writerQueries ?? 0,
+        ),
+      )
+      .toBeGreaterThan(0);
+    // The drain holds this lock until it finishes, so the request resolves after it.
+    await otherTab.evaluate(
+      (id) =>
+        navigator.locks.request(
+          `agent-native-design-save-outbox:${id}`,
+          async () => undefined,
+        ),
+      designId,
+    );
+
+    expect(sentByOtherTab, "the other tab sent the open tab's copy").toEqual(
+      [],
+    );
+    expect(await hasOutboxEntry(otherTab, entry.key)).toBe(true);
+
+    // The first tab goes away, and with it the lock that marked its copy as live.
+    await page.goto(
+      appPath(`/_agent-native/actions/get-design?id=${designId}`),
+    );
+    await expect
+      .poll(
+        async () => {
+          await replayOutbox(otherTab);
+          return await hasOutboxEntry(otherTab, entry.key);
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(false);
+    await expect
+      .poll(
+        async () =>
+          styleOf(
+            savedNodeMap(await storedContent(otherTab, designId, fileId)).get(
+              "card-a",
+            ),
+          )["font-size"],
+      )
+      .toBe("28px");
+  } finally {
+    await otherTab.close();
+  }
 });
