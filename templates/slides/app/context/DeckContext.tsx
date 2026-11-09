@@ -3609,8 +3609,9 @@ function settleQueuedContentDraft(
       }
     }
     if (index < 0) break;
-    const op = queue[index];
-    if (op.op !== "patch-slide") return false;
+    // `.at()` keeps the read typed `| undefined` under both the slides tsconfig and the strict guard.
+    const op = queue.at(index);
+    if (!op || op.op !== "patch-slide") return false;
     if (op.fields.content === committedContent) return true;
     if (fieldNamesWithoutReveals(op.fields).length !== 1) return false;
     queue.splice(index, 1);
