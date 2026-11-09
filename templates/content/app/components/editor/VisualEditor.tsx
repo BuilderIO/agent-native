@@ -212,12 +212,26 @@ import {
   uploadVideoFile,
   videoUploadErrorMessage,
 } from "./image-upload";
+import {
+  failedImageUploadId,
+  failImageUploadPreview,
+  hasAnyImageUploadPreview,
+  hasImageUploadPreview,
+  holdImageUploadPreview,
+  isFailedImageUploadId,
+  noteImageUploadBlockRemoved,
+  releaseImageUploadPreview,
+  releaseImageUploadPreviewsFor,
+  startImageUploadPreview,
+  wasImageUploadBlockRemoved,
+} from "./image-upload-previews";
 import { LinkHoverPreview } from "./LinkHoverPreview";
 import {
   LIVE_BODY_PARITY_QUIET_MS,
   measureLiveBodyParity,
   reportLiveBodyParity,
 } from "./live-body-parity";
+import { imageDisplaySrc } from "./private-media-src";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { StaticDocumentBody } from "./StaticDocumentBody";
 import { suggestionPlacements } from "./suggestion-placement";
@@ -2297,12 +2311,55 @@ const MediaSourceCommit = Extension.create<{
   },
 });
 
+// Marks the editor's own steps in an image upload, which change a block's
+// upload id without the user removing the block.
+const IMAGE_UPLOAD_STEP_META = "contentImageUploadStep";
+
+function heldImageUploadIds(doc: ProseMirrorNode): Set<string> {
+  const ids = new Set<string>();
+  doc.descendants((node) => {
+    if (
+      node.type.name === "image" &&
+      hasImageUploadPreview(node.attrs.uploadId)
+    ) {
+      ids.add(node.attrs.uploadId as string);
+    }
+    return true;
+  });
+  return ids;
+}
+
+/**
+ * Notes when the user deletes a block this tab is uploading an image for, so
+ * its upload doesn't put the block back. A collaborator's change can drop the
+ * block too while the page reconciles; its upload restores it then.
+ */
+const ImageUploadRemovals = Extension.create({
+  name: "imageUploadRemovals",
+  onTransaction({ transaction }) {
+    if (
+      !hasAnyImageUploadPreview() ||
+      !isLocalEditorEdit(transaction) ||
+      transaction.getMeta(IMAGE_UPLOAD_STEP_META)
+    ) {
+      return;
+    }
+    const after = heldImageUploadIds(transaction.doc);
+    for (const uploadId of heldImageUploadIds(transaction.before)) {
+      if (!after.has(uploadId)) noteImageUploadBlockRemoved(uploadId);
+    }
+  },
+});
+
 export function shouldSkipMediaDraftPersistence(editor: CoreEditor): boolean {
   let hasPendingUpload = false;
   editor.state.doc.descendants((node) => {
     if (
       MEDIA_NODE_TYPES.has(node.type.name as MediaNodeType) &&
-      Boolean(node.attrs.uploadId)
+      Boolean(node.attrs.uploadId) &&
+      // A failed upload's block keeps what it had before the upload, which
+      // can save; only this tab can retry it.
+      !isFailedImageUploadId(node.attrs.uploadId)
     ) {
       hasPendingUpload = true;
       return false;
@@ -2335,6 +2392,7 @@ function mediaNodeLabel(typeName: MediaNodeType) {
 interface PendingMediaUpload {
   file: File;
   uploadId: string;
+  position: number;
 }
 
 export interface PendingImagePicker {
@@ -2377,9 +2435,9 @@ function insertPendingMediaNodes(
         ? { src: null, alt: "", uploadId }
         : { src: null, uploadId },
     );
+    pendingUploads.push({ file, uploadId, position: insertPos });
     tr = tr.insert(insertPos, node);
     insertPos = Math.min(insertPos + node.nodeSize, tr.doc.content.size);
-    pendingUploads.push({ file, uploadId });
   }
 
   beforeInsert?.(pendingUploads);
@@ -2411,7 +2469,7 @@ function updatePendingMediaNode(
   });
 
   if (found) {
-    view.dispatch(tr);
+    view.dispatch(tr.setMeta(IMAGE_UPLOAD_STEP_META, true));
   }
   return found;
 }
@@ -2423,7 +2481,7 @@ function replacePendingMediaUploadId(
   nextUploadId: string,
 ) {
   let found = false;
-  let tr = view.state.tr;
+  let tr = view.state.tr.setMeta(IMAGE_UPLOAD_STEP_META, true);
 
   view.state.doc.descendants((node, pos) => {
     if (found) return false;
@@ -2465,7 +2523,7 @@ function insertImageNodeAtPendingPosition(
     if (restoreSelection) {
       tr = tr.setSelection(NodeSelection.create(tr.doc, position));
     }
-    view.dispatch(tr.scrollIntoView());
+    view.dispatch(tr.setMeta(IMAGE_UPLOAD_STEP_META, true).scrollIntoView());
     if (restoreSelection) view.focus();
     return true;
   } catch (error) {
@@ -2495,12 +2553,177 @@ export function commitPendingImageUpload(
   return insertImageNodeAtPendingPosition(view, request, attrs, false);
 }
 
-function findPendingImageElement(view: EditorView, uploadId: string) {
-  return (
+/**
+ * The block's image for `src`, once the block shows it. A block drawing its
+ * upload's preview holds the picked file's image too, which proves nothing
+ * about the uploaded copy.
+ */
+function findPendingImageElement(
+  view: EditorView,
+  uploadId: string,
+  src: string,
+) {
+  const image =
     Array.from(view.dom.querySelectorAll<HTMLElement>("[data-image-upload-id]"))
       .find((element) => element.dataset.imageUploadId === uploadId)
-      ?.querySelector<HTMLImageElement>("img") ?? null
-  );
+      ?.querySelector<HTMLImageElement>("img:not([data-upload-preview])") ??
+    null;
+  return image?.getAttribute("src") === imageDisplaySrc(src) ? image : null;
+}
+
+function hasPendingImageNode(view: EditorView, uploadId: string) {
+  let found = false;
+  view.state.doc.descendants((node) => {
+    if (found) return false;
+    found = node.type.name === "image" && node.attrs.uploadId === uploadId;
+    return !found;
+  });
+  return found;
+}
+
+interface ImageUploadMessages {
+  added: string;
+  broken: string;
+}
+
+const DEFAULT_IMAGE_UPLOAD_MESSAGES: ImageUploadMessages = {
+  added: "Image added",
+  broken: "Image could not be loaded",
+};
+
+export interface ImageUploadOptions {
+  /** Saves the page with the image in it; false when the save failed. */
+  persist?: () => boolean | Promise<boolean>;
+  /** True while the editor can't take the image, such as when suggesting. */
+  isBlocked?: () => boolean;
+  /** Whose previews these are, so they go when that editor closes. */
+  owner?: object;
+  messages?: ImageUploadMessages;
+}
+
+export type ImageUploadOutcome =
+  | { status: "added" }
+  | { status: "stopped" }
+  | { status: "failed"; error: unknown };
+
+interface ImageUploadRun {
+  view: EditorView;
+  file: File;
+  uploadId: string;
+  /** Where the block was and what it held, to restore it from. */
+  request: PendingImagePicker;
+  upload: (file: File) => Promise<string>;
+  persist: () => boolean | Promise<boolean>;
+  isBlocked?: (() => boolean) | undefined;
+  messages: ImageUploadMessages;
+}
+
+function imageUploadFailureMessage(
+  error: unknown,
+  messages: ImageUploadMessages,
+) {
+  return error instanceof ImageRenderError
+    ? messages.broken
+    : imageUploadErrorMessage(error);
+}
+
+function announceImageUpload(
+  outcome: ImageUploadOutcome,
+  messages: ImageUploadMessages,
+) {
+  if (outcome.status === "added") toast.success(messages.added);
+  if (outcome.status === "failed") {
+    toast.error(imageUploadFailureMessage(outcome.error, messages));
+  }
+}
+
+/**
+ * Uploads the file for the block already in the page as `uploadId`: the one
+ * path drops, pastes and the Upload button share. The block draws the picked
+ * file while it waits; the uploaded copy replaces it once that copy has drawn
+ * and the page has saved it. A failed upload keeps the pick in its block,
+ * which offers Retry and Remove, while the page keeps what the block held
+ * before. A block the user deleted stays deleted, however late its upload
+ * answers.
+ */
+export async function runImageUpload(
+  run: ImageUploadRun,
+): Promise<ImageUploadOutcome> {
+  const { view, file, uploadId, request, upload, persist, isBlocked } = run;
+  const closed = () => !view.dom.isConnected;
+  const removed = () =>
+    wasImageUploadBlockRemoved(uploadId) &&
+    !hasPendingImageNode(view, uploadId);
+  const canWrite = () => !closed() && !removed() && !isBlocked?.();
+  let stagedSrc: string | null = null;
+  // Set from the upload's callbacks, so it is read through the object.
+  const progress = { committed: false };
+  startImageUploadPreview(uploadId);
+  try {
+    await completeImageFileUpload({
+      file,
+      upload,
+      stageAttributes: (src) => {
+        if (!canWrite()) return;
+        if (
+          commitPendingImageUpload(view, request, uploadId, { src, uploadId })
+        )
+          stagedSrc = src;
+      },
+      waitForRender: async () => {
+        const src = stagedSrc;
+        if (src === null) throw new Error("The image block isn't available.");
+        await waitForRenderedImage(() =>
+          findPendingImageElement(view, uploadId, src),
+        );
+      },
+      commitAttributes: (src) => {
+        if (!canWrite()) return;
+        progress.committed = commitPendingImageUpload(view, request, uploadId, {
+          src,
+          uploadId: null,
+        });
+      },
+      persistCommittedImage: async () =>
+        progress.committed && !closed() && (await persist()),
+    });
+    releaseImageUploadPreview(uploadId);
+    return { status: "added" };
+  } catch (error) {
+    if (closed() || removed()) {
+      releaseImageUploadPreview(uploadId);
+      return { status: "stopped" };
+    }
+    if (progress.committed) {
+      // The image is in the page; only its save failed.
+      releaseImageUploadPreview(uploadId);
+      return { status: "failed", error };
+    }
+    const failedId = failedImageUploadId(uploadId);
+    const kept =
+      hasImageUploadPreview(uploadId) &&
+      commitPendingImageUpload(view, request, uploadId, {
+        src: request.attrs.src ?? null,
+        uploadId: failedId,
+      });
+    if (!kept) {
+      releaseImageUploadPreview(uploadId);
+      restorePendingImagePicker(view, request, uploadId);
+      return { status: "failed", error };
+    }
+    failImageUploadPreview(
+      uploadId,
+      error instanceof ImageRenderError ? "render" : "upload",
+      () => {
+        if (!replacePendingMediaUploadId(view, "image", failedId, uploadId))
+          return;
+        void runImageUpload(run).then((outcome) =>
+          announceImageUpload(outcome, run.messages),
+        );
+      },
+    );
+    return { status: "failed", error };
+  }
 }
 
 export function restorePendingImagePicker(
@@ -2528,7 +2751,7 @@ export function restorePendingImagePicker(
 
   if (found && nodePosition !== null) {
     tr = tr.setSelection(NodeSelection.create(tr.doc, nodePosition));
-    view.dispatch(tr);
+    view.dispatch(tr.setMeta(IMAGE_UPLOAD_STEP_META, true));
     view.focus();
     return true;
   }
@@ -2675,50 +2898,71 @@ export async function uploadAndInsertImageFiles(
   files: File[],
   position: number,
   upload: (file: File) => Promise<string> = uploadImageFile,
+  {
+    persist = () => true,
+    isBlocked,
+    owner = view,
+    messages = DEFAULT_IMAGE_UPLOAD_MESSAGES,
+  }: ImageUploadOptions = {},
 ): Promise<void> {
   if (files.length === 0) return;
 
   let pendingUploads: PendingMediaUpload[];
   try {
-    pendingUploads = insertPendingMediaNodes(view, "image", files, position);
+    // Held before the blocks exist, so each draws its file from the start.
+    pendingUploads = insertPendingMediaNodes(
+      view,
+      "image",
+      files,
+      position,
+      (pending) => {
+        for (const { uploadId, file } of pending) {
+          holdImageUploadPreview(uploadId, file, owner);
+        }
+      },
+    );
   } catch (error) {
     toast.error(imageUploadErrorMessage(error));
     return;
   }
 
-  const toastId = toast.loading(
-    files.length === 1
-      ? "Uploading image..."
-      : `Uploading ${files.length} images...`,
-  );
-
+  let added = 0;
   let failed = 0;
   let firstError: unknown = null;
 
   for (const pending of pendingUploads) {
-    try {
-      const src = await upload(pending.file);
-      if (!view.dom.isConnected) return;
-      updatePendingMediaNode(view, "image", pending.uploadId, { src, alt: "" });
-    } catch (error) {
+    if (!view.dom.isConnected) return;
+    const outcome = await runImageUpload({
+      view,
+      file: pending.file,
+      uploadId: pending.uploadId,
+      request: {
+        pickerId: pending.uploadId,
+        position: pending.position,
+        attrs: { src: null, alt: "", uploadId: pending.uploadId },
+      },
+      upload,
+      persist,
+      isBlocked,
+      messages,
+    });
+    if (outcome.status === "added") added += 1;
+    if (outcome.status === "failed") {
       failed += 1;
-      firstError ??= error;
-      if (view.dom.isConnected) {
-        updatePendingMediaNode(view, "image", pending.uploadId, {});
-      }
+      firstError ??= outcome.error;
     }
   }
+  if (!view.dom.isConnected) return;
 
   if (failed === 0) {
-    toast.success(files.length === 1 ? "Image added" : "Images added", {
-      id: toastId,
-    });
+    if (added > 0) {
+      toast.success(added === 1 ? messages.added : "Images added");
+    }
   } else if (files.length === 1) {
-    toast.error(imageUploadErrorMessage(firstError), { id: toastId });
+    toast.error(imageUploadFailureMessage(firstError, messages));
   } else {
     toast.error(
-      `${failed} of ${files.length} image uploads failed. ${imageUploadErrorMessage(firstError)}`,
-      { id: toastId },
+      `${failed} of ${files.length} image uploads failed. ${imageUploadFailureMessage(firstError, messages)}`,
     );
   }
 }
@@ -2945,6 +3189,7 @@ export function createVisualEditorExtensions({
         canMutateMedia,
       }),
       MediaSourceCommit.configure({ onMediaSourceCommitted }),
+      ImageUploadRemovals,
       CustomTable.configure({
         resizable: true,
         View: ContentTableView,
@@ -3394,6 +3639,40 @@ export function VisualEditor({
     (file: File) => uploadImageFile(file, privateImageTargetRef.current),
     [],
   );
+  // Saves the page once an uploaded image is in it. Set below, once the
+  // editor and its save path exist.
+  const persistUploadedImageRef = useRef<() => Promise<boolean>>(
+    async () => false,
+  );
+  // Whose image previews these are, so closing the editor lets them go.
+  const [imageUploadOwner] = useState(() => ({}));
+  useEffect(
+    () => () => releaseImageUploadPreviewsFor(imageUploadOwner),
+    [imageUploadOwner],
+  );
+  const imageUploadOptions = useCallback(
+    (): Required<ImageUploadOptions> => ({
+      persist: () => persistUploadedImageRef.current(),
+      isBlocked: () => suggestingRef.current,
+      owner: imageUploadOwner,
+      messages: {
+        added: tRef.current("editor.media.imageAdded"),
+        broken: tRef.current("editor.media.imageBroken"),
+      },
+    }),
+    [imageUploadOwner],
+  );
+  const uploadBodyImages = useCallback(
+    (view: EditorView, files: File[], position: number) =>
+      uploadAndInsertImageFiles(
+        view,
+        files,
+        position,
+        uploadBodyImage,
+        imageUploadOptions(),
+      ),
+    [imageUploadOptions, uploadBodyImage],
+  );
   const clipsEnabled = useFeatureFlag(CLIP_EMBED_FLAG.key);
   const videosGoToClipsRef = useRef(false);
   videosGoToClipsRef.current = clipsEnabled && Boolean(documentId);
@@ -3609,12 +3888,7 @@ export function VisualEditor({
       return;
     }
     if (pending.imageFiles.length > 0) {
-      void uploadAndInsertImageFiles(
-        pending.view,
-        pending.imageFiles,
-        pending.position,
-        uploadBodyImage,
-      );
+      void uploadBodyImages(pending.view, pending.imageFiles, pending.position);
     }
     if (pending.videoFiles.length > 0) {
       void uploadAndInsertVideoFiles(
@@ -3630,7 +3904,7 @@ export function VisualEditor({
         pending.position,
       );
     }
-  }, [documentId, fileStorageConfigured, uploadBodyImage]);
+  }, [documentId, fileStorageConfigured, uploadBodyImages]);
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
   const isSuggesting = useCallback(() => suggestingRef.current, []);
   const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
@@ -3950,12 +4224,7 @@ export function VisualEditor({
             return;
           }
           if (imageFiles.length > 0) {
-            void uploadAndInsertImageFiles(
-              view,
-              imageFiles,
-              position,
-              uploadBodyImage,
-            );
+            void uploadBodyImages(view, imageFiles, position);
           }
           if (storedVideoFiles.length > 0) {
             void uploadAndInsertVideoFiles(view, storedVideoFiles, position);
@@ -4012,12 +4281,7 @@ export function VisualEditor({
             return;
           }
           if (imageFiles.length > 0) {
-            void uploadAndInsertImageFiles(
-              view,
-              imageFiles,
-              view.state.selection.from,
-              uploadBodyImage,
-            );
+            void uploadBodyImages(view, imageFiles, view.state.selection.from);
           }
           if (storedVideoFiles.length > 0) {
             void uploadAndInsertVideoFiles(
@@ -4501,67 +4765,37 @@ export function VisualEditor({
       }
 
       const uploadId = createMediaUploadId("image");
-      if (!ensurePendingImageUpload(editor.view, request, uploadId)) return;
-
-      const toastId = toast.loading(t("editor.media.uploadingImage"));
-      let staged = false;
-      let committed = false;
-      try {
-        await completeImageFileUpload({
-          file,
-          upload: uploadBodyImage,
-          stageAttributes: (src) => {
-            if (editor.isDestroyed || suggestingRef.current) return;
-            staged = commitPendingImageUpload(editor.view, request, uploadId, {
-              src,
-              uploadId,
-            });
-          },
-          waitForRender: async () => {
-            if (!staged) throw new Error(t("empty.genericError"));
-            await waitForRenderedImage(() =>
-              findPendingImageElement(editor.view, uploadId),
-            );
-          },
-          commitAttributes: (src) => {
-            if (editor.isDestroyed || suggestingRef.current) return;
-            committed = commitPendingImageUpload(
-              editor.view,
-              request,
-              uploadId,
-              { src, uploadId: null },
-            );
-          },
-          persistCommittedImage: async () => {
-            if (!committed || editor.isDestroyed || suggestingRef.current)
-              return false;
-            const result = await persistEditorContent(editor, {
-              immediate: true,
-              userInitiated: true,
-            });
-            return isEditorDraftSaveAccepted(result);
-          },
-        });
-        if (!committed) throw new Error(t("empty.genericError"));
-        toast.success(t("editor.media.imageAdded"), { id: toastId });
-      } catch (error) {
-        if (editor.isDestroyed) {
-          toast.dismiss(toastId);
-          return;
-        }
-        if (!committed) {
-          restorePendingImagePicker(editor.view, request, uploadId);
-        }
-        toast.error(
-          error instanceof ImageRenderError
-            ? t("editor.media.imageBroken")
-            : imageUploadErrorMessage(error),
-          { id: toastId },
-        );
+      const options = imageUploadOptions();
+      // Held before the block takes the upload, so it draws the file at once.
+      holdImageUploadPreview(uploadId, file, imageUploadOwner);
+      if (!ensurePendingImageUpload(editor.view, request, uploadId)) {
+        releaseImageUploadPreview(uploadId);
+        return;
       }
+
+      const outcome = await runImageUpload({
+        view: editor.view,
+        file,
+        uploadId,
+        request,
+        upload: uploadBodyImage,
+        persist: options.persist,
+        isBlocked: options.isBlocked,
+        messages: options.messages,
+      });
+      if (!editor.isDestroyed) announceImageUpload(outcome, options.messages);
     },
-    [editor, persistEditorContent, t, uploadBodyImage],
+    [editor, imageUploadOptions, imageUploadOwner, uploadBodyImage],
   );
+  persistUploadedImageRef.current = async () => {
+    if (editor.isDestroyed || suggestingRef.current) return false;
+    return isEditorDraftSaveAccepted(
+      await persistEditorContent(editor, {
+        immediate: true,
+        userInitiated: true,
+      }),
+    );
+  };
 
   const handleImageFileInputCancel = useCallback(() => {
     const request = pendingImagePickerRef.current;
