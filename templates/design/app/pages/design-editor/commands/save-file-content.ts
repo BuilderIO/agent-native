@@ -527,13 +527,44 @@ export function runSaveFileContent(
       }
       const resultInfo = result as
         | {
+            updated?: unknown;
             skippedStaleMirror?: boolean;
             skippedStaleOperation?: boolean;
+            operationAlreadyApplied?: boolean;
             versionHash?: string;
             checkpoint?: { skipped: true; reason: string };
             updatedAt?: unknown;
           }
         | undefined;
+      // The file took this save earlier and has moved on since, so its hash is
+      // not this content's. Nothing was lost; the editor drops its stale copy
+      // and shows the file as it is now, with no conflict to report.
+      if (
+        resultInfo?.updated === true &&
+        resultInfo.operationAlreadyApplied === true
+      ) {
+        if (outboxEntry)
+          void acknowledgeOutboxEntry(outboxEntry).catch(() => {});
+        rollbackPendingLocalFileContent(pending.id, pending.content);
+        if (
+          shouldClearLatestUnloadSave(
+            latestFileSaveForUnloadRef.current[pending.id],
+            pending,
+          )
+        ) {
+          delete latestFileSaveForUnloadRef.current[pending.id];
+        }
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "get-design"],
+        });
+        setPatchProof((prev) =>
+          prev && prev.fileId === pending.id && prev.status === "queued"
+            ? { ...prev, status: patchProofStatusAfterPersistedSave(true) }
+            : prev,
+        );
+        op.succeed();
+        return "persisted";
+      }
       const persistedContentMatches = updateFileResultPersistedContent(
         resultInfo,
         pending.content,

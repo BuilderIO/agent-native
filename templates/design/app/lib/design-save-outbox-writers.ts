@@ -42,6 +42,25 @@ export function holdDesignSaveWriter(operationSource: string): () => void {
 }
 
 /**
+ * Resolves once no editor holds this save session's lock, at once if none does,
+ * so a tab that skipped the session's copies can take them when it closes. The
+ * lock queue itself says when: nothing is polled. Rejects with an AbortError if
+ * `signal` aborts first, and returns null when the browser has no Web Locks.
+ */
+export function waitForDesignSaveWriterRelease(
+  operationSource: string,
+  signal: AbortSignal,
+): Promise<void> | null {
+  const locks = lockManager();
+  if (!locks) return null;
+  return locks.request(
+    WRITER_LOCK_PREFIX + operationSource,
+    { signal },
+    async () => {},
+  );
+}
+
+/**
  * The save sessions whose editors are open in some tab, or null when this
  * browser has no Web Locks, or will not list them, and cannot tell.
  */

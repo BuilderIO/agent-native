@@ -45,6 +45,30 @@ export function isOperationApplied(
   return (revisions[source] ?? 0) >= revision;
 }
 
+/**
+ * The file's scalar columns hold the last versioned writer's receipt and are
+ * overwritten by the next write, so that receipt moves into the map first. A
+ * row from before the map existed has only the scalar. Returns the map it was
+ * given when it already holds the receipt, so a caller can tell nothing changed.
+ */
+export function withLegacyOperationReceipt(
+  revisions: AppliedOperationRevisions,
+  source: string | null | undefined,
+  revision: number | null | undefined,
+): AppliedOperationRevisions {
+  if (
+    typeof source !== "string" ||
+    source === "" ||
+    typeof revision !== "number" ||
+    !Number.isSafeInteger(revision) ||
+    revision < 1 ||
+    isOperationApplied(revisions, source, revision)
+  ) {
+    return revisions;
+  }
+  return withAppliedOperationRevision(revisions, source, revision);
+}
+
 export function withAppliedOperationRevision(
   revisions: AppliedOperationRevisions,
   source: string,

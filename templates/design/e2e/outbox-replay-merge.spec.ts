@@ -401,14 +401,10 @@ test("another open tab leaves an editor's unsent copy to it until that tab close
     await page.goto(
       appPath(`/_agent-native/actions/get-design?id=${designId}`),
     );
+    // No page event is sent: the other tab is woken by the first tab's lock
+    // being released, which is the only thing that can resume the copy.
     await expect
-      .poll(
-        async () => {
-          await replayOutbox(otherTab);
-          return await hasOutboxEntry(otherTab, entry.key);
-        },
-        { timeout: 30_000 },
-      )
+      .poll(() => hasOutboxEntry(otherTab, entry.key), { timeout: 30_000 })
       .toBe(false);
     await expect
       .poll(

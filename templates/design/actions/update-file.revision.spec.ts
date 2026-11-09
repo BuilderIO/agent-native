@@ -779,6 +779,78 @@ describe("update-file browser operation ordering with real PostgreSQL", () => {
       expect(await receipts()).toEqual({ "tab-a": 2 });
     });
 
+    /** A row from before the map existed: the scalar columns name the last writer and the map is empty. */
+    async function asPreMigrationRow() {
+      await localDb.pglite
+        ?.prepare(
+          `UPDATE design_files SET content_operation_revisions = '{}' WHERE id = ?`,
+        )
+        .run(FILE_ID);
+    }
+
+    it("keeps the previous writer's scalar receipt when the first write after migration replaces it", async () => {
+      const copy = "<main>landed before the migration</main>";
+      await save({
+        content: copy,
+        expectedVersionHash: sourceContentHash(BASE),
+        operationSource: "tab-a",
+        operationRevision: 3,
+      });
+      await asPreMigrationRow();
+      const otherWriter = "<main>another writer after the migration</main>";
+      await save({
+        content: otherWriter,
+        expectedVersionHash: sourceContentHash(copy),
+        operationSource: "tab-b",
+        operationRevision: 1,
+      });
+
+      expect(await receipts()).toEqual({ "tab-a": 3, "tab-b": 1 });
+      await expect(
+        save({
+          content: copy,
+          expectedVersionHash: sourceContentHash(BASE),
+          operationSource: "tab-a",
+          operationRevision: 3,
+        }),
+      ).resolves.toMatchObject({ operationAlreadyApplied: true });
+      expect((await persistedFile()).content).toBe(otherWriter);
+    });
+
+    it("keeps it when an unversioned writer replaces the file", async () => {
+      const copy = "<main>landed before the migration</main>";
+      await save({
+        content: copy,
+        expectedVersionHash: sourceContentHash(BASE),
+        operationSource: "tab-a",
+        operationRevision: 3,
+      });
+      await asPreMigrationRow();
+      const agentEdit = "<main>agent edit after the migration</main>";
+      await save({ content: agentEdit });
+
+      expect(await receipts()).toEqual({ "tab-a": 3 });
+      expect(await persistedFile()).toMatchObject({
+        content: agentEdit,
+        content_operation_source: null,
+      });
+      await expect(
+        save({
+          content: copy,
+          expectedVersionHash: sourceContentHash(BASE),
+          operationSource: "tab-a",
+          operationRevision: 3,
+        }),
+      ).resolves.toMatchObject({ operationAlreadyApplied: true });
+    });
+
+    it("leaves the map alone when an unversioned writer has no receipt to keep", async () => {
+      await save({ content: "<main>first agent edit</main>" });
+      await save({ content: "<main>second agent edit</main>" });
+
+      expect(await receipts()).toEqual({});
+    });
+
     it("keeps saving, with fresh receipts, when the stored map is unreadable", async () => {
       await localDb.pglite
         ?.prepare(

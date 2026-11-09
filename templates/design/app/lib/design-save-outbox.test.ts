@@ -659,6 +659,7 @@ describe("design save outbox", () => {
       saved: [],
       merged: [],
       alreadyApplied: [],
+      deferred: [],
       failed: [],
       dropped: [],
       rebased: [],
@@ -1125,6 +1126,9 @@ describe("copies another open tab is still sending", () => {
     ).toEqual(["tab-a:save:1", "tab-c:save:1"]);
     expect(result.saved).toHaveLength(2);
     expect(result.failed).toEqual([]);
+    expect(result.deferred.map((entry) => entry.operationSource)).toEqual([
+      "tab-b:save:1",
+    ]);
     expect(await storage.list("design-1", "user-1")).toHaveLength(1);
   });
 
@@ -1139,13 +1143,14 @@ describe("copies another open tab is still sending", () => {
   });
 
   it("replays every copy when the browser cannot say which editors are open", async () => {
-    const { invokeAction } = await drainWith({
+    const { invokeAction, result } = await drainWith({
       own: "tab-a:save:1",
       live: null,
       sources: ["tab-b:save:1", "tab-c:save:1"],
     });
 
     expect(invokeAction).toHaveBeenCalledTimes(2);
+    expect(result.deferred).toEqual([]);
   });
 
   it("replays every copy when no own session is given", async () => {

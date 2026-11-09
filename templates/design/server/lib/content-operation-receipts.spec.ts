@@ -5,6 +5,7 @@ import {
   MAX_APPLIED_OPERATION_SOURCES,
   parseAppliedOperationRevisions,
   withAppliedOperationRevision,
+  withLegacyOperationReceipt,
 } from "./content-operation-receipts";
 
 describe("parseAppliedOperationRevisions", () => {
@@ -85,5 +86,33 @@ describe("withAppliedOperationRevision", () => {
     expect(Object.keys(revisions)).toContain("tab-0");
     expect(Object.keys(revisions)).not.toContain("tab-1");
     expect(revisions["tab-0"]).toBe(2);
+  });
+});
+
+describe("withLegacyOperationReceipt", () => {
+  it("adds the scalar receipt of the last versioned writer", () => {
+    expect(withLegacyOperationReceipt({ "tab-b": 1 }, "tab-a", 3)).toEqual({
+      "tab-b": 1,
+      "tab-a": 3,
+    });
+  });
+
+  it("returns the same map when it already holds that receipt or a newer one", () => {
+    const revisions = { "tab-a": 3 };
+    expect(withLegacyOperationReceipt(revisions, "tab-a", 3)).toBe(revisions);
+    expect(withLegacyOperationReceipt(revisions, "tab-a", 2)).toBe(revisions);
+  });
+
+  it.each([
+    ["no session", null, 3],
+    ["an empty session", "", 3],
+    ["no revision", "tab-a", null],
+    ["a zero revision", "tab-a", 0],
+    ["a fractional revision", "tab-a", 1.5],
+  ])("adds nothing for %s", (_label, source, revision) => {
+    const revisions = { "tab-b": 1 };
+    expect(withLegacyOperationReceipt(revisions, source, revision)).toBe(
+      revisions,
+    );
   });
 });

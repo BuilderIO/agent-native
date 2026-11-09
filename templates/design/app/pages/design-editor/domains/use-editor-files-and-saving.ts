@@ -56,8 +56,10 @@ import {
 import {
   holdDesignSaveWriter,
   liveDesignSaveWriterSources,
+  waitForDesignSaveWriterRelease,
 } from "@/lib/design-save-outbox-writers";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
+import { createLatestReadGate } from "@/lib/latest-read-gate";
 
 import type {
   LiveScreenSnapshot,
@@ -364,13 +366,18 @@ export function useEditorFilesAndSaving({
     [id],
   );
 
+  const [unsavedCountReads] = useState(createLatestReadGate);
   const refreshUnsavedChangeCount = useCallback(async () => {
     if (!id) return;
+    const isLatestRead = unsavedCountReads.begin();
     try {
       const [entries, liveWriterSources] = await Promise.all([
         listDesignSaveOutboxEntries(id, designSaveActorScope),
         liveDesignSaveWriterSources(),
       ]);
+      // A read that finishes after a newer one began holds an older outbox
+      // than that read saw, and must not bring back a count it already cleared.
+      if (!isLatestRead()) return;
       applyUnsavedChangeCount(
         stuckDesignSaveOutboxEntries(entries, {
           ownOperationSource: designSaveOperationSourceRef.current,
@@ -384,10 +391,41 @@ export function useEditorFilesAndSaving({
     } catch {
       // coercion-ok: an unreadable outbox says nothing about what is stuck, so the chip keeps what it showed.
     }
-  }, [applyUnsavedChangeCount, designSaveActorScope, id]);
+  }, [applyUnsavedChangeCount, designSaveActorScope, id, unsavedCountReads]);
   useEffect(() => {
     refreshUnsavedChangeCountRef.current = refreshUnsavedChangeCount;
   }, [refreshUnsavedChangeCount]);
+
+  const writerWaitControllerRef = useRef<AbortController | null>(null);
+  const awaitedWriterSourcesRef = useRef(new Set<string>());
+  // A copy left to another open tab has nothing to wake this one when that tab
+  // closes, so this tab asks to be told: the writer's lock is granted to it then.
+  const resumeWhenWriterCloses = useCallback((operationSource: string) => {
+    const controller = writerWaitControllerRef.current;
+    const awaited = awaitedWriterSourcesRef.current;
+    if (!controller || awaited.has(operationSource)) return;
+    const wait = waitForDesignSaveWriterRelease(
+      operationSource,
+      controller.signal,
+    );
+    if (!wait) return;
+    awaited.add(operationSource);
+    void wait.then(
+      () => {
+        awaited.delete(operationSource);
+        void retryDesignSaveOutboxRef.current();
+      },
+      (error: unknown) => {
+        awaited.delete(operationSource);
+        if (!controller.signal.aborted) {
+          console.warn(
+            "Could not wait for a design save writer to close",
+            error,
+          );
+        }
+      },
+    );
+  }, []);
 
   const drainFailureCountRef = useRef(0);
   const retryDesignSaveOutboxRef = useRef<() => Promise<void>>(async () => {});
@@ -484,7 +522,12 @@ export function useEditorFilesAndSaving({
         warnChangesDiscarded();
       }
       drainFailureCountRef.current = 0;
-      applyUnsavedChangeCount(result.failed.length);
+      // Recounted from the outbox, not taken from this drain: a save may have
+      // settled an entry after the drain looked at it.
+      await refreshUnsavedChangeCount();
+      for (const { operationSource } of result.deferred) {
+        resumeWhenWriterCloses(operationSource);
+      }
       if (result.failed.length > 0) scheduleOutboxRetry();
       else outboxRetryScheduler.resetBackoff();
     } catch (error) {
@@ -500,10 +543,11 @@ export function useEditorFilesAndSaving({
       }
     }
   }, [
-    applyUnsavedChangeCount,
     designSaveActorScope,
     id,
     outboxRetryScheduler,
+    refreshUnsavedChangeCount,
+    resumeWhenWriterCloses,
     readLiveFileContent,
     rollbackPendingLocalFileContent,
     queryClient,
@@ -539,11 +583,21 @@ export function useEditorFilesAndSaving({
     return outboxRetryScheduler.dispose;
   }, [outboxRetryScheduler]);
 
-  // Other tabs leave this editor's unsent saves to it while it stays open.
-  useEffect(
-    () => holdDesignSaveWriter(designSaveOperationSourceRef.current),
-    [],
-  );
+  // Other tabs leave this editor's unsent saves to it while it stays open, and
+  // stop waiting on other tabs' writers when this editor closes.
+  useEffect(() => {
+    const controller = new AbortController();
+    writerWaitControllerRef.current = controller;
+    const releaseWriter = holdDesignSaveWriter(
+      designSaveOperationSourceRef.current,
+    );
+    return () => {
+      controller.abort();
+      writerWaitControllerRef.current = null;
+      awaitedWriterSourcesRef.current.clear();
+      releaseWriter();
+    };
+  }, []);
 
   const createFileSaveOutboxEntry = useCallback(
     (pending: FileContentSaveRequest) => {

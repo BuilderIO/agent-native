@@ -45,6 +45,8 @@ export interface DrainDesignSaveOutboxResult {
   merged: DesignSaveOutboxEntry[];
   /** The server had already applied this save, so the copy was dropped, not replayed. */
   alreadyApplied: DesignSaveOutboxEntry[];
+  /** Left queued because an editor open in another tab is still sending it. */
+  deferred: DesignSaveOutboxEntry[];
   failed: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
   dropped: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
   rebased: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
@@ -706,13 +708,17 @@ async function drainEntries(
     saved: [],
     merged: [],
     alreadyApplied: [],
+    deferred: [],
     failed: [],
     dropped: [],
     rebased: [],
   };
   for (const entry of await storage.list(designId, actorScope)) {
     // An editor open in another tab is still sending this copy itself.
-    if (!(await isReplayable(entry))) continue;
+    if (!(await isReplayable(entry))) {
+      result.deferred.push(entry);
+      continue;
+    }
     try {
       const outcome = await replayEntry(entry, invokeAction, merge);
       await storage.deleteIfRevision(entry);

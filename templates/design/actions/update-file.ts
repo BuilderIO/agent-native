@@ -14,6 +14,7 @@ import {
   isOperationApplied,
   parseAppliedOperationRevisions,
   withAppliedOperationRevision,
+  withLegacyOperationReceipt,
 } from "../server/lib/content-operation-receipts.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
@@ -668,6 +669,16 @@ export default defineAction({
               outputChanged ||
               sourceContentHash(content) !== sourceContentHash(liveContent);
             persistedVersionHash = sourceContentHash(content);
+            // This write replaces the scalar receipt of the writer before it, so
+            // that receipt is kept in the map. An unreadable map restarts empty:
+            // the receipts it held are lost, which only means older copies merge
+            // instead of being skipped.
+            const receiptsBefore = appliedRevisions ?? {};
+            const receipts = withLegacyOperationReceipt(
+              receiptsBefore,
+              persistedFile.contentOperationSource,
+              persistedFile.contentOperationRevision,
+            );
             if (
               operationSource !== undefined &&
               operationRevision !== undefined
@@ -675,11 +686,9 @@ export default defineAction({
               updates.contentOperationSource = operationSource;
               updates.contentOperationRevision = operationRevision;
               updates.contentOperationResultHash = persistedVersionHash;
-              // An unreadable map restarts empty: the receipts it held are lost,
-              // which only means older copies merge instead of being skipped.
               updates.contentOperationRevisions = JSON.stringify(
                 withAppliedOperationRevision(
-                  appliedRevisions ?? {},
+                  receipts,
                   operationSource,
                   operationRevision,
                 ),
@@ -688,6 +697,9 @@ export default defineAction({
               updates.contentOperationSource = null;
               updates.contentOperationRevision = null;
               updates.contentOperationResultHash = null;
+              if (receipts !== receiptsBefore) {
+                updates.contentOperationRevisions = JSON.stringify(receipts);
+              }
             }
           }
           if (filename !== undefined) updates.filename = filename;
