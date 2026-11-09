@@ -252,8 +252,13 @@ export function VocabularyManager({
         );
         return { previous };
       },
-      onError: (error, _variables, context: any) => {
-        if (context?.previous) {
+      onError: (error, _variables, context) => {
+        if (
+          typeof context === "object" &&
+          context !== null &&
+          "previous" in context &&
+          context.previous
+        ) {
           queryClient.setQueryData(QUERY_KEY, context.previous);
         }
         reportWriteFailure(error, {
