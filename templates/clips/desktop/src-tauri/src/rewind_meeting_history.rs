@@ -20,8 +20,9 @@ const MAX_MEETING_HISTORY_HOURS: i64 = 8;
 const INDEX_WAIT_TIMEOUT: Duration = Duration::from_secs(45);
 const INDEX_POLL_INTERVAL: Duration = Duration::from_millis(200);
 // Notes collect within seconds of transcription starting. A Whisper model download can hold
-// that start back, so the lifetime counts only while no download runs.
+// that start back, so the lifetime counts only while no download runs, up to an hour in all.
 const UNCOLLECTED_REQUEST_LIFETIME: Duration = Duration::from_secs(10 * 60);
+const UNCOLLECTED_REQUEST_MAX_LIFETIME: Duration = Duration::from_secs(60 * 60);
 const UNCOLLECTED_REQUEST_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 static HISTORY_REQUEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -31,6 +32,7 @@ pub struct RewindMeetingHistoryState {
 }
 
 struct PreparedMeetingHistory {
+    prepared_at: Instant,
     waiting_since: Instant,
     scheduled_start: DateTime<Utc>,
     captured_until: DateTime<Utc>,
@@ -117,6 +119,7 @@ pub async fn rewind_meeting_history_prepare(
             return Err(error);
         }
     }
+    let prepared_at = Instant::now();
     app.state::<RewindMeetingHistoryState>()
         .requests
         .lock()
@@ -124,7 +127,8 @@ pub async fn rewind_meeting_history_prepare(
         .insert(
             token.clone(),
             PreparedMeetingHistory {
-                waiting_since: Instant::now(),
+                prepared_at,
+                waiting_since: prepared_at,
                 scheduled_start: requested_start,
                 captured_until,
                 segments,
@@ -222,7 +226,9 @@ fn release_uncollected_requests(app: &AppHandle, token: &str) -> bool {
 }
 
 // A meeting that transcribes with Whisper starts only once the model has downloaded, so the
-// lifetime counts from the last moment a download was running.
+// lifetime counts from the last moment a download was running. The flag can't tell which
+// download a meeting waits on, and a download can stall, so an hour after preparing a request
+// is released regardless; its meeting then starts without the earlier audio.
 fn take_uncollected_requests(
     requests: &Mutex<HashMap<String, PreparedMeetingHistory>>,
     now: Instant,
@@ -233,12 +239,13 @@ fn take_uncollected_requests(
         for prepared in requests.values_mut() {
             prepared.waiting_since = now;
         }
-        return Ok(Vec::new());
     }
     let expired = requests
         .iter()
         .filter(|(_, prepared)| {
-            now.saturating_duration_since(prepared.waiting_since) >= UNCOLLECTED_REQUEST_LIFETIME
+            let idle = now.saturating_duration_since(prepared.waiting_since);
+            let age = now.saturating_duration_since(prepared.prepared_at);
+            idle >= UNCOLLECTED_REQUEST_LIFETIME || age >= UNCOLLECTED_REQUEST_MAX_LIFETIME
         })
         .map(|(token, _)| token.clone())
         .collect::<Vec<_>>();
@@ -619,6 +626,7 @@ mod tests {
         (
             token.to_string(),
             PreparedMeetingHistory {
+                prepared_at,
                 waiting_since: prepared_at,
                 scheduled_start: start,
                 captured_until: start,
@@ -699,6 +707,21 @@ mod tests {
         assert!(before.is_empty());
         assert_eq!(after.len(), 1);
         assert_eq!(after[0].pin_id, "waiting-segments");
+    }
+
+    #[test]
+    fn a_running_download_holds_a_request_for_an_hour_at_most() {
+        let prepared_at = Instant::now();
+        let requests = Mutex::new(HashMap::from([prepared_request("stalled", prepared_at)]));
+        let limit = prepared_at + UNCOLLECTED_REQUEST_MAX_LIFETIME;
+        let just_before = limit - Duration::from_millis(1);
+
+        let before = take_uncollected_requests(&requests, just_before, true).unwrap();
+        let after = take_uncollected_requests(&requests, limit, true).unwrap();
+
+        assert!(before.is_empty());
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].pin_id, "stalled-segments");
     }
 
     #[test]
