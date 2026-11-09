@@ -147,12 +147,34 @@ describe("recoverGoogleCredential", () => {
     });
   });
 
-  it("rejects fingerprints with invalid format", () => {
+  it("rejects invalid fingerprints and impossible UTC calendar timestamps", () => {
     expectFailure("google_recovery_invalid_config", {
       config: { ...baseConfig, expectedSecretSha256: "short" },
     });
-    expectFailure("google_recovery_invalid_config", {
-      config: { ...baseConfig, expiresAt: "November 9, 2026" },
-    });
+    for (const timestamp of [
+      "November 9, 2026",
+      "2026-02-30T20:01:00.000Z",
+      "2026-02-29T20:01:00.000Z",
+      "2028-02-29T20:01:00.000Z",
+      "2026-11-09T24:00:00.000Z",
+    ]) {
+      const isValidLeapDay = timestamp === "2028-02-29T20:01:00.000Z";
+      if (isValidLeapDay) {
+        expect(() =>
+          recover({
+            config: {
+              ...baseConfig,
+              notBefore: "2028-02-29T20:00:00.000Z",
+              expiresAt: timestamp,
+            },
+            now: Date.parse("2028-02-29T20:00:30.000Z"),
+          }),
+        ).not.toThrow();
+      } else {
+        expectFailure("google_recovery_invalid_config", {
+          config: { ...baseConfig, expiresAt: timestamp },
+        });
+      }
+    }
   });
 });

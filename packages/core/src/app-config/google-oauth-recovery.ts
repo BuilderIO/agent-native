@@ -23,7 +23,7 @@ export const googleOAuthRecoveryConfig = z.object({
   }),
   expiresAt: z.string().trim().optional().meta({
     env: "GOOGLE_OAUTH_RECOVERY_EXPIRES_AT",
-    doc: "ISO timestamp when temporary Google OAuth credential recovery expires.",
+    doc: "UTC ISO issuance cutoff for temporary Google OAuth credential recovery; already-issued ciphertext remains decryptable afterward.",
   }),
 });
 

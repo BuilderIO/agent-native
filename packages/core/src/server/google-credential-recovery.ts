@@ -38,6 +38,7 @@ export interface GoogleCredentialRecoveryEnvelope {
   clientId: string;
   secretSha256: string;
   encryptedSecret: string;
+  /** Issuance cutoff; ciphertext already returned remains decryptable afterward. */
   expiresAt: string;
 }
 
@@ -51,11 +52,35 @@ function present(value: string | undefined): string | null {
 }
 
 function parseTimestamp(value: string): number | null {
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value)) {
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?Z$/.exec(
+      value,
+    );
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const millisecond = Number((match.at(7) ?? "").padEnd(3, "0") || "0");
+  const parsed = new Date(0);
+  parsed.setUTCFullYear(year, month - 1, day);
+  parsed.setUTCHours(hour, minute, second, millisecond);
+
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day ||
+    parsed.getUTCHours() !== hour ||
+    parsed.getUTCMinutes() !== minute ||
+    parsed.getUTCSeconds() !== second ||
+    parsed.getUTCMilliseconds() !== millisecond
+  ) {
     return null;
   }
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return parsed.getTime();
 }
 
 function requireConfigValue(value: string | null): string {
