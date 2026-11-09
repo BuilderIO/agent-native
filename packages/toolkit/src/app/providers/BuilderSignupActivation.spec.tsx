@@ -38,12 +38,14 @@ function Counter() {
 }
 
 function Activation({ userId }: { userId: string | undefined }) {
-  const { activating, resolving } = useBuilderSignupActivation(
-    userId,
-    "clips_builder_signup_v1",
-  );
+  const { activating, resolving, statusError, retryStatus } =
+    useBuilderSignupActivation(userId, "clips_builder_signup_v1");
   return (
-    <BuilderSignupActivationCover activating={activating}>
+    <BuilderSignupActivationCover
+      activating={activating}
+      statusError={statusError}
+      retryStatus={retryStatus}
+    >
       <span data-resolving={resolving} />
       <Counter />
     </BuilderSignupActivationCover>
@@ -105,6 +107,46 @@ describe("BuilderSignupActivation", () => {
     mocks.status.mockResolvedValue("disabled");
     await act(async () => {
       await queryClient.invalidateQueries();
+    });
+    await vi.waitFor(() =>
+      expect(container.querySelector("[role='status']")).toBeNull(),
+    );
+  });
+
+  it("releases the startup deferral when eligibility fails without a confirmed activation", async () => {
+    mocks.status.mockRejectedValue(new Error("eligibility unavailable"));
+    await render("eligibility-error-user");
+    await vi.waitFor(
+      () =>
+        expect(
+          container
+            .querySelector("[data-resolving]")
+            ?.getAttribute("data-resolving"),
+        ).toBe("false"),
+      { timeout: 4000 },
+    );
+    expect(container.querySelector("[role='status']")).toBeNull();
+    expect(mocks.activate).not.toHaveBeenCalled();
+  });
+
+  it("shows a retry state when confirmed activation status becomes unavailable", async () => {
+    mocks.status.mockResolvedValue("eligible");
+    mocks.activate.mockRejectedValue(new Error("polling timed out"));
+    await render("retry-status-user");
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledOnce());
+    mocks.status.mockRejectedValue(new Error("status unavailable"));
+    await act(async () => {
+      await queryClient.invalidateQueries();
+    });
+    await vi.waitFor(
+      () => expect(container.querySelector("[role='alert']")).not.toBeNull(),
+      { timeout: 4000 },
+    );
+    mocks.status.mockResolvedValue("disabled");
+    await act(async () => {
+      container
+        .querySelector("[role='alert'] button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await vi.waitFor(() =>
       expect(container.querySelector("[role='status']")).toBeNull(),

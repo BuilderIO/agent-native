@@ -8,6 +8,7 @@ import { useSession } from "@agent-native/core/client/use-session";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { Button } from "../../ui/button.js";
 import { Skeleton } from "../../ui/skeleton.js";
 import { FirstRunOnboardingStartupGate } from "../onboarding/first-run-startup-gate.js";
 
@@ -19,7 +20,12 @@ const attempts = new Map<string, Promise<unknown>>();
 export function useBuilderSignupActivation(
   userId: string | undefined,
   experimentId: string,
-): { activating: boolean; resolving: boolean } {
+): {
+  activating: boolean;
+  resolving: boolean;
+  statusError: boolean;
+  retryStatus: () => void;
+} {
   const queryClient = useQueryClient();
   const attemptKey = `${experimentId}:${userId}`;
   const [activation, setActivation] = useState<{
@@ -103,8 +109,11 @@ export function useBuilderSignupActivation(
       (activation?.userId === userId
         ? activation.status !== "settled"
         : eligibility.data === "eligible"),
-    resolving:
-      Boolean(userId) && (eligibility.isPending || eligibility.isError),
+    resolving: Boolean(userId) && eligibility.isPending,
+    statusError: activation?.status === "checking" && eligibility.isError,
+    retryStatus: () => {
+      void eligibility.refetch();
+    },
   };
 }
 
@@ -116,8 +125,12 @@ export function useBuilderSignupActivation(
 export function BuilderSignupActivationCover({
   activating,
   children,
+  statusError = false,
+  retryStatus,
 }: {
   activating: boolean;
+  statusError?: boolean;
+  retryStatus?: () => void;
   children: ReactNode;
 }) {
   const t = useT();
@@ -131,8 +144,22 @@ export function BuilderSignupActivationCover({
           <span role="status" className="sr-only">
             {t("agentChat.common.loading")}
           </span>
-          <Skeleton className="h-full w-60" />
-          <Skeleton className="h-full flex-1" />
+          {statusError ? (
+            <div
+              role="alert"
+              className="m-auto flex flex-col items-center gap-3"
+            >
+              <span>{t("agentChat.common.chunkLoadFailed")}</span>
+              <Button onClick={retryStatus}>
+                {t("agentChat.common.retry")}
+              </Button>
+            </div>
+          ) : (
+            <>
+              <Skeleton className="h-full w-60" />
+              <Skeleton className="h-full flex-1" />
+            </>
+          )}
         </div>
       ) : null}
     </>
@@ -149,14 +176,19 @@ export function BuilderSignupStartupGate({
   children: ReactNode;
 }) {
   const { session } = useSession();
-  const { activating, resolving } = useBuilderSignupActivation(
-    experimentId && session?.emailVerified === true
-      ? session.userId
-      : undefined,
-    experimentId ?? "disabled",
-  );
+  const { activating, resolving, statusError, retryStatus } =
+    useBuilderSignupActivation(
+      experimentId && session?.emailVerified === true
+        ? session.userId
+        : undefined,
+      experimentId ?? "disabled",
+    );
   return (
-    <BuilderSignupActivationCover activating={activating}>
+    <BuilderSignupActivationCover
+      activating={activating}
+      statusError={statusError}
+      retryStatus={retryStatus}
+    >
       <FirstRunOnboardingStartupGate
         suppressSurface={suppressSurface}
         deferSurface={resolving || activating}
