@@ -93,6 +93,26 @@ describe("FirstRunOnboardingStartupGate", () => {
     document.cookie = `${FIRST_RUN_ONBOARDING_COOKIE}=; Max-Age=0; path=/`;
   });
 
+  it("reserves onboarding ownership while Builder setup runs without mounting the onboarding surface", async () => {
+    mocks.fetchStatus.mockResolvedValue(true);
+    await act(async () => {
+      root.render(
+        <FirstRunOnboardingStartupGate deferSurface>
+          <GateOwnershipProbe />
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+    expect(
+      container.querySelector('[data-testid="gate-ownership"]')?.textContent,
+    ).toBe("true");
+    expect(
+      container.querySelector('[data-first-run-app-inert="true"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="first-run-onboarding"]'),
+    ).toBeNull();
+  });
+
   it("holds the status read while the session preloads, then reads once it resolves", async () => {
     mocks.fetchStatus.mockResolvedValue(false);
     const renderGate = (preloading: boolean) =>

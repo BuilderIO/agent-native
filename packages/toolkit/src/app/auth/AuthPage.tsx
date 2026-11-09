@@ -718,7 +718,8 @@ export function AuthPage(props: AuthPageProps) {
       return;
     builderSignupExposure.current = builderSignup.id;
     builderSignupTelemetry = {
-      experiment_id: builderSignup.experimentId ?? "design_builder_signup_v1",
+      experiment_id:
+        builderSignup.experimentId ?? `${trackingApp}_builder_signup_v1`,
       experiment_variant: builderSignup.variant,
       assignment_id: builderSignup.id,
     };

@@ -19,6 +19,7 @@ import {
 import { z } from "zod";
 
 import { getAppConfig } from "../app-config/index.js";
+import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import { getSetting, mutateSetting } from "../settings/store.js";
 import { flushTracking, track } from "../tracking/index.js";
 import type { AuthSession } from "./auth.js";
@@ -81,7 +82,10 @@ function experimentId(): string {
 function experimentProperties(
   assignment?: Assignment,
 ): Record<string, unknown> {
+  const identity = trackingIdentityProperties();
   return {
+    ...(identity.app ? { app_name: identity.app } : {}),
+    ...(identity.template ? { template_name: identity.template } : {}),
     experiment_id: experimentId(),
     ...(assignment
       ? { experiment_variant: assignment.variant, assignment_id: assignment.id }

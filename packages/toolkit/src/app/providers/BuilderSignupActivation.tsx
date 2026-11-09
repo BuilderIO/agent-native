@@ -19,15 +19,24 @@ const attempts = new Map<string, Promise<unknown>>();
 export function useBuilderSignupActivation(
   userId: string | undefined,
   experimentId: string,
-): boolean {
+): { activating: boolean; resolving: boolean } {
   const queryClient = useQueryClient();
   const attemptKey = `${experimentId}:${userId}`;
+  const [activation, setActivation] = useState<{
+    userId: string;
+    status: "running" | "checking" | "settled";
+  }>();
   const eligibility = useQuery({
     queryKey: ["builder-signup-eligibility", experimentId, userId],
     queryFn: startBuilderSignupActivation,
     enabled: Boolean(userId),
     staleTime: Infinity,
     retry: 1,
+    refetchInterval: (query) =>
+      query.state.status === "error" ||
+      (activation?.status === "checking" && activation.userId === userId)
+        ? 2000
+        : false,
   });
   useEffect(() => {
     if (eligibility.error && userId) {
@@ -39,10 +48,6 @@ export function useBuilderSignupActivation(
       });
     }
   }, [eligibility.error, userId, experimentId]);
-  const [activation, setActivation] = useState<{
-    userId: string;
-    status: "running" | "settled";
-  }>();
   useEffect(() => {
     if (
       !userId ||
@@ -71,7 +76,9 @@ export function useBuilderSignupActivation(
         auth_user_id: userId,
         reason: error instanceof Error ? error.message : "unknown_error",
       });
-      settle();
+      setActivation((current) =>
+        current?.userId === userId ? { userId, status: "checking" } : current,
+      );
     });
   }, [
     activation?.userId,
@@ -81,12 +88,25 @@ export function useBuilderSignupActivation(
     experimentId,
     attemptKey,
   ]);
-  return (
-    userId !== undefined &&
-    (activation?.userId === userId
-      ? activation.status === "running"
-      : eligibility.data === "eligible")
-  );
+  useEffect(() => {
+    if (
+      activation?.status === "checking" &&
+      activation.userId === userId &&
+      eligibility.data === "disabled"
+    ) {
+      setActivation({ userId, status: "settled" });
+      void queryClient.invalidateQueries();
+    }
+  }, [activation, userId, eligibility.data, queryClient]);
+  return {
+    activating:
+      userId !== undefined &&
+      (activation?.userId === userId
+        ? activation.status !== "settled"
+        : eligibility.data === "eligible"),
+    resolving:
+      Boolean(userId) && (eligibility.isPending || eligibility.isError),
+  };
 }
 
 // Children stay mounted in the same tree position whether or not a session or
@@ -130,7 +150,7 @@ export function BuilderSignupStartupGate({
   children: ReactNode;
 }) {
   const { session } = useSession();
-  const activating = useBuilderSignupActivation(
+  const { activating, resolving } = useBuilderSignupActivation(
     experimentId && session?.emailVerified === true
       ? session.userId
       : undefined,
@@ -139,7 +159,8 @@ export function BuilderSignupStartupGate({
   return (
     <BuilderSignupActivationCover activating={activating}>
       <FirstRunOnboardingStartupGate
-        suppressSurface={suppressSurface || activating}
+        suppressSurface={suppressSurface}
+        deferSurface={resolving || activating}
       >
         {children}
       </FirstRunOnboardingStartupGate>

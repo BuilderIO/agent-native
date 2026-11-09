@@ -38,12 +38,13 @@ function Counter() {
 }
 
 function Activation({ userId }: { userId: string | undefined }) {
-  const activating = useBuilderSignupActivation(
+  const { activating, resolving } = useBuilderSignupActivation(
     userId,
     "clips_builder_signup_v1",
   );
   return (
     <BuilderSignupActivationCover activating={activating}>
+      <span data-resolving={resolving} />
       <Counter />
     </BuilderSignupActivationCover>
   );
@@ -82,6 +83,32 @@ describe("BuilderSignupActivation", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+  });
+
+  it("keeps first-run onboarding suppressed while eligibility resolves without covering existing content", async () => {
+    mocks.status.mockReturnValue(new Promise(() => {}));
+    await render("pending-user");
+    expect(
+      container
+        .querySelector("[data-resolving]")
+        ?.getAttribute("data-resolving"),
+    ).toBe("true");
+    expect(container.querySelector("[role='status']")).toBeNull();
+  });
+
+  it("keeps the cover after a polling timeout until the server confirms a terminal result", async () => {
+    mocks.status.mockResolvedValue("eligible");
+    mocks.activate.mockRejectedValue(new Error("polling timed out"));
+    await render("timeout-user");
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledOnce());
+    expect(container.querySelector("[role='status']")).not.toBeNull();
+    mocks.status.mockResolvedValue("disabled");
+    await act(async () => {
+      await queryClient.invalidateQueries();
+    });
+    await vi.waitFor(() =>
+      expect(container.querySelector("[role='status']")).toBeNull(),
+    );
   });
 
   it("keeps children mounted when the session resolves", async () => {

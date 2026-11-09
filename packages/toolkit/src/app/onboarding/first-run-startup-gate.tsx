@@ -49,9 +49,12 @@ function readFirstRunOnboardingCookieState(): FirstRunCookieState {
 export function FirstRunOnboardingStartupGate({
   children,
   suppressSurface = false,
+  deferSurface = false,
 }: {
   children: React.ReactNode;
   suppressSurface?: boolean;
+  /** Another startup operation owns onboarding until it settles. */
+  deferSurface?: boolean;
 }) {
   const t = useT();
   const previewMode = useOnboardingPreviewMode();
@@ -127,8 +130,10 @@ export function FirstRunOnboardingStartupGate({
     };
   }, [retryNumber, shouldResolve, preloading]);
 
-  const ownsSurface = !suppressSurface && decision === "eligible";
-  const gateOwnsSurface = !suppressSurface && decision !== "ineligible";
+  const ownsSurface =
+    !suppressSurface && !deferSurface && decision === "eligible";
+  const gateOwnsSurface =
+    deferSurface || (!suppressSurface && decision !== "ineligible");
 
   return (
     <FirstRunOnboardingGateContext.Provider value={gateOwnsSurface}>
@@ -140,7 +145,7 @@ export function FirstRunOnboardingStartupGate({
       >
         {children}
       </div>
-      {!suppressSurface && decision === "unavailable" && (
+      {!suppressSurface && !deferSurface && decision === "unavailable" && (
         <div
           role="alert"
           data-first-run-status-error="true"
