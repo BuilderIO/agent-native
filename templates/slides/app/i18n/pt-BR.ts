@@ -122,6 +122,9 @@ const messages = {
     noAssetsYet: "Ainda não há ativos.",
     assetUploadFailed: "Alguns envios falharam",
     assetDeleteFailed: "Falha ao excluir o ativo",
+    assetLoadFailed: "Não foi possível carregar os ativos",
+    assetSelectNoChange: "Não foi possível aplicar esta imagem a este slide",
+    retry: "Tentar novamente",
     assetDeleteInUse:
       "Este ativo é usado em uma apresentação. Remova-o da apresentação primeiro",
     assetDeleteStorageRemains:

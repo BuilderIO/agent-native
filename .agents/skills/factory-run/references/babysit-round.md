@@ -14,7 +14,11 @@ press it, so this round overrides those defaults: run `git commit`,
 `git merge origin/main`, the Worktrees tool, and `scripts/fix-proof.ts`
 yourself. Nothing blocks
 them. Never report "commits are unavailable", "read-only", or "a person must
-sync main" without running the command and quoting its error.
+sync main" without running the command and quoting its error. If merging main
+really fails, or the fix or proof gate you need is only on main, don't ask a
+person to sync: commit your other work and stop with
+`OUTCOME: blocked - needs main merged: <the error or what main has>`. When the
+PR is behind main, the factory merges main itself and sends another round.
 
 - The factory owns this PR: it opened or adopted it. Skip `babysit-pr`'s
   `gh api user` login and author check. In Builder, `gh` uses an app token

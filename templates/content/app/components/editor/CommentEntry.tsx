@@ -123,6 +123,7 @@ export function CommentEntry({
   comment,
   documentId,
   currentUserEmail,
+  currentUserName,
   canComment,
   headerActions,
   revealActions = "always",
@@ -137,6 +138,7 @@ export function CommentEntry({
   comment: Comment;
   documentId: string;
   currentUserEmail?: string;
+  currentUserName?: string;
   canComment: boolean;
   /**
    * On a thread's first comment, whether its author may delete the thread:
@@ -168,7 +170,10 @@ export function CommentEntry({
   const edit = useEditComment();
   const remove = useDeleteComment();
   const react = useReactToComment();
-  const create = useCreateComment({ email: currentUserEmail });
+  const create = useCreateComment({
+    email: currentUserEmail ?? null,
+    name: currentUserName ?? null,
+  });
   const [checking, setChecking] = useState(false);
   const [checkedUnresolvedOperationId, setCheckedUnresolvedOperationId] =
     useState<string | null>(null);

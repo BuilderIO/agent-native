@@ -203,10 +203,16 @@ interface DocumentPropertiesProps {
   databaseId: string | null;
   databaseDocumentId: string | null;
   /** The view this row was opened from, which lays out its Properties. */
-  rowView?: DatabaseRowView | null;
+  rowView?: DatabaseRowView | null | undefined;
   /** The view isn't read yet, so the Properties don't draw out of order. */
   rowViewPending?: boolean;
   canEdit: boolean;
+  /**
+   * Draw the rows an editor of the collection gets until the row's own read
+   * answers, and on through a wait for canEdit once it grants them, so they
+   * don't arrive later and push the page down.
+   */
+  schemaRowsExpected?: boolean;
   popoversPortalled?: boolean;
   popoverContainer?: HTMLElement | null;
 }
@@ -1001,11 +1007,15 @@ export function DocumentProperties({
   rowView,
   rowViewPending = false,
   canEdit,
+  schemaRowsExpected = false,
   popoversPortalled = true,
   popoverContainer,
 }: DocumentPropertiesProps) {
   const t = useT();
-  const { data, isLoading } = useDocumentProperties(documentId, databaseId);
+  const { data, isLoading, isError, dataUpdatedAt } = useDocumentProperties(
+    documentId,
+    databaseId,
+  );
   const loaded = documentPropertiesResponseMatchesScope(
     documentId,
     databaseId,
@@ -1022,6 +1032,11 @@ export function DocumentProperties({
     databaseId !== null &&
     databaseDocumentId !== null &&
     data.canManageSchema === true;
+  const showSchemaRows =
+    canManageSchema ||
+    (schemaRowsExpected &&
+      ((!dataUpdatedAt && !isError) ||
+        (loaded && data.canManageSchema === true)));
   const properties = (loaded ? data.properties : []).filter(
     (property) => property.definition.type !== "blocks",
   );
@@ -1064,25 +1079,29 @@ export function DocumentProperties({
         />
       ) : null}
 
-      {loaded && canManageSchema && hiddenProperties.length > 0 ? (
-        <HiddenPropertiesMenu
-          databaseDocumentId={databaseDocumentId ?? documentId}
-          documentId={documentId}
-          databaseId={databaseId}
-          properties={hiddenProperties}
-          popoverContainer={popoverContainer}
-          t={t}
-        />
-      ) : null}
-
-      {loaded && canManageSchema && databaseId ? (
-        <AddProperty
-          databaseDocumentId={databaseDocumentId ?? documentId}
-          documentId={documentId}
-          databaseId={databaseId}
-          popoversPortalled={popoversPortalled}
-          popoverContainer={popoverContainer}
-        />
+      {showSchemaRows && databaseId ? (
+        // Rows drawn on expectation hold their place, even before any
+        // Property answer, and can't be used until this viewer's rights are
+        // confirmed.
+        <div className="contents" inert={!canManageSchema || undefined}>
+          {hiddenProperties.length > 0 ? (
+            <HiddenPropertiesMenu
+              databaseDocumentId={databaseDocumentId ?? documentId}
+              documentId={documentId}
+              databaseId={databaseId}
+              properties={hiddenProperties}
+              popoverContainer={popoverContainer}
+              t={t}
+            />
+          ) : null}
+          <AddProperty
+            databaseDocumentId={databaseDocumentId ?? documentId}
+            documentId={documentId}
+            databaseId={databaseId}
+            popoversPortalled={popoversPortalled}
+            popoverContainer={popoverContainer}
+          />
+        </div>
       ) : null}
     </div>
   );
@@ -1158,7 +1177,7 @@ function HiddenPropertiesMenu({
   databaseDocumentId?: string;
   databaseId: string;
   properties: DocumentProperty[];
-  popoverContainer?: HTMLElement | null;
+  popoverContainer?: HTMLElement | null | undefined;
   t: TFunction;
 }) {
   const configure = useConfigureDocumentProperty(
@@ -4235,7 +4254,7 @@ export function AddProperty({
   variant?: "default" | "header" | "icon";
   label?: string;
   popoversPortalled?: boolean;
-  popoverContainer?: HTMLElement | null;
+  popoverContainer?: HTMLElement | null | undefined;
   source?: ContentDatabaseSource | null;
   sources?: ContentDatabaseSource[];
   onConnectSource?: () => void;

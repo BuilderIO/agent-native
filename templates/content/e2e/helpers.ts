@@ -9,7 +9,6 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-import { COLLAB_OUTBOX_PREFIXES } from "@agent-native/core/collab/outbox-keys";
 import {
   expect,
   test,
@@ -23,6 +22,7 @@ import {
 } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 
+import { COLLAB_OUTBOX_PREFIXES } from "../../../packages/core/src/collab/outbox-keys";
 import { AUTH_FILES } from "./auth-files";
 import {
   appendFixtureInput,

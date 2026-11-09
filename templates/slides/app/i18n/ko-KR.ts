@@ -122,6 +122,9 @@ const messages = {
     noAssetsYet: "아직 에셋이 없습니다.",
     assetUploadFailed: "일부 업로드에 실패했습니다",
     assetDeleteFailed: "에셋 삭제에 실패했습니다",
+    assetLoadFailed: "에셋을 불러올 수 없습니다",
+    assetSelectNoChange: "이 이미지를 이 슬라이드에 적용할 수 없습니다",
+    retry: "다시 시도",
     assetDeleteInUse: "이 에셋은 덱에서 사용 중입니다. 먼저 덱에서 제거하세요",
     assetDeleteStorageRemains:
       "라이브러리에서 제거했지만 저장된 파일은 삭제하지 못했습니다",

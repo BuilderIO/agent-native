@@ -1,4 +1,5 @@
 import { writeClientAppState } from "@agent-native/core/client/application-state";
+import { prefetchCollabState } from "@agent-native/core/client/collab/prefetch";
 import { callAction } from "@agent-native/core/client/hooks";
 import {
   isMcpDirectoryWidgetReadOnlyEmbed,
@@ -77,6 +78,8 @@ export function startLoadReads(
       databaseViewId: addressDatabaseViewId(location.search),
     },
   );
+  // Its collab state too, built on this browser's saved copy of it.
+  prefetchCollabState(documentId);
 }
 
 export type EarlyContentLanding =

@@ -1134,7 +1134,7 @@ export interface OnboardingHtmlOptions {
   requestOrigin?: string;
   signupLegalNotice?: SignupLegalNoticeOptions | false;
   googleAuthMode?: GoogleAuthMode;
-  renderSignInPage?: (props: AuthPageProps) => string;
+  renderSignInPage?: (props: AuthPageProps) => string | undefined;
 }
 
 function escapeHtml(value: string): string {
@@ -1223,9 +1223,13 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }).resumeHref;
   const workspaceRuntime = isWorkspaceRuntime();
   const trackingApp =
-    getAppConfig().app.slug ??
-    getAppConfig().app.template ??
-    getAppConfig().app.id ??
+    getAppConfig().app.slug?.trim() ||
+    getAppConfig().app.template?.trim() ||
+    getAppConfig().app.id?.trim() ||
+    resolveBuiltInAuthMarketingSlug({
+      ...(opts.requestHost ? { requestHost: opts.requestHost } : {}),
+      ...(opts.requestPath ? { requestPath: opts.requestPath } : {}),
+    }) ||
     "";
   const publicOAuthOrigin = getPublicOAuthOrigin();
   const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();
@@ -2557,7 +2561,9 @@ const RESET_PASSWORD_STYLES = `
 
 export function getResetPasswordHtml(
   requestPath?: string,
-  renderResetPasswordPage?: (props: ResetPasswordPageProps) => string,
+  renderResetPasswordPage?: (
+    props: ResetPasswordPageProps,
+  ) => string | undefined,
 ): string {
   const configuredAppBasePath = getAppBasePathFromViteEnv();
   const appBasePath =

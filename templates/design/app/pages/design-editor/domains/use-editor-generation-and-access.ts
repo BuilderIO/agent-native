@@ -765,14 +765,21 @@ export function useEditorGenerationAndAccess({
   const [visibleSourceIds, setVisibleSourceIds] = useState<readonly string[]>(
     [],
   );
-  const onSourceDemandChange = useCallback((ids: readonly string[]) => {
-    setVisibleSourceIds((previous) =>
-      previous.length === ids.length &&
-      previous.every((id, index) => id === ids[index])
-        ? previous
-        : ids,
-    );
-  }, []);
+  const [previewSourceIds, setPreviewSourceIds] = useState<readonly string[]>(
+    [],
+  );
+  const onSourceDemandChange = useCallback(
+    (demand: { pinned: readonly string[]; preview: readonly string[] }) => {
+      const keep = (ids: readonly string[]) => (previous: readonly string[]) =>
+        previous.length === ids.length &&
+        previous.every((id, index) => id === ids[index])
+          ? previous
+          : ids;
+      setVisibleSourceIds(keep(demand.pinned));
+      setPreviewSourceIds(keep(demand.preview));
+    },
+    [],
+  );
   const demandedSourceIds = useMemo(() => {
     const board = sourceMetadata.find(
       (file) => file.filename === "__board__.html",
@@ -821,6 +828,7 @@ export function useEditorGenerationAndAccess({
     demandedSourceIds,
     pinnedSourceIds,
     dirtySourceIds,
+    previewSourceIds,
   );
   const hydratedFilesCacheRef = useRef<IdentityCache<DesignFile | null>>(
     new Map(),
