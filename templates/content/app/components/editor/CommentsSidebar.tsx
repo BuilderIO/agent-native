@@ -4380,17 +4380,19 @@ function letterDiff(removed: string, inserted: string) {
   const parts = suggestionDiffParts(removed, inserted);
   if (!parts) return null;
   const splitsWord = (["delete", "insert"] as const).some((side) => {
-    const shown = parts.filter(
-      (part) => part.type === "equal" || part.type === side,
-    );
-    return shown.slice(1).some((next, index) => {
-      const part = shown[index];
-      return (
-        (part.type === "equal") !== (next.type === "equal") &&
-        WORD_CHARACTER.test(part.text.slice(-1)) &&
-        WORD_CHARACTER.test(next.text.charAt(0))
-      );
-    });
+    let previous: (typeof parts)[number] | undefined;
+    for (const part of parts) {
+      if (part.type !== "equal" && part.type !== side) continue;
+      if (
+        previous &&
+        (previous.type === "equal") !== (part.type === "equal") &&
+        WORD_CHARACTER.test(previous.text.slice(-1)) &&
+        WORD_CHARACTER.test(part.text.charAt(0))
+      )
+        return true;
+      previous = part;
+    }
+    return false;
   });
   if (!splitsWord) return parts;
   if (/\s/.test(removed.trim() + inserted.trim())) return null;
