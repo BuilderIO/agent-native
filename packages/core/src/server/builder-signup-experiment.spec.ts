@@ -215,7 +215,9 @@ describe("pre-signup Builder experiment", () => {
     expect(await (await request({ operation: "start" })).json()).toEqual({
       status: "pending",
     });
-    await Promise.all(background);
+    expect(await Promise.all(background)).toEqual([
+      { status: "pending", code: "outcome_write_failed" },
+    ]);
     expect(activate).toHaveBeenCalledOnce();
     expect(mocks.track).toHaveBeenCalledWith(
       "builder_signup_experiment_activation_unavailable",

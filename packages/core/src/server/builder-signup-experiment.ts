@@ -302,9 +302,11 @@ async function finishSignupActivation(
       };
     });
   // Retrying the owned terminal write is idempotent; the provider is never retried.
-  const committed = await commit()
-    .catch(() => commit())
-    .catch(() => commit());
+  const retryCommit = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return commit();
+  };
+  const committed = await commit().catch(retryCommit).catch(retryCommit);
   return z
     .object({
       status: z.enum(["connected", "fallback"]),
@@ -574,8 +576,10 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "control" };
       }
-      if (status !== "started" && body.data.operation === "start")
+      if (status !== "started" && body.data.operation === "start") {
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "already_completed" };
+      }
       if (
         status === "started" &&
         body.data.operation === "start" &&
@@ -592,6 +596,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
           },
           trackingSource,
         );
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return {
           status: "fallback" as const,
           code: "activation_result_unknown",
@@ -657,7 +662,9 @@ export function createBuilderSignupExperimentHandler(dependencies: {
           },
           trackingSource,
         );
-        return { status: "fallback" as const, code: "outcome_write_failed" };
+        // Credentials may already be saved. Keep the result explicitly pending;
+        // neither claim provider failure nor call the provider a second time.
+        return { status: "pending" as const, code: "outcome_write_failed" };
       } finally {
         if (waitUntil) await flushTracking();
       }
