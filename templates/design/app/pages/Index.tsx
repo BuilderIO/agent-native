@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   CreativeContextShareSheet,
   parseCreativeContexts,
@@ -609,7 +610,9 @@ export default function Index() {
           pinnedPackId: null,
         })
         .catch((error) => {
-          toast.error(t("creativeContext.stateSaveFailed"));
+          reportWriteFailure(error, {
+            label: t("creativeContext.stateSaveFailed"),
+          });
           throw error;
         });
     },
@@ -1072,7 +1075,7 @@ export default function Index() {
             designSystemId,
             message: error instanceof Error ? error.message : String(error),
           });
-          toast.error(t("home.failedToCreateDesign"));
+          reportWriteFailure(error, { label: t("home.failedToCreateDesign") });
           throw error;
         }
         void createFusionAppMutation
@@ -1128,7 +1131,7 @@ export default function Index() {
             designSystemId,
             message: error instanceof Error ? error.message : String(error),
           });
-          toast.error(t("home.failedToCreateDesign"));
+          reportWriteFailure(error, { label: t("home.failedToCreateDesign") });
           throw error;
         }
       }
@@ -1182,7 +1185,7 @@ export default function Index() {
     } catch (error) {
       skipToEditorPendingRef.current = false;
       setNewDesignHandoffPending(false);
-      toast.error(t("home.failedToCreateDesign"));
+      reportWriteFailure(error, { label: t("home.failedToCreateDesign") });
       throw error;
     }
   }, [
