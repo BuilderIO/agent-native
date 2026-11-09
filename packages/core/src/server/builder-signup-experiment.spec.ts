@@ -712,31 +712,39 @@ describe("pre-signup Builder experiment", () => {
     expect(activate).not.toHaveBeenCalled();
   });
 
-  it("keeps slow activation pending until its owner records the successful outcome", async () => {
-    session = signedSession();
-    let finish: (value: { ok: boolean }) => void = () => {
-      throw new Error("Activation has not started");
-    };
-    activate.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-    );
-    const cookie = encodeBuilderSignupAssignment(accepted());
-    const first = request({ operation: "activate" }, cookie);
-    await vi.waitFor(() => expect(activate).toHaveBeenCalledTimes(1));
-    const key = "design_builder_signup_v1:new-user";
-    const running = mocks.settings.get(key);
-    if (!running) throw new Error("Reservation missing");
-    mocks.settings.set(key, { ...running, startedAt: Date.now() - 60000 });
-    expect(
-      await (await request({ operation: "activate" }, cookie)).json(),
-    ).toEqual({ status: "pending" });
-    finish({ ok: true });
-    expect(await (await first).json()).toEqual({ status: "connected" });
-    expect(mocks.settings.get(key)?.status).toBe("connected");
-  });
+  it.each([30_000, 61_000])(
+    "preserves a slow provider owner after polling a %i ms reservation",
+    async (age) => {
+      session = signedSession();
+      let finish: (value: { ok: boolean }) => void = () => {
+        throw new Error("Activation has not started");
+      };
+      activate.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const cookie = encodeBuilderSignupAssignment(accepted());
+      const first = request({ operation: "activate" }, cookie);
+      await vi.waitFor(() => expect(activate).toHaveBeenCalledTimes(1));
+      const key = "design_builder_signup_v1:new-user";
+      const running = mocks.settings.get(key);
+      if (!running) throw new Error("Reservation missing");
+      mocks.settings.set(key, { ...running, startedAt: Date.now() - age });
+      expect(
+        await (await request({ operation: "activate" }, cookie)).json(),
+      ).toEqual(
+        age > 60_000
+          ? { status: "fallback", code: "activation_result_unknown" }
+          : { status: "pending" },
+      );
+      expect(activate).toHaveBeenCalledOnce();
+      finish({ ok: true });
+      expect(await (await first).json()).toEqual({ status: "connected" });
+      expect(mocks.settings.get(key)?.status).toBe("connected");
+    },
+  );
 
   it("honors a deployment override even when the app opts in", async () => {
     mocks.override = false;
