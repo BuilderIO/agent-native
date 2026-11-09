@@ -797,6 +797,17 @@ describe("useMeetingTranscription quit coordination", () => {
   });
 
   describe("meeting session identity", () => {
+    function startTranscriptionListener() {
+      const first = tauri.listeners
+        .get("meetings:start-transcription")
+        ?.values()
+        .next();
+      if (!first || first.done) {
+        throw new Error("start-transcription listener not registered");
+      }
+      return first.value;
+    }
+
     function startedMeetingAction() {
       return vi.fn((name: string) => {
         if (name === "start-meeting-recording") {
@@ -818,10 +829,7 @@ describe("useMeetingTranscription quit coordination", () => {
       await act(async () => {
         root.render(<Probe callClipsAction={callClipsAction} />);
       });
-      const startListener = [
-        ...(tauri.listeners.get("meetings:start-transcription") ?? []),
-      ][0];
-      expect(startListener).toBeDefined();
+      const startListener = startTranscriptionListener();
 
       await act(async () => {
         startListener({ payload: { meetingId: "calendar-event-1" } });
@@ -871,9 +879,7 @@ describe("useMeetingTranscription quit coordination", () => {
       await act(async () => {
         root.render(<Probe callClipsAction={callClipsAction} />);
       });
-      const startListener = [
-        ...(tauri.listeners.get("meetings:start-transcription") ?? []),
-      ][0];
+      const startListener = startTranscriptionListener();
 
       await act(async () => {
         startListener({ payload: { meetingId: "calendar-event-1" } });
