@@ -17,8 +17,9 @@ export function browserChunkNamesPlugin(): Plugin {
       const defaults = {
         // Source-derived script names can match privacy lists and prevent the
         // entire module graph from loading, including authentication popups.
-        entryFileNames: `${build.assetsDir ?? "assets"}/[hash].js`,
-        chunkFileNames: `${build.assetsDir ?? "assets"}/[hash].js`,
+        // A neutral prefix preserves the shared name-hash cache contract.
+        entryFileNames: `${build.assetsDir ?? "assets"}/m-[hash].js`,
+        chunkFileNames: `${build.assetsDir ?? "assets"}/m-[hash].js`,
       };
       options.output = Array.isArray(options.output)
         ? options.output.map((output) => ({ ...defaults, ...output }))

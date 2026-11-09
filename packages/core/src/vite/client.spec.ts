@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseChangelog } from "../changelog/parse.js";
 import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
+import { isImmutableAssetPath } from "../deploy/immutable-assets.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import { getMissingCoreOptionalPeers } from "../shared/optional-peer-ssr.js";
 import { readAgentNativeBuildConfigMarker } from "./agent-native-config-loader.js";
@@ -3812,8 +3813,12 @@ describe("production browser script URLs", () => {
         .filter((output) => output.type === "chunk");
       expect(chunks).toHaveLength(2);
       for (const chunk of chunks) {
-        expect(chunk.fileName).toMatch(/^scripts\/[\w-]+\.js$/);
-        expect(chunk.fileName).not.toMatch(/analytics|consent|messages|entry/);
+        expect(chunk.fileName).toMatch(/^scripts\/m-[\w-]{8}\.js$/);
+        expect(
+          isImmutableAssetPath(
+            chunk.fileName.replace(/^scripts\//, "/assets/"),
+          ),
+        ).toBe(true);
       }
       expect(chunks.find((chunk) => chunk.isEntry)?.dynamicImports).toEqual([
         chunks.find((chunk) => chunk.isDynamicEntry)?.fileName,
