@@ -1330,6 +1330,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io는 무료 크레딧을 제공하며, 직접 API 키를 사용할 수도 있습니다.",
   "setup.builderOrOwnKeys":
     "Builder.io(무료 크레딧)를 사용하거나 직접 제공업체 키를 추가하세요.",
+  "setup.reconnectBuilder": "Builder.io 다시 연결",
   "setup.connectAi": "AI 연결",
   "setup.connectBuilder": "Builder.io 사용",
   "setup.connectionsDescription":

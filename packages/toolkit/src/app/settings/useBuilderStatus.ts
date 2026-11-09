@@ -279,6 +279,8 @@ export interface BuilderConnectFlow {
   errorKind: BuilderConnectErrorKind | null;
   /** The most recent terminal Builder connection attempt error, if any. */
   terminalError: string | null;
+  /** Durable credential rejection, separate from a failed reconnect attempt. */
+  authError?: BuilderStatus["authError"] | null;
   /** The most recent Builder connection-status read failed. */
   statusUnavailable: boolean;
   accountExists: boolean;
@@ -767,21 +769,24 @@ export async function requestBuilderAccountActivation({
 const BUILDER_CONNECTION_SCOPE_PARAM = "scope";
 
 interface BuilderConnectionsState {
+  authError: BuilderStatus["authError"] | null;
   grants: BuilderGrantsStatus | null;
   effective: BuilderEffectiveConnection | null;
   canConnect: Record<BuilderConnectionScope, boolean>;
 }
 
 const NO_BUILDER_CONNECTIONS: BuilderConnectionsState = {
+  authError: null,
   grants: null,
   effective: null,
   canConnect: { org: false, personal: false },
 };
 
 function builderConnectionsFromStatus(
-  s: Pick<BuilderStatus, "grants" | "effective" | "canConnect">,
+  s: Pick<BuilderStatus, "grants" | "effective" | "canConnect" | "authError">,
 ): BuilderConnectionsState {
   return {
+    authError: s.authError ?? null,
     grants: s.grants ?? null,
     effective: s.effective ?? null,
     canConnect: {
@@ -2210,6 +2215,7 @@ export function useBuilderConnectFlow(
     orgName,
     connecting,
     terminalError: error,
+    authError: connections.authError,
     error: statusReadIsCurrent
       ? t("agentChat.settingsShell.integrations.builderStatusFailed")
       : error,

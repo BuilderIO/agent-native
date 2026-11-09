@@ -130,6 +130,7 @@ import {
   decideRecordingVisibilityAction,
   isMobileRecorderRuntime,
 } from "@/lib/recording-visibility";
+import { reportFailedFetchWrite } from "@/lib/report-failed-fetch-write";
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
 import {
@@ -3610,11 +3611,13 @@ export default function RecordRoute() {
         }).catch(() => {});
       } else {
         // The abort handler owns hosted allowance release after confirming cleanup.
-        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: pendingId, skipIfReady: true }),
-        }).catch(() => {});
+        reportFailedFetchWrite(
+          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: pendingId, skipIfReady: true }),
+          }),
+        );
       }
     }
     if (uploadRecordingId) {
@@ -3628,11 +3631,13 @@ export default function RecordRoute() {
           }),
         }).catch(() => {});
       } else {
-        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
-        }).catch(() => {});
+        reportFailedFetchWrite(
+          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
+          }),
+        );
       }
     }
     setCameraStream(null);

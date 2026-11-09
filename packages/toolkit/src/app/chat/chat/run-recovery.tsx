@@ -353,6 +353,15 @@ export function BuilderConnectCta({
     onConnected: handleConnected,
   });
   const { configured, orgName, connecting } = flow;
+  const needsReconnect =
+    reconnect ||
+    Boolean(flow.authError) ||
+    (!configured &&
+      Boolean(
+        flow.grants?.org?.needsReconnect ||
+        flow.grants?.personal?.needsReconnect,
+      ));
+  const [connectAttempted, setConnectAttempted] = useState(false);
   // A failed status read changes nothing here: the card only shows while AI
   // is missing, and connecting re-reads status. Its retry lives in Settings.
   // A newer status read still must not hide the connect failure before it.
@@ -384,6 +393,7 @@ export function BuilderConnectCta({
 
   const startBuilderConnect = useCallback(
     (provisionAccount: boolean) => {
+      setConnectAttempted(true);
       connectAttemptRef.current = {
         statusAvailableAfterStart: !flow.statusUnavailable,
         terminalErrorCleared: !flow.terminalError,
@@ -394,7 +404,7 @@ export function BuilderConnectCta({
   );
 
   if (variant === "compact") {
-    const showConnected = configured && !reconnect;
+    const showConnected = configured && !needsReconnect;
     const connectedLabel = orgName
       ? t("agentChat.setup.connectedTo", { organization: orgName })
       : t("agentChat.setup.connected");
@@ -424,14 +434,18 @@ export function BuilderConnectCta({
                 type="button"
                 size="xs"
                 disabled={connecting}
-                onClick={() =>
+                onClick={(event) => {
                   trackSetupFunnelEvent(
                     "integration_method_clicked",
                     "builder",
                     "click",
                     "started",
-                  )
-                }
+                  );
+                  if (needsReconnect) {
+                    event.preventDefault();
+                    startBuilderConnect(false);
+                  }
+                }}
                 data-agent-builder-setup-slot="builder-button"
                 className="shrink-0"
                 aria-busy={connecting}
@@ -441,19 +455,19 @@ export function BuilderConnectCta({
                     <Spinner className="size-3" aria-hidden="true" />
                     {t("agentChat.common.waiting")}
                   </>
-                ) : reconnect ? (
-                  t("agentChat.recovery.reconnectBuilder")
+                ) : needsReconnect ? (
+                  t("agentChat.setup.reconnectBuilder")
                 ) : (
                   t("agentChat.setup.connectBuilder")
                 )}
               </Button>
             </DeferredBuilderConnectPopover>
           )}
-          {secondaryAction}
+          {needsReconnect ? null : secondaryAction}
         </div>
         {/* Inline-size containment keeps a long error from widening the
             buttons; it wraps to their width instead. */}
-        {error && !showConnected && (
+        {error && !showConnected && (!needsReconnect || connectAttempted) && (
           <p
             {...SESSION_REPLAY_MASK_PROPS}
             className="contain-inline-size text-[10px] leading-snug text-destructive"

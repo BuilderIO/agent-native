@@ -42,6 +42,15 @@ export const CLI_TELEMETRY_PROPERTIES: ReadonlySet<string> = new Set([
   "serverName",
   "authenticated",
   "error",
+  // Project activity: create, dev, build and deploy
+  "outcome",
+  "templates",
+  "projectKind",
+  "failedStep",
+  "workspace",
+  "appCount",
+  "readySeconds",
+  "preset",
   // Added by the analytics event-name table
   "canonical_event_name",
   "legacy_event_name",

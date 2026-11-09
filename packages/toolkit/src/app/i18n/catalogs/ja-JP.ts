@@ -1352,6 +1352,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io には無料クレジットが含まれています。独自の API キーを使用することもできます。",
   "setup.builderOrOwnKeys":
     "Builder.io（無料クレジット付き）を使用するか、独自のプロバイダーキーを追加します。",
+  "setup.reconnectBuilder": "Builder.io に再接続",
   "setup.connectAi": "AI に接続",
   "setup.connectBuilder": "Builder.io を使用",
   "setup.connectionsDescription":

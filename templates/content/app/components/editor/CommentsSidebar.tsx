@@ -32,6 +32,7 @@ import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
 import type { DocumentProperty } from "@shared/api";
+import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import type { CommentAiRequest } from "@shared/comment-ai";
 import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
 import {
@@ -178,8 +179,15 @@ import { SuggestionText } from "./SuggestionText";
 import {
   proposalGroups,
   receiptSuggestion,
+  reviewUnitDiffParts,
+  piecesOfStaleUnits,
+  reviewUnitLabel,
+  reviewUnitOperations,
+  reviewUnits,
   suggestionSourceThreadId,
   suggestionsByThread,
+  withWholeReviewUnits,
+  type ReviewUnit,
 } from "./thread-suggestions";
 import {
   ThreadSuggestionBody,
@@ -1157,6 +1165,11 @@ interface CommentsSidebarOptions {
     decision: SuggestionDecision,
   ) => void;
   canDecideSuggestions?: boolean;
+  /**
+   * Accepting a tab's suggestion writes its Collection's field, so it also
+   * takes edit access to the Collection. Rejecting one writes nothing.
+   */
+  canDecideFieldSuggestions?: boolean;
   decidingSuggestion?: (suggestionId: string) => boolean;
   onDecideSuggestion?: (
     suggestion: ResourceSuggestion,
@@ -1166,7 +1179,9 @@ interface CommentsSidebarOptions {
     proposalId: string,
     decision: SuggestionDecision,
     pendingMembers: ResourceSuggestion[],
-  ) => void;
+    /** Decide just these, as one review unit, not all that's pending by then. */
+    exactMembers?: boolean,
+  ) => void | Promise<void>;
   visibleThreadId?: string | null;
   presentation?: "inline" | "history";
   /** Card treatment: margin rail, anchored popover, or the comments panel. */
@@ -1248,6 +1263,7 @@ export function CommentsSidebar({
   onMaterializeDraft,
   onDecideDraftSuggestion,
   canDecideSuggestions = false,
+  canDecideFieldSuggestions = false,
   decidingSuggestion = () => false,
   onDecideSuggestion,
   onDecideSuggestionProposal,
@@ -1266,7 +1282,10 @@ export function CommentsSidebar({
     currentUserEmail,
     currentUserOrgId,
   );
-  const createComment = useCreateComment({ email: currentUserEmail });
+  const createComment = useCreateComment({
+    email: currentUserEmail ?? null,
+    name: currentUserName ?? null,
+  });
   const clipWrites = useClipCommentWrites(documentId, {
     email: currentUserEmail,
     name: currentUserName,
@@ -1378,6 +1397,10 @@ export function CommentsSidebar({
   const isUnplaceable = (suggestion: ResourceSuggestion) =>
     suggestion.status === "pending" &&
     unplaceableSuggestionRevisions?.get(suggestion.id) === suggestion.revision;
+  const staleUnitPieces = useMemo(
+    () => piecesOfStaleUnits(suggestions),
+    [suggestions],
+  );
   const activeConflictId = suggestions.find(
     (suggestion) =>
       suggestion.id === activeSuggestionId &&
@@ -1824,20 +1847,24 @@ export function CommentsSidebar({
     suggestions,
     threads,
   ]);
-  // Suggestions edit the page body, so they sit in its tab.
-  const historyBodyTabShown =
-    activeHistoryTab === null || activeHistoryTab === commentTabKey(null);
   // Suggested edits point at text and carry no @mentions of their own.
   const historyShowsSuggestions =
     historyKind !== "comments" &&
-    historyBodyTabShown &&
     (historyTarget === "all" || historyTarget === "text") &&
     !historyMentionsMe;
+  // A suggestion sits in the tab it edits.
+  const historyTabShowsSuggestion = useCallback(
+    (suggestion: Parameters<typeof suggestionBlocksFieldId>[0]) =>
+      activeHistoryTab === null ||
+      commentTabKey(suggestionBlocksFieldId(suggestion)) === activeHistoryTab,
+    [activeHistoryTab],
+  );
   const historySuggestions = useMemo(() => {
     if (!historyShowsSuggestions) return [];
-    return suggestions.filter((suggestion) => {
+    const matches = suggestions.filter((suggestion) => {
       if (historyKind === "all" && embeddedSuggestionIds.has(suggestion.id))
         return false;
+      if (!historyTabShowsSuggestion(suggestion)) return false;
       const unresolved =
         suggestion.status === "pending" || suggestion.status === "stale";
       if (historyStatus === "open" && !unresolved) {
@@ -1850,6 +1877,7 @@ export function CommentsSidebar({
         return false;
       return suggestionMatchesSearch(suggestion, historySearch);
     });
+    return withWholeReviewUnits(matches, suggestions);
   }, [
     embeddedSuggestionIds,
     historyAuthor,
@@ -1857,6 +1885,7 @@ export function CommentsSidebar({
     historySearch,
     historyShowsSuggestions,
     historyStatus,
+    historyTabShowsSuggestion,
     suggestions,
   ]);
   const historyDraftSuggestions = useMemo(() => {
@@ -1865,6 +1894,7 @@ export function CommentsSidebar({
     return draftSuggestions.filter(
       (suggestion) =>
         (!historyAuthor || suggestion.authorEmail === historyAuthor) &&
+        historyTabShowsSuggestion(suggestion) &&
         suggestionMatchesSearch(suggestion, historySearch),
     );
   }, [
@@ -1873,6 +1903,7 @@ export function CommentsSidebar({
     historySearch,
     historyShowsSuggestions,
     historyStatus,
+    historyTabShowsSuggestion,
   ]);
   // Comments someone just posted on the page stay in view even when their
   // filters would hide them, until they change the filters.
@@ -2544,7 +2575,9 @@ export function CommentsSidebar({
     const hiddenTabIds = new Set<string>();
     for (const thread of measuredThreads) {
       const fieldId =
-        "suggestion" in thread ? null : commentThreadFieldId(thread);
+        "suggestion" in thread
+          ? suggestionBlocksFieldId(thread.suggestion)
+          : commentThreadFieldId(thread);
       const position = findThreadPosition(
         "suggestion" in thread ? thread.suggestion.id : thread.threadId,
         "suggestion" in thread ? null : thread.quotedText,
@@ -3047,6 +3080,12 @@ export function CommentsSidebar({
     void changeResolution(thread, false);
   };
 
+  // Whoever decides on the page's suggestions can reject a tab's, which
+  // writes nothing. Accepting one writes its Collection's field, which the
+  // server lets only the Collection's editors do.
+  const acceptBlocked = (suggestion: ResourceSuggestion | DraftSuggestion) =>
+    !canDecideFieldSuggestions && suggestionBlocksFieldId(suggestion) !== null;
+
   const renderFoldedStack = (
     stack: CommentStack<CommentThread>,
     layoutId: string,
@@ -3140,10 +3179,18 @@ export function CommentsSidebar({
         canDecide: canDecideSuggestions,
         busy: suggestionBusy,
         conflict: isUnplaceable,
+        acceptBlocked,
         onDecide: (
           suggestion: ResourceSuggestion,
           decision: SuggestionDecision,
         ) => onDecideSuggestion?.(suggestion, decision),
+        onDecideUnit: (
+          unit: ResourceSuggestion[],
+          decision: SuggestionDecision,
+        ) => {
+          if (proposalId)
+            void onDecideSuggestionProposal?.(proposalId, decision, unit, true);
+        },
         onDecideRemaining:
           proposalId && onDecideSuggestionProposal
             ? (decision: SuggestionDecision) =>
@@ -3339,6 +3386,7 @@ export function CommentsSidebar({
         onClose={onClose}
         threadActions={thread.clip ? undefined : renderThreadActions?.(thread)}
         currentUserEmail={currentUserEmail}
+        currentUserName={currentUserName}
         quote={
           threadQuotes.get(thread.threadId) ?? commentThreadQuote(thread, t)
         }
@@ -3360,6 +3408,7 @@ export function CommentsSidebar({
             comment={thread.comments.find((comment) => comment.id === id)!}
             documentId={documentId}
             currentUserEmail={currentUserEmail}
+            currentUserName={currentUserName}
             // A Clip's comments are kept in Clips, so the page doesn't edit,
             // delete, or react to them.
             canComment={canComment && !thread.clip}
@@ -3487,11 +3536,16 @@ export function CommentsSidebar({
     marginTop = 0,
     onHeightChange = handleThreadCardHeightChange,
     inProposalGroup = false,
+    unit: ReviewUnit = { leader: suggestion, members: [suggestion] },
   ) => {
+    const anchored = unit.members.filter((member) =>
+      anchoredSuggestionIds?.includes(member.id),
+    );
+    const [activated = suggestion] = anchored;
     const anchorUnavailable =
       suggestion.status === "pending" &&
       anchoredSuggestionIds !== null &&
-      !anchoredSuggestionIds?.includes(suggestion.id);
+      anchored.length === 0;
     return (
       <SuggestionThreadView
         surface={surface}
@@ -3504,35 +3558,59 @@ export function CommentsSidebar({
         marginTop={marginTop}
         onHeightChange={onHeightChange}
         suggestion={suggestion}
+        operations={reviewUnitOperations(unit)}
+        isReviewUnit={
+          unit.members.length > 1 || reviewUnitLabel(suggestion) !== null
+        }
         reason={inProposalGroup ? null : agentSuggestionReason(suggestion)}
         documentId={documentId}
-        isActive={
-          activeSuggestionId === suggestion.id ||
-          hoveredSuggestionId === suggestion.id
-        }
-        expandRequested={expandedSuggestionId === suggestion.id}
-        focusRequested={focusSuggestionId === suggestion.id}
+        isActive={unit.members.some(
+          (member) =>
+            activeSuggestionId === member.id ||
+            hoveredSuggestionId === member.id,
+        )}
+        expandRequested={unit.members.some(
+          (member) => member.id === expandedSuggestionId,
+        )}
+        focusRequested={unit.members.some(
+          (member) => focusSuggestionId === member.id,
+        )}
         onFocused={onSuggestionFocused}
         anchorUnavailable={anchorUnavailable}
-        unplaceable={isUnplaceable(suggestion)}
+        unplaceable={unit.members.some(
+          (member) => isUnplaceable(member) || staleUnitPieces.has(member.id),
+        )}
         canComment={canComment}
         canDecide={canDecideSuggestions}
-        deciding={suggestionBusy(suggestion)}
+        acceptDisabled={unit.members.some(acceptBlocked)}
+        deciding={unit.members.some(suggestionBusy)}
         onActivate={() => {
-          if (presentation !== "history") onActivateSuggestion?.(suggestion.id);
+          if (presentation !== "history") onActivateSuggestion?.(activated.id);
         }}
         onExpansionChange={(expanded) =>
           setExpandedSuggestionId(expanded ? suggestion.id : null)
         }
-        onDecide={(decision) => onDecideSuggestion?.(suggestion, decision)}
+        onDecide={(decision) => {
+          if (unit.members.length > 1 && suggestion.proposalId) {
+            void onDecideSuggestionProposal?.(
+              suggestion.proposalId,
+              decision,
+              unit.members.filter(({ status }) => status === "pending"),
+              true,
+            );
+          } else {
+            onDecideSuggestion?.(suggestion, decision);
+          }
+        }}
         t={t}
       />
     );
   };
 
-  const renderProposalGroup = (
+  const renderProposalUnits = (
     proposalId: string,
     members: ResourceSuggestion[],
+    units: ReviewUnit[],
     leaderThreadId?: string,
   ) => (
     <ProposalGroup
@@ -3540,6 +3618,13 @@ export function CommentsSidebar({
       proposalId={proposalId}
       summary={members[0]?.proposalSummary || members[0]?.summary || ""}
       totalCount={proposalMemberCounts.get(proposalId) ?? members.length}
+      totalUnits={
+        reviewUnits(
+          suggestions.filter(
+            (suggestion) => suggestion.proposalId === proposalId,
+          ),
+        ).length
+      }
       members={members}
       active={members.some(
         (member) =>
@@ -3548,7 +3633,15 @@ export function CommentsSidebar({
       expanded={expandedProposalIds.has(proposalId)}
       onExpandedChange={(expanded) => setProposalExpanded(proposalId, expanded)}
       deciding={members.some(suggestionBusy)}
-      acceptDisabled={members.some(isUnplaceable)}
+      // Accept all decides the whole proposal, even what a filter is hiding.
+      acceptDisabled={suggestions.some(
+        (suggestion) =>
+          suggestion.proposalId === proposalId &&
+          suggestion.status === "pending" &&
+          (isUnplaceable(suggestion) ||
+            staleUnitPieces.has(suggestion.id) ||
+            acceptBlocked(suggestion)),
+      )}
       canDecide={canDecideSuggestions && !!onDecideSuggestionProposal}
       onDecide={(decision) =>
         onDecideSuggestionProposal?.(
@@ -3567,9 +3660,34 @@ export function CommentsSidebar({
           : undefined
       }
     >
-      {members.map((member) => renderSuggestionCard(member, 0, () => {}, true))}
+      {units.map((unit) =>
+        renderSuggestionCard(unit.leader, 0, () => {}, true, unit),
+      )}
     </ProposalGroup>
   );
+
+  const renderProposalGroup = (
+    proposalId: string,
+    members: ResourceSuggestion[],
+    leaderThreadId?: string,
+  ) => {
+    const units = reviewUnits(members);
+    const [onlyUnit = null] = units;
+    // A proposal that is one unit is one decision, so it has nothing to group.
+    // Its height sizes the place laid out for the whole proposal.
+    return onlyUnit && units.length === 1 && reviewUnitLabel(onlyUnit.leader)
+      ? renderSuggestionCard(
+          onlyUnit.leader,
+          0,
+          leaderThreadId
+            ? (_threadId, height) =>
+                handleThreadCardHeightChange(leaderThreadId, height)
+            : undefined,
+          false,
+          onlyUnit,
+        )
+      : renderProposalUnits(proposalId, members, units, leaderThreadId);
+  };
 
   const renderDraftSuggestionCard = (
     suggestion: DraftSuggestion,
@@ -3589,6 +3707,7 @@ export function CommentsSidebar({
         hoveredSuggestionId === suggestion.id
       }
       canDecide={canDecideSuggestions}
+      acceptDisabled={acceptBlocked(suggestion)}
       deciding={decidingSuggestion(suggestion.id)}
       onActivate={() => onActivateSuggestion?.(suggestion.id)}
       onMaterialize={onMaterializeDraft}
@@ -3802,6 +3921,7 @@ export function CommentsSidebar({
         <DiscussionComposer
           ref={pageComposerRef}
           currentUserEmail={currentUserEmail}
+          currentUserName={currentUserName}
           value={pageDraft.draft.text}
           onChange={pageDraft.setText}
           mentions={pageDraft.draft.mentions}
@@ -3893,7 +4013,10 @@ export function CommentsSidebar({
                 (entry): CommentTabPlacement =>
                   entry.kind === "comment"
                     ? commentThreadPlacement(entry.thread)
-                    : { fieldId: null, fieldName: null },
+                    : {
+                        fieldId: suggestionBlocksFieldId(entry.suggestion),
+                        fieldName: null,
+                      },
               ).map((group) => (
                 <Fragment key={`tab:${group.key}`}>
                   <h3
@@ -4002,7 +4125,7 @@ export function CommentsSidebar({
               <div className="flex h-9.5 shrink-0 items-center">
                 <CommentAvatar
                   email={currentUserEmail}
-                  name={currentUserEmail}
+                  name={currentUserName?.trim() || currentUserEmail}
                 />
               </div>
               <div className="min-w-0 flex-1">
@@ -4248,10 +4371,12 @@ function changesLayout(removed: string, inserted: string) {
 function SuggestionOperationSummary({
   operations,
   expanded,
+  wordLevel = false,
   t,
 }: {
   operations: ResourceSuggestion["operations"];
   expanded: boolean;
+  wordLevel?: boolean;
   t: ReturnType<typeof useT>;
 }) {
   return operations.map((operation, index) => {
@@ -4294,12 +4419,17 @@ function SuggestionOperationSummary({
         : undefined;
 
     if (previousText && nextText) {
-      const diff =
-        operation.kind === "replace_text"
-          ? suggestionDiffParts(previousText, nextText)
-          : null;
-      const hasSharedContext = diff?.some((part) => part.type === "equal");
       const richText = /[<>*_`\[\]]/.test(previousText + nextText);
+      const diff =
+        operation.kind !== "replace_text"
+          ? null
+          : !wordLevel
+            ? suggestionDiffParts(previousText, nextText)
+            : // Formatted text can only be read as a whole against its source.
+              richText
+              ? null
+              : reviewUnitDiffParts(previousText, nextText);
+      const hasSharedContext = diff?.some((part) => part.type === "equal");
       const changed = (type: "delete" | "insert", whole: string) =>
         diff && hasSharedContext
           ? diff
@@ -4403,6 +4533,7 @@ function DraftSuggestionThreadView({
   suggestion,
   isActive,
   canDecide,
+  acceptDisabled,
   deciding,
   onActivate,
   onMaterialize,
@@ -4424,6 +4555,8 @@ function DraftSuggestionThreadView({
   suggestion: DraftSuggestion;
   isActive: boolean;
   canDecide: boolean;
+  /** Accepting needs more access than this person has; rejecting doesn't. */
+  acceptDisabled: boolean;
   deciding: boolean;
   onActivate: () => void;
   onMaterialize?: (
@@ -4473,6 +4606,7 @@ function DraftSuggestionThreadView({
         surface={surface}
         onClose={onClose}
         currentUserEmail={currentUserEmail}
+        currentUserName={currentUserName}
         popoverTitle={t("comments.suggestionTitle")}
         thread={thread}
         marginTop={marginTop}
@@ -4514,6 +4648,7 @@ function DraftSuggestionThreadView({
               disabled={
                 isSaving || deciding || (!onDecideDraft && !onMaterialize)
               }
+              acceptDisabled={acceptDisabled}
               onDecide={(decision) => {
                 if (onDecideDraft) {
                   onDecideDraft(suggestion, decision);
@@ -4537,6 +4672,8 @@ function SuggestionThreadView({
   marginTop = 0,
   onHeightChange,
   suggestion,
+  operations,
+  isReviewUnit,
   reason,
   documentId,
   isActive,
@@ -4547,6 +4684,7 @@ function SuggestionThreadView({
   unplaceable,
   canComment,
   canDecide,
+  acceptDisabled,
   deciding,
   onActivate,
   onExpansionChange,
@@ -4566,6 +4704,10 @@ function SuggestionThreadView({
   marginTop?: number;
   onHeightChange: (threadId: string, height: number) => void;
   suggestion: ResourceSuggestion;
+  /** What the card decides, read as one edit even when it takes several pieces. */
+  operations: ResourceSuggestion["operations"];
+  /** Spells out what the edit replaces without being opened first. */
+  isReviewUnit: boolean;
   /** Why the agent suggested this edit, shown above it in full. */
   reason: string | null;
   documentId: string;
@@ -4577,6 +4719,8 @@ function SuggestionThreadView({
   unplaceable: boolean;
   canComment: boolean;
   canDecide: boolean;
+  /** Accepting needs more access than this person has; rejecting doesn't. */
+  acceptDisabled: boolean;
   deciding: boolean;
   onActivate: () => void;
   onExpansionChange: (expanded: boolean) => void;
@@ -4616,7 +4760,7 @@ function SuggestionThreadView({
     canComment && suggestion.status === "pending" && root?.status === "open";
   const canExpand =
     canReply ||
-    suggestion.operations.some((operation) => {
+    operations.some((operation) => {
       const before = operation.before as { changedText?: string } | undefined;
       const after = operation.after as { changedText?: string } | undefined;
       return !!before?.changedText && !!after?.changedText;
@@ -4682,6 +4826,7 @@ function SuggestionThreadView({
         surface={surface}
         onClose={onClose}
         currentUserEmail={currentUserEmail}
+        currentUserName={currentUserName}
         popoverTitle={t("comments.suggestionTitle")}
         replyDrafts={replyDrafts}
         documentId={documentId}
@@ -4853,8 +4998,9 @@ function SuggestionThreadView({
               </p>
             ) : null}
             <SuggestionOperationSummary
-              operations={suggestion.operations}
-              expanded={expanded}
+              operations={operations}
+              expanded={expanded || isReviewUnit}
+              wordLevel={isReviewUnit}
               t={t}
             />
             {anchorUnavailable || sourceUrl ? (
@@ -4879,6 +5025,7 @@ function SuggestionThreadView({
           canDecide && suggestion.status === "pending" ? (
             <SuggestionDecisionButtons
               disabled={deciding}
+              acceptDisabled={acceptDisabled || unplaceable}
               onDecide={onDecide}
             />
           ) : null
@@ -4909,6 +5056,7 @@ function ThreadView({
   onClose,
   popoverTitle,
   currentUserEmail,
+  currentUserName,
   resolved = false,
   replyDrafts,
   documentId,
@@ -4958,6 +5106,7 @@ function ThreadView({
   onClose?: () => void;
   popoverTitle?: string;
   currentUserEmail?: string;
+  currentUserName?: string;
   resolved?: boolean;
   replyDrafts?: ReturnType<typeof useCommentReplyDrafts>;
   documentId?: string;
@@ -5386,7 +5535,11 @@ function ThreadView({
           <div className="flex h-9.5 shrink-0 items-center">
             <CommentAvatar
               email={currentUserEmail ?? thread.comments[0]?.author_email}
-              name={currentUserEmail ?? thread.comments[0]?.author_name}
+              name={
+                currentUserEmail
+                  ? currentUserName?.trim() || currentUserEmail
+                  : thread.comments[0]?.author_name
+              }
             />
           </div>
           <CommentComposer

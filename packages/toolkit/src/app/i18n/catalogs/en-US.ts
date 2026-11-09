@@ -1339,6 +1339,7 @@ const messages = {
     "Builder.io includes free credits, or use your own API key.",
   "setup.builderOrOwnKeys":
     "Use Builder.io (free credits), or add your own provider keys.",
+  "setup.reconnectBuilder": "Reconnect Builder.io",
   "setup.connectAi": "Connect AI",
   "setup.connectBuilder": "Use Builder.io",
   "setup.connectionsDescription":

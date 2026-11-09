@@ -68,9 +68,7 @@ export function dbPressureWarnings(p: DbPressureCounters): string[] {
     );
   }
   if (p.trivialQueryMs > MAX_TRIVIAL_QUERY_MS) {
-    out.push(
-      `trivial query took ${p.trivialQueryMs}ms — the database itself is slow, not the app`,
-    );
+    out.push(`SELECT 1 took ${p.trivialQueryMs}ms`);
   }
   if (p.maxSameQuery >= MAX_SAME_QUERY_CONCURRENCY) {
     out.push(

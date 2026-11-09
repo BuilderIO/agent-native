@@ -679,6 +679,44 @@ describe("Design final response guard", () => {
     expect(result).not.toBeNull();
   });
 
+  it("accepts a moved element only when the move was persisted", () => {
+    expect(
+      designFinalResponseGuard(
+        guardContext("move the card to the second screen", {
+          toolResults: [
+            toolResult("move-design-element", {
+              designId: "design-1",
+              moved: true,
+              movedNodeId: "node-1",
+            }),
+          ],
+        }),
+      ),
+    ).toBeNull();
+
+    for (const toolResults of [
+      [
+        toolResult("move-design-element", {
+          designId: "design-1",
+          moved: false,
+        }),
+      ],
+      [
+        toolResult(
+          "move-design-element",
+          { designId: "design-1", moved: true },
+          true,
+        ),
+      ],
+    ]) {
+      expect(
+        designFinalResponseGuard(
+          guardContext("move the card to the second screen", { toolResults }),
+        ),
+      ).not.toBeNull();
+    }
+  });
+
   it("judges the user's words, not the context the app attached to them", () => {
     const intakeContext = [
       "The user just created a new empty design.",

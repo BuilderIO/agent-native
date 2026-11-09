@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   IconSearch,
   IconX,
@@ -51,7 +52,10 @@ interface AddCalendarDialogProps {
   onOpenChange: (open: boolean) => void;
   defaultTab?: "people" | "url" | "google";
   visibleTabs?: Array<"people" | "url" | "google">;
-  onPersonAdded?: (person: { email: string; name?: string }) => void;
+  onPersonAdded?: (person: {
+    email: string;
+    name?: string | undefined;
+  }) => void;
   prefillPersonEmail?: string;
 }
 
@@ -179,7 +183,10 @@ function PeopleTab({
   prefillPersonEmail,
 }: {
   open: boolean;
-  onPersonAdded?: (person: { email: string; name?: string }) => void;
+  onPersonAdded?: (person: {
+    email: string;
+    name?: string | undefined;
+  }) => void;
   prefillPersonEmail?: string;
 }) {
   const t = useT();
@@ -263,7 +270,10 @@ function PeopleTab({
   function handleAdd(email: string, name?: string) {
     addPerson.mutate(
       { email, name },
-      { onSuccess: () => onPersonAdded?.({ email, name }) },
+      {
+        onSuccess: () => onPersonAdded?.({ email, name }),
+        onError: (error) => reportWriteFailure(error),
+      },
     );
   }
 
@@ -403,7 +413,11 @@ function PeopleTab({
                   {person.name || person.email}
                 </span>
                 <button
-                  onClick={() => removePerson.mutate(person.email)}
+                  onClick={() =>
+                    removePerson.mutate(person.email, {
+                      onError: (error) => reportWriteFailure(error),
+                    })
+                  }
                   className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
                 >
                   <IconX className="h-3.5 w-3.5" />

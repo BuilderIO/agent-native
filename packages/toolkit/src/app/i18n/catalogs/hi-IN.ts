@@ -1316,6 +1316,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io में मुफ़्त क्रेडिट शामिल हैं, या आप अपनी API कुंजी इस्तेमाल कर सकते हैं।",
   "setup.builderOrOwnKeys":
     "Builder.io (मुफ़्त क्रेडिट) का उपयोग करें या अपनी प्रदाता कुंजियाँ जोड़ें।",
+  "setup.reconnectBuilder": "Builder.io फिर से कनेक्ट करें",
   "setup.connectAi": "AI कनेक्ट करें",
   "setup.connectBuilder": "Builder.io इस्तेमाल करें",
   "setup.connectionsDescription":

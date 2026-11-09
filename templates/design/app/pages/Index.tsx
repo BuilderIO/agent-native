@@ -140,7 +140,6 @@ import {
   designPromptReferenceTypes,
   trackDesignPromptSubmitted,
 } from "@/lib/design-funnel-tracking";
-import { SURFACE_MUTATION_ERROR } from "@/lib/design-write-failure";
 import {
   clearPendingGeneration,
   writePendingGeneration,
@@ -384,13 +383,11 @@ export default function Index() {
   );
   const createFusionAppMutation = useActionMutation("create-builder-app");
   const deleteMutation = useActionMutation("delete-design", {
-    meta: SURFACE_MUTATION_ERROR,
+    errorNotification: "shared",
   });
-  const duplicateMutation = useActionMutation("duplicate-design", {
-    meta: SURFACE_MUTATION_ERROR,
-  });
+  const duplicateMutation = useActionMutation("duplicate-design");
   const updateMutation = useActionMutation("update-design", {
-    meta: SURFACE_MUTATION_ERROR,
+    errorNotification: "shared",
   });
   const generateTitleMutation = useActionMutation("generate-design-title");
   const userRenamedDesignIdsRef = useRef<Set<string>>(new Set());

@@ -1,4 +1,5 @@
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
+declare const __AGENT_NATIVE_COMMIT_SHA__: string | undefined;
 declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
 
 const RELOAD_MARKER_KEY = "__agentNativeClientCompatibilityReload";
@@ -16,6 +17,16 @@ export function clientBuildId(): string {
   return (
     (globalThis as typeof globalThis & { __AGENT_NATIVE_BUILD_ID__?: string })
       .__AGENT_NATIVE_BUILD_ID__ ?? ""
+  );
+}
+
+export function clientCommitSha(): string {
+  if (typeof __AGENT_NATIVE_COMMIT_SHA__ === "string") {
+    return __AGENT_NATIVE_COMMIT_SHA__;
+  }
+  return (
+    (globalThis as typeof globalThis & { __AGENT_NATIVE_COMMIT_SHA__?: string })
+      .__AGENT_NATIVE_COMMIT_SHA__ ?? ""
   );
 }
 

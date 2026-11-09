@@ -1342,6 +1342,7 @@ const messages: ToolkitAgentChatTranslation = {
     "يتضمن Builder.io أرصدة مجانية، أو يمكنك استخدام مفتاح API الخاص بك.",
   "setup.builderOrOwnKeys":
     "استخدم Builder.io (بأرصدة مجانية)، أو أضف مفاتيح مزوّديك الخاصة.",
+  "setup.reconnectBuilder": "إعادة الاتصال بـ Builder.io",
   "setup.connectAi": "اتصال بالذكاء الاصطناعي",
   "setup.connectBuilder": "استخدم Builder.io",
   "setup.connectionsDescription":

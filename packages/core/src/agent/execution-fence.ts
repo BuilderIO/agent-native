@@ -154,9 +154,63 @@ export async function lockAndAssertCurrentExecutionFences(
         activeFence.generation,
       ],
     });
-    if (rows.length !== 1) throw new StaleExecutionFenceError(activeFence);
+    if (rows.length === 1) continue;
+    if (
+      activeFence.outlivesStop ||
+      !(await ownsLapsedTurnLease(tx, activeFence))
+    ) {
+      throw new StaleExecutionFenceError(activeFence);
+    }
   }
 }
+
+/**
+ * A turn lease that lapsed on its own still belongs to its worker: a stalled
+ * DB call or a blocked event loop outlived the 15s lease, and nobody acted on
+ * it. Ending the run here ends it with no terminal event, and the reaper later
+ * reports it as "stopped before finishing".
+ *
+ * Every revoke (Stop, the reaper, Agent Teams, A2A) sets `lease_expires_at`
+ * and `updated_at` to now together, and every new claim bumps the generation,
+ * so only a lease that expired well after its last renewal counts. The run row
+ * must also still be running at that generation; task leases have no such row
+ * and stay strict. Locking the lease row first orders this read after any
+ * revoke that committed and before any that has not.
+ */
+export async function ownsLapsedTurnLease(
+  tx: DbExec,
+  fence: ExecutionFence,
+): Promise<boolean> {
+  const lease = await tx.execute({
+    sql: `SELECT generation
+          FROM agent_execution_leases
+          WHERE thread_id = ?
+            AND turn_id = ?
+            AND owner_run_id = ?
+            AND generation = CAST(? AS BIGINT)
+            AND lease_expires_at >= updated_at + INTERVAL '1 second'
+          FOR UPDATE`,
+    args: [fence.threadId, fence.turnId, fence.runId, fence.generation],
+    timeoutMs: LAPSED_LEASE_STATEMENT_TIMEOUT_MS,
+    maxAttempts: 1,
+  });
+  if (lease.rows.length !== 1) return false;
+  const run = await tx.execute({
+    sql: `SELECT 1
+          FROM agent_runs
+          WHERE id = ?
+            AND status = 'running'
+            AND worker_generation = CAST(? AS BIGINT)`,
+    args: [fence.runId, fence.generation],
+    timeoutMs: LAPSED_LEASE_STATEMENT_TIMEOUT_MS,
+    maxAttempts: 1,
+  });
+  return run.rows.length === 1;
+}
+
+// Bounded like the lease renewal that calls it, so a lapsed lease never holds
+// a pooled connection open past the next heartbeat.
+const LAPSED_LEASE_STATEMENT_TIMEOUT_MS = 4_000;
 
 export async function withFencedExecutionWrite<T>(
   write: (tx: DbExec) => Promise<T>,

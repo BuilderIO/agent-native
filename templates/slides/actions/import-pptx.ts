@@ -1,5 +1,4 @@
 import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -109,7 +108,6 @@ export async function importPptxBufferToDeck(args: {
   deckId?: string;
   replaceExisting?: boolean;
   designSystemId?: string | null;
-  source?: string;
   imageFallbacks?: ImportedImageFallback[];
   parsedPresentation?: ParsedPresentation;
 }): Promise<{
@@ -129,7 +127,6 @@ export async function importPptxBufferToDeck(args: {
     deckId,
     replaceExisting = false,
     designSystemId,
-    source = "import-pptx",
     imageFallbacks,
     parsedPresentation,
   } = args;
@@ -281,10 +278,6 @@ export async function importPptxBufferToDeck(args: {
       assertDeckWriteApplied(updateResult, deckId, "PPTX import");
 
       await notifyClients(deckId);
-      await writeAppState("refresh-signal", {
-        ts: now,
-        source,
-      });
 
       return {
         id: deckId,
@@ -322,7 +315,6 @@ export async function importPptxBufferToDeck(args: {
   });
 
   await notifyClients(id);
-  await writeAppState("refresh-signal", { ts: now, source });
 
   return {
     id,
