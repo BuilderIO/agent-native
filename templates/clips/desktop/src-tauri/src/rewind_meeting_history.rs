@@ -19,6 +19,8 @@ const COVERAGE_TOLERANCE_MS: i64 = 2_500;
 const MAX_MEETING_HISTORY_HOURS: i64 = 8;
 const INDEX_WAIT_TIMEOUT: Duration = Duration::from_secs(45);
 const INDEX_POLL_INTERVAL: Duration = Duration::from_millis(200);
+// Notes collect within seconds of preparing, once transcription starts.
+const UNCOLLECTED_REQUEST_LIFETIME: Duration = Duration::from_secs(10 * 60);
 static HISTORY_REQUEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Default)]
@@ -27,6 +29,7 @@ pub struct RewindMeetingHistoryState {
 }
 
 struct PreparedMeetingHistory {
+    prepared_at: Instant,
     scheduled_start: DateTime<Utc>,
     captured_until: DateTime<Utc>,
     segments: Vec<ScreenMemorySegmentMetadata>,
@@ -119,12 +122,18 @@ pub async fn rewind_meeting_history_prepare(
         .insert(
             token.clone(),
             PreparedMeetingHistory {
+                prepared_at: Instant::now(),
                 scheduled_start: requested_start,
                 captured_until,
                 segments,
                 pin_id,
             },
         );
+    let sweeper = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(UNCOLLECTED_REQUEST_LIFETIME).await;
+        release_uncollected_requests(&sweeper);
+    });
 
     Ok(RewindMeetingHistoryPrepared {
         token,
@@ -161,20 +170,58 @@ pub async fn rewind_meeting_history_collect(
     }
     .await;
 
-    for segment in &prepared.segments {
-        let _ = screen_memory::unpin_segment(&app, &segment.id, &prepared.pin_id);
-    }
+    unpin_prepared_segments(&app, &prepared);
     result
 }
 
 #[tauri::command]
 pub fn rewind_meeting_history_cancel(app: AppHandle, token: String) -> Result<(), String> {
     if let Some(prepared) = take_prepared_request(&app, &token)? {
-        for segment in &prepared.segments {
-            let _ = screen_memory::unpin_segment(&app, &segment.id, &prepared.pin_id);
-        }
+        unpin_prepared_segments(&app, &prepared);
     }
     Ok(())
+}
+
+fn unpin_prepared_segments(app: &AppHandle, prepared: &PreparedMeetingHistory) {
+    for segment in &prepared.segments {
+        let _ = screen_memory::unpin_segment(app, &segment.id, &prepared.pin_id);
+    }
+}
+
+// A webview reload or crash between prepare and collect leaves nothing to collect or cancel the
+// request, and its pins would keep the earlier audio past Rewind retention until Clips quits.
+fn release_uncollected_requests(app: &AppHandle) {
+    let expired = match take_uncollected_requests(
+        &app.state::<RewindMeetingHistoryState>().requests,
+        Instant::now(),
+    ) {
+        Ok(expired) => expired,
+        Err(error) => {
+            eprintln!("[clips-tray] could not release uncollected meeting history: {error}");
+            return;
+        }
+    };
+    for prepared in &expired {
+        unpin_prepared_segments(app, prepared);
+    }
+}
+
+fn take_uncollected_requests(
+    requests: &Mutex<HashMap<String, PreparedMeetingHistory>>,
+    now: Instant,
+) -> Result<Vec<PreparedMeetingHistory>, String> {
+    let mut requests = requests.lock().map_err(|error| error.to_string())?;
+    let expired = requests
+        .iter()
+        .filter(|(_, prepared)| {
+            now.saturating_duration_since(prepared.prepared_at) >= UNCOLLECTED_REQUEST_LIFETIME
+        })
+        .map(|(token, _)| token.clone())
+        .collect::<Vec<_>>();
+    Ok(expired
+        .into_iter()
+        .filter_map(|token| requests.remove(&token))
+        .collect())
 }
 
 fn take_prepared_request(
@@ -541,26 +588,78 @@ fn parse_time(value: &str) -> Result<DateTime<Utc>, String> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn only_one_caller_can_take_a_prepared_request() {
+    fn prepared_request(token: &str, prepared_at: Instant) -> (String, PreparedMeetingHistory) {
         let start = DateTime::parse_from_rfc3339("2026-07-14T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        let requests = Mutex::new(HashMap::from([(
-            "token".to_string(),
+        (
+            token.to_string(),
             PreparedMeetingHistory {
+                prepared_at,
                 scheduled_start: start,
                 captured_until: start,
                 segments: Vec::new(),
-                pin_id: "token-segments".to_string(),
+                pin_id: format!("{token}-segments"),
             },
-        )]));
+        )
+    }
+
+    #[test]
+    fn only_one_caller_can_take_a_prepared_request() {
+        let requests = Mutex::new(HashMap::from([prepared_request("token", Instant::now())]));
 
         let first = take_from_requests(&requests, "token").unwrap();
         let second = take_from_requests(&requests, "token").unwrap();
 
         assert_eq!(first.unwrap().pin_id, "token-segments");
         assert!(second.is_none());
+    }
+
+    #[test]
+    fn a_request_nothing_collects_is_released_after_ten_minutes() {
+        let prepared_at = Instant::now();
+        let requests = Mutex::new(HashMap::from([
+            prepared_request("abandoned", prepared_at),
+            prepared_request("recent", prepared_at + Duration::from_secs(60)),
+        ]));
+
+        let released =
+            take_uncollected_requests(&requests, prepared_at + UNCOLLECTED_REQUEST_LIFETIME)
+                .unwrap();
+
+        assert_eq!(released.len(), 1);
+        assert_eq!(released[0].pin_id, "abandoned-segments");
+        assert!(take_from_requests(&requests, "abandoned").unwrap().is_none());
+        assert!(take_from_requests(&requests, "recent").unwrap().is_some());
+    }
+
+    #[test]
+    fn a_request_is_kept_until_ten_minutes_pass() {
+        let prepared_at = Instant::now();
+        let requests = Mutex::new(HashMap::from([prepared_request("pending", prepared_at)]));
+
+        let released = take_uncollected_requests(
+            &requests,
+            prepared_at + UNCOLLECTED_REQUEST_LIFETIME - Duration::from_millis(1),
+        )
+        .unwrap();
+
+        assert!(released.is_empty());
+        assert!(take_from_requests(&requests, "pending").unwrap().is_some());
+    }
+
+    #[test]
+    fn a_collected_request_is_never_released_again() {
+        let prepared_at = Instant::now();
+        let requests = Mutex::new(HashMap::from([prepared_request("collected", prepared_at)]));
+
+        let collected = take_from_requests(&requests, "collected").unwrap();
+        let released =
+            take_uncollected_requests(&requests, prepared_at + UNCOLLECTED_REQUEST_LIFETIME)
+                .unwrap();
+
+        assert!(collected.is_some());
+        assert!(released.is_empty());
     }
 
     #[test]
