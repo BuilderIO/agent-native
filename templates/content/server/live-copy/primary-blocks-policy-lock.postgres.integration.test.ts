@@ -716,6 +716,92 @@ describe.skipIf(!POSTGRES_URL)(
       120_000,
     );
 
+    it(
+      "refuses a field-revision write to a field that becomes the main field while the write waits",
+      () =>
+        runWithRequestContext({ userEmail: OWNER }, async () => {
+          const row = await switchedRowOwnedBySource({
+            switched: false,
+            source: false,
+          });
+          const notes = `notes-${row.id}`;
+          const now = new Date().toISOString();
+          await getDb().insert(schema.documentPropertyDefinitions).values({
+            id: notes,
+            ownerEmail: OWNER,
+            databaseId: row.databaseId,
+            name: "Notes",
+            type: "blocks",
+            visibility: "always_show",
+            optionsJson: "{}",
+            position: 1,
+            createdAt: now,
+            updatedAt: now,
+          });
+          const saved = (await setProperty.run(
+            {
+              documentId: row.id,
+              databaseId: row.databaseId,
+              propertyId: notes,
+              value: "Notes before the switch.",
+            },
+            { caller: "frontend", userEmail: OWNER },
+          )) as {
+            properties: {
+              definition: { id: string };
+              blocksField?: { revision?: number };
+            }[];
+          };
+          const revision = saved.properties.find(
+            (property) => property.definition.id === notes,
+          )?.blocksField?.revision;
+          if (typeof revision !== "number") {
+            throw new Error("The Notes field returned no revision.");
+          }
+          const before = await storedBody(row);
+          // The switch holds the collection, so the write reads Notes as an
+          // ordinary field and rechecks its storage only after the switch.
+          const holder = holdRow(
+            sql`WITH switched AS (
+              UPDATE document_property_definitions
+              SET options_json = CASE WHEN id = ${notes} THEN '{"blocks":{"primary":true}}' ELSE '{}' END
+              WHERE id IN (${row.propertyId}, ${notes})
+              RETURNING id
+            )
+            UPDATE content_databases SET primary_blocks_property_id = ${notes}
+            WHERE id = ${row.databaseId} AND (SELECT count(*) FROM switched) = 2`,
+          );
+          let write: Tracked | undefined;
+          try {
+            const holderPid = await holder.pid;
+            write = track(
+              Promise.resolve().then(() =>
+                setProperty.run(
+                  {
+                    documentId: row.id,
+                    databaseId: row.databaseId,
+                    propertyId: notes,
+                    value: WRITTEN,
+                    expectedBlocksFieldRevision: revision,
+                  },
+                  ctx,
+                ),
+              ),
+            );
+            await sessionBlockedBy(holderPid, write);
+          } finally {
+            holder.release();
+          }
+          const results = await Promise.allSettled([
+            holder.done,
+            write.promise,
+          ]);
+          expect(failures(results)).toEqual(["PROPERTY_STORAGE_CHANGED"]);
+          expect(await storedBody(row)).toBe(before);
+        }),
+      120_000,
+    );
+
     it("refuses an old read after the field identity is reset and the body changes", async () =>
       runWithRequestContext({ userEmail: OWNER }, async () => {
         const a = "Original first.\nOriginal second.";

@@ -381,13 +381,15 @@ export default defineAction({
       // can't replace newer text. Only the app's own UI (in the browser or an
       // MCP widget) and internal server calls without a caller are exempt;
       // agents, CLI runs, automations and HTTP requests are not.
-      const isAppUiCaller =
-        ctx?.caller === "frontend" ||
-        ctx?.caller === "mcp-widget" ||
-        ctx?.caller === "mcp-widget-write";
-      let target = blocksStorageTarget(
+      const isOutsideCaller =
+        ctx !== undefined &&
+        ctx.caller !== "frontend" &&
+        ctx.caller !== "mcp-widget" &&
+        ctx.caller !== "mcp-widget-write";
+      const checkedTarget = blocksStorageTarget(
         parsePropertyOptions(definition.optionsJson),
       );
+      let target = checkedTarget;
       if (baseRevision !== undefined) {
         if (target !== "document_body") {
           throw new ActionContractError(
@@ -409,8 +411,7 @@ export default defineAction({
       // A field's own revision can't vouch for the page's body: an alias the
       // body commit didn't see keeps an old revision while the text moves on.
       if (
-        ctx !== undefined &&
-        !isAppUiCaller &&
+        isOutsideCaller &&
         target === "document_body" &&
         baseRevision === undefined
       ) {
@@ -424,8 +425,7 @@ export default defineAction({
         );
       }
       if (
-        ctx !== undefined &&
-        !isAppUiCaller &&
+        isOutsideCaller &&
         target !== "document_body" &&
         expectedBlocksFieldRevision === undefined
       ) {
@@ -529,7 +529,12 @@ export default defineAction({
         target = blocksStorageTarget(
           parsePropertyOptions(lockedDefinition.optionsJson),
         );
-        if (baseRevision !== undefined && target !== "document_body") {
+        // The caller proved freshness for the storage it read: a page token
+        // can't guard a field, and a field revision can't guard the body.
+        if (
+          target !== checkedTarget &&
+          (isOutsideCaller || baseRevision !== undefined)
+        ) {
           throw new ActionContractError(
             "Property storage changed before the operation completed.",
             { errorCode: "PROPERTY_STORAGE_CHANGED", statusCode: 409 },
