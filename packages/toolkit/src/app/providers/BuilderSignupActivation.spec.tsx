@@ -129,6 +129,20 @@ describe("BuilderSignupActivation", () => {
     expect(mocks.activate).not.toHaveBeenCalled();
   });
 
+  it("retries a failed activation after a fresh eligible status on a host without background execution", async () => {
+    mocks.status.mockResolvedValue("eligible");
+    mocks.activate
+      .mockRejectedValueOnce(new Error("request never reached the server"))
+      .mockResolvedValueOnce("connected");
+    await render("non-background-user");
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(2), {
+      timeout: 4000,
+    });
+    await vi.waitFor(() =>
+      expect(container.querySelector("[role='status']")).toBeNull(),
+    );
+  });
+
   it("shows a retry state when confirmed activation status becomes unavailable", async () => {
     mocks.status.mockResolvedValue("eligible");
     mocks.activate.mockRejectedValue(new Error("polling timed out"));

@@ -31,6 +31,7 @@ export function useBuilderSignupActivation(
   const [activation, setActivation] = useState<{
     userId: string;
     status: "running" | "checking" | "settled";
+    failedAt?: number;
   }>();
   const eligibility = useQuery({
     queryKey: ["builder-signup-eligibility", experimentId, userId],
@@ -82,7 +83,9 @@ export function useBuilderSignupActivation(
         reason: error instanceof Error ? error.message : "unknown_error",
       });
       setActivation((current) =>
-        current?.userId === userId ? { userId, status: "checking" } : current,
+        current?.userId === userId
+          ? { userId, status: "checking", failedAt: Date.now() }
+          : current,
       );
     });
   }, [
@@ -101,8 +104,27 @@ export function useBuilderSignupActivation(
     ) {
       setActivation({ userId, status: "settled" });
       void queryClient.invalidateQueries();
+    } else if (
+      activation?.status === "checking" &&
+      activation.userId === userId &&
+      activation.failedAt !== undefined &&
+      eligibility.isSuccess &&
+      eligibility.data === "eligible" &&
+      eligibility.dataUpdatedAt > activation.failedAt
+    ) {
+      // A fresh start/status read can still be eligible on a host without
+      // background execution. Re-enter activate; the server reservation owns
+      // idempotency and never repeats an uncertain provider creation.
+      setActivation(undefined);
     }
-  }, [activation, userId, eligibility.data, queryClient]);
+  }, [
+    activation,
+    userId,
+    eligibility.data,
+    eligibility.dataUpdatedAt,
+    eligibility.isSuccess,
+    queryClient,
+  ]);
   return {
     activating:
       userId !== undefined &&
@@ -110,8 +132,10 @@ export function useBuilderSignupActivation(
         ? activation.status !== "settled"
         : eligibility.data === "eligible"),
     resolving: Boolean(userId) && eligibility.isPending,
-    statusError: activation?.status === "checking" && eligibility.isError,
+    statusError: activation?.status === "checking",
     retryStatus: () => {
+      attempts.delete(attemptKey);
+      setActivation(undefined);
       void eligibility.refetch();
     },
   };
