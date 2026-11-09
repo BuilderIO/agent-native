@@ -5,7 +5,6 @@ import { bytesToBase64, utf8ByteLength } from "../../shared/fig-bytes.js";
 import {
   completeFigImport,
   MAX_FIG_FRAME_HTML_BYTES,
-  shouldWarnForFigImport,
   yieldToEventLoop,
   type FigFileImportResult,
   type FigImportSummary,
@@ -24,7 +23,7 @@ import {
   type RenderedBrowserFigImport,
 } from "./fig-import-worker-session";
 
-export { MAX_CLIENT_FIG_BYTES, MAX_CLIENT_IMAGE_BYTES, shouldWarnForFigImport };
+export { MAX_CLIENT_FIG_BYTES, MAX_CLIENT_IMAGE_BYTES };
 
 const MAX_SAVE_BATCH_BYTES = 3 * 1024 * 1024;
 const MAX_SAVE_BATCH_FRAMES = 32;
@@ -40,7 +39,6 @@ export interface FigClientImportOptions {
   designId: string;
   file: File;
   prepared?: PreparedFigImport;
-  selection?: ReadonlySet<string>;
   onProgress?: (progress: FigClientImportProgress) => void;
 }
 
@@ -48,11 +46,19 @@ export class FigClientImportError extends Error {
   constructor(
     message: string,
     readonly remoteMutationStarted: boolean,
-    /** The caller's prepared import is still decoded and can render another selection. */
-    readonly preparedReusable = false,
   ) {
     super(message);
     this.name = "FigClientImportError";
+  }
+}
+
+/** The worker crashed or never started; the file itself may be fine, so the
+ * server upload route can still decode it. */
+export class FigImportWorkerError extends Error {
+  readonly workerFailed = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "FigImportWorkerError";
   }
 }
 
@@ -60,7 +66,6 @@ export interface PreparedFigImport {
   file: File;
   summary: FigImportSummary;
   render(selection?: ReadonlySet<string>): Promise<RenderedBrowserFigImport>;
-  isAlive(): boolean;
   dispose(): void;
 }
 
@@ -74,16 +79,19 @@ function startFigImportWorker(): FigImportWorker {
     return {
       prepare: (file) => session.prepare(file),
       render: async (selection) => session.render(selection),
-      isAlive: () => true,
       dispose: () => {},
     };
   }
-  const worker = new Worker(
-    new URL("./fig-import-worker.ts", import.meta.url),
-    {
+  let worker: Worker;
+  try {
+    worker = new Worker(new URL("./fig-import-worker.ts", import.meta.url), {
       type: "module",
-    },
-  );
+    });
+  } catch (error) {
+    throw new FigImportWorkerError(
+      `The .fig import worker failed: ${error instanceof Error ? error.message : "it could not start"}.`,
+    );
+  }
   const pending = new Map<
     number,
     { resolve: (result: unknown) => void; reject: (error: Error) => void }
@@ -107,14 +115,16 @@ function startFigImportWorker(): FigImportWorker {
   worker.onerror = (event) => {
     event.preventDefault();
     stop(
-      new Error(
+      new FigImportWorkerError(
         `The .fig import worker failed: ${event.message || "it could not start"}.`,
       ),
     );
   };
   worker.onmessageerror = () =>
     stop(
-      new Error("The .fig import worker sent a result that could not be read."),
+      new FigImportWorkerError(
+        "The .fig import worker sent a result that could not be read.",
+      ),
     );
   const call = <T>(
     request:
@@ -137,7 +147,6 @@ function startFigImportWorker(): FigImportWorker {
     prepare: (file) => call<FigImportSummary>({ type: "prepare", file }),
     render: (selection) =>
       call<RenderedBrowserFigImport>({ type: "render", selection }),
-    isAlive: () => stopped === null,
     dispose: () => stop(new Error("The .fig import was cancelled.")),
   };
 }
@@ -278,21 +287,21 @@ export function completeFigInBrowser(
 export async function importFigInBrowser(
   options: FigClientImportOptions,
 ): Promise<ImportResult> {
-  const { designId, file, onProgress, selection } = options;
+  const { designId, file, onProgress } = options;
   assertBrowserFigSize(file);
   const prepared =
     options.prepared ?? (await prepareFigImport(file, onProgress));
   let rendered: RenderedBrowserFigImport;
   try {
     onProgress?.({ phase: "rendering" });
-    rendered = await prepared.render(selection);
+    rendered = await prepared.render();
   } catch (error) {
-    const reusable = Boolean(options.prepared) && prepared.isAlive();
-    if (!reusable) prepared.dispose();
+    if (error instanceof FigImportWorkerError) throw error;
     const message = error instanceof Error ? error.message : String(error);
-    throw new FigClientImportError(message, false, reusable);
+    throw new FigClientImportError(message, false);
+  } finally {
+    prepared.dispose();
   }
-  prepared.dispose();
 
   let remoteMutationStarted = false;
   let uploaded = 0;

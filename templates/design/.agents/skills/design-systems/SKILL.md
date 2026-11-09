@@ -317,10 +317,10 @@ Do not parse `.fig` files locally for this flow and do not call
 kit, generated docs, and usage guidance. This is unchanged and is specifically
 about **token/brand-kit extraction**.
 
-**When the user uploads a raw `.fig` file in the Design editor's Import panel**
-(not Design System Setup), it takes a different, narrower path: the server
-decodes the container/Kiwi document locally (`fig-file-decoder.ts`) and maps
-its `NodeChange` tree to editable HTML screens (`fig-file-to-html.ts`,
+**When the user imports a raw `.fig` file with File → Import in the Design
+editor** (not Design System Setup), it takes a different, narrower path: the
+whole file is decoded locally (`fig-file-decoder.ts`) and its
+`NodeChange` tree is mapped to editable HTML screens (`fig-file-to-html.ts`,
 `fig-file-import.ts`) through the same `saveImportedDesignFiles` path as other
 Design imports — no Builder connection required. This is explicitly scoped to
 **screens only**, not tokens: it does not create or update a design system, and
