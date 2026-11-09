@@ -431,12 +431,14 @@ jobs:
             exit 0
           fi
           gh release download "$RELEASE_TAG" --pattern '*.sig' --dir updater/signatures
-          # One required key per build in the build-tauri matrix.
+          # One key per bundle the build-tauri matrix makes; each also implies
+          # its plain {os}-{arch} key. Tauri's updater reads the installer's
+          # own key first, so a .deb install without one gets the AppImage.
           node --experimental-strip-types scripts/clips-updater-manifest.ts \
             --release updater/release.json \
             --signatures updater/signatures \
             --version "$RELEASE_VERSION" \
-            --require darwin-universal,windows-x86_64,linux-x86_64 \
+            --require darwin-universal-app,windows-x86_64-msi,linux-x86_64-appimage,linux-x86_64-deb,linux-x86_64-rpm \
             > updater/latest.json
           gh release upload "$RELEASE_TAG" updater/latest.json --clobber
 

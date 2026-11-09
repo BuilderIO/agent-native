@@ -2785,7 +2785,10 @@ esac
       complete.filter((name) => name !== "Agent-Native-arm64.dmg"),
     );
     assert.equal(noDmg.status, 1);
-    assert.match(noDmg.stdout, /is missing Agent-Native-arm64\.dmg,/);
+    assert.match(
+      noDmg.stdout,
+      /is missing Agent-Native-arm64\.dmg \*-arm64\.dmg,/,
+    );
 
     const unreadable = runCheck(complete, {});
     assert.notEqual(unreadable.status, 0);
@@ -2812,6 +2815,14 @@ esac
     );
     assert.equal(noArchive.status, 1);
     assert.match(noArchive.stdout, /is missing \*-arm64\.tar\.xz,/);
+
+    // latest-mac.yml here lists only the arm64 DMG, so only the download
+    // check notices the x64 one is gone.
+    const noIntelDmg = runCheck(
+      complete.filter((name) => name !== "Agent-Native-x64.dmg"),
+    );
+    assert.equal(noIntelDmg.status, 1);
+    assert.match(noIntelDmg.stdout, /is missing \*-x64\.dmg,/);
   });
 
   it("refuses to publish a Clips draft without its DMG, or with no builds", () => {
@@ -2918,16 +2929,32 @@ esac
       const complete = runManifestStep(releaseAssets, mode);
       assert.equal(complete.result.status, 0, complete.result.stderr);
       assert.equal(complete.uploads, "updater/latest.json\n");
-      assert.deepEqual(
-        Object.keys(complete.manifest?.platforms ?? {})
-          .filter((key) =>
-            ["darwin-universal", "windows-x86_64", "linux-x86_64"].includes(
-              key,
-            ),
-          )
-          .sort(),
-        ["darwin-universal", "linux-x86_64", "windows-x86_64"],
+      assert.deepEqual(Object.keys(complete.manifest?.platforms ?? {}).sort(), [
+        "darwin-aarch64",
+        "darwin-aarch64-app",
+        "darwin-universal",
+        "darwin-universal-app",
+        "darwin-x86_64",
+        "darwin-x86_64-app",
+        "linux-x86_64",
+        "linux-x86_64-appimage",
+        "linux-x86_64-deb",
+        "linux-x86_64-rpm",
+        "windows-x86_64",
+        "windows-x86_64-msi",
+      ]);
+
+      // A .deb install reads linux-x86_64-deb before the AppImage's key.
+      const noDeb = runManifestStep(
+        releaseAssets.filter((name) => !/\.deb(\.sig)?$/.test(name)),
+        mode,
       );
+      assert.equal(noDeb.result.status, 1);
+      assert.match(
+        noDeb.result.stderr,
+        /no signed updater bundle for linux-x86_64-deb/,
+      );
+      assert.equal(noDeb.uploads, "");
 
       const noDmg = runManifestStep(
         releaseAssets.filter((name) => !name.endsWith(".dmg")),
