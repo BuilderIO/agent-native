@@ -1,14 +1,73 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
-import { build, resolveConfig } from "vite";
+import { reactRouter } from "@react-router/dev/vite";
+import { build, createBuilder, resolveConfig } from "vite";
 import { describe, expect, it, vi } from "vitest";
 
 import { isImmutableAssetPath } from "../deploy/immutable-assets.js";
+import { browserChunkNamesPlugin } from "./browser-chunk-names-plugin.js";
 import { agentNative } from "./client.js";
 
 describe("production browser script URLs", () => {
+  it("keeps React Router entry and route modules free of source-derived names", async () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "core-router-script-urls-"),
+    );
+    try {
+      fs.mkdirSync(path.join(root, "app/routes"), { recursive: true });
+      fs.mkdirSync(path.join(root, "node_modules"));
+      const require = createRequire(import.meta.url);
+      for (const dependency of ["react", "react-dom", "react-router"]) {
+        fs.symlinkSync(
+          path.dirname(require.resolve(`${dependency}/package.json`)),
+          path.join(root, "node_modules", dependency),
+          "dir",
+        );
+      }
+      fs.writeFileSync(
+        path.join(root, "package.json"),
+        '{"type":"module","dependencies":{"react-router":"*"}}',
+      );
+      fs.writeFileSync(
+        path.join(root, "app/root.tsx"),
+        'export { Outlet as default } from "react-router";',
+      );
+      fs.writeFileSync(
+        path.join(root, "app/routes.ts"),
+        'export default [{id:"routes/analytics-entry",path:"privacy",file:"routes/analytics-entry.tsx"}];',
+      );
+      fs.writeFileSync(
+        path.join(root, "app/routes/analytics-entry.tsx"),
+        'export default function Screen() { return "Connection ready"; }',
+      );
+      fs.writeFileSync(
+        path.join(root, "app/entry.server.tsx"),
+        'export default function render() { return new Response("Connection ready"); }',
+      );
+      fs.writeFileSync(path.join(root, "vite.config.ts"), "export default {};");
+      const builder = await createBuilder({
+        configFile: path.join(root, "vite.config.ts"),
+        root,
+        logLevel: "silent",
+        plugins: [reactRouter(), browserChunkNamesPlugin()],
+      });
+      await builder.buildApp();
+      const files = fs
+        .readdirSync(path.join(root, "build/client/assets"))
+        .filter((file) => file.endsWith(".js"));
+      expect(files.length).toBeGreaterThan(2);
+      for (const file of files) {
+        expect(file).toMatch(/^(?:m-[\w-]{8}[0-9]*|manifest-[\w-]{8})\.js$/);
+        expect(isImmutableAssetPath(`/assets/${file}`)).toBe(true);
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     {
       assetsDir: "assets",
