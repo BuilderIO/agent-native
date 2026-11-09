@@ -466,7 +466,7 @@ export default defineAction({
       const hasCreativeContextRequest =
         contextPackId !== undefined ||
         contextModeOverride !== undefined ||
-        requestedReuseLabels.length > 0;
+        reuseLabels.length > 0;
       const previous =
         hasCreativeContextRequest && contextModeOverride !== "off"
           ? await getGenerationCreativeContext({
