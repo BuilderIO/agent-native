@@ -6055,19 +6055,23 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
   it("asks approval for an unlisted tool run through call-tool, then runs it", async () => {
     const run = vi.fn(async () => ({ ok: true }));
+    const actions = {
+      "restrict-personal-keys": {
+        tool: {
+          description: "Restrict personal API keys",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        needsApproval: true,
+        mcpTool: "search" as const,
+        run,
+      },
+    };
     const { client } = await createModernClient(
       {
         ...config,
         actions: {
-          "restrict-personal-keys": {
-            tool: {
-              description: "Restrict personal API keys",
-              parameters: { type: "object" as const, properties: {} },
-            },
-            needsApproval: true,
-            mcpTool: "search",
-            run,
-          },
+          ...actions,
+          "tool-search": createToolSearchEntry(() => actions),
         },
       },
       {
