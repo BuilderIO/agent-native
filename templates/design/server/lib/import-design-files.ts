@@ -300,7 +300,9 @@ export function sanitizeImportedFilename(filename: string): string {
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
   if (!cleaned) throw new Error("Imported filename is invalid.");
-  return cleaned;
+  // A name with no Latin letters cleans down to its extension, which would
+  // save a hidden file; the screen keeps its real title either way.
+  return cleaned.startsWith(".") ? `untitled${cleaned}` : cleaned;
 }
 
 function ensureExtension(

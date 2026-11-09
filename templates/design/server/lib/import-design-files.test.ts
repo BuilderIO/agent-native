@@ -15,6 +15,11 @@ describe("import design file helpers", () => {
     );
   });
 
+  it("names a file whose name has no Latin letters instead of hiding it", () => {
+    expect(sanitizeImportedFilename("プライシング.html")).toBe("untitled.html");
+    expect(sanitizeImportedFilename("Pricing.html")).toBe("Pricing.html");
+  });
+
   it("normalizes plain snippets into standalone HTML", () => {
     const html = normalizeImportedHtmlDocument("<main>Hello</main>", "test");
 
