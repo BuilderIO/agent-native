@@ -6053,6 +6053,73 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  it("asks approval for an unlisted tool run through call-tool, then runs it", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const actions = {
+      "restrict-personal-keys": {
+        tool: {
+          description: "Restrict personal API keys",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        needsApproval: true,
+        mcpTool: "search" as const,
+        run,
+      },
+    };
+    const { client } = await createModernClient(
+      {
+        ...config,
+        actions: {
+          ...actions,
+          "tool-search": createToolSearchEntry(() => actions),
+        },
+      },
+      {
+        manualInputRequired: true,
+        supportsElicitation: true,
+        requestHeaders: {
+          ...(await mcpAppsAuthHeaders()),
+          // The default catalog, where an unlisted tool runs through call-tool.
+          "x-agent-native-mcp-full-catalog": "0",
+        },
+      },
+    );
+    try {
+      const { tools } = await client.listTools();
+      const callTool = tools.find((tool) => tool.name === "call-tool");
+      expect(callTool?.annotations?.destructiveHint).toBe(true);
+      expect(tools.map((tool) => tool.name)).not.toContain(
+        "restrict-personal-keys",
+      );
+
+      const request = {
+        name: "call-tool",
+        arguments: { name: "restrict-personal-keys", arguments: {} },
+      };
+      const first = (await client.callTool(
+        request as any,
+        { allowInputRequired: true } as any,
+      )) as any;
+      expect(first.resultType).toBe("input_required");
+      expect(run).not.toHaveBeenCalled();
+
+      const approved = await client.callTool({
+        ...request,
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(approved.isError).not.toBe(true);
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally {
+      await client.close();
+    }
+  });
+
   it("records an accepted elicitation on the accepted action's row, not on a child it calls", async () => {
     auditInserts.length = 0;
     const { recordOrgAdminAuditEvent } = await import("../audit/org-admin.js");

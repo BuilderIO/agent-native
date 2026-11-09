@@ -13,7 +13,10 @@ import type {
   A2AApprovalExecution,
   AgentSkill,
 } from "../../a2a/types.js";
-import { isActionExposedToExternalAgents } from "../../action.js";
+import {
+  isActionExposedToExternalAgents,
+  isMcpToolServed,
+} from "../../action.js";
 import { resolveMainChatMaxOutputTokens } from "../../agent/engine/output-tokens.js";
 import type { EngineTool } from "../../agent/engine/types.js";
 import {
@@ -69,7 +72,7 @@ export function filterMcpOnlyActions(
     Object.entries(actions).filter(
       ([, entry]) =>
         entry.agentTool === false &&
-        entry.mcpTool === true &&
+        isMcpToolServed(entry.mcpTool) &&
         entry.uiOnly !== true,
     ),
   );
@@ -122,7 +125,7 @@ export function filterDirectA2AActions(
     Object.entries(actions).filter(([name, entry]) => {
       const exposure = entry.publicAgent;
       const selected =
-        entry.mcpTool === true ||
+        isMcpToolServed(entry.mcpTool) ||
         catalog.has(name) ||
         (autoReads &&
           isAuthenticatedReadAction(entry) &&

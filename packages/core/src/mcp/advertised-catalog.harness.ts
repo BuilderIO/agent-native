@@ -127,8 +127,9 @@ export function baselineSection(app: AppCatalog, name: string): string {
 /**
  * Actions the app's own agent can call that only a missing decision keeps off
  * a plain production deployment's default MCP catalog: not served there, no
- * `mcpTool` either way, not ending the in-app agent's turn, and allowed on
- * the full catalog, so no framework rule rules them out either.
+ * `mcpTool` decision (`true`, `"search"` or `false`), not ending the in-app
+ * agent's turn, and allowed on the full catalog, so no framework rule rules
+ * them out either.
  */
 export function undecidedMcpActions(app: AppCatalog): string[] {
   const production = app.surfaces.find(
@@ -145,7 +146,7 @@ export function undecidedMcpActions(app: AppCatalog): string[] {
       ([name, entry]) =>
         entry.uiOnly !== true &&
         entry.agentTool !== false &&
-        typeof entry.mcpTool !== "boolean" &&
+        entry.mcpTool === undefined &&
         isActionExposedToExternalAgents(entry) &&
         !served.has(name) &&
         allowed.has(name),

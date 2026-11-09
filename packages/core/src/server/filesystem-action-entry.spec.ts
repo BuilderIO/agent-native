@@ -182,6 +182,21 @@ describe("filesystemActionEntry", () => {
     expect(entry.mcpAnnotationDefaults).toBeUndefined();
   });
 
+  it("keeps each MCP decision from the action module and drops anything else", () => {
+    const decided = (mcpTool: unknown) =>
+      filesystemActionEntry({
+        tool: { description: "Decided", parameters: { type: "object" } },
+        run: async () => ({}),
+        mcpTool,
+      }).mcpTool;
+
+    expect(decided(true)).toBe(true);
+    expect(decided(false)).toBe(false);
+    expect(decided("search")).toBe("search");
+    expect(decided("yes")).toBeUndefined();
+    expect(decided(undefined)).toBeUndefined();
+  });
+
   it("drops malformed MCP annotations and uses the conservative defaults", () => {
     const entry = filesystemActionEntry({
       tool: { description: "Malformed", parameters: { type: "object" } },

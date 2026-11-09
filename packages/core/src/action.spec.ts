@@ -36,6 +36,7 @@ import {
   isAgentConnectionRequiredError,
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
+  isMcpToolServed,
   preparedCallArguments,
   recordInvalidActionCall,
   runPreparedActionCall,
@@ -386,6 +387,42 @@ describe("defineAction", () => {
     });
     expect(plain.mcpTool).toBeUndefined();
     expect(plain.deferLoading).toBeUndefined();
+
+    const unlisted = defineAction({
+      description: "read a plan's history",
+      parameters: { id: { type: "string" } },
+      mcpTool: "search",
+      run: async () => "ok",
+    });
+    expect(unlisted.mcpTool).toBe("search");
+
+    const unknown = defineAction({
+      description: "a decision this version doesn't know",
+      parameters: { id: { type: "string" } },
+      mcpTool: "listed" as never,
+      run: async () => "ok",
+    });
+    expect(unknown.mcpTool).toBeUndefined();
+  });
+
+  it("serves an action to external agents for mcpTool true or search", () => {
+    expect(isMcpToolServed(true)).toBe(true);
+    expect(isMcpToolServed("search")).toBe(true);
+    expect(isMcpToolServed(false)).toBe(false);
+    expect(isMcpToolServed(undefined)).toBe(false);
+
+    expect(
+      isActionExposedToExternalAgents({ agentTool: false, mcpTool: "search" }),
+    ).toBe(true);
+    expect(
+      isActionExposedToExternalAgents({ endsTurn: true, mcpTool: "search" }),
+    ).toBe(true);
+    expect(
+      isActionHiddenFromEveryAgentSurface({
+        agentTool: false,
+        mcpTool: "search",
+      }),
+    ).toBe(false);
   });
 
   it("keeps searchHints off the model-facing tool and through registry loading", () => {

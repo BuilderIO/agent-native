@@ -4,8 +4,9 @@
  * packages/core/src/mcp/mcp-parity-gaps.json freezes the actions an app's own
  * agent could call that its MCP server neither served nor ruled out when every
  * such action had to carry a decision. The list may only shrink: a new action
- * is served (`mcpTool: true`) or kept in-app (`mcpTool: false`, with a comment
- * saying why) instead of joining it.
+ * is served (`mcpTool: true`, or `mcpTool: "search"` to leave it out of the
+ * tool list) or kept in-app (`mcpTool: false`, with a comment saying why)
+ * instead of joining it.
  *
  * The parity spec (agent-mcp-parity.spec.ts) checks that every undecided
  * action is listed and every entry is still undecided. It cannot check that no
@@ -48,13 +49,14 @@ export function runParityGapGuard(cwd: string): GuardOutcome {
     movedHelp:
       "The baseline path is fixed: the guard compares the file at that path with the merge-base,\n" +
       "and the parity spec reads the same path. Keep the baseline there; to clear an entry,\n" +
-      "decide the action (`mcpTool: true` or `mcpTool: false`) and delete the id.",
+      'decide the action (`mcpTool: true`, `"search"` or `false`) and delete the id.',
     addedTarget: "the MCP parity baseline",
     addedHelp:
       "The baseline records actions that had no MCP decision when the parity check began, and\n" +
       "may only shrink. Decide the action instead of adding it here: `mcpTool: true` serves it\n" +
-      "to outside agents (add a test that calls it over MCP), and `mcpTool: false` keeps it\n" +
-      "in-app, with a comment on that line saying why.",
+      'to outside agents in their tool list, `mcpTool: "search"` serves it unlisted (tool-search\n' +
+      "finds it and call-tool runs it), and `mcpTool: false` keeps it in-app, with a comment on\n" +
+      "that line saying why. Add a test that calls a served action over MCP.",
   });
 }
 
