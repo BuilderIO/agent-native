@@ -301,16 +301,43 @@ export default defineAction({
     const incomingAssetsCreate = args.mdx["assets/"];
     if (incomingAssetsCreate && Object.keys(incomingAssetsCreate).length > 0) {
       const srcByFilename = await importPlanAssets(id, incomingAssetsCreate);
-      content = applyImportedAssets(content, srcByFilename);
       // The plan is listed from the insert on, so an editor can already have
-      // it open. A new revision is what tells that editor the content changed.
-      await db
-        .update(schema.plans)
-        .set({
-          content: serializePlanContent(content),
-          updatedAt: revisionAfter(now),
-        })
-        .where(eq(schema.plans.id, id));
+      // it open, and can save it while the assets upload. Rewrite what the plan
+      // holds at a revision only while it still holds that revision, and move
+      // the revision, which is what tells an open editor the content changed.
+      let base: { content: PlanContent | null; updatedAt: string } = {
+        content,
+        updatedAt: now,
+      };
+      let rewritten = false;
+      for (let attempt = 0; attempt < 3 && base.content; attempt++) {
+        const written = await db
+          .update(schema.plans)
+          .set({
+            content: serializePlanContent(
+              applyImportedAssets(base.content, srcByFilename),
+            ),
+            updatedAt: revisionAfter(base.updatedAt),
+          })
+          .where(
+            and(
+              eq(schema.plans.id, id),
+              eq(schema.plans.updatedAt, base.updatedAt),
+            ),
+          )
+          .returning({ id: schema.plans.id });
+        if (written.length > 0) {
+          rewritten = true;
+          break;
+        }
+        const { plan } = await loadPlanBundle(id);
+        base = { content: plan.content ?? null, updatedAt: plan.updatedAt };
+      }
+      if (!rewritten) {
+        console.warn(
+          `[import-visual-plan-source] plan ${id} kept changing while its assets uploaded, so their links weren't rewritten`,
+        );
+      }
     }
 
     await writeEvent({

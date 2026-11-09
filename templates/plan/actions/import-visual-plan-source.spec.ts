@@ -11,6 +11,7 @@ const {
 } = vi.hoisted(() => ({
   state: {
     content: null as unknown,
+    updatedAt: "revision-1",
     kind: "plan" as "plan" | "recap",
     isLocalRuntime: false,
   },
@@ -95,7 +96,7 @@ vi.mock("../server/plans.js", async () => {
         brief: "Stored plan.",
         kind: state.kind,
         status: "review",
-        updatedAt: "revision-1",
+        updatedAt: state.updatedAt,
         content: state.content,
       },
       comments: [],
@@ -139,6 +140,7 @@ function legacyContent() {
 describe("import-visual-plan-source stored legacy defaults", () => {
   beforeEach(() => {
     state.content = legacyContent();
+    state.updatedAt = "revision-1";
     state.kind = "plan";
     state.isLocalRuntime = false;
     updateMock.mockReset();
@@ -251,7 +253,9 @@ describe("import-visual-plan-source stored legacy defaults", () => {
     updateMock.mockImplementation(() => ({
       set: (values: { updatedAt?: string }) => {
         writes.push(values);
-        return { where: async () => undefined };
+        return {
+          where: () => ({ returning: async () => [{ id: "new-plan" }] }),
+        };
       },
     }));
 
@@ -271,6 +275,68 @@ describe("import-visual-plan-source stored legacy defaults", () => {
 
     expect(writes).toHaveLength(1);
     expect(writes[0]?.updatedAt).toBe("2026-10-12T00:00:00.001Z");
+  });
+
+  it("rewrites the assets into what an editor saved during the upload, at its revision", async () => {
+    const { importPlanAssets } = await import("../server/lib/plan-assets.js");
+    vi.mocked(importPlanAssets).mockResolvedValueOnce({
+      "photo.png": "/assets/photo.png",
+    });
+    const saved = {
+      version: 2,
+      blocks: [
+        {
+          id: "typed",
+          type: "rich-text",
+          data: { markdown: "Typed while the photo uploaded." },
+        },
+      ],
+    };
+    const writes: Array<{
+      content?: string;
+      updatedAt?: string;
+      where: unknown;
+    }> = [];
+    updateMock.mockImplementation(() => ({
+      set: (values: { content?: string; updatedAt?: string }) => ({
+        where: (where: unknown) => ({
+          returning: async () => {
+            writes.push({ ...values, where });
+            if (writes.length > 1) return [{ id: "new-plan" }];
+            // An editor saved the new plan before the first rewrite landed.
+            state.content = saved;
+            state.updatedAt = "2026-10-12T00:00:05.000Z";
+            return [];
+          },
+        }),
+      }),
+    }));
+
+    await runAction({
+      mdx: {
+        "plan.mdx": [
+          "---",
+          'title: "New plan"',
+          "version: 2",
+          "---",
+          "",
+          "The plan's prose.",
+        ].join("\n"),
+        "assets/": { "photo.png": "cGhvdG8=" },
+      },
+    });
+
+    expect(writes).toHaveLength(2);
+    expect(writes[0]?.where).toContainEqual([
+      "plans.updatedAt",
+      "2026-10-12T00:00:00.000Z",
+    ]);
+    expect(writes[1]?.where).toContainEqual([
+      "plans.updatedAt",
+      "2026-10-12T00:00:05.000Z",
+    ]);
+    expect(JSON.parse(writes[1]?.content ?? "null")).toEqual(saved);
+    expect(writes[1]?.updatedAt).toBe("2026-10-12T00:00:05.001Z");
   });
 
   it("keeps new imports strict even when the source was exported from a legacy plan", async () => {
