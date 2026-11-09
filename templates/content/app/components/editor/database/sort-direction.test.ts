@@ -2,7 +2,17 @@ import type { DocumentProperty } from "@shared/api";
 import { DOCUMENT_PROPERTY_TYPES } from "@shared/properties";
 import { describe, expect, it } from "vitest";
 
-import { messagesByLocale } from "@/i18n-data";
+import arSA from "@/i18n/ar-SA";
+import deDE from "@/i18n/de-DE";
+import enUS from "@/i18n/en-US";
+import esES from "@/i18n/es-ES";
+import frFR from "@/i18n/fr-FR";
+import hiIN from "@/i18n/hi-IN";
+import jaJP from "@/i18n/ja-JP";
+import koKR from "@/i18n/ko-KR";
+import ptBR from "@/i18n/pt-BR";
+import zhCN from "@/i18n/zh-CN";
+import zhTW from "@/i18n/zh-TW";
 
 import {
   databaseSortDirectionLabel,
@@ -65,8 +75,20 @@ describe("database sort direction labels", () => {
   });
 
   it("gives every property type two different labels in every locale", () => {
-    for (const messages of Object.values(messagesByLocale)) {
-      const { database } = messages;
+    // Imported directly: only en-US is registered until the app loads a locale.
+    const translated = [
+      arSA,
+      deDE,
+      esES,
+      frFR,
+      hiIN,
+      jaJP,
+      koKR,
+      ptBR,
+      zhCN,
+      zhTW,
+    ];
+    for (const { database } of [enUS, ...translated]) {
       expect(database.sortAscending).not.toBe(database.sortDescending);
       expect(database.sortAToZ).not.toBe(database.sortZToA);
       expect(database.sortLowToHigh).not.toBe(database.sortHighToLow);
@@ -75,6 +97,19 @@ describe("database sort direction labels", () => {
         database.sortCheckedToUnchecked,
       );
       expect(database.sortedInDirection).toContain("{{direction}}");
+    }
+    // A key a locale leaves out falls back to English silently, so check each
+    // locale has its own words. ("A → Z" stays as it is in most locales.)
+    for (const { database } of translated) {
+      for (const key of [
+        "sortAscending",
+        "sortLowToHigh",
+        "sortOldToNew",
+        "sortUncheckedToChecked",
+        "sortedInDirection",
+      ] as const) {
+        expect(database[key]).not.toBe(enUS.database[key]);
+      }
     }
     for (const type of DOCUMENT_PROPERTY_TYPES) {
       const [ascending, descending] = labels("property", type);

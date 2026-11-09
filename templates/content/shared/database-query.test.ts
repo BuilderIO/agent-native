@@ -1389,6 +1389,13 @@ describe("content database sort order", () => {
         ["apple", "Apple"],
       ]),
     ).toEqual(["apple", "banana"]);
+    // Digits inside text sort by value, as "A → Z" does in file managers.
+    expect(
+      sortedIds("text", [
+        ["ten", "Step 10"],
+        ["two", "Step 2"],
+      ]),
+    ).toEqual(["two", "ten"]);
     expect(
       sortedIds("number", [
         ["ten", 10],
