@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/auth/builder-signup", () => ({
-  getBuilderSignupActivationStatus: mocks.status,
+  startBuilderSignupActivation: mocks.status,
   activateBuilderSignupAssignment: mocks.activate,
 }));
 

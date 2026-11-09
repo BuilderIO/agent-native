@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   enabled: true,
+  failTerminalWrites: 0,
+  waitUntil: undefined as ((work: Promise<unknown>) => void) | undefined,
   override: undefined as boolean | undefined,
   identity: { user: { id: "new-user", createdAt: new Date() } },
   settings: new Map<string, Record<string, unknown>>(),
@@ -31,6 +33,11 @@ vi.mock("../settings/store.js", () => ({
     ) => Record<string, unknown>,
   ) => {
     const result = update(mocks.settings.get(key) ?? null);
+    if (
+      (result.status === "connected" || result.status === "fallback") &&
+      mocks.failTerminalWrites-- > 0
+    )
+      throw new Error("Temporary terminal write failure");
     mocks.settings.set(key, result);
     return result;
   },
@@ -38,7 +45,13 @@ vi.mock("../settings/store.js", () => ({
     mocks.settings.set(key, value);
   },
 }));
-vi.mock("../tracking/index.js", () => ({ track: mocks.track }));
+vi.mock("../tracking/index.js", () => ({
+  track: mocks.track,
+  flushTracking: vi.fn(async () => []),
+}));
+vi.mock("./background-work.js", () => ({
+  platformWaitUntil: () => mocks.waitUntil,
+}));
 
 import type { AuthSession } from "./auth.js";
 import {
@@ -115,6 +128,8 @@ function bindRequest(
 beforeEach(() => {
   testTime = Date.now();
   mocks.enabled = true;
+  mocks.failTerminalWrites = 0;
+  mocks.waitUntil = undefined;
   mocks.override = undefined;
   mocks.identity = { user: { id: "new-user", createdAt: new Date() } };
   mocks.settings.clear();
@@ -130,6 +145,144 @@ beforeEach(() => {
 });
 
 describe("pre-signup Builder experiment", () => {
+  it("starts provisioning on the first request and finishes after the browser stops polling", async () => {
+    session = signedSession();
+    let finish!: (result: { ok: boolean }) => void;
+    activate.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const background: Promise<unknown>[] = [];
+    mocks.waitUntil = (work) => {
+      background.push(work);
+    };
+    expect(await (await request({ operation: "start" })).json()).toEqual({
+      status: "pending",
+    });
+    expect(activate).toHaveBeenCalledOnce();
+    expect(await (await request({ operation: "start" })).json()).toEqual({
+      status: "pending",
+    });
+    expect(activate).toHaveBeenCalledOnce();
+    // The visitor leaves here: no second activate request is sent.
+    finish({ ok: true });
+    await Promise.all(background);
+    expect(
+      mocks.settings.get("design_builder_signup_v1:new-user")?.status,
+    ).toBe("connected");
+    expect(mocks.track).toHaveBeenCalledWith(
+      "builder_signup_experiment_outcome",
+      expect.objectContaining({ status: "connected" }),
+      expect.anything(),
+    );
+  });
+
+  it("confirms eligibility before the covered provider request on hosts without a background lifetime", async () => {
+    session = signedSession();
+    expect(await (await request({ operation: "start" })).json()).toEqual({
+      status: "eligible",
+    });
+    expect(activate).not.toHaveBeenCalled();
+    expect(await (await request({ operation: "activate" })).json()).toEqual({
+      status: "connected",
+    });
+    expect(
+      mocks.settings.get("design_builder_signup_v1:new-user")?.status,
+    ).toBe("connected");
+  });
+
+  it("retries only terminal persistence and never re-provisions after a write failure", async () => {
+    session = signedSession();
+    mocks.failTerminalWrites = 2;
+    expect(await (await request({ operation: "activate" })).json()).toEqual({
+      status: "connected",
+    });
+    expect(activate).toHaveBeenCalledOnce();
+    expect(
+      mocks.settings.get("design_builder_signup_v1:new-user")?.status,
+    ).toBe("connected");
+  });
+
+  it("reports exhausted background outcome writes without retrying the provider", async () => {
+    session = signedSession();
+    mocks.failTerminalWrites = 3;
+    const background: Promise<unknown>[] = [];
+    mocks.waitUntil = (work) => {
+      background.push(work);
+    };
+    expect(await (await request({ operation: "start" })).json()).toEqual({
+      status: "pending",
+    });
+    expect(await Promise.all(background)).toEqual([
+      { status: "pending", code: "outcome_write_failed" },
+    ]);
+    expect(activate).toHaveBeenCalledOnce();
+    expect(mocks.track).toHaveBeenCalledWith(
+      "builder_signup_experiment_activation_unavailable",
+      expect.objectContaining({ code: "outcome_write_failed" }),
+      expect.anything(),
+    );
+    expect(
+      mocks.settings.get("design_builder_signup_v1:new-user")?.status,
+    ).toBe("started");
+  });
+
+  it("releases an expired uncertain reservation to manual setup without calling the provider", async () => {
+    session = signedSession();
+    mocks.waitUntil = () => {};
+    mocks.settings.set("design_builder_signup_v1:new-user", {
+      status: "started",
+      startedAt: Date.now() - 61_000,
+      attempt: "original-owner",
+    });
+    expect(await (await request({ operation: "start" })).json()).toEqual({
+      status: "fallback",
+      code: "activation_result_unknown",
+    });
+    expect(activate).not.toHaveBeenCalled();
+    expect(
+      mocks.settings.get("design_builder_signup_v1:new-user")?.attempt,
+    ).toBe("original-owner");
+  });
+
+  it.each([false, true])(
+    "does not enroll leftover anonymous assignments on start (background=%s)",
+    async (background) => {
+      session = signedSession();
+      mocks.settings.clear();
+      mocks.waitUntil = background ? () => {} : undefined;
+      expect(
+        await (
+          await request(
+            { operation: "start" },
+            encodeBuilderSignupAssignment(accepted()),
+          )
+        ).json(),
+      ).toEqual({ status: "disabled", code: "not_enrolled" });
+      expect(activate).not.toHaveBeenCalled();
+      expect(mocks.track).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not emit a replayed outcome when a completed user returns", async () => {
+    session = signedSession();
+    mocks.waitUntil = () => {};
+    mocks.settings.set("design_builder_signup_v1:new-user", {
+      status: "connected",
+    });
+    expect(await (await request({ operation: "start" })).json()).toEqual({
+      status: "disabled",
+      code: "already_completed",
+    });
+    expect(await (await request({ operation: "activate" })).json()).toEqual({
+      status: "connected",
+    });
+    expect(activate).not.toHaveBeenCalled();
+    expect(mocks.track).not.toHaveBeenCalled();
+  });
+
   it("keeps a recorded control assignment authoritative if automatic consent also exists", async () => {
     session = signedSession();
     mocks.settings.set("design_builder_signup_v1:new-user", {
@@ -163,7 +316,7 @@ describe("pre-signup Builder experiment", () => {
       ).json(),
     ).toEqual({ bound: true });
     session = signedSession();
-    for (const operation of ["status", "activate"]) {
+    for (const operation of ["status", "activate", "start"]) {
       expect(await (await request({ operation })).json()).toEqual({
         status: "disabled",
         code: "password_acceptance_cookie_required",
