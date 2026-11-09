@@ -832,7 +832,7 @@ export function transcriptStatusInstructions(
 
   if (storedSegmentsUnreadable(transcript?.segmentsJson)) {
     return [
-      "The transcript's saved timed lines can't be read. Any segments here are built from its full text, so their times are estimates and speakers are missing. With no full text either, tell the user the transcript couldn't be read, not that the clip has none; the owner can regenerate it.",
+      "The transcript's saved timed lines can't be read. Any segments here are built from its full text, so their times are estimates and speakers are missing. With no full text either, tell the user the transcript couldn't be read, not that the clip has none.",
     ];
   }
 
