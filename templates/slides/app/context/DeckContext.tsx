@@ -1020,6 +1020,9 @@ const pendingPersistedResultHandlers = new Map<
 const deckClientWriteId = nanoid(12);
 const deckClientWriteSequences = new Map<string, number>();
 const deckKeepaliveSuccessGenerations = new Map<string, number>();
+// Plain parallel requests carry only queued ops, so they must not read as a
+// keepalive replay of the active save.
+const deckPlainParallelSuccessGenerations = new Map<string, number>();
 const deckServerRevisions = new Map<string, string | null>();
 const slideLocalWriteSequences = new Map<string, Map<string, number>>();
 const sentSlideContent = new Map<
@@ -2300,9 +2303,9 @@ function drainPendingDeckOps(
               return;
             }
             if (!keepalive) {
-              deckKeepaliveSuccessGenerations.set(
+              deckPlainParallelSuccessGenerations.set(
                 deckId,
-                (deckKeepaliveSuccessGenerations.get(deckId) ?? 0) + 1,
+                (deckPlainParallelSuccessGenerations.get(deckId) ?? 0) + 1,
               );
               // This only applies after the active save, whose success handler
               // now skips confirming its ops.
@@ -2399,6 +2402,8 @@ function drainPendingDeckOps(
   const generation = deckSaveGenerations.get(deckId) ?? 0;
   const keepaliveSuccessGenerationAtStart =
     deckKeepaliveSuccessGenerations.get(deckId) ?? 0;
+  const plainParallelSuccessGenerationAtStart =
+    deckPlainParallelSuccessGenerations.get(deckId) ?? 0;
   const controller =
     typeof AbortController === "undefined" ? null : new AbortController();
   if (controller) inFlightSaveControllers.set(deckId, controller);
@@ -2411,7 +2416,9 @@ function drainPendingDeckOps(
       if (!isCurrentGeneration()) return;
       if (
         (deckKeepaliveSuccessGenerations.get(deckId) ?? 0) <=
-        keepaliveSuccessGenerationAtStart
+          keepaliveSuccessGenerationAtStart &&
+        (deckPlainParallelSuccessGenerations.get(deckId) ?? 0) <=
+          plainParallelSuccessGenerationAtStart
       ) {
         rememberPersistedSlideContent(deckId, ops);
       }
@@ -2442,10 +2449,16 @@ function drainPendingDeckOps(
     .catch(async (err) => {
       if (!isCurrentGeneration()) return;
       const keepaliveSave = inFlightKeepaliveSaves.get(deckId);
+      // A plain parallel request carries only the ops queued behind this one,
+      // so its success says nothing about whether these ops were persisted.
       let replayedByKeepalive =
         (deckKeepaliveSuccessGenerations.get(deckId) ?? 0) >
         keepaliveSuccessGenerationAtStart;
-      if (!replayedByKeepalive && keepaliveSave) {
+      if (
+        !replayedByKeepalive &&
+        keepaliveSave &&
+        !plainHiddenSaves.has(keepaliveSave)
+      ) {
         const [keepaliveResult] = await Promise.allSettled([keepaliveSave]);
         replayedByKeepalive =
           keepaliveResult?.status === "fulfilled" &&
@@ -4929,6 +4942,7 @@ async function deleteDeckFromAPI(id: string): Promise<void> {
     deckServerRevisions.delete(id);
     deckClientWriteSequences.delete(id);
     deckKeepaliveSuccessGenerations.delete(id);
+    deckPlainParallelSuccessGenerations.delete(id);
   } catch (error) {
     if (
       !(
@@ -4943,6 +4957,7 @@ async function deleteDeckFromAPI(id: string): Promise<void> {
     deckServerRevisions.delete(id);
     deckClientWriteSequences.delete(id);
     deckKeepaliveSuccessGenerations.delete(id);
+    deckPlainParallelSuccessGenerations.delete(id);
   }
 }
 
@@ -6913,6 +6928,7 @@ export function DeckProvider({
       deckLocalWriteSeq.delete(deckId);
       deckClientWriteSequences.delete(deckId);
       deckKeepaliveSuccessGenerations.delete(deckId);
+      deckPlainParallelSuccessGenerations.delete(deckId);
       deckServerRevisions.delete(deckId);
       slideLocalWriteSequences.delete(deckId);
       sentSlideContent.delete(deckId);
