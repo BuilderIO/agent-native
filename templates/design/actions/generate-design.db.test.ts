@@ -17,7 +17,10 @@ const state = vi.hoisted(() => ({
   observeRows: vi.fn(),
 }));
 vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(),
+  assertAccess: vi.fn(async () => ({
+    role: "editor",
+    resource: { id: "design-1", data: "{}" },
+  })),
   registerShareableResource: vi.fn(),
   resolveAccess: vi.fn(),
 }));

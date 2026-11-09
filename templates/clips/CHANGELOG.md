@@ -3,6 +3,16 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-05
+
+### Improved
+
+- Reference recordings directly from the composer
+
+### Fixed
+
+- Recording thumbnails show hours for longer clips.
+
 ## 2026-11-04
 
 ### Added
@@ -1504,27 +1514,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Shared clips now start playing instantly instead of showing a long spinner
 - Starting and joining a meeting now closes the desktop popover.
 - New recordings now replace rough transcript-word titles with a useful title and summary.
-
-## 2026-07-09
-
-### Added
-
-- Regenerate any clip transcript from its saved recording, or retry one that failed.
-
-### Improved
-
-- The Clips desktop popover now sits closer to its menu-bar icon.
-- Meeting reminder popovers can now be dismissed with a top-left close button on hover, and their drop shadow is no longer clipped
-- On mobile, tapping a playing clip reveals playback controls without interrupting the video.
-- Slack previews now show the clip length alongside its description.
-
-### Fixed
-
-- Desktop recording optimization progress stays visible from Stop until the finished clip opens.
-- Fixed long desktop recordings and large video file uploads failing without a resumable upload session.
-- New video uploads are public by default, and owners can change sharing visibility as soon as they open the Share dialog.
-- Long recordings now get enough time to download their media before transcription starts.
-- Meeting Notes no longer lowers your microphone volume for other people in Zoom, Meet, or Teams.
-- Meeting reminders now ignore obvious solo personal calendar blocks like Gym or Dinner.
 
 For the full list of updates, see the [changelog folder](./changelog/).

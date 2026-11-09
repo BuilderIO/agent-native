@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Reference a recording…",
+    group: "Recordings",
+    authentication: "Sign in to add a reference.",
+    invalid: "Choose a valid reference before sending.",
+    unavailable:
+      "A selected reference is no longer available. Remove it or choose it again.",
+  },
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
   meetingBrowserConfirmation:
     "Clips sees microphone activity in this browser, but can't tell which tab is in the meeting.",
@@ -2202,6 +2210,11 @@ const messages = {
     flowOriginalTranscript: "Show original transcript",
     flowCleanupSkipped: "Text cleanup was skipped; original text was kept",
     flowBacktrackSkipped: "Text editing was skipped; recognized text was kept",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet not downloaded",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Parakeet downloading",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet loading",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet busy",
+    flowAppleSpeechParakeetFailed: "Apple Speech · Parakeet failed to load",
     flowCancelDictation: "Cancel dictation",
     flowCopying: "Copying transcript…",
     aiProcessed: "AI Processed",

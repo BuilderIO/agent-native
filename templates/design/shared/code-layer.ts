@@ -4607,13 +4607,9 @@ function simpleSelectorMatchesElement(
 
 function selectorPathMatchesElement(
   element: ParsedElement | undefined,
-  selector: string,
+  parts: readonly string[],
   elements: readonly ParsedElement[],
 ): boolean {
-  const parts = normalizeSelectorForMatch(selector)
-    .split(" > ")
-    .map((part) => part.trim())
-    .filter(Boolean);
   if (parts.length <= 1) return false;
 
   let current: ParsedElement | undefined = element;
@@ -4673,37 +4669,69 @@ function nodesWithStableSourceId(
   return index.get(sourceId) ?? [];
 }
 
+interface SelectorQuery {
+  normalized: string;
+  hasDirectPath: boolean;
+  pathParts: readonly string[];
+  lastPart: string;
+}
+
+function selectorQuery(selector: string): SelectorQuery {
+  const normalized = normalizeSelectorForMatch(selector);
+  return {
+    normalized,
+    hasDirectPath: normalized.includes(" > "),
+    pathParts: normalizeSelectorForMatch(normalized)
+      .split(" > ")
+      .map((part) => part.trim())
+      .filter(Boolean),
+    lastPart: lastSelectorPart(normalized),
+  };
+}
+
+// A selector lookup tests every node of the screen, so a node's selectors are
+// normalized once per projection, not once per lookup.
+const normalizedSelectorsByNode = new WeakMap<
+  CodeLayerNode,
+  readonly string[]
+>();
+
+function normalizedNodeSelectors(node: CodeLayerNode): readonly string[] {
+  let normalized = normalizedSelectorsByNode.get(node);
+  if (!normalized) {
+    normalized = [node.selector, node.path, ...node.selectors].map(
+      normalizeSelectorForMatch,
+    );
+    normalizedSelectorsByNode.set(node, normalized);
+  }
+  return normalized;
+}
+
 function selectorMatches(
   node: CodeLayerNode,
-  selector: string,
+  query: SelectorQuery,
   element: ParsedElement | undefined,
   elements: readonly ParsedElement[],
 ): boolean {
-  const normalizedSelector = normalizeSelectorForMatch(selector);
-  const normalizedNodeSelectors = [
-    node.selector,
-    node.path,
-    ...node.selectors,
-  ].map(normalizeSelectorForMatch);
-  if (normalizedNodeSelectors.includes(normalizedSelector)) return true;
-  const selectorHasDirectPath = normalizedSelector.includes(" > ");
+  const { normalized: normalizedSelector, hasDirectPath, lastPart } = query;
+  const nodeSelectors = normalizedNodeSelectors(node);
+  if (nodeSelectors.includes(normalizedSelector)) return true;
   if (
-    selectorHasDirectPath &&
-    normalizedNodeSelectors.some((candidate) =>
+    hasDirectPath &&
+    nodeSelectors.some((candidate) =>
       candidate.endsWith(` > ${normalizedSelector}`),
     )
   ) {
     return true;
   }
   if (
-    selectorHasDirectPath &&
-    selectorPathMatchesElement(element, normalizedSelector, elements)
+    hasDirectPath &&
+    selectorPathMatchesElement(element, query.pathParts, elements)
   ) {
     return true;
   }
-  if (selectorHasDirectPath) return false;
+  if (hasDirectPath) return false;
   if (simpleSelectorMatches(node, normalizedSelector)) return true;
-  const lastPart = lastSelectorPart(normalizedSelector);
   return (
     lastPart !== normalizedSelector && simpleSelectorMatches(node, lastPart)
   );
@@ -4714,15 +4742,17 @@ function resolveTarget(
   target: EditIntentTarget,
 ): EditIntentResolution {
   const { projection, elementByNodeId } = build;
-  const matchesForSelector = (value: string): CodeLayerNode[] =>
-    projection.nodes.filter((node) => {
-      return selectorMatches(
+  const matchesForSelector = (value: string): CodeLayerNode[] => {
+    const query = selectorQuery(value);
+    return projection.nodes.filter((node) =>
+      selectorMatches(
         node,
-        value,
+        query,
         elementByNodeId.get(node.id),
         build.elements,
-      );
-    });
+      ),
+    );
+  };
   if (target.nodeId) {
     const matches = nodesWithStableSourceId(projection, target.nodeId);
     if (matches.length === 1 && matches[0]) {

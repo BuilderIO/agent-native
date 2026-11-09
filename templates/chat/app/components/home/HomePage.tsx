@@ -20,6 +20,7 @@ import {
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 
+import { useChatComposerMenuItems } from "@/components/ChatComposerContext";
 import { Button } from "@/components/ui/button";
 import {
   Item,
@@ -120,14 +121,15 @@ function HomeAgentComposerInput({
 }) {
   const t = useT();
   const control = useAgentKitControl(threadId);
+  const contextMenuItems = useChatComposerMenuItems();
 
   return (
     <AgentKitComposer
       threadId={threadId}
       requireAgentEngine
       placeholder={t("chat.composerPlaceholder")}
-      plusMenuMode="hidden"
-      attachmentsEnabled={false}
+      plusMenuMode="full"
+      contextMenuItems={contextMenuItems}
       voiceEnabled
       onVoiceChatStart={onVoiceChatStart}
       onSubmit={async (text, files, references, options) => {

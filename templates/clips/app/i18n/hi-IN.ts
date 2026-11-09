@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "रिकॉर्डिंग का संदर्भ दें…",
+    group: "रिकॉर्डिंग",
+    authentication: "संदर्भ जोड़ने के लिए साइन इन करें।",
+    invalid: "भेजने से पहले एक मान्य संदर्भ चुनें।",
+    unavailable: "चुना गया संदर्भ अब उपलब्ध नहीं है। उसे हटाएँ या फिर से चुनें।",
+  },
   meetingAsk: { resizeOrDismissAnswers: "जवाबों का आकार बदलें या बंद करें" },
   meetingBrowserConfirmation:
     "Clips इस ब्राउज़र में माइक्रोफ़ोन गतिविधि देखता है, लेकिन यह नहीं पहचान सकता कि मीटिंग किस टैब में है।",
@@ -2188,6 +2195,12 @@ const messages = {
     flowOriginalTranscript: "मूल ट्रांसक्रिप्ट दिखाएँ",
     flowCleanupSkipped: "टेक्स्ट की सफ़ाई छोड़ी गई; मूल टेक्स्ट रखा गया",
     flowBacktrackSkipped: "टेक्स्ट संपादन छोड़ा गया; पहचाना गया टेक्स्ट रखा गया",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet डाउनलोड नहीं हुआ",
+    flowAppleSpeechParakeetDownloading:
+      "Apple Speech · Parakeet डाउनलोड हो रहा है",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet लोड हो रहा है",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet व्यस्त है",
+    flowAppleSpeechParakeetFailed: "Apple Speech · Parakeet लोड नहीं हो सका",
     flowCancelDictation: "डिक्टेशन रद्द करें",
     flowCopying: "ट्रांसक्रिप्ट कॉपी हो रहा है…",
     aiProcessed: "AI द्वारा प्रोसेस किया गया",

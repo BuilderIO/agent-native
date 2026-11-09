@@ -1149,7 +1149,7 @@ const rawLiterals = {
     previewDraftUseSaved: "सहेजा गया वर्शन इस्तेमाल करें",
     previewDraftSaveSeparately: "मेरे वर्शन को अलग पेज के रूप में सहेजें",
     previewDraftSavedToHistory: "आपके बदलाव वर्शन इतिहास में सहेजे गए",
-    previewDraftSavedSeparately: "आपके बदलाव अलग पेज के रूप में सहेजे गए",
+    previewDraftSavedSeparately: "आपके बदलाव आपके स्पेस में निजी पेज के रूप में सहेजे गए",
     previewDraftOpenSavedPage: "पेज खोलें",
     previewDraftMoreOptions: "ज़्यादा विकल्प",
     previewDraftViewFullVersions: "पूरे वर्शन देखें",

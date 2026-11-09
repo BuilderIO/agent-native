@@ -1,5 +1,19 @@
 # @agent-native/agentkit
 
+## 0.226.0
+
+### Patch Changes
+
+- 5ee10e8: Separate app context from scoped workspace integration contributions in the shared composer, preserve references through app handoffs, and revalidate integration access before engine dispatch. Preserve bounded app-owned source identifiers in composer draft metadata. Support transport-owned binary uploads in AgentKit and provide the native file-storage upload lifecycle across shared composers.
+- Release all public npm packages with a patch version bump.
+
+## 0.225.1
+
+### Patch Changes
+
+- 1a62c08: Non-image chat attachments uploaded to Builder storage no longer fail the agent run with "An attachment has inline bytes but no durable file URL". Builder's file download URL (`/o/<object>?alt=media&token=…`) now counts as a durable reference, and the client, thread storage, and background dispatch all share one rule for it.
+- Release all public npm packages with a patch version bump.
+
 ## 0.225.0
 
 ### Patch Changes

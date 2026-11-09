@@ -60,6 +60,8 @@ export interface SuggestionHighlightSpec {
   frozen?: boolean;
   /** The author's own unsaved suggestion, which follows their typing. */
   draft?: boolean;
+  /** Decided together with the active suggestion, so it lights up with it. */
+  inActiveUnit?: boolean;
   /** A marked range of only line breaks, which shows a "↵" as it has no ink. */
   lineBreak?: boolean;
   settlingBeforePresentation?: SuggestionPresentationContext;
@@ -770,7 +772,7 @@ function buildDecorations(
           settledContent === canonicalizeContent(spec.settlingReadbackContent)))
     )
       continue;
-    const active = activeId === spec.suggestionId;
+    const active = activeId === spec.suggestionId || spec.inActiveUnit === true;
     const range = clampRange(spec.from, spec.to, size);
     const attrs = spec.settling
       ? {}
