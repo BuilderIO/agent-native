@@ -197,6 +197,15 @@ function startingRules(
   return flag.rules && scope === "org" ? flag.rules : OFF_RULES;
 }
 
+/** What a scope gets now: its own rule, or for an org without one, the global rule. */
+function ruleNow(
+  flag: FeatureFlagMetadata,
+  scope: FeatureFlagRuleScope,
+): FeatureFlagStoredRule | null {
+  const stored = storedRule(flag, scope);
+  return stored?.state === "unset" && flag.scopes ? flag.scopes.global : stored;
+}
+
 /**
  * Adds the caller to the rule that decides their access, or to none. Writing
  * the org rule while the global rule decides would create an org rule, and
@@ -270,8 +279,10 @@ function TargetingDialog({
   });
   const [initial] = useState(() => startingRules(flag, scope));
   const start = initial ?? OFF_RULES;
-  const [unknownStart, setUnknownStart] = useState(initial === null);
-  const [mode, setMode] = useState(start.mode);
+  // Null until chosen when the starting rule can't be shown.
+  const [mode, setMode] = useState<FeatureFlagRules["mode"] | null>(
+    initial?.mode ?? null,
+  );
   const [emails, setEmails] = useState(() => listText(start.emails));
   const [orgIds, setOrgIds] = useState(() => listText(start.orgIds));
   const [percentage, setPercentage] = useState(String(start.percentage));
@@ -279,29 +290,36 @@ function TargetingDialog({
     scope === "global" &&
     !!flag.scopes?.org &&
     flag.scopes.org.state !== "unset";
-  const replacedGlobal =
-    unknownStart && scope === "org" && flag.scopes?.global.state !== "unset"
-      ? flag.scopes?.global
-      : undefined;
+  const now = ruleNow(flag, scope);
+  const audience =
+    mode === null
+      ? now
+        ? storedAudienceLabel(now, t)
+        : t("agentChat.featureFlags.scope.unreadable")
+      : audienceLabel(
+          summarize(
+            normalizeFeatureFlagRules({
+              mode,
+              emails: parseList(emails),
+              orgIds: parseList(orgIds),
+              percentage: normalizeFeatureFlagPercentage(percentage),
+            }),
+          ),
+          t,
+        );
 
   const changeScope = (next: FeatureFlagRuleScope) => {
     const rules = startingRules(flag, next);
     const nextStart = rules ?? OFF_RULES;
     setScope(next);
-    setUnknownStart(rules === null);
-    setMode(nextStart.mode);
+    setMode(rules?.mode ?? null);
     setEmails(listText(nextStart.emails));
     setOrgIds(listText(nextStart.orgIds));
     setPercentage(String(nextStart.percentage));
   };
-  const edit =
-    <T,>(set: (value: T) => void) =>
-    (value: T) => {
-      setUnknownStart(false);
-      set(value);
-    };
 
   const save = () => {
+    if (mode === null) return;
     const nextPercentage = normalizeFeatureFlagPercentage(percentage);
     onMutate({
       key: flag.key,
@@ -360,13 +378,13 @@ function TargetingDialog({
         <div className="grid gap-2">
           <Label htmlFor={modeId}>{t("featureFlags.modeLabel")}</Label>
           <Select
-            value={mode}
+            value={mode ?? ""}
             onValueChange={(value) =>
-              edit(setMode)(value as FeatureFlagRules["mode"])
+              setMode(value as FeatureFlagRules["mode"])
             }
           >
             <SelectTrigger id={modeId}>
-              <SelectValue />
+              <SelectValue placeholder={audience} />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
@@ -387,7 +405,7 @@ function TargetingDialog({
                 id={emailsId}
                 className="min-h-20"
                 value={emails}
-                onChange={(event) => edit(setEmails)(event.target.value)}
+                onChange={(event) => setEmails(event.target.value)}
                 placeholder="one@example.com"
               />
             </div>
@@ -397,7 +415,7 @@ function TargetingDialog({
                 id={orgIdsId}
                 className="min-h-20"
                 value={orgIds}
-                onChange={(event) => edit(setOrgIds)(event.target.value)}
+                onChange={(event) => setOrgIds(event.target.value)}
                 placeholder="org_123"
               />
             </div>
@@ -412,7 +430,7 @@ function TargetingDialog({
                 max="100"
                 step="1"
                 value={percentage}
-                onChange={(event) => edit(setPercentage)(event.target.value)}
+                onChange={(event) => setPercentage(event.target.value)}
               />
             </div>
             <p className="text-xs text-muted-foreground">
@@ -425,30 +443,10 @@ function TargetingDialog({
             scope === "org"
               ? "agentChat.featureFlags.scope.summaryOrg"
               : "agentChat.featureFlags.scope.summaryGlobal",
-            {
-              audience: audienceLabel(
-                summarize(
-                  normalizeFeatureFlagRules({
-                    mode,
-                    emails: parseList(emails),
-                    orgIds: parseList(orgIds),
-                    percentage: normalizeFeatureFlagPercentage(percentage),
-                  }),
-                ),
-                t,
-              ),
-            },
+            { audience },
           )}
           {orgKeepsOwnRule ? (
             <> {t("agentChat.featureFlags.scope.orgKeepsOwnRule")}</>
-          ) : null}
-          {replacedGlobal ? (
-            <>
-              {" "}
-              {t("agentChat.featureFlags.scope.overridesGlobalTooltip", {
-                audience: storedAudienceLabel(replacedGlobal, t),
-              })}
-            </>
           ) : null}
           <span className="ms-2 text-xs text-muted-foreground">
             ·{" "}
@@ -467,7 +465,7 @@ function TargetingDialog({
           </Button>
           <Button
             type="button"
-            disabled={isPending || unknownStart}
+            disabled={isPending || mode === null}
             onClick={save}
           >
             {isPending ? <IconLoader2 className="animate-spin" /> : null}

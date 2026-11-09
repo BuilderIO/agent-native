@@ -102,7 +102,7 @@ describe("FeatureFlagsEditor", () => {
     expect(text).not.toContain("agentChat.featureFlags.scope.unreadable");
   });
 
-  it("won't save an org rule over a starting rule it can't show until edited", () => {
+  it("shows the withheld rule an org would start from, and saves only once a mode is chosen", () => {
     render(
       flag({
         inEffect: "global",
@@ -117,9 +117,28 @@ describe("FeatureFlagsEditor", () => {
 
     const { save, text } = openTargeting();
     expect(save.disabled).toBe(true);
-    expect(text).toContain(
-      "agentChat.featureFlags.scope.overridesGlobalTooltip",
+    expect(text).toContain("featureFlags.everyoneAudience");
+    expect(text).not.toContain("featureFlags.off");
+  });
+
+  it("shows a rule that couldn't be read as unreadable, not Off, in the dialog", () => {
+    render(
+      flag({
+        inEffect: "org",
+        global: UNSET_GLOBAL,
+        org: {
+          state: "unreadable",
+          problem: "stored rules are not JSON",
+          canManage: true,
+          orgId: ORG,
+        },
+      }),
     );
+
+    const { save, text } = openTargeting();
+    expect(save.disabled).toBe(true);
+    expect(text).toContain("agentChat.featureFlags.scope.unreadable");
+    expect(text).not.toContain("featureFlags.off");
   });
 
   it("saves an unedited rule it can show", () => {
