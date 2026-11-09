@@ -66,6 +66,7 @@ import {
   normalizeSlidePadding,
   normalizeSlidePaddingForWrite,
 } from "../lib/normalize-slide-padding";
+import { revealsAfterEdit } from "../lib/reveal-after-edit";
 import { mergeSlideContent } from "../lib/slide-content-merge";
 import { renderArtifactGrowth } from "../lib/slide-source-map";
 import { undoRevealForOps, type UndoReveal } from "../lib/undo-reveal";
@@ -1509,6 +1510,38 @@ function slideAnimationRefusalSlideId(error: unknown): string | null {
       ? (details as { slideId?: unknown }).slideId
       : undefined;
   return typeof slideId === "string" ? slideId : null;
+}
+
+// Every content edit sends its slide's reveal list, each reveal moved to the
+// element its target became in this one edit. A save collapses a slide's batched
+// ops into one, so without the list the server would pair elements across the
+// combined change, and a later op without a list would keep an earlier op's list
+// for content it no longer matches. An update that sets animations placed them.
+function withRevealsFollowingContent(
+  previousSlide: Slide | undefined,
+  updates: Partial<Omit<Slide, "id">>,
+): Partial<Omit<Slide, "id">> {
+  if (
+    typeof updates.content !== "string" ||
+    updates.animations !== undefined ||
+    !previousSlide?.animations?.length
+  ) {
+    return updates;
+  }
+  return {
+    ...updates,
+    animations: revealsAfterEdit(
+      previousSlide.content,
+      updates.content,
+      previousSlide.animations,
+    ),
+  };
+}
+
+// Reveals ride along with every content edit, so they don't count as a field of
+// their own when deciding whether an op is content-only.
+function fieldNamesWithoutReveals(fields: object): string[] {
+  return Object.keys(fields).filter((key) => key !== "animations");
 }
 
 // Only the refused slide reverts. Other slides' edits in the same batch are re-queued,
@@ -3487,8 +3520,8 @@ function enqueueDeckOp(
       previous?.op === "patch-slide" &&
       op.op === "patch-slide" &&
       previous.slideId === op.slideId &&
-      Object.keys(previous.fields).length === 1 &&
-      Object.keys(op.fields).length === 1 &&
+      fieldNamesWithoutReveals(previous.fields).length === 1 &&
+      fieldNamesWithoutReveals(op.fields).length === 1 &&
       "content" in previous.fields &&
       "content" in op.fields
     ) {
@@ -3576,10 +3609,11 @@ function settleQueuedContentDraft(
       }
     }
     if (index < 0) break;
-    const op = queue[index];
-    if (op.op !== "patch-slide") return false;
+    // `.at()` keeps the read typed `| undefined` under both the slides tsconfig and the strict guard.
+    const op = queue.at(index);
+    if (!op || op.op !== "patch-slide") return false;
     if (op.fields.content === committedContent) return true;
-    if (Object.keys(op.fields).length !== 1) return false;
+    if (fieldNamesWithoutReveals(op.fields).length !== 1) return false;
     queue.splice(index, 1);
   }
   const sent = sentSlideContent.get(deckId)?.get(slideId);
@@ -8096,7 +8130,10 @@ export function DeckProvider({
           );
           return undefined;
         }
-        normalizedUpdates = { ...updates, content };
+        normalizedUpdates = withRevealsFollowingContent(previousSlide, {
+          ...updates,
+          content,
+        });
       }
       const storedContent = normalizedUpdates.content;
       if (
@@ -8108,7 +8145,7 @@ export function DeckProvider({
       }
       if (
         options?.preserveLocalState &&
-        Object.keys(normalizedUpdates).length === 1 &&
+        fieldNamesWithoutReveals(normalizedUpdates).length === 1 &&
         storedContent !== undefined &&
         storedContent === previousSlide?.content &&
         !hasStaleContentConflict(deckId, slideId) &&
@@ -8224,14 +8261,22 @@ export function DeckProvider({
         before.slides.some((slide) => slide.id === slideId),
       );
       if (validUpdates.length === 0) return;
-      const changedUpdates = validUpdates.filter(({ slideId, updates }) => {
-        const op: PatchDeckOp = {
-          op: "patch-slide",
+      const changedUpdates = validUpdates
+        .map(({ slideId, updates }) => ({
           slideId,
-          fields: updates,
-        };
-        return deriveInverseOp(before, op) !== null;
-      });
+          updates: withRevealsFollowingContent(
+            before.slides.find((slide) => slide.id === slideId),
+            updates,
+          ),
+        }))
+        .filter(({ slideId, updates }) => {
+          const op: PatchDeckOp = {
+            op: "patch-slide",
+            slideId,
+            fields: updates,
+          };
+          return deriveInverseOp(before, op) !== null;
+        });
       if (changedUpdates.length === 0) return;
       for (const { slideId, updates } of changedUpdates) {
         if (typeof updates.content !== "string") continue;
