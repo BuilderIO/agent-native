@@ -436,6 +436,8 @@ const messages = {
     presentPresenterViewDescription:
       "Ver as notas do apresentador durante a apresentação",
     presenterViewBlocked: "Permita pop-ups para abrir o modo apresentador.",
+    presenterViewUnsupported:
+      "O modo apresentador não é compatível com este navegador.",
     export: "Exportar",
     privacyPrivate: "Privado",
     privacyOrg: "Compartilhado com a organização",

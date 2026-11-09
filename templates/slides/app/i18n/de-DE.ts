@@ -443,6 +443,8 @@ const messages = {
       "Sprechernotizen während der Präsentation anzeigen",
     presenterViewBlocked:
       "Erlaube Pop-ups, um die Referentenansicht zu öffnen.",
+    presenterViewUnsupported:
+      "Die Referentenansicht wird in diesem Browser nicht unterstützt.",
     export: "Exportieren",
     privacyPrivate: "Privat",
     privacyOrg: "Mit der Organisation geteilt",

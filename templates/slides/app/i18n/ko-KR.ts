@@ -430,6 +430,8 @@ const messages = {
     deckTitle: "덱 제목",
     presentPresenterViewDescription: "발표하는 동안 발표자 노트 보기",
     presenterViewBlocked: "발표자 보기를 열려면 팝업을 허용하세요.",
+    presenterViewUnsupported:
+      "이 브라우저에서는 발표자 보기를 지원하지 않습니다.",
     export: "내보내기",
     privacyPrivate: "비공개",
     privacyOrg: "조직과 공유됨",
