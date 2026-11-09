@@ -59,8 +59,10 @@ import {
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
-import { BuilderSignupActivation } from "@/components/BuilderSignupActivation";
-import { DesignWriteFailureToasts } from "@/components/design/DesignWriteFailureToasts";
+import {
+  BuilderSignupActivationCover,
+  useBuilderSignupActivation,
+} from "@/components/BuilderSignupActivation";
 import {
   DesignHomeLibrary,
   type DesignHomeLibraryTab,
@@ -443,14 +445,17 @@ function PrivateRootContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const hasSession = Boolean(session?.email);
   const isPublicVisualEdit = location.pathname === "/visual-edit";
+  const activatingBuilderSignup = useBuilderSignupActivation(
+    hasSession && session?.emailVerified === true ? session.userId : undefined,
+  );
   useDesignVariantPickTracking();
   // The home prompt composer takes focus on load, and without this the shortcut
   // is swallowed whenever a contenteditable has focus.
   useCommandMenuShortcut(
     useCallback(() => {
-      if (!hasSession || isPublicVisualEdit) return;
+      if (!hasSession || isPublicVisualEdit || activatingBuilderSignup) return;
       setCmdkOpen(true);
-    }, [hasSession, isPublicVisualEdit]),
+    }, [activatingBuilderSignup, hasSession, isPublicVisualEdit]),
     { allowContentEditable: true },
   );
 
@@ -465,18 +470,16 @@ function PrivateRootContent() {
   return (
     <>
       {hasSession && <DbSyncSetup />}
-      <DesignWriteFailureToasts />
       <OpenVisualEditWebMcp />
       {hasSession && !isPublicVisualEdit && (
-        <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+        <DesignCommandMenu
+          open={cmdkOpen && !activatingBuilderSignup}
+          onOpenChange={setCmdkOpen}
+        />
       )}
-      {hasSession && session?.userId ? (
-        <BuilderSignupActivation key={session.userId} userId={session.userId}>
-          {content}
-        </BuilderSignupActivation>
-      ) : (
-        content
-      )}
+      <BuilderSignupActivationCover activating={activatingBuilderSignup}>
+        {content}
+      </BuilderSignupActivationCover>
     </>
   );
 }

@@ -1330,6 +1330,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io는 무료 크레딧을 제공하며, 직접 API 키를 사용할 수도 있습니다.",
   "setup.builderOrOwnKeys":
     "Builder.io(무료 크레딧)를 사용하거나 직접 제공업체 키를 추가하세요.",
+  "setup.reconnectBuilder": "Builder.io 다시 연결",
   "setup.connectAi": "AI 연결",
   "setup.connectBuilder": "Builder.io 사용",
   "setup.connectionsDescription":
@@ -2416,6 +2417,9 @@ const messages: ToolkitAgentChatTranslation = {
     "에이전트가 추가한 액세스 토큰을 사용하므로 그 토큰이 볼 수 있는 것을 봅니다.",
   "settingsShell.integrationDetail.accessToken": "액세스 토큰",
   "settingsShell.integrationDetail.addAccessToken": "액세스 토큰 추가",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "저장된 액세스 토큰을 확인하지 못했습니다.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "다시 시도",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "관리자가 설정해야 합니다",
   "settingsShell.integrationDetail.callout.adminNeededBody":

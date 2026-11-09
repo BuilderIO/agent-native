@@ -1,5 +1,6 @@
 import {
   createProviderApiRuntime,
+  registerProviderApiActionRuntime,
   listProviderApiIdsForTemplateUse,
   type ProviderApiDocsOptions,
   type ProviderApiId,
@@ -31,6 +32,10 @@ const runtime = createProviderApiRuntime({
     return ctx;
   },
 });
+// provider-api-request wraps executeRequest to classify failures, and the
+// wrapper is not this runtime, so the action cannot register it. Without this,
+// capability reads see no providers and report every integration unavailable.
+registerProviderApiActionRuntime(runtime);
 
 export function getDesignProviderApiRuntime() {
   return runtime;

@@ -503,7 +503,12 @@ describe("automatic canonical source persistence", () => {
       undefined,
       1,
     );
-    await act(async () => access().onSourceDemandChange([FILE_ID, "failed"]));
+    await act(async () =>
+      access().onSourceDemandChange({
+        pinned: [FILE_ID, "failed"],
+        preview: [],
+      }),
+    );
     await vi.waitFor(() =>
       expect(access().sourceLoader?.get("failed").status).toBe("error"),
     );
@@ -534,7 +539,9 @@ describe("automatic canonical source persistence", () => {
       1,
     );
     const committed = access().awaitCommittedSources(["second"]);
-    await act(async () => access().onSourceDemandChange(["second"]));
+    await act(async () =>
+      access().onSourceDemandChange({ pinned: ["second"], preview: [] }),
+    );
     await expect(committed).resolves.toBeUndefined();
     expect(
       access().design?.files.find((file) => file.id === "second")?.content,
@@ -590,7 +597,9 @@ describe("automatic canonical source persistence", () => {
     );
     expect(access().sourceMetadata).toHaveLength(500);
     expect(mocks.reads).toEqual([FILE_ID]);
-    await act(async () => access().onSourceDemandChange(["screen-500"]));
+    await act(async () =>
+      access().onSourceDemandChange({ pinned: ["screen-500"], preview: [] }),
+    );
     await vi.waitFor(() =>
       expect(access().design?.files.map((file) => file.id)).toContain(
         "screen-500",

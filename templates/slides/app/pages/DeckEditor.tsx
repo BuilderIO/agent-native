@@ -112,6 +112,7 @@ import SlideEditor, {
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { useSlidesAgentSelect } from "@/components/editor/use-slides-agent-select";
+import { presentChannelSupported } from "@/components/presentation/present-channel";
 import {
   SlideTransitionPreview,
   transitionPreviewPair,
@@ -3735,8 +3736,8 @@ export default function DeckEditor() {
   );
 
   const replaceImageInSlide = useCallback(
-    (oldSrc: string, newSrc: string, alt?: string) => {
-      if (!id || !currentSlideRef.current) return;
+    (oldSrc: string, newSrc: string, alt?: string): boolean => {
+      if (!id || !currentSlideRef.current) return false;
       const slide = currentSlideRef.current;
       const currentContent =
         latestSlideContentRef.current.get(slide.id) ?? slide.content;
@@ -3746,9 +3747,9 @@ export default function DeckEditor() {
         newSrc,
         { alt },
       );
-      if (updatedContent !== currentContent) {
-        updateSlideContent(slide.id, updatedContent);
-      }
+      if (updatedContent === currentContent) return false;
+      updateSlideContent(slide.id, updatedContent);
+      return true;
     },
     [updateSlideContent],
   );
@@ -4045,8 +4046,8 @@ export default function DeckEditor() {
       replaceSrc: string | null,
       url: string,
       position?: { x: number; y: number },
-    ) => {
-      if (!id || !currentSlideRef.current) return;
+    ): boolean => {
+      if (!id || !currentSlideRef.current) return false;
       if (!replaceSrc) {
         const targetSlide = currentSlideRef.current;
         const currentContent =
@@ -4057,18 +4058,17 @@ export default function DeckEditor() {
           url,
           { position },
         );
-        if (updatedContent !== currentContent) {
-          updateSlideContent(targetSlide.id, updatedContent);
-          trackEvent("media_added", {
-            output_id: id,
-            output_type: "deck",
-            media_source: "generated_asset",
-            slide_id: targetSlide.id,
-          });
-        }
-        return;
+        if (updatedContent === currentContent) return false;
+        updateSlideContent(targetSlide.id, updatedContent);
+        trackEvent("media_added", {
+          output_id: id,
+          output_type: "deck",
+          media_source: "generated_asset",
+          slide_id: targetSlide.id,
+        });
+        return true;
       }
-      replaceImageInSlide(replaceSrc, url);
+      return replaceImageInSlide(replaceSrc, url);
     },
     [replaceImageInSlide, updateSlideContent],
   );
@@ -4213,9 +4213,13 @@ export default function DeckEditor() {
 
   const deleteSlidesWithUndo = useCallback(
     (deckId: string, slideIds: string[]) => {
-      const historyToken = deleteSlides(deckId, slideIds);
+      // A refused delete is restored by the deck resync and reported by the save
+      // banner, so "Slide deleted" with Undo would contradict both.
+      const historyToken = deleteSlides(deckId, slideIds, () =>
+        toast.dismiss(toastId),
+      );
       if (!historyToken) return;
-      toast(t("editorSidebar.slideDeleted"), {
+      const toastId = toast(t("editorSidebar.slideDeleted"), {
         className: "!bg-background !text-foreground !border-border",
         duration: 6000,
         closeButton: true,
@@ -5413,12 +5417,20 @@ export default function DeckEditor() {
     }
     // A popup is only allowed while the click is still being handled, so it
     // opens blank now and gets its address once the save has been flushed.
-    const presenterWindow =
-      mode === "presenter"
-        ? window.open("", presenterWindowName(id), PRESENTER_WINDOW_FEATURES)
-        : null;
-    if (mode === "presenter" && !presenterWindow) {
-      toast.error(t("editorToolbar.presenterViewBlocked"));
+    let presenterWindow: Window | null = null;
+    if (mode === "presenter") {
+      if (!presentChannelSupported()) {
+        toast.error(t("editorToolbar.presenterViewUnsupported"));
+      } else {
+        presenterWindow = window.open(
+          "",
+          presenterWindowName(id),
+          PRESENTER_WINDOW_FEATURES,
+        );
+        if (!presenterWindow) {
+          toast.error(t("editorToolbar.presenterViewBlocked"));
+        }
+      }
     }
     presentInFlightRef.current = true;
     const attemptId = ++presentAttemptRef.current;
@@ -5609,12 +5621,15 @@ export default function DeckEditor() {
           if (exportSlides.length === 0) {
             throw new Error(t("deckEditor.deckHasNoSlides"));
           }
-          await withExportStage(() =>
+          const { sidecarSkipped } = await withExportStage(() =>
             exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio, {
               analytics: deckExportAnalytics,
               signal,
             }),
           );
+          if (sidecarSkipped) {
+            toast.warning(t("editorExport.pdfSidecarSkipped"));
+          }
         }}
         flushInlineEdit={() => inlineEditFlushRef.current?.()}
         onExportPptx={async (signal) => {
@@ -6457,20 +6472,22 @@ export default function DeckEditor() {
         onOpenChange={setAssetLibraryOpen}
         deckId={id}
         anchorRef={panelAnchorRef}
-        onSelectAsset={
-          replaceImageSrc
-            ? (newUrl) => {
-                replaceImageInSlide(replaceImageSrc, newUrl);
-                trackEvent("media_added", {
-                  output_id: id,
-                  output_type: "deck",
-                  media_source: "asset_library",
-                  slide_id: currentSlideRef.current?.id,
-                });
-                setReplaceImageSrc(null);
-              }
-            : undefined
-        }
+        onSelectAsset={(newUrl) => {
+          if (!replaceImageSrc) return dropImageUrlOnSlide(null, newUrl);
+          if (newUrl === replaceImageSrc) {
+            setReplaceImageSrc(null);
+            return true;
+          }
+          if (!replaceImageInSlide(replaceImageSrc, newUrl)) return false;
+          trackEvent("media_added", {
+            output_id: id,
+            output_type: "deck",
+            media_source: "asset_library",
+            slide_id: currentSlideRef.current?.id,
+          });
+          setReplaceImageSrc(null);
+          return true;
+        }}
       />
       <HistoryPanel
         deckId={id}

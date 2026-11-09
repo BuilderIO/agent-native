@@ -110,6 +110,7 @@ import {
   type BlockFieldSeen,
   type BlockFieldTabDirection,
 } from "./blockFieldTabs";
+import { useBlocksFieldSuggestionEditor } from "./blocks-field-suggestion-sessions";
 import { dbText } from "./database/text";
 import {
   VisualEditor,
@@ -143,7 +144,7 @@ interface DocumentBlockFieldsProps {
   /** The primary body as its editor holds it now, for its tab's word count. */
   primaryContent?: string;
   /** The fields the page read returned, used until the property read lands. */
-  pageProperties?: DocumentProperty[];
+  pageProperties?: DocumentProperty[] | undefined;
   onAdditionalContentChange?: (
     documentId: string,
     propertyId: string,
@@ -1791,6 +1792,13 @@ export function useBlockFieldEditor({
   onPersistenceControllerChange: (
     controller: VisualEditorPersistenceController | null,
   ) => void;
+  /**
+   * The tab's saved text and its revision, which a suggestion draft starts
+   * from, or null while an edit of the tab's own is unsaved or on the way.
+   */
+  suggestionBase: () => { content: string; revision: number } | null;
+  /** Changes whenever `suggestionBase` may answer differently. */
+  suggestionBaseVersion: string;
 } {
   const key = `${documentId}:${propertyId}`;
 
@@ -2079,6 +2087,21 @@ export function useBlockFieldEditor({
     );
   }
 
+  const suggestionBase = useCallback(() => {
+    const controller = controllerRef.current;
+    if (!controller || controller.isSaving || !controller.isClean) return null;
+    const revision = blockFieldRevision(key, initialRevision);
+    if (revision.stale) return null;
+    // Newer text from the server is the saved text, since nothing here
+    // waits to be merged with it.
+    return initialRevision >= revision.base
+      ? { content: initialContent, revision: initialRevision }
+      : { content: controller.lastSaved, revision: revision.base };
+  }, [initialContent, initialRevision, key]);
+  // A save settling or a merge landing can change that answer, so a caller's
+  // effect asks again when this does.
+  const suggestionBaseVersion = `${settledSaves}:${mergeRequest?.key ?? ""}`;
+
   return {
     content,
     externalContent,
@@ -2087,6 +2110,8 @@ export function useBlockFieldEditor({
     isAcknowledgedContent,
     isPendingContent,
     onPersistenceControllerChange,
+    suggestionBase,
+    suggestionBaseVersion,
   };
 }
 
@@ -2129,6 +2154,8 @@ function AdditionalBlockEditor({
     isAcknowledgedContent,
     isPendingContent,
     onPersistenceControllerChange,
+    suggestionBase,
+    suggestionBaseVersion,
   } = useBlockFieldEditor({
     documentId,
     propertyId,
@@ -2180,21 +2207,62 @@ function AdditionalBlockEditor({
   }, [content, documentId, onContentChange, propertyId]);
   const comments = useBlockFieldEditorComments(propertyId);
 
+  // While the page suggests, the tab shows its own suggestion draft, made
+  // against its saved text, in place of that text.
+  const suggestionEditor = useBlocksFieldSuggestionEditor(propertyId);
+  const session = suggestionEditor?.session ?? null;
+  const needsSession = !!suggestionEditor?.suggesting && !session;
+  const startSession = suggestionEditor?.start;
+  useEffect(() => {
+    if (!needsSession) return;
+    const base = suggestionBase();
+    if (base) startSession?.(base);
+  }, [needsSession, startSession, suggestionBase, suggestionBaseVersion]);
+  // The editor takes no newer text while it shows a draft, and the tab has
+  // no typing of its own to merge then, so newer saved text (an accepted
+  // suggestion) goes straight into the tab's own copy. Its word count stays
+  // current, and the editor shows that text once the draft ends.
+  const showsDraft = session !== null;
+  useEffect(() => {
+    if (showsDraft && externalContent) externalContent.merge(null, () => true);
+  }, [externalContent, showsDraft]);
+  const shownContent = session ? session.draft : content;
+  const visualsFor = suggestionEditor?.visuals;
+  const visuals = useMemo(
+    () => visualsFor?.(shownContent),
+    [shownContent, visualsFor],
+  );
+
   return (
     <VisualEditor
       documentId={documentId}
-      content={content}
-      externalContent={externalContent}
+      content={shownContent}
+      contentResetKey={session ? `suggesting:${session.key}` : null}
+      externalContent={session ? null : externalContent}
       onChange={(markdown) => {
-        if (canEdit) onChange(markdown);
+        if (session) suggestionEditor?.change(markdown);
+        else if (canEdit) onChange(markdown);
       }}
       onSaveContent={async (markdown) => {
-        if (isAcknowledgedContent(markdown)) return "unchanged";
+        // A suggestion draft is saved as suggestions, never as the tab's text.
+        if (session || isAcknowledgedContent(markdown)) return "unchanged";
         if (!canEdit && (!allowPendingSave || !isPendingContent(markdown)))
           return "failed";
         return (await onSaveContent(markdown)) ? "persisted" : "failed";
       }}
-      editable={canEdit}
+      // A decision on the tab's suggestions, or the page's last save before
+      // Suggesting mode ends, ends its draft, so the tab takes no typing
+      // until it restarts or leaves Suggesting mode.
+      editable={session ? !suggestionEditor?.readOnly : canEdit}
+      suggesting={!!session}
+      suggestions={visuals}
+      activeSuggestionId={suggestionEditor?.activeSuggestionId}
+      onActivateSuggestion={suggestionEditor?.activate}
+      onHoverSuggestion={suggestionEditor?.hover}
+      onSuggestionReplacementIntent={
+        session ? suggestionEditor?.replacementIntent : undefined
+      }
+      onSuggestionAnchorsChange={suggestionEditor?.anchorsChange}
       onPersistenceControllerChange={onPersistenceControllerChange}
       localFileMode
       onComment={comments?.onComment}

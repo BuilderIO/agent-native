@@ -123,6 +123,9 @@ const messages = {
     noAssetsYet: "アセットはまだありません。",
     assetUploadFailed: "一部のアップロードに失敗しました",
     assetDeleteFailed: "アセットの削除に失敗しました",
+    assetLoadFailed: "アセットを読み込めませんでした",
+    assetSelectNoChange: "この画像をこのスライドに適用できませんでした",
+    retry: "再試行",
     assetDeleteInUse:
       "このアセットはデッキで使用されています。先にデッキから削除してください",
     assetDeleteStorageRemains:
@@ -433,6 +436,8 @@ const messages = {
     presentPresenterViewDescription: "発表中にスピーカーノートを表示",
     presenterViewBlocked:
       "発表者ビューを開くには、ポップアップを許可してください。",
+    presenterViewUnsupported:
+      "このブラウザーでは発表者ビューを利用できません。",
     export: "エクスポート",
     privacyPrivate: "非公開",
     privacyOrg: "組織と共有",
@@ -487,6 +492,11 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX ファイルを生成できませんでした。",
     exportFailed: "エクスポートに失敗しました",
+    exportFinishedWithWarnings: "警告付きでエクスポートしました",
+    imagesDropped:
+      "{{count}} 個の画像を読み込めず、PowerPoint ファイルに含まれませんでした（スライド {{slides}}）。",
+    pdfSidecarSkipped:
+      "この PDF は編集可能なソースなしでエクスポートされました。再インポートすると、ページの内容からスライドを再構築します。",
     exporting: "エクスポート中...",
     exportPptxError: "PPTX としてエクスポート中に問題が発生しました。",
     googleSlidesDownloaded: "Google Slides 用にダウンロードしました",
@@ -506,6 +516,9 @@ const messages = {
     exportPdf: "PDF としてエクスポート",
     exportPptx: "PPTX としてエクスポート",
     connectGoogle: "Google に接続",
+    disconnectGoogle: "Google の接続を解除",
+    googleDisconnectFailed: "Google Drive の接続を解除できませんでした。",
+    googleSlidesStatusUnknown: "状態を確認できませんでした",
     openInGoogleSlides: "Google Slides で開く",
     googleSlidesUnavailable: "利用不可",
     googleSlidesOpenImporter: "Google Slides のインポートを開く",
@@ -525,6 +538,7 @@ const messages = {
   share: {
     createFailed: "共有リンクを作成できませんでした",
     snapshotLinks: "スナップショットのリンク",
+    snapshotLinksLoadFailed: "スナップショットのリンクを読み込めませんでした",
     revokeLink: "取り消す",
     revokeFailed: "共有リンクを取り消せませんでした",
     title: "プレゼンテーションを共有",

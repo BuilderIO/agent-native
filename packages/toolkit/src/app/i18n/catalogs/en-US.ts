@@ -1339,6 +1339,7 @@ const messages = {
     "Builder.io includes free credits, or use your own API key.",
   "setup.builderOrOwnKeys":
     "Use Builder.io (free credits), or add your own provider keys.",
+  "setup.reconnectBuilder": "Reconnect Builder.io",
   "setup.connectAi": "Connect AI",
   "setup.connectBuilder": "Use Builder.io",
   "setup.connectionsDescription":
@@ -2458,6 +2459,9 @@ const messages = {
     "The agent uses the access token you add, so it sees what that token can see.",
   "settingsShell.integrationDetail.accessToken": "Access token",
   "settingsShell.integrationDetail.addAccessToken": "Add access token",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Couldn't check for a saved access token.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Try again",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "An admin needs to set this up",
   "settingsShell.integrationDetail.callout.adminNeededBody":

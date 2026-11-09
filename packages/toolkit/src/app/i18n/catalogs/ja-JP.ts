@@ -1352,6 +1352,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io には無料クレジットが含まれています。独自の API キーを使用することもできます。",
   "setup.builderOrOwnKeys":
     "Builder.io（無料クレジット付き）を使用するか、独自のプロバイダーキーを追加します。",
+  "setup.reconnectBuilder": "Builder.io に再接続",
   "setup.connectAi": "AI に接続",
   "setup.connectBuilder": "Builder.io を使用",
   "setup.connectionsDescription":
@@ -2461,6 +2462,9 @@ const messages: ToolkitAgentChatTranslation = {
     "エージェントは追加されたアクセストークンを使うため、そのトークンで参照できるものを参照します。",
   "settingsShell.integrationDetail.accessToken": "アクセストークン",
   "settingsShell.integrationDetail.addAccessToken": "アクセストークンを追加",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "保存済みのアクセストークンを確認できませんでした。",
+  "settingsShell.integrationDetail.tokenCheckRetry": "再試行",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "管理者による設定が必要です",
   "settingsShell.integrationDetail.callout.adminNeededBody":

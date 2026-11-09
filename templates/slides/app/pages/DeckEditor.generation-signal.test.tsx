@@ -92,7 +92,9 @@ const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
   toastError: vi.fn(),
   translate: (key: string) => key,
+  presentChannelSupported: true,
   toolbarProps: null as null | {
+    onPresent?: (request?: { mode?: "presenter" }) => boolean | void;
     onExportPdf?: (signal: AbortSignal) => Promise<void>;
     onExportPptx?: (signal: AbortSignal) => Promise<void>;
   },
@@ -403,9 +405,20 @@ vi.mock("@/lib/pending-deck-changes", () => ({
   usePendingDeckUnloadGuard: mocks.pendingUnloadGuard,
 }));
 
+vi.mock(
+  "@/components/presentation/present-channel",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@/components/presentation/present-channel")
+    >()),
+    presentChannelSupported: () => mocks.presentChannelSupported,
+  }),
+);
+
 vi.mock("@/components/editor/EditorToolbar", () => ({
   default: (props: {
     canEdit?: boolean;
+    onPresent?: (request?: { mode?: "presenter" }) => boolean | void;
     onExportPdf?: (signal: AbortSignal) => Promise<void>;
     onExportPptx?: (signal: AbortSignal) => Promise<void>;
   }) => {
@@ -577,6 +590,7 @@ describe("DeckEditor generation signal wiring", () => {
       startedTabId: null,
       analyticsSessionId: "session-1",
       revision: 0,
+      presentChannelSupported: true,
     });
     mocks.updateDeck.mockReset().mockImplementation((_id, changes) => {
       Object.assign(mocks.deck, changes);
@@ -671,6 +685,27 @@ describe("DeckEditor generation signal wiring", () => {
     ).toEqual(["slide-1", "slide-2", "slide-3"]);
     expect(mocks.pdfAddImage).toHaveBeenCalledTimes(3);
     expect(container.querySelector("[data-pdf-export-stage]")).toBeNull();
+  });
+
+  it("tells the user instead of opening an unsyncable presenter window", async () => {
+    mocks.presentChannelSupported = false;
+    mocks.deck.slides = [{ id: "slide-1", content: "<p>One</p>" }];
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+    render(<RouterProvider router={router} />);
+    await waitFor(() => expect(mocks.toolbarProps?.onPresent).toBeTruthy());
+
+    act(() => {
+      mocks.toolbarProps?.onPresent?.({ mode: "presenter" });
+    });
+
+    expect(open).not.toHaveBeenCalled();
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "editorToolbar.presenterViewUnsupported",
+    );
   });
 
   it("exports every slide to PPTX even when the sidebar has not rendered them", async () => {

@@ -308,6 +308,57 @@ await callAction(
 
 Cada solicitud de `useActionQuery()`, `useActionMutation()` y `callAction()` está acotada por un tiempo de espera de 60 segundos, y los tiempos de espera se muestran como errores en lugar de reintentarse silenciosamente. `useActionQuery()` también cancela automáticamente las solicitudes reemplazadas, usando la señal de aborto de React Query.
 
+### Escrituras fallidas {#write-failures}
+
+Cuando falla un guardado que inició el usuario, la app muestra una notificación compartida (toast) en lugar de no mostrar nada. `useActionMutation()` lo hace automáticamente. Un `mutate()` fallido muestra la notificación, salvo que un `onError` gestione el fallo, ya sea en las opciones del hook o en la llamada a `mutate()`. Un `mutateAsync()` fallido la muestra solo si el rechazo queda sin gestionar, por ejemplo un `await` sin `try/catch` por encima. Un `catch` que lanza un `Error` nuevo en lugar del original no se notifica.
+
+La opción `errorNotification` cambia ese comportamiento por defecto:
+
+| Valor                     | Comportamiento                                                                                                                                                 |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"auto"` (predeterminado) | Muestra la notificación solo cuando nada más gestiona el fallo.                                                                                                |
+| `"shared"`                | Muestra la notificación en cada fallo, incluso junto a tu propio `onError`. Úsalo cuando el manejador solo revierte o registra el error.                       |
+| `"caller"`                | Nunca muestra la notificación. Úsalo para guardados en segundo plano, para un fallo que ignoras a propósito o para un lugar que muestra el error por sí mismo. |
+
+`errorLabel` sustituye el título de la notificación por tu propio texto ya traducido. En el ejemplo siguiente, una asignación fallida muestra ese título en lugar del genérico.
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const assign = useActionMutation("update-ticket", {
+  errorLabel: t("tickets.assignFailed"),
+});
+
+assign.mutate({ ticketId, assignedToEmail: "jordan@example.com" });
+```
+
+Un autoguardado que se reintenta en el siguiente cambio no debería interrumpir al usuario, así que se desactiva.
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const saveDraft = useActionMutation("save-ticket-draft", {
+  errorNotification: "caller",
+});
+```
+
+Una escritura que no es un `useActionMutation()`, como un `fetch` para una subida o un `catch` que traga un error, notifica su fallo con `reportWriteFailure()`. El error de un `fetch` directo no incluye estado, así que la notificación muestra tu etiqueta o el título genérico. Un `useMutation()` directo se acoge a la notificación pasando `meta: surfaceMutationError(label)`, que acepta la misma etiqueta opcional.
+
+```ts
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
+
+try {
+  const response = await fetch(uploadUrl, { method: "PUT", body: file });
+  if (!response.ok) throw new Error(`Upload failed with ${response.status}`);
+} catch (error) {
+  reportWriteFailure(error, { label: t("tickets.uploadFailed") });
+}
+```
+
+El texto de la notificación depende del fallo. Un `401` y una solicitud cancelada no muestran nada, porque la comprobación de sesión ya gestiona el `401`. Estar sin conexión, un tiempo de espera y un `403` muestran cada uno un mensaje breve traducido bajo el título. Un `5xx` muestra solo el título, porque el servidor oculta su propio texto de error. Cuando una acción rechaza con un error `4xx` tipado desde `fail()`, la notificación muestra el mensaje que escribió la acción; consulta [Hacer fallar una acción](/docs/actions-defining#failing). Un `403` nunca muestra texto del servidor.
+
+`AppProviders` monta el componente que escucha estos fallos, `WriteFailureToaster`, siempre que su prop `toaster` no sea `null`. Una app que no usa `AppProviders`, o que pasa `toaster={null}`, renderiza `<WriteFailureToaster />` de `@agent-native/toolkit/app/shared` dentro de su `QueryClientProvider` y junto a su propio `Toaster`. Sin él, no se muestra ninguna notificación.
+
 ## useDbSync {#usedbsync}
 
 <Signature
