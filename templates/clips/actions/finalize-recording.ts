@@ -91,6 +91,7 @@ import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
+import { transcriptFailureMessage } from "../shared/transcript-failure.js";
 import { resolveTranscriptPresentation } from "../shared/transcript-status.js";
 import {
   isRemoteProviderUrl,
@@ -923,11 +924,19 @@ async function completeReadyRecordingBookkeeping(params: {
     .from(schema.recordingTranscripts)
     .where(eq(schema.recordingTranscripts.recordingId, params.id));
   let shouldDispatchTranscript = false;
-  // Without a Builder gateway credential the job records the setup-needed
-  // failure itself; a pending row here would show "Transcribing…" until it
-  // runs. Existing rows keep their state so reconnecting can retry them.
+  // Without a Builder gateway credential no cloud job can run, so record the
+  // setup-needed failure now rather than show "Transcribing…" or depend on a
+  // dispatch that may not land. Existing rows keep their state so reconnecting
+  // can retry them; a browser transcript still replaces this one.
   const cloudTranscriptionAvailable =
-    await resolveHasBuilderGatewayCredential();
+    await resolveHasBuilderGatewayCredential().catch((err: unknown) => {
+      console.warn("[finalize] Builder credential lookup failed", {
+        id: params.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // coercion-ok: a failed lookup must not block finalization; the transcript job re-checks.
+      return true;
+    });
   if (!existingTranscript) {
     if (cloudTranscriptionAvailable) {
       // A transcript import can create the row after the read above; keep it.
@@ -946,7 +955,19 @@ async function completeReadyRecordingBookkeeping(params: {
         .returning({ recordingId: schema.recordingTranscripts.recordingId });
       shouldDispatchTranscript = Boolean(insertedTranscript);
     } else {
-      shouldDispatchTranscript = true;
+      await db
+        .insert(schema.recordingTranscripts)
+        .values({
+          recordingId: params.id,
+          ownerEmail: params.ownerEmail,
+          status: "failed",
+          failureReason: transcriptFailureMessage("CLOUD_UNCONFIGURED"),
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing({
+          target: schema.recordingTranscripts.recordingId,
+        });
     }
   } else if (
     cloudTranscriptionAvailable &&

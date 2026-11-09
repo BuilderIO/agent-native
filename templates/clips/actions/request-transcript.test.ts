@@ -910,6 +910,19 @@ describe("requestTranscript regeneration", () => {
     expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
   });
 
+  it("still queues a forced request for a ready transcript without an AI model", async () => {
+    mockResolveHasBuilderGatewayCredential.mockResolvedValue(false);
+    mockSelectRows.queue = [
+      [{ status: "ready", updatedAt: new Date().toISOString() }],
+    ];
+
+    await requestTranscript.run({ recordingId: "rec_ready", force: true }, {
+      caller: "frontend",
+    } as Parameters<typeof requestTranscript.run>[1]);
+
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the ready transcript when regeneration fails", async () => {
     mockTranscribeWithBuilder.mockRejectedValue(
       new Error("Builder transcription failed (503 Service Unavailable)"),

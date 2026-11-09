@@ -1048,7 +1048,7 @@ const requestTranscriptAction = defineAction({
 
     if (context?.caller === "tool" || context?.caller === "frontend") {
       assertTranscribableRecordingMedia(access.resource);
-      const [existingTranscript] = await db
+      const existingRows = await db
         .select({
           status: schema.recordingTranscripts.status,
           updatedAt: schema.recordingTranscripts.updatedAt,
@@ -1057,6 +1057,7 @@ const requestTranscriptAction = defineAction({
         .from(schema.recordingTranscripts)
         .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
         .limit(1);
+      const [existingTranscript] = existingRows;
       if (
         existingTranscript &&
         isRecentlyPendingTranscript(existingTranscript)
@@ -1072,12 +1073,11 @@ const requestTranscriptAction = defineAction({
         };
       }
 
-      // A ready transcript still queues without force so its title and
-      // summary work can run; anything that needs the cloud needs a model.
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- the select returns no row until a transcript exists
-      const hasReadyTranscript = existingTranscript?.status === "ready";
+      // Only a regeneration or a clip without a ready transcript needs the
+      // cloud; a ready one still queues for its title and summary work.
       if (
-        (args.force || args.regenerate || !hasReadyTranscript) &&
+        (args.regenerate ||
+          !existingRows.some((row) => row.status === "ready")) &&
         !(await resolveHasBuilderGatewayCredential())
       ) {
         fail(transcriptFailureMessage("CLOUD_UNCONFIGURED"), {
