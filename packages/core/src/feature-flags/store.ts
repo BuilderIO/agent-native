@@ -267,6 +267,13 @@ async function readRuleRows(
   );
 }
 
+async function readRuleRowUncached(
+  rowKey: string,
+): Promise<FeatureFlagStoredRule> {
+  const rows = await getSettingsRaw([rowKey], { bypassCache: true });
+  return readStoredRule(rows.get(rowKey) ?? null);
+}
+
 function ruleLayers(
   rows: Map<string, string | null>,
   key: string,
@@ -444,20 +451,25 @@ export async function mutateFeatureFlagRules(
     throw new Error(`Unknown feature flag: ${key}`);
   }
   const orgId = scope.orgId?.trim() || null;
+  const rowKey = orgId ? orgSettingKey(orgId, key) : settingKey(key);
   const mutate = async (stored: Record<string, unknown> | null) => {
-    if (stored === null && orgId) {
-      const { global } = await readFeatureFlagRuleLayers(key, {});
-      if (global.state !== "unset")
-        throw new FeatureFlagRulesError(
-          "follows-global",
-          key,
-          "this organization follows the rule for every organization; replace its rules to give it its own",
-        );
-    }
+    // `mutateSetting` passes null for a missing row and for a stored JSON
+    // null alike, so read the row itself to tell them apart. Uncached: a
+    // request snapshot can predate the row, or the global rule checked below.
     const current: FeatureFlagStoredRule =
-      stored === null ? { state: "unset" } : storedRule(stored);
+      stored === null ? await readRuleRowUncached(rowKey) : storedRule(stored);
     if (current.state === "unreadable")
       throw new FeatureFlagRulesError("malformed", key, current.problem);
+    if (
+      current.state === "unset" &&
+      orgId &&
+      (await readRuleRowUncached(settingKey(key))).state !== "unset"
+    )
+      throw new FeatureFlagRulesError(
+        "follows-global",
+        key,
+        "this organization follows the rule for every organization; replace its rules to give it its own",
+      );
     return {
       ...(await updater(
         current.state === "set" ? current.rules : defaultFeatureFlagRules(),

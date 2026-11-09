@@ -360,16 +360,16 @@ describe("feature flag evaluator", () => {
       emails: ["me@example.com"],
     };
 
-    globalSettings.set("feature-flag:new-editor", { mode: "on" });
-    await expect(
-      store.mutateFeatureFlagRules("new-editor", {}, enable),
-    ).rejects.toMatchObject({
-      name: "FeatureFlagRulesError",
-      code: "malformed",
-    });
-    expect(globalSettings.get("feature-flag:new-editor")).toEqual({
-      mode: "on",
-    });
+    for (const unreadable of [null, { mode: "on" }]) {
+      globalSettings.set("feature-flag:new-editor", unreadable);
+      await expect(
+        store.mutateFeatureFlagRules("new-editor", {}, enable),
+      ).rejects.toMatchObject({
+        name: "FeatureFlagRulesError",
+        code: "malformed",
+      });
+      expect(globalSettings.get("feature-flag:new-editor")).toEqual(unreadable);
+    }
 
     orgSettings.set("org-1:feature-flag:new-editor", null);
     corruptSettings.add("org-1:feature-flag:new-editor");

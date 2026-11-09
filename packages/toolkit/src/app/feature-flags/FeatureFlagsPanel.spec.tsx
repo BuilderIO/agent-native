@@ -60,6 +60,23 @@ describe("FeatureFlagsEditor", () => {
     return { enable, text: container.textContent ?? "" };
   }
 
+  function openTargeting() {
+    const button = (label: string, root: ParentNode) => {
+      const found = [...root.querySelectorAll("button")].find((candidate) =>
+        candidate.textContent?.includes(label),
+      );
+      if (!found) throw new Error(`${label} button not rendered`);
+      return found;
+    };
+    act(() => button("featureFlags.editTargeting", container).click());
+    const dialog = document.body.querySelector('[role="dialog"]');
+    if (!dialog) throw new Error("Targeting dialog not rendered");
+    return {
+      save: button("featureFlags.saveRules", dialog),
+      text: dialog.textContent ?? "",
+    };
+  }
+
   it("won't start an org's own rule while the global rule decides for it", () => {
     const { enable, text } = render(
       flag({
@@ -83,6 +100,56 @@ describe("FeatureFlagsEditor", () => {
       "featureFlags.emailCount:2 · featureFlags.organizationCount:1 · featureFlags.percentageRollout:10",
     );
     expect(text).not.toContain("agentChat.featureFlags.scope.unreadable");
+  });
+
+  it("won't save an org rule over a starting rule it can't show until edited", () => {
+    render(
+      flag({
+        inEffect: "global",
+        global: {
+          state: "withheld",
+          summary: { mode: "on", emailCount: 0, orgIdCount: 0, percentage: 0 },
+          canManage: false,
+        },
+        org: UNSET_ORG,
+      }),
+    );
+
+    const { save, text } = openTargeting();
+    expect(save.disabled).toBe(true);
+    expect(text).toContain(
+      "agentChat.featureFlags.scope.overridesGlobalTooltip",
+    );
+  });
+
+  it("saves an unedited rule it can show", () => {
+    const rules = {
+      version: 1,
+      mode: "on",
+      emails: [],
+      orgIds: [],
+      percentage: 0,
+    } as const;
+    render({
+      ...flag({
+        inEffect: "global",
+        global: { state: "set", rules, canManage: true },
+        org: UNSET_ORG,
+      }),
+      rules,
+    });
+
+    const { save, text } = openTargeting();
+    expect(save.disabled).toBe(false);
+    expect(text).toContain("featureFlags.everyone");
+    act(() => save.click());
+    expect(onMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "replace-rules",
+        scope: "global",
+        rules: expect.objectContaining({ mode: "on" }),
+      }),
+    );
   });
 
   it("won't add to a rule that couldn't be read", () => {

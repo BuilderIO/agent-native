@@ -205,7 +205,9 @@ describe("live-body writer gate", () => {
     const database = {
       execute: async (statement: Parameters<typeof executor.execute>[0]) => {
         const query = typeof statement === "string" ? statement : statement.sql;
-        if (/SELECT value FROM public.settings WHERE key/i.test(query))
+        if (
+          /SELECT (?:key, )?value FROM public.settings WHERE key/i.test(query)
+        )
           flagReads += 1;
         return executor.execute(statement);
       },

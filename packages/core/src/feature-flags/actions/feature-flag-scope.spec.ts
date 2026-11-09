@@ -218,6 +218,9 @@ describe("set-feature-flag enable for the current user", () => {
       errorCode: "follows_global_rule",
     });
     expect(stored(ORG_ROW)).toBeUndefined();
+    expect(getSettingsRawMock).toHaveBeenCalledWith([GLOBAL_ROW], {
+      bypassCache: true,
+    });
 
     rows.delete(GLOBAL_ROW);
     await setAction.run(enableForOrg, owner);
@@ -230,6 +233,7 @@ describe("set-feature-flag enable for the current user", () => {
   it("refuses a rule that can't be read, which off and replace still overwrite", async () => {
     for (const unreadable of [
       JSON.stringify({ version: 1, mode: "everyone" }),
+      "null",
       "{",
     ]) {
       rows.set(ORG_ROW, unreadable);
