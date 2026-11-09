@@ -107,7 +107,8 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).toBe("true");
     expect(
       container.querySelector('[data-first-run-app-inert="true"]'),
-    ).not.toBeNull();
+    ).toBeNull();
+    expect(container.querySelector("[aria-hidden='true']")).toBeNull();
     expect(
       container.querySelector('[data-testid="first-run-onboarding"]'),
     ).toBeNull();

@@ -112,7 +112,7 @@ describe("BuilderSignupActivation", () => {
     expect(container.querySelector("[role='status']")).toBeNull();
   });
 
-  it("visibly covers inert startup content while eligibility resolves, then releases it", async () => {
+  it("keeps startup content interactive while eligibility resolves, without mounting onboarding", async () => {
     let finish!: (value: "disabled") => void;
     mocks.status.mockReturnValue(
       new Promise((resolve) => {
@@ -131,10 +131,10 @@ describe("BuilderSignupActivation", () => {
         </QueryClientProvider>,
       );
     });
-    expect(container.querySelector("[role='status']")).not.toBeNull();
-    expect(
-      container.querySelector("button")?.closest("[inert]"),
-    ).not.toBeNull();
+    expect(container.querySelector("[role='status']")).toBeNull();
+    expect(container.querySelector("button")?.closest("[inert]")).toBeNull();
+    await clickCounter();
+    expect(container.textContent).toContain("count 1");
     await act(async () => {
       finish("disabled");
     });
@@ -159,19 +159,33 @@ describe("BuilderSignupActivation", () => {
     );
   });
 
-  it("releases the startup deferral when eligibility fails without a confirmed activation", async () => {
+  it("keeps unknown eligibility deferred with an interactive Retry notice until status is confirmed", async () => {
     mocks.status.mockRejectedValue(new Error("eligibility unavailable"));
     await render("eligibility-error-user");
     await vi.waitFor(
-      () =>
-        expect(
-          container
-            .querySelector("[data-resolving]")
-            ?.getAttribute("data-resolving"),
-        ).toBe("false"),
+      () => expect(container.querySelector("[role='alert']")).not.toBeNull(),
       { timeout: 4000 },
     );
-    expect(container.querySelector("[role='status']")).toBeNull();
+    expect(
+      container
+        .querySelector("[data-resolving]")
+        ?.getAttribute("data-resolving"),
+    ).toBe("true");
+    expect(container.querySelector("[inert]")).toBeNull();
+    mocks.status.mockResolvedValue("disabled");
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[role='alert'] button")
+        ?.click();
+    });
+    await vi.waitFor(() =>
+      expect(
+        container
+          .querySelector("[data-resolving]")
+          ?.getAttribute("data-resolving"),
+      ).toBe("false"),
+    );
+    expect(container.querySelector("[role='alert']")).toBeNull();
     expect(mocks.activate).not.toHaveBeenCalled();
   });
 

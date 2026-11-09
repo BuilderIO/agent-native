@@ -144,9 +144,14 @@ export function useBuilderSignupActivation(
       (activation?.userId === userId
         ? activation.status !== "settled"
         : eligibility.data === "eligible"),
-    resolving: Boolean(userId) && eligibility.isPending,
+    resolving:
+      Boolean(userId) &&
+      (eligibility.isPending ||
+        (eligibility.isError && activation?.userId !== userId)),
     statusError:
-      activation?.status === "checking" || activation?.status === "paused",
+      eligibility.isError ||
+      activation?.status === "checking" ||
+      activation?.status === "paused",
     retryStatus: () => {
       recoveryAttempts.current.set(attemptKey, 0);
       attempts.delete(attemptKey);
@@ -173,6 +178,12 @@ export function BuilderSignupActivationCover({
   children: ReactNode;
 }) {
   const t = useT();
+  const retryContent = (
+    <>
+      <span>{t("agentChat.onboarding.builderActivationCheckFailed")}</span>
+      <Button onClick={retryStatus}>{t("agentChat.common.retry")}</Button>
+    </>
+  );
   return (
     <>
       <div className="contents" inert={activating}>
@@ -188,12 +199,7 @@ export function BuilderSignupActivationCover({
               role="alert"
               className="m-auto flex flex-col items-center gap-3"
             >
-              <span>
-                {t("agentChat.onboarding.builderActivationCheckFailed")}
-              </span>
-              <Button onClick={retryStatus}>
-                {t("agentChat.common.retry")}
-              </Button>
+              {retryContent}
             </div>
           ) : (
             <>
@@ -201,6 +207,13 @@ export function BuilderSignupActivationCover({
               <Skeleton className="h-full flex-1" />
             </>
           )}
+        </div>
+      ) : statusError ? (
+        <div
+          role="alert"
+          className="fixed bottom-4 right-4 z-50 flex max-w-sm flex-col items-start gap-3 rounded-lg border bg-background p-4 shadow-lg"
+        >
+          {retryContent}
         </div>
       ) : null}
     </>
@@ -226,7 +239,7 @@ export function BuilderSignupStartupGate({
     );
   return (
     <BuilderSignupActivationCover
-      activating={activating || resolving}
+      activating={activating}
       statusError={statusError}
       retryStatus={retryStatus}
     >

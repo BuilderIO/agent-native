@@ -135,12 +135,16 @@ export function FirstRunOnboardingStartupGate({
   const gateOwnsSurface =
     deferSurface || (!suppressSurface && decision !== "ineligible");
 
+  // Deferral only reserves onboarding ownership. The operation deferring it
+  // owns any cover; unknown eligibility must not disable unrelated app content.
+  const appIsInert = gateOwnsSurface && !deferSurface;
+
   return (
     <FirstRunOnboardingGateContext.Provider value={gateOwnsSurface}>
       <div
-        aria-hidden={gateOwnsSurface ? "true" : undefined}
-        data-first-run-app-inert={gateOwnsSurface ? "true" : undefined}
-        inert={gateOwnsSurface}
+        aria-hidden={appIsInert ? "true" : undefined}
+        data-first-run-app-inert={appIsInert ? "true" : undefined}
+        inert={appIsInert}
         style={{ display: "contents" }}
       >
         {children}
