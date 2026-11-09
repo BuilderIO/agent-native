@@ -26,6 +26,7 @@ import { assertHubSpotEmailFileType } from "../shared/hubspot-email-authoring.js
 import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import {
+  SOURCE_FILE_NOT_FOUND_ERROR_CODE,
   SOURCE_VERSION_CONFLICT_ERROR_CODE,
   SOURCE_VERSION_UNVERIFIABLE_ERROR_CODE,
 } from "../shared/save-conflict.js";
@@ -379,7 +380,7 @@ export function findSourceWorkspaceFile(
       target.fileId
         ? `Source file id "${target.fileId}" not found.`
         : `Source file "${normalizedPath}" not found.`,
-      { statusCode: 404, errorCode: "source_file_not_found" },
+      { statusCode: 404, errorCode: SOURCE_FILE_NOT_FOUND_ERROR_CODE },
     );
   }
   return file;

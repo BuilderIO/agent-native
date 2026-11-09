@@ -46,6 +46,10 @@ import {
   withVerifiedBaseContent,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
+import {
+  createOutboxRetryScheduler,
+  OUTBOX_BUSY_RETRY_MS,
+} from "@/lib/design-save-outbox-retry";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 
 import type {
@@ -148,10 +152,6 @@ function codeLayerSourceForDesignFile(args: {
       : "";
   return connectionId ? { ...source, connectionId } : source;
 }
-
-// A queued edit the server keeps refusing is retried with growing gaps.
-const OUTBOX_RETRY_DELAYS_MS = [5_000, 15_000, 45_000, 120_000, 300_000];
-const OUTBOX_BUSY_RETRY_MS = 1_000;
 
 export function useEditorFilesAndSaving({
   editorCore,
@@ -343,25 +343,11 @@ export function useEditorFilesAndSaving({
   );
 
   const [unsavedChangeCount, setUnsavedChangeCount] = useState(0);
-  const outboxRetryTimerRef = useRef<number | null>(null);
-  const outboxRetryAttemptRef = useRef(0);
   const retryDesignSaveOutboxRef = useRef<() => Promise<void>>(async () => {});
-
-  const scheduleOutboxRetry = useCallback((delayMs?: number) => {
-    if (outboxRetryTimerRef.current !== null) return;
-    const attempt = outboxRetryAttemptRef.current;
-    if (delayMs === undefined) outboxRetryAttemptRef.current = attempt + 1;
-    outboxRetryTimerRef.current = window.setTimeout(
-      () => {
-        outboxRetryTimerRef.current = null;
-        void retryDesignSaveOutboxRef.current();
-      },
-      delayMs ??
-        OUTBOX_RETRY_DELAYS_MS[
-          Math.min(attempt, OUTBOX_RETRY_DELAYS_MS.length - 1)
-        ],
-    );
-  }, []);
+  const [outboxRetryScheduler] = useState(() =>
+    createOutboxRetryScheduler(() => void retryDesignSaveOutboxRef.current()),
+  );
+  const scheduleOutboxRetry = outboxRetryScheduler.schedule;
 
   const retryDesignSaveOutbox = useCallback(async () => {
     if (!id) return;
@@ -441,7 +427,7 @@ export function useEditorFilesAndSaving({
       }
       setUnsavedChangeCount(result.failed.length);
       if (result.failed.length > 0) scheduleOutboxRetry();
-      else outboxRetryAttemptRef.current = 0;
+      else outboxRetryScheduler.resetBackoff();
     } catch (error) {
       if (classifyDesignSaveFailure(error, navigator.onLine) === "offline") {
         warnChangesWillRetry();
@@ -450,6 +436,7 @@ export function useEditorFilesAndSaving({
   }, [
     designSaveActorScope,
     id,
+    outboxRetryScheduler,
     readLiveFileContent,
     rollbackPendingLocalFileContent,
     queryClient,
@@ -464,12 +451,9 @@ export function useEditorFilesAndSaving({
   }, [retryDesignSaveOutbox]);
 
   const retryUnsavedChanges = useCallback(() => {
-    if (outboxRetryTimerRef.current !== null) {
-      window.clearTimeout(outboxRetryTimerRef.current);
-      outboxRetryTimerRef.current = null;
-    }
+    outboxRetryScheduler.cancel();
     void retryDesignSaveOutbox();
-  }, [retryDesignSaveOutbox]);
+  }, [outboxRetryScheduler, retryDesignSaveOutbox]);
 
   useEffect(() => {
     const handleRetryOpportunity = () => void retryDesignSaveOutbox();
@@ -482,15 +466,11 @@ export function useEditorFilesAndSaving({
     };
   }, [retryDesignSaveOutbox, sessionResolved]);
 
-  useEffect(
-    () => () => {
-      if (outboxRetryTimerRef.current !== null) {
-        window.clearTimeout(outboxRetryTimerRef.current);
-        outboxRetryTimerRef.current = null;
-      }
-    },
-    [],
-  );
+  // A save that finishes after the editor closed must not restart the clock.
+  useEffect(() => {
+    outboxRetryScheduler.activate();
+    return outboxRetryScheduler.dispose;
+  }, [outboxRetryScheduler]);
 
   const createFileSaveOutboxEntry = useCallback(
     (pending: FileContentSaveRequest) => {

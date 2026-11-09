@@ -1,5 +1,6 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import {
+  SOURCE_FILE_NOT_FOUND_ERROR_CODE,
   SOURCE_VERSION_CONFLICT_ERROR_CODE,
   SOURCE_VERSION_UNVERIFIABLE_ERROR_CODE,
   saveErrorCode,
@@ -59,6 +60,9 @@ const MAX_REPLAY_MERGES = 3;
 
 export function isTerminalSaveError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
+  // The merge's live read fails with this code when the file was deleted
+  // after the save was refused; its wording differs from update-file's.
+  if (saveErrorCode(error) === SOURCE_FILE_NOT_FOUND_ERROR_CODE) return true;
   const candidate = error as { status?: unknown; message?: unknown };
   return (
     candidate.status === 404 &&
@@ -654,8 +658,14 @@ async function replayEntry(
       }
       return { merged: merges > 0 };
     } catch (error) {
-      if (merges >= MAX_REPLAY_MERGES || !isConflictSaveError(error)) {
-        throw error;
+      if (!isConflictSaveError(error)) throw error;
+      // Out of attempts is not a clash: the edit merged, the file just kept
+      // moving. A conflict error here would make the drain drop the edit.
+      if (merges >= MAX_REPLAY_MERGES) {
+        throw Object.assign(
+          new Error("The file kept changing while this edit was being merged"),
+          { cause: error },
+        );
       }
       const next = await mergeQueuedFileEdit(entry, payload, base, merge);
       if (next === null) throw error;

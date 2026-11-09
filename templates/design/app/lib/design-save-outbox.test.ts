@@ -828,7 +828,7 @@ describe("design save outbox", () => {
     expect(await storage.list("design-1", "user-1")).toEqual([]);
   });
 
-  it("bounds merge attempts when the file keeps moving", async () => {
+  it("bounds merge attempts and keeps the edit queued when the file keeps moving", async () => {
     const storage = new MemoryOutboxStorage();
     await journalDesignSaveOutboxEntry(
       { ...queuedEdit(), baseContent: BASE },
@@ -851,8 +851,68 @@ describe("design save outbox", () => {
     });
 
     expect(invokeAction).toHaveBeenCalledTimes(4);
-    expect(result.rebased).toHaveLength(1);
+    expect(result.failed).toHaveLength(1);
+    expect(isConflictSaveError(result.failed[0]?.error)).toBe(false);
+    expect(result.rebased).toEqual([]);
     expect(result.merged).toEqual([]);
+    expect(await storage.list("design-1", "user-1")).toHaveLength(1);
+  });
+
+  it("drops the edit when the file is deleted while the live file is read for the merge", async () => {
+    const storage = new MemoryOutboxStorage();
+    await journalDesignSaveOutboxEntry(
+      { ...queuedEdit(), baseContent: BASE },
+      storage,
+    );
+    const deleted = Object.assign(
+      new Error('Source file id "file-1" not found.'),
+      {
+        status: 404,
+        errorCode: "source_file_not_found",
+      },
+    );
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction: vi.fn().mockRejectedValue(liveConflict()),
+      storage,
+      merge: {
+        readLiveFileContent: vi.fn().mockRejectedValue(deleted),
+        mergeContent: mergeQueuedEdit,
+      },
+    });
+
+    expect(result.dropped).toHaveLength(1);
+    expect(result.failed).toEqual([]);
+    expect(result.rebased).toEqual([]);
+    expect(await storage.list("design-1", "user-1")).toEqual([]);
+  });
+
+  it("does not merge a save the server skipped as already applied", async () => {
+    const storage = new MemoryOutboxStorage();
+    await journalDesignSaveOutboxEntry(
+      { ...queuedEdit(), baseContent: BASE },
+      storage,
+    );
+    const readLiveFileContent = vi.fn().mockResolvedValue(THEIRS);
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction: vi.fn().mockResolvedValue({
+        updated: true,
+        skippedStaleOperation: true,
+        versionHash: sourceContentHash(THEIRS),
+      }),
+      storage,
+      merge: { readLiveFileContent, mergeContent: mergeQueuedEdit },
+    });
+
+    expect(result.failed).toHaveLength(1);
+    expect(result.merged).toEqual([]);
+    expect(readLiveFileContent).not.toHaveBeenCalled();
+    expect(await storage.list("design-1", "user-1")).toHaveLength(1);
   });
 
   it("keeps the edit when the live file cannot be read for the merge", async () => {

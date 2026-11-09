@@ -8,6 +8,9 @@ export const SOURCE_VERSION_CONFLICT_ERROR_CODE = "source_version_conflict";
 export const SOURCE_VERSION_UNVERIFIABLE_ERROR_CODE =
   "source_version_unverifiable";
 
+/** The file a save or read targets no longer exists. */
+export const SOURCE_FILE_NOT_FOUND_ERROR_CODE = "source_file_not_found";
+
 /** The typed code a failed action carries, wherever the transport put it. */
 export function saveErrorCode(error: unknown): string | undefined {
   if (!error || typeof error !== "object") return undefined;
