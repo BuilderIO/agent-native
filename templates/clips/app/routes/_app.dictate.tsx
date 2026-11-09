@@ -859,9 +859,6 @@ export default function DictateRoute() {
             queryKey: ["action", "list-dictations"],
           });
         },
-        onError: (err: Error) => {
-          toast.error(err.message || "Couldn't save dictation");
-        },
         onSettled: () => {
           finishingRef.current = false;
         },
