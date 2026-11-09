@@ -12,7 +12,10 @@ import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { isBoardFile } from "../shared/board-file.js";
-import { ensureCodeLayerNodeIdsInHtml } from "../shared/code-layer.js";
+import {
+  ensureCodeLayerNodeIdsInHtml,
+  reconcileIntroducedIdsInHtml,
+} from "../shared/code-layer.js";
 import { parseDesignDataBlob } from "../shared/full-app.js";
 import { isStandaloneHttpUrl } from "../shared/html-content.js";
 import {
@@ -786,8 +789,14 @@ async function writeInlineSourceFileContent(
         }
       }
 
-      assertEmailCandidate(args.content);
-      const changed = args.content !== current.content;
+      // An edit that copies an element repeats its ids. The editor re-stamps
+      // them only while a tab is mounted, so reconcile before persisting.
+      const content = identityOnly
+        ? args.content
+        : reconcileIntroducedIdsInHtml(current.content, args.content).content;
+
+      assertEmailCandidate(content);
+      const changed = content !== current.content;
       const updatedAt = new Date().toISOString();
       if (!changed && !identityOnly) {
         await validatePreparedNoop();
@@ -799,10 +808,9 @@ async function writeInlineSourceFileContent(
         };
       }
 
-      if (!identityOnly)
-        assertLockedLayersPreserved(current.content, args.content);
+      if (!identityOnly) assertLockedLayersPreserved(current.content, content);
       const assertCandidateIntegrity = (candidate: string) => {
-        if (identityOnly && candidate !== args.content) {
+        if (identityOnly && candidate !== content) {
           throw new SourceWorkspaceEditConflictError(
             "A concurrent source edit prevented identity-only publication.",
           );
@@ -818,7 +826,7 @@ async function writeInlineSourceFileContent(
           filename: currentFile.filename ?? args.file.filename,
         });
       };
-      assertCandidateIntegrity(args.content);
+      assertCandidateIntegrity(content);
 
       const liveBeforeApply = readPreparedSourceText(lease);
       const expectedLiveHash =
@@ -833,14 +841,14 @@ async function writeInlineSourceFileContent(
           "Source file changed since it was read. Re-read the file and retry.",
         );
       }
-      if (liveBeforeApply !== args.content) {
-        applyTextToYDoc(lease.doc, "content", args.content, "agent");
+      if (liveBeforeApply !== content) {
+        applyTextToYDoc(lease.doc, "content", content, "agent");
       }
 
       const authoritativeContent = readPreparedSourceText(lease);
       try {
         assertEmailCandidate(authoritativeContent);
-        if (identityOnly && authoritativeContent !== args.content) {
+        if (identityOnly && authoritativeContent !== content) {
           throw new SourceWorkspaceEditConflictError(
             "A concurrent source edit prevented identity-only publication.",
           );
@@ -1144,13 +1152,17 @@ async function writeInlineSourceFilesBatchContent(
             "A source file's stored or live version changed since the batch was prepared. Save or refresh the design and retry.",
           );
         }
-        assertLockedLayersPreserved(liveContent, content);
+        const reconciled = reconcileIntroducedIdsInHtml(
+          liveContent,
+          content,
+        ).content;
+        assertLockedLayersPreserved(liveContent, reconciled);
         const previousContents = [liveContent, currentFile.content];
         previousContentsById.set(file.id, previousContents);
         const frameType = sourceWriteFrameType({
           readStored: () => storedScreenFrameType(designData(), file.id),
           previousContents,
-          nextContent: content,
+          nextContent: reconciled,
         });
         if (frameType.unstoredLegacyMarker && !stored.has(file.id)) {
           throw new LegacyEmailFrameTypeNotStoredError(file.id);
@@ -1161,11 +1173,16 @@ async function writeInlineSourceFilesBatchContent(
         });
         assertDesignHtmlEditIntegrity({
           previousContent: liveContent,
-          nextContent: content,
+          nextContent: reconciled,
           fileType: currentFile.fileType ?? file.fileType ?? "html",
           filename: currentFile.filename ?? file.filename,
         });
-        return { fileId: file.id, currentFile, liveContent, content };
+        return {
+          fileId: file.id,
+          currentFile,
+          liveContent,
+          content: reconciled,
+        };
       }),
     );
 

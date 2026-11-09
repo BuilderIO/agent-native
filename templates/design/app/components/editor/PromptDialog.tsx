@@ -159,6 +159,7 @@ interface PromptPopoverProps {
   contextMenuItems?: ComposerContextMenuItem[];
   onRemoveContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
+  onPasteContext?: (clipboard: DataTransfer) => boolean;
   onSubmitError?: () => void;
   beforeSubmitContext?: (
     snapshot: ComposerContextSnapshot | undefined,
@@ -262,6 +263,7 @@ export default function PromptPopover({
   contextMenuItems,
   onRemoveContextItem,
   onRetryContextItem,
+  onPasteContext,
   onSubmitError,
   beforeSubmitContext,
   composerRef,
@@ -740,6 +742,7 @@ export default function PromptPopover({
       contextItems={contextItems}
       onRemoveContextItem={onRemoveContextItem}
       onRetryContextItem={onRetryContextItem}
+      onPasteContext={onPasteContext}
       onAttachmentsChange={handleAttachmentsChange}
       draftScope={orgScopedDraftScope}
       initialText={activeRestoredPrompt?.text ?? initialText}

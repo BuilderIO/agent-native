@@ -81,9 +81,11 @@ export function useAgentKitCapabilities(options: { enabled?: boolean } = {}) {
       }
     });
     const removeCompleteListener = addMcpConnectionCompleteListener(invalidate);
+    window.addEventListener("agent-engine:configured-changed", invalidate);
     return () => {
       unsubscribe();
       removeCompleteListener();
+      window.removeEventListener("agent-engine:configured-changed", invalidate);
     };
   }, [authorized, queryClient]);
 

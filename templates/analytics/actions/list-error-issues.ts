@@ -6,6 +6,7 @@ import {
 import { z } from "zod";
 
 import { listErrorIssues } from "../server/lib/error-capture.js";
+import { TRAFFIC_ENVIRONMENTS } from "../shared/traffic-environment.js";
 
 function resolveScope() {
   const userEmail = getRequestUserEmail();
@@ -37,6 +38,12 @@ export default defineAction({
       .optional()
       .describe(
         "Filter to issues with an occurrence for this user ID or user key.",
+      ),
+    environment: z
+      .enum(TRAFFIC_ENVIRONMENTS)
+      .optional()
+      .describe(
+        "Only issues with an occurrence in this traffic; omit for all. `beta` also covers PR previews and local runs. An issue's eventCount and usersAffected stay counted across all environments. This reads stored samples, and a noisy issue keeps only its latest, so an older occurrence can be missed.",
       ),
     sort: z
       .enum(["lastSeen", "eventCount", "firstSeen"])

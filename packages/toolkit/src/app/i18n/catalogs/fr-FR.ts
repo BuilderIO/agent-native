@@ -1014,6 +1014,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io inclut des crédits gratuits, mais vous pouvez aussi utiliser votre propre clé API.",
   "setup.builderOrOwnKeys":
     "Utilisez Builder.io (crédits gratuits) ou ajoutez les clés de votre propre fournisseur.",
+  "setup.reconnectBuilder": "Reconnecter Builder.io",
   "setup.connectAi": "Connecter l’IA",
   "setup.connectBuilder": "Utiliser Builder.io",
   "setup.connectionsDescription":
@@ -2628,6 +2629,9 @@ const messages: ToolkitAgentChatTranslation = {
     "L’agent utilise le jeton d’accès que vous ajoutez, il voit donc ce que ce jeton peut voir.",
   "settingsShell.integrationDetail.accessToken": "Jeton d’accès",
   "settingsShell.integrationDetail.addAccessToken": "Ajouter un jeton d’accès",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Impossible de vérifier le jeton d'accès enregistré.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Réessayer",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "Un admin doit configurer ceci",
   "settingsShell.integrationDetail.callout.adminNeededBody":

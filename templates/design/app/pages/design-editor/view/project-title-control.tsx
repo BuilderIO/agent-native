@@ -1,7 +1,7 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { IconChevronDown } from "@tabler/icons-react";
 import { useCallback, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -202,6 +202,11 @@ function ProjectTitleControl({
               </DropdownMenuItem>
               <DropdownMenuItem onClick={openImportFilePicker}>
                 {t("designEditor.fileMenu.import")}
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to="/visual-edit" target="_blank" rel="noreferrer">
+                  {t("designEditor.fileMenu.connectLocalApp")}
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>

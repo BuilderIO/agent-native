@@ -22,6 +22,7 @@ import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import { assertRecapWireframesHaveContent } from "../server/lib/visual-recap-validation.js";
 import { serializePlanContent } from "../server/plan-content.js";
 import { parsePlanMdxFolder, planMdxFileSchema } from "../server/plan-mdx.js";
+import { planSaveConflict } from "../server/plan-save-conflict.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -74,6 +75,12 @@ export default defineAction({
       .string()
       .optional()
       .describe("Existing plan ID to replace. Omit to create a new plan."),
+    expectedRevision: z
+      .string()
+      .optional()
+      .describe(
+        "The same as expectedUpdatedAt, for sending back a save_conflict's details.currentRevision. Its details.current is the structured plan, so redo a source edit on what read-visual-plan-source returns.",
+      ),
     expectedUpdatedAt: z
       .string()
       .optional()
@@ -156,6 +163,23 @@ export default defineAction({
     const db = getDb();
 
     if (args.planId) {
+      const expectedRevision = args.expectedRevision ?? args.expectedUpdatedAt;
+      if (expectedRevision) {
+        const updatedRows = await db
+          .update(schema.plans)
+          .set({ updatedAt: expectedRevision })
+          .where(
+            and(
+              eq(schema.plans.id, args.planId),
+              eq(schema.plans.updatedAt, expectedRevision),
+            ),
+          )
+          .returning({ id: schema.plans.id });
+        if (updatedRows.length === 0) {
+          throw await planSaveConflict(args.planId);
+        }
+      }
+
       const incomingAssets = args.mdx["assets/"];
       if (incomingAssets && Object.keys(incomingAssets).length > 0) {
         const srcByFilename = await importPlanAssets(
@@ -165,30 +189,12 @@ export default defineAction({
         content = applyImportedAssets(content, srcByFilename);
       }
 
-      if (args.expectedUpdatedAt) {
-        const updatedRows = await db
-          .update(schema.plans)
-          .set({ updatedAt: args.expectedUpdatedAt })
-          .where(
-            and(
-              eq(schema.plans.id, args.planId),
-              eq(schema.plans.updatedAt, args.expectedUpdatedAt),
-            ),
-          )
-          .returning({ id: schema.plans.id });
-        if (updatedRows.length === 0) {
-          throw new Error(
-            "Plan changed while the source import was being prepared. Reload the plan and retry.",
-          );
-        }
-      }
-
       await createPlanVersionSnapshot(args.planId, {
         force: true,
         label: "Before source import",
         createdBy: "agent",
       });
-      await db
+      const importedRows = await db
         .update(schema.plans)
         .set({
           title,
@@ -206,7 +212,18 @@ export default defineAction({
           updatedAt: now,
           approvedAt: args.status === "approved" ? now : null,
         })
-        .where(eq(schema.plans.id, args.planId));
+        .where(
+          and(
+            eq(schema.plans.id, args.planId),
+            ...(expectedRevision
+              ? [eq(schema.plans.updatedAt, expectedRevision)]
+              : []),
+          ),
+        )
+        .returning({ id: schema.plans.id });
+      if (expectedRevision && importedRows.length === 0) {
+        throw await planSaveConflict(args.planId);
+      }
 
       await writeEvent({
         planId: args.planId,

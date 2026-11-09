@@ -2456,7 +2456,7 @@ describe("createTiptapComposerExtensions", () => {
     ).toBe(false);
   });
 
-  it("puts Stop in Send's place until a draft exists, then beside Send", async () => {
+  it("shows one primary control: Stop while empty, Send once a draft exists", async () => {
     const stop = vi.fn();
     const focusRef: React.MutableRefObject<TiptapComposerHandle | null> = {
       current: null,
@@ -2515,15 +2515,15 @@ describe("createTiptapComposerExtensions", () => {
     expect(stopButton()).not.toBeNull();
     expect(send()).toBeNull();
 
+    // oracle-change: a draft now swaps Stop for Send, so there is no Stop-before-Send order to check.
     act(() => focusRef.current?.setText("Follow-up while it runs"));
-    expect(stopButton()).not.toBeNull();
+    expect(
+      container.querySelector<HTMLElement>(
+        '[data-agent-composer-slot="stop-slot"]',
+      )?.hidden,
+    ).toBe(true);
     expect(send()?.disabled).toBe(false);
     expect(send()?.getAttribute("aria-label")).toBe("Queue message");
-    // Stop precedes Send, so Send keeps the trailing position.
-    expect(
-      stopButton()!.compareDocumentPosition(send()!) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
 
     await pressEscape();
     expect(stop).toHaveBeenCalledOnce();
@@ -3438,6 +3438,65 @@ describe("TiptapComposer storage gate", () => {
 });
 
 describe("TiptapComposer paste handling", () => {
+  it.each([
+    [true, ""],
+    [false, "Pasted words"],
+  ])(
+    "lets the app claim a paste as context (claimed: %s)",
+    async (claimed, expectedText) => {
+      const onPasteContext = vi.fn(() => claimed);
+
+      function Harness() {
+        const runtime = useLocalRuntime(emptyChatModelAdapter);
+        return React.createElement(
+          AssistantRuntimeProvider,
+          { runtime },
+          React.createElement(
+            TooltipProvider,
+            null,
+            React.createElement(TiptapComposer, {
+              attachmentsEnabled: false,
+              includeDefaultSlashSkills: false,
+              plusMenuMode: "hidden",
+              providerConnectStatusEnabled: false,
+              voiceEnabled: false,
+              onPasteContext,
+            }),
+          ),
+        );
+      }
+
+      await act(async () => {
+        root.render(React.createElement(Harness));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      const editor = container.querySelector<HTMLElement>(
+        ".agent-composer-prosemirror",
+      );
+      const clipboardData = {
+        files: [],
+        getData: (type: string) =>
+          type === "text/plain" ? "Pasted words" : "",
+      };
+      const pasteEvent = new Event("paste", {
+        bubbles: true,
+        cancelable: true,
+      });
+      Object.defineProperty(pasteEvent, "clipboardData", {
+        value: clipboardData,
+      });
+
+      await act(async () => {
+        editor?.dispatchEvent(pasteEvent);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(onPasteContext).toHaveBeenCalledWith(clipboardData);
+      expect(editor?.textContent).toBe(expectedText);
+    },
+  );
+
   it("keeps text from a mixed text and image paste when uploads are disabled", async () => {
     const pastedText = "Keep this text";
 

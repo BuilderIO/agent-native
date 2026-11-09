@@ -44,6 +44,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { EXTERNAL_DECK_CHANGE_EVENT } from "@/lib/agent-run-status";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 import type { AnimationTrigger } from "../../shared/api";
@@ -7460,6 +7461,7 @@ export function DeckProvider({
       pauseWhenHidden: true,
       onEvents: (events) => {
         const changedDeckIds = new Set<string>();
+        let externalDeckChange = false;
         const openId = currentOpenDeckIdFromWindow();
         for (const data of events) {
           if (
@@ -7473,6 +7475,8 @@ export function DeckProvider({
             setDecks((prev) => prev.filter((d) => d.id !== data.deckId));
           } else if (data.type === "deck-changed") {
             changedDeckIds.add(data.deckId);
+            // A write with no browser tab is an API, MCP, or agent-run write.
+            if (!data.requestSource) externalDeckChange = true;
             if (data.deckId !== openId) continue;
             if (pendingOpenDeckChange?.deckId !== openId) {
               pendingOpenDeckChange = { deckId: openId, slideIds: new Set() };
@@ -7484,6 +7488,9 @@ export function DeckProvider({
               pendingOpenDeckChange.slideIds = null;
             }
           }
+        }
+        if (externalDeckChange) {
+          window.dispatchEvent(new Event(EXTERNAL_DECK_CHANGE_EVENT));
         }
         if (changedDeckIds.size === 0) return;
 
