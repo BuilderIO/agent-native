@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -90,8 +91,8 @@ export function InboxList({
       );
       selection.actions.clearSelection();
       setBulkDeleteOpen(false);
-    } catch {
-      toast.error(t("inbox.bulkDeleteError"));
+    } catch (error) {
+      reportWriteFailure(error, { label: t("inbox.bulkDeleteError") });
     }
   }
 

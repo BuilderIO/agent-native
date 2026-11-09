@@ -331,8 +331,8 @@ export function EmailThread({
               ),
           },
         });
-      } catch {
-        toast.error(t("mail.aiFilter.actionFailed"));
+      } catch (error) {
+        reportWriteFailure(error, { label: t("mail.aiFilter.actionFailed") });
       }
     },
     [email, navigate, priorityFeedback, t],

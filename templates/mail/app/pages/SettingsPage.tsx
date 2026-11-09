@@ -1034,8 +1034,10 @@ function DraftingSection() {
         (current) =>
           `${current.slice(0, start)}${markdown}${current.slice(end)}`,
       );
-    } catch {
-      toast.error(t("settings.signatureImageUploadFailed"));
+    } catch (error) {
+      reportWriteFailure(error, {
+        label: t("settings.signatureImageUploadFailed"),
+      });
     }
   };
 
@@ -1113,8 +1115,10 @@ function DraftingSection() {
         updateSettings.mutate(
           { sendAndArchive: checked },
           {
-            onError: () =>
-              toast.error(t("settings.draftingSettingsSaveFailed")),
+            onError: (error) =>
+              reportWriteFailure(error, {
+                label: t("settings.draftingSettingsSaveFailed"),
+              }),
           },
         )
       }
