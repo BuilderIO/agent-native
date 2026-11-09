@@ -909,17 +909,24 @@ describe.skipIf(!POSTGRES_URL)(
             expect(read.content).toBe(a);
           } finally {
             holder.release();
-            await holder.done;
-            if (peer) await peer.promise;
-            if (!switched) {
-              await db.execute(
-                sql.raw(
-                  "DROP TRIGGER IF EXISTS test_files_pause_body ON documents",
-                ),
-              );
-              await db.execute(
-                sql`DELETE FROM test_files_pause_targets WHERE document_id = ${row.id}`,
-              );
+            try {
+              await holder.done;
+              if (peer) await peer.promise;
+            } finally {
+              // The test database is shared with other suites.
+              if (!switched) {
+                await db.execute(
+                  sql.raw(
+                    "DROP TRIGGER IF EXISTS test_files_pause_body ON documents",
+                  ),
+                );
+                await db.execute(
+                  sql.raw("DROP FUNCTION IF EXISTS test_files_pause_body()"),
+                );
+                await db.execute(
+                  sql.raw("DROP TABLE IF EXISTS test_files_pause_targets"),
+                );
+              }
             }
           }
           expect(await storedBody(row)).toBe(b);
@@ -953,47 +960,63 @@ describe.skipIf(!POSTGRES_URL)(
       120_000,
     );
 
-    it("refuses a body that went A to B to A between the check and the live-copy commit", async () =>
-      runWithRequestContext({ userEmail: OWNER }, async () => {
-        const { canonicalizeNfm } = await import("../../shared/nfm.js");
-        const a = canonicalizeNfm("Original first.\n\nOriginal second.");
-        const b = canonicalizeNfm("Peer changed first.\n\nOriginal second.");
-        const c = canonicalizeNfm("Original first.\n\nCaller changed second.");
-        const row = await switchedRowOwnedBySource({
-          switched: true,
-          source: false,
-          content: a,
-        });
-        const { editContentLiveCopy } = await import("./write.js");
-        const { CONTENT_LIVE_COPY_EDITS } = await import("./binding.js");
-        const tokenAtA = await pageRevision(row);
-        beforeLiveCopyEdit.run = async () => {
-          for (const [expected, content] of [
-            [a, b],
-            [b, a],
-          ] as const)
-            await editContentLiveCopy(row.id, {
-              cause: { ctx, operation: "peer-body-write" },
-              edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
-              input: { expected, content },
-            });
-        };
-        const result = await Promise.allSettled([
-          setProperty.run(
-            {
-              documentId: row.id,
-              databaseId: row.databaseId,
-              propertyId: row.propertyId,
-              value: c,
-              baseRevision: tokenAtA,
+    it.each([
+      { change: "A to B", steps: 1 },
+      { change: "A to B to A", steps: 2 },
+    ])(
+      "refuses a body that went $change between the check and the live-copy commit, with its current revision",
+      async ({ steps }) =>
+        runWithRequestContext({ userEmail: OWNER }, async () => {
+          const { canonicalizeNfm } = await import("../../shared/nfm.js");
+          const a = canonicalizeNfm("Original first.\n\nOriginal second.");
+          const b = canonicalizeNfm("Peer changed first.\n\nOriginal second.");
+          const c = canonicalizeNfm(
+            "Original first.\n\nCaller changed second.",
+          );
+          const row = await switchedRowOwnedBySource({
+            switched: true,
+            source: false,
+            content: a,
+          });
+          const { editContentLiveCopy } = await import("./write.js");
+          const { CONTENT_LIVE_COPY_EDITS } = await import("./binding.js");
+          const tokenAtA = await pageRevision(row);
+          beforeLiveCopyEdit.run = async () => {
+            for (const [expected, content] of (
+              [
+                [a, b],
+                [b, a],
+              ] as const
+            ).slice(0, steps))
+              await editContentLiveCopy(row.id, {
+                cause: { ctx, operation: "peer-body-write" },
+                edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
+                input: { expected, content },
+              });
+          };
+          const [settled] = await Promise.allSettled([
+            setProperty.run(
+              {
+                documentId: row.id,
+                databaseId: row.databaseId,
+                propertyId: row.propertyId,
+                value: c,
+                baseRevision: tokenAtA,
+              },
+              ctx,
+            ),
+          ]);
+          expect(settled).toMatchObject({
+            status: "rejected",
+            reason: {
+              errorCode: "DOCUMENT_REVISION_CONFLICT",
+              details: { currentRevision: await pageRevision(row) },
             },
-            ctx,
-          ),
-        ]);
-        expect(beforeLiveCopyEdit.run).toBeUndefined();
-        expect(failures(result)).toEqual(["DOCUMENT_REVISION_CONFLICT"]);
-        expect(await storedBody(row)).toBe(a);
-      }));
+          });
+          expect(beforeLiveCopyEdit.run).toBeUndefined();
+          expect(await storedBody(row)).toBe(steps === 1 ? b : a);
+        }),
+    );
 
     it.each(["browser-binary", "agent", "primary", "explicit", "open"])(
       "keeps the %s save that a Files repair joins mid-save",

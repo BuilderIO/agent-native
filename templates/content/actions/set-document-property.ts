@@ -231,9 +231,32 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
     return result.text;
   } catch (error) {
     if (liveCopyBaseChanged(error)) {
+      // guard:allow-unscoped — the caller's editor access was checked above.
+      const page = firstRow(
+        await getDb()
+          .select({
+            content: schema.documents.content,
+            bodyRevision: schema.documents.bodyRevision,
+          })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, args.documentId)),
+      );
       throw new ActionContractError(
         "The page changed before this value could be written. Read it again and retry.",
-        { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
+        {
+          errorCode: "DOCUMENT_REVISION_CONFLICT",
+          ...(page
+            ? {
+                details: {
+                  currentRevision: documentRevisionToken(
+                    page.bodyRevision,
+                    page.content,
+                  ),
+                },
+              }
+            : {}),
+          statusCode: 409,
+        },
       );
     }
     if (liveCopyWriteLeftPath(error)) return false;
