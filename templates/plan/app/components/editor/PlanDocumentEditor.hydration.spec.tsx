@@ -22,7 +22,15 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-import { PlanDocumentEditor } from "./PlanDocumentEditor";
+import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
+import {
+  createPlanBlockRenderContext,
+  planBlockRegistry,
+} from "../plan/planBlocks";
+import {
+  NestedPlanBlocksEditor,
+  PlanDocumentEditor,
+} from "./PlanDocumentEditor";
 
 const CALLOUT = {
   id: "divider",
@@ -136,14 +144,20 @@ describe("PlanDocumentEditor content revisions", () => {
     blocks: PlanBlock[],
     onBlocksChange: (blocks: PlanBlock[]) => void = vi.fn(),
   ) {
+    // The registry the app renders with, which gives a new block of a type it
+    // knows empty data of that type.
     act(() => {
       root.render(
-        createElement(PlanDocumentEditor, {
-          content: { ...content, blocks },
-          contentUpdatedAt,
-          editable: true,
-          onBlocksChange,
-          blocksReaderRef: reader,
+        createElement(BlockRegistryProvider, {
+          registry: planBlockRegistry,
+          ctx: createPlanBlockRenderContext({}),
+          children: createElement(PlanDocumentEditor, {
+            content: { ...content, blocks },
+            contentUpdatedAt,
+            editable: true,
+            onBlocksChange,
+            blocksReaderRef: reader,
+          }),
         }),
       );
     });
@@ -151,18 +165,32 @@ describe("PlanDocumentEditor content revisions", () => {
     await flushEditorEffects();
   }
 
-  async function deleteCallout() {
+  function documentEditor() {
     const dom = container.querySelector(".ProseMirror") as
       | (Element & { editor?: Editor })
       | null;
     const editor = dom?.editor;
+    if (!editor) throw new Error("The editor did not mount.");
+    return editor;
+  }
+
+  function calloutPosition() {
     let position = -1;
-    editor?.state.doc.descendants((node, at) => {
+    documentEditor().state.doc.descendants((node, at) => {
       if (node.attrs.blockId === CALLOUT.id) position = at;
     });
     expect(position).toBeGreaterThanOrEqual(0);
+    return position;
+  }
+
+  async function deleteCallout() {
+    const position = calloutPosition();
     await act(async () => {
-      editor?.chain().setNodeSelection(position).deleteSelection().run();
+      documentEditor()
+        .chain()
+        .setNodeSelection(position)
+        .deleteSelection()
+        .run();
     });
   }
 
@@ -183,6 +211,29 @@ describe("PlanDocumentEditor content revisions", () => {
     expect(blockIds()).not.toContain(CALLOUT.id);
   });
 
+  it("gives a removed block its data back when Undo returns it after the removal saved", async () => {
+    let edited: PlanBlock[] | null = null;
+    const onBlocksChange = (blocks: PlanBlock[]) => {
+      edited = blocks;
+    };
+    await renderAt("r1", content.blocks, onBlocksChange);
+    const position = calloutPosition();
+    const node = documentEditor().state.doc.nodeAt(position)?.toJSON();
+    expect(node).toBeDefined();
+    await deleteCallout();
+    expect(edited).not.toBeNull();
+    await renderAt("r2", edited!, onBlocksChange);
+
+    // What Undo puts back: the block's node, which has its id and type but not its data.
+    await act(async () => {
+      documentEditor().chain().insertContentAt(position, node).run();
+    });
+
+    expect(
+      reader.current?.([])?.find((block) => block.id === CALLOUT.id),
+    ).toEqual(CALLOUT);
+  });
+
   it("takes in what a new revision brings", async () => {
     await renderAt("r1", content.blocks);
     const theirs = {
@@ -195,5 +246,56 @@ describe("PlanDocumentEditor content revisions", () => {
     expect(
       reader.current?.([])?.find((block) => block.id === CALLOUT.id),
     ).toEqual(theirs);
+  });
+});
+
+describe("NestedPlanBlocksEditor", () => {
+  it("gives a removed block its data back when Undo returns it", async () => {
+    const changes: PlanBlock[][] = [];
+    const latest = (): PlanBlock[] | undefined => changes[changes.length - 1];
+    const renderRegion = async (blocks: PlanBlock[]) => {
+      act(() => {
+        root.render(
+          createElement(BlockRegistryProvider, {
+            registry: planBlockRegistry,
+            ctx: createPlanBlockRenderContext({}),
+            children: createElement(NestedPlanBlocksEditor, {
+              blocks,
+              editable: true,
+              onBlocksChange: (next: PlanBlock[]) => {
+                changes.push(next);
+              },
+              containerBlockId: "columns",
+              regionId: "left",
+            }),
+          }),
+        );
+      });
+      await flushEditorEffects();
+      await flushEditorEffects();
+    };
+    await renderRegion(content.blocks);
+    const dom = container.querySelector(".ProseMirror") as
+      | (Element & { editor?: Editor })
+      | null;
+    const editor = dom?.editor;
+    if (!editor) throw new Error("The editor did not mount.");
+    let position = -1;
+    editor.state.doc.descendants((node, at) => {
+      if (node.attrs.blockId === CALLOUT.id) position = at;
+    });
+    expect(position).toBeGreaterThanOrEqual(0);
+
+    await act(async () => {
+      editor.chain().setNodeSelection(position).deleteSelection().run();
+    });
+    const removed = latest();
+    expect(removed?.map((block) => block.id)).not.toContain(CALLOUT.id);
+    await renderRegion(removed ?? []);
+    await act(async () => {
+      editor.commands.undo();
+    });
+
+    expect(latest()?.find((block) => block.id === CALLOUT.id)).toEqual(CALLOUT);
   });
 });

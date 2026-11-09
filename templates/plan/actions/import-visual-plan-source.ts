@@ -67,6 +67,14 @@ function containsSalvagedBlock(
   );
 }
 
+/** A revision later than `previous`, even when the clock hasn't moved on. */
+function revisionAfter(previous: string): string {
+  const current = nowIso();
+  return current > previous
+    ? current
+    : new Date(Date.parse(previous) + 1).toISOString();
+}
+
 export default defineAction({
   description:
     "Create or replace a plan from source-control friendly MDX files (repo check-in workflows). Use ONLY when working with exported MDX source files; for live plans prefer update-visual-plan with contentPatches. The MDX folder is the authoring/export surface; the runtime model remains normalized structured JSON. When replacing an existing plan, pass expectedUpdatedAt to guard against concurrent edits.",
@@ -294,9 +302,14 @@ export default defineAction({
     if (incomingAssetsCreate && Object.keys(incomingAssetsCreate).length > 0) {
       const srcByFilename = await importPlanAssets(id, incomingAssetsCreate);
       content = applyImportedAssets(content, srcByFilename);
+      // The plan is listed from the insert on, so an editor can already have
+      // it open. A new revision is what tells that editor the content changed.
       await db
         .update(schema.plans)
-        .set({ content: serializePlanContent(content) })
+        .set({
+          content: serializePlanContent(content),
+          updatedAt: revisionAfter(now),
+        })
         .where(eq(schema.plans.id, id));
     }
 

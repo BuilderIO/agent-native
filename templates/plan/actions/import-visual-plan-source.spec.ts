@@ -242,6 +242,37 @@ describe("import-visual-plan-source stored legacy defaults", () => {
     expect(importPlanAssets).not.toHaveBeenCalled();
   });
 
+  it("gives a new plan a later revision when its assets rewrite the content", async () => {
+    const { importPlanAssets } = await import("../server/lib/plan-assets.js");
+    vi.mocked(importPlanAssets).mockResolvedValueOnce({
+      "photo.png": "/assets/photo.png",
+    });
+    const writes: Array<{ updatedAt?: string }> = [];
+    updateMock.mockImplementation(() => ({
+      set: (values: { updatedAt?: string }) => {
+        writes.push(values);
+        return { where: async () => undefined };
+      },
+    }));
+
+    await runAction({
+      mdx: {
+        "plan.mdx": [
+          "---",
+          'title: "New plan"',
+          "version: 2",
+          "---",
+          "",
+          "The plan's prose.",
+        ].join("\n"),
+        "assets/": { "photo.png": "cGhvdG8=" },
+      },
+    });
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.updatedAt).toBe("2026-10-12T00:00:00.001Z");
+  });
+
   it("keeps new imports strict even when the source was exported from a legacy plan", async () => {
     const content = legacyContent();
     const mdx = await exportPlanContentToMdxFolder({

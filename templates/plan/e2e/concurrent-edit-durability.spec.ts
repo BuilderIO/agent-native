@@ -593,6 +593,46 @@ test("deleting a block saves, and it stays deleted after a reload", async ({
   await expect(surface(page)).not.toContainText("Separator callout.");
 });
 
+test("undoing a deletion after it saved brings the block back with its content, and that saves", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Separator callout.");
+  const deletionSaved = page.waitForResponse(
+    (res) => res.url().includes("update-visual-plan") && res.ok(),
+    { timeout: 30_000 },
+  );
+  await deleteBlockWithItsGrip(page, "divider");
+  await deletionSaved;
+  await expect
+    .poll(
+      async () =>
+        (await persistedBlocks(page, planId)).map((block) => block.id),
+      { timeout: 20_000 },
+    )
+    .not.toContain("divider");
+  // The save's revision reaches the editor just after its response.
+  await page.waitForTimeout(500);
+
+  await surface(page).getByText("Alpha block seed.").click();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(surface(page)).toContainText("Separator callout.");
+  await expect
+    .poll(
+      async () =>
+        (await persistedBlocks(page, planId)).find(
+          (block) => block.id === "divider",
+        )?.markdown,
+      { timeout: 20_000 },
+    )
+    .toBe("Separator callout.");
+  await expectSaved(page);
+  await page.reload();
+  await expect(surface(page)).toContainText("Separator callout.", {
+    timeout: 25_000,
+  });
+});
+
 // Plans can hold text blocks in a row, as an agent can write them. The document
 // fuses them, so the first save carries one block in place of the two.
 const TEXT_BLOCKS_IN_A_ROW: SeedBlock[] = [
