@@ -23,18 +23,23 @@ that attempt. Organization-managed SSO and delegated preview sign-in retain thei
 existing connection flow; cross-device magic links also fall back when the original
 acceptance cookie is absent.
 
-A non-secret pending cookie lets Design hold the first-run surface while activation
-runs. Ordinary returning visitors make no activation request. Server-side settings
-under `design_builder_signup_v1:<auth-user-id>` retain the assignment, policy revision,
-acceptance time, attempt and terminal outcome. Separate `:attempt:<id>` and
-`:consent:<user-id>` settings bind treatment consent to its authenticated completion.
-Anonymous acceptance writes only the signed cookie; durable records are created only
-after account creation, avoiding abandoned pre-signup records.
+Design's first authenticated POST checks durable consent and starts eligible setup
+in that same request. Non-enrolled visitors remain interactive and never call the
+Builder provider. The app covers its mounted contents only after the server confirms
+an activation is pending. On Netlify the owning work is attached to `waitUntil`, so
+closing the page after this POST does not cancel provisioning. Other hosts await
+completion rather than rely on best-effort background execution. Requests use
+`keepalive` to survive navigation. The separate `status` operation remains read-only.
+Server-side settings under `design_builder_signup_v1:<auth-user-id>` retain the
+assignment, policy revision, acceptance time, attempt and terminal outcome. Separate
+`:attempt:<id>` and `:consent:<user-id>` settings bind consent to signup completion.
+Anonymous acceptance writes only the signed cookie; durable records are created
+only after account creation, avoiding abandoned pre-signup records.
 Automatic attempts are reserved atomically and are not retried after an uncertain
 outcome. Only the owning request finalizes its reservation; other requests return
 pending without taking over. The client waits at most 30 seconds before allowing the
-existing connection flow and clears the non-secret UI gate cookie on every exit, including request failures, so later loads do
-not wait again. A later successful completion still records connected.
+existing connection flow. Terminal responses clear the non-secret UI hint; it is
+never an authorization check. A later successful completion still records connected.
 A thrown activation error records terminal fallback immediately. Post-write audit or
 telemetry failures keep the connection connected and report an explicit warning. The old connection flow
 remains available after errors and for every existing Builder account, including

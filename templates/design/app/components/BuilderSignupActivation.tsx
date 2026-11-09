@@ -1,7 +1,7 @@
 import { track } from "@agent-native/core/client/analytics";
 import {
   activateBuilderSignupAssignment,
-  getBuilderSignupActivationStatus,
+  startBuilderSignupActivation,
 } from "@agent-native/core/client/auth/builder-signup";
 import { useT } from "@agent-native/core/client/i18n";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,7 +20,7 @@ export function useBuilderSignupActivation(
   const queryClient = useQueryClient();
   const eligibility = useQuery({
     queryKey: ["builder-signup-eligibility", userId],
-    queryFn: getBuilderSignupActivationStatus,
+    queryFn: startBuilderSignupActivation,
     enabled: Boolean(userId),
     staleTime: Infinity,
     retry: 1,

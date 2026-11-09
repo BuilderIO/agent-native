@@ -7,6 +7,7 @@ import {
   activateBuilderSignupAssignment,
   getBuilderSignupAssignment,
   getBuilderSignupActivationStatus,
+  startBuilderSignupActivation,
   hasPendingBuilderSignupAssignment,
 } from "./builder-signup.js";
 
@@ -25,6 +26,28 @@ afterEach(() => {
 });
 
 describe("Builder signup client contract", () => {
+  it("starts setup in a navigation-safe request and only covers a confirmed pending activation", async () => {
+    const fetch = vi.fn(async () => response({ status: "pending" }));
+    vi.stubGlobal("fetch", fetch);
+    expect(await startBuilderSignupActivation()).toBe("eligible");
+    expect(fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ operation: "start" }),
+        keepalive: true,
+      }),
+    );
+    for (const status of ["connected", "fallback", "disabled"]) {
+      fetch.mockResolvedValueOnce(response({ status }));
+      expect(await startBuilderSignupActivation()).toBe("disabled");
+    }
+    fetch.mockResolvedValueOnce(response({ status: "unexpected" }));
+    await expect(startBuilderSignupActivation()).rejects.toThrow(
+      "Invalid Builder signup start response",
+    );
+  });
+
   it("checks eligibility without treating a failed or unknown response as non-enrollment", async () => {
     const fetch = vi.fn(async () => response({ status: "eligible" }));
     vi.stubGlobal("fetch", fetch);

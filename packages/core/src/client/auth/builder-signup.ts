@@ -25,6 +25,7 @@ async function request(
           }
         : {}),
       credentials: "same-origin",
+      keepalive: Boolean(body && body.operation !== "accept"),
       signal,
     },
   );
@@ -78,6 +79,17 @@ export async function getBuilderSignupActivationStatus(): Promise<
   if (result.status === "eligible" || result.status === "disabled")
     return result.status;
   throw new Error("Invalid Builder signup eligibility response");
+}
+
+/** Starts only a consented, server-verified assignment; otherwise does nothing. */
+export async function startBuilderSignupActivation(): Promise<
+  "eligible" | "disabled"
+> {
+  const result = await request({ operation: "start" });
+  if (result.status === "pending") return "eligible";
+  if (["connected", "fallback", "disabled"].includes(String(result.status)))
+    return "disabled";
+  throw new Error("Invalid Builder signup start response");
 }
 
 export async function activateBuilderSignupAssignment(): Promise<

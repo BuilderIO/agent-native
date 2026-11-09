@@ -20,12 +20,13 @@ import { z } from "zod";
 
 import { getAppConfig } from "../app-config/index.js";
 import { getSetting, mutateSetting } from "../settings/store.js";
-import { track } from "../tracking/index.js";
+import { flushTracking, track } from "../tracking/index.js";
 import type { AuthSession } from "./auth.js";
 import {
   getAuthSecret,
   getBetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
+import { platformWaitUntil } from "./background-work.js";
 import { readBodyWithSizeLimit } from "./h3-helpers.js";
 
 export const BUILDER_SIGNUP_EXPERIMENT = "design_builder_signup_v1";
@@ -355,7 +356,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       return refuse(415, "json_required");
     const body = z
       .object({
-        operation: z.enum(["accept", "activate", "status"]),
+        operation: z.enum(["accept", "activate", "start", "status"]),
         assignmentId: z.string().optional(),
         attemptId: z.string().min(16).max(128).optional(),
         method: z.enum(["password", "magic-link", "google"]).optional(),
@@ -426,7 +427,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     }
     if (
       !assignment &&
-      body.data.operation === "activate" &&
+      (body.data.operation === "activate" || body.data.operation === "start") &&
       session?.emailVerified &&
       session.userId
     ) {
@@ -489,6 +490,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       code?: string,
       replayed = false,
       durationMs?: number,
+      clearCookie = true,
     ) => {
       track(
         "builder_signup_experiment_outcome",
@@ -503,7 +505,8 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         },
         trackingSource,
       );
-      deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+      if (clearCookie)
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
       return { status, ...(code ? { code } : {}) };
     };
     if (assignment.variant !== "automatic")
@@ -578,23 +581,42 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       },
       { userId: session.email, authUserId: session.userId },
     );
-    let result: { ok: boolean; code?: string; message?: string };
-    try {
-      result = await dependencies.activate(event, session);
-    } catch {
-      result = { ok: false, code: "activation_interrupted" };
+    // Start and own the provider request in this first POST, rather than
+    // waiting for a second browser round trip. Netlify keeps it alive when
+    // a new user closes the page; the atomic reservation still permits one call.
+    const waitUntil =
+      body.data.operation === "start"
+        ? platformWaitUntil(event.req)
+        : undefined;
+    const complete = async () => {
+      let result: { ok: boolean; code?: string; message?: string };
+      try {
+        result = await dependencies.activate(event, session);
+      } catch {
+        result = { ok: false, code: "activation_interrupted" };
+      }
+      const committed = await finishSignupActivation(key, attempt, {
+        status: result.ok ? "connected" : "fallback",
+        ...(result.code ? { code: result.code } : {}),
+        ...(result.message ? { message: result.message } : {}),
+      });
+      const status = committed.status;
+      const outcome = terminal(
+        status,
+        committed.code ?? undefined,
+        false,
+        Date.now() - z.number().parse(record.startedAt),
+        !waitUntil,
+      );
+      if (waitUntil) await flushTracking();
+      return outcome;
+    };
+    const completion = complete();
+    if (waitUntil) {
+      waitUntil(completion);
+      return { status: "pending" as const };
     }
-    const committed = await finishSignupActivation(key, attempt, {
-      status: result.ok ? "connected" : "fallback",
-      ...(result.code ? { code: result.code } : {}),
-      ...(result.message ? { message: result.message } : {}),
-    });
-    const status = committed.status;
-    return terminal(
-      status,
-      committed.code ?? undefined,
-      false,
-      Date.now() - z.number().parse(record.startedAt),
-    );
+    // Hosts without a durable background lifetime must await the write.
+    return completion;
   });
 }
