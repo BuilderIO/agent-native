@@ -67,6 +67,14 @@ function containsSalvagedBlock(
   );
 }
 
+/** A revision later than `previous`, even when the clock hasn't moved on. */
+function revisionAfter(previous: string): string {
+  const current = nowIso();
+  return current > previous
+    ? current
+    : new Date(Date.parse(previous) + 1).toISOString();
+}
+
 export default defineAction({
   description:
     "Create or replace a plan from source-control friendly MDX files (repo check-in workflows). Use ONLY when working with exported MDX source files; for live plans prefer update-visual-plan with contentPatches. The MDX folder is the authoring/export surface; the runtime model remains normalized structured JSON. When replacing an existing plan, pass expectedUpdatedAt to guard against concurrent edits.",
@@ -290,14 +298,53 @@ export default defineAction({
         : {}),
     });
 
+    const warnings: string[] = [];
     const incomingAssetsCreate = args.mdx["assets/"];
     if (incomingAssetsCreate && Object.keys(incomingAssetsCreate).length > 0) {
       const srcByFilename = await importPlanAssets(id, incomingAssetsCreate);
-      content = applyImportedAssets(content, srcByFilename);
-      await db
-        .update(schema.plans)
-        .set({ content: serializePlanContent(content) })
-        .where(eq(schema.plans.id, id));
+      // The plan is listed from the insert on, so an editor can already have
+      // it open, and can save it while the assets upload. Rewrite what the plan
+      // holds at a revision only while it still holds that revision, and move
+      // the revision, which is what tells an open editor the content changed.
+      let base: { content: PlanContent; updatedAt: string } = {
+        content,
+        updatedAt: now,
+      };
+      let rewritten = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const written = await db
+          .update(schema.plans)
+          .set({
+            content: serializePlanContent(
+              applyImportedAssets(base.content, srcByFilename),
+            ),
+            updatedAt: revisionAfter(base.updatedAt),
+          })
+          .where(
+            and(
+              eq(schema.plans.id, id),
+              eq(schema.plans.updatedAt, base.updatedAt),
+            ),
+          )
+          .returning({ id: schema.plans.id });
+        if (written.length > 0) {
+          rewritten = true;
+          break;
+        }
+        const { plan } = await loadPlanBundle(id);
+        // Content that only reads with some blocks salvaged would lose those
+        // blocks' stored data if it were written back, so leave it as it is.
+        if (!plan.content || containsSalvagedBlock(plan.content.blocks)) break;
+        base = { content: plan.content, updatedAt: plan.updatedAt };
+      }
+      if (!rewritten) {
+        const uploaded = Object.entries(srcByFilename)
+          .map(([filename, src]) => `assets/${filename} is at ${src}`)
+          .join(", ");
+        warnings.push(
+          `The plan changed while its assets uploaded, so its image links weren't rewritten and still point at assets/ paths. ${uploaded}.`,
+        );
+      }
     }
 
     await writeEvent({
@@ -334,6 +381,7 @@ export default defineAction({
       path: planPath(id, kind),
       url: planPath(id, kind),
       ...(local?.written ? { localFiles: local } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   },
   link: ({ result }) => {
