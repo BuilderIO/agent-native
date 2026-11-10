@@ -3,16 +3,34 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-09
+
+### Improved
+
+- More save failures now say why, such as being offline or lacking permission.
+
+## 2026-11-06
+
+### Added
+
+- Compare Design Builder signup cohorts through first design and retention
+
 ## 2026-11-05
 
 ### Improved
 
+- Failed saves now show a clear error message instead of failing silently.
 - Reference saved dashboards directly from the composer
 
 ## 2026-11-04
 
+### Added
+
+- Sessions and Errors can show just production or beta traffic, and each session in the list says which it came from.
+
 ### Improved
 
+- Usage dashboards can be filtered to production or beta traffic, new dashboards start on production, and a count shows events with no known environment.
 - The agent finds the dashboard editing action more often when you ask to add or change a chart.
 
 ## 2026-10-31
@@ -1537,57 +1555,5 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Session replay lists now show only signed-in recordings with real activity and reliable durations.
 - Sidebar loading placeholders are visible in light mode.
 - Traditional Chinese copy now uses Taiwan terminology and clearer technical wording.
-
-## 2026-06-26
-
-### Added
-
-- Dashboards can now send scheduled daily email reports with inline screenshots of the live dashboard.
-- Session replay browser sessions can now be reviewed from a Sessions page and opened from first-party dashboard rows.
-
-### Improved
-
-- Agents can now edit dashboards through a typed mutation script API for faster, more reliable multi-step changes.
-- Dashboard chart moves are now handled by panel id, making simple reorders faster and more reliable for the agent.
-- Dashboard charts show a refresh spinner while keeping existing data visible.
-- Dashboard email reports queue immediate sends through the background sender for more reliable delivery.
-- Dashboard templates are tucked into settings and show simpler, clearer cards.
-- Explorer dashboards now drag charts with a stable preview and smoother placement.
-- Session replay playback can now be toggled by clicking the replay preview.
-- Session replays now open from the full row and play with timeline controls, speed settings, inactivity skipping, and an agent prompt popover.
-
-### Fixed
-
-- Dashboard bar chart hovers stay subtle in dark mode.
-- Dashboard charts drag smoothly with stable cards, inactive chart hovers, and reliable blue placement lines.
-- Dashboard edits stay stable while chart order and deletions save.
-- Session replay uploads now accept compressed payloads so larger recordings ingest more reliably.
-- SQL chart tooltips now stay stable while moving across dense charts.
-- The Ask tab uses a softer dark-gray canvas while sidebar chat stays black.
-- The Sessions page shows a single page title instead of repeating itself.
-
-## 2026-06-25
-
-### Improved
-
-- First-party dashboards use indexed event dates for faster date-range charts.
-- SQL dashboard panels now offer refresh and clearer SQL formatting feedback.
-- The sidebar footer and command palette now open language settings directly.
-
-### Fixed
-
-- Dashboard cards now stay in their row when deleted and show a blue placement line while dragging.
-- Dashboard charts no longer refresh in the background during agent activity and load more steadily on large dashboards.
-- Dashboard charts now show reliable blue placement lines while dragging.
-- First-party dashboard charts avoid surprise reloads and use faster retention queries.
-- Fixed HubSpot data source status so private app tokens, legacy tokens, and shared workspace grants show as ready consistently.
-- Per-template activity charts now exclude unattributed telemetry so CLI events no longer appear as Unknown.
-- Referrer dashboard panels now show external domains without SQL parameter placeholder errors.
-- Retention and active-user dashboard panels now exclude docs traffic, smooth retention cohorts, and use clearer signed-in visitor labels.
-
-### Removed
-
-- Analytics now opens directly to Ask instead of the old Overview page.
-- The sidebar footer no longer shows a sign-out shortcut.
 
 For the full list of updates, see the [changelog folder](./changelog/).
