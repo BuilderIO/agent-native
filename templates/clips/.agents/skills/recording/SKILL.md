@@ -140,10 +140,12 @@ toward -16 LUFS (at most +30 dB) with a peak limiter at -1 dBFS; the video
 stream is copied. Clips that already sound normal, and silent clips, are left
 untouched. The step runs inside the `seekable` post-finalize job after the
 remux, or as its own `audio-level` job when no remux is needed, so the two
-rewrites never race. A marker keyed on `videoUrl` + `mediaUpdatedAt` keeps it
-from running twice. For older clips, call `level-recording-audio` with `--id`,
-`--ids='[...]'`, or `--all --limit=N`; `--force` measures again. Hosts without
-ffmpeg skip the step.
+rewrites never race. Leveling keeps `mediaUpdatedAt`: timing is unchanged, so
+transcripts and chapters stay valid. A marker keyed on `videoUrl` +
+`mediaUpdatedAt` keeps it from running twice. Files over 1 GiB and hosts
+without ffmpeg are skipped. For older clips, call `level-recording-audio` with
+`--id`, `--ids='[...]'` (at most 50), or `--all --limit=N`, then
+`--before=<nextBefore>` to continue; `--force` measures again.
 
 ## Loom and YouTube import
 

@@ -1,5 +1,5 @@
-import { defineAction } from "@agent-native/core/action";
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { defineAction, fail } from "@agent-native/core/action";
+import { and, desc, eq, isNotNull, lt } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -48,6 +48,7 @@ const outputSchema = z.object({
   changed: z.number().int(),
   results: z.array(resultSchema),
   message: z.string().optional(),
+  nextBefore: z.string().optional(),
 });
 const DEFAULT_ALL_LIMIT = 20;
 const cliBoolean = z.preprocess((value) => {
@@ -55,6 +56,8 @@ const cliBoolean = z.preprocess((value) => {
   if (value === "false" || value === "0") return false;
   return value;
 }, z.boolean());
+
+const MAX_IDS_INPUT_CHARS = 8_000;
 
 function parseIds(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -77,11 +80,14 @@ function parseIds(value: unknown): string[] {
 }
 
 export default defineAction({
-  description: `Raise the audio of quiet recordings to a normal speech level. Clips quieter than ${AUDIO_LEVEL_QUIET_THRESHOLD_LUFS} LUFS get a fixed boost toward ${AUDIO_LEVEL_TARGET_LUFS} LUFS with a peak limiter; the video is copied, and clips that already sound normal are left untouched. New uploads are leveled automatically; use this for older clips. Pass \`id\` for one clip, \`ids\` for several, or \`all: true\` for a bounded sweep of the caller's own clips. Clips already checked are skipped unless \`force\` is true.`,
+  description: `Raise the audio of quiet recordings to a normal speech level. Clips quieter than ${AUDIO_LEVEL_QUIET_THRESHOLD_LUFS} LUFS get a fixed boost toward ${AUDIO_LEVEL_TARGET_LUFS} LUFS with a peak limiter; the video is copied, and clips that already sound normal are left untouched. New uploads are leveled automatically; use this for older clips. Pass \`id\` for one clip, \`ids\` for up to 50, or \`all: true\` for a bounded sweep of the caller's own clips, newest first; pass the returned \`nextBefore\` as \`before\` to continue. Clips already checked are skipped unless \`force\` is true.`,
   schema: z.object({
     id: z.string().optional().describe("A single recording id to level."),
     ids: z
-      .union([z.array(z.string()), z.string()])
+      .union([
+        z.array(z.string().max(200)).max(MAX_TARGETS_PER_CALL),
+        z.string().max(MAX_IDS_INPUT_CHARS),
+      ])
       .optional()
       .describe(
         "Multiple recording ids (array, or JSON/comma string for CLI).",
@@ -100,38 +106,74 @@ export default defineAction({
       .describe(
         `Max clips to process when using \`all\` (default ${DEFAULT_ALL_LIMIT}).`,
       ),
+    before: z
+      .string()
+      .datetime()
+      .optional()
+      .describe(
+        "With `all`, only clips created before this time. Pass the previous call's `nextBefore` to continue a sweep.",
+      ),
     force: cliBoolean
       .optional()
       .describe("Measure again even on clips already checked."),
   }),
   outputSchema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (args) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const force = Boolean(args.force);
 
-    let targetIds: string[] = [];
-    if (args.id) targetIds.push(args.id);
-    targetIds.push(...parseIds(args.ids));
-
-    if (args.all) {
-      const rows = await db
-        .select({ id: schema.recordings.id })
-        .from(schema.recordings)
-        .where(
-          and(
-            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-            eq(schema.recordings.status, "ready"),
-            eq(schema.recordings.hasAudio, true),
-            isNotNull(schema.recordings.videoUrl),
-          ),
-        )
-        .orderBy(desc(schema.recordings.createdAt))
-        .limit(args.limit ?? DEFAULT_ALL_LIMIT);
-      targetIds.push(...rows.map((r) => r.id));
+    const explicitIds = Array.from(
+      new Set([...(args.id ? [args.id] : []), ...parseIds(args.ids)]),
+    );
+    if (explicitIds.length > MAX_TARGETS_PER_CALL) {
+      fail(
+        `Pass at most ${MAX_TARGETS_PER_CALL} recording ids per call; ${explicitIds.length} were given. Split them into smaller batches.`,
+        { errorCode: "too_many_recordings", statusCode: 400 },
+      );
     }
 
-    targetIds = Array.from(new Set(targetIds)).slice(0, MAX_TARGETS_PER_CALL);
+    const targetIds = [...explicitIds];
+    let nextBefore: string | undefined;
+    if (args.all) {
+      const limit = Math.min(
+        args.limit ?? DEFAULT_ALL_LIMIT,
+        MAX_TARGETS_PER_CALL - targetIds.length,
+      );
+      const rows =
+        limit > 0
+          ? await db
+              .select({
+                id: schema.recordings.id,
+                createdAt: schema.recordings.createdAt,
+              })
+              .from(schema.recordings)
+              .where(
+                and(
+                  ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+                  eq(schema.recordings.status, "ready"),
+                  eq(schema.recordings.hasAudio, true),
+                  isNotNull(schema.recordings.videoUrl),
+                  ...(args.before
+                    ? [lt(schema.recordings.createdAt, args.before)]
+                    : []),
+                ),
+              )
+              .orderBy(desc(schema.recordings.createdAt))
+              .limit(limit)
+          : [];
+      for (const row of rows) {
+        if (!targetIds.includes(row.id)) targetIds.push(row.id);
+      }
+      const last = rows.length === limit ? rows[rows.length - 1] : undefined;
+      nextBefore = last?.createdAt;
+    }
+
     if (targetIds.length === 0) {
       return {
         ok: true as const,
@@ -166,6 +208,7 @@ export default defineAction({
       processed: results.length,
       changed,
       results,
+      ...(nextBefore ? { nextBefore } : {}),
     };
   },
 });

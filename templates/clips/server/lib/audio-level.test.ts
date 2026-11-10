@@ -11,6 +11,7 @@ import {
   buildBoostArgs,
   measureLoudness,
   parseEbur128Summary,
+  parseFfmpegInputInfo,
   planAudioBoost,
 } from "./audio-level.js";
 import { resolveFfmpegCommand } from "./video-remux.js";
@@ -50,6 +51,27 @@ describe("parseEbur128Summary", () => {
       integratedLufs: null,
       samplePeakDbfs: null,
     });
+  });
+});
+
+describe("parseFfmpegInputInfo", () => {
+  it("reads duration and audio presence", () => {
+    const stderr = `Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'x.mp4':
+  Duration: 00:03:35.18, start: 0.000000, bitrate: 2439 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High), yuv420p, 1920x1064
+  Stream #0:1[0x2](und): Audio: aac (LC), 48000 Hz, stereo, fltp`;
+    expect(parseFfmpegInputInfo(stderr)).toEqual({
+      durationMs: 215_180,
+      hasAudio: true,
+    });
+  });
+
+  it("reports a missing audio stream and an unknown duration", () => {
+    expect(
+      parseFfmpegInputInfo(
+        "Duration: N/A\n  Stream #0:0: Video: h264, yuv420p",
+      ),
+    ).toEqual({ durationMs: null, hasAudio: false });
   });
 });
 

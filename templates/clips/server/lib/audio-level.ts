@@ -39,8 +39,6 @@ import { ownerEmailMatches } from "./recordings.js";
 import { uploadRecordingMedia } from "./upload-recording-media.js";
 import {
   isFfmpegAvailable,
-  probeHasAudioStream,
-  probeMediaInfo,
   resolveFfmpegCommand,
   withRemuxSlot,
 } from "./video-remux.js";
@@ -57,6 +55,12 @@ export const AUDIO_LEVEL_MAX_GAIN_DB = 30;
 export const AUDIO_LEVEL_MIN_GAIN_DB = 3;
 /** Limiter ceiling: -1 dBFS. */
 export const AUDIO_LEVEL_LIMIT = 0.891;
+
+/**
+ * Largest stored file leveled. The job holds the source and the leveled copy
+ * in memory while it uploads, so very long recordings are left alone.
+ */
+export const AUDIO_LEVEL_MAX_BYTES = 1024 * 1024 * 1024;
 
 const MEASURE_TIMEOUT_MS = 10 * 60 * 1000;
 const BOOST_TIMEOUT_MS = 20 * 60 * 1000;
@@ -230,6 +234,58 @@ async function runFfmpegCapturingStderr(
   });
 }
 
+export interface ProbedFile {
+  durationMs: number | null;
+  hasAudio: boolean;
+}
+
+/** Read duration and audio presence from `ffmpeg -i` output. */
+export function parseFfmpegInputInfo(stderr: string): ProbedFile {
+  const match = /Duration:\s+(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(stderr);
+  const durationMs =
+    match && match[1] && match[2] && match[3]
+      ? Math.round(
+          (Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3])) *
+            1000,
+        )
+      : null;
+  return {
+    durationMs: Number.isFinite(durationMs) ? durationMs : null,
+    hasAudio: /Stream #\d+:\d+[^\n]*: Audio:/.test(stderr),
+  };
+}
+
+/**
+ * Probe a file on disk. `ffmpeg -i` with no output exits non-zero by design,
+ * so the stream summary is read from stderr whatever the exit code.
+ */
+async function probeFile(path: string): Promise<ProbedFile> {
+  const stderr = await new Promise<string>((resolve, reject) => {
+    // observed-write-ok: read-only probe, ffmpeg writes no output file.
+    const child = spawn(resolveFfmpegCommand(), ["-hide_banner", "-i", path], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let text = "";
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("ffmpeg probe timed out"));
+    }, 60_000);
+    timeout.unref();
+    child.stderr?.on("data", (chunk: Buffer) => {
+      text = (text + chunk.toString("utf8")).slice(-STDERR_LIMIT);
+    });
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+    child.on("close", () => {
+      clearTimeout(timeout);
+      resolve(text);
+    });
+  });
+  return parseFfmpegInputInfo(stderr);
+}
+
 /** Measure a media file's integrated loudness and sample peak. */
 export async function measureLoudness(
   inputPath: string,
@@ -292,26 +348,31 @@ export async function boostQuietAudio(input: {
         detail: err instanceof Error ? err.message.slice(0, 500) : String(err),
       };
     }
-    const bytes = new Uint8Array(await readFile(outputPath));
-    const [hasAudio, before, after] = await Promise.all([
-      probeHasAudioStream(bytes, input.format),
-      probeMediaInfo(input.mediaBytes, input.format),
-      probeMediaInfo(bytes, input.format),
-    ]);
+    const before = await probeFile(inputPath);
+    const after = await probeFile(outputPath);
     const durationDrift =
       before.durationMs !== null && after.durationMs !== null
         ? Math.abs(before.durationMs - after.durationMs)
-        : 0;
+        : null;
     if (
-      hasAudio === false ||
-      bytes.byteLength === 0 ||
+      !after.hasAudio ||
+      durationDrift === null ||
       durationDrift > DURATION_TOLERANCE_MS
     ) {
       return {
         changed: false,
         measurement,
         reason: "boost-failed",
-        detail: `Boosted file failed verification (audio=${String(hasAudio)}, durationDriftMs=${durationDrift}).`,
+        detail: `Boosted file failed verification (audio=${String(after.hasAudio)}, durationDriftMs=${String(durationDrift)}).`,
+      };
+    }
+    const bytes = new Uint8Array(await readFile(outputPath));
+    if (bytes.byteLength === 0) {
+      return {
+        changed: false,
+        measurement,
+        reason: "boost-failed",
+        detail: "Boosted file is empty.",
       };
     }
     return { changed: true, bytes, measurement, gainDb: plan.gainDb };
@@ -384,6 +445,7 @@ export async function ensureRecordingAudioLevel(params: {
       storageMode: schema.recordings.storageMode,
       sourceAppName: schema.recordings.sourceAppName,
       mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
+      videoSizeBytes: schema.recordings.videoSizeBytes,
     })
     .from(schema.recordings)
     .where(
@@ -408,6 +470,9 @@ export async function ensureRecordingAudioLevel(params: {
   }
   if (!isRemoteProviderUrl(rec.videoUrl)) {
     return { recordingId, status: "skipped-local-media", changed: false };
+  }
+  if (rec.videoSizeBytes > AUDIO_LEVEL_MAX_BYTES) {
+    return { recordingId, status: "skipped-too-large", changed: false };
   }
   if (!isFfmpegAvailable()) {
     return { recordingId, status: "skipped-no-ffmpeg", changed: false };
@@ -514,14 +579,17 @@ export async function ensureRecordingAudioLevel(params: {
     };
   }
 
-  const now = new Date().toISOString();
+  // `mediaUpdatedAt` is left as it is on purpose. Leveling keeps every frame
+  // and every word at the same time, so transcripts, chapters and comments
+  // made from the clip stay valid; bumping it would make an in-flight
+  // transcript reject its own write. Playback is not cached (`/api/video`
+  // answers no-store), and own storage hands back a new URL anyway.
   const updated = await db
     .update(schema.recordings)
     .set({
       videoUrl: upload.url,
       videoSizeBytes: leveled.bytes.byteLength,
-      mediaUpdatedAt: now,
-      updatedAt: now,
+      updatedAt: new Date().toISOString(),
     })
     .where(
       and(
@@ -578,15 +646,30 @@ export async function ensureRecordingAudioLevel(params: {
       }
     }
   }
+  // The row already points at the leveled file. These writes only save work
+  // and nudge open pages, so a failure is logged instead of undoing a
+  // successful run.
   await writeMarker({
     recordingId,
     videoUrl: upload.url,
-    mediaUpdatedAt: now,
+    mediaUpdatedAt: rec.mediaUpdatedAt,
     status: "boosted",
     integratedLufs: leveled.measurement.integratedLufs,
     gainDb: leveled.gainDb,
+  }).catch((err: unknown) => {
+    console.warn("[audio-level] could not save the leveled marker", {
+      recordingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   });
-  await writeAppState("refresh-signal", { ts: Date.now() });
+  await writeAppState("refresh-signal", { ts: Date.now() }).catch(
+    (err: unknown) => {
+      console.warn("[audio-level] could not signal a refresh", {
+        recordingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    },
+  );
   console.log("[audio-level] raised quiet recording audio", {
     recordingId,
     integratedLufs: leveled.measurement.integratedLufs,
