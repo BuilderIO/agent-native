@@ -126,10 +126,18 @@ sticks to the top while scrolling.
 People rarely say "Blocks field". They say tabs, page tabs, document tabs, or
 sections, or name one by its field ("the Notes tab"). Each of those is a Blocks
 field: "add a tab" means adding a `blocks` property with
-`configure-document-property`, "rename the Notes tab" means renaming that
-property, and "what's in my Notes tab" means reading that field. Fields are
-defined on the collection, so adding, renaming, or deleting one changes it on
-every row. Say so before doing it for someone who asked about one page.
+`configure-document-property` (`operation: "create"`, `definition: { type:
+"blocks", name }`), "rename the Notes tab" means renaming that property, and
+"what's in my Notes tab" means reading that field. Fields are defined on the
+collection, so adding, renaming, or deleting one changes it on every row. Say
+so before doing it for someone who asked about one page. An agent can't add,
+rename, or hide a tab while any row's page has agents set to Can comment.
+
+`get-content-database` carries every tab's text except the primary Content
+field's: that one is each row's page body, and it reads `null` unless the call
+passes `includePageText: true`. Pages can be long, so such a read returns at
+most 25 rows; page through the rest with `offset`. `null` there means the page wasn't read, not that it's empty. For one row,
+`get-document` returns the body.
 
 Each tab shows the field's name and word count, tabs reorder by dragging, and a
 dot marks a tab that changed since this browser last showed it. People who can

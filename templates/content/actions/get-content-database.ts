@@ -11,7 +11,9 @@ import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import {
   CONTENT_DATABASE_MAX_READ_LIMIT,
+  CONTENT_DATABASE_PAGE_TEXT_READ_LIMIT,
   contentDatabaseCompactRowsSchema,
+  contentDatabaseQueryBooleanSchema,
   contentDatabaseResponseForCaller,
   contentDatabaseTableQuerySchema,
   getContentDatabaseResponse,
@@ -41,6 +43,11 @@ const getContentDatabaseSchema = z.object({
     ),
   tableQuery: contentDatabaseTableQuerySchema,
   compactRows: contentDatabaseCompactRowsSchema,
+  includePageText: contentDatabaseQueryBooleanSchema
+    .optional()
+    .describe(
+      `Read each returned row's page text into its primary Content field. Pages can be long, so a read with this returns at most ${CONTENT_DATABASE_PAGE_TEXT_READ_LIMIT} rows; page with offset.`,
+    ),
 });
 
 export function resolveContentDatabaseReadLimit(
@@ -51,8 +58,7 @@ export function resolveContentDatabaseReadLimit(
 }
 
 export default defineAction({
-  description:
-    "Get a content collection table, including its property schema, mutation contract, and item pages. Each item's property values carry their definition (name, type, options); pass compactRows: true to get them by propertyId instead, with each definition once in the top-level properties, which keeps reads of collections with large select properties small. Refresh this read immediately before a row write, then copy its mutation target and schema revision; for updates, copy the selected item's membership id as itemId, its document.id as documentId, and its rowRevision as expectedRowRevision.",
+  description: `Get a content collection table, including its property schema, mutation contract, and item pages. Each item's primary Content field (its page text) is null unless you pass includePageText: true, which returns at most ${CONTENT_DATABASE_PAGE_TEXT_READ_LIMIT} rows per read; other Blocks fields (tabs) always carry their text. Each item's property values carry their definition (name, type, options); pass compactRows: true to get them by propertyId instead, with each definition once in the top-level properties, which keeps reads of collections with large select properties small. Refresh this read immediately before a row write, then copy its mutation target and schema revision; for updates, copy the selected item's membership id as itemId, its document.id as documentId, and its rowRevision as expectedRowRevision.`,
   mcpTool: true,
   schema: getContentDatabaseSchema,
   agentInputSchema: getContentDatabaseSchema.extend({
@@ -80,6 +86,7 @@ export default defineAction({
       tableQuery,
       contentSpaceId,
       compactRows,
+      includePageText,
     },
     context,
   ): Promise<
@@ -126,15 +133,28 @@ export default defineAction({
       }
     }
 
+    const readLimit = resolveContentDatabaseReadLimit(limit, context?.caller);
     return contentDatabaseResponseForCaller(
       await getContentDatabaseResponse(resolved.database.id, {
-        limit: resolveContentDatabaseReadLimit(limit, context?.caller),
+        limit: includePageText
+          ? Math.min(
+              readLimit ?? CONTENT_DATABASE_PAGE_TEXT_READ_LIMIT,
+              CONTENT_DATABASE_PAGE_TEXT_READ_LIMIT,
+            )
+          : readLimit,
         offset,
         tableQuery,
         database: resolved.database,
         accessRole: resolved.accessRole,
         filesMembershipDatabaseId,
         sidebarOrder,
+        // The app's own table reads every row at once, too many bodies to
+        // load, so it keeps the cheaper read.
+        pageText: includePageText
+          ? "include"
+          : context?.caller === "frontend"
+            ? undefined
+            : "omit",
       }),
       context,
       { compactRows },

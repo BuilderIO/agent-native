@@ -14,6 +14,7 @@ import {
 } from "../server/lib/private-icon-references.js";
 import {
   DOCUMENT_PROPERTY_VISIBILITIES,
+  defaultPropertyOptions,
   parsePropertyOptions,
   serializePropertyOptions,
   normalizePropertyVisibility,
@@ -21,12 +22,18 @@ import {
   type DocumentPropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { type MutationContext } from "./_database-row-mutation.js";
 import {
   runDatabaseSetupMutation,
   setupError,
   setupGuardSchema,
 } from "./_database-setup-mutation.js";
+import {
+  type CallProvenance,
+  isAgentCall,
+  lockPagesAndAssertAgentsMayEditText,
+} from "./_document-agent-lock.js";
 import { nanoid } from "./_property-utils.js";
 import { assertRelationTargetDatabase } from "./_relation-values.js";
 
@@ -50,6 +57,7 @@ export const ordinaryPropertyTypes = [
 export const setupPropertyTypes = [
   ...ordinaryPropertyTypes,
   "relation",
+  "blocks",
 ] as const;
 
 const optionPropertyTypes = ["select", "multi_select", "status"] as const;
@@ -120,6 +128,8 @@ const createDefinitionSchema = z.discriminatedUnion("type", [
         ),
     })
     .strict(),
+  // Adds a tab with its own text to every row's page.
+  propertyDefinitionBase.extend({ type: z.literal("blocks") }).strict(),
 ]);
 
 const optionEditSchema = z.discriminatedUnion("operation", [
@@ -447,8 +457,34 @@ async function configureNaturalKey(
     .where(eq(schema.contentDatabases.id, context.database.id));
 }
 
+/** Every row shows a Blocks field as a tab, so an agent's change to one waits for, and is held to, each row's lock. */
+export async function lockRowsAndAssertAgentsMayEditTabs(
+  tx: Db,
+  databaseId: string,
+  provenance: CallProvenance | undefined,
+) {
+  if (!isAgentCall(provenance)) return;
+  const memberships = await tx
+    .select({
+      id: schema.contentDatabaseItems.id,
+      documentId: schema.contentDatabaseItems.documentId,
+    })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+  await lockDatabaseMemberships(
+    tx,
+    memberships.map((membership) => membership.id),
+  );
+  await lockPagesAndAssertAgentsMayEditText(
+    tx,
+    memberships.map((membership) => membership.documentId),
+    provenance,
+  );
+}
+
 export async function runConfigureDocumentProperty(
   input: ConfigureDocumentPropertyAgentInput,
+  provenance?: CallProvenance,
 ) {
   return runDatabaseSetupMutation({
     operation: `configure-document-property.${input.operation}`,
@@ -480,21 +516,29 @@ export async function runConfigureDocumentProperty(
           userEmail,
           orgId: context.database.orgId,
         });
+        if (definition.type === "blocks")
+          await lockRowsAndAssertAgentsMayEditTabs(
+            tx,
+            context.database.id,
+            provenance,
+          );
         const options: DocumentPropertyOptions =
-          definition.type === "relation"
-            ? {
-                relation: {
-                  databaseId: (
-                    await assertRelationTargetDatabase(tx, {
-                      sourceDatabase: context.database,
-                      targetDatabaseId: definition.relatedDatabaseId,
-                    })
-                  ).id,
-                },
-              }
-            : "options" in definition
-              ? { options: definition.options ?? [] }
-              : {};
+          definition.type === "blocks"
+            ? defaultPropertyOptions("blocks")
+            : definition.type === "relation"
+              ? {
+                  relation: {
+                    databaseId: (
+                      await assertRelationTargetDatabase(tx, {
+                        sourceDatabase: context.database,
+                        targetDatabaseId: definition.relatedDatabaseId,
+                      })
+                    ).id,
+                  },
+                }
+              : "options" in definition
+                ? { options: definition.options ?? [] }
+                : {};
         if ("options" in definition) validateOptions(definition.options ?? []);
         const [maxPosition] = await tx
           .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
@@ -591,6 +635,20 @@ export async function runConfigureDocumentProperty(
           400,
         );
       }
+      // Renaming or hiding a Blocks field renames or hides every row's tab.
+      if (
+        existing.type === "blocks" &&
+        ((input.patch.name !== undefined &&
+          input.patch.name !== existing.name) ||
+          (input.patch.visibility !== undefined &&
+            input.patch.visibility !==
+              normalizePropertyVisibility(existing.visibility)))
+      )
+        await lockRowsAndAssertAgentsMayEditTabs(
+          tx,
+          context.database.id,
+          provenance,
+        );
       const nextOptions = applyOptionEdits(existing, input.patch.optionEdits);
       if (input.patch.icon !== undefined) {
         const userEmail = getRequestUserEmail();

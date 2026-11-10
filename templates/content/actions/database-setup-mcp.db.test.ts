@@ -965,4 +965,89 @@ describe("ordinary database setup through external MCP", () => {
       databaseId: target.databaseId,
     });
   }, 90_000);
+
+  it("lets an agent add a tab and read rows' page text back", async () => {
+    type CollectionRead = {
+      setupContract: { supportedPropertyTypes: string[] };
+      mutationContract: { schemaRevision: string };
+      items: Array<{
+        properties: Array<{ definition: { name: string }; value: unknown }>;
+      }>;
+    };
+    type SetupReceipt = { revisions: { schemaAfter: string } };
+    const spaces = await callJson<{
+      spaces: Array<{ id: string; canCreateDatabase: boolean }>;
+    }>(ownerClient, "list-content-spaces", {});
+    const space = spaces.spaces.find(
+      (candidate) => candidate.canCreateDatabase,
+    );
+    if (!space) throw new Error("The owner has no space to add a collection");
+    const created = await callJson<{
+      database: { id: string; documentId: string };
+    }>(ownerClient, "create-content-database", {
+      spaceId: space.id,
+      title: "MCP-DB-QA-protocol Factory tasks",
+      idempotencyKey: "mcp-create-factory-tasks",
+    });
+    const target = {
+      spaceId: space.id,
+      databaseId: created.database.id,
+      databaseDocumentId: created.database.documentId,
+    };
+    const read = (args: Record<string, unknown> = {}) =>
+      callJson<CollectionRead>(ownerClient, "get-content-database", {
+        databaseId: target.databaseId,
+        limit: 100,
+        offset: 0,
+        ...args,
+      });
+
+    const empty = await read();
+    expect(empty.setupContract.supportedPropertyTypes).toContain("blocks");
+    const plan = await callJson<{ value: unknown; receipt: SetupReceipt }>(
+      ownerClient,
+      "configure-document-property",
+      {
+        target,
+        expectedSchemaRevision: empty.mutationContract.schemaRevision,
+        idempotencyKey: "create-plan-tab",
+        operation: "create",
+        definition: { name: "Plan", type: "blocks" },
+      },
+    );
+    expect(plan.value).toMatchObject({
+      name: "Plan",
+      type: "blocks",
+      options: { blocks: { primary: false } },
+    });
+
+    const added = await callJson<{
+      receipt: { row: { documentId: string } };
+    }>(ownerClient, "add-database-item", {
+      target,
+      expectedSchemaRevision: plan.receipt.revisions.schemaAfter,
+      idempotencyKey: "create-factory-row",
+      title: "Factory task 1",
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Fix the two gaps the pilot found." })
+      .where(eq(schema.documents.id, added.receipt.row.documentId));
+
+    const fields = (response: CollectionRead) => {
+      const byName = (name: string) =>
+        response.items
+          .flatMap((item) => item.properties)
+          .find((property) => property.definition.name === name)?.value;
+      return { content: byName("Content"), plan: byName("Plan") };
+    };
+    // Unread isn't empty: the page text is null until an agent asks for it.
+    const unread = await read();
+    expect(unread.items).toHaveLength(1);
+    expect(fields(unread)).toEqual({ content: null, plan: "" });
+    expect(fields(await read({ includePageText: true }))).toEqual({
+      content: "Fix the two gaps the pilot found.",
+      plan: "",
+    });
+  }, 60_000);
 });
