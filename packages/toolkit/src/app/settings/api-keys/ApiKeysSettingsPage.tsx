@@ -23,6 +23,7 @@ import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import {
   IconDots,
+  IconLock,
   IconKey,
   IconPlugConnected,
   IconPlus,
@@ -56,6 +57,7 @@ import {
 } from "./api-keys-state.js";
 import {
   DeleteKeyDialog,
+  KeyOriginsDialog,
   KeyValueDialog,
   type KeyValueDialogMode,
 } from "./ApiKeyDialogs.js";
@@ -98,6 +100,9 @@ export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
     null,
   );
   const [deleting, setDeleting] = useState<ApiKeyEntry | null>(null);
+  const [editingOrigins, setEditingOrigins] = useState<ApiKeyEntry | null>(
+    null,
+  );
   const [provider, setProvider] = useState<ProviderDialogState | null>(null);
   const hashKey = useSecretKeyHash();
   const handledHashKey = useRef<string | null>(null);
@@ -178,6 +183,7 @@ export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
     onReplace: (entry: ApiKeyEntry) =>
       setValueDialog({ mode: "replace", entry }),
     onDelete: setDeleting,
+    onEditOrigins: setEditingOrigins,
   };
 
   return (
@@ -260,6 +266,15 @@ export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
           orgName={orgName}
         />
       ) : null}
+      {editingOrigins ? (
+        <KeyOriginsDialog
+          entry={editingOrigins}
+          open
+          onOpenChange={(open) => {
+            if (!open) setEditingOrigins(null);
+          }}
+        />
+      ) : null}
       <ProviderDialog
         open={provider !== null}
         onOpenChange={(open) => {
@@ -311,20 +326,31 @@ function KeyRow({
   onManageProvider,
   onReplace,
   onDelete,
+  onEditOrigins,
 }: {
   entry: ApiKeyEntry;
   onManageProvider: (entry: ApiKeyEntry) => void;
   onReplace: (entry: ApiKeyEntry) => void;
   onDelete: (entry: ApiKeyEntry) => void;
+  onEditOrigins: (entry: ApiKeyEntry) => void;
 }) {
   const t = useT();
   const usedBy = <UsedBy entry={entry} />;
   const hasUse = !!entry.provider || usedByFeatures(entry).length > 0;
+  const custom = !entry.registered && !entry.provider;
   const description: ReactNode = (
     <>
       {entry.masked ? <span className="font-mono">{entry.masked}</span> : null}
       {entry.masked && hasUse ? " · " : null}
       {hasUse ? usedBy : null}
+      {custom && entry.canEditOrigins && (entry.masked || hasUse)
+        ? " · "
+        : null}
+      {custom && entry.canEditOrigins
+        ? entry.urlAllowlist?.length
+          ? t(`${K}originsCount`, { count: entry.urlAllowlist.length })
+          : t(`${K}noApprovedOrigins`)
+        : null}
     </>
   );
 
@@ -353,6 +379,7 @@ function KeyRow({
         entry={entry}
         onReplace={() => onReplace(entry)}
         onDelete={() => onDelete(entry)}
+        onEditOrigins={() => onEditOrigins(entry)}
       />
     );
   }
@@ -365,7 +392,11 @@ function KeyRow({
           <span className="font-mono text-[13px]">{entry.name}</span>
         )
       }
-      description={entry.masked || hasUse ? description : undefined}
+      description={
+        entry.masked || hasUse || (custom && entry.canEditOrigins)
+          ? description
+          : undefined
+      }
       control={control}
     />
   );
@@ -375,10 +406,12 @@ function KeyMenu({
   entry,
   onReplace,
   onDelete,
+  onEditOrigins,
 }: {
   entry: ApiKeyEntry;
   onReplace: () => void;
   onDelete: () => void;
+  onEditOrigins: () => void;
 }) {
   const t = useT();
   const test = async () => {
@@ -400,6 +433,12 @@ function KeyMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">
+        {entry.canEditOrigins ? (
+          <DropdownMenuItem onSelect={onEditOrigins}>
+            <IconLock className="size-4" aria-hidden />
+            {t(`${K}editOrigins`)}
+          </DropdownMenuItem>
+        ) : null}
         {entry.canTest ? (
           <DropdownMenuItem onSelect={() => void test()}>
             <IconPlugConnected className="size-4" aria-hidden />

@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => {
     response: undefined as unknown as DocumentPropertiesResponse,
     dataUpdatedAt: 1,
     isError: false,
+    fetchStatus: "idle",
+    refetch: vi.fn(),
     configure: mutation(),
     setValue: mutation(),
   };
@@ -43,7 +45,10 @@ vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
     data: mocks.response,
     isLoading: false,
     isError: mocks.isError,
+    isPlaceholderData: false,
+    fetchStatus: mocks.fetchStatus,
     dataUpdatedAt: mocks.dataUpdatedAt,
+    refetch: mocks.refetch,
   }),
 }));
 
@@ -103,6 +108,7 @@ function propertiesElement(
     rowViewPending?: boolean;
     canEdit?: boolean;
     schemaRowsExpected?: boolean;
+    leaveReadFailureToPage?: boolean;
     comments?: Partial<PropertyCommentsValue>;
   } = {},
 ) {
@@ -115,6 +121,7 @@ function propertiesElement(
       rowViewPending={options.rowViewPending ?? false}
       canEdit={options.canEdit ?? true}
       schemaRowsExpected={options.schemaRowsExpected}
+      leaveReadFailureToPage={options.leaveReadFailureToPage}
     />
   );
   return options.comments ? (
@@ -147,6 +154,8 @@ function renderProperties(
 beforeEach(() => {
   mocks.dataUpdatedAt = 1;
   mocks.isError = false;
+  mocks.fetchStatus = "idle";
+  mocks.refetch.mockReset();
   mocks.response = {
     documentId: "row",
     databaseId: "database",
@@ -154,6 +163,62 @@ beforeEach(() => {
     canManageSchema: true,
     properties: ["a", "b", "c"].map((id) => property(id)),
   };
+});
+
+describe("a row's failed Properties read", () => {
+  const shows = (text: string) => document.body.textContent.includes(text);
+
+  function failRead(response?: DocumentPropertiesResponse) {
+    mocks.response = response as DocumentPropertiesResponse;
+    mocks.dataUpdatedAt = 0;
+    mocks.isError = true;
+  }
+
+  it("offers a retry instead of loading forever when there's nothing to show", async () => {
+    failRead();
+    renderProperties(null);
+
+    expect(shows("editor.properties.loadingProperties")).toBe(false);
+    expect(shows("empty.genericError")).toBe(true);
+    const retry = [...document.querySelectorAll("button")].find(
+      (button) => button.textContent === "database.retry",
+    );
+    await click(retry as HTMLButtonElement);
+    expect(mocks.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("keeps loading while a retry is running", () => {
+    failRead();
+    mocks.fetchStatus = "fetching";
+    renderProperties(null);
+
+    expect(shows("editor.properties.loadingProperties")).toBe(true);
+    expect(shows("empty.genericError")).toBe(false);
+  });
+
+  it("says so over a row's early copy when nothing else on screen does", () => {
+    failRead(mocks.response);
+    renderProperties(null);
+
+    expect(rowIds()).toEqual([]);
+    expect(shows("empty.genericError")).toBe(true);
+  });
+
+  it("keeps a row's early copy and stays quiet when the body reports it", () => {
+    failRead(mocks.response);
+    renderProperties(null, { leaveReadFailureToPage: true });
+
+    expect(rowIds()).toEqual(["a", "b", "c"]);
+    expect(shows("empty.genericError")).toBe(false);
+  });
+
+  it("shows nothing at all above a body that reports it", () => {
+    failRead();
+    renderProperties(null, { leaveReadFailureToPage: true });
+
+    expect(shows("empty.genericError")).toBe(false);
+    expect(shows("editor.properties.loadingProperties")).toBe(false);
+  });
 });
 
 describe("a row's Properties in its view", () => {

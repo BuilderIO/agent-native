@@ -554,6 +554,7 @@ async function runBackgroundProgram(
     const execution = await getSandboxExecutionForOwner(
       active.executionId,
       args.ctx.userEmail,
+      args.ctx.orgId ?? null,
     );
     if (
       execution &&

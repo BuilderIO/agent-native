@@ -98,6 +98,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -109,6 +110,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Collapsible,
   CollapsibleContent,
@@ -148,6 +150,7 @@ import {
   useContentDatabases,
 } from "@/hooks/use-content-database";
 import {
+  documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
   useContentDatabaseRowSearch,
@@ -213,6 +216,8 @@ interface DocumentPropertiesProps {
    * don't arrive later and push the page down.
    */
   schemaRowsExpected?: boolean;
+  /** The page reports a failed read itself, so saying so here would repeat it. */
+  leaveReadFailureToPage?: boolean;
   popoversPortalled?: boolean;
   popoverContainer?: HTMLElement | null;
 }
@@ -970,6 +975,12 @@ export function formatPropertyDateTimeInputValue(
   return dateKey ? `${dateKey}T09:00` : "";
 }
 
+function dateInputDay(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return undefined;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
 export function dateInputValueForOffset(baseDate: Date, offsetDays: number) {
   const date = new Date(baseDate);
   date.setDate(date.getDate() + offsetDays);
@@ -1008,18 +1019,22 @@ export function DocumentProperties({
   rowViewPending = false,
   canEdit,
   schemaRowsExpected = false,
+  leaveReadFailureToPage = false,
   popoversPortalled = true,
   popoverContainer,
 }: DocumentPropertiesProps) {
   const t = useT();
-  const { data, isLoading, isError, dataUpdatedAt } = useDocumentProperties(
-    documentId,
-    databaseId,
-  );
+  const propertiesQuery = useDocumentProperties(documentId, databaseId);
+  const { data, isLoading, isError, dataUpdatedAt } = propertiesQuery;
   const loaded = documentPropertiesResponseMatchesScope(
     documentId,
     databaseId,
     data,
+  );
+  const readFailed = documentPropertiesReadFailed(
+    documentId,
+    databaseId,
+    propertiesQuery,
   );
   const canEditValues =
     canEdit &&
@@ -1079,7 +1094,14 @@ export function DocumentProperties({
 
   return (
     <div className="mt-5 border-y border-transparent py-1">
-      {isLoading || !loaded || rowViewPending ? (
+      {readFailed && !leaveReadFailureToPage ? (
+        <QueryErrorState
+          compact
+          onRetry={() => void propertiesQuery.refetch()}
+        />
+      ) : readFailed && !loaded ? null : isLoading ||
+        !loaded ||
+        rowViewPending ? (
         <div className="flex h-8 items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-3.5" />
           {t("editor.properties.loadingProperties")}
@@ -1088,7 +1110,10 @@ export function DocumentProperties({
         <div className="grid gap-0.5">{visibleProperties.map(propertyRow)}</div>
       ) : null}
 
-      {loaded && !rowViewPending && collapsedCount > 0 ? (
+      {loaded &&
+      !rowViewPending &&
+      (!readFailed || leaveReadFailureToPage) &&
+      collapsedCount > 0 ? (
         <CollapsedProperties
           key={documentId}
           label={
@@ -2619,7 +2644,7 @@ export function PropertyValuePopover({
         align="start"
         portalled={portalled}
         container={container}
-        className="w-80 p-2"
+        className="max-h-(--radix-popover-content-available-height) w-80 overflow-y-auto p-2"
       >
         <PropertyValueEditor
           property={property}
@@ -3623,6 +3648,10 @@ function DateValueEditor({
       ? formatPropertyDateTimeInputValue(property.value, "end")
       : formatPropertyDateEndInputValue(property.value),
   );
+  const [showEnd, setShowEnd] = useState(endValue !== "");
+  const [month, setMonth] = useState(
+    () => dateInputDay(startValue) ?? new Date(),
+  );
   const dateValueInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -3638,9 +3667,14 @@ function DateValueEditor({
     nextEndValue = endValue,
     nextIncludeTime = includeTime,
   ): DocumentPropertyDateValue | null {
+    // A lone end date is the date, and a reversed range is put in order, so
+    // Save keeps what was picked instead of dropping it.
+    const [start = "", end = null] = [nextStartValue, nextEndValue]
+      .filter(Boolean)
+      .sort();
     return normalizeDatePropertyValue({
-      start: nextStartValue,
-      end: nextEndValue || null,
+      start,
+      end,
       includeTime: nextIncludeTime,
     });
   }
@@ -3662,6 +3696,38 @@ function DateValueEditor({
     });
     onDone();
   }
+
+  // A single date without a time saves on the click, like Today and
+  // Tomorrow; a range or a timed date fills the fields for Save.
+  function pickDay(day: Date | undefined) {
+    if (!day || mutation.isPending) return;
+    const dayKey = dateInputValueForOffset(day, 0);
+    const withTime = (key: string, current: string, fallbackTime: string) =>
+      includeTime ? `${key}T${current.slice(11, 16) || fallbackTime}` : key;
+    if (!showEnd) {
+      if (!includeTime) {
+        void save({ start: dayKey, includeTime: false });
+        return;
+      }
+      setStartValue(withTime(dayKey, startValue, "09:00"));
+      return;
+    }
+    const startKey = startValue.slice(0, 10);
+    if (!startKey || endValue) {
+      setStartValue(withTime(dayKey, startValue, "09:00"));
+      setEndValue("");
+    } else if (dayKey < startKey) {
+      // A second click before the start completes the range in order
+      // rather than dropping the first day.
+      setStartValue(withTime(dayKey, startValue, "09:00"));
+      setEndValue(withTime(startKey, endValue, "17:00"));
+    } else {
+      setEndValue(withTime(dayKey, endValue, "17:00"));
+    }
+  }
+
+  const startDay = dateInputDay(startValue);
+  const endDay = showEnd ? dateInputDay(endValue) : undefined;
 
   return (
     <form
@@ -3719,39 +3785,28 @@ function DateValueEditor({
           {t("editor.properties.tomorrow")}
         </Button>
       </div>
-      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-        {t("editor.properties.start")}
-        <Input
-          ref={dateValueInputRef}
-          aria-label={t("editor.properties.editStartDate", {
-            name: property.definition.name,
-          })}
-          autoFocus
-          name="property-start-value"
-          type={includeTime ? "datetime-local" : "date"}
-          value={startValue}
-          placeholder={t("editor.properties.selectDate")}
-          onChange={(event) => setStartValue(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              onDone();
-            }
-          }}
-        />
-      </label>
-      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-        {t("editor.properties.end")}
-        <div className="flex gap-1">
+      <div
+        className={
+          showEnd && !includeTime ? "grid grid-cols-2 gap-2" : "grid gap-2"
+        }
+      >
+        <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted-foreground">
+          {t("editor.properties.start")}
           <Input
-            aria-label={t("editor.properties.editEndDate", {
+            ref={dateValueInputRef}
+            aria-label={t("editor.properties.editStartDate", {
               name: property.definition.name,
             })}
-            name="property-end-value"
+            autoFocus
+            name="property-start-value"
             type={includeTime ? "datetime-local" : "date"}
-            value={endValue}
-            placeholder={t("editor.properties.optional")}
-            onChange={(event) => setEndValue(event.target.value)}
+            value={startValue}
+            placeholder={t("editor.properties.selectDate")}
+            onChange={(event) => {
+              setStartValue(event.target.value);
+              const day = dateInputDay(event.target.value);
+              if (day) setMonth(day);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
                 event.preventDefault();
@@ -3759,49 +3814,96 @@ function DateValueEditor({
               }
             }}
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="shrink-0"
-            onClick={() => setEndValue("")}
-            disabled={!endValue || mutation.isPending}
-          >
-            {t("editor.properties.clear")}
-          </Button>
-        </div>
-      </label>
-      <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
-        <input
-          name="property-include-time"
-          type="checkbox"
-          checked={includeTime}
-          onChange={(event) => {
-            const nextIncludeTime = event.target.checked;
-            setIncludeTime(nextIncludeTime);
-            if (nextIncludeTime) {
-              setStartValue((current) =>
-                current.includes("T")
-                  ? current
-                  : current
-                    ? `${current}T09:00`
-                    : "",
-              );
-              setEndValue((current) =>
-                current.includes("T")
-                  ? current
-                  : current
-                    ? `${current}T17:00`
-                    : "",
-              );
-            } else {
-              setStartValue((current) => current.slice(0, 10));
-              setEndValue((current) => current.slice(0, 10));
-            }
-          }}
+        </label>
+        {showEnd ? (
+          <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted-foreground">
+            {t("editor.properties.end")}
+            <Input
+              aria-label={t("editor.properties.editEndDate", {
+                name: property.definition.name,
+              })}
+              name="property-end-value"
+              type={includeTime ? "datetime-local" : "date"}
+              value={endValue}
+              placeholder={t("editor.properties.optional")}
+              onChange={(event) => {
+                setEndValue(event.target.value);
+                const day = dateInputDay(event.target.value);
+                if (day) setMonth(day);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  onDone();
+                }
+              }}
+            />
+          </label>
+        ) : null}
+      </div>
+      {showEnd ? (
+        <Calendar
+          mode="range"
+          className="mx-auto"
+          month={month}
+          onMonthChange={setMonth}
+          selected={{ from: startDay, to: endDay }}
+          onSelect={(_range, day) => pickDay(day)}
         />
-        {t("editor.properties.includeTime")}
-      </label>
+      ) : (
+        <Calendar
+          mode="single"
+          className="mx-auto"
+          month={month}
+          onMonthChange={setMonth}
+          selected={startDay}
+          onSelect={(_selected, day) => pickDay(day)}
+        />
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
+          <input
+            type="checkbox"
+            checked={showEnd}
+            onChange={(event) => {
+              setShowEnd(event.target.checked);
+              if (!event.target.checked) setEndValue("");
+            }}
+          />
+          {t("database.endDate")}
+        </label>
+        <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
+          <input
+            name="property-include-time"
+            type="checkbox"
+            checked={includeTime}
+            onChange={(event) => {
+              const nextIncludeTime = event.target.checked;
+              setIncludeTime(nextIncludeTime);
+              if (nextIncludeTime) {
+                setStartValue((current) =>
+                  current.includes("T")
+                    ? current
+                    : current
+                      ? `${current}T09:00`
+                      : "",
+                );
+                setEndValue((current) =>
+                  current.includes("T")
+                    ? current
+                    : current
+                      ? `${current}T17:00`
+                      : "",
+                );
+              } else {
+                setStartValue((current) => current.slice(0, 10));
+                setEndValue((current) => current.slice(0, 10));
+              }
+            }}
+          />
+          {t("editor.properties.includeTime")}
+        </label>
+      </div>
       <div className="flex justify-end gap-2">
         <Button
           type="button"

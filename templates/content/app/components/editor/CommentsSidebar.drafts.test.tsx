@@ -102,6 +102,40 @@ it("remembers status across pages and remounts without sharing accounts or persi
   }
 });
 
+it("leaves the page alone when a click closes a reply that isn't open", async () => {
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  let controller!: ReturnType<typeof useCommentReplyDrafts>;
+  // Stands for the page under the editor, which redraws with its owner.
+  let renders = 0;
+  function Page() {
+    renders += 1;
+    return null;
+  }
+  function Harness() {
+    controller = useCommentReplyDrafts("open-reply");
+    return <Page />;
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    const settled = renders;
+    await act(async () => controller.setOpenReply(null));
+    expect(renders).toBe(settled);
+
+    await act(async () => controller.setOpenReply("thread-1"));
+    expect(controller.openReply?.threadId).toBe("thread-1");
+    const opened = renders;
+    await act(async () => controller.setOpenReply("thread-1"));
+    expect(renders).toBe(opened);
+
+    await act(async () => controller.setOpenReply(null));
+    expect(controller.openReply?.threadId ?? null).toBeNull();
+    expect(renders).toBe(opened + 1);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 function suggestionFixture(
   input: Pick<
     ResourceSuggestion,
