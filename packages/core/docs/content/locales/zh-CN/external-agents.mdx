@@ -137,6 +137,8 @@ https://<your-app>.agent-native.com/mcp
 
 重新安装连接器或更改公开共享链接无法解决已确认的已连接账户权限拒绝问题。
 
+上传到非公开文档的图片以 `/api/private-media/<id>` 链接的形式保存在正文中，只有登录 Content 后才能加载。智能体通过 MCP 读取文档时，`get-document` 和 Markdown 格式的 `pull-document` 还会返回 `privateMediaLinks`：每个已保存的链接，以及一个无需登录即可在一小时内打开该图片的 URL。一次读取最多为 200 张图片提供链接，其余数量记在 `omitted` 中。需要新链接时请重新读取文档。编辑正文时请保留已保存的链接。
+
 <a id="access-tab"></a>
 
 ### 应用内的 MCP 设置 {#mcp-settings}

@@ -340,6 +340,7 @@ export class A2AClient {
   private cardUrl?: string;
   private protocolVersion?: A2AProtocolVersion;
   private streaming?: boolean;
+  private allowedPrivateOrigins: string[];
 
   constructor(
     baseUrl: string,
@@ -352,6 +353,8 @@ export class A2AClient {
       agentCardUrl?: string;
       protocolVersion?: A2AProtocolVersion;
       a2aVersion?: A2AProtocolVersion;
+      /** Operator-configured origins only; never a value from a request. */
+      allowedPrivateOrigins?: string[];
     },
   ) {
     const normalized = baseUrl.replace(/\/$/, "");
@@ -372,6 +375,7 @@ export class A2AClient {
       ...(options?.fallbackApiKeys ?? []),
     ]);
     this.requestTimeoutMs = options?.requestTimeoutMs;
+    this.allowedPrivateOrigins = options?.allowedPrivateOrigins ?? [];
     this.transportHeaders = {
       ...(options?.transportHeaders ?? {}),
       ...(getRequestContext()?.isSyntheticTraffic === true
@@ -401,7 +405,7 @@ export class A2AClient {
           },
           {
             maxRedirects: 3,
-            allowedPrivateOrigins: workspacePrivateOrigins(),
+            allowedPrivateOrigins: this.privateOrigins(),
             ...(headers["x-vercel-protection-bypass"]
               ? { followRedirects: false }
               : {}),
@@ -657,7 +661,7 @@ export class A2AClient {
       },
       {
         maxRedirects: options?.token ? 0 : 3,
-        allowedPrivateOrigins: workspacePrivateOrigins(),
+        allowedPrivateOrigins: this.privateOrigins(),
         ...(options?.token || headers["x-vercel-protection-bypass"]
           ? { followRedirects: false }
           : {}),
@@ -1149,7 +1153,7 @@ export class A2AClient {
         },
         {
           maxRedirects: credentialed ? 0 : 3,
-          allowedPrivateOrigins: workspacePrivateOrigins(),
+          allowedPrivateOrigins: this.privateOrigins(),
           ...(credentialed || headers["x-vercel-protection-bypass"]
             ? { followRedirects: false }
             : {}),
@@ -1158,6 +1162,10 @@ export class A2AClient {
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  private privateOrigins(): string[] {
+    return [...workspacePrivateOrigins(), ...this.allowedPrivateOrigins];
   }
 
   private transportHeadersFor(targetUrl: string): Record<string, string> {

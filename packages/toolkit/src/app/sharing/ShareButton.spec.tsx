@@ -1056,6 +1056,29 @@ describe("ShareButton", () => {
     expect(agentLinkMutate).not.toHaveBeenCalled();
   });
 
+  it("leaves Send to out for an app that offers it in a tab of its own", async () => {
+    sharesData.current = {
+      ...sharesData.current,
+      agentReadable: true,
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            shareUrl="https://slides.agent-native.com/deck/deck-1"
+            hideSendTo
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(buttonWithText(container, "Copy link")).toBeDefined();
+    expect(buttonWithText(container, "Send to")).toBeUndefined();
+  });
+
   it("lists the app's Send to destinations in order and runs the chosen one", async () => {
     const openInAgent = vi.fn();
     const exportPdf = vi.fn();

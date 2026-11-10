@@ -10,6 +10,12 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  isOperationApplied,
+  parseAppliedOperationRevisions,
+  withAppliedOperationRevision,
+  withLegacyOperationReceipt,
+} from "../server/lib/content-operation-receipts.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
   checkpointSkippedResultField,
@@ -63,12 +69,10 @@ function logSaveConflictDebug(
   console.warn(`[update-file:debug] ${event}`, detail);
 }
 
-function contentChangedConflict(): Error & { statusCode?: number } {
-  const conflict = new Error(
+function contentChangedConflict(): SourceWorkspaceEditConflictError {
+  return new SourceWorkspaceEditConflictError(
     "File changed since it was read. Re-read the file and retry.",
-  ) as Error & { statusCode?: number };
-  conflict.statusCode = 409;
-  return conflict;
+  );
 }
 
 function contentFromPatch(
@@ -419,6 +423,7 @@ export default defineAction({
     // read-check-write.
     let skippedStaleMirror = false;
     let skippedStaleOperation = false;
+    const receipt = { alreadyApplied: false };
     let exactOperationAlreadyPersisted = false;
     let outputChanged = false;
     let persistedVersionHash: string | undefined;
@@ -475,6 +480,7 @@ export default defineAction({
         for (let attempt = 0; attempt < 4; attempt += 1) {
           skippedStaleMirror = false;
           skippedStaleOperation = false;
+          receipt.alreadyApplied = false;
           outputChanged = false;
           exactOperationAlreadyPersisted = false;
           persistedUpdatedAt = undefined;
@@ -488,6 +494,8 @@ export default defineAction({
                 schema.designFiles.contentOperationRevision,
               contentOperationResultHash:
                 schema.designFiles.contentOperationResultHash,
+              contentOperationRevisions:
+                schema.designFiles.contentOperationRevisions,
             })
             .from(schema.designFiles)
             .where(eq(schema.designFiles.id, id))
@@ -495,6 +503,9 @@ export default defineAction({
           if (!persistedFile) {
             throw fileNotFound(id);
           }
+          const appliedRevisions = parseAppliedOperationRevisions(
+            persistedFile.contentOperationRevisions,
+          );
 
           outputChanged =
             (filename !== undefined && filename !== persistedFile.filename) ||
@@ -577,6 +588,23 @@ export default defineAction({
               persistedContentHash === sourceContentHash(content) &&
               persistedFile.contentOperationResultHash === persistedContentHash;
           }
+          // The session's later saves, or another writer's, replaced the file
+          // after this save landed, so the last-writer check above cannot see
+          // it. A save the file already took is skipped, never re-applied.
+          if (
+            !skippedStaleOperation &&
+            hasVersionedContentOperation &&
+            appliedRevisions !== null &&
+            requestedOperationRevision !== null &&
+            isOperationApplied(
+              appliedRevisions,
+              operationSource,
+              requestedOperationRevision,
+            )
+          ) {
+            skippedStaleOperation = true;
+            receipt.alreadyApplied = true;
+          }
 
           // A versioned mirror-only save still needs a conflict when a live
           // editor moved past its base. Returning a successful skipped result
@@ -641,6 +669,16 @@ export default defineAction({
               outputChanged ||
               sourceContentHash(content) !== sourceContentHash(liveContent);
             persistedVersionHash = sourceContentHash(content);
+            // This write replaces the scalar receipt of the writer before it, so
+            // that receipt is kept in the map. An unreadable map restarts empty:
+            // the receipts it held are lost, which only means older copies merge
+            // instead of being skipped.
+            const receiptsBefore = appliedRevisions ?? {};
+            const receipts = withLegacyOperationReceipt(
+              receiptsBefore,
+              persistedFile.contentOperationSource,
+              persistedFile.contentOperationRevision,
+            );
             if (
               operationSource !== undefined &&
               operationRevision !== undefined
@@ -648,10 +686,20 @@ export default defineAction({
               updates.contentOperationSource = operationSource;
               updates.contentOperationRevision = operationRevision;
               updates.contentOperationResultHash = persistedVersionHash;
+              updates.contentOperationRevisions = JSON.stringify(
+                withAppliedOperationRevision(
+                  receipts,
+                  operationSource,
+                  operationRevision,
+                ),
+              );
             } else {
               updates.contentOperationSource = null;
               updates.contentOperationRevision = null;
               updates.contentOperationResultHash = null;
+              if (receipts !== receiptsBefore) {
+                updates.contentOperationRevisions = JSON.stringify(receipts);
+              }
             }
           }
           if (filename !== undefined) updates.filename = filename;
@@ -824,11 +872,9 @@ export default defineAction({
           operationRevision: operationRevision ?? null,
           expectedVersionHash,
         });
-        const exhausted = new Error(
+        throw new SourceWorkspaceEditConflictError(
           "File changed repeatedly while it was being saved. Re-read the file and retry.",
-        ) as Error & { statusCode?: number };
-        exhausted.statusCode = 409;
-        throw exhausted;
+        );
       });
 
     try {
@@ -881,6 +927,7 @@ export default defineAction({
         designId: file.designId,
         updated: true,
         ...(skippedStaleOperation ? { skippedStaleOperation: true } : {}),
+        ...(receipt.alreadyApplied ? { operationAlreadyApplied: true } : {}),
         versionHash: persistedVersionHash,
         _receipt: designOutputWriteReceipt(
           file.designId,

@@ -1,3 +1,4 @@
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -31,7 +32,6 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 import { cn } from "@/lib/utils";
 
 import { useWorkbench } from "../store";
@@ -144,7 +144,7 @@ export function FileTree({
         );
         return;
       }
-      reportDesignWriteFailure(error);
+      reportWriteFailure(error);
     },
     [onRequestLocalWriteConsent, providerKey],
   );

@@ -56,12 +56,13 @@ pub async fn native_speech_request_permission() -> Result<bool, String> {
     }
 }
 
+/// Stops recognition. A dictation returns whether its audio held speech.
 #[tauri::command]
 pub async fn native_speech_stop(
     app: AppHandle,
     owner: Option<String>,
     run_id: Option<u64>,
-) -> Result<(), String> {
+) -> Result<Option<crate::whisper_speech::DictationStop>, String> {
     #[cfg(target_os = "macos")]
     {
         macos::native_speech_stop_impl(
@@ -73,7 +74,7 @@ pub async fn native_speech_stop(
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, owner, run_id);
-        Ok(())
+        Ok(None)
     }
 }
 
@@ -136,7 +137,7 @@ pub(crate) mod macos {
         AudioObjectGetPropertyData, AudioObjectID, AudioObjectPropertyAddress,
     };
     use objc2_core_audio_types::kAudioFormatLinearPCM;
-    use objc2_core_media::CMSampleBuffer;
+    use objc2_core_media::{CMAudioFormatDescriptionGetStreamBasicDescription, CMSampleBuffer};
     use objc2_foundation::{
         NSArray, NSBundle, NSDictionary, NSError, NSLocale, NSNumber, NSString,
     };
@@ -147,6 +148,8 @@ pub(crate) mod macos {
     use serde::Serialize;
     use tauri::{AppHandle, Emitter};
 
+    use crate::silero_vad::SpeechCheck;
+    use crate::whisper_speech::DictationStop;
     use screencapturekit::audio_devices::AudioInputDevice;
 
     const SPEECH_USAGE_DESCRIPTION_KEY: &str = "NSSpeechRecognitionUsageDescription";
@@ -1021,6 +1024,7 @@ pub(crate) mod macos {
         run_id: Option<u64>,
         buffers: AtomicU64,
         peak_bits: AtomicU32,
+        speech_check: SpeechCheck,
     }
 
     define_class!(
@@ -1044,7 +1048,12 @@ pub(crate) mod macos {
                 let ivars = self.ivars();
                 unsafe { ivars.request.appendAudioSampleBuffer(sample_buffer) };
                 let n = ivars.buffers.fetch_add(1, Ordering::Relaxed);
-                let level = peak_level_for_sample_buffer(sample_buffer);
+                let samples = sample_buffer_samples(sample_buffer);
+                if let Some(rate) = sample_buffer_rate(sample_buffer) {
+                    ivars.speech_check.set_sample_rate(rate);
+                }
+                ivars.speech_check.push(samples);
+                let level = peak_level(samples);
                 ivars
                     .peak_bits
                     .fetch_max(level.to_bits(), Ordering::Relaxed);
@@ -1068,41 +1077,59 @@ pub(crate) mod macos {
             app: AppHandle,
             run_id: Option<u64>,
         ) -> Retained<Self> {
+            let speech_check = SpeechCheck::for_dictation(&app, "apple-speech");
             let this = Self::alloc().set_ivars(DictationSampleIvars {
                 request,
                 app,
                 run_id,
                 buffers: AtomicU64::new(0),
                 peak_bits: AtomicU32::new(0),
+                speech_check,
             });
             unsafe { msg_send![super(this), init] }
         }
     }
 
     /// Mono float32 is requested in `capture_audio_settings`, so the block
-    /// buffer is a flat `f32` array. Non-negative floats order the same as
-    /// their bit patterns, which is what lets `peak_bits` use `fetch_max`.
-    fn peak_level_for_sample_buffer(sample_buffer: &CMSampleBuffer) -> f32 {
+    /// buffer is a flat `f32` array.
+    fn sample_buffer_samples(sample_buffer: &CMSampleBuffer) -> &[f32] {
         unsafe {
             let Some(block) = sample_buffer.data_buffer() else {
-                return 0.0;
+                return &[];
             };
             let mut length_at_offset = 0usize;
             let mut data: *mut std::ffi::c_char = std::ptr::null_mut();
             let status =
                 block.data_pointer(0, &mut length_at_offset, std::ptr::null_mut(), &mut data);
             if status != 0 || data.is_null() {
-                return 0.0;
+                return &[];
             }
-            let samples =
-                std::slice::from_raw_parts(data as *const f32, length_at_offset / size_of::<f32>());
-            let step = (samples.len() / 64).max(1);
-            samples
-                .iter()
-                .step_by(step)
-                .fold(0.0_f32, |peak, v| peak.max(v.abs()))
-                .min(1.0)
+            std::slice::from_raw_parts(data as *const f32, length_at_offset / size_of::<f32>())
         }
+    }
+
+    /// The capture runs at the device's own rate, which the settings leave
+    /// unset, so each buffer says what it is.
+    fn sample_buffer_rate(sample_buffer: &CMSampleBuffer) -> Option<f64> {
+        unsafe {
+            let format = sample_buffer.format_description()?;
+            let description = CMAudioFormatDescriptionGetStreamBasicDescription(&format);
+            description
+                .as_ref()
+                .map(|description| description.mSampleRate)
+                .filter(|rate| *rate > 0.0)
+        }
+    }
+
+    /// Non-negative floats order the same as their bit patterns, which is
+    /// what lets `peak_bits` use `fetch_max`.
+    fn peak_level(samples: &[f32]) -> f32 {
+        let step = (samples.len() / 64).max(1);
+        samples
+            .iter()
+            .step_by(step)
+            .fold(0.0_f32, |peak, v| peak.max(v.abs()))
+            .min(1.0)
     }
 
     fn capture_audio_settings() -> Option<Retained<NSDictionary<NSString, AnyObject>>> {
@@ -1135,7 +1162,7 @@ pub(crate) mod macos {
         session: Retained<AVCaptureSession>,
         output: Retained<AVCaptureAudioDataOutput>,
         delegate: Retained<DictationSampleDelegate>,
-        _queue: DispatchRetained<DispatchQueue>,
+        queue: DispatchRetained<DispatchQueue>,
         device_name: String,
         stopped: AtomicBool,
     }
@@ -1169,10 +1196,14 @@ pub(crate) mod macos {
                 session,
                 output,
                 delegate,
-                _queue: queue,
+                queue,
                 device_name,
                 stopped: AtomicBool::new(false),
             })
+        }
+
+        fn speech_check(&self) -> &SpeechCheck {
+            &self.delegate.ivars().speech_check
         }
 
         fn stop(&self) {
@@ -1183,6 +1214,9 @@ pub(crate) mod macos {
                 self.session.stopRunning();
                 self.output.setSampleBufferDelegate_queue(None, None);
             }
+            // Buffers already queued still reach the delegate; wait for them so
+            // the speech check has heard every one before it is asked.
+            self.queue.exec_sync(|| {});
             let ivars = self.delegate.ivars();
             eprintln!(
                 "[voice-dictation] native capture from {} delivered {} buffers (peak {:.4})",
@@ -1887,7 +1921,7 @@ pub(crate) mod macos {
         _app: AppHandle,
         owner: Option<SessionOwner>,
         run_id: Option<u64>,
-    ) -> Result<(), String> {
+    ) -> Result<Option<DictationStop>, String> {
         let mut authority = if owner == Some(SessionOwner::Dictation) && run_id.is_some() {
             Some(
                 dictation_run_authority()
@@ -1905,13 +1939,13 @@ pub(crate) mod macos {
         if let Some(authority) = authority.as_mut() {
             let id = run_id.expect("the authority lock requires a run id");
             if !register_dictation_stop(authority, id) {
-                return Ok(());
+                return Ok(None);
             }
         }
         if let Some(authority) = meeting_authority.as_mut() {
             let id = run_id.expect("the meeting authority lock requires a run id");
             if !cancel_meeting_run(authority, id) {
-                return Ok(());
+                return Ok(None);
             }
         }
         let session = {
@@ -1929,11 +1963,15 @@ pub(crate) mod macos {
             take_session_for(&mut slot, owner, run_id)
         };
         let Some(session) = session else {
-            return Ok(());
+            return Ok(None);
         };
 
         session.stopped.store(true, Ordering::SeqCst);
         stop_engine_and_remove_tap(&session);
+        let voice = match &session.audio {
+            SpeechAudio::Capture(capture) => Some(capture.speech_check().finish().voice),
+            SpeechAudio::Engine { .. } => None,
+        };
         // SAFETY: `endAudio()` signals that no more buffers are coming. The
         // result handler will still fire once more, so retain the session
         // until that callback finishes even if a newer start owns the slot.
@@ -1951,7 +1989,7 @@ pub(crate) mod macos {
                 |session| session.callback_finished.load(Ordering::SeqCst),
             );
         }
-        Ok(())
+        Ok(voice.map(|voice| DictationStop { voice }))
     }
 
     pub fn native_speech_cancel_impl(

@@ -334,8 +334,15 @@ type LoggedSyncInvalidation = {
   filters: SyncInvalidationFilters;
 };
 
-/** What a logged sync invalidation asked: a key prefix, or every query. */
-export type SyncInvalidationFilters = { queryKey?: readonly unknown[] };
+/**
+ * What a logged sync invalidation asked: a key prefix, a predicate the query
+ * itself must pass, both, or neither for every query. A reader with no query
+ * to ask the predicate of takes it as reaching every query.
+ */
+export type SyncInvalidationFilters = {
+  queryKey?: readonly unknown[];
+  predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+};
 
 const SYNC_INVALIDATION_LOG_LIMIT = 200;
 type SyncInvalidationLog = {
@@ -388,14 +395,14 @@ function logSyncInvalidations(
   const after = local ? "local" : (cursorForEvents(events) ?? "local");
   const log = syncInvalidationLog(queryClient);
   for (const requested of filters) {
-    // A predicate decides by the query itself, so it is kept as reaching
-    // every query.
+    // A predicate decides by the query itself, so it is kept for the reader
+    // to ask of the query it holds.
     log.entries.push({
       after,
-      filters:
-        requested.queryKey && !requested.predicate
-          ? { queryKey: requested.queryKey }
-          : {},
+      filters: {
+        ...(requested.queryKey ? { queryKey: requested.queryKey } : {}),
+        ...(requested.predicate ? { predicate: requested.predicate } : {}),
+      },
     });
   }
   while (log.entries.length > SYNC_INVALIDATION_LOG_LIMIT) {

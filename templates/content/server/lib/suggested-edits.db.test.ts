@@ -34,6 +34,7 @@ let getDb: DbModule["getDb"];
 let schema: DbModule["schema"];
 let getDbExec: typeof import("@agent-native/core/db").getDbExec;
 let adapter: Adapter;
+let lockSuggestionPage: typeof import("./suggested-edits.js").lockSuggestionPage;
 let getDocumentAction: typeof import("../../actions/get-document.js").default;
 let updateDocumentAction: typeof import("../../actions/update-document.js").default;
 let commentThreadDigest: typeof import("./comment-ai.js").commentThreadDigest;
@@ -47,8 +48,8 @@ beforeAll(async () => {
   getDb = dbModule.getDb;
   schema = dbModule.schema;
   getDbExec = (await import("@agent-native/core/db")).getDbExec;
-  adapter = (await import("./suggested-edits.js"))
-    .contentDocumentSuggestionAdapter;
+  ({ contentDocumentSuggestionAdapter: adapter, lockSuggestionPage } =
+    await import("./suggested-edits.js"));
   getDocumentAction = (await import("../../actions/get-document.js")).default;
   updateDocumentAction = (await import("../../actions/update-document.js"))
     .default;
@@ -256,6 +257,7 @@ function coordination() {
       isPersisted: () => true,
       publish: vi.fn(),
     },
+    heldMembershipIds: undefined as ReadonlySet<string> | undefined,
   };
 }
 
@@ -267,6 +269,8 @@ async function accept(
   prepared = coordination(),
   ctx: Record<string, unknown> = {},
 ) {
+  // The decision locks the Page this way before it applies the suggestion.
+  prepared.heldMembershipIds ??= await lockSuggestionPage(tx, documentId);
   const result = await runWithRequestContext({ userEmail: ownerEmail }, () =>
     adapter.apply({
       resourceType: "document",
@@ -1317,6 +1321,8 @@ describe("Content suggested edits Blocks transaction", () => {
       );
     await expect(
       getDbExec().transaction!(async (tx) => {
+        const prepared = coordination();
+        prepared.heldMembershipIds = await lockSuggestionPage(tx, documentId);
         const execute = tx.execute.bind(tx);
         const wrapped = {
           ...tx,
@@ -1333,7 +1339,7 @@ describe("Content suggested edits Blocks transaction", () => {
             return execute(query);
           },
         } as DbExec;
-        return accept(documentId, wrapped);
+        return accept(documentId, wrapped, "rev-1", operation, prepared);
       }),
     ).rejects.toThrow(/no primary Blocks field/);
     const [document] = await getDb()
@@ -1343,26 +1349,51 @@ describe("Content suggested edits Blocks transaction", () => {
     expect(document?.content).toBe("Before");
   });
 
-  it("returns a retryable conflict when membership writes hold the table lock", async () => {
-    const { documentId } = await seedSystemDatabasePage();
+  it("returns a retryable conflict when the Page joins a collection after its memberships were locked", async () => {
+    const { documentId } = await seedSystemDatabasePage(1);
+    const joining = (
+      await getDb()
+        .delete(schema.contentDatabaseItems)
+        .where(
+          eq(
+            schema.contentDatabaseItems.id,
+            `suggestion-ordinary-item-${sequence}-0`,
+          ),
+        )
+        .returning()
+    ).pop();
+    if (!joining) throw new Error("The Page has no ordinary membership.");
     await expect(
       getDbExec().transaction!(async (tx) => {
+        const prepared = coordination();
+        prepared.heldMembershipIds = await lockSuggestionPage(tx, documentId);
         const execute = tx.execute.bind(tx);
+        let joined = false;
         const wrapped = {
           ...tx,
           execute: async (query: Parameters<DbExec["execute"]>[0]) => {
             if (
-              query ===
-              "LOCK TABLE content_database_items IN SHARE ROW EXCLUSIVE MODE NOWAIT"
+              !joined &&
+              typeof query !== "string" &&
+              query.sql === "SELECT id FROM documents WHERE id = ? FOR UPDATE"
             ) {
-              throw Object.assign(new Error("lock unavailable"), {
-                code: "55P03",
+              joined = true;
+              await execute({
+                sql: "INSERT INTO content_database_items (id, owner_email, database_id, document_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                args: [
+                  joining.id,
+                  joining.ownerEmail,
+                  joining.databaseId,
+                  joining.documentId,
+                  joining.createdAt,
+                  joining.updatedAt,
+                ],
               });
             }
             return execute(query);
           },
         } as DbExec;
-        return accept(documentId, wrapped);
+        return accept(documentId, wrapped, "rev-1", operation, prepared);
       }),
     ).rejects.toMatchObject({ errorCode: "suggestion_conflict" });
     const [document] = await getDb()

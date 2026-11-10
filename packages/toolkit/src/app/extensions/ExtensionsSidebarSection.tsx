@@ -6,6 +6,10 @@ import {
   type LocaleCode,
 } from "@agent-native/core/client/i18n";
 import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
+import {
   extensionPath,
   isExtensionPathname,
 } from "@agent-native/core/extensions/path";
@@ -744,12 +748,17 @@ export function ExtensionsSidebarSection() {
     async (extension: Extension) => {
       setMenuOpenId(null);
       try {
-        await fetch(
+        const res = await fetch(
           agentNativePath(
             `/_agent-native/extensions/${extension.id}/global-hide`,
           ),
           { method: "POST" },
         );
+        if (!res.ok) {
+          reportWriteFailure(writeFailureFromResponse(res));
+        }
+      } catch (error) {
+        reportWriteFailure(error);
       } finally {
         void queryClient.invalidateQueries({ queryKey: ["extensions"] });
       }
@@ -761,12 +770,17 @@ export function ExtensionsSidebarSection() {
     async (extension: Extension) => {
       setMenuOpenId(null);
       try {
-        await fetch(
+        const res = await fetch(
           agentNativePath(
             `/_agent-native/extensions/${extension.id}/global-unhide`,
           ),
           { method: "POST" },
         );
+        if (!res.ok) {
+          reportWriteFailure(writeFailureFromResponse(res));
+        }
+      } catch (error) {
+        reportWriteFailure(error);
       } finally {
         void queryClient.invalidateQueries({ queryKey: ["extensions"] });
       }
@@ -797,7 +811,7 @@ export function ExtensionsSidebarSection() {
         old ? { ...old, name: trimmed } : old,
       );
       try {
-        await fetch(
+        const res = await fetch(
           agentNativePath(`/_agent-native/extensions/${extensionId}`),
           {
             method: "PUT",
@@ -805,11 +819,15 @@ export function ExtensionsSidebarSection() {
             body: JSON.stringify({ name: trimmed }),
           },
         );
+        if (!res.ok) {
+          reportWriteFailure(writeFailureFromResponse(res));
+        }
         void queryClient.invalidateQueries({ queryKey: ["extensions"] });
         void queryClient.invalidateQueries({
           queryKey: ["extension", extensionId],
         });
-      } catch {
+      } catch (error) {
+        reportWriteFailure(error);
         if (prev) queryClient.setQueryData(["extensions"], prev);
         void queryClient.invalidateQueries({
           queryKey: ["extension", extensionId],
