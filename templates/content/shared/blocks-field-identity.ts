@@ -345,6 +345,8 @@ function characterBigrams(value: string): Set<string> {
   return result;
 }
 
+const MIN_EDIT_SIMILARITY = 0.45;
+
 function editSimilarity(left: string, right: string): number {
   const leftBigrams = characterBigrams(left);
   const rightBigrams = characterBigrams(right);
@@ -365,6 +367,12 @@ function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
 function startsWithBlock(whole: string, part: string): boolean {
   const prefix = part.trim();
   return prefix.length > 0 && whole.trimStart().startsWith(prefix);
+}
+
+// A split or merge keeps most of its text: the one block on one side reads
+// like the blocks on the other side joined together.
+function keepsText(whole: string, parts: readonly string[]): boolean {
+  return editSimilarity(whole, parts.join("\n")) >= MIN_EDIT_SIMILARITY;
 }
 
 interface PreviousSibling {
@@ -554,6 +562,10 @@ export function reconcileBlocksFieldIdentity(args: {
             next.splice(next.indexOf(match), 1);
             paired = true;
           }
+          const previousTexts = previous.map(
+            (sibling) => sibling.block.markdown,
+          );
+          const nextTexts = next.map((sibling) => sibling.snapshot.markdown);
           const manyPrevious = previous.length > 1;
           const manyNext = next.length > 1;
           const firstPrevious = previous.shift();
@@ -565,11 +577,13 @@ export function reconcileBlocksFieldIdentity(args: {
             !manyPrevious &&
             manyNext &&
             (previousMarkdown === EMPTY_PARAGRAPH_MARKDOWN ||
-              startsWithBlock(previousMarkdown, nextMarkdown));
+              (startsWithBlock(previousMarkdown, nextMarkdown) &&
+                keepsText(previousMarkdown, nextTexts)));
           const merge =
             manyPrevious &&
             !manyNext &&
-            startsWithBlock(nextMarkdown, previousMarkdown);
+            startsWithBlock(nextMarkdown, previousMarkdown) &&
+            keepsText(nextMarkdown, previousTexts);
           const rewrite = allowRewrite && !manyPrevious && !manyNext;
           if (split || merge || rewrite) {
             pair(firstPrevious, firstNext.index);
@@ -619,7 +633,7 @@ export function reconcileBlocksFieldIdentity(args: {
       const snapshot = snapshots[nextIndex]!;
       if (previous.kind !== snapshot.kind) continue;
       const score = editSimilarity(previous.markdown, snapshot.markdown);
-      if (score < 0.45) continue;
+      if (score < MIN_EDIT_SIMILARITY) continue;
       const previousBest = bestNextForPrevious.get(previousIndex);
       if (!previousBest || score > previousBest.score) {
         bestNextForPrevious.set(previousIndex, { index: nextIndex, score });

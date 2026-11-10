@@ -46,7 +46,7 @@ An editor moves a callout above a heading while a reviewer comments on it and an
 
 - A Block is a stable, typed content unit owned by one Blocks field; it is not a Page.
 - Editing text or typed props and reordering Blocks preserve identity whenever the logical Block survives.
-- Block identity lives in the field's identity sidecar beside the body, never in the saved body text, so Markdown, export, and synced copies carry no Block IDs. Each save matches Blocks again by exact caller IDs, identical content, the first part of a split or merge, similar text, and finally a Block rewritten in place between the same kept neighbors under the same parent. A Block that none of these tells apart gets a new ID; the earlier Block it might have been becomes a tombstone.
+- Block identity lives in the field's identity sidecar beside the body, never in the saved body text, so Markdown, export, and synced copies carry no Block IDs. Each save matches Blocks again by exact caller IDs, identical content, the first part of a split or merge that keeps most of its text, similar text, and finally a Block rewritten in place between the same kept neighbors under the same parent. A Block that none of these tells apart gets a new ID; the earlier Block it might have been becomes a tombstone.
 - References store Block identity, not renderer position. Comments remain Page-owned while targeting one or more Block anchors.
 - Deletion records an attributable historical target; recovery never silently reassigns an old anchor to unrelated new text.
 - One Action surface applies validation, access, Events, and concurrency behavior for people and agents.

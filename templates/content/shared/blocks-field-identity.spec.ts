@@ -480,6 +480,32 @@ describe("Blocks field identity", () => {
       expect(result.deleted).toContain(applesId);
     });
 
+    it("keeps a split paragraph's ID only when the new paragraphs keep its text", () => {
+      const { initial, applesId, pearsId, cherriesId } = orchard();
+      const splitAt = pears.indexOf(" so ");
+
+      const split = save(
+        initial,
+        [
+          apples,
+          pears.slice(0, splitAt),
+          pears.slice(splitAt + 1),
+          cherries,
+        ].join("\n"),
+      );
+      expect(split.live[1]).toBe(pearsId);
+      expect(split.deleted).toEqual([]);
+
+      const replaced = save(
+        initial,
+        [apples, "Pears", plums, cherries].join("\n"),
+      );
+      expect(replaced.live[0]).toBe(applesId);
+      expect(replaced.live[3]).toBe(cherriesId);
+      expect([pearsId, applesId, cherriesId]).not.toContain(replaced.live[1]);
+      expect(replaced.deleted).toEqual([pearsId]);
+    });
+
     it("never moves a deleted top-level paragraph's ID into a list item", () => {
       const initial = materializeLegacyBlocksFieldIdentity({
         documentId: "doc-1",
