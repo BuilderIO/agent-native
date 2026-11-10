@@ -164,4 +164,29 @@ describe("level-recording-audio", () => {
       unprocessedIds: ["rec-b", "rec-c"],
     });
   });
+
+  it("moves the cursor only through the unbroken processed prefix", async () => {
+    mockRows.value = [
+      { id: "rec-a", createdAt: "2026-11-10T10:00:00.000Z" },
+      { id: "rec-b", createdAt: "2026-11-09T10:00:00.000Z" },
+      { id: "rec-c", createdAt: "2026-11-08T10:00:00.000Z" },
+    ];
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    mockEnsure.mockImplementation(async ({ recordingId }) => {
+      now += LEVEL_CALL_BUDGET_MS + 1;
+      return { recordingId, status: "already-normal", changed: false };
+    });
+
+    // rec-c is asked for explicitly, so it runs first; then time is up.
+    const result = await levelRecordingAudio.run({
+      ids: ["rec-c"],
+      all: true,
+      limit: 3,
+    });
+    clock.mockRestore();
+
+    expect(result).not.toHaveProperty("nextBefore");
+    expect(result).toMatchObject({ unprocessedIds: ["rec-a", "rec-b"] });
+  });
 });

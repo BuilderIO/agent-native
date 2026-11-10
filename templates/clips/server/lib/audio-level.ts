@@ -85,6 +85,7 @@ export type AudioLevelStatus =
   | "skipped-fetch-failed"
   | "skipped-measure-failed"
   | "skipped-boost-failed"
+  | "skipped-multiple-audio"
   | "skipped-upload-failed"
   | "not-found";
 
@@ -93,6 +94,7 @@ export const RETRYABLE_AUDIO_LEVEL_STATUSES: ReadonlySet<AudioLevelStatus> =
   new Set<AudioLevelStatus>([
     "skipped-fetch-failed",
     "skipped-measure-failed",
+    "skipped-boost-failed",
     "skipped-upload-failed",
   ]);
 
@@ -254,6 +256,7 @@ async function runFfmpegCapturingStderr(
 export interface ProbedFile {
   durationMs: number | null;
   hasAudio: boolean;
+  audioStreams: number;
 }
 
 /** Read duration and audio presence from `ffmpeg -i` output. */
@@ -269,6 +272,7 @@ export function parseFfmpegInputInfo(stderr: string): ProbedFile {
   return {
     durationMs: Number.isFinite(durationMs) ? durationMs : null,
     hasAudio: /Stream #\d+:\d+[^\n]*: Audio:/.test(stderr),
+    audioStreams: (stderr.match(/Stream #\d+:\d+[^\n]*: Audio:/g) ?? []).length,
   };
 }
 
@@ -331,7 +335,12 @@ export async function boostQuietAudio(input: {
   | {
       changed: false;
       measurement: LoudnessMeasurement | null;
-      reason: "already-normal" | "silent" | "unmeasured" | "boost-failed";
+      reason:
+        | "already-normal"
+        | "silent"
+        | "unmeasured"
+        | "boost-failed"
+        | "multiple-audio";
       detail?: string;
     }
 > {
@@ -342,6 +351,12 @@ export async function boostQuietAudio(input: {
   try {
     // observed-write-ok: temp input file for ffmpeg.
     await writeFile(inputPath, input.mediaBytes);
+    // The re-encode keeps one audio stream. A file with several (separate
+    // mic and system tracks, alternate languages) would lose the others.
+    const source = await probeFile(inputPath);
+    if (source.audioStreams > 1) {
+      return { changed: false, measurement: null, reason: "multiple-audio" };
+    }
     const measurement = await measureLoudness(inputPath);
     const plan = planAudioBoost(measurement);
     if (plan.action === "keep") {
@@ -365,7 +380,7 @@ export async function boostQuietAudio(input: {
         detail: err instanceof Error ? err.message.slice(0, 500) : String(err),
       };
     }
-    const before = await probeFile(inputPath);
+    const before = source;
     const after = await probeFile(outputPath);
     const durationDrift =
       before.durationMs !== null && after.durationMs !== null
@@ -513,6 +528,10 @@ export async function ensureRecordingAudioLevel(params: {
     return { recordingId, status: fetched.reason, changed: false };
   }
 
+  // The stored size can be stale, so the cap is checked on the real bytes too.
+  if (fetched.bytes.byteLength > AUDIO_LEVEL_MAX_BYTES) {
+    return { recordingId, status: "skipped-too-large", changed: false };
+  }
   const format = rec.videoFormat === "mp4" ? "mp4" : "webm";
   const leveled = await withRemuxSlot(() =>
     boostQuietAudio({ mediaBytes: fetched.bytes, format }),
@@ -525,9 +544,17 @@ export async function ensureRecordingAudioLevel(params: {
 
   if (!leveled.changed) {
     const integratedLufs = leveled.measurement?.integratedLufs ?? null;
-    if (leveled.reason === "already-normal" || leveled.reason === "silent") {
+    if (
+      leveled.reason === "already-normal" ||
+      leveled.reason === "silent" ||
+      leveled.reason === "multiple-audio"
+    ) {
       const status: AudioLevelStatus =
-        leveled.reason === "silent" ? "silent" : "already-normal";
+        leveled.reason === "silent"
+          ? "silent"
+          : leveled.reason === "multiple-audio"
+            ? "skipped-multiple-audio"
+            : "already-normal";
       await writeMarker({
         recordingId,
         videoUrl: rec.videoUrl,

@@ -63,6 +63,7 @@ describe("parseFfmpegInputInfo", () => {
     expect(parseFfmpegInputInfo(stderr)).toEqual({
       durationMs: 215_180,
       hasAudio: true,
+      audioStreams: 1,
     });
   });
 
@@ -71,7 +72,17 @@ describe("parseFfmpegInputInfo", () => {
       parseFfmpegInputInfo(
         "Duration: N/A\n  Stream #0:0: Video: h264, yuv420p",
       ),
-    ).toEqual({ durationMs: null, hasAudio: false });
+    ).toEqual({ durationMs: null, hasAudio: false, audioStreams: 0 });
+  });
+});
+
+describe("parseFfmpegInputInfo stream count", () => {
+  it("counts every audio stream", () => {
+    const stderr = `  Duration: 00:00:04.00, start: 0.000000
+  Stream #0:0: Video: h264
+  Stream #0:1: Audio: aac, 48000 Hz, stereo
+  Stream #0:2: Audio: aac, 48000 Hz, mono`;
+    expect(parseFfmpegInputInfo(stderr).audioStreams).toBe(2);
   });
 });
 

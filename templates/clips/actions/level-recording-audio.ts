@@ -29,6 +29,7 @@ const AUDIO_LEVEL_STATUSES = [
   "skipped-fetch-failed",
   "skipped-measure-failed",
   "skipped-boost-failed",
+  "skipped-multiple-audio",
   "skipped-upload-failed",
   "not-found",
 ] as const satisfies readonly AudioLevelResult["status"][];
@@ -304,9 +305,18 @@ export default defineAction({
 
     // Continue the sweep after the last swept clip this call reached: the
     // whole batch when it finished, or fewer when the time budget ran out.
-    const reached = sweepRows.filter((row) => processedIds.has(row.id));
-    const lastReached = itemAt(reached, reached.length - 1);
-    if (lastReached && (sweepFilledBatch || unprocessedIds.length > 0)) {
+    // Only the unbroken run of processed rows from the top counts: an explicit
+    // id that also sits further down the sweep must not move the cursor past
+    // clips that were never reached.
+    let reachedCount = 0;
+    while (
+      reachedCount < sweepRows.length &&
+      processedIds.has(itemAt(sweepRows, reachedCount)?.id ?? "")
+    ) {
+      reachedCount += 1;
+    }
+    const lastReached = itemAt(sweepRows, reachedCount - 1);
+    if (lastReached && (sweepFilledBatch || reachedCount < sweepRows.length)) {
       nextBefore = encodeSweepCursor(lastReached.createdAt, lastReached.id);
     }
 
