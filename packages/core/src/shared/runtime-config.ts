@@ -261,6 +261,9 @@ export function buildRuntimeConfigPrompt(
   report: Pick<RuntimeConfigReport, "environment" | "phase" | "issues">,
   appName?: string,
 ): string {
+  // A healthy report has nothing to fix. A "fix this" prompt here would send
+  // an agent that reads the probe looking for problems that are not there.
+  if (report.issues.length === 0) return "";
   const appLine = appName ? `\nApp: ${appName}` : "";
   const issueLines = report.issues
     .map(
@@ -274,7 +277,7 @@ export function buildRuntimeConfigPrompt(
     `Phase: ${report.phase}${appLine}`,
     "",
     "Detected issues:",
-    issueLines || "- No issues were reported.",
+    issueLines,
     "",
     "Inspect the app's agent-native.json or agent-native.config.ts (including compatibility aliases), its deployment configuration, and the framework defaults. Make the smallest safe fix. Keep secrets out of source control. Do not print secret values in your response. Tell me exactly which deploy settings still need to be set, then verify the production build and runtime health check.",
   ].join("\n");

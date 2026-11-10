@@ -468,6 +468,15 @@ const messages = {
       scheduledCancelFailed: "予約メールのキャンセルに失敗しました",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "画像のアップロードに失敗しました",
+      storageBuilderRefused:
+        "Builder.io が Mail のファイルストレージ接続を拒否したため、ファイルを添付できませんでした。Builder.io に再接続するか独自のストレージを使ってから、もう一度お試しください。",
+      storageRefused:
+        "ストレージバケットがこのアップロードを拒否したため、ファイルを添付できませんでした。バケットとそのキーを確認してから、もう一度お試しください。",
+      storageNotConfigured:
+        "ファイルストレージが設定されていないため、ファイルを添付できませんでした。Builder.io または独自のストレージバケットを接続してから、もう一度お試しください。",
+      openStorageSettings: "ストレージ設定を開く",
+      reconnectBuilderStorage: "Builder.io に再接続",
+      useOwnStorage: "独自のストレージを使う",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "メッセージを送信しました。",
       failedToSaveDraft: "下書きを保存できませんでした。",

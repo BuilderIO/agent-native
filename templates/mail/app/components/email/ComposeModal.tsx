@@ -1,5 +1,6 @@
 import { useAgentChatGenerating } from "@agent-native/core/client/agent-chat";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   appendSignatureToBody,
   splitAppendedSignature,
@@ -61,6 +62,10 @@ import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { openFilePicker, uploadFile, uploadFiles } from "@/lib/upload";
+import {
+  toastStorageSetupFailure,
+  toastUploadFailure,
+} from "@/lib/upload-toast";
 import { cn } from "@/lib/utils";
 
 import { AttachmentStrip } from "./AttachmentStrip";
@@ -519,9 +524,11 @@ export function ComposeModal({
             });
           }
         })
-        .catch(() => {
+        .catch((error) => {
           toast.dismiss(sendingToastId);
-          toast.error(t("mail.toasts.failedToSendEmail"));
+          reportWriteFailure(error, {
+            label: t("mail.toasts.failedToSendEmail"),
+          });
           onRestoreAfterSend(sendingId);
         });
     }, SEND_UNDO_WINDOW_MS);
@@ -602,8 +609,10 @@ export function ComposeModal({
         minute: "2-digit",
       });
       toast(t("mail.sendLater.scheduledFor", { date: scheduledDate }));
-    } catch {
-      toast.error(t("mail.toasts.failedToScheduleEmailDraftKeptOpen"));
+    } catch (error) {
+      reportWriteFailure(error, {
+        label: t("mail.toasts.failedToScheduleEmailDraftKeptOpen"),
+      });
     } finally {
       schedulingRef.current = false;
     }
@@ -775,6 +784,15 @@ export function ComposeModal({
     onUpdate(activeId, partial);
   };
 
+  const storageSetupLabels = {
+    builderRefused: t("mail.toasts.storageBuilderRefused"),
+    storageRefused: t("mail.toasts.storageRefused"),
+    storageNotConfigured: t("mail.toasts.storageNotConfigured"),
+    openStorageSettings: t("mail.toasts.openStorageSettings"),
+    reconnectBuilder: t("mail.toasts.reconnectBuilderStorage"),
+    useOwnStorage: t("mail.toasts.useOwnStorage"),
+  };
+
   const handleAttachFiles = async (files: File[]) => {
     if (!activeId || !activeDraft || files.length === 0) return;
     try {
@@ -782,10 +800,10 @@ export function ComposeModal({
       const existing = activeDraft.attachments ?? [];
       onUpdate(activeId, { attachments: [...existing, ...attachments] });
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t("mail.toasts.failedToAttachFile"),
+      toastUploadFailure(
+        error,
+        t("mail.toasts.failedToAttachFile"),
+        storageSetupLabels,
       );
     }
   };
@@ -795,7 +813,11 @@ export function ComposeModal({
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      toast.error(t("mail.toasts.failedToUploadImage"));
+      if (!toastStorageSetupFailure(err, storageSetupLabels)) {
+        reportWriteFailure(err, {
+          label: t("mail.toasts.failedToUploadImage"),
+        });
+      }
       throw err;
     }
   };

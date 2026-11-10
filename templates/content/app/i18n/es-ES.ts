@@ -704,6 +704,7 @@ const editor = {
     "Solo lectura. Esta página sigue un archivo de GitHub y se actualiza después de cada push.",
   githubSourceOpenFile: "Abrir en GitHub",
   textColor: "Color de texto",
+  resizeColumns: "Cambiar el ancho de las columnas",
   backgroundColor: "Color de fondo",
   defaultColor: "Predeterminado",
   color: {
@@ -829,7 +830,6 @@ const editor = {
     image: "Imagen",
     imageAdded: "Imagen agregada",
     imageBroken: "No se pudo cargar la imagen",
-    imageCommentWithAlt: "Imagen: {{alt}}",
     imageCopied: "Imagen copiada.",
     imageDownloadStarted: "Se inició la descarga de la imagen.",
     imageLinkHint: "Funciona con cualquier imagen de la web.",
@@ -892,6 +892,7 @@ const editor = {
     addPropertyLink: "Agregar enlace {{name}}",
     addPropertyPerson: "Agregar persona {{name}}",
     addPropertyType: "Agregar propiedad {{type}}",
+    alwaysHiddenCount: "{{count}} siempre ocultas",
     connectASource: "Conectar una fuente",
     addQuoted: 'Añadir "{{value}}"',
     backToColumnMenu: "Volver a ordenar y filtrar",
@@ -920,6 +921,8 @@ const editor = {
     duplicateProperty: "Propiedad duplicada",
     editField: "Editar campo",
     editEndDate: "Editar fecha de finalización de {{name}}",
+    moreProperties: "{{count}} propiedades más",
+    morePropertiesOne: "1 propiedad más",
     moveColumnLeft: "Mover columna a la izquierda",
     moveColumnRight: "Mover columna a la derecha",
     editProperty: "Editar {{name}}",
@@ -940,8 +943,6 @@ const editor = {
       video: "Vídeo",
     },
     fromSource: "Desde {{name}}",
-    hiddenInThisView: "Ocultas en esta vista",
-    hiddenProperties: "Propiedades ocultas",
     imageUploaded_zero: "Imágenes cargadas",
     imageUploaded_one: "Imagen cargada",
     imageUploaded_two: "Imágenes cargadas",
@@ -1037,6 +1038,8 @@ const editor = {
     unchecked: "sin marcar",
     upload: "Subir",
     visibility: "Visibilidad",
+    visibilityScope:
+      "En todas las filas, para todos. Una vista aún puede ocultarla.",
   },
   slash: {
     audio: "Audio [es-ES]",
@@ -1047,6 +1050,10 @@ const editor = {
     bulletedListDescription: "lista desordenada",
     callout: "Llamada",
     calloutDescription: "Bloque de información resaltado",
+    columnsDescription: "Colocar bloques uno al lado del otro",
+    twoColumns: "2 columnas",
+    threeColumns: "3 columnas",
+    fourColumns: "4 columnas",
     codeBlock: "Bloque de código",
     codeBlockDescription: "Fragmento de código",
     collapsibleBlockDescription: "bloque plegable",
@@ -1120,6 +1127,29 @@ const editor = {
     hideInSearch: "Ocultar en la búsqueda",
     hideInSearchDescription:
       "Ocultarse de la organización y buscar. Las personas con el enlace aún pueden verlo.",
+    sharePeopleTab: "Personas",
+    shareAgentsTab: "Agentes",
+    agentLevelHeading: "Agentes en esta página",
+    agentLevelMenuLabel: "Qué pueden hacer los agentes en esta página",
+    agentLevelDefault: "(predeterminado)",
+    agentLevelCommentDescription:
+      "Pueden leer, comentar y sugerir cambios. Solo las personas pueden aceptarlos.",
+    agentLevelEditDescription:
+      "Pueden leer, comentar, sugerir, editar el texto, el título y las pestañas, y mover la página a la papelera.",
+    agentLevelCommentConfirm:
+      "Ahora los agentes pueden comentar y sugerir cambios en esta página, pero no editarla.",
+    agentLevelEditConfirm: "Los agentes pueden volver a editar esta página.",
+    agentLevelLimit:
+      "Un agente nunca tiene más permisos que la persona para la que trabaja.",
+    agentLevelManagersOnly:
+      "Solo las personas que administran esta página pueden cambiar esto.",
+    agentLevelUpdateFailed:
+      "No se pudo cambiar lo que pueden hacer los agentes aquí.",
+    agentLevelNote: "Los agentes pueden comentar",
+    agentLevelNoteHint:
+      "Los agentes pueden comentar en esta página. Cámbialo en Compartir.",
+    sendPageToAgent: "Enviar esta página a un agente",
+    connectAgentOverMcp: "Conectar un agente por MCP",
     importingFromNotion: "Importando desde Notion...",
     lastSynced: "Última sincronización",
     linkedToNotion: "Vinculado a la noción",
