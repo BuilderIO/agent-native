@@ -226,10 +226,19 @@ describe("workspace provider OAuth", () => {
             scope: "organization",
             expiresAt: Date.now() + 60_000,
           };
+          const state = encodeOAuthState({
+            redirectUri: flow.redirectUri,
+            owner: email,
+            orgId: flow.orgId,
+            app: flow.appId,
+            scope: flow.scope,
+            provider: flow.provider,
+            flowId: flow.flowId,
+          });
           const url =
             phase === "start"
               ? "https://example.test/_agent-native/connections/oauth/jira/start?appId=brain&scope=organization"
-              : `${flow.redirectUri}?code=fake-code&state=fake-state`;
+              : `${flow.redirectUri}?code=fake-code&state=${encodeURIComponent(state)}`;
           const cookie = `an_workspace_oauth_jira=${encodeURIComponent(encryptSecretValue(JSON.stringify(flow)))}`;
           const event = mockEvent(new Request(url, { headers: { cookie } }));
           const result =
