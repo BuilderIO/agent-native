@@ -10,6 +10,7 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   EmbeddedApp,
   type EmbeddedAppRef,
@@ -623,8 +624,8 @@ export function AssetLibraryPanel({
             notifyAssetInserted(result, title ?? altText ?? "Asset");
             toast.success("Asset inserted into design.");
           },
-          onError: () => {
-            toast.error("Failed to insert asset.");
+          onError: (error) => {
+            reportWriteFailure(error, { label: "Failed to insert asset." });
           },
         },
       );
@@ -1220,8 +1221,10 @@ export function DesignExtensionsPanel({
       // button) must stay set until the "Available" list has actually
       // dropped this extension, not just until the POST resolves.
       await installExtensionRequest(slotId, extensionId, queryClient);
-    } catch {
-      toast.error(t("designEditor.extensionsInstallError"));
+    } catch (error) {
+      reportWriteFailure(error, {
+        label: t("designEditor.extensionsInstallError"),
+      });
     } finally {
       setInstallingId(null);
     }

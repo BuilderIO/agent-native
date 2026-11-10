@@ -1119,6 +1119,9 @@ export default function EditorToolbar({
           shareUrlLabel={deckShareProps.shareUrlLabel}
           peopleAccessLabel={t("share.whoHasAccess")}
           sendTo={widgetEmbed ? undefined : deckShareProps.sendTo}
+          shareFooterContent={
+            widgetEmbed ? undefined : deckShareProps.shareFooterContent
+          }
           basicSharingOnly={widgetEmbed}
           shareTabs={
             creativeContextEnabled && !widgetEmbed
