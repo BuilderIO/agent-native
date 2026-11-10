@@ -147,6 +147,10 @@ const NAVIGATION_CONTEXT_MUTATIONS = new Set([
   "create-inline-content-database",
   "duplicate-page",
   "rollback-created-slash-document",
+  // `hasChildren` counts only the pages the caller can see.
+  "set-resource-visibility",
+  "share-resource",
+  "unshare-resource",
 ]);
 
 /**

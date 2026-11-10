@@ -704,8 +704,11 @@ describe("contentActionInvalidatePredicate", () => {
     "move-document",
     "restore-document",
     "rollback-created-slash-document",
+    "set-resource-visibility",
+    "share-resource",
     "sync-local-folder-source",
     "undo-content-import",
+    "unshare-resource",
     "update-content-database-view",
   ])("refreshes the open path when %s runs elsewhere", (key) => {
     const predicate = contentActionInvalidatePredicate("/page/page-1");
