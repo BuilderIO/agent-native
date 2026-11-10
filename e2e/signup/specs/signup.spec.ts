@@ -206,6 +206,12 @@ for (const target of targets) {
     });
 
     const message = await test.step("request a fresh magic link", async () => {
+      // Suppress anonymous assignment/page traffic above, then exercise the
+      // normal auth transport and the new QA account's own credential scopes.
+      // Synthetic request mode intentionally cannot inherit deployment mail
+      // credentials or organization Builder keys. The +autoz identity and
+      // browser marker continue excluding this signup from customer metrics.
+      await page.context().setExtraHTTPHeaders({});
       const emailResult = waitForVerificationEmail(
         email,
         emailRequestedAt,
