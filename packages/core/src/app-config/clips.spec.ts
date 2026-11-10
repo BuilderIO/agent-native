@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  clipsHostedStorageConfig,
   resolveClipsHostedStorageConfig,
   resolveContentClipsPeerSecret,
 } from "./clips.js";
@@ -216,5 +217,17 @@ describe("Content-to-Clips peer secret", () => {
     expect(() =>
       resolveContentClipsPeerSecret(getAppConfig().clips, undefined),
     ).toThrow(AppConfigurationError);
+  });
+});
+
+describe("clips hosted storage config docs", () => {
+  it("documents the free clip limit as a lifetime count", () => {
+    // Deleting a hosted clip does not give one back, so the documented limit
+    // must not read as a cap on clips kept at once.
+    expect(
+      clipsHostedStorageConfig.shape.perIdentityClipLimit.meta()?.doc,
+    ).toBe(
+      "Maximum number of hosted Clips recordings per identity, for the life of the account. Deleting a clip does not free one.",
+    );
   });
 });

@@ -103,6 +103,7 @@ export function useBuilderStorageActivation({
   const [storageTimedOut, setStorageTimedOut] = useState(false);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
+  const isMounted = useCallback(() => mountedRef.current, []);
 
   const stopPoll = useCallback(() => {
     if (pollRef.current !== null) clearTimeout(pollRef.current);
@@ -118,8 +119,8 @@ export function useBuilderStorageActivation({
       if (!mountedRef.current) return;
       try {
         const status = await fetchVideoStorageStatus({ timeoutMs: 10_000 });
-        // oxlint-disable-next-line typescript/no-unnecessary-condition -- the card can unmount while the read is in flight
-        if (!mountedRef.current) return;
+        // The card can unmount while the read is in flight.
+        if (!isMounted()) return;
         if (status.mode === "own") {
           trackStorageStep("onboarding_step_completed", {
             ...stepPropertiesRef.current,
@@ -141,7 +142,7 @@ export function useBuilderStorageActivation({
       pollRef.current = setTimeout(() => void tick(), STORAGE_POLL_MS);
     };
     void tick();
-  }, [queryClient, stopPoll]);
+  }, [isMounted, queryClient, stopPoll]);
 
   useEffect(() => {
     trackStorageStep("onboarding_step_viewed", stepPropertiesRef.current);
