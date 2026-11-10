@@ -44,6 +44,7 @@ beforeAll(async () => {
   await addDocument({ id: "long-page", content: "x".repeat(20_000) });
   await addDocument({ id: "trashed-page", trashed: true });
   await addDocument({ id: "private-page", ownerEmail: OTHER });
+  await addDocument({ id: "hidden-page", hideFromSearch: true });
   await addDocument({ id: "database-page", title: "Launch tracker" });
   await getDb().insert(schema.contentDatabases).values({
     id: "launch-tracker",
@@ -65,6 +66,7 @@ async function addDocument(args: {
   content?: string;
   ownerEmail?: string;
   trashed?: boolean;
+  hideFromSearch?: boolean;
 }) {
   const timestamp = new Date((clock += 1000)).toISOString();
   await getDb()
@@ -81,6 +83,7 @@ async function addDocument(args: {
       createdAt: timestamp,
       updatedAt: timestamp,
       ...(args.trashed ? { trashedAt: timestamp } : {}),
+      ...(args.hideFromSearch ? { hideFromSearch: 1 } : {}),
     });
 }
 
@@ -233,13 +236,14 @@ describe("Content read-composer-source", () => {
     },
   );
 
-  it("does not list another user's private or trashed pages", async () => {
+  it("does not list another user's private pages, trashed pages, or pages hidden from search", async () => {
     const result = await readAs(owner, () =>
       action.run({ source: "content", operation: "list", page: 1 }),
     );
     const ids = "items" in result ? result.items.map((item) => item.id) : [];
     expect(ids).not.toContain("private-page");
     expect(ids).not.toContain("trashed-page");
+    expect(ids).not.toContain("hidden-page");
   });
 
   it("reads only Content pages", async () => {

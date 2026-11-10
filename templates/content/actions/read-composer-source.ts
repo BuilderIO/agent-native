@@ -8,7 +8,7 @@ import {
   composerSourceRequestSchema,
   composerSourceResultSchema,
 } from "@agent-native/core/shared";
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, or } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
@@ -118,6 +118,11 @@ export default defineAction({
               ...new Set(memberships.map((membership) => membership.orgId)),
             ],
             documentType: "page",
+            // The same pages a search here would find.
+            additional: or(
+              eq(schema.documents.hideFromSearch, 0),
+              isNull(schema.documents.hideFromSearch),
+            ),
           }),
         )
         .orderBy(desc(schema.documents.updatedAt), asc(schema.documents.id))
