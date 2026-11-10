@@ -656,8 +656,8 @@ describe("handleMcpConnect", () => {
       getSessionMock.mockResolvedValue({ email: "u@example.com" });
       const res = await handleMcpConnect(ev({ acceptLanguage: "es-ES" }), "/");
       const body = await res.text();
-      expect(body).toContain("Abre Plugins en Claude.");
-      expect(body).not.toContain("Open Plugins in Claude");
+      expect(body).toContain("En Claude, ve a Customize → Connectors.");
+      expect(body).not.toContain("In Claude, go to Customize → Connectors.");
       expect(body).toContain("Tu URL de MCP");
       expect(body).toContain("Conexiones existentes");
       expect(body).not.toContain("Existing connections");
@@ -673,8 +673,8 @@ describe("handleMcpConnect", () => {
         "/",
       );
       const body = await res.text();
-      expect(body).toContain("Abre Plugins en Claude.");
-      expect(body).not.toContain("Open Plugins in Claude");
+      expect(body).toContain("En Claude, ve a Customize → Connectors.");
+      expect(body).not.toContain("In Claude, go to Customize → Connectors.");
       expect(body).toContain('<html lang="es-ES" dir="ltr">');
     });
 
