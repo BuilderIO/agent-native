@@ -204,6 +204,8 @@ sendToAgentChat({
 });
 ```
 
+`sendToAgentChat()` gibt eine Tab-ID zurück, keine Zustellbestätigung. Für eine lokale Nachricht mit bestätigter Zustellung verwende `sendToAgentChatAndConfirm({ message, chatTarget: "local" })` und behandle `delivered: false` und `reason`. Die Funktion wartet auf die Bestätigung und bricht bei Zeitüberschreitung ab. Entwürfe und Code-Ziele werden nicht unterstützt.
+
 ### AgentChatMessage {#agentchatmessage}
 
 | Option         | Typ        | Beschreibung                                                                                                                 |

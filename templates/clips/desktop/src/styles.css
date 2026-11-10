@@ -722,6 +722,29 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   margin-top: 2px;
 }
 
+.hosted-clips-left {
+  margin: 2px 0 0;
+  text-align: center;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--fg-muted);
+}
+
+.hosted-clips-activate {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--fg);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.hosted-clips-activate:hover {
+  color: var(--brand-hover);
+}
+
 .primary.start.start-loading {
   position: relative;
   overflow: hidden;

@@ -77,21 +77,29 @@ function rowIds(root: ParentNode = document) {
   );
 }
 
-function hiddenInViewToggle() {
+function lineFor(key: string) {
   return [...document.querySelectorAll("button")].find((button) =>
-    button.textContent.includes("editor.properties.hiddenInThisView"),
+    button.textContent.includes(key),
   );
 }
 
-async function openHiddenInView() {
-  const toggle = hiddenInViewToggle();
-  if (!toggle) throw new Error("The hidden line isn't showing.");
-  await click(toggle);
+function moreLine() {
+  return lineFor("editor.properties.moreProperties");
 }
 
-function renderProperties(
+function alwaysHiddenLine() {
+  return lineFor("editor.properties.alwaysHiddenCount");
+}
+
+async function openLine(line: HTMLButtonElement | undefined) {
+  if (!line) throw new Error("The line isn't showing.");
+  await click(line);
+}
+
+function propertiesElement(
   rowView: DatabaseRowView | null,
   options: {
+    documentId?: string;
     rowViewPending?: boolean;
     canEdit?: boolean;
     schemaRowsExpected?: boolean;
@@ -100,7 +108,7 @@ function renderProperties(
 ) {
   const properties = (
     <DocumentProperties
-      documentId="row"
+      documentId={options.documentId ?? "row"}
       databaseId="database"
       databaseDocumentId="database-page"
       rowView={rowView}
@@ -109,26 +117,31 @@ function renderProperties(
       schemaRowsExpected={options.schemaRowsExpected}
     />
   );
-  return renderUi(
-    options.comments ? (
-      <PropertyCommentsContext.Provider
-        value={{
-          canComment: true,
-          openThreadsByProperty: new Map(),
-          pendingPropertyId: null,
-          activeThreadId: null,
-          selectedPropertyId: null,
-          startComment: vi.fn(),
-          openThread: vi.fn(),
-          ...options.comments,
-        }}
-      >
-        <TooltipProvider>{properties}</TooltipProvider>
-      </PropertyCommentsContext.Provider>
-    ) : (
-      properties
-    ),
+  return options.comments ? (
+    <PropertyCommentsContext.Provider
+      value={{
+        canComment: true,
+        openThreadsByProperty: new Map(),
+        pendingPropertyId: null,
+        activeThreadId: null,
+        selectedPropertyId: null,
+        startComment: vi.fn(),
+        openThread: vi.fn(),
+        ...options.comments,
+      }}
+    >
+      <TooltipProvider>{properties}</TooltipProvider>
+    </PropertyCommentsContext.Provider>
+  ) : (
+    properties
   );
+}
+
+function renderProperties(
+  rowView: DatabaseRowView | null,
+  options: Parameters<typeof propertiesElement>[1] = {},
+) {
+  return renderUi(propertiesElement(rowView, options));
 }
 
 beforeEach(() => {
@@ -144,10 +157,10 @@ beforeEach(() => {
 });
 
 describe("a row's Properties in its view", () => {
-  it("keeps the page's own order without a view, with no hidden line", () => {
+  it("keeps the page's own order without a view, with no line", () => {
     renderProperties(null);
     expect(rowIds()).toEqual(["a", "b", "c"]);
-    expect(hiddenInViewToggle()).toBeUndefined();
+    expect(moreLine()).toBeUndefined();
   });
 
   it("follows the view and holds its hidden Properties behind a closed line", () => {
@@ -157,18 +170,23 @@ describe("a row's Properties in its view", () => {
       hiddenPropertyIds: ["b"],
     });
     expect(rowIds()).toEqual(["c", "a"]);
-    expect(hiddenInViewToggle()?.textContent).toContain("1");
+    expect(moreLine()?.textContent).toContain(
+      "editor.properties.morePropertiesOne",
+    );
   });
 
-  it("opens the hidden line in place without touching the collection", async () => {
+  it("opens the line in place without touching the collection", async () => {
     renderProperties({
       type: "board",
       propertyOrderIds: ["c"],
       hiddenPropertyIds: ["a", "b"],
     });
     expect(rowIds()).toEqual(["c"]);
+    expect(moreLine()?.textContent).toContain(
+      "editor.properties.moreProperties(2)",
+    );
 
-    await openHiddenInView();
+    await openLine(moreLine());
 
     expect(rowIds()).toEqual(["c", "a", "b"]);
     expect(mocks.configure.mutateAsync).not.toHaveBeenCalled();
@@ -240,16 +258,37 @@ describe("a row's Properties in its view", () => {
     },
   );
 
-  it("shows the hidden line to someone who can only read the row", async () => {
+  it("shows the line to someone who can only read the row", async () => {
     renderProperties(
       { type: "board", hiddenPropertyIds: ["a"] },
       { canEdit: false },
     );
-    await openHiddenInView();
+    await openLine(moreLine());
     expect(rowIds()).toEqual(["b", "c", "a"]);
   });
 
-  it("lets Always hide and Hide when empty apply on top of the view", () => {
+  it("keeps Always hide and empty Properties from someone who can only read", async () => {
+    mocks.response.properties = [
+      property("always", "value", "always_hide"),
+      property("empty", "", "hide_when_empty"),
+      property("filled", "value", "hide_when_empty"),
+      property("hidden", "value"),
+    ];
+    renderProperties(
+      { type: "table", hiddenPropertyIds: ["hidden"] },
+      { canEdit: false },
+    );
+    expect(moreLine()?.textContent).toContain(
+      "editor.properties.morePropertiesOne",
+    );
+
+    await openLine(moreLine());
+
+    expect(rowIds()).toEqual(["filled", "hidden"]);
+    expect(alwaysHiddenLine()).toBeUndefined();
+  });
+
+  it("holds view-hidden, empty and Always hide Properties behind one line", async () => {
     mocks.response.properties = [
       property("always", "value", "always_hide"),
       property("empty", "", "hide_when_empty"),
@@ -263,18 +302,174 @@ describe("a row's Properties in its view", () => {
       hiddenPropertyIds: ["hidden-always", "hidden-empty", "hidden-filled"],
     });
     expect(rowIds()).toEqual(["filled"]);
-    expect(hiddenInViewToggle()?.textContent).toContain("1");
+    expect(moreLine()?.textContent).toContain(
+      "editor.properties.moreProperties(5)",
+    );
+
+    await openLine(moreLine());
+
+    expect(rowIds()).toEqual([
+      "filled",
+      "hidden-filled",
+      "empty",
+      "hidden-empty",
+    ]);
+    expect(alwaysHiddenLine()?.textContent).toContain(
+      "editor.properties.alwaysHiddenCount(2)",
+    );
+
+    await openLine(alwaysHiddenLine());
+
+    expect(rowIds()).toEqual([
+      "filled",
+      "hidden-filled",
+      "empty",
+      "hidden-empty",
+      "always",
+      "hidden-always",
+    ]);
+    expect(mocks.configure.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("needs no second line when Always hide Properties are all there is", async () => {
+    mocks.response.properties = [
+      property("always", "value", "always_hide"),
+      property("other-always", "value", "always_hide"),
+      property("shown"),
+    ];
+    renderProperties(null);
+    expect(rowIds()).toEqual(["shown"]);
+
+    await openLine(moreLine());
+
+    expect(rowIds()).toEqual(["shown", "always", "other-always"]);
+    expect(alwaysHiddenLine()).toBeUndefined();
+  });
+
+  it("keeps open Always hide Properties in place when a view hides another Property", async () => {
+    mocks.response.properties = [
+      property("always", "value", "always_hide"),
+      property("shown"),
+      property("hidden-later"),
+    ];
+    const view = (hiddenPropertyIds: string[]): DatabaseRowView => ({
+      type: "table",
+      tableColumnOrderIds: ["shown", "hidden-later"],
+      hiddenPropertyIds,
+    });
+    const { rerender } = renderProperties(view([]));
+    await openLine(moreLine());
+    expect(rowIds()).toEqual(["shown", "hidden-later", "always"]);
+    const row = document.querySelector('[data-property-row="always"]');
+
+    rerender(propertiesElement(view(["hidden-later"])));
+
+    expect(rowIds()).toEqual(["shown", "hidden-later", "always"]);
+    expect(alwaysHiddenLine()).toBeDefined();
+    expect(document.querySelector('[data-property-row="always"]')).toBe(row);
+  });
+
+  it("keeps the other Always hide Properties open when one becomes Hide when empty", async () => {
+    mocks.response.properties = [
+      property("changed", "", "always_hide"),
+      property("always", "value", "always_hide"),
+    ];
+    const { rerender } = renderProperties(null);
+    await openLine(moreLine());
+    expect(rowIds()).toEqual(["changed", "always"]);
+
+    mocks.response = {
+      ...mocks.response,
+      properties: [
+        property("changed", "", "hide_when_empty"),
+        property("always", "value", "always_hide"),
+      ],
+    };
+    rerender(propertiesElement(null));
+
+    expect(rowIds()).toEqual(["changed", "always"]);
+    expect(alwaysHiddenLine()).toBeDefined();
+  });
+
+  it("leaves a Hide when empty Property where it is until the row reopens", async () => {
+    mocks.response.properties = [
+      property("was-empty", "", "hide_when_empty"),
+      property("was-filled", "value", "hide_when_empty"),
+    ];
+    const { rerender } = renderProperties(null);
+    await openLine(moreLine());
+    expect(rowIds()).toEqual(["was-filled", "was-empty"]);
+
+    mocks.response = {
+      ...mocks.response,
+      properties: [
+        property("was-empty", "value", "hide_when_empty"),
+        property("was-filled", "", "hide_when_empty"),
+      ],
+    };
+    rerender(propertiesElement(null));
+    expect(rowIds()).toEqual(["was-filled", "was-empty"]);
+
+    const reopened = mocks.response;
+    mocks.response = { ...reopened, documentId: "other-row" };
+    rerender(propertiesElement(null, { documentId: "other-row" }));
+    mocks.response = reopened;
+    rerender(propertiesElement(null));
+    expect(rowIds()).toEqual(["was-empty"]);
+  });
+
+  it("leaves a filled Property where it is when another one becomes Hide when empty", async () => {
+    mocks.response.properties = [
+      property("was-empty", "", "hide_when_empty"),
+      property("joins", "value"),
+    ];
+    const { rerender } = renderProperties(null);
+    await openLine(moreLine());
+    expect(rowIds()).toEqual(["joins", "was-empty"]);
+
+    mocks.response = {
+      ...mocks.response,
+      properties: [
+        property("was-empty", "value", "hide_when_empty"),
+        property("joins", "value", "hide_when_empty"),
+      ],
+    };
+    rerender(propertiesElement(null));
+    expect(rowIds()).toEqual(["joins", "was-empty"]);
+
+    mocks.response = {
+      ...mocks.response,
+      properties: [...mocks.response.properties].reverse(),
+    };
+    rerender(propertiesElement(null));
+    expect(rowIds()).toEqual(["joins", "was-empty"]);
+  });
+
+  it("keeps Always hide and empty Properties from someone who can edit values but not the schema", async () => {
+    mocks.response.canManageSchema = false;
+    mocks.response.properties = [
+      property("always", "value", "always_hide"),
+      property("empty", "", "hide_when_empty"),
+      property("hidden"),
+      property("shown"),
+    ];
+    renderProperties({ type: "table", hiddenPropertyIds: ["hidden"] });
+    await openLine(moreLine());
+    expect(rowIds()).toEqual(["shown", "hidden"]);
+    expect(alwaysHiddenLine()).toBeUndefined();
   });
 
   it("waits for the view instead of drawing the page's order first", () => {
+    mocks.response.properties = [property("always", "value", "always_hide")];
     renderProperties(null, { rowViewPending: true });
     expect(rowIds()).toEqual([]);
+    expect(moreLine()).toBeUndefined();
     expect(document.body.textContent).toContain(
       "editor.properties.loadingProperties",
     );
   });
 
-  it("opens the hidden line for a Comment being written on one of its Properties", () => {
+  it("opens the line for a Comment being written on one of its Properties", () => {
     renderProperties(
       { type: "board", hiddenPropertyIds: ["a"] },
       { comments: { pendingPropertyId: "a" } },
@@ -282,12 +477,48 @@ describe("a row's Properties in its view", () => {
     expect(rowIds()).toEqual(["b", "c", "a"]);
   });
 
-  it("opens the hidden line for a thread being read", () => {
+  it("opens the line for a thread being read", () => {
     renderProperties(
       { type: "board", hiddenPropertyIds: ["a"] },
       { comments: { selectedPropertyId: "a" } },
     );
     expect(rowIds()).toEqual(["b", "c", "a"]);
+  });
+
+  it("opens both lines for a Comment on an Always hide Property", () => {
+    mocks.response.properties = [
+      property("always", "value", "always_hide"),
+      property("empty", "", "hide_when_empty"),
+      property("shown"),
+    ];
+    renderProperties(null, { comments: { selectedPropertyId: "always" } });
+    expect(rowIds()).toEqual(["shown", "empty", "always"]);
+  });
+
+  it("opens a line closed by hand when a different thread is read", async () => {
+    const rowView: DatabaseRowView = {
+      type: "board",
+      hiddenPropertyIds: ["hidden"],
+    };
+    mocks.response.properties = [
+      property("always", "value", "always_hide"),
+      property("hidden"),
+      property("shown"),
+    ];
+    const { rerender } = renderProperties(rowView, {
+      comments: { selectedPropertyId: "hidden" },
+    });
+    expect(rowIds()).toEqual(["shown", "hidden"]);
+
+    await openLine(moreLine());
+    expect(rowIds()).toEqual(["shown"]);
+
+    rerender(
+      propertiesElement(rowView, {
+        comments: { selectedPropertyId: "always" },
+      }),
+    );
+    expect(rowIds()).toEqual(["shown", "hidden", "always"]);
   });
 
   it("stays closed for a thread that is only hovered", () => {

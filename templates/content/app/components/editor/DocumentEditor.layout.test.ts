@@ -45,6 +45,7 @@ import {
   lifecycleKeepaliveDisposition,
   loadedUpdatedAtForSave,
   metadataUpdatesWithPendingTitle,
+  namedViewLinkMatchesPage,
   type OwnContentSaveLineage,
   ownConfirmedContentBase,
   pendingCommentTargetMatches,
@@ -63,6 +64,7 @@ import {
   suggestionDecisionPreviewContent,
   suggestionToDecideAfterSave,
   sameSuggestionAnchorIds,
+  previewDraftSuggestions,
   singleSuggestionDecisionLockAfterMismatch,
   suggestionAmendmentTargetIsResolved,
   suggestionAmendmentResolutionConflicts,
@@ -570,6 +572,16 @@ describe("document editor layout", () => {
     expect(sameSuggestionAnchorIds(["two", "one"], ["one", "two"])).toBe(true);
     expect(sameSuggestionAnchorIds(["one"], ["two"])).toBe(false);
     expect(sameSuggestionAnchorIds(null, [])).toBe(false);
+  });
+
+  it("keeps one list for a draft it can't map, so the highlights don't redraw every render", () => {
+    const unmapped = () =>
+      previewDraftSuggestions({
+        status: "unsupported-formatting",
+        content: "Draft",
+      });
+    expect(unmapped()).toEqual([]);
+    expect(unmapped()).toBe(unmapped());
   });
 
   it("does not feed suggestion anchor decoration transactions back into the parent", () => {
@@ -3024,9 +3036,8 @@ describe("document editor layout", () => {
     expect(properties).toMatch(
       /<PropertyManagementPopover[\s\S]*?popoverContainer=\{popoverContainer\}/,
     );
-    expect(properties).toMatch(
-      /<HiddenPropertiesMenu[\s\S]*?popoverContainer=\{popoverContainer\}/,
-    );
+    // oracle-change: the Hidden properties menu is gone, so its popover has no
+    // container to pass; the line that replaced it opens in place.
     expect(properties).toMatch(
       /<AddProperty[\s\S]*?popoverContainer=\{popoverContainer\}/,
     );
@@ -3058,6 +3069,42 @@ describe("document editor layout", () => {
         databaseDocumentId: "membership-b",
       }),
     );
+  });
+
+  it("opens a named view link on its collection's page, with or without a databaseId", () => {
+    const page = { pageDatabaseId: "database-a" };
+    // The view and setup actions link `/page/<collection>?viewId=<view>`.
+    expect(
+      namedViewLinkMatchesPage({ ...page, viewId: "view-1", databaseId: null }),
+    ).toBe(true);
+    expect(
+      namedViewLinkMatchesPage({
+        ...page,
+        viewId: "view-1",
+        databaseId: "database-a",
+      }),
+    ).toBe(true);
+    expect(
+      namedViewLinkMatchesPage({
+        ...page,
+        viewId: "view-1",
+        databaseId: "database-b",
+      }),
+    ).toBe(false);
+    expect(
+      namedViewLinkMatchesPage({
+        viewId: "view-1",
+        databaseId: null,
+        pageDatabaseId: undefined,
+      }),
+    ).toBe(false);
+    expect(
+      namedViewLinkMatchesPage({
+        viewId: null,
+        databaseId: null,
+        pageDatabaseId: undefined,
+      }),
+    ).toBe(true);
   });
 
   it("flushes pending document saves when leaving an editor", () => {

@@ -596,6 +596,7 @@ async function hasConfiguredVideoStorage(
 ): Promise<{
   probe: FileUploadStatusProbe;
   maxClipDurationMs: number | null;
+  hostedRemaining: number | null;
 }> {
   const controller = new AbortController();
   const timeout = window.setTimeout(
@@ -604,6 +605,7 @@ async function hasConfiguredVideoStorage(
   );
   let probe: FileUploadStatusProbe = "unavailable";
   let maxClipDurationMs: number | null = null;
+  let hostedRemaining: number | null = null;
   try {
     const status = await callClipsActionFor<{
       configured: boolean;
@@ -632,6 +634,7 @@ async function hasConfiguredVideoStorage(
       throw new Error("Video storage status response is invalid");
     }
     maxClipDurationMs = hostedClipDurationLimitMs(status);
+    if (status.mode === "hosted") hostedRemaining = status.hostedRemaining;
     if (status.mode === "own") {
       probe = "configured";
       if (account)
@@ -647,7 +650,7 @@ async function hasConfiguredVideoStorage(
   } finally {
     window.clearTimeout(timeout);
   }
-  return { probe, maxClipDurationMs };
+  return { probe, maxClipDurationMs, hostedRemaining };
 }
 
 function videoStorageConfiguredKey(serverUrl: string, account: string): string {
@@ -1410,6 +1413,10 @@ export function App({
   const videoStorageIdentityRef = useRef(videoStorageIdentity);
   // Hosted per-clip cap from the last storage probe; null for own storage.
   const hostedClipLimitMsRef = useRef<number | null>(null);
+  // Free hosted clips left from the last storage probe; null outside hosted.
+  const [hostedClipsRemaining, setHostedClipsRemaining] = useState<
+    number | null
+  >(null);
   // The server and account the newest probe found configured. The cached
   // "configured" is enough to record, but saved files upload on their own
   // only after a probe of the current server and account.
@@ -1419,6 +1426,7 @@ export function App({
   useEffect(() => {
     videoStorageIdentityRef.current = videoStorageIdentity;
     hostedClipLimitMsRef.current = null;
+    setHostedClipsRemaining(null);
     setVideoStorageProbedIdentity(null);
     setVideoStorageStatus(
       signedInAs &&
@@ -1433,6 +1441,7 @@ export function App({
   const refreshVideoStorageStatus = useCallback(async () => {
     if (authStatus !== "authed") {
       hostedClipLimitMsRef.current = null;
+      setHostedClipsRemaining(null);
       setVideoStorageProbedIdentity(null);
       setVideoStorageStatus("configured");
       return true;
@@ -1442,10 +1451,8 @@ export function App({
     // Probes are slow enough to overlap; only the newest result may land, or a
     // pre-connect "missing" overwrites the "configured" that came after it.
     const probeSeq = ++videoStorageProbeSeqRef.current;
-    const { probe, maxClipDurationMs } = await hasConfiguredVideoStorage(
-      serverUrl,
-      signedInAs,
-    );
+    const { probe, maxClipDurationMs, hostedRemaining } =
+      await hasConfiguredVideoStorage(serverUrl, signedInAs);
     if (videoStorageIdentityRef.current !== probedIdentity) return false;
     if (videoStorageProbeSeqRef.current !== probeSeq) return false;
     setVideoStorageProbedIdentity(
@@ -1456,6 +1463,7 @@ export function App({
       return false;
     }
     hostedClipLimitMsRef.current = maxClipDurationMs;
+    setHostedClipsRemaining(hostedRemaining);
     setVideoStorageStatus(probe);
     return probe === "configured";
   }, [authStatus, serverUrl, signedInAs, videoStorageIdentity]);
@@ -5526,6 +5534,23 @@ export function App({
               />
             ) : null}
           </button>
+        ) : null}
+
+        {!isRecording &&
+        localRecordingMode === "off" &&
+        videoStorageStatus === "configured" &&
+        hostedClipsRemaining !== null ? (
+          <p className="hosted-clips-left">
+            {t("recordRoute.freeClipsLeft", { count: hostedClipsRemaining })}
+            {" · "}
+            <button
+              type="button"
+              className="hosted-clips-activate"
+              onClick={connectVideoStorage}
+            >
+              {t("recordRoute.activateBuilder")}
+            </button>
+          </p>
         ) : null}
 
         {recError ? (

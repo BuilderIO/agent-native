@@ -23,6 +23,8 @@ Node.js `22.22+` is required.
 You also need a Vercel account. Run the commands in this guide on your own
 computer. The Vercel CLI uploads the finished build to Vercel for you.
 
+Agent turns are subject to Vercel Function duration limits, including streamed response time. Configure the project’s Function Max Duration and check the effective deployment settings and [Vercel limits](https://vercel.com/docs/functions/configuring-functions/duration). A longer limit does not guarantee a turn completes.
+
 ## Step 1: Create the app
 
 Create your new standalone app. The example below creates an app from the Chat
