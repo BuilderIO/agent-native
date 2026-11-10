@@ -130,10 +130,9 @@ export function applyOptimisticItemToContentDatabase(
   };
 }
 
-export function removeOptimisticItemFromContentDatabase(
-  current: ContentDatabaseResponse | undefined,
-  documentId: string,
-): ContentDatabaseResponse | undefined {
+export function removeOptimisticItemFromContentDatabase<
+  T extends ContentDatabaseResponse | ContentDatabaseItemsPageResponse,
+>(current: T | undefined, documentId: string): T | undefined {
   if (!current) return current;
   const items = current.items.filter(
     (candidate) => candidate.document.id !== documentId,
@@ -323,10 +322,11 @@ export function contentDatabaseNavigationQueryFilter(
 
 /**
  * Takes pages the server just moved to Trash out of every cached collection
- * read and Files tree page, so Favorites and the Files tree don't show them
- * again between the end of the pending move and their next read. A delete's
- * refresh finds the branches to reread by the page's cached rows, so this runs
- * after that refresh starts, and a read it marked stale stays marked.
+ * read, collection table page and Files tree page, so Favorites, an open table
+ * and the Files tree don't show them again between the end of the pending move
+ * and their next read. A delete's refresh finds the branches to reread by the
+ * page's cached rows, so this runs after that refresh starts, and a read it
+ * marked stale stays marked.
  */
 export function removeTrashedPagesFromCachedCollections(
   queryClient: Pick<QueryClient, "getQueryCache" | "setQueryData">,
@@ -334,22 +334,24 @@ export function removeTrashedPagesFromCachedCollections(
 ) {
   const trashed = new Set(documentIds);
   const queryCache = queryClient.getQueryCache();
+  const isNavigationPage = contentDatabaseNavigationQueryFilter().predicate;
   for (const query of [
     ...queryCache.findAll({ queryKey: ["action", "get-content-database"] }),
-    ...queryCache.findAll(contentDatabaseNavigationQueryFilter()),
+    ...queryCache.findAll({ queryKey: contentDatabaseItemsPageQueryKey }),
   ]) {
     const current = query.state.data;
     if (!current || isContentDatabaseUnavailable(current)) continue;
-    const next =
-      query.queryKey[1] === "get-content-database"
-        ? documentIds.reduce<ContentDatabaseResponse | undefined>(
-            removeOptimisticItemFromContentDatabase,
-            current as ContentDatabaseResponse,
-          )
-        : withoutTrashedNavigationRows(
-            current as ContentDatabaseNavigationPageResponse,
-            trashed,
-          );
+    const next = isNavigationPage(query)
+      ? withoutTrashedNavigationRows(
+          current as ContentDatabaseNavigationPageResponse,
+          trashed,
+        )
+      : documentIds.reduce<
+          ContentDatabaseResponse | ContentDatabaseItemsPageResponse | undefined
+        >(
+          removeOptimisticItemFromContentDatabase,
+          current as ContentDatabaseResponse | ContentDatabaseItemsPageResponse,
+        );
     if (next === current) continue;
     const stale = query.state.isInvalidated;
     queryClient.setQueryData(query.queryKey, next, {

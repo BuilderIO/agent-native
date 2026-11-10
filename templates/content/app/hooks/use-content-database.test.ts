@@ -1082,6 +1082,45 @@ describe("removeTrashedPagesFromCachedCollections", () => {
     expect(queryClient.getQueryState(collectionKey)?.isInvalidated).toBe(false);
     expect(queryClient.getQueryData(untouchedKey)).toBe(untouchedPage);
   });
+
+  it("takes a trashed page out of an open collection table's page", () => {
+    const queryClient = new QueryClient();
+    const tableKey = [
+      "action",
+      "query-content-database-items",
+      { documentId: "database-page", limit: 50, tableQuery: { sorts: [] } },
+    ];
+    const response = databaseResponse();
+    queryClient.setQueryData<ContentDatabaseResponse>(tableKey, {
+      ...response,
+      items: response.items.slice(0, 3),
+      pagination: {
+        offset: 0,
+        limit: 50,
+        totalItems: 3,
+        returnedItems: 3,
+        hasMore: false,
+      },
+    });
+    // The table keeps showing this page while the delete's refresh rereads it.
+    void queryClient.invalidateQueries(
+      { queryKey: tableKey },
+      { cancelRefetch: false },
+    );
+
+    removeTrashedPagesFromCachedCollections(queryClient, ["document-1"]);
+
+    const table = queryClient.getQueryData<ContentDatabaseResponse>(tableKey);
+    expect(table?.items.map((item) => item.document.id)).toEqual([
+      "document-0",
+      "document-2",
+    ]);
+    expect(table?.pagination).toMatchObject({
+      totalItems: 2,
+      returnedItems: 2,
+    });
+    expect(queryClient.getQueryState(tableKey)?.isInvalidated).toBe(true);
+  });
 });
 
 describe("writeContentDatabaseResponseToCache", () => {
