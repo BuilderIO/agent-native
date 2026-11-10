@@ -437,7 +437,17 @@ async function cleanUpPendingUpload(rec: {
   storageMode: "own" | "hosted" | null;
 }): Promise<void> {
   const key = audioLevelPendingUploadKey(rec.id);
-  const raw = await readAppState(key).catch(() => null);
+  let raw: unknown;
+  try {
+    raw = await readAppState(key);
+  } catch (err) {
+    // Unreadable state: try again on the next run rather than guess.
+    console.warn("[audio-level] could not read the pending upload", {
+      recordingId: rec.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
   const url =
     raw &&
     typeof raw === "object" &&
