@@ -7508,6 +7508,65 @@ describe("action boundary error classification", () => {
     expect(captured).not.toHaveBeenCalled();
   });
 
+  it("answers a refused padded call with a 400 the caller can act on", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { registerErrorCaptureProvider } = await import("./capture-error.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const provider = vi.fn(() => "evt_padded");
+    const unregister = registerErrorCaptureProvider(
+      "padded-call-test",
+      provider,
+    );
+    const run = vi.fn(async () => ({ ok: true }));
+    mockCountActionFailure.mockClear();
+    try {
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          "update-item": defineAction({
+            description: "Update an item.",
+            schema: z.object({
+              id: z.string(),
+              title: z.string().optional(),
+              label: z.string().optional(),
+            }),
+            http: { method: "POST" },
+            run,
+          }) as any,
+        },
+      );
+      // `title: null` is padding, but `label: ""` could be a real clear.
+      const event = {
+        _method: "POST",
+        req: { json: async () => ({ id: "a", title: null, label: "" }) },
+      };
+      const result = await mounted[0].handler(event);
+
+      expect((event as any)._status).toBe(400);
+      expect(result).toEqual({
+        error: expect.stringContaining(
+          "Retry the native tool with sparse JSON",
+        ),
+        errorCode: "ambiguous_tool_placeholders",
+      });
+      expect(run).not.toHaveBeenCalled();
+      expect(provider).not.toHaveBeenCalled();
+      expect(mockCountActionFailure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "update-item",
+          status: 400,
+          errorCode: "ambiguous_tool_placeholders",
+        }),
+      );
+    } finally {
+      unregister();
+    }
+  });
+
   it("keeps a credential store outage a captured 500", async () => {
     const { EngineError } = await import("../agent/engine/types.js");
     const error = new EngineError("LLM credential store is unavailable", {

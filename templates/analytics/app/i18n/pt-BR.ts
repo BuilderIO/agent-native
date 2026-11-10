@@ -1420,11 +1420,16 @@ export default {
     drilldownOverByteCap:
       "Estes registros leriam mais de {{gib}} GiB, então não foram carregados. Restrinja os filtros ou o período do painel e tente de novo.",
     filterSeries: "Filter",
+    noXValue: "Sem valor",
     chartTimeRangeOverride: "Substituir o intervalo de tempo deste gráfico",
     chartTimeRangeInherit: "Intervalo do painel",
     hide: "Hide",
     show: "Show",
     saveAsView: "Salvar como visualização",
+    unknownTraffic: "Desconhecido {{count}}",
+    unknownTrafficUnavailable: "Contagem de desconhecidos indisponível",
+    unknownTrafficTip:
+      "Eventos dos últimos {{days}} dias sem host nem ambiente reconhecido. Contam como produção.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",

@@ -556,13 +556,16 @@ export function AgentJobsTab({
                 </DropdownMenuItem>
                 {resource.canUpdate ? (
                   <>
-                    <DropdownMenuItem
-                      disabled={runAutomationMutation.isPending}
-                      onSelect={() => setRunTarget(entry)}
-                    >
-                      <IconPlayerPlay aria-hidden="true" />
-                      {t("jobs.runNow", { defaultValue: "Run now" })}
-                    </DropdownMenuItem>
+                    {entry.kind !== "automation" ||
+                    entry.resource.capabilities.canOperate ? (
+                      <DropdownMenuItem
+                        disabled={runAutomationMutation.isPending}
+                        onSelect={() => setRunTarget(entry)}
+                      >
+                        <IconPlayerPlay aria-hidden="true" />
+                        {t("jobs.runNow", { defaultValue: "Run now" })}
+                      </DropdownMenuItem>
+                    ) : null}
                     {entry.kind === "automation" ? (
                       <DropdownMenuItem
                         onSelect={() => openEditor(entry.resource)}

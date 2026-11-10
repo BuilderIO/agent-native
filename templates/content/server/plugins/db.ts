@@ -1673,6 +1673,11 @@ export const runContentMigrations = runMigrations(
     },
     {
       version: 136,
+      name: "content-document-agent-text-locked",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS agent_text_locked INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      version: 137,
       name: "content-comment-author-client",
       sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS author_client TEXT`,
     },

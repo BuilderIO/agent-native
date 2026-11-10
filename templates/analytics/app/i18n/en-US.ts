@@ -983,11 +983,16 @@ export default {
     drilldownOverByteCap:
       "These records would read more than {{gib}} GiB, so they didn't load. Narrow the dashboard's filters or date range and try again.",
     filterSeries: "Filter",
+    noXValue: "No value",
     chartTimeRangeOverride: "Override time range for this chart",
     chartTimeRangeInherit: "Dashboard range",
     hide: "Hide",
     show: "Show",
     saveAsView: "Save as View",
+    unknownTraffic: "Unknown {{count}}",
+    unknownTrafficUnavailable: "Unknown count unavailable",
+    unknownTrafficTip:
+      "Events from the last {{days}} days with no host and no recognized environment. They count as production.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",

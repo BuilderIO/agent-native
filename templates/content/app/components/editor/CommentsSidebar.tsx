@@ -32,6 +32,7 @@ import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
 import type { DocumentProperty } from "@shared/api";
+import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import type { CommentAiRequest } from "@shared/comment-ai";
 import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
 import {
@@ -43,6 +44,7 @@ import {
   findReplaceSuggestionSummary,
   suggestionDiffParts,
 } from "@shared/suggestion-diff";
+import { WORD_CHARACTER } from "@shared/suggestion-placement";
 import {
   suggestionAnchorText,
   suggestionTextForDisplay,
@@ -1163,6 +1165,11 @@ interface CommentsSidebarOptions {
     decision: SuggestionDecision,
   ) => void;
   canDecideSuggestions?: boolean;
+  /**
+   * Accepting a tab's suggestion writes its Collection's field, so it also
+   * takes edit access to the Collection. Rejecting one writes nothing.
+   */
+  canDecideFieldSuggestions?: boolean;
   decidingSuggestion?: (suggestionId: string) => boolean;
   onDecideSuggestion?: (
     suggestion: ResourceSuggestion,
@@ -1256,6 +1263,7 @@ export function CommentsSidebar({
   onMaterializeDraft,
   onDecideDraftSuggestion,
   canDecideSuggestions = false,
+  canDecideFieldSuggestions = false,
   decidingSuggestion = () => false,
   onDecideSuggestion,
   onDecideSuggestionProposal,
@@ -1839,20 +1847,24 @@ export function CommentsSidebar({
     suggestions,
     threads,
   ]);
-  // Suggestions edit the page body, so they sit in its tab.
-  const historyBodyTabShown =
-    activeHistoryTab === null || activeHistoryTab === commentTabKey(null);
   // Suggested edits point at text and carry no @mentions of their own.
   const historyShowsSuggestions =
     historyKind !== "comments" &&
-    historyBodyTabShown &&
     (historyTarget === "all" || historyTarget === "text") &&
     !historyMentionsMe;
+  // A suggestion sits in the tab it edits.
+  const historyTabShowsSuggestion = useCallback(
+    (suggestion: Parameters<typeof suggestionBlocksFieldId>[0]) =>
+      activeHistoryTab === null ||
+      commentTabKey(suggestionBlocksFieldId(suggestion)) === activeHistoryTab,
+    [activeHistoryTab],
+  );
   const historySuggestions = useMemo(() => {
     if (!historyShowsSuggestions) return [];
     const matches = suggestions.filter((suggestion) => {
       if (historyKind === "all" && embeddedSuggestionIds.has(suggestion.id))
         return false;
+      if (!historyTabShowsSuggestion(suggestion)) return false;
       const unresolved =
         suggestion.status === "pending" || suggestion.status === "stale";
       if (historyStatus === "open" && !unresolved) {
@@ -1873,6 +1885,7 @@ export function CommentsSidebar({
     historySearch,
     historyShowsSuggestions,
     historyStatus,
+    historyTabShowsSuggestion,
     suggestions,
   ]);
   const historyDraftSuggestions = useMemo(() => {
@@ -1881,6 +1894,7 @@ export function CommentsSidebar({
     return draftSuggestions.filter(
       (suggestion) =>
         (!historyAuthor || suggestion.authorEmail === historyAuthor) &&
+        historyTabShowsSuggestion(suggestion) &&
         suggestionMatchesSearch(suggestion, historySearch),
     );
   }, [
@@ -1889,6 +1903,7 @@ export function CommentsSidebar({
     historySearch,
     historyShowsSuggestions,
     historyStatus,
+    historyTabShowsSuggestion,
   ]);
   // Comments someone just posted on the page stay in view even when their
   // filters would hide them, until they change the filters.
@@ -2560,7 +2575,9 @@ export function CommentsSidebar({
     const hiddenTabIds = new Set<string>();
     for (const thread of measuredThreads) {
       const fieldId =
-        "suggestion" in thread ? null : commentThreadFieldId(thread);
+        "suggestion" in thread
+          ? suggestionBlocksFieldId(thread.suggestion)
+          : commentThreadFieldId(thread);
       const position = findThreadPosition(
         "suggestion" in thread ? thread.suggestion.id : thread.threadId,
         "suggestion" in thread ? null : thread.quotedText,
@@ -3063,6 +3080,12 @@ export function CommentsSidebar({
     void changeResolution(thread, false);
   };
 
+  // Whoever decides on the page's suggestions can reject a tab's, which
+  // writes nothing. Accepting one writes its Collection's field, which the
+  // server lets only the Collection's editors do.
+  const acceptBlocked = (suggestion: ResourceSuggestion | DraftSuggestion) =>
+    !canDecideFieldSuggestions && suggestionBlocksFieldId(suggestion) !== null;
+
   const renderFoldedStack = (
     stack: CommentStack<CommentThread>,
     layoutId: string,
@@ -3156,6 +3179,7 @@ export function CommentsSidebar({
         canDecide: canDecideSuggestions,
         busy: suggestionBusy,
         conflict: isUnplaceable,
+        acceptBlocked,
         onDecide: (
           suggestion: ResourceSuggestion,
           decision: SuggestionDecision,
@@ -3558,6 +3582,7 @@ export function CommentsSidebar({
         )}
         canComment={canComment}
         canDecide={canDecideSuggestions}
+        acceptDisabled={unit.members.some(acceptBlocked)}
         deciding={unit.members.some(suggestionBusy)}
         onActivate={() => {
           if (presentation !== "history") onActivateSuggestion?.(activated.id);
@@ -3613,7 +3638,9 @@ export function CommentsSidebar({
         (suggestion) =>
           suggestion.proposalId === proposalId &&
           suggestion.status === "pending" &&
-          (isUnplaceable(suggestion) || staleUnitPieces.has(suggestion.id)),
+          (isUnplaceable(suggestion) ||
+            staleUnitPieces.has(suggestion.id) ||
+            acceptBlocked(suggestion)),
       )}
       canDecide={canDecideSuggestions && !!onDecideSuggestionProposal}
       onDecide={(decision) =>
@@ -3680,6 +3707,7 @@ export function CommentsSidebar({
         hoveredSuggestionId === suggestion.id
       }
       canDecide={canDecideSuggestions}
+      acceptDisabled={acceptBlocked(suggestion)}
       deciding={decidingSuggestion(suggestion.id)}
       onActivate={() => onActivateSuggestion?.(suggestion.id)}
       onMaterialize={onMaterializeDraft}
@@ -3985,7 +4013,10 @@ export function CommentsSidebar({
                 (entry): CommentTabPlacement =>
                   entry.kind === "comment"
                     ? commentThreadPlacement(entry.thread)
-                    : { fieldId: null, fieldName: null },
+                    : {
+                        fieldId: suggestionBlocksFieldId(entry.suggestion),
+                        fieldName: null,
+                      },
               ).map((group) => (
                 <Fragment key={`tab:${group.key}`}>
                   <h3
@@ -4337,6 +4368,39 @@ function changesLayout(removed: string, inserted: string) {
   );
 }
 
+/**
+ * A replacement's change letter by letter, or null when that wouldn't read as
+ * an edit. Changing whole words reads fine, as does a word keeping most of its
+ * letters ("workflow" → "workflows"). Marking part of a word otherwise picks
+ * out letters a different word happens to share: "brown" → "red" would mark
+ * the "ed" after a kept "r", and a rewritten sentence a letter here and there.
+ */
+function letterDiff(removed: string, inserted: string) {
+  const parts = suggestionDiffParts(removed, inserted);
+  if (!parts) return null;
+  const splitsWord = (["delete", "insert"] as const).some((side) => {
+    let previous: (typeof parts)[number] | undefined;
+    for (const part of parts) {
+      if (part.type !== "equal" && part.type !== side) continue;
+      if (
+        previous &&
+        (previous.type === "equal") !== (part.type === "equal") &&
+        WORD_CHARACTER.test(previous.text.slice(-1)) &&
+        WORD_CHARACTER.test(part.text.charAt(0))
+      )
+        return true;
+      previous = part;
+    }
+    return false;
+  });
+  if (!splitsWord) return parts;
+  if (/\s/.test(removed.trim() + inserted.trim())) return null;
+  const kept = parts
+    .filter((part) => part.type === "equal")
+    .reduce((length, part) => length + part.text.length, 0);
+  return kept * 2 > Math.max(removed.length, inserted.length) ? parts : null;
+}
+
 function SuggestionOperationSummary({
   operations,
   expanded,
@@ -4392,12 +4456,9 @@ function SuggestionOperationSummary({
       const diff =
         operation.kind !== "replace_text"
           ? null
-          : !wordLevel
-            ? suggestionDiffParts(previousText, nextText)
-            : // Formatted text can only be read as a whole against its source.
-              richText
-              ? null
-              : reviewUnitDiffParts(previousText, nextText);
+          : (!wordLevel && letterDiff(previousText, nextText)) ||
+            // Formatted text can only be read as a whole against its source.
+            (richText ? null : reviewUnitDiffParts(previousText, nextText));
       const hasSharedContext = diff?.some((part) => part.type === "equal");
       const changed = (type: "delete" | "insert", whole: string) =>
         diff && hasSharedContext
@@ -4502,6 +4563,7 @@ function DraftSuggestionThreadView({
   suggestion,
   isActive,
   canDecide,
+  acceptDisabled,
   deciding,
   onActivate,
   onMaterialize,
@@ -4523,6 +4585,8 @@ function DraftSuggestionThreadView({
   suggestion: DraftSuggestion;
   isActive: boolean;
   canDecide: boolean;
+  /** Accepting needs more access than this person has; rejecting doesn't. */
+  acceptDisabled: boolean;
   deciding: boolean;
   onActivate: () => void;
   onMaterialize?: (
@@ -4614,6 +4678,7 @@ function DraftSuggestionThreadView({
               disabled={
                 isSaving || deciding || (!onDecideDraft && !onMaterialize)
               }
+              acceptDisabled={acceptDisabled}
               onDecide={(decision) => {
                 if (onDecideDraft) {
                   onDecideDraft(suggestion, decision);
@@ -4649,6 +4714,7 @@ function SuggestionThreadView({
   unplaceable,
   canComment,
   canDecide,
+  acceptDisabled,
   deciding,
   onActivate,
   onExpansionChange,
@@ -4683,6 +4749,8 @@ function SuggestionThreadView({
   unplaceable: boolean;
   canComment: boolean;
   canDecide: boolean;
+  /** Accepting needs more access than this person has; rejecting doesn't. */
+  acceptDisabled: boolean;
   deciding: boolean;
   onActivate: () => void;
   onExpansionChange: (expanded: boolean) => void;
@@ -4980,7 +5048,7 @@ function SuggestionThreadView({
           canDecide && suggestion.status === "pending" ? (
             <SuggestionDecisionButtons
               disabled={deciding}
-              acceptDisabled={unplaceable}
+              acceptDisabled={acceptDisabled || unplaceable}
               onDecide={onDecide}
             />
           ) : null

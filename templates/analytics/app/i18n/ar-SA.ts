@@ -1378,11 +1378,16 @@ export default {
     drilldownOverByteCap:
       "قد تقرأ هذه السجلات أكثر من {{gib}} غيغابايت، لذلك لم تُحمَّل. ضيّق عوامل تصفية لوحة المعلومات أو نطاقها الزمني ثم حاول مرة أخرى.",
     filterSeries: "Filter",
+    noXValue: "بلا قيمة",
     chartTimeRangeOverride: "تجاوز النطاق الزمني لهذه الرسمة البيانية",
     chartTimeRangeInherit: "نطاق لوحة المعلومات",
     hide: "Hide",
     show: "Show",
     saveAsView: "حفظ كعرض",
+    unknownTraffic: "غير معروف {{count}}",
+    unknownTrafficUnavailable: "عدد غير المعروف غير متاح",
+    unknownTrafficTip:
+      "أحداث آخر {{days}} يوم بلا مضيف وبلا بيئة معروفة. تُحتسب ضمن الإنتاج.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
