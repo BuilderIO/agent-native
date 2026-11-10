@@ -3696,6 +3696,10 @@ fn await_segmented_capture_readiness(
         if let Some(error) = writer.failure() {
             return Err(error);
         }
+        // A failed segment write won't recover, so fail the start without waiting.
+        if writer.segment_failure().is_some() {
+            break;
+        }
         let progress = writer.segment_progress();
         if progress.has_media() {
             crate::logfile::diagnostic(&format!(
