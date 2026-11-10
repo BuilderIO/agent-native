@@ -831,7 +831,6 @@ const editor = {
     image: "Imagem",
     imageAdded: "Imagem adicionada",
     imageBroken: "Não foi possível carregar a imagem",
-    imageCommentWithAlt: "Imagem: {{alt}}",
     imageCopied: "Imagem copiada.",
     imageDownloadStarted: "O download da imagem foi iniciado.",
     imageLinkHint: "Funciona com qualquer imagem da web",

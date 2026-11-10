@@ -1,12 +1,13 @@
 import { docToNfm, nfmToDoc, type PMNode } from "./nfm";
 
 /**
- * Blocks a comment can point at as a whole, rather than at text in them.
- * Every reader treats these as videos (derived ids, Notion matching, the
- * one-video rule for older threads), so a new type needs its own rules there,
- * not only a place in this list.
+ * Blocks a comment can point at as a whole, rather than at text in them. A
+ * video saves its id in the page; an image or audio clip goes by an id derived
+ * from its file, which nothing writes down. The readers that keep or match
+ * saved ids (Notion matching, the one-video rule for older threads) read only
+ * videos, so a new type needs its own rules there, not only a place here.
  */
-export const COMMENT_ANCHOR_BLOCK_TYPES = ["video"] as const;
+export const COMMENT_ANCHOR_BLOCK_TYPES = ["video", "image", "audio"] as const;
 export type CommentAnchorBlockType =
   (typeof COMMENT_ANCHOR_BLOCK_TYPES)[number];
 
@@ -40,17 +41,32 @@ function hash53(text: string) {
  * tab writes the id down.
  */
 export function derivedVideoBlockId(src: string, occurrence: number) {
-  const hash = hash53(`${occurrence}:${src}`).toString(36);
-  return `video-${hash.padStart(8, "0").slice(-8)}`;
+  return derivedCommentAnchorBlockId("video", src, occurrence);
 }
 
 /**
- * The id each anchorable block goes by, in document order: its saved id, or
- * for a video saved without one, its derived id. A saved id always wins: a
- * video goes by none rather than derive an id another video saved, as one
- * added above a video that got its derived id written down would. `holders`
- * counts the blocks that go by an id. An id more than one block goes by names
- * none of them, since nothing says which one a thread on it meant.
+ * The id a block saved without one goes by: its type, its source and how many
+ * blocks of that type with that source come before it. Images and audio always
+ * go by it, so replacing the file or removing an earlier copy of it moves the
+ * id, and a thread on the block goes with it.
+ */
+export function derivedCommentAnchorBlockId(
+  type: CommentAnchorBlockType,
+  src: string,
+  occurrence: number,
+) {
+  const hash = hash53(`${occurrence}:${src}`).toString(36);
+  return `${type}-${hash.padStart(8, "0").slice(-8)}`;
+}
+
+/**
+ * The id each anchorable block goes by, in document order: a video's saved
+ * id, or for a video saved without one and for every image and audio clip,
+ * its derived id. A saved id always wins: a video goes by none rather than
+ * derive an id another video saved, as one added above a video that got its
+ * derived id written down would. `holders` counts the blocks that go by an
+ * id. An id more than one block goes by names none of them, since nothing says
+ * which one a thread on it meant.
  */
 export function commentAnchorBlockNames<
   Block extends {
@@ -58,17 +74,18 @@ export function commentAnchorBlockNames<
     attrs?: Record<string, unknown> | null | undefined;
   },
 >(blocks: readonly Block[]) {
-  const savedId = ({ attrs }: Block) =>
-    typeof attrs?.blockId === "string" ? attrs.blockId : "";
+  const savedId = ({ type, attrs }: Block) =>
+    type === "video" && typeof attrs?.blockId === "string" ? attrs.blockId : "";
   const savedIds = new Set(blocks.map(savedId));
   const sources = new Map<string, number>();
   const names = blocks.map((block) => {
     const src = typeof block.attrs?.src === "string" ? block.attrs.src : "";
-    const occurrence = sources.get(src) ?? 0;
-    sources.set(src, occurrence + 1);
+    const source = `${block.type}:${src}`;
+    const occurrence = sources.get(source) ?? 0;
+    sources.set(source, occurrence + 1);
     const saved = savedId(block);
     if (saved) return { block, id: saved, saved: true };
-    const derived = derivedVideoBlockId(src, occurrence);
+    const derived = derivedCommentAnchorBlockId(block.type, src, occurrence);
     return { block, id: savedIds.has(derived) ? "" : derived, saved: false };
   });
   const holders = new Map<string, number>();
@@ -102,7 +119,7 @@ const textOf = (node: PMNode | undefined): string =>
 
 function videosIn(root: PMNode) {
   const blocks: {
-    type: CommentAnchorBlockType;
+    type: "video";
     attrs: PMNode["attrs"];
     node: PMNode;
     before: string;
@@ -111,6 +128,7 @@ function videosIn(root: PMNode) {
   const walk = (node: PMNode) =>
     node.content?.forEach((child, index, siblings) => {
       if (!isCommentAnchorBlockType(child.type)) return walk(child);
+      if (child.type !== "video") return;
       blocks.push({
         type: child.type,
         attrs: child.attrs,

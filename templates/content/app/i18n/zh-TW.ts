@@ -665,7 +665,6 @@ const overrides = {
       image: "圖片",
       imageAdded: "圖片已新增",
       imageBroken: "圖片無法載入",
-      imageCommentWithAlt: "圖片：{{alt}}",
       imageCopied: "圖片已複製。",
       imageDownloadStarted: "圖片下載開始。",
       imageLinkHint: "適用於網路上的任何圖片",

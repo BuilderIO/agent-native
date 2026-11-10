@@ -767,7 +767,6 @@ const editor = {
     image: "图片",
     imageAdded: "图片已添加",
     imageBroken: "图片无法加载",
-    imageCommentWithAlt: "图片：{{alt}}",
     imageCopied: "图像已复制。",
     imageDownloadStarted: "图像下载开始。",
     imageLinkHint: "适用于网络上的任何图像",
