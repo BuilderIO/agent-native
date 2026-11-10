@@ -23,9 +23,8 @@ const oauthRow = z.object({
 });
 const tokenRow = z.object({
   client_name: z.string().nullable(),
-  resource: z.string().nullable(),
-  expires_at: timestamp,
-  revoked_at: timestamp,
+  active: z.boolean(),
+  unknown: z.boolean(),
   last_used_at: timestamp,
 });
 const MAX_CONNECTIONS = 200;
@@ -64,12 +63,16 @@ export async function listMcpClientConnections({
       args: [now, owner, now, owner, orgId, ...resources, MAX_CONNECTIONS + 1],
     }),
     db.execute({
-      sql: `SELECT client_name, resource, expires_at, revoked_at, last_used_at
+      sql: `SELECT client_name,
+        COALESCE(BOOL_OR(revoked_at IS NULL AND expires_at > ? AND resource IS NOT NULL), FALSE) AS active,
+        COALESCE(BOOL_OR(revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)
+          AND (expires_at IS NULL OR resource IS NULL)), FALSE) AS unknown,
+        MAX(last_used_at) AS last_used_at
       FROM mcp_connect_tokens
       WHERE LOWER(owner_email) = ? AND org_id IS NOT DISTINCT FROM ? AND kind = 'personal'
         AND (resource IN (?, ?, ?) OR resource IS NULL)
-      ORDER BY created_at DESC, id LIMIT ?`,
-      args: [owner, orgId, ...resources, MAX_CONNECTIONS + 1],
+      GROUP BY client_name ORDER BY client_name LIMIT ?`,
+      args: [now, now, owner, orgId, ...resources, MAX_CONNECTIONS + 1],
     }),
   ]);
   if (
@@ -118,14 +121,11 @@ export async function listMcpClientConnections({
   }
   for (const raw of tokens.rows) {
     const row = tokenRow.parse(raw);
-    const status =
-      row.revoked_at !== null ||
-      (row.expires_at !== null && row.expires_at <= now)
-        ? "disconnected"
-        : row.expires_at === null || row.resource === null
-          ? "unknown"
-          : "connected";
-    add(row.client_name, status, row.last_used_at);
+    add(
+      row.client_name,
+      row.active ? "connected" : row.unknown ? "unknown" : "disconnected",
+      row.last_used_at,
+    );
   }
   return { connections: [...summaries.values()] };
 }

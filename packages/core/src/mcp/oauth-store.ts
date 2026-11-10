@@ -146,6 +146,10 @@ export const mcpOauthStore = defineStore({
         );
       },
     },
+    {
+      name: "client-activity-lookup-index",
+      sql: `CREATE INDEX IF NOT EXISTS mcp_oauth_refresh_activity_idx ON mcp_oauth_refresh_tokens (client_id, LOWER(owner_email), LOWER(issued_for_email), org_id, resource) WHERE revoked_at IS NULL`,
+    },
   ],
 });
 

@@ -158,9 +158,22 @@ describe("external MCP client metadata", () => {
     await expect(read()).rejects.toThrow("database unavailable");
     failRead = false;
     await db.query(
-      "INSERT INTO mcp_connect_tokens SELECT n::TEXT, 'codex', ?, ?, ?, 'personal', ?, ?, NULL, NULL FROM generate_series(1, 201) n",
+      "INSERT INTO mcp_connect_tokens SELECT n::TEXT, n::TEXT, ?, ?, ?, 'personal', ?, ?, NULL, NULL FROM generate_series(1, 201) n",
       [email, orgId, resource, now, now + 60_000],
     );
     await expect(read()).rejects.toThrow("result limit");
+  });
+  it("summarizes historical tokens without losing active status or last use", async () => {
+    await db.query(
+      "INSERT INTO mcp_connect_tokens SELECT n::TEXT, 'codex', ?, ?, ?, 'personal', ?, ?, ?, ? FROM generate_series(1, 201) n",
+      [email, orgId, resource, now, now - 1, now - 1, now - 500],
+    );
+    await token("active", "codex", { expiry: now + 60_000, used: now - 1000 });
+    const { connections } = await read();
+    expect(connections.find((row) => row.client === "codex")).toEqual({
+      client: "codex",
+      status: "connected",
+      lastUsedAt: now - 500,
+    });
   });
 });
