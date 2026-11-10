@@ -2585,14 +2585,23 @@ export function ensurePendingImageUpload(
   return insertImageNodeAtPendingPosition(view, request, { uploadId }, false);
 }
 
+/**
+ * Writes an upload's progress into its block: the uploaded copy, the finished
+ * image or the failure. Undo leaves these alone and takes back the user's own
+ * edits, such as adding or deleting the block, since taking back one step
+ * would bring back an upload that has already moved on.
+ */
 export function commitPendingImageUpload(
   view: EditorView,
   request: PendingImagePicker,
   uploadId: string,
   attrs: Record<string, unknown>,
-  options: { addToHistory?: boolean } = {},
 ) {
-  if (updatePendingMediaNode(view, "image", uploadId, attrs, options))
+  if (
+    updatePendingMediaNode(view, "image", uploadId, attrs, {
+      addToHistory: false,
+    })
+  )
     return true;
   return insertImageNodeAtPendingPosition(view, request, attrs, false);
 }
@@ -2737,7 +2746,7 @@ export async function runImageUpload(
         if (src === null) throw new Error("The image block isn't available.");
         await waitForRenderedImage(
           () => findPendingImageElement(view, uploadId, src),
-          () => closed() || removed(),
+          () => closed() || removed() || Boolean(isBlocked?.()),
         );
       },
       commitAttributes: (src) => {
@@ -2771,17 +2780,12 @@ export async function runImageUpload(
       return { status: "stopped" };
     }
     const failedId = failedImageUploadId(uploadId);
-    // Undo leaves the failure alone: taking it back would bring back an
-    // upload that has already ended, and lose the pick and its Retry.
     const kept =
       hasImageUploadPreview(uploadId) &&
-      commitPendingImageUpload(
-        view,
-        request,
-        uploadId,
-        { src: request.attrs.src ?? null, uploadId: failedId },
-        { addToHistory: false },
-      );
+      commitPendingImageUpload(view, request, uploadId, {
+        src: request.attrs.src ?? null,
+        uploadId: failedId,
+      });
     if (!kept) {
       releaseImageUploadPreview(uploadId);
       restorePendingImagePicker(view, request, uploadId);
