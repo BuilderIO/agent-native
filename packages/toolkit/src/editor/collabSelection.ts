@@ -48,66 +48,59 @@ function isAfterLiveCharacter(
   return !Y.getItem(doc.store, id).deleted;
 }
 
-function positionInBlock(
-  $old: ResolvedPos,
-  blockStart: number,
-  block: ProseMirrorNode,
-) {
-  let pos = blockStart + 1;
-  let node = block;
-  for (let depth = 1; depth < $old.depth; depth += 1) {
-    const index = $old.index(depth);
-    if (index >= node.childCount) return null;
-    for (let child = 0; child < index; child += 1) {
-      pos += node.child(child).nodeSize;
-    }
-    pos += 1;
-    node = node.child(index);
-    if (node.type !== $old.node(depth + 1).type) return null;
+/**
+ * Whether two positions sit in blocks of the same types and attributes, from
+ * the textblock out to the doc. When they don't, the Yjs position landed in a
+ * block whose attributes moved, such as a block id or colour that went with a
+ * moved block. y-tiptap's own recovery matches blocks by those attributes.
+ */
+function sameBlocks($a: ResolvedPos, $b: ResolvedPos) {
+  if ($a.depth !== $b.depth) return false;
+  for (let depth = 1; depth <= $a.depth; depth += 1) {
+    if (!$a.node(depth).sameMarkup($b.node(depth))) return false;
   }
-  if (!node.isTextblock) return null;
-  return pos + Math.min($old.parentOffset, node.content.size);
+  return true;
+}
+
+function textblockPositions(
+  doc: ProseMirrorNode,
+  matches: (node: ProseMirrorNode) => boolean,
+) {
+  const found: number[] = [];
+  doc.descendants((node, pos) => {
+    if (!node.isTextblock) return true;
+    if (matches(node)) found.push(pos);
+    return false;
+  });
+  return found;
 }
 
 /**
- * Finds the cursor's block after a collaborator moved it. y-sync sends a block
- * moved among blocks of the same type as each block's text rewritten in
- * place, and a rewrite keeps the cursor's character when the two texts share
- * it, such as a closing period. So the cursor's old block text must now sit
- * in exactly one block, other than the one the Yjs position landed in.
+ * Finds the cursor's textblock after a collaborator moved it. y-sync can send
+ * a textblock moved among others of the same type as each one's text
+ * rewritten in place, and a rewrite keeps the cursor's character when the two
+ * texts share it, such as a closing period. So the cursor's old textblock,
+ * text and attributes alike, must now sit in exactly one textblock other than
+ * the one the Yjs position landed in.
  */
 function positionInMovedBlock(
   oldDoc: ProseMirrorNode,
   newDoc: ProseMirrorNode,
-  oldPos: number,
-  resolved: number,
+  $old: ResolvedPos,
+  $resolved: ResolvedPos,
 ) {
-  const $old = oldDoc.resolve(oldPos);
-  const $resolved = newDoc.resolve(resolved);
-  if ($old.depth === 0 || $resolved.depth === 0) return null;
-  const block = $old.node(1);
+  const block = $old.parent;
   const text = block.textContent;
   // Sizes first: this runs on every keystroke a collaborator sends.
   const isBlock = (node: ProseMirrorNode) =>
-    node.type === block.type &&
+    node.sameMarkup(block) &&
     node.content.size === block.content.size &&
     node.textContent === text;
-  if (!text || isBlock($resolved.node(1))) return null;
-  let oldCount = 0;
-  oldDoc.forEach((node) => {
-    if (isBlock(node)) oldCount += 1;
-  });
-  const matches: Array<{
-    start: number;
-    index: number;
-    node: ProseMirrorNode;
-  }> = [];
-  newDoc.forEach((node, start, index) => {
-    if (isBlock(node)) matches.push({ start, index, node });
-  });
-  const [match] = matches;
-  if (oldCount !== 1 || matches.length !== 1 || !match) return null;
-  return positionInBlock($old, match.start, match.node);
+  if (!block.isTextblock || !text || isBlock($resolved.parent)) return null;
+  if (textblockPositions(oldDoc, isBlock).length !== 1) return null;
+  const found = textblockPositions(newDoc, isBlock);
+  if (found.length !== 1) return null;
+  return found[0]! + 1 + $old.parentOffset;
 }
 
 function endpointAfterRemoteChange(
@@ -130,7 +123,10 @@ function endpointAfterRemoteChange(
     binding.mapping as never,
   );
   if (resolved === null || resolved > newDoc.content.size) return null;
-  return positionInMovedBlock(oldDoc, newDoc, oldPos, resolved) ?? resolved;
+  const $old = oldDoc.resolve(oldPos);
+  const $resolved = newDoc.resolve(resolved);
+  if (!sameBlocks($old, $resolved)) return null;
+  return positionInMovedBlock(oldDoc, newDoc, $old, $resolved) ?? resolved;
 }
 
 /**
@@ -144,7 +140,8 @@ function endpointAfterRemoteChange(
  *
  * While the character the cursor sat after survives, this plugin puts the
  * cursor back at the Yjs position, unless its block was moved. When that
- * character was deleted, or the cursor sat at the start of a text, it leaves
+ * character was deleted, the cursor sat at the start of a text, or the Yjs
+ * position landed in a block of another type or attributes, it leaves
  * y-tiptap's choice alone.
  */
 export function collabSelectionPlugin(): Plugin {
