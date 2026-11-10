@@ -1539,7 +1539,6 @@ export function AuthPage(props: AuthPageProps) {
       const targetUrl = new URL(url, window.location.origin);
       if (attemptId)
         targetUrl.searchParams.set("builder_signup_attempt", attemptId);
-      targetUrl.searchParams.set("flow_id", flowId);
       window.location.replace(targetUrl.toString());
     };
     try {
