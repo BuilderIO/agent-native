@@ -53,10 +53,15 @@ export class ImagePersistenceError extends Error {
 
 export function waitForRenderedImage(
   findImage: () => HTMLImageElement | null,
+  // Ends the wait early, such as once the image's block is gone, so a drop's
+  // later files don't sit out the timeout behind it.
+  shouldStop?: () => boolean,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     let image: HTMLImageElement | null = null;
     let frame = 0;
+    let stopFrame = 0;
+    let done = false;
     const timeout = window.setTimeout(
       () => finish(false),
       IMAGE_LOAD_TIMEOUT_MS,
@@ -65,6 +70,7 @@ export function waitForRenderedImage(
     function cleanup() {
       window.clearTimeout(timeout);
       window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(stopFrame);
       if (image) {
         image.removeEventListener("load", handleLoad);
         image.removeEventListener("error", handleError);
@@ -72,9 +78,20 @@ export function waitForRenderedImage(
     }
 
     function finish(loaded: boolean) {
+      if (done) return;
+      done = true;
       cleanup();
       if (loaded) resolve();
       else reject(new ImageRenderError());
+    }
+
+    function watchForStop() {
+      if (done) return;
+      if (shouldStop?.()) {
+        finish(false);
+        return;
+      }
+      stopFrame = window.requestAnimationFrame(watchForStop);
     }
 
     function handleLoad() {
@@ -109,6 +126,7 @@ export function waitForRenderedImage(
     }
 
     observe();
+    if (shouldStop) watchForStop();
   });
 }
 

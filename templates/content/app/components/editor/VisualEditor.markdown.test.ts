@@ -4354,6 +4354,44 @@ describe("image upload previews", () => {
     });
   });
 
+  it("settles a Retry waiting on its batch's save when that save throws", async () => {
+    await withMountedEditor(async (editor) => {
+      const second = deferred<string>();
+      const upload = vi
+        .fn<(file: File) => Promise<string>>()
+        .mockRejectedValueOnce(new Error("Network down"))
+        .mockReturnValueOnce(second.promise)
+        .mockResolvedValueOnce(uploadedSrc);
+      const persist = vi.fn(() => Promise.reject(new Error("Offline")));
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(editor.view, [file, file], 0, upload, {
+          persist,
+        });
+      });
+      await act(async () => {
+        await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
+      });
+      const failedId = images(editor)[0]?.attrs?.uploadId;
+      await act(async () => {
+        retryImageUpload(failedId);
+        await vi.waitFor(() =>
+          expect(images(editor)[0]?.attrs?.uploadId).toBeNull(),
+        );
+      });
+
+      await act(async () => {
+        second.resolve(uploadedSrc);
+        await expect(done).resolves.toBeUndefined();
+      });
+      expect(persist).toHaveBeenCalledTimes(1);
+      // The Retry waiting on that save settles too, letting go of its pick.
+      await vi.waitFor(() =>
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1"),
+      );
+    });
+  });
+
   it("uploads none of a batch's waiting files once the editor is blocked", async () => {
     await withMountedEditor(async (editor) => {
       const first = deferred<string>();

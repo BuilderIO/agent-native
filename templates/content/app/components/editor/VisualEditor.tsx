@@ -2726,8 +2726,9 @@ export async function runImageUpload(
       waitForRender: async () => {
         const src = stagedSrc;
         if (src === null) throw new Error("The image block isn't available.");
-        await waitForRenderedImage(() =>
-          findPendingImageElement(view, uploadId, src),
+        await waitForRenderedImage(
+          () => findPendingImageElement(view, uploadId, src),
+          () => closed() || removed(),
         );
       },
       commitAttributes: (src) => {
@@ -3043,7 +3044,15 @@ export async function uploadAndInsertImageFiles(
     reportBatchSave(false);
     return;
   }
-  const saved = !batch.saveOwed || (await persist());
+  // A Retry may wait on this save, so it settles even when the save throws.
+  const saveBatch = async () => {
+    try {
+      return await persist();
+    } catch {
+      return false;
+    }
+  };
+  const saved = !batch.saveOwed || (await saveBatch());
   reportBatchSave(saved);
   if (!saved) {
     toast.error(
