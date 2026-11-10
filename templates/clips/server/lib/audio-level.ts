@@ -651,29 +651,17 @@ export async function ensureRecordingAudioLevel(params: {
       )
       .returning({ videoUrl: schema.recordings.videoUrl });
   } catch (err) {
-    // The update may or may not have landed. Read the row back: only delete
-    // the upload when the row does not point at it.
-    const after = await db
-      .select({ videoUrl: schema.recordings.videoUrl })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, recordingId))
-      .catch(() => null);
-    const live = after ? itemAt(after, 0)?.videoUrl === upload.url : true;
-    if (!live) {
-      await deleteRecordingMediaObjects(
-        { id: recordingId, storageMode: rec.storageMode, videoUrl: upload.url },
-        { protectedUrls: [rec.videoUrl] },
-      ).catch((cleanupErr: unknown) => {
-        console.warn("[audio-level] could not delete the unused upload", {
-          recordingId,
-          url: upload.url,
-          error:
-            cleanupErr instanceof Error
-              ? cleanupErr.message
-              : String(cleanupErr),
-        });
-      });
-    }
+    // The update may still commit after this error, so the upload is never
+    // deleted here: removing media the row ends up pointing at would break
+    // playback. It is logged so an unused copy can be cleaned up later.
+    console.warn(
+      "[audio-level] row update failed; leaving the leveled upload in place",
+      {
+        recordingId,
+        uploadedUrl: upload.url,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
     throw err;
   }
 
