@@ -633,7 +633,7 @@ const fixedCanvasField = z
   .describe(
     "Set true for one fixed canvas with no device breakpoints: fixed " +
       "artwork without device variants named in the original prompt, and " +
-      "follow-ups on an existing fixed canvas. It replaces `devices`, which " +
+      "later edits to an existing fixed canvas. It replaces `devices`, which " +
       "are then listed in `ignoredDevices`. Exact pixels or a platform " +
       "preset in the prompt pin the canvas without it. False or left out " +
       "changes nothing.",
