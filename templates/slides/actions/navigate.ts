@@ -2,7 +2,7 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
-  getCurrentRequestBrowserTabId,
+  getCurrentRequestStateTabId,
   writeAppStateForCurrentTab,
 } from "./_tab-state.js";
 
@@ -71,9 +71,9 @@ export default defineAction({
     if (internalSlideIndex != null) nav.slideIndex = internalSlideIndex;
     nav._writeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     // Without a tab the write lands on a key no editor reads, so it would report success while nothing moves.
-    if (!getCurrentRequestBrowserTabId()) {
+    if (!(await getCurrentRequestStateTabId())) {
       fail(
-        "Nothing was navigated: no browser tab is attached to this request. Open the app in a browser tab and retry.",
+        "Nothing was navigated: no browser tab is attached to this request, and no Slides tab was used in the last 12 hours. Open the app in a browser tab and retry.",
         { errorCode: "no_browser_tab", statusCode: 409 },
       );
     }

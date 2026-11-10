@@ -10,11 +10,22 @@ import { useReviewMarginSlide } from "./review-margin-slide";
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-function Page({ reserved }: { reserved: boolean }) {
+function Page({
+  reserved,
+  panelWidth = 0,
+}: {
+  reserved: boolean;
+  panelWidth?: number;
+}) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const column = useRef<HTMLDivElement>(null);
-  useReviewMarginSlide({ scroller, content, column }, reserved);
+  const panelSpacer = useRef<HTMLDivElement>(null);
+  useReviewMarginSlide(
+    { scroller, content, column, panelSpacer },
+    reserved,
+    panelWidth > 0,
+  );
   return (
     <div ref={scroller} data-scroller>
       <div ref={content} data-content>
@@ -22,6 +33,7 @@ function Page({ reserved }: { reserved: boolean }) {
           <div data-lead />
         </div>
       </div>
+      <div ref={panelSpacer} data-spacer style={{ width: panelWidth }} />
     </div>
   );
 }
@@ -44,8 +56,8 @@ let reducedMotion: boolean;
 let centered: boolean;
 let insetByPadding: ((padding: number) => number) | null;
 
-function render(reserved: boolean) {
-  act(() => root.render(<Page reserved={reserved} />));
+function render(reserved: boolean, panelWidth = 0) {
+  act(() => root.render(<Page reserved={reserved} panelWidth={panelWidth} />));
 }
 
 function scroller() {
@@ -57,6 +69,14 @@ function scroller() {
 function columnPadding(lead: Element) {
   const column = lead.parentElement;
   return column ? parseFloat(getComputedStyle(column).paddingRight) : 0;
+}
+
+function dockedWidth() {
+  return (
+    parseFloat(
+      host.querySelector<HTMLElement>("[data-spacer]")?.style.width ?? "",
+    ) || 0
+  );
 }
 
 /** Where the page's text is drawn now. */
@@ -111,7 +131,9 @@ beforeEach(() => {
       const moved = slides
         .filter((slide) => !slide.over)
         .reduce((sum, slide) => sum + slide.offset, 0);
-      const left = centered ? 640 - columnPadding(this) / 2 : 100;
+      const left = centered
+        ? 640 - (columnPadding(this) + dockedWidth()) / 2
+        : 100;
       return { left: left + moved } as DOMRect;
     },
   );
@@ -203,6 +225,32 @@ describe("useReviewMarginSlide", () => {
     expect(textDrawn()).toBe(before);
     finish(slides[0]);
     expect(textDrawn()).toBe(before - 48);
+  });
+
+  it("slides the page from where it was when the panel docks", () => {
+    render(false);
+    const before = textDrawn();
+    render(false, 380);
+    expect(slides).toHaveLength(1);
+    expect(textDrawn()).toBe(before);
+    finish(slides[0]);
+    expect(textDrawn()).toBe(before - 190);
+  });
+
+  it("moves the page once when the panel docks as the margin leaves", () => {
+    render(true);
+    const before = textDrawn();
+    render(false, 380);
+    expect(slides).toHaveLength(1);
+    expect(textDrawn()).toBe(before);
+    finish(slides[0]);
+    expect(textDrawn()).toBe(before - 30);
+  });
+
+  it("leaves the page alone when the panel covers it", () => {
+    render(false);
+    render(false, 0);
+    expect(slides).toEqual([]);
   });
 
   it("moves the page at once when the reader prefers reduced motion", () => {

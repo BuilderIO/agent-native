@@ -44,6 +44,7 @@ import {
   findReplaceSuggestionSummary,
   suggestionDiffParts,
 } from "@shared/suggestion-diff";
+import { WORD_CHARACTER } from "@shared/suggestion-placement";
 import {
   suggestionAnchorText,
   suggestionTextForDisplay,
@@ -102,9 +103,8 @@ import {
   type CommentAiDraft,
   type CommentAiSubmitPayload,
 } from "./CommentComposer";
-import { CommentEntry } from "./CommentEntry";
+import { AgentAttributionBadge, CommentEntry } from "./CommentEntry";
 import {
-  CommentAgentBadge,
   CommentAvatar,
   CommentIconButton,
   CommentRow,
@@ -731,7 +731,9 @@ export function preserveCommentComposerEscape(event: KeyboardEvent) {
     target.closest("[data-comment-composer], [data-discussion-toolbar]")
   ) {
     event.preventDefault();
+    return true;
   }
+  return false;
 }
 
 type CommentHistoryFilters = {
@@ -893,7 +895,9 @@ export function useCommentReplyDrafts(
     [documentId, accountKey],
   );
   const [openReplies, setOpenReplies] = useState<
-    Record<string, { threadId: string | null; suggestionId: string | null }>
+    Partial<
+      Record<string, { threadId: string | null; suggestionId: string | null }>
+    >
   >({});
   const focus = useRef<{
     documentId: string;
@@ -910,10 +914,18 @@ export function useCommentReplyDrafts(
     ) => {
       focus.current =
         threadId && focusComposer ? { documentId, threadId } : null;
-      setOpenReplies((current) => ({
-        ...current,
-        [documentId]: { threadId, suggestionId },
-      }));
+      // Every click on a page closes its reply, so an unchanged one must keep
+      // this state as it is: a new object re-renders the whole page each click.
+      setOpenReplies((current) => {
+        const open = current[documentId];
+        if (
+          (open?.threadId ?? null) === threadId &&
+          (open?.suggestionId ?? null) === suggestionId
+        ) {
+          return current;
+        }
+        return { ...current, [documentId]: { threadId, suggestionId } };
+      });
     },
     [documentId],
   );
@@ -1136,6 +1148,9 @@ interface CommentsSidebarOptions {
   unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
   focusSuggestionId?: string | null;
   onSuggestionFocused?: () => void;
+  /** Puts the caret in Discussion's composer, for a comment on the whole Page. */
+  focusPageComposer?: boolean;
+  onPageComposerFocused?: () => void;
   hoveredSuggestionId?: string | null;
   anchoredSuggestionIds?: string[] | null;
   onActivateSuggestion?: (id: string) => void;
@@ -1197,6 +1212,7 @@ interface CommentsSidebarOptions {
   /** Whether comment highlights show on the page; the panel can switch them. */
   highlightsVisible?: boolean;
   onHighlightsVisibleChange?: (visible: boolean) => void;
+  pageComposerRef?: RefObject<TiptapComposerHandle | null>;
 }
 
 type CommentsSidebarProps = CommentsSidebarOptions &
@@ -1244,6 +1260,8 @@ export function CommentsSidebar({
   unplaceableSuggestionRevisions,
   focusSuggestionId,
   onSuggestionFocused,
+  focusPageComposer = false,
+  onPageComposerFocused,
   hoveredSuggestionId,
   anchoredSuggestionIds,
   onActivateSuggestion,
@@ -1278,6 +1296,7 @@ export function CommentsSidebar({
   renderThreadActions,
   highlightsVisible = true,
   onHighlightsVisibleChange,
+  pageComposerRef,
 }: CommentsSidebarProps) {
   const surface: CommentSurface =
     surfaceProp ?? (presentation === "history" ? "panel" : "rail");
@@ -1299,7 +1318,9 @@ export function CommentsSidebar({
   const queryClient = useQueryClient();
   const pendingDraft = useCommentDraft("pending");
   const pageDraft = useCommentDraft("page");
-  const pageComposerRef = useRef<TiptapComposerHandle>(null);
+  const ownPageComposerRef = useRef<TiptapComposerHandle>(null);
+  const pageComposerHandleRef = pageComposerRef ?? ownPageComposerRef;
+  const pageComposerBoxRef = useRef<HTMLDivElement>(null);
   const draftStore = useCommentDraftContext();
   const [pendingHandoff, setPendingHandoff] = useState<{
     id: symbol;
@@ -2148,6 +2169,48 @@ export function CommentsSidebar({
       document.removeEventListener("focusin", relinquish);
     };
   }, [pendingFocus, presentation]);
+
+  const onPageComposerFocusedRef = useRef(onPageComposerFocused);
+  onPageComposerFocusedRef.current = onPageComposerFocused;
+  useEffect(() => {
+    if (!focusPageComposer || presentation !== "history") return;
+    let attempts = 0;
+    let frame = 0;
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      cancelAnimationFrame(frame);
+      onPageComposerFocusedRef.current?.();
+    };
+    // The preview and the panel move focus as they open, so a focus change
+    // isn't the person moving on; only their own click or key press elsewhere
+    // drops the request.
+    const relinquish = (event: Event) => {
+      if (!pageComposerBoxRef.current?.contains(event.target as Node)) settle();
+    };
+    document.addEventListener("pointerdown", relinquish, true);
+    document.addEventListener("keydown", relinquish, true);
+    const focusComposer = () => {
+      const box = pageComposerBoxRef.current;
+      if (!box?.contains(document.activeElement))
+        pageComposerHandleRef.current?.focus();
+      // The panel may still be opening, so the composer may not be on screen
+      // yet. A request that never lands is dropped rather than left to take
+      // focus the next time Discussion opens.
+      if (box?.contains(document.activeElement) || ++attempts >= 60) {
+        settle();
+        return;
+      }
+      frame = requestAnimationFrame(focusComposer);
+    };
+    frame = requestAnimationFrame(focusComposer);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("pointerdown", relinquish, true);
+      document.removeEventListener("keydown", relinquish, true);
+    };
+  }, [focusPageComposer, presentation, pageComposerHandleRef]);
 
   // A Clip's thread is saved in Clips; the margin knows it by an id that
   // also names the Clip.
@@ -3948,9 +4011,12 @@ export function CommentsSidebar({
       />
     );
     const composer = canComment ? (
-      <div className="sticky bottom-0 z-10 mt-auto border-t border-border bg-background">
+      <div
+        ref={pageComposerBoxRef}
+        className="sticky bottom-0 z-10 mt-auto border-t border-border bg-background"
+      >
         <DiscussionComposer
-          ref={pageComposerRef}
+          ref={pageComposerHandleRef}
           currentUserEmail={currentUserEmail}
           currentUserName={currentUserName}
           value={pageDraft.draft.text}
@@ -4410,6 +4476,39 @@ function changesLayout(removed: string, inserted: string) {
   );
 }
 
+/**
+ * A replacement's change letter by letter, or null when that wouldn't read as
+ * an edit. Changing whole words reads fine, as does a word keeping most of its
+ * letters ("workflow" → "workflows"). Marking part of a word otherwise picks
+ * out letters a different word happens to share: "brown" → "red" would mark
+ * the "ed" after a kept "r", and a rewritten sentence a letter here and there.
+ */
+function letterDiff(removed: string, inserted: string) {
+  const parts = suggestionDiffParts(removed, inserted);
+  if (!parts) return null;
+  const splitsWord = (["delete", "insert"] as const).some((side) => {
+    let previous: (typeof parts)[number] | undefined;
+    for (const part of parts) {
+      if (part.type !== "equal" && part.type !== side) continue;
+      if (
+        previous &&
+        (previous.type === "equal") !== (part.type === "equal") &&
+        WORD_CHARACTER.test(previous.text.slice(-1)) &&
+        WORD_CHARACTER.test(part.text.charAt(0))
+      )
+        return true;
+      previous = part;
+    }
+    return false;
+  });
+  if (!splitsWord) return parts;
+  if (/\s/.test(removed.trim() + inserted.trim())) return null;
+  const kept = parts
+    .filter((part) => part.type === "equal")
+    .reduce((length, part) => length + part.text.length, 0);
+  return kept * 2 > Math.max(removed.length, inserted.length) ? parts : null;
+}
+
 function SuggestionOperationSummary({
   operations,
   expanded,
@@ -4465,12 +4564,9 @@ function SuggestionOperationSummary({
       const diff =
         operation.kind !== "replace_text"
           ? null
-          : !wordLevel
-            ? suggestionDiffParts(previousText, nextText)
-            : // Formatted text can only be read as a whole against its source.
-              richText
-              ? null
-              : reviewUnitDiffParts(previousText, nextText);
+          : (!wordLevel && letterDiff(previousText, nextText)) ||
+            // Formatted text can only be read as a whole against its source.
+            (richText ? null : reviewUnitDiffParts(previousText, nextText));
       const hasSharedContext = diff?.some((part) => part.type === "equal");
       const changed = (type: "delete" | "insert", whole: string) =>
         diff && hasSharedContext
@@ -5003,22 +5099,15 @@ function SuggestionThreadView({
         renderCommentBadge={(commentId) =>
           commentId === thread.comments[0]?.id &&
           suggestion.actorKind === "agent" ? (
-            <CommentAgentBadge
-              ariaLabel={`${t("comments.aiAttribution", {
-                name: suggestion.authorEmail ?? "",
-              })}. ${t("comments.aiSourceAgent")}`}
-              details={
-                <span className="grid gap-0.5">
-                  <span>
-                    {t("comments.aiAttribution", {
-                      name: suggestion.authorEmail ?? "",
-                    })}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {t("comments.aiSourceAgent")}
-                  </span>
-                </span>
+            <AgentAttributionBadge
+              source={suggestion.authorSource === "mcp" ? "mcp" : "agent"}
+              authorName={
+                suggestion.authorEmail
+                  ? (thread.comments[0]?.author_name ??
+                    suggestion.authorEmail.replace(/@.*$/, ""))
+                  : ""
               }
+              client={suggestion.authorClient}
             />
           ) : null
         }

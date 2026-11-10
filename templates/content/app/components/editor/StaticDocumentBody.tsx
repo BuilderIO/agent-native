@@ -657,7 +657,10 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
 };
 
 /** Node views whose DOM lays out as their `renderHTML` does. */
-export const NODE_VIEWS_LAID_OUT_BY_RENDER_HTML = new Set(["taskItem"]);
+export const NODE_VIEWS_LAID_OUT_BY_RENDER_HTML = new Set([
+  "taskItem",
+  "notionColumn",
+]);
 
 /**
  * Draws a stored body into `target` as the DOM the editor draws for it. Nodes
