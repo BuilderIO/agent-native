@@ -25,7 +25,7 @@ interface HeldPreview {
   running: boolean;
   /** Its uploaded copy is in the page; only the page's save is left. */
   committed: boolean;
-  /** Its block was deleted while it uploaded, so it mustn't come back. */
+  /** Its block was deleted, so its upload mustn't put it back. */
   removed: boolean;
   retry: (() => void) | null;
 }
@@ -195,17 +195,15 @@ export function releaseImageUploadPreviewsFor(owner: object) {
 
 /**
  * The user deleted the block for `uploadId`. A running or queued upload then
- * ends without putting the block back; a failed one has nothing left to show.
+ * ends without putting the block back. A failed one keeps its preview and
+ * Retry, since undo can bring its block back; Remove or closing the editor
+ * lets it go.
  */
 export function noteImageUploadBlockRemoved(uploadId: unknown) {
   const key = previewKey(uploadId);
   const entry = key ? held.get(key) : undefined;
   if (!key || !entry) return;
-  if (entry.running || entry.preview.failure === null) {
-    entry.removed = true;
-    return;
-  }
-  releaseImageUploadPreview(uploadId);
+  entry.removed = true;
 }
 
 export function wasImageUploadBlockRemoved(uploadId: string): boolean {

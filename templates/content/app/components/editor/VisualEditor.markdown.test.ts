@@ -13,6 +13,7 @@ import {
 import { suggestionTextPresentationForSource } from "@shared/suggestion-text";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor, getSchema, type JSONContent } from "@tiptap/core";
+import { closeHistory } from "@tiptap/pm/history";
 import {
   NodeSelection,
   TextSelection,
@@ -4105,6 +4106,58 @@ describe("image upload previews", () => {
         }),
       );
       expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1");
+    });
+  });
+
+  it("brings back a failed block's pick and Retry when its delete is undone", async () => {
+    await withMountedEditor(async (editor) => {
+      const attempts: Array<ReturnType<typeof deferred<string>>> = [];
+      const upload = vi.fn(() => {
+        const attempt = deferred<string>();
+        attempts.push(attempt);
+        return attempt.promise;
+      });
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(editor.view, [file], 0, upload);
+      });
+      await act(async () => {
+        attempts[0]?.reject(new Error("Network down"));
+        await done;
+      });
+      await act(async () => {
+        const { state } = editor.view;
+        const image = state.doc.firstChild;
+        expect(image?.type.name).toBe("image");
+        // A later delete, which undo takes back on its own.
+        editor.view.dispatch(
+          closeHistory(state.tr.delete(0, image?.nodeSize ?? 0)),
+        );
+      });
+      expect(images(editor)).toHaveLength(0);
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+
+      await act(async () => {
+        expect(editor.commands.undo()).toBe(true);
+      });
+      expect(images(editor)[0]?.attrs?.uploadId).toMatch(/^image-failed-/);
+      const dom = editor.view.dom;
+      expect(
+        dom.querySelector("img[data-upload-preview]")?.getAttribute("src"),
+      ).toBe("blob:preview-1");
+      const retry = dom.querySelector<HTMLButtonElement>(
+        ".media-block__upload-failure button",
+      );
+
+      await act(async () => retry?.click());
+      expect(upload).toHaveBeenCalledTimes(2);
+      await act(async () => attempts[1]?.resolve(uploadedSrc));
+      await vi.waitFor(() =>
+        expect(images(editor)[0]?.attrs).toMatchObject({
+          src: uploadedSrc,
+          uploadId: null,
+        }),
+      );
     });
   });
 
