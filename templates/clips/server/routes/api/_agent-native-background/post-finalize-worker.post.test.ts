@@ -1023,6 +1023,32 @@ describe("post-finalize worker", () => {
     );
   });
 
+  it("fails the seekable job when the audio-level retry cannot be dispatched", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "seekable",
+      token: "valid-token",
+    });
+    mockReadyRecordingRow();
+    mockEnsureRecordingSeekable.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "optimized",
+      changed: true,
+    });
+    mockEnsureRecordingAudioLevel.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "skipped-fetch-failed",
+      changed: false,
+    });
+    mockDispatchPostFinalizeJob.mockRejectedValueOnce(
+      new Error("worker unavailable"),
+    );
+
+    await expect(handler({} as Parameters<typeof handler>[0])).rejects.toThrow(
+      "worker unavailable",
+    );
+  });
+
   it("retries transient thumbnail failures with bounded durable delays", async () => {
     mockReadBody.mockResolvedValue({
       recordingId: "rec-1",

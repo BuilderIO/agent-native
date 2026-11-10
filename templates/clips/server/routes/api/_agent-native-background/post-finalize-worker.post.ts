@@ -296,18 +296,9 @@ export default defineEventHandler(async (event: H3Event) => {
         const audioLevelRetryAttempt = isRetryableAudioLevelStatus(
           audioLevel.status,
         )
-          ? await scheduleAudioLevelRetry(recordingId, undefined).catch(
-              (err: unknown) => {
-                console.warn(
-                  "[post-finalize-worker] audio level retry dispatch failed",
-                  {
-                    recordingId,
-                    error: err instanceof Error ? err.message : String(err),
-                  },
-                );
-                return null;
-              },
-            )
+          ? // A failed dispatch throws, so this job fails and is retried
+            // instead of losing the leveling retry. The remux is idempotent.
+            await scheduleAudioLevelRetry(recordingId, undefined)
           : null;
         return {
           ok: true,
