@@ -1012,6 +1012,19 @@ async function completeReadyRecordingBookkeeping(params: {
         error: err instanceof Error ? err.message : String(err),
       });
     });
+    // No seekable job runs for this clip, so level its audio on its own. When
+    // the seekable job does run, it levels the audio after the remux.
+    if (isRemoteProviderUrl(params.videoUrl)) {
+      await dispatchPostFinalizeJob({
+        recordingId: params.id,
+        kind: "audio-level",
+      }).catch((err: unknown) => {
+        console.warn("[finalize] audio level dispatch failed", {
+          id: params.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
   } else {
     if (isRemoteProviderUrl(params.videoUrl)) {
       await markSeekableRepairPending({

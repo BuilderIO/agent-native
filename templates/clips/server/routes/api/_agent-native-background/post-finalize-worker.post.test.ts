@@ -16,6 +16,8 @@ const mockFinalizeRun = vi.hoisted(() => vi.fn());
 const mockFinalizeEndedMeetingsForRecording = vi.hoisted(() => vi.fn());
 const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
 const mockMarkThumbnailFailed = vi.hoisted(() => vi.fn());
+const mockEnsureRecordingSeekable = vi.hoisted(() => vi.fn());
+const mockEnsureRecordingAudioLevel = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
   vi.fn(async () => [{ id: "rec-1" }]),
 );
@@ -98,7 +100,13 @@ vi.mock("../../../../actions/lib/finalize-ended-meetings.js", () => ({
 }));
 
 vi.mock("../../../../actions/lib/ensure-seekable-video.js", () => ({
-  ensureRecordingSeekable: vi.fn(),
+  ensureRecordingSeekable: (...args: unknown[]) =>
+    mockEnsureRecordingSeekable(...args),
+}));
+
+vi.mock("../../../lib/audio-level.js", () => ({
+  ensureRecordingAudioLevel: (...args: unknown[]) =>
+    mockEnsureRecordingAudioLevel(...args),
 }));
 
 vi.mock("../../../lib/ensure-recording-thumbnail.js", () => ({
@@ -831,6 +839,98 @@ describe("post-finalize worker", () => {
       recordingId: "rec-1",
       ownerEmail: "owner@example.test",
     });
+  });
+
+  function mockReadyRecordingRow() {
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "ready",
+            uploadGenerationId: null,
+          },
+        ]),
+      };
+      return builder;
+    });
+  }
+
+  it("levels the audio after the seekable remux in the same job", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "seekable",
+      token: "valid-token",
+    });
+    mockReadyRecordingRow();
+    const order: string[] = [];
+    mockEnsureRecordingSeekable.mockImplementation(async () => {
+      order.push("seekable");
+      return { recordingId: "rec-1", status: "optimized", changed: true };
+    });
+    mockEnsureRecordingAudioLevel.mockImplementation(async () => {
+      order.push("audio-level");
+      return { recordingId: "rec-1", status: "boosted", changed: true };
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "seekable",
+      result: { status: "optimized" },
+      audioLevel: { status: "boosted" },
+    });
+    expect(order).toEqual(["seekable", "audio-level"]);
+    expect(mockEnsureRecordingAudioLevel).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.test",
+    });
+  });
+
+  it("keeps the seekable result when audio leveling throws", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "seekable",
+      token: "valid-token",
+    });
+    mockReadyRecordingRow();
+    mockEnsureRecordingSeekable.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "already-optimized",
+      changed: false,
+    });
+    mockEnsureRecordingAudioLevel.mockRejectedValue(new Error("ffmpeg died"));
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "seekable",
+      result: { status: "already-optimized" },
+      audioLevel: { status: "skipped-measure-failed", detail: "ffmpeg died" },
+    });
+  });
+
+  it("runs a standalone audio-level job for a ready recording", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "audio-level",
+      token: "valid-token",
+    });
+    mockReadyRecordingRow();
+    mockEnsureRecordingAudioLevel.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "already-normal",
+      changed: false,
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "audio-level",
+      result: { status: "already-normal" },
+    });
+    expect(mockEnsureRecordingSeekable).not.toHaveBeenCalled();
   });
 
   it("retries transient thumbnail failures with bounded durable delays", async () => {

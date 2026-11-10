@@ -428,6 +428,37 @@ describe("finalize-recording chunk completeness", () => {
     },
   );
 
+  it.each([
+    [true, "audio-level", "seekable"],
+    [false, "seekable", "audio-level"],
+  ])(
+    "levels audio on its own only when no seekable job runs (seekableApplied=%s)",
+    async (seekableApplied, dispatched, notDispatched) => {
+      mockDeleteAppState.mockResolvedValue(undefined);
+      mockClearSeekableRepairPending.mockResolvedValue(undefined);
+      mockState.uploadState = { seekableApplied };
+      mockState.selectRows = [
+        [
+          {
+            ...mockState.existingRecording,
+            status: "ready",
+            videoUrl: "https://cdn.example.com/rec_1",
+            videoSizeBytes: 2,
+          },
+        ],
+      ];
+
+      await finalizeRecording.run({ id: "rec_1" });
+
+      expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith(
+        expect.objectContaining({ recordingId: "rec_1", kind: dispatched }),
+      );
+      expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalledWith(
+        expect.objectContaining({ kind: notDispatched }),
+      );
+    },
+  );
+
   it("gives the claimed re-finalize a live upload lease", async () => {
     mockState.existingRecording = {
       ...mockState.existingRecording,

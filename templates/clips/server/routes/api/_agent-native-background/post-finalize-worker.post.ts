@@ -22,6 +22,7 @@ import { finalizeEndedMeetingsForRecording } from "../../../../actions/lib/final
 import { runLoomImportJob } from "../../../../actions/lib/loom-import-job.js";
 import requestTranscript from "../../../../actions/request-transcript.js";
 import { getDb, schema } from "../../../db/index.js";
+import { ensureRecordingAudioLevel } from "../../../lib/audio-level.js";
 import {
   ensureRecordingThumbnail,
   isRetryableRecordingThumbnailStatus,
@@ -38,6 +39,7 @@ const bodySchema = z.object({
   kind: z.enum([
     "media-ready",
     "seekable",
+    "audio-level",
     "thumbnail",
     "transcript",
     "brain-export",
@@ -255,6 +257,24 @@ export default defineEventHandler(async (event: H3Event) => {
       }
       if (kind === "seekable") {
         const result = await ensureRecordingSeekable({
+          recordingId,
+          ownerEmail: recording.ownerEmail,
+        });
+        // Level the audio after the remux, in the same job, so the two media
+        // rewrites never race on the same stored object.
+        const audioLevel = await ensureRecordingAudioLevel({
+          recordingId,
+          ownerEmail: recording.ownerEmail,
+        }).catch((err: unknown) => ({
+          recordingId,
+          status: "skipped-measure-failed" as const,
+          changed: false,
+          detail: err instanceof Error ? err.message : String(err),
+        }));
+        return { ok: true, kind, result, audioLevel };
+      }
+      if (kind === "audio-level") {
+        const result = await ensureRecordingAudioLevel({
           recordingId,
           ownerEmail: recording.ownerEmail,
         });
