@@ -189,6 +189,8 @@ export function resolveToolMaxResultChars(
 
 export interface ActionRunContext {
   send?: (event: AgentChatEvent) => void;
+  /** Request a clean empty final after this invocation succeeds. Available only to agent tool calls; does not stop the model or override errors, receipts, or later instructions. */
+  settle?: () => void;
   /**
    * Result cap the agent loop enforces on this call, from
    * `resolveToolMaxResultChars`. Absent outside the agent loop.
