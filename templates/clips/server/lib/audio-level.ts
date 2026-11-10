@@ -547,6 +547,10 @@ export async function ensureRecordingAudioLevel(params: {
     };
   }
 
+  // The leveled file is live at this point. A failed cleanup of the replaced
+  // original does not undo that, so it is reported in the result and the log
+  // instead of turning the run into a failure.
+  let replacedOriginalDeleted = true;
   if (upload.url !== rec.videoUrl) {
     // Own storage hands back a new key, so the quiet original would otherwise
     // stay in the bucket with nothing pointing at it.
@@ -556,15 +560,22 @@ export async function ensureRecordingAudioLevel(params: {
         replacementUrl: upload.url,
       });
     } else {
-      await deleteStoredMediaUrl(rec.videoUrl, {
+      replacedOriginalDeleted = await deleteStoredMediaUrl(rec.videoUrl, {
         recordingId,
         storageMode: rec.storageMode,
       }).catch((err: unknown) => {
-        console.warn("[audio-level] could not delete the replaced media", {
+        console.warn("[audio-level] deleting the replaced media failed", {
           recordingId,
           error: err instanceof Error ? err.message : String(err),
         });
+        return false;
       });
+      if (!replacedOriginalDeleted) {
+        console.warn(
+          "[audio-level] could not confirm deletion of the replaced media",
+          { recordingId, replacedUrl: rec.videoUrl },
+        );
+      }
     }
   }
   await writeMarker({
@@ -587,5 +598,11 @@ export async function ensureRecordingAudioLevel(params: {
     changed: true,
     integratedLufs: leveled.measurement.integratedLufs,
     gainDb: leveled.gainDb,
+    ...(replacedOriginalDeleted
+      ? {}
+      : {
+          detail:
+            "Audio leveled, but deleting the replaced original file could not be confirmed.",
+        }),
   };
 }
