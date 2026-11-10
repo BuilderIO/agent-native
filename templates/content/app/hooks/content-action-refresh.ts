@@ -133,6 +133,47 @@ const DOCUMENT_DISCOVERY_MUTATIONS = new Set([
   "sync-github-folder",
 ]);
 
+/**
+ * Writes from another tab or an agent that change which pages search can find,
+ * or where they sit. They reload the title list even while the menu is open.
+ */
+const SEARCH_PLACEMENT_MUTATIONS = new Set([
+  ...DOCUMENT_DISCOVERY_MUTATIONS,
+  ...DATABASE_LIFECYCLE_MUTATIONS,
+  "add-database-item",
+  "delete-content-database",
+  "delete-document",
+  "duplicate-database-item",
+  "duplicate-database-items",
+  "duplicate-page",
+  "migrate-content-database-rows",
+  "move-document",
+  "remove-database-items",
+  // A restored version can bring back or drop a page's inline collections.
+  "restore-document-version",
+  "set-document-discoverability",
+  // The title list holds only pages the caller can see.
+  "set-resource-visibility",
+  "share-resource",
+  "submit-content-database-form",
+  "undo-content-import",
+  "unshare-resource",
+  "upsert-database-item-by-key",
+]);
+
+/**
+ * Those, plus writes that can rename a page. Body saves arrive as the same
+ * writes, so these only mark a closed menu's titles stale: reloading every
+ * title per keystroke in another tab would cost more than it shows.
+ */
+const SEARCH_TITLE_MUTATIONS = new Set([
+  ...SEARCH_PLACEMENT_MUTATIONS,
+  "patch-database-items",
+  "update-database-item",
+  "update-database-items",
+  "update-document",
+]);
+
 const PREVIEW_DRAFT_MUTATIONS = new Set([
   "resolve-preview-document-draft",
   "update-preview-document-draft",
@@ -427,6 +468,18 @@ export function contentActionInvalidatePredicate(
       )
     ) {
       return true;
+    }
+    if (
+      query.queryKey[0] === "action" &&
+      (query.queryKey[1] === "list-document-titles" ||
+        query.queryKey[1] === "search-documents")
+    ) {
+      return eventsIncludeMutation(
+        events,
+        query.isActive?.() === true
+          ? SEARCH_PLACEMENT_MUTATIONS
+          : SEARCH_TITLE_MUTATIONS,
+      );
     }
     if (
       query.queryKey[0] === "action" &&

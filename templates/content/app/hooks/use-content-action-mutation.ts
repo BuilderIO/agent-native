@@ -20,6 +20,16 @@ type ActionMutationSuccessArgs<TData, TVariables> = Parameters<
 
 export type ContentQueryTarget = QueryKey | QueryFilters;
 
+/**
+ * What search reads: its results and the titles it ranks at once. A write that
+ * changes a page's title or place makes both stale. Same-tab writes don't sync,
+ * so the write names them; the titles then reload when the menu next opens.
+ */
+export const SEARCH_QUERY_KEYS = [
+  ["action", "search-documents"],
+  ["action", "list-document-titles"],
+] as const;
+
 export type ContentMutationInvalidation<TData, TVariables> =
   | readonly ContentQueryTarget[]
   | ((
@@ -281,7 +291,7 @@ export function contentPlacementTargets(
   }: {
     documentIds: readonly string[];
     parentIds?: readonly (string | null)[];
-    databaseId?: string | null;
+    databaseId?: string | null | undefined;
   },
 ): ContentQueryTarget[] {
   const current = branchesListing(queryClient, documentIds);

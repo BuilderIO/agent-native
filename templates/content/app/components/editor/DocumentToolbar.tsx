@@ -107,6 +107,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   contentNavigationBranchFilter,
+  SEARCH_QUERY_KEYS,
   useContentActionMutation,
 } from "@/hooks/use-content-action-mutation";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
@@ -1100,7 +1101,7 @@ export function DocumentToolbar({
   const resolveConflict = useResolveDocumentSyncConflict(documentId);
   const setDocumentDiscoverability = useContentActionMutation(
     "set-document-discoverability",
-    { invalidates: [["action", "search-documents"]] },
+    { invalidates: SEARCH_QUERY_KEYS },
   );
   const exportDocument = useContentActionMutation("export-document", {
     invalidates: [],
