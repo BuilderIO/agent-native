@@ -180,8 +180,15 @@ async function renderPage(Page: ComponentType) {
 
 function groupHint(id: string) {
   return group(id)
-    .querySelector("header [aria-label]")
+    .querySelector("header button[aria-label]")
     ?.getAttribute("aria-label");
+}
+
+/** A group's buttons, leaving out the hint beside its heading. */
+function groupButtons(id: string) {
+  return [...group(id).querySelectorAll("button")].filter(
+    (button) => button.getAttribute("aria-label") !== groupHint(id),
+  );
 }
 
 function group(id: string) {
@@ -420,14 +427,16 @@ describe("Skills page", () => {
 
   it("gives admins an organization Add skill action in its empty state", async () => {
     await renderPage(SkillsSettingsPage);
-    expect(group("organization").querySelector("button")).toBeNull();
+    expect(groupButtons("organization")).toEqual([]);
 
     orgState.value = { orgId: "org-1", orgName: "Acme", role: "owner" };
     await renderPage(SkillsSettingsPage);
     const organization = group("organization");
     expect(organization.textContent).toContain("No shared skills yet");
     // While the group is empty its filling action lives in the empty state.
-    expect(organization.querySelector("header button")).toBeNull();
+    expect(
+      groupButtons("organization").filter((button) => button.closest("header")),
+    ).toEqual([]);
     expect(
       organization.querySelector('[data-slot="empty"] button')?.textContent,
     ).toContain("Add skill");

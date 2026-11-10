@@ -2816,6 +2816,58 @@ description: Meeting notes.
     expect(prompt).not.toContain("The organization's voice.");
   });
 
+  it("keeps a person's same-named skill out when a Required one's lab is off", async () => {
+    const owner = "user@example.test";
+    const candidates = [
+      {
+        id: "gated",
+        owner: "__organization__:org-1",
+        path: "skills/brand-voice/SKILL.md",
+        content: `---
+name: brand-voice
+description: The organization's voice.
+requires-lab: brand.lab
+---
+# brand-voice`,
+      },
+      {
+        id: "renamed",
+        owner,
+        path: "skills/my-voice/SKILL.md",
+        content: `---
+name: brand-voice
+description: My renamed voice.
+---
+# brand-voice`,
+      },
+    ].map((candidate) => ({
+      ...candidate,
+      mimeType: "text/markdown",
+      updatedAt: 1000,
+    }));
+    mocks.resourceListAccessible.mockResolvedValue(
+      candidates.map(({ content: _content, ...resource }) => resource),
+    );
+    mocks.resourceGet.mockImplementation(
+      async (id: string) =>
+        candidates.find((candidate) => candidate.id === id) ?? null,
+    );
+    mocks.readSkillChoices.mockResolvedValue({
+      switches: {},
+      marks: { "organization:skills/brand-voice/SKILL.md": "required" },
+    });
+
+    const prompt = await loadResourcesForPrompt(
+      owner,
+      false,
+      undefined,
+      "org-1",
+    );
+
+    expect(prompt).not.toContain("My renamed voice.");
+    expect(prompt).not.toContain("The organization's voice.");
+  });
+
   it("fails the prompt when skills can't be listed while some are Required", async () => {
     mocks.resourceListAccessible.mockRejectedValue(new Error("list failed"));
     mocks.readSkillChoices.mockResolvedValue({

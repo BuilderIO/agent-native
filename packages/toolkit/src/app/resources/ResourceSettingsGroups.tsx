@@ -496,13 +496,13 @@ function GroupHint({ hint }: { hint: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span
-          tabIndex={0}
+        <button
+          type="button"
           aria-label={hint}
           className="inline-flex items-center rounded text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           <IconInfoCircle className="size-3.5" />
-        </span>
+        </button>
       </TooltipTrigger>
       <TooltipContent className="max-w-xs">{hint}</TooltipContent>
     </Tooltip>
