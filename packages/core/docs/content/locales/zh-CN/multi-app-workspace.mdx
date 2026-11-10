@@ -277,7 +277,7 @@ pnpm dev
 
 The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
-对于运行时应用程序凭据，与手动编辑 `.env` 文件相比，更喜欢使用 DispatchVault。保管库默认为所有应用程序访问，因此每个保存的保管库密钥可供每个工作区应用程序使用，并且可以使用 `sync-vault-to-app` 推送。仅当应用程序需要显式的每密钥授权时，才将保管库切换到手动模式。
+对于运行时应用程序凭据，与手动编辑 `.env` 文件相比，更喜欢使用 DispatchVault。保管库默认为所有应用程序访问，因此每个保存的保管库密钥可供共享同一数据库的每个工作区应用程序使用。仅当应用程序需要显式的每密钥授权时，才将保管库切换到手动模式。
 
 ```text
 my-company-platform/
@@ -449,7 +449,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 工作区图案故意变窄。它故意不处理一些事情：
 
-- **加密凭证保管库。**首选调度保管库来获取运行时应用程序凭证（请参阅 [Shared environment variables](#shared-env)）。非保管库回退路径（直接写入框架 `settings` 表的共享凭证）现在将它们存储为纯文本，因此当您依赖它时，请负责任地轮换。
+- **加密凭证保管库。**首选调度保管库来获取运行时应用程序凭证（请参阅 [Shared environment variables](#shared-env)）。在添加加密之前保存的凭证（框架 `settings` 表中的旧行）会在首次读取时就地加密。
 - **将共享代码发布到私有npm。**共享包仅限`workspace:*`；通过私有注册表进行多存储库共享是可行的，但无法搭建。
 - **固定组件库。** `packages/shared` 是您放置共享组件的位置。该框架不会强制 shadcn/ui 或任何其他系统进入该插槽。
 

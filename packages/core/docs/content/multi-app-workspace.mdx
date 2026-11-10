@@ -295,7 +295,7 @@ See [MCP Clients](/docs/mcp-clients) for the config schema, precedence rules, an
 
 The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
-For runtime app credentials, prefer the Dispatch vault over hand-editing `.env` files. The vault defaults to all-apps access, so every saved vault key is available to every workspace app and can be pushed with `sync-vault-to-app`. Switch the vault to manual mode only when apps need explicit per-key grants.
+For runtime app credentials, prefer the Dispatch vault over hand-editing `.env` files. The vault defaults to all-apps access, so every saved vault key is available to every workspace app that shares its database. Switch the vault to manual mode only when apps need explicit per-key grants.
 
 ```text
 my-company-platform/
@@ -379,7 +379,7 @@ These settings only affect read-only page navigation. Framework tools, agent cha
 
 The workspace pattern is intentionally narrow. A few things it deliberately doesn't handle yet:
 
-- **Encrypted credential vault.** Prefer the Dispatch vault for runtime app credentials (see [Shared environment variables](#shared-env)). The non-vault fallback path — shared credentials written directly to the framework `settings` table — stores them as plain text today, so rotate responsibly when you rely on it.
+- **Encrypted credential vault.** Prefer the Dispatch vault for runtime app credentials (see [Shared environment variables](#shared-env)). Credentials saved before encryption was added (older rows in the framework `settings` table) are encrypted in place the first time they are read.
 - **Publishing shared code to private npm.** The shared package is `workspace:*` only; multi-repo sharing via a private registry is doable but not scaffolded.
 - **Opinionated component library.** `packages/shared` is where _you_ put shared components. The framework doesn't force shadcn/ui or any other system into that slot.
 

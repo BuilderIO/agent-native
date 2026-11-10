@@ -322,7 +322,7 @@ pnpm action db-check-scoping --require-org  # इसके अलावा org_i
 | OAuth टोकन (Google, GitHub)                 | `saveOAuthTokens()` के माध्यम से `oauth_tokens` स्टोर                 |
 | सत्र टोकन                                   | स्वचालित (बेहतर प्रमाणीकरण इसे संभालता है)                            |
 
-प्रति-उपयोगकर्ता/प्रति-संगठन क्रेडेंशियल्स और वॉल्ट AES-256-GCM से एन्क्रिप्ट होते हैं। Shared workspace vault पहले `WORKSPACE_SECRETS_ENCRYPTION_KEY`, फिर `SECRETS_ENCRYPTION_KEY`, `A2A_SECRET` और `BETTER_AUTH_SECRET` से बने legacy candidates उपयोग करता है; rotation में `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` rows को migration तक पढ़ने योग्य रखता है। मौजूदा plaintext rows के लिए `pnpm action db-migrate-encrypt-credentials` (idempotent, non-destructive) चलाएँ।
+प्रति-उपयोगकर्ता/प्रति-संगठन क्रेडेंशियल्स और वॉल्ट AES-256-GCM से एन्क्रिप्ट होते हैं। Dispatch वॉल्ट में plaintext की कोई प्रति नहीं रहती: `vault_secrets` में नाम और metadata रहते हैं, और प्रत्येक मान केवल `app_secrets` में रहता है। Shared workspace vault पहले `WORKSPACE_SECRETS_ENCRYPTION_KEY`, फिर `SECRETS_ENCRYPTION_KEY`, `A2A_SECRET` और `BETTER_AUTH_SECRET` से बने legacy candidates उपयोग करता है; rotation में `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` rows को migration तक पढ़ने योग्य रखता है। एन्क्रिप्शन जोड़ने से पहले सहेजी गई plaintext क्रेडेंशियल rows पहली बार पढ़े जाने पर अपने-आप एन्क्रिप्ट हो जाती हैं; उन सभी को एक साथ एन्क्रिप्ट करने के लिए `pnpm action db-migrate-encrypt-credentials` (idempotent, non-destructive) चलाएँ।
 
 `settings`, `application_state`, स्रोत कोड, या कार्रवाई प्रतिक्रियाओं में कभी भी रहस्य संग्रहीत न करें। उपरोक्त क्रेडेंशियल / वॉल्ट APIs का उपयोग करें - वे एन्क्रिप्शन और प्रति-उपयोगकर्ता स्कोपिंग दोनों को संभालते हैं।
 

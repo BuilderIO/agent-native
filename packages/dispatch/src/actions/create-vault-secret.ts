@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import {
   createSecret,
-  toVaultSecretMetadata,
+  getVaultSecretMetadata,
 } from "../server/lib/vault-store.js";
 
 export default defineAction({
@@ -31,5 +31,5 @@ export default defineAction({
   // call needs the user's approval, and "always allow" is not offered.
   needsApproval: true,
   allowPersistentApproval: false,
-  run: async (args) => toVaultSecretMetadata(await createSecret(args)),
+  run: async (args) => getVaultSecretMetadata(await createSecret(args)),
 });

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   currentOrgId: vi.fn(),
@@ -59,20 +59,26 @@ vi.mock("../../db/index.js", async (importOriginal) => {
   };
 });
 
-import { readAppSecret } from "@agent-native/core/secrets";
-
+import { schema } from "../../db/index.js";
 import {
   assertCanManageVault,
   cleanupSyncedCredentialKeysIfUnused,
+  createSecret,
   credentialStoreScopeForVaultCtx,
-  isTrustedEnvVarSyncAgentUrl,
   getGrant,
+  getVaultSecretMetadata,
   listGrants,
-  resyncVaultSecretsToCredentialStorePage,
-  syncGrantsToApp,
-  syncSecretsToCredentialStore,
-  toVaultSecretMetadata,
+  listVaultSecretMetadata,
+  updateSecret,
 } from "./vault-store.js";
+
+beforeEach(() => {
+  // clearAllMocks keeps implementations, so a rejection set by one test would
+  // leak into the next.
+  mocks.writeAppSecret.mockReset();
+  mocks.readAppSecret.mockReset();
+  mocks.listAppSecretsForScope.mockReset();
+});
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -164,78 +170,311 @@ describe("vault authorization", () => {
   });
 });
 
-describe("toVaultSecretMetadata", () => {
-  it("returns only masked metadata", () => {
-    const metadata = toVaultSecretMetadata({
+describe("vault secret metadata", () => {
+  const row = (overrides: Record<string, unknown> = {}) =>
+    ({
       id: "secret-1",
+      ownerEmail: "admin@example.test",
+      orgId: "org_123",
       name: "Test key",
       credentialKey: "TEST_KEY",
-      value: "sk-test-example",
+      value: "",
       provider: "other",
       description: "Fake test credential",
-      createdBy: "owner@example.test",
+      createdBy: "admin@example.test",
       createdAt: 1,
       updatedAt: 2,
-    } as any);
+      ...overrides,
+    }) as any;
+  const ctx = { ownerEmail: "admin@example.test", orgId: "org_123" };
 
-    expect(metadata).toMatchObject({
-      id: "secret-1",
-      credentialKey: "TEST_KEY",
-      last4: "••••mple",
+  // oracle-change: the vault no longer pushes to apps or re-syncs plaintext, so the tests for syncGrantsToApp, the env-var URL check and the resync page are replaced by single-copy write tests.
+  it("takes the masked preview from the encrypted copy, one read per scope", async () => {
+    mocks.listAppSecretsForScope.mockResolvedValue([
+      { key: "TEST_KEY", last4: "••••mple" },
+      { key: "OTHER_KEY", last4: "••••9999" },
+    ]);
+
+    const metadata = await listVaultSecretMetadata(
+      [row(), row({ id: "secret-2", credentialKey: "OTHER_KEY" })],
+      ctx,
+    );
+
+    expect(mocks.listAppSecretsForScope).toHaveBeenCalledTimes(1);
+    expect(mocks.listAppSecretsForScope).toHaveBeenCalledWith("org", "org_123");
+    expect(metadata.map((m) => m.last4)).toEqual(["••••mple", "••••9999"]);
+    expect(metadata[0]).not.toHaveProperty("value");
+  });
+
+  it("reads each scope separately and leaves a missing copy blank", async () => {
+    mocks.listAppSecretsForScope.mockImplementation(async (scope: string) =>
+      scope === "org" ? [{ key: "TEST_KEY", last4: "••••mple" }] : [],
+    );
+
+    const metadata = await listVaultSecretMetadata(
+      [row(), row({ id: "solo-1", orgId: null, credentialKey: "SOLO_KEY" })],
+      ctx,
+    );
+
+    expect(mocks.listAppSecretsForScope).toHaveBeenCalledTimes(2);
+    expect(metadata.map((m) => m.last4)).toEqual(["••••mple", ""]);
+  });
+
+  it("reads a single preview straight from the credential store", async () => {
+    mocks.readAppSecret.mockResolvedValue({
+      value: "sk-live",
+      last4: "••••live",
     });
-    expect(metadata).not.toHaveProperty("value");
-    expect(JSON.stringify(metadata)).not.toContain("sk-test-example");
+
+    const metadata = await getVaultSecretMetadata(row(), ctx);
+
+    expect(mocks.readAppSecret).toHaveBeenCalledWith({
+      key: "TEST_KEY",
+      scope: "org",
+      scopeId: "org_123",
+    });
+    expect(metadata?.last4).toBe("••••live");
+    expect(JSON.stringify(metadata)).not.toContain("sk-live");
+    expect(await getVaultSecretMetadata(null, ctx)).toBeNull();
   });
 });
 
-describe("isTrustedEnvVarSyncAgentUrl", () => {
-  it("allows localhost development app URLs", () => {
-    expect(isTrustedEnvVarSyncAgentUrl("http://localhost:9201")).toBe(true);
-    expect(isTrustedEnvVarSyncAgentUrl("http://127.0.0.1:9201")).toBe(true);
+describe("vault writes keep the value out of vault_secrets", () => {
+  const admin = "admin@example.test";
+  const existingRow = (overrides: Record<string, unknown> = {}) => ({
+    id: "secret-1",
+    ownerEmail: admin,
+    orgId: "org_123",
+    name: "OpenAI API Key",
+    credentialKey: "OPENAI_API_KEY",
+    value: "",
+    provider: null,
+    description: null,
+    createdBy: admin,
+    createdAt: 1,
+    updatedAt: 2,
+    ...overrides,
   });
 
-  it("allows same-origin workspace app URLs from deploy metadata", () => {
-    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://workspace.example.test");
+  function fakeVaultDb(rows: Array<Record<string, unknown>>) {
+    const writes = {
+      inserted: [] as Array<Record<string, unknown>>,
+      updated: [] as Array<Record<string, unknown>>,
+    };
+    const select: any = {
+      from: () => select,
+      where: () => select,
+      orderBy: () => select,
+      limit: async () => rows,
+    };
+    mocks.getDb.mockReturnValue({
+      select: () => select,
+      insert: (table: unknown) => ({
+        values: async (values: Record<string, unknown>) => {
+          if (table === schema.vaultSecrets) writes.inserted.push(values);
+        },
+      }),
+      update: (table: unknown) => ({
+        set: (values: Record<string, unknown>) => ({
+          where: async () => {
+            if (table === schema.vaultSecrets) writes.updated.push(values);
+          },
+        }),
+      }),
+    });
+    return writes;
+  }
 
-    expect(
-      isTrustedEnvVarSyncAgentUrl("https://workspace.example.test/slides"),
-    ).toBe(true);
+  function actAsOrgAdmin() {
+    mocks.currentOwnerEmail.mockReturnValue(admin);
+    mocks.currentOrgId.mockReturnValue("org_123");
+    mocks.readOrgMemberRole.mockResolvedValue("admin");
+  }
+
+  const orgStore = (key: string) => ({
+    key,
+    scope: "org",
+    scopeId: "org_123",
   });
 
-  it("rejects remote custom agent origins", () => {
-    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://workspace.example.test");
+  it("encrypts a new secret into the credential store and saves an empty vault value", async () => {
+    actAsOrgAdmin();
+    const writes = fakeVaultDb([]);
 
-    expect(isTrustedEnvVarSyncAgentUrl("https://attacker.example.test")).toBe(
-      false,
-    );
-  });
-});
-
-describe("syncSecretsToCredentialStore", () => {
-  it("writes vault secrets into app_secrets without returning values", async () => {
-    const result = await syncSecretsToCredentialStore(
-      [
-        {
-          name: "OpenAI API Key",
-          credentialKey: "OPENAI_API_KEY",
-          value: "sk-test-key",
-        } as any,
-      ],
-      { ownerEmail: "admin@example.test", orgId: "org_123" },
-    );
+    await createSecret({
+      credentialKey: "OPENAI_API_KEY",
+      value: "sk-test-key",
+      name: "OpenAI API Key",
+    });
 
     expect(mocks.writeAppSecret).toHaveBeenCalledWith({
-      key: "OPENAI_API_KEY",
+      ...orgStore("OPENAI_API_KEY"),
       value: "sk-test-key",
-      scope: "org",
-      scopeId: "org_123",
       description: "Synced from Dispatch vault: OpenAI API Key",
     });
-    expect(result).toEqual({
-      scope: "org",
-      scopeId: "org_123",
-      keys: ["OPENAI_API_KEY"],
+    expect(writes.inserted).toHaveLength(1);
+    expect(writes.inserted[0]).toMatchObject({
+      credentialKey: "OPENAI_API_KEY",
+      value: "",
     });
+    expect(JSON.stringify(writes)).not.toContain("sk-test-key");
+    // The value must be stored before the row claims it exists.
+    expect(mocks.writeAppSecret.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.getDb.mock.invocationCallOrder.at(-1)!,
+    );
+  });
+
+  it("saves nothing when the encrypted write fails", async () => {
+    actAsOrgAdmin();
+    const writes = fakeVaultDb([]);
+    mocks.writeAppSecret.mockRejectedValue(new Error("store unavailable"));
+
+    await expect(
+      createSecret({
+        credentialKey: "OPENAI_API_KEY",
+        value: "sk-test-key",
+        name: "OpenAI API Key",
+      }),
+    ).rejects.toThrow("store unavailable");
+
+    expect(writes.inserted).toEqual([]);
+  });
+
+  it("rejects an empty value instead of saving a secret with nothing behind it", async () => {
+    actAsOrgAdmin();
+    const writes = fakeVaultDb([]);
+
+    await expect(
+      createSecret({
+        credentialKey: "OPENAI_API_KEY",
+        value: "",
+        name: "OpenAI API Key",
+      }),
+    ).rejects.toThrow("Secret value is required");
+
+    expect(mocks.writeAppSecret).not.toHaveBeenCalled();
+    expect(writes.inserted).toEqual([]);
+  });
+
+  it("overwrites an existing key's copy and keeps the row's value empty", async () => {
+    actAsOrgAdmin();
+    const writes = fakeVaultDb([existingRow()]);
+
+    await createSecret({
+      credentialKey: "OPENAI_API_KEY",
+      value: "sk-rotated",
+      name: "OpenAI API Key",
+    });
+
+    expect(mocks.writeAppSecret).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...orgStore("OPENAI_API_KEY"),
+        value: "sk-rotated",
+      }),
+    );
+    expect(writes.updated[0]).toMatchObject({ value: "" });
+  });
+
+  it("lets metadata-only edits through on a row that holds no plaintext", async () => {
+    actAsOrgAdmin();
+    const writes = fakeVaultDb([existingRow()]);
+
+    await updateSecret("secret-1", { name: "Renamed", description: "note" });
+
+    expect(mocks.writeAppSecret).not.toHaveBeenCalled();
+    expect(writes.updated[0]).toMatchObject({
+      name: "Renamed",
+      description: "note",
+      value: "",
+    });
+  });
+
+  it("stores a new value from an edit", async () => {
+    actAsOrgAdmin();
+    const writes = fakeVaultDb([existingRow()]);
+
+    await updateSecret("secret-1", { value: "sk-rotated" });
+
+    expect(mocks.writeAppSecret).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...orgStore("OPENAI_API_KEY"),
+        value: "sk-rotated",
+      }),
+    );
+    expect(writes.updated[0]).toMatchObject({ value: "" });
+  });
+
+  it("rejects an explicit empty value on edit", async () => {
+    actAsOrgAdmin();
+    fakeVaultDb([existingRow()]);
+
+    await expect(updateSecret("secret-1", { value: "" })).rejects.toThrow(
+      "Secret value is required",
+    );
+    expect(mocks.writeAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("seals a legacy plaintext row the first time it is edited", async () => {
+    actAsOrgAdmin();
+    const writes = fakeVaultDb([existingRow({ value: "sk-legacy" })]);
+
+    await updateSecret("secret-1", { name: "Renamed" });
+
+    expect(mocks.writeAppSecret).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...orgStore("OPENAI_API_KEY"),
+        value: "sk-legacy",
+      }),
+    );
+    expect(writes.updated[0]).toMatchObject({ value: "" });
+    expect(JSON.stringify(writes)).not.toContain("sk-legacy");
+  });
+
+  it("carries the stored value to the new key on a rename", async () => {
+    actAsOrgAdmin();
+    const writes = fakeVaultDb([existingRow()]);
+    mocks.readAppSecret.mockResolvedValue({
+      value: "sk-stored",
+      last4: "••••ored",
+    });
+
+    await updateSecret("secret-1", { credentialKey: "OPENAI_KEY_V2" });
+
+    expect(mocks.readAppSecret).toHaveBeenCalledWith(
+      orgStore("OPENAI_API_KEY"),
+    );
+    expect(mocks.writeAppSecret).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...orgStore("OPENAI_KEY_V2"),
+        value: "sk-stored",
+      }),
+    );
+    expect(writes.updated[0]).toMatchObject({
+      credentialKey: "OPENAI_KEY_V2",
+      value: "",
+    });
+  });
+
+  it("renames a row with no stored copy without inventing a value", async () => {
+    actAsOrgAdmin();
+    fakeVaultDb([existingRow()]);
+    mocks.readAppSecret.mockResolvedValue(null);
+
+    await updateSecret("secret-1", { credentialKey: "OPENAI_KEY_V2" });
+
+    expect(mocks.writeAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("fails the rename when the stored copy cannot be read", async () => {
+    actAsOrgAdmin();
+    const writes = fakeVaultDb([existingRow()]);
+    mocks.readAppSecret.mockRejectedValue(new Error("cannot decrypt"));
+
+    await expect(
+      updateSecret("secret-1", { credentialKey: "OPENAI_KEY_V2" }),
+    ).rejects.toThrow("cannot decrypt");
+
+    expect(writes.updated).toEqual([]);
   });
 });
 
@@ -317,401 +556,5 @@ describe("cleanupSyncedCredentialKeysIfUnused", () => {
       scope: "org",
       scopeId: "org_123",
     });
-  });
-});
-
-describe("resyncVaultSecretsToCredentialStorePage", () => {
-  function mockVaultSecretsRows(rows: Array<Record<string, unknown>>) {
-    const query = {
-      where: vi.fn(() => query),
-      orderBy: vi.fn(() => query),
-      limit: vi.fn(async (limit: number) => rows.slice(0, limit)),
-    };
-    mocks.getDb.mockReturnValue({ select: () => ({ from: () => query }) });
-    return query;
-  }
-
-  function fakeCredentialStore() {
-    const store = new Map<string, string>();
-    mocks.writeAppSecret.mockImplementation(async (args: any) => {
-      store.set(`${args.scope}:${args.scopeId}:${args.key}`, args.value);
-      return "app-secret-id";
-    });
-    mocks.readAppSecret.mockImplementation(async (ref: any) => {
-      const value = store.get(`${ref.scope}:${ref.scopeId}:${ref.key}`);
-      return value === undefined ? null : { value, updatedAt: Date.now() };
-    });
-    return store;
-  }
-
-  afterEach(() => {
-    mocks.writeAppSecret.mockReset();
-    mocks.readAppSecret.mockReset();
-  });
-
-  it("syncs vault secrets from different tenants into their own credential-store scopes", async () => {
-    fakeCredentialStore();
-    mockVaultSecretsRows([
-      {
-        id: "secret_org",
-        ownerEmail: "admin@example.test",
-        orgId: "org_123",
-        name: "OpenAI API Key",
-        credentialKey: "OPENAI_API_KEY",
-        value: "sk-org-key",
-      },
-      {
-        id: "secret_solo",
-        ownerEmail: "owner@example.test",
-        orgId: null,
-        name: "Personal API Key",
-        credentialKey: "PERSONAL_API_KEY",
-        value: "sk-personal-key",
-      },
-    ]);
-
-    const result = await resyncVaultSecretsToCredentialStorePage();
-
-    expect(result).toEqual({
-      groups: 2,
-      failedGroups: 0,
-      syncedKeys: 2,
-      nextCursor: null,
-    });
-
-    const orgScope = credentialStoreScopeForVaultCtx({
-      ownerEmail: "admin@example.test",
-      orgId: "org_123",
-    });
-    const soloScope = credentialStoreScopeForVaultCtx({
-      ownerEmail: "owner@example.test",
-      orgId: null,
-    });
-
-    await expect(
-      readAppSecret({ key: "OPENAI_API_KEY", ...orgScope }),
-    ).resolves.toMatchObject({ value: "sk-org-key" });
-    await expect(
-      readAppSecret({ key: "PERSONAL_API_KEY", ...soloScope }),
-    ).resolves.toMatchObject({ value: "sk-personal-key" });
-  });
-
-  it("logs and skips a group that fails without blocking the other groups", async () => {
-    const store = fakeCredentialStore();
-    const writeImpl = mocks.writeAppSecret.getMockImplementation();
-    mocks.writeAppSecret.mockImplementation(async (args: any) => {
-      if (args.key === "BROKEN_KEY") {
-        throw new Error("simulated credential-store write failure");
-      }
-      return writeImpl!(args);
-    });
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    mockVaultSecretsRows([
-      {
-        id: "secret_broken",
-        ownerEmail: "admin@broken.test",
-        orgId: "org_broken",
-        name: "Broken Key",
-        credentialKey: "BROKEN_KEY",
-        value: "sk-broken-value",
-      },
-      {
-        id: "secret_solo",
-        ownerEmail: "owner@example.test",
-        orgId: null,
-        name: "Personal API Key",
-        credentialKey: "PERSONAL_API_KEY",
-        value: "sk-personal-key",
-      },
-    ]);
-
-    const result = await resyncVaultSecretsToCredentialStorePage();
-
-    expect(result).toEqual({
-      groups: 2,
-      failedGroups: 1,
-      syncedKeys: 1,
-      nextCursor: null,
-    });
-
-    // The failed org's key never landed in the credential store.
-    expect(store.get("org:org_broken:BROKEN_KEY")).toBeUndefined();
-
-    const soloScope = credentialStoreScopeForVaultCtx({
-      ownerEmail: "owner@example.test",
-      orgId: null,
-    });
-    await expect(
-      readAppSecret({ key: "PERSONAL_API_KEY", ...soloScope }),
-    ).resolves.toMatchObject({ value: "sk-personal-key" });
-
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    const [warnMessage] = warnSpy.mock.calls[0]!;
-    expect(String(warnMessage)).toContain("BROKEN_KEY");
-    expect(String(warnMessage)).not.toContain("sk-broken-value");
-
-    warnSpy.mockRestore();
-  });
-
-  it("rewinds the page cursor before a failed tenant group for retry", async () => {
-    const store = fakeCredentialStore();
-    const writeImpl = mocks.writeAppSecret.getMockImplementation();
-    mocks.writeAppSecret.mockImplementation(async (args: any) => {
-      if (args.key === "BROKEN_KEY") {
-        throw new Error("simulated credential-store write failure");
-      }
-      return writeImpl!(args);
-    });
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    const firstQuery = mockVaultSecretsRows([
-      {
-        id: "secret_a",
-        ownerEmail: "owner@example.test",
-        orgId: null,
-        name: "Working key",
-        credentialKey: "WORKING_KEY",
-        value: "working-value",
-      },
-      {
-        id: "secret_b",
-        ownerEmail: "broken@example.test",
-        orgId: "org_broken",
-        name: "Broken key",
-        credentialKey: "BROKEN_KEY",
-        value: "broken-value",
-      },
-      {
-        id: "secret_c",
-        ownerEmail: "other@example.test",
-        orgId: null,
-        name: "Later key",
-        credentialKey: "LATER_KEY",
-        value: "later-value",
-      },
-    ]);
-
-    const first = await resyncVaultSecretsToCredentialStorePage({ limit: 2 });
-
-    expect(first).toEqual({
-      groups: 2,
-      failedGroups: 1,
-      syncedKeys: 1,
-      nextCursor: "secret_a",
-    });
-    expect(firstQuery.limit).toHaveBeenCalledWith(3);
-    const ownerScope = credentialStoreScopeForVaultCtx({
-      ownerEmail: "owner@example.test",
-      orgId: null,
-    });
-    expect(
-      store.get(`${ownerScope.scope}:${ownerScope.scopeId}:WORKING_KEY`),
-    ).toBe("working-value");
-
-    mocks.writeAppSecret.mockImplementation(writeImpl!);
-    const retryQuery = mockVaultSecretsRows([
-      {
-        id: "secret_b",
-        ownerEmail: "broken@example.test",
-        orgId: "org_broken",
-        name: "Broken key",
-        credentialKey: "BROKEN_KEY",
-        value: "broken-value",
-      },
-      {
-        id: "secret_c",
-        ownerEmail: "other@example.test",
-        orgId: null,
-        name: "Later key",
-        credentialKey: "LATER_KEY",
-        value: "later-value",
-      },
-    ]);
-    const retry = await resyncVaultSecretsToCredentialStorePage({
-      limit: 2,
-      afterId: first.nextCursor!,
-    });
-
-    expect(retry.failedGroups).toBe(0);
-    expect(retry.syncedKeys).toBe(2);
-    expect(retry.nextCursor).toBeNull();
-    expect(retryQuery.where).toHaveBeenCalledOnce();
-    expect(store.get("org:org_broken:BROKEN_KEY")).toBe("broken-value");
-
-    warnSpy.mockRestore();
-  });
-
-  it("limits each tenant-wide pass and resumes after the returned keyset cursor", async () => {
-    fakeCredentialStore();
-    const firstQuery = mockVaultSecretsRows([
-      {
-        id: "secret_a",
-        ownerEmail: "owner@example.test",
-        orgId: null,
-        name: "First key",
-        credentialKey: "FIRST_KEY",
-        value: "first-value",
-      },
-      {
-        id: "secret_b",
-        ownerEmail: "owner@example.test",
-        orgId: null,
-        name: "Second key",
-        credentialKey: "SECOND_KEY",
-        value: "second-value",
-      },
-    ]);
-
-    const first = await resyncVaultSecretsToCredentialStorePage({ limit: 1 });
-    expect(first).toMatchObject({ syncedKeys: 1, nextCursor: "secret_a" });
-    expect(firstQuery.limit).toHaveBeenCalledWith(2);
-
-    const secondQuery = mockVaultSecretsRows([
-      {
-        id: "secret_b",
-        ownerEmail: "owner@example.test",
-        orgId: null,
-        name: "Second key",
-        credentialKey: "SECOND_KEY",
-        value: "second-value",
-      },
-    ]);
-    const second = await resyncVaultSecretsToCredentialStorePage({
-      limit: 1,
-      afterId: first.nextCursor!,
-    });
-    expect(second).toMatchObject({ syncedKeys: 1, nextCursor: null });
-    expect(secondQuery.where).toHaveBeenCalledOnce();
-    expect(secondQuery.limit).toHaveBeenCalledWith(2);
-  });
-});
-
-describe("syncGrantsToApp", () => {
-  function fakeCredentialStore() {
-    const store = new Map<string, string>();
-    mocks.writeAppSecret.mockImplementation(async (args: any) => {
-      store.set(`${args.scope}:${args.scopeId}:${args.key}`, args.value);
-      return "app-secret-id";
-    });
-    return store;
-  }
-
-  function mockWorkspace(
-    caller: { ownerEmail: string; orgId: string | null },
-    secretRows: Array<Record<string, unknown>>,
-  ) {
-    mocks.currentOwnerEmail.mockReturnValue(caller.ownerEmail);
-    mocks.currentOrgId.mockReturnValue(caller.orgId);
-    mocks.readOrgMemberRole.mockResolvedValue("owner");
-    mocks.getOrgSetting.mockResolvedValue(null);
-    mocks.getUserSetting.mockResolvedValue(null);
-    mocks.discoverAgents.mockResolvedValue([
-      { id: "coach", url: "https://coach.example.test" },
-    ]);
-    mocks.getDb.mockReturnValue({
-      select: () => ({
-        from: () => ({
-          where: () => ({ orderBy: async () => secretRows }),
-        }),
-      }),
-      insert: () => ({ values: async () => undefined }),
-    });
-  }
-
-  afterEach(() => {
-    mocks.writeAppSecret.mockReset();
-  });
-
-  // The regression: `all-apps` mode lists secrets across orgs, and syncing them
-  // under the caller's ctx upserts copies of another org's credentials into
-  // whichever org the person clicking Sync happened to be in. Because
-  // writeAppSecret upserts, that copies rather than moves, so credential
-  // material accumulates permanently in the wrong org.
-  it("writes each secret under its own org, not the caller's active org", async () => {
-    const store = fakeCredentialStore();
-    mockWorkspace({ ownerEmail: "clicker@example.test", orgId: "org_caller" }, [
-      {
-        id: "secret_builder",
-        ownerEmail: "admin@example.test",
-        orgId: "org_owner",
-        name: "Academy Site URL",
-        credentialKey: "ACADEMY_CONVEX_SITE_URL",
-        value: "https://academy.example.test",
-      },
-      {
-        id: "secret_solo",
-        ownerEmail: "owner@example.test",
-        orgId: null,
-        name: "Personal API Key",
-        credentialKey: "PERSONAL_API_KEY",
-        value: "sk-test-personal",
-      },
-    ]);
-
-    const result = await syncGrantsToApp("coach");
-
-    expect(store.get("org:org_owner:ACADEMY_CONVEX_SITE_URL")).toBe(
-      "https://academy.example.test",
-    );
-    expect(
-      store.get("workspace:solo:owner@example.test:PERSONAL_API_KEY"),
-    ).toBe("sk-test-personal");
-
-    const callerScoped = [...store.keys()].filter((key) =>
-      key.startsWith("org:org_caller:"),
-    );
-    expect(callerScoped).toEqual([]);
-
-    expect(result.credentialStores).toEqual([
-      { scope: "org", scopeId: "org_owner", synced: 1 },
-      {
-        scope: "workspace",
-        scopeId: "solo:owner@example.test",
-        synced: 1,
-      },
-    ]);
-    expect(result.synced).toBe(2);
-  });
-
-  it("still syncs the caller's own org secrets into that org", async () => {
-    const store = fakeCredentialStore();
-    mockWorkspace({ ownerEmail: "clicker@example.test", orgId: "org_caller" }, [
-      {
-        id: "secret_own",
-        ownerEmail: "clicker@example.test",
-        orgId: "org_caller",
-        name: "Shared API Key",
-        credentialKey: "SHARED_API_KEY",
-        value: "sk-test-shared",
-      },
-    ]);
-
-    const result = await syncGrantsToApp("coach");
-
-    expect(store.get("org:org_caller:SHARED_API_KEY")).toBe("sk-test-shared");
-    expect(result.credentialStores).toEqual([
-      { scope: "org", scopeId: "org_caller", synced: 1 },
-    ]);
-  });
-
-  // A row with no ownerEmail cannot name its own tenant, so the caller's ctx is
-  // the only scope available — the pre-existing ctxForSecretRow fallback.
-  it("falls back to the caller ctx for a secret row with no owner", async () => {
-    const store = fakeCredentialStore();
-    mockWorkspace({ ownerEmail: "clicker@example.test", orgId: "org_caller" }, [
-      {
-        id: "secret_ownerless",
-        ownerEmail: "",
-        orgId: null,
-        name: "Legacy Key",
-        credentialKey: "LEGACY_KEY",
-        value: "sk-test-legacy",
-      },
-    ]);
-
-    await syncGrantsToApp("coach");
-
-    expect(store.get("org:org_caller:LEGACY_KEY")).toBe("sk-test-legacy");
   });
 });

@@ -277,7 +277,7 @@ Dispatch에서는 조직 소유자와 관리자가 설정 › 조직 › 앱에�
 
 The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
-런타임 앱 자격 증명의 경우 `.env` 파일을 직접 편집하는 것보다 Dispatch Vault를 선호합니다. 볼트는 기본적으로 모든 앱 액세스로 설정되어 있으므로 저장된 모든 볼트 키는 모든 작업 공간 앱에서 사용할 수 있으며 `sync-vault-to-app`로 푸시할 수 있습니다. 앱에 명시적인 키별 부여가 필요한 경우에만 Vault를 수동 모드로 전환하세요.
+런타임 앱 자격 증명의 경우 `.env` 파일을 직접 편집하는 것보다 Dispatch Vault를 선호합니다. 볼트는 기본적으로 모든 앱 액세스로 설정되어 있으므로 저장된 모든 볼트 키는 같은 데이터베이스를 공유하는 모든 작업 공간 앱에서 사용할 수 있습니다. 앱에 명시적인 키별 부여가 필요한 경우에만 Vault를 수동 모드로 전환하세요.
 
 ```text
 my-company-platform/
@@ -449,7 +449,7 @@ Workspace 앱은 기본적으로 내부용입니다. 로그인 전용 관리 페
 
 작업 공간 패턴은 의도적으로 좁습니다. 의도적으로 아직 처리하지 않는 몇 가지 사항:
 
-- **암호화된 자격 증명 저장소.** 런타임 앱 자격 증명에는 Dispatch 저장소를 선호합니다([Shared environment variables](#shared-env) 참조). Vault가 아닌 대체 경로(프레임워크 `settings` 테이블에 직접 작성된 공유 자격 증명)는 현재 이를 일반 텍스트로 저장하므로 이에 의존할 때는 책임감 있게 교체하세요.
+- **암호화된 자격 증명 저장소.** 런타임 앱 자격 증명에는 Dispatch 저장소를 선호합니다([Shared environment variables](#shared-env) 참조). 암호화가 추가되기 전에 저장된 자격 증명(프레임워크 `settings` 테이블의 이전 행)은 처음 읽힐 때 제자리에서 암호화됩니다.
 - **비공개 npm에 공유 코드 게시.** 공유 패키지는 `workspace:*` 전용입니다. 개인 레지스트리를 통한 다중 저장소 공유는 가능하지만 스캐폴딩되지는 않습니다.
 - **독립적인 구성 요소 라이브러리.** `packages/shared`는 _당신이_ 공유 구성 요소를 넣는 곳입니다. 프레임워크는 shadcn/ui 또는 다른 시스템을 해당 슬롯에 강제로 삽입하지 않습니다.
 

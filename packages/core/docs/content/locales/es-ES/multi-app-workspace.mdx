@@ -277,7 +277,7 @@ Consulte [MCP Clients](/docs/mcp-clients) para conocer el esquema de configuraci
 
 The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
-Para las credenciales de la aplicación en tiempo de ejecución, prefiera la bóveda de Dispatch a la edición manual de archivos `.env`. La bóveda tiene de forma predeterminada acceso a todas las aplicaciones, por lo que cada clave de bóveda guardada está disponible para todas las aplicaciones del espacio de trabajo y se puede enviar con `sync-vault-to-app`. Cambie la bóveda al modo manual solo cuando las aplicaciones necesiten concesiones explícitas por clave.
+Para las credenciales de la aplicación en tiempo de ejecución, prefiera la bóveda de Dispatch a la edición manual de archivos `.env`. La bóveda tiene de forma predeterminada acceso a todas las aplicaciones, por lo que cada clave de bóveda guardada está disponible para todas las aplicaciones del espacio de trabajo que comparten su base de datos. Cambie la bóveda al modo manual solo cuando las aplicaciones necesiten concesiones explícitas por clave.
 
 ```text
 my-company-platform/
@@ -449,7 +449,7 @@ El paquete compartido en sí nunca se implementa de forma independiente. Es un d
 
 El patrón del espacio de trabajo es intencionalmente estrecho. Algunas cosas que deliberadamente no maneja todavía:
 
-- **Bóveda de credenciales cifradas.** Prefiera la bóveda de Dispatch para las credenciales de la aplicación en tiempo de ejecución (consulte [Shared environment variables](#shared-env)). La ruta alternativa que no es la bóveda (credenciales compartidas escritas directamente en la tabla `settings` del marco) las almacena hoy como texto sin formato, por lo que debe rotarlas de manera responsable cuando confíe en ella.
+- **Bóveda de credenciales cifradas.** Prefiera la bóveda de Dispatch para las credenciales de la aplicación en tiempo de ejecución (consulte [Shared environment variables](#shared-env)). Las credenciales guardadas antes de añadir el cifrado (filas antiguas de la tabla `settings` del marco) se cifran en su lugar la primera vez que se leen.
 - **Publicación de código compartido en npm privado.** El paquete compartido es solo `workspace:*`; Es posible compartir varios repositorios a través de un registro privado, pero no mediante andamios.
 - **Biblioteca de componentes con opinión.** `packages/shared` es donde _usted_ coloca los componentes compartidos. El marco no fuerza a shadcn/ui ni a ningún otro sistema a ingresar en esa ranura.
 

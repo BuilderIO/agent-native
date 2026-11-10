@@ -277,7 +277,7 @@ Informationen zum Konfigurationsschema, zu den Prioritätsregeln und zur Hub-Ein
 
 The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
-Für Laufzeit-App-Anmeldeinformationen bevorzugen Sie den Dispatch-Tresor gegenüber der manuellen Bearbeitung von `.env`-Dateien. Der Tresor ist standardmäßig auf den Zugriff aller Apps eingestellt, sodass jeder gespeicherte Tresorschlüssel für jede Workspace-App verfügbar ist und mit `sync-vault-to-app` übertragen werden kann. Schalten Sie den Tresor nur dann in den manuellen Modus, wenn Apps explizite Gewährung pro Schlüssel benötigen.
+Für Laufzeit-App-Anmeldeinformationen bevorzugen Sie den Dispatch-Tresor gegenüber der manuellen Bearbeitung von `.env`-Dateien. Der Tresor ist standardmäßig auf den Zugriff aller Apps eingestellt, sodass jeder gespeicherte Tresorschlüssel für jede Workspace-App verfügbar ist, die dieselbe Datenbank nutzt. Schalten Sie den Tresor nur dann in den manuellen Modus, wenn Apps explizite Gewährung pro Schlüssel benötigen.
 
 ```text
 my-company-platform/
@@ -449,7 +449,7 @@ Das freigegebene Paket selbst wird niemals eigenständig bereitgestellt. Es hand
 
 Das Arbeitsbereichsmuster ist absichtlich eng. Ein paar Dinge werden bewusst noch nicht behandelt:
 
-- **Verschlüsselter Tresor für Anmeldeinformationen.** Bevorzugen Sie den Dispatch-Tresor für Anmeldeinformationen für Laufzeit-Apps (siehe [Shared environment variables](#shared-env)). Der Nicht-Vault-Fallback-Pfad – gemeinsam genutzte Anmeldeinformationen, die direkt in die `settings`-Tabelle des Frameworks geschrieben werden – speichert sie heute als Klartext. Wechseln Sie daher verantwortungsbewusst, wenn Sie sich darauf verlassen.
+- **Verschlüsselter Tresor für Anmeldeinformationen.** Bevorzugen Sie den Dispatch-Tresor für Anmeldeinformationen für Laufzeit-Apps (siehe [Shared environment variables](#shared-env)). Anmeldeinformationen, die vor der Einführung der Verschlüsselung gespeichert wurden (ältere Zeilen in der `settings`-Tabelle des Frameworks), werden beim ersten Lesen an Ort und Stelle verschlüsselt.
 - **Freigegebenen Code im privaten npm veröffentlichen.** Das freigegebene Paket ist nur `workspace:*`; Die gemeinsame Nutzung mehrerer Repositorys über eine private Registry ist möglich, aber kein Gerüst.
 - **Meinungsorientierte Komponentenbibliothek.** `packages/shared` ist der Ort, an dem _Sie_ gemeinsam genutzte Komponenten ablegen. Das Framework zwingt weder shadcn/ui noch ein anderes System in diesen Steckplatz.
 

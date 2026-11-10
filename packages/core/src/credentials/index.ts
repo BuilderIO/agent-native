@@ -8,10 +8,12 @@ import {
 import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   deleteAppSecret,
+  isDevelopmentProcessOnSharedDatabase,
   isMissingAppSecretsTableError,
   readAppSecret,
   type SecretRef,
 } from "../secrets/storage.js";
+import { captureError } from "../server/capture-error.js";
 import { assertCredentialStoreReadable } from "../server/credential-provider.js";
 import {
   isPersonalCredentialScope,
@@ -23,7 +25,12 @@ import {
   readOrgMemberRole,
 } from "../server/personal-provider-key-policy.js";
 import { getRequestContext } from "../server/request-context.js";
-import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
+import {
+  getSetting,
+  putSetting,
+  deleteSetting,
+  replaceSettingIfValue,
+} from "../settings/store.js";
 
 const SETTING_PREFIX = "credential:";
 
@@ -133,13 +140,47 @@ function orgCredentialSettingKey(orgId: string, key: string): string {
   return `o:${orgId}:${SETTING_PREFIX}${key}`;
 }
 
+const sealAttempted = new Set<string>();
+
+/**
+ * Rows saved before credentials were encrypted still hold plaintext.
+ * Seal one the first time it is read; every later read finds ciphertext. The
+ * swap only lands while the row is unchanged, so a concurrent save wins.
+ */
+async function sealLegacyCredentialSetting(
+  settingKey: string,
+  setting: Record<string, unknown>,
+  plaintext: string,
+): Promise<void> {
+  if (!plaintext || sealAttempted.has(settingKey)) return;
+  // A development process on a shared database holds different key material
+  // than the deployments reading the row; sealing here would lock them out.
+  if (isDevelopmentProcessOnSharedDatabase()) return;
+  sealAttempted.add(settingKey);
+  try {
+    await replaceSettingIfValue(settingKey, setting, {
+      ...setting,
+      value: encryptSecretValue(plaintext),
+    });
+  } catch (error) {
+    // The read already has its value; a failed seal is retried next process.
+    captureError(error, {
+      errorMessagePolicy: "omit",
+      tags: { source: "credentials", op: "seal-legacy-setting" },
+    });
+  }
+}
+
 async function readCredentialSetting(
   settingKey: string,
 ): Promise<string | undefined> {
   const setting = await getSetting(settingKey);
   if (!setting || typeof setting.value !== "string") return undefined;
   const stored = setting.value;
-  if (!isEncryptedSecretValue(stored)) return stored;
+  if (!isEncryptedSecretValue(stored)) {
+    await sealLegacyCredentialSetting(settingKey, setting, stored);
+    return stored;
+  }
   try {
     return decryptSecretValue(stored);
   } catch {

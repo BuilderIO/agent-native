@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import {
   listSecrets,
-  toVaultSecretMetadata,
+  listVaultSecretMetadata,
 } from "../server/lib/vault-store.js";
 
 export default defineAction({
@@ -12,7 +12,6 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
-    const secrets = await listSecrets();
-    return secrets.map(toVaultSecretMetadata);
+    return listVaultSecretMetadata(await listSecrets());
   },
 });

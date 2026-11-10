@@ -319,6 +319,29 @@ export async function deleteSetting(
   return false;
 }
 
+/**
+ * Replace a row's value only while it is still exactly `expected`. Neither the
+ * timestamp nor a change event moves: this re-encodes a value in place, it does
+ * not change what the setting says.
+ */
+export async function replaceSettingIfValue(
+  key: string,
+  expected: Record<string, unknown>,
+  next: Record<string, unknown>,
+): Promise<boolean> {
+  assertNoInlineImageBytes(next, `setting "${key}"`);
+  await ensureTable();
+  const nextRaw = JSON.stringify(next);
+  // raw-sql-ok: the table name is the fixed settingsTable() constant; every value is bound.
+  const result = await getDbExec().execute({
+    sql: `UPDATE ${settingsTable()} SET value = ? WHERE key = ? AND value = ?`,
+    args: [nextRaw, key, JSON.stringify(expected)],
+  });
+  if (result.rowsAffected === 0) return false;
+  requestSettingsCache()?.set(key, nextRaw);
+  return true;
+}
+
 export async function deleteSettingIfValue(
   key: string,
   expected: Record<string, unknown>,
