@@ -897,7 +897,7 @@ describe("data-programs/execute", () => {
       expect(result.stale).toBe(true);
     });
 
-    it("records a failed background run with the message the program threw", async () => {
+    it("records a failed background run and returns its error instead of queueing another", async () => {
       storeMocks.getDataProgram.mockResolvedValue(
         makeProgram({ background: true }),
       );
@@ -914,10 +914,11 @@ describe("data-programs/execute", () => {
         )
         .mockResolvedValueOnce(null);
 
+      const enqueueSandboxExecution = vi.fn().mockResolvedValue({
+        execution: { id: "exec_new" },
+      });
       vi.doMock("../coding-tools/sandbox/index.js", () => ({
-        enqueueSandboxExecution: vi.fn().mockResolvedValue({
-          execution: { id: "exec_new" },
-        }),
+        enqueueSandboxExecution,
         getSandboxExecutionForOwner: vi.fn().mockResolvedValue({
           status: "failed",
           stdout: "",
@@ -927,7 +928,7 @@ describe("data-programs/execute", () => {
       }));
       const { runDataProgram } = await loadExecute();
 
-      await runDataProgram({
+      const result = await runDataProgram({
         programId: PROGRAM_ID,
         ctx: { userEmail: OWNER },
         triggeredBy: "panel_view",
@@ -941,6 +942,14 @@ describe("data-programs/execute", () => {
           errorMessage: "The panels haven't been saved yet",
         }),
       );
+      expect(result).toEqual({
+        ok: false,
+        error: {
+          code: "program_error",
+          message: "The panels haven't been saved yet",
+        },
+      });
+      expect(enqueueSandboxExecution).not.toHaveBeenCalled();
     });
 
     it.each([

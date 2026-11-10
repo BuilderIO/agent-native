@@ -596,6 +596,7 @@ async function runBackgroundProgram(
 
   const active = await getActiveRun(program.id, paramsHash);
   let statusUnknown = false;
+  let finishedFailure: BackgroundRunFailure | null = null;
   if (active?.executionId && args.ctx.userEmail) {
     // A failed check leaves the run for the next read to finish, rather than
     // failing a read the cache can still answer.
@@ -618,7 +619,7 @@ async function runBackgroundProgram(
       execution.status !== "running"
     ) {
       try {
-        await finalizeBackgroundRun(active.id, execution);
+        finishedFailure = await finalizeBackgroundRun(active.id, execution);
       } catch (err) {
         // The run stays queued for the next read to save. Until then the
         // caller gets the failure and the last good rows, not older rows
@@ -642,6 +643,16 @@ async function runBackgroundProgram(
   if (!args.forceRefresh) {
     const cached = await resolveCacheHit(program, paramsHash);
     if (cached) return cached;
+    // Queueing another run behind a failure would report it as pending and
+    // run the broken program again on every read.
+    if (finishedFailure) {
+      return failureWithLastGood(
+        program.id,
+        paramsHash,
+        finishedFailure.code,
+        finishedFailure.message,
+      );
+    }
   }
 
   const stillActive = await getActiveRun(program.id, paramsHash);
@@ -715,6 +726,12 @@ async function runBackgroundProgram(
   );
 }
 
+interface BackgroundRunFailure {
+  code: DataProgramErrorCode;
+  message: string;
+}
+
+/** Saves a finished run. Returns the failure it saved, or null on success. */
 async function finalizeBackgroundRun(
   runId: string,
   execution: {
@@ -724,7 +741,7 @@ async function finalizeBackgroundRun(
     error?: string | null;
     finishedAt?: number | null;
   },
-): Promise<void> {
+): Promise<BackgroundRunFailure | null> {
   // When the program finished, not when a read noticed, so a panel's clock
   // doesn't make the rows look newer than they are.
   const finishedAt = execution.finishedAt ?? Date.now();
@@ -745,7 +762,7 @@ async function finalizeBackgroundRun(
         logsTail: truncateLogs(execution.stdout, execution.stderr),
         finishedAt,
       });
-      return;
+      return null;
     }
     await updateDataProgramRun(runId, {
       status: "failed",
@@ -754,18 +771,22 @@ async function finalizeBackgroundRun(
       logsTail: truncateLogs(execution.stdout, execution.stderr),
       finishedAt,
     });
-    return;
+    return { code: parsed.error.code, message: parsed.error.message };
   }
 
   if (execution.status === "timed_out") {
+    const timedOut: BackgroundRunFailure = {
+      code: "timeout",
+      message: "Background execution timed out.",
+    };
     await updateDataProgramRun(runId, {
       status: "timed_out",
-      errorCode: "timeout",
-      errorMessage: "Background execution timed out.",
+      errorCode: timedOut.code,
+      errorMessage: timedOut.message,
       logsTail: truncateLogs(execution.stdout, execution.stderr),
       finishedAt,
     });
-    return;
+    return timedOut;
   }
 
   // A set `error` means the executor itself failed; otherwise the program
@@ -781,11 +802,15 @@ async function finalizeBackgroundRun(
       execution.error,
     );
   }
+  const failed: BackgroundRunFailure = thrown
+    ? { code: "program_error", message: thrown }
+    : { code: "sandbox_error", message: "Background execution failed." };
   await updateDataProgramRun(runId, {
     status: "failed",
-    errorCode: thrown ? "program_error" : "sandbox_error",
-    errorMessage: thrown ?? "Background execution failed.",
+    errorCode: failed.code,
+    errorMessage: failed.message,
     logsTail: truncateLogs(execution.stdout, execution.stderr),
     finishedAt,
   });
+  return failed;
 }
