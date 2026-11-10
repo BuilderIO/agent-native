@@ -312,19 +312,7 @@ export const AI_RESOLVED_MARK_FADE_MS = 1_600;
  * doesn't, or a result would never go once its card had been clicked.
  */
 function isKeyboardFocus(element: Element) {
-  try {
-    return element.matches(":focus-visible");
-  } catch {
-    return true;
-  }
-}
-
-function isHovered(element: Element) {
-  try {
-    return element.matches(":hover");
-  } catch {
-    return false;
-  }
+  return element.matches(":focus-visible");
 }
 
 /**
@@ -360,7 +348,7 @@ export function useLeftAloneCountdown({
   useLayoutEffect(() => {
     const element = ref.current;
     if (!enabled || !element) return;
-    setHovered(isHovered(element));
+    setHovered(element.matches(":hover"));
     const active = document.activeElement;
     setFocused(
       active && element.contains(active) && isKeyboardFocus(active)

@@ -930,7 +930,8 @@ describe("comment review interactions", () => {
     wait(AI_RESULT_LEFT_ALONE_MS * 3);
     expect(onSelectedThreadChange).not.toHaveBeenCalled();
     render("one", resolved, "inline", { commentAi, onSelectedThreadChange });
-    const card = container.querySelector('[data-thread-card="one"]')!;
+    const card = container.querySelector('[data-thread-card="one"]');
+    if (!card) throw new Error("No result card");
 
     wait(AI_RESULT_LEFT_ALONE_MS - 100);
     expect(onSelectedThreadChange).not.toHaveBeenCalled();
@@ -950,7 +951,8 @@ describe("comment review interactions", () => {
     onSelectedThreadChange.mockClear();
     const done = container.querySelector<HTMLButtonElement>(
       "[data-comment-ai-done]",
-    )!;
+    );
+    if (!done) throw new Error("The result has no Done");
     act(() => done.focus());
     wait(AI_RESULT_LEFT_ALONE_MS * 3);
     expect(onSelectedThreadChange).not.toHaveBeenCalled();
@@ -973,7 +975,8 @@ describe("comment review interactions", () => {
     render(null, resolved, "inline", { commentAi });
     const mark = container.querySelector<HTMLButtonElement>(
       '[data-comment-ai-resolved-mark="one"]',
-    )!;
+    );
+    if (!mark) throw new Error("No Resolved by AI mark");
 
     expect(mark.hasAttribute("data-fading")).toBe(false);
     wait(AI_RESOLVED_MARK_HOLD_MS);
