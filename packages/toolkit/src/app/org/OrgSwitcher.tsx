@@ -787,7 +787,7 @@ export function OrgSwitcher({
             >
               <ResourceIcon
                 value={o.icon}
-                size={14}
+                size={16}
                 resolveImageUrl={(image) =>
                   workspacePrivateIconUrl(o.orgId, image)
                 }
