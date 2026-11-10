@@ -322,6 +322,25 @@ export const agentHarnessSessionsStore = defineStore({
       name: "agent-harness-sessions-run-policy",
       sql: "ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS run_policy TEXT",
     },
+    {
+      // Local runtimes skip legacy v6/v7 and never re-run a recorded baseline.
+      // The injected client keeps a rolled-back caller transaction's catalog
+      // view from marking this done without the columns.
+      name: "agent-harness-sessions-approval-and-expiry-columns",
+      run: async (exec) => {
+        for (const column of [
+          "approval_resolution_id",
+          "expiry_cleanup_id",
+        ] as const) {
+          await ensureColumnExists(
+            "agent_harness_sessions",
+            column,
+            `ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS ${column} TEXT`,
+            { injectedClient: exec },
+          );
+        }
+      },
+    },
   ],
 });
 

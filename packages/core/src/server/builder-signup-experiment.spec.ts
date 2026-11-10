@@ -2,7 +2,9 @@ import { createApp, defineEventHandler } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  appId: "agent-native-clips" as string | undefined,
   enabled: true,
+  experimentId: "design_builder_signup_v1",
   failTerminalWrites: 0,
   waitUntil: undefined as ((work: Promise<unknown>) => void) | undefined,
   override: undefined as boolean | undefined,
@@ -12,8 +14,10 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("../app-config/index.js", () => ({
   getAppConfig: () => ({
+    app: { id: mocks.appId, slug: "clips" },
     onboarding: {
       builderSignupExperiment: mocks.enabled,
+      builderSignupExperimentId: mocks.experimentId,
       builderSignupExperimentOverride: mocks.override,
     },
   }),
@@ -58,7 +62,11 @@ import {
   BUILDER_SIGNUP_POLICY,
   bindBuilderSignupAttempt,
   getBuilderSignupConnectError,
-  createBuilderSignupExperimentHandler,
+  getBuilderSignupTrackingIdentity,
+  createBuilderSignupExperiment,
+  setBuilderSignupVerifiedStarter,
+  startBuilderSignupForVerifiedSession,
+  builderSignupAssignmentCookieName,
   decodeBuilderSignupAssignment,
   encodeBuilderSignupAssignment,
 } from "./builder-signup-experiment.js";
@@ -83,22 +91,26 @@ const signedSession = (): AuthSession => ({
 let session: AuthSession | null;
 let sameOrigin: boolean;
 let activate: ReturnType<typeof vi.fn>;
+let reconcile: ReturnType<typeof vi.fn>;
 function request(body?: unknown, cookie?: string) {
   const app = createApp();
   app.use(
     "/experiment",
-    createBuilderSignupExperimentHandler({
+    createBuilderSignupExperiment({
       getSession: async () => session,
       sameOrigin: () => sameOrigin,
       activate,
-    }),
+      reconcile,
+    }).handler,
   );
   return app.fetch(
     new Request("https://design.example.com/experiment", {
       method: body ? "POST" : "GET",
       headers: {
         "content-type": "application/json",
-        ...(cookie ? { cookie: `an_builder_signup=${cookie}` } : {}),
+        ...(cookie
+          ? { cookie: `${builderSignupAssignmentCookieName()}=${cookie}` }
+          : {}),
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
     }),
@@ -115,19 +127,23 @@ function bindRequest(
   app.use(
     "/bind",
     defineEventHandler(async (event) => ({
-      bound: await bindBuilderSignupAttempt(event, attemptId, method, email),
+      bound: Boolean(
+        await bindBuilderSignupAttempt(event, attemptId, method, email),
+      ),
     })),
   );
   return app.fetch(
     new Request("https://design.example.com/bind", {
-      headers: { cookie: `an_builder_signup=${cookie}` },
+      headers: { cookie: `${builderSignupAssignmentCookieName()}=${cookie}` },
     }),
   );
 }
 
 beforeEach(() => {
   testTime = Date.now();
+  mocks.appId = "agent-native-clips";
   mocks.enabled = true;
+  mocks.experimentId = "design_builder_signup_v1";
   mocks.failTerminalWrites = 0;
   mocks.waitUntil = undefined;
   mocks.override = undefined;
@@ -142,9 +158,111 @@ beforeEach(() => {
   session = null;
   sameOrigin = true;
   activate = vi.fn(async () => ({ ok: true }));
+  reconcile = vi.fn(async () => false);
 });
 
 describe("pre-signup Builder experiment", () => {
+  it("keeps assignment cookie names independent across same-origin apps", async () => {
+    const names = new Set<string>();
+    for (const app of ["design", "clips", "slides"]) {
+      mocks.experimentId = `${app}_builder_signup_v1`;
+      const response = await request();
+      const name = response.headers.getSetCookie()[0]?.split("=")[0];
+      expect(name).toBeTruthy();
+      if (!name) throw new Error("Assignment cookie missing");
+      names.add(name);
+    }
+    expect(names.size).toBe(3);
+    expect(names.has("an_builder_signup")).toBe(true);
+  });
+
+  it.each(["clips", "slides"])(
+    "isolates %s assignments and consent from Design",
+    async (app) => {
+      const designCookie = encodeBuilderSignupAssignment(accepted());
+      mocks.experimentId = `${app}_builder_signup_v1`;
+      const assignment = await (await request(undefined, designCookie)).json();
+      expect(assignment.experimentId).toBe(`${app}_builder_signup_v1`);
+      expect(assignment.acceptedAt).toBeUndefined();
+      session = signedSession();
+      const response = await (
+        await request({ operation: "start" }, designCookie)
+      ).json();
+      expect(response.status).not.toBe("pending");
+      expect(activate).not.toHaveBeenCalled();
+      mocks.settings.set(`${app}_builder_signup_v1:consent:new-user`, {
+        ...accepted(),
+        userId: "new-user",
+        email: "new@example.com",
+      });
+      const appCookie = encodeBuilderSignupAssignment(accepted());
+      const activated = await (
+        await request({ operation: "activate" }, appCookie)
+      ).json();
+      expect(activated.status).toBe("connected");
+      expect(
+        mocks.settings.get(`${app}_builder_signup_v1:new-user`)?.status,
+      ).toBe("connected");
+      expect(mocks.track).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ experiment_id: `${app}_builder_signup_v1` }),
+        expect.anything(),
+      );
+    },
+  );
+
+  it.each([true, false])(
+    "finishes a verified signup callback without a subsequent app request (background=%s)",
+    async (background) => {
+      const works: Promise<unknown>[] = [];
+      if (background)
+        mocks.waitUntil = (work) => {
+          works.push(work);
+        };
+      let finish!: (result: { ok: boolean }) => void;
+      activate.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const experiment = createBuilderSignupExperiment({
+        getSession: async () => null,
+        sameOrigin: () => false,
+        activate,
+        reconcile,
+      });
+      setBuilderSignupVerifiedStarter(experiment.startVerifiedSignup);
+      const server = createApp();
+      server.use(
+        "/callback",
+        defineEventHandler(async (event) => {
+          await startBuilderSignupForVerifiedSession(event, signedSession());
+          return { signedIn: true };
+        }),
+      );
+      const response = server.fetch(
+        new Request("https://design.example.com/callback"),
+      );
+      await vi.waitFor(() => expect(activate).toHaveBeenCalledOnce());
+      if (background)
+        expect(await (await response).json()).toEqual({ signedIn: true });
+      expect(
+        mocks.settings.get("design_builder_signup_v1:new-user")?.status,
+      ).toBe("started");
+      // No frontend hydration, session read, start request, or polling happens.
+      finish({ ok: true });
+      await response;
+      await Promise.all(works);
+      expect(
+        mocks.settings.get("design_builder_signup_v1:new-user")?.status,
+      ).toBe("connected");
+      session = signedSession();
+      await request({ operation: "start" });
+      expect(activate).toHaveBeenCalledOnce();
+    },
+  );
+
   it("starts provisioning on the first request and finishes after the browser stops polling", async () => {
     session = signedSession();
     let finish!: (result: { ok: boolean }) => void;
@@ -229,23 +347,94 @@ describe("pre-signup Builder experiment", () => {
     ).toBe("started");
   });
 
-  it("releases an expired uncertain reservation to manual setup without calling the provider", async () => {
-    session = signedSession();
-    mocks.waitUntil = () => {};
-    mocks.settings.set("design_builder_signup_v1:new-user", {
-      status: "started",
-      startedAt: Date.now() - 61_000,
-      attempt: "original-owner",
+  it.each(["status", "start", "activate"])(
+    "reconciles a completed credential write during %s without re-provisioning",
+    async (operation) => {
+      session = signedSession();
+      mocks.failTerminalWrites = 3;
+      const background: Promise<unknown>[] = [];
+      mocks.waitUntil = (work) => {
+        background.push(work);
+      };
+      expect(await (await request({ operation: "start" })).json()).toEqual({
+        status: "pending",
+      });
+      await Promise.all(background);
+      const key = "design_builder_signup_v1:new-user";
+      const reserved = mocks.settings.get(key);
+      if (!reserved) throw new Error("Reservation missing");
+      mocks.settings.set(key, { ...reserved, startedAt: Date.now() - 61_000 });
+      reconcile.mockResolvedValue(true);
+      const result = await request({ operation });
+      expect(await result.json()).toEqual({
+        status: "connected",
+        code: "connection_reconciled",
+      });
+      expect(activate).toHaveBeenCalledOnce();
+      expect(reconcile).toHaveBeenCalledWith(
+        expect.anything(),
+        session,
+        expect.objectContaining({
+          experimentId: "design_builder_signup_v1",
+          attempt: reserved.attempt,
+        }),
+      );
+      expect(
+        mocks.track.mock.calls.filter(
+          ([name]) => name === "builder_signup_experiment_outcome",
+        ),
+      ).toHaveLength(1);
+      expect(await (await request({ operation: "status" })).json()).toEqual({
+        status: "disabled",
+        code: "already_completed",
+      });
+      expect(
+        mocks.track.mock.calls.filter(
+          ([name]) => name === "builder_signup_experiment_outcome",
+        ),
+      ).toHaveLength(1);
+    },
+  );
+
+  it("preserves the distinct deployment and template provisioning identities", () => {
+    expect(getBuilderSignupTrackingIdentity()).toEqual({
+      agentNativeApp: "agent-native-clips",
+      agentNativeTemplate: "clips",
     });
-    expect(await (await request({ operation: "start" })).json()).toEqual({
-      status: "fallback",
-      code: "activation_result_unknown",
-    });
-    expect(activate).not.toHaveBeenCalled();
-    expect(
-      mocks.settings.get("design_builder_signup_v1:new-user")?.attempt,
-    ).toBe("original-owner");
   });
+
+  it("uses the hosted tracking identity when no app id is configured", () => {
+    mocks.appId = undefined;
+    vi.stubEnv("AGENT_NATIVE_APP", "agent-native-clips");
+    try {
+      expect(getBuilderSignupTrackingIdentity()).toEqual({
+        agentNativeApp: "agent-native-clips",
+        agentNativeTemplate: "clips",
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it.each(["status", "start", "activate"])(
+    "preserves an uncertain reservation during %s without calling the provider",
+    async (operation) => {
+      session = signedSession();
+      mocks.waitUntil = () => {};
+      mocks.settings.set("design_builder_signup_v1:new-user", {
+        status: "started",
+        startedAt: Date.now() - 61_000,
+        attempt: "original-owner",
+      });
+      expect(await (await request({ operation })).json()).toEqual({
+        status: "pending",
+      });
+      expect(activate).not.toHaveBeenCalled();
+      expect(
+        mocks.settings.get("design_builder_signup_v1:new-user")?.attempt,
+      ).toBe("original-owner");
+    },
+  );
 
   it.each([false, true])(
     "does not enroll leftover anonymous assignments on start (background=%s)",
@@ -352,17 +541,26 @@ describe("pre-signup Builder experiment", () => {
     expect(activate).not.toHaveBeenCalled();
     mocks.settings.set("design_builder_signup_v1:new-user", {
       status: "started",
-      startedAt: testTime - 60000,
+      startedAt: testTime - 1000,
     });
     const uncertain = await request({ operation: "status" });
     expect(await uncertain.json()).toEqual({
-      status: "disabled",
-      code: "activation_in_progress",
+      status: "pending",
     });
-    expect(uncertain.headers.get("set-cookie")).toContain(
-      "an_builder_signup_pending=",
-    );
+    expect(uncertain.headers.get("set-cookie")).toBeNull();
+    expect(await (await request({ operation: "start" })).json()).toEqual({
+      status: "pending",
+    });
+    mocks.settings.set("design_builder_signup_v1:new-user", {
+      status: "started",
+      startedAt: testTime - 61000,
+    });
+    expect(await (await request({ operation: "start" })).json()).toEqual({
+      status: "pending",
+    });
     expect(activate).not.toHaveBeenCalled();
+    expect(mocks.track).not.toHaveBeenCalled();
+    mocks.track.mockClear();
     mocks.settings.clear();
     const skipped = await request({ operation: "status" });
     expect(skipped.headers.get("set-cookie")).toContain(
@@ -452,6 +650,24 @@ describe("pre-signup Builder experiment", () => {
       expect(activate).not.toHaveBeenCalled();
     },
   );
+
+  it("does not count an existing password identity as a new enrollment when signup is retried after acceptance", async () => {
+    mocks.settings.clear();
+    const assignment = { ...accepted(), method: "password" as const };
+    mocks.identity.user.createdAt = new Date(testTime - 1500);
+    expect(
+      await (
+        await bindRequest(
+          encodeBuilderSignupAssignment(assignment),
+          ATTEMPT,
+          "password",
+          "new@example.com",
+        )
+      ).json(),
+    ).toEqual({ bound: false });
+    expect(mocks.track).not.toHaveBeenCalled();
+    expect(mocks.settings.size).toBe(0);
+  });
 
   it("links signup enrollment without granting provisioning consent when acceptance is absent", async () => {
     mocks.settings.delete("design_builder_signup_v1:consent:new-user");
@@ -633,31 +849,35 @@ describe("pre-signup Builder experiment", () => {
     expect(activate).not.toHaveBeenCalled();
   });
 
-  it("keeps slow activation pending until its owner records the successful outcome", async () => {
-    session = signedSession();
-    let finish: (value: { ok: boolean }) => void = () => {
-      throw new Error("Activation has not started");
-    };
-    activate.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-    );
-    const cookie = encodeBuilderSignupAssignment(accepted());
-    const first = request({ operation: "activate" }, cookie);
-    await vi.waitFor(() => expect(activate).toHaveBeenCalledTimes(1));
-    const key = "design_builder_signup_v1:new-user";
-    const running = mocks.settings.get(key);
-    if (!running) throw new Error("Reservation missing");
-    mocks.settings.set(key, { ...running, startedAt: Date.now() - 60000 });
-    expect(
-      await (await request({ operation: "activate" }, cookie)).json(),
-    ).toEqual({ status: "pending" });
-    finish({ ok: true });
-    expect(await (await first).json()).toEqual({ status: "connected" });
-    expect(mocks.settings.get(key)?.status).toBe("connected");
-  });
+  it.each([30_000, 61_000])(
+    "preserves a slow provider owner after polling a %i ms reservation",
+    async (age) => {
+      session = signedSession();
+      let finish: (value: { ok: boolean }) => void = () => {
+        throw new Error("Activation has not started");
+      };
+      activate.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const cookie = encodeBuilderSignupAssignment(accepted());
+      const first = request({ operation: "activate" }, cookie);
+      await vi.waitFor(() => expect(activate).toHaveBeenCalledTimes(1));
+      const key = "design_builder_signup_v1:new-user";
+      const running = mocks.settings.get(key);
+      if (!running) throw new Error("Reservation missing");
+      mocks.settings.set(key, { ...running, startedAt: Date.now() - age });
+      expect(
+        await (await request({ operation: "activate" }, cookie)).json(),
+      ).toEqual({ status: "pending" });
+      expect(activate).toHaveBeenCalledOnce();
+      finish({ ok: true });
+      expect(await (await first).json()).toEqual({ status: "connected" });
+      expect(mocks.settings.get(key)?.status).toBe("connected");
+    },
+  );
 
   it("honors a deployment override even when the app opts in", async () => {
     mocks.override = false;
@@ -682,7 +902,7 @@ describe("pre-signup Builder experiment", () => {
     session = signedSession();
     mocks.settings.set("design_builder_signup_v1:new-user", {
       status: "started",
-      startedAt: Date.now() - 60000,
+      startedAt: Date.now() - 1000,
       attempt: "stopped",
     });
     const result = await request(

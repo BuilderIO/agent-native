@@ -5,6 +5,7 @@ import {
   type ActionAuthorize,
   type ActionRunContext,
 } from "../action.js";
+import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { isJsonSchemaObject } from "../json-schema/subschemas.js";
 import {
   plainJsonSnapshot,
@@ -194,6 +195,7 @@ function sameServerConfig(a: McpServerConfig, b: McpServerConfig): boolean {
     return (
       a.url === b.url &&
       JSON.stringify(a.headers ?? {}) === JSON.stringify(b.headers ?? {}) &&
+      a.secretRequestOrigin === b.secretRequestOrigin &&
       a.oauthAccessRefresh?.identity === b.oauthAccessRefresh?.identity &&
       errorIdentity(a.configurationError) ===
         errorIdentity(b.configurationError) &&
@@ -506,6 +508,29 @@ export class McpClientManager {
               ),
             );
         }
+      } else if (cfg.secretRequestOrigin) {
+        requestInit.headers = staticHeaders;
+        transportOptions.fetch = async (
+          input: RequestInfo | URL,
+          init?: RequestInit,
+        ) => {
+          const request = new Request(input, init);
+          const requestOptions: RequestInit & { duplex?: "half" } = {
+            method: request.method,
+            headers: request.headers,
+            body: request.body,
+            signal: request.signal,
+            ...(request.body ? { duplex: "half" as const } : {}),
+          };
+          return ssrfSafeFetch(request.url, requestOptions, {
+            followRedirects: false,
+            assertUrlAllowed: (candidate) => {
+              if (new URL(candidate).origin !== cfg.secretRequestOrigin) {
+                throw new Error("Workspace MCP destination changed origin");
+              }
+            },
+          });
+        };
       } else if (Object.keys(staticHeaders).length > 0) {
         requestInit.headers = staticHeaders;
       }

@@ -3,6 +3,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   BuilderConnectPopover,
@@ -696,8 +697,10 @@ export function ComponentSection({
             refreshAfterInstanceMutation(result);
           }
         },
-        onError: () =>
-          toast.error(t("designEditor.componentInstances.detachFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, {
+            label: t("designEditor.componentInstances.detachFailed"),
+          }),
       },
     );
   };
@@ -734,8 +737,10 @@ export function ComponentSection({
             refreshAfterInstanceMutation(result);
           }
         },
-        onError: () =>
-          toast.error(t("designEditor.componentInstances.swapFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, {
+            label: t("designEditor.componentInstances.swapFailed"),
+          }),
       },
     );
   };

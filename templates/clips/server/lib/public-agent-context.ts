@@ -47,6 +47,7 @@ import { isLoomRecordingSource } from "../../shared/loom.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
+  storedSegmentsUnreadable,
 } from "../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../shared/transcript-status.js";
 import { getDb, schema } from "../db/index.js";
@@ -826,6 +827,12 @@ export function transcriptStatusInstructions(
   if (status === "failed" && failureReason) {
     return [
       `Transcription failed with reason: ${failureReason}. Explain this to the user and suggest retrying native capture or the Builder transcription fallback.`,
+    ];
+  }
+
+  if (storedSegmentsUnreadable(transcript?.segmentsJson)) {
+    return [
+      "The transcript's saved timed lines can't be read. Any segments here are built from its full text, so their times are estimates and speakers are missing. With no full text either, tell the user the transcript couldn't be read, not that the clip has none.",
     ];
   }
 

@@ -6464,7 +6464,12 @@ async function fetchWithTimeout(
     const method = options.method ?? "GET";
     const secretValues = options.secretValues ?? [];
     try {
-      const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
+      const dispatcher = await createSsrfSafeDispatcher();
+      if (!dispatcher) {
+        throw new Error(
+          "SSRF protection is unavailable because the server dispatcher is empty.",
+        );
+      }
       const fetchOptions: RequestInit & { dispatcher?: unknown } = {
         method,
         headers: options.headers,
@@ -6474,27 +6479,19 @@ async function fetchWithTimeout(
           : controller.signal,
         redirect: "manual",
       };
-      if (dispatcher) fetchOptions.dispatcher = dispatcher;
-      try {
-        return await fetchProviderResponse(optionsUrl, fetchOptions, {
-          maxBytes: options.maxBytes,
-          maxResponseBytes: options.maxResponseBytes,
-          secretValues,
-          discardRedirectBody: options.discardRedirectBody,
-        });
-      } catch (error) {
-        if (dispatcher && isDispatcherCompatibilityError(error)) {
-          const fallbackOptions = { ...fetchOptions };
-          delete fallbackOptions.dispatcher;
-          return await fetchProviderResponse(optionsUrl, fallbackOptions, {
-            maxBytes: options.maxBytes,
-            maxResponseBytes: options.maxResponseBytes,
-            secretValues,
-            discardRedirectBody: options.discardRedirectBody,
-          });
-        }
-        throw error;
-      }
+      fetchOptions.dispatcher = dispatcher;
+      return await fetchProviderResponse(optionsUrl, fetchOptions, {
+        ...(options.maxBytes !== undefined
+          ? { maxBytes: options.maxBytes }
+          : {}),
+        ...(options.maxResponseBytes !== undefined
+          ? { maxResponseBytes: options.maxResponseBytes }
+          : {}),
+        secretValues,
+        ...(options.discardRedirectBody !== undefined
+          ? { discardRedirectBody: options.discardRedirectBody }
+          : {}),
+      });
     } catch (error) {
       throw normalizeFetchError(error, {
         method,
@@ -6660,24 +6657,6 @@ async function fetchProviderResponse(
     text: parsed === undefined ? redactedText : undefined,
     json: parsed,
   };
-}
-
-function isDispatcherCompatibilityError(error: unknown): boolean {
-  const err = error as {
-    message?: unknown;
-    cause?: { code?: unknown; message?: unknown };
-  };
-  const code = typeof err?.cause?.code === "string" ? err.cause.code : "";
-  const detail = [
-    typeof err?.message === "string" ? err.message : "",
-    typeof err?.cause?.message === "string" ? err.cause.message : "",
-  ]
-    .join(" ")
-    .toLowerCase();
-  return (
-    code === "UND_ERR_INVALID_ARG" &&
-    detail.includes("invalid onrequeststart method")
-  );
 }
 
 function normalizeFetchError(
