@@ -229,8 +229,6 @@ jobs:
       pull-requests: write
     env:
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL || 'https://plan.agent-native.com' }}
-      PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
-      GH_TOKEN: ${{ github.token }}
       REPOSITORY_ID: ${{ github.repository_id }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_STATE: ${{ github.event.pull_request.state }}
@@ -321,7 +319,7 @@ jobs:
           echo "RECAP_PLAYWRIGHT=$RUNNER_TEMP/recap-cli/node_modules/.bin/playwright" >> "$GITHUB_ENV"
 
       - name: Install OpenAI-compatible provider runtime
-        if: needs.gate.outputs.agent == 'openai-compatible' && steps.cli.outputs.local != 'true'
+        if: needs.gate.outputs.agent != 'claude' && steps.cli.outputs.local != 'true'
         env:
           CORE_CLI_VERSION: ${{ vars.CORE_CLI_VERSION || 'latest' }}
         run: |
@@ -334,6 +332,17 @@ jobs:
           echo "CORE_CLI_VERSION=$CORE_VERSION" >> "$GITHUB_ENV"
           echo "CODE_CLI=$RUNNER_TEMP/recap-code/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
 
+      - name: Verify restricted recap Code runtime
+        if: needs.gate.outputs.agent != 'claude'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/recap-agent-home"
+          HELP="$(env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" $CODE_CLI code --help)"
+          if ! printf '%s\n' "$HELP" | grep -Fqx 'Restricted tool profile: recap-source'; then
+            echo "::error::The installed Code runtime does not support the restricted recap-source tool profile."
+            exit 1
+          fi
+
       - name: Start visual recap check
         id: recap_check
         continue-on-error: true
@@ -343,6 +352,7 @@ jobs:
 
       - name: Fetch pull request head
         env:
+          GH_TOKEN: ${{ github.token }}
           PR_NUMBER_ENV: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
@@ -370,6 +380,8 @@ jobs:
         id: auth_probe
         if: steps.diff.outputs.tiny != 'true'
         continue-on-error: true
+        env:
+          PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
         run: |
           set -uo pipefail
           # A 401 means the app rejected the token; it may be expired, revoked,
@@ -391,6 +403,8 @@ jobs:
         id: route_health
         if: steps.diff.outputs.tiny != 'true'
         continue-on-error: true
+        env:
+          PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
         run: |
           set -uo pipefail
           # Pre-publish health gate: confirm the plan app's recap action routes
@@ -450,6 +464,8 @@ jobs:
         id: prev
         if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true'
         continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           PLAN_ID="$($RECAP_CLI recap comment find-plan-id --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN")"
@@ -496,13 +512,20 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -uo pipefail
-          CLAUDE_ALLOWED_TOOLS="Read,Write,Bash(git diff:*)"
-          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
+          CLAUDE_ALLOWED_TOOLS="Read(./recap.diff),Read(./recap.stat),Read(./recap-blocks.md),Read(./recap-prompt.md),Edit(./recap-source.json)"
+          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --bare --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
           CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5-5}")
           rm -f recap-source.json recap-url.txt recap-url-reason.txt claude-result.json claude-stderr.log
+          for input in recap.diff recap.stat recap-blocks.md recap-prompt.md; do
+            if [ ! -f "$input" ] || [ -L "$input" ]; then
+              echo "::error::Recap agent input is missing or is a symbolic link: $input"
+              exit 1
+            fi
+          done
           run_claude() {
             set +e
-            npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
+            mkdir -p "$RUNNER_TEMP/recap-agent-home"
+            env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
             CLAUDE_STATUS="$?"
             set -e
             echo "$CLAUDE_STATUS" > claude-exit-code.txt
@@ -527,33 +550,22 @@ jobs:
         continue-on-error: true
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AGENT_ENGINE: ai-sdk:openai
+          AGENT_MODEL: ${{ vars.VISUAL_RECAP_MODEL || 'gpt-5.6-sol' }}
+          AGENT_NATIVE_CODE_TOOL_PROFILE: recap-source
+          AGENT_NATIVE_CODE_USAGE_FILE: codex-usage.json
         run: |
           set -uo pipefail
-          # `codex login` writes ~/.codex/auth.json (the bare env var is dropped on
-          # the gpt-5.5 wss transport); stdin keeps the key out of process args.
-          printenv OPENAI_API_KEY | npx -y @openai/codex@0 login --with-api-key || true
-          # The runner is itself an ephemeral sandbox; bypass Codex's own sandbox
-          # (bubblewrap can't init here) and approval gate (cancels the MCP write).
-          CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check)
-          if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CODEX_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
-          # Validate reasoning against the enum before embedding it in the TOML override.
-          case "${VISUAL_RECAP_REASONING:-}" in
-            none|minimal|low|medium|high|xhigh)
-              CODEX_ARGS+=(-c "model_reasoning_effort=\"$VISUAL_RECAP_REASONING\"") ;;
-            "") ;;
-            *) echo "Ignoring invalid VISUAL_RECAP_REASONING: $VISUAL_RECAP_REASONING" ;;
-          esac
-          rm -f recap-source.json recap-url.txt recap-url-reason.txt codex-events.jsonl codex-stderr.log
+          rm -f recap-source.json codex-events.jsonl codex-stderr.log codex-usage.json
           run_codex() {
             set +e
-            npx -y @openai/codex@0 "${CODEX_ARGS[@]}" --json "$(cat recap-prompt.md)" 2> codex-stderr.log | tee codex-events.jsonl
-            CODEX_STATUS="${PIPESTATUS[0]}"
+            mkdir -p "$RUNNER_TEMP/recap-agent-home"
+            env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > codex-events.jsonl 2> codex-stderr.log
+            CODEX_STATUS="$?"
             set -e
             echo "$CODEX_STATUS" > codex-exit-code.txt
           }
           run_codex
-          # Retry once if the agent exited without writing recap-source.json
-          # (see the Claude step) — the publisher needs that file.
           if [ ! -s recap-source.json ]; then
             if grep -Eiq -- 'quota exceeded|billing details|insufficient (credits|quota)|rate[-_ ]limit|invalid (api )?key|authentication (failed|error)|unauthorized|forbidden' codex-events.jsonl codex-stderr.log 2>/dev/null; then
               echo "::error::Visual recap agent failed with a non-retryable provider error; skipping the duplicate retry."
@@ -580,7 +592,8 @@ jobs:
           rm -f recap-source.json recap-url.txt recap-url-reason.txt openai-compatible-result.txt openai-compatible-usage.json openai-compatible-stderr.log
           run_openai_compatible() {
             set +e
-            $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
+            mkdir -p "$RUNNER_TEMP/recap-agent-home"
+            env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
             OPENAI_COMPATIBLE_STATUS="$?"
             set -e
             echo "$OPENAI_COMPATIBLE_STATUS" > openai-compatible-exit-code.txt
@@ -637,6 +650,8 @@ jobs:
         id: publish
         if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true' && steps.source_status.outputs.ready == 'true'
         continue-on-error: true
+        env:
+          PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
         run: |
           set -uo pipefail
           ARGS=(--source recap-source.json --out recap-url.txt --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN")
@@ -667,12 +682,19 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -uo pipefail
-          CLAUDE_ALLOWED_TOOLS="Read,Write"
-          CLAUDE_ARGS=(-p "$(cat recap-repair-prompt.md)" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
+          CLAUDE_ALLOWED_TOOLS="Read(./recap-source.initial.json),Read(./recap-source.json),Read(./recap-url-reason.txt),Read(./recap-repair-prompt.md),Edit(./recap-source.json)"
+          CLAUDE_ARGS=(-p "$(cat recap-repair-prompt.md)" --bare --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
           CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5-5}")
           rm -f claude-repair-result.json claude-repair-stderr.log
+          for input in recap-source.initial.json recap-source.json recap-url-reason.txt recap-repair-prompt.md; do
+            if [ ! -f "$input" ] || [ -L "$input" ]; then
+              echo "::error::Recap repair input is missing or is a symbolic link: $input"
+              exit 1
+            fi
+          done
           set +e
-          npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-repair-result.json 2> claude-repair-stderr.log
+          mkdir -p "$RUNNER_TEMP/recap-agent-home"
+          env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-repair-result.json 2> claude-repair-stderr.log
           CLAUDE_REPAIR_STATUS="$?"
           set -e
           echo "$CLAUDE_REPAIR_STATUS" > claude-repair-exit-code.txt
@@ -684,24 +706,23 @@ jobs:
         continue-on-error: true
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AGENT_ENGINE: ai-sdk:openai
+          AGENT_MODEL: ${{ vars.VISUAL_RECAP_MODEL || 'gpt-5.6-sol' }}
+          AGENT_NATIVE_CODE_TOOL_PROFILE: recap-source
+          AGENT_NATIVE_CODE_USAGE_FILE: codex-repair-usage.json
         run: |
           set -uo pipefail
-          printenv OPENAI_API_KEY | npx -y @openai/codex@0 login --with-api-key || true
-          CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check)
-          if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CODEX_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
-          case "${VISUAL_RECAP_REASONING:-}" in
-            none|minimal|low|medium|high|xhigh)
-              CODEX_ARGS+=(-c "model_reasoning_effort=\"$VISUAL_RECAP_REASONING\"") ;;
-            "") ;;
-            *) echo "Ignoring invalid VISUAL_RECAP_REASONING: $VISUAL_RECAP_REASONING" ;;
-          esac
-          rm -f codex-repair-events.jsonl codex-repair-stderr.log
-          set +e
-          npx -y @openai/codex@0 "${CODEX_ARGS[@]}" --json "$(cat recap-repair-prompt.md)" 2> codex-repair-stderr.log | tee codex-repair-events.jsonl
-          CODEX_REPAIR_STATUS="${PIPESTATUS[0]}"
-          set -e
-          echo "$CODEX_REPAIR_STATUS" > codex-repair-exit-code.txt
-          if [ "$CODEX_REPAIR_STATUS" -eq 0 ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; fi
+          rm -f recap-source.json codex-repair-events.jsonl codex-repair-stderr.log codex-repair-usage.json
+          run_codex() {
+            set +e
+            mkdir -p "$RUNNER_TEMP/recap-agent-home"
+            env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-repair-prompt.md)" > codex-repair-events.jsonl 2> codex-repair-stderr.log
+            CODEX_STATUS="$?"
+            set -e
+            echo "$CODEX_STATUS" > codex-repair-exit-code.txt
+          }
+          run_codex
+          if [ "$CODEX_STATUS" -eq 0 ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Repair recap source (OpenAI-compatible)
         id: openai_compatible_repair
@@ -718,7 +739,8 @@ jobs:
           set -uo pipefail
           rm -f openai-compatible-repair-result.txt openai-compatible-repair-usage.json openai-compatible-repair-stderr.log
           set +e
-          $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-repair-prompt.md)" > openai-compatible-repair-result.txt 2> openai-compatible-repair-stderr.log
+          mkdir -p "$RUNNER_TEMP/recap-agent-home"
+          env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-repair-prompt.md)" > openai-compatible-repair-result.txt 2> openai-compatible-repair-stderr.log
           OPENAI_COMPATIBLE_REPAIR_STATUS="$?"
           set -e
           echo "$OPENAI_COMPATIBLE_REPAIR_STATUS" > openai-compatible-repair-exit-code.txt
@@ -754,6 +776,8 @@ jobs:
         id: publish_repair
         if: steps.repaired_source.outputs.ok == 'true'
         continue-on-error: true
+        env:
+          PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
         run: |
           set -uo pipefail
           ARGS=(--source recap-source.json --out recap-url.txt --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN")
@@ -902,17 +926,18 @@ jobs:
         if: steps.url.outputs.ok == 'true'
         continue-on-error: true
         env:
+          PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
           RECAP_AGENT: ${{ needs.gate.outputs.agent }}
           RECAP_REPAIR_SUCCEEDED: ${{ steps.publish_repair.outcome == 'success' }}
         run: |
           set -uo pipefail
           RESULT=claude-result.json
-          if [ "$RECAP_AGENT" = "codex" ]; then RESULT=codex-events.jsonl; fi
+          if [ "$RECAP_AGENT" = "codex" ]; then RESULT=codex-usage.json; fi
           if [ "$RECAP_AGENT" = "openai-compatible" ]; then RESULT=openai-compatible-usage.json; fi
           if [ "$RECAP_REPAIR_SUCCEEDED" = "true" ]; then
             RESULT=claude-repair-result.json
-            if [ "$RECAP_AGENT" = "codex" ]; then RESULT=codex-repair-events.jsonl; fi
+            if [ "$RECAP_AGENT" = "codex" ]; then RESULT=codex-repair-usage.json; fi
             if [ "$RECAP_AGENT" = "openai-compatible" ]; then RESULT=openai-compatible-repair-usage.json; fi
           fi
           if [ -f "$RESULT" ]; then $RECAP_CLI recap usage --plan-url "$PLAN_URL" --agent "$RECAP_AGENT" --result-file "$RESULT" --model "${VISUAL_RECAP_MODEL:-}" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN" || true; fi
@@ -928,6 +953,7 @@ jobs:
         id: readback
         if: always() && !cancelled() && steps.url.outputs.ok == 'true'
         env:
+          PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
         run: |
           set -uo pipefail
@@ -1028,6 +1054,7 @@ jobs:
         if: always() && !cancelled() && steps.url.outputs.ok == 'true'
         continue-on-error: true
         env:
+          PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
           PLAN_READBACK_OK: ${{ steps.readback.outputs.ok }}
           PLAN_READBACK_REASON: ${{ steps.readback.outputs.reason }}
@@ -1137,6 +1164,7 @@ jobs:
         if: always() && !cancelled() && steps.diff.outputs.tiny != 'true'
         continue-on-error: true
         env:
+          GH_TOKEN: ${{ github.token }}
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
           RECAP_IMAGE_URL: ${{ steps.shot.outputs.image_url }}
           RECAP_LIGHT_IMAGE_URL: ${{ steps.shot.outputs.light_image_url }}
@@ -1161,6 +1189,7 @@ jobs:
         if: always() && !cancelled() && steps.recap_check.outputs.check_run_id != ''
         continue-on-error: true
         env:
+          GH_TOKEN: ${{ github.token }}
           CHECK_RUN_ID: ${{ steps.recap_check.outputs.check_run_id }}
           PLAN_OK: ${{ steps.url.outputs.ok == 'true' && steps.shot.outputs.shot_ok == 'true' }}
           URL_OK: ${{ steps.url.outputs.ok }}

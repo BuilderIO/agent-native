@@ -331,7 +331,13 @@ export async function createSsrfSafeDispatcher(
   if (!allowedPrivateOrigin) {
     sharedSsrfDispatcher ??= createSsrfSafeDispatcherUncached();
     try {
-      return await sharedSsrfDispatcher;
+      const dispatcher = await sharedSsrfDispatcher;
+      if (!dispatcher) {
+        throw new Error(
+          "SSRF protection is unavailable because the server dispatcher is empty.",
+        );
+      }
+      return dispatcher;
     } catch (error) {
       sharedSsrfDispatcher = undefined;
       throw error;
@@ -354,8 +360,10 @@ export async function createSsrfSafeDispatcher(
 
   try {
     const resolved = await dispatcher;
-    if (!resolved && privateSsrfDispatchers.get(cacheKey) === dispatcher) {
-      privateSsrfDispatchers.delete(cacheKey);
+    if (!resolved) {
+      throw new Error(
+        "SSRF protection is unavailable because the server dispatcher is empty.",
+      );
     }
     return resolved;
   } catch (error) {

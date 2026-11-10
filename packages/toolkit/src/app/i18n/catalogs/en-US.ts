@@ -1,4 +1,16 @@
 const messages = {
+  "settingsApiKeys.approvedOrigins": "Approved origins",
+  "settingsApiKeys.originsHint":
+    "One exact HTTPS origin per line. Empty blocks forwarding. Local loopback HTTP is allowed.",
+  "settingsApiKeys.invalidOrigins": "Enter exact HTTPS origins, one per line.",
+  "settingsApiKeys.editOrigins": "Edit origins",
+  "settingsApiKeys.originsSaved": "Origins saved",
+  "settingsApiKeys.originsCount_one": "{{count}} approved origin",
+  "settingsApiKeys.originsCount_other": "{{count}} approved origins",
+  "settingsApiKeys.noApprovedOrigins": "No approved origins",
+  "extensions.cancel": "Cancel",
+  "extensions.confirmAgentMessage": "Send extension message to agent?",
+  "extensions.sendToAgent": "Send to agent",
   "auth.logOutFailed": "Log out failed",
   "block.renderUnavailable": "This block is temporarily unavailable.",
   "block.loading": "Loading block.",

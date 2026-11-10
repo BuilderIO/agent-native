@@ -4543,6 +4543,7 @@ export async function verifyAuth(
   ownerEmailHeader?: string,
   options: {
     allowDevOpen?: boolean;
+    allowLocalOwnerHint?: boolean;
     resourceUrl?: string | string[];
     event?: unknown;
     /** This app's public origin; federated orgs need it for the membership check. */
@@ -4550,6 +4551,9 @@ export async function verifyAuth(
   } = {},
 ): Promise<VerifyAuthResult> {
   const accessTokens = getAccessTokens();
+  const trustedOwnerHeader = options.allowLocalOwnerHint
+    ? ownerEmailHeader
+    : undefined;
   const hasA2ASecret = !!readDeployCredentialEnv("A2A_SECRET")?.trim();
   const token = getBearerToken(authHeader);
   const orgMemberDelegation = token
@@ -4566,7 +4570,7 @@ export async function verifyAuth(
           (await matchStaticAccessToken(
             token,
             accessTokens,
-            ownerEmailHeader,
+            trustedOwnerHeader,
           )) ?? {
             authed: false,
             refusal: "invalid",
@@ -4583,8 +4587,8 @@ export async function verifyAuth(
     }
     return {
       authed: true,
-      identity: deriveStaticTokenIdentity(ownerEmailHeader),
-      fullSurface: !!(ownerEmailHeader && ownerEmailHeader.trim()),
+      identity: deriveStaticTokenIdentity(trustedOwnerHeader),
+      fullSurface: !!(trustedOwnerHeader && trustedOwnerHeader.trim()),
     };
   }
 
@@ -4660,7 +4664,7 @@ export async function verifyAuth(
   // A supplied bearer that failed JWT verification must not fall through to
   // dev-open auth or reuse a forwarded owner-email hint.
   return (
-    (await matchStaticAccessToken(token, accessTokens, ownerEmailHeader)) ?? {
+    (await matchStaticAccessToken(token, accessTokens, trustedOwnerHeader)) ?? {
       authed: false,
       refusal: "invalid",
     }
@@ -4691,9 +4695,11 @@ async function matchStaticAccessToken(
     );
   });
   if (!matched) return null;
+  const identity = deriveStaticTokenIdentity(ownerEmailHeader);
+  if (!identity) return { authed: false, refusal: "invalid" };
   return {
     authed: true,
-    identity: deriveStaticTokenIdentity(ownerEmailHeader),
+    identity,
     fullSurface: true,
   };
 }

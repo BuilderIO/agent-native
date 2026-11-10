@@ -219,6 +219,32 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   return String(rows[0]?.id ?? id);
 }
 
+/** Change an existing key's outbound policy without reading or replacing its value. */
+export async function updateAppSecretUrlAllowlist(
+  ref: SecretRef,
+  origins: readonly string[],
+): Promise<boolean> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `UPDATE app_secrets SET url_allowlist = ?, updated_at = ?
+      WHERE scope = ? AND scope_id = ? AND key = ?
+        AND (description IS NULL OR description NOT LIKE ?)
+      RETURNING id`,
+    args: [
+      JSON.stringify(origins),
+      Date.now(),
+      ref.scope,
+      ref.scopeId,
+      ref.key,
+      `${VAULT_SYNC_DESCRIPTION_PREFIX}%`,
+    ],
+  });
+  if (rows.length === 0) return false;
+  invalidateRequestSecret(ref);
+  invalidateOptionalKeyCache();
+  return true;
+}
+
 export interface ReadSecretResult {
   value: string;
   last4: string;

@@ -1,6 +1,18 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "已核准的來源",
+  "settingsApiKeys.originsHint":
+    "每行填寫一個確切的 HTTPS 來源。留空會封鎖轉送。允許本機 HTTP。",
+  "settingsApiKeys.invalidOrigins": "請每行輸入一個確切的 HTTPS 來源。",
+  "settingsApiKeys.editOrigins": "編輯來源",
+  "settingsApiKeys.originsSaved": "來源已儲存",
+  "settingsApiKeys.originsCount_one": "{{count}} 個已核准的來源",
+  "settingsApiKeys.originsCount_other": "{{count}} 個已核准的來源",
+  "settingsApiKeys.noApprovedOrigins": "沒有已核准的來源",
+  "extensions.cancel": "取消",
+  "extensions.confirmAgentMessage": "要將擴充功能訊息傳送給代理嗎？",
+  "extensions.sendToAgent": "傳送給代理",
   "auth.logOutFailed": "登出失敗",
   "block.renderUnavailable": "此區塊暫時無法使用。",
   "block.loading": "正在載入區塊。",

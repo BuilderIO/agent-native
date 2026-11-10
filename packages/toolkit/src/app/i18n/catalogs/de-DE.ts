@@ -1,6 +1,20 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "Genehmigte Ursprünge",
+  "settingsApiKeys.originsHint":
+    "Ein exakter HTTPS-Ursprung pro Zeile. Leer sperrt die Weitergabe. Lokales HTTP ist erlaubt.",
+  "settingsApiKeys.invalidOrigins":
+    "Exakte HTTPS-Ursprünge eingeben, einen pro Zeile.",
+  "settingsApiKeys.editOrigins": "Ursprünge bearbeiten",
+  "settingsApiKeys.originsSaved": "Ursprünge gespeichert",
+  "settingsApiKeys.originsCount_one": "{{count}} genehmigter Ursprung",
+  "settingsApiKeys.originsCount_other": "{{count}} genehmigte Ursprünge",
+  "settingsApiKeys.noApprovedOrigins": "Keine genehmigten Ursprünge",
+  "extensions.cancel": "Abbrechen",
+  "extensions.confirmAgentMessage":
+    "Nachricht der Erweiterung an den Agenten senden?",
+  "extensions.sendToAgent": "An Agenten senden",
   "auth.logOutFailed": "Abmelden fehlgeschlagen",
   "block.renderUnavailable": "Dieser Block ist vorübergehend nicht verfügbar.",
   "block.loading": "Block wird geladen.",

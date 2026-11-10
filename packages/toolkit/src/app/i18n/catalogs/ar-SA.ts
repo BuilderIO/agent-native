@@ -1,6 +1,22 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "المصادر المعتمدة",
+  "settingsApiKeys.originsHint":
+    "مصدر HTTPS محدد واحد في كل سطر. يمنع الحقل الفارغ الإرسال. يُسمح بـ HTTP المحلي.",
+  "settingsApiKeys.invalidOrigins": "أدخل مصادر HTTPS محددة، مصدرًا في كل سطر.",
+  "settingsApiKeys.editOrigins": "تعديل المصادر",
+  "settingsApiKeys.originsSaved": "تم حفظ المصادر",
+  "settingsApiKeys.originsCount_zero": "{{count}} مصادر معتمدة",
+  "settingsApiKeys.originsCount_one": "{{count}} مصدر معتمد",
+  "settingsApiKeys.originsCount_two": "{{count}} مصدران معتمدان",
+  "settingsApiKeys.originsCount_few": "{{count}} مصادر معتمدة",
+  "settingsApiKeys.originsCount_many": "{{count}} مصدرًا معتمدًا",
+  "settingsApiKeys.originsCount_other": "{{count}} مصادر معتمدة",
+  "settingsApiKeys.noApprovedOrigins": "لا توجد مصادر معتمدة",
+  "extensions.cancel": "إلغاء",
+  "extensions.confirmAgentMessage": "هل تريد إرسال رسالة الإضافة إلى الوكيل؟",
+  "extensions.sendToAgent": "إرسال إلى الوكيل",
   "auth.logOutFailed": "تعذّر تسجيل الخروج",
   "block.renderUnavailable": "هذه الكتلة غير متاحة مؤقتًا.",
   "block.loading": "جارٍ تحميل هذه الكتلة.",

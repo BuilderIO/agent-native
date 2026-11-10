@@ -1,6 +1,18 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "स्वीकृत मूल",
+  "settingsApiKeys.originsHint":
+    "प्रति पंक्ति एक सटीक HTTPS मूल। खाली रहने पर भेजना रुकता है। स्थानीय HTTP की अनुमति है।",
+  "settingsApiKeys.invalidOrigins": "प्रति पंक्ति एक सटीक HTTPS मूल दर्ज करें।",
+  "settingsApiKeys.editOrigins": "मूल संपादित करें",
+  "settingsApiKeys.originsSaved": "मूल सहेजे गए",
+  "settingsApiKeys.originsCount_one": "{{count}} स्वीकृत मूल",
+  "settingsApiKeys.originsCount_other": "{{count}} स्वीकृत मूल",
+  "settingsApiKeys.noApprovedOrigins": "कोई स्वीकृत मूल नहीं",
+  "extensions.cancel": "रद्द करें",
+  "extensions.confirmAgentMessage": "एक्सटेंशन का संदेश एजेंट को भेजें?",
+  "extensions.sendToAgent": "एजेंट को भेजें",
   "auth.logOutFailed": "साइन आउट नहीं हो सका",
   "block.renderUnavailable": "यह ब्लॉक अस्थायी रूप से उपलब्ध नहीं है।",
   "block.loading": "ब्लॉक लोड हो रहा है।",
