@@ -11,9 +11,12 @@ export function aliasIdFromToken(token: string): string {
 }
 
 export class AliasResolutionError extends Error {
+  readonly cause?: unknown;
+
   constructor(message: string, options?: { cause?: unknown }) {
-    super(message, options);
+    super(message);
     this.name = "AliasResolutionError";
+    this.cause = options?.cause;
   }
 }
 
