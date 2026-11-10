@@ -12,7 +12,7 @@ import {
   type SaveOverlap,
 } from "@agent-native/core/save-conflict";
 import { appendSignatureToBody } from "@shared/signature";
-import type { ComposeState, UserSettings } from "@shared/types";
+import type { Alias, ComposeState, UserSettings } from "@shared/types";
 import {
   useQuery,
   useMutation,
@@ -22,6 +22,13 @@ import {
 import { nanoid } from "nanoid";
 import { useState, useRef, useCallback, useEffect } from "react";
 
+import { aliasesQueryOptions } from "@/hooks/use-aliases";
+import {
+  ALIAS_PREFIX,
+  AliasResolutionError,
+  expandAliasTokens,
+  unresolvedAliasIds,
+} from "@/lib/alias-utils";
 import { TAB_ID } from "@/lib/tab-id";
 
 export const FOCUS_COMPOSE_DRAFT_EVENT = "mail:focus-compose-draft";
@@ -240,7 +247,16 @@ export function filterRemovedDrafts<T extends { id: string }>(
 
 async function saveDraftToEmails(
   draft: ComposeState,
+  aliases: Alias[],
 ): Promise<SavedDraftMetadata | undefined> {
+  const unresolved = [draft.to, draft.cc ?? "", draft.bcc ?? ""].flatMap(
+    (field) => unresolvedAliasIds(field, aliases),
+  );
+  if (unresolved.length > 0) {
+    throw new AliasResolutionError(
+      `Draft recipients use unknown aliases: ${unresolved.join(", ")}`,
+    );
+  }
   const result = await apiFetch<{
     draftId?: string;
     backend?: "gmail" | "local";
@@ -248,9 +264,9 @@ async function saveDraftToEmails(
   }>("/api/emails/draft", {
     method: "POST",
     body: JSON.stringify({
-      to: draft.to,
-      cc: draft.cc,
-      bcc: draft.bcc,
+      to: expandAliasTokens(draft.to, aliases),
+      cc: expandAliasTokens(draft.cc ?? "", aliases),
+      bcc: expandAliasTokens(draft.bcc ?? "", aliases),
       subject: draft.subject,
       body: draft.body,
       draftId: draft.savedDraftId,
@@ -417,6 +433,14 @@ export function applyDraftSaveResult(
   };
 }
 
+export function failedOnAliasResolution(
+  result: DraftSaveResult | DraftSaveQueueResult,
+): boolean {
+  return (
+    result.status === "failed" && result.error instanceof AliasResolutionError
+  );
+}
+
 export function getDraftSaveMetadataUpdate(
   draft: ComposeState | undefined,
   result: DraftSaveQueueResult,
@@ -469,9 +493,10 @@ export async function deleteSavedDraftAfterPendingSave(
 
 export async function saveDraftToEmailsBestEffort(
   draft: ComposeState,
+  aliases: Alias[] = [],
 ): Promise<DraftSaveResult> {
   try {
-    const savedDraft = await saveDraftToEmails(draft);
+    const savedDraft = await saveDraftToEmails(draft, aliases);
     return savedDraft
       ? { status: "saved", ...savedDraft }
       : { status: "unavailable" };
@@ -499,6 +524,27 @@ export function useComposeState() {
   const knownDraftIdsRef = useRef<Set<string> | null>(null);
   const removedDraftIdsRef = useRef<Record<string, number>>({});
   const draftSaveFailuresRef = useRef<Set<string>>(new Set());
+
+  const saveDraft = useCallback(
+    async (draft: ComposeState): Promise<DraftSaveResult> => {
+      const usesAlias = [draft.to, draft.cc, draft.bcc].some((field) =>
+        field?.includes(ALIAS_PREFIX),
+      );
+      if (!usesAlias) return saveDraftToEmailsBestEffort(draft);
+      try {
+        const aliases = await qc.fetchQuery(aliasesQueryOptions);
+        return saveDraftToEmailsBestEffort(draft, aliases);
+      } catch (error) {
+        return {
+          status: "failed",
+          error: new AliasResolutionError("Could not load recipient aliases", {
+            cause: error,
+          }),
+        };
+      }
+    },
+    [qc],
+  );
 
   const reportDraftSaveResult = useCallback(
     (draft: ComposeState, result: DraftSaveResult) => {
@@ -690,7 +736,7 @@ export function useComposeState() {
             (draft) => draft.id === id,
           ),
         () => removedDraftIdsRef.current[id] !== undefined,
-        saveDraftToEmailsBestEffort,
+        saveDraft,
       ).then((result) => {
         if (result.status === "cancelled") return;
         reportDraftSaveResult(current, result);
@@ -712,7 +758,7 @@ export function useComposeState() {
         ).catch((error) => reportDraftWriteFailed(id, error));
       });
     },
-    [qc, putMutation, reportDraftSaveResult],
+    [qc, putMutation, reportDraftSaveResult, saveDraft],
   );
 
   const update = useCallback(
@@ -781,7 +827,7 @@ export function useComposeState() {
                   qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
                 ).find((current) => current.id === id),
               () => removedDraftIdsRef.current[id] !== undefined,
-              saveDraftToEmailsBestEffort,
+              saveDraft,
               true,
             ).then((result) => {
               if (result.status === "cancelled") {
@@ -802,12 +848,31 @@ export function useComposeState() {
 
       qc.setQueryData<ComposeState[]>(["compose-drafts"], remaining);
 
-      void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
-        deleteMutation.mutateAsync(id),
-      ).catch(() => undefined);
+      const removeLocalDraft = () =>
+        enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
+          deleteMutation.mutateAsync(id),
+        ).catch(() => undefined);
+
+      if (!savePromise || !draft) {
+        void removeLocalDraft();
+        return savePromise;
+      }
+
+      void savePromise.then(
+        (result) => {
+          if (!failedOnAliasResolution(result)) return removeLocalDraft();
+          delete removedDraftIdsRef.current[id];
+          qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
+            old?.some((d) => d.id === id)
+              ? old
+              : [...(old ?? []), applyDraftSaveResult(draft, result)],
+          );
+        },
+        () => removeLocalDraft(),
+      );
       return savePromise;
     },
-    [qc, deleteMutation, resolvedActiveId, reportDraftSaveResult],
+    [qc, deleteMutation, resolvedActiveId, reportDraftSaveResult, saveDraft],
   );
 
   const discard = useCallback(
@@ -944,7 +1009,7 @@ export function useComposeState() {
           draft,
           () => undefined,
           () => removedDraftIdsRef.current[draft.id] !== undefined,
-          saveDraftToEmailsBestEffort,
+          saveDraft,
           true,
         ).then(
           async (result) => {
@@ -1048,7 +1113,14 @@ export function useComposeState() {
         ]),
       );
     },
-    [qc, deleteMutation, putMutation, reportDraftSaveResult, stagedSendIds],
+    [
+      qc,
+      deleteMutation,
+      putMutation,
+      reportDraftSaveResult,
+      saveDraft,
+      stagedSendIds,
+    ],
   );
 
   const flush = useCallback(
