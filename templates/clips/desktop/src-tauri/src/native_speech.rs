@@ -1291,7 +1291,15 @@ pub(crate) mod macos {
             session.addOutput(&output);
         }
 
-        let queue = DispatchQueue::new(queue_label, None);
+        // Audio buffers the delegate cannot take in time are dropped. On a busy
+        // Mac a default-priority queue loses large parts of a recording, so the
+        // capture queue runs at the highest priority.
+        let attr = dispatch2::DispatchQueueAttr::with_qos_class(
+            dispatch2::DispatchQueueAttr::SERIAL,
+            dispatch2::DispatchQoS::UserInteractive,
+            0,
+        );
+        let queue = DispatchQueue::new(queue_label, Some(&attr));
         unsafe { output.setSampleBufferDelegate_queue(Some(delegate), Some(&queue)) };
         let started = objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
             session.startRunning()
