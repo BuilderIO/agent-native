@@ -1082,12 +1082,13 @@ describe("useBlocksFieldSuggestions", () => {
         await vi.advanceTimersByTimeAsync(0);
       });
       // The read failed once. The tab keeps the new words and takes no typing
-      // while it tries again.
+      // while it tries again. Only its own suggestions wait meanwhile.
       expect(mocks.toastError).toHaveBeenCalledTimes(1);
       expect(latest.provider.previews.get("notes")?.text).toBe(
         "Original notes, revised.",
       );
-      expect(latest.deciding).toBe(true);
+      expect(latest.deciding).toBe(false);
+      expect(latest.decidingSuggestion(created.id)).toBe(true);
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2000);
@@ -1095,11 +1096,92 @@ describe("useBlocksFieldSuggestions", () => {
       });
       expect(refetchQueries).toHaveBeenCalledTimes(2);
       expect(latest.deciding).toBe(false);
+      expect(latest.decidingSuggestion(created.id)).toBe(false);
       expect(latest.provider.previews.size).toBe(0);
       expect(latest.provider.landed.get("notes")).toMatchObject({
         text: "Original notes, revised.",
         revision: 4,
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("decides on other tabs' suggestions while a tab reads its accepted text again, but not on that tab's", async () => {
+    vi.useFakeTimers();
+    try {
+      await render(true, []);
+      await draftInTab();
+      await act(async () => {
+        await latest.flushAll();
+      });
+      const created = first(firstSaved());
+      const sameTab = savedSuggestion(
+        "notes-2",
+        created.operations,
+        created.baseRevision,
+      );
+      const otherTab = savedSuggestion(
+        "summary-1",
+        created.operations.map((operation) => ({
+          ...operation,
+          targetId: "summary",
+        })),
+        created.baseRevision,
+      );
+      await render(false, [created, sameTab, otherTab]);
+      await act(async () => {
+        showNotes(3, undefined, "Original notes.");
+      });
+      mocks.decideSuggestion.mockImplementation(
+        async (request: { id: string; decision: string }) => ({
+          suggestion: {
+            ...[created, sameTab, otherTab].find(
+              (suggestion) => suggestion.id === request.id,
+            ),
+            status: request.decision,
+          },
+        }),
+      );
+      const refetchQueries = vi
+        .spyOn(queryClient, "refetchQueries")
+        .mockRejectedValue(new Error("Network down"));
+
+      let decision = Promise.resolve();
+      await act(async () => {
+        decision = latest.decide(created, "accepted");
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(latest.provider.previews.get("notes")?.text).toBe(
+        "Original notes, revised.",
+      );
+      expect(latest.decidingSuggestion(sameTab.id)).toBe(true);
+      expect(latest.decidingSuggestion(otherTab.id)).toBe(false);
+
+      await act(async () => {
+        await latest.decide(otherTab, "rejected");
+        await latest.decide(sameTab, "rejected");
+      });
+      expect(mocks.decideSuggestion).toHaveBeenCalledWith(
+        expect.objectContaining({ id: otherTab.id, decision: "rejected" }),
+      );
+      expect(mocks.decideSuggestion).not.toHaveBeenCalledWith(
+        expect.objectContaining({ id: sameTab.id }),
+      );
+      // The tab still shows what accepting wrote while it tries again.
+      expect(latest.provider.previews.get("notes")?.text).toBe(
+        "Original notes, revised.",
+      );
+
+      refetchQueries.mockImplementation(async () => {
+        showNotes(4, undefined, "Original notes, revised.");
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+        await decision;
+      });
+      expect(latest.provider.previews.size).toBe(0);
+      expect(latest.decidingSuggestion(sameTab.id)).toBe(false);
     } finally {
       vi.useRealTimers();
     }
@@ -1130,7 +1212,7 @@ describe("useBlocksFieldSuggestions", () => {
         decision = latest.decide(created, "accepted");
         await vi.advanceTimersByTimeAsync(0);
       });
-      expect(latest.deciding).toBe(true);
+      expect(latest.decidingSuggestion(created.id)).toBe(true);
       await render(false, [created], { documentId: "doc-2" });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(30_000);

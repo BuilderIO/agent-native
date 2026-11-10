@@ -1494,7 +1494,19 @@ export function useBlocksFieldSuggestions({
       run: () => Promise<ResourceSuggestion[]>,
     ) => {
       if (decidingRef.current) return;
+      // A tab still showing an earlier accept's text, which the page hasn't
+      // read yet, waits for it: a decision failing meanwhile would take that
+      // text away.
+      if (fieldIds.some((fieldId) => previewsRef.current.has(fieldId))) return;
       decidingRef.current = true;
+      let locked = true;
+      /** Lets other decisions run. */
+      const unlock = () => {
+        if (!locked) return;
+        locked = false;
+        decidingRef.current = false;
+        setDecidingFields(NO_FIELDS);
+      };
       const pagesLeft = pageLeftRef.current;
       // The tabs stop taking typing until they restart on the decided text,
       // so nothing typed meanwhile is dropped with the old draft.
@@ -1594,11 +1606,19 @@ export function useBlocksFieldSuggestions({
         // save its next draft on an old base. Until the text is read, the
         // tabs keep their old drafts, which have nothing unsaved. A tab showing
         // what accepting wrote takes no typing until then, so it keeps trying
-        // too, in Suggesting mode or not.
-        const keepTrying = () =>
-          decided.some(
-            (session) => sessionsRef.current.get(session.fieldId) === session,
-          ) || !!preview?.showing(confirmed);
+        // too, in Suggesting mode or not. Only that tab waits on it, though:
+        // other decisions can run meanwhile.
+        const keepTrying = () => {
+          if (
+            decided.some(
+              (session) => sessionsRef.current.get(session.fieldId) === session,
+            )
+          )
+            return true;
+          if (!preview?.showing(confirmed)) return false;
+          unlock();
+          return true;
+        };
         if (!(await reread(keepTrying, movedQuotes))) return;
         unread = [];
         let restarted = false;
@@ -1615,8 +1635,7 @@ export function useBlocksFieldSuggestions({
         });
         void refetchRef.current().catch(() => undefined);
       } finally {
-        decidingRef.current = false;
-        setDecidingFields(NO_FIELDS);
+        unlock();
         // A quote moved for an acceptance that didn't happen is read again.
         if (
           preview?.movedQuotes &&
@@ -1760,6 +1779,23 @@ export function useBlocksFieldSuggestions({
     [bump, documentId, queryClient],
   );
 
+  /**
+   * Whether a suggestion waits to be decided on: while a decision on tabs
+   * runs, and while its own tab shows an accepted suggestion's text that the
+   * page hasn't read yet.
+   */
+  const decidingSuggestion = useCallback(
+    (suggestionId: string) => {
+      if (decidingFields.size > 0) return true;
+      const suggestion = suggestions.find(
+        (candidate) => candidate.id === suggestionId,
+      );
+      const fieldId = suggestion ? suggestionBlocksFieldId(suggestion) : null;
+      return !!fieldId && previews.has(fieldId);
+    },
+    [decidingFields, previews, suggestions],
+  );
+
   const hasOpen =
     derived.drafts.length > 0 ||
     suggestions.some((suggestion) => suggestion.status === "pending");
@@ -1774,6 +1810,7 @@ export function useBlocksFieldSuggestions({
     anchors,
     hasOpen,
     deciding: decidingFields.size > 0,
+    decidingSuggestion,
     /** Tabs whose draft the server refused, with what each holds. */
     refusedDrafts: derived.refused,
     discard,
