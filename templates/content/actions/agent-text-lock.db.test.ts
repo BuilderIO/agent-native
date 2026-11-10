@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { registerLabs } from "@agent-native/core/labs/registry";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   afterAll,
   beforeAll,
@@ -146,6 +146,7 @@ let updateComment: typeof import("./update-comment.js").default;
 let deleteComment: typeof import("./delete-comment.js").default;
 let reactToComment: typeof import("./react-to-comment.js").default;
 let syncNotionComments: typeof import("./sync-notion-comments.js").default;
+let unlinkNotionPage: typeof import("./unlink-notion-page.js").default;
 let createReviewComment: typeof import("@agent-native/core/review/actions/create-review-comment").default;
 let replyReviewComment: typeof import("@agent-native/core/review/actions/reply-review-comment").default;
 let reactToReviewComment: typeof import("@agent-native/core/review/actions/react-to-review-comment").default;
@@ -205,6 +206,7 @@ beforeAll(async () => {
   deleteComment = (await import("./delete-comment.js")).default;
   reactToComment = (await import("./react-to-comment.js")).default;
   syncNotionComments = (await import("./sync-notion-comments.js")).default;
+  unlinkNotionPage = (await import("./unlink-notion-page.js")).default;
   createReviewComment = (
     await import("@agent-native/core/review/actions/create-review-comment")
   ).default;
@@ -2492,6 +2494,12 @@ describe("Agents set to Can view on a page", () => {
       expect(await storedLevel(id)).toEqual([1]);
       await setLock.run({ id, locked: false }, person);
       expect(await storedLevel(id)).toEqual([0]);
+      // Its locked: true leaves a page someone has set to Can view there.
+      await setLock.run({ id, level: "view" }, person);
+      await expect(
+        setLock.run({ id, locked: true }, person),
+      ).resolves.toMatchObject({ agentLevel: "view", agentTextLocked: true });
+      expect(await storedLevel(id)).toEqual([2]);
     });
   });
 
@@ -2750,6 +2758,52 @@ describe("Agents set to Can view on a page", () => {
       await expect(
         syncNotionComments.run({ documentId: page.id }, agent),
       ).resolves.toBe(unlinked);
+    });
+  });
+
+  it("refuses an agent's Notion unlink, which deletes Notion's comments, not a person's", async () => {
+    await asOwner(async () => {
+      const page = await viewOnlyPage("Linked page");
+      const addNotionComment = async (id: string) =>
+        getDb()
+          .insert(schema.documentComments)
+          .values({
+            id,
+            ownerEmail: OWNER,
+            documentId: page.id,
+            threadId: id,
+            parentId: null,
+            content: "From Notion",
+            authorEmail: "notion@sync",
+            authorName: "Notion",
+            notionCommentId: `notion-${id}`,
+          });
+      const notionComments = async () =>
+        (
+          await getDb()
+            .select({ id: schema.documentComments.id })
+            .from(schema.documentComments)
+            .where(
+              and(
+                eq(schema.documentComments.documentId, page.id),
+                eq(schema.documentComments.authorEmail, "notion@sync"),
+              ),
+            )
+        ).map((row) => row.id);
+
+      await addNotionComment("view-notion-1");
+      await expect(
+        unlinkNotionPage.run({ documentId: page.id }, agent),
+      ).rejects.toMatchObject(viewOnly);
+      expect(await notionComments()).toEqual(["view-notion-1"]);
+
+      await unlinkNotionPage.run({ documentId: page.id }, person);
+      expect(await notionComments()).toEqual([]);
+
+      await setLock.run({ id: page.id, level: "comment" }, person);
+      await addNotionComment("view-notion-2");
+      await unlinkNotionPage.run({ documentId: page.id }, agent);
+      expect(await notionComments()).toEqual([]);
     });
   });
 

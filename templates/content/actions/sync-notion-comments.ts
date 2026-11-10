@@ -42,6 +42,8 @@ export default defineAction({
     const ownerEmail = owner;
 
     const notionComments = await listNotionComments(notionPageId, accessToken);
+    // Notion can take a while; a person may have set Can view meanwhile.
+    await assertAgentsMayCommentOnPageId(documentId, ctx);
     let pulled = 0;
 
     const existingByNotionId = new Map<

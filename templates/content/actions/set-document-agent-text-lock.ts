@@ -5,7 +5,11 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { AGENT_LEVELS, storedAgentLevel } from "../shared/agent-level.js";
+import {
+  AGENT_LEVELS,
+  agentLevelFromStored,
+  storedAgentLevel,
+} from "../shared/agent-level.js";
 import { isAgentCall } from "./_document-agent-lock.js";
 
 export default defineAction({
@@ -43,8 +47,14 @@ export default defineAction({
   toolCallable: false,
   authorize: (_args, ctx) => ctx?.caller === "frontend" && !isAgentCall(ctx),
   run: async ({ id, level, locked }) => {
-    const agentLevel = level ?? (locked ? "comment" : "edit");
-    await assertAccess("document", id, "admin");
+    const access = await assertAccess("document", id, "admin");
+    // A page loaded before Can view sends locked: true to limit agents; that
+    // leaves a page someone has since set to Can view where it is.
+    const keepsView =
+      locked === true &&
+      agentLevelFromStored(access.resource.agentTextLocked) === "view";
+    const agentLevel =
+      level ?? (keepsView ? "view" : locked ? "comment" : "edit");
     await getDb()
       .update(schema.documents)
       .set({ agentTextLocked: storedAgentLevel(agentLevel) })
