@@ -485,9 +485,11 @@ OpenAI's `text-embedding-3-small`.
   It takes a change only after it has settled for 60 seconds, so editing a
   page doesn't embed every save, and claims up to 16 at a time with a lease.
   It drains after writes and on the recurring tick, as the lexical index does.
-  Each embedding call times out after 15 seconds, and when a batch fails, the
-  drain retries its pages one at a time only until its deadline, so an outage
-  can't hold claims past their lease. An app adds the consumer with
+  Each embedding call times out after 15 seconds or at the drain's deadline,
+  whichever comes first, and none starts after the deadline. When a batch
+  fails, the drain retries its pages one at a time only until its deadline.
+  Changes left when time runs out stay claimed until their lease expires, so
+  an outage can't hold claims past their lease. An app adds the consumer with
   `semanticSearchMigration()`, which queues a backfill.
 - **Chunks.** About 1,200 characters each, cut at sentence ends and led by the
   title and summary, with at most 12 per page. A page scores as its best chunk.
@@ -496,7 +498,16 @@ OpenAI's `text-embedding-3-small`.
   An unchanged hash skips the embedding call. Before storing vectors, the row
   is marked pending with a count covering old and new chunks; it gets the hash
   only after the vectors are stored and stale chunks removed. A failed store is
-  embedded again, and deleting the page finds every vector. Vectors live in a
+  embedded again, and deleting the page finds every vector. Every write to the
+  row is skipped if a later change already recorded newer work, and a drain
+  claims the row that way before deleting another model's vectors. If two
+  drains still store one page at once (one stalled past its lease), the one
+  that finishes second marks the row `repair`, counting every chunk either
+  wrote, and queues the page; no drain can record over `repair`, and the next
+  embeds the page again and removes the extras. A drain's final write only
+  updates the row its pending write made, so when a newer drain deleted the
+  page meanwhile, it records nothing and removes what it stored. Vectors live
+  in a
   `SearchVectorStore`, by default pgvector's per-dimension tables under the
   `search` namespace. When the database offers `vector` but hasn't installed
   it, the store creates the extension.
@@ -512,7 +523,9 @@ OpenAI's `text-embedding-3-small`.
   deletes the organization's vectors and stops new ones. The drain checks the
   setting before embedding, before storing and after storing, reading past the
   request's settings snapshot, so a page in flight when another request turns
-  it off leaves nothing behind. Turning it on queues the organization's pages
+  it off leaves nothing behind. Rows marked pending or `repair` keep their
+  chunk count when it turns off, so vectors stored after the deletion, even by
+  a store that fails part way, are found and deleted when the drain retries. Turning it on queues the organization's pages
   again, along with any queued page never embedded. If deleting or queuing
   fails, the setting stays changed and calling again finishes the job; the
   settings page offers Retry. Each change is audited.

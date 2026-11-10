@@ -83,10 +83,17 @@ const EMBED_BATCH = 32;
 const QUERY_CHUNK_LIMIT = 100;
 const QUERY_EMBED_TIMEOUT_MS = 4_000;
 /**
- * A document embedding call that takes longer fails, so a stalled provider
- * can't hold a claim past its lease.
+ * A document embedding call that takes longer, or runs past the drain's
+ * deadline, fails, so a stalled provider can't hold a claim past its lease.
  */
 const DOCUMENT_EMBED_TIMEOUT_MS = 15_000;
+
+/** Thrown when a drain's time is up before its next embedding call. */
+class DrainDeadlineReached extends Error {
+  constructor() {
+    super("The drain's time ran out before embedding finished.");
+  }
+}
 /**
  * Query vectors kept per process, so following pages of one search embed it
  * once and fuse the same matches.
@@ -471,6 +478,11 @@ const OFF_HASH = "off";
 const NO_PROVIDER_HASH = "no-provider";
 /** Recorded before storing vectors, so a failed store is embedded again. */
 const PENDING_HASH = "pending";
+/**
+ * Recorded when two drains stored a resource's vectors at once, so the next
+ * drain embeds it again. A drain finishing meanwhile can't record over it.
+ */
+const REPAIR_HASH = "repair";
 
 /**
  * A named migration that subscribes the meaning lane to the registration's
@@ -603,8 +615,11 @@ async function embedGroup(
 ): Promise<void> {
   const label = `${registration.app}/${registration.type}`;
   try {
-    await embedChanges(exec, store, registration, feed, changes);
+    await embedChanges(exec, store, registration, feed, changes, deadline);
   } catch (error) {
+    // Out of time isn't a failure: the changes stay claimed, and are claimed
+    // again when their lease expires.
+    if (error instanceof DrainDeadlineReached || Date.now() >= deadline) return;
     const message = error instanceof Error ? error.message : String(error);
     const only = changes.length === 1 ? changes.at(0) : undefined;
     if (!only) {
@@ -694,6 +709,7 @@ async function embedChanges(
   registration: SearchableResourceRegistration,
   feed: ResourceChangeFeed,
   changes: ClaimedResourceChange[],
+  deadline: number,
 ): Promise<void> {
   const ids = changes.map((change) => change.resourceId);
   const documents = await registration.load(ids);
@@ -727,7 +743,12 @@ async function embedChanges(
     groups.set(groupKey, group);
   }
   for (const group of groups.values()) {
-    await embedAudienceGroup(exec, store, registration, group, stored, done);
+    // Changes in the groups left over stay claimed for the next drain.
+    if (Date.now() >= deadline) break;
+    await embedAudienceGroup(exec, store, registration, feed, group, stored, {
+      done,
+      deadline,
+    });
   }
   await completeResourceChanges(exec, feed, done);
 }
@@ -736,9 +757,10 @@ async function embedAudienceGroup(
   exec: DbExec,
   store: SearchVectorStore,
   registration: SearchableResourceRegistration,
+  feed: ResourceChangeFeed,
   group: AudienceGroup,
   stored: Map<string, StoredEmbedding>,
-  done: ClaimedResourceChange[],
+  { done, deadline }: { done: ClaimedResourceChange[]; deadline: number },
 ): Promise<void> {
   const { orgId } = group.identity;
   // An unreadable setting throws, so nothing is sent until it reads as on.
@@ -797,7 +819,7 @@ async function embedAudienceGroup(
   const vectors = await embedDocumentChunks(
     family,
     pending.flatMap((item) => item.chunks),
-    { registration, identity: group.identity },
+    { registration, identity: group.identity, deadline },
   );
   // The organization may have turned the lane off while its text was being
   // embedded; then nothing is stored.
@@ -824,11 +846,17 @@ async function embedAudienceGroup(
     const own = vectors.slice(offset, offset + item.chunks.length);
     offset += item.chunks.length;
     const previous = item.stored;
-    // Vectors from a model with other dimensions live in another table.
+    // Vectors from a model with other dimensions live in another table. The
+    // row is claimed for this change first, so work a later change already
+    // finished is never deleted.
     if (
       previous?.dimensions != null &&
       previous.dimensions !== family.dimensions
     ) {
+      if (!(await markPending(exec, registration, item.change))) {
+        done.push(item.change);
+        continue;
+      }
       await removeVectors(
         exec,
         store,
@@ -874,15 +902,26 @@ async function embedAudienceGroup(
         keys: chunkKeys(registration, item.change.resourceId, own.length, kept),
       });
     }
-    await recordEmbedding(exec, registration, {
+    const finished = await finishEmbedding(exec, registration, {
       resourceId: item.change.resourceId,
-      audienceId: group.audienceId,
       setId,
       dimensions: family.dimensions,
       chunkCount: own.length,
       hash: item.hash,
       seq: item.change.seq,
     });
+    if (!finished) {
+      // Another drain stored or deleted this resource's vectors at the same
+      // time, for a later change or asking for repair, so either may have
+      // replaced the other's chunks or added ones the row doesn't count.
+      await repairOverlappingStore(exec, store, registration, feed, {
+        resourceId: item.change.resourceId,
+        dimensions: family.dimensions,
+        chunkCount: own.length,
+      });
+      done.push(item.change);
+      continue;
+    }
     written.push({ change: item.change, chunkCount: own.length });
     done.push(item.change);
   }
@@ -912,6 +951,52 @@ async function embedAudienceGroup(
   }
 }
 
+/**
+ * Repairs after two drains stored a resource's vectors at once: marks its row
+ * for repair, counting every chunk either may have written, and queues it so
+ * the next drain embeds its current text over them and removes the extras.
+ */
+async function repairOverlappingStore(
+  exec: DbExec,
+  store: SearchVectorStore,
+  registration: SearchableResourceRegistration,
+  feed: ResourceChangeFeed,
+  written: { resourceId: string; dimensions: number; chunkCount: number },
+): Promise<void> {
+  const { rows } = await exec.execute({
+    sql: `UPDATE search_embeddings
+          SET chunk_count = GREATEST(chunk_count, ?::integer), content_hash = ?
+          WHERE app = ? AND resource_type = ? AND resource_id = ? AND dimensions = ?::integer
+          RETURNING resource_id`,
+    args: [
+      written.chunkCount,
+      REPAIR_HASH,
+      registration.app,
+      registration.type,
+      written.resourceId,
+      written.dimensions,
+    ],
+  });
+  if (rows.length) {
+    await enqueueSelectedResourceChanges(
+      exec,
+      feed,
+      {
+        sql: `SELECT CAST(? AS TEXT) AS resource_id`,
+        args: [written.resourceId],
+      },
+      "semantic-repair",
+    );
+    return;
+  }
+  // The later change deleted the resource, turned the lane off, or used
+  // another model, so nothing it stored shares these keys.
+  await store.remove(exec, {
+    dimensions: written.dimensions,
+    keys: chunkKeys(registration, written.resourceId, 0, written.chunkCount),
+  });
+}
+
 /** Embeds document chunks in batches, recording each call as the owner's usage. */
 async function embedDocumentChunks(
   family: EmbeddingFamily,
@@ -919,15 +1004,22 @@ async function embedDocumentChunks(
   context: {
     registration: SearchableResourceRegistration;
     identity: SemanticEmbeddingIdentity;
+    deadline: number;
   },
 ): Promise<number[][]> {
   const vectors: number[][] = [];
   for (let start = 0; start < texts.length; start += EMBED_BATCH) {
+    const remaining = context.deadline - Date.now();
+    if (remaining <= 0) throw new DrainDeadlineReached();
     const batch = texts.slice(start, start + EMBED_BATCH);
     const embedded = await family.embed(
       batch.map((text) => ({ text })),
       "document",
-      { signal: AbortSignal.timeout(DOCUMENT_EMBED_TIMEOUT_MS) },
+      {
+        signal: AbortSignal.timeout(
+          Math.min(DOCUMENT_EMBED_TIMEOUT_MS, remaining),
+        ),
+      },
     );
     if (embedded.length !== batch.length) {
       throw new Error(
@@ -1030,6 +1122,73 @@ async function recordEmbedding(
   return rows.length > 0;
 }
 
+/**
+ * Records that a change's vectors are stored. It only updates the row its
+ * pending write made, so it records nothing once a later change recorded
+ * newer work or deleted the row, or a repair was asked for. Returns whether
+ * it recorded.
+ */
+async function finishEmbedding(
+  exec: DbExec,
+  registration: SearchableResourceRegistration,
+  input: {
+    resourceId: string;
+    setId: string;
+    dimensions: number;
+    chunkCount: number;
+    hash: string;
+    seq: string;
+  },
+): Promise<boolean> {
+  const { rows } = await exec.execute({
+    sql: `UPDATE search_embeddings
+          SET embedding_set_id = ?, dimensions = ?::integer, chunk_count = ?::integer,
+              content_hash = ?, embedded_seq = ?::bigint, embedded_at = now()
+          WHERE app = ? AND resource_type = ? AND resource_id = ?
+            AND embedded_seq <= ?::bigint AND content_hash <> ?
+          RETURNING resource_id`,
+    args: [
+      input.setId,
+      input.dimensions,
+      input.chunkCount,
+      input.hash,
+      input.seq,
+      registration.app,
+      registration.type,
+      input.resourceId,
+      input.seq,
+      REPAIR_HASH,
+    ],
+  });
+  return rows.length > 0;
+}
+
+/**
+ * Marks a resource's row pending for a change, keeping what it records, unless
+ * a later change already recorded newer work. Returns whether it did.
+ */
+async function markPending(
+  exec: DbExec,
+  registration: SearchableResourceRegistration,
+  change: ClaimedResourceChange,
+): Promise<boolean> {
+  const { rows } = await exec.execute({
+    sql: `UPDATE search_embeddings SET content_hash = ?, embedded_seq = ?::bigint
+          WHERE app = ? AND resource_type = ? AND resource_id = ?
+            AND embedded_seq <= ?::bigint
+          RETURNING resource_id`,
+    args: [
+      PENDING_HASH,
+      change.seq,
+      registration.app,
+      registration.type,
+      change.resourceId,
+      change.seq,
+    ],
+  });
+  return rows.length > 0;
+}
+
 /** Records a resource's audience, keeping whatever was embedded for it. */
 async function recordAudience(
   exec: DbExec,
@@ -1127,11 +1286,14 @@ export async function forgetSemanticSearchForOrg(orgId: string): Promise<void> {
       audienceId,
     });
   }
+  // A pending or repairing row may have vectors being stored right now,
+  // after the deletion above. It keeps its count, so the drain, which sees
+  // the lane off when it retries or checks after storing, can delete them.
   await exec.execute({
     sql: `UPDATE search_embeddings
           SET embedding_set_id = NULL, dimensions = NULL, chunk_count = 0, content_hash = ?
-          WHERE audience_id = ?`,
-    args: [OFF_HASH, audienceId],
+          WHERE audience_id = ? AND content_hash NOT IN (?, ?)`,
+    args: [OFF_HASH, audienceId, PENDING_HASH, REPAIR_HASH],
   });
 }
 

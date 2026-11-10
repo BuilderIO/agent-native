@@ -683,6 +683,337 @@ describe("when something fails part way", () => {
     await drain();
     expect(await pendingIds()).toEqual([]);
   });
+
+  it("never starts an embedding call after its time is up", async () => {
+    const long = "laptop ".repeat(2500);
+    for (let index = 0; index < 4; index++) {
+      await insertPage(`budget-${index}`, "Laptop", long);
+    }
+    await settle();
+    const embed = family.embed;
+    const starts: number[] = [];
+    const signals: (AbortSignal | undefined)[] = [];
+    const deadline = Date.now() + 500;
+    family.embed = async (inputs, purpose, options) => {
+      starts.push(Date.now() - deadline);
+      signals.push(options?.signal);
+      // A slow call that ignores its signal and returns late anyway.
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      return embed(inputs, purpose, options);
+    };
+    try {
+      await search.drainSemanticIndex(registration, deadline);
+    } finally {
+      family.embed = embed;
+    }
+    // 48 chunks take two calls; the second would start after the deadline.
+    expect(starts).toHaveLength(1);
+    expect(starts[0]).toBeLessThan(0);
+    // The call's timeout is the time left, not the full 15 seconds.
+    expect(signals[0]?.aborted).toBe(true);
+    // Out of time isn't a failure: the pages stay queued.
+    expect(await pendingIds()).toEqual(
+      expect.arrayContaining(["budget-0", "budget-1", "budget-2", "budget-3"]),
+    );
+
+    await run(`DELETE FROM pages WHERE id LIKE 'budget-%'`);
+    await settle();
+    await drain();
+    expect(await pendingIds()).toEqual([]);
+  });
+
+  it("deletes vectors stored part way when the lane is turned off meanwhile", async () => {
+    const long = Array.from(
+      { length: 6 },
+      () => `${"laptop ".repeat(59)}done.`,
+    ).join(" ");
+    await insertPage("partial-off", "Laptop guide", long);
+    await settle();
+    useStore({
+      async upsert(target, input) {
+        await turnSemanticSearch("org-a", false);
+        await store.upsert(target, {
+          ...input,
+          entries: input.entries.slice(0, 1),
+        });
+        throw new Error("storing the second chunk failed");
+      },
+    });
+    try {
+      await drain();
+    } finally {
+      restoreStore();
+    }
+    await settle();
+    await drain();
+    expect(keysFor("partial-off")).toEqual([]);
+    expect(
+      (
+        await run(
+          `SELECT dimensions, chunk_count, content_hash FROM search_embeddings WHERE resource_id = 'partial-off'`,
+        )
+      ).rows,
+    ).toEqual([{ dimensions: null, chunk_count: 0, content_hash: "off" }]);
+    expect(await pendingIds()).toEqual([]);
+
+    await run(`DELETE FROM pages WHERE id = 'partial-off'`);
+    await turnSemanticSearch("org-a", true);
+    await settle();
+    await drain();
+  });
+
+  describe("when two drains store one page at once", () => {
+    // A second copy of the module drains like another process would.
+    const secondCopy = "./semantic.js?second-drain";
+    let other: typeof import("./semantic.js");
+
+    beforeAll(async () => {
+      other = (await import(
+        /* @vite-ignore */ secondCopy
+      )) as typeof import("./semantic.js");
+    });
+
+    function gate() {
+      let open: () => void = () => {};
+      const opened = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      let reached: () => void = () => {};
+      const waiting = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      return {
+        open,
+        waiting,
+        async pass() {
+          reached();
+          await opened;
+        },
+      };
+    }
+
+    async function row(id: string) {
+      return (
+        await run(
+          `SELECT dimensions, chunk_count, content_hash FROM search_embeddings WHERE resource_id = ?`,
+          [id],
+        )
+      ).rows;
+    }
+
+    it("never deletes a later change's vectors when switching models", async () => {
+      await insertPage("model-race", "Laptop", "Old hardware");
+      await settle();
+      await drain();
+      const embedding = gate();
+      const otherModel: EmbeddingFamily = {
+        ...family,
+        id: "other-dimensions",
+        dimensions: 6,
+        async embed(inputs) {
+          await embedding.pass();
+          return inputs.map(() => [1, 0, 0, 0, 0, 0]);
+        },
+      };
+      search.configureSemanticSearch({
+        vectorStore: store,
+        resolveEmbeddingFamily: async () => otherModel,
+      });
+      other.configureSemanticSearch({
+        vectorStore: store,
+        resolveEmbeddingFamily: async () => family,
+      });
+      try {
+        await run(
+          `UPDATE pages SET body = 'Middle laptop' WHERE id = 'model-race'`,
+        );
+        await settle();
+        const older = drain();
+        await embedding.waiting;
+        await run(
+          `UPDATE pages SET body = 'Newest computer' WHERE id = 'model-race'`,
+        );
+        await settle();
+        await other.drainSemanticIndex(registration, Date.now() + 10_000);
+        embedding.open();
+        await older;
+      } finally {
+        restoreStore();
+        other.configureSemanticSearch({});
+      }
+      expect(await row("model-race")).toMatchObject([
+        { dimensions: 5, chunk_count: 1 },
+      ]);
+      expect(keysFor("model-race")).toEqual(["wiki/page/model-race/0"]);
+      expect(await pendingIds()).toEqual([]);
+    });
+
+    it("embeds a page again when an older drain finishes storing after a newer one", async () => {
+      const long = Array.from(
+        { length: 6 },
+        () => `${"laptop ".repeat(59)}done.`,
+      ).join(" ");
+      await insertPage("late-store", "Laptop", long);
+      await settle();
+      const storing = gate();
+      useStore({
+        async upsert(target, input) {
+          if (
+            input.entries.some((entry) => entry.key.includes("/late-store/"))
+          ) {
+            await storing.pass();
+          }
+          await store.upsert(target, input);
+        },
+      });
+      other.configureSemanticSearch({
+        vectorStore: store,
+        resolveEmbeddingFamily: async () => family,
+      });
+      try {
+        const older = drain();
+        await storing.waiting;
+        await run(
+          `UPDATE pages SET body = 'Short computer' WHERE id = 'late-store'`,
+        );
+        await settle();
+        await other.drainSemanticIndex(registration, Date.now() + 10_000);
+        storing.open();
+        await older;
+      } finally {
+        restoreStore();
+        other.configureSemanticSearch({});
+      }
+      // The older drain wrote three chunks over the newer one's single chunk.
+      expect(keysFor("late-store")).toHaveLength(3);
+      expect(await row("late-store")).toMatchObject([
+        { chunk_count: 3, content_hash: "repair" },
+      ]);
+
+      embedCalls.length = 0;
+      await settle();
+      await drain();
+      expect(embedCalls.flatMap((call) => call.texts).join(" ")).toContain(
+        "Short computer",
+      );
+      expect(keysFor("late-store")).toEqual(["wiki/page/late-store/0"]);
+      expect(await row("late-store")).toMatchObject([{ chunk_count: 1 }]);
+
+      await run(`DELETE FROM pages WHERE id = 'late-store'`);
+      await settle();
+      await drain();
+      expect(keysFor("late-store")).toEqual([]);
+      expect(await row("late-store")).toEqual([]);
+      expect(await pendingIds()).toEqual([]);
+    });
+
+    it("leaves nothing behind when a newer drain deletes the page while an older one stores it", async () => {
+      await insertPage("deleted-mid-store", "Laptop", "Hardware to delete.");
+      await settle();
+      const storing = gate();
+      useStore({
+        async upsert(target, input) {
+          if (
+            input.entries.some((entry) =>
+              entry.key.includes("/deleted-mid-store/"),
+            )
+          ) {
+            await storing.pass();
+          }
+          await store.upsert(target, input);
+        },
+      });
+      other.configureSemanticSearch({
+        vectorStore: store,
+        resolveEmbeddingFamily: async () => family,
+      });
+      try {
+        const older = drain();
+        await storing.waiting;
+        await run(`DELETE FROM pages WHERE id = 'deleted-mid-store'`);
+        await settle();
+        await other.drainSemanticIndex(registration, Date.now() + 10_000);
+        storing.open();
+        await older;
+      } finally {
+        restoreStore();
+        other.configureSemanticSearch({});
+      }
+      expect(keysFor("deleted-mid-store")).toEqual([]);
+      expect(await row("deleted-mid-store")).toEqual([]);
+      expect(await pendingIds()).toEqual([]);
+    });
+
+    it("keeps a repair asked for while a newer drain is still storing", async () => {
+      const long = Array.from(
+        { length: 6 },
+        () => `${"laptop ".repeat(59)}done.`,
+      ).join(" ");
+      await insertPage("mid-store", "Laptop", long);
+      await settle();
+      const olderStoring = gate();
+      useStore({
+        async upsert(target, input) {
+          if (
+            input.entries.some((entry) => entry.key.includes("/mid-store/"))
+          ) {
+            await olderStoring.pass();
+          }
+          await store.upsert(target, input);
+        },
+      });
+      const newerFinishing = gate();
+      other.configureSemanticSearch({
+        vectorStore: {
+          ...store,
+          async remove(target, input) {
+            await store.remove(target, input);
+            if (input.keys.some((key) => key.includes("/mid-store/"))) {
+              await newerFinishing.pass();
+            }
+          },
+        },
+        resolveEmbeddingFamily: async () => family,
+      });
+      try {
+        const older = drain();
+        await olderStoring.waiting;
+        await run(
+          `UPDATE pages SET body = 'Short computer' WHERE id = 'mid-store'`,
+        );
+        await settle();
+        // The newer drain stores its chunk and drops the old ones, then
+        // pauses before recording that it finished.
+        const newer = other.drainSemanticIndex(
+          registration,
+          Date.now() + 10_000,
+        );
+        await newerFinishing.waiting;
+        // The older drain now writes its three chunks and asks for repair.
+        olderStoring.open();
+        await older;
+        newerFinishing.open();
+        await newer;
+      } finally {
+        restoreStore();
+        other.configureSemanticSearch({});
+      }
+      expect(await row("mid-store")).toMatchObject([
+        { content_hash: "repair" },
+      ]);
+
+      await settle();
+      await drain();
+      expect(keysFor("mid-store")).toEqual(["wiki/page/mid-store/0"]);
+      expect(await row("mid-store")).toMatchObject([{ chunk_count: 1 }]);
+
+      await run(`DELETE FROM pages WHERE id = 'mid-store'`);
+      await settle();
+      await drain();
+      expect(keysFor("mid-store")).toEqual([]);
+      expect(await pendingIds()).toEqual([]);
+    });
+  });
 });
 
 describe("without a vector store or provider", () => {
