@@ -1316,6 +1316,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io में मुफ़्त क्रेडिट शामिल हैं, या आप अपनी API कुंजी इस्तेमाल कर सकते हैं।",
   "setup.builderOrOwnKeys":
     "Builder.io (मुफ़्त क्रेडिट) का उपयोग करें या अपनी प्रदाता कुंजियाँ जोड़ें।",
+  "setup.reconnectBuilder": "Builder.io फिर से कनेक्ट करें",
   "setup.connectAi": "AI कनेक्ट करें",
   "setup.connectBuilder": "Builder.io इस्तेमाल करें",
   "setup.connectionsDescription":
@@ -2411,6 +2412,9 @@ const messages: ToolkitAgentChatTranslation = {
     "एजेंट आपके जोड़े गए एक्सेस टोकन का इस्तेमाल करता है, इसलिए वह वही देखता है जो वह टोकन देख सकता है।",
   "settingsShell.integrationDetail.accessToken": "एक्सेस टोकन",
   "settingsShell.integrationDetail.addAccessToken": "एक्सेस टोकन जोड़ें",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "सेव किए गए एक्सेस टोकन की जाँच नहीं हो सकी।",
+  "settingsShell.integrationDetail.tokenCheckRetry": "फिर से कोशिश करें",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "इसे किसी एडमिन को सेट अप करना होगा",
   "settingsShell.integrationDetail.callout.adminNeededBody":

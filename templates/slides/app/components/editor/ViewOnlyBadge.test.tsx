@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   session: { email: "viewer@example.com" } as { email: string } | null,
   requestAccess: vi.fn(),
   toastError: vi.fn(),
+  reportWriteFailure: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -34,6 +35,12 @@ vi.mock("@agent-native/core/client/hooks", async () => {
 });
 
 vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
+vi.mock("@agent-native/core/client/write-failure", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/write-failure")
+  >()),
+  reportWriteFailure: mocks.reportWriteFailure,
+}));
 
 import { ViewOnlyBadge } from "./ViewOnlyBadge";
 
@@ -77,7 +84,8 @@ describe("<ViewOnlyBadge>", () => {
   });
 
   it("reports a failed request and lets the viewer try again", async () => {
-    mocks.requestAccess.mockRejectedValue(new Error("down"));
+    const failure = new Error("down");
+    mocks.requestAccess.mockRejectedValue(failure);
     renderBadge();
 
     fireEvent.click(
@@ -85,9 +93,9 @@ describe("<ViewOnlyBadge>", () => {
     );
 
     await waitFor(() =>
-      expect(mocks.toastError).toHaveBeenCalledWith(
-        "editorToolbar.editAccessRequestFailed",
-      ),
+      expect(mocks.reportWriteFailure).toHaveBeenCalledWith(failure, {
+        label: "editorToolbar.editAccessRequestFailed",
+      }),
     );
     expect(
       screen

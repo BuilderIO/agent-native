@@ -1254,6 +1254,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io 提供免費額度，您也可以使用自己的 API 金鑰。",
   "setup.builderOrOwnKeys":
     "使用 Builder.io（含免費額度），或加入您自己的供應商金鑰。",
+  "setup.reconnectBuilder": "重新連線 Builder.io",
   "setup.connectAi": "連線 AI",
   "setup.connectBuilder": "使用 Builder.io",
   "setup.connectionsDescription":
@@ -2279,6 +2280,9 @@ const messages: ToolkitAgentChatTranslation = {
     "代理程式會使用你新增的存取權杖，因此能看到該權杖可存取的內容。",
   "settingsShell.integrationDetail.accessToken": "存取權杖",
   "settingsShell.integrationDetail.addAccessToken": "新增存取權杖",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "無法檢查已儲存的存取權杖。",
+  "settingsShell.integrationDetail.tokenCheckRetry": "重試",
   "settingsShell.integrationDetail.callout.adminNeeded": "需要管理員進行設定",
   "settingsShell.integrationDetail.callout.adminNeededBody":
     "請 {{org}} 的擁有者或管理員新增 {{name}} 的用戶端 ID 和密鑰。之後你就能連結自己的帳戶。",

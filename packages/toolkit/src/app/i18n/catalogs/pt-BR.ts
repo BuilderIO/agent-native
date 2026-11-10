@@ -1000,6 +1000,7 @@ const messages: ToolkitAgentChatTranslation = {
     "O Builder.io inclui créditos gratuitos, ou você pode usar sua própria chave de API.",
   "setup.builderOrOwnKeys":
     "Use o Builder.io (créditos gratuitos) ou adicione as chaves do seu próprio provedor.",
+  "setup.reconnectBuilder": "Reconectar Builder.io",
   "setup.connectAi": "Conectar IA",
   "setup.connectBuilder": "Usar Builder.io",
   "setup.connectionsDescription":
@@ -2597,6 +2598,9 @@ const messages: ToolkitAgentChatTranslation = {
     "O agente usa o token de acesso que você adicionar, então vê o que esse token pode ver.",
   "settingsShell.integrationDetail.accessToken": "Token de acesso",
   "settingsShell.integrationDetail.addAccessToken": "Adicionar token de acesso",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Não foi possível verificar um token de acesso salvo.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Tentar de novo",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "Um admin precisa configurar isso",
   "settingsShell.integrationDetail.callout.adminNeededBody":

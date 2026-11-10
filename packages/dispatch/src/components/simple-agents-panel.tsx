@@ -281,7 +281,6 @@ function AgentEditorDialog({
       setOpen(false);
       onSaved?.();
     },
-    onError: (error) => toast.error(error.message),
   });
   const update = useActionMutation("update-workspace-resource", {
     onSuccess: () => {
@@ -289,7 +288,6 @@ function AgentEditorDialog({
       setOpen(false);
       onSaved?.();
     },
-    onError: (error) => toast.error(error.message),
   });
 
   const pending = create.isPending || update.isPending;
@@ -485,7 +483,6 @@ function AgentPackDialog({
         },
       });
     },
-    onError: (error) => toast.error(error.message),
   });
   const create = useActionMutation("create-workspace-resource", {
     onSuccess: (result) => {
@@ -501,7 +498,6 @@ function AgentPackDialog({
         },
       });
     },
-    onError: (error) => toast.error(error.message),
   });
   const remove = useActionMutation("delete-workspace-resource", {
     onSuccess: () => {
@@ -510,7 +506,6 @@ function AgentPackDialog({
       void query.refetch();
       onChanged?.();
     },
-    onError: (error) => toast.error(error.message),
   });
 
   const pack = readAgentPack(query.data, query.isError);
@@ -782,7 +777,6 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
       setOpen(false);
       onImported?.();
     },
-    onError: (error) => toast.error(error.message),
   });
   const connect = useActionMutation("connect-external-agent", {
     onSuccess: () => {
@@ -790,7 +784,6 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
       setOpen(false);
       onImported?.();
     },
-    onError: (error) => toast.error(error.message),
   });
   const importPack = useActionMutation("import-agent-pack", {
     onSuccess: (result: { status: string; warnings?: string[] }) => {
@@ -805,7 +798,6 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
       setOpen(false);
       onImported?.();
     },
-    onError: (error) => toast.error(error.message),
   });
 
   function reset() {
@@ -1114,7 +1106,6 @@ function DeleteAgentButton({
       toast.success("Agent removed");
       onDeleted?.();
     },
-    onError: (error) => toast.error(error.message),
   });
 
   return (
@@ -1194,7 +1185,6 @@ function AgentRow({
       }
       toast.error(result.message);
     },
-    onError: (error) => toast.error(error.message),
   });
 
   function chat() {
