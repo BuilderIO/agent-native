@@ -81,6 +81,7 @@ import {
 import { useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
+import { useChatComposerMenuItems } from "@/components/ChatComposerContext";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -1390,6 +1391,7 @@ function ChatCanvas({
     ),
     [setWorkspaceOpen, t, workspaceOpen],
   );
+  const contextMenuItems = useChatComposerMenuItems();
   const chatTitle = thread.thread?.title?.trim() || APP_TITLE;
 
   return (
@@ -1406,6 +1408,7 @@ function ChatCanvas({
         expectExistingThread={!isDraftThread}
         onStartNewChat={() => void navigate(NEW_CHAT_PATH)}
         composerProps={{
+          contextMenuItems,
           requireAgentEngine: true,
           contextUsageSlot: <ChatContextRing threadId={threadId} />,
           ...(initialText === undefined ? {} : { initialText }),

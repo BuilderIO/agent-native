@@ -1120,6 +1120,29 @@ const editor = {
     hideInSearch: "Ocultar en la búsqueda",
     hideInSearchDescription:
       "Ocultarse de la organización y buscar. Las personas con el enlace aún pueden verlo.",
+    sharePeopleTab: "Personas",
+    shareAgentsTab: "Agentes",
+    agentLevelHeading: "Agentes en esta página",
+    agentLevelMenuLabel: "Qué pueden hacer los agentes en esta página",
+    agentLevelDefault: "(predeterminado)",
+    agentLevelCommentDescription:
+      "Pueden leer, comentar y sugerir cambios. Solo las personas pueden aceptarlos.",
+    agentLevelEditDescription:
+      "Pueden leer, comentar, sugerir, editar el texto, el título y las pestañas, y mover la página a la papelera.",
+    agentLevelCommentConfirm:
+      "Ahora los agentes pueden comentar y sugerir cambios en esta página, pero no editarla.",
+    agentLevelEditConfirm: "Los agentes pueden volver a editar esta página.",
+    agentLevelLimit:
+      "Un agente nunca tiene más permisos que la persona para la que trabaja.",
+    agentLevelManagersOnly:
+      "Solo las personas que administran esta página pueden cambiar esto.",
+    agentLevelUpdateFailed:
+      "No se pudo cambiar lo que pueden hacer los agentes aquí.",
+    agentLevelNote: "Los agentes pueden comentar",
+    agentLevelNoteHint:
+      "Los agentes pueden comentar en esta página. Cámbialo en Compartir.",
+    sendPageToAgent: "Enviar esta página a un agente",
+    connectAgentOverMcp: "Conectar un agente por MCP",
     importingFromNotion: "Importando desde Notion...",
     lastSynced: "Última sincronización",
     linkedToNotion: "Vinculado a la noción",
@@ -1334,7 +1357,8 @@ const rawLiterals = {
     previewDraftUseSaved: "Usar la versión guardada",
     previewDraftSaveSeparately: "Guardar la mía como página aparte",
     previewDraftSavedToHistory: "Tus cambios se guardaron en el historial",
-    previewDraftSavedSeparately: "Tus cambios se guardaron como página aparte",
+    previewDraftSavedSeparately:
+      "Tus cambios se guardaron como página privada en tu espacio",
     previewDraftOpenSavedPage: "Abrir página",
     previewDraftMoreOptions: "Más opciones",
     previewDraftViewFullVersions: "Ver versiones completas",
@@ -2077,6 +2101,27 @@ const overrides = {
     discardEditDescription: "Tu comentario se quedará como estaba.",
     discard: "Descartar",
     keepEditing: "Seguir editando",
+    deleteComment: "Eliminar comentario",
+    deleteThread: "Eliminar hilo",
+    deleteCommentQuestion: "¿Eliminar el comentario?",
+    deleteCommentDescription: "Se eliminará para todos y no se puede deshacer.",
+    deleteThreadQuestion: "¿Eliminar el hilo?",
+    deleteThreadDescription:
+      "El hilo y sus respuestas se eliminarán para todos, y no se puede deshacer.",
+    deleteThreadAiChangeDescription:
+      "El hilo y sus respuestas se eliminarán para todos, y no se puede deshacer. El cambio de la IA en la página se mantiene, pero no podrás deshacerlo desde el hilo.",
+    delete: "Eliminar",
+    deleting: "Eliminando…",
+    deleteRefusedReplied:
+      "Otra persona respondió, así que solo un editor puede eliminar este hilo.",
+    deleteRefusedNotion:
+      "Este comentario está sincronizado con Notion. Elimínalo en Notion.",
+    deleteRefusedAiWorking:
+      "La IA está trabajando en este hilo. Detenla antes de eliminar el hilo.",
+    deleteRefusedAiSuggestion:
+      "La sugerencia de la IA en este hilo está pendiente de revisión. Acéptala o recházala antes de eliminar el hilo.",
+    deleteRefusedBusy:
+      "Este hilo se está modificando ahora mismo. Vuelve a intentar eliminarlo en un momento.",
     submit: "Comentar",
     askAi: "Preguntar a la IA",
     aiBadge: "IA",
@@ -2087,8 +2132,10 @@ const overrides = {
     mentionPeopleLoadFailed: "No se pudieron cargar las personas.",
     mentionAgents: "Agentes",
     identityPerson: "Persona",
-    identityModel: "Modelo",
     identityEffort: "Esfuerzo",
+    acceptAllAndResolve: "Aceptar todo y resolver",
+    acceptAndResolve: "Aceptar y resolver",
+    suggestionLoadFailed: "No se pudo cargar esta sugerencia",
     identityRan: "Ejecutado",
     identityNotRecorded: "No registrado",
     identityOpenRun: "Abrir ejecución",
@@ -2121,7 +2168,6 @@ const overrides = {
     aiPromptApplyResolve: "Aplica los cambios de este comentario y resuélvelo.",
     aiWorking: "La IA está trabajando…",
     aiReplied: "La IA respondió",
-    aiSuggestionReady: "Revisar sugerencia",
     aiChangesApplied: "Cambios aplicados",
     aiAppliedAndResolved: "Aplicado y resuelto",
     aiChangeUndone: "Cambio deshecho",

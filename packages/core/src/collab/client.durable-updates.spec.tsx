@@ -28,9 +28,11 @@ import {
   type UseCollaborativeDocOptions,
   type UseCollaborativeDocResult,
 } from "./client.js";
+import {
+  COLLAB_OUTBOX_PREFIX as OUTBOX_PREFIX,
+  COLLAB_VERSIONED_OUTBOX_PREFIX as STRICT_OUTBOX_PREFIX,
+} from "./outbox-keys.js";
 
-const OUTBOX_PREFIX = "agent-native-collab-outbox-v1:";
-const STRICT_OUTBOX_PREFIX = "agent-native-collab-outbox-v2:";
 const USER = { name: "Ada", email: "ada@example.com", color: "#123456" };
 
 function Probe({

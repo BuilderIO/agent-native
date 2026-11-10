@@ -1350,6 +1350,7 @@ async function rowWriters(seed: Awaited<ReturnType<typeof seedCollection>>) {
 /** A primary Blocks property on the collection; deleting it clears the rows' bodies. */
 async function addPrimaryBlocksProperty(
   seed: Awaited<ReturnType<typeof seedCollection>>,
+  ctx?: typeof agent,
 ) {
   const propertyId = `${seed.key}_body`;
   await getDb()
@@ -1370,11 +1371,14 @@ async function addPrimaryBlocksProperty(
     .where(eq(schema.contentDatabases.id, seed.ids.collection));
   return () =>
     asOwner(() =>
-      deleteDocumentProperty.run({
-        documentId: seed.ids.collectionPage,
-        databaseId: seed.ids.collection,
-        propertyId,
-      }),
+      deleteDocumentProperty.run(
+        {
+          documentId: seed.ids.collectionPage,
+          databaseId: seed.ids.collection,
+          propertyId,
+        },
+        ctx,
+      ),
     );
 }
 
@@ -2497,6 +2501,18 @@ describe.skipIf(!POSTGRES_URL)(
         // The pages' UPDATE scans their primary key, which the test databases
         // sort as COLLATE "C" does, so this can't tell whether the page lock
         // that sorts them is there.
+        expect(report.waitedOn).toEqual(COLLECTION_ROWS);
+      });
+
+      it("an agent deleting a primary Blocks property", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedCollection();
+          return {
+            rows: seed.rows,
+            run: await addPrimaryBlocksProperty(seed, agent),
+          };
+        });
+        expect(report.violations).toEqual([]);
         expect(report.waitedOn).toEqual(COLLECTION_ROWS);
       });
 
@@ -4742,5 +4758,169 @@ isFavorite: true
         });
       },
     );
+
+    describe("Deleting a comment thread", () => {
+      /** Holds one row's lock in its own transaction until released. */
+      async function holdRowIn(table: string, id: string) {
+        let release!: () => void;
+        const released = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let held!: (pid: number) => void;
+        const pid = new Promise<number>((resolve) => {
+          held = resolve;
+        });
+        const done = getDb().transaction(async (transaction) => {
+          const tx = transaction as unknown as Db;
+          const holderPid = await backendPid(tx);
+          await tx.execute(
+            sql`SELECT id FROM ${sql.identifier(table)} WHERE id = ${id} FOR UPDATE`,
+          );
+          held(holderPid);
+          await released;
+        });
+        return {
+          pid: await Promise.race([
+            pid,
+            done.then(() => {
+              throw new Error("The holder ended before it held its row.");
+            }),
+          ]),
+          release,
+          done,
+        };
+      }
+
+      async function commentLocked(id: string) {
+        try {
+          await getDb().execute(
+            sql`SELECT id FROM document_comments WHERE id = ${id} FOR UPDATE NOWAIT`,
+          );
+          return false;
+        } catch (error) {
+          if (postgresCode(error) === "55P03") return true;
+          throw error;
+        }
+      }
+
+      /** A page with a thread of a root and a reply, and an Ask AI request on it. */
+      async function seedThread(
+        request: Partial<typeof schema.commentAiRequests.$inferInsert>,
+      ) {
+        const key = fixtureKey();
+        const ids = {
+          page: `${key}_page`,
+          root: `${key}_root`,
+          reply: `${key}_reply`,
+          request: `${key}_request`,
+        };
+        await getDb()
+          .insert(schema.documents)
+          .values(pageValues(ids.page, null, "Comment thread"));
+        const comment = (id: string, parentId: string | null) => ({
+          id,
+          ownerEmail: OWNER,
+          documentId: ids.page,
+          threadId: ids.root,
+          parentId,
+          content: "A comment",
+          authorEmail: OWNER,
+        });
+        await getDb()
+          .insert(schema.documentComments)
+          .values([comment(ids.root, null), comment(ids.reply, ids.root)]);
+        await getDb()
+          .insert(schema.commentAiRequests)
+          .values({
+            id: ids.request,
+            ownerEmail: OWNER,
+            requesterEmail: OWNER,
+            documentId: ids.page,
+            threadId: ids.root,
+            rootCommentId: ids.root,
+            fieldId: "body",
+            intent: "suggest",
+            status: "needs-review",
+            threadDigest: "digest",
+            snapshotJson: "[]",
+            baseRevision: "base",
+            suggestionRevision: "suggestion",
+            ...request,
+          });
+        return { ids };
+      }
+
+      async function deleteThread(ids: { page: string; root: string }) {
+        (await import("../server/plugins/suggested-edits.js")).default();
+        const deleteComment = (await import("./delete-comment.js")).default;
+        return asOwner(() =>
+          deleteComment.run({ id: ids.root, documentId: ids.page }, agent),
+        );
+      }
+
+      it("refuses at once, rather than waiting, while the AI holds one of its requests", async () => {
+        const { ids } = await seedThread({});
+
+        // Saving a suggestion locks its request and then the thread's
+        // comments, so a delete that waited here while holding the thread
+        // could deadlock.
+        const holder = await holdRowIn("comment_ai_requests", ids.request);
+        try {
+          const outcome = await Promise.race([
+            deleteThread(ids).then(
+              () => "deleted",
+              (error: unknown) => error,
+            ),
+            sleep(5_000).then(() => "waited"),
+          ]);
+          expect(outcome).toMatchObject({
+            errorCode: "comment_ai_already_active",
+          });
+        } finally {
+          holder.release();
+          await holder.done;
+        }
+
+        await deleteThread(ids);
+        expect(
+          await getDb()
+            .select({ id: schema.commentAiRequests.id })
+            .from(schema.commentAiRequests)
+            .where(eq(schema.commentAiRequests.id, ids.request)),
+        ).toEqual([]);
+      });
+
+      it("refuses at once, rather than waiting, while another write holds one of its replies", async () => {
+        const { ids } = await seedThread({});
+
+        // Some writers lock a thread's comments in one statement that can
+        // reach a reply before the root, so a delete that waited on the reply
+        // while holding the root could deadlock with them.
+        const holder = await holdRowIn("document_comments", ids.reply);
+        try {
+          const outcome = await Promise.race([
+            deleteThread(ids).then(
+              () => "deleted",
+              (error: unknown) => error,
+            ),
+            sleep(5_000).then(() => "waited"),
+          ]);
+          expect(outcome).toMatchObject({ errorCode: "comment_thread_busy" });
+          // The refused delete let go of the root.
+          expect(await commentLocked(ids.root)).toBe(false);
+        } finally {
+          holder.release();
+          await holder.done;
+        }
+
+        await deleteThread(ids);
+        expect(
+          await getDb()
+            .select({ id: schema.documentComments.id })
+            .from(schema.documentComments)
+            .where(eq(schema.documentComments.threadId, ids.root)),
+        ).toEqual([]);
+      });
+    });
   },
 );

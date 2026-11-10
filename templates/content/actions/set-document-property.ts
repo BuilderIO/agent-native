@@ -28,13 +28,16 @@ import {
   serializePropertyValue,
   type DocumentPropertyType,
 } from "../shared/properties.js";
-import { contentDatabaseSourceFieldsAllowLocalWrite } from "../shared/source-field-policy.js";
 import {
   BlocksFieldRevisionConflictError,
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
   readBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
+import {
+  assertPropertyWritableByRowMutation,
+  writeStoredBlocksField,
+} from "./_blocks-field-write.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import {
@@ -43,6 +46,7 @@ import {
   scheduleContentWebhookDelivery,
 } from "./_content-webhooks.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { assertEditableDocument } from "./_document-edit-mutation.js";
 import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
 import {
@@ -65,49 +69,13 @@ import {
 import { validateRelationWrite } from "./_relation-values.js";
 import { lockDocumentRows } from "./_row-lock-order.js";
 
-async function assertPropertyWritableByRowMutation(
-  db: ReturnType<typeof getDb>,
-  databaseId: string,
-  definition: typeof schema.documentPropertyDefinitions.$inferSelect,
-) {
-  const sourceFields = await db
-    .select({
-      writeOwner: schema.contentDatabaseSourceFields.writeOwner,
-      readOnly: schema.contentDatabaseSourceFields.readOnly,
-    })
-    .from(schema.contentDatabaseSourceFields)
-    .innerJoin(
-      schema.contentDatabaseSources,
-      eq(
-        schema.contentDatabaseSources.id,
-        schema.contentDatabaseSourceFields.sourceId,
-      ),
-    )
-    .where(
-      and(
-        eq(schema.contentDatabaseSources.databaseId, databaseId),
-        eq(schema.contentDatabaseSourceFields.propertyId, definition.id),
-      ),
-    );
-  if (contentDatabaseSourceFieldsAllowLocalWrite(sourceFields)) return;
-  throw new ActionContractError(
-    `Property "${definition.name}" is not writable by database row mutations.`,
-    {
-      errorCode: "PROPERTY_NOT_WRITABLE",
-      details: { propertyId: definition.id, propertyType: definition.type },
-      statusCode: 400,
-    },
-  );
-}
-
 /**
  * Writes a primary Blocks value, which is the page's body, to a switched page
  * through its live copy, as edit-document does; the live copy's commit keeps
  * the identity of every primary Blocks field the page has. Returns the body
  * the commit stored, which the live copy writes in its own canonical form.
- * False when the page isn't switched, left its live copy before anything
- * committed, or already has this body, which the legacy path lets through
- * unchanged.
+ * False when the page isn't switched or left its live copy before anything
+ * committed.
  */
 async function setPrimaryBlocksThroughLiveCopy(args: {
   ctx: ActionRunContext | undefined;
@@ -131,7 +99,6 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
       statusCode: 404,
     });
   }
-  if (current.content === args.content) return false;
   assertNoNewlySharedVideoIds(current.content, args.content);
   if (args.expectedRevision !== undefined) {
     const { revision } = await readBlocksFieldIdentity({
@@ -316,6 +283,7 @@ export default defineAction({
     const now = new Date().toISOString();
 
     if (isBlocksPropertyType(type)) {
+      assertAgentsMayEditPageText(document, ctx);
       if (expectedGeneration !== undefined) {
         throw new ActionContractError(
           "Blocks fields are guarded by expectedBlocksFieldRevision, not expectedGeneration.",
@@ -400,10 +368,14 @@ export default defineAction({
           documentId,
         ]);
         const [lockedPage] = await tx
-          .select({ trashedAt: schema.documents.trashedAt })
+          .select({
+            trashedAt: schema.documents.trashedAt,
+            agentTextLocked: schema.documents.agentTextLocked,
+          })
           .from(schema.documents)
           .where(eq(schema.documents.id, documentId));
         assertEditableDocument(lockedPage);
+        assertAgentsMayEditPageText(lockedPage, ctx);
         const [lockedDefinition] = await tx
           .select()
           .from(schema.documentPropertyDefinitions)
@@ -439,73 +411,54 @@ export default defineAction({
         target = blocksStorageTarget(
           parsePropertyOptions(lockedDefinition.optionsJson),
         );
-        let previousContent = "";
-        if (target === "document_body") {
-          const legacy = await lockLegacyBodyWrites(tx, [documentId], {
-            operation: "set-document-property",
-            content,
-          });
-          const [currentDocument] = await tx
-            .select({ content: schema.documents.content })
-            .from(schema.documents)
-            .where(eq(schema.documents.id, documentId));
-          if (!currentDocument) {
-            throw new Error(`Document "${documentId}" not found`);
-          }
-          previousContent = currentDocument.content;
-          assertNoNewlySharedVideoIds(previousContent, content);
-          await tx
-            .update(schema.documents)
-            .set({
-              content,
-              bodyRevision: legacy.bodyRevision(content),
-              updatedAt: now,
-            })
-            .where(eq(schema.documents.id, documentId));
-        } else {
-          const [currentField] = await tx
-            .select({ content: schema.documentBlockFieldContents.content })
-            .from(schema.documentBlockFieldContents)
-            .where(
-              and(
-                eq(schema.documentBlockFieldContents.documentId, documentId),
-                eq(schema.documentBlockFieldContents.propertyId, propertyId),
-              ),
-            );
-          previousContent = currentField?.content ?? "";
-          assertNoNewlySharedVideoIds(previousContent, content);
-          await tx
-            .insert(schema.documentBlockFieldContents)
-            .values({
-              id: nanoid(),
+        if (target === "block_field_store") {
+          await writeStoredBlocksField(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
               ownerEmail: database.ownerEmail,
               documentId,
               propertyId,
               content,
-              createdAt: now,
-              updatedAt: now,
-            })
-            .onConflictDoUpdate({
-              target: [
-                schema.documentBlockFieldContents.documentId,
-                schema.documentBlockFieldContents.propertyId,
-              ],
-              set: { content, updatedAt: now },
-            });
+              expectedRevision: expectedBlocksFieldRevision,
+              now,
+            },
+          );
+          return;
         }
-        const identityFields =
-          target === "document_body"
-            ? primaryBlocksFields
-            : [{ propertyId, ownerEmail: database.ownerEmail }];
+        const legacy = await lockLegacyBodyWrites(tx, [documentId], {
+          operation: "set-document-property",
+          content,
+        });
+        const currentDocument = firstRow(
+          await tx
+            .select({ content: schema.documents.content })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, documentId)),
+        );
+        if (!currentDocument) {
+          throw new ActionContractError(`Document "${documentId}" not found`, {
+            errorCode: "DOCUMENT_NOT_FOUND",
+            statusCode: 404,
+          });
+        }
+        const previousContent = currentDocument.content;
+        assertNoNewlySharedVideoIds(previousContent, content);
+        await tx
+          .update(schema.documents)
+          .set({
+            content,
+            bodyRevision: legacy.bodyRevision(content),
+            updatedAt: now,
+          })
+          .where(eq(schema.documents.id, documentId));
         if (
-          target === "document_body" &&
-          !identityFields.some((field) => field.propertyId === propertyId)
+          !primaryBlocksFields.some((field) => field.propertyId === propertyId)
         ) {
           throw new Error(
             "Primary Blocks membership changed before the operation completed.",
           );
         }
-        for (const field of identityFields) {
+        for (const field of primaryBlocksFields) {
           await persistBlocksFieldIdentity({
             db: tx as unknown as ReturnType<typeof getDb>,
             ownerEmail: field.ownerEmail,

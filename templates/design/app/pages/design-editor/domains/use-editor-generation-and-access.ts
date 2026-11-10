@@ -17,6 +17,7 @@ import {
   useReviewComments,
   useSendReviewThreadToAgent,
 } from "@agent-native/core/client/review";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { useCreativeContextLabState } from "@agent-native/creative-context/client";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { getOverviewScreenFileIds } from "@shared/design-files";
@@ -79,12 +80,12 @@ import {
 } from "../commands/publish-visual-edit-snapshot";
 import { runStartRetryGeneration } from "../commands/start-retry-generation";
 import { isDesignData } from "../design-data-geometry-utils";
+import { designMetadataQueryKey } from "../design-query-key";
 import { designSelectionStateKeys } from "../editor-helpers";
 import { TAB_ID } from "../editor-session";
 import {
   createPendingLocalFileContent,
   type PendingLocalFileContent,
-  restorePendingFileContent,
 } from "../editor-state";
 import {
   formatUploadedFileContext,
@@ -98,7 +99,17 @@ import {
   applyMcpDirectoryWidgetWritePolicy,
 } from "../mcp-widget-write-capabilities";
 import { explicitOverviewScreenSelectionForHistory } from "../selection-state";
-import { type DesignData, type DesignFile } from "../types";
+import { eagerSourceIds } from "../source-hydration";
+import {
+  hydrateDesignFiles,
+  type IdentityCache,
+} from "../stable-file-identity";
+import {
+  type DesignData,
+  type DesignFile,
+  type DesignFileMetadata,
+} from "../types";
+import { useDesignSourceHydration } from "../use-design-source-hydration";
 import type { EditorCore } from "./use-editor-core";
 import type { EditorHistory } from "./use-editor-history";
 
@@ -120,6 +131,27 @@ type ActiveBreakpointWrite = {
   breakpointId: string;
   editScope: ResponsiveEditScope;
 };
+
+/** Whether the tracked run saved design output, from its persisted turn. */
+function readGenerationOutput(
+  designId: string,
+  pending: { currentRunId?: string; currentTurnId?: string } | null,
+): Promise<"has_output" | "no_output" | "unknown"> {
+  const runId = pending?.currentRunId;
+  const turnId = pending?.currentTurnId;
+  if (!runId || !turnId) return Promise.resolve("unknown");
+  return callAction(
+    "get-design-generation-output",
+    { designId, runId, turnId },
+    { method: "GET", uiOnly: true },
+  )
+    .then((result) =>
+      result.status === "has_output" || result.status === "no_output"
+        ? result.status
+        : ("unknown" as const),
+    )
+    .catch(() => "unknown" as const);
+}
 
 export function useEditorGenerationAndAccess({
   editorCore,
@@ -257,8 +289,10 @@ export function useEditorGenerationAndAccess({
     ((prompt: RetryablePrompt) => void) | null
   >(null);
   const generationOutputReadyRef = useRef<boolean | null>(null);
+  // Hashing every screen is too slow to repeat on each render of a large
+  // board, so the editor publishes a reader and a submit calls it.
   const generationOutputBaselineRef = useRef<
-    Array<{ id: string; contentHash: string }> | undefined
+    (() => Array<{ id: string; contentHash: string }>) | undefined
   >(undefined);
   const generationOutputUnknownRef = useRef<{
     designId: string;
@@ -285,6 +319,7 @@ export function useEditorGenerationAndAccess({
     model?: string;
     engine?: string;
     effort?: PromptComposerSubmitOptions["effort"];
+    references?: PromptComposerSubmitOptions["references"];
   } | null>(null);
   const rememberPendingGenerationForRetry = useCallback(
     (autoRetry = true) => {
@@ -296,6 +331,7 @@ export function useEditorGenerationAndAccess({
         model: pending.model,
         engine: pending.engine,
         effort: pending.effort,
+        references: pending.references,
         contextItems: pending.contextItems,
         designSystemId: pending.designSystemId,
         attempt: pending.attempt ?? 1,
@@ -310,23 +346,63 @@ export function useEditorGenerationAndAccess({
     },
     [id],
   );
+  /**
+   * A run can end as stale or failed after it already saved screens: a fast
+   * placement finishes before the editor sees it, or the model's next turn
+   * comes back empty. Retrying such a run saves its output again, so check
+   * what it saved and finish quietly when it did.
+   */
+  const settleIfOutputSaved = useCallback(
+    (otherwise: () => void) => {
+      const settledPending = readPendingGeneration(id, {
+        allowUntimestamped: true,
+      });
+      if (!id) {
+        otherwise();
+        return;
+      }
+      void readGenerationOutput(id, settledPending).then((outputState) => {
+        const latest = readPendingGeneration(id, { allowUntimestamped: true });
+        // The run was stopped, settled, or replaced while this check ran:
+        // its record is gone or belongs to a newer run, so leave it alone.
+        if (settledPending && latest?.startedAt !== settledPending.startedAt)
+          return;
+        if (!settledPending && latest) return;
+        // Only output the run is confirmed to have saved stops a retry; a
+        // check that could not be read keeps the usual retry path.
+        if (outputState !== "has_output") {
+          otherwise();
+          return;
+        }
+        clearPendingGeneration(id);
+        setHasPendingGeneration(false);
+        setRetryablePrompt(null);
+        staleToastShownRef.current = false;
+        setGenerationIssue(null);
+      });
+    },
+    [id, setRetryablePrompt],
+  );
   const markGenerationStale = useCallback(() => {
     if (generationOutputReadyRef.current === null) return;
     clearGenerationCompleteTimer();
     clearAutoRetryTimer();
-    rememberPendingGenerationForRetry();
-    clearPendingGeneration(id);
-    setHasPendingGeneration(false);
-    setGenerationIssue(t("designEditor.generationMayHaveStopped"));
-    if (!staleToastShownRef.current) {
-      staleToastShownRef.current = true;
-      toast.error(t("designEditor.generationMayHaveStoppedToast"));
-    }
+    settleIfOutputSaved(() => {
+      rememberPendingGenerationForRetry();
+      clearPendingGeneration(id);
+      setHasPendingGeneration(false);
+      setGenerationIssue(t("designEditor.generationMayHaveStopped"));
+      if (!staleToastShownRef.current) {
+        staleToastShownRef.current = true;
+        toast.error(t("designEditor.generationMayHaveStoppedToast"));
+      }
+    });
   }, [
     clearAutoRetryTimer,
     clearGenerationCompleteTimer,
     id,
     rememberPendingGenerationForRetry,
+    settleIfOutputSaved,
     t,
   ]);
   const handleGenerationComplete = useCallback(() => {
@@ -351,28 +427,7 @@ export function useEditorGenerationAndAccess({
       });
       const completedStartedAt = completedPending?.startedAt;
       const completedRunTabId = completedPending?.runTabId;
-      const completedRunId = completedPending?.currentRunId;
-      const completedTurnId = completedPending?.currentTurnId;
-      const outputCheck =
-        completedRunId && completedTurnId
-          ? callAction(
-              "get-design-generation-output",
-              {
-                designId: id,
-                runId: completedRunId,
-                turnId: completedTurnId,
-              },
-              { method: "GET", uiOnly: true },
-            )
-              .then((result) =>
-                result?.status === "has_output" ||
-                result?.status === "no_output"
-                  ? result.status
-                  : ("unknown" as const),
-              )
-              .catch(() => "unknown" as const)
-          : Promise.resolve("unknown" as const);
-      void outputCheck.then((outputState) => {
+      void readGenerationOutput(id, completedPending).then((outputState) => {
         const latestPending = readPendingGeneration(id, {
           allowUntimestamped: true,
         });
@@ -456,24 +511,28 @@ export function useEditorGenerationAndAccess({
       if (generationOutputReadyRef.current === null) return;
       clearGenerationCompleteTimer();
       clearAutoRetryTimer();
-      // A rejected request fails the same way on resend; keep only the manual retry.
-      const preservedForRetry = rememberPendingGenerationForRetry(
-        failure?.retryable !== false,
-      );
-      clearPendingGeneration(id);
-      setHasPendingGeneration(false);
-      setGenerationIssue(
-        preservedForRetry
-          ? t("designEditor.generationStoppedRetry")
-          : t("designEditor.generationStoppedCheckAgent"),
-      );
-      staleToastShownRef.current = false;
+      const reportFailure = () => {
+        // A rejected request fails the same way on resend; keep only the manual retry.
+        const preservedForRetry = rememberPendingGenerationForRetry(
+          failure?.retryable !== false,
+        );
+        clearPendingGeneration(id);
+        setHasPendingGeneration(false);
+        setGenerationIssue(
+          preservedForRetry
+            ? t("designEditor.generationStoppedRetry")
+            : t("designEditor.generationStoppedCheckAgent"),
+        );
+        staleToastShownRef.current = false;
+      };
+      settleIfOutputSaved(reportFailure);
     },
     [
       clearAutoRetryTimer,
       clearGenerationCompleteTimer,
       id,
       rememberPendingGenerationForRetry,
+      settleIfOutputSaved,
       t,
     ],
   );
@@ -566,7 +625,7 @@ export function useEditorGenerationAndAccess({
       const previousRunBaselineVerified = baseline.verified;
       const outputBaselineFiles = resolvePendingGenerationOutputBaseline(
         pending?.outputBaselineFiles,
-        generationOutputBaselineRef.current,
+        generationOutputBaselineRef.current?.(),
       );
       patchPendingGeneration(id, {
         prompt: pending?.prompt ?? "Continue from answered design questions.",
@@ -702,17 +761,31 @@ export function useEditorGenerationAndAccess({
     !pendingMatchesUnknownOutputVerification &&
     !pendingQuestionsVisible;
 
+  const pendingLocalFileContentsRef = useRef<
+    Map<string, PendingLocalFileContent>
+  >(new Map());
+  const [
+    pendingLocalFileContentsRevision,
+    setPendingLocalFileContentsRevision,
+  ] = useState(0);
+
   const {
-    data: designResult,
+    data: metadataResult,
     error: designQueryError,
     isError: designQueryFailed,
     isLoading: designLoading,
     isFetching: designFetching,
     dataUpdatedAt: designDataUpdatedAt,
     refetch: refetchDesign,
-  } = useActionQuery<DesignData | string>(
+  } = useActionQuery<
+    (Omit<DesignData, "files"> & { files: DesignFileMetadata[] }) | string
+  >(
     "get-design",
-    { id: id!, ...(reviewPreview ? { reviewPreview: true } : {}) },
+    {
+      id,
+      includeFileContent: false,
+      ...(reviewPreview ? { reviewPreview: true } : {}),
+    },
     {
       enabled: !shellMode,
       refetchInterval: isVisualEditSurface
@@ -724,6 +797,108 @@ export function useEditorGenerationAndAccess({
           : false,
     },
   );
+  const sourceMetadata = useMemo(
+    () =>
+      metadataResult &&
+      typeof metadataResult === "object" &&
+      Array.isArray(metadataResult.files)
+        ? metadataResult.files
+        : [],
+    [metadataResult],
+  );
+  const [visibleSourceIds, setVisibleSourceIds] = useState<readonly string[]>(
+    [],
+  );
+  const [previewSourceIds, setPreviewSourceIds] = useState<readonly string[]>(
+    [],
+  );
+  const onSourceDemandChange = useCallback(
+    (demand: { pinned: readonly string[]; preview: readonly string[] }) => {
+      const keep = (ids: readonly string[]) => (previous: readonly string[]) =>
+        previous.length === ids.length &&
+        previous.every((id, index) => id === ids[index])
+          ? previous
+          : ids;
+      setVisibleSourceIds(keep(demand.pinned));
+      setPreviewSourceIds(keep(demand.preview));
+    },
+    [],
+  );
+  const demandedSourceIds = useMemo(() => {
+    const board = sourceMetadata.find(
+      (file) => file.filename === "__board__.html",
+    )?.id;
+    const first = sourceMetadata.find(
+      (file) => file.fileType === "html" && file.id !== board,
+    )?.id;
+    return [
+      ...new Set(
+        [
+          overviewSelectedScreenIds.length === 1
+            ? overviewSelectedScreenIds[0]
+            : undefined,
+          activeFileId ?? first,
+          board,
+          ...visibleSourceIds,
+          ...eagerSourceIds(sourceMetadata),
+        ].filter((value): value is string => Boolean(value)),
+      ),
+    ];
+  }, [
+    activeFileId,
+    overviewSelectedScreenIds,
+    sourceMetadata,
+    visibleSourceIds,
+  ]);
+  const dirtySourceIds = useMemo(
+    () => new Set(pendingLocalFileContentsRef.current.keys()),
+    [pendingLocalFileContentsRevision],
+  );
+  const pinnedSourceIds = useMemo(
+    () => new Set([...demandedSourceIds, ...dirtySourceIds]),
+    [demandedSourceIds, dirtySourceIds],
+  );
+  const {
+    loader: sourceLoader,
+    revision: sourceRevision,
+    dependencyStatusByRoot,
+    retrySources,
+    leaseHydratedSource,
+    leaseSources,
+    awaitCommittedSources,
+  } = useDesignSourceHydration(
+    id,
+    sourceMetadata,
+    demandedSourceIds,
+    pinnedSourceIds,
+    dirtySourceIds,
+    previewSourceIds,
+  );
+  const hydratedFilesCacheRef = useRef<IdentityCache<DesignFile | null>>(
+    new Map(),
+  );
+  const hydratedDesignRef = useRef<{
+    metadata: object;
+    design: DesignData;
+  } | null>(null);
+  const designResult = useMemo<DesignData | string | undefined>(() => {
+    if (!metadataResult || typeof metadataResult !== "object")
+      return metadataResult;
+    const previous = hydratedDesignRef.current;
+    const files = hydrateDesignFiles(
+      hydratedFilesCacheRef.current,
+      previous?.design.files,
+      metadataResult.files,
+      (id) => sourceLoader?.get(id),
+      (id) => dependencyStatusByRoot.get(id),
+    );
+    const design =
+      previous?.metadata === metadataResult && previous.design.files === files
+        ? previous.design
+        : { ...metadataResult, files };
+    hydratedDesignRef.current = { metadata: metadataResult, design };
+    return design;
+  }, [metadataResult, sourceLoader, sourceRevision, dependencyStatusByRoot]);
   const {
     data: designAccessStatus,
     isLoading: designAccessStatusLoading,
@@ -846,14 +1021,16 @@ export function useEditorGenerationAndAccess({
   const designEditorCommandVersion = useChangeVersions(
     designEditorCommandKeys.map((key) => `app-state:${key}`),
   );
+  // Every screen, loaded or not, can hold a pending rewrite proposal.
+  const designFileMetadata = shellMode ? design?.files : sourceMetadata;
   const pendingNodeRewriteStateKeys = useMemo(
     () =>
       id
-        ? (design?.files.map((file) =>
+        ? (designFileMetadata?.map((file) =>
             designRepromptPendingStateKey(id, file.id),
           ) ?? [])
         : [],
-    [design?.files, id],
+    [designFileMetadata, id],
   );
   const pendingNodeRewriteStateVersion = useChangeVersions(
     pendingNodeRewriteStateKeys.map((key) => `app-state:${key}`),
@@ -863,7 +1040,7 @@ export function useEditorGenerationAndAccess({
     designId: id,
     isOwner: !shellMode && designAccessRole === "owner",
     designLoaded: Boolean(design),
-    files: design?.files ?? EMPTY_READY_VIEW_FILES,
+    files: designFileMetadata ?? EMPTY_READY_VIEW_FILES,
   });
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
@@ -968,7 +1145,8 @@ export function useEditorGenerationAndAccess({
           const refreshed = await refetchDesign();
           if (
             refreshed.isSuccess &&
-            isDesignData(refreshed.data) &&
+            refreshed.data &&
+            typeof refreshed.data === "object" &&
             typeof refreshed.data.liveCollaborationEnabled === "boolean"
           ) {
             setLiveCollaborationOverride(null);
@@ -1169,13 +1347,6 @@ export function useEditorGenerationAndAccess({
     },
     [applySelectionChange, restoreSelectionSnapshot],
   );
-  const pendingLocalFileContentsRef = useRef<
-    Map<string, PendingLocalFileContent>
-  >(new Map());
-  const [
-    pendingLocalFileContentsRevision,
-    setPendingLocalFileContentsRevision,
-  ] = useState(0);
 
   const markPendingLocalFileContent = useCallback(
     (
@@ -1240,17 +1411,10 @@ export function useEditorGenerationAndAccess({
     (fileId: string, expectedContent: string) => {
       const pending = pendingLocalFileContentsRef.current.get(fileId);
       if (!pending || pending.content !== expectedContent) return;
-      if (id) {
-        queryClient.setQueryData(["action", "get-design", { id }], (old: any) =>
-          old && typeof old === "object"
-            ? restorePendingFileContent(old, fileId, pending, expectedContent)
-            : old,
-        );
-      }
       clearPendingLocalFileContent(fileId, expectedContent);
       failPendingTextCapture(fileId);
     },
-    [clearPendingLocalFileContent, id, queryClient],
+    [clearPendingLocalFileContent],
   );
 
   useLayoutEffect(() => {
@@ -1342,6 +1506,7 @@ export function useEditorGenerationAndAccess({
   const updateBreakpointMutation = useActionMutation("update-breakpoint");
   const setActiveBreakpointMutation = useActionMutation(
     "set-active-breakpoint",
+    { errorNotification: "shared" },
   );
   const setActiveBreakpointMutateAsyncRef = useRef(
     setActiveBreakpointMutation.mutateAsync,
@@ -1368,6 +1533,7 @@ export function useEditorGenerationAndAccess({
 
   const migrateBoardObjectsMutation = useActionMutation(
     "migrate-board-objects-to-file",
+    { errorNotification: "caller" },
   );
 
   const migrateMutation = useActionMutation("migrate-inline-design-to-app");
@@ -1387,12 +1553,16 @@ export function useEditorGenerationAndAccess({
       ) {
         return;
       }
-      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-        if (!old || typeof old !== "object") return old;
-        return { ...old, designSystemId };
-      });
+      queryClient.setQueryData(
+        designMetadataQueryKey(id),
+        (old: Record<string, unknown> | undefined) => {
+          if (!old || typeof old !== "object") return old;
+          return { ...old, designSystemId };
+        },
+      );
       updateDesignMutation.mutate({ id, designSystemId } as any, {
-        onError: () => {
+        onError: (error) => {
+          reportWriteFailure(error);
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
@@ -1542,7 +1712,7 @@ export function useEditorGenerationAndAccess({
           setHasPendingGeneration,
           setRetryablePrompt,
           outputBaselineFiles:
-            generationOutputBaselineRef.current ??
+            generationOutputBaselineRef.current?.() ??
             promptState.outputBaselineFiles,
         },
         promptState,
@@ -1663,6 +1833,15 @@ export function useEditorGenerationAndAccess({
     designAccessRequestSent,
     handleRequestDesignAccess,
     design,
+    sourceMetadata,
+    sourceLoader,
+    sourceRevision,
+    retrySources,
+    dependencyStatusByRoot,
+    leaseHydratedSource,
+    leaseSources,
+    awaitCommittedSources,
+    onSourceDemandChange,
     overviewDataReady,
     activeBreakpointStateVersion,
     designEditorCommandVersion,

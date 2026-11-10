@@ -1134,7 +1134,9 @@ export interface OnboardingHtmlOptions {
   requestOrigin?: string;
   signupLegalNotice?: SignupLegalNoticeOptions | false;
   googleAuthMode?: GoogleAuthMode;
-  renderSignInPage?: (props: AuthPageProps) => string;
+  renderSignInPage?: (props: AuthPageProps) => string | undefined;
+  /** Trusted HTML appended to the sign-in document head. */
+  authHeadHtml?: string;
 }
 
 function escapeHtml(value: string): string {
@@ -1223,9 +1225,13 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }).resumeHref;
   const workspaceRuntime = isWorkspaceRuntime();
   const trackingApp =
-    getAppConfig().app.slug ??
-    getAppConfig().app.template ??
-    getAppConfig().app.id ??
+    getAppConfig().app.slug?.trim() ||
+    getAppConfig().app.template?.trim() ||
+    getAppConfig().app.id?.trim() ||
+    resolveBuiltInAuthMarketingSlug({
+      ...(opts.requestHost ? { requestHost: opts.requestHost } : {}),
+      ...(opts.requestPath ? { requestPath: opts.requestPath } : {}),
+    }) ||
     "";
   const publicOAuthOrigin = getPublicOAuthOrigin();
   const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();
@@ -2404,6 +2410,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     bottom: max(1.25rem, env(safe-area-inset-bottom));
     inset-inline-end: max(1.25rem, env(safe-area-inset-right));
   }
+  body.has-marketing .locale-menu {
+    top: auto;
+    bottom: calc(100% + 0.375rem);
+  }
   @media (prefers-color-scheme: light) {
     body.has-marketing {
       --auth-marketing-border: color-mix(in srgb, var(--auth-marketing-foreground) 18%, transparent);
@@ -2460,7 +2470,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       padding: max(1.5rem, env(safe-area-inset-top)) 1.25rem max(1.5rem, env(safe-area-inset-bottom));
       border-inline-start: 0;
     }
-    .auth-marketing-home .marketing-panel { display: none; }
+    .auth-marketing-home .marketing-panel { order: 2; min-height: 0; }
     .auth-marketing-home .card h1 {
       font-size: clamp(1.625rem, 6vw, 2rem);
       line-height: 1.15;
@@ -2486,9 +2496,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
 `;
   const authClientScriptPath = authClientAssetPath(appBasePath);
-  const title = hasMarketing
-    ? `${marketing!.appName} — ${t("pageTitleSignIn")}`
-    : t("pageTitleWelcome");
+  const title =
+    marketing && !simplifiedAuth
+      ? `${marketing.appName} — ${EN_AUTH_COPY.pageTitleSignIn}`
+      : EN_AUTH_COPY.pageTitleWelcome;
   const authPageMarkup = opts.renderSignInPage?.(authPageProps);
   const fallbackTitle = googleOnly
     ? t("pageTitleSignIn")
@@ -2530,7 +2541,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     : hasMarketing
       ? "has-marketing"
       : "";
-  return `<!DOCTYPE html><html lang="${DEFAULT_LOCALE}" dir="ltr"><head><meta charset="UTF-8"/><script data-agent-native-locale-init="">${localeInitScript}</script><script data-agent-native-embedded-init="">${embeddedAuthInitScript}</script><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>${fontLinks}<title>${escapeHtml(title)}</title><link rel="icon" type="image/svg+xml" href="${escapeHtml(withAppBasePath("/favicon.svg", appBasePath))}"/><link rel="apple-touch-icon" href="${escapeHtml(withAppBasePath("/icon-180.svg", appBasePath))}"/>${marketingMeta}<style>${authDocumentStyles + authPageLayoutStyles}</style><script type="module" src="${escapeHtml(authClientScriptPath)}"></script></head><body${bodyClass ? ` class="${bodyClass}"` : ""}><div id="agent-native-auth-root" class="auth-root"${authPageMarkup === undefined ? ' data-agent-native-auth-fallback="true"' : ""}>${pageMarkup}</div><script type="application/json" id="agent-native-auth-data">${authPageData}</script></body></html>`;
+  return `<!DOCTYPE html><html lang="${DEFAULT_LOCALE}" dir="ltr"><head><meta charset="UTF-8"/><script data-agent-native-locale-init="">${localeInitScript}</script><script data-agent-native-embedded-init="">${embeddedAuthInitScript}</script><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>${fontLinks}<title>${escapeHtml(title)}</title><link rel="icon" type="image/svg+xml" href="${escapeHtml(withAppBasePath("/favicon.svg", appBasePath))}"/><link rel="apple-touch-icon" href="${escapeHtml(withAppBasePath("/icon-180.svg", appBasePath))}"/>${marketingMeta}<style>${authDocumentStyles + authPageLayoutStyles}</style>${opts.authHeadHtml ?? ""}<script type="module" src="${escapeHtml(authClientScriptPath)}"></script></head><body${bodyClass ? ` class="${bodyClass}"` : ""}><div id="agent-native-auth-root" class="auth-root"${authPageMarkup === undefined ? ' data-agent-native-auth-fallback="true"' : ""}>${pageMarkup}</div><script type="application/json" id="agent-native-auth-data">${authPageData}</script></body></html>`;
 }
 
 const RESET_PASSWORD_STYLES = `
@@ -2557,7 +2568,9 @@ const RESET_PASSWORD_STYLES = `
 
 export function getResetPasswordHtml(
   requestPath?: string,
-  renderResetPasswordPage?: (props: ResetPasswordPageProps) => string,
+  renderResetPasswordPage?: (
+    props: ResetPasswordPageProps,
+  ) => string | undefined,
 ): string {
   const configuredAppBasePath = getAppBasePathFromViteEnv();
   const appBasePath =

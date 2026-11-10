@@ -483,7 +483,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "使用 {{integration}} 工具",
   "composer.menu.scheduleTask": "安排任务",
   "composer.menu.scheduleTaskDescription": "按计划运行任务",
-  "composer.menu.uploadFile": "上传文件",
+  "composer.menu.uploadFile": "文件和图片",
+  "composer.menu.searchWorkspace": "搜索工作区…",
+  "composer.menu.references": "引用",
+  "composer.menu.referenceFile": "引用文件",
+  "composer.menu.attachToMessage": "添加上下文",
+  "composer.menu.commands": "命令",
   "composer.menu.uploadFileDescription": "图片、PDF、文本/代码、JSON、CSV",
   "composer.messageAgent": "向智能体发送消息...",
   "composer.model": "模型",
@@ -1245,6 +1250,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io 提供免费额度，您也可以使用自己的 API 密钥。",
   "setup.builderOrOwnKeys":
     "使用 Builder.io（含免费额度），或添加您自己的提供商密钥。",
+  "setup.reconnectBuilder": "重新连接 Builder.io",
   "setup.connectAi": "连接 AI",
   "setup.connectBuilder": "使用 Builder.io",
   "setup.connectionsDescription":
@@ -2259,6 +2265,9 @@ const messages: ToolkitAgentChatTranslation = {
     "智能体使用你添加的访问令牌，因此能看到该令牌可访问的内容。",
   "settingsShell.integrationDetail.accessToken": "访问令牌",
   "settingsShell.integrationDetail.addAccessToken": "添加访问令牌",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "无法检查已保存的访问令牌。",
+  "settingsShell.integrationDetail.tokenCheckRetry": "重试",
   "settingsShell.integrationDetail.callout.adminNeeded": "需要管理员进行设置",
   "settingsShell.integrationDetail.callout.adminNeededBody":
     "请 {{org}} 的所有者或管理员添加 {{name}} 的客户端 ID 和密钥。之后你就可以连接自己的账号。",
@@ -3108,6 +3117,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "从工作区移除应用",
   "chatFirst.showMore": "显示更多",
   "chatFirst.showLess": "收起",
+  "chatFirst.showMoreCount": "再显示 {{count}} 项",
   "chatFirst.appOrderUnavailable": "无法在此设备上保存应用顺序。",
   "chatFirst.openSideSurfaces": "打开侧边面板",
   "chatFirst.sideSurfaces": "侧边面板",

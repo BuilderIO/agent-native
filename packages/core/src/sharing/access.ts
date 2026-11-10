@@ -1,4 +1,4 @@
-import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { drizzle as drizzleProxy } from "drizzle-orm/pg-proxy";
 
 import { getScopedDbExec, withDbExec, type DbExec } from "../db/client.js";
@@ -21,7 +21,14 @@ import {
   requireShareableResource,
   type ShareableResourceRegistration,
 } from "./registry.js";
-import { ROLE_RANK, type ShareRole, type Visibility } from "./schema.js";
+import {
+  LINK_PRINCIPAL_ID,
+  LINK_PRINCIPAL_TYPE,
+  LINK_ROLES,
+  ROLE_RANK,
+  type ShareRole,
+  type Visibility,
+} from "./schema.js";
 
 function findRegistrationByTable(
   resourceTable: any,
@@ -469,6 +476,39 @@ async function publicAccessRoleForResource(
     : roleResolver;
 }
 
+/** The "Anyone with the link" role, for signed-in callers only. */
+async function linkShareRole(
+  reg: ShareableResourceRegistration,
+  resourceId: string,
+  ctx: AccessContext,
+  batch?: AccessBatch,
+): Promise<ShareRole | null> {
+  if (!normalizeEmailForAccess(ctx.userEmail)) return null;
+  const row = batch
+    ? batch.shares
+        .get(resourceId)
+        ?.find((share) => share.principalType === LINK_PRINCIPAL_TYPE)
+    : (
+        await reg
+          .getDb()
+          .select({ role: reg.sharesTable.role })
+          .from(reg.sharesTable)
+          .where(
+            and(
+              eq(reg.sharesTable.resourceId, resourceId),
+              eq(reg.sharesTable.principalType, LINK_PRINCIPAL_TYPE),
+              eq(reg.sharesTable.principalId, LINK_PRINCIPAL_ID),
+            ),
+          )
+          .limit(1)
+      )[0];
+  if (!row) return null;
+  const role = row.role as ShareRole;
+  return (LINK_ROLES as readonly ShareRole[]).includes(role)
+    ? role
+    : "commenter";
+}
+
 function higherShareRole(a: ShareRole, b: ShareRole | null): ShareRole {
   if (!b) return a;
   return ROLE_RANK[b] > ROLE_RANK[a] ? b : a;
@@ -558,12 +598,18 @@ function hasDynamicPublicAccessRoleResolver(
   return typeof reg.publicAccessRole === "function";
 }
 
-async function loadResourceForAccess(
+interface AccessRow {
+  id: string;
+  orgId?: string | null;
+  [column: string]: unknown;
+}
+
+async function loadRowsForAccess(
   reg: ShareableResourceRegistration,
-  resourceId: string,
+  where: SQL,
   options: ResolveAccessOptions = {},
-): Promise<any> {
-  const db = reg.getDb() as any;
+): Promise<AccessRow[]> {
+  const db = reg.getDb();
   // Hooks that receive the row may read any column, so they get all of it.
   const useProjection =
     options.skipResourceBody === true &&
@@ -583,10 +629,7 @@ async function loadResourceForAccess(
                 omittedColumnNames,
               ),
             );
-      const [resource] = await query
-        .from(reg.resourceTable)
-        .where(eq(reg.resourceTable.id, resourceId));
-      return resource ?? null;
+      return await query.from(reg.resourceTable).where(where);
     } catch (err) {
       const missing = missingColumnName(err);
       if (!missing || omittedColumnNames.has(missing)) throw err;
@@ -598,7 +641,7 @@ async function loadResourceForAccess(
   }
 
   throw new Error(
-    `Could not load ${reg.type} ${resourceId}: too many missing resource columns`,
+    `Could not load ${reg.type} rows: too many missing resource columns`,
   );
 }
 
@@ -640,12 +683,10 @@ interface LoadedAccess {
   reg: ShareableResourceRegistration;
 }
 
-async function loadAndResolveAccess(
+function scopeAccess(
   resourceType: string,
-  resourceId: string,
   rawCtx: AccessContext,
-  options: ResolveAccessOptions,
-): Promise<LoadedAccess> {
+): { reg: ShareableResourceRegistration; ctx: AccessContext } {
   const registered = requireShareableResource(resourceType);
   const transaction = rawCtx.transaction ?? getScopedDbExec();
   const transactionDb = transaction
@@ -658,15 +699,195 @@ async function loadAndResolveAccess(
   const reg = transactionDb
     ? { ...registered, getDb: () => transactionDb }
     : registered;
-  const ctx = resolveRegisteredAccessContext(reg, transactionCtx);
+  return { reg, ctx: resolveRegisteredAccessContext(reg, transactionCtx) };
+}
 
-  const resource = await loadResourceForAccess(reg, resourceId, options);
+async function loadAndResolveAccess(
+  resourceType: string,
+  resourceId: string,
+  rawCtx: AccessContext,
+  options: ResolveAccessOptions,
+): Promise<LoadedAccess> {
+  const { reg, ctx } = scopeAccess(resourceType, rawCtx);
+  const [resource] = await loadRowsForAccess(
+    reg,
+    eq(reg.resourceTable.id, resourceId),
+    options,
+  );
   if (!resource) return { access: null, resource: null, reg };
   return {
     access: await accessToResource(reg, resourceId, resource, ctx),
     resource,
     reg,
   };
+}
+
+const RESOLVE_MANY_ROW_CHUNK = 500;
+const RESOLVE_MANY_CONCURRENCY = 8;
+
+/**
+ * What one {@link resolveAccessMany} call learns once and reuses for every
+ * resource: the viewer's org memberships, their group memberships, the share
+ * rows for all resources, and registration-level manager answers.
+ */
+interface AccessBatch {
+  memberships: Map<string, Promise<boolean>>;
+  groupMemberships: Map<string, Promise<boolean>>;
+  managers: Map<string, Promise<boolean>>;
+  shares: Map<string, SharePrincipalRow[]>;
+}
+
+interface SharePrincipalRow {
+  resourceId: string;
+  principalType: string;
+  principalId: string;
+  role: ShareRole;
+}
+
+/**
+ * {@link resolveAccess} for a list of resources of one type: the ids the
+ * viewer can open, mapped to their access. Each decision is the same one
+ * `resolveAccess` makes. What changes is the reads: one query loads the rows,
+ * one loads their shares, and org membership, group membership, and a
+ * registration's `canManageAccessKey` answers are looked up once, not once per
+ * resource. Ids that do not exist or that the viewer cannot open are left out.
+ */
+export async function resolveAccessMany(
+  resourceType: string,
+  resourceIds: string[],
+  rawCtx?: AccessContext,
+  options?: { skipResourceBody?: false },
+): Promise<Map<string, ResolvedAccess>>;
+export async function resolveAccessMany(
+  resourceType: string,
+  resourceIds: string[],
+  rawCtx: AccessContext | undefined,
+  options: { skipResourceBody: true },
+): Promise<Map<string, ResolvedAccessProjected>>;
+export async function resolveAccessMany(
+  resourceType: string,
+  resourceIds: string[],
+  rawCtx: AccessContext = currentAccess(),
+  options: ResolveAccessOptions = {},
+): Promise<Map<string, ResolvedAccess | ResolvedAccessProjected>> {
+  return inAccessTransaction(rawCtx, async () => {
+    const { reg, ctx } = scopeAccess(resourceType, rawCtx);
+    const ids = [...new Set(resourceIds)];
+    const resources: AccessRow[] = [];
+    for (let start = 0; start < ids.length; start += RESOLVE_MANY_ROW_CHUNK) {
+      resources.push(
+        ...(await loadRowsForAccess(
+          reg,
+          inArray(
+            reg.resourceTable.id,
+            ids.slice(start, start + RESOLVE_MANY_ROW_CHUNK),
+          ),
+          options,
+        )),
+      );
+    }
+
+    const batch: AccessBatch = {
+      memberships: new Map(),
+      groupMemberships: new Map(),
+      managers: new Map(),
+      shares: await loadSharesForAccess(
+        reg,
+        resources.map((resource) => resource.id),
+        ctx,
+      ),
+    };
+    const access = new Map<string, ResolvedAccess | ResolvedAccessProjected>();
+    for (
+      let start = 0;
+      start < resources.length;
+      start += RESOLVE_MANY_CONCURRENCY
+    ) {
+      await Promise.all(
+        resources
+          .slice(start, start + RESOLVE_MANY_CONCURRENCY)
+          .map(async (resource) => {
+            const resolved = await accessToResource(
+              reg,
+              resource.id,
+              resource,
+              ctx,
+              batch,
+            );
+            if (resolved) access.set(resource.id, resolved);
+          }),
+      );
+    }
+    return access;
+  });
+}
+
+/**
+ * The grants {@link highestShareRole} reads, for many resources at once: the
+ * viewer's own user grants, their org's grants, and every group grant.
+ */
+async function loadSharesForAccess(
+  reg: ShareableResourceRegistration,
+  resourceIds: string[],
+  ctx: AccessContext,
+): Promise<Map<string, SharePrincipalRow[]>> {
+  const byResource = new Map<string, SharePrincipalRow[]>();
+  const normalizedUserEmail = normalizeEmailForAccess(ctx.userEmail);
+  const principalClauses = principalShareClauses(reg, ctx);
+  if (reg.supportsGroupShares && normalizedUserEmail) {
+    principalClauses.push(eq(reg.sharesTable.principalType, "group"));
+  }
+  if (normalizedUserEmail) {
+    principalClauses.push(
+      eq(reg.sharesTable.principalType, LINK_PRINCIPAL_TYPE),
+    );
+  }
+  if (resourceIds.length === 0 || principalClauses.length === 0) {
+    return byResource;
+  }
+  const db = reg.getDb();
+  for (
+    let start = 0;
+    start < resourceIds.length;
+    start += RESOLVE_MANY_ROW_CHUNK
+  ) {
+    const rows = (await db
+      .select({
+        resourceId: reg.sharesTable.resourceId,
+        principalType: reg.sharesTable.principalType,
+        principalId: reg.sharesTable.principalId,
+        role: reg.sharesTable.role,
+      })
+      .from(reg.sharesTable)
+      .where(
+        and(
+          inArray(
+            reg.sharesTable.resourceId,
+            resourceIds.slice(start, start + RESOLVE_MANY_ROW_CHUNK),
+          ),
+          or(...principalClauses),
+        ),
+      )) as SharePrincipalRow[];
+    for (const row of rows) {
+      const list = byResource.get(row.resourceId) ?? [];
+      list.push(row);
+      byResource.set(row.resourceId, list);
+    }
+  }
+  return byResource;
+}
+
+function memoized<T>(
+  cache: Map<string, Promise<T>>,
+  key: string,
+  load: () => Promise<T>,
+): Promise<T> {
+  let value = cache.get(key);
+  if (!value) {
+    value = load();
+    cache.set(key, value);
+  }
+  return value;
 }
 
 /**
@@ -716,6 +937,7 @@ async function ownerOrAdminRole(
   resource: any,
   ctx: AccessContext,
   normalizedUserEmail: string | null | undefined,
+  batch?: AccessBatch,
 ): Promise<"owner" | "admin" | undefined> {
   if (
     normalizedUserEmail &&
@@ -724,8 +946,16 @@ async function ownerOrAdminRole(
   ) {
     return "owner";
   }
-  if (reg.canManageAccess && (await reg.canManageAccess(resource, ctx))) {
-    return "admin";
+  if (reg.canManageAccess) {
+    const manage = reg.canManageAccess;
+    const key = batch && reg.canManageAccessKey?.(resource, ctx);
+    const manages =
+      batch && key != null
+        ? await memoized(batch.managers, key, async () =>
+            Boolean(await manage(resource, ctx)),
+          )
+        : await manage(resource, ctx);
+    if (manages) return "admin";
   }
   return undefined;
 }
@@ -735,10 +965,11 @@ async function accessToResource(
   resourceId: string,
   resource: any,
   ctx: AccessContext,
+  batch?: AccessBatch,
 ): Promise<ResolvedAccess | null> {
   const { userEmail } = ctx;
   const normalizedUserEmail = normalizeEmailForAccess(userEmail);
-  const memberships = new Map<string, Promise<boolean>>();
+  const memberships = batch?.memberships ?? new Map<string, Promise<boolean>>();
   const isOrgMember = (orgId: string): Promise<boolean> => {
     let membership = memberships.get(orgId);
     if (!membership) {
@@ -764,6 +995,7 @@ async function accessToResource(
     resource,
     ctx,
     normalizedUserEmail,
+    batch,
   );
   if (managingRole) return { role: managingRole, resource };
   if (hosted !== undefined) return { role: hosted, resource };
@@ -773,10 +1005,14 @@ async function accessToResource(
     ctx,
     resource,
     isOrgMember,
+    batch,
   );
   const shareRole = role === "admin" && reg.canManageAccess ? "editor" : role;
   if (resource.visibility === "public" && reg.allowPublic !== false) {
-    const publicRole = await publicAccessRoleForResource(reg, resource, ctx);
+    const publicRole = higherShareRole(
+      await publicAccessRoleForResource(reg, resource, ctx),
+      await linkShareRole(reg, resourceId, ctx, batch),
+    );
     const effectivePublicRole =
       publicRole === "admin" && reg.canManageAccess ? "editor" : publicRole;
     return { role: higherShareRole(effectivePublicRole, shareRole), resource };
@@ -857,48 +1093,63 @@ export async function resolveAccessStatus(
   });
 }
 
-async function highestShareRole(
+function principalShareClauses(
   reg: ShareableResourceRegistration,
-  resourceId: string,
   ctx: AccessContext,
-  resource: any,
-  isOrgMember: (orgId: string) => Promise<boolean>,
-): Promise<ShareRole | null> {
-  const { userEmail, orgId } = ctx;
-  const normalizedUserEmail = normalizeEmailForAccess(userEmail);
-  if (!normalizedUserEmail && !orgId) return null;
-  if (!explicitSharesAllowedForResource(reg, resource, ctx)) return null;
-  const db = reg.getDb() as any;
-
-  const principalClauses: ReturnType<typeof and>[] = [];
+): ReturnType<typeof and>[] {
+  const normalizedUserEmail = normalizeEmailForAccess(ctx.userEmail);
+  const clauses: ReturnType<typeof and>[] = [];
   if (normalizedUserEmail) {
-    principalClauses.push(
+    clauses.push(
       and(
         eq(reg.sharesTable.principalType, "user"),
         emailColumnMatches(reg.sharesTable.principalId, normalizedUserEmail),
       ),
     );
   }
-  if (orgId) {
-    principalClauses.push(
+  if (ctx.orgId) {
+    clauses.push(
       and(
         eq(reg.sharesTable.principalType, "org"),
-        eq(reg.sharesTable.principalId, orgId),
+        eq(reg.sharesTable.principalId, ctx.orgId),
       ),
     );
   }
+  return clauses;
+}
 
+async function highestShareRole(
+  reg: ShareableResourceRegistration,
+  resourceId: string,
+  ctx: AccessContext,
+  resource: AccessRow,
+  isOrgMember: (orgId: string) => Promise<boolean>,
+  batch?: AccessBatch,
+): Promise<ShareRole | null> {
+  const { userEmail, orgId } = ctx;
+  const normalizedUserEmail = normalizeEmailForAccess(userEmail);
+  if (!normalizedUserEmail && !orgId) return null;
+  if (!explicitSharesAllowedForResource(reg, resource, ctx)) return null;
+  const db = reg.getDb();
+
+  const principalClauses = principalShareClauses(reg, ctx);
   if (principalClauses.length === 0) return null;
-  const rows = await db
-    .select({
-      role: reg.sharesTable.role,
-      principalType: reg.sharesTable.principalType,
-    })
-    .from(reg.sharesTable)
-    .where(
-      and(eq(reg.sharesTable.resourceId, resourceId), or(...principalClauses)),
-    )
-    .limit(10);
+  const prefetched = batch?.shares.get(resourceId) ?? [];
+  const rows = batch
+    ? prefetched.filter((row) => row.principalType !== "group")
+    : await db
+        .select({
+          role: reg.sharesTable.role,
+          principalType: reg.sharesTable.principalType,
+        })
+        .from(reg.sharesTable)
+        .where(
+          and(
+            eq(reg.sharesTable.resourceId, resourceId),
+            or(...principalClauses),
+          ),
+        )
+        .limit(10);
 
   let best: ShareRole | null = null;
   const grantRows = rows as Array<{ role: ShareRole; principalType: string }>;
@@ -918,32 +1169,39 @@ async function highestShareRole(
   }
 
   if (reg.supportsGroupShares && normalizedUserEmail && resource.orgId) {
-    const groupRows = await db
-      .select({
-        principalId: reg.sharesTable.principalId,
-        role: reg.sharesTable.role,
-      })
-      .from(reg.sharesTable)
-      .where(
-        and(
-          eq(reg.sharesTable.resourceId, resourceId),
-          eq(reg.sharesTable.principalType, "group"),
-        ),
-      );
+    const groupRows = batch
+      ? prefetched.filter((row) => row.principalType === "group")
+      : await db
+          .select({
+            principalId: reg.sharesTable.principalId,
+            role: reg.sharesTable.role,
+          })
+          .from(reg.sharesTable)
+          .where(
+            and(
+              eq(reg.sharesTable.resourceId, resourceId),
+              eq(reg.sharesTable.principalType, "group"),
+            ),
+          );
     if (groupRows.length > 0 && (await isOrgMember(resource.orgId))) {
       for (const row of groupRows as Array<{
         principalId: string;
         role: ShareRole;
       }>) {
-        if (
-          await workspaceUserGroupsIncludeUser(
+        const includesUser = () =>
+          workspaceUserGroupsIncludeUser(
             resource.orgId,
             [row.principalId],
             normalizedUserEmail,
-          )
-        ) {
-          best = higherShareRole(row.role, best);
-        }
+          );
+        const member = batch
+          ? await memoized(
+              batch.groupMemberships,
+              `${resource.orgId}\u0000${row.principalId}`,
+              includesUser,
+            )
+          : await includesUser();
+        if (member) best = higherShareRole(row.role, best);
       }
     }
   }

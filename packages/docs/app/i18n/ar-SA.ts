@@ -2657,6 +2657,7 @@ const arSA = {
     deploymentEnvironmentVariables: "النشر: متغيرات البيئة",
     updatingUiInProduction: "تحديث الواجهة في الإنتاج",
     environmentVariables: "متغيرات البيئة",
+    telemetry: "القياس عن بُعد",
     progress: "Progress",
     authentication: "Authentication",
     multiTenancy: "متعدد الإيجار",

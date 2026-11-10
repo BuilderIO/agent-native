@@ -21,6 +21,8 @@ Vercel 直接提供的檔案，以及 Vercel 依需求執行的函式，Vercel �
 你還需要一個 Vercel 帳號。請在你自己的電腦上執行本指南中的指令。Vercel CLI 會替你
 把完成的建置上傳到 Vercel。
 
+代理回合受 Vercel Functions 執行時間限制，包括串流回應時間。設定 Function Max Duration，並檢查實際部署設定及 [Vercel 限制](https://vercel.com/docs/functions/configuring-functions/duration)。延長時限不保證回合完成。
+
 ## 步驟 1：建立應用程式 {#step-1-create-the-app}
 
 建立新的獨立應用程式。下面的範例以 Chat 範本建立應用程式，但你可以從任何範本開始。

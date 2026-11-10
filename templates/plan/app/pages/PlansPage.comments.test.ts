@@ -28,6 +28,7 @@ import {
   runtimeAnnotationFromThread,
   runtimeAnnotationMarkerTitle,
   nativePointForAnchor,
+  planSectionIdForAnchor,
   removePlanCommentFromBundle,
   removePlanCommentThreadFromBundle,
   resolveNativeAnchorTarget,
@@ -637,6 +638,15 @@ describe("plan comment thread UI model", () => {
       mentions: [],
       resolutionTarget: "agent",
     });
+  });
+
+  it("keeps an anchor's section id only when it names a plan section", () => {
+    const sections = [{ id: "sec_1" }, { id: "sec_2" }];
+    expect(planSectionIdForAnchor(sections, "sec_2")).toBe("sec_2");
+    // Anchors record the nearest element id, such as a content block's.
+    expect(planSectionIdForAnchor(sections, "section-2")).toBeUndefined();
+    expect(planSectionIdForAnchor(sections, undefined)).toBeUndefined();
+    expect(planSectionIdForAnchor(sections, null)).toBeUndefined();
   });
 
   it("does not submit human-targeted inline comments without a mention", () => {

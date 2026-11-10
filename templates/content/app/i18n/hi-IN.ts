@@ -1077,6 +1077,26 @@ const editor = {
     hideInSearch: "खोज में छिप जाओ",
     hideInSearchDescription:
       "संगठन से छिपाएँ और खोजें। जिन लोगों के पास लिंक है वे अभी भी देख सकते हैं.",
+    sharePeopleTab: "लोग",
+    shareAgentsTab: "एजेंट",
+    agentLevelHeading: "इस पेज पर एजेंट",
+    agentLevelMenuLabel: "इस पेज पर एजेंट क्या कर सकते हैं",
+    agentLevelDefault: "(डिफ़ॉल्ट)",
+    agentLevelCommentDescription:
+      "पढ़ सकते हैं, टिप्पणी कर सकते हैं और बदलाव सुझा सकते हैं। उन्हें सिर्फ़ लोग स्वीकार कर सकते हैं।",
+    agentLevelEditDescription:
+      "पढ़ सकते हैं, टिप्पणी कर सकते हैं, सुझाव दे सकते हैं, टेक्स्ट, शीर्षक और टैब संपादित कर सकते हैं, और पेज को ट्रैश में ले जा सकते हैं।",
+    agentLevelCommentConfirm:
+      "एजेंट अब इस पेज पर टिप्पणी कर सकते हैं और बदलाव सुझा सकते हैं, लेकिन इसे संपादित नहीं कर सकते।",
+    agentLevelEditConfirm: "एजेंट इस पेज को फिर से संपादित कर सकते हैं।",
+    agentLevelLimit:
+      "एजेंट को कभी भी उस व्यक्ति से ज़्यादा अधिकार नहीं मिलते जिसके लिए वह काम करता है।",
+    agentLevelManagersOnly: "इसे सिर्फ़ वे लोग बदल सकते हैं जो इस पेज को मैनेज करते हैं।",
+    agentLevelUpdateFailed: "यहाँ एजेंट क्या कर सकते हैं, यह बदला नहीं जा सका।",
+    agentLevelNote: "एजेंट टिप्पणी कर सकते हैं",
+    agentLevelNoteHint: "एजेंट इस पेज पर टिप्पणी कर सकते हैं। इसे ‘साझा करें’ में बदलें।",
+    sendPageToAgent: "यह पेज किसी एजेंट को भेजें",
+    connectAgentOverMcp: "MCP से एजेंट कनेक्ट करें",
     importingFromNotion: "नोशन से आयात किया जा रहा है...",
     lastSynced: "अंतिम बार समन्वयित किया गया",
     linkedToNotion: "धारणा से जुड़ा हुआ",
@@ -1149,7 +1169,7 @@ const rawLiterals = {
     previewDraftUseSaved: "सहेजा गया वर्शन इस्तेमाल करें",
     previewDraftSaveSeparately: "मेरे वर्शन को अलग पेज के रूप में सहेजें",
     previewDraftSavedToHistory: "आपके बदलाव वर्शन इतिहास में सहेजे गए",
-    previewDraftSavedSeparately: "आपके बदलाव अलग पेज के रूप में सहेजे गए",
+    previewDraftSavedSeparately: "आपके बदलाव आपके स्पेस में निजी पेज के रूप में सहेजे गए",
     previewDraftOpenSavedPage: "पेज खोलें",
     previewDraftMoreOptions: "ज़्यादा विकल्प",
     previewDraftViewFullVersions: "पूरे वर्शन देखें",
@@ -1751,6 +1771,26 @@ const overrides = {
     discardEditDescription: "आपकी टिप्पणी पहले जैसी रहेगी।",
     discard: "छोड़ें",
     keepEditing: "संपादन जारी रखें",
+    deleteComment: "टिप्पणी हटाएँ",
+    deleteThread: "थ्रेड हटाएँ",
+    deleteCommentQuestion: "टिप्पणी हटाएँ?",
+    deleteCommentDescription:
+      "यह सभी के लिए हट जाएगी, और इसे वापस नहीं लाया जा सकता।",
+    deleteThreadQuestion: "थ्रेड हटाएँ?",
+    deleteThreadDescription:
+      "थ्रेड और उसके जवाब सभी के लिए हट जाएँगे, और इसे वापस नहीं लाया जा सकता।",
+    deleteThreadAiChangeDescription:
+      "थ्रेड और उसके जवाब सभी के लिए हट जाएँगे, और इसे वापस नहीं लाया जा सकता। AI का पेज में किया गया बदलाव बना रहेगा, लेकिन आप उसे थ्रेड से पूर्ववत नहीं कर पाएँगे।",
+    delete: "हटाएँ",
+    deleting: "हटाया जा रहा है…",
+    deleteRefusedReplied:
+      "किसी और ने जवाब दिया है, इसलिए यह थ्रेड केवल संपादक हटा सकता है।",
+    deleteRefusedNotion: "यह टिप्पणी Notion से सिंक है। इसे Notion में हटाएँ।",
+    deleteRefusedAiWorking: "AI इस थ्रेड पर काम कर रहा है। थ्रेड हटाने से पहले उसे रोकें।",
+    deleteRefusedAiSuggestion:
+      "इस थ्रेड में AI का सुझाव समीक्षा के लिए बाकी है। थ्रेड हटाने से पहले उसे स्वीकार या अस्वीकार करें।",
+    deleteRefusedBusy:
+      "यह थ्रेड अभी बदला जा रहा है। थोड़ी देर में इसे फिर से हटाने की कोशिश करें।",
     submit: "टिप्पणी करें",
     askAi: "AI से पूछें",
     aiBadge: "AI",
@@ -1761,8 +1801,10 @@ const overrides = {
     mentionPeopleLoadFailed: "लोगों को लोड नहीं किया जा सका।",
     mentionAgents: "एजेंट",
     identityPerson: "व्यक्ति",
-    identityModel: "मॉडल",
     identityEffort: "तर्क स्तर",
+    acceptAllAndResolve: "सभी स्वीकार करें और हल करें",
+    acceptAndResolve: "स्वीकार करें और हल करें",
+    suggestionLoadFailed: "यह सुझाव लोड नहीं हो सका",
     identityRan: "चलाया गया",
     identityNotRecorded: "दर्ज नहीं",
     identityOpenRun: "रन खोलें",
@@ -1795,7 +1837,6 @@ const overrides = {
     aiPromptApplyResolve: "इस टिप्पणी के बदलाव लागू करके इसे सुलझाएँ।",
     aiWorking: "AI काम कर रहा है…",
     aiReplied: "AI ने जवाब दिया",
-    aiSuggestionReady: "सुझाव की समीक्षा करें",
     aiChangesApplied: "बदलाव लागू किए गए",
     aiAppliedAndResolved: "लागू किया और हल किया",
     aiChangeUndone: "बदलाव पूर्ववत किया गया",

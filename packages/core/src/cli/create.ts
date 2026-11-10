@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "child_process";
+import { execFileSync, execSync, spawnSync } from "child_process";
 import fs from "fs";
 import { Readable, Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -7,13 +7,27 @@ import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
-import { EnvHttpProxyAgent, fetch as fetchWithProxy } from "undici";
+import { fetch as fetchWithProxy } from "undici";
 
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
+import {
+  noteCreateCancelled,
+  noteCreateProject,
+  noteCreateStep,
+  type CreateProjectKind,
+} from "./activation-telemetry.js";
 import type { CreateStartKind } from "./create-tui.js";
+import { releasedFrameworkPackageVersion } from "./framework-package-versions.js";
+import {
+  GIT_SYMLINK_MODE,
+  GitHttpUnavailableError,
+  withGitHttpRemote,
+  type GitHttpOptions,
+} from "./git-http.js";
+import { envProxyDispatcher } from "./http-proxy.js";
 import {
   createAgentSymlink,
   prepareAgentSymlink,
@@ -58,49 +72,6 @@ const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/fs-routes": "8.1.0",
   "react-router": "8.1.0",
 };
-const TIPTAP_WORKSPACE_OVERRIDES: Record<string, string> = {
-  '"@tiptap/core"': '"3.28.0"',
-  '"@tiptap/extension-blockquote"': '"3.28.0"',
-  '"@tiptap/extension-bold"': '"3.28.0"',
-  '"@tiptap/extension-bubble-menu"': '"3.28.0"',
-  '"@tiptap/extension-bullet-list"': '"3.28.0"',
-  '"@tiptap/extension-code"': '"3.28.0"',
-  '"@tiptap/extension-code-block"': '"3.28.0"',
-  '"@tiptap/extension-code-block-lowlight"': '"3.28.0"',
-  '"@tiptap/extension-collaboration"': '"3.28.0"',
-  '"@tiptap/extension-collaboration-caret"': '"3.28.0"',
-  '"@tiptap/extension-color"': '"3.28.0"',
-  '"@tiptap/extension-document"': '"3.28.0"',
-  '"@tiptap/extension-dropcursor"': '"3.28.0"',
-  '"@tiptap/extension-floating-menu"': '"3.28.0"',
-  '"@tiptap/extension-gapcursor"': '"3.28.0"',
-  '"@tiptap/extension-hard-break"': '"3.28.0"',
-  '"@tiptap/extension-heading"': '"3.28.0"',
-  '"@tiptap/extension-horizontal-rule"': '"3.28.0"',
-  '"@tiptap/extension-image"': '"3.28.0"',
-  '"@tiptap/extension-italic"': '"3.28.0"',
-  '"@tiptap/extension-link"': '"3.28.0"',
-  '"@tiptap/extension-list"': '"3.28.0"',
-  '"@tiptap/extension-list-item"': '"3.28.0"',
-  '"@tiptap/extension-list-keymap"': '"3.28.0"',
-  '"@tiptap/extension-ordered-list"': '"3.28.0"',
-  '"@tiptap/extension-paragraph"': '"3.28.0"',
-  '"@tiptap/extension-placeholder"': '"3.28.0"',
-  '"@tiptap/extension-strike"': '"3.28.0"',
-  '"@tiptap/extension-table"': '"3.28.0"',
-  '"@tiptap/extension-table-cell"': '"3.28.0"',
-  '"@tiptap/extension-table-header"': '"3.28.0"',
-  '"@tiptap/extension-table-row"': '"3.28.0"',
-  '"@tiptap/extension-task-item"': '"3.28.0"',
-  '"@tiptap/extension-task-list"': '"3.28.0"',
-  '"@tiptap/extension-text"': '"3.28.0"',
-  '"@tiptap/extension-text-style"': '"3.28.0"',
-  '"@tiptap/extension-underline"': '"3.28.0"',
-  '"@tiptap/extensions"': '"3.28.0"',
-  '"@tiptap/pm"': '"3.28.0"',
-  '"@tiptap/react"': '"3.28.0"',
-  '"@tiptap/starter-kit"': '"3.28.0"',
-};
 const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "@react-router/dev",
   "@react-router/fs-routes",
@@ -121,10 +92,7 @@ const MINIMUM_RELEASE_AGE_EXCLUDES = [
   "typescript",
   "typescript-7",
 ];
-const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
-  "*/CLAUDE.md",
-  "*/.claude/skills",
-];
+const FIRST_PARTY_AGENT_LINK_PATHS = ["CLAUDE.md", ".claude/skills"];
 // Workspace-only packages a first-party template uses on its hosted site, with
 // the files that import them. A scaffold cannot install these (a standalone app
 // resolves them from npm, a new workspace has no such package), so it drops the
@@ -219,6 +187,21 @@ export interface CreateAppOptions {
   ) => Promise<string>;
 }
 
+// A community template is reported by that word alone, never its URL.
+function noteCreateTemplates(
+  templates: string[],
+  kind?: CreateProjectKind,
+): void {
+  noteCreateProject(
+    templates.map((template) =>
+      isCommunityTemplateSelection(template)
+        ? COMMUNITY_OPTION.name
+        : normalizeTemplateName(template),
+    ),
+    kind,
+  );
+}
+
 export async function runCreateCommand(
   name?: string,
   opts?: CreateAppOptions,
@@ -230,6 +213,7 @@ export async function runCreateCommand(
 
   const workspace = detectWorkspace(process.cwd());
   const parsed = parseTemplateList(opts?.template);
+  noteCreateTemplates(parsed);
   const requestedCommunityTemplate =
     parsed.find((template) => isCommunityTemplateSelection(template)) ??
     (parsed.includes(COMMUNITY_OPTION.name)
@@ -328,6 +312,7 @@ export async function runCreateCommand(
     coreTemplates().every((template) => installedApps.includes(template.name))
   ) {
     console.log("All available apps are already installed.");
+    noteCreateCancelled();
     return;
   }
 
@@ -371,6 +356,7 @@ export async function runCreateCommand(
   });
   if (!answers) {
     console.log("Cancelled. No files were created.");
+    noteCreateCancelled();
     return;
   }
 
@@ -645,7 +631,7 @@ async function createWorkspaceInteractive(
       "container — it isn't an app itself. Inside it you pick one or more apps",
       "(below), and each app gets its own route, agent, and UI. Apps in the",
       "same workspace share auth, database, and the agent chat. Add more apps",
-      "later with `npx @agent-native/core@latest add-app`. Chat is the UI on-ramp",
+      "later with `pnpm exec agent-native add-app`. Chat is the UI on-ramp",
       "for a minimal chat-first app with the browser shell already wired.",
       "Dispatch is always included as the workspace control plane —",
       "it owns shared secrets, messaging, approvals, and cross-app routing.",
@@ -662,6 +648,7 @@ async function createWorkspaceInteractive(
           excludeNames: ["dispatch"],
         });
   const templates = ["dispatch", ...optionalPicks];
+  noteCreateTemplates(templates, "workspace");
 
   const targetDir = resolveScaffoldTarget(name, opts?.inPlace, clack);
 
@@ -669,6 +656,7 @@ async function createWorkspaceInteractive(
   for (const template of templates) {
     showCommunityTemplateTrustNote(template, clack);
   }
+  noteCreateStep("scaffold");
   s.start(`Scaffolding workspace "${name}"...`);
   const appNames = new Set<string>();
   const scaffoldedApps: string[] = [];
@@ -766,6 +754,7 @@ async function createWorkspaceInteractive(
       s.stop("Cancelled.");
       cleanupOnFailure(targetDir);
       clack.outro("Cancelled. No files were created.");
+      noteCreateCancelled();
       return;
     }
     s.stop("Failed to scaffold workspace.");
@@ -774,6 +763,7 @@ async function createWorkspaceInteractive(
     process.exit(1);
   }
 
+  noteCreateStep("finish");
   finalizeScaffold(targetDir, opts?.inPlace);
 
   const installSteps = hasPnpm()
@@ -818,7 +808,8 @@ function workspaceAppNameForTemplateSelection(templateName: string): string {
 
 function hasPnpm(): boolean {
   try {
-    execFileSync("pnpm", ["--version"], { stdio: "ignore" });
+    // Through a shell, so Windows finds the pnpm.cmd shim.
+    execSync("pnpm --version", { stdio: "ignore" });
     return true;
   } catch {
     return false;
@@ -927,6 +918,7 @@ export async function addAppToWorkspace(
   }
   if (name && preselected.length === 1) {
     const tpl = preselected[0];
+    noteCreateTemplates(preselected, "workspace-add");
     await scaffoldOneAppIntoWorkspace(
       workspace,
       name,
@@ -961,6 +953,7 @@ export async function addAppToWorkspace(
     process.exit(0);
   }
 
+  noteCreateTemplates(templates, "workspace-add");
   for (const t of templates) {
     const added = await scaffoldOneAppIntoWorkspace(
       workspace,
@@ -989,6 +982,7 @@ async function addSelectedAppsToWorkspace(
     process.exit(0);
   }
 
+  noteCreateTemplates(templates, "workspace-add");
   for (const template of templates) {
     const added = await scaffoldOneAppIntoWorkspace(
       workspace,
@@ -1037,6 +1031,7 @@ async function scaffoldOneAppIntoWorkspace(
 
   const s = clack.spinner();
   showCommunityTemplateTrustNote(templateName, clack);
+  noteCreateStep("scaffold");
   s.start(
     `Working... no action needed. Scaffolding apps/${appName} from ${templateName}.`,
   );
@@ -1109,6 +1104,7 @@ async function scaffoldOneAppIntoWorkspace(
       s.stop("Cancelled.");
       cleanupOnFailure(appDir);
       clack.outro("Cancelled. No app was added.");
+      noteCreateCancelled();
       return false;
     }
     s.stop(`Failed to scaffold apps/${appName}.`);
@@ -1160,9 +1156,14 @@ async function createStandaloneApp(
   if (template === COMMUNITY_OPTION.name) {
     template = await promptCommunityTemplate(clack);
   }
+  noteCreateTemplates(
+    [template],
+    template === "headless" ? "headless" : "standalone",
+  );
 
   const s = clack.spinner();
   showCommunityTemplateTrustNote(template, clack);
+  noteCreateStep("scaffold");
   const includedAppName =
     template === "headless"
       ? "Headless"
@@ -1203,6 +1204,7 @@ async function createStandaloneApp(
       s.stop("Cancelled.");
       cleanupOnFailure(targetDir);
       clack.outro("Cancelled. No files were created.");
+      noteCreateCancelled();
       return;
     }
     s.stop("Failed to create app.");
@@ -1211,6 +1213,7 @@ async function createStandaloneApp(
     process.exit(1);
   }
 
+  noteCreateStep("finish");
   finalizeScaffold(targetDir, opts?.inPlace);
   const projectPath = opts?.inPlace ? process.cwd() : path.resolve(targetDir);
   const changeDirectory = opts?.inPlace ? "." : name;
@@ -2240,7 +2243,9 @@ function postProcessStandalone(
           } else if (key === "@agent-native/otel") {
             deps[key] = getOtelDependencyVersion();
           } else if (typeof val === "string" && val.startsWith("workspace:")) {
-            deps[key] = "latest";
+            deps[key] = key.startsWith("@agent-native/")
+              ? releasedFrameworkPackageVersion(key)
+              : "latest";
           } else if (typeof val === "string" && val === "catalog:") {
             deps[key] = catalog[key] ?? "latest";
           }
@@ -2286,12 +2291,6 @@ function postProcessStandalone(
       '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
       '"@assistant-ui/tap"': '"^0.5.14"',
       nf3: '"0.3.17"',
-    };
-  }
-  if (templateName && getTemplate(firstPartyBaseTemplate(templateName))) {
-    sections.overrides = {
-      ...sections.overrides,
-      ...TIPTAP_WORKSPACE_OVERRIDES,
     };
   }
   const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
@@ -2549,7 +2548,6 @@ export {
   getCorePackageVersion as _getCorePackageVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
   getGitHubTemplateRefCandidates as _getGitHubTemplateRefCandidates,
-  githubTarballUrl as _githubTarballUrl,
   findLocalTemplateFrom as _findLocalTemplateFrom,
   workspaceAppNameForTemplateSelection as _workspaceAppNameForTemplateSelection,
   startShapePromptOptions as _startShapePromptOptions,
@@ -2570,6 +2568,7 @@ export {
   extractTarball as _extractTarball,
   materializeArchiveSymlinks as _materializeArchiveSymlinks,
   downloadGitHubSubdir as _downloadGitHubSubdir,
+  extractSparseTag as _extractSparseTag,
   findLocalTemplate as _findLocalTemplate,
   templateSourceName as _templateSourceName,
   normalizeTemplateName as _normalizeTemplateName,
@@ -2603,19 +2602,13 @@ function tarExtractArgs(
   tarPath: string,
   destDir: string,
   options: {
-    skipAgentSymlinks?: boolean;
     untrustedCommunityArchive?: boolean;
     additionalExcludes?: string[];
   } = {},
 ): string[] {
-  const excludePatterns = [
-    ...(options.skipAgentSymlinks ? FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES : []),
-    ...(options.additionalExcludes ?? []),
-  ];
-  const excludes = [...new Set(excludePatterns)].flatMap((pattern) => [
-    "--exclude",
-    pattern,
-  ]);
+  const excludes = [...new Set(options.additionalExcludes)].flatMap(
+    (pattern) => ["--exclude", pattern],
+  );
   const safeOwnership = options.untrustedCommunityArchive
     ? ["--no-same-owner", "--no-same-permissions"]
     : [];
@@ -2632,6 +2625,12 @@ function tarExtractArgs(
 
 interface ArchiveSymlink {
   archivePath: string;
+  target: string;
+}
+
+interface ExtractedSymlink {
+  /** Relative to the extraction directory. */
+  path: string;
   target: string;
 }
 
@@ -2666,11 +2665,9 @@ function isPathWithin(root: string, candidate: string): boolean {
 
 function materializeArchiveSymlinks(
   destDir: string,
-  symlinks: ArchiveSymlink[],
+  symlinks: ExtractedSymlink[],
 ): void {
-  const links = new Map(
-    symlinks.map((link) => [archivePathAfterStrip(link.archivePath), link]),
-  );
+  const links = new Map(symlinks.map((link) => [link.path, link]));
   const active = new Set<string>();
 
   const materialize = (relativeLinkPath: string): void => {
@@ -2694,6 +2691,12 @@ function materializeArchiveSymlinks(
     if (!isPathWithin(path.resolve(destDir), resolvedTarget)) {
       throw new Error(
         `Archive symlink "${relativeLinkPath}" points outside the extraction directory.`,
+      );
+    }
+    // Copying a folder into itself recurses until the path is too long.
+    if (isPathWithin(resolvedTarget, linkPath)) {
+      throw new Error(
+        `Archive symlink "${relativeLinkPath}" points at a folder that contains it.`,
       );
     }
 
@@ -2737,14 +2740,12 @@ function extractTarball(
   tarPath: string,
   destDir: string,
   options: {
-    skipAgentSymlinks?: boolean;
     untrustedCommunityArchive?: boolean;
   } = {},
 ): void {
-  const symlinks =
-    options.skipAgentSymlinks || options.untrustedCommunityArchive
-      ? archiveSymlinksForExtraction(tarPath)
-      : [];
+  const symlinks = options.untrustedCommunityArchive
+    ? archiveSymlinksForExtraction(tarPath)
+    : [];
   execFileSync(
     resolveTarExecutable(),
     tarExtractArgs(tarPath, destDir, {
@@ -2756,7 +2757,13 @@ function extractTarball(
     },
   );
   if (symlinks.length > 0) {
-    materializeArchiveSymlinks(destDir, symlinks);
+    materializeArchiveSymlinks(
+      destDir,
+      symlinks.map((link) => ({
+        path: archivePathAfterStrip(link.archivePath),
+        target: link.target,
+      })),
+    );
   }
 }
 
@@ -2765,21 +2772,7 @@ export async function _downloadToFile(
   tarPath: string,
   maxBytes = MAX_TEMPLATE_ARCHIVE_BYTES,
 ): Promise<void> {
-  const fallbackProxy = process.env.all_proxy ?? process.env.ALL_PROXY;
-  const httpProxy = normalizeProxyUrl(
-    process.env.http_proxy ?? process.env.HTTP_PROXY ?? fallbackProxy,
-  );
-  const httpsProxy = normalizeProxyUrl(
-    process.env.https_proxy ?? process.env.HTTPS_PROXY ?? fallbackProxy,
-  );
-  const noProxy = process.env.no_proxy ?? process.env.NO_PROXY;
-  const proxyTunnel = new URL(url).protocol === "https:";
-  const dispatcher = new EnvHttpProxyAgent({
-    ...(httpProxy ? { httpProxy } : {}),
-    ...(httpsProxy ? { httpsProxy } : {}),
-    ...(noProxy !== undefined ? { noProxy } : {}),
-    proxyTunnel,
-  });
+  const dispatcher = envProxyDispatcher(url);
   const controller = new AbortController();
   const connectTimeout = setTimeout(() => controller.abort(), 10_000);
   let downloadTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -2836,17 +2829,10 @@ export async function _downloadToFile(
   }
 }
 
-function normalizeProxyUrl(proxy: string | undefined): string | undefined {
-  const value = proxy?.trim();
-  if (!value) return undefined;
-  return /^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `http://${value}`;
-}
-
 export async function _downloadAndExtract(
   url: string,
   destDir: string,
   options: {
-    skipAgentSymlinks?: boolean;
     untrustedCommunityArchive?: boolean;
   } = {},
 ): Promise<void> {
@@ -2995,25 +2981,28 @@ async function downloadGitHubSubdir(
   }
   const errors: string[] = [];
   for (const ref of refs) {
-    const tarUrl = githubTarballUrl(repo, ref, "tag");
     const tmpDir = path.join(
       targetDir,
       "..",
       `.agent-native-tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     );
     try {
-      await _downloadAndExtract(tarUrl, tmpDir, {
-        skipAgentSymlinks: repo === REPO,
-      });
-      const srcDir = path.join(tmpDir, subdir);
-      if (!fs.existsSync(srcDir)) {
-        throw new Error(
-          `Template directory "${subdir}" not found at ref "${ref}".`,
-        );
-      }
-      copyDir(srcDir, targetDir);
+      await extractSparseTag(
+        `https://github.com/${repo}.git`,
+        ref,
+        subdir,
+        tmpDir,
+        { onRetry: (notice) => console.warn(notice) },
+      );
+      copyDir(path.join(tmpDir, subdir), targetDir);
       return ref;
     } catch (err) {
+      // Every other ref would wait out the same outage.
+      if (err instanceof GitHttpUnavailableError) {
+        throw new Error(
+          `Failed to download templates from ${repo}: ${err.message}`,
+        );
+      }
       errors.push(
         `  ${ref}: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`,
       );
@@ -3023,6 +3012,83 @@ async function downloadGitHubSubdir(
   }
   throw new Error(
     `Failed to download templates from ${repo}. Tried refs:\n${errors.join("\n")}`,
+  );
+}
+
+/**
+ * Writes `subdir` of a tag, plus whatever its symlinks point at, into
+ * `destDir` at their repository paths. Symlinks become copies of their
+ * targets, and regular files at first-party agent link paths are left out.
+ */
+async function extractSparseTag(
+  remoteUrl: string,
+  ref: string,
+  subdir: string,
+  destDir: string,
+  options: GitHttpOptions = {},
+): Promise<void> {
+  await withGitHttpRemote(remoteUrl, options, async (remote) => {
+    const tree = await remote.readTree(await remote.resolveTag(ref));
+    if (!tree.directories.has(subdir)) {
+      throw new Error(
+        `Template directory "${subdir}" not found at ref "${ref}".`,
+      );
+    }
+    fs.mkdirSync(path.join(destDir, subdir), { recursive: true });
+
+    const roots = [subdir];
+    const fetched = new Set<string>();
+    const symlinks: ExtractedSymlink[] = [];
+    let newRoots = [subdir];
+    while (newRoots.length > 0) {
+      const files = tree.files.filter(
+        (file) =>
+          !fetched.has(file.path) &&
+          isWithinGitPaths(file.path, newRoots) &&
+          (file.mode === GIT_SYMLINK_MODE ||
+            !isFirstPartyAgentLinkPath(file.path)),
+      );
+      newRoots = [];
+      for (const { file, content } of await remote.readFiles(files)) {
+        fetched.add(file.path);
+        if (file.mode !== GIT_SYMLINK_MODE) {
+          const filePath = path.join(destDir, file.path);
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          fs.writeFileSync(filePath, content, {
+            mode: Number.parseInt(file.mode, 8) & 0o111 ? 0o755 : 0o644,
+          });
+          continue;
+        }
+        const target = content.toString("utf8");
+        symlinks.push({ path: file.path, target });
+        const resolved = path.posix
+          .join(path.posix.dirname(file.path), target)
+          .replace(/\/+$/, "");
+        if (
+          !path.posix.isAbsolute(target) &&
+          resolved !== ".." &&
+          !resolved.startsWith("../") &&
+          !isWithinGitPaths(resolved, roots)
+        ) {
+          roots.push(resolved);
+          newRoots.push(resolved);
+        }
+      }
+    }
+    materializeArchiveSymlinks(destDir, symlinks);
+  });
+}
+
+function isWithinGitPaths(repoPath: string, roots: string[]): boolean {
+  return roots.some(
+    (root) => repoPath === root || repoPath.startsWith(`${root}/`),
+  );
+}
+
+function isFirstPartyAgentLinkPath(repoPath: string): boolean {
+  const padded = `/${repoPath}/`;
+  return FIRST_PARTY_AGENT_LINK_PATHS.some((linkPath) =>
+    padded.includes(`/${linkPath}/`),
   );
 }
 
@@ -3515,14 +3581,6 @@ function readCommunitySourceIdentity(
   }
 }
 
-function githubTarballUrl(
-  repo: string,
-  ref: string,
-  kind: "branch" | "tag",
-): string {
-  return `https://codeload.github.com/${repo}/tar.gz/refs/${kind === "tag" ? "tags" : "heads"}/${encodeURIComponent(ref)}`;
-}
-
 /* ─────────────────────────────────────────────────────────────────────────
  * Text / filesystem helpers
  * ───────────────────────────────────────────────────────────────────────── */
@@ -3758,7 +3816,7 @@ function getCoreDependencyVersion(): string {
     if (localCore) return localPackageTarball(localCore);
   }
 
-  return getCorePackageVersion() ?? "latest";
+  return releasedFrameworkPackageVersion("@agent-native/core");
 }
 
 function getDispatchDependencyVersion(): string {
@@ -3767,18 +3825,16 @@ function getDispatchDependencyVersion(): string {
     if (localDispatch) return pathToFileURL(localDispatch).href;
   }
 
-  return "latest";
+  return releasedFrameworkPackageVersion("@agent-native/dispatch");
 }
 
-// OTel is versioned independently of Core (it peer-depends on Core's public
-// observability provider API), so a scaffold takes its current npm release.
 function getOtelDependencyVersion(): string {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
     const localOtel = findLocalPackage("otel");
     if (localOtel) return localPackageTarball(localOtel);
   }
 
-  return "latest";
+  return releasedFrameworkPackageVersion("@agent-native/otel");
 }
 
 function getToolkitDependencyVersion(): string {
@@ -3787,63 +3843,16 @@ function getToolkitDependencyVersion(): string {
     if (localToolkit) return localPackageTarball(localToolkit);
   }
 
-  const publishedRange = getOwnPackageDependencyVersion(
-    "@agent-native/toolkit",
-  );
-  if (publishedRange !== "latest") return publishedRange;
-
-  // Changesets publishes Toolkit at Core's version from the fixed release group.
-  const coreVersion = getCorePackageVersion();
-  if (coreVersion) return `^${coreVersion}`;
-  throw new Error(
-    "Cannot determine a compatible @agent-native/toolkit version from @agent-native/core.",
-  );
+  return releasedFrameworkPackageVersion("@agent-native/toolkit");
 }
 
 function getAgentKitDependencyVersion(): string {
-  const localAgentKit = findLocalPackage("agentkit");
-  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1" && localAgentKit) {
-    return localPackageTarball(localAgentKit);
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
+    const localAgentKit = findLocalPackage("agentkit");
+    if (localAgentKit) return localPackageTarball(localAgentKit);
   }
 
-  const publishedRange = getOwnPackageDependencyVersion(
-    "@agent-native/agentkit",
-  );
-  if (publishedRange !== "latest") return publishedRange;
-
-  if (localAgentKit) {
-    const manifest = JSON.parse(
-      fs.readFileSync(path.join(localAgentKit, "package.json"), "utf-8"),
-    ) as { version?: unknown };
-    if (typeof manifest.version === "string" && manifest.version.length > 0) {
-      return `^${manifest.version}`;
-    }
-  }
-
-  throw new Error(
-    "Cannot determine a compatible @agent-native/agentkit version from @agent-native/core. Reinstall Core before scaffolding Chat.",
-  );
-}
-
-function getOwnPackageDependencyVersion(depName: string): string {
-  try {
-    const ownPkgPath = path.join(__dirname, "../../package.json");
-    const ownPkg = JSON.parse(fs.readFileSync(ownPkgPath, "utf-8"));
-    const range = [
-      ownPkg.dependencies,
-      ownPkg.optionalDependencies,
-      ownPkg.peerDependencies,
-      ownPkg.devDependencies,
-    ].find((dependencies) => dependencies?.[depName])?.[depName];
-    const isPublishedRange =
-      typeof range === "string" &&
-      range.length > 0 &&
-      !range.startsWith("workspace:") &&
-      range !== "catalog:";
-    if (isPublishedRange) return range;
-  } catch {}
-
-  return "latest";
+  return releasedFrameworkPackageVersion("@agent-native/agentkit");
 }
 
 function localToolkitOverride(): string | null {
