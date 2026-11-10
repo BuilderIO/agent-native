@@ -198,51 +198,9 @@ Claude Code, Cursor, और Codex शामिल हैं। कुछ टे�
 
 ### CRM कॉल एविडेंस
 
-CRM टूल को कभी-कभी यह सबूत चाहिए होता है कि कोई कॉल हुई थी, बिना पूरी
-रिकॉर्डिंग के। क्लिप्स सिर्फ़ एक ओपेक क्लिप ID और एक टिकाऊ लिंक सौंपता है, कभी
-वीडियो या ट्रांसक्रिप्ट नहीं। यह सिर्फ़ उस रिकॉर्डिंग के लिए काम करता है जिसे
-आप पहले से देख सकते हैं, और सिर्फ़ तब जब आप इसके लिए कहें या कोई अप्रूव्ड
-ऑटोमेशन इसे ट्रिगर करे।
+CRM टूल को कभी-कभी यह सबूत चाहिए होता है कि कोई कॉल हुई थी, बिना पूरी रिकॉर्डिंग के। क्लिप्स सिर्फ़ एक ओपेक क्लिप ID और एक टिकाऊ लिंक सौंपता है, कभी वीडियो या ट्रांसक्रिप्ट नहीं। यह सिर्फ़ उस रिकॉर्डिंग के लिए काम करता है जिसे आप पहले से देख सकते हैं, और सिर्फ़ तब जब आप इसके लिए कहें।
 
-<Diagram id="doc-block-clips-crm" title="CRM कॉल एविडेंस" summary={"कोई clip.created ऑटोमेशन किसी CRM वर्कफ़्लो को एक टिकाऊ लिंक सौंपता है, कभी मीडिया खुद नहीं।"}>
-
-```html
-<div class="diagram-flow">
-  <div class="diagram-node">रिकॉर्डिंग तैयार</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted">अप्रूव्ड ऑटोमेशन</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">एविडेंस लिंक</span
-    ><small class="diagram-muted">id + /r/&lt;id&gt;</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box">CRM रिकॉर्ड</div>
-</div>
-```
-
-```css
-.diagram-flow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-flow .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.diagram-flow .diagram-arrow {
-  font-size: 18px;
-  line-height: 1;
-}
-```
-
-</Diagram>
+CRM से Clips में कॉल ऑटोमेशन सेट अप करना अभी उपलब्ध नहीं है।
 
 ### डिस्पैच के ज़रिए नैचुरल-लैंग्वेज डेलिगेशन
 

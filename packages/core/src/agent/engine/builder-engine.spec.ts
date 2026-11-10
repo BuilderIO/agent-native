@@ -36,6 +36,7 @@ const oauthState = vi.hoisted(() => ({
   scope: undefined as "user" | "org" | undefined,
   stored: false,
   resolveAccess: vi.fn(),
+  resolveAccessState: vi.fn(),
   hasSession: vi.fn(),
   markReconnect: vi.fn(async () => {}),
 }));
@@ -85,8 +86,7 @@ vi.mock("../../server/credential-provider.js", async (importOriginal) => {
 
 vi.mock("../../server/builder-oauth.js", () => ({
   BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
-  resolveBuilderOAuthRequestAccess: oauthState.resolveAccess,
-  hasBuilderOAuthSession: oauthState.hasSession,
+  resolveBuilderOAuthRequestAccessState: oauthState.resolveAccessState,
   markBuilderOAuthReconnectRequired: oauthState.markReconnect,
 }));
 
@@ -175,6 +175,13 @@ describe("createBuilderEngine", () => {
           }
         : null,
     );
+    oauthState.resolveAccessState
+      .mockReset()
+      .mockImplementation(async (input) => {
+        if (!oauthState.stored) return { kind: "not_connected" };
+        const access = await oauthState.resolveAccess(input);
+        return access ? { kind: "available", access } : { kind: "unusable" };
+      });
     oauthState.hasSession
       .mockReset()
       .mockImplementation(async () => oauthState.stored);
@@ -261,7 +268,7 @@ describe("createBuilderEngine", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("preserves optional action schemas in GPT gateway requests", async () => {
+  it("sends GPT gateway tools out of strict mode with optional schemas intact", async () => {
     const inputSchema = {
       type: "object",
       properties: {
@@ -291,6 +298,30 @@ describe("createBuilderEngine", () => {
     );
     const body = JSON.parse(requestFetch.mock.calls[0][1]!.body as string);
     expect(body.tools[0].input_schema).toEqual(inputSchema);
+    expect(body.tools[0].strict).toBe(false);
+  });
+
+  it("leaves the strict flag off Claude gateway tools", async () => {
+    const requestFetch = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonlResponse([
+        { type: "text", text: "Done" },
+        { type: "stop", stop_reason: "end_turn" },
+      ]),
+    );
+    vi.stubGlobal("fetch", requestFetch);
+    await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        tools: [
+          {
+            name: "list-events",
+            description: "List events",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+    const body = JSON.parse(requestFetch.mock.calls[0][1]!.body as string);
     expect(body.tools[0]).not.toHaveProperty("strict");
   });
 
@@ -317,7 +348,8 @@ describe("createBuilderEngine", () => {
 
     await collectEvents(createBuilderEngine().stream(BASE_OPTS));
 
-    expect(oauthState.resolveAccess).toHaveBeenCalledWith({
+    // oracle-change: a single resolver now combines custody and access lookup.
+    expect(oauthState.resolveAccessState).toHaveBeenCalledWith({
       ownerEmail: "person@example.com",
       requiredScope: "builder:ai:invoke",
       orgId: null,
@@ -348,6 +380,31 @@ describe("createBuilderEngine", () => {
         errorCode: "builder_auth_error",
         error: expect.stringContaining("Sign in to Builder.io again"),
       }),
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("says the stored sign-in cannot be read, not that it expired", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.stored = true;
+    oauthState.resolveAccessState.mockResolvedValueOnce({ kind: "unreadable" });
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    // The row is intact: only this process's key cannot open it, so "Sign in
+    // again" alone would misname the cause and the legacy key must not stand in.
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "stop",
+        reason: "error",
+        errorCode: "builder_credential_unreadable",
+        error: expect.stringContaining("cannot be read"),
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ errorCode: "builder_auth_error" }),
     );
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -1035,29 +1092,249 @@ describe("createBuilderEngine", () => {
     expect(credentialState.sendBuilderCreditLimitNotice).not.toHaveBeenCalled();
   });
 
-  it("marks OAuth custody for reconnect on gateway 401 instead of the legacy key fingerprint", async () => {
+  it("does not mark OAuth custody for reconnect when a 401 refresh leaves the token unchanged", async () => {
     oauthState.ownerEmail = "person@example.com";
     oauthState.accessToken = "oauth-access-token";
     oauthState.stored = true;
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonErrorResponse(401, {
+        code: "unauthorized",
+        message: "Invalid token",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(oauthState.resolveAccessState).toHaveBeenCalledTimes(2);
+    expect(oauthState.resolveAccessState).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ forceRefresh: true }),
+    );
+    expect(events.find((event) => event.type === "stop")).toMatchObject({
+      errorCode: "builder_oauth_refresh_failed",
+      statusCode: 401,
+    });
+    expect(
+      credentialState.recordBuilderGatewayAuthFailure,
+    ).not.toHaveBeenCalled();
+    expect(oauthState.markReconnect).not.toHaveBeenCalled();
+  });
+
+  it("maps non-transient OAuth lookup failures to a typed reconnect error", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.resolveAccessState.mockRejectedValueOnce(
+      new Error("Stored Builder grant could not be read"),
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(events.find((event) => event.type === "stop")?.errorCode).toBe(
+      "builder_oauth_lookup_failed",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("force-refreshes Builder OAuth once after a 401 and retries with the new token", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    oauthState.resolveAccessState
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "oauth-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "user",
+          connectionId: "selected-builder-grant",
+        },
+      })
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "refreshed-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "user",
+          connectionId: "selected-builder-grant",
+        },
+      });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonErrorResponse(401, { code: "unauthorized", message: "Expired" }),
+      )
+      .mockResolvedValueOnce(
+        jsonlResponse([{ type: "stop", reason: "end_turn" }]),
+      );
+    const onModelDispatchStarted = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events = await collectEvents(
+      createBuilderEngine().stream({ ...BASE_OPTS, onModelDispatchStarted }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer oauth-access-token",
+    });
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer refreshed-access-token",
+    });
+    expect(oauthState.resolveAccessState).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        ownerEmail: "person@example.com",
+        forceRefresh: true,
+        connectionId: "selected-builder-grant",
+      }),
+    );
+    expect(events.find((event) => event.type === "stop")?.reason).toBe(
+      "end_turn",
+    );
+    expect(onModelDispatchStarted).toHaveBeenCalledTimes(2);
+    expect(oauthState.markReconnect).not.toHaveBeenCalled();
+  });
+
+  it("checks the dispatch guard again before retrying Builder OAuth after a 401", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    oauthState.resolveAccessState
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "oauth-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "user",
+          connectionId: "selected-builder-grant",
+        },
+      })
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "refreshed-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "user",
+          connectionId: "selected-builder-grant",
+        },
+      });
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        jsonErrorResponse(401, { code: "unauthorized", message: "Expired" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const beforeModelDispatch = vi.fn(async <T>(dispatch: () => T) =>
+      beforeModelDispatch.mock.calls.length === 1
+        ? { started: true as const, value: dispatch() }
+        : { started: false as const },
+    );
+    const onModelDispatchStarted = vi.fn();
+
+    await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        beforeModelDispatch,
+        onModelDispatchStarted,
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(beforeModelDispatch).toHaveBeenCalledTimes(2);
+    expect(onModelDispatchStarted).toHaveBeenCalledOnce();
+  });
+
+  it("propagates a dispatch guard failure that arrives during Builder OAuth refresh", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    oauthState.resolveAccessState
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "oauth-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "user",
+          connectionId: "selected-builder-grant",
+        },
+      })
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "refreshed-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "user",
+          connectionId: "selected-builder-grant",
+        },
+      });
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        jsonErrorResponse(401, { code: "unauthorized", message: "Expired" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const dispatchError = new Error("run was interrupted");
+    const beforeModelDispatch = vi.fn(async <T>(dispatch: () => T) => {
+      if (beforeModelDispatch.mock.calls.length > 1) throw dispatchError;
+      return { started: true as const, value: dispatch() };
+    });
+
+    await expect(
+      collectEvents(
+        createBuilderEngine().stream({ ...BASE_OPTS, beforeModelDispatch }),
+      ),
+    ).rejects.toBe(dispatchError);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(beforeModelDispatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("classifies a failed forced OAuth refresh separately from gateway transport errors", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    oauthState.resolveAccessState
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "oauth-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "user",
+          connectionId: "selected-builder-grant",
+        },
+      })
+      .mockRejectedValueOnce(new Error("refresh response could not be read"));
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        jsonErrorResponse(401, {
-          code: "unauthorized",
-          message: "Invalid token",
-        }),
-      ),
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonErrorResponse(401, { code: "unauthorized", message: "Expired" }),
+        ),
     );
 
     const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
 
-    expect(events.find((e) => e.type === "stop")?.errorCode).toBe(
-      "builder_auth_error",
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "stop",
+        reason: "error",
+        errorCode: "builder_oauth_refresh_failed",
+        error: expect.stringContaining("Sign in to Builder.io again"),
+      }),
     );
-    expect(
-      credentialState.recordBuilderGatewayAuthFailure,
-    ).not.toHaveBeenCalled();
-    expect(oauthState.markReconnect).toHaveBeenCalledWith("person@example.com");
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ errorCode: "builder_gateway_network_error" }),
+    );
   });
 
   it("marks OAuth custody for reconnect on a bare gateway 403", async () => {
@@ -1112,24 +1389,60 @@ describe("createBuilderEngine", () => {
     oauthState.scope = "org";
     oauthState.accessToken = "oauth-access-token";
     oauthState.stored = true;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
+    oauthState.resolveAccessState
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "oauth-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "org",
+          connectionId: "selected-org-grant",
+        },
+      })
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "refreshed-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "org",
+          connectionId: "selected-org-grant",
+        },
+      });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
         jsonErrorResponse(401, {
           code: "unauthorized",
-          message: "Invalid token",
+          message: "Expired token",
         }),
-      ),
-    );
+      )
+      .mockResolvedValueOnce(
+        jsonErrorResponse(401, {
+          code: "unauthorized",
+          message: "Invalid refreshed token",
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
 
-    await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
 
-    expect(oauthState.hasSession).toHaveBeenCalledWith(
-      "person@example.com",
-      "org-request",
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer refreshed-access-token",
+    });
+    expect(oauthState.resolveAccessState).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        ownerEmail: "person@example.com",
+        orgId: "org-request",
+        forceRefresh: true,
+        connectionId: "selected-org-grant",
+      }),
     );
-    expect(oauthState.resolveAccess).toHaveBeenCalledWith(
-      expect.objectContaining({ orgId: "org-request" }),
+    expect(events.find((event) => event.type === "stop")?.errorCode).toBe(
+      "builder_auth_error",
     );
     expect(oauthState.markReconnect).toHaveBeenCalledWith(
       "person@example.com",
@@ -1297,6 +1610,131 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("gateway_suspended");
+  });
+
+  describe("tool-result images", () => {
+    const PNG_1X1 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    // Hydrated images are cached by URL, so each test needs its own.
+    let urlCounter = 0;
+    const ownedUrl = () =>
+      `https://cdn.builder.io/api/v1/image/assets%2Fspace-test%2Fscreenshot-${++urlCounter}`;
+
+    function screenshotMessages(url: string): EngineStreamOptions["messages"] {
+      return [
+        { role: "user", content: [{ type: "text", text: "Build a page" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "call_1",
+              name: "take-design-screenshot",
+              input: {},
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call_1",
+              toolName: "take-design-screenshot",
+              toolInput: "{}",
+              content: "Captured the page.",
+              images: [{ url, label: "desktop" }],
+            },
+          ],
+        },
+      ];
+    }
+
+    function routedFetch(imageResponse: () => Response) {
+      return vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.startsWith("https://cdn.builder.io/")) return imageResponse();
+        return jsonlResponse([{ type: "stop", reason: "end_turn" }]);
+      });
+    }
+
+    function gatewayToolResultContent(fetchSpy: ReturnType<typeof vi.fn>) {
+      const gatewayCall = fetchSpy.mock.calls.find(
+        ([input]) => !String(input).startsWith("https://cdn.builder.io/"),
+      );
+      const body = JSON.parse((gatewayCall![1] as RequestInit).body as string);
+      return body.messages[2].content[0].content;
+    }
+
+    it("sends an image we host as bytes, not as a URL the provider would fetch", async () => {
+      const fetchSpy = routedFetch(
+        () =>
+          new Response(Buffer.from(PNG_1X1, "base64"), {
+            status: 200,
+            headers: { "content-type": "image/png" },
+          }),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+      const OWNED_URL = ownedUrl();
+      const messages = screenshotMessages(OWNED_URL);
+
+      await collectEvents(
+        createBuilderEngine().stream({ ...BASE_OPTS, messages }),
+      );
+
+      expect(gatewayToolResultContent(fetchSpy)).toEqual([
+        { type: "text", text: "Captured the page." },
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: PNG_1X1 },
+        },
+      ]);
+      const stored = messages[2]!.content[0] as { images?: unknown[] };
+      expect(stored.images).toEqual([{ url: OWNED_URL, label: "desktop" }]);
+    });
+
+    it("leaves an image URL we do not host as a URL and never fetches it", async () => {
+      const fetchSpy = routedFetch(() => new Response(null, { status: 500 }));
+      vi.stubGlobal("fetch", fetchSpy);
+      const foreign = "https://images.example.com/photo.png";
+
+      await collectEvents(
+        createBuilderEngine().stream({
+          ...BASE_OPTS,
+          messages: screenshotMessages(foreign),
+        }),
+      );
+
+      expect(gatewayToolResultContent(fetchSpy)[1]).toEqual({
+        type: "image",
+        source: { type: "url", url: foreign },
+      });
+      expect(
+        fetchSpy.mock.calls.some(([input]) => String(input) === foreign),
+      ).toBe(false);
+    });
+
+    it("keeps the URL when our image cannot be read, and still sends the request", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const fetchSpy = routedFetch(() => new Response(null, { status: 404 }));
+      vi.stubGlobal("fetch", fetchSpy);
+      const OWNED_URL = ownedUrl();
+
+      await collectEvents(
+        createBuilderEngine().stream({
+          ...BASE_OPTS,
+          messages: screenshotMessages(OWNED_URL),
+        }),
+      );
+
+      expect(gatewayToolResultContent(fetchSpy)[1]).toEqual({
+        type: "image",
+        source: { type: "url", url: OWNED_URL },
+      });
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("tool-result image sent as a URL"),
+      );
+    });
   });
 
   describe("Builder-credits lane", () => {
@@ -2250,6 +2688,9 @@ describe("createBuilderEngine", () => {
   });
 
   it("keeps invalid_request stop reasons terminal when the message looks transient", async () => {
+    const privateProviderMessage =
+      "The request timed out while the upstream provider was temporarily unavailable.";
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -2258,8 +2699,7 @@ describe("createBuilderEngine", () => {
             type: "stop",
             reason: "invalid_request",
             requestId: "req_bad_history",
-            error:
-              "The request timed out while the upstream provider was temporarily unavailable.",
+            error: privateProviderMessage,
             errorCode: "tool_message_shape_invalid",
           },
         ]),
@@ -2273,6 +2713,135 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("tool_message_shape_invalid");
     expect(stop?.error).toContain("temporarily unavailable");
+    expect(stop?.providerRetryable).toBe(false);
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining("requestId=req_bad_history"),
+    );
+    expect(warning.mock.calls.flat().join(" ")).not.toContain(
+      privateProviderMessage,
+    );
+  });
+
+  it("treats an uncoded masked envelope on invalid_request as a non-retryable internal error", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_masked_envelope",
+            error:
+              "Sorry, this was caused by an internal error. ERROR ID: ee0d523bbb22473387d71fd97da220ea",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(false);
+    const logged = warning.mock.calls.flat().join(" ");
+    expect(logged).toContain("requestId=req_masked_envelope");
+    expect(logged).toContain("providerMessagePresent=true");
+    expect(logged).toContain("code=builder_gateway_internal_error");
+    expect(logged).toMatch(
+      /requestShape=\{"model":"[^"]+","payloadBytes":\d+,"toolCount":\d+,"messageCount":\d+\}/,
+    );
+    expect(logged).not.toContain("Sorry, this was caused by an internal error");
+  });
+
+  it.each([
+    {
+      name: "only error",
+      event: { error: "x" },
+      expected: "providerMessagePresent=true",
+    },
+    {
+      name: "only message",
+      event: { message: "x" },
+      expected: "providerMessagePresent=true",
+    },
+    {
+      name: "only detail",
+      event: { detail: "x" },
+      expected: "providerMessagePresent=true",
+    },
+    {
+      name: "none of them",
+      event: {},
+      expected: "providerMessagePresent=false",
+    },
+  ])(
+    "logs whether the gateway sent a message ($name)",
+    async ({ event, expected }) => {
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            jsonlResponse([
+              { type: "stop", reason: "invalid_request", ...event },
+            ]),
+          ),
+      );
+
+      await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+      const logged = warning.mock.calls.flat().join(" ");
+      expect(logged).toContain(expected);
+      expect(logged).toContain("requestId=(none)");
+    },
+  );
+
+  it("keeps a provider_internal_error envelope on invalid_request retryable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_coded_envelope",
+            errorCode: "provider_internal_error",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(true);
+  });
+
+  it("keeps an uncoded non-envelope invalid_request terminal as invalid_request", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_plain_invalid",
+            error:
+              "messages.3: tool_use block must have a corresponding tool_result",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("invalid_request");
     expect(stop?.providerRetryable).toBe(false);
   });
 

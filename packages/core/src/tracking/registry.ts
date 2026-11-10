@@ -1,12 +1,23 @@
 import { randomUUID } from "node:crypto";
 
+import { withoutWriteObservation } from "../action-frame.js";
 import type { ActionRunContext } from "../action.js";
+import { getAppConfig } from "../app-config/index.js";
+import {
+  questionIntakeExposureProperties,
+  resolveQuestionIntakeExperimentAssignment,
+  type QuestionIntakeExperimentAssignment,
+} from "../observability/question-intake-experiment.js";
 import {
   queueTrackingEvent,
+  registerTrackingWork,
   type TrackingEventOrigin,
 } from "../observability/tracing.js";
 import { resolveDeployEnvironment } from "../server/deploy-environment.js";
-import { getRequestContext } from "../server/request-context.js";
+import {
+  getRequestContext,
+  getRequestRunContext,
+} from "../server/request-context.js";
 import { isTestIdentity } from "../server/test-identity.js";
 import {
   canonicalTrackingEvent,
@@ -15,11 +26,21 @@ import {
   withCanonicalTrackingProperties,
 } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_PROPERTY } from "../shared/analytics-platform.js";
+import {
+  assignFirstRunBuilderCreditsV2,
+  FIRST_RUN_ONBOARDING_EXPERIMENT_EVENT_NAMES,
+} from "../shared/first-run-builder-credits-experiment.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
 
 export { isQaTestEmail } from "../shared/qa-test-email.js";
 
 const REGISTRY_KEY = Symbol.for("@agent-native/core/tracking.registry");
+const FIRST_RUN_EXPERIMENT_EVENT_NAMES = new Set([
+  "run_started",
+  "design_created",
+  "deck_created",
+  "recording_ready",
+]);
 interface GlobalWithRegistry {
   [REGISTRY_KEY]?: Map<string, TrackingProvider>;
 }
@@ -151,10 +172,118 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
   };
 }
 
+// An event is bookkeeping about a call, never one of the writes the call is for.
 export function track(
   name: string,
   properties?: Record<string, unknown>,
   source?: TrackingSource,
+): void {
+  withoutWriteObservation(() => trackEvent(name, properties, source));
+}
+
+function trackEvent(
+  name: string,
+  properties?: Record<string, unknown>,
+  source?: TrackingSource,
+): void {
+  // raw-sql-ok: tracking persistence uses bound arguments for resolved identity values.
+  const resolvedSource = resolveTrackingSource(source);
+  // raw-sql-ok: resolved IDs remain bound event values at the tracking store boundary.
+  const { authUserId, userId } = resolvedSource;
+  if (getRequestContext()?.isSyntheticTraffic === true) return;
+  const testIdentity = testIdentityOf(userId, properties);
+  if (testIdentity && name !== "$exception") return;
+
+  const config = getAppConfig().agent.questionIntake;
+  const mayAttributeClientEvent =
+    resolvedSource.telemetryOrigin !== "client" ||
+    config?.clientTrackedEventNames.includes(name) === true;
+  if (
+    config?.enabled &&
+    !config.disabled &&
+    config.trackedEventNames.includes(name) &&
+    authUserId &&
+    mayAttributeClientEvent
+  ) {
+    const experimentProperties = { ...(properties ?? {}) };
+    delete experimentProperties.experiment_id;
+    delete experimentProperties.experiment_variant;
+    const requestAssignment =
+      getRequestRunContext()?.questionIntakeExperimentAssignment;
+    if (
+      requestAssignment?.authUserId === authUserId &&
+      requestAssignment.experimentId === config.experimentId
+    ) {
+      emitTrackedEvent(name, experimentProperties, source, requestAssignment);
+      return;
+    }
+
+    const pending = resolveQuestionIntakeExperimentAssignment(
+      config,
+      authUserId,
+    )
+      .then(
+        (assignment) =>
+          emitTrackedEvent(
+            name,
+            experimentProperties,
+            source,
+            assignment ?? undefined,
+          ),
+        () => {
+          console.error("[tracking] question-intake assignment lookup failed", {
+            experimentId: config.experimentId,
+            eventName: name,
+          });
+          emitTrackedEvent(name, experimentProperties, source);
+        },
+      )
+      .catch(() => {
+        console.error("[tracking] asynchronous event delivery failed");
+      });
+    registerTrackingWork(pending, getRequestContext()?.trackingScope);
+    const waitUntil = getRequestRunContext()?.waitUntil;
+    if (waitUntil) {
+      try {
+        waitUntil(pending);
+        return;
+      } catch {
+        console.error("[tracking] request waitUntil rejected tracked event");
+      }
+    }
+    void pending.catch(() => {
+      console.error("[tracking] tracked event failed outside waitUntil");
+    });
+    return;
+  }
+
+  emitTrackedEvent(name, properties, source);
+}
+
+export function trackQuestionIntakeExposure(
+  assignment: QuestionIntakeExperimentAssignment,
+  context: {
+    appId: string;
+    threadId?: string;
+    turnId: string;
+    userId?: string;
+  },
+): void {
+  track(
+    "agent_experiment_exposed",
+    questionIntakeExposureProperties(assignment, context),
+    {
+      ...(context.userId ? { userId: context.userId } : {}),
+      authUserId: assignment.authUserId,
+    },
+  );
+}
+
+function emitTrackedEvent(
+  name: string,
+  properties: Record<string, unknown> | undefined,
+  source: TrackingSource | undefined,
+  questionIntakeAssignment?: QuestionIntakeExperimentAssignment,
 ): void {
   const {
     userId,
@@ -173,9 +302,39 @@ export function track(
   const safeProperties = { ...(properties ?? {}) };
   delete safeProperties.auth_user_id;
   delete safeProperties.authUserId;
+  delete safeProperties.telemetry_origin;
+  delete safeProperties.telemetryOrigin;
+  if (telemetryOrigin === "client") {
+    delete safeProperties.experiment_id;
+    delete safeProperties.experiment_variant;
+  }
+  if (name === "builder_signup_experiment_client_failed") {
+    const onboarding = getAppConfig().onboarding;
+    if (
+      onboarding.builderSignupExperimentOverride ??
+      onboarding.builderSignupExperiment
+    ) {
+      safeProperties.experiment_id = onboarding.builderSignupExperimentId;
+    }
+  }
   if (authUserId) safeProperties.auth_user_id = authUserId;
+  const firstRunExperiment =
+    authUserId &&
+    (FIRST_RUN_EXPERIMENT_EVENT_NAMES.has(name) ||
+      (FIRST_RUN_ONBOARDING_EXPERIMENT_EVENT_NAMES.has(name) &&
+        safeProperties.flow === "first_run"))
+      ? requestFirstRunExperiment(authUserId)
+      : null;
   const trackedProperties = withCanonicalTrackingProperties({
     ...safeProperties,
+    telemetry_origin: telemetryOrigin,
+    ...(firstRunExperiment ?? {}),
+    ...(questionIntakeAssignment
+      ? {
+          experiment_id: questionIntakeAssignment.experimentId,
+          experiment_variant: questionIntakeAssignment.variantId,
+        }
+      : {}),
     ...(sessionId ? { session_id: sessionId } : {}),
     ...(userId ? { user_id: userId } : {}),
     ...(actionContext?.userEmail
@@ -232,6 +391,28 @@ export function track(
   }
 }
 
+function requestFirstRunExperiment(authUserId: string) {
+  const onboarding = getAppConfig().onboarding;
+  if (
+    (onboarding.firstRunCreditsExperimentOverride ??
+      onboarding.firstRunCreditsExperiment) !== "v2"
+  )
+    return null;
+  const assignment = getRequestContext()?.firstRunBuilderCreditsV2Assignment;
+  if (assignment?.authUserId !== authUserId) return null;
+  const expected = assignFirstRunBuilderCreditsV2(authUserId);
+  if (
+    !expected ||
+    assignment.experiment_variant !== expected.experiment_variant
+  ) {
+    return null;
+  }
+  return {
+    experiment_id: assignment.experiment_id,
+    experiment_variant: assignment.experiment_variant,
+  };
+}
+
 function emitTrackingEvent(
   name: string,
   properties: Record<string, unknown>,
@@ -273,6 +454,13 @@ export function identify(
   traits?: Record<string, unknown>,
 ): void {
   if (isTrackingSuppressed(userId, traits)) return;
+  withoutWriteObservation(() => identifyWithProviders(userId, traits));
+}
+
+function identifyWithProviders(
+  userId: string,
+  traits?: Record<string, unknown>,
+): void {
   for (const provider of getRegistry().values()) {
     if (!provider.identify) continue;
     try {
@@ -287,6 +475,10 @@ export function identify(
 }
 
 export function flushTracking(): Promise<void[]> {
+  return withoutWriteObservation(flushProviders);
+}
+
+function flushProviders(): Promise<void[]> {
   const promises: Promise<void>[] = [];
   for (const provider of getRegistry().values()) {
     if (!provider.flush) continue;

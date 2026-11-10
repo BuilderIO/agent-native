@@ -16,6 +16,18 @@ const providers: Map<string, FileUploadProvider> =
 const warnedFallbackRef: { value: boolean } =
   (globals.__agentNativeFileUploadWarnedFallback ??= { value: false });
 
+export class FileUploadProviderUnavailableError extends Error {
+  readonly errorCode = "file_upload_provider_unavailable";
+  readonly statusCode = 503;
+
+  constructor(cause: Error) {
+    super("File upload provider status is temporarily unavailable.", {
+      cause,
+    });
+    this.name = "FileUploadProviderUnavailableError";
+  }
+}
+
 export function registerFileUploadProvider(provider: FileUploadProvider): void {
   providers.set(provider.id, provider);
 }
@@ -79,17 +91,28 @@ export function getActiveFileUploadProvider(): FileUploadProvider | null {
  * this instead of detecting each provider a second time.
  */
 export async function listFileUploadProviderStatusesForRequest(): Promise<
-  Array<{ provider: FileUploadProvider; configured: boolean }>
+  Array<{
+    provider: FileUploadProvider;
+    configured: boolean;
+    unavailable: boolean;
+  }>
 > {
   return Promise.all(
-    [...providers.values()].map(async (provider) => ({
-      provider,
-      configured:
-        provider.isConfigured() ||
-        (provider.isConfiguredForRequest
-          ? await provider.isConfiguredForRequest()
-          : false),
-    })),
+    [...providers.values()].map(async (provider) => {
+      try {
+        return {
+          provider,
+          configured:
+            provider.isConfigured() ||
+            (provider.isConfiguredForRequest
+              ? await provider.isConfiguredForRequest()
+              : false),
+          unavailable: false,
+        };
+      } catch {
+        return { provider, configured: false, unavailable: true };
+      }
+    }),
   );
 }
 
@@ -126,7 +149,17 @@ export async function deleteUploadedFile(
 export async function uploadFile(
   input: FileUploadInput,
 ): Promise<FileUploadResult | null> {
-  const provider = await getActiveFileUploadProviderForRequest();
+  let provider: FileUploadProvider | null;
+  try {
+    provider = await getActiveFileUploadProviderForRequest();
+  } catch (error) {
+    const { McpOAuthRefreshUnavailableError } =
+      await import("../mcp-client/oauth-client.js");
+    if (error instanceof McpOAuthRefreshUnavailableError) {
+      throw new FileUploadProviderUnavailableError(error);
+    }
+    throw error;
+  }
   // User-registered providers (S3, etc.) may be configured by sync runtime
   // state or request-scoped DB secrets. Builder still gets an explicit async
   // credential check below because its sync isConfigured() only checks env.

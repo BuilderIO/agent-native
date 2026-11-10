@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { AgentChatAttachment } from "../agent/types.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
+import { downscaleInlineImageBase64 } from "./downscale-inline-image.js";
 import {
   claimOwnedAttachmentHydrationCandidate,
   createOwnedAttachmentHydrationBudget,
@@ -418,11 +419,18 @@ export async function hydratePriorThreadImages(
       unreadableCount++;
       continue;
     }
+    const parsed = parseBase64DataUrl(result.dataUrl);
+    // Shrink before caching so later turns reuse the resized bytes.
+    const resized = parsed
+      ? await downscaleInlineImageBase64(parsed.data, result.mediaType)
+      : null;
     const attachment: AgentChatAttachment = {
       type: "image",
       name: candidate.name,
-      contentType: result.mediaType,
-      data: result.dataUrl,
+      contentType: resized?.mediaType ?? result.mediaType,
+      data: resized
+        ? `data:${resized.mediaType};base64,${resized.base64}`
+        : result.dataUrl,
     };
     attachments.push(attachment);
     newlyHydrated.set(identity, attachment);

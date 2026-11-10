@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { getEmailReadiness, sendEmail } from "@agent-native/core/server";
 
 import { failWorkflowAction } from "../lib/workflow-action-errors.js";
+import { scrub } from "../tripwire/redact.js";
 
 const EMAIL_RECIPIENTS_MAX = 10;
 export const EMAIL_SUBJECT_MAX = 200;
@@ -144,6 +145,85 @@ interface WorkflowEmailResult {
   suppressed: string[];
 }
 
+const PROVIDER_WORD = /^[A-Za-z][A-Za-z0-9_]{0,47}$/;
+
+function plainWord(value: unknown): string | undefined {
+  return typeof value === "string" && PROVIDER_WORD.test(value)
+    ? value
+    : undefined;
+}
+
+interface ProviderReply {
+  provider?: string | undefined;
+  error?: string | undefined;
+  message?: string | undefined;
+}
+
+/**
+ * What the provider said when it refused, in its own words: Resend's
+ * `{ name, message }` or SendGrid's first `{ field, message }`. The error name
+ * is kept only as a plain word, and the message goes through `scrub`, which
+ * removes addresses and key-like text and clips it, so a sandbox sender, an
+ * unverified domain and a restricted key read differently without a key or an
+ * address reaching the message. Null when the answer holds no readable reason.
+ */
+function providerReply(error: unknown): ProviderReply | null {
+  const candidate = error as {
+    name?: unknown;
+    provider?: unknown;
+    responseBody?: unknown;
+  } | null;
+  if (
+    candidate?.name !== "EmailProviderError" ||
+    typeof candidate.responseBody !== "string"
+  ) {
+    return null;
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(candidate.responseBody);
+  } catch {
+    // coercion-ok: a body that is not JSON has no readable reason, and the message says so instead of staying silent.
+    return null;
+  }
+  const first: unknown =
+    typeof body === "object" && body !== null && "errors" in body
+      ? (body as { errors: unknown }).errors
+      : body;
+  const entry = Array.isArray(first) ? first[0] : first;
+  if (typeof entry !== "object" || entry === null) return null;
+  const { name, field, message } = entry as Record<string, unknown>;
+  const reply: ProviderReply = {
+    provider: plainWord(candidate.provider),
+    error: plainWord(name) ?? plainWord(field),
+    message:
+      typeof message === "string" && message.trim() !== ""
+        ? scrub(message)
+        : undefined,
+  };
+  return reply.error || reply.message ? reply : null;
+}
+
+/** The provider's reply as a sentence for the failure message, and the same facts as details. */
+function describeReply(error: unknown): {
+  text: string;
+  details: Record<string, unknown>;
+} {
+  const reply = providerReply(error);
+  if (!reply) {
+    return { text: " The provider gave no readable reason.", details: {} };
+  }
+  const said = [reply.error, reply.message].filter(Boolean).join(": ");
+  return {
+    text: ` The provider${reply.provider ? ` (${reply.provider})` : ""} said ${said}${/[.!?]$/.test(said) ? "" : "."}`,
+    details: {
+      ...(reply.provider ? { provider: reply.provider } : {}),
+      ...(reply.error ? { providerError: reply.error } : {}),
+      ...(reply.message ? { providerMessage: reply.message } : {}),
+    },
+  };
+}
+
 function providerStatus(error: unknown): number | null {
   const candidate = error as {
     name?: unknown;
@@ -211,24 +291,30 @@ export async function sendWorkflowEmail(
       }
     } catch (error) {
       const status = providerStatus(error);
+      const reply = status === null ? undefined : describeReply(error);
       const rejected = status !== null && status >= 400 && status < 500;
       if (rejected && sent.length === 0) {
         failWorkflowAction({
-          message: `The email provider rejected the message (HTTP ${status}); nothing was sent.`,
+          message: `The email provider rejected the message (HTTP ${status}); nothing was sent.${reply?.text ?? ""}`,
           errorCode: status === 429 ? "email_rate_limited" : "email_rejected",
           statusCode: status === 429 ? 429 : 424,
           retryable: status === 429,
-          details: { status },
+          details: { status, ...reply?.details },
         });
       }
       failWorkflowAction({
-        message:
+        message: `${
           sent.length > 0
             ? `The email provider failed after ${sent.length} of ${input.to.length} messages went out.`
-            : "The email provider did not confirm whether the message was sent.",
+            : "The email provider did not confirm whether the message was sent."
+        }${reply?.text ?? ""}`,
         errorCode: "email_outcome_unknown",
         statusCode: 424,
-        details: { sentTo: sent, ...(status !== null ? { status } : {}) },
+        details: {
+          sentTo: sent,
+          ...(status !== null ? { status } : {}),
+          ...reply?.details,
+        },
       });
     }
   }

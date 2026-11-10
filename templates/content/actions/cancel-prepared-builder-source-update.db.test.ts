@@ -705,6 +705,68 @@ describe("cancel-prepared-builder-source-update", () => {
     );
   });
 
+  it("approves one revision when two reviews of the same changed diff are prepared at once", async () => {
+    const seeded = await seed({
+      titleDiff: { remote: "Remote title", local: "Local title" },
+      syntheticChangeSetId: true,
+    });
+    await cancel(seeded);
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Changed local title" })
+      .where(eq(schema.documents.id, seeded.itemDocumentId));
+    const snapshot = await getWriteSnapshot(
+      {
+        id: seeded.databaseId,
+        documentId: seeded.documentId,
+      } as never,
+      seeded.sourceId,
+    );
+    const changed = snapshot?.changeSets.find(
+      (changeSet) => changeSet.state === "pending_push",
+    );
+    if (!changed) throw new Error("No pending change set to prepare.");
+
+    const prepare = () =>
+      asUser(OWNER, () =>
+        prepareReview.run({
+          documentId: seeded.documentId,
+          sourceId: seeded.sourceId,
+          changeSetIds: [changed.id],
+          pushModeConfirmation: "autosave",
+        }),
+      );
+    // The execution both share can still turn one away, as a retryable
+    // conflict rather than a failed insert.
+    const results = await Promise.allSettled([prepare(), prepare()]);
+    const prepared = results.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : [],
+    );
+    expect(prepared.length).toBeGreaterThan(0);
+    for (const result of results) {
+      if (result.status === "rejected") {
+        expect(result.reason).toMatchObject({ statusCode: 409 });
+      }
+    }
+    const revisionId = prepared[0].review.rows[0]?.changeSetId;
+    expect(revisionId).toMatch(
+      new RegExp(`^${seeded.changeSetId}-revision-[a-f0-9]{16}$`),
+    );
+    for (const result of prepared) {
+      expect(result.review.rows[0]?.changeSetId).toBe(revisionId);
+    }
+
+    const approved = (
+      await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceChangeSets)
+        .where(
+          eq(schema.contentDatabaseSourceChangeSets.sourceId, seeded.sourceId),
+        )
+    ).filter((changeSet) => changeSet.state === "approved");
+    expect(approved.map((changeSet) => changeSet.id)).toEqual([revisionId]);
+  });
+
   it("prepares a corrected diff separately from a failed non-refreshable gate", async () => {
     const seeded = await seed({
       titleDiff: { remote: "Remote title", local: "Invalid local title" },

@@ -40,7 +40,10 @@ function createDb(rows: unknown[]) {
 describe("list-viewers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockResolvedValue({
+      role: "editor",
+      resource: { expiresAt: null },
+    });
   });
 
   it("hides the anon: dedup key stored in viewer_name", async () => {

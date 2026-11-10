@@ -12,6 +12,7 @@ import {
 } from "@agent-native/core/client/org";
 import type { ShareOrgMember } from "@agent-native/core/client/sharing/share-controller-helpers";
 import { DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS } from "@agent-native/core/client/sharing/share-controller-helpers";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 // Type-only: erased at build time, so declaring app roles pulls no server or
 // database code into the browser bundle.
 import type { AppRolesDescriptor } from "@agent-native/core/org/app-roles";
@@ -155,6 +156,7 @@ export function MembersTableCard({
   const canInvite = canInviteOrgMembers(currentUserRole);
   const updateGroupMembers = useActionMutation(
     "bulk-update-workspace-user-groups",
+    { errorNotification: "caller" },
   );
   const { data: appRoleData } = useAppRoles(appRoles?.appId);
   const setAppMemberRoles = useSetAppMemberRoles();
@@ -784,7 +786,10 @@ export function MemberRow({
                   if (next !== role) {
                     changeRole.mutate(
                       { email, role: next },
-                      { onSuccess: () => setEditing(false) },
+                      {
+                        onSuccess: () => setEditing(false),
+                        onError: (error) => reportWriteFailure(error),
+                      },
                     );
                   } else {
                     setEditing(false);

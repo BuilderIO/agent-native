@@ -91,6 +91,8 @@ export type SignupOrigin =
   | "browser_signup"
   /** The framework's Google OAuth callback owns this event. */
   | "google_oauth"
+  /** The signup began at a remote MCP OAuth authorize page. */
+  | "mcp_oauth"
   /** Federated SSO provisioning an identity into a sibling app. */
   | "sso_jit";
 

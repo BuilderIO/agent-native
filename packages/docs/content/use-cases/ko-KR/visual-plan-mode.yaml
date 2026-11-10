@@ -1,0 +1,106 @@
+slug: visual-plan-mode
+app: plans
+roles:
+  - engineering
+title: 코드를 쓰기 전에 코딩 에이전트의 계획을 검토하세요
+seo_title: Claude Code, Codex, Cursor용 시각적 플랜 모드
+meta_description: "Agent-Native Plan은 코딩 에이전트의 계획을 다이어그램, 파일 트리, 주석 달린 코드가 담긴 페이지로 만들어, 코드를 쓰기 전에 검토할 수 있게 해 줘요."
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Plan은 에이전트가 쓴 계획을 다이어그램, 파일 트리, 주석 달린 코드가 담긴 페이지로 바꿔 줘요. 어느 부분에든 댓글을 달면 에이전트가 계획을 고치고, 승인 전에는 코드를 건드리지 않아요."
+  button:
+    label: 빌드 계획 세우기
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Faad0afc668dc461f9023eeba3ba55800
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c2e3c83e79248e69829bb38f71a6704
+    alt: "Plan에서 연 팀 초대 기능 추가 계획. 다이어그램이 Settings 페이지에서 API와 초대 테이블을 거쳐 초대 이메일까지 이어지는 흐름을 보여 줘요. 그 아래 파일 트리에는 바뀌는 파일 다섯 개가 표시되고, 이메일 단계에는 팀원이 에이전트에게 남긴 댓글이 고정돼 있어요."
+how_to:
+  heading: 코딩 에이전트와 시각적 플랜 모드를 쓰는 방법
+  steps:
+    - title: 시각적 계획 요청하기
+      body: "[설치 명령어 하나](https://www.agent-native.com/docs/plan-plugin/)로 Claude Code, Codex, Cursor에 Plan을 추가하세요. 그다음 `/visual-plan`과 할 일을 입력하면 에이전트가 코드를 읽고 계획 링크를 보내 줘요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15e26ab97a68472a958aabf9657fdeb2
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F01168fa31ed5412080d49febc37f1068
+        alt: "사용자가 팀 초대 기능 추가 작업과 함께 /visual-plan을 입력한 코딩 에이전트 채팅. 에이전트가 읽은 파일을 나열하고, 계획을 게시한 뒤 링크로 답해요."
+    - title: 바꿀 부분에 댓글 달기
+      body: "문장이나 다이어그램의 한 지점을 선택하고 무엇을 바꿀지 적으세요. 에이전트가 고치게 하려면 [댓글](https://www.agent-native.com/docs/template-plan-review-workflow/)을 **에이전트**로, 팀원에게 맡기려면 **사람**으로 설정하세요. 계획에 남은 질문에도 답하세요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8a16bd566384f4080dde591a1b30c3f
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F598a137b56d149f98409ed79c024cb2b
+        alt: "계획 다이어그램의 초대 이메일 단계에 고정된 새 댓글 확대 화면. Agent와 Human 토글이 Agent로 설정돼 있고 댓글 내용이 입력돼 있어요."
+    - title: 에이전트에게 댓글 보내기
+      body: "**에이전트에게 보내기**를 클릭하고 **에이전트용으로 복사**을 선택하면 댓글이 프롬프트로 복사돼요. 에이전트 채팅에 붙여 넣으면 계획이 업데이트돼요. 계획이 괜찮으면 채팅에서 승인하고, 에이전트가 빌드를 시작해요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0f841d0983ec4e3386d13c4c4ad7895d
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F356c269c867048c392ca26ef5c5767c8
+        alt: "계획의 Send to agent 버튼 확대 화면. 메뉴가 열려 Copy for your agent와 Send to inline agent가 각각 한 줄 설명과 함께 보여요."
+features:
+  heading: 에이전트의 계획을 검토하는 데 필요한 모든 것
+  items:
+    - title: 접근 방식을 다이어그램으로
+      body: "요청 흐름, 데이터 모델, API 엔드포인트를 그림으로 보여 주니, 잘못된 엔드포인트나 빠진 테이블이 만들기 전에 눈에 띄어요."
+    - title: 바뀌는 파일 한눈에 보기
+      body: "파일 트리와 주석 달린 코드가 작업이 어디에 들어가는지, 각 단계가 코드베이스의 무엇을 재사용하는지 보여 줘요."
+    - title: 추천 답이 있는 질문
+      body: "에이전트가 코드만으로 정할 수 없는 결정은 마지막에 양식 하나로 모이고, 질문마다 에이전트가 추천하는 답이 달려 있어요."
+    - title: 플랜 모드에서 바로 시작
+      body: "Claude Code나 Codex, 마크다운 파일에 이미 계획이 있나요? `/visual-plan`은 처음부터 다시 하지 않고 그 계획으로 페이지를 만들어요."
+    - title: 승인 전에는 코드 수정 없음
+      body: "Plan의 지침에 따라 에이전트는 계획하는 동안 코드를 읽기만 해요. 코드 수정은 계획을 승인한 뒤에야 시작해요."
+    - title: 팀원과 함께 검토하기
+      body: "팀원에게 계획 링크를 보내세요. 게스트로 읽고 편집할 수 있고, Agent-Native 계정으로 로그인하면 댓글도 달 수 있어요."
+integrations:
+  heading: 이미 쓰는 도구와 Plan 연결하기
+  cards:
+    - title: 코딩 에이전트용 플러그인
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: "Claude Code나 Codex에 Plan을 플러그인으로 설치하고, 늘 쓰던 채팅에서 `/visual-plan`을 쓰세요."
+    - title: 다른 에이전트는 명령어 하나로
+      logos:
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: "설치 명령어 하나로 Cursor, OpenCode, VS Code의 GitHub Copilot에 Plan이 설정되고, 다른 MCP 에이전트도 URL로 추가할 수 있어요."
+    - title: MCP로 무엇이든 연결하기
+      logos:
+        - name: Linear
+        - name: Sentry
+        - name: Context7
+      more: true
+      body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
+other_uses:
+  heading: Agent-Native Plan으로 할 수 있는 다른 일
+  cards:
+    - title: 코딩 에이전트가 바꾼 내용을 시각적 요약으로 받아 보세요
+      url: https://www.agent-native.com/use-cases/visually-recap-agent-changes/
+      body: "풀 리퀘스트, 커밋, diff를 무엇이 바뀌었는지 보여 주는 시각적 안내로 바꿔 보세요."
+    - title: 코딩 에이전트와 새 화면을 계획해 보세요
+      url: https://www.agent-native.com/use-cases/ui-planning/
+      body: "코딩 에이전트에게 화면 와이어프레임을 맡기고, 무엇이든 만들기 전에 피드백을 주세요."
+faqs:
+  heading: 궁금한 점이 있으신가요? 답해 드릴게요
+  items:
+    - q: Agent-Native Plan은 무료인가요?
+      a: "네, Agent-Native Plan은 무료 오픈 소스예요. 각 계획은 내가 고른 모델에서 코딩 에이전트 세션으로 실행돼요. 그만큼 에이전트의 토큰을 쓰고, 계획이 클수록 더 많이 써요. Plan은 알파 버전이라 바뀌는 부분이 있을 수 있어요."
+    - q: Plan은 어떤 코딩 에이전트와 함께 쓸 수 있나요?
+      a: "Claude Code와 Codex는 플러그인으로 설치해요. 설치 명령어 하나로 Cursor, OpenCode, VS Code의 GitHub Copilot, Claude Cowork에도 Plan이 설정돼요. Cline이나 Goose 같은 다른 MCP 호스트는 URL로 Plan 커넥터를 추가할 수 있어요. 모든 계획은 브라우저에서 검토해요."
+    - q: Plan은 코딩 에이전트의 플랜 모드와 무엇이 다른가요?
+      a: "Claude Code, Codex, Cursor, OpenCode의 플랜 모드는 계획을 채팅 속 텍스트로 보여 줘요. Plan은 그 계획이나 마크다운 파일의 계획을 다이어그램, 파일 트리, 주석 달린 코드가 담긴 페이지로 바꿔요. 거기서 정확한 부분에 댓글을 달고, 에이전트의 질문에 답하고, 팀원을 부를 수 있어요."
+    - q: 에이전트가 계획하는 동안 내 코드를 바꾸나요?
+      a: "아니요. 계획을 쓰거나 고치는 동안 Plan의 지침에 따라 에이전트는 코드를 읽기만 해요. 계획을 승인한 뒤에 수정을 시작하고, 큰 단계마다 승인된 계획을 다시 읽어요."
+    - q: 팀원이 계정 없이 계획을 검토할 수 있나요?
+      a: "일부는 가능해요. 링크를 공유받은 사람은 누구나 게스트로 계획을 열고 편집할 수 있어요. 댓글, 저장, 공유에는 Agent-Native 계정이 필요하니, 댓글을 달려는 팀원은 먼저 로그인해야 해요."
+    - q: 계획을 내 컴퓨터에만 둘 수 있나요?
+      a: "네. [로컬 파일 모드](https://www.agent-native.com/docs/template-plan-local-and-desktop/)는 계획을 내 컴퓨터에 MDX 파일로 보관하니, 내용이 호스팅 앱에 가지 않아요. 대신 로컬 계획은 공유하거나 브라우저에서 댓글을 달 수 없고, 링크도 내 컴퓨터에서만 열려요. 로컬 파일 모드를 써도 코딩 에이전트의 AI 모델이 실행되는 곳은 그대로예요."

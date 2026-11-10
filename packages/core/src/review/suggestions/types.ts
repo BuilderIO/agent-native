@@ -7,6 +7,7 @@ export type SuggestionStatus =
   | "superseded"
   | "withdrawn";
 export type SuggestionDecision = "accepted" | "rejected";
+export type SuggestionAuthorSource = "mcp" | "a2a" | "agent";
 export interface SuggestionOperation {
   id?: string;
   ordinal: number;
@@ -30,6 +31,18 @@ export interface ResourceSuggestion {
   threadId: string;
   authorEmail: string | null;
   actorKind: "human" | "agent" | "system";
+  /**
+   * How an agent's suggestion arrived: over MCP, from another app's agent
+   * (`a2a`), or from the app's own agent. Null for people and for
+   * suggestions made before it was recorded.
+   */
+  authorSource?: SuggestionAuthorSource | null;
+  /**
+   * The MCP host the agent's client said it was, as a connect host id such as
+   * `claude-code` (see `mcpConnectHostLabel`). Null when the client named no
+   * host this app knows.
+   */
+  authorClient?: string | null;
   baseRevision: string;
   status: SuggestionStatus;
   summary: string;
@@ -66,6 +79,11 @@ export interface SuggestionContext {
   ctx?: Record<string, unknown>;
   transaction: unknown;
   coordination?: unknown;
+  /**
+   * Where the reviewing editor showed the suggestion when it was accepted, as
+   * that editor sent it. Adapters check it against the resource before use.
+   */
+  placement?: unknown;
 }
 export interface SuggestionDecisionContext {
   resourceType: string;

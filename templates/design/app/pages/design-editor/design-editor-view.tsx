@@ -1,6 +1,7 @@
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
+import type { AgentShareDestination } from "@agent-native/toolkit/sharing";
 import type {
   MotionAnimationStyleDefinition,
   MotionAnimationStyleMetadata,
@@ -80,6 +81,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { SaveStatusIndicator } from "@/components/visual-editor/SaveStatusIndicator";
 import { getDesignHostChannel } from "@/host/design-host-channel";
 import {
   DESIGN_IMPORT_FORMATS,
@@ -153,6 +155,7 @@ import { TOP_BAR_HEIGHT_PX, getTopBarModes, isTopBarVisible } from "./top-bar";
 import { type EditorMode } from "./types";
 import { renderEditorCanvasArea } from "./view/editor-canvas-area";
 import { renderEditorDialogs } from "./view/editor-dialogs";
+import { DesignFirstOutputNextStep } from "./view/first-output-next-step";
 import { renderLeftSidebar } from "./view/left-sidebar";
 import { renderMobileInspectorSheet } from "./view/mobile-inspector-sheet";
 import { renderMotionDockPanel } from "./view/motion-dock-panel";
@@ -169,7 +172,6 @@ import {
 import { renderRightRail } from "./view/right-rail";
 import { renderRightSidebarActions } from "./view/right-sidebar-actions";
 import { ShareCopyLinkButton } from "./view/share-copy-link-button";
-import { ShareSendToTab } from "./view/share-send-to-tab";
 import { renderSignedOutPersistenceActions } from "./view/signed-out-persistence-actions";
 import { renderZoomMenu } from "./view/zoom-menu";
 import { VisualEditWebMcp } from "./VisualEditWebMcp";
@@ -269,6 +271,7 @@ export function renderDesignEditorView({
     id,
     isSignedIn,
     sessionResolved,
+    session,
     shellMode,
     embedded,
     isVisualEditSurface,
@@ -360,6 +363,8 @@ export function renderDesignEditorView({
     hasLocalhostScreens,
     editorShareUrl,
     canvasFrameGeometryById,
+    unsavedChangeCount,
+    retryUnsavedChanges,
   } = editorFilesAndSaving;
   const {
     responsiveEditScope,
@@ -479,8 +484,8 @@ export function renderDesignEditorView({
   const {
     pngExporting,
     svgExporting,
-    codingHandoffLoading,
     handleCopyCodingHandoff,
+    handleSendCodingHandoff,
     visualEditPromptResult,
     handleDownloadHtml,
     handleDownloadZip,
@@ -492,7 +497,6 @@ export function renderDesignEditorView({
   const {
     shareExportFormat,
     setShareExportFormat,
-    codingHandoffPreviewText,
     selectedLayerIds,
     selectedInspectorElements,
   } = editorLayerModels;
@@ -816,9 +820,8 @@ export function renderDesignEditorView({
   });
   const activeRuntimeSourceLocationSnapshotFailed =
     activeRuntimeProjectionEligible &&
-    runtimeLayerSnapshotReadiness !== null &&
-    runtimeLayerSnapshotReadiness.screenId === activeFileId &&
-    runtimeLayerSnapshotReadiness.readiness.status === "error";
+    runtimeLayerSnapshotReadiness?.screenId === activeFileId &&
+    runtimeLayerSnapshotReadiness?.readiness.status === "error";
   const pendingVisualStyleWarningOpen =
     pendingVisualStyleNavigationBlocker.state === "blocked";
   const exportsUnavailable = shouldDisableExportsUntilCanvasFramesExist({
@@ -958,14 +961,15 @@ export function renderDesignEditorView({
       </div>
     </div>
   );
-  const shareSendToTab = (
-    <ShareSendToTab
-      codingHandoffPreviewText={codingHandoffPreviewText}
-      exportsUnavailable={exportsUnavailable}
-      codingHandoffLoading={codingHandoffLoading}
-      onCopyCodingHandoff={handleCopyCodingHandoff}
-    />
-  );
+  // The coding handoff is Design's agent prompt; until the canvas has frames
+  // there is nothing to hand off, and the shared read prompt stands in.
+  const designShareSendTo = exportsUnavailable
+    ? undefined
+    : {
+        openInAgent: (destination: AgentShareDestination) =>
+          void handleSendCodingHandoff(destination),
+        copyAgentPrompt: handleCopyCodingHandoff,
+      };
   const designShareTabs = {
     shareLabel: "Share link" /* i18n-ignore share tab label */,
     defaultValue: "share",
@@ -974,11 +978,6 @@ export function renderDesignEditorView({
         value: "export",
         label: t("designEditor.export"),
         content: shareExportTab,
-      },
-      {
-        value: "send",
-        label: "Send to agent" /* i18n-ignore share tab label */,
-        content: shareSendToTab,
       },
       ...(hasLocalhostScreens &&
       sessionResolved &&
@@ -1338,7 +1337,18 @@ export function renderDesignEditorView({
 
   const shareSegmentClassName =
     "!border-primary !bg-primary !text-primary-foreground shadow-none hover:!border-primary/90 hover:!bg-primary/90 hover:!text-primary-foreground focus-visible:ring-ring [&_svg]:!text-primary-foreground";
-  const renderShareControl = (dense: boolean) => {
+  const firstOutputActionsAvailable =
+    !hostEmbeddedEditor &&
+    !uiHidden &&
+    (widgetEmbed
+      ? shouldRenderDesignShareControl({
+          widgetEmbed,
+          canShareDesign,
+          canRenderAuthenticatedShare,
+        })
+      : canRenderAuthenticatedShare);
+  const nextStepShareActionEvent = "design:first-output-next-step-share";
+  const renderShareControl = (dense: boolean, actionEvent?: string) => {
     if (hostEmbeddedEditor) return null;
     if (widgetEmbed) {
       if (
@@ -1360,6 +1370,7 @@ export function renderDesignEditorView({
           resourceType="design"
           resourceId={id}
           resourceTitle={design.title}
+          actionEvent={actionEvent}
           hideTriggerIcon
           defaultOpen={shouldOpenShare}
           shareUrl={editorShareUrl}
@@ -1369,13 +1380,8 @@ export function renderDesignEditorView({
               : "designEditor.shareEditorLink",
           )}
           shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
-          roleCopy={{
-            commenter: {
-              label: t("designEditor.commenterRoleLabel"),
-              description: t("designEditor.commenterRoleDescription"),
-            },
-          }}
           shareTabs={designShareTabs}
+          sendTo={designShareSendTo}
           popoverClassName="z-[100010]"
           triggerClassName={cn(
             dense
@@ -1482,6 +1488,13 @@ export function renderDesignEditorView({
       </div>
     ) : null;
 
+  const topBarVisible = isTopBarVisible({
+    embedded,
+    isVisualEditSurface,
+    minimalUi,
+    uiHidden,
+  });
+
   // Minimal UI hides the top bar, so its floating right bar carries the same
   // controls.
   const rightSidebarActions = renderRightSidebarActions({
@@ -1492,16 +1505,14 @@ export function renderDesignEditorView({
     publishWaitlistControl,
     presenceControl,
     reviewFeedbackControl,
-    renderShareControl,
+    renderShareControl: (dense) =>
+      renderShareControl(
+        dense,
+        !topBarVisible ? nextStepShareActionEvent : undefined,
+      ),
     localPreviewRow,
   });
 
-  const topBarVisible = isTopBarVisible({
-    embedded,
-    isVisualEditSurface,
-    minimalUi,
-    uiHidden,
-  });
   const topBarControlsVisible = !initialGenerationChromeLimited;
   // The mode switch used to live in the bottom toolbar, so it keeps that
   // toolbar's gating.
@@ -1517,10 +1528,17 @@ export function renderDesignEditorView({
   };
   const topBarActions = (
     <>
+      <SaveStatusIndicator
+        unsavedChangeCount={unsavedChangeCount}
+        onRetry={retryUnsavedChanges}
+      />
       {renderPendingNodeRewriteControl(isMobileViewport)}
       {reviewFeedbackControl}
       {publishWaitlistControl}
-      {renderShareControl(true)}
+      {renderShareControl(
+        true,
+        topBarVisible ? nextStepShareActionEvent : undefined,
+      )}
     </>
   );
 
@@ -1670,7 +1688,11 @@ export function renderDesignEditorView({
       ? (value: number, meta?: { phase?: "preview" | "commit" | "cancel" }) =>
           handleVectorCornerRadiusChange(
             value,
-            meta?.phase === "preview" ? "preview" : "commit",
+            meta?.phase === "preview"
+              ? "preview"
+              : meta?.phase === "cancel"
+                ? "cancel"
+                : "commit",
           )
       : undefined,
     selectionColorScopes,
@@ -2350,6 +2372,43 @@ export function renderDesignEditorView({
           editPanelProps,
         })}
       </div>
+
+      <DesignFirstOutputNextStep
+        key={id}
+        outputId={id}
+        actionsAvailable={firstOutputActionsAvailable}
+        {...(session && (session.userId ?? session.email)
+          ? { userScope: session.userId ?? session.email }
+          : {})}
+        generationActive={generating}
+        outputReady={getActiveFileId(activeFile) !== undefined}
+        labels={{
+          ariaLabel: t("home.nextStepBar.ariaLabel"),
+          refineWithPrompt: t("home.nextStepBar.refineWithPrompt"),
+          export: t("home.nextStepBar.export"),
+          shareLink: t("home.nextStepBar.shareLink"),
+          dismiss: t("home.nextStepBar.dismiss"),
+        }}
+        onRefine={() =>
+          window.dispatchEvent(
+            new CustomEvent("agent-panel:open", { detail: { focus: true } }),
+          )
+        }
+        onExport={() =>
+          window.dispatchEvent(
+            new CustomEvent(nextStepShareActionEvent, {
+              detail: { tab: "export" },
+            }),
+          )
+        }
+        onShareLink={() =>
+          window.dispatchEvent(
+            new CustomEvent(nextStepShareActionEvent, {
+              detail: { tab: "share" },
+            }),
+          )
+        }
+      />
 
       {/* ── Render: mobile inspector sheet ── */}
       {renderMobileInspectorSheet({

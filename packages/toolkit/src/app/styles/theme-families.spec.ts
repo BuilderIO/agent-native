@@ -6,6 +6,10 @@ const css = readFileSync(
   new URL("./theme-families.css", import.meta.url),
   "utf8",
 );
+const sharedCss = readFileSync(
+  new URL("./agent-native.css", import.meta.url),
+  "utf8",
+);
 
 describe("theme families", () => {
   it("provides a shared palette for the resolved light and dark modes", () => {
@@ -14,6 +18,10 @@ describe("theme families", () => {
     expect(css).toContain("--background: 0 0% 100%");
     expect(css).toContain("--background: 0 0% 13%");
     expect(css).not.toContain("prefers-color-scheme");
+  });
+
+  it("leaves Original apps without family-specific variable overrides", () => {
+    expect(css).not.toContain('data-theme-family="original"');
   });
 
   it("keeps the selected family palette ahead of appearance presets", () => {
@@ -25,5 +33,70 @@ describe("theme families", () => {
     );
     expect(css).toContain("--background: 0 0% 100%");
     expect(css).toContain("--background: 0 0% 13%");
+  });
+
+  it("loads the selected family font and shared radius and composer tokens", () => {
+    expect(css).toContain('--font-sans: "Inter Variable", "Inter", sans-serif');
+    expect(css).toContain(
+      '--font-wordmark: "Geist Variable", "Geist", sans-serif',
+    );
+    expect(css).toContain("--radius: 0.75rem");
+    expect(css).toContain("--radius-xl: 0.75rem");
+    expect(sharedCss).toContain("--radius-lg: var(--radius)");
+    expect(sharedCss).toContain("--radius-md: calc(var(--radius) - 2px)");
+    expect(sharedCss).toContain("--radius-sm: calc(var(--radius) - 4px)");
+    expect(css).toContain("--agent-kit-composer-radius: 0.75rem");
+    expect(css).toContain(
+      "--agent-kit-composer-elevation: var(--shadow-composer)",
+    );
+    expect(css).toContain("--agent-native-shadow-color: 0 0% 10%");
+    expect(css).toContain(
+      "0 8px 15px hsl(var(--agent-native-shadow-color) / 0.06)",
+    );
+  });
+
+  it("keeps the light family palette radius at twelve pixels", () => {
+    const blocks = [
+      ...css.matchAll(
+        /([^{}]*data-theme-family="agent-native"[^{}]*)\{([^{}]*)\}/g,
+      ),
+    ];
+    const lightPalette = blocks.find(
+      ([, selectors, declarations]) =>
+        selectors.includes(":root[data-theme-family=") &&
+        declarations.includes("--background:"),
+    );
+
+    expect(lightPalette?.[2]).toMatch(/--radius:\s*0\.75rem/);
+  });
+
+  it("uses the code dark-palette composer elevation in dark mode", () => {
+    expect(css).toContain(
+      '.dark[data-theme-family="agent-native"][data-appearance]',
+    );
+    expect(css).toContain(
+      "--shadow-composer: 0 8px 30px hsl(var(--background) / 0.22)",
+    );
+  });
+
+  it("limits each family block to custom properties", () => {
+    const blocks = [
+      ...css.matchAll(
+        /([^{}]*data-theme-family="agent-native"[^{}]*)\{([^{}]*)\}/g,
+      ),
+    ];
+
+    expect(blocks.length).toBeGreaterThan(0);
+    for (const [, selectors, declarations] of blocks) {
+      expect(selectors).toContain("data-theme-family=");
+      const entries = declarations
+        .split(";")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+      expect(entries.length).toBeGreaterThan(0);
+      for (const entry of entries) {
+        expect(entry).toMatch(/^--[\w-]+\s*:/);
+      }
+    }
   });
 });

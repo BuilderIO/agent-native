@@ -244,15 +244,15 @@ export default {
     eventRules: "Einladungsregeln",
     eventRulesAutomationLink:
       "Für weitere Aktionen eine Automatisierung erstellen.",
-    eventRulesConnectJev: "Verbinde Jev, um Einladungsregeln auszuführen",
+    eventRulesConnectJev: "Verbinde einen KI-Anbieter für Einladungsregeln",
     eventRulesFreeBuilderOrApiKey:
-      "Kostenlos mit Builder.io oder füge einen API-Schlüssel hinzu.",
+      "Nutze Builder.io oder verbinde einen anderen KI-Anbieter in den Einstellungen.",
     eventRulesConnectBuilder: "Builder.io verwenden",
-    eventRulesAddJevApiKey: "API-Schlüssel hinzufügen",
+    eventRulesAddJevApiKey: "Jev-API-Schlüssel hinzufügen",
     eventRulesTabRules: "Regeln",
     eventRulesHelpLabel: "Hinweise zu Einladungsregeln",
     eventRulesHelp:
-      "Schreibe Anweisungen, damit Jev Einladungen automatisch annimmt, ablehnt oder ausblendet.",
+      "Schreibe Anweisungen für den konfigurierten KI-Anbieter, Einladungen anzunehmen, abzulehnen oder auszublenden.",
     eventRuleAccept: "Automatisch annehmen",
     eventRuleDecline: "Automatisch ablehnen",
     eventRuleHide: "Automatisch ausblenden",

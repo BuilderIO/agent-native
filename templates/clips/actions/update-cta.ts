@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { ctaUrlSchema } from "./lib/cta-url.js";
 
 export default defineAction({
@@ -25,7 +26,9 @@ export default defineAction({
       .where(eq(schema.recordingCtas.id, args.id))
       .limit(1);
     if (!existing) throw new Error(`CTA not found: ${args.id}`);
-    await assertAccess("recording", existing.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", existing.recordingId, "editor"),
+    );
 
     const patch: Record<string, unknown> = {};
     if (args.label !== undefined) patch.label = args.label;

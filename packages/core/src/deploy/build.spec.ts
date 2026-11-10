@@ -1,6 +1,7 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
+import { randomBytes } from "node:crypto";
 import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -25,14 +26,19 @@ import {
   RECURRING_JOBS_SWEEP_PATH,
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
+import { signEmbedSessionToken } from "../server/embed-session.js";
 import {
   CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_HEADERS,
+  parseSsrCacheSetting,
+  SSR_MAX_AGE_HEADER,
   SSR_QUERY_CACHE_KEY_HEADER,
   ssrCacheHeadersForPolicy,
+  ssrCacheHeadersWithin,
 } from "../shared/cache-control.js";
 import {
+  EMBED_SESSION_COOKIE,
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
@@ -53,6 +59,7 @@ import {
   assertNoCloudflareWorkerStubDynamicImports,
   assertSingleTemplateNetlifyBuildOutput,
   bundleYjsRuntimeForServerlessOutput,
+  prepareVercelFunctionOutputs,
   CLOUDFLARE_SWEEP_CRON,
   CLOUDFLARE_WORKER_ESBUILD_EXTERNALS,
   CLOUDFLARE_MODULE_STUB_MODULES,
@@ -78,6 +85,9 @@ import {
   isServerlessNativePlatformPackage,
   generateCloudflareModuleWorkerEntry,
   patchCloudflareModuleServerOutput,
+  collectNamedImportsFrom,
+  rewriteModuleImportSpecifier,
+  cloudflareExternalBundleEntry,
   generateProvidedPluginsNitroPluginSource,
   generateAwsLambdaStreamingRuntimeEntry,
   generateWorkerEntry,
@@ -1299,6 +1309,226 @@ export default {
   });
 });
 
+describe("Cloudflare module bare externals", () => {
+  const poolContext = "@agent-native/core/db/request-pool-context";
+
+  it("finds and rewrites the Worker entry's own core import", () => {
+    const entry = generateCloudflareModuleWorkerEntry();
+
+    expect(collectNamedImportsFrom(entry, poolContext)).toEqual([
+      "runWithRequestDbPoolScope",
+    ]);
+    const rewritten = rewriteModuleImportSpecifier(
+      entry,
+      poolContext,
+      "./_libs/_agent-native_core_db_request-pool-context.mjs",
+    );
+    expect(rewritten).toContain(
+      'from"./_libs/_agent-native_core_db_request-pool-context.mjs";',
+    );
+    expect(rewritten).not.toContain(`"${poolContext}"`);
+  });
+
+  it("finds named imports next to a default import", () => {
+    expect(
+      collectNamedImportsFrom('import Def, { a, b as c } from "pkg";', "pkg"),
+    ).toEqual(["a", "b"]);
+    expect(
+      collectNamedImportsFrom(
+        'import Def,{a}from"pkg";import{d}from"pkg";',
+        "pkg",
+      ),
+    ).toEqual(["a", "d"]);
+  });
+
+  it("leaves out a default export imported by name", () => {
+    expect(
+      collectNamedImportsFrom('import{default as d,a}from"pkg";', "pkg"),
+    ).toEqual(["a"]);
+  });
+
+  it("still matches minified imports", () => {
+    const code = 'import{a,b as c}from"pkg";export*from"pkg";';
+
+    expect(collectNamedImportsFrom(code, "pkg")).toEqual(["a", "b"]);
+    expect(rewriteModuleImportSpecifier(code, "pkg", "./_libs/pkg.mjs")).toBe(
+      'import{a,b as c}from"./_libs/pkg.mjs";export*from"./_libs/pkg.mjs";',
+    );
+  });
+
+  it("bundles ES modules without a default export and CommonJS modules", async () => {
+    const dir = makeTempDir();
+    const esm = path.join(dir, "no-default.mjs");
+    const cjs = path.join(dir, "legacy.cjs");
+    fs.writeFileSync(esm, "export function run() { return 'esm'; }\n");
+    fs.writeFileSync(cjs, "module.exports = { run() { return 'cjs'; } };\n");
+    const esbuild = resolveEsbuildCommand();
+    const bundle = async (name: string, entryCode: string) => {
+      const outFile = path.join(dir, `${name}.mjs`);
+      execFileSync(
+        esbuild.executable,
+        [
+          ...esbuild.args,
+          "--bundle",
+          `--outfile=${outFile}`,
+          "--format=esm",
+          "--platform=neutral",
+          "--target=es2022",
+          "--log-level=error",
+        ],
+        { input: entryCode, cwd: dir, stdio: ["pipe", "pipe", "pipe"] },
+      );
+      return import(pathToFileURL(outFile).href);
+    };
+
+    const named = await bundle(
+      "named",
+      cloudflareExternalBundleEntry(esm, ["run"]),
+    );
+    expect(named.run()).toBe("esm");
+    const star = await bundle("star", cloudflareExternalBundleEntry(esm, []));
+    expect(star.run()).toBe("esm");
+    const legacy = await bundle(
+      "legacy",
+      cloudflareExternalBundleEntry(cjs, ["run"]),
+    );
+    expect(legacy.run()).toBe("cjs");
+    expect(legacy.default.run()).toBe("cjs");
+  });
+
+  it("bundles a module whose exports share names with the entry's own bindings", async () => {
+    const dir = makeTempDir();
+    const esm = path.join(dir, "colliding.mjs");
+    fs.writeFileSync(
+      esm,
+      "export const _ns = 'ns';\nexport const _mod = 'mod';\nexport const __ns = 'ns2';\n",
+    );
+    const outFile = path.join(dir, "colliding-bundle.mjs");
+    const esbuild = resolveEsbuildCommand();
+    execFileSync(
+      esbuild.executable,
+      [
+        ...esbuild.args,
+        "--bundle",
+        `--outfile=${outFile}`,
+        "--format=esm",
+        "--platform=neutral",
+        "--target=es2022",
+        "--log-level=error",
+      ],
+      {
+        input: cloudflareExternalBundleEntry(esm, ["_ns", "_mod", "__ns"]),
+        cwd: dir,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    const mod = await import(pathToFileURL(outFile).href);
+
+    expect(mod._ns).toBe("ns");
+    expect(mod._mod).toBe("mod");
+    expect(mod.__ns).toBe("ns2");
+  });
+
+  it("keeps a named export whose value is null instead of the default export's property", async () => {
+    const dir = makeTempDir();
+    const esm = path.join(dir, "null-named.mjs");
+    fs.writeFileSync(
+      esm,
+      "export const value = null;\nexport default { value: 'default', other: 'fallback' };\n",
+    );
+    const outFile = path.join(dir, "null-named-bundle.mjs");
+    const esbuild = resolveEsbuildCommand();
+    execFileSync(
+      esbuild.executable,
+      [
+        ...esbuild.args,
+        "--bundle",
+        `--outfile=${outFile}`,
+        "--format=esm",
+        "--platform=neutral",
+        "--target=es2022",
+        "--log-level=error",
+      ],
+      {
+        input: cloudflareExternalBundleEntry(esm, ["value", "other"]),
+        cwd: dir,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    const mod = await import(pathToFileURL(outFile).href);
+
+    expect(mod.value).toBeNull();
+    expect(mod.other).toBe("fallback");
+  });
+
+  it("keeps a default export whose value is null", async () => {
+    const dir = makeTempDir();
+    const esm = path.join(dir, "null-default.mjs");
+    fs.writeFileSync(
+      esm,
+      "export const value = 'named';\nexport default null;\n",
+    );
+    const outFile = path.join(dir, "null-default-bundle.mjs");
+    const esbuild = resolveEsbuildCommand();
+    execFileSync(
+      esbuild.executable,
+      [
+        ...esbuild.args,
+        "--bundle",
+        `--outfile=${outFile}`,
+        "--format=esm",
+        "--platform=neutral",
+        "--target=es2022",
+        "--log-level=error",
+      ],
+      {
+        input: cloudflareExternalBundleEntry(esm, ["value"]),
+        cwd: dir,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    const mod = await import(pathToFileURL(outFile).href);
+
+    expect(mod.default).toBeNull();
+    expect(mod.value).toBe("named");
+  });
+
+  it("re-exports names that are reserved words", async () => {
+    const dir = makeTempDir();
+    const esm = path.join(dir, "reserved.mjs");
+    fs.writeFileSync(
+      esm,
+      "const c = 'class';\nconst d = 'delete';\nexport { c as class, d as delete };\n",
+    );
+    const entry = 'import{class as C,delete as D}from"pkg";';
+    const names = collectNamedImportsFrom(entry, "pkg");
+    expect(names).toEqual(["class", "delete"]);
+    const outFile = path.join(dir, "reserved-bundle.mjs");
+    const esbuild = resolveEsbuildCommand();
+    execFileSync(
+      esbuild.executable,
+      [
+        ...esbuild.args,
+        "--bundle",
+        `--outfile=${outFile}`,
+        "--format=esm",
+        "--platform=neutral",
+        "--target=es2022",
+        "--log-level=error",
+      ],
+      {
+        input: cloudflareExternalBundleEntry(esm, names),
+        cwd: dir,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    const mod = await import(pathToFileURL(outFile).href);
+
+    expect(mod.class).toBe("class");
+    expect(mod.delete).toBe("delete");
+  });
+});
+
 describe("Vercel sweep cron", () => {
   it("adds the sweep cron to Nitro's Build Output config without duplicating it", () => {
     const outputDir = makeTempDir();
@@ -1624,9 +1854,15 @@ const corePackageRoot = path.resolve(
 );
 
 function linkCorePackageForWorker(dir: string): void {
+  // The plain Node worker needs built exports, which Stryker's sandbox omits.
+  const packageRootForWorker = corePackageRoot.includes(
+    `${path.sep}.stryker-tmp${path.sep}`,
+  )
+    ? path.resolve(corePackageRoot, "../..")
+    : corePackageRoot;
   const packageLink = path.join(dir, "node_modules", "@agent-native", "core");
   fs.mkdirSync(path.dirname(packageLink), { recursive: true });
-  fs.symlinkSync(corePackageRoot, packageLink, "dir");
+  fs.symlinkSync(packageRootForWorker, packageLink, "dir");
 }
 
 describe("Netlify static cache headers", () => {
@@ -1898,6 +2134,15 @@ export function createRequestHandler() {
         headers: {
           location: "/login",
           "content-type": "text/html",
+          ...${JSON.stringify(options.responseHeaders ?? {})},
+        },
+      });
+    }
+    if (url.pathname === "/missing") {
+      return new Response("missing", {
+        status: 404,
+        headers: {
+          "content-type": "text/html; charset=utf-8",
           ...${JSON.stringify(options.responseHeaders ?? {})},
         },
       });
@@ -2295,16 +2540,13 @@ export default { run: async () => ({ ok: true }) };
       ],
     );
 
+    // oracle-change: Browser-cookie/origin route tests replace assertions about the generated helper's internal name.
     expect(source).toContain(
       "hasUiActionCapability as hasGeneratedUiActionCapability",
     );
     expect(source).toContain(
-      "isSameOriginRequest as isGeneratedSameOriginRequest",
-    );
-    expect(source).toContain(
       "mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute",
     );
-    expect(source).toContain("!isGeneratedSameOriginRequest(event)");
     expect(source).toContain(
       'setResponseHeader(event, "Cache-Control", "no-" + "store");',
     );
@@ -2407,6 +2649,7 @@ export default {
     const capability = await worker.fetch(
       new Request("https://app.test/_agent-native/ui-capability", {
         method: "GET",
+        headers: { origin: "https://app.test" },
       }),
       {},
       {},
@@ -2417,6 +2660,18 @@ export default {
   it.each([
     ["needsApproval: true", "frontend", 403, "ui_capability_required"],
     ["needsApproval: true", "http", 409, "approval_required"],
+    [
+      'needsApproval: (_args, ctx) => ctx.caller !== "frontend"',
+      "frontend bearer",
+      409,
+      "approval_required",
+    ],
+    [
+      'needsApproval: (_args, ctx) => ctx.caller !== "frontend"',
+      "frontend",
+      403,
+      "ui_capability_required",
+    ],
     [
       'needsApproval: () => { throw new Error("x"); }',
       "http",
@@ -2452,8 +2707,11 @@ export default {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            ...(caller === "frontend"
+            ...(caller.startsWith("frontend")
               ? { "x-agent-native-frontend": "1" }
+              : {}),
+            ...(caller === "frontend bearer"
+              ? { authorization: "Bearer test-session" }
               : {}),
           },
           body: JSON.stringify({ id: "thing-1" }),
@@ -2468,6 +2726,61 @@ export default {
       } else {
         expect(body).toEqual({ revoked: true });
       }
+    },
+  );
+
+  it.each(["query", "target-header", "cookie"] as const)(
+    "refuses approval-gated embedded frontend calls with full-app guidance: %s",
+    async (credential) => {
+      vi.stubEnv("OAUTH_STATE_SECRET", randomBytes(32).toString("base64url"));
+      const token = signEmbedSessionToken({
+        ownerEmail: "widget-owner@example.com",
+        audienceHost: "https://app.test",
+        targetPath: "/visual-edit/design-1",
+        scope: "capability:visual-edit:design:design-1",
+      });
+      const dir = makeTempDir();
+      const actionPath = path.join(dir, "approval-action.mjs");
+      fs.writeFileSync(
+        actionPath,
+        `export default {
+  needsApproval: true,
+  run: async () => { throw new Error("An unapproved action must not run"); },
+};`,
+      );
+      const worker = await importGeneratedWorker(
+        generateWorkerEntry(
+          [],
+          [],
+          [],
+          [{ name: "write-record", absPath: actionPath, method: "post" }],
+        ),
+      );
+      const url = new URL(
+        "https://app.test/_agent-native/actions/write-record",
+      );
+      const headers = new Headers({
+        "content-type": "application/json",
+        "x-agent-native-frontend": "1",
+      });
+      if (credential === "query") {
+        url.searchParams.set(EMBED_TOKEN_QUERY_PARAM, token);
+        url.searchParams.set(EMBED_TARGET_QUERY_PARAM, "/visual-edit/design-1");
+      } else if (credential === "target-header") {
+        headers.set("x-agent-native-embed-target", "/visual-edit/design-1");
+      } else {
+        headers.set("cookie", `${EMBED_SESSION_COOKIE}=${token}`);
+      }
+      const response = await worker.fetch(
+        new Request(url, { method: "POST", headers, body: "{}" }),
+        {},
+        {},
+      );
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        errorCode: "approval_required",
+        error: expect.stringContaining("Open the full app"),
+      });
     },
   );
 
@@ -2682,6 +2995,10 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     const configPath = path.join(dir, "identity-config.mjs");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
     vi.stubEnv(
+      "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+      "/_platform",
+    );
+    vi.stubEnv(
       "AGENT_NATIVE_WORKSPACE_APPS_JSON",
       JSON.stringify([
         { id: "workspace-calendar", path: "/recordings" },
@@ -2709,6 +3026,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(html).toContain('"workspaceAppPath":"/recordings"');
     expect(html).toContain('"workspaceAppMountPaths":["/recordings","/clips"]');
     expect(html).toContain('"workspaceRuntime":true');
+    expect(html).toContain('"frameworkRoutePrefix":"/_platform"');
   });
 
   it("keeps an idless non-root mount as a sibling in the worker shell config", async () => {
@@ -2814,6 +3132,7 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
 
     expect(html).toContain('"workspaceAppPath":"/"');
     expect(html).toContain('"workspaceAppMountPaths":["/diagrams"]');
+    expect(html).toContain('"explicitRootPath":true');
   });
 
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {
@@ -3200,6 +3519,92 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
     expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
     expect(response.headers.get("netlify-vary")).toBe("query");
     expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
+  });
+
+  it.each([
+    [undefined, "20"],
+    [undefined, "0"],
+    [undefined, "3600"],
+    [undefined, "999999999999"],
+    ["30s", "60"],
+    ["off", "20"],
+  ])(
+    "shortens the window a route asks for like the Nitro handler (AGENT_NATIVE_SSR_CACHE=%s, route %s)",
+    async (setting, routeSeconds) => {
+      if (setting) vi.stubEnv("AGENT_NATIVE_SSR_CACHE", setting);
+      const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
+        responseHeaders: { [SSR_MAX_AGE_HEADER]: routeSeconds },
+      });
+
+      const response = await worker.fetch(
+        new Request("https://app.test/redirect"),
+        {},
+        {},
+      );
+
+      const expected = ssrCacheHeadersWithin(
+        parseSsrCacheSetting(setting),
+        Number(routeSeconds),
+      );
+      for (const [name, value] of Object.entries(expected)) {
+        expect(response.headers.get(name)).toBe(value);
+      }
+      expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
+    },
+  );
+
+  it("shortens a route's not-found window like the Nitro handler", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
+      responseHeaders: { [SSR_MAX_AGE_HEADER]: "20" },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://app.test/missing"),
+      {},
+      {},
+    );
+
+    expect(response.status).toBe(404);
+    for (const [name, value] of Object.entries(
+      ssrCacheHeadersWithin(parseSsrCacheSetting(undefined), 20),
+    )) {
+      expect(response.headers.get(name)).toBe(value);
+    }
+    expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
+  });
+
+  // A missing page is the same for every visitor, so the worker stamps it with
+  // the deployment's policy, as the Nitro handler does.
+  it("caches a not-found answer that sets no window like the Nitro handler", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/missing"),
+      {},
+      {},
+    );
+
+    expect(response.status).toBe(404);
+    for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
+      expect(response.headers.get(name)).toBe(value);
+    }
+  });
+
+  it("stores nothing when a route's max age is malformed", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
+      responseHeaders: { [SSR_MAX_AGE_HEADER]: "soon" },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://app.test/redirect"),
+      {},
+      {},
+    );
+
+    for (const [name, value] of Object.entries(DISABLED_SSR_CACHE_HEADERS)) {
+      expect(response.headers.get(name)).toBe(value);
+    }
+    expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
   });
 
   it("inlines the disabled SSR cache policy when AGENT_NATIVE_SSR_CACHE is off", async () => {
@@ -6158,7 +6563,7 @@ describe("runNitroBuildPipeline", () => {
             fs.mkdirSync(serverDir, { recursive: true });
             fs.writeFileSync(
               path.join(serverDir, "main.mjs"),
-              `const stylesheet = "/assets/global-aaaa1111.css";\nconst $9 = ${JSON.stringify(serverManifest)};`,
+              `const stylesheet = "/assets/global-aaaa1111.css";\nconst vendored = { entry: readsAVariable, size: 1 };\nconst unbalanced = { entry: "x" ];\nconst $9 = ${JSON.stringify(serverManifest)};`,
             );
           },
         },
@@ -6221,7 +6626,7 @@ describe("runNitroBuildPipeline", () => {
               fs.mkdirSync(serverDir, { recursive: true });
               fs.writeFileSync(
                 path.join(serverDir, "main.mjs"),
-                "export {};\n",
+                "const vendored = { entry: readsAVariable };\nexport {};\n",
               );
             },
           },
@@ -6231,7 +6636,7 @@ describe("runNitroBuildPipeline", () => {
           cwd,
         }),
       ).rejects.toThrow(
-        "React Router server manifest not found in Nitro output",
+        /React Router server manifest not found in Nitro output[\s\S]*readsAVariable is not defined/,
       );
     } finally {
       if (previous === undefined)
@@ -7399,6 +7804,50 @@ describe("durable-background Netlify function emit (single-template, default-on)
         throw new Error("missing");
       }),
     ).toThrow(/Could not resolve the esbuild dependency/);
+  });
+
+  it("rejects Vercel function links outside the build output", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-vercel-link-"));
+    dirs.push(cwd);
+    const output = path.join(cwd, "output");
+    const functions = path.join(output, "functions");
+    const outside = path.join(cwd, "outside");
+    fs.mkdirSync(functions, { recursive: true });
+    fs.mkdirSync(outside);
+    fs.symlinkSync(outside, path.join(functions, "escape.func"), "dir");
+    expect(() => prepareVercelFunctionOutputs(output, cwd)).toThrow(
+      /leaves output/,
+    );
+    expect(
+      fs.lstatSync(path.join(functions, "escape.func")).isSymbolicLink(),
+    ).toBe(true);
+  });
+
+  it("prepares copied and linked Vercel functions for deployment", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-vercel-yjs-"));
+    dirs.push(cwd);
+    const output = path.join(cwd, ".vercel", "output");
+    const functions = path.join(output, "functions");
+    const base = path.join(functions, "__server.func");
+    const copied = path.join(functions, "custom.func");
+    fs.mkdirSync(base, { recursive: true });
+    fs.writeFileSync(
+      path.join(base, "index.mjs"),
+      'import * as Y from "yjs"; export { Y };',
+    );
+    fs.cpSync(base, copied, { recursive: true });
+    const linked = path.join(functions, "linked.func");
+    fs.symlinkSync(base, linked, "dir");
+    prepareVercelFunctionOutputs(output, cwd);
+    for (const dir of [base, copied, linked]) {
+      expect(fs.lstatSync(dir).isSymbolicLink()).toBe(false);
+      expect(fs.readFileSync(path.join(dir, "index.mjs"), "utf8")).toContain(
+        "./_libs/yjs-runtime.mjs",
+      );
+      expect(fs.existsSync(path.join(dir, "_libs", "yjs-runtime.mjs"))).toBe(
+        true,
+      );
+    }
   });
 
   it("bundles one complete Yjs runtime for every serverless consumer", async () => {

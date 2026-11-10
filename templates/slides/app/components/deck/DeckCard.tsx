@@ -15,7 +15,7 @@ import {
   IconStar,
   IconStarFilled,
 } from "@tabler/icons-react";
-import { useState, useRef } from "react";
+import { memo, useState, useRef } from "react";
 import { Link } from "react-router";
 
 import {
@@ -28,7 +28,7 @@ import {
 import type { Deck } from "@/context/DeckContext";
 import { getDeckListingPreviewFrameStyle } from "@/lib/deck-preview-frame";
 
-import ShareDialog from "../editor/ShareDialog";
+import { DeckShareButton } from "../editor/DeckShareButton";
 import SlideRenderer from "./SlideRenderer";
 
 interface DeckCardProps {
@@ -42,7 +42,7 @@ interface DeckCardProps {
   onSetWorkspaceDefault?: (id: string, isDefault: boolean) => void;
 }
 
-export default function DeckCard({
+function DeckCard({
   deck,
   onDelete,
   onRename,
@@ -93,7 +93,8 @@ export default function DeckCard({
   };
 
   return (
-    <div className="agent-template-library-card group relative min-w-0">
+    // Off-screen cards skip layout and paint until they scroll near.
+    <div className="agent-template-library-card group relative min-w-0 [contain-intrinsic-size:auto_240px] [content-visibility:auto]">
       <Link
         to={`/deck/${deck.id}`}
         className="agent-template-library-primary block overflow-hidden rounded-xl border border-transparent bg-card transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/30"
@@ -218,18 +219,20 @@ export default function DeckCard({
               }
             }}
           >
-            <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault();
-                startRename();
-              }}
-            >
-              <IconPencil className="w-3.5 h-3.5 me-2" />
-              Rename
-            </DropdownMenuItem>
+            {deck.canEdit === true && (
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  startRename();
+                }}
+              >
+                <IconPencil className="w-3.5 h-3.5 me-2" />
+                {t("home.renameDeck")}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={() => onDuplicate(deck.id)}>
               <IconCopy className="w-3.5 h-3.5 me-2" />
-              Duplicate
+              {t("home.duplicateDeck")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={(event) => {
@@ -253,32 +256,42 @@ export default function DeckCard({
                 {t("creativeContext.addToContext" /* i18n-key-ignore */)}
               </DropdownMenuItem>
             ) : null}
-            {canSetWorkspaceDefault && onSetWorkspaceDefault && (
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  pendingWorkspaceDefaultRef.current = true;
-                  setMenuOpen(false);
-                }}
-              >
-                <IconBuildingCommunity className="w-3.5 h-3.5 me-2" />
-                {isWorkspaceDefault
-                  ? t("home.clearWorkspaceDefault")
-                  : t("home.setWorkspaceDefault")}
-              </DropdownMenuItem>
+            {canSetWorkspaceDefault &&
+              onSetWorkspaceDefault &&
+              // Defaulting a private deck first makes it org-visible, which only a manager can do.
+              (isWorkspaceDefault ||
+                deck.visibility === "org" ||
+                deck.visibility === "public" ||
+                deck.canManage === true) && (
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    pendingWorkspaceDefaultRef.current = true;
+                    setMenuOpen(false);
+                  }}
+                >
+                  <IconBuildingCommunity className="w-3.5 h-3.5 me-2" />
+                  {isWorkspaceDefault
+                    ? t("home.clearWorkspaceDefault")
+                    : t("home.setWorkspaceDefault")}
+                </DropdownMenuItem>
+              )}
+            {deck.canManage === true && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    pendingDeleteRef.current = true;
+                    setMenuOpen(false);
+                  }}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <IconTrash className="w-3.5 h-3.5 me-2" />
+                  {t("home.deleteDeck")}
+                </DropdownMenuItem>
+              </>
             )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                pendingDeleteRef.current = true;
-                setMenuOpen(false);
-              }}
-              className="text-red-400 focus:text-red-400"
-            >
-              <IconTrash className="w-3.5 h-3.5 me-2" />
-              Delete
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -298,7 +311,29 @@ export default function DeckCard({
           canManage={deck.createdByMe}
         />
       ) : null}
-      <ShareDialog deck={deck} open={shareOpen} onOpenChange={setShareOpen} />
+      {shareOpen ? (
+        <DeckShareButton
+          deckId={deck.id}
+          deckTitle={deck.title}
+          deckVisibility={deck.visibility}
+          hasSlides={Boolean(firstSlide)}
+          hideTrigger
+          anchor={
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute end-2 top-10 size-px"
+            />
+          }
+          defaultOpen
+          onOpenChange={(open) => {
+            if (!open) setShareOpen(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
+
+// A card re-renders only when its own deck or handlers change, not when any
+// other deck in the grid does.
+export default memo(DeckCard);

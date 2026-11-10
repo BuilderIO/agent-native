@@ -496,6 +496,19 @@ describe("suggestion replacement intent", () => {
   });
 });
 
+// The server's accepted text reaches the editor as a content load, never as
+// typing, which can't touch the words an accepted suggestion is replacing.
+function loadAcceptedContent(editor: Editor, markdown: string) {
+  editor
+    .chain()
+    .command(({ tr }) => {
+      tr.setMeta("addToHistory", false);
+      return true;
+    })
+    .setContent(nfmToDoc(markdown))
+    .run();
+}
+
 function createMarkdownEditor(content: string) {
   return new Editor({
     extensions: [
@@ -1891,6 +1904,47 @@ describe("live suggestion presentation", () => {
       draftEditor.destroy();
     }
   });
+  it.each([
+    {
+      label: "a code line's break gets a highlight, with no uneditable marker",
+      before: "```js\none\ntwo\n```",
+      after: "```js\none\n\ntwo\n```",
+      expected: { kind: "mark", editableText: true, lineBreak: true },
+    },
+    {
+      label: "typed text on a new code line is highlighted as text",
+      before: "```js\none\ntwo\n```",
+      after: "```js\none\nadded\ntwo\n```",
+      expected: { kind: "mark", editableText: true, lineBreak: false },
+    },
+    {
+      label: "a paragraph split keeps its marker",
+      before: "Onetwo",
+      after: "One\ntwo",
+      expected: { kind: "insert" },
+    },
+  ])("draws a draft: $label", ({ before, after, expected }) => {
+    const operation = markdownSuggestionOperation(before, after);
+    if (!operation) throw new Error("expected a suggestion operation");
+    const presentation = suggestionPresentations(
+      { id: "new-line", status: "pending", operations: [operation] },
+      before,
+    ).find(Boolean);
+    const anchor = draftSuggestionAnchors([operation], after).find(Boolean);
+    if (!presentation || !anchor) throw new Error("expected a drawn draft");
+    const editor = createSuggestionEditor(after);
+    try {
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          ...presentation,
+          anchor,
+          presentation: "draft",
+        }),
+      ).toMatchObject(expected);
+    } finally {
+      editor.destroy();
+    }
+  });
   it("keeps a committed group's combined text visible until canonical readback", () => {
     const before = "Before and After";
     const readback = " AddedBefore and Extra After";
@@ -1951,7 +2005,7 @@ describe("live suggestion presentation", () => {
       ).toHaveLength(1);
       expect(docToNfm(editor.getJSON() as any)).toBe(before);
 
-      editor.commands.setContent(nfmToDoc(readback));
+      loadAcceptedContent(editor, readback);
       apply(
         presentations.filter((presentation) => presentation.id !== "unrelated"),
       );
@@ -2091,7 +2145,7 @@ describe("live suggestion presentation", () => {
           beforeText: "Before\n",
         }),
       ).toBe(false);
-      editor.commands.setContent(nfmToDoc(after));
+      loadAcceptedContent(editor, after);
       expect(
         editor.view.dom.querySelector(".suggestion-settling-text"),
       ).toBeNull();
@@ -2205,6 +2259,43 @@ describe("live suggestion presentation", () => {
       editor.destroy();
     }
   });
+  it.each([
+    ["keeps", "[Echo](https://example.test)", "Echo now"],
+    ["adds", "[Echo](https://new.test)", "Echo (https://new.test) now"],
+  ])(
+    "spells out a link's destination only when a rewrite %s it",
+    (_label, link, inserted) => {
+      const before = "Say [Echo](https://example.test) here.";
+      const beforeText = "Say [Echo](https://example.test) here";
+      const afterText = `${link} now`;
+      const after = `${afterText}.`;
+      const editor = createSuggestionEditor(before);
+      try {
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: "rewrite",
+          kind: "replace_text",
+          beforeText,
+          afterText,
+          beforePresentation: {
+            source: before,
+            from: 0,
+            to: beforeText.length,
+          },
+          afterPresentation: { source: after, from: 0, to: afterText.length },
+          anchor: { from: 0, prefix: "", suffix: "." },
+          presentation: "canonical",
+        });
+        if (!spec) throw new Error("The rewrite has no highlight");
+        setSuggestionHighlights(editor.view, { specs: [spec] });
+        expect(
+          editor.view.dom.querySelector(".suggestion-proposed-text")
+            ?.textContent,
+        ).toBe(inserted);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
   it("leaves stale split context unavailable rather than preferring a partially matching target", () => {
     const editor = createSuggestionEditor("BBBB target x\nC target y");
     try {
@@ -4102,7 +4193,7 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
-  it("renders markdown table header cells as plain table cells", () => {
+  it("renders a header row as column headers", () => {
     const editor = new Editor({
       extensions: createVisualEditorExtensions(),
       content: {
@@ -4164,8 +4255,17 @@ describe("VisualEditor markdown round-tripping", () => {
     });
 
     try {
-      expect(editor.view.dom.querySelectorAll("th")).toHaveLength(0);
-      expect(editor.view.dom.querySelectorAll("td")).toHaveLength(4);
+      const headers = editor.view.dom.querySelectorAll("th");
+      expect(
+        Array.from(headers, (cell) => [
+          cell.textContent,
+          cell.getAttribute("scope"),
+        ]),
+      ).toEqual([
+        ["A", "col"],
+        ["B", "col"],
+      ]);
+      expect(editor.view.dom.querySelectorAll("td")).toHaveLength(2);
     } finally {
       editor.destroy();
     }
@@ -4274,6 +4374,11 @@ describe("VisualEditor markdown round-tripping", () => {
       expect(
         editor.view.dom.querySelectorAll(".content-table-header-cell"),
       ).toHaveLength(4);
+      expect(
+        Array.from(editor.view.dom.querySelectorAll("th"), (cell) =>
+          cell.getAttribute("scope"),
+        ),
+      ).toEqual(["col", "col", "row", "row"]);
     } finally {
       editor.destroy();
     }

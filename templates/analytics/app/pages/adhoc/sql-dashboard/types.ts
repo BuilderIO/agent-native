@@ -74,7 +74,20 @@ export type ColumnFormat =
   | "date"
   | "link"
   | "text"
-  | "delta";
+  | "delta"
+  /** A number of seconds, shown as "16 min" or "7.4 hours". */
+  | "duration";
+
+/** How chart values, axis ticks and metric tiles show a number. */
+export const CHART_VALUE_FORMATTERS = [
+  "number",
+  "currency",
+  "percent",
+  // A number of seconds, shown as "16 min" or "7.4 hours".
+  "duration",
+] as const;
+
+export type ChartValueFormatter = (typeof CHART_VALUE_FORMATTERS)[number];
 
 export interface TableColumnConfig {
   key: string;
@@ -105,6 +118,21 @@ export interface FunnelOutcomesConfig {
   optionalKey?: string;
 }
 
+/**
+ * Metric only: compares the tile's value with the period before. The previous
+ * value and the period's name are columns of the same row.
+ */
+export interface MetricComparisonConfig {
+  /** Column with the previous period's value. Default "previous_value". */
+  previousKey?: string;
+  /** Column naming the previous period, e.g. "the 7 days before". Default "period". */
+  periodKey?: string;
+  /** Names the previous period when the row has no period column. */
+  label?: string;
+  /** Which way is good. Default "higher"; "neither" leaves the change uncolored. */
+  better?: "higher" | "lower" | "neither";
+}
+
 export type DashboardTimeScope =
   | "dashboard"
   | "fixed-window"
@@ -131,9 +159,9 @@ export interface SqlPanelConfig {
   yKeys?: string[];
   color?: string;
   colors?: string[];
-  yFormatter?: "number" | "currency" | "percent";
+  yFormatter?: ChartValueFormatter;
   rightYKeys?: string[];
-  rightYFormatter?: "number" | "currency" | "percent";
+  rightYFormatter?: ChartValueFormatter;
   barKeys?: string[];
   seriesLabels?: Record<string, string>;
   description?: string;
@@ -142,6 +170,7 @@ export interface SqlPanelConfig {
   stacked?: boolean;
   legend?: boolean;
   valueLabels?: Record<string, string>;
+  comparison?: MetricComparisonConfig;
   sortable?: boolean;
   columns?: TableColumnConfig[];
   /** Table only: columns a clicked row can be split by in the side panel. */

@@ -7,6 +7,7 @@ import {
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 
 import {
+  LIVE_BODY_BACKFILL_FLAG,
   LIVE_BODY_SHADOW_FLAG,
   LIVE_BODY_WRITER_FLAG,
 } from "../../shared/feature-flags.js";
@@ -110,17 +111,10 @@ export async function liveBodyWriterGatesForRows(
   options: { transaction?: DbExec } = {},
 ): Promise<LiveBodyWriterGate[]> {
   const exec = options.transaction ?? getDbExec();
-  const switched = rows.filter((row) => row.liveBodySwitchedAt);
-  const versions = new Map<string, unknown>();
-  if (switched.length > 0) {
-    const { rows: docs } = await exec.execute({
-      sql: `SELECT doc_id, version FROM _collab_docs WHERE doc_id IN (${switched.map(() => "?").join(", ")})`,
-      args: switched.map((row) => row.id),
-    });
-    for (const doc of docs as Array<{ doc_id: unknown; version: unknown }>) {
-      versions.set(String(doc.doc_id), doc.version);
-    }
-  }
+  const versions = await collabVersionsOf(
+    exec,
+    rows.filter((row) => row.liveBodySwitchedAt),
+  );
   const flagsOn = flagsOnByScope({ transaction: exec });
   const gates: LiveBodyWriterGate[] = [];
   for (const row of rows) {
@@ -129,6 +123,52 @@ export async function liveBodyWriterGatesForRows(
     );
   }
   return gates;
+}
+
+/**
+ * The switched pages among `rows` whose stored body and live copy are in
+ * step, as the gate requires: neither took a write while the flags were off.
+ * Their live copies' versions are read in one statement, and no flags.
+ */
+export async function liveBodyInStepPageIds(
+  rows: readonly LiveBodyWriterPageRow[],
+): Promise<Set<string>> {
+  const candidates = rows.filter(
+    (row) =>
+      row.liveBodySwitchedAt && row.collabBodyRevision === row.bodyRevision,
+  );
+  const versions = await collabVersionsOf(getDbExec(), candidates);
+  return new Set(
+    candidates
+      .filter((row) => {
+        // An unreadable version isn't in step, so the page is tried, and
+        // the switch's own gate throws on it.
+        const version = versions.get(row.id);
+        return (
+          version !== undefined &&
+          version !== null &&
+          Number(version) === row.liveCopyVersion
+        );
+      })
+      .map((row) => row.id),
+  );
+}
+
+// `_collab_docs` exists once a page has switched, so pass only switched pages.
+async function collabVersionsOf(
+  exec: DbExec,
+  switched: readonly Pick<LiveBodyWriterPageRow, "id">[],
+): Promise<Map<string, unknown>> {
+  const versions = new Map<string, unknown>();
+  if (switched.length === 0) return versions;
+  const { rows: docs } = await exec.execute({
+    sql: `SELECT doc_id, version FROM _collab_docs WHERE doc_id IN (${switched.map(() => "?").join(", ")})`,
+    args: switched.map((row) => row.id),
+  });
+  for (const doc of docs as Array<{ doc_id: unknown; version: unknown }>) {
+    versions.set(String(doc.doc_id), doc.version);
+  }
+  return versions;
 }
 
 // The flags once per owner and organization, however many of their pages.
@@ -220,6 +260,16 @@ export function isLocalFileLinkRefused(
   );
 }
 
+/**
+ * True for a page linked to a local file. The gate keeps it on the legacy
+ * path, and a switch refuses it with `local_file`.
+ */
+export function isLinkedToLocalFile(
+  row: Pick<LiveBodyWriterPageRow, "sourceMode">,
+): boolean {
+  return row.sourceMode === "local-files";
+}
+
 async function gateForMarkers(
   row: LiveBodyWriterPageRow | null | undefined,
   readCollabVersion: (documentId: string) => Promise<unknown>,
@@ -230,7 +280,7 @@ async function gateForMarkers(
   if (!row) return { writePath: "legacy", reason: "no_page" };
   if (!row.liveBodySwitchedAt)
     return { writePath: "legacy", reason: "not_switched" };
-  if (row.sourceMode === "local-files")
+  if (isLinkedToLocalFile(row))
     return { writePath: "legacy", reason: "local_file" };
   if (row.collabBodyRevision !== row.bodyRevision)
     return { writePath: "legacy", reason: "live_copy_behind" };
@@ -270,6 +320,27 @@ export async function liveBodyWriterFlagsOn(
     ),
   );
   return writer && shadow;
+}
+
+/**
+ * The backfill flag and both of the writer's, for the page's owner and org:
+ * whether the page may be switched without a manual switch. Reads the
+ * backfill flag first, since it is off for nearly every page. Throws like the
+ * gate.
+ */
+export async function liveBodyBackfillFlagsOn(
+  row: Pick<LiveBodyWriterPageRow, "ownerEmail" | "orgId">,
+  options: { transaction?: DbExec } = {},
+): Promise<boolean> {
+  if (
+    !(await flagOnForPage(
+      LIVE_BODY_BACKFILL_FLAG.key,
+      row,
+      options.transaction,
+    ))
+  )
+    return false;
+  return liveBodyWriterFlagsOn(row, options);
 }
 
 async function flagOnForPage(

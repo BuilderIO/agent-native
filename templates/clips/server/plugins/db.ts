@@ -13,6 +13,7 @@ import { z } from "zod";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { orderMigrationsByVersion } from "../lib/migration-order.js";
+import { recordingMediaCleanupMigration } from "../lib/recording-media-cleanup-schema.js";
 import {
   uploadLeaseExpiry,
   waitingStorageLeaseExpiry,
@@ -201,6 +202,12 @@ function scheduleRecordingOrgIdBackfill(): void {
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v41 incident documented on v41 below.
+const mediaCleanupMigration = {
+  version: 99,
+  name: "recording-durable-media-cleanup",
+  sql: recordingMediaCleanupMigration,
+}; // raw-sql-ok: fixed additive DDL with no runtime interpolation; the shared definition is exercised on PostgreSQL and PGlite.
+
 export const migrations = runMigrations(
   orderMigrationsByVersion([
     {
@@ -1324,6 +1331,90 @@ export const migrations = runMigrations(
       );
       CREATE INDEX IF NOT EXISTS recording_transcript_versions_recording_created_idx
         ON recording_transcript_versions (recording_id, created_at)`,
+    },
+    {
+      version: 93,
+      name: "meeting-capture-stop-revision",
+      sql: `ALTER TABLE clips_meetings ADD COLUMN IF NOT EXISTS capture_stop_revision INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      version: 94,
+      name: "recording-agent-frames",
+      // Additive. Mirrors `recordingAgentFrames` in server/db/schema.ts.
+      sql: `CREATE TABLE IF NOT EXISTS recording_agent_frames (
+        id TEXT PRIMARY KEY,
+        recording_id TEXT NOT NULL,
+        at_ms INTEGER NOT NULL,
+        media_key TEXT NOT NULL,
+        storage_url TEXT NOT NULL,
+        storage_provider TEXT NOT NULL,
+        storage_id TEXT,
+        size_bytes INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_agent_frames_recording_at_unique_idx
+        ON recording_agent_frames (recording_id, at_ms)`,
+    },
+    {
+      version: 95,
+      name: "recording-content-bindings",
+      // Mirrors `recordingContentBindings` in server/db/schema.ts. `state` has
+      // no CHECK so later lifecycle states need no migration.
+      sql: `CREATE TABLE IF NOT EXISTS recording_content_bindings (
+        id TEXT PRIMARY KEY,
+        recording_id TEXT NOT NULL,
+        content_app TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        block_id TEXT,
+        origin TEXT NOT NULL CHECK (origin IN ('upload', 'link')),
+        state TEXT NOT NULL DEFAULT 'active',
+        state_changed_at TEXT,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_content_bindings_recording_document_unique_idx
+        ON recording_content_bindings (recording_id, content_app, document_id);
+      CREATE INDEX IF NOT EXISTS recording_content_bindings_document_idx
+        ON recording_content_bindings (content_app, document_id)`,
+    },
+    {
+      version: 96,
+      name: "recording-content-binding-upload-key",
+      sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_key TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_content_bindings_upload_key_unique_idx
+        ON recording_content_bindings (content_app, document_id, created_by, upload_key)`,
+    },
+    {
+      version: 97,
+      name: "recording-content-binding-upload-file",
+      sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_mime_type TEXT;
+      ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_size_bytes BIGINT`,
+    },
+    {
+      version: 98,
+      name: "recording-content-binding-upload-start-failed",
+      sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_start_failed_at TEXT`,
+    },
+    mediaCleanupMigration,
+    {
+      version: 100,
+      name: "recording-source-head-sha256",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS source_head_sha256 TEXT;
+      CREATE INDEX IF NOT EXISTS recordings_source_head_idx
+        ON recordings (source_head_sha256) WHERE source_head_sha256 IS NOT NULL`,
+    },
+    {
+      version: 101,
+      name: "recording-comment-idempotency-key",
+      sql: `ALTER TABLE recording_comments ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_comments_idempotency_key_unique_idx
+        ON recording_comments (author_email, idempotency_key)`,
+    },
+    {
+      version: 102,
+      name: "recording-transcript-earlier-audio-removed-at",
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS earlier_audio_removed_at TEXT`,
     },
   ]),
   { table: "clips_migrations" },

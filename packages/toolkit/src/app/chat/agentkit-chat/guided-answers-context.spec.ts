@@ -58,6 +58,15 @@ describe("formatGuidedAnswersForAgent", () => {
     );
   });
 
+  it("keeps skipped questions in the order the user saw them", () => {
+    expect(
+      formatGuidedAnswersForAgent({ q2: "No" }, [
+        { id: "q1", type: "text-options", question: "Framework?" },
+        { id: "q2", type: "text-options", question: "Auth required?" },
+      ]),
+    ).toBe("Q: Framework?\nA: no answer\nQ: Auth required?\nA: No");
+  });
+
   it("keeps meaningful ids as labels when no question is supplied", () => {
     expect(
       formatGuidedAnswersForAgent({

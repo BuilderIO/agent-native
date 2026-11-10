@@ -31,7 +31,6 @@ export type DesignLeftPanel =
   | "tools"
   | "tokens"
   | "threads"
-  | "import"
   | "code";
 
 const designSecondaryLeftPanelsSetting =
@@ -54,7 +53,6 @@ export function isDesignLeftPanelEnabled(
     value !== "tools" &&
     value !== "tokens" &&
     value !== "threads" &&
-    value !== "import" &&
     value !== "code"
   ) {
     return false;
@@ -69,13 +67,18 @@ export function isDesignLeftPanelEnabled(
 
 export const FOCUSED_SCREEN_ZOOM = 100;
 
-export interface DesignFile {
+export interface DesignFileMetadata {
   id: string;
   filename: string;
   fileType: string;
-  content: string;
+  contentBytes?: number | null;
   createdAt: string | null;
   updatedAt: string;
+}
+
+export interface DesignFile extends DesignFileMetadata {
+  content: string;
+  sourceState?: "unloaded" | "loading" | "deferred" | "ready" | "error";
 }
 
 export type DesignAccessRole =
@@ -96,5 +99,6 @@ export interface DesignData {
   visibility?: "private" | "org" | "public";
   data?: string | null;
   accessRole?: DesignAccessRole;
+  canPersistSource?: boolean;
   files: DesignFile[];
 }

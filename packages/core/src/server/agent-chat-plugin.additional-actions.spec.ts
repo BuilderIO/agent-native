@@ -10,6 +10,9 @@ const booted = vi.hoisted(() => ({
           message: unknown,
           context: unknown,
         ) => AsyncGenerator<unknown, void>;
+        executeApproval: NonNullable<
+          import("../a2a/types.js").A2AConfig["executeApproval"]
+        >;
       }
     | undefined,
   mcpConfig: undefined as
@@ -21,8 +24,27 @@ const booted = vi.hoisted(() => ({
     entries: Record<string, any>;
   }>,
   stopAfterResolve: true,
-  loopRuns: [] as Array<{ protocol: string; appId: unknown }>,
+  loopRuns: [] as Array<{
+    protocol: string;
+    appId: unknown;
+    runOptions: any;
+  }>,
+  promptReads: [] as Array<{ skillReadTool?: string | null }>,
 }));
+
+vi.mock("./agent-chat/prompt-resources.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./agent-chat/prompt-resources.js")>();
+  return {
+    ...actual,
+    loadResourcesForPrompt: async (
+      ...args: Parameters<typeof actual.loadResourcesForPrompt>
+    ) => {
+      booted.promptReads.push(args[4] ?? {});
+      return actual.loadResourcesForPrompt(...args);
+    },
+  };
+});
 
 // A2A and ask_app go on to run the model after resolving app actions, so stop
 // them right after the merge and record which app names survived it.
@@ -50,7 +72,7 @@ vi.mock("./agent-chat/action-filters-a2a.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("./agent-chat/action-filters-a2a.js")>();
   const stop = (protocol: string) => async (runOptions: any) => {
-    booted.loopRuns.push({ protocol, appId: runOptions.appId });
+    booted.loopRuns.push({ protocol, appId: runOptions.appId, runOptions });
     throw new Error("agent loop reached");
   };
   return {
@@ -129,7 +151,14 @@ vi.mock("./social-og-image.js", () => ({
   createAgentNativeOgImageHandler: () => () => new Response(),
 }));
 
-import type { ActionEntry } from "../agent/production-agent.js";
+import { actionArgumentsHash } from "../action-arguments-identity.js";
+import { approvalKeyWithArguments } from "../agent/approval-key.js";
+import { SYSTEM_PROMPT_CACHE_SPLIT } from "../agent/engine/prompt-cache.js";
+import {
+  toolCallCacheKey,
+  type ActionEntry,
+} from "../agent/production-agent.js";
+import { isFrameworkMcpTool } from "../mcp/framework-tools.js";
 import { createAgentChatPlugin } from "./agent-chat-plugin.js";
 import type { AgentChatPluginOptions } from "./agent-chat/plugin-options.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -154,14 +183,26 @@ async function boot(
     appId,
     codeExecution,
     resolveActionSurface,
+    frameworkTools = "minimal",
+    registeredActions = {},
+    leanPrompt = true,
+    initialToolNames,
+    a2aAgentDelegation = false,
+    lazyContext,
   }: Pick<
     AgentChatPluginOptions,
     | "additionalActionSurfaces"
     | "appId"
     | "codeExecution"
     | "resolveActionSurface"
+    | "frameworkTools"
+    | "leanPrompt"
+    | "initialToolNames"
+    | "a2aAgentDelegation"
+    | "lazyContext"
   > & {
     mcpEnabled?: boolean;
+    registeredActions?: Record<string, ActionEntry>;
   } = {},
 ): Promise<void> {
   const nitroApp = {
@@ -184,10 +225,13 @@ async function boot(
         agentTool: false,
         mcpTool: true,
       },
+      ...registeredActions,
     }),
-    a2aAgentDelegation: false,
-    frameworkTools: "minimal",
-    leanPrompt: true,
+    a2aAgentDelegation,
+    lazyContext,
+    frameworkTools,
+    leanPrompt,
+    initialToolNames,
     mcp: { enabled: mcpEnabled },
     resolveAdditionalActions,
     additionalActionSurfaces,
@@ -518,6 +562,7 @@ describe("delegated loops", () => {
     vi.stubEnv("NODE_ENV", "development");
     booted.stopAfterResolve = false;
     booted.loopRuns.length = 0;
+    booted.promptReads.length = 0;
   });
 
   afterEach(async () => {
@@ -536,10 +581,312 @@ describe("delegated loops", () => {
 
     await runDelegated("alice@example.com", "task-app-identity");
 
-    expect(booted.loopRuns).toEqual([
+    expect(booted.loopRuns).toMatchObject([
       { protocol: "a2a", appId: "slides" },
       { protocol: "mcp", appId: "slides" },
     ]);
+  });
+
+  describe.each(["development", "production"])("%s registry", (environment) => {
+    it.each([true, false])(
+      "preserves an app docs-search collision and eagerly loads skills (lazy: %s)",
+      async (lazyContext) => {
+        vi.stubEnv("NODE_ENV", environment);
+        const appReader = entry("Scoped app data reader");
+        const resolver = vi.fn(
+          async ({ ownerEmail }: { ownerEmail: string }) => ({
+            "user-registered-tool": entry(`${ownerEmail} tool`),
+          }),
+        );
+        await boot(resolver, {
+          mcpEnabled: true,
+          additionalActionSurfaces: ["a2a", "mcp"],
+          frameworkTools: { preset: "minimal", docs: true },
+          registeredActions: { "docs-search": appReader },
+          lazyContext,
+        });
+
+        await runDelegated(
+          "alice@example.com",
+          `docs-collision-${environment}-${lazyContext}`,
+        );
+
+        expect(resolver).toHaveBeenCalledTimes(2);
+        expect(booted.loopRuns.map(({ protocol }) => protocol)).toEqual([
+          "a2a",
+          "mcp",
+        ]);
+        for (const { runOptions } of booted.loopRuns) {
+          expect(runOptions.actions["docs-search"]).toBe(appReader);
+          await expect(runOptions.actions["docs-search"].run({})).resolves.toBe(
+            "Scoped app data reader",
+          );
+          expect(runOptions.actions["user-registered-tool"]).toBeDefined();
+        }
+        expect(booted.promptReads).toEqual([
+          expect.objectContaining({ skillReadTool: null }),
+          expect.objectContaining({ skillReadTool: null }),
+        ]);
+      },
+    );
+
+    it("keeps template actions native with a native-action prompt on both delegated protocols", async () => {
+      vi.stubEnv("NODE_ENV", environment);
+      await boot(undefined, {
+        mcpEnabled: true,
+        leanPrompt: false,
+        registeredActions: {
+          "list-decks": {
+            ...entry("template list-decks"),
+            chatUI: { renderer: "core.data-widget" },
+          },
+        },
+      });
+
+      await runDelegated("alice@example.com", `native-template-${environment}`);
+
+      expect(booted.loopRuns.map(({ protocol }) => protocol)).toEqual([
+        "a2a",
+        "mcp",
+      ]);
+      for (const { runOptions } of booted.loopRuns) {
+        expect(runOptions.actions["list-decks"].tool.description).toBe(
+          "template list-decks",
+        );
+        expect(
+          runOptions.tools.map((tool: { name: string }) => tool.name),
+        ).toContain("list-decks");
+        expect(runOptions.systemPrompt).toContain(
+          "- `list-decks` — Native chat widget: `core.data-widget`.",
+        );
+        expect(runOptions.systemPrompt).not.toContain("pnpm action list-decks");
+        expect(runOptions.systemPrompt).not.toContain(
+          "Template-specific actions are invoked via bash, NOT as direct tools.",
+        );
+      }
+    });
+
+    it.each([true, false])(
+      "projects framework guidance onto the delegated registry while retaining the static reader (lazy: %s)",
+      async (lazyContext) => {
+        vi.stubEnv("NODE_ENV", environment);
+        await boot(undefined, {
+          mcpEnabled: true,
+          leanPrompt: false,
+          a2aAgentDelegation: true,
+          lazyContext,
+          frameworkTools: {
+            preset: "minimal",
+            docs: true,
+            resources: true,
+            workspaceApps: true,
+          },
+        });
+        await runDelegated(
+          "alice@example.com",
+          `prompt-projection-${environment}-${lazyContext}`,
+        );
+        expect(booted.loopRuns.map(({ protocol }) => protocol)).toEqual([
+          "a2a",
+          "mcp",
+        ]);
+        for (const { runOptions } of booted.loopRuns) {
+          expect(runOptions.actions["docs-search"]?.readOnly).toBe(true);
+          for (const name of [
+            "resources",
+            "source-search",
+            "framework-search",
+            "call-agent",
+            "describe-workspace-apps",
+            "manage-jobs",
+            "run-code",
+            "db-query",
+          ]) {
+            expect(runOptions.actions[name], name).toBeUndefined();
+          }
+          const frameworkPrompt = runOptions.systemPrompt.split(
+            SYSTEM_PROMPT_CACHE_SPLIT,
+          )[0];
+          for (const name of [
+            "call-agent",
+            "connect-builder",
+            "get-framework-context",
+            "render-data-widget",
+            "save-memory",
+            "refresh-screen",
+            "set-search-params",
+            "spawn",
+            "manage-jobs",
+            "run-code",
+            "db-query",
+          ]) {
+            expect(frameworkPrompt, name).not.toContain(`\`${name}\``);
+          }
+          expect(runOptions.systemPrompt).not.toContain("<available-apps>");
+          expect(runOptions.systemPrompt).not.toContain("<context-note>");
+        }
+      },
+    );
+
+    it("keeps framework automation tools on the A2A delegated first request", async () => {
+      vi.stubEnv("NODE_ENV", environment);
+      await boot(undefined, {
+        mcpEnabled: true,
+        frameworkTools: { preset: "minimal", automation: true },
+        initialToolNames: ["manage-automations"],
+      });
+
+      await runDelegated(
+        "alice@example.com",
+        `automation-first-${environment}`,
+      );
+
+      expect(booted.loopRuns.map(({ protocol }) => protocol)).toEqual([
+        "a2a",
+        "mcp",
+      ]);
+      const a2aRun = booted.loopRuns.find(({ protocol }) => protocol === "a2a");
+      expect(a2aRun).toBeDefined();
+      const { runOptions } = a2aRun!;
+      expect(runOptions.actions["manage-automations"]).toBeDefined();
+      expect(
+        runOptions.tools.map((tool: { name: string }) => tool.name),
+      ).toContain("manage-automations");
+      expect(
+        runOptions.availableTools.map((tool: { name: string }) => tool.name),
+      ).toContain("manage-automations");
+    });
+
+    it.each([true, false])(
+      "replays approved app collisions (%s) without running framework-only twins",
+      async (appOwned) => {
+        vi.stubEnv("NODE_ENV", environment);
+        const run = vi.fn(async () => "approved app action ran");
+        const appAction: ActionEntry = {
+          ...entry("App-owned search parameters"),
+          needsApproval: true,
+          run,
+        };
+        await boot(undefined, {
+          frameworkTools: { preset: "minimal", workspaceUserGroups: true },
+          registeredActions: appOwned ? { "set-search-params": appAction } : {},
+        });
+
+        const names = appOwned
+          ? ["set-search-params"]
+          : [
+              "set-search-params",
+              "list-workspace-user-groups",
+              "upsert-workspace-user-group",
+            ];
+        for (const name of names) {
+          const input = {};
+          const result = await runWithRequestContext(
+            { userEmail: "alice@example.com", orgId: "acme" },
+            () =>
+              booted.a2aConfig!.executeApproval(
+                {
+                  id: `approval-${environment}-${name}`,
+                  taskId: `task-replay-${environment}-${name}`,
+                  ownerEmail: "alice@example.com",
+                  orgId: "acme",
+                  tool: name,
+                  input,
+                  approvalKey: approvalKeyWithArguments(
+                    toolCallCacheKey(name, input),
+                    actionArgumentsHash(input),
+                  ),
+                  callId: `call-${name}`,
+                },
+                {
+                  signal: new AbortController().signal,
+                  threadId: `a2a-task:replay-${environment}-${name}`,
+                  turnId: `task-replay-${environment}-${name}`,
+                },
+              ),
+          );
+          expect(result.status, JSON.stringify(result)).toBe(
+            appOwned ? "completed" : "failed",
+          );
+          if (appOwned) {
+            expect(result.output).toBe("approved app action ran");
+          } else {
+            expect(result.output).toBe(`Unknown or unavailable tool: ${name}`);
+          }
+        }
+        expect(run).toHaveBeenCalledTimes(appOwned ? 1 : 0);
+      },
+    );
+
+    it.each([true, false])(
+      "preserves registered app collisions (%s) without exposing framework-only twins",
+      async (appOwned) => {
+        vi.stubEnv("NODE_ENV", environment);
+        const names = [
+          "set-search-params",
+          "list-workspace-user-groups",
+          "upsert-workspace-user-group",
+        ];
+        const appActions = Object.fromEntries(
+          names.map((name) => [name, entry(`app ${name}`)]),
+        );
+        await boot(undefined, {
+          mcpEnabled: true,
+          frameworkTools: { preset: "minimal", workspaceUserGroups: true },
+          registeredActions: appOwned ? appActions : {},
+        });
+
+        if (!appOwned) {
+          for (const name of names) {
+            const frameworkEntry = booted.handlerOptions
+              .map((options) => options.actions[name])
+              .find(Boolean);
+            expect(frameworkEntry, name).toBeDefined();
+            expect(isFrameworkMcpTool(frameworkEntry)).toBe(true);
+          }
+        }
+
+        await runDelegated(
+          "alice@example.com",
+          `task-collision-${environment}-${appOwned}`,
+        );
+
+        expect(booted.loopRuns.map(({ protocol }) => protocol)).toEqual([
+          "a2a",
+          "mcp",
+        ]);
+        for (const { protocol, runOptions } of booted.loopRuns) {
+          for (const name of names) {
+            expect(runOptions.actions[name], `${protocol}: ${name}`).toBe(
+              appOwned ? appActions[name] : undefined,
+            );
+            expect(
+              runOptions.availableTools.some(
+                (tool: { name: string }) => tool.name === name,
+              ),
+              `${protocol}: available ${name}`,
+            ).toBe(appOwned);
+          }
+          const search = await runWithRequestContext(
+            { userEmail: "alice@example.com", orgId: "acme" },
+            () => runOptions.actions["tool-search"].run({ names }),
+          );
+          expect(
+            search.results
+              .map((result: { name: string }) => result.name)
+              .sort(),
+            `${protocol}: tool-search`,
+          ).toEqual(appOwned ? [...names].sort() : []);
+          if (appOwned) {
+            expect(
+              search.results.every(
+                (result: { callable: boolean }) => result.callable,
+              ),
+            ).toBe(true);
+          }
+        }
+      },
+    );
   });
 });
 

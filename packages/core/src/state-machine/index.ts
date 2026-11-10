@@ -1,9 +1,11 @@
+import { sql, type SqlFragment } from "../db/sql.js";
+
 /**
  * Typed lifecycle state machines for states persisted in SQL.
  *
  * A machine is plain data. `defineMachine` validates it once at module load,
- * then the same definition answers runtime checks, `WHERE status IN (...)`
- * clauses, and shortest-path fixtures for tests.
+ * then the same definition answers runtime checks, SQL state predicates, and
+ * shortest-path fixtures for tests.
  */
 
 const STATE_NAME = /^[a-z][a-z0-9_-]*$/;
@@ -40,6 +42,13 @@ export interface Machine<S extends string, E extends string> {
   sqlStateList(event: E): string;
   isTerminal(state: S): boolean;
   shortestPaths(): ReadonlyMap<S, readonly E[]>;
+}
+
+export interface SqlMachine<S extends string, E extends string> extends Machine<
+  S,
+  E
+> {
+  sqlIn(event: E): SqlFragment;
 }
 
 interface Transition<S extends string, E extends string> {
@@ -100,7 +109,7 @@ export function defineMachine<
       readonly to: NoInfer<S>;
     };
   };
-}): Machine<S, E> {
+}): SqlMachine<S, E> {
   const { id } = def;
   const states = Object.freeze([...def.states]);
   if (states.length === 0) {
@@ -258,6 +267,9 @@ export function defineMachine<
         .fromStates.map((state) => `'${state}'`)
         .join(", ");
     },
+    sqlIn(event: E): SqlFragment {
+      return sql.in(ruleFor(event).fromStates);
+    },
     isTerminal(state: S): boolean {
       return terminal.has(parseState(state));
     },
@@ -266,3 +278,5 @@ export function defineMachine<
     },
   });
 }
+
+export { renderMachineTrace } from "./trace.js";

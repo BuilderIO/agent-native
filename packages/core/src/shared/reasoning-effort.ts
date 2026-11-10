@@ -179,6 +179,28 @@ export function supportsClaudeAdaptiveThinking(model: string | undefined) {
   return claudeOpusAtLeast(id, 4, 6);
 }
 
+/**
+ * Opus 4.7 and later default adaptive thinking to `display: "omitted"`, which
+ * streams thinking blocks with no text, so the chat has no reasoning to show.
+ * Older models reject the field and already summarize.
+ */
+function claudeDefaultsThinkingToOmitted(model: string) {
+  const id = model.toLowerCase().replace(/^anthropic\//, "");
+  if (id.includes("fable-5") || id.includes("mythos-5")) return true;
+  if (id.includes("haiku-5-5") || id.includes("haiku-5.5")) return true;
+  if (id.includes("sonnet-5")) return true;
+  return claudeOpusAtLeast(id, 4, 7);
+}
+
+export function claudeAdaptiveThinking(model: string): {
+  type: "adaptive";
+  display?: "summarized";
+} {
+  return claudeDefaultsThinkingToOmitted(model)
+    ? { type: "adaptive", display: "summarized" }
+    : { type: "adaptive" };
+}
+
 export function anthropicManualThinkingBudget(effort: ReasoningEffort) {
   switch (effort) {
     case "low":

@@ -18,6 +18,7 @@ const {
 } = vi.hoisted(() => ({
   eventRulesStatusMock: {
     data: {
+      decisionProviderConfigured: true,
       jevConfigured: true,
       enabled: true,
       intervalMinutes: 5,
@@ -384,6 +385,7 @@ describe("Calendar Settings", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     eventRulesStatusMock.data = {
+      decisionProviderConfigured: true,
       jevConfigured: true,
       enabled: true,
       intervalMinutes: 5,
@@ -627,6 +629,7 @@ describe("Calendar Settings", () => {
   it("shows Builder and API key connection options and disables rule editing without Jev", async () => {
     eventRulesStatusMock.data = {
       ...eventRulesStatusMock.data,
+      decisionProviderConfigured: false,
       jevConfigured: false,
     };
 
@@ -659,6 +662,7 @@ describe("Calendar Settings", () => {
   it("clears saved invitation rules when Jev is disconnected", async () => {
     eventRulesStatusMock.data = {
       ...eventRulesStatusMock.data,
+      decisionProviderConfigured: false,
       jevConfigured: false,
     };
     settingsMock.data.eventRules = {

@@ -28,6 +28,8 @@ import { documentChangeResource } from "../server/lib/document-change-resource.j
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
 import { drizzleOverExec } from "../server/live-copy/exec-db.js";
 import {
@@ -47,6 +49,10 @@ import {
   recordContentSaveOutcome,
   type ContentSaveOutcomeDimensions,
 } from "./_content-save-outcomes.js";
+import {
+  assertAgentsMayEditPageText,
+  assertAgentsMayEditPagesText,
+} from "./_document-agent-lock.js";
 import {
   assertEditableDocument,
   mutateDocumentBody,
@@ -460,6 +466,7 @@ export default defineAction({
     }
 
     assertEditableDocument(existing);
+    assertAgentsMayEditPageText(existing, ctx);
     const applied = applyDocumentTextEdits(existing.content ?? "", edits);
     let { content } = applied;
     const { results, changeCount } = applied;
@@ -472,6 +479,7 @@ export default defineAction({
       );
       return { applied: 0, total: edits.length, results };
     }
+    assertNoNewlySharedVideoIds(existing.content, content);
 
     let linkedLocalPersistence:
       | {
@@ -609,6 +617,10 @@ export default defineAction({
           routed: !isLinkedLocalSource,
           content: null,
         });
+        // A linked file has already taken the edit, so its page follows it.
+        if (!isLinkedLocalSource) {
+          await assertAgentsMayEditPagesText(tx, [id], ctx);
+        }
         const mirrored = await tx
           .update(schema.documents)
           .set({
@@ -637,6 +649,10 @@ export default defineAction({
             { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
           );
         }
+        await syncPrivateMediaReferences(
+          tx as unknown as ReturnType<typeof getDb>,
+          { documentId: id, after: content, userEmail: actor },
+        );
         for (const field of primaryBlocksFields) {
           await persistBlocksFieldIdentity({
             db: tx as unknown as ReturnType<typeof getDb>,

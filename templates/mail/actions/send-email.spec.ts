@@ -168,19 +168,22 @@ describe("send-email action", () => {
     expect(normalizeActionChangeResult(projected)).not.toBeNull();
   });
 
-  it("requires approval for interactive sends", async () => {
-    mocks.getUserSetting.mockResolvedValue({ allowAutomationSends: true });
+  it.each(["tool", "mcp"] as const)(
+    "requires approval for %s sends even when automations may send",
+    async (caller) => {
+      mocks.getUserSetting.mockResolvedValue({ allowAutomationSends: true });
 
-    expect(typeof action.needsApproval).toBe("function");
-    if (typeof action.needsApproval !== "function") return;
+      expect(typeof action.needsApproval).toBe("function");
+      if (typeof action.needsApproval !== "function") return;
 
-    await expect(
-      action.needsApproval(SEND_ARGS, {
-        caller: "tool",
-        userEmail: OWNER,
-      }),
-    ).resolves.toBe(true);
-  });
+      await expect(
+        action.needsApproval(SEND_ARGS, {
+          caller,
+          userEmail: OWNER,
+        }),
+      ).resolves.toBe(true);
+    },
+  );
 
   it("requires approval for automations unless the owner opts in", async () => {
     expect(typeof action.needsApproval).toBe("function");

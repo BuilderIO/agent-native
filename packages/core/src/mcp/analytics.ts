@@ -1,6 +1,11 @@
 import { getAppConfig } from "../app-config/store.js";
 import { safeValue } from "../tracking/redaction.js";
 import { listTrackingProviders, track } from "../tracking/registry.js";
+import {
+  databaseFailureCode,
+  databaseFailureMessage,
+  isDatabaseQueryFailure,
+} from "./embed-redaction.js";
 
 const CLIENT_INFO_META_KEY = "io.modelcontextprotocol/clientInfo";
 const PROTOCOL_VERSION_META_KEY = "io.modelcontextprotocol/protocolVersion";
@@ -27,6 +32,7 @@ export interface McpAnalyticsContext {
   redirectHost?: string;
   protocolVersion?: string;
   userId?: string;
+  anonymousId?: string;
   sessionId?: string;
 }
 
@@ -129,8 +135,7 @@ function contextProperties(ctx: McpAnalyticsContext): Record<string, unknown> {
   // `$mcp_vendor_source` says whether the host gave the same label. Neither
   // proves who the client is.
   const hostVendor = vendorForRedirectHost(ctx.redirectHost);
-  const vendor =
-    detectVendorClient(ctx.clientName, ctx.clientUserAgent) ?? hostVendor;
+  const vendor = mcpVendorForContext(ctx);
   return {
     $mcp_source: ctx.source,
     $mcp_server_name: ctx.serverName,
@@ -156,6 +161,18 @@ function contextProperties(ctx: McpAnalyticsContext): Record<string, unknown> {
   };
 }
 
+export function mcpVendorForContext(
+  ctx: Pick<
+    McpAnalyticsContext,
+    "clientName" | "clientUserAgent" | "redirectHost"
+  >,
+): string | undefined {
+  return (
+    detectVendorClient(ctx.clientName, ctx.clientUserAgent) ??
+    vendorForRedirectHost(ctx.redirectHost)
+  );
+}
+
 function emit(
   event: string,
   ctx: McpAnalyticsContext,
@@ -165,7 +182,11 @@ function emit(
     track(
       event,
       { ...contextProperties(ctx), ...properties },
-      { userId: ctx.userId, sessionId: ctx.sessionId },
+      {
+        ...(ctx.userId ? { userId: ctx.userId } : {}),
+        ...(ctx.anonymousId ? { anonymousId: ctx.anonymousId } : {}),
+        ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+      },
     );
   } catch (err) {
     console.error(`[mcp-analytics] Failed to emit ${event}:`, err);
@@ -285,6 +306,12 @@ export function describeMcpError(err: unknown): {
   errorType: string;
   errorMessage: string;
 } {
+  if (isDatabaseQueryFailure(err)) {
+    return {
+      errorType: databaseFailureCode(err) ?? "DrizzleQueryError",
+      errorMessage: databaseFailureMessage(err),
+    };
+  }
   if (err && typeof err === "object") {
     const record = err as Record<string, unknown>;
     const code = record.errorCode ?? record.code;

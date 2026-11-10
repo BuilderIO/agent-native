@@ -5,7 +5,11 @@ import {
   stepEnabled,
   type ContentCollectionStepId,
 } from "./config.js";
-import { contentRunFailureFromError, type ContentStep } from "./step.js";
+import {
+  contentRunFailureFromError,
+  type ContentStep,
+  type ContentStepResult,
+} from "./step.js";
 import { builderBlogStep } from "./steps/builder-blog.js";
 import { ga4Step } from "./steps/ga4.js";
 import { searchConsoleStep } from "./steps/search-console.js";
@@ -78,8 +82,9 @@ export async function collectContentForCollection(
     }
 
     const runId = claim.runId;
+    let result: ContentStepResult | undefined;
     try {
-      const result = await runWithRequestContext(
+      result = await runWithRequestContext(
         {
           userEmail: collection.ownerEmail,
           ...(collection.orgId ? { orgId: collection.orgId } : {}),
@@ -105,7 +110,11 @@ export async function collectContentForCollection(
         runId,
       });
     } catch (error) {
-      const failure = contentRunFailureFromError(error);
+      const failure = {
+        bytesProcessed: result?.outcome.bytesProcessed,
+        bytesCap: result?.outcome.bytesCap,
+        ...contentRunFailureFromError(error),
+      };
       await failContentRun(runId, failure);
       summaries.push({
         tenantKey: collection.tenantKey,

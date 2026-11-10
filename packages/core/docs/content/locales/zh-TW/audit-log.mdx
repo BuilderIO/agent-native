@@ -42,7 +42,7 @@ description: "持久的、僅附加的紀錄，紀錄誰更改了哪些應用資
 - **主體**：`actor_email` 是呼叫執行時所用的帳號。它不能證明有人核准了這次呼叫。
 - **執行來源**：`caller` 表示呼叫來自哪個入口。透過 `mcp`、`webmcp` 或 `a2a` 的呼叫，其 `actor_kind` 為 `agent`。組織自己的服務主體則為 `service`。
 - **用戶端**：對於 `mcp` 呼叫，`reported_client_name` 和 `reported_client_version` 儲存用戶端隨當次 `tools/call` 請求送出的 MCP `clientInfo` 值。這些值由用戶端自行決定，應視為自行申報的資訊。`oauth_client_id` 是憑證核發對象的 OAuth 用戶端（如有）。不會沿用先前只在 `initialize` 訊息中送出的值。
-- **授權訊號**：`approval` 記錄與該呼叫相關的授權訊號。`agent-chat` 記錄有人在代理聊天中核准。`a2a-review` 記錄擁有者在審核頁面上核准了暫停的 A2A 呼叫。`mcp-client-accepted` 記錄 MCP 用戶端接受了請求；伺服器無法驗證是誰回應。不需要核准的呼叫，`approval` 為空。
+- **授權訊號**：`approval` 記錄與該呼叫相關的授權訊號。`agent-chat` 記錄有人在代理聊天中核准。`a2a-review` 記錄擁有者在審核頁面上核准了暫停的 A2A 呼叫。`mcp-review` 記錄已登入的擁有者在審核頁面上核准了直接 MCP 呼叫。`mcp-client-accepted` 記錄 MCP 用戶端接受了請求；伺服器無法驗證是誰回應。不需要核准的呼叫，`approval` 為空。
 
 舊的資料列絕不會被改寫。在這些欄位出現之前寫入的資料列，即使呼叫已獲核准，用戶端和核准欄位也為空。以 `human` 或 `system` 儲存的舊 `mcp`、`webmcp` 和 `a2a` 資料列會以 `agent` 讀取，因此篩選和匯出會像對待新資料列一樣對待它們。
 

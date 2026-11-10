@@ -610,15 +610,15 @@ const messages = {
     reviewDuplicates: "Examiner les doublons",
     duplicateReviewTitle: "Doublons possibles",
     duplicateReviewDescription:
-      "Compare cette fiche aux candidats accessibles. Jev envoie à TypeSafe les noms, types de fiche et indices de correspondance de cinq candidats au maximum. Sa probabilité est indicative ; la fusion demande un examen distinct.",
+      "Compare cette fiche aux candidats accessibles. Un examen sémantique envoie les noms, types de fiche et indices de correspondance de cinq candidats au maximum au fournisseur de décisions IA configuré. La probabilité est indicative ; la fusion demande un examen distinct.",
     duplicateReviewRun: "Chercher des doublons",
     duplicateReviewLoading: "Recherche en cours…",
     duplicateReviewFailed: "Impossible de terminer l'examen des doublons.",
     duplicateReviewUnavailable:
-      "Jev n'a pas pu examiner ces fiches. Les candidats trouvés par les règles restent visibles.",
+      "Le fournisseur de décisions IA n'a pas pu examiner ces fiches. Les candidats trouvés par les règles restent visibles.",
     duplicateReviewEmpty: "Aucun doublon probable trouvé.",
     duplicateRuleConfidence: "Correspondance par règles : {{percent}} %",
-    duplicateJevProbability: "Probabilité Jev de même entité : {{percent}} %",
+    duplicateDecisionProbability: "Probabilité de même entité : {{percent}} %",
     duplicateMatchedOn: "Indices communs : {{values}}",
     evidenceAttached: "Preuve d’appel jointe.",
     evidenceAttachFailed: "Impossible de joindre la preuve.",
@@ -634,11 +634,10 @@ const messages = {
     automate: "Automatiser",
     reviewNewClipsCalls: "Examiner les nouveaux appels Clips",
     reviewDescription:
-      "Préparez une recette d’examen pour cet enregistrement CRM sans copier de média ni de transcription Clips.",
-    disabledAutomationDescription:
-      "Cette automatisation commence désactivée et reste liée à {{name}}. Une fois explicitement activée, chaque nouveau clip ne peut joindre à cet enregistrement que sa référence de page d’enregistrement dont l’accès est vérifié.",
+      "La configuration des automatisations d’appels de CRM vers Clips n’est pas encore disponible.",
+    disabledAutomationDescription: "Fiche CRM sélectionnée : {{name}}.",
     handoffDescription:
-      "Le transfert ne conserve qu’un ID de clip opaque, une URL de page {{path}} durable et l’heure de capture. Il rejette les URL d’événement, les médias, les jetons d’accès, les transcriptions, les enregistrements déduits et les écritures fournisseur.",
+      "L’ajout automatique de liens vers des pages {{path}} n’est pas disponible.",
     manageAutomations: "Gérer les automatisations",
     configureWithAgent: "Configurer avec l’agent",
     editField: "Modifier un champ",

@@ -1,3 +1,4 @@
+import { sql, type SqlFragment } from "../db/sql.js";
 import { defineMachine, type Machine } from "../state-machine/index.js";
 import type { TaskState } from "./types.js";
 
@@ -114,36 +115,29 @@ function targetOf<S extends string, E extends string>(
   return machine.transition(from, event);
 }
 
-/** `'a', 'b'` for an event's source states, in the order the SQL lists them. */
-export function taskIn(event: A2ATaskEvent): string {
-  return a2aTaskMachine.sqlStateList(event);
+/** Bound source states for an event's `IN` predicate. */
+export function taskIn(event: A2ATaskEvent): SqlFragment {
+  return a2aTaskMachine.sqlIn(event);
 }
 
-/** `'x'` for the state an event lands in. */
-export function taskTarget(event: A2ATaskEvent): string {
-  return sqlLiteral(a2aTaskMachine, targetOf(a2aTaskMachine, event));
+/** Bound state value for the state an event lands in. */
+export function taskTarget(event: A2ATaskEvent): SqlFragment {
+  return sql`${sql.value(targetOf(a2aTaskMachine, event))}`;
 }
 
-/** `'x'` for one state, for single-state WHERE and SELECT predicates. */
-export function taskSql(state: A2ATaskStatus): string {
-  return sqlLiteral(a2aTaskMachine, state);
+/** Bound state value for single-state WHERE and SELECT predicates. */
+export function taskSql(state: A2ATaskStatus): SqlFragment {
+  return sql`${sql.value(a2aTaskMachine.parseState(state))}`;
 }
 
-export function approvalIn(event: A2AApprovalEvent): string {
-  return a2aApprovalMachine.sqlStateList(event);
+export function approvalIn(event: A2AApprovalEvent): SqlFragment {
+  return a2aApprovalMachine.sqlIn(event);
 }
 
-export function approvalTarget(event: A2AApprovalEvent): string {
-  return sqlLiteral(a2aApprovalMachine, targetOf(a2aApprovalMachine, event));
+export function approvalTarget(event: A2AApprovalEvent): SqlFragment {
+  return sql`${sql.value(targetOf(a2aApprovalMachine, event))}`;
 }
 
-export function approvalSql(state: A2AApprovalStatus): string {
-  return sqlLiteral(a2aApprovalMachine, state);
-}
-
-function sqlLiteral<S extends string>(
-  machine: Machine<S, string>,
-  state: S,
-): string {
-  return `'${machine.parseState(state)}'`;
+export function approvalSql(state: A2AApprovalStatus): SqlFragment {
+  return sql`${sql.value(a2aApprovalMachine.parseState(state))}`;
 }

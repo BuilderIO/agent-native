@@ -73,34 +73,99 @@ describe("findMcpConnectionSuggestionIntegration", () => {
         variant: "response",
       })?.id,
     ).toBe("slack");
+  });
+
+  it("reads provider names through markdown emphasis", () => {
+    for (const [text, id] of [
+      ["Please connect **Slack** to continue.", "slack"],
+      ["**Slack** isn't connected.", "slack"],
+      ["You'll need to connect `Notion` first.", "notion"],
+    ] as const) {
+      expect(
+        findMcpConnectionSuggestionIntegration({ text, variant: "response" })
+          ?.id,
+      ).toBe(id);
+    }
+  });
+
+  it("does not read a provider name inside a longer word", () => {
     expect(
       findMcpConnectionSuggestionIntegration({
-        text: "I couldn’t complete the Slack auth.test call because the Dispatch connection requires authentication.",
-        contextText:
-          "Use Slack auth.test and surface a connection request if needed.",
+        text: "The NonLinear isn't connected yet.",
+        variant: "response",
+      }),
+    ).toBeNull();
+  });
+
+  it("selects a provider whose access is required", () => {
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "Notion access is required to continue.",
+        variant: "response",
+      })?.id,
+    ).toBe("notion");
+  });
+
+  it("selects the provider a real agent reply asks to connect", () => {
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "Slack isn’t connected, so `auth.test` couldn’t be run. I opened **Settings → Channels → Slack** to surface the connection setup. Connect a Slack workspace there, then I can test it.",
+        variant: "response",
+      })?.id,
+    ).toBe("slack");
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "I opened **Settings → Integrations**. Connect Notion there, then tell me when it’s connected and which project page to open.",
+        variant: "response",
+      })?.id,
+    ).toBe("notion");
+  });
+
+  it("selects the provider a sent message asks to connect", () => {
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "Connect Notion and open the project page.",
+        variant: "response",
+      })?.id,
+    ).toBe("notion");
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "Can you connect my Slack?",
         variant: "response",
       })?.id,
     ).toBe("slack");
   });
 
-  it("uses the preceding user mention when the agent asks to connect it", () => {
+  it("never offers a connection for a prompt that only mentions a provider or links to it", () => {
+    const prompt =
+      "You are designing a production-ready HTML email for Builder.io. Primary button: Continue your build (href https://www.builder.io/app/projects). Secondary link: More prompt tips. EMAIL-SAFE REQUIREMENTS (HubSpot). If you cannot extract a value, ask me.";
     expect(
       findMcpConnectionSuggestionIntegration({
-        text: "I don't have access yet - please connect it to continue.",
-        contextText: "Pull the latest HubSpot deals.",
+        text: prompt,
         variant: "response",
-      })?.id,
-    ).toBe("hubspot");
+      }),
+    ).toBeNull();
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "I updated the secondary link. No changes to your copy.",
+        contextText: prompt,
+        variant: "response",
+      }),
+    ).toBeNull();
   });
 
-  it("selects response connections only from the user's branded phrase", () => {
-    expect(
-      findMcpConnectionSuggestionIntegration({
-        text: "I cannot read that page.",
-        contextText: "Connect Notion and open the project page.",
-        variant: "response",
-      })?.id,
-    ).toBe("notion");
+  it("does not read product copy, quoted labels, or look-alike words as a request", () => {
+    for (const text of [
+      "Build an onboarding flow. Step 3: users can connect Slack from settings to get alerts.",
+      "The CTA reads “Connect Slack”.",
+      "No need to connect GitHub, here's the diff:",
+      "Connect the linear gradient to the hero background.",
+      "Connect Linear-style progress bars to each step.",
+    ]) {
+      expect(
+        findMcpConnectionSuggestionIntegration({ text, variant: "response" }),
+      ).toBeNull();
+    }
   });
 
   it("ignores provider names and URLs inside hidden composer context", () => {
@@ -156,7 +221,7 @@ describe("findMcpConnectionSuggestionIntegration", () => {
     expect(
       findMcpConnectionSuggestionIntegration({
         text: "Connect Gong so I can query calls.",
-        requestedByUser: true,
+        variant: "response",
         excludedIntegrationIds: ["GONG"],
       }),
     ).toBeNull();

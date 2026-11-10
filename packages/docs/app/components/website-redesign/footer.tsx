@@ -5,7 +5,7 @@ import { IconBrandDiscord, IconBrandGithub } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
-import { ARTICLES_BASE, USE_CASES_BASE } from "../../../lib/campaign-content";
+import { ARTICLES_BASE, USE_CASES_BASE } from "../../../lib/site-content";
 import { firstPartyAppUrl } from "../deployment-links";
 import { sitePathForLocale } from "../docs-locale";
 import { controlSurfaceClassName, ThemeIconButton } from "./ds/icon-button";
@@ -28,11 +28,11 @@ interface FooterColumn {
 // sync). Importing the catalog would pull card components and screenshot
 // data into the root bundle that every page loads.
 export const FOOTER_APPS: ReadonlyArray<{ slug: string; name: string }> = [
+  { slug: "design", name: "Design" },
+  { slug: "slides", name: "Slides" },
   { slug: "clips", name: "Clips" },
   { slug: "plan", name: "Plans" },
-  { slug: "design", name: "Design" },
   { slug: "content", name: "Content" },
-  { slug: "slides", name: "Slides" },
   { slug: "analytics", name: "Analytics" },
   { slug: "mail", name: "Mail" },
   { slug: "forms", name: "Forms" },
@@ -51,7 +51,10 @@ function footerColumns(
       title: t("homepage.footer.framework"),
       links: [
         { label: t("homepage.footer.docs"), href: localizedPath("/docs") },
-        { label: t("campaign.articles"), href: localizedPath(ARTICLES_BASE) },
+        {
+          label: t("siteContent.articles"),
+          href: localizedPath(ARTICLES_BASE),
+        },
         {
           label: t("nav.whatIsAgentNative"),
           href: localizedPath("/docs/what-is-agent-native"),
@@ -69,7 +72,10 @@ function footerColumns(
     {
       title: t("homepage.footer.apps"),
       links: [
-        { label: t("campaign.useCases"), href: localizedPath(USE_CASES_BASE) },
+        {
+          label: t("siteContent.useCases"),
+          href: localizedPath(USE_CASES_BASE),
+        },
         ...FOOTER_APPS.map((app) => ({
           label: app.name,
           href: localizedPath(`/apps/${app.slug}`),

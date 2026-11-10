@@ -82,6 +82,13 @@ async function createTables(client: PGliteClient) {
       started_at text NOT NULL
     )
   `);
+  // Production's indexes (migrations 58 and 59), so query plans match it.
+  await client.query(
+    `CREATE INDEX session_recordings_scope_started_idx ON session_recordings (org_id, owner_email, started_at)`,
+  );
+  await client.query(
+    `CREATE INDEX session_recordings_session_idx ON session_recordings (session_id)`,
+  );
   for (const statement of sessionRecordingSessionAssociationsMigrationSql()) {
     await client.query(statement);
   }
@@ -495,6 +502,60 @@ describe("session event index on Postgres", () => {
     expect(await matchingRecordings({ didNotEvents: ["clip_viewed"] })).toEqual(
       ["r-seen"],
     );
+  });
+
+  it("checks older recordings without scanning every recording per match", async () => {
+    await index(
+      [
+        event({
+          eventName: "purchase",
+          sessionId: "s-1",
+          timestamp: "2026-09-20T10:31:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    // Below a few thousand rows Postgres scans whole tables whatever the query.
+    await client.query(`
+      INSERT INTO session_recordings (id, session_id, owner_email, org_id, started_at)
+      SELECT 'r-' || g, 's-' || (g / 2),
+        CASE WHEN g % 12 = 0 THEN 'other@example.com' ELSE '${OWNER}' END,
+        CASE WHEN g % 12 = 0 THEN NULL ELSE '${ORG}' END,
+        to_char(timestamp '2026-09-01' + g * interval '7 minutes', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      FROM generate_series(1, 6000) g
+    `);
+    await client.query(`
+      INSERT INTO session_recording_session_associations (id, recording_id, session_id)
+      SELECT 'association-' || id, id, session_id FROM session_recordings
+      WHERE substr(id, 3)::int % 10 <> 0
+    `);
+    await client.query("ANALYZE");
+
+    for (const filters of [
+      { didEvents: ["purchase"] },
+      { didNotEvents: ["purchase"] },
+    ]) {
+      const r = schema.sessionRecordings;
+      const query = db
+        .select({ id: r.id })
+        .from(r)
+        .where(
+          and(
+            ...(await sessionEventFilterConditions(
+              { userEmail: OWNER, orgId: ORG },
+              filters,
+            )),
+          ),
+        )
+        .toSQL();
+      const plan = await client.query(`EXPLAIN ${query.sql}`, query.params);
+      const lines = plan.rows
+        .map((row: { "QUERY PLAN": string }) => row["QUERY PLAN"])
+        .join("\n");
+      expect(lines).not.toMatch(
+        /Seq Scan on session_recordings session_event_sibling/,
+      );
+    }
   });
 
   it("excludes a session that had a recording before coverage began", async () => {

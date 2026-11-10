@@ -118,6 +118,35 @@ describe("useAgentEngineConfigured", () => {
     expect(container.textContent).toBe("configured");
   });
 
+  it("keeps the resolved state when a script wraps window.fetch after mount", async () => {
+    const fetch = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        jsonResponse({ configured: false, chatEligible: false }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await flushAfterPaint();
+    expect(container.textContent).toBe("missing");
+
+    // Instrumentation (session replay, error tracking) wraps fetch after
+    // mount; the next render must still read the store the mounted hook
+    // subscribed to.
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+      fetch(input, init),
+    );
+    await act(async () => {
+      root.render(<Probe enabled />);
+      await Promise.resolve();
+    });
+
+    expect(getAgentEngineReadiness()).toBe("missing");
+    expect(container.textContent).toBe("missing");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("publishes unavailable when a configured readiness refresh fails", async () => {
     let statusChecks = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -638,6 +667,16 @@ describe("useAgentEngineConfigured", () => {
     expect(chatApiUrl).toBe("/docs/an/agent-chat");
     expect(agentEngineStatusUrlForChatApi(chatApiUrl)).toBe(
       "/docs/an/agent-engine/status",
+    );
+  });
+
+  it("keeps the configured server URL intact for a custom chat route", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { apiBaseUrl: "https://api.example.com" },
+    });
+
+    expect(agentEngineStatusUrlForChatApi("/custom/chat-endpoint")).toBe(
+      "https://api.example.com/_agent-native/agent-engine/status",
     );
   });
 

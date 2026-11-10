@@ -1,19 +1,23 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("h3", () => ({
   createError: (details: { statusCode: number; statusMessage: string }) =>
     Object.assign(new Error(details.statusMessage), details),
   getRequestHeader: (event: any, name: string) =>
     event.headers?.[name] ?? event.headers?.[name.toLowerCase()],
+  getRequestHeaders: (event: { headers?: Record<string, string> }) =>
+    event.headers ?? {},
   getRequestIP: (event: any) => event.ip,
   getRequestURL: (event: any) => new URL(event.url ?? "http://localhost/"),
 }));
 
 import {
   getForwardedRequestHostname,
-  getForwardedRequestHostnameFromHeaders,
+  getForwardedRequestOriginFromHeaders,
   getForwardedRequestOrigin,
   getForwardedRequestURL,
+  hasSameOriginBrowserEvidence,
+  isSameOriginPost,
   isSameOriginRequest,
 } from "./request-origin.js";
 
@@ -185,47 +189,52 @@ describe("getForwardedRequestOrigin", () => {
     );
   });
 
-  it("resolves the same normalized hostname from Node and Fetch headers", () => {
+  it("resolves the same public origin from Node and Fetch headers", () => {
     expect(
-      getForwardedRequestHostnameFromHeaders(
+      getForwardedRequestOriginFromHeaders(
         {
           host: "internal.gateway:3000",
           "x-forwarded-host":
-            "BETA.CALENDAR.AGENT-NATIVE.COM., internal.gateway:3000",
+            "BETA.CALENDAR.AGENT-NATIVE.COM:4443, internal.gateway:3000",
+          "x-forwarded-proto": "https",
         },
         "127.0.0.1",
       ),
-    ).toBe("beta.calendar.agent-native.com");
+    ).toBe("https://beta.calendar.agent-native.com:4443");
     expect(
-      getForwardedRequestHostnameFromHeaders(
-        new Headers({ "x-forwarded-host": "beta.calendar.agent-native.com" }),
+      getForwardedRequestOriginFromHeaders(
+        new Headers({
+          host: "internal.gateway:3000",
+          "x-forwarded-host": "beta.calendar.agent-native.com:4443",
+          "x-forwarded-proto": "https",
+        }),
         "::1",
       ),
-    ).toBe("beta.calendar.agent-native.com");
+    ).toBe("https://beta.calendar.agent-native.com:4443");
   });
 
   it("ignores forwarded host headers from non-loopback peers", () => {
     expect(
-      getForwardedRequestHostnameFromHeaders(
+      getForwardedRequestOriginFromHeaders(
         {
           host: "app.example.test",
           "x-forwarded-host": "attacker.example.test",
         },
         "203.0.113.20",
       ),
-    ).toBe("app.example.test");
+    ).toBe("http://app.example.test");
   });
 
-  it("rejects malformed Node forwarded hostnames", () => {
+  it("rejects malformed Node forwarded origins", () => {
     expect(() =>
-      getForwardedRequestHostnameFromHeaders(
+      getForwardedRequestOriginFromHeaders(
         {
           host: "app.example.com",
           "x-forwarded-host": "app.example.com/path",
         },
         "127.0.0.1",
       ),
-    ).toThrow("Invalid forwarded request hostname");
+    ).toThrow("Invalid forwarded request origin");
   });
 });
 
@@ -331,6 +340,16 @@ describe("isSameOriginRequest", () => {
       expected: true,
     },
     {
+      name: "opaque iframe origin",
+      headers: { host: "app.example.com", origin: "null" },
+      expected: false,
+    },
+    {
+      name: "Origin without a request host",
+      headers: { origin: "https://app.example.com" },
+      expected: false,
+    },
+    {
       name: "Tauri production origin against loopback app host",
       headers: { host: "localhost:3000", origin: "tauri://localhost" },
       expected: true,
@@ -361,8 +380,36 @@ describe("isSameOriginRequest", () => {
       expected: true,
     },
     {
+      name: "Tauri production origin with WebKit's cross-site fetch metadata",
+      headers: {
+        host: "app.example.com",
+        origin: "tauri://localhost",
+        "sec-fetch-site": "cross-site",
+      },
+      expected: true,
+    },
+    {
+      name: "Tauri production origin without a request host",
+      headers: { origin: "tauri://localhost" },
+      expected: false,
+    },
+    {
+      name: "Tauri production origin with cross-site fetch metadata and no request host",
+      headers: { origin: "tauri://localhost", "sec-fetch-site": "cross-site" },
+      expected: false,
+    },
+    {
       name: "Tauri web origin against remote app host",
       headers: { host: "app.example.com", origin: "https://tauri.localhost" },
+      expected: false,
+    },
+    {
+      name: "Tauri web origin with cross-site fetch metadata",
+      headers: {
+        host: "localhost:3000",
+        origin: "https://tauri.localhost",
+        "sec-fetch-site": "cross-site",
+      },
       expected: false,
     },
     {
@@ -372,5 +419,82 @@ describe("isSameOriginRequest", () => {
     },
   ])("handles $name", ({ headers, expected }) => {
     expect(isSameOriginRequest(fakeEvent(headers))).toBe(expected);
+  });
+});
+
+describe("hasSameOriginBrowserEvidence", () => {
+  it.each([
+    [{}, false],
+    [{ "sec-fetch-site": "same-origin" }, true],
+    [{ "sec-fetch-site": "none" }, false],
+    [{ "sec-fetch-site": "cross-site" }, false],
+    [{ origin: "https://app.example.com" }, true],
+    [{ origin: "https://other.example.com" }, false],
+    [{ origin: "null" }, false],
+    [{ origin: "tauri://localhost" }, false],
+  ] as const)("checks %j", (headers, expected) => {
+    const event = fakeEvent(headers, { url: "https://app.example.com/action" });
+    expect(hasSameOriginBrowserEvidence(event)).toBe(expected);
+    expect(isSameOriginPost(event)).toBe(expected);
+  });
+});
+
+describe("isSameOriginPost", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("treats an operator-listed UI origin as first-party", () => {
+    vi.stubEnv("CORS_ALLOWED_ORIGINS", "app.example.com");
+    const post = (headers: Record<string, string>) =>
+      isSameOriginPost(
+        fakeEvent(headers, { url: "https://api.example.com/action" }),
+      );
+    expect(
+      post({
+        origin: "https://app.example.com",
+        "sec-fetch-site": "same-site",
+      }),
+    ).toBe(true);
+    expect(
+      post({ origin: "https://evil.example", "sec-fetch-site": "cross-site" }),
+    ).toBe(false);
+    expect(post({ "sec-fetch-site": "same-site" })).toBe(false);
+  });
+
+  it("counts the listed UI origin as same-origin browser evidence", () => {
+    vi.stubEnv("CORS_ALLOWED_ORIGINS", "app.example.com");
+    const evidence = (origin: string, fetchSite: string) =>
+      hasSameOriginBrowserEvidence(
+        fakeEvent(
+          { origin, "sec-fetch-site": fetchSite },
+          { url: "https://api.example.com/_agent-native/ui-action-capability" },
+        ),
+      );
+    expect(evidence("https://app.example.com", "same-site")).toBe(true);
+    expect(evidence("https://evil.example", "cross-site")).toBe(false);
+  });
+
+  it("admits the listed UI origin on guarded same-origin endpoints too", () => {
+    vi.stubEnv("CORS_ALLOWED_ORIGINS", "app.example.com");
+    const request = (headers: Record<string, string>) =>
+      isSameOriginRequest(
+        fakeEvent(
+          { host: "api.example.com", ...headers },
+          { url: "https://api.example.com/speak" },
+        ),
+      );
+    expect(
+      request({
+        origin: "https://app.example.com",
+        "sec-fetch-site": "same-site",
+      }),
+    ).toBe(true);
+    expect(
+      request({
+        origin: "https://evil.example",
+        "sec-fetch-site": "cross-site",
+      }),
+    ).toBe(false);
   });
 });

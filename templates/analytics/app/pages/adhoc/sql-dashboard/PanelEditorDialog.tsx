@@ -1,7 +1,12 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { preparePromptComposerAgentHandoff } from "@agent-native/toolkit/app/chat";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
-import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import {
+  PromptComposer,
+  type PromptComposerSubmitOptions,
+  type Reference,
+} from "@agent-native/toolkit/app/chat/composer/index";
 import { IconAlertTriangle, IconAlignLeft } from "@tabler/icons-react";
 import {
   useEffect,
@@ -12,6 +17,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { useAnalyticsComposerMenuItems } from "@/components/AnalyticsComposerContext";
 import { SqlEditor } from "@/components/SqlEditor";
 import { Button } from "@/components/ui/button";
 import {
@@ -270,6 +276,7 @@ function PanelEditorContent({
   existingPanelTitles,
 }: PanelEditorDialogProps) {
   const t = useT();
+  const contextMenuItems = useAnalyticsComposerMenuItems();
   const [form, setForm] = useState<PanelFormValues>(() => panelToForm(panel));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -374,7 +381,12 @@ function PanelEditorContent({
     }
   };
 
-  const handleDescribe = (text: string) => {
+  const handleDescribe = async (
+    text: string,
+    files: File[],
+    references: Reference[],
+    options: PromptComposerSubmitOptions,
+  ) => {
     const trimmed = text.trim();
     if (!trimmed || isGenerating) return;
     const titlesLine = existingPanelTitles.length
@@ -382,7 +394,17 @@ function PanelEditorContent({
       : "This dashboard has no panels yet.";
     const firstPartyTimeFilter =
       "event_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND event_date >= '{{timeRangeStart}}' AND event_date <= '{{timeRangeEnd}}'))";
+    const handoff = await preparePromptComposerAgentHandoff(
+      files,
+      options,
+      t("composerSources.uploadFailed"),
+    );
     send({
+      ...handoff,
+      references,
+      model: options.model,
+      engine: options.engine,
+      effort: options.effort,
       message: trimmed,
       context:
         `The user wants to add a new panel to SQL dashboard "${dashboardId}". ${titlesLine} ` +
@@ -400,7 +422,7 @@ function PanelEditorContent({
         `For prometheus panels, sql is a JSON descriptor: {"promql":"rate(http_requests_total[5m])","mode":"range","range":"1h","step":"30s"}. mode defaults to "range"; range defaults to "1h"; step is auto if omitted. Returned rows have shape {timestamp, series, value} — set config.xKey="timestamp", config.yKey="value", and a single series in config.yKeys for clean charting. ` +
         `For program panels (arbitrary provider data joins/cohorts not expressible in the other sources), first save-data-program (or reuse an existing one via list-data-programs), then set sql to a JSON descriptor: {"programId":"<id>","params":{...}}. See the data-programs skill for the emit(rows, schema) contract and the Risk Meeting worked example. ` +
         `Native dashboard panels and Data Programs come first. Add an extension panel only when the user explicitly asks for a genuinely bespoke, one-off Custom Block for this dashboard and native panels cannot represent it faithfully. For a reusable/native capability call connect-builder instead. New agent-authored Custom Blocks use config.extensionId plus config.customBlock={authoredBy:"agent",intent:"one-off",scope:"dashboard",nativeGapReason:"custom-visualization"|"custom-interaction"|"custom-layout"|"other"}; never put prompt/customer text in that metadata. Use config.extensionSlotId only when the user explicitly asks for a personal/per-viewer slot; slot installs are per-user and automated report identities may have no install. ` +
-        `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), rightYKeys, rightYFormatter, events (line/area/bar/combo key dates on date or Unix-millisecond timestamp x axes: [{ date: 'YYYY-MM-DD', label, time?: 'HH:MM', timeZone?: IANA zone, color?: SVG-safe hex }]), barKeys, seriesLabels (exact series key -> display label), description, columns, pivot, limit, colors (series colors), stacked, legend, valueLabels, color (heatmap only: the row-dimension column name, never a color) }. For funnel panels, use config.xKey for the stage label, config.yKey for the non-negative count/value, and keep the SQL ORDER BY in the intended funnel order. When people can skip a funnel stage, set config.funnelOutcomes { completedKey, leftKey, skippedKey?, optionalKey? } to result columns of per-stage people counts (optionalKey is a boolean column) so each bar splits into completed, skipped, moved on and left the app. ` +
+        `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'|'duration'; duration reads seconds), rightYKeys, rightYFormatter, events (line/area/bar/combo key dates on date or Unix-millisecond timestamp x axes: [{ date: 'YYYY-MM-DD', label, time?: 'HH:MM', timeZone?: IANA zone, color?: SVG-safe hex }]), barKeys, seriesLabels (exact series key -> display label), description, columns, pivot, limit, colors (series colors), stacked, legend, valueLabels, color (heatmap only: the row-dimension column name, never a color) }. For funnel panels, use config.xKey for the stage label, config.yKey for the non-negative count/value, and keep the SQL ORDER BY in the intended funnel order. When people can skip a funnel stage, set config.funnelOutcomes { completedKey, leftKey, skippedKey?, optionalKey? } to result columns of per-stage people counts (optionalKey is a boolean column) so each bar splits into completed, skipped, moved on and left the app. ` +
         `For line/area/bar series that share an x-axis but not a unit (a count next to a rate), put the smaller-unit series on a second y-axis with config.rightYKeys (a subset of yKeys) and an optional config.rightYFormatter — do not build an extension for a dual-axis chart. Use chartType 'combo' to render some yKeys as bars and the rest as lines on one chart: set config.barKeys to the subset of yKeys that should render as bars; any yKey not in barKeys renders as a line. Use heatmap, callout, and section panels when their native contracts fit; do not create a Custom Block for a supported native panel. ` +
         `Chart legends render automatically; set config.legend=false only when the user explicitly asks to hide the legend. ` +
         `Use \`get-sql-dashboard.layout.groups[].rows[].rowNumber/panelIds\` to identify and verify visible rows. ` +
@@ -752,6 +774,7 @@ function PanelEditorContent({
         <div className="grid gap-3">
           <Label>{t("panelEditor.whatToChart")}</Label>
           <PromptComposer
+            contextMenuItems={contextMenuItems}
             requireAgentEngine
             disabled={isGenerating}
             placeholder={t("panelEditor.promptPlaceholder")}

@@ -140,7 +140,7 @@ export default defineAction({
       updatedAt: now,
     });
 
-    trackDesignCreated(
+    await trackDesignCreated(
       id,
       {
         creationMethod: creationMethod ?? defaultCreationMethod(ctx),

@@ -44,14 +44,7 @@ import {
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { useTheme } from "next-themes";
-import {
-  useState,
-  useEffect,
-  useLayoutEffect,
-  useCallback,
-  useRef,
-  useMemo,
-} from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
 
@@ -84,6 +77,7 @@ import {
 } from "../editor-state";
 import { runAdoptDbFileContent } from "../effects/adopt-db-file-content";
 import { runObserveCollabText } from "../effects/observe-collab-text";
+import { usePublishActiveSourceContent } from "../effects/publish-active-source-content";
 import { runSeedCollabContent } from "../effects/seed-collab-content";
 import { useSyncLatestActiveContent } from "../effects/sync-latest-active-content";
 import { forwardYjsUndoStackItemMeta, MAX_DESIGN_UNDO_STACK } from "../history";
@@ -159,6 +153,7 @@ export function useEditorLiveEditsAndPresence({
     generating,
     pendingGenerationActive,
     canEditDesign,
+    canPersistDesignSource,
     canEditLiveScreens,
     publicVisualEdit,
     rawServerFilesByIdRef,
@@ -421,37 +416,36 @@ export function useEditorLiveEditsAndPresence({
     runtimeLayerSnapshotsById,
   ]);
 
-  useEffect(
-    () =>
-      runSeedCollabContent({
-        publishCanonicalContent,
-        activeFile: activeReconcileFile,
-        activeFileId,
-        collabContentFileIdRef,
-        isSynced,
-        lastAppliedFileUpdatedAtRef,
-        lastAppliedFileContentRef,
-        lastLocalContentRef,
-        latestActiveContentRef,
-        pendingLocalFileContentsRef,
-        replacePreviewContent,
-        setCollabContent,
-        setCollabContentFileId,
-        setContentRenderRevision,
-        ydoc,
-      }),
-    [
-      canEditDesign,
+  useEffect(() => {
+    if (!activeReconcileFile) return;
+    return runSeedCollabContent({
       publishCanonicalContent,
-      ydoc,
-      isSynced,
+      activeFile: activeReconcileFile,
       activeFileId,
-      activeReconcileFile?.content,
-      activeReconcileFile?.fileType,
-      activeReconcileFile?.updatedAt,
-      pendingLocalFileContentsRevision,
-    ],
-  );
+      collabContentFileIdRef,
+      isSynced,
+      lastAppliedFileUpdatedAtRef,
+      lastAppliedFileContentRef,
+      lastLocalContentRef,
+      latestActiveContentRef,
+      pendingLocalFileContentsRef,
+      replacePreviewContent,
+      setCollabContent,
+      setCollabContentFileId,
+      setContentRenderRevision,
+      ydoc,
+    });
+  }, [
+    canEditDesign,
+    publishCanonicalContent,
+    ydoc,
+    isSynced,
+    activeFileId,
+    activeReconcileFile?.content,
+    activeReconcileFile?.fileType,
+    activeReconcileFile?.updatedAt,
+    pendingLocalFileContentsRevision,
+  ]);
 
   useEffect(() => {
     documentFileUpdatedAtRef.current = activeReconcileFile?.updatedAt ?? null;
@@ -574,43 +568,42 @@ export function useEditorLiveEditsAndPresence({
     };
   }, [clearRedoStacks, ydoc, isSynced, syncUndoRedoState]);
 
-  useEffect(
-    () =>
-      runAdoptDbFileContent({
-        publishCanonicalContent,
-        activeFile: activeReconcileFile,
-        agentActive,
-        clearStaleAgentCollabRecovery,
-        collabContent,
-        collabContentFileId,
-        collabContentFileIdRef,
-        collabContentRef,
-        documentFileContentRef,
-        documentFileUpdatedAtRef,
-        isSynced,
-        lastAppliedFileUpdatedAtRef,
-        lastAppliedFileContentRef,
-        lastLocalContentRef,
-        latestActiveContentRef,
-        recordExternalContentHistoryCheckpoint,
-        replacePreviewContent,
-        setCollabContent,
-        setCollabContentFileId,
-        setContentRenderRevision,
-        staleAgentCollabRecoveryTimerRef,
-      }),
-    [
-      canEditDesign,
+  useEffect(() => {
+    if (!activeReconcileFile) return;
+    return runAdoptDbFileContent({
       publishCanonicalContent,
-      activeReconcileFile,
+      activeFile: activeReconcileFile,
       agentActive,
       clearStaleAgentCollabRecovery,
       collabContent,
       collabContentFileId,
+      collabContentFileIdRef,
+      collabContentRef,
+      documentFileContentRef,
+      documentFileUpdatedAtRef,
       isSynced,
+      lastAppliedFileUpdatedAtRef,
+      lastAppliedFileContentRef,
+      lastLocalContentRef,
+      latestActiveContentRef,
       recordExternalContentHistoryCheckpoint,
-    ],
-  );
+      replacePreviewContent,
+      setCollabContent,
+      setCollabContentFileId,
+      setContentRenderRevision,
+      staleAgentCollabRecoveryTimerRef,
+    });
+  }, [
+    canEditDesign,
+    publishCanonicalContent,
+    activeReconcileFile,
+    agentActive,
+    clearStaleAgentCollabRecovery,
+    collabContent,
+    collabContentFileId,
+    isSynced,
+    recordExternalContentHistoryCheckpoint,
+  ]);
 
   useEffect(() => {
     if (awareness && activeFileId) {
@@ -729,21 +722,16 @@ export function useEditorLiveEditsAndPresence({
       }
     },
   });
-  useLayoutEffect(() => {
-    if (activeFile?.id && rawActiveContent !== activeContent)
-      publishCanonicalContent(
-        activeFile.id,
-        rawActiveContent,
-        activeFile.fileType,
-      );
-  }, [
-    activeFile?.id,
-    activeFile?.fileType,
-    rawActiveContent,
+  usePublishActiveSourceContent({
+    activeFile,
     activeContent,
-    publishCanonicalContent,
+    rawActiveContent,
     canEditDesign,
-  ]);
+    canPersistDesignSource,
+    isSynced,
+    publishCanonicalContent,
+    ydoc,
+  });
   useSyncLatestActiveContent({
     activeContent,
     activeFile,
@@ -1228,6 +1216,11 @@ export function useEditorLiveEditsAndPresence({
     if (typeof raw === "string" && raw) return raw;
     return fusionApp?.previewUrl;
   }, [designDataJson, fusionApp]);
+  // Only editors check the app, so only they wait for it: a viewer's saved
+  // status may never move, and loading the URL wakes the container anyway.
+  const fusionAppStarting = Boolean(
+    fullAppBuildingEnabled && canEditDesign && fusionApp?.status === "building",
+  );
 
   const handleActiveRuntimeLayerSnapshot = useCallback(
     (snapshot: RuntimeLayerSnapshot) => {
@@ -1708,6 +1701,7 @@ export function useEditorLiveEditsAndPresence({
     designReviewPanelEnabled,
     motionLabEnabled,
     designFusionUrl,
+    fusionAppStarting,
     handleActiveRuntimeLayerSnapshot,
     handleActiveRuntimeVerificationSnapshot,
     selectedComponentNodeId,

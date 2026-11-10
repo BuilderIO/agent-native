@@ -10,6 +10,7 @@ import { agentNative } from "@agent-native/core/vite";
 import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig, type Plugin } from "vite";
 
+import { contentShellWorkerPlugin } from "./app/service-worker/vite-plugin";
 import {
   isLocalComponentWorkspaceStoreFile,
   localComponentWorkspaceStoreDir,
@@ -395,13 +396,14 @@ export default defineConfig({
     contentLocalComponentsPlugin(),
     ...reactRouterPlugins(),
     ...agentNativePlugins({
-      clientCompatibilityVersion: "content-row-property-ids-v1",
+      clientCompatibilityVersion: "content-video-block-ids-v1",
       fsAllow: [
         ...(localWorkspaceRoot ? [localWorkspaceRoot] : []),
         ...dynamicLocalComponentDirs,
       ],
       ssrStubs: ["shiki"],
     }),
+    contentShellWorkerPlugin(),
   ],
   optimizeDeps: {
     include: [

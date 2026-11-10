@@ -1,9 +1,12 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useAppearance } from "@agent-native/core/client/appearance";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
 import { extensionPath } from "@agent-native/core/extensions/path";
 import { THEME_VAR_NAMES } from "@agent-native/core/extensions/theme";
 import {
@@ -53,6 +56,7 @@ import {
   useOpenUrlLatch,
 } from "./open-extension-link.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
+import { useExtensionChatSubmission } from "./use-extension-chat-submission.js";
 
 interface Extension {
   id: string;
@@ -115,6 +119,8 @@ export interface EmbeddedExtensionProps {
   initialHeight?: number;
   onReady?: () => void;
   onUnavailable?: (status?: number) => void;
+  /** Called with each content height the iframe reports, in pixels. */
+  onHeightChange?: (height: number) => void;
 }
 
 export function EmbeddedExtension({
@@ -125,10 +131,14 @@ export function EmbeddedExtension({
   initialHeight = 80,
   onReady,
   onUnavailable,
+  onHeightChange,
 }: EmbeddedExtensionProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const extensionChat = useExtensionChatSubmission();
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
+  const onHeightChangeRef = useRef(onHeightChange);
+  onHeightChangeRef.current = onHeightChange;
   const readyFiredRef = useRef(false);
   const fireReady = () => {
     if (readyFiredRef.current) return;
@@ -284,6 +294,7 @@ export function EmbeddedExtension({
         const h = Number(message.height);
         if (Number.isFinite(h) && h > 0) {
           setHeight(Math.ceil(h));
+          onHeightChangeRef.current?.(Math.ceil(h));
           fireReady();
         }
         return;
@@ -297,7 +308,7 @@ export function EmbeddedExtension({
       if (message.type === "agent-native-send-to-chat") {
         const text = serializeChatValue((message as any).message);
         if (!text?.trim()) return;
-        sendToAgentChat({
+        extensionChat.send({
           message: text,
           context: serializeChatValue((message as any).context),
           submit: (message as any).submit === true,
@@ -381,7 +392,7 @@ export function EmbeddedExtension({
           );
         }
 
-        sendToAgentChat({
+        extensionChat.send({
           message: `Fix runtime errors in extension "${name}" (id: ${extensionId}), embedded as a dashboard panel. The content snapshot below was just re-read from the database — treat it as authoritative and ignore any prior version you may have generated in this chat. If in doubt, call get-extension first.\n\nErrors:\n${errors.join("\n")}`,
           context: contextParts.join("\n"),
           submit: true,
@@ -485,6 +496,7 @@ export function EmbeddedExtension({
         sandbox={EXTENSION_IFRAME_SANDBOX}
         style={{ width: "100%", border: 0, height, display: "block" }}
         onLoad={() => {
+          extensionChat.cancel();
           iframeRef.current?.contentWindow?.postMessage(
             {
               type: "agent-native-slot-context",
@@ -503,6 +515,7 @@ export function EmbeddedExtension({
           fireReady();
         }}
       />
+      {extensionChat.confirmation}
       <EmbeddedToolMenu
         extensionId={extensionId}
         slotId={slotId}
@@ -540,12 +553,17 @@ function EmbeddedToolMenu({
       (old ?? []).filter((i) => i.extensionId !== extensionId),
     );
     try {
-      await fetch(
+      const res = await fetch(
         agentNativePath(
           `/_agent-native/slots/${encodeURIComponent(slotId)}/install/${encodeURIComponent(extensionId)}`,
         ),
         { method: "DELETE" },
       );
+      if (!res.ok) {
+        reportWriteFailure(writeFailureFromResponse(res));
+      }
+    } catch (error) {
+      reportWriteFailure(error);
     } finally {
       void queryClient.invalidateQueries({
         queryKey: ["slot-installs", slotId],

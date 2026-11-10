@@ -8,9 +8,116 @@ import {
   DATA_WIDGET_MAX_CHART_POINTS,
   DATA_WIDGET_MAX_ROWS,
   dataWidgetResultSchema,
+  isDataWidgetResult,
 } from "../../data-widgets/index.js";
+import { frameworkMcpTools } from "../../mcp/framework-tools.js";
 import { getRequestRunContext } from "../request-context.js";
 import { createOpenSettingsPageTool } from "./open-settings-page-tool.js";
+
+function isDataWidgetRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeDataWidgetToolInput(args: unknown): unknown {
+  if (!isDataWidgetRecord(args)) return args;
+  let normalizedArgs = args;
+  const table = args.table;
+  if (isDataWidgetRecord(table) && Array.isArray(table.columns)) {
+    const columns = table.columns;
+    const rows = table.rows;
+    if (Array.isArray(rows) && !rows.every(isDataWidgetRecord)) {
+      const keys = columns.map((column) => {
+        if (!isDataWidgetRecord(column) || typeof column.key !== "string") {
+          throw new ActionInputValidationError(
+            "Each table column needs a key before its rows can be rendered.",
+          );
+        }
+        return column.key;
+      });
+      if (new Set(keys).size !== keys.length) {
+        throw new ActionInputValidationError(
+          "Table column keys must be distinct.",
+        );
+      }
+      const normalizedRows = rows.map((row, index) => {
+        if (!Array.isArray(row) || row.length !== keys.length) {
+          throw new ActionInputValidationError(
+            `Table row ${index + 1} must provide one value for each column, in column order.`,
+          );
+        }
+        return Object.fromEntries(
+          keys.map((key, valueIndex) => [key, row[valueIndex]]),
+        );
+      });
+      normalizedArgs = { ...args, table: { ...table, rows: normalizedRows } };
+    }
+  }
+
+  const chartSeries = normalizedArgs.chartSeries;
+  if (!isDataWidgetRecord(chartSeries) || !Array.isArray(chartSeries.points)) {
+    return normalizedArgs;
+  }
+
+  const xKey = chartSeries.xKey;
+  const series = chartSeries.series;
+  if (typeof xKey !== "string" || !Array.isArray(series)) return normalizedArgs;
+
+  const seriesKeys = series.map((item) => {
+    if (!isDataWidgetRecord(item) || typeof item.key !== "string") {
+      throw new ActionInputValidationError(
+        "Each chart series needs a key before its points can be rendered.",
+      );
+    }
+    return item.key;
+  });
+  if (
+    new Set(seriesKeys).size !== seriesKeys.length ||
+    seriesKeys.includes(xKey)
+  ) {
+    throw new ActionInputValidationError(
+      "Chart xKey and series keys must be distinct.",
+    );
+  }
+  if (chartSeries.points.length === 0) {
+    throw new ActionInputValidationError(
+      "A chart needs at least one complete point.",
+    );
+  }
+
+  const data = chartSeries.points.map((point, index) => {
+    if (
+      !isDataWidgetRecord(point) ||
+      typeof point.xValue !== "string" ||
+      !point.xValue.trim()
+    ) {
+      throw new ActionInputValidationError(
+        `Chart point ${index + 1} needs a non-empty xValue and one numeric value per series.`,
+      );
+    }
+    const values = point.values;
+    if (
+      !Array.isArray(values) ||
+      values.length !== seriesKeys.length ||
+      values.some(
+        (value) => typeof value !== "number" || !Number.isFinite(value),
+      )
+    ) {
+      throw new ActionInputValidationError(
+        `Chart point ${index + 1} must provide one finite numeric value for each series, in series order.`,
+      );
+    }
+    return Object.fromEntries([
+      [xKey, point.xValue],
+      ...seriesKeys.map((key, valueIndex) => [key, values[valueIndex]]),
+    ]);
+  });
+
+  const { points: _points, ...chartSeriesWithoutPoints } = chartSeries;
+  return {
+    ...normalizedArgs,
+    chartSeries: { ...chartSeriesWithoutPoints, data },
+  };
+}
 
 export const FRAMEWORK_CONTEXT_SECTIONS: Record<string, string> = {
   embeds: `### Inline Embeds
@@ -208,7 +315,7 @@ The \`db-*\` tools ONLY query the app's own SQL database. They do NOT reach exte
 
 export function createFrameworkContextEntry(): Record<string, ActionEntry> {
   const topicList = Object.keys(FRAMEWORK_CONTEXT_SECTIONS).join(", ");
-  return {
+  return frameworkMcpTools({
     "get-framework-context": {
       tool: {
         description: `Read detailed framework instructions for a specific capability. Available topics: ${topicList}. Call with topic="all" to get everything.`,
@@ -236,11 +343,11 @@ export function createFrameworkContextEntry(): Record<string, ActionEntry> {
       },
       readOnly: true,
     },
-  };
+  });
 }
 
 export function createRefreshScreenEntry(): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "refresh-screen": {
       readOnly: true,
       dedupe: false,
@@ -270,7 +377,7 @@ export function createRefreshScreenEntry(): Record<string, ActionEntry> {
         return `refreshed${scope ? ` (scope: ${scope})` : ""}`;
       },
     },
-  };
+  });
 }
 
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
@@ -286,7 +393,7 @@ export function appStateKeyForBrowserTab(
 }
 
 export function createUrlTools(): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "set-search-params": {
       readOnly: true,
       tool: {
@@ -397,7 +504,7 @@ export function createUrlTools(): Record<string, ActionEntry> {
     },
     "open-settings-page": createOpenSettingsPageTool(),
     "ask-question": createAskQuestionTool(),
-  };
+  });
 }
 
 function parseAskQuestion(args: any) {
@@ -551,8 +658,13 @@ function createAskQuestionTool(): ActionEntry {
   return { ...entry, run: action.run };
 }
 
-export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
-  return {
+export function createDataWidgetActionEntries(
+  validateDataWidget?: (
+    input: Parameters<ActionEntry["run"]>[0],
+    context: Parameters<ActionEntry["run"]>[1],
+  ) => void | Promise<void>,
+): Record<string, ActionEntry> {
+  return frameworkMcpTools({
     "render-data-widget": {
       readOnly: true,
       parallelSafe: true,
@@ -710,8 +822,18 @@ export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
           required: ["widget"],
         },
       },
-      run: async (args) =>
-        clampDataWidgetRows(dataWidgetResultSchema.parse(args)),
+      run: async (args, context) => {
+        const result = dataWidgetResultSchema.parse(
+          normalizeDataWidgetToolInput(args),
+        );
+        if (!isDataWidgetResult(result)) {
+          throw new ActionInputValidationError(
+            "The data widget result is not renderable.",
+          );
+        }
+        await validateDataWidget?.(args, context);
+        return clampDataWidgetRows(result);
+      },
     },
-  };
+  });
 }

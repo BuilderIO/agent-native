@@ -78,6 +78,40 @@ describe("get-onboarding-journey read failures", () => {
     ).toThrow();
   });
 
+  it.each([
+    ["experiment arms", { experimentId: "first_run_builder_credits" }],
+    ["Design first touch", { app: "design", splitDesignFirstTouch: true }],
+  ] as const)("rejects person follow-up with %s", (_label, cohort) => {
+    expect(() =>
+      action.schema.parse({ ...args, ...cohort, followUpMode: "person" }),
+    ).toThrow(/Person follow-up is not available with cohort splits/);
+  });
+
+  it.each([
+    "first_run_builder_credits",
+    "first_run_builder_credits_v2",
+  ] as const)("accepts experiment ID %s", (experimentId) => {
+    expect(
+      action.schema.parse({
+        ...args,
+        format: "tree",
+        followUpMode: "session",
+        experimentId,
+      }).experimentId,
+    ).toBe(experimentId);
+  });
+
+  it("rejects unsupported experiment IDs", () => {
+    expect(() =>
+      action.schema.parse({
+        ...args,
+        format: "tree",
+        followUpMode: "session",
+        experimentId: "first_run_builder_credits_v3",
+      }),
+    ).toThrow();
+  });
+
   it("forwards the action cancellation signal to the journey read", async () => {
     mocks.getOnboardingJourney.mockResolvedValueOnce({ status: "complete" });
     const signal = new AbortController().signal;

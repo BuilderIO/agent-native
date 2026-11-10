@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,7 @@ import {
 import {
   ActionContractError,
   isActionContractError,
+  noteExternalWrite,
 } from "@agent-native/core/action";
 import { describeErrorWithCauses } from "@agent-native/core/agent/engine/error-detail";
 import { getAppConfig } from "@agent-native/core/app-config";
@@ -27,6 +28,7 @@ import {
   FeatureNotConfiguredError,
   createBuilderProject,
   getBuilderBranchProjectId,
+  getBuilderWorkspaceUrl,
   getConfiguredAppBasePath,
   getRequestContext,
   inferWorkspaceAppRootHomePath,
@@ -54,7 +56,7 @@ import {
   parseAgentProfileMetadata,
   type ConnectRequiredCard,
 } from "@agent-native/core/shared";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { resolveAccessMany } from "@agent-native/core/sharing";
 
 import { getDb } from "../../db/index.js";
 import { workspaceAppRoute } from "../../shared/workspace-app-route.js";
@@ -94,7 +96,6 @@ const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_APPS_GATEWAY_PATH = "/_workspace/apps";
 const WORKSPACE_APPS_GATEWAY_TIMEOUT_MS = 2_500;
-const WORKSPACE_APP_ACCESS_CONCURRENCY = 8;
 const MAX_PENDING_APPS = 50;
 const PENDING_WORKSPACE_APP_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const AGENT_CARD_PATH = "/.well-known/agent-card.json";
@@ -193,6 +194,51 @@ function warnWorkspaceAppsGatewayDenial(
   );
 }
 
+interface WorkspaceAppsGatewayAttempt {
+  startedAt: number;
+  gateway: string;
+  upstream?: { status: number; requestId?: string };
+}
+
+function noteWorkspaceAppsGatewayResponse(
+  attempt: WorkspaceAppsGatewayAttempt,
+  response: Response,
+): void {
+  const requestId = response.headers.get("x-agent-native-request-id");
+  attempt.upstream = {
+    status: response.status,
+    ...(requestId ? { requestId } : {}),
+  };
+}
+
+// The action route returns a typed contract error without capturing it, so a
+// refusal, a timeout and an outage would all read as one 503 with no trace.
+// `upstreamRequestId` is the id the workspace stamped on its own answer: it
+// opens that side's log for the same read.
+function logWorkspaceAppsGatewayFailure(
+  failure: ActionContractError,
+  attempt: WorkspaceAppsGatewayAttempt,
+  cause: unknown,
+): void {
+  const requestId = getRequestContext()?.requestId;
+  console.warn("[dispatch] workspace apps gateway read failed:", {
+    errorCode: failure.errorCode,
+    status: failure.statusCode,
+    ...(requestId ? { requestId } : {}),
+    gateway: attempt.gateway,
+    elapsedMs: Date.now() - attempt.startedAt,
+    ...(attempt.upstream
+      ? {
+          upstreamStatus: attempt.upstream.status,
+          ...(attempt.upstream.requestId
+            ? { upstreamRequestId: attempt.upstream.requestId }
+            : {}),
+        }
+      : {}),
+    ...(cause === undefined ? {} : { cause: describeErrorWithCauses(cause) }),
+  });
+}
+
 type WorkspaceAppAudience = "internal" | "public";
 type WorkspaceAppVisibility = "private" | "org";
 
@@ -232,9 +278,9 @@ interface FinalizeWorkspaceAppsOptions {
   persist?: boolean;
 }
 
-interface WorkspaceAppDiscovery {
-  apps: WorkspaceAppSummary[];
-}
+type WorkspaceAppDiscovery =
+  | { kind: "apps"; apps: WorkspaceAppSummary[] }
+  | { kind: "domainless" };
 
 export interface ListWorkspaceAppsOptions {
   includeAgentCards?: boolean;
@@ -265,6 +311,11 @@ export interface WorkspaceInfo {
   displayName: string | null;
   rootPath: string | null;
   appCount: number;
+  /**
+   * Set when this workspace is linked to Builder: apps are created there, so
+   * Dispatch links to it instead of offering its own create-app flow.
+   */
+  builderWorkspaceUrl: string | null;
 }
 
 interface PendingWorkspaceApp {
@@ -1838,33 +1889,17 @@ async function filterWorkspaceAppsByAccess(
     candidates.push(app);
   }
 
-  for (
-    let start = 0;
-    start < candidates.length;
-    start += WORKSPACE_APP_ACCESS_CONCURRENCY
-  ) {
-    const batch = candidates.slice(
-      start,
-      start + WORKSPACE_APP_ACCESS_CONCURRENCY,
-    );
-    const decisions = await Promise.all(
-      batch.map(async (app) => {
-        try {
-          const access = await resolveAccess(
-            "workspace-app",
-            app.id,
-            { userEmail, orgId },
-            { skipResourceBody: true },
-          );
-          return { app, allowed: Boolean(access) };
-        } catch (error) {
-          console.warn("[dispatch] workspace app access lookup failed", error);
-          return { app, allowed: false };
-        }
-      }),
-    );
-    for (const decision of decisions) {
-      if (decision.allowed) visibleIds.add(decision.app.id);
+  if (candidates.length > 0) {
+    try {
+      const access = await resolveAccessMany(
+        "workspace-app",
+        candidates.map((app) => app.id),
+        { userEmail, ...(orgId ? { orgId } : {}) },
+        { skipResourceBody: true },
+      );
+      for (const id of access.keys()) visibleIds.add(id);
+    } catch (error) {
+      console.warn("[dispatch] workspace app access lookup failed", error);
     }
   }
 
@@ -2048,13 +2083,10 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         );
       }
     }
-    if (requestContext.orgId && !orgDomain) {
-      throw new WorkspaceAppsGatewayAuthorizationError(
-        401,
-        "workspace_gateway_org_domain_missing",
-        "Workspace apps gateway cannot authenticate without a resolved organization domain.",
-      );
-    }
+    // The hosted registry is keyed by organization domain, so an org that has
+    // none (a new Builder-connected account) has no hosted workspace to read.
+    // A failed domain lookup still throws above.
+    if (requestContext.orgId && !orgDomain) return { kind: "domainless" };
     if (requestContext.orgId) {
       try {
         orgSecret =
@@ -2112,6 +2144,10 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
     () => controller.abort(),
     WORKSPACE_APPS_GATEWAY_TIMEOUT_MS,
   );
+  const attempt: WorkspaceAppsGatewayAttempt = {
+    startedAt: Date.now(),
+    gateway: `${baseUrl.origin}${baseUrl.pathname.replace(/\/+$/, "")}`,
+  };
 
   const gatewayUrl = (pathname: string): URL => {
     const url = new URL(baseUrl.toString());
@@ -2156,7 +2192,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         },
       );
     }
-    return { apps };
+    return { kind: "apps" as const, apps };
   };
 
   try {
@@ -2169,6 +2205,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
           signal: controller.signal,
         },
       );
+      noteWorkspaceAppsGatewayResponse(attempt, localResponse);
       if (localResponse.status === 401 || localResponse.status === 403) {
         throw new WorkspaceAppsGatewayAuthorizationError(
           localResponse.status,
@@ -2198,6 +2235,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       ...protectedRedirect,
       signal: controller.signal,
     });
+    noteWorkspaceAppsGatewayResponse(attempt, actionResponse);
     if (actionResponse.status === 401 || actionResponse.status === 403) {
       throw new WorkspaceAppsGatewayAuthorizationError(
         actionResponse.status,
@@ -2216,14 +2254,24 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
     }
     return await readAppsResponse(actionResponse);
   } catch (error) {
-    if (error instanceof ActionContractError) throw error;
-    throw new ActionContractError(
-      "Workspace apps gateway could not be reached.",
+    if (error instanceof ActionContractError) {
+      logWorkspaceAppsGatewayFailure(error, attempt, undefined);
+      throw error;
+    }
+    const timedOut = controller.signal.aborted;
+    const failure = new ActionContractError(
+      timedOut
+        ? "Workspace apps gateway did not answer in time."
+        : "Workspace apps gateway could not be reached.",
       {
         statusCode: 503,
-        errorCode: "workspace_gateway_unavailable",
+        errorCode: timedOut
+          ? "workspace_gateway_timeout"
+          : "workspace_gateway_unavailable",
       },
     );
+    logWorkspaceAppsGatewayFailure(failure, attempt, error);
+    throw failure;
   } finally {
     clearTimeout(timeout);
   }
@@ -2342,7 +2390,13 @@ export function getEnvBuilderProjectId(): string | null {
 export function getWorkspaceInfo(): WorkspaceInfo {
   const rootPath = findWorkspaceRoot();
   if (!rootPath) {
-    return { name: null, displayName: null, rootPath: null, appCount: 0 };
+    return {
+      name: null,
+      displayName: null,
+      rootPath: null,
+      appCount: 0,
+      builderWorkspaceUrl: getBuilderWorkspaceUrl(),
+    };
   }
   const pkg = readJson(path.join(rootPath, "package.json"));
   const rawName = typeof pkg?.name === "string" ? pkg.name.trim() : "";
@@ -2366,6 +2420,7 @@ export function getWorkspaceInfo(): WorkspaceInfo {
     displayName,
     rootPath,
     appCount,
+    builderWorkspaceUrl: getBuilderWorkspaceUrl(),
   };
 }
 
@@ -2517,13 +2572,14 @@ async function listWorkspaceAppsWithPrincipal(
     if (!(error instanceof WorkspaceAppsGatewayAuthorizationError)) throw error;
     gatewayDenial = error;
   }
-  if (gatewayApps) {
+  if (gatewayApps?.kind === "apps") {
     return finalize(gatewayApps.apps);
   }
   if (gatewayDenial && gatewayDenial.statusCode >= 500) {
     throw gatewayDenial;
   }
-  const unverified = gatewayDenial !== null;
+  const unverified =
+    gatewayDenial !== null || gatewayApps?.kind === "domainless";
 
   const workspaceRoot = findWorkspaceRoot();
   const localFilesystemApps =
@@ -2713,6 +2769,10 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
   template: string;
   appId?: string | null;
 }): Promise<{ appId: string; template: string; output: string }> {
+  const builderWorkspaceUrl = getBuilderWorkspaceUrl();
+  if (builderWorkspaceUrl) {
+    throw new Error(builderManagedCreationResult(builderWorkspaceUrl).message);
+  }
   if (!isLocalAppCreationRuntime()) {
     throw new Error(
       "Scaffolding from Dispatch is only available in local development. " +
@@ -2751,6 +2811,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
     });
   } catch (error) {
     if (fs.existsSync(appDir)) {
+      noteExternalWrite("local-disk");
       fs.rmSync(appDir, { recursive: true, force: true });
     }
     throw error;
@@ -2767,6 +2828,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
     });
   } catch (error) {
     if (fs.existsSync(appDir)) {
+      noteExternalWrite("local-disk");
       fs.rmSync(appDir, { recursive: true, force: true });
     }
     throw error;
@@ -2807,11 +2869,22 @@ function runScaffoldCli(input: {
   args: string[];
 }): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn("pnpm", ["exec", "agent-native", ...input.args], {
-      cwd: input.cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, CI: "1", FORCE_COLOR: "0" },
-    });
+    noteExternalWrite("child-process");
+    // pnpm is a pnpm.cmd shim on Windows, which Node starts only through a
+    // shell. The app id is validated and the template comes from an allowlist,
+    // so one joined command line is safe there.
+    const args = ["exec", "agent-native", ...input.args];
+    const windows = process.platform === "win32";
+    const child = spawn(
+      windows ? ["pnpm", ...args].join(" ") : "pnpm",
+      windows ? [] : args,
+      {
+        cwd: input.cwd,
+        shell: windows,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, CI: "1", FORCE_COLOR: "0" },
+      },
+    );
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk) => {
@@ -2821,7 +2894,15 @@ function runScaffoldCli(input: {
       stderr += String(chunk);
     });
     const timer = setTimeout(() => {
-      child.kill("SIGTERM");
+      if (windows && child.pid) {
+        // The child is cmd.exe, so stop its whole tree before the caller
+        // removes the app folder. taskkill returns once the tree is gone.
+        spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+          stdio: "ignore",
+        });
+      } else {
+        child.kill("SIGTERM");
+      }
       reject(
         new Error(
           `Scaffold timed out after ${Math.round(SCAFFOLD_TIMEOUT_MS / 1000)}s`,
@@ -3358,7 +3439,25 @@ export interface AppCreationBuilderResult {
   message: string;
 }
 
+/** A Builder-linked workspace: apps are built in Builder, so nothing was created. */
+export interface AppCreationBuilderManagedResult {
+  mode: "builder-managed";
+  url: string;
+  message: string;
+}
+
+export function builderManagedCreationResult(
+  url: string,
+): AppCreationBuilderManagedResult {
+  return {
+    mode: "builder-managed",
+    url,
+    message: `Apps in this workspace are built in Builder. Open ${url} and choose New app.`,
+  };
+}
+
 export type StartWorkspaceAppCreationResult =
+  | AppCreationBuilderManagedResult
   | AppCreationIdentityUnavailableResult
   | AppCreationBuilderUnavailableResult
   | AppCreationAppIdTakenResult
@@ -3376,6 +3475,9 @@ export async function startWorkspaceAppCreation(input: {
   attachments?: BuilderAgentAttachment[];
   communitySourceId?: string;
 }): Promise<StartWorkspaceAppCreationResult> {
+  const builderWorkspaceUrl = getBuilderWorkspaceUrl();
+  if (builderWorkspaceUrl)
+    return builderManagedCreationResult(builderWorkspaceUrl);
   const initial = buildWorkspaceAppPrompt({
     prompt: input.prompt,
     appId: input.appId,

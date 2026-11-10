@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "会話を参照…",
+    group: "会話",
+    authentication: "参照を追加するにはログインしてください。",
+    invalid: "送信する前に有効な参照を選択してください。",
+    unavailable:
+      "選択した参照は利用できなくなりました。削除するか、もう一度選択してください。",
+  },
   composer: {
     removeAttachment: "{{name}} を削除",
     removeReference: "{{name}} の参照を削除",
@@ -50,17 +58,12 @@ const messages = {
     untitledChat: "無題のチャット",
   },
   home: {
-    composerPlaceholder: "Alex に対して hello アクションを呼び出して",
     communityTitle: "コミュニティ",
     docsAddAction: "アクションを追加",
     docsAddPage: "ページを追加",
     docsGettingStarted: "はじめに",
     docsKeyConcepts: "主要な概念",
     docsTitle: "ドキュメント",
-    editHint:
-      "{{file}} を編集して保存し、もう一度頼むと新しいあいさつが表示されます。",
-    lead: "アプリの UI とエージェントは同じアクションを共有しています。",
-    leadTry: "エージェントに hello アクションを呼び出してもらいましょう。",
     title: "はじめに",
   },
   navigation: {

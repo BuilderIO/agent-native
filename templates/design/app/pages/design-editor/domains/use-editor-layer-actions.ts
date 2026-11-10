@@ -255,6 +255,7 @@ export function useEditorLayerActions({
   const {
     serverFiles,
     files,
+    overviewFiles,
     liveScreenSnapshotsById,
     runtimeLayerSnapshotsById,
     designSourceType,
@@ -743,8 +744,9 @@ export function useEditorLayerActions({
   );
 
   const handleLayerMoveToScreen = useCallback(
-    (intent: LayersPanelMoveIntent, targetFileId: string) =>
-      runLayerMoveToScreen(
+    (intent: LayersPanelMoveIntent, targetFileId: string) => {
+      if (!activeFile) return;
+      return runLayerMoveToScreen(
         {
           activeBreakpointWidthState,
           activeFileId,
@@ -775,7 +777,8 @@ export function useEditorLayerActions({
         },
         intent,
         targetFileId,
-      ),
+      );
+    },
     [
       activeFileId,
       overviewSelectedScreenIds,
@@ -796,8 +799,9 @@ export function useEditorLayerActions({
   );
 
   const handleLayerMove = useCallback(
-    (intent: LayersPanelMoveIntent) =>
-      runLayerMove(
+    (intent: LayersPanelMoveIntent) => {
+      if (!activeFile) return;
+      return runLayerMove(
         {
           activeBreakpointWidthState,
           activeFileId,
@@ -837,7 +841,8 @@ export function useEditorLayerActions({
           visualScreenFileIds,
         },
         intent,
-      ),
+      );
+    },
     [
       activeFileId,
       overviewSelectedScreenIds,
@@ -969,6 +974,7 @@ export function useEditorLayerActions({
               measured.positionContainingBlockOrigin,
             positionContainingBlockTransform:
               measured.positionContainingBlockTransform,
+            svgShapeOffset: measured.svgShapeOffset,
             relativeContainingBlockDirection:
               measured.relativeContainingBlockDirection,
             computedStyles: {
@@ -1104,7 +1110,7 @@ export function useEditorLayerActions({
             clearPendingOverviewLayerSelectionTimer,
             codeLayerOwnerByNodeId,
             effectiveCodeLayerState,
-            files,
+            files: overviewFiles,
             getScreenContent,
             overviewSelectedScreenIds,
             pendingOverviewLayerSelectionRef,
@@ -1135,6 +1141,7 @@ export function useEditorLayerActions({
       codeLayerOwnerByNodeId,
       effectiveCodeLayerState,
       files,
+      overviewFiles,
       getScreenContent,
       activeBreakpointWidthStateRef,
       overviewSelectedScreenIds,
@@ -1306,6 +1313,7 @@ export function useEditorLayerActions({
 
   const handleLayerRename = useCallback(
     (layerId: string, name: string) => {
+      if (!activeFile) return;
       const owner = codeLayerOwnerByNodeId.get(layerId);
       if (owner && canEditLiveScreen(owner.fileId) && !canEditDesign) {
         runtimeLayerRenameRevisionRef.current += 1;
@@ -1328,6 +1336,7 @@ export function useEditorLayerActions({
           codeLayerOwnerByNodeId,
           designSourceType,
           files,
+          screenFiles: overviewFiles,
           getFreshActiveContent,
           getScreenContent,
           id,
@@ -1354,6 +1363,7 @@ export function useEditorLayerActions({
       getScreenContent,
       id,
       liveScreenSnapshotsById,
+      overviewFiles,
       overviewScreens,
       queryClient,
       renameScreenMutation,
@@ -1366,8 +1376,9 @@ export function useEditorLayerActions({
   );
 
   const handleToggleLayerLocked = useCallback(
-    (layerId: string, locked: boolean) =>
-      runToggleLayerLocked(
+    (layerId: string, locked: boolean) => {
+      if (!activeFile) return;
+      return runToggleLayerLocked(
         {
           activeFile,
           applyFileContentUpdate,
@@ -1388,7 +1399,8 @@ export function useEditorLayerActions({
         },
         layerId,
         locked,
-      ),
+      );
+    },
     [
       activeFile?.id,
       applyLayerStatePreview,
@@ -1410,8 +1422,9 @@ export function useEditorLayerActions({
   );
 
   const handleToggleLayerHidden = useCallback(
-    (layerId: string, hidden: boolean) =>
-      runToggleLayerHidden(
+    (layerId: string, hidden: boolean) => {
+      if (!activeFile) return;
+      return runToggleLayerHidden(
         {
           activeFile,
           applyFileContentUpdate,
@@ -1432,7 +1445,8 @@ export function useEditorLayerActions({
         },
         layerId,
         hidden,
-      ),
+      );
+    },
     [
       activeFile?.id,
       applyLayerStatePreview,

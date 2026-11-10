@@ -27,12 +27,14 @@ import {
   databaseViewHasNoMatchingPages,
   databaseViewItemGroups,
   databaseVisibleGroups,
+  openDatabaseItemOnClick,
   type CreateDatabaseRowHandler,
   type DatabaseBoardGroup,
   type DatabaseFilter,
 } from "./DatabaseView";
 import { ListItemLayoutPresets } from "./ListItemLayout";
 import { DatabaseLayoutListRow, type ListItemRowLayout } from "./ListItemRow";
+import { databaseRowOpenTarget } from "./row-open-target";
 
 export function DatabaseListView({
   properties,
@@ -222,7 +224,6 @@ export function DatabaseListView({
                   properties={properties}
                   databaseDocumentId={databaseDocumentId}
                   canEdit={canEdit}
-                  rowIndex={index}
                   canReorder={rowsAreManuallyOrdered}
                   canMoveUp={rowsAreManuallyOrdered && index > 0}
                   canMoveDown={
@@ -297,7 +298,6 @@ function DatabaseGroupedListSection({
               properties={properties}
               databaseDocumentId={databaseDocumentId}
               canEdit={canEdit}
-              rowIndex={index}
               canReorder={false}
               canMoveUp={false}
               canMoveDown={false}
@@ -327,7 +327,6 @@ function DatabaseListRow({
   properties,
   databaseDocumentId,
   canEdit,
-  rowIndex,
   canReorder,
   canMoveUp,
   canMoveDown,
@@ -342,7 +341,6 @@ function DatabaseListRow({
   properties: DocumentProperty[];
   databaseDocumentId: string;
   canEdit: boolean;
-  rowIndex: number;
   canReorder: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -355,7 +353,6 @@ function DatabaseListRow({
     <RowActionsCell
       item={item}
       databaseDocumentId={databaseDocumentId}
-      rowIndex={rowIndex}
       canReorder={canReorder}
       canMoveUp={canMoveUp}
       canMoveDown={canMoveDown}
@@ -383,19 +380,26 @@ function DatabaseListRow({
 
   return (
     <div className="group flex min-h-10 items-center gap-2 border-t border-border px-1 py-1 hover:bg-muted/40">
-      <button
-        type="button"
-        className="flex min-w-0 flex-1 items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={onPreview}
+      <div
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1.5 py-1 hover:bg-accent/60"
+        {...databaseRowOpenTarget(item.document.id)}
+        onClick={openDatabaseItemOnClick(onPreview)}
       >
-        <DatabaseItemPageIcon
-          document={item.document}
-          className="size-4 text-sm"
-          fallbackClassName="size-4"
-        />
-        <span className="min-w-0 truncate text-sm font-medium">
-          {item.document.title || "Untitled"}
-        </span>
+        <button
+          type="button"
+          className="flex min-w-0 items-center gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          {...databaseRowOpenTarget(item.document.id)}
+          onClick={onPreview}
+        >
+          <DatabaseItemPageIcon
+            document={item.document}
+            className="size-4 text-sm"
+            fallbackClassName="size-4"
+          />
+          <span className="min-w-0 truncate text-sm font-medium">
+            {item.document.title || "Untitled"}
+          </span>
+        </button>
         {visibleProperties.length > 0 ? (
           <span className="ml-2 hidden min-w-0 flex-wrap items-center gap-1 md:flex">
             {visibleProperties.map((property) => {
@@ -409,13 +413,15 @@ function DatabaseListRow({
                   key={property.definition.id}
                   className="max-w-36 truncate rounded bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground"
                 >
-                  {displayValue(itemProperty)}
+                  {displayValue(itemProperty, undefined, "compact", {
+                    interactiveUrls: true,
+                  })}
                 </span>
               );
             })}
           </span>
         ) : null}
-      </button>
+      </div>
       {actions}
     </div>
   );

@@ -14,8 +14,13 @@ import { readPreviewDocumentDraft } from "./_preview-document-draft.js";
 const draftPayload = z
   .object({
     title: z.string().max(10_000),
-    content: z.string().max(500_000),
+    content: z.string(),
     baseDocumentUpdatedAt: z.string().max(100).nullable(),
+    baseContentHash: z
+      .string()
+      .regex(/^sha256:[a-f0-9]{64}$/)
+      .nullable()
+      .optional(),
     loadedContentWasEmpty: z.boolean(),
     deferredReason: z.enum(["hydration", "conflict"]).nullable(),
     editorSessionId: z.string().min(1).max(200).optional(),
@@ -54,7 +59,7 @@ export default defineAction({
         documentId: z.string().min(1),
         expectedVersion: z.number().int().positive(),
         expectedTitle: z.string().max(10_000),
-        expectedContent: z.string().max(500_000),
+        expectedContent: z.string(),
         expectedEditorSessionId: z.string().min(1).max(200).optional(),
         expectedEditGeneration: z.number().int().nonnegative().optional(),
         ifPageHoldsDraft: z
@@ -189,6 +194,7 @@ export default defineAction({
             title: args.draft.title,
             content: args.draft.content,
             baseDocumentUpdatedAt: args.draft.baseDocumentUpdatedAt,
+            baseContentHash: args.draft.baseContentHash ?? null,
             loadedContentWasEmpty: args.draft.loadedContentWasEmpty ? 1 : 0,
             deferredReason: args.draft.deferredReason,
             editorSessionId: args.draft.editorSessionId,
@@ -223,6 +229,7 @@ export default defineAction({
             title: args.draft.title,
             content: args.draft.content,
             baseDocumentUpdatedAt: args.draft.baseDocumentUpdatedAt,
+            baseContentHash: args.draft.baseContentHash ?? null,
             loadedContentWasEmpty: args.draft.loadedContentWasEmpty ? 1 : 0,
             deferredReason: args.draft.deferredReason,
             editorSessionId: args.draft.editorSessionId,

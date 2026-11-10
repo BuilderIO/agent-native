@@ -8,6 +8,7 @@ import {
   partitionWeighted,
   requiresFullCoreFastTests,
   splitLargePackages,
+  toolSearchBenchmarkCoreSpecs,
 } from "./ci-test-lanes.ts";
 
 const pkgs = (...entries: Array<[string, number]>) =>
@@ -101,6 +102,7 @@ test("runs the catalog contract specs for any workspace source change", () => {
   const specs = [
     "src/mcp/advertised-tool-annotations.spec.ts",
     "src/mcp/instructions-name-advertised-tools.spec.ts",
+    "src/mcp/hidden-inline-apps.spec.ts",
   ];
   for (const changed of [
     "templates/mail/actions/send-email.ts",
@@ -154,6 +156,28 @@ test("runs the catalog contract specs for any workspace source change", () => {
   );
 });
 
+test("runs the tool-search benchmark only for template action and shared changes", () => {
+  const spec = ["src/agent/tool-search.benchmark.spec.ts"];
+  for (const changed of [
+    "templates/mail/actions/manage-draft.ts",
+    "templates/newapp/actions/nested/create-thing.ts",
+    "templates/mail/shared/automation-schema.ts",
+  ]) {
+    assert.deepEqual(toolSearchBenchmarkCoreSpecs([changed]), spec, changed);
+  }
+  for (const unrelated of [
+    "templates/mail/actions/manage-draft.spec.ts",
+    "templates/mail/shared/automation-schema.spec.ts",
+    "templates/mail/app/routes/inbox.tsx",
+    "templates/mail/server/lib/automations.ts",
+    "templates/mail/actions/README.md",
+    "packages/core/src/agent/tool-search.ts",
+    "packages/creative-context/src/actions/x.ts",
+  ]) {
+    assert.deepEqual(toolSearchBenchmarkCoreSpecs([unrelated]), [], unrelated);
+  }
+});
+
 test("refuses lanes that skip or repeat a core shard", () => {
   const lane = (coreShard: string, packages: string[] = []) => ({
     lane: "lane",
@@ -202,24 +226,7 @@ test("keeps packages whole when they are unshardable or too small to split", () 
   );
 });
 
-test("starts Slides 2 fast tests in sixty-four fresh Vitest processes", () => {
-  const shards = splitLargePackages(
-    [{ name: "slides-2", files: 455, shardable: true }],
-    8,
-    5_000,
-  );
-
-  assert.equal(shards.length, 64);
-  assert.deepEqual(
-    shards.map(({ shard }) => shard),
-    Array.from({ length: 64 }, (_, index) => `${index + 1}/64`),
-  );
-  assert.deepEqual(
-    shards.map(({ files }) => files),
-    Array.from({ length: 64 }, (_, index) => (index < 7 ? 8 : 7)),
-  );
-});
-
+// oracle-change: remove tests for the deleted Slides 2 template
 test("shards a targeted package alongside changed core tests", () => {
   const rest = [{ name: "design", files: 800, shardable: true }];
   const lanes = partitionTargetedWeighted(rest, 4, 4, "changed", [

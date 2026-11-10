@@ -2,12 +2,84 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { BUILDER_CMS_FIXTURE_ROW_PROVENANCE } from "./_builder-cms-source-adapter";
+import {
+  BUILDER_CMS_EDIT_CONFLICTS_KEY,
+  BUILDER_CMS_TITLE_CONFLICT_KEY,
+} from "./_builder-cms-unpublished-changes";
 import { registerMemoryPrivateBlobProvider } from "./_builder-private-blob.test-fixture";
+
+const snapshotRead = vi.hoisted(() => ({
+  after: null as null | (() => Promise<void>),
+}));
+
+vi.mock("./_database-source-utils.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_database-source-utils.js")>();
+  return {
+    ...actual,
+    async getContentDatabaseSourceSnapshotForWrite(
+      ...args: Parameters<
+        typeof actual.getContentDatabaseSourceSnapshotForWrite
+      >
+    ) {
+      const snapshot = await actual.getContentDatabaseSourceSnapshotForWrite(
+        ...args,
+      );
+      const after = snapshotRead.after;
+      snapshotRead.after = null;
+      await after?.();
+      return snapshot;
+    },
+  };
+});
+
+const membershipLock = vi.hoisted(() => ({
+  beforeNextLock: null as null | (() => Promise<void>),
+}));
+
+vi.mock("./_database-membership-lock.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_database-membership-lock.js")>();
+  return {
+    ...actual,
+    async lockDatabaseMemberships(
+      ...args: Parameters<typeof actual.lockDatabaseMemberships>
+    ) {
+      const beforeLock = membershipLock.beforeNextLock;
+      membershipLock.beforeNextLock = null;
+      await beforeLock?.();
+      return actual.lockDatabaseMemberships(...args);
+    },
+  };
+});
+
+const databaseLock = vi.hoisted(() => ({
+  beforeNextLock: null as null | (() => Promise<void>),
+}));
+
+vi.mock("./_content-database-mutation-lock.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("./_content-database-mutation-lock.js")
+    >();
+  return {
+    ...actual,
+    async lockContentDatabaseMutation(
+      ...args: Parameters<typeof actual.lockContentDatabaseMutation>
+    ) {
+      const beforeLock = databaseLock.beforeNextLock;
+      databaseLock.beforeNextLock = null;
+      await beforeLock?.();
+      return actual.lockContentDatabaseMutation(...args);
+    },
+  };
+});
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -21,6 +93,7 @@ let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let stageBulkUpdate: typeof import("./stage-builder-source-bulk-update.js").default;
 let prepareReview: typeof import("./prepare-builder-source-review.js").default;
+let reviewChangeSet: typeof import("./review-content-database-source-change-set.js").default;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -32,6 +105,9 @@ beforeAll(async () => {
   stageBulkUpdate = (await import("./stage-builder-source-bulk-update.js"))
     .default;
   prepareReview = (await import("./prepare-builder-source-review.js")).default;
+  reviewChangeSet = (
+    await import("./review-content-database-source-change-set.js")
+  ).default;
 }, 60000);
 
 afterAll(() => {
@@ -75,6 +151,7 @@ async function seedBuilderDatabase(args: {
   fixtureRowIndex?: number;
   liveReadConfigured?: boolean;
   liveWritesEnabled?: boolean;
+  sourceFieldKey?: string;
 }) {
   const db = getDb();
   const now = "2026-07-01T12:00:00.000Z";
@@ -83,7 +160,7 @@ async function seedBuilderDatabase(args: {
   const databaseDocumentId = `doc_db_${suffix}`;
   const sourceId = `src_${suffix}`;
   const propertyId = `prop_${suffix}`;
-  const sourceFieldKey = "data.audience";
+  const sourceFieldKey = args.sourceFieldKey ?? "data.audience";
 
   await db.insert(schema.documents).values({
     id: databaseDocumentId,
@@ -438,6 +515,946 @@ describe("stage-builder-source-bulk-update", () => {
         documentId: seeded.rows[0].documentId,
         valueJson: JSON.stringify("Founders"),
       }),
+    ]);
+  });
+
+  it("sets an unpushed edit back when staging the value Builder already has", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const [row] = seeded.rows;
+    const stage = (value: string, dryRun: boolean) =>
+      asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds: [row.itemId],
+          field: { propertyId: seeded.propertyId, value },
+          dryRun,
+        }),
+      );
+    await stage("Operators", false);
+
+    const preview = await stage("Developers", true);
+    expect(preview.rows[0]).toMatchObject({
+      status: "unchanged",
+      message: expect.stringContaining("goes back"),
+    });
+    await expect(
+      valuesFor(seeded.propertyId, [row.documentId]),
+    ).resolves.toEqual([
+      expect.objectContaining({ valueJson: JSON.stringify("Operators") }),
+    ]);
+
+    const sourceRowFilter = and(
+      eq(schema.contentDatabaseSourceRows.sourceId, seeded.sourceId),
+      eq(schema.contentDatabaseSourceRows.documentId, row.documentId),
+    );
+    const [sourceRow] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(sourceRowFilter);
+    // A refresh flagged the field and the title as changed in Builder too.
+    await getDb()
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: JSON.stringify({
+          ...JSON.parse(sourceRow.sourceValuesJson),
+          [BUILDER_CMS_EDIT_CONFLICTS_KEY]: [
+            seeded.sourceFieldKey,
+            BUILDER_CMS_TITLE_CONFLICT_KEY,
+          ],
+        }),
+      })
+      .where(sourceRowFilter);
+
+    const response = await stage("Developers", false);
+    expect(response.summary).toMatchObject({ staged: 0, unchanged: 1 });
+    const [restoredRow] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(sourceRowFilter);
+    expect(
+      JSON.parse(restoredRow.sourceValuesJson)[BUILDER_CMS_EDIT_CONFLICTS_KEY],
+    ).toEqual([BUILDER_CMS_TITLE_CONFLICT_KEY]);
+    await expect(
+      valuesFor(seeded.propertyId, [row.documentId]),
+    ).resolves.toEqual([
+      expect.objectContaining({ valueJson: JSON.stringify("Developers") }),
+    ]);
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        eq(
+          schema.contentDatabaseSourceChangeSets.id,
+          `change_${seeded.sourceId.slice("src_".length)}`,
+        ),
+      );
+    expect(changeSet).toMatchObject({
+      state: "rejected",
+      fieldChangesJson: "[]",
+    });
+  });
+
+  it("keeps the page title's change when a property on Builder's title field is set back", async () => {
+    // A property named "Title" maps to Builder's title field, as the page
+    // title does.
+    const seeded = await seedBuilderDatabase({
+      existingOpenChangeIndex: 0,
+      sourceFieldKey: "data.title",
+    });
+    const [row] = seeded.rows;
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      `change_${seeded.sourceId.slice("src_".length)}`,
+    );
+    const stage = (value: string) =>
+      asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds: [row.itemId],
+          field: { propertyId: seeded.propertyId, value },
+          dryRun: false,
+        }),
+      );
+    await stage("Operators");
+    const [staged] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    const titleChange = {
+      propertyId: null,
+      propertyName: "Title",
+      localFieldKey: "title",
+      sourceFieldKey: "data.title",
+      currentValue: "Developers",
+      proposedValue: "My title",
+    };
+    await getDb()
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({
+        fieldChangesJson: JSON.stringify([
+          ...JSON.parse(staged.fieldChangesJson),
+          titleChange,
+        ]),
+      })
+      .where(changeSetFilter);
+
+    await stage("Developers");
+
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(changeSet.state).toBe("pending_push");
+    expect(JSON.parse(changeSet.fieldChangesJson)).toEqual([titleChange]);
+  });
+
+  it("keeps the page title's change when a property on Builder's title field is staged", async () => {
+    const seeded = await seedBuilderDatabase({
+      existingOpenChangeIndex: 0,
+      sourceFieldKey: "data.title",
+    });
+    const [row] = seeded.rows;
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      `change_${seeded.sourceId.slice("src_".length)}`,
+    );
+    const titleChange = {
+      propertyId: null,
+      propertyName: "Title",
+      localFieldKey: "title",
+      sourceFieldKey: "data.title",
+      currentValue: "Developers",
+      proposedValue: "My title",
+    };
+    await getDb()
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({ fieldChangesJson: JSON.stringify([titleChange]) })
+      .where(changeSetFilter);
+
+    await asOwner(() =>
+      stageBulkUpdate.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        itemIds: [row.itemId],
+        field: { propertyId: seeded.propertyId, value: "Operators" },
+        dryRun: false,
+      }),
+    );
+
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(JSON.parse(changeSet.fieldChangesJson)).toEqual([
+      titleChange,
+      expect.objectContaining({
+        localFieldKey: seeded.propertyId,
+        sourceFieldKey: "data.title",
+        proposedValue: "Operators",
+      }),
+    ]);
+  });
+
+  it("keeps a change saved to the review item after the stage read it", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const [row] = seeded.rows;
+    const changeSetId = `change_${seeded.sourceId.slice("src_".length)}`;
+    const stage = (value: string) =>
+      asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds: [row.itemId],
+          field: { propertyId: seeded.propertyId, value },
+          dryRun: false,
+        }),
+      );
+    await stage("Operators");
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      changeSetId,
+    );
+    snapshotRead.after = async () => {
+      const [current] = await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceChangeSets)
+        .where(changeSetFilter);
+      await getDb()
+        .update(schema.contentDatabaseSourceChangeSets)
+        .set({
+          fieldChangesJson: JSON.stringify([
+            ...JSON.parse(current.fieldChangesJson),
+            {
+              propertyId: null,
+              propertyName: "Title",
+              localFieldKey: "title",
+              sourceFieldKey: "data.title",
+              currentValue: "Article 1",
+              proposedValue: "Retitled",
+            },
+          ]),
+        })
+        .where(changeSetFilter);
+    };
+    try {
+      await stage("Developers");
+    } finally {
+      snapshotRead.after = null;
+    }
+
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(changeSet.state).toBe("pending_push");
+    expect(JSON.parse(changeSet.fieldChangesJson)).toEqual([
+      expect.objectContaining({
+        sourceFieldKey: "data.title",
+        proposedValue: "Retitled",
+      }),
+    ]);
+  });
+
+  it("keeps a staged value up for review when its review item is rejected while the stage waits", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const [row] = seeded.rows;
+    snapshotRead.after = async () => {
+      await getDb()
+        .update(schema.contentDatabaseSourceChangeSets)
+        .set({ state: "rejected", updatedAt: new Date().toISOString() })
+        .where(
+          eq(
+            schema.contentDatabaseSourceChangeSets.id,
+            `change_${seeded.sourceId.slice("src_".length)}`,
+          ),
+        );
+    };
+    let response: Awaited<ReturnType<typeof stageBulkUpdate.run>>;
+    try {
+      response = await asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds: [row.itemId],
+          field: { propertyId: seeded.propertyId, value: "Architects" },
+          dryRun: false,
+        }),
+      );
+    } finally {
+      snapshotRead.after = null;
+    }
+
+    // The review rebuilds an item from the staged value.
+    expect(
+      response.review?.rows.map((reviewRow) => ({
+        documentId: reviewRow.documentId,
+        proposedValue: reviewRow.fieldChanges[0]?.proposedValue,
+      })),
+    ).toEqual([{ documentId: row.documentId, proposedValue: "Architects" }]);
+  });
+
+  it("refuses to stage when the field is unbound after the stage read it", async () => {
+    const seeded = await seedBuilderDatabase({});
+    const [row] = seeded.rows;
+    snapshotRead.after = async () => {
+      await getDb()
+        .update(schema.contentDatabaseSourceFields)
+        .set({ propertyId: null, localFieldKey: seeded.sourceFieldKey })
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceFields.sourceId, seeded.sourceId),
+            eq(
+              schema.contentDatabaseSourceFields.propertyId,
+              seeded.propertyId,
+            ),
+          ),
+        );
+    };
+    try {
+      await expect(
+        asOwner(() =>
+          stageBulkUpdate.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            itemIds: [row.itemId],
+            field: { propertyId: seeded.propertyId, value: "Architects" },
+            dryRun: false,
+          }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "builder_bulk_stage_field_changed",
+      });
+    } finally {
+      snapshotRead.after = null;
+    }
+
+    expect(
+      await valuesFor(seeded.propertyId, [row.documentId]),
+    ).not.toContainEqual(
+      expect.objectContaining({ valueJson: JSON.stringify("Architects") }),
+    );
+  });
+
+  it("refuses a review decision on an item the stage set back after the reviewer read it", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      `change_${seeded.sourceId.slice("src_".length)}`,
+    );
+    // What setting the only change back writes, before the decision saves.
+    databaseLock.beforeNextLock = async () => {
+      await getDb()
+        .update(schema.contentDatabaseSourceChangeSets)
+        .set({
+          state: "rejected",
+          fieldChangesJson: "[]",
+          updatedAt: new Date().toISOString(),
+        })
+        .where(changeSetFilter);
+    };
+    try {
+      await expect(
+        asOwner(() =>
+          reviewChangeSet.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            changeSetId: `change_${seeded.sourceId.slice("src_".length)}`,
+            decision: "approve",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "source_change_set_changed",
+      });
+    } finally {
+      databaseLock.beforeNextLock = null;
+    }
+
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(changeSet.state).not.toBe("approved");
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceChangeReviews)
+        .where(
+          eq(
+            schema.contentDatabaseSourceChangeReviews.changeSetId,
+            changeSet.id,
+          ),
+        ),
+    ).toEqual([]);
+  });
+
+  it.each([
+    { name: "read-only", policy: { readOnly: 1 } },
+    { name: "Content-owned", policy: { writeOwner: "local" } },
+  ])(
+    "refuses to stage when the field is made $name after the stage read it",
+    async ({ policy }) => {
+      const seeded = await seedBuilderDatabase({});
+      const [row] = seeded.rows;
+      snapshotRead.after = async () => {
+        await getDb()
+          .update(schema.contentDatabaseSourceFields)
+          .set(policy)
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceFields.sourceId, seeded.sourceId),
+              eq(
+                schema.contentDatabaseSourceFields.propertyId,
+                seeded.propertyId,
+              ),
+            ),
+          );
+      };
+      try {
+        await expect(
+          asOwner(() =>
+            stageBulkUpdate.run({
+              documentId: seeded.databaseDocumentId,
+              sourceId: seeded.sourceId,
+              itemIds: [row.itemId],
+              field: { propertyId: seeded.propertyId, value: "Architects" },
+              dryRun: false,
+            }),
+          ),
+        ).rejects.toMatchObject({
+          statusCode: 409,
+          errorCode: "builder_bulk_stage_field_changed",
+        });
+      } finally {
+        snapshotRead.after = null;
+      }
+
+      expect(
+        await valuesFor(seeded.propertyId, [row.documentId]),
+      ).not.toContainEqual(
+        expect.objectContaining({ valueJson: JSON.stringify("Architects") }),
+      );
+    },
+  );
+
+  it("refuses a stage or review decision when collection access is revoked while it waits for the lock", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const [row] = seeded.rows;
+    const changeSetId = `change_${seeded.sourceId.slice("src_".length)}`;
+    const collaborator = "collaborator@example.com";
+    const shareFilter = and(
+      eq(schema.documentShares.resourceId, seeded.databaseDocumentId),
+      eq(schema.documentShares.principalId, collaborator),
+    );
+    await getDb()
+      .insert(schema.documentShares)
+      .values({
+        id: nextId("share"),
+        resourceId: seeded.databaseDocumentId,
+        principalType: "user",
+        principalId: collaborator,
+        role: "editor",
+        createdBy: OWNER,
+        createdAt: new Date().toISOString(),
+      });
+    const asCollaborator = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: collaborator }, fn);
+    const revokeBeforeLock = () => {
+      databaseLock.beforeNextLock = async () => {
+        await getDb()
+          .update(schema.documentShares)
+          .set({ role: "viewer" })
+          .where(shareFilter);
+      };
+    };
+    const revoked = `Requires editor role on document ${seeded.databaseDocumentId} (have viewer)`;
+    try {
+      revokeBeforeLock();
+      await expect(
+        asCollaborator(() =>
+          stageBulkUpdate.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            itemIds: [row.itemId],
+            field: { propertyId: seeded.propertyId, value: "Architects" },
+            dryRun: false,
+          }),
+        ),
+      ).rejects.toThrow(revoked);
+      await expect(
+        valuesFor(seeded.propertyId, [row.documentId]),
+      ).resolves.toEqual([]);
+
+      await getDb()
+        .update(schema.documentShares)
+        .set({ role: "editor" })
+        .where(shareFilter);
+      revokeBeforeLock();
+      await expect(
+        asCollaborator(() =>
+          reviewChangeSet.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            changeSetId,
+            decision: "approve",
+          }),
+        ),
+      ).rejects.toThrow(revoked);
+      const [changeSet] = await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceChangeSets)
+        .where(eq(schema.contentDatabaseSourceChangeSets.id, changeSetId));
+      expect(changeSet.state).toBe("pending_push");
+    } finally {
+      databaseLock.beforeNextLock = null;
+      await getDb().delete(schema.documentShares).where(shareFilter);
+    }
+  });
+
+  it("refuses a review decision on an item whose changes were rewritten after the reviewer read it", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const changeSetId = `change_${seeded.sourceId.slice("src_".length)}`;
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      changeSetId,
+    );
+    // Same state and timestamp, so only the changes tell it apart.
+    databaseLock.beforeNextLock = async () => {
+      await getDb()
+        .update(schema.contentDatabaseSourceChangeSets)
+        .set({ fieldChangesJson: "[]" })
+        .where(changeSetFilter);
+    };
+    try {
+      await expect(
+        asOwner(() =>
+          reviewChangeSet.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            changeSetId,
+            decision: "approve",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "source_change_set_changed",
+      });
+    } finally {
+      databaseLock.beforeNextLock = null;
+    }
+
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(changeSet.state).toBe("pending_push");
+  });
+
+  it("refuses to approve an item whose field Builder changed too after the reviewer read it", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const changeSetId = `change_${seeded.sourceId.slice("src_".length)}`;
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      changeSetId,
+    );
+    const sourceRowFilter = and(
+      eq(schema.contentDatabaseSourceRows.sourceId, seeded.sourceId),
+      eq(
+        schema.contentDatabaseSourceRows.documentId,
+        seeded.rows[0].documentId,
+      ),
+    );
+    // A refresh records the conflict on the row; the item itself is untouched.
+    databaseLock.beforeNextLock = async () => {
+      const [sourceRow] = await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceRows)
+        .where(sourceRowFilter);
+      await getDb()
+        .update(schema.contentDatabaseSourceRows)
+        .set({
+          sourceValuesJson: JSON.stringify({
+            ...JSON.parse(sourceRow.sourceValuesJson),
+            [BUILDER_CMS_EDIT_CONFLICTS_KEY]: [seeded.sourceFieldKey],
+          }),
+        })
+        .where(sourceRowFilter);
+    };
+    try {
+      await expect(
+        asOwner(() =>
+          reviewChangeSet.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            changeSetId,
+            decision: "approve",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "source_changed_during_review",
+      });
+    } finally {
+      databaseLock.beforeNextLock = null;
+    }
+
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(changeSet.state).toBe("pending_push");
+  });
+
+  it("refuses to reject an approved item whose push gate was prepared after the reviewer read it", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const changeSetId = `change_${seeded.sourceId.slice("src_".length)}`;
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      changeSetId,
+    );
+    await getDb()
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({ state: "approved" })
+      .where(changeSetFilter);
+    databaseLock.beforeNextLock = async () => {
+      const preparedAt = new Date().toISOString();
+      await getDb()
+        .insert(schema.contentDatabaseSourceExecutions)
+        .values({
+          id: `execution_${changeSetId}`,
+          ownerEmail: OWNER,
+          sourceId: seeded.sourceId,
+          changeSetId,
+          adapter: "builder-cms",
+          pushMode: "autosave",
+          state: "ready",
+          idempotencyKey: `builder-cms:${seeded.sourceId}:${changeSetId}:autosave`,
+          summary: "Ready.",
+          payloadJson: JSON.stringify({ request: { method: "PATCH" } }),
+          attemptToken: null,
+          lastError: null,
+          createdAt: preparedAt,
+          updatedAt: preparedAt,
+        });
+    };
+    try {
+      await expect(
+        asOwner(() =>
+          reviewChangeSet.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            changeSetId,
+            decision: "reject",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        message:
+          "Cannot reject an approved change-set after an execution gate has been prepared.",
+        statusCode: 409,
+        errorCode: "source_change_set_push_prepared",
+      });
+    } finally {
+      databaseLock.beforeNextLock = null;
+    }
+
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(changeSet.state).toBe("approved");
+  });
+
+  it("keeps an edit when staging the other selected rows fails", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const [editedRow, stagedRow] = seeded.rows;
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      `change_${seeded.sourceId.slice("src_".length)}`,
+    );
+    const stage = (itemIds: string[], value: string) =>
+      asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds,
+          field: { propertyId: seeded.propertyId, value },
+          dryRun: false,
+        }),
+      );
+    await stage([editedRow.itemId], "Operators");
+    const [before] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    const triggerName = `fail_staged_value_${counter}`;
+    const functionName = `${triggerName}_fn`;
+    // raw-sql-ok: DDL takes no bound values; the names and id are this test's own.
+    await getDbExec().execute(
+      `CREATE FUNCTION ${functionName}() RETURNS trigger
+       LANGUAGE plpgsql AS $stage$
+       BEGIN
+         RAISE EXCEPTION 'staged write failed';
+       END;
+       $stage$`,
+    );
+    // raw-sql-ok: DDL takes no bound values; the names and id are this test's own.
+    await getDbExec().execute(
+      `CREATE TRIGGER ${triggerName}
+       BEFORE INSERT OR UPDATE ON document_property_values
+       FOR EACH ROW WHEN (NEW.document_id = '${stagedRow.documentId}')
+       EXECUTE FUNCTION ${functionName}()`,
+    );
+    try {
+      // The edited row is set back to Builder's value; the other row stages it.
+      await expect(
+        stage([editedRow.itemId, stagedRow.itemId], "Developers"),
+      ).rejects.toThrow(/insert into "document_property_values"/);
+    } finally {
+      // raw-sql-ok: DDL takes no bound values; the names are this test's own.
+      await getDbExec().execute(
+        `DROP TRIGGER IF EXISTS ${triggerName} ON document_property_values`,
+      );
+      // raw-sql-ok: DDL takes no bound values; the name is this test's own.
+      await getDbExec().execute(`DROP FUNCTION IF EXISTS ${functionName}()`);
+    }
+
+    await expect(
+      valuesFor(seeded.propertyId, [editedRow.documentId]),
+    ).resolves.toEqual([
+      expect.objectContaining({ valueJson: JSON.stringify("Operators") }),
+    ]);
+    const [after] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(after).toMatchObject({
+      state: before.state,
+      fieldChangesJson: before.fieldChangesJson,
+    });
+  });
+
+  it("refuses to stage over a value saved in Content while the stage waited for the rows", async () => {
+    const seeded = await seedBuilderDatabase({});
+    const row = seeded.rows[1];
+    membershipLock.beforeNextLock = () =>
+      getDb()
+        .insert(schema.documentPropertyValues)
+        .values({
+          id: `value_${row.documentId}`,
+          ownerEmail: OWNER,
+          documentId: row.documentId,
+          propertyId: seeded.propertyId,
+          valueJson: JSON.stringify("Saved meanwhile"),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+    try {
+      await expect(
+        asOwner(() =>
+          stageBulkUpdate.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            itemIds: [row.itemId],
+            field: { propertyId: seeded.propertyId, value: "Architects" },
+            dryRun: false,
+          }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "builder_bulk_stage_rows_changed",
+      });
+    } finally {
+      membershipLock.beforeNextLock = null;
+    }
+
+    expect(
+      await valuesFor(seeded.propertyId, [row.documentId]),
+    ).not.toContainEqual(
+      expect.objectContaining({ valueJson: JSON.stringify("Architects") }),
+    );
+  });
+
+  it("refuses to set an edit back when Builder's value changed after the stage read it", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const [row] = seeded.rows;
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      `change_${seeded.sourceId.slice("src_".length)}`,
+    );
+    const stage = (value: string) =>
+      asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds: [row.itemId],
+          field: { propertyId: seeded.propertyId, value },
+          dryRun: false,
+        }),
+      );
+    await stage("Operators");
+    const [before] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    const sourceRowFilter = and(
+      eq(schema.contentDatabaseSourceRows.sourceId, seeded.sourceId),
+      eq(schema.contentDatabaseSourceRows.documentId, row.documentId),
+    );
+    snapshotRead.after = async () => {
+      const [sourceRow] = await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceRows)
+        .where(sourceRowFilter);
+      await getDb()
+        .update(schema.contentDatabaseSourceRows)
+        .set({
+          sourceValuesJson: JSON.stringify({
+            ...JSON.parse(sourceRow.sourceValuesJson),
+            [seeded.sourceFieldKey]: "Designers",
+          }),
+        })
+        .where(sourceRowFilter);
+    };
+    try {
+      await expect(stage("Developers")).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "builder_bulk_stage_rows_changed",
+      });
+    } finally {
+      snapshotRead.after = null;
+    }
+
+    await expect(
+      valuesFor(seeded.propertyId, [row.documentId]),
+    ).resolves.toEqual([
+      expect.objectContaining({ valueJson: JSON.stringify("Operators") }),
+    ]);
+    const [after] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(after).toMatchObject({
+      state: before.state,
+      fieldChangesJson: before.fieldChangesJson,
+    });
+  });
+
+  it("refuses to stage a new value while the row's review item is being pushed", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const [row] = seeded.rows;
+    const changeSetId = `change_${seeded.sourceId.slice("src_".length)}`;
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      changeSetId,
+    );
+    await getDb()
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({ state: "approved" })
+      .where(changeSetFilter);
+    const [before] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    const startedAt = new Date().toISOString();
+    await getDb()
+      .insert(schema.contentDatabaseSourceExecutions)
+      .values({
+        id: `execution_${changeSetId}`,
+        ownerEmail: OWNER,
+        sourceId: seeded.sourceId,
+        changeSetId,
+        adapter: "builder-cms",
+        pushMode: "autosave",
+        state: "running",
+        idempotencyKey: `builder-cms:${seeded.sourceId}:${changeSetId}:autosave`,
+        summary: "Running.",
+        payloadJson: JSON.stringify({ request: { method: "PATCH" } }),
+        attemptToken: null,
+        lastError: null,
+        createdAt: startedAt,
+        updatedAt: startedAt,
+      });
+
+    await expect(
+      asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds: [row.itemId],
+          field: { propertyId: seeded.propertyId, value: "Architects" },
+          dryRun: false,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "builder_execution_running",
+    });
+    await expect(
+      valuesFor(seeded.propertyId, [row.documentId]),
+    ).resolves.toEqual([]);
+    const [after] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(after).toMatchObject({
+      state: "approved",
+      fieldChangesJson: before.fieldChangesJson,
+    });
+  });
+
+  it("refuses to set an edit back while its review item is being pushed", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const [row] = seeded.rows;
+    const changeSetId = `change_${seeded.sourceId.slice("src_".length)}`;
+    const stage = (value: string) =>
+      asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds: [row.itemId],
+          field: { propertyId: seeded.propertyId, value },
+          dryRun: false,
+        }),
+      );
+    await stage("Operators");
+    const startedAt = new Date().toISOString();
+    await getDb()
+      .insert(schema.contentDatabaseSourceExecutions)
+      .values({
+        id: `execution_${changeSetId}`,
+        ownerEmail: OWNER,
+        sourceId: seeded.sourceId,
+        changeSetId,
+        adapter: "builder-cms",
+        pushMode: "autosave",
+        state: "running",
+        idempotencyKey: `builder-cms:${seeded.sourceId}:${changeSetId}:autosave`,
+        summary: "Running.",
+        payloadJson: JSON.stringify({ request: { method: "PATCH" } }),
+        attemptToken: null,
+        lastError: null,
+        createdAt: startedAt,
+        updatedAt: startedAt,
+      });
+
+    await expect(stage("Developers")).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "builder_execution_running",
+    });
+    await expect(
+      valuesFor(seeded.propertyId, [row.documentId]),
+    ).resolves.toEqual([
+      expect.objectContaining({ valueJson: JSON.stringify("Operators") }),
+    ]);
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, changeSetId));
+    expect(JSON.parse(changeSet.fieldChangesJson)).toEqual([
+      expect.objectContaining({ proposedValue: "Operators" }),
     ]);
   });
 

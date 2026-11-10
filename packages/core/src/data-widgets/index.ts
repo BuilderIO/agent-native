@@ -43,9 +43,21 @@ export type DataWidgetChartAction = DataWidgetAction & {
 };
 
 export type DataChartWidget = {
-  type: "bar" | "line" | "area";
+  type:
+    | "bar"
+    | "line"
+    | "area"
+    | "number"
+    | "pie"
+    | "donut"
+    | "scatter"
+    | "histogram";
   title?: string;
   layout?: "horizontal" | "vertical";
+  /** Combine ordered series across each bar or area category. */
+  stacking?: "stacked" | "percent";
+  /** Color scatter points by the category stored in this data field. */
+  colorByKey?: string;
   xAxisTitle?: string;
   yAxisTitle?: string;
   showValueLabels?: boolean;
@@ -215,7 +227,11 @@ function hasBoundedValueAxisTicks(chart: Record<string, unknown>): boolean {
     min = 0;
     max = 1;
   } else {
-    if (chart.type === "bar" || chart.type === "area") {
+    if (
+      chart.type === "bar" ||
+      chart.type === "area" ||
+      chart.type === "histogram"
+    ) {
       min = Math.min(0, min);
       max = Math.max(0, max);
     }
@@ -238,6 +254,191 @@ function hasBoundedValueAxisTicks(chart: Record<string, unknown>): boolean {
     tickCount > 0 &&
     tickCount <= MAX_DATA_CHART_AXIS_TICKS
   );
+}
+
+function hasValidNumberChartShape(value: unknown): boolean {
+  if (!isRecord(value) || value.type !== "number") return true;
+
+  const series = Array.isArray(value.series) ? value.series : [];
+  const data = Array.isArray(value.data) ? value.data : [];
+  const [measure] = series;
+  const [row] = data;
+  return (
+    series.length === 1 &&
+    isRecord(measure) &&
+    isString(measure.key) &&
+    data.length === 1 &&
+    isRecord(row) &&
+    typeof row[measure.key] === "number" &&
+    Number.isFinite(row[measure.key])
+  );
+}
+
+function hasValidPieChartShape(value: unknown): boolean {
+  if (!isRecord(value) || (value.type !== "pie" && value.type !== "donut")) {
+    return true;
+  }
+
+  const series = Array.isArray(value.series) ? value.series : [];
+  const data = Array.isArray(value.data) ? chartRowsForRender(value.data) : [];
+  const [measure] = series;
+  if (
+    series.length !== 1 ||
+    !isRecord(measure) ||
+    !isString(measure.key) ||
+    !isString(value.xKey) ||
+    measure.key === value.xKey ||
+    data.length === 0
+  ) {
+    return false;
+  }
+
+  let hasPositiveValue = false;
+  for (const row of data) {
+    if (!isRecord(row)) return false;
+    const category = row[value.xKey];
+    if (!isString(category) || !category.trim()) return false;
+    const amount = numericWidgetValue(row[measure.key]);
+    if (amount === null || amount < 0) return false;
+    if (amount > 0) hasPositiveValue = true;
+  }
+
+  return hasPositiveValue;
+}
+
+function hasValidScatterChartShape(value: unknown): boolean {
+  if (!isRecord(value) || value.type !== "scatter") return true;
+
+  const xKey = value.xKey;
+  const colorByKey = value.colorByKey;
+  const series = Array.isArray(value.series) ? value.series : [];
+  const data = Array.isArray(value.data) ? chartRowsForRender(value.data) : [];
+  const seriesKeys = new Set(
+    series.flatMap((definition) =>
+      isRecord(definition) && isString(definition.key) ? [definition.key] : [],
+    ),
+  );
+  if (
+    !isString(xKey) ||
+    series.length === 0 ||
+    data.length === 0 ||
+    seriesKeys.size !== series.length ||
+    seriesKeys.has(xKey) ||
+    (colorByKey !== undefined &&
+      (!isString(colorByKey) ||
+        colorByKey === xKey ||
+        seriesKeys.has(colorByKey)))
+  ) {
+    return false;
+  }
+
+  return data.every((row) => {
+    if (!isRecord(row) || numericWidgetValue(row[xKey]) === null) return false;
+    if (
+      !series.every(
+        (definition) =>
+          isRecord(definition) &&
+          isString(definition.key) &&
+          numericWidgetValue(row[definition.key]) !== null,
+      )
+    ) {
+      return false;
+    }
+    return (
+      colorByKey === undefined ||
+      (isString(row[colorByKey]) && row[colorByKey].trim().length > 0)
+    );
+  });
+}
+
+function hasValidHistogramChartShape(value: unknown): boolean {
+  if (!isRecord(value) || value.type !== "histogram") return true;
+
+  const xKey = value.xKey;
+  const series = Array.isArray(value.series) ? value.series : [];
+  const data = Array.isArray(value.data) ? chartRowsForRender(value.data) : [];
+  const [measure] = series;
+  const measureKey = isRecord(measure) ? measure.key : undefined;
+  if (
+    !isString(xKey) ||
+    value.layout === "horizontal" ||
+    value.stacking !== undefined ||
+    value.colorByKey !== undefined ||
+    series.length !== 1 ||
+    !isString(measureKey) ||
+    measureKey === xKey ||
+    data.length === 0
+  ) {
+    return false;
+  }
+
+  const seenValues = new Set<number>();
+  return data.every((row) => {
+    if (!isRecord(row)) return false;
+    const xValue = row[xKey];
+    const count = row[measureKey];
+    if (
+      typeof xValue !== "number" ||
+      !Number.isFinite(xValue) ||
+      seenValues.has(xValue) ||
+      typeof count !== "number" ||
+      !Number.isFinite(count) ||
+      count < 0
+    ) {
+      return false;
+    }
+    seenValues.add(xValue);
+    return true;
+  });
+}
+
+function hasValidStackedChartShape(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (value.stacking === undefined) return true;
+  if (value.stacking !== "stacked" && value.stacking !== "percent") {
+    return false;
+  }
+  const isBar = value.type === "bar";
+  const isArea = value.type === "area";
+  const hasSupportedLayout = isBar
+    ? value.layout === "horizontal" || value.layout === "vertical"
+    : isArea && value.layout !== "horizontal";
+  if (!hasSupportedLayout) return false;
+
+  const series = Array.isArray(value.series) ? value.series : [];
+  const data = Array.isArray(value.data) ? chartRowsForRender(value.data) : [];
+  for (const row of data) {
+    if (!isRecord(row)) return false;
+    if (value.stacking === "percent" || isArea) {
+      let total = 0;
+      for (const definition of series) {
+        if (!isRecord(definition) || !isString(definition.key)) return false;
+        const amount = numericWidgetValue(row[definition.key]);
+        if (amount === null || amount < 0) return false;
+        total += amount;
+        if (!Number.isFinite(total)) return false;
+      }
+      if (value.stacking === "percent" && total <= 0) return false;
+      continue;
+    }
+    let positiveTotal = 0;
+    let negativeTotal = 0;
+    for (const definition of series) {
+      if (!isRecord(definition) || !isString(definition.key)) return false;
+      const amount = numericWidgetValue(row[definition.key]);
+      if (amount === null) continue;
+      if (amount >= 0) positiveTotal += amount;
+      else negativeTotal += amount;
+      if (
+        !Number.isFinite(positiveTotal) ||
+        !Number.isFinite(negativeTotal) ||
+        !Number.isFinite(positiveTotal - negativeTotal)
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 export function normalizeDataWidgetKind(value: unknown): DataWidgetKind | null {
@@ -268,10 +469,20 @@ export function isDataTableWidget(value: unknown): value is DataTableWidget {
 export function isDataChartWidget(value: unknown): value is DataChartWidget {
   if (!isRecord(value)) return false;
   return (
-    (value.type === "bar" || value.type === "line" || value.type === "area") &&
+    (value.type === "bar" ||
+      value.type === "line" ||
+      value.type === "area" ||
+      value.type === "number" ||
+      value.type === "pie" ||
+      value.type === "donut" ||
+      value.type === "scatter" ||
+      value.type === "histogram") &&
     (value.layout === undefined ||
       value.layout === "horizontal" ||
       value.layout === "vertical") &&
+    (value.colorByKey === undefined || typeof value.colorByKey === "string") &&
+    hasValidStackedChartShape(value) &&
+    hasValidHistogramChartShape(value) &&
     (value.xAxisTitle === undefined || typeof value.xAxisTitle === "string") &&
     (value.yAxisTitle === undefined || typeof value.yAxisTitle === "string") &&
     (value.showValueLabels === undefined ||
@@ -332,7 +543,10 @@ export function isDataChartWidget(value: unknown): value is DataChartWidget {
       (Array.isArray(value.actions) &&
         value.actions.every(isDataWidgetChartAction))) &&
     Array.isArray(value.data) &&
-    value.data.every(isRecord)
+    value.data.every(isRecord) &&
+    hasValidNumberChartShape(value) &&
+    hasValidPieChartShape(value) &&
+    hasValidScatterChartShape(value)
   );
 }
 
@@ -608,9 +822,35 @@ const dataWidgetActionSchema = z
 
 export const dataChartWidgetSchema = z
   .object({
-    type: z.enum(["bar", "line", "area"]),
+    type: z
+      .enum([
+        "bar",
+        "line",
+        "area",
+        "number",
+        "pie",
+        "donut",
+        "scatter",
+        "histogram",
+      ])
+      .describe(
+        "Use histogram for non-negative record counts at unique numeric X values.",
+      ),
     title: z.string().optional(),
     layout: z.enum(["horizontal", "vertical"]).optional(),
+    stacking: z
+      .enum(["stacked", "percent"])
+      .optional()
+      .describe(
+        'Use "stacked" for raw bar or area totals. Use "percent" for 100% bars or areas with complete non-negative series values.',
+      ),
+    colorByKey: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Data field whose category value controls scatter point color.",
+      ),
     xAxisTitle: z.string().optional(),
     yAxisTitle: z.string().optional(),
     showValueLabels: z.boolean().optional(),
@@ -633,13 +873,36 @@ export const dataChartWidgetSchema = z
   })
   .passthrough();
 
-const boundedDataChartWidgetSchema = dataChartWidgetSchema.refine(
-  hasBoundedValueAxisTicks,
-  {
+const boundedDataChartWidgetSchema = dataChartWidgetSchema
+  .refine(hasBoundedValueAxisTicks, {
     path: ["valueAxisTickInterval"],
     message: `valueAxisTickInterval must produce between 1 and ${MAX_DATA_CHART_AXIS_TICKS} ticks.`,
-  },
-);
+  })
+  .refine(hasValidNumberChartShape, {
+    path: ["data"],
+    message:
+      "Number charts require exactly one series and one data point with a finite numeric value.",
+  })
+  .refine(hasValidPieChartShape, {
+    path: ["data"],
+    message:
+      "Pie and donut charts require one series, labeled categories, non-negative finite values, and at least one positive value.",
+  })
+  .refine(hasValidScatterChartShape, {
+    path: ["data"],
+    message:
+      "Scatter charts require a numeric X field, finite numeric series values, and distinct category colors when colorByKey is set.",
+  })
+  .refine(hasValidHistogramChartShape, {
+    path: ["data"],
+    message:
+      "Histograms require one series of non-negative counts at unique numeric X values and a vertical layout.",
+  })
+  .refine(hasValidStackedChartShape, {
+    path: ["stacking"],
+    message:
+      "Stacking requires bar or area charts with supported layout and complete non-negative series where normalization is used.",
+  });
 
 const primaryActionSchema = z
   .object({

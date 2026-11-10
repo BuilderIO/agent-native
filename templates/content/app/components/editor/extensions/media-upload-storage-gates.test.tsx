@@ -22,6 +22,19 @@ vi.mock("@agent-native/core/client/uploads", () => ({
   useFileUploadStatus: () => uploadStatus.current,
 }));
 
+// Clips in pages is off: uploads go to Content's own file storage.
+vi.mock("@agent-native/core/client/feature-flags", () => ({
+  useFeatureFlag: () => false,
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  useActionQuery: () => ({ data: undefined, isSuccess: false }),
+  useActionMutation: () => ({ mutateAsync: vi.fn() }),
+  callAction: vi.fn(),
+  getBrowserTabId: () => "tab_1",
+  setClientAppState: vi.fn(),
+}));
+
 vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", async () => {
   const { createElement } = await import("react");
   return {
@@ -71,7 +84,10 @@ import { AudioBlock } from "./AudioBlock";
 import { ImageBlock } from "./ImageBlock";
 import { VideoBlock } from "./VideoBlock";
 
-function mediaNodeProps(type: "image" | "video" | "audio") {
+function mediaNodeProps(
+  type: "image" | "video" | "audio",
+  options: Record<string, unknown> = {},
+) {
   return {
     node: {
       attrs: { src: null, alt: "", uploadId: null },
@@ -81,7 +97,7 @@ function mediaNodeProps(type: "image" | "video" | "audio") {
     deleteNode: vi.fn(),
     selected: true,
     updateAttributes: vi.fn(),
-    extension: { options: {} },
+    extension: { options },
     getPos: () => 1,
   } as never;
 }
@@ -133,6 +149,31 @@ describe("rich editor media upload storage gates", () => {
       ).not.toBeNull();
     },
   );
+
+  it("sends a private image upload to the picker without file storage", () => {
+    const onImageFilePickerRequest = vi.fn();
+    act(() =>
+      root.render(
+        createElement(
+          ImageBlock,
+          mediaNodeProps("image", {
+            usesPrivateImageUploads: () => true,
+            onImageFilePickerRequest,
+          }),
+        ),
+      ),
+    );
+
+    const uploadButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "editor.media.uploadFile",
+    );
+    act(() => uploadButton?.click());
+
+    expect(onImageFilePickerRequest).toHaveBeenCalledOnce();
+    expect(
+      container.querySelector('[data-testid="file-storage-setup-popover"]'),
+    ).toBeNull();
+  });
 
   it.each([
     ["image", "loading", ImageBlock, false],

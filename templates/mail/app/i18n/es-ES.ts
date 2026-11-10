@@ -34,8 +34,12 @@ const messages = {
       newest: "Más recientes",
       priority: "Prioridad",
       priorityFailed: "No se pudo ordenar la bandeja.",
+      priorityProviderRequired:
+        "Conecta un proveedor de IA para ordenar por prioridad.",
+      priorityPartialFailed:
+        "No se pudieron clasificar {{count}} mensajes. Se muestran después de los mensajes puntuados.",
       priorityScoreHelp:
-        "Una puntuación más alta indica que Jev considera el mensaje más importante.",
+        "Una puntuación más alta indica que es más probable que el mensaje sea importante.",
       priorityFeedbackSuggestion:
         "Convierte este patrón en una regla de importancia o archivo automático.",
       priorityFeedbackAskAgent: "Pedir al agente que sugiera reglas",
@@ -472,6 +476,15 @@ const messages = {
       scheduledCancelFailed: "No se pudo cancelar el email programado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "No se pudo subir la imagen",
+      storageBuilderRefused:
+        "Builder.io rechazó la conexión de almacenamiento de archivos de Mail, así que el archivo no se adjuntó. Vuelve a conectar Builder.io o usa tu propio almacenamiento y luego inténtalo de nuevo.",
+      storageRefused:
+        "Tu bucket de almacenamiento rechazó esta subida, así que el archivo no se adjuntó. Revisa el bucket y sus claves y luego inténtalo de nuevo.",
+      storageNotConfigured:
+        "El almacenamiento de archivos no está configurado, así que el archivo no se adjuntó. Conecta Builder.io o tu propio bucket de almacenamiento y luego inténtalo de nuevo.",
+      openStorageSettings: "Abrir ajustes de almacenamiento",
+      reconnectBuilderStorage: "Volver a conectar Builder.io",
+      useOwnStorage: "Usar tu propio almacenamiento",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Mensaje enviado.",
       failedToSaveDraft: "No se pudo guardar el borrador.",
@@ -738,12 +751,15 @@ const messages = {
       tagTabsHelp: "Cada etiqueta se convierte en una pestaña de la bandeja",
       addTag: "Añadir etiqueta",
       triageTitle: "Clasificación con IA",
-      connectJev: "Conectar Jev",
-      connectJevToRunTriage: "Conecta Jev para usar el triaje",
+      connectJev: "Conectar un proveedor de IA",
+      connectJevToRunTriage:
+        "Conecta un proveedor de IA para ejecutar el triaje",
       freeBuilderOrApiKey: "Gratis con Builder.io o añade una clave de API.",
-      jevAvailabilityFailed: "No se pudo comprobar si Jev está disponible.",
+      jevAvailabilityFailed:
+        "No se pudo comprobar si hay un proveedor de decisiones de IA disponible.",
       connectBuilder: "Usar Builder.io",
-      addJevApiKey: "Añadir clave de API",
+      addJevApiKey: "Añadir clave de API de Jev",
+      addOpenAiApiKey: "Añadir clave de API de OpenAI",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -785,6 +801,17 @@ const messages = {
       emailThread: "Conversación de email",
       unableToLoadThread: "No se pudo cargar la conversación",
       openInApp: "Abrir en la app",
+      draft: "Borrador de correo - Mail",
+    },
+    draftCard: {
+      loadFailed: "No se pudo cargar este borrador.",
+      notFoundTitle: "No se encontró el borrador",
+      goneTitle: "Este borrador se envió o se eliminó.",
+      threadUnavailable:
+        "No se pudieron cargar los mensajes anteriores de esta conversación.",
+      earlierMessages: "Mensajes anteriores ({{count}})",
+      sendInMail: "Enviar en Mail",
+      openBlocked: "Tu navegador bloqueó la pestaña nueva.",
     },
     agentEngine: {
       activeEngine: "Motor activo",
@@ -944,15 +971,19 @@ const messages = {
     shortcutsList: "Lista de mensajes",
     shortcutsThread: "Conversación",
     shortcutsCompose: "Redacción",
+    askAi: "Preguntar a la IA",
     backToCommands: "Volver a los comandos",
     backToMessageList: "Volver a la lista de mensajes",
     cycleTabs: "Recorrer pestañas",
     extendSelection: "Ampliar selección",
+    goToUnread: "Ir a No leído",
     moveSelection: "Mover selección",
     nextPreviousConversation: "Conversación siguiente / anterior",
     nextPreviousMessage: "Mensaje siguiente / anterior",
     openMessage: "Abrir mensaje",
+    pageDownUp: "Página abajo / arriba",
     selectAllConversations: "Seleccionar todas las conversaciones",
+    selectConversation: "Seleccionar conversación",
     sendAndMarkDone: "Enviar y marcar como hecho",
     toggleMessageExpansion: "Expandir / contraer mensaje",
     toggleReadState: "Cambiar estado de lectura",

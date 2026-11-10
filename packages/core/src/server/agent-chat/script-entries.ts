@@ -7,6 +7,7 @@ import {
   setThreadPinned,
   setThreadHidden,
 } from "../../chat-threads/store.js";
+import { frameworkMcpTools } from "../../mcp/framework-tools.js";
 import { assertCanManageSharedResource } from "../../resources/script-helpers.js";
 import type { DatabaseToolsMode } from "../../scripts/db/tool-mode.js";
 import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
@@ -86,7 +87,7 @@ export async function createDbScriptEntries(
   options: { extensionTools?: boolean } = {},
 ): Promise<Record<string, ActionEntry>> {
   try {
-    if (mode === "off") return {};
+    if (mode === "off") return frameworkMcpTools({});
     const extensionQueryGuidance =
       options.extensionTools !== true
         ? "Extension management tools are disabled for this app; do not query or mutate the legacy tools table as a workaround."
@@ -215,9 +216,9 @@ export async function createDbScriptEntries(
       );
     }
 
-    return entries;
+    return frameworkMcpTools(entries);
   } catch {
-    return {};
+    return frameworkMcpTools({});
   }
 }
 
@@ -348,7 +349,7 @@ export async function createDocsScriptEntries(): Promise<
     // Older package installs may not have the corpus/search script yet.
   }
 
-  return entries;
+  return frameworkMcpTools(entries);
 }
 
 export function shouldDefaultResourceWriteToWorkspace(path: string): boolean {
@@ -405,14 +406,6 @@ export async function createResourceScriptEntries(): Promise<
       list.default,
       { readOnly: true },
     );
-    const readEntry = wrapCliScript(
-      {
-        description: "",
-        parameters: { type: "object" as const, properties: {} },
-      },
-      read.default,
-      { readOnly: true },
-    );
     const writeEntry = wrapCliScript(
       {
         description: "",
@@ -436,7 +429,7 @@ export async function createResourceScriptEntries(): Promise<
       del.default,
     );
 
-    return {
+    return frameworkMcpTools({
       resources: {
         tool: {
           description:
@@ -465,6 +458,15 @@ export async function createResourceScriptEntries(): Promise<
                 type: "string",
                 description: "Content to write. Required for write.",
               },
+              offset: {
+                type: "string",
+                description:
+                  "read: start character; list: start entry. Use the next offset given.",
+              },
+              length: {
+                type: "string",
+                description: "read: max chars (default/max 40000).",
+              },
               scope: {
                 type: "string",
                 description:
@@ -473,8 +475,7 @@ export async function createResourceScriptEntries(): Promise<
               },
               prefix: {
                 type: "string",
-                description:
-                  "Filter by path prefix when listing (e.g. 'notes/')",
+                description: "list: path prefix filter (e.g. 'notes/')",
               },
               mime: {
                 type: "string",
@@ -483,9 +484,12 @@ export async function createResourceScriptEntries(): Promise<
               },
               format: {
                 type: "string",
-                description:
-                  'Output format for list: "json" or "text" (default: text)',
+                description: "list output format (default: text)",
                 enum: ["json", "text"],
+              },
+              limit: {
+                type: "number",
+                description: "list: page size, 1-100.",
               },
               visibility: {
                 type: "string",
@@ -514,12 +518,33 @@ export async function createResourceScriptEntries(): Promise<
         },
         needsApproval: requiresSharedResourceApproval,
         allowPersistentApproval: false,
-        run: async (args: Record<string, string>) => {
+        run: async (args: Record<string, string>, context) => {
           const { action: a, ...rest } = args;
-          if (a === "list") return listEntry.run(rest);
+          if (a === "list") {
+            // The CLI keeps unpaged json as a bare array; the agent always pages.
+            const noPageArgs = !rest.limit && !rest.offset;
+            return listEntry.run(noPageArgs ? { ...rest, offset: "0" } : rest);
+          }
           if (a === "read") {
             if (!rest.path) return "Error: path is required for read";
-            return readEntry.run(rest);
+            let limitError:
+              | InstanceType<typeof read.ResourceReadResultLimitError>
+              | undefined;
+            const result = await captureCliOutput(async () => {
+              try {
+                await read.default(serializeCliArgs(rest), {
+                  ...(context?.maxResultChars !== undefined && {
+                    maxResultChars: context.maxResultChars,
+                  }),
+                });
+              } catch (error) {
+                if (!(error instanceof read.ResourceReadResultLimitError))
+                  throw error;
+                limitError = error;
+              }
+            });
+            if (limitError) throw limitError;
+            return result;
           }
           if (a === "effective") {
             if (!rest.path) return "Error: path is required for effective";
@@ -654,10 +679,10 @@ export async function createResourceScriptEntries(): Promise<
         },
         delMem.default,
       ),
-    };
+    });
   } catch {
     // Resources not available — skip silently
-    return {};
+    return frameworkMcpTools({});
   }
 }
 
@@ -723,7 +748,7 @@ export async function createChatScriptEntries(): Promise<
       openMod.default,
     );
 
-    return {
+    return frameworkMcpTools({
       "chat-history": {
         tool: {
           description:
@@ -849,9 +874,9 @@ export async function createChatScriptEntries(): Promise<
           return searchEntry.run(args);
         },
       },
-    };
+    });
   } catch {
-    return {};
+    return frameworkMcpTools({});
   }
 }
 
@@ -862,7 +887,7 @@ export async function createAgentEngineScriptEntries(
     const mod =
       await import("../../scripts/agent-engines/manage-agent-engine.js");
 
-    return {
+    return frameworkMcpTools({
       "manage-agent-engine": {
         tool: mod.tool,
         planMode: {
@@ -889,9 +914,9 @@ export async function createAgentEngineScriptEntries(
             context,
           ),
       },
-    };
+    });
   } catch {
-    return {};
+    return frameworkMcpTools({});
   }
 }
 
@@ -901,11 +926,11 @@ export async function createAgentLoopSettingsScriptEntries(): Promise<
   try {
     const mod = await import("../../scripts/manage-agent-loop-settings.js");
 
-    return {
+    return frameworkMcpTools({
       "manage-agent-loop-settings": { tool: mod.tool, run: mod.run },
-    };
+    });
   } catch {
-    return {};
+    return frameworkMcpTools({});
   }
 }
 
@@ -964,5 +989,5 @@ export async function createCallAgentScriptEntry(
     // A missing built-in leaves the rest of the toolset usable.
   }
 
-  return entries;
+  return frameworkMcpTools(entries);
 }

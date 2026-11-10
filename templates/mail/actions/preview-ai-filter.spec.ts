@@ -65,7 +65,10 @@ describe("preview-ai-filter action", () => {
           [{ ruleId: "rule-1", confidence: 0.95 }],
         ],
       ]),
-      model: { engine: "typesafe", model: "jev-latest" },
+      evaluatedCount: 2,
+      failedCount: 0,
+      failures: [],
+      model: { provider: "jev", model: "jev-latest" },
     });
 
     const result = await action.run({

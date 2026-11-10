@@ -7,6 +7,7 @@ import {
   PREFERENCES_SEARCH_ENTRIES,
   PROFILE_SEARCH_ENTRIES,
   SECURITY_SEARCH_ENTRIES,
+  visiblePreferenceSearchEntries,
 } from "./search-entries.js";
 
 const ALL = [
@@ -43,5 +44,18 @@ describe("account page search entries", () => {
   it("moves voice off the section catalog so it is listed once", () => {
     const sections = getCoreSettingsSearchEntries().get("preferences") ?? [];
     expect(sections.map((entry) => entry.id)).not.toContain("section:voice");
+  });
+
+  it("does not index the theme-family row while the switch is hidden", () => {
+    expect(
+      visiblePreferenceSearchEntries(PREFERENCES_SEARCH_ENTRIES, false).map(
+        (entry) => entry.id,
+      ),
+    ).not.toContain("theme-family");
+    expect(
+      visiblePreferenceSearchEntries(PREFERENCES_SEARCH_ENTRIES, true).map(
+        (entry) => entry.id,
+      ),
+    ).toContain("theme-family");
   });
 });

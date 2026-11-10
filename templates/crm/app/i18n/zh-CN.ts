@@ -575,15 +575,15 @@ const messages = {
     reviewDuplicates: "检查重复记录",
     duplicateReviewTitle: "可能重复的记录",
     duplicateReviewDescription:
-      "检查此记录与可访问的候选记录。运行 Jev 会将记录名称、类型及最多五条候选记录的匹配信号发送给 TypeSafe。概率仅供参考，合并仍需单独审核。",
+      "检查此记录与可访问的候选记录。语义复核会将记录名称、类型及最多五条候选记录的匹配信号发送给已配置的 AI 决策提供方。概率仅供参考，合并仍需单独审核。",
     duplicateReviewRun: "检查重复记录",
     duplicateReviewLoading: "检查中…",
     duplicateReviewFailed: "无法完成重复记录检查。",
     duplicateReviewUnavailable:
-      "Jev 无法完成复核，规则筛出的候选记录仍会显示。",
+      "AI 决策提供方无法完成复核，规则筛出的候选记录仍会显示。",
     duplicateReviewEmpty: "未发现可能重复的记录。",
     duplicateRuleConfidence: "规则匹配度：{{percent}}%",
-    duplicateJevProbability: "Jev 同一实体概率：{{percent}}%",
+    duplicateDecisionProbability: "同一实体概率：{{percent}}%",
     duplicateMatchedOn: "匹配依据：{{values}}",
     evidenceAttached: "已附加通话证据。",
     evidenceAttachFailed: "无法附加证据。",
@@ -598,12 +598,9 @@ const messages = {
     attachEvidence: "附加证据",
     automate: "自动化",
     reviewNewClipsCalls: "审查新的 Clips 通话",
-    reviewDescription:
-      "为此 CRM 记录准备审查方案，但不复制 Clips 媒体或文字记录。",
-    disabledAutomationDescription:
-      "此自动化默认处于停用状态，并始终关联到 {{name}}。明确启用后，每个新片段只能将经过访问检查的录制页面引用附加到此记录。",
-    handoffDescription:
-      "交接只保留不透明的片段 ID、持久的 {{path}} 页面 URL 和采集时间。它会拒绝活动 URL、媒体、访问令牌、文字记录、推断记录和提供商写入。",
+    reviewDescription: "目前尚不支持设置从 CRM 到 Clips 的通话自动化。",
+    disabledAutomationDescription: "所选 CRM 记录：{{name}}。",
+    handoffDescription: "目前不支持自动附加 {{path}} 页面链接。",
     manageAutomations: "管理自动化",
     configureWithAgent: "使用智能体配置",
     editField: "编辑字段",

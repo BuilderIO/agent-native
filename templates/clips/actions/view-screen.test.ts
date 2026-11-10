@@ -1,4 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const context = vi.hoisted(() => ({
+  navigation: {
+    view: "library",
+    recordingId: "rec-test",
+    meetingId: undefined as string | undefined,
+  },
+  meeting: null as Record<string, unknown> | null,
+  meetingSegmentsJson: "[]",
+  recording: null as Record<string, unknown> | null,
+  email: "viewer@example.com",
+  role: null as "owner" | "editor" | null,
+  childReads: vi.fn(),
+  accessFailure: null as Error | null,
+  transcriptFailure: null as Error | null,
+}));
 
 const TABLES = vi.hoisted(() => ({
   recordings: {
@@ -11,6 +27,7 @@ const TABLES = vi.hoisted(() => ({
     updatedAt: "recordings.updatedAt",
   },
   meetings: { recordingId: "meetings.recordingId" },
+  recordingBugReports: { recordingId: "bugReports.recordingId" },
   folders: {
     ownerEmail: "folders.ownerEmail",
     spaceId: "folders.spaceId",
@@ -35,6 +52,64 @@ const mockMeetingsWhere = vi.hoisted(() =>
 const makeRealDb = vi.hoisted(() => () => ({
   select: (_projection?: unknown) => ({
     from: (table: any) => {
+      if (context.meeting) {
+        const rows = table === TABLES.meetings ? [context.meeting] : [];
+        return {
+          where: () =>
+            Object.assign(Promise.resolve(rows), { limit: async () => rows }),
+        };
+      }
+      if (context.recording) {
+        if (table === TABLES.recordings) {
+          return { where: async () => [context.recording] };
+        }
+        context.childReads(table);
+        if (
+          table &&
+          typeof table === "object" &&
+          table.recordingId === "transcripts.recordingId"
+        ) {
+          return {
+            where: async () => {
+              if (context.transcriptFailure) throw context.transcriptFailure;
+              return [
+                {
+                  recordingId: "rec-test",
+                  fullText: "Fake secret spoken words",
+                  segmentsJson: "[]",
+                  status: "ready",
+                  language: "en",
+                },
+              ];
+            },
+          };
+        }
+        const rows =
+          table === TABLES.recordingBugReports
+            ? [
+                {
+                  projectId: "fake-project",
+                  title: "Fake report",
+                  severity: "low",
+                },
+              ]
+            : table === "recordingComments"
+              ? [
+                  {
+                    id: "comment-test",
+                    content: "Fake discussion",
+                    authorEmail: "author@example.com",
+                  },
+                ]
+              : [];
+        return {
+          where: () =>
+            Object.assign(Promise.resolve(rows), {
+              orderBy: async () => rows,
+              limit: async () => rows,
+            }),
+        };
+      }
       if (table && "recordingId" in table) return { where: mockMeetingsWhere };
       if (table && "position" in table) {
         return { where: () => ({ orderBy: async () => [] }) };
@@ -104,17 +179,33 @@ vi.mock("@agent-native/core", () => ({
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: async () => null,
   readAppStateForCurrentTab: async (key: string) =>
-    key === "navigation" ? { view: "library" } : null,
+    key === "navigation" ? context.navigation : null,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestUserEmail: () => "viewer@example.com",
+  getRequestUserEmail: () => context.email,
 }));
 
-vi.mock("@agent-native/core/sharing", () => ({
-  accessFilter: () => ({ kind: "access-filter" }),
-  resolveAccess: async () => null,
-}));
+vi.mock("@agent-native/core/sharing", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/sharing")>();
+  return {
+    ForbiddenError: actual.ForbiddenError,
+    accessFilter: () => ({ kind: "access-filter" }),
+    resolveAccess: async () => (context.role ? { role: context.role } : null),
+    assertAccess: async () => {
+      if (context.accessFailure) throw context.accessFailure;
+      return {
+        resource: context.recording,
+        role:
+          context.email.toLowerCase() ===
+          String(context.recording?.ownerEmail).toLowerCase()
+            ? "owner"
+            : (context.role ?? "viewer"),
+      };
+    },
+  };
+});
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ kind: "and", conditions }),
@@ -135,15 +226,36 @@ vi.mock("../server/db/index.js", () => ({
   getDb: () => makeLazyProxy(makeRealDb()),
   schema: {
     meetings: TABLES.meetings,
+    meetingShares: "meetingShares",
+    meetingParticipants: { meetingId: "participants.meetingId" },
+    meetingActionItems: { meetingId: "actionItems.meetingId" },
     folders: TABLES.folders,
     recordings: TABLES.recordings,
     recordingShares: "recordingShares",
+    recordingContentBindings: {
+      recordingId: "bindings.recordingId",
+      origin: "bindings.origin",
+    },
     recordingViewers: "recordingViewers",
+    recordingComments: "recordingComments",
+    recordingTranscripts: { recordingId: "transcripts.recordingId" },
+    recordingBrowserDiagnostics: { recordingId: "diagnostics.recordingId" },
+    recordingBugReports: TABLES.recordingBugReports,
   },
 }));
 
 vi.mock("../server/lib/agent-recording-access.js", () => ({
   agentRecordingAccessFilter: () => ({ kind: "agent-access-filter" }),
+}));
+
+vi.mock("../server/lib/meeting-recording-access.js", () => ({
+  loadMeetingRecordingContent: async () => ({
+    recording: null,
+    transcript: {
+      fullText: "Transcript",
+      segmentsJson: context.meetingSegmentsJson,
+    },
+  }),
 }));
 
 vi.mock("../server/lib/recordings.js", () => ({
@@ -154,21 +266,72 @@ vi.mock("../server/lib/recordings.js", () => ({
     email,
   }),
   parseSpaceIds: vi.fn(),
+  sameOwnerEmail: (
+    a: string | null | undefined,
+    b: string | null | undefined,
+  ) => a?.toLowerCase() === b?.toLowerCase(),
+}));
+
+vi.mock("../server/lib/user-identities.js", () => ({
+  hydrateCommentAuthorNames: async (rows: unknown[]) => rows,
 }));
 
 vi.mock("../shared/browser-diagnostics.js", () => ({
   parseBrowserDiagnosticsRow: () => null,
 }));
 
-vi.mock("./lib/transcript-preview.js", () => ({
-  buildTranscriptPreview: () => null,
-}));
-
 import action from "./view-screen";
+
+describe("view-screen meeting", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    context.recording = null;
+    context.navigation.view = "meeting";
+    context.navigation.meetingId = "meeting-1";
+    context.meeting = { id: "meeting-1", title: "Weekly sync" };
+  });
+
+  afterEach(() => {
+    context.navigation.meetingId = undefined;
+    context.meeting = null;
+  });
+
+  it("tells the agent how much earlier audio the notes hold", async () => {
+    context.meetingSegmentsJson = JSON.stringify([
+      { startMs: 0, endMs: 300_000, text: "Earlier", recovered: true },
+      { startMs: 300_000, endMs: 301_000, text: "The meeting itself" },
+    ]);
+
+    const screen = JSON.parse(await action.run({}));
+
+    expect(screen.meeting.earlierAudioMinutes).toBe(5);
+  });
+
+  it("says when the transcript can't be read instead of reporting none", async () => {
+    context.meetingSegmentsJson = "not json";
+
+    const screen = JSON.parse(await action.run({}));
+
+    expect(screen.meeting.earlierAudioMinutes).toBeNull();
+  });
+
+  it("reports none for notes without it", async () => {
+    context.meetingSegmentsJson = JSON.stringify([
+      { startMs: 0, endMs: 1000, text: "The meeting itself" },
+    ]);
+
+    const screen = JSON.parse(await action.run({}));
+
+    expect(screen.meeting.earlierAudioMinutes).toBe(0);
+  });
+});
 
 describe("view-screen library view on a cold start", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    context.recording = null;
+    context.role = null;
+    context.navigation.view = "library";
   });
 
   it("builds the meeting-exclusion subquery off a resolved db, not the lazy proxy", async () => {
@@ -207,4 +370,209 @@ describe("view-screen library view on a cold start", () => {
       }),
     );
   });
+});
+
+describe("view-screen recording access", () => {
+  let recording: Record<string, unknown>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    context.navigation.view = "recording";
+    context.email = "viewer@example.com";
+    context.role = null;
+    context.accessFailure = null;
+    recording = {
+      id: "rec-test",
+      title: "Fake recording",
+      ownerEmail: "owner@example.com",
+      status: "ready",
+      enableComments: true,
+      trashedAt: null,
+      expiresAt: null,
+    };
+    context.recording = recording;
+    context.transcriptFailure = null;
+  });
+
+  it.each([
+    { role: "viewer", enableComments: true },
+    { role: "viewer", enableComments: false },
+    { role: "editor", enableComments: true },
+    { role: "editor", enableComments: false },
+  ] as const)(
+    "withholds protected transcript and comments from a shared $role with comments enabled=$enableComments",
+    async ({ role, enableComments }) => {
+      context.role = role === "editor" ? role : null;
+      recording.password = "fake-password-digest";
+      recording.enableComments = enableComments;
+      const screen = JSON.parse(await action.run({}));
+      expect(screen.recording.id).toBe("rec-test");
+      expect(screen.transcript).toBeUndefined();
+      expect(screen.transcriptUnavailableReason).toBe("password_required");
+      expect(screen.comments).toBeUndefined();
+      expect(screen.commentsUnavailableReason).toBe("password_required");
+      expect(context.childReads).not.toHaveBeenCalledWith("recordingComments");
+      expect(
+        context.childReads.mock.calls.some(
+          ([table]) =>
+            table &&
+            typeof table === "object" &&
+            table.recordingId === "transcripts.recordingId",
+        ),
+      ).toBe(false);
+      expect(JSON.stringify(screen)).not.toContain("Fake secret spoken words");
+      expect(JSON.stringify(screen)).not.toContain("Fake discussion");
+    },
+  );
+
+  it.each([true, false])(
+    "keeps protected owner history with comments enabled=%s",
+    async (enableComments) => {
+      context.email = "OWNER@example.com";
+      recording.password = "fake-stored-password-hash";
+      recording.enableComments = enableComments;
+      const screen = JSON.parse(await action.run({}));
+      expect(screen.comments[0].content).toBe("Fake discussion");
+    },
+  );
+
+  it("preserves an unreadable comment-access failure", async () => {
+    const cause = new Error("fake membership read failure");
+    context.accessFailure = cause;
+    await expect(action.run({})).rejects.toBe(cause);
+    expect(context.childReads).not.toHaveBeenCalledWith("recordingComments");
+  });
+
+  it.each([
+    { email: "OWNER@example.com", password: "fake-password-digest" },
+    { email: "viewer@example.com", password: null },
+    { email: "viewer@example.com", password: "" },
+  ])(
+    "keeps allowed transcript context for $email / $password",
+    async ({ email, password }) => {
+      context.email = email;
+      recording.password = password;
+      const screen = JSON.parse(await action.run({}));
+      expect(screen.transcript.fullTextSnippet).toBe(
+        "Fake secret spoken words",
+      );
+      expect(screen.transcriptUnavailableReason).toBeUndefined();
+      expect(screen.comments[0].content).toBe("Fake discussion");
+      expect(screen.commentsUnavailableReason).toBeUndefined();
+    },
+  );
+
+  it("propagates transcript query failures instead of reporting an empty transcript", async () => {
+    const failure = new Error("Fake transcript query failure");
+    context.transcriptFailure = failure;
+    await expect(action.run({})).rejects.toBe(failure);
+  });
+
+  it.each([
+    { trashedAt: "2026-01-01T00:00:00Z" },
+    { expiresAt: "2020-01-01T00:00:00Z" },
+  ])("withholds recording context after access ends: %j", async (settings) => {
+    Object.assign(recording, settings);
+    const screen = JSON.parse(await action.run({}));
+    expect(screen.recording).toBeUndefined();
+    expect(screen.comments).toBeUndefined();
+    expect(screen.transcript).toBeUndefined();
+    expect(context.childReads).not.toHaveBeenCalled();
+  });
+
+  it.each(["viewer@example.com", "owner@example.com"])(
+    "applies owner visibility to disabled comments for %s",
+    async (email) => {
+      context.email = email;
+      recording.enableComments = false;
+      const screen = JSON.parse(await action.run({}));
+      expect(screen.recording.id).toBe("rec-test");
+      expect(
+        screen.comments.map((comment: { content: string }) => comment.content),
+      ).toEqual(email === "owner@example.com" ? ["Fake discussion"] : []);
+      if (email !== "owner@example.com") {
+        expect(context.childReads).not.toHaveBeenCalledWith(
+          "recordingComments",
+        );
+      }
+    },
+  );
+
+  it.each([
+    { trashedAt: "2026-01-01T00:00:00Z" },
+    { expiresAt: "2020-01-01T00:00:00Z" },
+  ])(
+    "withholds completed bug-report context after access ends: %j",
+    async (settings) => {
+      context.navigation.view = "bug-report-done";
+      context.role = "editor";
+      Object.assign(recording, settings);
+
+      const screen = JSON.parse(await action.run({}));
+
+      expect(screen.recording).toBeUndefined();
+      expect(screen.bugReport).toBeUndefined();
+      expect(context.childReads).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    {
+      email: "owner@example.com",
+      role: "owner" as const,
+      trashedAt: "2026-01-01T00:00:00Z",
+      expiresAt: null,
+    },
+    {
+      email: "owner@example.com",
+      role: "owner" as const,
+      trashedAt: null,
+      expiresAt: "2020-01-01T00:00:00Z",
+    },
+    {
+      email: "viewer@example.com",
+      role: "editor" as const,
+      trashedAt: null,
+      expiresAt: null,
+    },
+  ])(
+    "keeps authorized completed bug-report context: %j",
+    async ({ email, role, ...settings }) => {
+      context.navigation.view = "bug-report-done";
+      context.email = email;
+      context.role = role;
+      Object.assign(recording, settings);
+
+      const screen = JSON.parse(await action.run({}));
+
+      expect(screen.recording.id).toBe("rec-test");
+      expect(screen.bugReport).toMatchObject({
+        title: "Fake report",
+        projectId: "fake-project",
+      });
+    },
+  );
+
+  it.each([
+    {
+      email: "owner@example.com",
+      trashedAt: "2026-01-01T00:00:00Z",
+      expiresAt: null,
+    },
+    {
+      email: "owner@example.com",
+      trashedAt: null,
+      expiresAt: "2020-01-01T00:00:00Z",
+    },
+    { email: "viewer@example.com", trashedAt: null, expiresAt: null },
+  ])(
+    "keeps owner previews and restored viewer context: %j",
+    async ({ email, ...settings }) => {
+      context.email = email;
+      Object.assign(recording, settings);
+      const screen = JSON.parse(await action.run({}));
+      expect(screen.recording.id).toBe("rec-test");
+      expect(screen.comments[0].content).toBe("Fake discussion");
+    },
+  );
 });

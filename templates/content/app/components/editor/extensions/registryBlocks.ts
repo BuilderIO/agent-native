@@ -1,5 +1,12 @@
-import { createRegistryBlockNode } from "@agent-native/toolkit/editor";
+import {
+  createRegistryBlockNode,
+  type PastedRegistryBlock,
+  type PastedRegistryBlockSource,
+} from "@agent-native/toolkit/editor";
+import { nfmToDoc } from "@shared/nfm";
+import { registryBlockSpecByType } from "@shared/nfm-registry";
 import { Extension } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 
 export function createContentBlockId(blockType: string): string {
@@ -15,21 +22,55 @@ export function createContentBlockId(blockType: string): string {
   return `${safePrefix || "block"}-${random}`;
 }
 
+/**
+ * A pasted block, read back from the source its clipboard HTML carries. Null
+ * unless that source is exactly one registered block of the declared type
+ * and, when the clipboard names a block, names that block or the one it was
+ * copied from. The editor then parses it and rewrites the source from its
+ * data under the copy's own id.
+ */
+export function readPastedContentBlock(
+  pasted: PastedRegistryBlock,
+): PastedRegistryBlockSource | null {
+  const { content } = nfmToDoc(pasted.source);
+  if (content.length !== 1) return null;
+  const block = content.find((node) => node.type === "registryBlock");
+  if (!block) return null;
+  const { blockType, blockId, title, summary, __raw } = block.attrs ?? {};
+  const tag = registryBlockSpecByType(pasted.blockType)?.mdx.tag;
+  if (!tag || blockType !== pasted.blockType) return null;
+  const declared = [pasted.blockId, pasted.sourceBlockId].filter(Boolean);
+  if (blockId && declared.length > 0 && !declared.includes(blockId)) {
+    return null;
+  }
+  // The parse keeps whole lines, so text after a self-closing tag, or a block
+  // that never closes, would otherwise ride along in the source.
+  const source = String(__raw).trimEnd();
+  if (!source.endsWith("/>") && !source.endsWith(`</${tag}>`)) return null;
+  return { source, title: title ?? null, summary: summary ?? null };
+}
+
 export const RegistryBlockNode = createRegistryBlockNode({
   nodeName: "registryBlock",
   dataTag: "data-content-block",
   mintId: createContentBlockId,
+  readPastedSource: readPastedContentBlock,
 });
+
+/** A component from the page's source, which the page can't add or remove. */
+export function isSourceComponentNode(node: ProseMirrorNode): boolean {
+  return (
+    node.type.name === "registryBlock" &&
+    node.attrs.blockType === "source-component" &&
+    typeof node.attrs.blockId === "string" &&
+    !!node.attrs.blockId
+  );
+}
 
 function sourceComponentIdCounts(doc: { descendants: (fn: any) => void }) {
   const counts = new Map<string, number>();
   doc.descendants((node: any) => {
-    if (
-      node.type?.name === "registryBlock" &&
-      node.attrs?.blockType === "source-component" &&
-      typeof node.attrs.blockId === "string" &&
-      node.attrs.blockId
-    ) {
+    if (isSourceComponentNode(node)) {
       counts.set(node.attrs.blockId, (counts.get(node.attrs.blockId) ?? 0) + 1);
     }
     return true;

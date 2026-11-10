@@ -37,7 +37,7 @@ import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
-import { isSameOriginRequest } from "../server/request-origin.js";
+import { hasSameOriginBrowserEvidence } from "../server/request-origin.js";
 import type { AgentProfileMetadata } from "../shared/agent-profile.js";
 import { generateAgentCard } from "./agent-card.js";
 import { addAgentProfileExamples } from "./app-profile.js";
@@ -841,8 +841,8 @@ export function mountA2A(
         return { error: "Approval not found" };
       }
 
-      const { getSession } = await import("../server/auth.js");
-      const session = await getSession(event);
+      const { getBrowserCookieSession } = await import("../server/auth.js");
+      const session = await getBrowserCookieSession(event);
       if (!session?.email) {
         setResponseStatus(event, 401);
         return { error: "Sign in to review this approval" };
@@ -892,7 +892,7 @@ export function mountA2A(
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
-      if (!isSameOriginRequest(event)) {
+      if (!hasSameOriginBrowserEvidence(event)) {
         setResponseStatus(event, 403);
         return { error: "Cross-origin approval denied" };
       }

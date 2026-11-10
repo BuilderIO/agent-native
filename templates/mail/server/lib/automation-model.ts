@@ -8,12 +8,7 @@ import type {
   AI_SDK_MODEL_CONFIG,
   BUILDER_MODEL_CONFIG,
 } from "@agent-native/core/agent/model-config";
-import {
-  getJevContextCredentials,
-  isJevEnabled,
-  readDeployCredentialEnv,
-  runWithRequestContext,
-} from "@agent-native/core/server";
+import { runWithRequestContext } from "@agent-native/core/server";
 
 export interface AutomationModelSettings {
   engine?: string;
@@ -25,8 +20,6 @@ export const DEFAULT_AUTOMATION_ENGINE = "builder";
 // typecheck instead of every automation on that engine.
 export const DEFAULT_AUTOMATION_MODEL =
   "gpt-6-luna" satisfies (typeof BUILDER_MODEL_CONFIG.supportedModels)[number];
-export const TYPESAFE_AUTOMATION_ENGINE = "typesafe";
-export const TYPESAFE_AUTOMATION_MODEL = "jev-latest";
 
 const CHEAP_MODEL_CANDIDATES: AutomationModelSettings[] = [
   { engine: DEFAULT_AUTOMATION_ENGINE, model: DEFAULT_AUTOMATION_MODEL },
@@ -79,40 +72,6 @@ async function resolveEngineDefaultModel(
 export async function resolveDefaultAutomationModel(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
-  const jevAvailability = await runWithRequestContext(
-    { userEmail: ownerEmail },
-    async () => {
-      try {
-        return {
-          status: "checked" as const,
-          enabled: await isJevEnabled(
-            await getJevContextCredentials(ownerEmail),
-          ),
-        };
-      } catch (error) {
-        return { status: "error" as const, error };
-      }
-    },
-  );
-  if (jevAvailability.status === "error") {
-    console.warn(
-      "[automation-model] Jev availability check failed; using the configured model.",
-      jevAvailability.error,
-    );
-  }
-  if (jevAvailability.status === "checked" && jevAvailability.enabled) {
-    return {
-      engine: TYPESAFE_AUTOMATION_ENGINE,
-      model: TYPESAFE_AUTOMATION_MODEL,
-    };
-  }
-  if (readDeployCredentialEnv("TYPESAFE_API_KEY")?.trim()) {
-    return {
-      engine: TYPESAFE_AUTOMATION_ENGINE,
-      model: TYPESAFE_AUTOMATION_MODEL,
-    };
-  }
-
   for (const candidate of CHEAP_MODEL_CANDIDATES) {
     if (
       candidate.engine &&

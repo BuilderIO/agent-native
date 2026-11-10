@@ -70,7 +70,49 @@ JSON 입력이 에이전트와 복잡한 객체를 위한 선호되는 형태입
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
-에이전트 개발 루프, 스크립트, cron 작업에 유용합니다.
+`defineAction()` 호출에서 CLI는 준비 및 파싱 후 스키마 기본값이 적용된 인수와 caller `cli`로 `needsApproval`을 평가합니다. stdin과 stdout이 모두 TTY이면 action 이름과 인수를 표시하고 `y/N`을 묻습니다. `y` 또는 `yes`만 action을 실행합니다.
+
+두 TTY가 모두 갖춰지지 않으면 CLI는 에이전트에게 당사자의 승인을 요청하도록 안내합니다. 당사자가 해당 호출을 승인한 후 원래 `pnpm action` 인수를 그대로 유지하고 끝에 `--approved`를 붙여 다시 실행하세요.
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
+```
+
+`--approved`는 CLI 예약 메타데이터이며 입력 파싱 전에 제거됩니다. 값을 받지 않습니다. 뒤에 다른 플래그나 JSON 객체가 아닌 것이 오면 호출이 거부되며, `approved`라는 이름의 입력은 `--approved=<value>`로 씁니다. 승인이 필요 없는 action에 붙여도 문제없습니다. CLI는 누가 이 플래그를 붙였는지 확인할 수 없으므로, 묻지 않고 붙인 에이전트는 확인 절차를 건너뜁니다. 이 플래그는 당사자가 승인하는 명령과 감사 로그에 승인을 드러내며, 감사 로그는 이를 확인되지 않음으로 표시합니다. POSIX `SHELL`이 없는 Windows에서는 거부 메시지가 PowerShell용 명령과, 따옴표 처리가 다를 때 cmd.exe용 명령도 보여 줍니다. Windows에서 pnpm은 어떤 셸에서 실행하든 action 인수를 cmd.exe를 거쳐 전달하며, cmd.exe는 따옴표 안에서도 `%NAME%`을 확장합니다. 인수에 이런 변수가 있으면 거부 메시지는 `--approved`를 붙인 재실행을 제시하지 않습니다. 당사자가 터미널에서 명령을 실행하고 확인 프롬프트에서 값을 확인합니다. 인수에 따옴표와 `&`, `|`, `<`, `>`, `^` 중 하나가 함께 있으면 pnpm이 cmd.exe에 그대로 전달할 수 없으므로, 거부 메시지는 명령을 보여 주지 않고 당사자가 앱에서 호출을 승인합니다. Windows PowerShell 5.1은 인수 안의 `"`를 모두 없애므로, POSIX `SHELL`이 없는 Windows에서는 큰따옴표가 있는 인수도 `--approved` 재실행 대신 확인 프롬프트로 보냅니다.
+
+로컬 개발 브리지는 JSON 본문의 `input` 밖에 승인 메타데이터를 전송합니다.
+
+```ts
+{ name, input, approved: true, approvalSource: "flag" }
+```
+
+승인이 필요한 호출에 승인이 없으면 브리지는 HTTP `409`를 반환합니다.
+
+```ts
+{
+  ok: false,
+  errorCode: "approval_required",
+  error: 'Action "<name>" requires human approval. Ask the person, then rerun with --approved.',
+  arguments: preparedArgs,
+  argumentsHash: prepared.argumentsHash,
+}
+```
+
+TTY에서 확인한 후 CLI는 승인 요청 응답의 `argumentsHash`로 재시도합니다.
+
+```ts
+{
+  name,
+  input,
+  approved: true,
+  approvalSource: "prompt",
+  approvalArgumentsHash: challenge.argumentsHash,
+}
+```
+
+브리지는 당사자가 검토한 호출을 한 번만 그대로 실행하므로, 타임스탬프처럼 호출마다 달라지는 기본값도 표시된 값을 유지합니다. 실행할 보관된 호출이 없는 확인(이미 실행됐거나, 10분이 지났거나, 개발 서버가 재시작된 경우)은 HTTP `409`와 `errorCode: "approval_expired"`를 받습니다. 명령을 다시 실행해 검토하세요.
+
+`arguments`에는 준비된 인수가 담깁니다. 이 로컬 개발 브리지 계약은 [공개 HTTP action API의 승인 규칙](/docs/actions-access-control#needs-approval)을 변경하지 않습니다. 승인된 승인 대상 CLI 호출은 action 자체의 감사 행에 caller `cli`와 함께 `approval: "cli-prompt"` 또는 `approval: "cli-flag"`를 기록합니다. 확인 프롬프트는 CLI만 보므로, 감사 로그는 둘 다 확인되지 않음으로 표시합니다.
 
 ## 다른 에이전트에서 호출하기 (A2A) {#a2a}
 

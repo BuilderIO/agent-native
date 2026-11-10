@@ -1,6 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
 import {
   AI_IMPORTANT_LABEL,
@@ -38,6 +39,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { ActionTooltip } from "@/components/email/ActionTooltip";
 import { AiFilterDialog } from "@/components/email/AiFilterDialog";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
@@ -64,13 +66,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
-import { useAiPriority } from "@/hooks/use-ai-priority";
+import { useAiPriority, type AiPriorityResult } from "@/hooks/use-ai-priority";
 import {
   askAgentToDraftImportanceRules,
   useAiPriorityFeedback,
@@ -113,7 +110,7 @@ import {
   warmThreads,
 } from "@/lib/thread-cache";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
-import { cn } from "@/lib/utils";
+import { cn, formatShortcut } from "@/lib/utils";
 
 import { EmailListItem } from "./EmailListItem";
 import { GmailCooldownNotice } from "./GmailCooldownNotice";
@@ -149,10 +146,12 @@ function toPriorityEmail(email: EmailMessage): AiPriorityEmail {
 function priorityEmailCacheKey(
   email: EmailMessage,
   ruleRevision: string,
+  providerIdentity = "",
 ): string {
   const priorityEmail = toPriorityEmail(email);
   return JSON.stringify([
     ruleRevision,
+    providerIdentity,
     priorityEmail.accountEmail,
     priorityEmail.id,
     priorityEmail.date,
@@ -163,9 +162,15 @@ function priorityEmailCacheKey(
   ]);
 }
 
-type CachedPriorityScore = { inputKey: string; score: number };
+type CachedPriorityScore = {
+  inputKey: string;
+  score: number;
+  model?: AiPriorityResult["model"];
+  providerIdentity?: string;
+};
 type FrozenPriorityOrder = {
   ruleRevision: string;
+  providerIdentity: string;
   keys: string[];
   priorityKeys: string[];
   scores: Record<string, number>;
@@ -228,6 +233,7 @@ interface EmailListProps {
   onNavigateThread?: (threadId: string, accountEmail?: string) => void;
   showPrioritySort?: boolean;
   jevConfigured?: boolean;
+  priorityProviderIdentity?: string;
   jevAvailabilityLoading?: boolean;
   jevAvailabilityError?: boolean;
   onJevConnected?: () => void;
@@ -536,6 +542,7 @@ export function EmailList({
   onNavigateThread,
   showPrioritySort = false,
   jevConfigured = false,
+  priorityProviderIdentity = "",
   jevAvailabilityLoading = false,
   jevAvailabilityError = false,
   onJevConnected,
@@ -707,7 +714,7 @@ export function EmailList({
   );
   const priorityInputKey = useMemo(
     () =>
-      [priorityRuleRevision]
+      [priorityRuleRevision, priorityProviderIdentity]
         .concat(
           priorityWindowEmails.map(
             (email) =>
@@ -715,7 +722,7 @@ export function EmailList({
           ),
         )
         .join("\u001f"),
-    [priorityRuleRevision, priorityWindowEmails],
+    [priorityRuleRevision, priorityProviderIdentity, priorityWindowEmails],
   );
   const [priorityScores, setPriorityScores] = useState(
     () => new Map(priorityScoreCache(queryClient)),
@@ -731,6 +738,7 @@ export function EmailList({
       const optimisticScore = {
         inputKey: priorityEmailCacheKey(email, priorityRuleRevision),
         score,
+        model: null,
       };
       setPriorityOrder(null);
       rememberPriorityScore(cache, key, optimisticScore);
@@ -772,7 +780,7 @@ export function EmailList({
             },
           });
         })
-        .catch(() => {
+        .catch((error) => {
           setPriorityOrder(null);
           setPriorityScores((current) => {
             if (current.get(key) !== optimisticScore) return current;
@@ -785,7 +793,7 @@ export function EmailList({
             if (previousScore) rememberPriorityScore(cache, key, previousScore);
             else cache.delete(key);
           }
-          toast.error(t("mail.aiFilter.actionFailed"));
+          reportWriteFailure(error, { label: t("mail.aiFilter.actionFailed") });
         });
     },
     [
@@ -803,13 +811,25 @@ export function EmailList({
       const key = aiPriorityEmailKey(email.accountEmail, email.id);
       const score = priorityScores.get(key);
       if (
-        score?.inputKey === priorityEmailCacheKey(email, priorityRuleRevision)
+        (score?.providerIdentity === undefined ||
+          score.providerIdentity === priorityProviderIdentity) &&
+        score?.inputKey ===
+          priorityEmailCacheKey(
+            email,
+            priorityRuleRevision,
+            score?.providerIdentity,
+          )
       ) {
         cached.set(key, score.score);
       }
     }
     return cached;
-  }, [priorityRuleRevision, priorityScores, priorityWindowEmails]);
+  }, [
+    priorityProviderIdentity,
+    priorityRuleRevision,
+    priorityScores,
+    priorityWindowEmails,
+  ]);
   const priorityRequestKeyRef = useRef("");
   const priorityRequestGenerationRef = useRef(0);
   const previousSortModeRef = useRef(currentSortMode);
@@ -851,7 +871,11 @@ export function EmailList({
     const pendingInputKeys = new Map(
       uncachedPriorityEmails.map((email) => [
         aiPriorityEmailKey(email.accountEmail, email.id),
-        priorityEmailCacheKey(email, priorityRuleRevision),
+        priorityEmailCacheKey(
+          email,
+          priorityRuleRevision,
+          priorityProviderIdentity,
+        ),
       ]),
     );
     try {
@@ -862,6 +886,21 @@ export function EmailList({
       const cache = priorityScoreCache(queryClient);
       const next = new Map(cache);
       const scoredKeys = new Set<string>();
+      const failedKeys = new Set<string>();
+      for (const failure of result.failures) {
+        const email =
+          failure.accountEmail === undefined
+            ? uniquePendingEmailById.get(failure.emailId)
+            : pendingEmailsByKey.get(
+                aiPriorityEmailKey(failure.accountEmail, failure.emailId),
+              );
+        if (!email) throw new Error(t("mail.sort.priorityFailed"));
+        const key = aiPriorityEmailKey(email.accountEmail, email.id);
+        if (failedKeys.has(key)) {
+          throw new Error(t("mail.sort.priorityFailed"));
+        }
+        failedKeys.add(key);
+      }
       for (const score of result.scores) {
         const email =
           score.accountEmail === undefined
@@ -870,33 +909,51 @@ export function EmailList({
                 aiPriorityEmailKey(score.accountEmail, score.emailId),
               );
         if (!email) {
-          if (
-            score.accountEmail === undefined &&
-            uniquePendingEmailById.has(score.emailId)
-          ) {
-            throw new Error(t("mail.sort.priorityFailed"));
-          }
-          continue;
+          throw new Error(t("mail.sort.priorityFailed"));
         }
         const key = aiPriorityEmailKey(email.accountEmail, email.id);
+        if (scoredKeys.has(key) || failedKeys.has(key)) {
+          throw new Error(t("mail.sort.priorityFailed"));
+        }
         scoredKeys.add(key);
         const inputKey = pendingInputKeys.get(key);
         if (inputKey) {
-          const cachedScore = { inputKey, score: score.score };
+          const cachedScore = {
+            inputKey,
+            score: score.score,
+            model: result.model,
+            providerIdentity: priorityProviderIdentity,
+          };
           rememberPriorityScore(cache, key, cachedScore);
           rememberPriorityScore(next, key, cachedScore);
         }
       }
-      if (scoredKeys.size !== uncachedPriorityEmails.length) {
+      if (scoredKeys.size + failedKeys.size !== uncachedPriorityEmails.length) {
         throw new Error(t("mail.sort.priorityFailed"));
       }
       setPriorityScores(next);
-    } catch (error) {
+      if (result.failures.length > 0) {
+        toast.error(
+          t("mail.sort.priorityPartialFailed", {
+            count: result.failures.length,
+          }),
+        );
+      }
+    } catch (error: unknown) {
       if (priorityRequestGenerationRef.current !== requestGeneration) return;
       priorityRequestKeyRef.current = "";
       onSortModeChange?.("newest");
+      const errorCode =
+        typeof error === "object" &&
+        error !== null &&
+        "errorCode" in error &&
+        typeof error.errorCode === "string"
+          ? error.errorCode
+          : undefined;
       toast.error(
-        error instanceof Error ? error.message : t("mail.sort.priorityFailed"),
+        errorCode === "jev_not_enabled"
+          ? t("mail.sort.priorityProviderRequired")
+          : t("mail.sort.priorityFailed"),
       );
     }
   }, [
@@ -904,6 +961,7 @@ export function EmailList({
     areAutomationRulesFetching,
     isPriorityPending,
     priorityInputKey,
+    priorityProviderIdentity,
     priorityRuleRevision,
     cachedPriorityScores,
     priorityWindowEmails,
@@ -949,9 +1007,18 @@ export function EmailList({
                 (chronologicalIndexes.get(bKey) ?? 0)
               );
             }
+            const aScore = cachedPriorityScores.get(aKey);
+            const bScore = cachedPriorityScores.get(bKey);
+            if (aScore === undefined && bScore !== undefined) return 1;
+            if (aScore !== undefined && bScore === undefined) return -1;
+            if (
+              aScore !== undefined &&
+              bScore !== undefined &&
+              aScore !== bScore
+            ) {
+              return bScore - aScore;
+            }
             return (
-              (cachedPriorityScores.get(bKey) ?? 0.5) -
-                (cachedPriorityScores.get(aKey) ?? 0.5) ||
               new Date(b.latestMessage.date).getTime() -
                 new Date(a.latestMessage.date).getTime() ||
               b.latestMessage.id.localeCompare(a.latestMessage.id)
@@ -980,12 +1047,14 @@ export function EmailList({
     }
     if (
       priorityOrder?.ruleRevision === priorityRuleRevision &&
+      priorityOrder.providerIdentity === priorityProviderIdentity &&
       priorityOrder.keys.length > 0
     ) {
       return;
     }
     setPriorityOrder({
       ruleRevision: priorityRuleRevision,
+      providerIdentity: priorityProviderIdentity,
       keys: rankedPriorityThreads
         .filter((thread) =>
           priorityWindowIds.has(
@@ -1009,6 +1078,7 @@ export function EmailList({
     currentSortMode,
     priorityOrder,
     priorityWindowIds,
+    priorityProviderIdentity,
     priorityRuleRevision,
     priorityWindowEmails,
     rankedPriorityThreads,
@@ -1017,7 +1087,8 @@ export function EmailList({
     if (
       currentSortMode !== "priority" ||
       !priorityOrder ||
-      priorityOrder.ruleRevision !== priorityRuleRevision
+      priorityOrder.ruleRevision !== priorityRuleRevision ||
+      priorityOrder.providerIdentity !== priorityProviderIdentity
     ) {
       return;
     }
@@ -1042,11 +1113,15 @@ export function EmailList({
     cachedPriorityScores,
     currentSortMode,
     priorityOrder,
+    priorityProviderIdentity,
     priorityRuleRevision,
     priorityWindowEmails,
   ]);
   const activePriorityOrder =
-    priorityOrder?.ruleRevision === priorityRuleRevision ? priorityOrder : null;
+    priorityOrder?.ruleRevision === priorityRuleRevision &&
+    priorityOrder.providerIdentity === priorityProviderIdentity
+      ? priorityOrder
+      : null;
   const threads = useMemo(() => {
     if (currentSortMode !== "priority") return chronologicalThreads;
     if (!activePriorityOrder) return rankedPriorityThreads;
@@ -1768,13 +1843,13 @@ export function EmailList({
         );
       } catch (error) {
         if (error instanceof MoveEmailPartialFailure) {
-          toast.error(
-            t("mail.toasts.movePartialFailed", {
+          reportWriteFailure(error, {
+            label: t("mail.toasts.movePartialFailed", {
               succeeded: error.result.succeeded.length,
               total: error.result.requested.length,
               failed: error.result.failed.length,
             }),
-          );
+          });
         } else {
           toast.error(actionErrorMessage(error) ?? t("mail.toasts.moveFailed"));
         }
@@ -1875,6 +1950,21 @@ export function EmailList({
     [setSelectedIds],
   );
 
+  const toggleFocusedSelection = useCallback(() => {
+    const id = focusedIdRef.current;
+    const thread = id
+      ? threads.find((t) => t.latestMessage.id === id)
+      : undefined;
+    if (!thread) return;
+    const key = thread.latestMessage.threadId || thread.latestMessage.id;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, [threads, setSelectedIds]);
+
   useKeyboardShortcuts([
     { key: "a", meta: true, handler: selectAllThreads },
     { key: "j", handler: () => moveFocus(1) },
@@ -1891,8 +1981,7 @@ export function EmailList({
     { key: "d", handler: trashFocused },
     { key: "#", shift: "either", handler: trashFocused },
     { key: "u", handler: toggleFocusedRead },
-    { key: "I", handler: markFocusedRead, shift: true },
-    { key: "U", handler: markFocusedUnread, shift: true },
+    { key: "x", handler: toggleFocusedSelection },
     { key: "s", handler: starFocused },
     { key: "r", handler: replyFocused },
     { key: "f", handler: forwardFocused },
@@ -1960,6 +2049,21 @@ export function EmailList({
     if (focusedIndex < 0) return;
     rowVirtualizer.scrollToIndex(focusedIndex, { align: "auto" });
   }, [focusedIndex, rowVirtualizer]);
+
+  const pageFocus = useCallback(
+    (direction: 1 | -1) => {
+      const parent = scrollParentRef.current;
+      if (!parent) return;
+      const rowsPerPage = Math.floor(parent.clientHeight / rowHeightEstimate);
+      moveFocus(direction * Math.max(1, rowsPerPage - 1));
+    },
+    [moveFocus, rowHeightEstimate],
+  );
+
+  useKeyboardShortcuts([
+    { key: " ", handler: () => pageFocus(1) },
+    { key: " ", shift: true, handler: () => pageFocus(-1) },
+  ]);
 
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -2154,7 +2258,10 @@ export function EmailList({
       if (!jobId) return;
       cancelScheduledJob.mutate(jobId, {
         onSuccess: () => toast(t("mail.toasts.scheduledCancelled")),
-        onError: () => toast.error(t("mail.toasts.scheduledCancelFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, {
+            label: t("mail.toasts.scheduledCancelFailed"),
+          }),
       });
     },
     [getScheduledJobId, cancelScheduledJob, t],
@@ -2321,30 +2428,30 @@ export function EmailList({
       view === "inbox" && !searchQuery && !labelParam && threads.length > 0 ? (
         <div className="flex items-center gap-1">
           <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex h-7 w-[112px] items-center justify-between rounded-md border border-input bg-transparent px-2.5 text-[11px] text-foreground hover:bg-accent/40"
-                    aria-label={`${t("mail.sort.label")} · ⌘I`}
-                    aria-busy={isPriorityPending}
-                  >
-                    <span>
-                      {currentSortMode === "priority"
-                        ? t("mail.sort.priority")
-                        : t("mail.sort.newest")}
-                    </span>
-                    {isPriorityPending ? (
-                      <Spinner className="size-3" />
-                    ) : (
-                      <IconChevronDown className="size-3.5 text-muted-foreground" />
-                    )}
-                  </button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>{`${t("mail.sort.label")} · ⌘I`}</TooltipContent>
-            </Tooltip>
+            <ActionTooltip
+              label={t("mail.sort.label")}
+              keys={[formatShortcut("cmd"), "I"]}
+            >
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-7 w-[112px] items-center justify-between rounded-md border border-input bg-transparent px-2.5 text-[11px] text-foreground hover:bg-accent/40"
+                  aria-label={`${t("mail.sort.label")} · ⌘I`}
+                  aria-busy={isPriorityPending}
+                >
+                  <span>
+                    {currentSortMode === "priority"
+                      ? t("mail.sort.priority")
+                      : t("mail.sort.newest")}
+                  </span>
+                  {isPriorityPending ? (
+                    <Spinner className="size-3" />
+                  ) : (
+                    <IconChevronDown className="size-3.5 text-muted-foreground" />
+                  )}
+                </button>
+              </DropdownMenuTrigger>
+            </ActionTooltip>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem
                 onSelect={() => onSortModeChange?.("newest")}
@@ -2426,37 +2533,31 @@ export function EmailList({
     () =>
       selectedIds.size > 0 ? (
         <div className="flex h-7 max-w-[calc(100vw-11rem)] shrink-0 items-center gap-1 rounded-md border border-border/50 bg-muted/50 px-1.5 text-muted-foreground shadow-sm">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={clearSelection}
-                className="flex size-5 items-center justify-center rounded transition-colors hover:bg-accent hover:text-foreground"
-                aria-label={t("mail.selection.clear")}
-              >
-                <IconX className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("mail.selection.clear")}</TooltipContent>
-          </Tooltip>
+          <ActionTooltip label={t("mail.selection.clear")} keys={["Esc"]}>
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="flex size-5 items-center justify-center rounded transition-colors hover:bg-accent hover:text-foreground"
+              aria-label={t("mail.selection.clear")}
+            >
+              <IconX className="h-3.5 w-3.5" />
+            </button>
+          </ActionTooltip>
           <span className="whitespace-nowrap text-xs font-medium text-foreground/80">
             {t("mail.selection.selected", { count: selectedIds.size })}
           </span>
           <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex size-5 items-center justify-center rounded transition-colors hover:bg-accent hover:text-foreground"
-                    aria-label={t("mail.selection.actions")}
-                  >
-                    <IconDots className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>{t("mail.selection.actions")}</TooltipContent>
-            </Tooltip>
+            <ActionTooltip label={t("mail.selection.actions")}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex size-5 items-center justify-center rounded transition-colors hover:bg-accent hover:text-foreground"
+                  aria-label={t("mail.selection.actions")}
+                >
+                  <IconDots className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+            </ActionTooltip>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem
                 onClick={() =>

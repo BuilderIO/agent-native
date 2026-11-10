@@ -24,6 +24,7 @@
 
 import { createHash } from "node:crypto";
 
+import { withoutWriteObservation } from "../action-frame.js";
 import {
   getStoredModelForEngine,
   normalizeModelForEngine,
@@ -31,9 +32,16 @@ import {
 } from "../agent/engine/index.js";
 import type { AgentEngine } from "../agent/engine/types.js";
 import { createTtlCache } from "../shared/ttl-cache.js";
+import type { UsageRecord } from "../usage/store.js";
 
 const CONDITION_EVAL_VERSION = "v4";
 const CONDITION_EVALUATION_TIMEOUT_MS = 15_000;
+// How long a check cut off by its deadline may take to unwind its aborted
+// stream, so the usage it reported is saved before the caller moves on.
+const ABORTED_CHECK_UNWIND_MS = 1_000;
+// How long the caller waits for the check's usage write. A write still
+// running after this finishes on its own; it never rejects.
+const USAGE_WRITE_WAIT_MS = 5_000;
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE_SIZE = 500;
@@ -88,6 +96,8 @@ export async function evaluateCondition(
     signal?: AbortSignal;
     engine?: AgentEngine;
     resolvedModel?: string;
+    /** Usage label for the check's model call, such as the automation's own. */
+    usageLabel?: string;
   } = {},
 ): Promise<boolean> {
   if (!condition || !condition.trim()) return true;
@@ -109,6 +119,9 @@ export async function evaluateCondition(
   const controller = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   let removeAbortListener: (() => void) | undefined;
+  // Saving what the check spent stays outside the deadline, so a slow write
+  // never turns an answer the model already gave into a timeout.
+  const usageWrites: Promise<void>[] = [];
   const evaluate = async () => {
     let engine: AgentEngine;
     let model: string;
@@ -154,12 +167,22 @@ export async function evaluateCondition(
       if (cached !== undefined) return cached;
     }
 
-    const result = await callClassifier(
-      condition,
-      payload,
-      engine,
-      model,
-      controller.signal,
+    // A classification is an answer, not a write of the call that emitted the event.
+    const result = await withoutWriteObservation(() =>
+      callClassifier(
+        condition,
+        payload,
+        engine,
+        model,
+        controller.signal,
+        {
+          ownerEmail: identity.userEmail,
+          ...(identity.orgId === undefined ? {} : { orgId: identity.orgId }),
+          ...(identity.appId === undefined ? {} : { app: identity.appId }),
+          label: options.usageLabel ?? "automation-condition",
+        },
+        usageWrites,
+      ),
     );
     if (controller.signal.aborted) {
       throw new Error(
@@ -189,19 +212,80 @@ export async function evaluateCondition(
       })
     : null;
 
+  const evaluation = evaluate();
   let result: boolean;
   try {
     result = await Promise.race([
-      evaluate(),
+      evaluation,
       timeout,
       ...(aborted ? [aborted] : []),
     ]);
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
     removeAbortListener?.();
+    // A check cut off by the deadline queues its usage write only once its
+    // aborted stream unwinds, so give it a moment before collecting writes.
+    await settledWithin(evaluation, ABORTED_CHECK_UNWIND_MS);
+    await settledWithin(Promise.all(usageWrites), USAGE_WRITE_WAIT_MS);
   }
 
   return result;
+}
+
+/**
+ * Resolves when `promise` settles or `ms` passes, whichever is first. The
+ * timer is always cleared, so it needs no Node-only `unref` (Workers timers
+ * are plain numbers).
+ */
+async function settledWithin(
+  promise: Promise<unknown>,
+  ms: number,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      promise.then(
+        () => undefined,
+        () => undefined,
+      ),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+type ClassifierUsageScope = Pick<
+  UsageRecord,
+  "ownerEmail" | "orgId" | "app" | "label"
+>;
+
+/**
+ * Save what the check spent, as every other model call does, so usage
+ * dashboards and spend totals include it on whichever key paid for it.
+ * Never rejects, so callers can leave it running.
+ */
+async function recordClassifierUsage(
+  scope: ClassifierUsageScope,
+  usage: Omit<UsageRecord, keyof ClassifierUsageScope>,
+): Promise<void> {
+  if (
+    usage.inputTokens <= 0 &&
+    usage.outputTokens <= 0 &&
+    !usage.cacheReadTokens &&
+    !usage.cacheWriteTokens &&
+    usage.builderCreditsUsed == null
+  ) {
+    return;
+  }
+  try {
+    const { recordUsage } = await import("../usage/store.js");
+    await recordUsage({ ...scope, ...usage });
+  } catch (error) {
+    console.error("[triggers] Failed to persist condition check usage:", error);
+  }
 }
 
 async function callClassifier(
@@ -210,6 +294,8 @@ async function callClassifier(
   engine: AgentEngine,
   model: string,
   signal: AbortSignal,
+  usageScope: ClassifierUsageScope,
+  usageWrites: Promise<void>[],
 ): Promise<boolean> {
   let payloadStr: string;
   try {
@@ -237,6 +323,13 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
 
   let text = "";
   let streamErrorMessage: string | undefined;
+  const usage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    builderCreditsUsed: undefined as number | undefined,
+  };
   try {
     const stream = engine.stream({
       model,
@@ -252,6 +345,15 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
     for await (const event of stream) {
       if (event.type === "text-delta") {
         text += event.text;
+      } else if (event.type === "usage") {
+        usage.inputTokens += event.inputTokens;
+        usage.outputTokens += event.outputTokens;
+        usage.cacheReadTokens += event.cacheReadTokens ?? 0;
+        usage.cacheWriteTokens += event.cacheWriteTokens ?? 0;
+        if (event.builderCreditsUsed !== undefined) {
+          usage.builderCreditsUsed =
+            (usage.builderCreditsUsed ?? 0) + event.builderCreditsUsed;
+        }
       } else if (event.type === "stop" && event.reason === "error") {
         streamErrorMessage = event.error ?? "model error";
       }
@@ -263,6 +365,21 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
       err instanceof Error
         ? `Condition evaluation failed: ${err.message}`
         : "Condition evaluation failed: unknown error",
+    );
+  } finally {
+    // A check that failed or timed out after the model answered still spent.
+    usageWrites.push(
+      recordClassifierUsage(usageScope, {
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cacheReadTokens: usage.cacheReadTokens,
+        cacheWriteTokens: usage.cacheWriteTokens,
+        ...(usage.builderCreditsUsed === undefined
+          ? {}
+          : { builderCreditsUsed: usage.builderCreditsUsed }),
+        engineName: engine.name,
+        model,
+      }),
     );
   }
 

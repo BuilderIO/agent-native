@@ -7,6 +7,7 @@ import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resetWorkspaceAppLayoutStoreForTests } from "../../lib/workspace-app-layout";
 import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
 import { AdminShell } from "../admin-navigation";
 import { Tooltip, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
@@ -43,6 +44,7 @@ const clientState = vi.hoisted(() => ({
   connectedApps: [] as Array<Record<string, unknown>>,
   connectedAppsError: null as Error | null,
   connectedAppsLoading: false,
+  railRenders: 0,
   appState: {} as Record<string, unknown>,
   appStatePromises: {} as Record<string, Promise<unknown>>,
   basePath: "",
@@ -143,6 +145,15 @@ vi.mock("@agent-native/toolkit/app/chat/AgentSidebar", () => ({
 vi.mock("../deferred-chat-components.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../deferred-chat-components.js")>()),
   AgentChatSurface: () => null,
+  ChatFirstAppsRail: await (async () => {
+    const { createElement, memo } = await import("react");
+    const { ChatFirstAppsRail: Rail } =
+      await import("../../../../toolkit/src/app/chat/chat-first/apps-rail.tsx");
+    return memo(function CountedRail(props: Parameters<typeof Rail>[0]) {
+      clientState.railRenders += 1;
+      return createElement(Rail, props);
+    });
+  })(),
   ChatFirstChatHistory: (
     await import("../../../../toolkit/src/app/chat/chat-first/chat-history.tsx")
   ).ChatFirstChatHistory,
@@ -222,44 +233,50 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   DEFAULT_LOCALE: "en-US",
   useOptionalLocale: () => ({ locale: "en-US" }),
   useFormatters: () => ({ formatNumber: (value: number) => String(value) }),
-  useT: () => (key: string, values?: Record<string, unknown>) => {
-    const messages: Record<string, string> = {
-      "dispatch.nav.chat": "Chat",
-      "dispatch.nav.overview": "Overview",
-      "dispatch.nav.apps": "Apps",
-      "dispatch.nav.agents": "Agents",
-      "dispatch.pages.workspaceApps": "Workspace apps",
-      "dispatch.nav.operate": "Operate",
-      "dispatch.nav.advanced": "Advanced",
-      "agentChat.history.mine": "My chats",
-      "agentChat.history.sharedWithYou": "Shared with you",
-      "agentChat.history.ownedBy": `Owner: ${values?.name ?? ""}`,
-      "agentChat.history.accessDirect": "Shared with you",
-      "agentChat.history.accessOrganization": "Shared with your organization",
-      "agentChat.history.copyLink": "Copy link",
-      "agentChat.history.showAll": "Show all",
-      "agentChat.history.showLess": "Show less",
-      "agentChat.history.loadMore": "Load more",
-      "agentChat.history.loadingMore": "Loading...",
-      "agentChat.history.emptyMine": "No chats yet",
-      "dispatch.sidebar.chats": "Chats",
-      "dispatch.sidebar.showLocalChats": "Show local chats",
-      "dispatch.sidebar.showAllChats": "Show all chats",
-      "agentChat.contextXray.pin": "Pin",
-      "agentChat.contextXray.unpin": "Unpin",
-      "extensions.delete": "Archive",
-      "dispatch.integrations.failedToSave": "Failed to save",
-      "dispatch.sidebar.newChat": "New chat",
-      "dispatch.sidebar.newDispatchChat": "New Dispatch chat",
-      "dispatch.sidebar.renameChat": "Rename chat",
-      "dispatch.sidebar.chatOptions": `Options for ${values?.title ?? ""}`,
-      "dispatch.sidebar.renameThread": `Rename ${values?.title ?? ""}`,
-      "sidebar.collapseSidebar": "Collapse sidebar",
-      "sidebar.expandSidebar": "Expand sidebar",
-    };
-    return messages[key] ?? String(values?.defaultValue ?? key);
-  },
+  // Stable like the real useT, so memoized copy stays memoized.
+  useT: () => translate,
 }));
+
+function translate(key: string, values?: Record<string, unknown>) {
+  const messages: Record<string, string> = {
+    "dispatch.nav.chat": "Chat",
+    "dispatch.nav.overview": "Overview",
+    "dispatch.nav.apps": "Apps",
+    "dispatch.nav.agents": "Agents",
+    "dispatch.pages.workspaceApps": "Workspace apps",
+    "dispatch.nav.operate": "Operate",
+    "dispatch.nav.advanced": "Advanced",
+    "agentChat.history.mine": "My chats",
+    "agentChat.history.sharedWithYou": "Shared with you",
+    "agentChat.history.ownedBy": `Owner: ${values?.name ?? ""}`,
+    "agentChat.history.accessDirect": "Shared with you",
+    "agentChat.history.accessOrganization": "Shared with your organization",
+    "agentChat.history.copyLink": "Copy link",
+    "agentChat.history.onlyYou": "Only you",
+    "agentChat.history.hide": "Hide from my list",
+    "agentChat.history.showAll": "Show all",
+    "agentChat.history.showLess": "Show less",
+    "agentChat.history.loadMore": "Load more",
+    "agentChat.history.loadingMore": "Loading...",
+    "agentChat.history.emptyMine": "No chats yet",
+    "dispatch.sidebar.chats": "Chats",
+    "dispatch.sidebar.showLocalChats": "Show local chats",
+    "dispatch.sidebar.showAllChats": "Show all chats",
+    "agentChat.contextXray.pin": "Pin",
+    "agentChat.contextXray.unpin": "Unpin",
+    "extensions.delete": "Archive",
+    "dispatch.integrations.failedToSave": "Failed to save",
+    "dispatch.sidebar.newChat": "New chat",
+    "dispatch.sidebar.newDispatchChat": "New Dispatch chat",
+    "dispatch.sidebar.renameChat": "Rename chat",
+    "dispatch.sidebar.chatOptions": `Options for ${values?.title ?? ""}`,
+    "dispatch.sidebar.renameThread": `Rename ${values?.title ?? ""}`,
+    "agentChat.chatFirst.showMoreCount": `${values?.count ?? ""} more apps`,
+    "sidebar.collapseSidebar": "Collapse sidebar",
+    "sidebar.expandSidebar": "Expand sidebar",
+  };
+  return messages[key] ?? String(values?.defaultValue ?? key);
+}
 
 vi.mock("@agent-native/toolkit/app/shared", async (importOriginal) => ({
   ...(await importOriginal<
@@ -445,6 +462,7 @@ describe("Dispatch NavContent", () => {
     clientState.connectedAppsLoading = false;
     clientState.appState = {};
     clientState.appStatePromises = {};
+    resetWorkspaceAppLayoutStoreForTests();
     workspaceAppNavigation.navigateToWorkspaceApp.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -593,6 +611,46 @@ describe("Dispatch NavContent", () => {
     ).not.toBeNull();
   });
 
+  it("keeps hosted apps the organization hides out of the rail but openable", async () => {
+    clientState.workspaceApps = [
+      { id: "notes", name: "Notes", path: "/notes", status: "ready" },
+    ];
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+        hiddenFromLaunchers: true,
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/hosted-hidden"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-chat-first-app][data-app-id="notes"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-chat-first-app][data-app-id="clips"]'),
+    ).toBeNull();
+
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "clips" });
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+  });
+
   it("retries an app open after connected built-in discovery recovers", async () => {
     clientState.workspaceApps = [
       {
@@ -644,6 +702,77 @@ describe("Dispatch NavContent", () => {
     ).not.toBeNull();
   });
 
+  it("keeps saved pins when the rail pins an app before workspace state loads", async () => {
+    clientState.workspaceApps = ["alpha", "beta"].map((id) => ({
+      id,
+      name: id,
+      path: `/${id}`,
+      url: `https://${id}.example.com`,
+      status: "ready",
+    }));
+    let resolveLayout: (value: unknown) => void = () => {};
+    clientState.appStatePromises["chat-first-app-layout"] = new Promise(
+      (resolve) => {
+        resolveLayout = resolve;
+      },
+    );
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    const pinAlpha = container.querySelector<HTMLButtonElement>(
+      '[data-chat-first-app][data-app-id="alpha"] button[aria-pressed]',
+    );
+    expect(pinAlpha).not.toBeNull();
+    await act(async () => pinAlpha!.click());
+    await act(async () => {
+      resolveLayout({ pinnedIds: ["beta"], orderedIds: [] });
+    });
+
+    expect(clientState.appState["chat-first-app-layout"]).toEqual({
+      pinnedIds: ["alpha", "beta"],
+      orderedIds: [],
+    });
+  });
+
+  it("loads saved pins for the rail on non-chat routes", async () => {
+    clientState.workspaceApps = ["alpha", "beta"].map((id) => ({
+      id,
+      name: id,
+      path: `/${id}`,
+      url: `https://${id}.example.com`,
+      status: "ready",
+    }));
+    clientState.appState["chat-first-app-layout"] = {
+      pinnedIds: ["beta"],
+      orderedIds: [],
+    };
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/admin/automations"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(
+      container
+        .querySelector(
+          '[data-chat-first-app][data-app-id="beta"] button[aria-pressed]',
+        )
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
   it("keeps hidden Dispatch registered for agent app targets", async () => {
     clientState.workspaceApps = [
       {
@@ -669,7 +798,7 @@ describe("Dispatch NavContent", () => {
       emitChatFirstOpenApp({ app: "dispatch" });
     });
 
-    expect(container.querySelector(".dispatch-chat-first-notice")).toBeNull();
+    expect(container.querySelector("[data-app-notice]")).toBeNull();
   });
 
   it("does not restore a deferred pane after switching chats", async () => {
@@ -1166,15 +1295,19 @@ describe("Dispatch NavContent", () => {
       );
     });
 
-    expect(container.querySelectorAll("[data-chat-first-app]")).toHaveLength(5);
-    const showMore = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent?.trim() === "Show more",
-    );
-    expect(showMore).toBeDefined();
-    await act(async () => {
-      showMore?.click();
-    });
-    expect(container.querySelectorAll("[data-chat-first-app]")).toHaveLength(6);
+    expect(container.querySelectorAll("[data-chat-first-app]")).toHaveLength(3);
+    expect(
+      container.querySelector('[data-chat-first-app-section="apps"]')
+        ?.textContent,
+    ).toContain("Apps");
+    expect(
+      container.querySelector('[data-chat-first-app][draggable="true"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector(
+        "[data-chat-first-apps-rail] button[aria-expanded]",
+      ),
+    ).toBeNull();
 
     const allApps = container.querySelector<HTMLButtonElement>(
       "[data-chat-first-all-apps]",
@@ -1184,6 +1317,147 @@ describe("Dispatch NavContent", () => {
       allApps?.click();
     });
     expect(paths.at(-1)).toBe("/apps");
+  });
+
+  describe.each([false, true])(
+    "the chat-first rail's apps (collapsed %s)",
+    (collapsed) => {
+      const workspace = ["zeta", "eta", "beta", "delta", "alpha"].map((id) => ({
+        id,
+        name: id[0]!.toUpperCase() + id.slice(1),
+      }));
+      const hosted = ["mail", "clips", "slides", "design"].map((id) => ({
+        id,
+        name: id,
+        source: "builtin" as const,
+      }));
+      async function renderRail(
+        apps: Array<{ id: string; name: string; source?: "builtin" }>,
+        pinnedIds: string[],
+        activeAppId?: string,
+      ) {
+        await act(async () => {
+          root.render(
+            <MemoryRouter initialEntries={["/chat"]}>
+              <TooltipProvider>
+                <NavContent
+                  chatFirstMode
+                  collapsed={collapsed}
+                  chatFirstApps={apps}
+                  chatFirstAppLayout={{ pinnedIds, orderedIds: [] }}
+                  {...(activeAppId
+                    ? { chatFirstActiveAppId: activeAppId }
+                    : {})}
+                />
+              </TooltipProvider>
+            </MemoryRouter>,
+          );
+        });
+        const sections = [
+          ...container.querySelectorAll<HTMLElement>(
+            "[data-chat-first-app-section]",
+          ),
+        ].map((section) => section.dataset.chatFirstAppSection);
+        return {
+          sections,
+          ids: [
+            ...container.querySelectorAll<HTMLElement>("[data-chat-first-app]"),
+          ].map((row) => row.dataset.appId),
+        };
+      }
+
+      it("shows only pins, in pin order, once something is pinned", async () => {
+        const rail = await renderRail(
+          [...workspace, ...hosted],
+          ["clips", "beta"],
+        );
+        expect(rail.ids).toEqual(["clips", "beta"]);
+        if (!collapsed) {
+          expect(rail.sections).toEqual(["pinned"]);
+          expect(
+            container
+              .querySelector("[data-chat-first-app-section]")
+              ?.getAttribute("aria-label"),
+          ).toBe("dispatch.pages.pinnedApps");
+        }
+      });
+
+      it("suggests the first three workspace apps A to Z with no pins", async () => {
+        const rail = await renderRail([...workspace, ...hosted], []);
+        expect(rail.ids).toEqual(["alpha", "beta", "delta"]);
+        if (!collapsed) expect(rail.sections).toEqual(["apps"]);
+      });
+
+      it("suggests hosted apps when the workspace has none", async () => {
+        const rail = await renderRail(hosted, []);
+        expect(rail.ids).toEqual(["clips", "design", "mail"]);
+      });
+
+      it("adds the open app when it is not shown", async () => {
+        const rail = await renderRail(
+          [...workspace, ...hosted],
+          ["clips"],
+          "zeta",
+        );
+        expect(rail.ids).toEqual(["clips", "zeta"]);
+      });
+    },
+  );
+
+  it.each([
+    ["loading", false],
+    ["error", false],
+    ["ready", true],
+  ] as const)(
+    "says there are no apps only once the list arrived (%s)",
+    async (status, saysEmpty) => {
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={["/chat"]}>
+            <TooltipProvider>
+              <NavContent
+                chatFirstMode
+                chatFirstApps={[]}
+                chatFirstAppsStatus={status}
+              />
+            </TooltipProvider>
+          </MemoryRouter>,
+        );
+      });
+
+      const appsText =
+        container.querySelector('[data-chat-first-app-section="apps"]')
+          ?.textContent ?? "";
+      if (saysEmpty) expect(appsText).toContain("No apps yet");
+      else expect(appsText).not.toContain("No apps yet");
+    },
+  );
+
+  it("does not re-render the apps rail when the sidebar re-renders with the same apps", async () => {
+    const apps = [
+      { id: "alpha", name: "Alpha" },
+      { id: "mail", name: "Mail", source: "builtin" as const },
+    ];
+    const layout = { pinnedIds: [], orderedIds: [] };
+    const renderNav = () =>
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <TooltipProvider>
+            <NavContent
+              chatFirstMode
+              chatFirstApps={apps}
+              chatFirstAppLayout={layout}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+
+    await act(async () => renderNav());
+    const rendersAfterMount = clientState.railRenders;
+    expect(rendersAfterMount).toBeGreaterThan(0);
+    await act(async () => renderNav());
+
+    expect(clientState.railRenders).toBe(rendersAfterMount);
   });
 
   it("omits the Chats section when chat-first has no chats", async () => {
@@ -1339,7 +1613,6 @@ describe("Dispatch NavContent", () => {
         ownerEmail: "colleague@example.com",
         accessBasis: index === 0 ? "direct" : "organization",
         visibility: "organization",
-        pinnedAt: Date.now(),
       }));
       clientState.sharedHasMore = true;
       await renderHistory(chatFirstMode, "/chat/shared-0");
@@ -1395,12 +1668,53 @@ describe("Dispatch NavContent", () => {
       const actions = [
         ...document.body.querySelectorAll(".an-chat-history-row__menu-item"),
       ].map((item) => item.textContent);
-      expect(actions).toContain("Copy link");
-      for (const ownerAction of ["Rename chat", "Pin", "Unpin", "Archive"]) {
+      expect(actions).toEqual(
+        expect.arrayContaining([
+          "PinOnly you",
+          "Copy link",
+          "Hide from my list",
+        ]),
+      );
+      for (const ownerAction of ["Rename chat", "Archive"]) {
         expect(actions).not.toContain(ownerAction);
       }
     },
   );
+
+  it("lists chats above the apps rail", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/active-thread"]}>
+          <TooltipProvider>
+            <NavContent
+              chatFirstMode
+              chatFirstApps={[{ id: "alpha", name: "Alpha" }]}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const chat = [...container.querySelectorAll("button, a")].find((node) =>
+      node.textContent?.includes("Current Dispatch work"),
+    );
+    const rail = container.querySelector("[data-chat-first-apps-rail]");
+    expect(chat).toBeDefined();
+    expect(rail).not.toBeNull();
+    expect(
+      chat!.compareDocumentPosition(rail!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("puts the chat source toggle in the first chat section header", async () => {
+    await renderHistory(true);
+
+    const toggles = container.querySelectorAll(
+      "[data-dispatch-chat-source-toggle]",
+    );
+    expect(toggles).toHaveLength(1);
+    expect(toggles[0]!.parentElement!.textContent).toBe("My chats");
+  });
 
   it.each([false, true])(
     "passes the persisted external source toggle to both ownership queries (chat-first %s)",

@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "引用对话…",
+    group: "对话",
+    authentication: "登录以添加引用。",
+    invalid: "发送前请选择有效的引用。",
+    unavailable: "所选引用已不可用。请移除或重新选择。",
+  },
   composer: {
     removeAttachment: "移除 {{name}}",
     removeReference: "移除 {{name}} 引用",
@@ -47,16 +54,12 @@ const messages = {
     untitledChat: "未命名聊天",
   },
   home: {
-    composerPlaceholder: "为 Alex 调用 hello 操作",
     communityTitle: "联系我们",
     docsAddAction: "添加操作",
     docsAddPage: "添加页面",
     docsGettingStarted: "快速开始",
     docsKeyConcepts: "核心概念",
     docsTitle: "文档",
-    editHint: "编辑 {{file}} 并保存，再问一次就能看到新的问候语。",
-    lead: "应用的界面和代理共用同一组操作。",
-    leadTry: "让代理调用 hello 操作试试。",
     title: "开始使用",
   },
   navigation: {

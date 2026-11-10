@@ -4,9 +4,8 @@ const mocks = vi.hoisted(() => ({
   fail: vi.fn((message: string, options?: Record<string, unknown>) => {
     throw Object.assign(new Error(message), options);
   }),
-  getJevContextCredentials: vi.fn(async () => ({ apiKey: "fake-key" })),
+  getDecisionsStatus: vi.fn(),
   getRequestUserEmail: vi.fn(() => "owner@example.com"),
-  isJevEnabled: vi.fn(async () => true),
   saveCalendarSettings: vi.fn(async (_email: string, patch: unknown) => patch),
 }));
 
@@ -14,10 +13,11 @@ vi.mock("@agent-native/core/action", () => ({
   defineAction: (action: unknown) => action,
   fail: mocks.fail,
 }));
+vi.mock("@agent-native/core/decisions", () => ({
+  getDecisionsStatus: mocks.getDecisionsStatus,
+}));
 vi.mock("@agent-native/core/server", () => ({
-  getJevContextCredentials: mocks.getJevContextCredentials,
   getRequestUserEmail: mocks.getRequestUserEmail,
-  isJevEnabled: mocks.isJevEnabled,
 }));
 vi.mock("../server/lib/calendar-settings.js", () => ({
   saveCalendarSettings: mocks.saveCalendarSettings,
@@ -25,14 +25,26 @@ vi.mock("../server/lib/calendar-settings.js", () => ({
 
 import action from "./update-settings.js";
 
-describe("update-settings Jev gate", () => {
+const readyJev = {
+  providers: [
+    { provider: "jev", status: "ready" },
+    { provider: "openai", status: "not_configured" },
+  ],
+};
+
+describe("update-settings decision provider gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.isJevEnabled.mockResolvedValue(true);
+    mocks.getDecisionsStatus.mockResolvedValue(readyJev);
   });
 
-  it("rejects non-empty invitation rules when Jev is not connected", async () => {
-    mocks.isJevEnabled.mockResolvedValue(false);
+  it("rejects non-empty invitation rules when no provider is connected", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue({
+      providers: [
+        { provider: "jev", status: "not_configured" },
+        { provider: "openai", status: "not_configured" },
+      ],
+    });
 
     await expect(
       action.run({ eventRules: { accept: "Accept one-on-ones" } }, {
@@ -42,21 +54,36 @@ describe("update-settings Jev gate", () => {
       errorCode: "jev_not_enabled",
       statusCode: 403,
     });
-    expect(mocks.getJevContextCredentials).toHaveBeenCalledWith(
-      "owner@example.com",
-    );
+    expect(mocks.getDecisionsStatus).toHaveBeenCalledWith("owner@example.com");
     expect(mocks.saveCalendarSettings).not.toHaveBeenCalled();
   });
 
-  it("allows clearing rules without Jev", async () => {
-    mocks.isJevEnabled.mockResolvedValue(false);
+  it("allows OpenAI-only users to save invitation rules", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue({
+      providers: [
+        { provider: "jev", status: "not_configured" },
+        { provider: "openai", status: "ready" },
+      ],
+    });
+    const patch = { eventRules: { accept: "Accept one-on-ones" } };
+
+    await expect(
+      action.run(patch, { caller: "frontend" } as never),
+    ).resolves.toEqual(patch);
+    expect(mocks.saveCalendarSettings).toHaveBeenCalledWith(
+      "owner@example.com",
+      patch,
+    );
+  });
+
+  it("allows clearing rules without a configured provider", async () => {
     const patch = { eventRules: { accept: "", decline: "", hide: "" } };
 
     await expect(
       action.run(patch, { caller: "frontend" } as never),
     ).resolves.toEqual(patch);
 
-    expect(mocks.getJevContextCredentials).not.toHaveBeenCalled();
+    expect(mocks.getDecisionsStatus).not.toHaveBeenCalled();
     expect(mocks.saveCalendarSettings).toHaveBeenCalledWith(
       "owner@example.com",
       patch,

@@ -158,6 +158,12 @@ const requestedScreenSchema = z
   });
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: false,
+  },
   description:
     "Start a multi-screen generation session on the Design canvas for " +
     "genuinely DISTINCT screens — different pages or states such as Home, " +

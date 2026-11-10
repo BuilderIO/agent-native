@@ -1,5 +1,7 @@
+import { RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION } from "@agent-native/toolkit/editor";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
+import { WORD_CHARACTER } from "@shared/suggestion-placement";
 import {
   resolveMarkdownSuggestionRange,
   resolveMarkdownSuggestionRangeInContext,
@@ -11,11 +13,24 @@ import {
   type SuggestionPresentationNode,
 } from "@shared/suggestion-text";
 import { Extension } from "@tiptap/core";
+import { isChangeOrigin } from "@tiptap/extension-collaboration";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey, type Selection } from "@tiptap/pm/state";
+import {
+  Plugin,
+  PluginKey,
+  type EditorState,
+  type Selection,
+  type Transaction,
+} from "@tiptap/pm/state";
+import { ReplaceStep } from "@tiptap/pm/transform";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
 import { buildDocText } from "../comment-anchors";
+import {
+  commentHighlightEmphasis,
+  commentHighlightKey,
+  type CommentHighlightState,
+} from "./CommentHighlight";
 
 export type SuggestionHighlightKind =
   | "delete"
@@ -33,9 +48,22 @@ export interface SuggestionHighlightSpec {
   deletedText?: string;
   insertedPresentation?: SuggestionPresentationContext;
   deletedPresentation?: SuggestionPresentationContext;
+  /**
+   * Where the links in a replacement's original text point. The reader sees
+   * those links on the Page, so the suggested text does not spell them out.
+   */
+  replacedLinks?: readonly string[];
   editableBoundary?: boolean;
   editableText?: boolean;
   settling?: boolean;
+  /** Accepted but not saved yet, drawn as a suggestion: its words hold still. */
+  frozen?: boolean;
+  /** The author's own unsaved suggestion, which follows their typing. */
+  draft?: boolean;
+  /** Decided together with the active suggestion, so it lights up with it. */
+  inActiveUnit?: boolean;
+  /** A marked range of only line breaks, which shows a "↵" as it has no ink. */
+  lineBreak?: boolean;
   settlingBeforePresentation?: SuggestionPresentationContext;
   settlingAfterSource?: string;
   settlingReadbackContent?: string | null;
@@ -44,12 +72,15 @@ export interface SuggestionHighlightSpec {
 export interface SuggestionHighlightState {
   specs: SuggestionHighlightSpec[];
   activeId: string | null;
+  /** Whether the author is suggesting, so their typing draws as drafts. */
+  drafting: boolean;
   decorations: DecorationSet;
 }
 
 export interface SuggestionHighlightMeta {
   specs?: SuggestionHighlightSpec[];
   activeId?: string | null;
+  drafting?: boolean;
 }
 
 export const suggestionHighlightKey = new PluginKey<SuggestionHighlightState>(
@@ -71,6 +102,13 @@ function clampPosition(position: number, size: number): number {
   return Math.max(0, Math.min(position, size));
 }
 
+// Chrome has no caret spot between a line break and an uneditable element, so
+// typing there lands before the break, on the line above. A widget at the start
+// of a code line goes before the caret, which keeps typing on its own line.
+function widgetSide(doc: ProseMirrorNode, position: number): -1 | 1 {
+  return doc.resolve(position).nodeBefore?.text?.endsWith("\n") ? -1 : 1;
+}
+
 function classes(base: string, active: boolean): string {
   return active ? `${base} suggestion-highlight--active` : base;
 }
@@ -78,7 +116,7 @@ function classes(base: string, active: boolean): string {
 function appendPresentationNode(
   parent: HTMLElement,
   node: SuggestionPresentationNode,
-  showLinkDestination: boolean,
+  showLinkDestination: (url: string) => boolean,
 ): void {
   if (node.type === "lineBreak") {
     parent.append(document.createElement("br"));
@@ -111,7 +149,7 @@ function appendPresentationNode(
     appendPresentationNode(element, child, showLinkDestination);
   parent.append(element);
 
-  if (node.type === "link" && showLinkDestination) {
+  if (node.type === "link" && showLinkDestination(node.url)) {
     parent.append(document.createTextNode(` (${node.url})`));
   }
 }
@@ -120,7 +158,7 @@ function appendSuggestionText(
   parent: HTMLElement,
   content: string,
   context?: SuggestionPresentationContext,
-  showLinkDestination = true,
+  showLinkDestination: (url: string) => boolean = () => true,
 ): void {
   const nodes = context
     ? suggestionTextPresentationForSource(content, context)
@@ -159,27 +197,98 @@ function insertionClass(spec: SuggestionHighlightSpec) {
   } suggestion-proposed-text`;
 }
 
+interface SettlingCommentHighlight {
+  threadId: string;
+  className: string;
+}
+
+// An accepted edit's original text is hidden while it settles, and with it
+// any comment highlight on that text; its new text carries the highlight until
+// the saved Page highlights it again. Like overlapping highlights on text, one
+// highlight stands for every thread there, naming the one its card is open for.
+function settlingCommentHighlight(
+  comments: CommentHighlightState | undefined,
+  spec: SuggestionHighlightSpec,
+): SettlingCommentHighlight | null {
+  if (!comments) return null;
+  const threadIds = comments.specs
+    .filter(
+      (comment) =>
+        !comment.blockId && comment.to > spec.from && spec.to > comment.from,
+    )
+    .map((comment) => comment.threadId);
+  const threadId =
+    threadIds.find(
+      (id) => id === comments.activeId || id === comments.hoveredId,
+    ) ?? threadIds.find(Boolean);
+  if (!threadId) return null;
+  return {
+    threadId,
+    className: `comment-highlight${commentHighlightEmphasis(
+      threadIds,
+      comments.activeId,
+      comments.hoveredId,
+    )}`,
+  };
+}
+
+function settlingWidget(
+  spec: SuggestionHighlightSpec,
+  comment: SettlingCommentHighlight | null,
+) {
+  return () => {
+    const widget = document.createElement("span");
+    widget.className = "suggestion-settling-text suggestion-inline-widget";
+    widget.setAttribute("data-suggestion-widget", "true");
+    let parent = widget;
+    if (comment) {
+      parent = document.createElement("span");
+      parent.className = comment.className;
+      parent.setAttribute("data-comment-thread", comment.threadId);
+      widget.append(parent);
+    }
+    appendSuggestionText(
+      parent,
+      spec.insertedText ?? "",
+      spec.insertedPresentation,
+      () => false,
+    );
+    return widget;
+  };
+}
+
+// A replacement draws its new text right after the struck text, so where it
+// swaps whole words the last struck word would run into the first new one
+// ("madeNo"). Those get a gap; a change inside a word ("gr~~a~~ey") doesn't.
+function replacesWholeWords(
+  doc: ProseMirrorNode,
+  range: { from: number; to: number },
+  insertedText: string | undefined,
+) {
+  const size = doc.content.size;
+  const before = doc.textBetween(Math.max(0, range.from - 1), range.from);
+  const after = doc.textBetween(range.to, Math.min(size, range.to + 1));
+  return (
+    /\S$/.test(doc.textBetween(range.from, range.to)) &&
+    /^\S/.test(insertedText ?? "") &&
+    !WORD_CHARACTER.test(before) &&
+    !WORD_CHARACTER.test(after)
+  );
+}
+
 function insertionWidget(
   spec: SuggestionHighlightSpec,
   active: boolean,
   part?: { text: string; context?: SuggestionPresentationContext },
   position?: number,
+  spaced = false,
 ) {
-  return () => {
+  return (view: EditorView) => {
     const widget = document.createElement("span");
-    if (spec.settling) {
-      widget.className = "suggestion-settling-text suggestion-inline-widget";
-      widget.setAttribute("data-suggestion-widget", "true");
-      appendSuggestionText(
-        widget,
-        spec.insertedText ?? "",
-        spec.insertedPresentation,
-        false,
-      );
-      return widget;
-    }
     widget.className = classes(
-      `${insertionClass(spec)} suggestion-inline-widget`,
+      `${insertionClass(spec)} suggestion-inline-widget${
+        spaced ? " suggestion-insert--spaced" : ""
+      }`,
       active,
     );
     identifyWidget(widget, spec, "Inspect suggested insertion", position);
@@ -187,6 +296,7 @@ function insertionWidget(
       widget,
       part ? part.text : (spec.insertedText ?? ""),
       part ? part.context : spec.insertedPresentation,
+      (url) => !spec.replacedLinks?.includes(url),
     );
     return widget;
   };
@@ -380,7 +490,11 @@ function lineWidget(
         node.type !== "indent" &&
         (node.type !== "block" || node.value === "¶")
       )
-        appendPresentationNode(block, node, true);
+        appendPresentationNode(
+          block,
+          node,
+          (url) => !spec.replacedLinks?.includes(url),
+        );
     let content: HTMLElement = block;
     if (quote) {
       content = document.createElement("blockquote");
@@ -651,6 +765,7 @@ function buildDecorations(
   doc: ProseMirrorNode,
   specs: SuggestionHighlightSpec[],
   activeId: string | null,
+  comments?: CommentHighlightState,
 ): DecorationSet {
   const decorations: Decoration[] = [];
   const size = doc.content.size;
@@ -679,7 +794,7 @@ function buildDecorations(
           settledContent === canonicalizeContent(spec.settlingReadbackContent)))
     )
       continue;
-    const active = activeId === spec.suggestionId;
+    const active = activeId === spec.suggestionId || spec.inActiveUnit === true;
     const range = clampRange(spec.from, spec.to, size);
     const attrs = spec.settling
       ? {}
@@ -703,24 +818,26 @@ function buildDecorations(
         );
       }
       if (spec.kind !== "delete") {
+        const comment = settlingCommentHighlight(comments, spec);
+        const position = clampPosition(range ? range.to : spec.from, size);
+        const side = widgetSide(doc, position);
         decorations.push(
-          Decoration.widget(
-            clampPosition(range ? range.to : spec.from, size),
-            insertionWidget(spec, false),
-            {
-              key: JSON.stringify([
-                spec.suggestionId,
-                "settling",
-                range?.from ?? spec.from,
-                range?.to ?? spec.from,
-                spec.insertedText,
-                spec.insertedPresentation?.from,
-                spec.insertedPresentation?.to,
-              ]),
-              marks: [],
-              side: 1,
-            },
-          ),
+          Decoration.widget(position, settlingWidget(spec, comment), {
+            key: JSON.stringify([
+              spec.suggestionId,
+              "settling",
+              range?.from ?? spec.from,
+              range?.to ?? spec.from,
+              spec.insertedText,
+              spec.insertedPresentation?.from,
+              spec.insertedPresentation?.to,
+              comment?.threadId,
+              comment?.className,
+              side,
+            ]),
+            marks: [],
+            side,
+          }),
         );
       }
       continue;
@@ -741,7 +858,10 @@ function buildDecorations(
       decorations.push(
         Decoration.inline(range.from, range.to, {
           ...attrs,
-          class: classes("suggestion-change suggestion-proposed-text", active),
+          class: classes(
+            `suggestion-change suggestion-proposed-text${spec.lineBreak ? " suggestion-line-break" : ""}`,
+            active,
+          ),
         }),
       );
     }
@@ -762,25 +882,33 @@ function buildDecorations(
         size,
       );
       if (lineParts) decorations.push(...lineParts);
-      else
+      else {
+        const side = widgetSide(doc, anchor);
+        const spaced =
+          spec.kind === "replace" &&
+          !!range &&
+          replacesWholeWords(doc, range, spec.insertedText);
         decorations.push(
           Decoration.widget(
             anchor,
-            insertionWidget(spec, active, undefined, anchor),
+            insertionWidget(spec, active, undefined, anchor, spaced),
             {
               // ProseMirror reuses a widget's element while its key holds, so
-              // the key covers everything the element shows.
+              // the key covers everything the element shows and where it sits.
               key: `${spec.suggestionId}:inserted:${anchor}:${JSON.stringify([
                 spec.insertedText,
                 active,
                 !!spec.editableBoundary,
+                side,
+                spaced,
               ])}`,
               marks: [],
-              side: 1,
+              side,
               ...attrs,
             },
           ),
         );
+      }
     }
     const deletedLines =
       spec.deletedText &&
@@ -790,24 +918,23 @@ function buildDecorations(
       lineDecorations(doc, spec, active, deletedLines, true, attrs);
     if (deletedLineParts) decorations.push(...deletedLineParts);
     else if (spec.deletedText) {
+      const position = clampPosition(spec.from, size);
+      const side = widgetSide(doc, position);
       decorations.push(
-        Decoration.widget(
-          clampPosition(spec.from, size),
-          deletionWidget(spec, active),
-          {
-            key: JSON.stringify([
-              spec.suggestionId,
-              "deleted",
-              clampPosition(spec.from, size),
-              spec.deletedText,
-              active,
-              !!spec.editableBoundary,
-            ]),
-            marks: [],
-            side: 1,
-            ...attrs,
-          },
-        ),
+        Decoration.widget(position, deletionWidget(spec, active), {
+          key: JSON.stringify([
+            spec.suggestionId,
+            "deleted",
+            position,
+            spec.deletedText,
+            active,
+            !!spec.editableBoundary,
+            side,
+          ]),
+          marks: [],
+          side,
+          ...attrs,
+        }),
       );
     }
   }
@@ -815,13 +942,254 @@ function buildDecorations(
   return DecorationSet.create(doc, decorations);
 }
 
+/**
+ * Whether a local edit touches words an accepted suggestion is replacing.
+ * They stay fixed until the server's change arrives over live sync, so a
+ * keystroke can't land in text that's about to be replaced.
+ */
+export function editsSettlingSuggestion(
+  transaction: Transaction,
+  specs: readonly SuggestionHighlightSpec[],
+): boolean {
+  if (
+    !transaction.docChanged ||
+    isChangeOrigin(transaction) ||
+    transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION) ||
+    transaction.getMeta("addToHistory") === false
+  )
+    return false;
+  // Each held range as the transaction moves it, and where it began.
+  let ranges = specs
+    .filter((spec) => spec.settling || spec.frozen)
+    .map(({ from, to }) => ({ from, to, was: { from, to } }));
+  for (const step of transaction.steps) {
+    if (ranges.length === 0) return false;
+    const touched: Array<{ from: number; to: number }> = [];
+    const { from, to } = step as { from?: unknown; to?: unknown };
+    if (typeof from === "number" && typeof to === "number")
+      touched.push({ from, to });
+    const map = step.getMap();
+    map.forEach((oldStart, oldEnd) =>
+      touched.push({ from: oldStart, to: oldEnd }),
+    );
+    // Typing right beside the words leaves them as reviewed. A point has no
+    // inside, so typing exactly there waits.
+    if (
+      touched.some((edit) =>
+        ranges.some((range) =>
+          range.from === range.to
+            ? edit.from <= range.to && edit.to >= range.from
+            : edit.from < range.to && edit.to > range.from,
+        ),
+      )
+    )
+      return true;
+    ranges = ranges.map((range) => ({
+      from: map.map(range.from, 1),
+      to: map.map(range.to, -1),
+      was: range.was,
+    }));
+  }
+  // A letter typed onto either end, or a space taken away there, makes a
+  // different word than was reviewed, which the server would turn down. So
+  // that waits too. An end that is a space or punctuation has no word to join.
+  return ranges.some(
+    (range) =>
+      range.was.from !== range.was.to &&
+      (["before", "after"] as const).some((side) => {
+        const was = side === "before" ? range.was.from : range.was.to;
+        const is = side === "before" ? range.from : range.to;
+        const outside = characterBeside(transaction.doc, is, side);
+        return (
+          WORD_CHARACTER.test(outside) &&
+          WORD_CHARACTER.test(
+            characterBeside(
+              transaction.doc,
+              is,
+              side === "before" ? "after" : "before",
+            ),
+          ) &&
+          outside !== characterBeside(transaction.before, was, side)
+        );
+      }),
+  );
+}
+
+/** The character beside `position` within its textblock, or "". */
+function characterBeside(
+  doc: ProseMirrorNode,
+  position: number,
+  side: "before" | "after",
+): string {
+  const $position = doc.resolve(position);
+  const { parent, parentOffset: offset } = $position;
+  if (!parent.isTextblock) return "";
+  const characters = Array.from(
+    side === "before"
+      ? parent.textBetween(Math.max(0, offset - 2), offset, "", "￼")
+      : parent.textBetween(
+          offset,
+          Math.min(parent.content.size, offset + 2),
+          "",
+          "￼",
+        ),
+  );
+  // Empty at either end of the textblock.
+  return (
+    side === "before" ? characters.slice(-1) : characters.slice(0, 1)
+  ).join("");
+}
+
+/**
+ * Whether undo and redo wait for a decision to save. Undo comes back through
+ * live sync, where an edit can't be refused, and it could rewrite the words
+ * an accepted suggestion is replacing.
+ */
+export function suggestionDecisionHoldsHistory(state: EditorState): boolean {
+  return (suggestionHighlightKey.getState(state)?.specs ?? []).some(
+    (spec) => spec.settling || spec.frozen,
+  );
+}
+
+/** Drafts drawn from a keystroke before the Page has redrawn its drafts. */
+const PROVISIONAL_DRAFT_PREFIX = "draft-provisional:";
+let provisionalDrafts = 0;
+
+export function isProvisionalDraftSpec(spec: SuggestionHighlightSpec): boolean {
+  return spec.suggestionId.startsWith(PROVISIONAL_DRAFT_PREFIX);
+}
+
+/** Whether an edit is the author's own typing, not a sync, load or undo. */
+function isTyping(transaction: Transaction): boolean {
+  return !(
+    isChangeOrigin(transaction) ||
+    transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION) ||
+    transaction.getMeta("addToHistory") === false ||
+    transaction.getMeta("history$")
+  );
+}
+
+/** The plain text an edit inside one paragraph removes, or null otherwise. */
+function typedRemoval(doc: ProseMirrorNode, step: ReplaceStep): string | null {
+  const $from = doc.resolve(step.from);
+  if (!$from.parent.isTextblock || !$from.sameParent(doc.resolve(step.to)))
+    return null;
+  if (step.slice.openStart !== 0 || step.slice.openEnd !== 0) return null;
+  const inline: ProseMirrorNode[] = [];
+  step.slice.content.forEach((node) => {
+    inline.push(node);
+  });
+  doc.nodesBetween(step.from, step.to, (node) => {
+    if (node.isInline) inline.push(node);
+  });
+  return inline.every((node) => node.isText)
+    ? doc.textBetween(step.from, step.to)
+    : null;
+}
+
+/**
+ * While suggesting, the Page redraws the author's drafts a frame or two after
+ * each keystroke, and until then the old drafts no longer match the text. So
+ * drafts follow the typing: text typed at a draft's edge joins it, text
+ * removed beside one joins its struck-out words, and text typed or removed
+ * anywhere else shows as a new draft at once instead of blinking out.
+ */
+function typedDraftSpecs(
+  tr: Transaction,
+  specs: SuggestionHighlightSpec[],
+): SuggestionHighlightSpec[] {
+  const step = tr.steps.length === 1 ? tr.steps[0] : null;
+  const removed =
+    step instanceof ReplaceStep ? typedRemoval(tr.before, step) : null;
+  let next = specs;
+  let typed: SuggestionHighlightSpec | null = null;
+  if (step instanceof ReplaceStep && removed !== null) {
+    const drafts = specs.filter((spec) => spec.draft && !spec.settling);
+    const inside = drafts.some(
+      (spec) => spec.from <= step.from && step.to <= spec.to,
+    );
+    const before = removed
+      ? drafts.find(
+          (spec) =>
+            spec.from === step.to && (spec.deletedText || spec.editableText),
+        )
+      : undefined;
+    const after = removed
+      ? drafts.find(
+          (spec) =>
+            spec.to === step.from && (spec.deletedText || spec.editableText),
+        )
+      : undefined;
+    const joined = before ?? after;
+    if (!inside && joined) {
+      next = specs.map((spec) => {
+        if (spec !== joined) return spec;
+        const { deletedPresentation: _presentation, ...rest } = spec;
+        return {
+          ...rest,
+          deletedText: before
+            ? removed + (spec.deletedText ?? "")
+            : (spec.deletedText ?? "") + removed,
+          editableBoundary: true,
+        };
+      });
+    } else if (
+      !inside &&
+      (removed || step.slice.size > 0) &&
+      !drafts.some((spec) => step.from <= spec.to && step.to >= spec.from)
+    ) {
+      provisionalDrafts += 1;
+      typed = {
+        suggestionId: `${PROVISIONAL_DRAFT_PREFIX}${provisionalDrafts}`,
+        kind: step.slice.size > 0 ? "mark" : "delete",
+        from: step.from,
+        to: step.from + step.slice.size,
+        ...(removed ? { deletedText: removed } : {}),
+        editableBoundary: !!removed,
+        editableText: step.slice.size > 0,
+        draft: true,
+      };
+    }
+  }
+  const mapped = next.map((spec) => {
+    if (!spec.draft || spec.settling)
+      return {
+        ...spec,
+        from: tr.mapping.map(spec.from, 1),
+        to: tr.mapping.map(spec.to, -1),
+      };
+    // Typing at either edge of a draft is part of it.
+    const from = tr.mapping.map(spec.from, -1);
+    const to = tr.mapping.map(spec.to, 1);
+    if (spec.kind === "delete" && to > from)
+      return { ...spec, from, to, kind: "mark" as const, editableText: true };
+    return spec.lineBreak
+      ? {
+          ...spec,
+          from,
+          to,
+          lineBreak: /^\n+$/.test(tr.doc.textBetween(from, to)),
+        }
+      : { ...spec, from, to };
+  });
+  return typed ? [...mapped, typed] : mapped;
+}
+
 export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightState> {
+  // A settling edit's new text carries the comment highlight, so its widgets
+  // follow the comment state, which changes without a transaction of ours.
+  let settlingDecorations: {
+    value: SuggestionHighlightState;
+    comments: CommentHighlightState | undefined;
+    decorations: DecorationSet;
+  } | null = null;
   return new Plugin<SuggestionHighlightState>({
     key: suggestionHighlightKey,
     state: {
       init: () => ({
         specs: [],
         activeId: null,
+        drafting: false,
         decorations: DecorationSet.empty,
       }),
       apply(tr, value, _oldState, newState) {
@@ -830,10 +1198,12 @@ export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightSta
           | undefined;
         let specs = value.specs;
         let activeId = value.activeId;
+        let drafting = value.drafting;
 
         if (meta) {
           if (meta.specs !== undefined) specs = meta.specs;
           if (meta.activeId !== undefined) activeId = meta.activeId;
+          if (meta.drafting !== undefined) drafting = meta.drafting;
         } else if (tr.docChanged) {
           // Collaboration redraws the whole Page when the editor's plugins
           // change; an identical Page keeps every highlight where it was.
@@ -845,19 +1215,26 @@ export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightSta
                 value.decorations.find(),
               ),
             };
-          specs = specs
-            .map((spec) => ({
-              ...spec,
-              from: tr.mapping.map(spec.from, 1),
-              to: tr.mapping.map(spec.to, -1),
-            }))
-            .filter((spec) =>
-              spec.kind === "insert" ||
-              spec.kind === "add_block" ||
-              (spec.kind === "delete" && !!spec.deletedText)
-                ? true
-                : spec.to > spec.from,
-            );
+          specs =
+            drafting && isTyping(tr)
+              ? typedDraftSpecs(tr, specs)
+              : specs.flatMap((spec) => {
+                  const from = tr.mapping.mapResult(spec.from, 1);
+                  const to = tr.mapping.mapResult(spec.to, -1);
+                  // Live sync redraws the whole Page for a peer's edit. A
+                  // draft it ran through waits for the Page to draw it again,
+                  // rather than keep its struck-out words where it collapsed.
+                  if (spec.draft && (from.deletedAcross || to.deletedAcross))
+                    return [];
+                  return [{ ...spec, from: from.pos, to: to.pos }];
+                });
+          specs = specs.filter((spec) =>
+            spec.kind === "insert" ||
+            spec.kind === "add_block" ||
+            ((spec.kind === "delete" || spec.draft) && !!spec.deletedText)
+              ? true
+              : spec.to > spec.from,
+          );
         } else {
           return value;
         }
@@ -865,13 +1242,37 @@ export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightSta
         return {
           specs,
           activeId,
+          drafting,
           decorations: buildDecorations(newState.doc, specs, activeId),
         };
       },
     },
+    filterTransaction: (transaction, state) =>
+      !editsSettlingSuggestion(
+        transaction,
+        suggestionHighlightKey.getState(state)?.specs ?? [],
+      ),
     props: {
       decorations(state) {
-        return suggestionHighlightKey.getState(state)?.decorations ?? null;
+        const value = suggestionHighlightKey.getState(state);
+        if (!value?.specs.some((spec) => spec.settling))
+          return value?.decorations ?? null;
+        const comments = commentHighlightKey.getState(state);
+        if (
+          settlingDecorations?.value !== value ||
+          settlingDecorations.comments !== comments
+        )
+          settlingDecorations = {
+            value,
+            comments,
+            decorations: buildDecorations(
+              state.doc,
+              value.specs,
+              value.activeId,
+              comments,
+            ),
+          };
+        return settlingDecorations.decorations;
       },
     },
   });

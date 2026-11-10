@@ -6,6 +6,7 @@ import {
 import {
   allowsSamplingParams,
   anthropicManualThinkingBudget,
+  claudeAdaptiveThinking,
   isUnsetReasoningEffort,
   normalizeReasoningEffortForModel,
   supportsClaudeAdaptiveThinking,
@@ -127,11 +128,11 @@ class AnthropicEngine implements AgentEngine {
     ) {
       // No effort chosen: keep adaptive thinking on and send no effort, so
       // the model's own default level applies.
-      extra.thinking = { type: "adaptive" };
+      extra.thinking = claudeAdaptiveThinking(opts.model);
     }
     if (reasoningEffort && !extra.thinking) {
       if (supportsClaudeAdaptiveThinking(opts.model)) {
-        extra.thinking = { type: "adaptive" };
+        extra.thinking = claudeAdaptiveThinking(opts.model);
         extra.output_config = { effort: reasoningEffort };
       } else {
         const budgetTokens = clampThinkingBudgetTokens(

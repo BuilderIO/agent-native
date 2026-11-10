@@ -72,7 +72,49 @@ funcionan igual para ejecuciones manuales simples y scripts existentes:
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
-Esto es útil para bucles de desarrollo de agentes, scripts y tareas cron.
+Para las llamadas a `defineAction()`, la CLI evalúa `needsApproval` sobre los argumentos preparados y analizados, con los valores predeterminados del esquema y caller `cli`. Si stdin y stdout son TTY, muestra el nombre de la acción y los argumentos y pregunta `y/N`. Solo `y` o `yes` ejecuta la acción.
+
+Sin ambos TTY, la CLI indica al agente que pida aprobación a la persona. Cuando esta apruebe esa llamada concreta, repite exactamente los argumentos originales de `pnpm action` añadiendo `--approved`:
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
+```
+
+`--approved` son metadatos reservados de la CLI y se elimina antes de analizar la entrada. No admite valor: si lo sigue algo que no sea otro indicador o un objeto JSON, la llamada se rechaza, y una entrada llamada `approved` se escribe `--approved=<value>`. No tiene efecto adverso en acciones sin aprobación obligatoria. La CLI no puede comprobar quién lo añadió: un agente que lo añade sin preguntar se salta la confirmación. El indicador deja la aprobación a la vista en el comando que la persona aprueba y en el registro de auditoría, que la señala como no verificada. En Windows sin una `SHELL` POSIX, el rechazo muestra el comando para PowerShell y, si las comillas difieren, también para cmd.exe. En Windows, pnpm pasa los argumentos de la acción por cmd.exe desde cualquier shell, y cmd.exe expande `%NAME%` incluso entre comillas. Si un argumento contiene una variable así, el rechazo no ofrece repetir el comando con `--approved`: la persona ejecuta el comando en una terminal y comprueba los valores en la confirmación. Si los argumentos tienen una comilla y uno de `&`, `|`, `<`, `>` o `^`, pnpm no puede pasarlos intactos por cmd.exe, así que el rechazo no muestra ningún comando y la persona aprueba la llamada en la app. Windows PowerShell 5.1 elimina cada `"` dentro de un argumento, así que en Windows sin una `SHELL` POSIX, un argumento con comillas dobles también va a la confirmación en lugar de a repetir el comando con `--approved`.
+
+El puente local de desarrollo envía los metadatos de aprobación fuera de `input` en el cuerpo JSON:
+
+```ts
+{ name, input, approved: true, approvalSource: "flag" }
+```
+
+Para una llamada protegida sin aprobación, el puente devuelve HTTP `409`:
+
+```ts
+{
+  ok: false,
+  errorCode: "approval_required",
+  error: 'Action "<name>" requires human approval. Ask the person, then rerun with --approved.',
+  arguments: preparedArgs,
+  argumentsHash: prepared.argumentsHash,
+}
+```
+
+Tras la confirmación en TTY, la CLI reintenta con el `argumentsHash` de la respuesta que solicita aprobación:
+
+```ts
+{
+  name,
+  input,
+  approved: true,
+  approvalSource: "prompt",
+  approvalArgumentsHash: challenge.argumentsHash,
+}
+```
+
+El puente ejecuta una sola vez la llamada que la persona revisó, así que un valor predeterminado que cambia en cada llamada, como una marca de tiempo, conserva el valor que vio. Una confirmación sin llamada retenida que ejecutar (ya se ejecutó, pasaron 10 minutos o el servidor de desarrollo se reinició) recibe HTTP `409` con `errorCode: "approval_expired"`. Vuelve a ejecutar el comando para revisarla.
+
+`arguments` contiene los argumentos preparados. Este contrato del puente local de desarrollo no cambia las [reglas de aprobación de la API HTTP pública de acciones](/docs/actions-access-control#needs-approval). Una llamada CLI protegida y aprobada registra `approval: "cli-prompt"` o `approval: "cli-flag"` en la propia fila de auditoría de la acción, con caller `cli`. El registro de auditoría muestra ambos como no verificados, porque solo la CLI ve la confirmación.
 
 ## Llamarla desde otro agente (A2A) {#a2a}
 

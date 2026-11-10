@@ -6,8 +6,9 @@ import { resolve } from "node:path";
 import { canonicalizeNfm } from "@shared/nfm";
 import { markdownSuggestionOperation } from "@shared/suggestion-diff";
 import { Schema, type Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { EditorState } from "@tiptap/pm/state";
+import { EditorState, type Transaction } from "@tiptap/pm/state";
 import { EditorView } from "@tiptap/pm/view";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -33,7 +34,13 @@ vi.mock("@shared/nfm", async (importOriginal) => {
 });
 
 import {
+  createCommentHighlightPlugin,
+  setCommentHighlights,
+} from "./CommentHighlight";
+import {
   createSuggestionHighlightPlugin,
+  isProvisionalDraftSpec,
+  suggestionDecisionHoldsHistory,
   suggestionHighlightKey,
   type SuggestionHighlightSpec,
 } from "./SuggestionHighlight";
@@ -76,6 +83,11 @@ function state(text = "Before after"): EditorState {
     doc: doc(text),
     plugins: [createSuggestionHighlightPlugin()],
   });
+}
+
+// The server's accepted change reaches the editor over live sync.
+function fromLiveSync(transaction: Transaction): Transaction {
+  return transaction.setMeta(ySyncPluginKey, { isChangeOrigin: true });
 }
 
 function setSpecs(
@@ -609,7 +621,7 @@ describe("SuggestionHighlight", () => {
           view.dom.querySelector(".suggestion-settling-text"),
         ).not.toBeNull();
 
-        view.dispatch(view.state.tr.addMark(1, 5, mark()));
+        view.dispatch(fromLiveSync(view.state.tr.addMark(1, 5, mark())));
 
         expect(view.state.doc.textContent).toBe("Echo sample. peer");
         expect(view.dom.querySelector(".suggestion-settling-text")).toBeNull();
@@ -653,7 +665,7 @@ describe("SuggestionHighlight", () => {
       ).not.toBeNull();
 
       view.dispatch(
-        view.state.tr
+        fromLiveSync(view.state.tr)
           .replaceWith(1, 9, schema.text("New", [strong]))
           .setMeta(suggestionHighlightKey, {
             specs: [{ ...spec, from: 1, to: 4 }],
@@ -691,7 +703,7 @@ describe("SuggestionHighlight", () => {
       ).not.toBeNull();
 
       view.dispatch(
-        view.state.tr
+        fromLiveSync(view.state.tr)
           .replaceWith(1, 4, schema.text("New York"))
           .setMeta(suggestionHighlightKey, {
             specs: [{ ...spec, from: 1, to: 9 }],
@@ -705,7 +717,7 @@ describe("SuggestionHighlight", () => {
     }
   });
 
-  it("keeps deletions quiet at rest and readable on hover, focus, or selection", () => {
+  it("keeps deletions quiet at rest and readable but struck on hover, focus, or selection", () => {
     const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
       encoding: "utf8",
     });
@@ -714,10 +726,12 @@ describe("SuggestionHighlight", () => {
       /\.content-editor \.suggestion-delete\s*\{[^}]*color: hsl\(var\(--muted-foreground\)\);[^}]*text-decoration: line-through;/,
     );
     expect(css).toMatch(
-      /\.content-editor \.suggestion-delete:hover,[\s\S]*?\.content-editor \.suggestion-delete-widget:focus-visible\s*\{[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: none;/,
+      /\.content-editor \.suggestion-delete:hover,[\s\S]*?\.content-editor \.suggestion-delete-widget:focus-visible\s*\{[^}]*color: hsl\(var\(--foreground\)\);/,
     );
+    // Selected removed text drops the selection's underline, which marks the
+    // new text, and stays struck so it can't be read as the replacement.
     expect(css).toMatch(
-      /\.content-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.content-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: none;/,
+      /\.content-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.content-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{[^}]*box-shadow: none;[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: line-through;/,
     );
 
     const pointerAndFocusState = css.match(
@@ -726,8 +740,49 @@ describe("SuggestionHighlight", () => {
     const selectedState = css.match(
       /\.content-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.content-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{([^}]*)\}/,
     )?.[1];
+    expect(pointerAndFocusState).not.toMatch(/text-decoration: none;/);
     expect(`${pointerAndFocusState}\n${selectedState}`).not.toMatch(
       /(?:font-size|line-height|margin|padding|border-width):/,
+    );
+  });
+
+  it("sets new words apart from the whole words they replace", () => {
+    const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
+      encoding: "utf8",
+    });
+    expect(css).toMatch(
+      /\.content-editor\s+\.suggestion-inline-widget\.suggestion-insert--spaced\[data-suggestion-widget\]\s*\{[^}]*margin-inline-start: 0\.3em;/,
+    );
+
+    const text = "Clips keeps the recording you already made. Colour";
+    const insertion = (from: number, to: number, insertedText: string) => {
+      const widget = suggestionHighlightKey
+        .getState(
+          setSpecs(state(text), [
+            {
+              suggestionId: "replace",
+              kind: "replace",
+              from,
+              to,
+              insertedText,
+            },
+          ]),
+        )!
+        .decorations.find()
+        .find((deco) => deco.spec.key?.startsWith("replace:inserted:")) as any;
+      return widget.type.toDOM() as HTMLElement;
+    };
+    // "Clips keeps … made" runs to just before the full stop.
+    expect(
+      insertion(1, 43, "No special recording mode needed").className,
+    ).toContain("suggestion-insert--spaced");
+    // "ou" in "Colour" is part of a word.
+    expect(insertion(48, 50, "o").className).not.toContain(
+      "suggestion-insert--spaced",
+    );
+    // New text that starts with its own space needs no more room.
+    expect(insertion(1, 6, " Clip").className).not.toContain(
+      "suggestion-insert--spaced",
     );
   });
 
@@ -964,6 +1019,90 @@ describe("SuggestionHighlight", () => {
         }
       });
 
+      // The spot ProseMirror hands the browser for a caret at this position.
+      // Chrome types before the line break when the widget comes after it.
+      function caretFollowsWidget(view: EditorView, position: number) {
+        const { node, offset } = view.domAtPos(position, -1);
+        const before = node.childNodes[offset - 1];
+        return (
+          before instanceof HTMLElement &&
+          before.classList.contains("suggestion-inline-widget")
+        );
+      }
+
+      it.each<[string, Partial<SuggestionHighlightSpec>]>([
+        ["a new line", { kind: "insert", insertedText: "\n" }],
+        ["an insertion", { kind: "insert", insertedText: "y = 2\n" }],
+        [
+          "an accepted line",
+          { kind: "insert", insertedText: "y = 2\n", settling: true },
+        ],
+        ["a deletion", { kind: "delete", deletedText: "y = 2\n" }],
+      ])(
+        "keeps the caret after %s at the start of a code line",
+        (_label, spec) => {
+          const { view } = mounted(
+            [code("x = 1\nz = 3"), prose("After.")],
+            [
+              {
+                suggestionId: "line-start",
+                from: 7,
+                to: 7,
+                kind: "insert",
+                ...spec,
+              },
+            ],
+          );
+          try {
+            expect(caretFollowsWidget(view, 7)).toBe(true);
+          } finally {
+            view.destroy();
+          }
+        },
+      );
+
+      it("keeps the caret before a widget inside a code line", () => {
+        const { view } = mounted(
+          [code("x = 1\nz = 3"), prose("After.")],
+          [
+            {
+              suggestionId: "mid-line",
+              kind: "insert",
+              from: 8,
+              to: 8,
+              insertedText: "y",
+            },
+          ],
+        );
+        try {
+          expect(caretFollowsWidget(view, 8)).toBe(false);
+        } finally {
+          view.destroy();
+        }
+      });
+
+      it("moves a widget when the line break before it goes away", () => {
+        const { view } = mounted(
+          [code("x = 1\nz = 3"), prose("After.")],
+          [
+            {
+              suggestionId: "line-start",
+              kind: "insert",
+              from: 7,
+              to: 7,
+              insertedText: "y",
+            },
+          ],
+        );
+        try {
+          expect(caretFollowsWidget(view, 7)).toBe(true);
+          view.dispatch(view.state.tr.insertText("-", 6, 7));
+          expect(caretFollowsWidget(view, 7)).toBe(false);
+        } finally {
+          view.destroy();
+        }
+      });
+
       it.each(["```", "~~~", "$$"])(
         "keeps the lines of a new %s block out of block widgets",
         (fence) => {
@@ -1027,6 +1166,25 @@ describe("SuggestionHighlight", () => {
         expect(list.children[1]!.firstElementChild?.getAttribute("role")).toBe(
           "button",
         );
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("spells out where a link on a suggested line points", () => {
+      const flat = [list("bulletList", listItem("One"))];
+      const { view, mount } = mounted(flat, [
+        lineAfter(
+          flat,
+          "One",
+          "- One\n- [Docs](https://docs.test)",
+          "\n- [Docs](https://docs.test)",
+        ),
+      ]);
+      try {
+        expect(
+          mount.querySelector(".suggestion-block-widget")?.textContent,
+        ).toBe("Docs (https://docs.test)");
       } finally {
         view.destroy();
       }
@@ -1491,6 +1649,35 @@ describe("SuggestionHighlight", () => {
     );
   });
 
+  it("lights up every piece decided together with the active one", () => {
+    const editorState = setSpecs(
+      state("Hello world again"),
+      [
+        { suggestionId: "active", kind: "delete", from: 1, to: 6 },
+        {
+          suggestionId: "same-unit",
+          kind: "delete",
+          from: 7,
+          to: 12,
+          inActiveUnit: true,
+        },
+        { suggestionId: "other", kind: "delete", from: 13, to: 18 },
+      ],
+      "active",
+    );
+    const classes = new Map(
+      (suggestionHighlightKey.getState(editorState) as any).decorations
+        .find()
+        .map((deco: any) => [
+          deco.type.attrs["data-suggestion-id"],
+          deco.type.attrs.class,
+        ]),
+    );
+    expect(classes.get("active")).toContain("suggestion-highlight--active");
+    expect(classes.get("same-unit")).toContain("suggestion-highlight--active");
+    expect(classes.get("other")).not.toContain("suggestion-highlight--active");
+  });
+
   it("maps persisted ranges across document transactions and preserves stable ids", () => {
     let editorState = setSpecs(state("Hello world"), [
       { suggestionId: "stable", kind: "delete", from: 7, to: 12 },
@@ -1850,5 +2037,349 @@ describe("SuggestionHighlight", () => {
     } finally {
       view.destroy();
     }
+  });
+});
+
+describe("settling suggestions", () => {
+  const settling: SuggestionHighlightSpec = {
+    suggestionId: "accepted",
+    kind: "replace",
+    from: 1,
+    to: 7,
+    insertedText: "Later",
+    settling: true,
+  };
+
+  it("keeps local edits out of the words an accepted suggestion is replacing", () => {
+    const base = setSpecs(state(), [settling]);
+    const type = (at: number, text: string) =>
+      base.applyTransaction(base.tr.insertText(text, at)).state.doc.textContent;
+    expect(type(3, "x")).toBe("Before after");
+    expect(type(13, "!")).toBe("Before after!");
+    const erase = (from: number, to: number) =>
+      base.applyTransaction(base.tr.delete(from, to)).state.doc.textContent;
+    expect(erase(6, 8)).toBe("Before after");
+  });
+
+  it("holds a letter that would join the words an accepted suggestion is replacing", () => {
+    const base = setSpecs(state(), [settling]);
+    const type = (at: number, text: string) =>
+      base.applyTransaction(base.tr.insertText(text, at)).state.doc.textContent;
+    expect(type(1, "x")).toBe("Before after");
+    expect(type(7, "x")).toBe("Before after");
+    expect(
+      base.applyTransaction(base.tr.delete(7, 8)).state.doc.textContent,
+    ).toBe("Before after");
+    expect(type(7, ",")).toBe("Before, after");
+  });
+
+  it("keeps typing right beside the words an accepted suggestion is replacing", () => {
+    const base = setSpecs(state(), [settling]);
+    const type = (at: number, text: string) =>
+      base.applyTransaction(base.tr.insertText(text, at)).state.doc.textContent;
+    expect(type(7, " really")).toBe("Before really after");
+    expect(type(1, "So ")).toBe("So Before after");
+    const typed = base.applyTransaction(base.tr.insertText(" really", 7));
+    expect(
+      typed.state.applyTransaction(typed.state.tr.insertText("!", 8)).state.doc
+        .textContent,
+    ).toBe("Before !really after");
+  });
+
+  it("lets live sync replace those words, and leaves pending suggestions editable", () => {
+    const base = setSpecs(state(), [settling]);
+    expect(
+      base.applyTransaction(fromLiveSync(base.tr.insertText("Later", 1, 7)))
+        .state.doc.textContent,
+    ).toBe("Later after");
+    const pending = setSpecs(state(), [{ ...settling, settling: false }]);
+    expect(
+      pending.applyTransaction(pending.tr.insertText("x", 3)).state.doc
+        .textContent,
+    ).toBe("Bexfore after");
+  });
+
+  it("holds the words of an accepted suggestion still drawn as a suggestion", () => {
+    const frozen = setSpecs(state(), [
+      { ...settling, settling: false, frozen: true },
+    ]);
+    expect(
+      frozen.applyTransaction(frozen.tr.insertText("x", 3)).state.doc
+        .textContent,
+    ).toBe("Before after");
+  });
+
+  it("keeps the comment highlight of the words it replaces on the new words", () => {
+    const view = new EditorView(document.createElement("div"), {
+      state: EditorState.create({
+        doc: doc("Before after"),
+        plugins: [
+          createCommentHighlightPlugin(),
+          createSuggestionHighlightPlugin(),
+        ],
+      }),
+    });
+    try {
+      setCommentHighlights(view, {
+        specs: [{ threadId: "thread", from: 1, to: 13 }],
+        activeId: "thread",
+      });
+      view.dispatch(
+        view.state.tr.setMeta(suggestionHighlightKey, {
+          specs: [settling],
+          activeId: null,
+        }),
+      );
+      const highlight = view.dom.querySelector(
+        ".suggestion-settling-text .comment-highlight",
+      );
+      expect(highlight?.textContent).toBe("Later");
+      expect(highlight?.className).toBe(
+        "comment-highlight comment-highlight--active",
+      );
+      expect(highlight?.getAttribute("data-comment-thread")).toBe("thread");
+
+      setCommentHighlights(view, { activeId: null, hoveredId: "thread" });
+      expect(
+        view.dom.querySelector(".suggestion-settling-text .comment-highlight")
+          ?.className,
+      ).toBe("comment-highlight comment-highlight--hovered");
+    } finally {
+      view.destroy();
+    }
+  });
+
+  it("draws the open card's thread when several highlight the words it replaces", () => {
+    const view = new EditorView(document.createElement("div"), {
+      state: EditorState.create({
+        doc: doc("Before after"),
+        plugins: [
+          createCommentHighlightPlugin(),
+          createSuggestionHighlightPlugin(),
+        ],
+      }),
+    });
+    try {
+      setCommentHighlights(view, {
+        specs: [
+          { threadId: "first", from: 1, to: 7 },
+          { threadId: "second", from: 1, to: 7 },
+        ],
+        activeId: "second",
+      });
+      view.dispatch(
+        view.state.tr.setMeta(suggestionHighlightKey, {
+          specs: [settling],
+          activeId: null,
+        }),
+      );
+      const highlight = view.dom.querySelector(
+        ".suggestion-settling-text .comment-highlight",
+      );
+      expect(highlight?.getAttribute("data-comment-thread")).toBe("second");
+      expect(highlight?.className).toBe(
+        "comment-highlight comment-highlight--active",
+      );
+    } finally {
+      view.destroy();
+    }
+  });
+
+  it("holds undo and redo while a decision saves", () => {
+    expect(suggestionDecisionHoldsHistory(state())).toBe(false);
+    expect(
+      suggestionDecisionHoldsHistory(
+        setSpecs(state(), [{ ...settling, settling: false }]),
+      ),
+    ).toBe(false);
+    expect(suggestionDecisionHoldsHistory(setSpecs(state(), [settling]))).toBe(
+      true,
+    );
+    expect(
+      suggestionDecisionHoldsHistory(
+        setSpecs(state(), [{ ...settling, settling: false, frozen: true }]),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("drafts while the author types", () => {
+  // "The lazy dog." with "lazy" replaced by a draft "s": the Page has drawn
+  // the draft, and the author keeps typing before it redraws.
+  const replacement: SuggestionHighlightSpec = {
+    suggestionId: "draft-1",
+    kind: "mark",
+    from: 5,
+    to: 6,
+    deletedText: "lazy",
+    editableBoundary: true,
+    editableText: true,
+    draft: true,
+  };
+
+  function drafting(
+    text: string,
+    specs: SuggestionHighlightSpec[],
+  ): EditorState {
+    const editorState = state(text);
+    return editorState.apply(
+      editorState.tr.setMeta(suggestionHighlightKey, {
+        specs,
+        activeId: null,
+        drafting: true,
+      }),
+    );
+  }
+
+  function specsOf(editorState: EditorState): SuggestionHighlightSpec[] {
+    return suggestionHighlightKey.getState(editorState)!.specs;
+  }
+
+  function struckText(editorState: EditorState): string[] {
+    const view = new EditorView(document.createElement("div"), {
+      state: editorState,
+    });
+    try {
+      return Array.from(
+        view.dom.querySelectorAll(".suggestion-delete-widget"),
+        (widget) => widget.textContent ?? "",
+      );
+    } finally {
+      view.destroy();
+    }
+  }
+
+  it("keeps the struck-out word and grows the draft over each letter typed", () => {
+    let editorState = drafting("The s dog.", [replacement]);
+    for (const letter of "leepy") {
+      editorState = editorState.apply(
+        editorState.tr.insertText(letter, editorState.doc.content.size - 6),
+      );
+      expect(struckText(editorState)).toEqual(["lazy"]);
+    }
+    expect(editorState.doc.textContent).toBe("The sleepy dog.");
+    expect(specsOf(editorState)).toMatchObject([
+      { suggestionId: "draft-1", from: 5, to: 11, deletedText: "lazy" },
+    ]);
+  });
+
+  it("keeps the struck-out word when every typed letter is removed", () => {
+    const editorState = drafting("The s dog.", [replacement]);
+    const next = editorState.apply(editorState.tr.delete(5, 6));
+    expect(next.doc.textContent).toBe("The  dog.");
+    expect(struckText(next)).toEqual(["lazy"]);
+  });
+
+  it("strikes out a word typed over at once, before the Page draws the draft", () => {
+    const editorState = drafting("The lazy dog.", []);
+    const next = editorState.apply(editorState.tr.insertText("s", 5, 9));
+    expect(next.doc.textContent).toBe("The s dog.");
+    expect(struckText(next)).toEqual(["lazy"]);
+    const [typed] = specsOf(next);
+    expect(isProvisionalDraftSpec(typed!)).toBe(true);
+    expect(typed).toMatchObject({ kind: "mark", from: 5, to: 6 });
+  });
+
+  it("joins letters deleted beside a draft to its struck-out text", () => {
+    const deletion: SuggestionHighlightSpec = {
+      suggestionId: "draft-2",
+      kind: "delete",
+      from: 4,
+      to: 4,
+      deletedText: "dy",
+      editableBoundary: true,
+      draft: true,
+    };
+    let editorState = drafting("lazog.", [deletion]);
+    editorState = editorState.apply(editorState.tr.delete(3, 4));
+    editorState = editorState.apply(editorState.tr.delete(2, 3));
+    expect(editorState.doc.textContent).toBe("log.");
+    expect(struckText(editorState)).toEqual(["azdy"]);
+    expect(specsOf(editorState)).toHaveLength(1);
+  });
+
+  it.each([
+    { label: "more line breaks", insert: "\n", at: 3, to: 3, lineBreak: true },
+    { label: "text after it", insert: "x", at: 3, to: 3, lineBreak: false },
+    { label: "text over it", insert: "x", at: 2, to: 3, lineBreak: false },
+  ])(
+    "shows a draft line break's arrow only while it holds no ink: $label",
+    ({ insert, at, to, lineBreak }) => {
+      const editorState = drafting("a\nb", [
+        {
+          suggestionId: "draft-4",
+          kind: "mark",
+          from: 2,
+          to: 3,
+          editableText: true,
+          draft: true,
+          lineBreak: true,
+        },
+      ]);
+      const next = editorState.apply(editorState.tr.insertText(insert, at, to));
+      expect(specsOf(next)).toMatchObject([{ lineBreak }]);
+    },
+  );
+
+  it("turns a draft deletion into a replacement when the author types there", () => {
+    const deletion: SuggestionHighlightSpec = {
+      suggestionId: "draft-3",
+      kind: "delete",
+      from: 5,
+      to: 5,
+      deletedText: "lazy",
+      editableBoundary: true,
+      draft: true,
+    };
+    const editorState = drafting("The  dog.", [deletion]);
+    const next = editorState.apply(editorState.tr.insertText("s", 5));
+    expect(specsOf(next)).toMatchObject([
+      { kind: "mark", from: 5, to: 6, deletedText: "lazy", editableText: true },
+    ]);
+    expect(struckText(next)).toEqual(["lazy"]);
+  });
+
+  it("leaves undo, live sync and loads to the Page's next redraw", () => {
+    const editorState = drafting("The lazy dog.", []);
+    const undo = editorState.tr.insertText("s", 5, 9).setMeta("history$", {});
+    const sync = fromLiveSync(editorState.tr.insertText("s", 5, 9));
+    const load = editorState.tr
+      .insertText("s", 5, 9)
+      .setMeta("addToHistory", false);
+    for (const transaction of [undo, sync, load])
+      expect(specsOf(editorState.apply(transaction))).toEqual([]);
+  });
+
+  it("leaves a draft to the Page's redraw when live sync redraws the whole Page", () => {
+    const editorState = drafting("The s dog.", [replacement]);
+    // Live sync replaces the whole Page, as y-tiptap does for a peer's edit.
+    const next = editorState.apply(
+      fromLiveSync(
+        editorState.tr.replaceWith(
+          0,
+          editorState.doc.content.size,
+          doc("The s dog!").content,
+        ),
+      ),
+    );
+    expect(specsOf(next)).toEqual([]);
+    expect(struckText(next)).toEqual([]);
+  });
+
+  it("keeps the struck-out word in place when undo removes the typed letters", () => {
+    const editorState = drafting("The s dog.", [replacement]);
+    const next = editorState.apply(
+      editorState.tr.delete(5, 6).setMeta("history$", {}),
+    );
+    expect(specsOf(next)).toMatchObject([
+      { suggestionId: "draft-1", from: 5, to: 5, deletedText: "lazy" },
+    ]);
+    expect(struckText(next)).toEqual(["lazy"]);
+  });
+
+  it("draws nothing new for typing when the author isn't suggesting", () => {
+    const editorState = state("The lazy dog.");
+    const next = editorState.apply(editorState.tr.insertText("s", 5, 9));
+    expect(specsOf(next)).toEqual([]);
   });
 });

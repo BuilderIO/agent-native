@@ -1,4 +1,4 @@
-import { getDbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -436,7 +436,20 @@ export async function loadAwarenessRowsStrict(
   now: number = Date.now(),
 ): Promise<AwarenessRow[]> {
   await ensureTable();
-  const client = getDbExec();
+  return loadAwarenessRowsWith(getDbExec(), docId, now);
+}
+
+/**
+ * Reads presence through `client`, such as an open transaction. A serverless
+ * pool has one connection, so a read through `getDbExec()` while a transaction
+ * holds it waits on that transaction. This doesn't create the table: read
+ * presence once outside the transaction first.
+ */
+export async function loadAwarenessRowsWith(
+  client: DbExec,
+  docId: string,
+  now: number = Date.now(),
+): Promise<AwarenessRow[]> {
   const { rows } = await client.execute({
     sql: `SELECT client_id, state, last_seen, client_sequence,
                  client_sequence_raw, actor_email, clear_token_hash, cleared

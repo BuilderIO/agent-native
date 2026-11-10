@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  assertAccess: vi.fn(async () => undefined),
+  assertAccess: vi.fn(async () => ({
+    role: "viewer",
+    resource: { expiresAt: null as string | null },
+  })),
   compareAndSetAppState: vi.fn(async () => true),
   readAppState: vi.fn(),
 }));
@@ -17,7 +20,8 @@ vi.mock("@agent-native/core/application-state", () => ({
     mocks.compareAndSetAppState(...args),
   readAppState: (...args: unknown[]) => mocks.readAppState(...args),
 }));
-vi.mock("@agent-native/core/sharing", () => ({
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
   assertAccess: (...args: unknown[]) => mocks.assertAccess(...args),
 }));
 
@@ -36,6 +40,10 @@ const generating = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.assertAccess.mockResolvedValue({
+    role: "viewer",
+    resource: { expiresAt: null },
+  });
   mocks.compareAndSetAppState.mockResolvedValue(true);
 });
 
@@ -132,3 +140,36 @@ describe("complete-workflow", () => {
     ).resolves.toEqual({ saved: true, recordingId: "rec_1", requestedAt });
   });
 });
+
+it.each(["2000-01-01T00:00:00Z", "not-a-date"])(
+  "refuses workflow completion after recording availability ends (%s)",
+  async (expiresAt) => {
+    mocks.assertAccess.mockResolvedValue({
+      role: "viewer",
+      resource: { expiresAt },
+    });
+    mocks.readAppState
+      .mockResolvedValueOnce(generating)
+      .mockResolvedValueOnce({ ...generating, status: "ready", content });
+    await expect(
+      action.run({ recordingId: "rec_1", requestedAt, requestId, content }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  },
+);
+it.each(["2000-01-01T00:00:00Z", "not-a-date"])(
+  "allows the owner to complete an unavailable recording workflow (%s)",
+  async (expiresAt) => {
+    mocks.assertAccess.mockResolvedValue({
+      role: "owner",
+      resource: { expiresAt },
+    });
+    mocks.readAppState
+      .mockResolvedValueOnce(generating)
+      .mockResolvedValueOnce({ ...generating, status: "ready", content });
+    await expect(
+      action.run({ recordingId: "rec_1", requestedAt, requestId, content }),
+    ).resolves.toMatchObject({ saved: true });
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledOnce();
+  },
+);

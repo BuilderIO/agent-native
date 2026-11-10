@@ -1,6 +1,7 @@
 import type { ActionEntry } from "../../agent/production-agent.js";
 import type { ActionTool } from "../../agent/types.js";
 import { createCodingToolRegistry } from "../../coding-tools/index.js";
+import { frameworkMcpTools } from "../../mcp/framework-tools.js";
 import { getRequestRunContext } from "../../server/request-context.js";
 import {
   normalizeDatabaseToolsMode,
@@ -276,9 +277,9 @@ export async function createDevScriptRegistry(
       }
     : {};
 
-  return {
+  return frameworkMcpTools({
     ...codingEntries,
     ...legacyEntries,
     ...dbEntries,
-  };
+  });
 }

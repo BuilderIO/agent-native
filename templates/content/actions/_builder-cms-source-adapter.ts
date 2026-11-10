@@ -19,6 +19,59 @@ export const BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY =
 export const BUILDER_CMS_BODY_READABLE_MAP_KEY =
   "__builder.body.readableMapJson";
 export const BUILDER_CMS_BODY_BLOCK_COUNT_KEY = "__builder.body.blockCount";
+/** The source values that together describe one entry body. */
+export const BUILDER_CMS_BODY_BASELINE_KEYS = [
+  BUILDER_CMS_BODY_CONTENT_KEY,
+  BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
+  BUILDER_CMS_BODY_READABLE_MAP_KEY,
+  BUILDER_CMS_BODY_SIDECARS_KEY,
+  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  BUILDER_CMS_BODY_LAST_UPDATED_KEY,
+  BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
+] as const;
+/** Builder's `meta.hasAutosaves`: a published entry has unpublished changes. */
+export const BUILDER_CMS_HAS_AUTOSAVES_KEY = "__builder.meta.hasAutosaves";
+/** The entry's own name, which Builder keeps apart from its title. */
+export const BUILDER_CMS_ENTRY_NAME_KEY = "__builder.entry.name";
+export const BUILDER_CMS_REFERENCE_ID_KEY_PREFIX =
+  "__agent_native_builder_reference_id:";
+
+/**
+ * Builder returned, or Content wrote, a body with no blocks. Hydration treats
+ * an empty document as a body still to fetch; this one is not.
+ */
+export function builderCmsBodyKnownEmpty(
+  values: Record<string, DocumentPropertyValue> | null | undefined,
+) {
+  return values?.[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] === 0;
+}
+
+export function builderCmsReferenceIdKey(sourceFieldKey: string) {
+  return `${BUILDER_CMS_REFERENCE_ID_KEY_PREFIX}${sourceFieldKey}`;
+}
+
+/** The ids of an entry's reference fields, keyed as a refresh stores them. */
+export function builderCmsReferenceIdSourceValues(
+  data: unknown,
+): Record<string, string> {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return {};
+  const values: Record<string, string> = {};
+  for (const [name, rawValue] of Object.entries(data)) {
+    if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      continue;
+    }
+    const reference = rawValue as Record<string, unknown>;
+    if (
+      reference["@type"] !== "@builder.io/core:Reference" ||
+      typeof reference.id !== "string" ||
+      !reference.id.trim()
+    ) {
+      continue;
+    }
+    values[builderCmsReferenceIdKey(`data.${name}`)] = reference.id.trim();
+  }
+  return values;
+}
 
 export interface BuilderCmsSourceEntry {
   id: string;
@@ -297,6 +350,16 @@ function sourceValueFromUnknown(value: unknown): DocumentPropertyValue {
   return null;
 }
 
+/** Null when Builder's read did not say. */
+export function builderEntryHasAutosaves(
+  record: Record<string, unknown>,
+): boolean | null {
+  const meta = record.meta;
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
+  const value = (meta as Record<string, unknown>).hasAutosaves;
+  return typeof value === "boolean" ? value : null;
+}
+
 function builderSourceValuesFromRecord(args: {
   record: Record<string, unknown>;
   data: Record<string, unknown>;
@@ -319,10 +382,20 @@ function builderSourceValuesFromRecord(args: {
       values[key] = sourceValueFromUnknown(args.record[key]);
     }
   }
+  if (typeof args.record.name === "string") {
+    values[BUILDER_CMS_ENTRY_NAME_KEY] = args.record.name;
+  }
+  const hasAutosaves = builderEntryHasAutosaves(args.record);
+  if (hasAutosaves !== null) {
+    values[BUILDER_CMS_HAS_AUTOSAVES_KEY] = hasAutosaves;
+  }
   const blocks = builderEntryBlocks(args.rawEntry);
   if (blocks.length > 0) {
     values[BUILDER_CMS_BODY_BLOCKS_HASH_KEY] = builderBlocksHash(blocks);
     values[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] = blocks.length;
+  } else if (Array.isArray(args.data.blocks)) {
+    // An empty body Builder returned, unlike a read that left the body out.
+    values[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] = 0;
   }
   return values;
 }

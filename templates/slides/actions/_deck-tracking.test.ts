@@ -166,8 +166,8 @@ describe("trackSlideContentEdited", () => {
 });
 
 describe("trackDeckCreated", () => {
-  it("emits deck_created with method, purpose and slide count", () => {
-    trackDeckCreated(
+  it("emits deck_created with method, purpose and slide count", async () => {
+    await trackDeckCreated(
       "deck-1",
       { creationMethod: "import_pptx", purpose: "unknown", slideCount: 4 },
       ctx,

@@ -9,6 +9,7 @@ import type {
   ContentDatabaseMutationTarget,
   ContentDatabaseItemsPageResponse,
   ContentDatabaseResponse,
+  ContentDatabaseTableQuery,
   DocumentDiscoveryPagination,
   DeleteDocumentPropertyRequest,
   DocumentProperty,
@@ -18,6 +19,8 @@ import type {
   DocumentPropertyValue,
   DuplicateDocumentPropertyRequest,
   ReorderDocumentPropertyRequest,
+  SetBuilderEntryStatusRequest,
+  SetBuilderEntryStatusResponse,
   SetDocumentPropertyRequest,
   UpdateDatabaseItemsRequest,
   UpdateDatabaseItemsResponse,
@@ -26,6 +29,7 @@ import {
   useInfiniteQuery,
   useQueryClient,
   type UseMutationResult,
+  type UseQueryResult,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -38,6 +42,7 @@ import {
   contentDatabaseQueryFilter,
   contentDatabaseConstrainedQueryFilter,
   contentDatabaseQueryKey,
+  invalidateContentDatabaseNavigationQueries,
   removeDocumentPropertyFromDatabaseResponse,
 } from "./use-content-database";
 import {
@@ -284,6 +289,29 @@ export function documentPropertiesResponseMatchesScope(
   return data?.documentId === documentId && data.databaseId === databaseId;
 }
 
+// True once a read has stopped without an answer anyone can stand on. A row's
+// early copy from its collection carries no timestamp, so it doesn't count as
+// one. A failed refresh of a confirmed answer changes nothing on screen, and a
+// retry still running or paused offline hasn't failed yet.
+export function documentPropertiesReadFailed(
+  documentId: string,
+  databaseId: string | null,
+  query: Pick<
+    UseQueryResult<DocumentPropertiesResponse>,
+    "data" | "dataUpdatedAt" | "fetchStatus" | "isError" | "isPlaceholderData"
+  >,
+): boolean {
+  const confirmed =
+    documentPropertiesResponseMatchesScope(
+      documentId,
+      databaseId,
+      query.data,
+    ) &&
+    !query.isPlaceholderData &&
+    query.dataUpdatedAt > 0;
+  return query.isError && query.fetchStatus === "idle" && !confirmed;
+}
+
 function withDatabaseScope<
   TData,
   TVariables extends DatabaseScopedRequest,
@@ -372,6 +400,9 @@ export function useDocumentProperties(
     {
       enabled: options.enabled !== false && !!documentId,
       placeholderData: (prev) => options.placeholder ?? prev,
+      // A row's early copy counts as data, but its first real read is still
+      // what edit rights wait on, so it doesn't queue behind a batch.
+      batchRefetches: false,
     },
   );
 }
@@ -590,12 +621,41 @@ export function useSetDocumentProperty(
       const mutationContext = context as
         | DocumentPropertyMutationContext
         | undefined;
-      if (!isLatestDocumentPropertyMutation(queryClient, mutationContext)) {
-        return;
-      }
       const savedProperty = data.properties.find(
         (property) => property.definition.id === variables.propertyId,
       );
+      // The refresh below can fail, and the save has already answered. Writes
+      // here run in order and nothing is shown ahead of them, so a superseded
+      // one still counts: the write after it can fail. One Property doesn't
+      // confirm the rest of a row's early copy, so its timestamp stays and a
+      // failed read of that copy stays failed, which setting data would clear.
+      const propertiesKey = documentPropertiesQueryKey(
+        variables.documentId,
+        databaseId,
+      );
+      const propertiesState = queryClient.getQueryState(propertiesKey);
+      if (
+        savedProperty &&
+        propertiesState &&
+        (propertiesState.dataUpdatedAt > 0 || !propertiesState.error)
+      ) {
+        queryClient.setQueryData<DocumentPropertiesResponse>(
+          propertiesKey,
+          (current) =>
+            current && {
+              ...current,
+              properties: current.properties.map((property) =>
+                property.definition.id === variables.propertyId
+                  ? { ...property, ...savedProperty }
+                  : property,
+              ),
+            },
+          { updatedAt: propertiesState.dataUpdatedAt },
+        );
+      }
+      if (!isLatestDocumentPropertyMutation(queryClient, mutationContext)) {
+        return;
+      }
       const savedValue = savedProperty?.value ?? variables.value;
       const savedRelationTargets = savedProperty?.relationTargets;
       queryClient.setQueriesData<ContentDatabaseResponse>(
@@ -755,7 +815,7 @@ export function useDeleteDocumentProperty(
         queryClient.setQueryData(queryKey, data);
       }
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       queryClient.setQueriesData<ContentDatabaseResponse>(
         contentDatabaseQueryFilter(databaseDocumentId),
         (current) => applyDocumentPropertiesToDatabaseResponse(current, data),
@@ -764,10 +824,96 @@ export function useDeleteDocumentProperty(
         queryKey: documentPropertiesQueryKey(documentId, databaseId),
       });
       void queryClient.invalidateQueries(documentQueryFilter(documentId));
+      const databaseQueries = contentDatabaseQueryFilter(databaseDocumentId);
+      const constrainedQueries =
+        contentDatabaseConstrainedQueryFilter(databaseDocumentId);
       void queryClient.invalidateQueries({
-        ...contentDatabaseQueryFilter(databaseDocumentId),
+        queryKey: ["action"],
+        predicate: (query) => {
+          if (!constrainedQueries.predicate(query)) {
+            return databaseQueries.predicate(query);
+          }
+          // A table read that sorts or filters on the property reads again
+          // under a new key once the refetched view drops it. Refetching it
+          // first reruns a filter on a missing property, which matches no
+          // rows.
+          const { tableQuery } = (query.queryKey[2] ?? {}) as {
+            tableQuery?: ContentDatabaseTableQuery;
+          };
+          return ![
+            ...(tableQuery?.filters ?? []),
+            ...(tableQuery?.sorts ?? []),
+          ].some((constraint) => constraint.key === variables.propertyId);
+        },
       });
+      // The cached personal view, and the Files sidebar pages read through
+      // it, can still sort or filter on the property.
+      void queryClient.invalidateQueries({
+        queryKey: [
+          "action",
+          "get-content-database-personal-view",
+          { databaseId },
+        ],
+      });
+      invalidateContentDatabaseNavigationQueries(queryClient, { databaseId });
     },
   });
   return withDatabaseScope(mutation, databaseId);
+}
+
+/** Stages a publish or unpublish for the page's Builder entry by its status. */
+export function useSetBuilderEntryStatus(
+  documentId: string,
+  databaseId: string,
+  databaseDocumentId: string,
+) {
+  const queryClient = useQueryClient();
+  const queryKey = documentPropertiesQueryKey(documentId, databaseId);
+  return useActionMutation<
+    SetBuilderEntryStatusResponse,
+    SetBuilderEntryStatusRequest
+  >("set-builder-entry-status", {
+    skipActionQueryInvalidation: true,
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous =
+        queryClient.getQueryData<DocumentPropertiesResponse>(queryKey);
+      queryClient.setQueryData<DocumentPropertiesResponse>(
+        queryKey,
+        (current) =>
+          current && {
+            ...current,
+            properties: current.properties.map((property) =>
+              property.definition.systemRole === "builder_status"
+                ? { ...property, value: variables.status }
+                : property,
+            ),
+          },
+      );
+      return { previous };
+    },
+    onError: (error, _variables, context) => {
+      toast.error(dbText("somethingWentWrong"), {
+        description: error.message,
+      });
+      const rollback = context as
+        | { previous?: DocumentPropertiesResponse }
+        | undefined;
+      if (rollback?.previous) {
+        queryClient.setQueryData(queryKey, rollback.previous);
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries(
+        contentDatabaseQueryFilter(databaseDocumentId),
+      );
+      void queryClient.invalidateQueries(
+        contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source"],
+      });
+    },
+  });
 }

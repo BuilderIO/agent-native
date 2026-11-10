@@ -4,7 +4,7 @@ import { presentUiCapability } from "./helpers";
 
 const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
-  "X-Agent-Native-Client-Compatibility": "content-row-property-ids-v1",
+  "X-Agent-Native-Client-Compatibility": "content-video-block-ids-v1",
   "X-Agent-Native-Build-Id": "development",
 };
 const SIDEBAR_COLLAPSED_KEY = "content.sidebar.collapsed";
@@ -21,6 +21,11 @@ const FIXTURE_BODY = [
   "",
   `- A list item that holds \`${LONG_CODE}_inside_a_list\``,
   "- A short list item",
+  "- A list item whose command sits on its own line:",
+  "",
+  `  \`${LONG_CODE}_on_its_own_line\``,
+  "",
+  "  The item's sentence continues after the command.",
   "",
   "| Name | Owner | Status | Notes | Due | Priority |",
   "| --- | --- | --- | --- | --- | --- |",
@@ -137,6 +142,28 @@ async function measureOverflow(page: Page) {
         if (lines.size > 1) brokenWords.push(word[0]);
       }
     }
+    // Every block of a list item starts where its first block does, in the
+    // text column. One left under the marker widens the marker's track.
+    const listBlocksOffColumn: string[] = [];
+    let multiBlockItems = 0;
+    for (const item of editor.querySelectorAll<HTMLElement>(
+      "ul:not(.content-task-list) > li, ol > li",
+    )) {
+      const [first, ...rest] = Array.from(item.children);
+      if (!first || rest.length === 0) continue;
+      multiBlockItems += 1;
+      const left = first.getBoundingClientRect().left;
+      for (const block of rest) {
+        const offset = block.getBoundingClientRect().left - left;
+        if (Math.abs(offset) > 1) {
+          listBlocksOffColumn.push(
+            `${block.tagName.toLowerCase()} ${Math.round(offset)}px from "${(
+              first.textContent ?? ""
+            ).slice(0, 40)}"`,
+          );
+        }
+      }
+    }
     const pre = editor.querySelector<HTMLElement>("pre");
     return {
       missing: false as const,
@@ -146,6 +173,8 @@ async function measureOverflow(page: Page) {
       tableWidth: table?.getBoundingClientRect().width ?? null,
       columnCount: table?.rows[0]?.cells.length ?? 0,
       brokenWords,
+      listBlocksOffColumn,
+      multiBlockItems,
       preScrolls: pre ? pre.scrollWidth > pre.clientWidth : null,
     };
   });
@@ -255,6 +284,14 @@ test.describe("Content page responsive layout", () => {
           expect(
             measured.brokenWords,
             `${label}: table columns stay readable`,
+          ).toEqual([]);
+          expect(
+            measured.multiBlockItems,
+            `${label}: list item with several blocks rendered`,
+          ).toBeGreaterThan(0);
+          expect(
+            measured.listBlocksOffColumn,
+            `${label}: list item blocks share the text column`,
           ).toEqual([]);
           if (width <= 560) {
             expect(measured.tableScrolls, `${label}: table scrolls`).toBe(true);

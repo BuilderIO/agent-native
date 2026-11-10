@@ -12,6 +12,7 @@ export {
   __clearConditionCache,
 } from "./condition-evaluator.js";
 export { createAutomationToolEntries } from "./actions.js";
+export { isOutsideAutomationOrigin } from "../automations/outside-origin.js";
 
 export {
   defineAutomation,
@@ -20,7 +21,10 @@ export {
   type AutomationActor,
   type AutomationDefinition,
 } from "../automations/service.js";
-export { queueAutomationRunNow } from "../jobs/run-now.js";
+export {
+  authorizeAutomationRunNow,
+  queueAutomationRunNow,
+} from "../jobs/run-now.js";
 export {
   deleteAutomationRuns,
   listAutomationRuns,

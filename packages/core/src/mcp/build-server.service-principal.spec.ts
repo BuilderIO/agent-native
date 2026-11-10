@@ -17,6 +17,26 @@ vi.mock("../org/service-principal-policy.js", async (importActual) => ({
   evaluateServicePrincipal: (...a: any[]) => evaluateServicePrincipalMock(...a),
 }));
 const recordActionAuditMock = vi.fn(async (_input: any) => {});
+// People who turned on the "App cards in chat apps" lab. Other labs read the
+// real store.
+const appCardsLab = vi.hoisted(() => ({ optedIn: new Set<string>() }));
+
+vi.mock("../labs/store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../labs/store.js")>();
+  return {
+    ...actual,
+    getUserLabEnabled: vi.fn(
+      async (...args: Parameters<typeof actual.getUserLabEnabled>) => {
+        const [email, lab] = args;
+        const key = typeof lab === "string" ? lab : lab.key;
+        return key === "mcp-app-cards"
+          ? appCardsLab.optedIn.has(email)
+          : actual.getUserLabEnabled(...args);
+      },
+    ),
+  };
+});
+
 vi.mock("../audit/record.js", () => ({
   recordActionAudit: (input: any) => recordActionAuditMock(input),
 }));
@@ -62,11 +82,13 @@ function config(): MCPConfig {
 async function clientFor(
   identity: MCPCallerIdentity,
   mcpConfig: MCPConfig = config(),
+  requestMeta: { inlineMcpApps?: boolean } = {},
 ) {
   const server = await createMCPServerForRequest(mcpConfig, identity, {
     origin: "http://localhost:8100",
     transport: "http",
     fullCatalog: true,
+    ...requestMeta,
   } as any);
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
@@ -308,12 +330,20 @@ describe("MCP App resources for a service principal", () => {
     };
   }
 
-  beforeEach(() => {
-    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
-  });
+  // Cards on for the request, as on the directory catalog. The lab never
+  // turns them on for a service principal.
+  const cards = { inlineMcpApps: true };
 
   afterEach(() => {
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
+    appCardsLab.optedIn.clear();
+  });
+
+  it("never gives a service principal cards from the lab", async () => {
+    activeWithGrant(null);
+    appCardsLab.optedIn = new Set([SVC]);
+    const client = await clientFor(serviceIdentity, widgetConfig());
+
+    expect((await client.listResources()).resources).toEqual([]);
   });
 
   it("lists, templates, and reads only widgets inside the grant", async () => {
@@ -321,6 +351,7 @@ describe("MCP App resources for a service principal", () => {
     const open = await clientFor(
       { ...serviceIdentity, userEmail: "alice@example.com" },
       widgetConfig(),
+      cards,
     );
     const all = (await open.listResources()).resources;
     expect(all.map((r) => r.name)).toEqual(
@@ -329,7 +360,7 @@ describe("MCP App resources for a service principal", () => {
     const deniedUri = all.find((r) => r.name === "delete-doc")!.uri;
 
     activeWithGrant(["list-docs"]);
-    const client = await clientFor(serviceIdentity, widgetConfig());
+    const client = await clientFor(serviceIdentity, widgetConfig(), cards);
     const { resources } = await client.listResources();
     expect(resources.map((r) => r.name)).toEqual(["list-docs"]);
     const { resourceTemplates } = await client.listResourceTemplates();
@@ -356,7 +387,7 @@ describe("MCP App resources for a service principal", () => {
       status: "suspended",
       policy: { lifecycle: "suspended", allowedActions: null },
     });
-    const client = await clientFor(serviceIdentity, widgetConfig());
+    const client = await clientFor(serviceIdentity, widgetConfig(), cards);
 
     await expect(call(client)).rejects.toThrow(/suspended or retired/i);
 
@@ -374,7 +405,7 @@ describe("MCP App resources for a service principal", () => {
 
   it("does not audit a retryable policy-store failure as a denial", async () => {
     evaluateServicePrincipalMock.mockResolvedValue({ status: "unavailable" });
-    const client = await clientFor(serviceIdentity, widgetConfig());
+    const client = await clientFor(serviceIdentity, widgetConfig(), cards);
 
     await expect(
       client.readResource({ uri: "ui://docs/list-docs" }),

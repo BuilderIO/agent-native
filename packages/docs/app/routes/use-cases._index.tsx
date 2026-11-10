@@ -1,25 +1,32 @@
 import { useLoaderData } from "react-router";
 
-import { USE_CASES_BASE } from "../../lib/campaign-content";
-import { loadCampaignContent } from "../../lib/campaign-content.server";
-import { publicUseCase } from "../components/campaign/public-content";
-import { UseCasesIndex } from "../components/campaign/use-cases";
+import { USE_CASES_BASE } from "../../lib/site-content";
+import { loadSiteContent } from "../../lib/site-content.server";
+import { UseCasesIndex } from "../components/site-content/use-cases";
 import enUS from "../i18n/en-US";
-import { campaignMeta } from "../lib/campaign-seo";
+import { siteContentMeta } from "../lib/site-content-seo";
 
 export const meta = ({ params }: { params?: { locale?: string } } = {}) =>
-  campaignMeta(
-    enUS.campaign.useCases,
-    enUS.campaign.useCasesIntro.replace(
+  siteContentMeta(
+    enUS.siteContent.useCases,
+    enUS.siteContent.useCasesIntro.replace(
       "{{articles}}",
-      enUS.campaign.articlesLink,
+      enUS.siteContent.articlesLink,
     ),
     USE_CASES_BASE,
     "website",
     params?.locale,
   );
 export function loader() {
-  return { items: loadCampaignContent().useCases.map(publicUseCase) };
+  return {
+    items: loadSiteContent().useCases.map((page) => ({
+      slug: page.slug,
+      app: page.app,
+      roles: page.roles,
+      title: page.title,
+      subhead: page.hero.body,
+    })),
+  };
 }
 export default function UseCasesRoute() {
   const { items } = useLoaderData<typeof loader>();

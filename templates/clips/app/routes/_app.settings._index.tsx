@@ -4,7 +4,11 @@ import {
   SettingsTabsPage,
   useAgentSettingsTabs,
 } from "@agent-native/toolkit/app/settings";
-import { CLIPS_LABS, CLIPS_VOICE_DICTATION } from "@shared/labs";
+import {
+  CLIPS_LABS,
+  CLIPS_SCREENSHOTS,
+  CLIPS_VOICE_DICTATION,
+} from "@shared/labs";
 import { useMemo } from "react";
 
 import { useClipsSettingsRedesign } from "@/components/settings/clips-settings-redesign";
@@ -52,6 +56,13 @@ export default function SettingsIndexRoute() {
             ...lab,
             displayName: t("settings.labLookbackContext"),
             description: t("settings.labLookbackContextDescription"),
+          };
+        }
+        if (lab.key === CLIPS_SCREENSHOTS.key) {
+          return {
+            ...lab,
+            displayName: t("navigation.screenshots"),
+            description: t("preRecord.takeScreenshot"),
           };
         }
         if (lab.key === CLIPS_VOICE_DICTATION.key) {

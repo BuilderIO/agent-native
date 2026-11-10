@@ -45,7 +45,10 @@ vi.mock("@agent-native/core/settings", () => ({
   mutateUserSetting: settings.mutateUserSetting,
 }));
 
-import type { AiFilterDecision } from "../../shared/ai-filter.js";
+import {
+  AI_FILTER_DEFAULT_THRESHOLD,
+  type AiFilterDecision,
+} from "../../shared/ai-filter.js";
 import {
   recordAiFilterFeedback,
   recordAiFilterDecisions,
@@ -56,6 +59,25 @@ describe("AI filter settings persistence", () => {
   beforeEach(() => {
     settings.reset();
     vi.clearAllMocks();
+  });
+
+  it("keeps unconfigured thresholds absent while saving other settings", async () => {
+    const ownerEmail = "owner@example.test";
+
+    const initial = await saveAiFilterState(ownerEmail, { autoFilter: false });
+
+    expect(initial.autoFilterThreshold).toBeUndefined();
+    expect(settings.read()).not.toHaveProperty("autoFilterThreshold");
+
+    const explicit = await saveAiFilterState(ownerEmail, {
+      autoFilterThreshold: AI_FILTER_DEFAULT_THRESHOLD,
+    });
+
+    expect(explicit.autoFilterThreshold).toBe(AI_FILTER_DEFAULT_THRESHOLD);
+    expect(settings.read()).toHaveProperty(
+      "autoFilterThreshold",
+      AI_FILTER_DEFAULT_THRESHOLD,
+    );
   });
 
   it("merges concurrent independent settings patches into the latest state", async () => {

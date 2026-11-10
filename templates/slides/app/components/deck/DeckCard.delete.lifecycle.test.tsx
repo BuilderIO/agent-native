@@ -56,8 +56,8 @@ vi.mock("./SlideRenderer", () => ({
   default: () => <div />,
 }));
 
-vi.mock("../editor/ShareDialog", () => ({
-  default: () => null,
+vi.mock("../editor/DeckShareButton", () => ({
+  DeckShareButton: () => null,
 }));
 
 import {
@@ -76,6 +76,8 @@ const deck: Deck = {
   title: "Test deck",
   createdAt: "2026-08-07T00:00:00.000Z",
   updatedAt: "2026-08-07T00:00:00.000Z",
+  canEdit: true,
+  canManage: true,
   slides: [
     {
       id: "slide-1",
@@ -127,10 +129,12 @@ describe("DeckCard delete lifecycle", () => {
       { button: 0 },
     );
     await waitFor(() =>
-      expect(screen.getByRole("menuitem", { name: "Delete" })).toBeTruthy(),
+      expect(
+        screen.getByRole("menuitem", { name: "home.deleteDeck" }),
+      ).toBeTruthy(),
     );
 
-    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "home.deleteDeck" }));
 
     await waitFor(() => expect(screen.getByRole("alertdialog")).toBeTruthy());
 

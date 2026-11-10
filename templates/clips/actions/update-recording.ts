@@ -7,6 +7,8 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { nanoid, stringifySpaceIds } from "../server/lib/recordings.js";
 import { encryptSharePassword } from "../server/lib/share-password.js";
 import {
@@ -41,7 +43,10 @@ export default defineAction({
     defaultSpeed: z.string().optional(),
     animatedThumbnailEnabled: z.union([z.boolean(), cliBoolean]).optional(),
     password: z.string().nullish(),
-    expiresAt: z.string().nullish(),
+    expiresAt: z
+      .union([z.literal(""), z.iso.datetime({ offset: true })])
+      .transform((value) => (value ? new Date(value).toISOString() : null))
+      .nullish(),
     chaptersJson: z
       .string()
       .optional()
@@ -62,7 +67,9 @@ export default defineAction({
       ),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.id, "editor");
+    const access = assertRecordingNotExpired(
+      await assertAccess("recording", args.id, "editor"),
+    );
 
     const db = getDb();
 
@@ -160,12 +167,22 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    const [updated] = await db
+    const updatedRows = await db
       .select()
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.id));
 
     console.log(`Updated recording ${args.id}`);
+    const updated = updatedRows.values().next().value;
+    if (
+      updated &&
+      isRecordingExpiredForViewer({
+        expiresAt: updated.expiresAt,
+        viewerIsOwner: access.role === "owner",
+      })
+    ) {
+      return { id: args.id, recording: null, reason: "unavailable" as const };
+    }
     return { id: args.id, recording: updated };
   },
 });

@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 /**
  * Sandboxed JavaScript execution tool for the agent.
  *
@@ -28,8 +29,6 @@
  * changing this file. The bridge, env scrub, module building, and output
  * formatting stay here in the parent regardless of adapter.
  */
-
-import crypto from "node:crypto";
 import http from "node:http";
 
 import type { HostFunctions, RunError, Runner } from "run";
@@ -37,6 +36,7 @@ import type { HostFunctions, RunError, Runner } from "run";
 import { runActionInvocation } from "../action-invocation.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { frameworkMcpTool } from "../mcp/framework-tools.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import {
   getRequestContext,
@@ -149,7 +149,7 @@ export function createRunCodeEntry(
       ? "JavaScript source to execute. Top-level await and return are allowed; Node ESM imports are not available. Required unless polling with executionId."
       : "JavaScript source to execute. ESM syntax, top-level await allowed. Required unless polling with executionId.";
 
-  return {
+  return frameworkMcpTool({
     readOnly: true,
     allowInPlanMode: false,
     // The bridge can write workspace files and send provider and web writes, so
@@ -287,7 +287,7 @@ export function createRunCodeEntry(
       }
       return full;
     },
-  };
+  });
 }
 
 export interface ExecuteSandboxCodeOptions {
@@ -484,7 +484,8 @@ async function describeSandboxExecutionForOwner(
     });
   }
 
-  let row = await getSandboxExecutionForOwner(executionId, owner);
+  const orgId = context?.orgId ?? getRequestContext()?.orgId ?? null;
+  let row = await getSandboxExecutionForOwner(executionId, owner, orgId);
   if (!row) {
     return structuredRunCodeError({
       executionId,
@@ -560,7 +561,20 @@ async function describeSandboxExecutionForOwner(
       `Executor lease expired after ${row.attemptCount} attempt(s); the execution environment was likely terminated before the code finished. Split the computation into smaller chunks or persist intermediate results (e.g. workspaceWrite) and run again.`,
       now,
     );
-    row = (await getSandboxExecutionForOwner(executionId, owner)) ?? row;
+    const refreshed = await getSandboxExecutionForOwner(
+      executionId,
+      owner,
+      orgId,
+    );
+    if (!refreshed) {
+      return structuredRunCodeError({
+        executionId,
+        code: "execution_not_found",
+        message: `No background execution "${executionId}" exists for this user.`,
+        guidance: "Check the executionId and your current organization access.",
+      });
+    }
+    row = refreshed;
   }
 
   return formatTerminalSandboxExecution(row);
@@ -619,7 +633,7 @@ function formatTerminalSandboxExecution(row: SandboxExecutionRow): string {
 }
 
 export function createGetCodeExecutionEntry(): ActionEntry {
-  return {
+  return frameworkMcpTool({
     readOnly: true,
     dedupe: false,
     tool: {
@@ -650,7 +664,7 @@ export function createGetCodeExecutionEntry(): ActionEntry {
       }
       return describeSandboxExecutionForOwner(executionId, context);
     },
-  };
+  });
 }
 
 interface BridgeResult {

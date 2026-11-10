@@ -49,15 +49,19 @@ export const DISCUSSION_TARGETS: readonly DiscussionTarget[] = [
 ];
 
 export function discussionThreadTarget(
-  thread: Pick<CommentThread, "quotedText" | "property">,
+  thread: Pick<CommentThread, "quotedText" | "property" | "block" | "clip">,
 ): DiscussionTarget {
   if (thread.property) return "property";
-  return thread.quotedText?.trim() ? "text" : "page";
+  // A thread on a whole block, such as a video, or on a moment of a Clip,
+  // sits in the text as a quote does.
+  return thread.block || thread.clip || thread.quotedText?.trim()
+    ? "text"
+    : "page";
 }
 
-/** A comment on the whole page: no quote and no Property. */
+/** A comment on the whole page: no quote, block, Clip, or Property. */
 export function isPageCommentThread(
-  thread: Pick<CommentThread, "quotedText" | "property">,
+  thread: Pick<CommentThread, "quotedText" | "property" | "block" | "clip">,
 ) {
   return discussionThreadTarget(thread) === "page";
 }
@@ -442,6 +446,7 @@ export const DiscussionComposer = forwardRef<
   TiptapComposerHandle,
   {
     currentUserEmail?: string;
+    currentUserName?: string;
     value: string;
     onChange: (text: string) => void;
     mentions: MentionEntry[];
@@ -457,6 +462,7 @@ export const DiscussionComposer = forwardRef<
 >(function DiscussionComposer(
   {
     currentUserEmail,
+    currentUserName,
     value,
     onChange,
     mentions,
@@ -478,7 +484,10 @@ export const DiscussionComposer = forwardRef<
       data-discussion-composer
     >
       <div className="flex h-9.5 shrink-0 items-center">
-        <CommentAvatar email={currentUserEmail} name={currentUserEmail} />
+        <CommentAvatar
+          email={currentUserEmail ?? null}
+          name={currentUserName?.trim() || currentUserEmail || null}
+        />
       </div>
       <div className="min-w-0 flex-1">
         <CommentComposer

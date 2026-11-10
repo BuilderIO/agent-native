@@ -63,8 +63,7 @@ export default {
     recordingStarted: "रिकॉर्डिंग शुरू हुई",
     appBandHeading: "{app} · {count} सत्र",
     journeyTitleSummary: "{app} · {from} से {to} · {count} सत्र{partial}",
-    journeyTitleAppBandsSummary:
-      "{from} से {to} · ऐप के अनुसार अलग-अलग समूह{partial}",
+    journeyTitleAppBandsSummary: "{from} से {to} · अलग-अलग समूह{partial}",
     sessionCount: "{count} सत्र",
     otherPaths: "अन्य रास्ते",
     otherBranchesShown: "{total} में से {shown} शाखाएँ दिखाई गईं",
@@ -313,6 +312,9 @@ export default {
       chooseFrame: "Frame चुनें",
       inspect: "Inspect करें",
       exportSvg: "SVG export करें",
+      moreActions: "अधिक कार्रवाइयाँ",
+      askAboutFile: "इस फ़ाइल के बारे में पूछें",
+      askAboutFilePrompt: "इस लिंक की गई डिज़ाइन फ़ाइल के बारे में पूछें। {{url}}",
       actionsPrefill: "जाँचें, फिर भेजें",
       retry: "फिर कोशिश करें",
       currentDesign: "मौजूदा Design",
@@ -332,6 +334,8 @@ export default {
   common: {
     loading: "लोड हो रहा है...",
     genericError: "कुछ गलत हो गया",
+    linkedSourceSizeLimit:
+      "यह लिंक किए गए घटक का संपादन स्रोत आकार सीमा से अधिक है।",
   },
   editPanel: {
     colorInputLabel: "रंग",
@@ -428,6 +432,7 @@ export default {
       font: "फ़ॉन्ट",
       baseSize: "आधार आकार",
       size: "आकार",
+      fontSizes: "टाइप स्केल",
       weight: "वज़न",
       color: "रंग",
       align: "संरेखित",
@@ -877,6 +882,9 @@ export default {
       bottom: "बी",
       left: "एल",
     },
+    fontPicker: {
+      catalogUnavailable: "पूरी फ़ॉन्ट लाइब्रेरी लोड नहीं हो सकी।",
+    },
     fontFamilies: {
       inherit: "इनहेरिट",
       sansSerif: "सान्स सेरिफ़",
@@ -1027,6 +1035,9 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "यह स्क्रीन लोड नहीं हो सकी।",
+    selectionPublishFailed:
+      "एजेंट शायद आपका नवीनतम चयन नहीं देख पाएगा। उसे फिर से चुनें।",
     liveCollaboration: {
       title: "लाइव सहयोग",
       description:
@@ -1613,31 +1624,18 @@ export default {
       editColor: "{{name}} का रंग संपादित करें",
     },
     import: {
-      title: "आयात",
       description:
         "Figma clipboard HTML या standalone HTML को Design screens के रूप में लाएँ।",
-      figmaUrlTitle: "Figma फ़्रेम URL",
-      figmaUrlDescription: "Figma link से frame या file import करें।",
       figmaUrlLabel: "Figma frame या file URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "Figma कनेक्शन जाँचा जा रहा है…",
-      figmaConnected: "Figma कनेक्टेड",
-      figmaConnectedWithSuffix: "Figma कनेक्टेड · ••••{{suffix}}",
       figmaTokenLabel: "Figma एक्सेस टोकन",
       figmaTokenDocs: "Token पाएँ",
       figmaTokenPlaceholder: "अपना Figma personal access token paste करें",
-      figmaTokenDescription:
-        "Figma imports और agent chat के लिए सुरक्षित रूप से सहेजा जाता है। Token chat में कभी नहीं जोड़ा जाता।",
-      importFigmaUrl: "Figma से import करें",
-      saveKeyAndImport: "Key save करके import करें",
       figmaUrlSuccess: "Figma से import हो गया।",
       figmaImageFallbackWarning:
         "इमेज फ़ॉलबैक: {{count}}। दिखावट सुरक्षित रहती है, लेकिन इन लेयर को पूरी तरह संपादित नहीं किया जा सकता।",
       figmaApproximationWarning:
         "अनुमानित लेयर: {{count}}। HTML/CSS हर Figma प्रॉपर्टी को ठीक-ठीक प्रस्तुत नहीं कर सकता।",
-      figmaPasteTitle: "Figma से पेस्ट करें",
-      figmaPasteDescription:
-        "Figma में frame या layer कॉपी करें, फिर Design canvas में paste करें। Design visible clipboard HTML import करता है।",
       figmaPasteTarget: "canvas में paste करें",
       figmaPasteApiKeyHint:
         "सटीक नोड आयात के लिए अपना Figma access token कनेक्ट करें।",
@@ -1646,11 +1644,10 @@ export default {
       figmaPasteMatchGuidance:
         "विशिष्ट Figma नोड्स से मेल नहीं खाया। सटीक आयात के लिए इसके बजाय एक frame लिंक paste करें।",
       figmaPasteUnreadable:
-        "इस क्लिपबोर्ड में कोई कॉपी की गई Figma लेयर नहीं है। Figma में एक frame चुनें, उसे Cmd+C से कॉपी करें और दोबारा paste करें, या Import पैनल से Figma लिंक आयात करें।",
+        "इस क्लिपबोर्ड में कोई कॉपी की गई Figma लेयर नहीं है। Figma में एक frame चुनें, उसे Cmd+C से कॉपी करें और दोबारा paste करें, या chat में frame का लिंक paste करें।",
       figmaPasteRestLabel: "Figma API के ज़रिए आयात किया गया",
       figmaPasteHtmlLabel: "क्लिपबोर्ड पूर्वावलोकन से आयात किया गया",
-      figmaPasteLocalKiwiLabel:
-        "बिना token के आयात किया गया — केवल geometry और text",
+      figmaPasteLocalKiwiLabel: "Figma क्लिपबोर्ड से इंपोर्ट किया गया",
       figmaPasteImagesNeedToken:
         "{{count}} छवि{{plural}} को लोड करने के लिए Figma की पहुँच चाहिए।",
       figmaPasteImagesDontShowAgain: "फिर से न दिखाएँ",
@@ -1681,73 +1678,29 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: ".fig अपलोड करें",
       figUploadDescription:
         "प्रायोगिक: Figma का .fig format proprietary है और बदल सकता है। समर्थित layers editable screens बनती हैं; कुछ features अलग हो सकते हैं। अधिकतम {{max}} MB।",
-      chooseFigFile: ".fig file चुनें",
       figUploadUploading: "अपलोड हो रहा है {{progress}}%",
       figUploadProcessing: "बदला जा रहा है…",
-      figImportWarningTitle: "बड़ा .fig आयात",
-      figImportWarningDescription:
-        "इस फ़ाइल में {{frames}} फ़्रेम और {{nodes}} लेयर हैं। सब कुछ आयात करने से एडिटर धीमा हो सकता है। ज़रूरी पेज चुनें।",
-      figImportFrameCount: "{{total}} में से {{selected}} फ़्रेम चुने गए",
-      figImportSelectAll: "सभी चुनें",
-      figImportClearAll: "सभी हटाएँ",
-      figImportCancel: "रद्द करें",
-      figImportSelected: "{{count}} चुने हुए आयात करें",
-      figImportAll: "सभी आयात करें",
       figImportAnalyzing: "विश्लेषण हो रहा है…",
       figImportSaving: "{{total}} में से {{saved}} फ़्रेम सहेजे जा रहे हैं",
-      figImportFrameLimit: "ऐसे पेज चुनें जिनमें कुल {{max}} या उससे कम फ़्रेम हों।",
       figImportFramesSkippedWarning:
         "आयात के लिए बहुत जटिल {{count}} फ़्रेम छोड़ दिए गए: {{names}}",
-      figUploadLimits: "अधिकतम {{size}} GB · प्रति आयात {{frames}} फ़्रेम",
-      figUploadDescriptionShort:
-        "स्थानीय आयात — Figma API कोटा नहीं। समर्थित एम्बेडेड छवियाँ शामिल की जाती हैं।",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "Design ने यह आयात रोक दिया",
-      quotaCooldownBody:
-        "कोटा सीमा तक पहुँचने के बाद Design अपने Figma अनुरोधों को नियंत्रित कर रहा है। यह स्वतः रीसेट हो जाता है।",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "HTML आयात करें",
       htmlDescription:
         "Standalone HTML paste या upload करें। Design इसे नए screen के रूप में save करता है, editor UI में inject नहीं करता।",
-      htmlPlaceholder: "<main>Standalone HTML यहाँ paste करें...</main>",
-      importHtml: "HTML आयात करें",
-      chooseHtmlFile: "HTML file चुनें",
       allSupportedFiles: "सभी समर्थित फ़ाइलें",
-      githubTitle: "GitHub",
       githubDescription:
         "जल्द आ रहा है: repository से screens और components सीधे import करें।",
-      localTitle: "स्थानीय app",
       localDescription: "/visual-edit से किसी भी चल रहे local app को connect करें।",
-      visualEditGuidance:
-        "/visual-edit skill install करें, कोई भी local app शुरू करें, फिर उस app repo से bridge command चलाएँ ताकि आपका agent URL-backed screens जोड़ सके।",
-      comingSoon: "जल्द आ रहा है",
       warningsToast: "Import warnings के साथ पूरा हुआ",
       figmaSuccess: "Figma paste import हो गया",
       htmlSuccess: "HTML import हो गया",
       uploadSuccess: "File import हो गई",
-      lastImport: "पिछला import",
       errors: {
         figmaTokenMustBeToken:
           "Figma फ़ाइल लिंक नहीं, Figma access token paste करें।",
-        figmaUrlRequired: "Figma frame या file URL paste करें।",
-        invalidFigmaUrl: "Valid figma.com URL दर्ज करें।",
         figmaImportFailed: "Figma से import नहीं हो सका",
         notHtml: "Import करने के लिए valid HTML paste करें या चुनें।",
         importFailed: "आयात विफल रहा",
@@ -1755,9 +1708,11 @@ export default {
         uploadFailed: "File upload विफल रहा",
         invalidFigFile: ".fig पर समाप्त होने वाली file चुनें।",
         unsupportedFileType: "कोई .fig, .html या .htm फ़ाइल चुनें।",
-        importBusy: "एक और आयात जारी है। पहले उसे पूरा करें या रद्द करें।",
+        importBusy: "एक और आयात जारी है। उसके पूरा होने पर फिर से कोशिश करें।",
         figFileTooLarge:
-          "यह .fig बहुत बड़ी है — uploads की सीमा {{max}} MB है। Figma में जिस frame को import करना है उसे एक नई file में copy करें और उस file को .fig के रूप में export करें, या Paste from Figma का उपयोग करें।",
+          "यह फ़ाइल यहाँ आयात करने के लिए बहुत बड़ी है। इसके बजाय Figma पेज या frame का लिंक paste करें।",
+        figFileUnreadable:
+          "यह फ़ाइल .fig फ़ाइल के रूप में पढ़ी नहीं जा सकती। Figma से नई लोकल कॉपी सेव करें और उसे आयात करें।",
       },
     },
     generationMayHaveStopped:
@@ -1817,6 +1772,7 @@ export default {
       duplicate: "डुप्लिकेट करें",
       versionHistory: "संस्करण इतिहास",
       import: "आयात करें…",
+      connectLocalApp: "लोकल ऐप कनेक्ट करें",
       delete: "हटाएँ",
       deleteError: "इस डिज़ाइन को हटाया नहीं जा सका",
     },
@@ -2180,6 +2136,19 @@ export default {
       viewportMobile: "Mobile",
       added: "Screen जोड़ी गई",
       addFailed: "Screen नहीं जोड़ी जा सकी",
+    },
+    localhostConsent: {
+      approvedTitle: "स्वीकृत — संपादन फिर से चलाएँ",
+      approvedDescription:
+        "फ़ाइल लिखने की अनुमति 8 घंटे के लिए है। जिस संपादन ने एक्सेस माँगा था, वह सहेजा नहीं गया।",
+      retryInChat: "चैट में फिर से चलाएँ",
+      retryPrompt:
+        "{{rootPath}} के लिए फ़ाइल लिखने की अनुमति स्वीकृत है। जिस संपादन को इसकी ज़रूरत थी, उसे फिर से चलाएँ।",
+      unavailableTitle: "यह लिखने का अनुरोध अब लंबित नहीं है",
+      unavailableDescription: "एक्सेस माँगने के लिए संपादन फिर से चलाएँ।",
+      close: "बंद करें",
+      prepareSignInError:
+        "साइन इन से पहले यह अनुरोध सहेजा नहीं जा सका। फिर से कोशिश करें।",
     },
     nodeRewrite: {
       composerTitle: "चयन के बारे में पूछें या बदलें",
@@ -2582,6 +2551,9 @@ export default {
     changesDiscarded:
       "कुछ परिवर्तन सहेजे नहीं जा सके क्योंकि फ़ाइल अब मौजूद नहीं है, और उन्हें छोड़ दिया गया।",
     offline: "ऑफ़लाइन",
+    unsaved: "सहेजा नहीं गया",
+    saveRetrying:
+      "आपके परिवर्तन सहेजे नहीं जा सके। अपने-आप फिर से प्रयास किया जा रहा है।",
     saving: "सहेजा जा रहा है...",
     clearedAllAnnotations: "सभी एनोटेशन साफ़ किए गए",
     annotationsDiscardedOnViewChange:
@@ -2636,9 +2608,9 @@ export default {
   },
   homeContext: {
     websiteReference: "वेबसाइट जोड़ें",
+    websiteReferenceMenu: "वेबसाइट जोड़ें…",
     websiteUrlLabel: "वेबसाइट URL",
     websiteUrl: "वेबसाइट का URL पेस्ट करें",
-    figmaUrlLabel: "Figma लिंक",
     invalidFigmaUrl: "figma.com फ़्रेम या फ़ाइल का मान्य URL दर्ज करें।",
     tooMany: "अधिकतम 20 संदर्भ चुनें।",
     invalidWebsiteUrl: "मान्य HTTP या HTTPS URL दर्ज करें।",
@@ -2646,7 +2618,6 @@ export default {
     noSystems:
       "आपके पास अभी कोई डिज़ाइन सिस्टम नहीं है। वेबसाइट, फ़ाइलों या Figma से एक बनाएँ।",
     searchSystems: "डिज़ाइन सिस्टम खोजें…",
-    searchFrames: "Figma फ़्रेम खोजें…",
     searchDesigns: "डिज़ाइन खोजें…",
     searchPresentations: "प्रस्तुतियाँ खोजें…",
     searchDesign: "डिज़ाइन खोजें…",
@@ -2654,16 +2625,34 @@ export default {
     notReady:
       "प्रॉम्प्ट अभी भेजने के लिए तैयार नहीं है। चुना गया संदर्भ और कनेक्शन जाँचें, फिर प्रयास करें।",
     search: "संदर्भ खोजें…",
-    figmaUrl: "Figma लिंक पेस्ट करें",
-    browse: "फ़्रेम देखें",
     loadFailed: "यह संदर्भ लोड नहीं हो सका।",
     retry: "फिर प्रयास करें",
     empty: "कोई मिलते-जुलते संदर्भ नहीं हैं।",
     none: "कोई नहीं",
-    design: "डिज़ाइन",
+    design: "डिज़ाइन संदर्भ",
     slides: "स्लाइड",
     referenceDesign: "डिज़ाइन को संदर्भ बनाएँ",
-    figmaReference: "Figma जोड़ें",
+    connectFigma: "Figma कनेक्ट करें",
+    figmaReference: "Figma डिज़ाइन…",
+    figmaDialogTitle: "Figma डिज़ाइन जोड़ें",
+    figmaDropTitle: ".fig फ़ाइल यहाँ छोड़ें",
+    figmaChooseFile: "फ़ाइल चुनें",
+    figmaPasteHint: "आप कॉपी किया गया फ़्रेम सीधे प्रॉम्प्ट में भी पेस्ट कर सकते हैं।",
+    figmaAddToPrompt: "प्रॉम्प्ट में जोड़ें",
+    figmaLinkNeedsConnection:
+      "लिंक के लिए कनेक्टेड Figma खाता चाहिए। इसके बजाय .fig फ़ाइल छोड़ें या कॉपी किया गया फ़्रेम पेस्ट करें।",
+    figmaReferenceMore: "{{name}} और {{count}} अन्य",
+    figmaReferenceEmpty:
+      "कोई फ़्रेम नहीं आया। Figma में एक फ़्रेम कॉपी करें और फिर से कोशिश करें।",
+    figmaSelection: "Figma चयन",
+    figmaFileTooLarge:
+      "यह फ़ाइल यहाँ पढ़ने के लिए बहुत बड़ी है। इसके बजाय इसके पेज या फ़्रेम का लिंक पेस्ट करें।",
+    figmaSearch: "पेज और फ़्रेम खोजें",
+    figmaSelectedCount: "{{count}} चुने गए",
+    figmaShowFrames: "{{name}} के फ़्रेम दिखाएँ",
+    figmaLinkNotFrame: "किसी Figma पेज या फ़्रेम का लिंक दें।",
+    figmaPageFrameCap:
+      "पहले {{limit}} फ़्रेम जोड़े जाते हैं। कौन से जोड़ने हैं, यह चुनने के लिए फ़्रेम चुनें।",
     referenceDeck: "प्रस्तुति को संदर्भ बनाएँ",
     quickSaas: "SaaS लैंडिंग पेज बनाएँ",
     quickDashboard: "डैशबोर्ड बनाएँ",
@@ -2673,12 +2662,162 @@ export default {
   },
   home: {
     suggestedPrompts: "सुझाए गए प्रॉम्प्ट",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "KPI कार्ड, कन्वर्ज़न चार्ट और गतिविधि तालिका वाला प्रोडक्ट एनालिटिक्स डैशबोर्ड बनाएं, जिसका अंदाज़ भरोसेमंद और डेटा-केंद्रित हो।",
+        roadmapWorkspace:
+          "तिमाही समयरेखा, प्राथमिकताओं और ग्राहक सुझावों वाला रोडमैप कार्यक्षेत्र बनाएं, जिसका अंदाज़ शांत और सहयोगी हो।",
+        onboardingFlow:
+          "प्रगति चरणों, लक्ष्यों और खाता सेटअप वाला बजट ऐप का शुरुआती अनुभव बनाएं, जिसका अंदाज़ आश्वस्त करने वाला हो।",
+        featureComparison:
+          "प्लान कार्ड, फ़ीचर मैट्रिक्स और FAQ वाला SaaS तुलना पेज बनाएं, जिसका अंदाज़ सीधा और कन्वर्ज़न-केंद्रित हो।",
+        feedbackPortal:
+          "अनुरोध बोर्ड, वोटिंग और स्थिति फ़िल्टर वाला ग्राहक सुझाव पोर्टल बनाएं, जिसका अंदाज़ खुला और सामुदायिक हो।",
+        releaseNotes:
+          "वर्ज़न समयरेखा, मुख्य फ़ीचर और माइग्रेशन नोट वाला रिलीज़ केंद्र बनाएं, जिसका अंदाज़ संक्षिप्त संपादकीय हो।",
+        projectWorkspace:
+          "कानबन कॉलम, ज़िम्मेदार लोगों और माइलस्टोन वाला प्रोडक्ट कार्यक्षेत्र बनाएं, जिसका अंदाज़ उत्पादकता पर केंद्रित हो।",
+        launchWaitlist:
+          "मुख्य संदेश, ग्राहक प्रमाण और साइनअप फ़ॉर्म वाला लॉन्च वेटलिस्ट पेज बनाएं, जिसका अंदाज़ आशावादी हो।",
+      },
+      design: {
+        portfolioHome:
+          "संक्षिप्त परिचय, केस स्टडी ग्रिड, प्रोफ़ाइल और संपर्क वाला डिज़ाइन पोर्टफ़ोलियो बनाएं, जिसका अंदाज़ सधा हुआ संपादकीय हो।",
+        designSystem:
+          "रंग और टाइपोग्राफ़ी टोकन, कंपोनेंट गैलरी और उपयोग नोट वाला डिज़ाइन सिस्टम संदर्भ पेज बनाएं, जिसका अंदाज़ सटीक हो।",
+        bankingApp:
+          "बैलेंस, लेनदेन और बचत लक्ष्यों वाला मोबाइल बैंकिंग होम स्क्रीन बनाएं, जिसका अंदाज़ शांत और भरोसेमंद हो।",
+        travelBooking:
+          "गंतव्य फ़िल्टर, यात्रा कार्ड और नक्शे वाला ट्रैवल बुकिंग खोज स्क्रीन बनाएं, जिसका अंदाज़ खुला और रोमांचक हो।",
+        coffeeShop:
+          "चुनी हुई कॉफ़ी, उत्पत्ति की कहानियों और सदस्यता CTA वाला कॉफ़ी शॉप स्टोर बनाएं, जिसका अंदाज़ गर्मजोशी भरा हो।",
+        musicFestival:
+          "लाइनअप, समय-सारणी और वेन्यू नक्शे वाला संगीत उत्सव पेज बनाएं, जिसका अंदाज़ ऊर्जावान पोस्टर जैसा हो।",
+        accessibilityAudit:
+          "स्कोर सारांश, समस्याओं और फ़िल्टर वाला एक्सेसिबिलिटी ऑडिट डैशबोर्ड बनाएं, जिसका अंदाज़ स्पष्ट और उच्च-कॉन्ट्रास्ट हो।",
+        artBook:
+          "कलाकृतियों, प्रमुख उद्धरण और अध्याय नेविगेशन वाला आर्ट बुक पेज बनाएं, जिसका अंदाज़ संयत गैलरी जैसा हो।",
+      },
+      developer: {
+        apiDocs:
+          "साइड नेविगेशन, कोड उदाहरण और रिक्वेस्ट बिल्डर वाला API डॉक्यूमेंटेशन पोर्टल बनाएं, जिसका अंदाज़ तकनीकी और सटीक हो।",
+        deploymentDashboard:
+          "एनवायरनमेंट कार्ड, लाइव लॉग और रोलबैक नियंत्रण वाला डिप्लॉयमेंट डैशबोर्ड बनाएं, जिसका अंदाज़ शांत और संचालन-केंद्रित हो।",
+        componentPlayground:
+          "प्रॉप कंट्रोल, स्टेट वैरिएंट और कोड पैनल वाला कंपोनेंट प्लेग्राउंड बनाएं, जिसका अंदाज़ साफ़ और डेवलपर-केंद्रित हो।",
+        databaseConsole:
+          "क्वेरी एडिटर, स्कीमा ट्री और परिणाम तालिका वाला डेटाबेस कंसोल बनाएं, जिसका अंदाज़ संयत और तकनीकी हो।",
+        issueTriage:
+          "फ़िल्टर, प्राथमिकता बैज और ज़िम्मेदार लोगों की कतार वाला इश्यू बोर्ड बनाएं, जिसका अंदाज़ स्पष्ट और केंद्रित हो।",
+        authSettings:
+          "प्रोवाइडर कार्ड, कॉलबैक URL और अनुमतियों वाला ऑथ सेटिंग पेज बनाएं, जिसका अंदाज़ सुरक्षित और आश्वस्त करने वाला हो।",
+        workflowBuilder:
+          "स्टेप नोड, रन इतिहास और ब्रांच चयन वाला CI वर्कफ़्लो बिल्डर बनाएं, जिसका अंदाज़ तकनीकी और सटीक हो।",
+        developerPortfolio:
+          "प्रोजेक्ट कार्ड, टूल स्टैक और समयरेखा वाला डेवलपर पोर्टफ़ोलियो बनाएं, जिसका अंदाज़ गहरा और केंद्रित हो।",
+      },
+      marketing: {
+        campaignLanding:
+          "मुख्य संदेश, लाभ, ग्राहक प्रमाण और साइनअप वाला कैंपेन लैंडिंग पेज बनाएं, जिसका अंदाज़ ऊर्जावान हो।",
+        emailBuilder:
+          "सब्जेक्ट प्रीव्यू, कंटेंट ब्लॉक और ऑडियंस सारांश वाला ईमेल कैंपेन एडिटर बनाएं, जिसका अंदाज़ स्पष्ट और दोस्ताना हो।",
+        socialCalendar:
+          "चैनल टैब, शेड्यूल पोस्ट और प्रदर्शन संकेत वाला सोशल कैलेंडर बनाएं, जिसका अंदाज़ उजला संपादकीय हो।",
+        brandCampaign:
+          "हेडलाइन, आर्ट डायरेक्शन और एसेट गैलरी वाला ब्रांड कैंपेन पेज बनाएं, जिसका अंदाज़ आत्मविश्वासी और सुसंगत हो।",
+        webinarRegistration:
+          "स्पीकर कार्ड, एजेंडा और रजिस्ट्रेशन फ़ॉर्म वाला वेबिनार पेज बनाएं, जिसका अंदाज़ विश्वसनीय और स्वागतपूर्ण हो।",
+        seoBrief:
+          "कीवर्ड समूह, कंटेंट रूपरेखा और प्रतिस्पर्धी नोट वाला SEO ब्रीफ़ बनाएं, जिसका अंदाज़ शोध-केंद्रित हो।",
+        launchMetrics:
+          "चैनल कार्ड, कन्वर्ज़न चार्ट और कैंपेन तालिका वाला लॉन्च मेट्रिक्स डैशबोर्ड बनाएं, जिसका अंदाज़ विश्लेषणात्मक हो।",
+        newsletterSignup:
+          "संपादकीय प्रीव्यू, विषय विकल्प और ईमेल फ़ील्ड वाला न्यूज़लेटर पेज बनाएं, जिसका अंदाज़ गर्मजोशी भरा और संक्षिप्त हो।",
+      },
+      sales: {
+        leadWorkspace:
+          "संपर्क विवरण, गतिविधि समयरेखा और योग्यता फ़ील्ड वाला सेल्स लीड कार्यक्षेत्र बनाएं, जिसका अंदाज़ पेशेवर और निर्णायक हो।",
+        accountBrief:
+          "कंपनी सारांश, हितधारक और हाल के संकेतों वाला अकाउंट रिसर्च ब्रीफ़ बनाएं, जिसका अंदाज़ स्पष्ट और कार्यकारी हो।",
+        productDemo:
+          "उपयोग केस टैब, प्रोडक्ट स्क्रीनशॉट और ग्राहक प्रमाण वाला डेमो पेज बनाएं, जिसका अंदाज़ भरोसेमंद और प्रेरक हो।",
+        proposalBuilder:
+          "स्कोप सेक्शन, मूल्य कार्ड और समयरेखा वाला प्रस्ताव बिल्डर बनाएं, जिसका अंदाज़ परामर्शी और सधा हुआ हो।",
+        pipelineDashboard:
+          "डील चरण, राशि और पूर्वानुमान चार्ट वाला पाइपलाइन डैशबोर्ड बनाएं, जिसका अंदाज़ संक्षिप्त व्यावसायिक हो।",
+        meetingBooking:
+          "कैलेंडर स्लॉट, एजेंडा प्रीव्यू और फ़ॉर्म वाला मीटिंग बुकिंग पेज बनाएं, जिसका अंदाज़ पेशेवर और स्वागतपूर्ण हो।",
+        customerStory:
+          "चुनौती, परिणाम, उद्धरण और मेट्रिक्स वाला ग्राहक कहानी पेज बनाएं, जिसका अंदाज़ प्रमाण-आधारित संपादकीय हो।",
+        accountHandoff:
+          "ग्राहक लक्ष्य, संपर्क और खुले काम वाला अकाउंट हैंडऑफ़ कार्यक्षेत्र बनाएं, जिसका अंदाज़ शांत और सहयोगी हो।",
+      },
+      ops: {
+        inventoryDashboard:
+          "स्टॉक स्तर, रीऑर्डर अलर्ट और श्रेणी फ़िल्टर वाला इन्वेंटरी डैशबोर्ड बनाएं, जिसका अंदाज़ व्यावहारिक संचालन-केंद्रित हो।",
+        staffScheduler:
+          "शिफ़्ट ग्रिड, उपलब्धता और छुट्टी अनुरोध वाला स्टाफ़ शेड्यूलर बनाएं, जिसे एक नज़र में पढ़ना आसान हो।",
+        vendorPortal:
+          "चेकलिस्ट, दस्तावेज़ अपलोड स्थिति और संपर्क वाला वेंडर पोर्टल बनाएं, जिसका अंदाज़ स्पष्ट और आश्वस्त करने वाला हो।",
+        incidentResponse:
+          "गंभीरता बैनर, घटना समयरेखा और मालिक पैनल वाला इंसिडेंट स्क्रीन बनाएं, जिसका अंदाज़ शांत और केंद्रित हो।",
+        expenseApprovals:
+          "रसीद प्रीव्यू, नीति संकेत और कुल राशि वाला खर्च स्वीकृति क्यू बनाएं, जिसका अंदाज़ निष्पक्ष और कुशल हो।",
+        warehouseReceiving:
+          "शिपमेंट विवरण, स्कैन स्थिति और आइटम सूची वाला वेयरहाउस रिसीविंग स्क्रीन बनाएं, जिसका अंदाज़ बहुत स्पष्ट हो।",
+        automationControl:
+          "ऑटोमेशन कार्ड, रन इतिहास और विफलता अलर्ट वाला वर्कफ़्लो कंट्रोल पैनल बनाएं, जिसका अंदाज़ संचालन-केंद्रित और भरोसेमंद हो।",
+        helpdeskQueue:
+          "रिक्वेस्ट कार्ड, स्थिति फ़िल्टर और असाइन नियंत्रण वाला आंतरिक हेल्पडेस्क क्यू बनाएं, जिसका अंदाज़ स्पष्ट और सहायक हो।",
+      },
+      individual: {
+        personalPortfolio:
+          "संक्षिप्त परिचय, चुने हुए काम, कौशल और संपर्क वाला व्यक्तिगत पोर्टफ़ोलियो बनाएं, जिसका अंदाज़ गर्मजोशी भरा संपादकीय हो।",
+        mealPlanner:
+          "साप्ताहिक रेसिपी, किराना सूची और आहार फ़िल्टर वाला भोजन योजना ऐप स्क्रीन बनाएं, जिसका अंदाज़ व्यावहारिक और दोस्ताना हो।",
+        homeBudget:
+          "मासिक सारांश, श्रेणी चार्ट और बिल सूची वाला घरेलू बजट डैशबोर्ड बनाएं, जिसका अंदाज़ शांत और सहायक हो।",
+        tripPlanner:
+          "यात्रा समयरेखा, नक्शा और आरक्षण कार्ड वाला ट्रिप प्लानर बनाएं, जिसका अंदाज़ खुला और रोमांचक हो।",
+        readingJournal:
+          "किताब कवर, प्रगति नोट और स्टार रेटिंग वाला रीडिंग जर्नल बनाएं, जिसका अंदाज़ शांत साहित्यिक हो।",
+        invoiceTracker:
+          "क्लाइंट सूची, भुगतान स्थिति और देय तिथि वाला फ़्रीलांस इनवॉइस ट्रैकर बनाएं, जिसका अंदाज़ सुव्यवस्थित और पेशेवर हो।",
+        habitTracker:
+          "दैनिक चेक-इन, स्ट्रीक कार्ड और प्रगति चार्ट वाला आदत ट्रैकर ऐप बनाएं, जिसका अंदाज़ सौम्य और प्रेरक हो।",
+        neighborhoodEvents:
+          "इवेंट कार्ड, स्थानीय फ़िल्टर और RSVP नियंत्रण वाला पड़ोस इवेंट पेज बनाएं, जिसका अंदाज़ स्वागतपूर्ण और सामुदायिक हो।",
+      },
+      general: {
+        saasHomepage:
+          "मुख्य संदेश, फ़ीचर सेक्शन और ग्राहक प्रमाण वाला SaaS होमपेज बनाएं, जिसका अंदाज़ स्पष्ट और स्वागतपूर्ण हो।",
+        analyticsDashboard:
+          "KPI कार्ड, ट्रेंड चार्ट और गतिविधि तालिका वाला एनालिटिक्स डैशबोर्ड बनाएं, जिसका अंदाज़ शांत और डेटा-केंद्रित हो।",
+        habitApp:
+          "दैनिक लक्ष्य, प्रगति रिंग और रिमाइंडर वाला मोबाइल आदत ऐप होम स्क्रीन बनाएं, जिसका अंदाज़ दोस्ताना और उत्साहवर्धक हो।",
+        onlineStore:
+          "विशेष उत्पाद, श्रेणी कार्ड और ग्राहक समीक्षाओं वाला ऑनलाइन स्टोर होमपेज बनाएं, जिसका अंदाज़ गर्मजोशी भरा हो।",
+        creativePortfolio:
+          "संक्षिप्त परिचय, प्रोजेक्ट ग्रिड और प्रोफ़ाइल वाला क्रिएटिव पोर्टफ़ोलियो बनाएं, जिसका अंदाज़ अभिव्यंजक संपादकीय हो।",
+        bookingPage:
+          "उपलब्धता कैलेंडर, सेवा कार्ड और समीक्षा वाला बुकिंग पेज बनाएं, जिसका अंदाज़ स्पष्ट और भरोसेमंद हो।",
+        adminDashboard:
+          "साइड नेविगेशन, सारांश कार्ड और हाल की गतिविधि वाला एडमिन डैशबोर्ड बनाएं, जिसका अंदाज़ व्यावहारिक और संयत हो।",
+        communityEvent:
+          "कार्यक्रम, स्थल विवरण और वक्ताओं वाला सामुदायिक इवेंट पेज बनाएं, जिसका अंदाज़ उत्सवी और स्वागतपूर्ण हो।",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "अगले कदम",
+      refineWithPrompt: "प्रॉम्प्ट से बेहतर बनाएं",
+      export: "निर्यात करें",
+      shareLink: "लिंक साझा करें",
+      dismiss: "बंद करें",
+    },
     import: "आयात करें",
-    importOptions: "आयात विकल्प",
-    figmaLink: "Figma लिंक",
     importFromFigma: "Figma से आयात करें",
     figmaFile: "Figma फ़ाइल (.fig)",
-    figmaFileMaxSize: "अधिकतम {{max}} GB",
     openImport: "आयात खोलें",
     importSelectedFile: "चुनी गई फ़ाइल आयात करें",
     starterSaasPrompt:
@@ -2750,6 +2889,89 @@ export default {
     paginationPrevious: "पिछला",
     paginationNext: "अगला",
     paginationPage: "पृष्ठ {{page}} / {{totalPages}}",
+
+    suggestionLabels: {
+      product: {
+        analyticsDashboard: "KPI कार्ड कन्वर्ज़न चार्ट",
+        roadmapWorkspace: "तिमाही समयरेखा प्राथमिकताओं",
+        onboardingFlow: "प्रगति चरणों लक्ष्यों",
+        featureComparison: "प्लान कार्ड फ़ीचर मैट्रिक्स",
+        feedbackPortal: "अनुरोध बोर्ड वोटिंग",
+        releaseNotes: "वर्ज़न समयरेखा मुख्य फ़ीचर",
+        projectWorkspace: "कानबन कॉलम ज़िम्मेदार लोगों",
+        launchWaitlist: "मुख्य संदेश ग्राहक प्रमाण",
+      },
+      design: {
+        portfolioHome: "संक्षिप्त परिचय केस स्टडी",
+        designSystem: "डिज़ाइन सिस्टम",
+        bankingApp: "बैलेंस लेनदेन",
+        travelBooking: "गंतव्य फ़िल्टर यात्रा कार्ड",
+        coffeeShop: "चुनी हुई कॉफ़ी उत्पत्ति",
+        musicFestival: "लाइनअप समय-सारणी",
+        accessibilityAudit: "स्कोर सारांश समस्याओं",
+        artBook: "कलाकृतियों प्रमुख उद्धरण",
+      },
+      developer: {
+        apiDocs: "साइड नेविगेशन कोड उदाहरण",
+        deploymentDashboard: "एनवायरनमेंट कार्ड लाइव लॉग",
+        componentPlayground: "प्रॉप कंट्रोल स्टेट वैरिएंट",
+        databaseConsole: "क्वेरी एडिटर स्कीमा ट्री",
+        issueTriage: "फ़िल्टर प्राथमिकता बैज",
+        authSettings: "प्रोवाइडर कार्ड कॉलबैक URL",
+        workflowBuilder: "स्टेप नोड रन इतिहास",
+        developerPortfolio: "प्रोजेक्ट कार्ड टूल स्टैक",
+      },
+      marketing: {
+        campaignLanding: "मुख्य संदेश लाभ ग्राहक",
+        emailBuilder: "सब्जेक्ट प्रीव्यू कंटेंट ब्लॉक",
+        socialCalendar: "चैनल टैब शेड्यूल पोस्ट",
+        brandCampaign: "हेडलाइन आर्ट डायरेक्शन",
+        webinarRegistration: "स्पीकर कार्ड एजेंडा",
+        seoBrief: "कीवर्ड समूह कंटेंट रूपरेखा",
+        launchMetrics: "चैनल कार्ड कन्वर्ज़न चार्ट",
+        newsletterSignup: "न्यूज़लेटर सदस्यता",
+      },
+      sales: {
+        leadWorkspace: "संपर्क विवरण गतिविधि समयरेखा",
+        accountBrief: "कंपनी सारांश हितधारक",
+        productDemo: "उपयोग केस टैब प्रोडक्ट",
+        proposalBuilder: "स्कोप सेक्शन मूल्य कार्ड",
+        pipelineDashboard: "डील चरण राशि",
+        meetingBooking: "कैलेंडर स्लॉट एजेंडा प्रीव्यू",
+        customerStory: "चुनौती परिणाम उद्धरण",
+        accountHandoff: "ग्राहक लक्ष्य संपर्क",
+      },
+      ops: {
+        inventoryDashboard: "स्टॉक स्तर रीऑर्डर अलर्ट",
+        staffScheduler: "शिफ़्ट ग्रिड उपलब्धता",
+        vendorPortal: "चेकलिस्ट दस्तावेज़ अपलोड स्थिति",
+        incidentResponse: "गंभीरता बैनर घटना समयरेखा",
+        expenseApprovals: "रसीद प्रीव्यू नीति संकेत",
+        warehouseReceiving: "शिपमेंट विवरण स्कैन स्थिति",
+        automationControl: "ऑटोमेशन कार्ड रन इतिहास",
+        helpdeskQueue: "रिक्वेस्ट कार्ड स्थिति फ़िल्टर",
+      },
+      individual: {
+        personalPortfolio: "संक्षिप्त परिचय चुने हुए",
+        mealPlanner: "साप्ताहिक रेसिपी किराना सूची",
+        homeBudget: "मासिक सारांश श्रेणी चार्ट",
+        tripPlanner: "यात्रा समयरेखा नक्शा",
+        readingJournal: "किताब कवर प्रगति नोट",
+        invoiceTracker: "क्लाइंट सूची भुगतान स्थिति",
+        habitTracker: "दैनिक चेक-इन स्ट्रीक कार्ड",
+        neighborhoodEvents: "इवेंट कार्ड स्थानीय फ़िल्टर",
+      },
+      general: {
+        saasHomepage: "मुख्य संदेश फ़ीचर सेक्शन",
+        analyticsDashboard: "KPI कार्ड ट्रेंड चार्ट",
+        habitApp: "दैनिक लक्ष्य प्रगति रिंग",
+        onlineStore: "विशेष उत्पाद श्रेणी कार्ड",
+        creativePortfolio: "संक्षिप्त परिचय प्रोजेक्ट ग्रिड",
+        bookingPage: "उपलब्धता कैलेंडर सेवा कार्ड",
+        adminDashboard: "साइड नेविगेशन सारांश कार्ड",
+        communityEvent: "कार्यक्रम स्थल विवरण",
+      },
+    },
   },
   visualEdit: {
     eyebrow: "विजुअल एडिट",
@@ -3114,6 +3336,7 @@ export default {
     updateFailed: "टिप्पणी अपडेट नहीं की जा सकी",
     commentsInCluster: "क्लस्टर में टिप्पणियाँ: {{count}}",
     moreActions: "अधिक कार्रवाइयाँ",
+    moreActionsFor: "{{author}} के लिए अधिक कार्रवाइयाँ",
     copyLink: "लिंक कॉपी करें",
     linkCopied: "लिंक कॉपी हो गया",
     copyLinkFailed: "लिंक कॉपी नहीं किया जा सका",
@@ -3133,6 +3356,7 @@ export default {
     addEmoji: "इमोजी जोड़ें",
     mention: "किसी को मेंशन करें",
     noMentions: "कोई व्यक्ति नहीं मिला",
+    mentionsFailed: "लोगों को लोड नहीं किया जा सका",
     reopen: "फिर से खोलें",
     reopening: "फिर से खोला जा रहा है…",
     undo: "पहले जैसा करें",
@@ -3159,6 +3383,70 @@ export default {
     searching: "खोज जारी…",
     reactionFailed: "प्रतिक्रिया अपडेट नहीं हो सकी",
     moveFailed: "टिप्पणी स्थानांतरित नहीं हो सकी",
+    threadTitle: "टिप्पणी",
+    agentBadge: "एजेंट",
+    closeThread: "थ्रेड बंद करें",
+    deleteThread: "थ्रेड हटाएँ",
+    deleteThreadTitle: "थ्रेड हटाएँ?",
+    deleteThreadDescription: "इससे समीक्षा से थ्रेड हट जाएगा।",
+    pin: {
+      thread_one: "{{authors}} द्वारा थ्रेड, {{count}} टिप्पणी",
+      thread_other: "{{authors}} द्वारा थ्रेड, {{count}} टिप्पणियाँ",
+      authorsOther_one: "{{count}} अन्य",
+      authorsOther_other: "{{count}} अन्य",
+      unread: "अपठित",
+      resolved: "हल किया गया",
+      draft: "मसौदा टिप्पणी",
+    },
+    reaction: {
+      label_one: "{{emoji}}, {{count}} प्रतिक्रिया",
+      label_other: "{{emoji}}, {{count}} प्रतिक्रियाएँ",
+      labelMine_one: "{{emoji}}, {{count}} प्रतिक्रिया, आप सहित",
+      labelMine_other: "{{emoji}}, {{count}} प्रतिक्रियाएँ, आप सहित",
+    },
+    filtersActive: "फ़िल्टर लागू हैं",
+    suggestChanges: "बदलाव सुझाएँ",
+    applyChangesAndResolve: "बदलाव लागू करें और हल करें",
+    agent: {
+      sectionLabel: "एजेंट",
+      queued: "{{agent}} कतार में है",
+      working: "{{agent}} काम कर रहा है…",
+      replied: "{{agent}} ने जवाब दिया",
+      suggested: "{{agent}} ने बदलाव सुझाए",
+      applied: "{{agent}} ने बदलाव लागू करके थ्रेड हल कर दिया",
+      needsInput: "{{agent}} को आपके इनपुट की ज़रूरत है",
+      failed: "{{agent}} काम पूरा नहीं कर सका",
+      cancelled: "रोका गया",
+      cancel: "रद्द करें",
+      openChat: "चैट खोलें",
+      retry: "फिर कोशिश करें",
+      fallbackName: "AI",
+      setupRequired: "एजेंट इस्तेमाल करने के लिए एक AI मॉडल जोड़ें",
+      startFailed: "एजेंट शुरू नहीं हो सका",
+      cancelFailed: "एजेंट को रोका नहीं जा सका",
+      busy: "इस थ्रेड पर पहले से एक एजेंट काम कर रहा है",
+      error: {
+        engineNotConfigured: "कोई AI मॉडल जुड़ा नहीं है",
+        noResult: "एजेंट बिना जवाब दिए खत्म हो गया",
+        timeout: "एजेंट ने समय पर जवाब नहीं दिया",
+        permission: "अब आपके पास संपादन की पहुँच नहीं है",
+        threadUnavailable: "यह थ्रेड अब खुला नहीं है",
+        targetChanged: "एजेंट के काम करते समय डिज़ाइन बदल गया",
+        applyUnavailable: "एजेंट इस स्क्रीन को संपादित नहीं कर सकता",
+        applyIncomplete:
+          "डिज़ाइन बदल दिया गया, पर थ्रेड हल नहीं हुआ। बदलाव की समीक्षा करें।",
+        cancelledAfterEdit:
+          "डिज़ाइन बदले जाने के बाद रोका गया। बदलाव की समीक्षा करें।",
+        generic: "कुछ गलत हो गया",
+      },
+    },
+    newThread: "नया थ्रेड",
+    threadsCount_one: "{{count}} थ्रेड",
+    threadsCount_other: "{{count}} थ्रेड",
+    boardGroup: "कैनवास",
+    send: "भेजें",
+    pinLabel_one: "{{count}} टिप्पणी वाला थ्रेड",
+    pinLabel_other: "{{count}} टिप्पणियों वाला थ्रेड",
     status: {
       draft: "मसौदा",
       in_review: "समीक्षाधीन",

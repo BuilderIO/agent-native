@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "An Breite anpassen",
   githubLinkTitle: "GitHub-Ordner verknüpfen",
   githubNewCollectionTitle: "Neue Sammlung aus einem GitHub-Ordner",
   githubLinkDescription:
@@ -280,8 +281,38 @@ const database = {
     "Verbinde eine Builder-Sammlung oder eine andere Tabelle, um sie diesen Zeilen zuzuordnen.",
   noBuilderWrites: "Keine Builder-Schreibvorgänge.",
   stageOnly: "Nur bereitstellen",
-  savesDraftsNeverPublishes:
-    "Speichert Entwürfe in Builder — veröffentlicht nie.",
+  savesChangesNeverPublishes:
+    "Speichert Änderungen in Builder — veröffentlicht nie.",
+  builderEffectNewTag: "Neu",
+  builderEffectNewSentence: "Erstellt einen neuen Entwurfseintrag",
+  builderEffectEditTag: "Bearbeiten",
+  builderEffectEditSentence: "Aktualisiert den Live-Eintrag",
+  builderEffectSaveTag: "Speichern",
+  builderEffectAutosaveSentence:
+    "Gespeichert, aber erst live, wenn Sie in Builder veröffentlichen",
+  builderEffectSaveDraftSentence: "Speichert den Entwurf",
+  builderEffectPublishTag: "Veröffentlichen",
+  builderEffectPublishSentence: "Veröffentlicht diesen Eintrag",
+  builderEffectUnpublishTag: "Zurückziehen",
+  builderEffectUnpublishSentence: "Zieht den Live-Eintrag zurück",
+  builderIntentNewOne: "1 Entwurf zu erstellen",
+  builderIntentNew: "{{count}} Entwürfe zu erstellen",
+  builderIntentEditOne: "1 Aktualisierung",
+  builderIntentEdit: "{{count}} Aktualisierungen",
+  builderIntentSaveOne: "1 Speicherung",
+  builderIntentSave: "{{count}} Speicherungen",
+  builderIntentPublish: "{{count}} zu veröffentlichen",
+  builderIntentUnpublish: "{{count}} zurückzuziehen",
+  builderIntentNone: "Keine Änderungen",
+  builderPushVerbCheck: "Prüfen",
+  builderPushVerbPublish: "Veröffentlichen",
+  builderPushVerbUnpublish: "Zurückziehen",
+  builderPushVerbCreateOne: "Entwurf erstellen",
+  builderPushVerbCreate: "{{count}} Entwürfe erstellen",
+  builderPushVerbSaveOne: "In Builder speichern",
+  builderPushVerbSave: "{{count}} in Builder speichern",
+  builderPushVerbPushOne: "Aktualisierung übertragen",
+  builderPushVerbPush: "{{count}} Aktualisierungen übertragen",
   publishUpdates: "Updates veröffentlichen",
   writesUpdatesToLiveEntries: "Schreibt Updates in Live-Einträge.",
   sourcesFeedingThisColumn: "Quellen, die diese Spalte speisen",
@@ -331,6 +362,9 @@ const database = {
   addAnotherSource: "Weitere Quelle hinzufügen",
   agentNativeApps: "Agent-Native-Apps",
   addDatabaseView: "Sammlungsansicht hinzufügen",
+  copiedViewLink: "Ansichtslink kopiert",
+  copyLinkToView: "Link zur Ansicht kopieren",
+  rowActionsFor: "Zeilenaktionen für {{title}}",
   addProperty: "Eigenschaft hinzufügen",
   back: "Zurück",
   builderSpace: "Builder-Bereich",
@@ -349,6 +383,8 @@ const database = {
   failedToCreateRow: "Zeile konnte nicht erstellt werden",
   pageCreatedCollectionRefreshFailed:
     "Die Seite wurde erstellt, aber diese Sammlung konnte nicht aktualisiert werden. Neu laden, um sie zu sehen.",
+  builderPushResultNotLoaded:
+    "Die Aktualisierung hat Builder erreicht, aber diese Prüfung konnte das Ergebnis nicht laden. Neu laden, um es zu sehen.",
   failedToDeleteRow: "Zeile konnte nicht gelöscht werden",
   failedToDeleteSelectedRows:
     "Ausgewählte Zeilen konnten nicht gelöscht werden",
@@ -611,8 +647,17 @@ const databaseExactEnglish = {
   loadingCompleteBuilderDiff: "Vollständiger Builder-Vergleich wird geladen…",
   sampleMatches: "Coincidencias de muestra",
   showAll: "Mostrar todo",
-  sortAscending: "Orden ascendente",
-  sortDescending: "Orden descendente",
+  sortAscending: "Aufsteigend",
+  sortDescending: "Absteigend",
+  sortAToZ: "A → Z",
+  sortZToA: "Z → A",
+  sortLowToHigh: "Niedrig → hoch",
+  sortHighToLow: "Hoch → niedrig",
+  sortOldToNew: "Alt → neu",
+  sortNewToOld: "Neu → alt",
+  sortUncheckedToChecked: "Nicht abgehakt → abgehakt",
+  sortCheckedToUnchecked: "Abgehakt → nicht abgehakt",
+  sortedInDirection: "Sortiert: {{direction}}",
   sortRowsBy: "Ordenar filas por",
   startDate: "Fecha de inicio",
   thisDatabaseIsLocalConnectASourceToMapIts:
@@ -676,6 +721,7 @@ const editor = {
     "Nur Ansicht. Diese Seite folgt einer Datei in GitHub und wird nach jedem Push aktualisiert.",
   githubSourceOpenFile: "In GitHub öffnen",
   textColor: "Textfarbe",
+  resizeColumns: "Spaltenbreite ändern",
   backgroundColor: "Hintergrundfarbe",
   defaultColor: "Standard",
   color: {
@@ -690,6 +736,27 @@ const editor = {
     purple: "Violett",
     pink: "Rosa",
     red: "Rot",
+    defaultText: "Standardtext",
+    defaultBackground: "Standardhintergrund",
+    textChoice: "Text in {{color}}",
+    backgroundChoice: "Hintergrund in {{color}}",
+  },
+  blockMenu: {
+    label: "Blockaktionen",
+    duplicate: "Duplizieren",
+    delete: "Löschen",
+    insertBelow: "Block darunter einfügen",
+    search: "Aktionen suchen...",
+    noResults: "Keine Ergebnisse",
+    block: "Block",
+    keyCtrl: "Strg",
+    keyShift: "Umschalt",
+    keyDelete: "Entf",
+    lockedSource:
+      "Komponenten aus der Quelldatei können hier nicht dupliziert oder gelöscht werden.",
+    lockedSuggesting:
+      "Vorschläge können diese Art von Block nicht hinzufügen oder entfernen.",
+    lockedPage: "Diese Seite lässt diese Änderung nicht zu.",
   },
   noDocumentSelected: "Kein Dokument ausgewählt",
   registryBlockLoadError:
@@ -784,7 +851,6 @@ const editor = {
     image: "Bild",
     imageAdded: "Bild hinzugefügt",
     imageBroken: "Bild konnte nicht geladen werden",
-    imageCommentWithAlt: "Bild: {{alt}}",
     imageCopied: "Bild kopiert.",
     imageDownloadStarted: "Bild-Download gestartet.",
     imageLinkHint: "Funktioniert mit jedem Bild aus dem Internet",
@@ -847,6 +913,7 @@ const editor = {
     addPropertyLink: "{{name}}-Link hinzufügen",
     addPropertyPerson: "{{name}}-Person hinzufügen",
     addPropertyType: "{{type}}-Eigenschaft hinzufügen",
+    alwaysHiddenCount: "{{count}} immer ausgeblendet",
     connectASource: "Datenquelle verbinden",
     addQuoted: '„{{value}}" hinzufügen',
     backToColumnMenu: "Zurück zu Sortieren & Filtern",
@@ -875,9 +942,15 @@ const editor = {
     duplicateProperty: "Doppelte Eigenschaft",
     editField: "Feld bearbeiten",
     editEndDate: "{{name}}-Enddatum bearbeiten",
+    moreProperties: "{{count}} weitere Eigenschaften",
+    morePropertiesOne: "1 weitere Eigenschaft",
     moveColumnLeft: "Spalte nach links verschieben",
     moveColumnRight: "Spalte nach rechts verschieben",
     editProperty: "Bearbeiten Sie {{name}}",
+    builderStatusPublishInBuilder:
+      "Im Builder-Editor gespeicherte Änderungen können nur in Builder veröffentlicht werden.",
+    builderStatusUnpublishedChangesInBuilder:
+      "Unveröffentlichte Änderungen kommen aus dem Builder-Editor und können hier nicht festgelegt werden.",
     editStartDate: "{{name}}-Startdatum bearbeiten",
     editValue: "{{name}}-Wert bearbeiten",
     empty: "Leer",
@@ -891,7 +964,6 @@ const editor = {
       video: "Video [de-DE]",
     },
     fromSource: "Von {{name}}",
-    hiddenProperties: "Versteckte Eigenschaften",
     imageUploaded_zero: "Bilder hochgeladen",
     imageUploaded_one: "Bild hochgeladen",
     imageUploaded_two: "Bilder hochgeladen",
@@ -987,6 +1059,8 @@ const editor = {
     unchecked: "Ungeprüft",
     upload: "Hochladen",
     visibility: "Sichtbarkeit",
+    visibilityScope:
+      "In jeder Zeile, für alle. Eine Ansicht kann sie trotzdem ausblenden.",
   },
   slash: {
     audio: "Audio [de-DE]",
@@ -997,6 +1071,10 @@ const editor = {
     bulletedListDescription: "Ungeordnete Liste",
     callout: "Hinweis",
     calloutDescription: "Hervorgehobener Infoblock",
+    columnsDescription: "Blöcke nebeneinander anordnen",
+    twoColumns: "2 Spalten",
+    threeColumns: "3 Spalten",
+    fourColumns: "4 Spalten",
     codeBlock: "Codeblock",
     codeBlockDescription: "Codeausschnitt",
     collapsibleBlockDescription: "Zusammenklappbarer Block",
@@ -1036,7 +1114,7 @@ const editor = {
     todoListDescription: "Checklistenpunkte",
     toggle: "Umschalten",
     toggleDescription: "Umschaltzeile im Notion-Stil",
-    turnInto: "Verwandle dich in",
+    turnInto: "Umwandeln in",
     video: "Video [de-DE]",
     videoDescription: "Video hochladen oder einbetten",
   },
@@ -1072,6 +1150,29 @@ const editor = {
     hideInSearch: "In der Suche verstecken",
     hideInSearchDescription:
       "Vor Organisation und Suche verbergen. Personen mit dem Link können ihn weiterhin ansehen.",
+    sharePeopleTab: "Personen",
+    shareAgentsTab: "Agenten",
+    agentLevelHeading: "Agenten auf dieser Seite",
+    agentLevelMenuLabel: "Was Agenten auf dieser Seite tun können",
+    agentLevelDefault: "(Standard)",
+    agentLevelCommentDescription:
+      "Können lesen, kommentieren und Änderungen vorschlagen. Nur Personen können sie annehmen.",
+    agentLevelEditDescription:
+      "Können lesen, kommentieren, vorschlagen, Text, Titel und Tabs bearbeiten und die Seite in den Papierkorb verschieben.",
+    agentLevelCommentConfirm:
+      "Agenten können auf dieser Seite jetzt kommentieren und Änderungen vorschlagen, sie aber nicht bearbeiten.",
+    agentLevelEditConfirm: "Agenten können diese Seite wieder bearbeiten.",
+    agentLevelLimit:
+      "Ein Agent bekommt nie mehr Rechte als die Person, für die er arbeitet.",
+    agentLevelManagersOnly:
+      "Nur Personen, die diese Seite verwalten, können das ändern.",
+    agentLevelUpdateFailed:
+      "Die Rechte der Agenten konnten hier nicht geändert werden.",
+    agentLevelNote: "Agenten können kommentieren",
+    agentLevelNoteHint:
+      "Agenten können auf dieser Seite kommentieren. Ändere das unter Teilen.",
+    sendPageToAgent: "Diese Seite an einen Agenten senden",
+    connectAgentOverMcp: "Agenten über MCP verbinden",
     importingFromNotion: "Aus Notion importieren...",
     lastSynced: "Zuletzt synchronisiert",
     linkedToNotion: "Mit Notion verknüpft",
@@ -1150,7 +1251,7 @@ const rawLiterals = {
     previewDraftSavedToHistory:
       "Deine Änderungen wurden im Versionsverlauf gespeichert",
     previewDraftSavedSeparately:
-      "Deine Änderungen wurden als separate Seite gespeichert",
+      "Deine Änderungen wurden als private Seite in deinem Bereich gespeichert",
     previewDraftOpenSavedPage: "Seite öffnen",
     previewDraftMoreOptions: "Weitere Optionen",
     previewDraftViewFullVersions: "Vollständige Versionen anzeigen",
@@ -1232,6 +1333,23 @@ const rawLiterals = {
     restoreDatabase: "Wiederherstellen",
     restoreDatabaseNamed: "{{title}} wiederherstellen",
     trash: "Papierkorb",
+  },
+  publicDocument: {
+    chat: "Chat",
+    freeAndOpenSource: "Kostenlos und Open Source auf GitHub",
+    pagePath: "Seitenpfad",
+    privateDescription:
+      "Bitte den Eigentümer, es mit deinem Konto oder Arbeitsbereich zu teilen, bevor du diesen Link öffnest.",
+    privateTitle: "Dieses Dokument ist privat",
+    signIn: "Anmelden",
+    signUp: "Registrieren",
+    signUpFree: "Kostenlos registrieren",
+    subPages: "Unterseiten",
+    tryContentFree: "Content kostenlos testen",
+    updated: "Aktualisiert am {{date}}",
+    writtenIn: "Geschrieben in Agent-Native Content.",
+    writtenInDescription:
+      "Schreibe und veröffentliche eigene Seiten, mit einem KI-Agenten, der direkt in deinen Dokumenten arbeitet.",
   },
 };
 
@@ -1386,6 +1504,14 @@ const exactEnglish = {
       "Der Text um diesen Vorschlag hat sich geändert, daher kann er nicht übernommen werden. Er bleibt offen: Lehnen Sie ihn ab oder schlagen Sie die Änderung erneut vor.",
     proposalUnplaceable:
       "Einer dieser Vorschläge kann nicht übernommen werden, weil sich der Text um ihn herum geändert hat. Daher wurde keiner übernommen. Alle bleiben offen: Nehmen Sie sie einzeln an oder lehnen Sie sie einzeln ab.",
+    suggestionAcceptFailed: "Vorschlag konnte nicht angenommen werden",
+    suggestionRejectFailed: "Vorschlag konnte nicht abgelehnt werden",
+    proposalAcceptFailed: "Vorschläge konnten nicht angenommen werden",
+    proposalRejectFailed: "Vorschläge konnten nicht abgelehnt werden",
+    suggestionDecisionReverted:
+      "Er ist wieder offen. Alles, was Sie seitdem eingegeben haben, bleibt erhalten.",
+    proposalDecisionReverted:
+      "Sie sind wieder offen. Alles, was Sie seitdem eingegeben haben, bleibt erhalten.",
     suggestionAmendmentFailed: "Vorschlag konnte nicht gespeichert werden",
     suggestionAmendmentResolved:
       "Dieser Vorschlag wurde an anderer Stelle geändert. Ihr nicht gespeicherter Entwurf ist noch vorhanden.",
@@ -1578,6 +1704,7 @@ const overrides = {
     commandSearchHeading: "Suchen",
     searchScope: "Bereich",
     searchAllWorkspaces: "Alle Bereiche",
+    searchThisPage: "Diese Seite",
     searchFields: "Suchfelder",
     searchAllText: "Gesamter Text",
     searchTitleOnly: "Nur Titel",
@@ -1751,6 +1878,28 @@ const overrides = {
     discardEditDescription: "Ihr Kommentar bleibt unverändert.",
     discard: "Verwerfen",
     keepEditing: "Weiter bearbeiten",
+    deleteComment: "Kommentar löschen",
+    deleteThread: "Thread löschen",
+    deleteCommentQuestion: "Kommentar löschen?",
+    deleteCommentDescription:
+      "Er wird für alle gelöscht. Das lässt sich nicht rückgängig machen.",
+    deleteThreadQuestion: "Thread löschen?",
+    deleteThreadDescription:
+      "Der Thread und seine Antworten werden für alle gelöscht. Das lässt sich nicht rückgängig machen.",
+    deleteThreadAiChangeDescription:
+      "Der Thread und seine Antworten werden für alle gelöscht. Das lässt sich nicht rückgängig machen. Die Änderung der KI an der Seite bleibt, aber über den Thread kannst du sie dann nicht mehr rückgängig machen.",
+    delete: "Löschen",
+    deleting: "Wird gelöscht…",
+    deleteRefusedReplied:
+      "Jemand anderes hat geantwortet, daher kann nur ein Bearbeiter diesen Thread löschen.",
+    deleteRefusedNotion:
+      "Dieser Kommentar ist mit Notion synchronisiert. Lösche ihn in Notion.",
+    deleteRefusedAiWorking:
+      "Die KI arbeitet an diesem Thread. Stoppe sie, bevor du den Thread löschst.",
+    deleteRefusedAiSuggestion:
+      "Der Vorschlag der KI in diesem Thread wartet auf Prüfung. Nimm ihn an oder lehne ihn ab, bevor du den Thread löschst.",
+    deleteRefusedBusy:
+      "Dieser Thread wird gerade geändert. Versuche gleich noch einmal, ihn zu löschen.",
     submit: "Kommentieren",
     askAi: "KI fragen",
     aiBadge: "KI",
@@ -1761,8 +1910,10 @@ const overrides = {
     mentionPeopleLoadFailed: "Personen konnten nicht geladen werden.",
     mentionAgents: "Agenten",
     identityPerson: "Person",
-    identityModel: "Modell",
     identityEffort: "Denkaufwand",
+    acceptAllAndResolve: "Alle annehmen und erledigen",
+    acceptAndResolve: "Annehmen und erledigen",
+    suggestionLoadFailed: "Dieser Vorschlag konnte nicht geladen werden",
     identityRan: "Ausgeführt",
     identityNotRecorded: "Nicht erfasst",
     identityOpenRun: "Lauf öffnen",
@@ -1780,6 +1931,10 @@ const overrides = {
     aiRemoveRecipient: "KI-Empfänger entfernen",
     aiSend: "An KI senden",
     aiSendShort: "Senden",
+    aiSendReply: "Antworten",
+    aiSendSuggest: "Vorschlagen",
+    aiSendApply: "Anwenden",
+    aiSendMode: "An KI senden: {{mode}}",
     aiResponseMode: "Antwort",
     aiChooseSendMode: "KI-Sendemodus auswählen",
     aiSuggestChanges: "Änderungen vorschlagen",
@@ -1792,7 +1947,6 @@ const overrides = {
       "Wende die Änderungen für diesen Kommentar an und erledige ihn.",
     aiWorking: "KI arbeitet…",
     aiReplied: "KI hat geantwortet",
-    aiSuggestionReady: "Vorschlag prüfen",
     aiChangesApplied: "Änderungen angewendet",
     aiAppliedAndResolved: "Angewendet und erledigt",
     aiChangeUndone: "Änderung rückgängig gemacht",
@@ -1810,6 +1964,8 @@ const overrides = {
     aiFailed: "KI-Anfrage fehlgeschlagen",
     retry: "Erneut versuchen",
     aiQueued: "KI wartet…",
+    aiWorkingNamed: "{{name}} arbeitet…",
+    aiQueuedNamed: "{{name}} wartet…",
     aiRefreshing: "KI prüft die neueste Seite…",
     aiCancelled: "KI-Anfrage gestoppt",
     aiStop: "Stoppen",

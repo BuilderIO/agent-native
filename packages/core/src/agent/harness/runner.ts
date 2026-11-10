@@ -11,6 +11,7 @@ import {
   refreshLiveAgentHarnessSessionGeneration,
   releaseLiveAgentHarnessSession,
 } from "./lifecycle.js";
+import { resolveAgentHarnessRunPolicy } from "./run-policy.js";
 import {
   AgentHarnessSessionConflictError,
   getAgentHarnessSession,
@@ -21,6 +22,7 @@ import {
   updateAgentHarnessSessionAtGeneration,
 } from "./store.js";
 import { agentHarnessEventToAgentChatEvents } from "./translate.js";
+import { driveAgentHarnessTurnChunks } from "./turn-driver.js";
 import type {
   AgentHarnessAdapter,
   AgentHarnessCreateSessionOptions,
@@ -68,21 +70,35 @@ export function startAgentHarnessRun(
 ): ActiveRun {
   let harnessSession: AgentHarnessSession | undefined = opts.session;
   const detachOnComplete = opts.detachOnComplete !== false;
+  const runTurnId = opts.turnId ?? opts.runOptions?.turnId;
+  const runOptions: StartRunOptions = {
+    ...(opts.runOptions ?? {}),
+    ...(runTurnId === undefined ? {} : { turnId: runTurnId }),
+    recoverChunkBoundaries: opts.runOptions?.recoverChunkBoundaries ?? true,
+    useHostedSoftTimeoutDefault:
+      opts.runOptions?.useHostedSoftTimeoutDefault ?? true,
+    engineName: opts.runOptions?.engineName ?? opts.adapter.name,
+    executionLease: opts.runOptions?.executionLease ?? true,
+  };
+  const runPolicy = resolveAgentHarnessRunPolicy(runOptions, opts.adapter.name);
 
   return startRun(
     opts.runId,
     opts.threadId,
-    async (send, signal, control) => {
+    async (send, signal, control?: RunChunkControl) => {
       const runControl: RunChunkControl = control ?? {
         turnSignal: signal,
         chunkSignal: signal,
         chunkBoundaryReason: () => null,
         beginChunk: () => signal,
+        flushEvents: async () => {},
       };
       let storedSessionId: string | undefined;
       let harnessSessionRegistered = false;
       let keepLiveSession = false;
       let liveSessionReleasedBeforeCheckpoint = false;
+      const wasLiveSessionReleasedBeforeCheckpoint = (): boolean =>
+        liveSessionReleasedBeforeCheckpoint;
       const releaseLiveSessionBeforeCheckpoint = () => {
         if (
           !liveSessionReleasedBeforeCheckpoint &&
@@ -94,7 +110,7 @@ export function startAgentHarnessRun(
         }
       };
       try {
-        send({
+        await send({
           type: "activity",
           label: `Starting ${opts.adapter.label}`,
           tool: "harness",
@@ -116,6 +132,7 @@ export function startAgentHarnessRun(
           threadId: opts.threadId,
           runId: opts.runId,
           providerSessionId: harnessSession.id,
+          runPolicy,
           status: "running",
           resumeState: opts.createSession?.resumeState,
           ownerEmail: opts.ownerEmail ?? opts.createSession?.ownerEmail ?? null,
@@ -136,100 +153,108 @@ export function startAgentHarnessRun(
           ...opts.input,
           abortSignal: runControl.chunkSignal,
         };
+        const currentHarnessSession = harnessSession;
+        if (!storedSessionId) {
+          throw new Error("Harness session is unavailable for turn driving.");
+        }
+        const currentStoredSessionId = storedSessionId;
+        let checkpointHandled = false;
+        const wasCheckpointHandled = (): boolean => checkpointHandled;
 
-        let firstStream = true;
         let pendingApproval: Extract<
           AgentHarnessEvent,
           { type: "approval-request" }
         > | null = null;
-        while (true) {
-          pendingApproval = null;
-          const events = firstStream
-            ? harnessSession.streamTurn(input)
-            : harnessSession.continueTurn!({
-                abortSignal: runControl.chunkSignal,
-              });
-          firstStream = false;
-          try {
-            for await (const event of events) {
-              if (runControl.turnSignal.aborted) break;
-              if (event.type === "approval-request") {
-                pendingApproval = event;
-                await updateLiveAgentHarnessSession(
-                  storedSessionId,
-                  harnessSession,
-                  { pendingApproval: event },
-                );
+        await driveAgentHarnessTurnChunks({
+          session: currentHarnessSession,
+          input,
+          control: runControl,
+          consume: async (events) => {
+            pendingApproval = null;
+            try {
+              for await (const event of events) {
+                if (runControl.turnSignal.aborted) break;
+                if (event.type === "approval-request") {
+                  pendingApproval = event;
+                  const resumeState = currentHarnessSession.checkpoint
+                    ? await currentHarnessSession.checkpoint()
+                    : storedSession.resumeState;
+                  await updateLiveAgentHarnessSession(
+                    currentStoredSessionId,
+                    currentHarnessSession,
+                    { pendingApproval: event, resumeState },
+                  );
+                }
+                await opts.onHarnessEvent?.(event);
+                if (event.type === "error") {
+                  throw new Error(event.error);
+                }
+                for (const chatEvent of agentHarnessEventToAgentChatEvents(
+                  event,
+                )) {
+                  await send(chatEvent);
+                }
               }
-              await opts.onHarnessEvent?.(event);
-              if (event.type === "error") {
-                throw new Error(event.error);
-              }
-              for (const chatEvent of agentHarnessEventToAgentChatEvents(
-                event,
-              )) {
-                send(chatEvent);
+            } catch (error) {
+              if (
+                runControl.turnSignal.aborted ||
+                !runControl.chunkBoundaryReason()
+              ) {
+                throw error;
               }
             }
-          } catch (error) {
-            if (
-              runControl.turnSignal.aborted ||
-              !runControl.chunkBoundaryReason()
-            ) {
-              throw error;
-            }
-          }
-
-          if (runControl.turnSignal.aborted) {
-            await markAgentHarnessSessionStopped(storedSessionId, "stopped");
-            releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
-            await stopHarnessSession(harnessSession);
-            return;
-          }
-
-          if (pendingApproval) {
-            const stored = await getAgentHarnessSession(storedSessionId);
-            const stillPending =
-              stored?.pendingApproval &&
-              typeof stored.pendingApproval === "object" &&
-              "id" in stored.pendingApproval &&
-              stored.pendingApproval.id === pendingApproval.id &&
-              !stored.resolvedApprovalIds?.includes(pendingApproval.id);
-            if (stillPending) {
-              keepLiveSession = true;
-              await persistHarnessCheckpoint(
-                storedSessionId,
-                harnessSession,
-                stored.resumeState,
-                undefined,
-                undefined,
-                true,
+          },
+          afterStream: async () => {
+            if (pendingApproval) {
+              const stored = await getAgentHarnessSession(
+                currentStoredSessionId,
               );
-              return;
+              const stillPending =
+                stored?.pendingApproval &&
+                typeof stored.pendingApproval === "object" &&
+                "id" in stored.pendingApproval &&
+                stored.pendingApproval.id === pendingApproval.id &&
+                !stored.resolvedApprovalIds?.includes(pendingApproval.id);
+              if (stillPending) {
+                keepLiveSession = true;
+                await persistHarnessCheckpoint(
+                  currentStoredSessionId,
+                  currentHarnessSession,
+                  stored.resumeState,
+                  undefined,
+                  async () =>
+                    currentHarnessSession.checkpoint
+                      ? currentHarnessSession.checkpoint()
+                      : stored.resumeState,
+                  true,
+                );
+                checkpointHandled = true;
+                return "stop";
+              }
             }
-          }
 
-          if (!runControl.chunkBoundaryReason()) break;
-          if (!harnessSession.continueTurn) {
-            await saveHarnessCheckpoint(
-              storedSessionId,
-              harnessSession,
-              opts.createSession?.resumeState,
-              detachOnComplete,
-              detachOnComplete ? releaseLiveSessionBeforeCheckpoint : undefined,
-            );
-            if (!detachOnComplete) {
-              keepLiveSession = true;
+            if (
+              runControl.chunkBoundaryReason() &&
+              !currentHarnessSession.continueTurn
+            ) {
+              await saveHarnessCheckpoint(
+                currentStoredSessionId,
+                currentHarnessSession,
+                opts.createSession?.resumeState,
+                detachOnComplete,
+                detachOnComplete
+                  ? releaseLiveSessionBeforeCheckpoint
+                  : undefined,
+              );
+              checkpointHandled = true;
+              if (!detachOnComplete) {
+                keepLiveSession = true;
+              }
+              return "stop";
             }
             return;
-          }
-          if (runControl.beginChunk().aborted) {
-            await markAgentHarnessSessionStopped(storedSessionId, "stopped");
-            releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
-            await stopHarnessSession(harnessSession);
-            return;
-          }
-        }
+          },
+        });
 
         if (runControl.turnSignal.aborted) {
           await markAgentHarnessSessionStopped(storedSessionId, "stopped");
@@ -237,6 +262,7 @@ export function startAgentHarnessRun(
           await stopHarnessSession(harnessSession);
           return;
         }
+        if (wasCheckpointHandled()) return;
 
         let resumeState: unknown = opts.createSession?.resumeState;
         await persistHarnessCheckpoint(
@@ -304,7 +330,7 @@ export function startAgentHarnessRun(
           }
           return;
         }
-        if (harnessSession && !keepLiveSession) {
+        if (harnessSession) {
           await stopHarnessSession(harnessSession).catch(() => undefined);
         }
         if (storedSessionId) {
@@ -318,7 +344,7 @@ export function startAgentHarnessRun(
       } finally {
         if (
           !keepLiveSession &&
-          !liveSessionReleasedBeforeCheckpoint &&
+          !wasLiveSessionReleasedBeforeCheckpoint() &&
           storedSessionId
         ) {
           releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
@@ -326,15 +352,7 @@ export function startAgentHarnessRun(
       }
     },
     opts.onRunComplete,
-    {
-      ...(opts.runOptions ?? {}),
-      turnId: opts.turnId ?? opts.runOptions?.turnId,
-      recoverChunkBoundaries: opts.runOptions?.recoverChunkBoundaries ?? true,
-      useHostedSoftTimeoutDefault:
-        opts.runOptions?.useHostedSoftTimeoutDefault ?? true,
-      engineName: opts.runOptions?.engineName ?? opts.adapter.name,
-      executionLease: opts.runOptions?.executionLease ?? true,
-    },
+    runOptions,
   );
 }
 
@@ -457,12 +475,14 @@ async function persistHarnessCheckpoint(
     }
     const pendingApproval = checkpointPendingApproval(stored);
     try {
-      const checkpointResumeState =
-        waitedForApprovalResolution || preserveLatestResumeState
-          ? stored.resumeState
-          : resolveResumeState
-            ? await resolveResumeState()
-            : resumeState;
+      const preserveStoredResumeState =
+        waitedForApprovalResolution ||
+        (preserveLatestResumeState && !pendingApproval);
+      const checkpointResumeState = preserveStoredResumeState
+        ? stored.resumeState
+        : resolveResumeState
+          ? await resolveResumeState()
+          : resumeState;
       beforeCheckpoint?.();
       const updated = await updateAgentHarnessSessionAtGeneration(
         sessionId,

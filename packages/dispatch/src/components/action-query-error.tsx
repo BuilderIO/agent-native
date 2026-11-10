@@ -37,6 +37,17 @@ function actionQueryDiagnostic(
     if (typeof code === "string" && /^[a-zA-Z0-9_.-]{1,80}$/.test(code)) {
       parts.push(code);
     }
+
+    // The id the server stamped on this response. It is on the server's log
+    // and error report for the same failure, so a screenshot is enough to find
+    // what went wrong.
+    const requestId = details.requestId;
+    if (
+      typeof requestId === "string" &&
+      /^[a-zA-Z0-9_.-]{1,80}$/.test(requestId)
+    ) {
+      parts.push(`ref ${requestId}`);
+    }
   }
 
   return parts.length > 0 ? parts.join(" · ") : null;

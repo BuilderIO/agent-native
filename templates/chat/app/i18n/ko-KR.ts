@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "대화 참조…",
+    group: "대화",
+    authentication: "참조를 추가하려면 로그인하세요.",
+    invalid: "전송하기 전에 유효한 참조를 선택하세요.",
+    unavailable:
+      "선택한 참조를 더 이상 사용할 수 없습니다. 제거하거나 다시 선택하세요.",
+  },
   composer: {
     removeAttachment: "{{name}} 제거",
     removeReference: "{{name}} 참조 제거",
@@ -51,17 +59,12 @@ const messages = {
     untitledChat: "제목 없는 채팅",
   },
   home: {
-    composerPlaceholder: "Alex에 대해 hello 작업을 호출해 줘",
     communityTitle: "함께하기",
     docsAddAction: "작업 추가",
     docsAddPage: "페이지 추가",
     docsGettingStarted: "시작하기",
     docsKeyConcepts: "핵심 개념",
     docsTitle: "문서",
-    editHint:
-      "{{file}} 파일을 수정하고 저장한 다음 다시 요청하면 새 인사말이 보입니다.",
-    lead: "앱의 UI와 에이전트는 같은 작업을 공유합니다.",
-    leadTry: "에이전트에게 hello 작업을 호출해 달라고 요청해 보세요.",
     title: "시작하기",
   },
   navigation: {

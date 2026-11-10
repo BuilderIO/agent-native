@@ -395,6 +395,8 @@ export default createAuthPlugin({
 });
 ```
 
+Custom authentication must also configure the optional `AuthOptions.getBrowserSession` callback for UI capabilities and browser approvals. It accepts an `H3Event` and returns `AuthSession | null`, like `getSession`, but must read browser cookies only, never bearer tokens, query tokens, or other headers. Without this explicit hook, those browser-only operations return `401`.
+
 ## Public Workspace Apps {#public-workspace-apps}
 
 Workspace apps are internal by default. To let anonymous visitors load a public
@@ -534,6 +536,20 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 | `ACCESS_TOKEN`                          | Static bearer fallback for MCP/connect clients; not browser auth                                                                                       |
 | `ACCESS_TOKENS`                         | Comma-separated static bearer fallbacks for MCP/connect clients; not browser auth                                                                      |
 | `A2A_SECRET`                            | Shared secret for JWT-signed A2A cross-app identity verification and, when present, MCP OAuth access-token signing                                     |
+
+## Auth page customization
+
+The Chat template sets `marketing: false` in `server/plugins/auth.ts`. Replace it with a marketing object to enable the panel. It appears below the form on mobile. `AuthMarketingProps` describes the rendered page props, while the plugin accepts the `marketing` fields shown below. `authHeadHtml` appends trusted app-authored HTML after the built-in styles. Do not pass user input to it.
+
+```ts filename="server/plugins/auth.ts"
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
+
+export default createToolkitAuthPlugin({
+  rootAuth: true,
+  marketing: { appName: "My app", tagline: "Make work easier" },
+  authHeadHtml: "<style>.auth-root { font-family: sans-serif; }</style>",
+});
+```
 
 ## What's next
 

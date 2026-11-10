@@ -35,6 +35,9 @@ const realtime = vi.hoisted(() => ({
   dismissError: (() => {}) as unknown as ReturnType<typeof vi.fn>,
   setInputMuted: (() => {}) as unknown as ReturnType<typeof vi.fn>,
   setOutputMuted: (() => {}) as unknown as ReturnType<typeof vi.fn>,
+  currentToolName: null,
+  approvals: [],
+  resolveApproval: (() => {}) as unknown as ReturnType<typeof vi.fn>,
 }));
 
 vi.mock("./useVoiceDictation.js", async (importOriginal) => {
@@ -364,7 +367,7 @@ describe("TiptapComposer primary slot", () => {
     expect(send()?.dataset.composerPrimary).toBe("voice-chat");
     expect(send()?.getAttribute("aria-label")).toBe("Start voice chat");
     expect(send()?.disabled).toBe(false);
-    expect(send()?.querySelector("svg.tabler-icon-wave-sine")).not.toBeNull();
+    expect(send()?.querySelector("svg.tabler-icon-voice-chat")).not.toBeNull();
 
     act(() => send()?.click());
 
@@ -411,7 +414,7 @@ describe("TiptapComposer primary slot", () => {
     expect(container.textContent).toContain("Stop run");
   });
 
-  it("keeps Send last, after Stop, once a draft exists during a run", async () => {
+  it("swaps Stop for Send once a draft exists during a run", async () => {
     await act(async () =>
       root.render(
         <Harness
@@ -423,6 +426,11 @@ describe("TiptapComposer primary slot", () => {
     );
 
     expect(trailing()).toEqual(["voice-button", "stop-slot", "send-button"]);
+    expect(
+      container.querySelector<HTMLElement>(
+        '[data-agent-composer-slot="stop-slot"]',
+      )?.hidden,
+    ).toBe(true);
     expect(send()?.dataset.composerPrimary).toBe("send");
   });
 
@@ -493,6 +501,24 @@ describe("TiptapComposer voice chat", () => {
     expect(realtime.end).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps Stop beside End voice chat while a run is active", async () => {
+    activate("listening");
+    await act(async () =>
+      root.render(
+        <Harness
+          adapters={realtimeReady}
+          stopButton={<button type="button">Stop run</button>}
+        />,
+      ),
+    );
+
+    // End voice chat does not cancel the run, so Stop stays reachable.
+    expect(slot<HTMLElement>("stop-slot")?.hidden).toBe(false);
+    expect(
+      slot<HTMLButtonElement>("send-button")?.dataset.composerPrimary,
+    ).toBe("end-voice-chat");
+  });
+
   it("renders no floating dock", async () => {
     activate("speaking");
     await act(async () => root.render(<Harness adapters={realtimeReady} />));
@@ -529,6 +555,22 @@ describe("TiptapComposer voice chat", () => {
           shiftKey: true,
         }),
       );
+    });
+    expect(voice.start).not.toHaveBeenCalled();
+  });
+
+  it("leaves the dictation key to a page that has already used it", async () => {
+    await act(async () => root.render(<Harness />));
+
+    const event = new KeyboardEvent("keydown", {
+      key: "m",
+      metaKey: true,
+      shiftKey: true,
+      cancelable: true,
+    });
+    event.preventDefault();
+    act(() => {
+      window.dispatchEvent(event);
     });
     expect(voice.start).not.toHaveBeenCalled();
   });

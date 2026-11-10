@@ -10,6 +10,7 @@ import {
   type CutRange,
 } from "../../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../../server/db/index.js";
+import { assertRecordingNotExpired } from "../../server/lib/recording-read-access.js";
 import {
   CHAPTERS_BUSY,
   CHAPTERS_CHANGED,
@@ -94,7 +95,9 @@ export async function saveChapters(options: {
   const { recordingId, expectedVersion } = options;
   const expected = options.expectedChapters;
   const expectedCuts = options.expectedCuts;
-  await assertAccess("recording", recordingId, "editor");
+  assertRecordingNotExpired(
+    await assertAccess("recording", recordingId, "editor"),
+  );
   if (expected === null && expectedVersion === null) {
     fail(
       "Pass expectedChapters (the chapters this edit started from) or expectedVersion, so the save can't replace chapters changed elsewhere.",

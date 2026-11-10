@@ -1,12 +1,13 @@
 name: Desktop App Release
 run-name: >-
-  ${{ github.event.inputs.coordinator_run_id && format('{0} [release:{1}]', github.workflow, github.event.inputs.coordinator_run_id) || '' }}
+  ${{ github.event.inputs.coordinator_run_id && format('{0} ({1}) [release:{2}]', github.workflow, github.event.inputs.mode, github.event.inputs.coordinator_run_id) || '' }}
 
 on:
   push:
     branches: [main]
     paths:
       - ".github/workflows/desktop-release.yml"
+      - ".github/actions/build-agent-native-desktop/**"
       - "packages/desktop-app/**"
       - "packages/shared-app-config/**"
   workflow_dispatch:
@@ -27,6 +28,15 @@ on:
         description: "Exact source commit to build for a coordinated release"
         required: false
         type: string
+      mode:
+        description: "release builds and publishes; stage builds into the draft release without publishing it; publish publishes a draft that a stage run built"
+        required: false
+        default: release
+        type: choice
+        options:
+          - release
+          - stage
+          - publish
       coordinator_run_id:
         description: Release coordinator ID used to reconcile a transient dispatch failure
         required: false
@@ -42,10 +52,7 @@ concurrency:
 
 env:
   RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
-  AGENT_NATIVE_DESKTOP_RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
-  EP_PRE_RELEASE: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' }}
-  ELECTRON_APP_ID: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' && 'com.agentnative.desktop.nightly' || 'com.agentnative.desktop' }}
-  ELECTRON_PRODUCT_NAME: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' && 'Agent-Native Nightly' || 'Agent-Native' }}
+  RELEASE_MODE: ${{ inputs.mode || 'release' }}
   AUTO_VERSION_SUFFIX: ${{ github.run_number }}
 
 jobs:
@@ -127,22 +134,38 @@ jobs:
             fi
           }
           RELEASE_ERROR=$(mktemp)
-          if RELEASE_JSON=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>"$RELEASE_ERROR"); then
-            IS_DRAFT=$(printf '%s' "$RELEASE_JSON" | jq -r '.draft')
-            if [ "$IS_DRAFT" != "true" ]; then
+          TAG_ERROR=$(mktemp)
+          # gh release view finds drafts; GET releases/tags/{tag} answers 404
+          # for them even when the tag exists.
+          if RELEASE_JSON=$(gh release view "$TAG" --json isDraft,targetCommitish -R "$GITHUB_REPOSITORY" 2>"$RELEASE_ERROR"); then
+            if [ "$(jq -r '.isDraft' <<< "$RELEASE_JSON")" != "true" ]; then
               echo "::error::Release $TAG is already published. Choose a new version instead of rebuilding it."
-              rm -f "$RELEASE_ERROR"
+              rm -f "$RELEASE_ERROR" "$TAG_ERROR"
               exit 1
             fi
-            EXISTING_TAG_SHA=$(get_tag_sha "$TAG")
+            # A draft gets its tag only when it publishes, unless one was
+            # reserved first, so fall back to the commit it targets.
+            if EXISTING_TAG_SHA=$(get_tag_sha "$TAG" 2>"$TAG_ERROR"); then
+              :
+            elif grep -q 'HTTP 404' "$TAG_ERROR"; then
+              EXISTING_TAG_SHA=$(jq -r '.targetCommitish' <<< "$RELEASE_JSON")
+            else
+              cat "$TAG_ERROR"
+              rm -f "$RELEASE_ERROR" "$TAG_ERROR"
+              exit 1
+            fi
             if [ "$EXISTING_TAG_SHA" != "${{ needs.resolve-version.outputs.source_ref }}" ]; then
               echo "::error::Existing release $TAG points to $EXISTING_TAG_SHA, expected ${{ needs.resolve-version.outputs.source_ref }}."
-              rm -f "$RELEASE_ERROR"
+              rm -f "$RELEASE_ERROR" "$TAG_ERROR"
               exit 1
             fi
             echo "Draft release $TAG already points to the coordinated source; build jobs will upload to it."
-          elif grep -q 'HTTP 404' "$RELEASE_ERROR"; then
-            TAG_ERROR=$(mktemp)
+          elif grep -q 'release not found' "$RELEASE_ERROR"; then
+            if [ "$RELEASE_MODE" = "publish" ]; then
+              echo "::error::There is no draft release $TAG to publish. Build it first with mode stage."
+              rm -f "$RELEASE_ERROR" "$TAG_ERROR"
+              exit 1
+            fi
             if TAG_SHA=$(get_tag_sha "$TAG" 2>"$TAG_ERROR"); then
               if [ "$TAG_SHA" != "${{ needs.resolve-version.outputs.source_ref }}" ]; then
                 echo "::error::Existing tag $TAG points to $TAG_SHA, expected ${{ needs.resolve-version.outputs.source_ref }}."
@@ -178,269 +201,141 @@ jobs:
             fi
           else
             cat "$RELEASE_ERROR"
-            rm -f "$RELEASE_ERROR"
+            rm -f "$RELEASE_ERROR" "$TAG_ERROR"
             exit 1
           fi
-          rm -f "$RELEASE_ERROR"
+          rm -f "$RELEASE_ERROR" "$TAG_ERROR"
 
   build-mac:
     needs: [resolve-version, prepare-release]
+    if: ${{ inputs.mode != 'publish' }}
     runs-on: macos-latest
-    env:
-      NODE_OPTIONS: --max-old-space-size=8192
+    # A normal build takes 12-20 minutes. Without a bound, one stalled signing
+    # step held a macOS runner for the 6-hour default and kept Release everything
+    # waiting on it.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.resolve-version.outputs.source_ref }}
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Configure Nightly channel
-        if: env.RELEASE_CHANNEL == 'nightly'
-        working-directory: packages/desktop-app
-        shell: bash
-        run: |
-          node <<'NODE'
-          const fs = require("node:fs");
-          const builderPath = "electron-builder.yml";
-          let builder = fs.readFileSync(builderPath, "utf8");
-          let nightlySchemeConfigured = false;
-          builder = builder.replace(
-            /^([ \t]*- )(agentnative(?:-nightly)?)([ \t]*\r?\n)$/gm,
-            (_match, prefix, _scheme, suffix) => {
-              if (nightlySchemeConfigured) return "";
-              nightlySchemeConfigured = true;
-              return `${prefix}agentnative-nightly${suffix}`;
-            },
-          );
-          builder = builder.replace(
-            /^([ \t]*- name: )Agent-Native([ \t]*\r?\n)/m,
-            "$1Agent-Native Nightly$2",
-          );
-          if (!nightlySchemeConfigured) {
-            throw new Error("Could not configure the Nightly deep-link scheme.");
-          }
-          fs.writeFileSync(builderPath, builder);
-
-          const updateConfigPath = "desktop-update-config.yml";
-          let updateConfig = fs.readFileSync(updateConfigPath, "utf8");
-          updateConfig = updateConfig.replace(
-            'updaterCacheDirName: "@agent-nativedesktop-app-updater"',
-            'updaterCacheDirName: "@agent-nativedesktop-app-updater-nightly"',
-          );
-          if (!updateConfig.includes("@agent-nativedesktop-app-updater-nightly")) {
-            throw new Error("Could not configure the Nightly updater cache.");
-          }
-          fs.writeFileSync(updateConfigPath, updateConfig);
-          NODE
-
-      - name: Set version
-        working-directory: packages/desktop-app
-        run: npm version "${{ needs.resolve-version.outputs.version }}" --no-git-tag-version --allow-same-version
-
-      - name: Import signing certificate
+      # Signing credentials and the token go in as inputs: as env they would
+      # reach every dependency's install script.
+      - uses: ./.github/actions/build-agent-native-desktop
         env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
-          rm certificate.p12
-
-      - name: Build and publish
-        working-directory: packages/desktop-app
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: W3PMF2T3MW
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
-        run: |
-          pnpm build:mac-assets && pnpm build
-          npx electron-builder --mac --config --publish always \
-            "-c.appId=$ELECTRON_APP_ID" \
-            "-c.productName=$ELECTRON_PRODUCT_NAME"
+        with:
+          platform: mac
+          channel: ${{ env.RELEASE_CHANNEL }}
+          version: ${{ needs.resolve-version.outputs.version }}
+          sign: "true"
+          publish: always
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          apple-certificate: ${{ secrets.APPLE_CERTIFICATE }}
+          apple-certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          apple-id: ${{ secrets.APPLE_ID }}
+          apple-app-specific-password: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
 
   build-windows:
     needs: [resolve-version, prepare-release]
+    if: ${{ inputs.mode != 'publish' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.resolve-version.outputs.source_ref }}
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Configure Nightly channel
-        if: env.RELEASE_CHANNEL == 'nightly'
-        working-directory: packages/desktop-app
-        shell: bash
-        run: |
-          node <<'NODE'
-          const fs = require("node:fs");
-          const builderPath = "electron-builder.yml";
-          let builder = fs.readFileSync(builderPath, "utf8");
-          let nightlySchemeConfigured = false;
-          builder = builder.replace(
-            /^([ \t]*- )(agentnative(?:-nightly)?)([ \t]*\r?\n)$/gm,
-            (_match, prefix, _scheme, suffix) => {
-              if (nightlySchemeConfigured) return "";
-              nightlySchemeConfigured = true;
-              return `${prefix}agentnative-nightly${suffix}`;
-            },
-          );
-          builder = builder.replace(
-            /^([ \t]*- name: )Agent-Native([ \t]*\r?\n)/m,
-            "$1Agent-Native Nightly$2",
-          );
-          if (!nightlySchemeConfigured) {
-            throw new Error("Could not configure the Nightly deep-link scheme.");
-          }
-          fs.writeFileSync(builderPath, builder);
-
-          const updateConfigPath = "desktop-update-config.yml";
-          let updateConfig = fs.readFileSync(updateConfigPath, "utf8");
-          updateConfig = updateConfig.replace(
-            'updaterCacheDirName: "@agent-nativedesktop-app-updater"',
-            'updaterCacheDirName: "@agent-nativedesktop-app-updater-nightly"',
-          );
-          if (!updateConfig.includes("@agent-nativedesktop-app-updater-nightly")) {
-            throw new Error("Could not configure the Nightly updater cache.");
-          }
-          fs.writeFileSync(updateConfigPath, updateConfig);
-          NODE
-
-      - name: Set version
-        working-directory: packages/desktop-app
-        run: npm version "${{ needs.resolve-version.outputs.version }}" --no-git-tag-version --allow-same-version
-
-      - name: Build and publish
-        working-directory: packages/desktop-app
-        shell: bash
+      - uses: ./.github/actions/build-agent-native-desktop
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
-        run: |
-          pnpm build:chrome-extension && pnpm build
-          pnpm exec electron-builder --win --config --publish always \
-            "-c.appId=$ELECTRON_APP_ID" \
-            "-c.productName=$ELECTRON_PRODUCT_NAME"
+        with:
+          platform: windows
+          channel: ${{ env.RELEASE_CHANNEL }}
+          version: ${{ needs.resolve-version.outputs.version }}
+          publish: always
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
   build-linux:
     needs: [resolve-version, prepare-release]
+    if: ${{ inputs.mode != 'publish' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.resolve-version.outputs.source_ref }}
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Configure Nightly channel
-        if: env.RELEASE_CHANNEL == 'nightly'
-        working-directory: packages/desktop-app
-        shell: bash
-        run: |
-          node <<'NODE'
-          const fs = require("node:fs");
-          const builderPath = "electron-builder.yml";
-          let builder = fs.readFileSync(builderPath, "utf8");
-          let nightlySchemeConfigured = false;
-          builder = builder.replace(
-            /^([ \t]*- )(agentnative(?:-nightly)?)([ \t]*\r?\n)$/gm,
-            (_match, prefix, _scheme, suffix) => {
-              if (nightlySchemeConfigured) return "";
-              nightlySchemeConfigured = true;
-              return `${prefix}agentnative-nightly${suffix}`;
-            },
-          );
-          builder = builder.replace(
-            /^([ \t]*- name: )Agent-Native([ \t]*\r?\n)/m,
-            "$1Agent-Native Nightly$2",
-          );
-          if (!nightlySchemeConfigured) {
-            throw new Error("Could not configure the Nightly deep-link scheme.");
-          }
-          fs.writeFileSync(builderPath, builder);
-
-          const updateConfigPath = "desktop-update-config.yml";
-          let updateConfig = fs.readFileSync(updateConfigPath, "utf8");
-          updateConfig = updateConfig.replace(
-            'updaterCacheDirName: "@agent-nativedesktop-app-updater"',
-            'updaterCacheDirName: "@agent-nativedesktop-app-updater-nightly"',
-          );
-          if (!updateConfig.includes("@agent-nativedesktop-app-updater-nightly")) {
-            throw new Error("Could not configure the Nightly updater cache.");
-          }
-          fs.writeFileSync(updateConfigPath, updateConfig);
-          NODE
-
-      - name: Set version
-        working-directory: packages/desktop-app
-        run: npm version "${{ needs.resolve-version.outputs.version }}" --no-git-tag-version --allow-same-version
-
-      - name: Build and publish
-        working-directory: packages/desktop-app
-        shell: bash
+      - uses: ./.github/actions/build-agent-native-desktop
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
-        run: |
-          pnpm build:chrome-extension && pnpm build
-          LINUX_EXECUTABLE_NAME="agent-native"
-          if [ "$RELEASE_CHANNEL" = "nightly" ]; then
-            LINUX_EXECUTABLE_NAME="agent-native-nightly"
-          fi
-          npx electron-builder --linux --config --publish always \
-            "-c.linux.executableName=$LINUX_EXECUTABLE_NAME" \
-            "-c.appId=$ELECTRON_APP_ID" \
-            "-c.productName=$ELECTRON_PRODUCT_NAME"
+        with:
+          platform: linux
+          channel: ${{ env.RELEASE_CHANNEL }}
+          version: ${{ needs.resolve-version.outputs.version }}
+          publish: always
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
   publish-release:
-    needs: [resolve-version, build-mac, build-windows, build-linux]
+    needs:
+      [resolve-version, prepare-release, build-mac, build-windows, build-linux]
+    # A publish run skips the builds, so the default success() check would skip
+    # this job too.
+    if: >-
+      ${{ !cancelled() && inputs.mode != 'stage' &&
+      needs.prepare-release.result == 'success' &&
+      (inputs.mode == 'publish' || (needs.build-mac.result == 'success' &&
+      needs.build-windows.result == 'success' &&
+      needs.build-linux.result == 'success')) }}
     runs-on: ubuntu-latest
     steps:
+      # A publish run never saw the builds, so check that every platform's
+      # updater manifest, the installers it lists and every download the docs
+      # site offers reached the draft.
+      - name: Require every platform's installers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.resolve-version.outputs.version }}
+        shell: bash
+        run: |
+          RELEASE_TAG="v$RELEASE_VERSION"
+          ASSETS=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' -R "$GITHUB_REPOSITORY")
+          MISSING=()
+          for manifest in latest.yml latest-mac.yml latest-linux.yml latest-linux-arm64.yml; do
+            if ! grep -qxF "$manifest" <<< "$ASSETS"; then
+              MISSING+=("$manifest")
+              continue
+            fi
+            CONTENT=$(gh release download "$RELEASE_TAG" --pattern "$manifest" --output - -R "$GITHUB_REPOSITORY")
+            FILES=$(sed -nE "s/^(  - )?(url|path): ['\"]?([^'\"]+)['\"]?$/\3/p" <<< "$CONTENT" | sort -u)
+            if [ -z "$FILES" ]; then
+              echo "::error::$manifest in $RELEASE_TAG lists no files."
+              exit 1
+            fi
+            while read -r file; do
+              grep -qxF "$file" <<< "$ASSETS" || MISSING+=("$file")
+            done <<< "$FILES"
+          done
+          # Every download the docs site offers, by the suffix it sorts them
+          # by. The Linux archives are in no updater manifest.
+          for download in -arm64.dmg -x64.dmg -arm64.exe -x64.exe -arm64.AppImage -x86_64.AppImage -arm64.deb -amd64.deb -arm64.tar.xz -x64.tar.xz; do
+            grep -qE -- "${download//./[.]}$" <<< "$ASSETS" || MISSING+=("*$download")
+          done
+          if [ "${#MISSING[@]}" -gt 0 ]; then
+            echo "::error::Release $RELEASE_TAG is missing ${MISSING[*]}, so a platform build did not finish. Build it again with mode stage before publishing."
+            exit 1
+          fi
+
       - name: Publish draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

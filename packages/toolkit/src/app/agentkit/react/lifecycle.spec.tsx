@@ -1093,21 +1093,9 @@ describe("AgentChat lifecycle", () => {
         ?.querySelector(".agentkit-message-actions")
         ?.getAttribute("data-streaming"),
     ).toBe("true");
-    expect(runWorkAfter).not.toBeNull();
-    expect(
-      runWorkAfter?.querySelector(".agentkit-activities-label")?.textContent,
-    ).toBe("Worked for 4s");
-    expect(runWorkAfter?.textContent).not.toContain("Thinking");
-    expect(
-      runWorkAfter?.querySelector("[data-agentkit-current-activity]"),
-    ).toBeNull();
-    expect(runWorkAfter?.querySelector('[data-status="running"]')).toBeNull();
-    expect(
-      runWorkAfter && response
-        ? runWorkAfter.compareDocumentPosition(response) &
-            Node.DOCUMENT_POSITION_FOLLOWING
-        : 0,
-    ).not.toBe(0);
+    // oracle-change: while the reply streams after the run's work, the text is the focus, so no work row shows until the run finishes.
+    expect(runWorkAfter).toBeNull();
+    expect(tree.container.textContent).not.toContain("Thinking");
 
     observable.update({
       connection: "connected",
@@ -1152,8 +1140,14 @@ describe("AgentChat lifecycle", () => {
       revision: 2,
     });
     await flush();
-    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
-    expect(tree.container.textContent).not.toContain("Worked for");
+    // The saved reply kept no reasoning, so only the turn's time is left, and
+    // with no model or usage recorded it has nothing to open to.
+    const settled = tree.container.querySelectorAll<HTMLElement>(
+      ".agentkit-activities",
+    );
+    expect(settled).toHaveLength(1);
+    expect(settled[0]?.dataset.expandable).toBe("false");
+    expect(settled[0]?.textContent).toBe("Worked for 4s");
     expect(
       tree.container
         .querySelector('[data-message-id="assistant-1"]')
@@ -1560,7 +1554,8 @@ describe("AgentChat lifecycle", () => {
     expect(
       tree.container.querySelector("[data-visible-empty-widget]")?.textContent,
     ).toBe("Rendered widget");
-    expect(tree.container.textContent).toContain("Reading components.tsx");
+    // oracle-change: the streaming reply is the focus, so its finished step waits for the footer row instead of a live row.
+    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
     expect(
       tree.container.querySelector("[data-agentkit-current-activity]"),
     ).toBeNull();

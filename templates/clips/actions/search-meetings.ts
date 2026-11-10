@@ -1,3 +1,5 @@
+import { defineAction } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 /**
  * Search meetings by title, AI summary, user notes, attendee, or the linked
  * recording's transcript.
@@ -10,13 +12,12 @@
  * in the query itself, so a transcript match can never surface a meeting the
  * caller cannot already open.
  */
-
-import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { meetingRecordingTranscriptFilter } from "../server/lib/meeting-recording-access.js";
 import { booleanParam } from "./lib/cli-params.js";
 import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
@@ -137,6 +138,10 @@ export default defineAction({
         })
         .from(schema.meetings)
         .innerJoin(
+          schema.recordings,
+          eq(schema.recordings.id, schema.meetings.recordingId),
+        )
+        .innerJoin(
           schema.recordingTranscripts,
           eq(
             schema.meetings.recordingId,
@@ -146,6 +151,7 @@ export default defineAction({
         .where(
           and(
             visible(),
+            meetingRecordingTranscriptFilter(getRequestUserEmail()),
             sql`lower(${schema.recordingTranscripts.fullText}) LIKE ${pattern} ESCAPE '\\'`,
           ),
         )

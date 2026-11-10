@@ -17,6 +17,11 @@ import {
 import type { CommentAiAppliedChange } from "../shared/comment-ai.js";
 import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
 import {
+  contentChangeActor,
+  enqueueCommentWebhooks,
+  scheduleContentWebhookDelivery,
+} from "./_content-webhooks.js";
+import {
   documentRevisionToken,
   type DocumentEditMutationResult,
 } from "./_document-edit-mutation.js";
@@ -143,6 +148,7 @@ export default defineAction({
       await updateCommentAiRequest(request, { status: "running", result });
 
       const now = new Date().toISOString();
+      let webhookEvents = 0;
       await getDb().transaction(async (tx) => {
         const comments = await tx
           .select()
@@ -176,6 +182,27 @@ export default defineAction({
               eq(schema.documentComments.ownerEmail, request.ownerEmail),
             ),
           );
+        const root = comments.find(
+          (comment) => comment.id === request.threadId,
+        );
+        if (root && !root.resolved) {
+          webhookEvents = await enqueueCommentWebhooks(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              type: "comment.resolved",
+              comment: {
+                id: root.id,
+                documentId: request.documentId,
+                threadId: request.threadId,
+                parentId: null,
+                authorEmail: root.authorEmail,
+                content: root.content,
+                resolved: true,
+              },
+              actor: contentChangeActor({ ...ctx, caller: "tool" }),
+            },
+          );
+        }
         await tx
           .update(schema.commentAiAttempts)
           .set({
@@ -196,6 +223,7 @@ export default defineAction({
           })
           .where(eq(schema.commentAiRequests.id, request.id));
       });
+      if (webhookEvents) scheduleContentWebhookDelivery();
       return serializeCommentAiRequest(
         await (async () => {
           const [current] = await getDb()

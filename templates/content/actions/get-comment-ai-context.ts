@@ -59,6 +59,11 @@ export default defineAction({
             propertyValue: source.root.propertyValue,
           }
         : null,
+      // A thread on a whole block, such as a video, quotes no text; this is
+      // the block it is on.
+      block: source.root.blockId
+        ? { blockId: source.root.blockId, blockType: source.root.blockType }
+        : null,
       conversation: source.comments.map((comment) => ({
         id: comment.id,
         parentId: comment.parentId,

@@ -15,6 +15,7 @@ import {
   parkedRefusal,
   runStarter,
   scheduleLabel as scheduleLabelOf,
+  succeededItemFailures,
   withRenamedWorkflow,
   withoutWorkflow,
   withWorkflowEnabled,
@@ -754,6 +755,40 @@ describe("anyRunInFlight", () => {
     expect(
       anyRunInFlight(runs([run("a", { id: "r1", status: "running" })])),
     ).toBe(true);
+  });
+});
+
+describe("succeededItemFailures", () => {
+  const counted = (counts: Record<string, number>, status = "succeeded") =>
+    succeededItemFailures(
+      run("a", { id: "r1", status: status as RunView["status"], counts }),
+    );
+
+  it("counts the failures that ended for a person", () => {
+    expect(counted({ itemFailures: 2, needsManual: 2 })).toBe(2);
+    expect(counted({ itemFailures: 1, retryParked: 0, needsManual: 1 })).toBe(
+      1,
+    );
+  });
+
+  it("leaves out a failure parked for a retry, which may recover on a later tick", () => {
+    expect(counted({ itemFailures: 1, retryParked: 1 })).toBe(0);
+    expect(counted({ itemFailures: 2, retryParked: 1, needsManual: 1 })).toBe(
+      1,
+    );
+  });
+
+  it("is zero for the run that retried the item and finished it", () => {
+    expect(counted({ taken: 0, retried: 1, done: 1 })).toBe(0);
+  });
+
+  it("is zero for items routed to a person on purpose, which are not failures", () => {
+    expect(counted({ needsManual: 3 })).toBe(0);
+  });
+
+  it("is zero for a clean run and for one that did not succeed", () => {
+    expect(succeededItemFailures(run("a", { id: "r1" }))).toBe(0);
+    expect(counted({ itemFailures: 2, needsManual: 2 }, "failed")).toBe(0);
   });
 });
 

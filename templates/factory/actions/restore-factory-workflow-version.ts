@@ -75,7 +75,11 @@ export default defineAction({
           statusCode: 404,
         });
       }
-      const { graph, plan } = prepareWorkflowGraph(older.graph);
+      // An older version may read fields its operations did not declare then;
+      // only a save is held to that.
+      const { graph, plan } = await prepareWorkflowGraph(older.graph, scoped, {
+        checkOutputFields: false,
+      });
       // The store checks expectedVersion in the same statement that bumps the
       // version, so a stale restore fails there with the current version.
       const saved = await scoped.store.saveWorkflowGraph(scoped.scope, {

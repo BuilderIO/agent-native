@@ -47,7 +47,11 @@ import {
 } from "./awareness.js";
 
 function event(params: Record<string, string> = {}) {
-  return { _params: params, _status: 200 } as unknown;
+  return {
+    _params: params,
+    _status: 200,
+    context: { _collabAwarenessCanEdit: true },
+  } as unknown;
 }
 
 function scopedEvent(params: Record<string, string> = {}) {
@@ -55,6 +59,7 @@ function scopedEvent(params: Record<string, string> = {}) {
     _params: params,
     _status: 200,
     context: {
+      _collabAwarenessCanEdit: true,
       _collabAwarenessScope: {
         owner: "owner@example.com",
         orgId: "org-1",

@@ -1,12 +1,17 @@
 import nodePath from "node:path";
 
 import "../authorization/check-action.js";
+import {
+  isActionDefinitionError,
+  namedActionDefinitionError,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { CORE_ACTION_GROUPS } from "../framework-tools.js";
+import { frameworkMcpTool } from "../mcp/framework-tools.js";
 import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import { captureCliOutput } from "./cli-capture.js";
-import { carryExecutionKey } from "./filesystem-action-entry.js";
+import { preserveActionFlags } from "./filesystem-action-entry.js";
 
 let _fs: typeof import("fs") | undefined;
 async function getFs(): Promise<typeof import("fs")> {
@@ -33,6 +38,25 @@ function isRuntimeSourceFile(filename: string): boolean {
   if (/\.d\.ts$/.test(filename)) return false;
   if (/\.(test|spec)\.(ts|js)$/.test(filename)) return false;
   return true;
+}
+
+// Dev agent chat imports each of these files to read its tool definition, which
+// executes the module. `scripts/` holds CLI scripts with top-level side effects
+// (one closed the shared database at boot), so only `actions/` is listed.
+export async function listDevActionFiles(cwd: string): Promise<string[]> {
+  const fs = await getFs();
+  const actionsDir = nodePath.join(cwd, "actions");
+  if (!fs.existsSync(actionsDir)) return [];
+  return fs
+    .readdirSync(actionsDir)
+    .filter(
+      (f: string) =>
+        f.endsWith(".ts") &&
+        !f.startsWith("_") &&
+        !/\.(test|spec)\.ts$/.test(f) &&
+        !SKIP_FILES.has(f.replace(/\.ts$/, "")),
+    )
+    .map((f: string) => nodePath.join(actionsDir, f));
 }
 
 const PACKAGE_ACTION_REGISTRY_KEY = Symbol.for(
@@ -100,139 +124,6 @@ function wrapDefaultExport(
       return captureCliOutput(() => defaultFn(cliArgs));
     },
   };
-}
-
-function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
-  const out: Partial<ActionEntry> = {};
-  if (
-    entry.schema &&
-    typeof entry.schema === "object" &&
-    "~standard" in entry.schema
-  ) {
-    out.schema = entry.schema;
-  }
-  if (
-    entry.access &&
-    typeof entry.access === "object" &&
-    !Array.isArray(entry.access)
-  ) {
-    out.access = entry.access;
-  }
-  if (typeof entry.agentTool === "boolean") out.agentTool = entry.agentTool;
-  if (typeof entry.mcpTool === "boolean") out.mcpTool = entry.mcpTool;
-  if (
-    entry.mcpAnnotations &&
-    typeof entry.mcpAnnotations === "object" &&
-    !Array.isArray(entry.mcpAnnotations) &&
-    typeof entry.mcpAnnotations.readOnlyHint === "boolean" &&
-    typeof entry.mcpAnnotations.destructiveHint === "boolean" &&
-    typeof entry.mcpAnnotations.openWorldHint === "boolean"
-  ) {
-    out.mcpAnnotations = entry.mcpAnnotations;
-  }
-  if (
-    entry.mcpOutputContract &&
-    typeof entry.mcpOutputContract === "object" &&
-    entry.mcpOutputContract.response &&
-    typeof entry.mcpOutputContract.response === "object"
-  ) {
-    out.mcpOutputContract = entry.mcpOutputContract;
-  }
-  if (typeof entry.deferLoading === "boolean") {
-    out.deferLoading = entry.deferLoading;
-  }
-  if (typeof entry.requiresAuth === "boolean") {
-    out.requiresAuth = entry.requiresAuth;
-  }
-  if (typeof entry.uiOnly === "boolean") out.uiOnly = entry.uiOnly;
-  if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
-  if (typeof entry.grounding === "boolean") out.grounding = entry.grounding;
-  if (typeof entry.allowInPlanMode === "boolean") {
-    out.allowInPlanMode = entry.allowInPlanMode;
-  }
-  if (
-    entry.planMode &&
-    typeof entry.planMode === "object" &&
-    !Array.isArray(entry.planMode)
-  ) {
-    out.planMode = entry.planMode;
-  }
-  if (typeof entry.changeEvents === "boolean") {
-    out.changeEvents = entry.changeEvents;
-  }
-  if (typeof entry.changeResource === "function") {
-    out.changeResource = entry.changeResource;
-  }
-  if (typeof entry.parallelSafe === "boolean") {
-    out.parallelSafe = entry.parallelSafe;
-  }
-  if (
-    typeof entry.retrySafe === "boolean" ||
-    typeof entry.retrySafe === "function"
-  ) {
-    out.retrySafe = entry.retrySafe;
-  }
-  carryExecutionKey(entry, out);
-  if (typeof entry.endsTurn === "boolean") {
-    out.endsTurn = entry.endsTurn;
-  }
-  if (typeof entry.dedupe === "boolean") {
-    out.dedupe = entry.dedupe;
-  }
-  if (typeof entry.toolCallable === "boolean") {
-    out.toolCallable = entry.toolCallable;
-  }
-  if (typeof entry.agentDiscoveryAvailable === "function") {
-    out.agentDiscoveryAvailable = entry.agentDiscoveryAvailable;
-  }
-  if (
-    Array.isArray(entry.capabilityScopes) &&
-    entry.capabilityScopes.length > 0 &&
-    entry.capabilityScopes.every((scope: unknown) => typeof scope === "string")
-  ) {
-    out.capabilityScopes = entry.capabilityScopes;
-  }
-  if (
-    entry.publicAgent &&
-    typeof entry.publicAgent === "object" &&
-    !Array.isArray(entry.publicAgent)
-  ) {
-    out.publicAgent = entry.publicAgent;
-  }
-  if (typeof entry.link === "function") {
-    out.link = entry.link;
-  }
-  if (
-    entry.mcpApp &&
-    typeof entry.mcpApp === "object" &&
-    !Array.isArray(entry.mcpApp)
-  ) {
-    out.mcpApp = entry.mcpApp;
-  }
-  if (
-    entry.chatUI &&
-    typeof entry.chatUI === "object" &&
-    !Array.isArray(entry.chatUI)
-  ) {
-    out.chatUI = entry.chatUI;
-  }
-  if (typeof entry.timeoutMs === "number") out.timeoutMs = entry.timeoutMs;
-  if (typeof entry.maxResultChars === "number") {
-    out.maxResultChars = entry.maxResultChars;
-  }
-  if (typeof entry.maxBodyBytes === "number") {
-    out.maxBodyBytes = entry.maxBodyBytes;
-  }
-  if (
-    typeof entry.needsApproval === "boolean" ||
-    typeof entry.needsApproval === "function"
-  ) {
-    out.needsApproval = entry.needsApproval;
-  }
-  if (typeof entry.allowPersistentApproval === "boolean") {
-    out.allowPersistentApproval = entry.allowPersistentApproval;
-  }
-  return out;
 }
 
 async function resolveActionsDir(from: string): Promise<string> {
@@ -303,7 +194,7 @@ async function loadActionsIntoRegistry(
           tool: mod.tool,
           run: mod.run,
           ...(mod.http !== undefined ? { http: mod.http } : {}),
-          ...preserveActionFlags(mod),
+          ...preserveActionFlags(mod, name),
         };
       } else if (
         mod.default &&
@@ -315,12 +206,17 @@ async function loadActionsIntoRegistry(
           tool: mod.default.tool,
           run: mod.default.run,
           ...(mod.default.http !== undefined ? { http: mod.default.http } : {}),
-          ...preserveActionFlags(mod.default),
+          ...preserveActionFlags(mod.default, name),
         };
       } else if (typeof mod.default === "function") {
         registry[name] = wrapDefaultExport(name, mod.default);
       }
     } catch (err) {
+      // A module that imports but defines its action wrongly is a bug in the
+      // action, not a CLI script: fail the load instead of skipping it.
+      if (isActionDefinitionError(err)) {
+        throw namedActionDefinitionError(err, name);
+      }
       const msg =
         err instanceof Error ? (err.stack ?? err.message) : String(err);
       console.warn(
@@ -344,7 +240,7 @@ export function loadActionsFromStaticRegistry(
         tool: mod.tool,
         run: mod.run,
         ...(mod.http !== undefined ? { http: mod.http } : {}),
-        ...preserveActionFlags(mod),
+        ...preserveActionFlags(mod, name),
       };
       continue;
     }
@@ -360,7 +256,7 @@ export function loadActionsFromStaticRegistry(
         tool: def.tool,
         run: def.run,
         ...(def.http !== undefined ? { http: def.http } : {}),
-        ...preserveActionFlags(def),
+        ...preserveActionFlags(def, name),
       };
       continue;
     }
@@ -381,6 +277,7 @@ export async function autoDiscoverActions(
   try {
     await loadActionsIntoRegistry(actionsDir, registry, false);
   } catch (err: any) {
+    if (isActionDefinitionError(err)) throw err;
     console.warn(
       `[autoDiscoverActions] Could not read actions directory: ${actionsDir} — ${err?.message}`,
     );
@@ -410,7 +307,10 @@ export async function autoDiscoverActions(
             `Consider switching to loadActionsFromStaticRegistry(actionsRegistry) for production reliability.`,
         );
       }
-    } catch {
+    } catch (error) {
+      // An action in the registry that defines itself wrongly is not "no
+      // registry": the app would boot with no template tools at all.
+      if (isActionDefinitionError(error)) throw error;
       // No generated registry available — registry stays empty.
     }
   }
@@ -433,13 +333,15 @@ export async function autoDiscoverActions(
     if (ws && ws.actionsDir) {
       await loadActionsIntoRegistry(ws.actionsDir, registry, true);
     }
-  } catch {
+  } catch (error) {
+    if (isActionDefinitionError(error)) throw error;
     // workspace-core discovery unavailable (e.g. edge runtime) — skip.
   }
 
   try {
     await mergeCoreSharingActions(registry);
-  } catch {
+  } catch (error) {
+    if (isActionDefinitionError(error)) throw error;
     // Ignore — templates without sharing still work.
   }
 
@@ -454,6 +356,8 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "call-mcp-tool",
   // Connection setup UI needs the workspace prerequisite even in minimal apps.
   "get-managed-mcp-oauth-readiness",
+  // Any app calling a provider API needs to see which scopes its connection holds.
+  "list-workspace-connection-scopes",
   "get-agentkit-capabilities",
   "get-hosted-harness-config",
   "set-hosted-harness-enabled",
@@ -603,6 +507,11 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
       "list-workspace-user-groups",
       () =>
         import("../workspace-connections/actions/list-workspace-user-groups.js"),
+    ],
+    [
+      "list-workspace-connection-scopes",
+      () =>
+        import("../workspace-connections/actions/list-workspace-connection-scopes.js"),
     ],
     [
       "upsert-workspace-user-group",
@@ -1048,7 +957,7 @@ export async function mergeCoreSharingActions(
       const mod = await loader();
       const def = mod.default;
       if (def && def.tool && typeof def.run === "function") {
-        registry[name] = {
+        registry[name] = frameworkMcpTool({
           tool: def.tool,
           run: def.run,
           ...(def.http !== undefined ? { http: def.http } : {}),
@@ -1056,13 +965,16 @@ export async function mergeCoreSharingActions(
           // mcpApp) plus readOnly/parallelSafe/dedupe. Without this, the sharing
           // actions' `toolCallable: false` (audit-H5) is dropped and the
           // tools-iframe bridge 403 in action-routes.ts never fires.
-          ...preserveActionFlags(def),
+          ...preserveActionFlags(def, name),
           ...(CORE_ACTION_GROUPS[name]
             ? { frameworkGroup: CORE_ACTION_GROUPS[name] }
             : {}),
-        };
+        });
       }
-    } catch {
+    } catch (error) {
+      if (isActionDefinitionError(error)) {
+        throw namedActionDefinitionError(error, name);
+      }
       // Skip any sharing action that fails to import.
     }
   }

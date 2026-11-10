@@ -612,6 +612,29 @@ describe("pullDocumentFromNotion", () => {
     );
     expect(status.hasConflict).toBe(false);
   });
+
+  it("keeps the ids comments use on videos Notion sends back without them", async () => {
+    const { pullDocumentFromNotion } = await import("./notion-sync.js");
+    const video = '<video src="https://example.com/demo.mp4"';
+    testState.document.content = `Local body\n${video} id="video-local1"></video>`;
+    testState.link.lastSyncedContentHash = hashContentForTest(
+      testState.document.content,
+    );
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: `Remote edit from Notion\n${video}></video>`,
+      lastEditedTime: "2026-06-01T10:00:10.000Z",
+      warnings: [],
+    });
+
+    await pullDocumentFromNotion("alice@example.com", "doc-1", true);
+
+    expect(testState.document.content).toBe(
+      `Remote edit from Notion\n${video} id="video-local1"></video>`,
+    );
+  });
 });
 
 describe("refreshDocumentSyncStatus", () => {
@@ -1141,6 +1164,38 @@ describe("pushDocumentToNotion", () => {
     expect(notionMocks.pushDocumentToNotionPage).toHaveBeenCalled();
     expect(status.hasConflict).toBe(false);
     expect(testState.document.content).toBe("Local edit typed just now");
+  });
+
+  it("keeps the ids comments use on videos when Notion reads the push back", async () => {
+    const { pushDocumentToNotion } = await import("./notion-sync.js");
+    const local =
+      'Local edit\n<video src="https://example.com/demo.mp4" id="video-local1"></video>';
+    testState.document.content = local;
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T09:00:00.000Z",
+    });
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Local body",
+      lastEditedTime: "2026-06-01T09:00:00.000Z",
+      warnings: [],
+    });
+    notionMocks.pushDocumentToNotionPage.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: canonicalizeNotionNfm(local),
+      lastEditedTime: "2026-06-01T10:05:00.000Z",
+      warnings: [],
+    });
+
+    await pushDocumentToNotion("alice@example.com", "doc-1", false);
+
+    expect(canonicalizeNotionNfm(local)).not.toContain("video-local1");
+    expect(testState.document.content).toBe(local);
   });
 
   it("does not overwrite a newer local save with post-push normalized content", async () => {
@@ -1757,10 +1812,10 @@ describe("a page that takes body writes through its live copy", () => {
   });
 
   it.each([
-    ["puts back the link it had", true],
+    ["keeps the link it had", true],
     ["leaves it unlinked", false],
   ])(
-    "when the page takes its live copy while it links to a Notion page, refuses and %s",
+    "when the page takes its live copy while it links to a Notion page, refuses before it links and %s",
     async (_name, linked) => {
       const { linkDocumentToNotionPage } = await import("./notion-sync.js");
       liveCopyPages.delete("doc-1");
@@ -1786,9 +1841,10 @@ describe("a page that takes body writes through its live copy", () => {
         linkDocumentToNotionPage("alice@example.com", "doc-1", "other-page"),
       ).rejects.toMatchObject({
         errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
-        details: { documentId: "doc-1", operation: "Notion sync" },
+        details: { documentId: "doc-1", operation: "Notion link" },
       });
 
+      expect(notionMocks.readNotionPageAsDocument).not.toHaveBeenCalled();
       expect(testState.document).toEqual(page);
       if (link) {
         expect(testState.link).toMatchObject({
@@ -1813,12 +1869,9 @@ describe("a page that takes body writes through its live copy", () => {
       const { linkDocumentToNotionPage } = await import("./notion-sync.js");
       liveCopyPages.delete("doc-1");
       if (!linked) testState.link = null;
-      notionMocks.fetchNotionPage.mockImplementationOnce(async () => {
-        liveCopyPages.add("doc-1");
-        return {
-          id: "other-page",
-          last_edited_time: "2026-06-01T10:30:00.000Z",
-        };
+      notionMocks.fetchNotionPage.mockResolvedValueOnce({
+        id: "other-page",
+        last_edited_time: "2026-06-01T10:30:00.000Z",
       });
       const newerLink = {
         documentId: "doc-1",
@@ -1828,7 +1881,9 @@ describe("a page that takes body writes through its live copy", () => {
         lastSyncedContentHash: hashContentForTest("Third body"),
         updatedAt: "2026-06-01T11:00:00.000Z",
       };
+      // The page switches after the link went in, so the pull refuses.
       notionMocks.readNotionPageAsDocument.mockImplementationOnce(async () => {
+        liveCopyPages.add("doc-1");
         testState.link = { ...testState.link, ...newerLink };
         return {
           pageId: "other-page",
@@ -1842,8 +1897,12 @@ describe("a page that takes body writes through its live copy", () => {
 
       await expect(
         linkDocumentToNotionPage("alice@example.com", "doc-1", "other-page"),
-      ).rejects.toMatchObject({ errorCode: "LIVE_BODY_WRITER_UNSUPPORTED" });
+      ).rejects.toMatchObject({
+        errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+        details: { documentId: "doc-1", operation: "Notion sync" },
+      });
 
+      expect(notionMocks.readNotionPageAsDocument).toHaveBeenCalledTimes(1);
       expect(testState.document).toEqual(page);
       expect(testState.link).toMatchObject(newerLink);
     },

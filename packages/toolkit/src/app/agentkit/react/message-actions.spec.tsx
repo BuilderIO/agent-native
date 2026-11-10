@@ -1,16 +1,23 @@
 // @vitest-environment happy-dom
 
 import { AgentKitClient } from "@agent-native/agentkit/client";
-import type {
-  AgentEvent,
-  AgentMessage,
-  AgentToolCall,
-  AgentTransport,
+import {
+  createAgentKitProtocolVersionOffer,
+  createCapabilityUnavailableError,
+  negotiateAgentKitProtocolVersion,
+  parseAgentCapabilitiesDiscovery,
+  type AgentEvent,
+  type AgentMessage,
+  type AgentToolCall,
+  type AgentTransport,
 } from "@agent-native/agentkit/protocol";
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createToolkitI18nCatalog } from "../../i18n.js";
+import { ThumbsFeedback } from "../../observability/ThumbsFeedback.js";
 import { AgentKitChat } from "./components.js";
 import { AgentKitProvider, type AgentKitRunUsageLoader } from "./context.js";
 
@@ -110,6 +117,7 @@ async function renderChat(
     onThreadForked?: () => void;
     followUpModel?: string;
     formatModelName?: (model: string) => string;
+    feedbackNote?: boolean;
   } = {},
 ) {
   const submitFeedback = options.submitFeedback ?? vi.fn(async () => undefined);
@@ -179,15 +187,32 @@ async function renderChat(
       await Promise.resolve();
     });
   await render(
-    <AgentKitProvider
-      controller={client}
-      threadId={THREAD}
-      onThreadForked={options.onThreadForked ?? (() => undefined)}
-      loadRunUsage={options.loadRunUsage}
-      formatModelName={options.formatModelName}
+    <AgentNativeI18nProvider
+      catalog={createToolkitI18nCatalog({ messages: {} })}
+      persistPreference={false}
     >
-      <AgentKitChat composer={false} />
-    </AgentKitProvider>,
+      <AgentKitProvider
+        controller={client}
+        threadId={THREAD}
+        slots={
+          options.feedbackNote
+            ? {
+                feedbackNote: ({ renderTrigger, ...props }) => (
+                  <ThumbsFeedback
+                    {...props}
+                    renderNegativeTrigger={renderTrigger}
+                  />
+                ),
+              }
+            : undefined
+        }
+        onThreadForked={options.onThreadForked ?? (() => undefined)}
+        loadRunUsage={options.loadRunUsage}
+        formatModelName={options.formatModelName}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>
+    </AgentNativeI18nProvider>,
   );
   cleanups.push(async () => {
     await act(async () => {
@@ -247,6 +272,91 @@ function thumb(toolbar: HTMLElement, value: "positive" | "negative") {
 }
 
 describe("assistant reply toolbar", () => {
+  it("opens the note form after one negative vote and delivers the note to both destinations", async () => {
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_FEEDBACK_URL",
+      "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+    );
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/api/forms/public/")
+        ? Response.json({
+            id: "form-1",
+            fields: [{ id: "feedback", type: "textarea" }],
+          })
+        : Response.json({}),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { toolbar, submitFeedback } = await renderChat({
+        feedbackNote: true,
+      });
+      await press(thumb(toolbar("assistant-latest"), "negative"));
+      expect(submitFeedback).toHaveBeenCalledOnce();
+      let input = document.body.querySelector<HTMLTextAreaElement>("textarea");
+      expect(input).not.toBeNull();
+      const negative = thumb(toolbar("assistant-latest"), "negative");
+      expect(negative.getAttribute("aria-expanded")).toBe("true");
+      expect(
+        document.getElementById(negative.getAttribute("aria-controls")!),
+      ).not.toBeNull();
+      await act(async () => {
+        negative.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        negative.click();
+      });
+      expect(document.body.querySelector("textarea")).toBeNull();
+      await press(negative);
+      input = document.body.querySelector<HTMLTextAreaElement>("textarea");
+      expect(input).not.toBeNull();
+      await act(async () => {
+        input!.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        );
+      });
+      await vi.waitFor(() => expect(document.activeElement).toBe(negative));
+      await press(negative);
+      input = document.body.querySelector<HTMLTextAreaElement>("textarea");
+      expect(input).not.toBeNull();
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          "value",
+        )?.set?.call(input, "The answer used the wrong source.");
+        input!.dispatchEvent(new Event("input", { bubbles: true }));
+        input!.form?.requestSubmit();
+      });
+      await vi.waitFor(() =>
+        expect(
+          fetchMock.mock.calls.some(([url]) =>
+            String(url).includes("/api/submit/"),
+          ),
+        ).toBe(true),
+      );
+      const calls = fetchMock.mock.calls as unknown as Array<
+        [RequestInfo | URL, RequestInit?]
+      >;
+      expect(
+        calls.some(
+          ([url, init]) =>
+            String(url).includes("/observability/feedback") &&
+            JSON.parse(String(init?.body)).feedbackType === "text",
+        ),
+      ).toBe(true);
+      expect(submitFeedback).toHaveBeenCalledOnce();
+      await vi.waitFor(() =>
+        expect(document.body.querySelector("textarea")).toBeNull(),
+      );
+      await vi.waitFor(() => expect(document.activeElement).toBe(negative));
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
   it("shows Copy, both thumbs and More at rest, with no rating menu or timestamp", async () => {
     const { footer, toolbar } = await renderChat();
     const latest = toolbar("assistant-latest");
@@ -282,6 +392,111 @@ describe("assistant reply toolbar", () => {
       "Copy request ID",
     ]);
     expect(labelsOf(set(older, "secondary"))).toEqual(["Fork from here"]);
+  });
+
+  it("names each icon-only action in a tooltip on hover", async () => {
+    const { container, toolbar } = await renderChat();
+    const latest = toolbar("assistant-latest");
+    const user = container.querySelector<HTMLElement>(
+      '[data-message-id="user-2"] .agentkit-message-actions',
+    )!;
+    const hoverName = async (button: HTMLButtonElement) => {
+      vi.useFakeTimers();
+      try {
+        await act(async () => {
+          button.dispatchEvent(
+            new PointerEvent("pointermove", {
+              bubbles: true,
+              pointerType: "mouse",
+            }),
+          );
+          vi.advanceTimersByTime(1000);
+        });
+        const name = document.querySelector('[role="tooltip"]')?.textContent;
+        await act(async () => {
+          button.dispatchEvent(
+            new PointerEvent("pointerleave", {
+              bubbles: true,
+              pointerType: "mouse",
+            }),
+          );
+          vi.advanceTimersByTime(1000);
+        });
+        return name;
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+
+    const names: Array<string | null | undefined> = [];
+    const hoverAll = async (scope: HTMLElement) => {
+      for (const button of Array.from(scope.querySelectorAll("button"))) {
+        // The idle set is inert, so only the open set's actions can be hovered.
+        if (!button.closest("[inert]")) names.push(await hoverName(button));
+      }
+    };
+    await hoverAll(latest);
+    await press(toggle(latest));
+    await hoverAll(set(latest, "secondary")!);
+    await hoverAll(user);
+    expect(names).toEqual([
+      "Copy message",
+      "Good response",
+      "Bad response",
+      "More actions",
+      "Retry",
+      "Fork from here",
+      "Copy request ID",
+      "Copy message",
+    ]);
+  });
+
+  it("shows a degraded action's reason in its tooltip, not a second native title", async () => {
+    const reason = "Feedback is queued and may take a minute to record.";
+    const { toolbar } = await renderChat({
+      transport: {
+        async discoverCapabilities() {
+          return parseAgentCapabilitiesDiscovery({
+            protocol: negotiateAgentKitProtocolVersion(
+              createAgentKitProtocolVersionOffer(),
+            ),
+            discoveredAt: "2026-10-23T00:00:00.000Z",
+            capabilities: [
+              { id: "threadForking", state: "available" },
+              {
+                id: "feedback",
+                state: "degraded",
+                error: createCapabilityUnavailableError("feedback", {
+                  message: reason,
+                  retryable: true,
+                }),
+              },
+            ],
+          });
+        },
+      },
+    });
+    const good = thumb(toolbar("assistant-latest"), "positive");
+
+    expect(good.disabled).toBe(false);
+    expect(good.hasAttribute("title")).toBe(false);
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        good.dispatchEvent(
+          new PointerEvent("pointermove", {
+            bubbles: true,
+            pointerType: "mouse",
+          }),
+        );
+        vi.advanceTimersByTime(1000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(
+      `Good response${reason}`,
+    );
   });
 
   it("shows More as pressed while its actions are open, past its hover fill", async () => {
@@ -347,6 +562,153 @@ describe("assistant reply toolbar", () => {
     });
     expect(more.getAttribute("aria-expanded")).toBe("false");
     outside.remove();
+  });
+
+  it("keeps focus on a pressed toolbar button so Safari's focus move can't collapse the set", async () => {
+    const writeText = vi.fn(async () => undefined);
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    cleanups.push(async () => {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    });
+    const { container, toolbar } = await renderChat();
+    const latest = toolbar("assistant-latest");
+    const more = toggle(latest);
+    const transcript = container.querySelector<HTMLElement>(
+      ".agentkit-transcript",
+    )!;
+    // Safari leaves a pressed button unfocused and, unless mousedown's default
+    // is prevented, focuses the nearest focusable container. That blur flushes
+    // before the click is dispatched.
+    const pressLikeSafari = async (target: HTMLElement) => {
+      await act(async () => {
+        target.dispatchEvent(
+          new PointerEvent("pointerdown", { bubbles: true }),
+        );
+        const mousedown = new MouseEvent("mousedown", {
+          bubbles: true,
+          cancelable: true,
+        });
+        if (target.dispatchEvent(mousedown)) transcript.focus();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      await act(async () => {
+        target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        target.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+
+    await press(more);
+    expect(more.getAttribute("aria-expanded")).toBe("true");
+    await pressLikeSafari(more);
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+
+    await press(more);
+    const requestId = latest.querySelector<HTMLElement>(
+      'button[data-message-action="request-id"]',
+    )!;
+    await pressLikeSafari(requestId);
+    expect(writeText).toHaveBeenCalledWith("run-latest");
+    expect(more.getAttribute("aria-expanded")).toBe("true");
+    expect(latest.contains(document.activeElement)).toBe(true);
+
+    await act(async () => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("keeps Copy focused and enabled with a spinner while a slow copy runs", async () => {
+    const write = Promise.withResolvers<void>();
+    const writeText = vi.fn(() => write.promise);
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    cleanups.push(async () => {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    });
+    const { toolbar } = await renderChat();
+    const copy = toolbar("assistant-latest").querySelector<HTMLButtonElement>(
+      'button[aria-label="Copy message"]',
+    )!;
+
+    await act(async () => {
+      copy.focus();
+      copy.click();
+      await Promise.resolve();
+    });
+    expect(writeText).toHaveBeenCalledOnce();
+    expect(copy.disabled).toBe(false);
+    expect(copy.getAttribute("aria-busy")).toBe("true");
+    expect(copy.querySelector(".animate-spin")).not.toBeNull();
+    expect(document.activeElement).toBe(copy);
+
+    await press(copy);
+    expect(writeText).toHaveBeenCalledOnce();
+    await act(async () => {
+      write.resolve();
+      await write.promise;
+    });
+    expect(copy.getAttribute("aria-busy")).toBeNull();
+    expect(copy.getAttribute("aria-label")).toBe("Copied");
+  });
+
+  it("keeps a copy in progress focused and enabled, so Escape still closes the set", async () => {
+    const write = Promise.withResolvers<void>();
+    const writeText = vi.fn(() => write.promise);
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    cleanups.push(async () => {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    });
+    const { toolbar } = await renderChat();
+    const latest = toolbar("assistant-latest");
+    const more = toggle(latest);
+
+    await press(more);
+    const requestId = latest.querySelector<HTMLButtonElement>(
+      'button[data-message-action="request-id"]',
+    )!;
+    await act(async () => {
+      requestId.focus();
+      requestId.click();
+      await Promise.resolve();
+    });
+    expect(writeText).toHaveBeenCalledOnce();
+    expect(requestId.disabled).toBe(false);
+    expect(requestId.getAttribute("aria-busy")).toBe("true");
+    expect(requestId.querySelector(".animate-spin")).not.toBeNull();
+    expect(document.activeElement).toBe(requestId);
+
+    await press(requestId);
+    expect(writeText).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => {
+      write.resolve();
+      await write.promise;
+    });
   });
 
   it("submits a thumb immediately with the message trace, ignores the same choice and switches to the other", async () => {
@@ -617,6 +979,53 @@ describe("Worked for run details", () => {
           ?.textContent,
       ).toBe("1");
     }
+
+    const charged = await renderChat({
+      loadRunUsage: async () => ({
+        durationMs: null,
+        billing: {
+          providerCostUsd: 0.02,
+          providerCostSource: "reported" as const,
+          builderCredits: 0,
+          builderCreditsSource: "estimated" as const,
+          incomplete: false,
+        },
+      }),
+      events: runEvents("run-latest", [...toolWork], latestAnswer),
+    });
+    await press(
+      charged.container.querySelector(".agentkit-activities-summary"),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const charge = charged.container.querySelector('[data-detail="credits"]');
+    expect(charge?.querySelector("dt")?.textContent).toBe("Cost");
+    expect(charge?.querySelector("dd")?.textContent).toBe("$0.02");
+
+    // Auto names no model, so with no steps the zero is the only detail left
+    // and still shows.
+    const alone = await renderChat({
+      followUpModel: "auto",
+      loadRunUsage: async () => ({
+        durationMs: null,
+        billing: {
+          providerCostUsd: 0,
+          providerCostSource: "reported" as const,
+          builderCredits: 0,
+          builderCreditsSource: "estimated" as const,
+          incomplete: false,
+        },
+      }),
+      events: runEvents("run-latest", [], latestAnswer),
+    });
+    await press(alone.container.querySelector(".agentkit-activities-summary"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      alone.container.querySelector('[data-detail="credits"] dd')?.textContent,
+    ).toMatch(/^0\.0\b/);
 
     const unrecorded = await renderChat({
       loadRunUsage: async () => ({ durationMs: null, billing: null }),

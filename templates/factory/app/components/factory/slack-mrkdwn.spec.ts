@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseSlackMrkdwn, resolveSlackMentionLabel } from "./slack-mrkdwn";
+import {
+  parseSlackMrkdwn,
+  resolveSlackMentionLabel,
+  slackPlainText,
+} from "./slack-mrkdwn";
 
 describe("parseSlackMrkdwn", () => {
   it("styles inline code, emphasis, and links", () => {
@@ -80,5 +84,15 @@ describe("parseSlackMrkdwn", () => {
 describe("resolveSlackMentionLabel", () => {
   it("keeps the raw id when nothing else is known", () => {
     expect(resolveSlackMentionLabel("U99", undefined)).toBe("@U99");
+  });
+});
+
+describe("slackPlainText", () => {
+  it("reads a message as one plain line", () => {
+    expect(
+      slackPlainText(
+        "*Deploy* is down <@U123>\nsee <https://example.com|the log> ```\ncode\n```",
+      ),
+    ).toBe("Deploy is down @U123 see the log code");
   });
 });

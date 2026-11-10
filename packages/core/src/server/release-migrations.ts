@@ -12,20 +12,27 @@ import { runFrameworkSchemaEnsures } from "./release-schema.js";
  * still reports success — `Applied migration ...` lines, a zero exit, a
  * published deploy — so this has to fail here or it fails silently forever.
  *
- * Scoped to `CONTEXT=production` on purpose. The beta lane deliberately builds
+ * Explicit production commands always require a PostgreSQL target. Other callers
+ * are scoped to `CONTEXT=production`: the beta lane deliberately builds
  * with `AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1` under a branch-deploy context
  * against masked site secrets, and its database is migrated by the beta
  * publish step — so keying off that flag would fail every beta deploy while
  * never guarding the production one this exists for.
  */
-function assertReleaseMigrationTargetsRemoteDatabase(): void {
-  if (getAppConfig().migration.deployContext !== "production") return;
+function assertReleaseMigrationTargetsRemoteDatabase(
+  requirePostgres: boolean,
+): void {
+  if (
+    !requirePostgres &&
+    getAppConfig().migration.deployContext !== "production"
+  )
+    return;
   const url = getDatabaseUrl();
   // `isLocalDatabase()` alone is not enough. Netlify hands the CLI a MASKED
   // secret ("****************uire") outside its own build infra, and that is
   // neither empty nor a local URL — so it reads as "not local" while being
   // unconnectable. Require a real remote scheme too.
-  if (url.includes("://")) return;
+  if (/^postgres(?:ql)?:\/\//i.test(url)) return;
   throw new Error(
     `Release migrations resolved to an unusable database (${describeReleaseMigrationUrl(url)}). ` +
       "In a production deploy the schema must be applied to the same remote " +
@@ -45,17 +52,56 @@ function describeReleaseMigrationUrl(url: string): string {
   return scheme ? `${scheme} url` : "no scheme — likely a masked secret";
 }
 
+function shouldLogReleaseTiming(): boolean {
+  return (
+    typeof process !== "undefined" &&
+    typeof process.uptime === "function" &&
+    process.env.VITEST !== "true" &&
+    process.env.VITEST !== "1"
+  );
+}
+
 export async function runFrameworkReleaseMigrations(
   _nitroApp?: unknown,
+  options: { requirePostgres?: boolean } = {},
 ): Promise<void> {
-  assertReleaseMigrationTargetsRemoteDatabase();
-  // One lease for the whole release, so two deploys against one database
-  // never interleave.
-  await withStoreMigrationLock(async () => {
-    await runFrameworkSchemaEnsures();
-    await recordDatabaseIdentity();
-    // Last, so the framework's own share and owner tables exist. An app's tables
-    // are indexed by the release after the one that creates them.
-    await ensureSharingAccessIndexes();
-  });
+  const logTiming = shouldLogReleaseTiming();
+  const startedAt = Date.now();
+  if (logTiming) {
+    console.log(
+      `[db] Migration runtime ready ${Math.round(process.uptime() * 1_000)}ms after process start`,
+    );
+  }
+  let lockWaitMs: number | undefined;
+  try {
+    assertReleaseMigrationTargetsRemoteDatabase(
+      options.requirePostgres === true,
+    );
+    // One lease for the whole release, so two deploys against one database
+    // never interleave.
+    await withStoreMigrationLock(async () => {
+      lockWaitMs = Date.now() - startedAt;
+      await runFrameworkSchemaEnsures();
+      await recordDatabaseIdentity();
+      // Last, so the framework's own share and owner tables exist. An app's tables
+      // are indexed by the release after the one that creates them.
+      await ensureSharingAccessIndexes();
+    });
+  } catch (err) {
+    if (logTiming) {
+      const lockWait =
+        lockWaitMs === undefined
+          ? "lock not acquired"
+          : `lock wait ${lockWaitMs}ms`;
+      console.log(
+        `[db] Framework release migrations failed after ${Date.now() - startedAt}ms (${lockWait})`,
+      );
+    }
+    throw err;
+  }
+  if (logTiming) {
+    console.log(
+      `[db] Framework release migrations finished in ${Date.now() - startedAt}ms (lock wait ${lockWaitMs}ms)`,
+    );
+  }
 }

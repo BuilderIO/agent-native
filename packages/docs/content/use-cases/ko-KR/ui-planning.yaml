@@ -1,0 +1,106 @@
+slug: ui-planning
+app: plans
+roles:
+  - engineering
+  - product
+  - design
+title: 코딩 에이전트와 새 화면을 계획해 보세요
+seo_title: Claude Code, Codex, Cursor를 위한 UI 기획
+meta_description: "Agent-Native Plan으로 코딩 에이전트와 함께 실제 앱 레이아웃에서 화면을 상태별 와이어프레임으로 계획하세요. 댓글을 달면 고치고, 그다음 만들어요."
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Plan에서는 코딩 에이전트가 새 화면을 실제 앱 레이아웃 안에서 상태별 와이어프레임으로 계획해요. 바꿀 부분에 댓글을 달면, 에이전트가 만들기 전에 계획을 다시 그려요."
+  button:
+    label: 화면 계획하기
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4f78a2d9f380427bb3da0723b14fcbe4
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8547890f69d44a0bb7e9d9d05246850a
+    alt: "Plan에서 연 새 Invoices 화면 계획. 스케치한 프레임 세 개가 나란히 있어요. 청구서 목록, 빈 상태, 결제 실패 오류이고, 모두 결제 앱의 실제 사이드바와 툴바 안에 그려져 있어요. 목록의 상태 필터에 댓글이 고정돼 있고, 아래에서 글로 쓴 계획이 시작돼요."
+how_to:
+  heading: 코딩 에이전트가 만들기 전에 화면을 와이어프레임으로 그리는 방법
+  steps:
+    - title: 에이전트에게 화면 요청하기
+      body: "[설치 명령어 하나](https://www.agent-native.com/docs/plan-plugin/)로 Claude Code, Codex, Cursor, OpenCode, GitHub Copilot에 Plan을 추가하고, `/visual-plan`과 원하는 화면을 입력하세요. 코딩 에이전트가 앱을 읽고 화면을 와이어프레임으로 그린 뒤 계획 링크로 답해요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F96c7a6d6f73a42ed96a551c112cb269a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F60c66f4f9b2442a290e2a258cc70b3f2
+        alt: "코딩 에이전트 채팅 확대 화면. 상태 필터, 빈 상태, 결제 실패 오류가 있는 Invoices 화면을 /visual-plan으로 요청했어요. 에이전트가 앱의 레이아웃과 컴포넌트 파일 다섯 개를 읽고 계획을 만든 뒤, 검토 링크로 답해요."
+    - title: 바꿀 부분에 댓글 달기
+      body: "계획을 열고 화면에서 잘못된 지점을 정확히 클릭해 무엇을 바꿀지 적으세요. 코딩 에이전트가 처리하게 하려면 댓글을 **에이전트**로, 팀원에게 맡기려면 **사람**으로 설정하세요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb9adb0ff68324479a0c18c8124a77b2e
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F765ae87885404c408e1f4ee46d15711d
+        alt: "상태 필터에 댓글이 고정된 청구서 목록 프레임 확대 화면. 댓글 상자는 Agent로 설정돼 있고, 상태 필터를 All, Paid, Overdue가 있는 세그먼트 컨트롤로 바꿔 달라고 적혀 있어요."
+    - title: 에이전트에게 댓글 보내기
+      body: "**에이전트에게 보내기**를 클릭하고 **에이전트용으로 복사**을 선택한 뒤 프롬프트를 에이전트 채팅에 붙여 넣으세요. 코딩 에이전트가 계획을 업데이트하고 고친 댓글을 해결해요. 화면이 괜찮아 보이면 에이전트에게 만들어 달라고 하세요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9263e46c4be445389bfc97bee3a78e74
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5910f3c944e9443aafe166a356c27bff
+        alt: "열린 댓글이 3개인 Send to agent 버튼 확대 화면. 메뉴가 열려 Copy for your agent와 Send to inline agent 두 가지 선택지가 보여요."
+features:
+  heading: 화면을 처음부터 제대로 만드는 데 필요한 모든 것
+  items:
+    - title: 실제 앱 안에서 그려요
+      body: "코딩 에이전트가 그리기 전에 지금의 화면과 컴포넌트를 읽으니, 새 화면에서도 사이드바, 툴바, 메뉴가 제자리에 있어요."
+    - title: 화면의 모든 상태
+      body: "에이전트가 로딩, 빈 상태, 오류, 열린 메뉴처럼 중요한 상태마다 프레임을 그려, 프롬프트가 빠뜨린 부분까지 보여 줘요."
+    - title: 정확한 요소에 다는 댓글
+      body: "코딩 에이전트는 댓글이 고정된 버튼, 행, 카드를 정확히 받으니, “세그먼트 컨트롤로 바꿔 줘” 같은 짧은 메모로 충분해요."
+    - title: 열린 댓글은 그대로
+      body: "코딩 에이전트는 변경이 반영됐는지 확인한 뒤에 댓글을 해결하니, 놓친 부분은 여전히 열린 채로 남아 있어요."
+    - title: 여러 단계 흐름은 프로토타입으로
+      body: "온보딩이나 결제 같은 흐름이라면, 에이전트가 화면 옆 **프로토타입** 탭에 클릭해 볼 수 있는 프로토타입을 추가해요."
+    - title: 팀과 함께 검토하기
+      body: "링크로 계획을 공유하면 팀원이 브라우저에서 화면을 열 수 있어요. Agent-Native 계정이 있으면 누구나 댓글을 달 수 있어요."
+integrations:
+  heading: 이미 쓰는 도구와 Plan 연결하기
+  cards:
+    - title: 플러그인으로 설치하기
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: "Claude Code나 Codex에 Plan을 플러그인으로 설치하고, 늘 쓰던 채팅에서 `/visual-plan`으로 화면을 요청하세요."
+    - title: 다른 에이전트는 명령어 하나로
+      logos:
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: "설치 명령어 하나로 Cursor, OpenCode, GitHub Copilot에 Plan이 설정되고, MCP를 지원하는 다른 에이전트는 Plan의 URL로 연결해요."
+    - title: MCP로 무엇이든 연결하기
+      logos:
+        - name: Linear
+        - name: Notion
+        - name: Supabase
+      more: true
+      body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
+other_uses:
+  heading: Agent-Native Plan으로 할 수 있는 다른 일
+  cards:
+    - title: 코드를 쓰기 전에 코딩 에이전트의 계획을 검토하세요
+      url: https://www.agent-native.com/use-cases/visual-plan-mode/
+      body: "코딩 에이전트가 무엇이든 쓰기 전에, 다이어그램과 주석 달린 코드로 계획 전체를 검토하세요."
+    - title: 코딩 에이전트가 바꾼 내용을 시각적 요약으로 받아 보세요
+      url: https://www.agent-native.com/use-cases/visually-recap-agent-changes/
+      body: "코딩 에이전트가 바꾼 화면, 데이터, 파일을 댓글을 달 수 있는 요약 하나로 확인하세요."
+faqs:
+  heading: 궁금한 점이 있으신가요? 답해 드릴게요
+  items:
+    - q: Agent-Native Plan은 무료인가요?
+      a: "네, [Agent-Native Plan](https://www.agent-native.com/docs/template-plan/)은 무료 오픈 소스예요. 화면은 내 코딩 에이전트가 그리니, 각 계획은 에이전트의 모델에서 실행되고 사용량에 포함돼요. 계획이 길수록 더 많이 써요. Plan은 알파 버전이라 바뀌는 부분이 있을 수 있어요."
+    - q: 어떤 코딩 에이전트가 Plan과 함께 동작하나요?
+      a: "Agent-Native Plan에는 Claude Code와 Codex용 플러그인이 있어요. 설치 명령어는 Cursor, OpenCode, GitHub Copilot도 같은 방식으로 설정해, 한 번 로그인하면 `/visual-plan`이 추가돼요. Cline, Goose 등 MCP를 지원하는 다른 에이전트는 Plan의 URL을 추가해 연결해요."
+    - q: 계획에 보이는 내용은 어떻게 바꾸나요?
+      a: "화면은 [댓글을 달아](https://www.agent-native.com/docs/template-plan-review-workflow/) 바꾸고, 그러면 코딩 에이전트가 다시 그려요. Plan에서는 화면의 요소를 직접 끌거나 크기를 바꿀 수 없어요. 화면 아래의 글로 쓴 계획은 달라요. 텍스트를 바로 편집할 수 있어요."
+    - q: 화면이 지금 쓰는 앱과 맞게 나오나요?
+      a: "네, 이미 있는 앱의 화면이라면요. 코딩 에이전트가 그리기 전에 앱의 코드, 레이아웃, 컴포넌트를 읽으니, 계획에 실제 사이드바, 툴바, 메뉴가 나와요. 완전히 새로운 앱이라면 내 설명을 바탕으로 화면을 그려요."
+    - q: Plan은 코딩 에이전트의 플랜 모드와 무엇이 다른가요?
+      a: "Plan은 에이전트의 플랜 모드와 함께 동작하며, 그 계획을 화면으로 보여 줘요. 에이전트가 이미 쓴 Claude Code, Codex, 마크다운 계획을 `/visual-plan`에 주면, Plan이 그 계획이 설명하는 화면으로 바꿔 주고 정확한 지점에 댓글을 달 수 있어요."

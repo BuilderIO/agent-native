@@ -34,7 +34,7 @@ import type {
 } from "./types.js";
 import { validateDecisionInput } from "./validation.js";
 
-const JEV_MODEL = "jev-latest";
+export const JEV_DECISIONS_MODEL = "jev-latest";
 const DECISION_CACHE_TTL_MS = 60_000;
 const DECISION_CACHE_MAX_ENTRIES = 256;
 
@@ -144,7 +144,7 @@ function toJevRequest(
   questions: readonly DecisionQuestion[],
 ): JevRequest {
   return {
-    model: JEV_MODEL,
+    model: JEV_DECISIONS_MODEL,
     state: toJevState(input),
     questions: Object.fromEntries(
       questions.map((question) => [question.name, toJevQuestion(question)]),
@@ -267,6 +267,7 @@ export async function decide(input: {
   const timeoutMs = input.options?.timeoutMs ?? configured.timeoutMs;
   const providerDeadlineAt = Date.now() + timeoutMs;
   const missingProviders: DecisionProvider[] = [];
+  const credentialFailures: DecisionProvider[] = [];
   let compatibleProviderCount = 0;
   let unverifiedCapability: {
     provider: DecisionProvider;
@@ -381,11 +382,8 @@ export async function decide(input: {
     }
 
     if (lookupFailed) {
-      return {
-        status: "failed",
-        reason: "credentials_unavailable",
-        provider,
-      };
+      credentialFailures.push(provider);
+      continue;
     }
 
     if (!apiKey) {
@@ -393,7 +391,8 @@ export async function decide(input: {
       continue;
     }
 
-    const model = provider === "openai" ? OPENAI_DECISIONS_MODEL : JEV_MODEL;
+    const model =
+      provider === "openai" ? OPENAI_DECISIONS_MODEL : JEV_DECISIONS_MODEL;
     const key = getDecisionCacheKey(
       input.ownerEmail,
       provider,
@@ -446,10 +445,20 @@ export async function decide(input: {
         provider,
         model,
         answers: parsed.answers,
+        ...(parsed.questionFailures
+          ? { questionFailures: parsed.questionFailures }
+          : {}),
         ...(parsed.usage ? { usage: parsed.usage } : {}),
         ...(input.options?.cacheKey ? { cached: false } : {}),
       };
-      writeDecisionCache(key, result);
+      if (
+        !result.questionFailures &&
+        !Object.values(result.answers).some(
+          (answer) => answer.type === "refusal",
+        )
+      ) {
+        writeDecisionCache(key, result);
+      }
       return result;
     } catch (error) {
       if (input.options?.signal?.aborted) {
@@ -476,6 +485,14 @@ export async function decide(input: {
       };
     }
     return { status: "failed", reason: "unsupported_input" };
+  }
+  const credentialFailure = credentialFailures.at(0);
+  if (credentialFailure !== undefined) {
+    return {
+      status: "failed",
+      reason: "credentials_unavailable",
+      provider: credentialFailure,
+    };
   }
   return {
     status: "not_configured",

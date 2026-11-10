@@ -12,7 +12,10 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(async () => undefined),
+  assertAccess: vi.fn(async () => ({
+    role: "editor",
+    resource: { expiresAt: null },
+  })),
 }));
 
 vi.mock("drizzle-orm", () => ({

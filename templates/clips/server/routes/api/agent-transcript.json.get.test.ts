@@ -9,6 +9,7 @@ vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getQuery: (...args: unknown[]) => mockGetQuery(...args),
   getRequestHeader: () => undefined,
+  getRequestHeaders: () => ({}),
   getRequestIP: () => undefined,
   getRequestURL: () =>
     new URL("https://clips.example.com/api/agent-transcript.json"),

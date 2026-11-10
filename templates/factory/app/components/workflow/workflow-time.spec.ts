@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { describeCron, formatRelativeTime } from "./workflow-time";
+import {
+  describeCron,
+  formatRelativeTime,
+  formatRunStart,
+  formatRunTime,
+} from "./workflow-time";
 
 const NOW = Date.parse("2026-10-18T12:00:00.000Z");
 
@@ -20,6 +25,15 @@ describe("formatRelativeTime", () => {
     );
   });
 
+  it("reads an instant that already happened as now when the clock has not caught up", () => {
+    expect(
+      formatRelativeTime("2026-10-18T12:00:06.000Z", NOW, "en", { past: true }),
+    ).toBe("now");
+    expect(
+      formatRelativeTime("2026-10-18T11:58:00.000Z", NOW, "en", { past: true }),
+    ).toBe("2 min. ago");
+  });
+
   it("says now for the last few seconds", () => {
     expect(formatRelativeTime("2026-10-18T12:00:00.000Z", NOW, "en")).toBe(
       "now",
@@ -35,6 +49,65 @@ describe("formatRelativeTime", () => {
     expect(formatRelativeTime(undefined, NOW, "en")).toBeNull();
     expect(formatRelativeTime("", NOW, "en")).toBeNull();
     expect(formatRelativeTime("not a date", NOW, "en")).toBeNull();
+  });
+});
+
+describe("formatRunTime", () => {
+  it("reads a finished run from its finish and a running one from its start", () => {
+    expect(
+      formatRunTime(
+        {
+          startedAt: "2026-10-18T11:00:00.000Z",
+          finishedAt: "2026-10-18T11:58:00.000Z",
+        },
+        NOW,
+        "en",
+      ),
+    ).toBe("2 min. ago");
+    expect(
+      formatRunTime(
+        { startedAt: "2026-10-18T11:57:00.000Z", finishedAt: null },
+        NOW,
+        "en",
+      ),
+    ).toBe("3 min. ago");
+  });
+
+  it("never reads a run as in the future when the clock lags", () => {
+    expect(
+      formatRunTime(
+        {
+          startedAt: "2026-10-18T12:00:03.000Z",
+          finishedAt: "2026-10-18T12:00:06.000Z",
+        },
+        NOW,
+        "en",
+      ),
+    ).toBe("now");
+  });
+});
+
+describe("formatRunStart", () => {
+  it("tells apart two runs that both read as the same time ago", () => {
+    const earlier = { startedAt: "2026-10-15T02:47:42.000Z" };
+    const later = { startedAt: "2026-10-15T02:49:41.000Z" };
+    expect(formatRunTime({ ...earlier, finishedAt: null }, NOW, "en")).toBe(
+      formatRunTime({ ...later, finishedAt: null }, NOW, "en"),
+    );
+    expect(formatRunStart(earlier, "en-US")).not.toBe(
+      formatRunStart(later, "en-US"),
+    );
+  });
+
+  it("reads the date and the clock down to the second, in the reader's zone", () => {
+    expect(
+      formatRunStart({ startedAt: "2026-10-15T02:47:42.000Z" }, "en-US"),
+    ).toMatch(/^[A-Z][a-z]{2} \d{1,2}, 2026, \d{1,2}:\d{2}:42\s?[AP]M$/);
+  });
+
+  it("gives nothing for a stamp it cannot read", () => {
+    expect(formatRunStart({ startedAt: "" }, "en-US")).toBeNull();
+    expect(formatRunStart({ startedAt: "not a date" }, "en-US")).toBeNull();
   });
 });
 

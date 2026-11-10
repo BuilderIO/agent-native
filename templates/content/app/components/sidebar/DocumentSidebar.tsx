@@ -7,6 +7,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
 import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
@@ -37,8 +38,6 @@ import {
   IconTrash,
   IconGitBranch,
   IconSearch,
-  IconDatabase,
-  IconFileText,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -49,6 +48,7 @@ import {
   ContentFilesSidebarView,
   PagedContentFilesSidebarView,
   contentSidebarOrderedItems,
+  type ActivePathDocument,
   type ContentFilesSidebarRenderReorder,
 } from "@/components/editor/database/sidebar";
 import {
@@ -94,6 +94,7 @@ import {
   contentFilesCollectionFilter,
   contentRowTargets,
   invalidateContentQueries,
+  SEARCH_QUERY_KEYS,
   useContentActionMutation,
 } from "@/hooks/use-content-action-mutation";
 import {
@@ -665,7 +666,7 @@ function WorkspaceSidebarItem({
   activeDocumentId: string | null;
   expandedDocumentIds: ReadonlySet<string>;
   documentMetadata: ReadonlyMap<string, Document>;
-  activePathDocuments: readonly Document[];
+  activePathDocuments: readonly ActivePathDocument[];
   onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
   onActivate: (space: ContentSpaceSummary, documentId?: string) => void;
   onToggleExpanded: () => void;
@@ -1025,11 +1026,9 @@ function WorkspaceSidebarItem({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem onClick={() => onCreatePageInSpace(space)}>
-                <IconFileText className="me-2 size-4" />
                 {t("sidebar.page")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onCreateDatabaseInSpace(space)}>
-                <IconDatabase className="me-2 size-4" />
                 {t("sidebar.collection")}
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -1083,7 +1082,6 @@ function WorkspaceSidebarItem({
                       {folder.repository?.branch ||
                       folder.repository?.commit ? (
                         <span className="flex items-center gap-1 truncate font-mono text-[10px] text-muted-foreground">
-                          <IconGitBranch size={11} />
                           {folder.repository.branch ??
                             folder.repository.commit?.slice(0, 8)}
                         </span>
@@ -1115,16 +1113,19 @@ function WorkspaceSidebarItem({
               onDocumentExpandedChange={onDocumentExpandedChange}
               onSelectView={(viewId) => {
                 const current = filesPersonalView.data?.overrides;
-                updateFilesPersonalView.mutate({
-                  databaseId: space.filesDatabaseId,
-                  overrides: {
-                    version:
-                      current?.version ??
-                      CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
-                    activeViewId: viewId,
-                    views: current?.views ?? [],
+                updateFilesPersonalView.mutate(
+                  {
+                    databaseId: space.filesDatabaseId,
+                    overrides: {
+                      version:
+                        current?.version ??
+                        CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+                      activeViewId: viewId,
+                      views: current?.views ?? [],
+                    },
                   },
-                });
+                  { onError: (error) => reportWriteFailure(error) },
+                );
               }}
               sidebarOrder={sidebarOrder}
               manualReorder={
@@ -1934,34 +1935,26 @@ export function DocumentSidebar({
             ),
           )
         : (navigationContextQuery.data?.path.map(
-            (entry): Document => ({
-              id: entry.id,
-              parentId: entry.parentId,
-              title: entry.title,
+            ({
+              databaseId,
+              databaseDocumentId,
+              ...entry
+            }): ActivePathDocument => ({
+              ...entry,
               content: "",
               description: "",
-              icon: entry.icon,
               position: 0,
-              isFavorite: entry.isFavorite,
               hideFromSearch: false,
-              visibility: entry.visibility,
-              accessRole: entry.accessRole,
-              canView: entry.canView,
-              canComment: entry.canComment,
-              canEdit: entry.canEdit,
-              canManage: entry.canManage,
-              source: entry.source,
-              database: undefined,
-              createdAt: entry.createdAt,
-              updatedAt: entry.updatedAt,
-              databaseMembership: entry.databaseId
+              ...(databaseId
                 ? {
-                    databaseId: entry.databaseId,
-                    databaseDocumentId: entry.databaseDocumentId,
-                    databaseTitle: null,
-                    position: null,
+                    databaseMembership: {
+                      databaseId,
+                      databaseDocumentId,
+                      databaseTitle: null,
+                      position: null,
+                    },
                   }
-                : undefined,
+                : {}),
             }),
           ) ?? []),
     [documents, localFileMode, navigationContextQuery.data?.path],
@@ -3000,7 +2993,10 @@ export function DocumentSidebar({
             },
           },
         },
-        { onError: () => toast.error(t("sidebar.failedSaveOrder")) },
+        {
+          onError: (error) =>
+            reportWriteFailure(error, { label: t("sidebar.failedSaveOrder") }),
+        },
       );
     },
     [
@@ -3040,6 +3036,7 @@ export function DocumentSidebar({
       invalidateContentQueries(queryClient, [
         ...contentRowTargets(queryClient, [documentId]),
         contentFilesCollectionFilter(),
+        ...SEARCH_QUERY_KEYS,
       ]),
   });
   const [movingPage, setMovingPage] = useState<MovePageTarget | null>(null);
@@ -3242,13 +3239,11 @@ export function DocumentSidebar({
           <DropdownMenuItem
             onClick={() => void handleCreatePageInSpace(selectedSpace)}
           >
-            <IconFileText className="me-2 size-4" />
             {t("sidebar.page")}
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => void handleCreateDatabaseInSpace(selectedSpace)}
           >
-            <IconDatabase className="me-2 size-4" />
             {t("sidebar.collection")}
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -3370,13 +3365,11 @@ export function DocumentSidebar({
           <DropdownMenuItem
             onClick={() => void handleCreatePageInSpace(selectedSpace)}
           >
-            <IconFileText className="me-2 size-4" />
             {t("sidebar.page")}
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => void handleCreateDatabaseInSpace(selectedSpace)}
           >
-            <IconDatabase className="me-2 size-4" />
             {t("sidebar.collection")}
           </DropdownMenuItem>
         </DropdownMenuContent>

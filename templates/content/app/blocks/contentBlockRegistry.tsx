@@ -15,6 +15,7 @@ import {
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import { useEffect, useRef, useState } from "react";
 
+import { clipEmbedBlock } from "@/components/editor/clip-embed/ClipEmbedBlock";
 import { uploadImageFile } from "@/components/editor/image-upload";
 import {
   Popover,
@@ -49,6 +50,7 @@ for (const block of builderDocsBlocks) {
 }
 contentBlockRegistry.register(sourceComponentBlock);
 contentBlockRegistry.register(inlineDatabaseBlock);
+contentBlockRegistry.register(clipEmbedBlock);
 
 type ContentBlockRenderContext = BlockRenderContext & {
   documentId?: string | null;

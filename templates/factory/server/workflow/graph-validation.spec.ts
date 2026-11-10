@@ -1516,6 +1516,85 @@ describe("validateWorkflowGraph", () => {
     });
   });
 
+  describe("a field read from a step whose operation declares its outputs", () => {
+    const declared = catalogOf([
+      stub("builder.check", ["agent"], "read", {
+        fields: [],
+        implementation: { type: "builder", op: "check" },
+        outputs: [
+          { name: "state", type: "string" },
+          { name: "prNumber", type: "number", nullable: true },
+          { name: "hasPullRequest", type: "boolean" },
+        ],
+      }),
+      stub("slack.readThread", ["lookup"], "read"),
+      stub("slack.postMessage", ["action"], "write"),
+    ]);
+    const check: NodeSpec = [
+      "check",
+      "agent",
+      { agent: "builder", op: "check", args: {} },
+    ];
+    const reading = (path: string) =>
+      validate(
+        [
+          trigger,
+          check,
+          lookup("fetch"),
+          post("send", { v: fromPath(path) }),
+          finish,
+        ],
+        [
+          ["start", "out", "check"],
+          ["check", "out", "fetch"],
+          ["fetch", "out", "send"],
+          ["send", "out", "finish"],
+        ],
+        declared,
+      ).issues.filter((issue) => issue.code === "bad_reference");
+
+    it("accepts a field the operation returns, and any field of one that declares none", () => {
+      expect(reading("nodes.check.state")).toEqual([]);
+      expect(reading("nodes.check.prNumber")).toEqual([]);
+      expect(reading("nodes.fetch.anything.at.all")).toEqual([]);
+    });
+
+    it("refuses a field it does not return, and lists the ones it does", () => {
+      const issues = reading("nodes.check.pullRequest.number");
+      expect(issues).toHaveLength(1);
+      const issue = issues[0];
+      expect(issue).toMatchObject({ code: "bad_reference", nodeId: "send" });
+      expect(issue?.detail).toContain('"pullRequest"');
+      expect(issue?.detail).toContain("builder.check");
+      expect(issue?.detail).toContain("state, prNumber, hasPullRequest");
+    });
+
+    it("leaves a graph saved before outputs were declared alone when the check is off", () => {
+      const graph = buildGraph({
+        nodes: [
+          trigger,
+          check,
+          post("send", { v: fixed("PR {{ nodes.check.status }}") }),
+          finish,
+        ],
+        edges: [
+          ["start", "out", "check"],
+          ["check", "out", "send"],
+          ["send", "out", "finish"],
+        ],
+      });
+      expect(
+        validateWorkflowGraph(graph, declared, { checkOutputFields: false })
+          .issues,
+      ).toEqual([]);
+      expect(
+        validateWorkflowGraph(graph, declared).issues.map(
+          (issue) => issue.code,
+        ),
+      ).toEqual(["bad_reference"]);
+    });
+  });
+
   it("reports several problems at once so a person can fix them together", () => {
     const result = validate(
       [

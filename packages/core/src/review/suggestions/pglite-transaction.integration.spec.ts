@@ -62,6 +62,7 @@ const originalOperation = {
 let previousDatabaseUrl: string | undefined;
 let independentClientsDirectory: string | undefined;
 const coordinatedApplies: string[][] = [];
+const appliedPlacements: unknown[] = [];
 
 beforeAll(async () => {
   previousDatabaseUrl = process.env.DATABASE_URL;
@@ -101,7 +102,13 @@ beforeAll(async () => {
     kind: "pglite-review-transaction-adapter",
     version: 1,
     validateProposal: ({ operations }) => operations,
-    apply: async ({ operations, resourceId: targetId, transaction }) => {
+    apply: async ({
+      operations,
+      resourceId: targetId,
+      transaction,
+      placement,
+    }) => {
+      appliedPlacements.push(placement);
       const after = operations[0]?.after as { markdown?: unknown } | undefined;
       if (typeof after?.markdown !== "string") {
         throw new Error("Test suggestion is missing after.markdown");
@@ -378,10 +385,12 @@ describe.sequential("suggestion actions on native PGlite transactions", () => {
         idempotencyKey: "accept-native-pglite",
         observedBase: baseRevision,
         observedRevision: 1,
+        placement: { shownAt: "editor" },
       },
       { userEmail: ownerEmail },
     );
     expect(decided.decision.outcome).toBe("accepted");
+    expect(appliedPlacements.at(-1)).toEqual({ shownAt: "editor" });
 
     const [resource] = await getDb()
       .select({ body: resources.body })
@@ -532,10 +541,11 @@ describe.sequential("suggestion actions on native PGlite transactions", () => {
         (suggestion) => suggestion.proposalId === created.proposal.id,
       ),
     ).toBe(true);
-    const members = created.suggestions.map((suggestion) => ({
+    const members = created.suggestions.map((suggestion, index) => ({
       id: suggestion.id,
       observedRevision: suggestion.revision,
       observedBase: suggestion.baseRevision,
+      placement: { shownAt: index },
     }));
     const decisionKey = `proposal-decision-${globalThis.crypto.randomUUID()}`;
     await expect(
@@ -583,12 +593,22 @@ describe.sequential("suggestion actions on native PGlite transactions", () => {
       "accepted",
       "accepted",
     ]);
+    // Each member's placement reaches the adapter with that member.
+    expect(appliedPlacements.slice(-2)).toEqual([
+      { shownAt: 0 },
+      { shownAt: 1 },
+    ]);
+    // A retry from an editor that shows the words elsewhere is the same
+    // decision.
     const replay = await decideResourceSuggestionProposal.run(
       {
         proposalId: created.proposal.id,
         decision: "accepted",
         idempotencyKey: decisionKey,
-        members,
+        members: members.map((member) => ({
+          ...member,
+          placement: { shownAt: 9 },
+        })),
       },
       { userEmail: ownerEmail },
     );

@@ -62,6 +62,7 @@ description: "Cron 예약 메시지는 에이전트가 일일 다이제스트, �
 | `runAs`      | `"creator"` \| `"shared"`     | `"creator"` | `"creator"`는 작업 소유자의 ID와 `ANTHROPIC_API_KEY`를 사용하여 실행됩니다. `"shared"`는 조직의 키를 사용합니다. |
 | `createdBy`  | 이메일                        | _(자동)_    | 에이전트 리소스 UI를 통해 또는 에이전트에 의해 작업이 생성될 때 채워집니다.                                      |
 | `orgId`      | 문자열                        | _(자동)_    | 조직 범위; 작성자의 활성 조직에서 상속됩니다.                                                                    |
+| `appId`      | 문자열                        | _(자동)_    | 작업을 실행하는 스케줄러가 속한 앱입니다. 스케줄러는 다른 앱을 지정한 작업을 건너뜁니다.                         |
 | `lastRun`    | ISO 타임스탬프                | _(관리)_    | 각 실행 후 스케줄러에 의해 작성됩니다.                                                                           |
 | `lastStatus` | `"success"` \| `"error"` \| … | _(관리)_    | 최신 결과.                                                                                                       |
 | `lastError`  | 문자열                        | _(관리)_    | 마지막 실행이 실패한 경우 오류 메시지.                                                                           |
@@ -234,6 +235,20 @@ Netlify, Vercel, Cloudflare에서는 같은 틱이 이벤트 트리거 자동화
 **`AGENT_NATIVE_DISABLE_RECURRING_JOBS`는 두 범위에서 읽힙니다.** Netlify, Vercel, Cloudflare에서는 **빌드** 환경이 결정합니다. 플랫폼 트리거는 이벤트 자동화 대기열을 비우고 실행을 정리하기 위해 계속 실행되지만, 스위치를 켠 빌드는 배포된 환경의 설정과 관계없이 예약된 작업을 건너뜁니다. 장기 실행 서버에서는 **런타임** 환경이 프로세스 내 타이머를 제어합니다. 호스트가 이 값을 읽는 곳에 설정하세요. 빌드가 결정을 기록하므로, **Automations** 페이지는 아무도 지키지 않을 다음 실행 날짜를 보여 주는 대신 일정이 절대 실행되지 않는다고 알려 줄 수 있습니다.
 
 </Callout>
+
+### 다른 `appId`에서 작업 실행 {#additional-job-app-ids}
+
+스케줄러는 작업의 `appId`가 앱 자신의 `appId`와 같을 때 그 작업을 실행합니다. 다른 `appId`로 표시된 작업 파일도 실행하려면 추가 레이블을 `additionalJobAppIds`에 나열하세요:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  appId: "my-app",
+  additionalJobAppIds: ["my-app-reports"],
+  // ...
+});
+```
+
+이 레이블을 나열하지 않은 빌드는 해당 파일을 점유하거나 실행하거나 쓰지 않고 건너뜁니다. 이렇게 하면 데이터베이스 하나를 공유하는 두 배포가 작업을 나눠 맡을 수 있습니다. 이 옵션은 이 앱이 가져오는 파일의 범위만 넓힙니다. 스케줄러 lease, 실행 기록, 헬스 행은 `appId` 아래에 남으므로, 데이터베이스를 공유하는 배포들은 여전히 같은 lease를 번갈아 사용합니다. 앱이 이러한 작업의 **Run now**를 대기열에 넣는 경우, 같은 목록을 `additionalJobAppIds`로 `queueAutomationRunNow`에 전달하세요.
 
 ## 작업 디버깅 {#debugging}
 

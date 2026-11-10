@@ -16,8 +16,9 @@ name: Deploy canary
 # deploy-hosts.yml lists; without them it fails, rather than reporting a path
 # as checked.
 #
-# A failure in either is posted to #qa-agent-native by the `report` job. A
-# failed Slack post fails the run, so an alert that did not send is visible.
+# A failure in either is posted to #dev-agent-native-alerts by the `report`
+# job. A failed Slack post fails the run, so an alert that did not send is
+# visible.
 
 on:
   schedule:
@@ -61,7 +62,7 @@ jobs:
     secrets: inherit
 
   report:
-    name: Report to #qa-agent-native
+    name: Report to #dev-agent-native-alerts
     needs: [paths, hosts]
     # `always()` because a failed need would otherwise skip this job, and a
     # failure is the only thing it reports.
@@ -69,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      SLACK_CHANNEL: C0C4U4XRT6X
+      SLACK_CHANNEL: C0C7A1Y2EF6
     steps:
       # Each leg uploads its step timings and result as an artifact of this run.
       # They are best-effort evidence, so a failed download does not stop the

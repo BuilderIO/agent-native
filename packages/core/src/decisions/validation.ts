@@ -61,30 +61,36 @@ const ScoreQuestionSchema = z.object({
     .max(10),
 });
 
-export const DecideInputSchema = z.object({
-  input: z.union([z.string(), z.array(InputPartSchema).min(1).max(32)]),
-  questions: z
-    .array(
-      z.discriminatedUnion("type", [
-        PredicateQuestionSchema,
-        ChoiceQuestionSchema,
-        ScoreQuestionSchema,
-      ]),
-    )
-    .min(1)
-    .max(8),
-  options: z
-    .object({
-      timeoutMs: z.number().int().min(1_000).max(60_000).optional(),
-      providers: z
-        .array(z.enum(["openai", "jev"]))
-        .min(1)
-        .max(2)
-        .optional(),
-      cacheKey: z.string().min(1).max(256).optional(),
-    })
-    .optional(),
-});
+const decisionInputSchema = (maxQuestions: number) =>
+  z.object({
+    input: z.union([z.string(), z.array(InputPartSchema).min(1).max(32)]),
+    questions: z
+      .array(
+        z.discriminatedUnion("type", [
+          PredicateQuestionSchema,
+          ChoiceQuestionSchema,
+          ScoreQuestionSchema,
+        ]),
+      )
+      .min(1)
+      .max(maxQuestions),
+    options: z
+      .object({
+        timeoutMs: z.number().int().min(1_000).max(60_000).optional(),
+        providers: z
+          .array(z.enum(["openai", "jev"]))
+          .min(1)
+          .max(2)
+          .optional(),
+        cacheKey: z.string().min(1).max(256).optional(),
+      })
+      .optional(),
+  });
+
+export const DecideInputSchema = decisionInputSchema(8);
+
+// Internal classifiers need to preserve the provider's 400-question batching.
+const InternalDecideInputSchema = decisionInputSchema(400);
 
 type JsonSerializationResult =
   | { status: "serialized"; json: string }
@@ -303,7 +309,7 @@ function serializeJsonValue(
 }
 
 export function validateDecisionInput(value: unknown): boolean {
-  const parsed = DecideInputSchema.safeParse(value);
+  const parsed = InternalDecideInputSchema.safeParse(value);
   if (!parsed.success) return false;
 
   const questions = parsed.data.questions;

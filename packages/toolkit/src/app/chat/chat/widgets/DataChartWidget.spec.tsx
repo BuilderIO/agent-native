@@ -80,6 +80,7 @@ async function renderWidget(
   chartDataCount = 1,
   truncated = false,
   layout?: AgentChatDataChartLayout,
+  primaryActionIcon?: DataWidgetAction["icon"],
 ) {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -110,6 +111,7 @@ async function renderWidget(
             primaryAction: {
               label: "Open report",
               href: "/reports/1?tab=chart",
+              icon: primaryActionIcon,
             },
             sources: [
               {
@@ -193,6 +195,38 @@ describe("DataChartWidget display contract", () => {
     expect(window.location.search).toBe("?tab=chart");
   });
 
+  it("keeps primary action icons after the label by default and supports leading icons", async () => {
+    const trailing = await renderWidget(
+      undefined,
+      undefined,
+      false,
+      1,
+      false,
+      undefined,
+      "explore",
+    );
+    const trailingAction = Array.from(trailing.querySelectorAll("a")).find(
+      (link) => link.textContent?.includes("Open report"),
+    );
+    expect(trailingAction?.children[0]?.tagName.toLowerCase()).toBe("span");
+    expect(trailingAction?.children[1]?.tagName.toLowerCase()).toBe("svg");
+
+    const leading = await renderWidget(
+      undefined,
+      undefined,
+      false,
+      1,
+      false,
+      { actionIconPosition: "start" },
+      "explore",
+    );
+    const leadingAction = Array.from(leading.querySelectorAll("a")).find(
+      (link) => link.textContent?.includes("Open report"),
+    );
+    expect(leadingAction?.children[0]?.tagName.toLowerCase()).toBe("svg");
+    expect(leadingAction?.children[1]?.tagName.toLowerCase()).toBe("span");
+  });
+
   it("opts into responsive chart sizing and quiet controls", async () => {
     const container = await renderWidget(
       [
@@ -210,6 +244,9 @@ describe("DataChartWidget display contract", () => {
       false,
       {
         maxWidth: 720,
+        alignment: "start",
+        marginBlockStart: 17,
+        marginBlockEnd: 15,
         labelFontFamily: "IBM Plex Sans",
         labelFontSize: 14,
         titleFontFamily: "IBM Plex Sans",
@@ -218,6 +255,9 @@ describe("DataChartWidget display contract", () => {
         titleLineHeight: 20,
         titleTone: "muted",
         actionsVariant: "quiet",
+        actionLabelFontSize: 12,
+        actionLabelFontWeight: 400,
+        actionLabelLineHeight: 16,
       },
     );
     const card = container.querySelector<HTMLElement>(".my-4");
@@ -231,10 +271,15 @@ describe("DataChartWidget display contract", () => {
     const explore = container.querySelector<HTMLAnchorElement>(
       'a[aria-label="Explore"]',
     );
+    const primaryAction = Array.from(container.querySelectorAll("a")).find(
+      (link) => link.textContent?.includes("Open report"),
+    );
 
     expect(card?.style.width).toBe("100%");
     expect(card?.style.maxWidth).toBe("720px");
-    expect(card?.style.marginInline).toBe("auto");
+    expect(card?.style.marginInline).toBe("0");
+    expect(card?.style.marginBlockStart).toBe("17px");
+    expect(card?.style.marginBlockEnd).toBe("15px");
     expect(title?.style.fontFamily).toContain("IBM Plex Sans");
     expect(title?.style.fontSize).toBe("14px");
     expect(title?.style.fontWeight).toBe("400");
@@ -243,6 +288,9 @@ describe("DataChartWidget display contract", () => {
     expect(chart?.dataset.layoutLabelFontFamily).toBe("IBM Plex Sans");
     expect(chart?.dataset.layoutLabelFontSize).toBe("14");
     expect(primary?.classList.contains("border")).toBe(false);
+    expect(primaryAction?.style.fontSize).toBe("12px");
+    expect(primaryAction?.style.fontWeight).toBe("400");
+    expect(primaryAction?.style.lineHeight).toBe("16px");
     expect(explore?.classList.contains("border")).toBe(false);
     expect(explore?.classList.contains("size-7")).toBe(true);
     const chartActions = container.querySelector<HTMLButtonElement>(

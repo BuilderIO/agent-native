@@ -1,6 +1,6 @@
-import type { SqlPanelConfig } from "./types";
+import type { ChartValueFormatter, SqlPanelConfig } from "./types";
 
-export type ChartValueFormatter = NonNullable<SqlPanelConfig["yFormatter"]>;
+export type { ChartValueFormatter };
 export type ChartAxisSide = "left" | "right";
 
 const MAX_LABELLED_SERIES_PER_AXIS = 2;

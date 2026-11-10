@@ -1,0 +1,199 @@
+import { defineAction, fail } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import type { SetBuilderEntryStatusResponse } from "../shared/api.js";
+import { withBuilderCmsPublicationIntent } from "./_builder-cms-unpublished-changes.js";
+import { builderCmsWriteSettingsFromJson } from "./_builder-cms-write-settings.js";
+import {
+  builderEntryStatusLockedReason,
+  builderEntryStatusPick,
+  builderEntryStatusTargets,
+  parseBuilderEntrySourceValues,
+} from "./_builder-entry-status.js";
+import { writeBuilderStatusValues } from "./_builder-status-property.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
+
+const LOCKED_MESSAGES = {
+  publication_transitions_off:
+    'Builder status can only be changed when the source is set to "Publish updates" with per-item publish and unpublish allowed.',
+  unmatched_entry:
+    "This page isn't matched to a Builder entry yet. Refresh the source first.",
+  unreadable_row:
+    "This page's Builder values can't be read. Refresh the source first.",
+  unknown_state:
+    "Builder hasn't reported this entry as published or draft. Refresh the source first.",
+  not_builder_status:
+    "Unpublished changes can only be picked while Builder reports them, to clear a staged change.",
+} as const;
+
+export default defineAction({
+  description:
+    "Stage a publish or unpublish for one collection page's Builder entry by picking its Builder status. Nothing is sent to Builder: the change waits in the source review, where the push still has to select the publish or unpublish (unpublish also needs confirmUnpublish). Picking the entry's current Builder status, including unpublished_changes, clears a staged change. Needs a Builder source in publish updates mode with publication transitions allowed. Published can't be picked while Builder's editor holds changes Content can't see.",
+  schema: z.object({
+    databaseId: z.string().describe("Collection ID"),
+    documentId: z
+      .string()
+      .describe(
+        "Document ID of the collection page whose Builder entry changes",
+      ),
+    status: z
+      .enum(["published", "draft", "unpublished_changes"])
+      .describe(
+        "Builder status to stage for the entry; unpublished_changes only while Builder reports it",
+      ),
+    sourceId: z
+      .string()
+      .optional()
+      .describe(
+        "Builder source ID; required only when the page belongs to more than one Builder source",
+      ),
+  }),
+  outputSchema: z.object({
+    documentId: z.string(),
+    sourceId: z.string(),
+    stagedPublicationTransition: z.enum(["publish", "unpublish"]).nullable(),
+  }),
+  // Staging never calls Builder; execute-builder-source-execution sends the
+  // push. It replaces or clears a staged publish or unpublish, so destructive.
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  run: async (args): Promise<SetBuilderEntryStatusResponse> => {
+    const database = await resolveDatabaseForSourceMutation({
+      databaseId: args.databaseId,
+    });
+    if (!database) {
+      fail("Collection not found.", {
+        errorCode: "database_not_found",
+        statusCode: 404,
+      });
+    }
+    await assertAccess("document", database.documentId, "editor");
+    await assertAccess("document", args.documentId, "editor");
+
+    const db = getDb();
+    const targets = (
+      await builderEntryStatusTargets(db, {
+        databaseId: database.id,
+        documentId: args.documentId,
+      })
+    ).filter((target) => !args.sourceId || target.source.id === args.sourceId);
+    if (targets.length > 1) {
+      fail(
+        "This page belongs to more than one Builder source; pass sourceId to pick one.",
+        { errorCode: "builder_source_ambiguous", statusCode: 400 },
+      );
+    }
+    const [target = null] = targets;
+    if (!target) {
+      fail("This page has no Builder entry in this collection.", {
+        errorCode: "builder_entry_not_found",
+        statusCode: 404,
+      });
+    }
+    const locked = builderEntryStatusLockedReason(target);
+    if (locked) {
+      fail(LOCKED_MESSAGES[locked], {
+        errorCode: `builder_status_${locked}`,
+        statusCode: 409,
+      });
+    }
+
+    const now = new Date().toISOString();
+    const stagedPublicationTransition = await db.transaction(async (tx) => {
+      // Disconnecting deletes the source's rows and then the source under the
+      // collection's lock, so taking it first keeps the two from deadlocking.
+      await lockContentDatabaseMutation(tx, database.id);
+      // Refreshes and pushes rewrite the row under this lock, so the staged
+      // change is applied to the values they last stored.
+      await lockDatabaseMemberships(tx, [target.row.databaseItemId]);
+      // A refresh can hold the row a while, so access is checked again.
+      for (const documentId of [database.documentId, args.documentId]) {
+        await assertAccess("document", documentId, "editor", {
+          ...currentAccess(),
+          transaction: getDbExec(),
+        });
+      }
+      // Turning publication changes off saves the setting before it clears
+      // staged picks, so a pick checked earlier could land after the clear.
+      // The share lock waits for that save.
+      const [source = null] = await tx
+        .select({
+          capabilitiesJson: schema.contentDatabaseSources.capabilitiesJson,
+          metadataJson: schema.contentDatabaseSources.metadataJson,
+        })
+        .from(schema.contentDatabaseSources)
+        .where(eq(schema.contentDatabaseSources.id, target.source.id))
+        .for("share");
+      if (
+        !source ||
+        !builderCmsWriteSettingsFromJson(source).allowPublicationTransitions
+      ) {
+        fail(LOCKED_MESSAGES.publication_transitions_off, {
+          errorCode: "builder_status_publication_transitions_off",
+          statusCode: 409,
+        });
+      }
+      // Locked, so a disconnect or re-import can't delete the row between
+      // this read and the write below.
+      const [row = null] = await tx
+        .select({
+          sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+        })
+        .from(schema.contentDatabaseSourceRows)
+        .where(eq(schema.contentDatabaseSourceRows.id, target.row.id))
+        .limit(1)
+        .for("update");
+      if (!row) {
+        fail("This page's Builder entry left the source. Refresh it first.", {
+          errorCode: "builder_entry_not_found",
+          statusCode: 409,
+        });
+      }
+      const sourceValues = parseBuilderEntrySourceValues(row.sourceValuesJson);
+      if (!sourceValues) {
+        fail(LOCKED_MESSAGES.unreadable_row, {
+          errorCode: "builder_status_unreadable_row",
+          statusCode: 409,
+        });
+      }
+      const pick = builderEntryStatusPick(sourceValues, args.status);
+      if (!pick.ok) {
+        fail(
+          pick.reason === "builder_editor_changes"
+            ? "This entry has unpublished changes saved in Builder's editor, which Content can't see. Publish it from Builder."
+            : LOCKED_MESSAGES[pick.reason],
+          { errorCode: `builder_status_${pick.reason}`, statusCode: 409 },
+        );
+      }
+      const next = withBuilderCmsPublicationIntent(
+        sourceValues,
+        pick.transition,
+      );
+      await tx
+        .update(schema.contentDatabaseSourceRows)
+        .set({ sourceValuesJson: JSON.stringify(next), updatedAt: now })
+        .where(eq(schema.contentDatabaseSourceRows.id, target.row.id));
+      await writeBuilderStatusValues(tx, {
+        sourceId: target.source.id,
+        rows: [{ documentId: args.documentId, sourceValues: next }],
+        now,
+      });
+      return pick.transition;
+    });
+
+    return {
+      documentId: args.documentId,
+      sourceId: target.source.id,
+      stagedPublicationTransition,
+    };
+  },
+});

@@ -10,6 +10,15 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: async (key: string, value: unknown) => {
     mocks.appState.set(key, value);
   },
+  compareAndSetAppState: async (
+    key: string,
+    expected: unknown,
+    next: unknown,
+  ) => {
+    if ((mocks.appState.get(key) ?? null) !== expected) return false;
+    mocks.appState.set(key, next);
+    return true;
+  },
   deleteAppState: vi.fn(),
   deleteAppStateByPrefix: vi.fn(),
   listAppState: vi.fn(),
@@ -146,11 +155,26 @@ describe("manage-draft in the agent loop", () => {
   });
 
   it("still holds back a retry after Gmail itself answered 429", async () => {
-    mocks.saveGmailDraft.mockRejectedValue(new GmailQuotaCooldownError(5_000));
+    // The real client sends the POST through fetch before it can read Gmail's
+    // answer, and that request is what the framework sees as the write.
+    const sent = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("{}"));
+    mocks.saveGmailDraft.mockImplementation(async () => {
+      await fetch("https://gmail.googleapis.com/gmail/v1/users/me/drafts", {
+        method: "POST",
+      });
+      throw new GmailQuotaCooldownError(5_000);
+    });
 
-    const events = await saveTwice();
+    try {
+      const events = await saveTwice();
 
-    expect(outcomeUnknownStop(events)).toBe(true);
-    expect(mocks.saveGmailDraft).toHaveBeenCalledTimes(1);
+      expect(outcomeUnknownStop(events)).toBe(true);
+      expect(mocks.saveGmailDraft).toHaveBeenCalledTimes(1);
+      expect(sent).toHaveBeenCalledTimes(1);
+    } finally {
+      sent.mockRestore();
+    }
   });
 });

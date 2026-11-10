@@ -61,6 +61,9 @@ vi.mock("../server/auth.js", () => ({
   getSession: (...a: any[]) => getSessionMock(...a),
   getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtmlMock(...a),
 }));
+vi.mock("../server/better-auth-instance.js", () => ({
+  getAuthSecret: () => "mcp-oauth-test-secret",
+}));
 
 const getOrgDomainMock = vi.fn(async () => "builder.io");
 const getActiveOrgSettingMock = vi.fn(
@@ -396,7 +399,7 @@ describe("MCP OAuth route", () => {
         code_challenge_method: "S256",
       };
       const consent = await handleMcpOAuth(
-        event({ query: params }),
+        event({ query: params, headers: { "x-country": "US" } }),
         "/authorize",
       );
       const consentToken = (await consent.text()).match(
@@ -1100,6 +1103,7 @@ describe("MCP OAuth route", () => {
       query: Record<string, string> = {},
       resource = "https://mail.agent-native.com/mcp/directory",
       connector = { name: "ChatGPT", redirect: chatgptRedirect },
+      headers: Record<string, string> = { "x-country": "US" },
     ) {
       const client = await (
         await handleMcpOAuth(
@@ -1124,7 +1128,7 @@ describe("MCP OAuth route", () => {
         ...query,
       };
       const response = await handleMcpOAuth(
-        event({ query: params }),
+        event({ query: params, headers }),
         "/authorize",
         { appId: "agent-native-mail", appName: "Mail" },
       );
@@ -1150,14 +1154,94 @@ describe("MCP OAuth route", () => {
         [
           "$mcp_oauth_authorize_opened",
           expect.objectContaining({ ...tags, $mcp_oauth_signed_in: false }),
-          { userId: undefined, sessionId: undefined },
+          expect.objectContaining({
+            anonymousId: expect.stringMatching(/^mcp_/),
+            sessionId: expect.stringMatching(/^mcp_/),
+          }),
         ],
         [
           "$mcp_oauth_login_wall_shown",
           expect.objectContaining(tags),
-          { userId: undefined, sessionId: undefined },
+          expect.objectContaining({
+            anonymousId: expect.stringMatching(/^mcp_/),
+            sessionId: expect.stringMatching(/^mcp_/),
+          }),
         ],
       ]);
+
+      const openSource = authorizeFunnelCalls()[0][2] as {
+        anonymousId: string;
+        sessionId: string;
+      };
+      const wallSource = authorizeFunnelCalls()[1][2];
+      expect(wallSource).toEqual(openSource);
+      const cookies = response.headers.get("set-cookie") ?? "";
+      expect(cookies).toContain("an_aid=");
+      expect(cookies).toContain("an_sid=");
+      expect(cookies).toContain("an_mcp_signup=");
+      expect(cookies).toContain("HttpOnly");
+      const mcpToken = cookies.match(/(?:^|,\s*)an_mcp_signup=([^;,]+)/)?.[1];
+      const { decodeMcpSignupAttribution } =
+        await import("../server/mcp-signup-attribution.js");
+      expect(
+        decodeMcpSignupAttribution(mcpToken, "mcp-oauth-test-secret"),
+      ).toMatchObject({
+        signupOrigin: "mcp_oauth",
+        vendorHint: "openai",
+        anonymousId: openSource.anonymousId,
+        sessionId: openSource.sessionId,
+        firstTouchPathAllowed: true,
+      });
+    });
+
+    it("expires analytics identifiers without performance consent", async () => {
+      getSessionMock.mockResolvedValueOnce(null);
+      const { response } = await openAuthorize({}, undefined, undefined, {
+        cookie: "an_consent=1.p0.t1; an_sid=old-session; an_aid=old-anonymous",
+      });
+
+      expect(response.status).toBe(200);
+      expect(authorizeFunnelCalls()).toEqual([]);
+      const cookies = response.headers.get("set-cookie") ?? "";
+      expect(cookies).not.toContain("an_aid=mcp_");
+      expect(cookies).toContain("an_aid=; path=/; max-age=0");
+      expect(cookies).toContain("an_sid=; path=/; max-age=0");
+      expect(cookies).not.toContain("an_sid=mcp_");
+      const mcpToken = cookies.match(/(?:^|,\s*)an_mcp_signup=([^;,]+)/)?.[1];
+      const { decodeMcpSignupAttribution } =
+        await import("../server/mcp-signup-attribution.js");
+      expect(
+        decodeMcpSignupAttribution(mcpToken, "mcp-oauth-test-secret"),
+      ).toMatchObject({ signupOrigin: "mcp_oauth", vendorHint: "openai" });
+    });
+
+    it("fails closed for analytics and attribution when the country is unknown", async () => {
+      getSessionMock.mockResolvedValueOnce(null);
+      const { response } = await openAuthorize({}, undefined, undefined, {});
+
+      expect(response.status).toBe(200);
+      expect(authorizeFunnelCalls()).toEqual([]);
+      const cookies = response.headers.get("set-cookie") ?? "";
+      expect(cookies).not.toContain("an_aid=mcp_");
+      expect(cookies).not.toContain("an_sid=mcp_");
+      const mcpToken = cookies.match(/(?:^|,\s*)an_mcp_signup=([^;,]+)/)?.[1];
+      const { decodeMcpSignupAttribution } =
+        await import("../server/mcp-signup-attribution.js");
+      expect(
+        decodeMcpSignupAttribution(mcpToken, "mcp-oauth-test-secret"),
+      ).toMatchObject({
+        signupOrigin: "mcp_oauth",
+        firstTouchPathAllowed: false,
+      });
+      expect(
+        decodeMcpSignupAttribution(mcpToken, "mcp-oauth-test-secret"),
+      ).not.toHaveProperty("vendorHint");
+      expect(
+        decodeMcpSignupAttribution(mcpToken, "mcp-oauth-test-secret"),
+      ).not.toHaveProperty("anonymousId");
+      expect(
+        decodeMcpSignupAttribution(mcpToken, "mcp-oauth-test-secret"),
+      ).not.toHaveProperty("sessionId");
     });
 
     it("counts a signed-in open once, with the user, and not the consent POST", async () => {
@@ -1182,7 +1266,11 @@ describe("MCP OAuth route", () => {
             $mcp_oauth_route: "mcp",
             $mcp_oauth_signed_in: true,
           }),
-          { userId: "steve@example.com", sessionId: undefined },
+          expect.objectContaining({
+            userId: "steve@example.com",
+            anonymousId: expect.stringMatching(/^mcp_/),
+            sessionId: expect.stringMatching(/^mcp_/),
+          }),
         ],
       ]);
     });

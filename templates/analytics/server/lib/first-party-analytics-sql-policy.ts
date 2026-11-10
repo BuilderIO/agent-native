@@ -37,6 +37,7 @@ const SAFE_ANALYTICS_SQL_FUNCTIONS = new Set([
   "left",
   "lower",
   "max",
+  "md5",
   "min",
   "nullif",
   "right",
@@ -78,6 +79,7 @@ const SQL_PARENTHESIS_KEYWORDS = new Set([
   "then",
   "using",
   "values",
+  "when",
   "where",
 ]);
 const SAFE_BIGQUERY_FUNCTIONS = new Set([
@@ -148,6 +150,7 @@ const SAFE_BIGQUERY_FUNCTIONS = new Set([
   "lpad",
   "ltrim",
   "max",
+  "md5",
   "min",
   "mod",
   "nth_value",
@@ -200,6 +203,7 @@ const SAFE_BIGQUERY_FUNCTIONS = new Set([
   "timestamp_seconds",
   "timestamp_sub",
   "timestamp_trunc",
+  "to_hex",
   "to_json",
   "to_json_string",
   "trim",

@@ -551,6 +551,9 @@ export interface CodeAgentPromptAttachment {
   type?: string;
   size?: number;
   text?: string;
+  /** Length of the whole file when `text` holds only its head. */
+  totalChars?: number;
+  readError?: "read-failed" | "too-large" | "not-utf8";
   dataUrl?: string;
 }
 

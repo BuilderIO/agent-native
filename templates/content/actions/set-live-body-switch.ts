@@ -15,7 +15,12 @@ import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 const SWITCH_REFUSALS: Record<LiveBodyConversionErrorCode, string> = {
   flag_off: "LIVE_BODY_WRITER_OFF",
   local_file: "LIVE_BODY_SWITCH_LOCAL_FILE",
+  ineligible: "LIVE_BODY_SWITCH_INELIGIBLE",
   base_changed: "LIVE_BODY_SWITCH_CONFLICT",
+  live_edits: "LIVE_BODY_SWITCH_CONFLICT",
+  // Only the backfill's switch leaves a page sent back to legacy; this one
+  // switches it and clears that.
+  opted_out: "LIVE_BODY_SWITCH_CONFLICT",
   rebaseline_blocked: "LIVE_BODY_SWITCH_BLOCKED",
 };
 
@@ -36,7 +41,7 @@ export default defineAction({
     await assertDocumentMutationAccess(args.id, "editor", "id");
     try {
       const gate = args.switched
-        ? await switchPageToLiveCopy(args.id, { ctx })
+        ? await switchPageToLiveCopy(args.id, { ctx, keepLiveEdits: true })
         : await switchPageToLegacy(args.id);
       return { id: args.id, ...gate };
     } catch (error) {
@@ -45,6 +50,7 @@ export default defineAction({
           errorCode: SWITCH_REFUSALS[error.code],
           statusCode: 409,
           ...(error.blocked ? { details: error.blocked } : {}),
+          ...(error.blockers ? { details: { blockers: error.blockers } } : {}),
         });
       }
       throw error;

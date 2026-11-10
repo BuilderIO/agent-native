@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "बातचीत का संदर्भ दें…",
+    group: "बातचीत",
+    authentication: "संदर्भ जोड़ने के लिए साइन इन करें।",
+    invalid: "भेजने से पहले एक मान्य संदर्भ चुनें।",
+    unavailable: "चुना गया संदर्भ अब उपलब्ध नहीं है। उसे हटाएँ या फिर से चुनें।",
+  },
   composer: {
     removeAttachment: "{{name}} हटाएँ",
     removeReference: "{{name}} संदर्भ हटाएँ",
@@ -50,17 +57,12 @@ const messages = {
     untitledChat: "बिना शीर्षक वाली चैट",
   },
   home: {
-    composerPlaceholder: "Alex के लिए hello क्रिया कॉल करो",
     communityTitle: "हमसे जुड़ें",
     docsAddAction: "क्रिया जोड़ें",
     docsAddPage: "पेज जोड़ें",
     docsGettingStarted: "शुरुआत करें",
     docsKeyConcepts: "मुख्य अवधारणाएं",
     docsTitle: "दस्तावेज़",
-    editHint:
-      "{{file}} में बदलाव करके सेव करें, फिर नया अभिवादन देखने के लिए दोबारा पूछें।",
-    lead: "आपके ऐप का UI और उसका एजेंट एक ही क्रियाएं साझा करते हैं।",
-    leadTry: "एजेंट से hello क्रिया कॉल करने को कहें।",
     title: "शुरू करें",
   },
   navigation: {

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const loadOptionalPeerMock = vi.hoisted(() => vi.fn());
 const systemOneMock = vi.hoisted(() => vi.fn());
 const typeSafeClientOptionsMock = vi.hoisted(() => vi.fn());
+const scoreBuilderMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../shared/optional-peer.js", () => ({
   loadOptionalPeer: (...args: unknown[]) => loadOptionalPeerMock(...args),
@@ -32,14 +33,37 @@ const requestFixture: JevRequest = {
         support: "Product questions",
       },
     },
+    urgency: {
+      type: "score",
+      instructions: "How soon does this need attention?",
+      criteria: [
+        "none: No action is needed.",
+        "this_week: It can wait a few days.",
+        "today: It needs attention today.",
+      ],
+    },
   },
 };
 
+// Schema-derived from the Builder proxy's SystemOneResponseSchema. No Jev
+// credential was available, so this fixture is not an observed live response.
 const responseFixture = {
   answers: {
     isRefundRequest: { type: "noul", noul: 0.96 },
     route: { type: "choice", choice: "billing" },
+    urgency: {
+      type: "score",
+      score: 2,
+      legend: {
+        "answer-a": "none: No action is needed.",
+        "answer-b": "this_week: It can wait a few days.",
+        "answer-c": "today: It needs attention today.",
+      },
+      probabilities: { "answer-a": 0.2, "answer-b": 0.5, "answer-c": 0.3 },
+      confidence: 0.82,
+    },
   },
+  usage: { input_tokens: 42, output_tokens: 8 },
 };
 
 afterEach(() => {
@@ -66,13 +90,20 @@ function installDirectSdk(): void {
       instructions,
       criteria,
     }),
-    score: vi.fn(),
-    noul: vi.fn(),
+    score: (instructions: string, criteria: readonly string[]) => {
+      scoreBuilderMock(instructions, criteria);
+      return { type: "score", instructions, criteria };
+    },
+    noul: (instructions: string, criteria?: unknown) => ({
+      type: "noul",
+      instructions,
+      ...(criteria === undefined ? {} : { criteria }),
+    }),
   });
 }
 
 describe("requestJevThroughBuilder", () => {
-  it("sends verified predicate and choice questions through the Builder proxy", async () => {
+  it("sends mixed predicate, choice, and score questions in one Builder request", async () => {
     vi.stubEnv("BUILDER_PROXY_ORIGIN", "https://proxy.example.test");
     const fetchMock = vi.fn(
       async (_url: string | URL | Request, _init?: RequestInit) =>
@@ -103,7 +134,42 @@ describe("requestJevThroughBuilder", () => {
       }),
       body: JSON.stringify(requestFixture),
     });
+    expect(fetchMock).toHaveBeenCalledOnce();
     expect(response).toEqual(responseFixture);
+  });
+});
+
+describe("requestJev direct SDK mapping", () => {
+  it("passes the ordered score criteria to the same System One request shape", async () => {
+    installDirectSdk();
+    systemOneMock.mockResolvedValue(responseFixture);
+
+    await requestJev({
+      directApiKey: "org-jev-test-key",
+      request: requestFixture,
+    });
+
+    expect(scoreBuilderMock).toHaveBeenCalledWith(
+      "How soon does this need attention?",
+      [
+        "none: No action is needed.",
+        "this_week: It can wait a few days.",
+        "today: It needs attention today.",
+      ],
+    );
+    expect(systemOneMock.mock.calls[0]?.[0]).toMatchObject({
+      questions: {
+        urgency: {
+          type: "score",
+          instructions: "How soon does this need attention?",
+          criteria: [
+            "none: No action is needed.",
+            "this_week: It can wait a few days.",
+            "today: It needs attention today.",
+          ],
+        },
+      },
+    });
   });
 });
 

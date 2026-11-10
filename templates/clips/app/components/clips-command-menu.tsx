@@ -1,8 +1,11 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { useLab } from "@agent-native/core/client/labs";
 import { useOrgRole } from "@agent-native/core/client/org";
 import { docsUrl } from "@agent-native/core/shared";
+import { useStartupInteractionBlocked } from "@agent-native/toolkit/app/onboarding";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
+import { CLIPS_SCREENSHOTS } from "@shared/labs";
 import {
   IconArchive,
   IconPhoto,
@@ -23,7 +26,7 @@ import {
   IconVideoPlus,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
-import { type ComponentProps, useCallback, useMemo } from "react";
+import { type ComponentProps, useCallback, useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import {
@@ -390,9 +393,14 @@ export function ClipsCommandMenu({
   open,
   onOpenChange,
 }: ClipsCommandMenuProps) {
+  const startupInteractionBlocked = useStartupInteractionBlocked();
+  useEffect(() => {
+    if (startupInteractionBlocked) onOpenChange(false);
+  }, [startupInteractionBlocked, onOpenChange]);
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const screenshotsEnabled = useLab(CLIPS_SCREENSHOTS);
   const { canManageOrg } = useOrgRole();
   const context = useMemo(
     () => commandRouteContext(location.pathname),
@@ -430,7 +438,11 @@ export function ClipsCommandMenu({
     [folders, navigate, spaces, t],
   );
 
-  useCommandMenuShortcut(useCallback(() => onOpenChange(true), [onOpenChange]));
+  useCommandMenuShortcut(
+    useCallback(() => {
+      if (!startupInteractionBlocked) onOpenChange(true);
+    }, [onOpenChange, startupInteractionBlocked]),
+  );
 
   const scopedRecordPath =
     context.kind === "folder"
@@ -444,8 +456,10 @@ export function ClipsCommandMenu({
 
   return (
     <CommandMenu
-      open={open}
-      onOpenChange={onOpenChange}
+      open={open && !startupInteractionBlocked}
+      onOpenChange={(next) => {
+        if (!next || !startupInteractionBlocked) onOpenChange(next);
+      }}
       changelog={changelog
         .split(
           "The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.",
@@ -614,13 +628,15 @@ export function ClipsCommandMenu({
           {t("navigation.dictate")}
           <CommandMenu.Shortcut>G D</CommandMenu.Shortcut>
         </CommandMenu.Item>
-        <CommandMenu.Item
-          onSelect={() => void navigate("/screenshots")}
-          keywords={["screenshots", "screenshot", "images", "stills"]}
-        >
-          <IconPhoto size={16} />
-          {t("navigation.screenshots")}
-        </CommandMenu.Item>
+        {screenshotsEnabled && (
+          <CommandMenu.Item
+            onSelect={() => void navigate("/screenshots")}
+            keywords={["screenshots", "screenshot", "images", "stills"]}
+          >
+            <IconPhoto size={16} />
+            {t("navigation.screenshots")}
+          </CommandMenu.Item>
+        )}
         <CommandMenu.Item
           onSelect={() => void navigate("/archive")}
           keywords={["archive"]}

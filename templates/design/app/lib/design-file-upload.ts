@@ -1,3 +1,5 @@
+import { appApiPath } from "@agent-native/core/client/api-path";
+
 import { parseUploadResponse, type ImportResult } from "@/lib/design-import";
 import { MAX_UPLOAD_BYTES } from "@/lib/upload-limits";
 
@@ -62,7 +64,9 @@ function postMultipart<T extends ImportResult>({
 
     xhr.open(
       "POST",
-      `/api/import-design-file?designId=${encodeURIComponent(designId)}`,
+      appApiPath(
+        `/api/import-design-file?designId=${encodeURIComponent(designId)}`,
+      ),
       true,
     );
     xhr.withCredentials = true;
@@ -142,7 +146,7 @@ async function postFigChunks<T extends ImportResult>({
     }
 
     const response = await fetch(
-      `/api/import-design-file?${params.toString()}`,
+      appApiPath(`/api/import-design-file?${params.toString()}`),
       {
         method: "POST",
         credentials: "include",

@@ -1,6 +1,8 @@
+import type { Editor } from "@tiptap/core";
 import type { NodeViewProps } from "@tiptap/react";
 
 import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
+import { suggestionDecisionHoldsHistory } from "./extensions/SuggestionHighlight";
 
 // Marks a change to the document that isn't an edit to the page, so it isn't
 // saved: the editor repairing a document it has just loaded, such as table
@@ -25,4 +27,42 @@ export function deleteNodeFromMenu({
     })
     .deleteRange({ from, to: from + node.nodeSize })
     .run();
+}
+
+export function isActiveSlashCommandDraft(editor: Editor): boolean {
+  const { state } = editor;
+  if (!state.selection.empty) return false;
+  const { from, $from } = state.selection;
+  if (!$from.parent.isTextblock) return false;
+
+  const blockStart = $from.start();
+  const textBefore = state.doc.textBetween(blockStart, from, "\n");
+  return /^\s*\/[a-zA-Z0-9]*$/.test(textBefore);
+}
+
+// Undo can empty the page, so its changes are marked as the user's. A field
+// inside a block, such as a Toggle's summary, keeps focus when it undoes, so
+// the editor doesn't take focus or scroll to its selection. A slash command
+// being typed is skipped as one step only in the body: the body's selection
+// says nothing about an edit made in a field.
+export function runPersistableHistoryCommand(
+  editor: Editor,
+  command: "undo" | "redo",
+  { focusEditor = true }: { focusEditor?: boolean } = {},
+): boolean {
+  if (suggestionDecisionHoldsHistory(editor.state)) return false;
+  let applied = false;
+  for (let index = 0; index < 20; index += 1) {
+    const chain = editor.chain();
+    const changed = (focusEditor ? chain.focus() : chain)
+      .command(({ tr }) => {
+        tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
+        return true;
+      })
+      [command]()
+      .run();
+    applied ||= changed;
+    if (!changed || !focusEditor || !isActiveSlashCommandDraft(editor)) break;
+  }
+  return applied;
 }

@@ -105,6 +105,31 @@ describe("estimate-onboarding-journey-cost action", () => {
     );
   });
 
+  it("passes the non-production host filter to the estimator", async () => {
+    const filteredArgs = action.schema.parse({
+      dateFrom: "2026-10-01",
+      dateTo: "2026-10-02",
+      app: "design",
+      excludeNonProductionHosts: true,
+    });
+
+    await action.run(filteredArgs);
+
+    expect(mocks.estimate).toHaveBeenCalledWith(
+      { userEmail: "caller@example.test", orgId: "org-1" },
+      expect.objectContaining({
+        app: "design",
+        emailFilter: "exclude_builder",
+        excludeNonProductionHosts: true,
+      }),
+      40_000,
+      expect.any(Object),
+      false,
+      undefined,
+      275_000_000_000,
+    );
+  });
+
   it("classifies observation-window preparation errors before the dry-run", async () => {
     const privateDetail = "private watermark validation detail";
     mocks.freezeObservation.mockImplementationOnce(() => {

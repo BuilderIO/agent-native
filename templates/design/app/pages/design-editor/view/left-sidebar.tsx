@@ -8,7 +8,6 @@ import {
   AssetLibraryPanel,
   DesignExtensionsPanel,
 } from "@/components/design/DesignExtensionsPanel";
-import { DesignImportPanel } from "@/components/design/DesignImportPanel";
 import {
   DesignWorkspaceRail,
   INITIAL_GENERATION_DISABLED_LEFT_PANELS,
@@ -126,7 +125,7 @@ export function renderLeftSidebar({
     motionDockOpen,
     setMotionDockOpenAnimated,
   } = editorHistory;
-  const { canEditDesign, browserTabId } = editorGenerationAndAccess;
+  const { canEditDesign, browserTabId, pinMode } = editorGenerationAndAccess;
   const { handleTokensApplied } = editorFilesAndSaving;
   const { handleLayerLeave } = editorCanvasAndScreens;
   const {
@@ -138,10 +137,12 @@ export function renderLeftSidebar({
   const { hoveredCodeLayerNode } = editorContentAndComponents;
   const { setActiveCodeFile, reviewCommentsPanelProps } = editorToolsAndVectors;
   const { designExtensionContext } = editorSelectionAndStyles;
-  const { showPastedImagesNotice } = editorClipboard;
   const { handleDeleteInlineFile } = editorEditCommands;
-  const { handleSidebarScreenSelect, handleSidebarScreenOverview } =
-    editorModes;
+  const {
+    handleSidebarScreenSelect,
+    handleSidebarScreenOverview,
+    handlePinToolToggle,
+  } = editorModes;
   const { layersPanelRef } = editorExportAndHandoff;
   const {
     designIsEmpty,
@@ -166,7 +167,6 @@ export function renderLeftSidebar({
     handleFirstRunTemplate,
     workbenchLocalhostConnections,
     handleWorkbenchLocalWriteConsent,
-    importPanelRef,
   } = editorSourceAndSync;
 
   const showFirstRunStart = designIsEmpty && chatMessageCount === 0;
@@ -400,37 +400,14 @@ export function renderLeftSidebar({
             >
               {/* Mounted only while open: the panel fetches every thread. */}
               {activeLeftPanel === "threads" && reviewCommentsPanelProps ? (
-                <ReviewCommentsPanel {...reviewCommentsPanelProps} />
-              ) : null}
-            </div>
-            <div
-              className={cn(
-                "min-h-0 flex-1 flex-col overflow-hidden",
-                activeLeftPanel === "import" ? "flex" : "hidden",
-              )}
-            >
-              {canEditDesign ? (
-                <DesignImportPanel
-                  ref={importPanelRef}
-                  context={designExtensionContext}
-                  onImport={(result) => {
-                    const count = result.unresolvedImageRefCount ?? 0;
-                    if (count > 0 && result.files?.length) {
-                      showPastedImagesNotice({
-                        count,
-                        fileIds: result.files.map((f) => f.id),
-                      });
-                    }
+                <ReviewCommentsPanel
+                  {...reviewCommentsPanelProps}
+                  onNewThread={() => {
+                    // handlePinToolToggle turns comment mode off when it is already on.
+                    if (!pinMode) handlePinToolToggle();
                   }}
                 />
-              ) : (
-                <ReadOnlyEditorPanel
-                  title={"Import requires editor access" /* i18n-ignore */}
-                  description={
-                    "Ask an owner for edit access before importing files into this design." /* i18n-ignore */
-                  }
-                />
-              )}
+              ) : null}
             </div>
             {SHOW_DESIGN_SECONDARY_LEFT_PANELS ? (
               <>

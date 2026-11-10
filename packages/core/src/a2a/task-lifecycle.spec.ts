@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { StateMachineError } from "../state-machine/index.js";
+import {
+  renderMachineTrace,
+  StateMachineError,
+} from "../state-machine/index.js";
 import {
   a2aApprovalMachine,
   a2aTaskMachine,
@@ -261,17 +264,21 @@ describe("a2aTaskMachine", () => {
   });
 
   it.each(TASK_EVENTS)(
-    "$event: source states and SQL list match the old SQL",
+    "$event: source states are bound in the SQL list",
     ({ event, from, sqlList }) => {
       expect(a2aTaskMachine.fromStates(event)).toEqual(from);
-      expect(taskIn(event)).toBe(sqlList);
+      expect(a2aTaskMachine.sqlStateList(event)).toBe(sqlList);
+      const fragment = taskIn(event);
+      expect(fragment.sql).toBe(`(${from.map(() => "?").join(", ")})`);
+      expect(fragment.args).toEqual(from);
     },
   );
 
   it.each(TASK_EVENTS)(
-    "$event: target matches the old SET clause",
+    "$event: target is bound for the SET clause",
     ({ event, from, to, sqlTo }) => {
-      expect(taskTarget(event)).toBe(sqlTo);
+      expect(taskTarget(event)).toMatchObject({ sql: "?", args: [to] });
+      expect(sqlTo).toBe(`'${to}'`);
       for (const state of from) {
         expect(a2aTaskMachine.transition(state, event)).toBe(to);
       }
@@ -292,11 +299,14 @@ describe("a2aTaskMachine", () => {
     }
   });
 
-  it("renders single-state predicates as quoted literals", () => {
-    expect(taskSql("processing")).toBe("'processing'");
-    expect(taskSql("working")).toBe("'working'");
-    expect(taskSql("failed")).toBe("'failed'");
-    expect(taskSql("canceled")).toBe("'canceled'");
+  it("binds single-state predicates", () => {
+    expect(taskSql("processing")).toMatchObject({
+      sql: "?",
+      args: ["processing"],
+    });
+    expect(taskSql("working")).toMatchObject({ sql: "?", args: ["working"] });
+    expect(taskSql("failed")).toMatchObject({ sql: "?", args: ["failed"] });
+    expect(taskSql("canceled")).toMatchObject({ sql: "?", args: ["canceled"] });
   });
 
   it("throws on a stored status outside TaskState", () => {
@@ -324,20 +334,30 @@ describe("a2aApprovalMachine", () => {
   });
 
   it.each(APPROVAL_EVENTS)(
-    "$event: source states and target match the old SQL",
+    "$event: source states and target are bound in SQL",
     ({ event, from, to, sqlTo }) => {
       expect(a2aApprovalMachine.fromStates(event)).toEqual(from);
-      expect(approvalTarget(event)).toBe(sqlTo);
+      expect(approvalTarget(event)).toMatchObject({ sql: "?", args: [to] });
+      expect(sqlTo).toBe(`'${to}'`);
       for (const state of from) {
         expect(a2aApprovalMachine.transition(state, event)).toBe(to);
       }
     },
   );
 
-  it("renders the claim predicate as the old SQL did", () => {
-    expect(approvalSql("pending")).toBe("'pending'");
-    expect(approvalSql("processing")).toBe("'processing'");
-    expect(approvalIn("reclaim")).toBe("'processing'");
+  it("binds approval state predicates", () => {
+    expect(approvalSql("pending")).toMatchObject({
+      sql: "?",
+      args: ["pending"],
+    });
+    expect(approvalSql("processing")).toMatchObject({
+      sql: "?",
+      args: ["processing"],
+    });
+    expect(approvalIn("reclaim")).toMatchObject({
+      sql: "(?)",
+      args: ["processing"],
+    });
   });
 
   it("rejects a settled approval being settled again", () => {
@@ -352,5 +372,69 @@ describe("a2aApprovalMachine", () => {
         "unknown_state",
       );
     }
+  });
+});
+
+describe("A2A lifecycle traces", () => {
+  it("renders the task happy path", () => {
+    expect(
+      renderMachineTrace(a2aTaskMachine, [
+        "claimForProcessing",
+        "completeProcessing",
+      ]),
+    ).toMatchInlineSnapshot(`
+      "claimForProcessing -> processing [guard: 'submitted', 'working']
+      completeProcessing -> completed [guard: 'processing']"
+    `);
+  });
+
+  it("renders cancellation from each non-final task state", () => {
+    expect({
+      submitted: renderMachineTrace(a2aTaskMachine, ["cancel"], "submitted"),
+      working: renderMachineTrace(a2aTaskMachine, ["cancel"], "working"),
+      processing: renderMachineTrace(a2aTaskMachine, ["cancel"], "processing"),
+      inputRequired: renderMachineTrace(
+        a2aTaskMachine,
+        ["cancel"],
+        "input-required",
+      ),
+    }).toMatchInlineSnapshot(`
+      {
+        "inputRequired": "cancel -> canceled [guard: 'submitted', 'working', 'processing', 'input-required']",
+        "processing": "cancel -> canceled [guard: 'submitted', 'working', 'processing', 'input-required']",
+        "submitted": "cancel -> canceled [guard: 'submitted', 'working', 'processing', 'input-required']",
+        "working": "cancel -> canceled [guard: 'submitted', 'working', 'processing', 'input-required']",
+      }
+    `);
+  });
+
+  it("renders the completed-task cancellation refusal", () => {
+    expect(
+      renderMachineTrace(a2aTaskMachine, ["cancel"], "completed"),
+    ).toMatchInlineSnapshot(
+      `"cancel -> completed (rejected) [guard: 'submitted', 'working', 'processing', 'input-required']"`,
+    );
+  });
+
+  it("keeps cancellation when processing completes late", () => {
+    expect(
+      renderMachineTrace(a2aTaskMachine, [
+        "claimForProcessing",
+        "cancel",
+        "completeProcessing",
+      ]),
+    ).toMatchInlineSnapshot(`
+      "claimForProcessing -> processing [guard: 'submitted', 'working']
+      cancel -> canceled [guard: 'submitted', 'working', 'processing', 'input-required']
+      completeProcessing -> canceled (rejected) [guard: 'processing']"
+    `);
+  });
+
+  it("renders the approval happy path", () => {
+    expect(renderMachineTrace(a2aApprovalMachine, ["claim", "complete"]))
+      .toMatchInlineSnapshot(`
+      "claim -> processing [guard: 'pending']
+      complete -> completed [guard: 'processing']"
+    `);
   });
 });

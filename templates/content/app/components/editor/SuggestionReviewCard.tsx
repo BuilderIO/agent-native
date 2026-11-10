@@ -17,7 +17,7 @@ import { useDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 
 import { SuggestionReviewCardSkeleton } from "./SuggestionReviewCardSkeleton";
-import { proposalGroups } from "./thread-suggestions";
+import { proposalGroups, reviewedAsOne } from "./thread-suggestions";
 import { ThreadSuggestionBody } from "./ThreadSuggestion";
 
 type DecisionProblem = { groupKey: string; message: string };
@@ -93,16 +93,18 @@ export function SuggestionReviewCard({
   ) => {
     const key = groupKey(group);
     if (actionErrorCode(error) === "suggestion_stale") {
-      if (decided.length === 1) {
-        const [suggestion] = decided;
-        setUnplaceable((current) =>
-          new Map(current).set(suggestion!.id, suggestion!.revision),
-        );
+      // A group's refusal doesn't say which of its edits failed.
+      if (reviewedAsOne(decided)) {
+        setUnplaceable((current) => {
+          const next = new Map(current);
+          for (const { id, revision } of decided) next.set(id, revision);
+          return next;
+        });
       }
       setProblem({
         groupKey: key,
         message: t(
-          decided.length === 1
+          reviewedAsOne(decided)
             ? "editor.suggestionUnplaceable"
             : "editor.proposalUnplaceable",
         ),
@@ -146,14 +148,12 @@ export function SuggestionReviewCard({
     }
   };
 
-  const onDecideRemaining = async (
+  const onDecideMembers = async (
     group: ResourceSuggestion[],
+    members: ResourceSuggestion[],
     decision: SuggestionDecision,
   ) => {
     const proposalId = group[0]?.proposalId;
-    const members = group.filter(
-      (suggestion) => suggestion.status === "pending",
-    );
     if (deciding || !proposalId || members.length === 0) return;
     setProblem(null);
     try {
@@ -227,6 +227,7 @@ export function SuggestionReviewCard({
                 >
                   <ThreadSuggestionBody
                     suggestions={group}
+                    defaultExpanded
                     canDecide={canDecide}
                     busy={() => deciding}
                     conflict={(suggestion) =>
@@ -236,8 +237,17 @@ export function SuggestionReviewCard({
                     onDecide={(suggestion, decision) =>
                       void onDecide(group, suggestion, decision)
                     }
+                    onDecideUnit={(members, decision) =>
+                      void onDecideMembers(group, members, decision)
+                    }
                     onDecideRemaining={(decision) =>
-                      void onDecideRemaining(group, decision)
+                      void onDecideMembers(
+                        group,
+                        group.filter(
+                          (suggestion) => suggestion.status === "pending",
+                        ),
+                        decision,
+                      )
                     }
                   />
                   {problem?.groupKey === key ? (

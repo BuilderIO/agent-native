@@ -225,6 +225,7 @@ describe("formatChatErrorText", () => {
   describe("a message the server already chose for a visitor", () => {
     const ownerCodes = [
       "builder_auth_error",
+      "builder_oauth_lookup_failed",
       "builder_model_unauthorized",
       "email_verification_required",
       "provider_config_error",
@@ -277,6 +278,14 @@ describe("formatChatErrorText", () => {
     it("still maps the same codes for an owner-facing message", () => {
       expect(
         normalizeChatError("Invalid token", "builder_auth_error").message,
+      ).toBe(
+        "Builder rejected the connected credentials. Sign in to Builder.io again (free tier available) in Settings, then retry.",
+      );
+      expect(
+        normalizeChatError(
+          "Builder credential lookup failed.",
+          "builder_oauth_lookup_failed",
+        ).message,
       ).toBe(
         "Builder rejected the connected credentials. Sign in to Builder.io again (free tier available) in Settings, then retry.",
       );

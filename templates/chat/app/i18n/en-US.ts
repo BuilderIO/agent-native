@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Reference a conversation…",
+    group: "Conversations",
+    authentication: "Sign in to add a reference.",
+    invalid: "Choose a valid reference before sending.",
+    unavailable:
+      "A selected reference is no longer available. Remove it or choose it again.",
+  },
   composer: {
     removeAttachment: "Remove {{name}}",
     removeReference: "Remove {{name}} reference",
@@ -50,16 +58,12 @@ const messages = {
     untitledChat: "Untitled chat",
   },
   home: {
-    composerPlaceholder: "Call the hello action for Alex",
     communityTitle: "Connect with us",
     docsAddAction: "Add an action",
     docsAddPage: "Add a page",
     docsGettingStarted: "Getting started",
     docsKeyConcepts: "Key concepts",
     docsTitle: "Documentation",
-    editHint: "Edit {{file}} and save, then ask again to see the new greeting.",
-    lead: "Your app's UI and its agent share one set of actions.",
-    leadTry: "Ask the agent to call the hello action.",
     title: "Get started",
   },
   navigation: {

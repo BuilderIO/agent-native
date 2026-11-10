@@ -48,6 +48,18 @@ export function parseSlackMrkdwn(
   return nodes;
 }
 
+/** A message as one plain line, for a preview: the markup dropped, a link read as its label. */
+export function slackPlainText(
+  input: string,
+  options: SlackMrkdwnOptions = {},
+): string {
+  return parseSlackMrkdwn(input, options)
+    .map((node) => (node.type === "link" ? node.label : node.value))
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function resolveSlackMentionLabel(
   userId: string,
   pipeLabel: string | undefined,

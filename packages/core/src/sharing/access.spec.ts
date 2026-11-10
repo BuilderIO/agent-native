@@ -809,6 +809,58 @@ describe("shareable resource access helpers", () => {
     }
   });
 
+  it("never asks a host about signed-out requests unless it opted in", async () => {
+    await insertDoc({ id: "doc-hosted-signed-in-only" });
+    const asked: Array<string | undefined> = [];
+    registerHostAccessResolver(resourceType, async (_resource, ctx) => {
+      asked.push(ctx.userEmail);
+      return "editor";
+    });
+    try {
+      await runWithRequestContext({}, async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-hosted-signed-in-only"),
+        ).resolves.toBeNull();
+      });
+      expect(asked).toEqual([]);
+
+      await runWithRequestContext({ userEmail: viewerEmail }, async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-hosted-signed-in-only"),
+        ).resolves.toMatchObject({ role: "editor" });
+      });
+      expect(asked).toEqual([viewerEmail]);
+    } finally {
+      registerHostAccessResolver(resourceType, null);
+    }
+  });
+
+  it("asks a host that opted in about signed-out requests", async () => {
+    await insertDoc({ id: "doc-hosted-anonymous" });
+    const asked: Array<string | undefined> = [];
+    registerHostAccessResolver(
+      resourceType,
+      async (resource, ctx) => {
+        asked.push(ctx.userEmail);
+        return resource.id === "doc-hosted-anonymous" ? "viewer" : undefined;
+      },
+      { includeSignedOut: true },
+    );
+    try {
+      await runWithRequestContext({}, async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-hosted-anonymous"),
+        ).resolves.toMatchObject({ role: "viewer" });
+        await expect(
+          assertAccess(resourceType, "doc-hosted-anonymous", "editor"),
+        ).rejects.toThrow();
+      });
+      expect(asked).toContain(undefined);
+    } finally {
+      registerHostAccessResolver(resourceType, null);
+    }
+  });
+
   it("resolves read and write roles without letting visibility imply edit access", async () => {
     await insertDoc({ id: "doc-private" });
     await insertDoc({ id: "doc-owned-other-org", orgId: otherOrgId });

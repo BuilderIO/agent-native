@@ -111,11 +111,23 @@ export interface BuilderRelayRequestBody {
 
 export class BuilderAccountProvisioningError extends Error {
   readonly code: string | null;
+  readonly upstreamStatus: number | null;
+  readonly upstreamErrorBody: string | null;
+  readonly upstreamBodyReadErrorType: string | null;
 
-  constructor(message: string, code?: string) {
+  constructor(
+    message: string,
+    code?: string,
+    upstreamStatus: number | null = null,
+    upstreamErrorBody: string | null = null,
+    upstreamBodyReadErrorType: string | null = null,
+  ) {
     super(message);
     this.name = "BuilderAccountProvisioningError";
     this.code = code ?? null;
+    this.upstreamStatus = upstreamStatus;
+    this.upstreamErrorBody = upstreamErrorBody;
+    this.upstreamBodyReadErrorType = upstreamBodyReadErrorType;
   }
 }
 
@@ -790,6 +802,7 @@ export interface BuilderBrowserStatus {
   envManaged: boolean;
   credentialSource?: "user" | "org" | "workspace" | "env";
   canDisconnect?: boolean;
+  builderReauthorizationRequired?: boolean;
   authError?: { message: string; at: number };
   connectError?: { message: string; at: number; code?: string };
   appHost: string;
@@ -1123,6 +1136,27 @@ async function resolveDispatchBuilderProjectId(): Promise<DispatchBuilderProject
   }
 }
 
+type BuilderBranchProjectProvider = () =>
+  | string
+  | undefined
+  | Promise<string | undefined>;
+
+let builderBranchProjectProvider: BuilderBranchProjectProvider | null = null;
+
+/**
+ * A host that binds each view to a Builder project (Design, mounted inside
+ * Builder) names that project here, so a code-change handoff targets the
+ * project the user is looking at rather than one deployment-wide setting.
+ * Return `undefined` when the request has no bound project; the usual
+ * Dispatch, env and secret lookups then apply. See
+ * `resolveBuilderHandoffProjectId`.
+ */
+export function registerBuilderBranchProject(
+  provider: BuilderBranchProjectProvider | null,
+): void {
+  builderBranchProjectProvider = provider;
+}
+
 export async function resolveBuilderBranchProjectId(): Promise<string> {
   const dispatchProject = await resolveDispatchBuilderProjectId();
   if (dispatchProject.status === "unreadable") return "";
@@ -1147,6 +1181,26 @@ export async function resolveBuilderBranchProjectId(): Promise<string> {
   }
 
   return "";
+}
+
+/**
+ * The project a code-change handoff targets: the one the host binds to the
+ * current view when it names one, otherwise the deployment's configured
+ * project. Only the handoff uses this. Realtime channels and Builder status
+ * keep the deployment's project, so a view bound elsewhere cannot move them.
+ */
+export async function resolveBuilderHandoffProjectId(): Promise<string> {
+  if (builderBranchProjectProvider) {
+    try {
+      const hostProjectId = (await builderBranchProjectProvider())?.trim();
+      if (hostProjectId) return hostProjectId;
+    } catch {
+      // coercion-ok: fails closed like an unreadable Dispatch setting, so no
+      // other project stands in for the one the host could not name.
+      return "";
+    }
+  }
+  return resolveBuilderBranchProjectId();
 }
 
 export async function resolveIsBuilderBranchingEnabled(): Promise<boolean> {
@@ -2514,6 +2568,8 @@ function parseBuilderAccountProvisioningResponse(
 }
 
 export async function provisionBuilderAccount(input: {
+  /** Version 3 is rejected by older servers rather than connecting an existing account. */
+  newAccountOnly?: boolean;
   email: string;
   name?: string;
   agentNativeApp?: string;
@@ -2527,8 +2583,9 @@ export async function provisionBuilderAccount(input: {
     input.name?.trim().slice(0, 120) || email.slice(0, email.indexOf("@"));
   const agentNativeApp = cleanTrackingParam(input.agentNativeApp);
   const agentNativeTemplate = cleanTrackingParam(input.agentNativeTemplate);
-  const version =
-    agentNativeApp || agentNativeTemplate
+  const version = input.newAccountOnly
+    ? "agent-native-account-v3"
+    : agentNativeApp || agentNativeTemplate
       ? "agent-native-account-v2"
       : "agent-native-account-v1";
   const timestamp = String(Date.now());
@@ -2539,9 +2596,10 @@ export async function provisionBuilderAccount(input: {
     requestId,
     email,
     name,
-    ...(version === "agent-native-account-v2"
+    ...(version !== "agent-native-account-v1"
       ? [agentNativeApp ?? "", agentNativeTemplate ?? ""]
       : []),
+    ...(input.newAccountOnly ? ["new-account-only"] : []),
   ].join("\n");
   const signature = createHmac("sha256", builderAccountProvisioningSecret())
     .update(signaturePayload)
@@ -2560,13 +2618,44 @@ export async function provisionBuilderAccount(input: {
       body: JSON.stringify({
         email,
         name,
+        ...(input.newAccountOnly ? { newAccountOnly: true } : {}),
         ...(agentNativeApp ? { agentNativeApp } : {}),
         ...(agentNativeTemplate ? { agentNativeTemplate } : {}),
       }),
     },
     "account provisioning",
   );
-  const parsed = await readBuilderApiObject(response, "account provisioning");
+  const bodyRead = await response
+    .clone()
+    .text()
+    .then(
+      (body) => ({ ok: true as const, body }),
+      (error: unknown) => ({
+        ok: false as const,
+        errorType:
+          error instanceof Error &&
+          /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(error.name)
+            ? error.name
+            : typeof error,
+      }),
+    );
+  const rawErrorBody = bodyRead.ok ? bodyRead.body : null;
+  const bodyReadErrorType = bodyRead.ok ? null : bodyRead.errorType;
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = await readBuilderApiObject(response, "account provisioning");
+  } catch (error) {
+    if (response.ok) throw error;
+    throw new BuilderAccountProvisioningError(
+      error instanceof Error
+        ? error.message
+        : "Builder account provisioning failed",
+      undefined,
+      response.status,
+      builderProvisioningErrorBody(null, rawErrorBody),
+      bodyReadErrorType,
+    );
+  }
   if (!response.ok) {
     throw new BuilderAccountProvisioningError(
       builderApiErrorMessage(
@@ -2574,9 +2663,24 @@ export async function provisionBuilderAccount(input: {
         `Builder account provisioning failed (${response.status})`,
       ),
       typeof parsed.code === "string" ? parsed.code : undefined,
+      response.status,
+      builderProvisioningErrorBody(parsed, rawErrorBody),
+      bodyReadErrorType,
     );
   }
-  return parseBuilderAccountProvisioningResponse(parsed);
+  try {
+    return parseBuilderAccountProvisioningResponse(parsed);
+  } catch (error) {
+    throw new BuilderAccountProvisioningError(
+      error instanceof Error
+        ? error.message
+        : "Builder account provisioning failed",
+      undefined,
+      response.status,
+      builderProvisioningErrorBody(parsed, rawErrorBody),
+      bodyReadErrorType,
+    );
+  }
 }
 
 /**
@@ -2609,6 +2713,64 @@ function builderApiErrorMessage(
     return parsed.message.trim();
   }
   return fallback;
+}
+
+function redactBuilderDiagnosticText(value: string): string {
+  // Upstream errors can nest escaped JSON several levels deep.
+  let normalizedValue = value;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const unescapedValue = normalizedValue.replace(/\\+(?=["'])/g, "");
+    if (unescapedValue === normalizedValue) break;
+    normalizedValue = unescapedValue;
+  }
+  return normalizedValue
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted-email]")
+    .replace(
+      /\bauthorization\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\r\n,};]+)/gi,
+      "Authorization: [redacted]",
+    )
+    .replace(/\bBearer\s+[^\s,"']+/gi, "Bearer [redacted]")
+    .replace(
+      /\b(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,})\b/gi,
+      "[redacted-token]",
+    )
+    .replace(
+      /\b[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/g,
+      "[redacted-token]",
+    )
+    .replace(/\b(?:sk|bpk|space)[_-][A-Za-z0-9_-]{8,}\b/gi, "[redacted-key]")
+    .replace(
+      /(["']?[\w.-]*(?:authorization|access[_-]?(?:key|token)|session[_-]?key|signing[_-]?key|refresh[_-]?token|id[_-]?token|auth[_-]?token|oauth[_-]?token|api[_-]?key|private[_-]?key|client[_-]?secret|jwt|token|secret|password|cookie|credential)[\w.-]*["']?\s*[:=]\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^,\r\n}&;]+)/gi,
+      "$1[redacted]",
+    )
+    .slice(0, 512);
+}
+
+function builderProvisioningErrorBody(
+  parsed: Record<string, unknown> | null,
+  rawBody: string | null,
+): string | null {
+  if (parsed) {
+    const body: Record<string, string> = {};
+    for (const key of ["code", "error", "message", "detail", "type"]) {
+      const value = parsed[key];
+      if (typeof value === "string" && value.trim()) {
+        body[key] = redactBuilderDiagnosticText(value.trim());
+      }
+    }
+    if (Object.keys(body).length === 0) {
+      body.fields = Object.keys(parsed)
+        .filter(
+          (key) => !/(email|token|secret|password|key|auth|cookie)/i.test(key),
+        )
+        .slice(0, 12)
+        .join(",");
+    }
+    return JSON.stringify(body).slice(0, 2048);
+  }
+  if (rawBody === null) return null;
+  const excerpt = redactBuilderDiagnosticText(rawBody.trim());
+  return excerpt ? JSON.stringify({ text: excerpt }).slice(0, 2048) : null;
 }
 
 /** @deprecated Repository-backed Builder projects are retained for compatibility. */
@@ -2714,6 +2876,25 @@ export async function createBuilderProject(args: {
     throw new Error("Builder project creation returned no project id");
   }
   return project;
+}
+
+/** Builder Workspace project id this deployment is linked to, if any. */
+export function getBuilderWorkspaceProjectId(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  return env.BUILDER_WORKSPACE_PROJECT_ID?.trim() || null;
+}
+
+/**
+ * Where a Builder-linked workspace is managed in Builder. Apps for a linked
+ * workspace are created there, not from Dispatch.
+ */
+export function getBuilderWorkspaceUrl(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const projectId = getBuilderWorkspaceProjectId(env);
+  if (!projectId) return null;
+  return `${getBuilderAppHost().replace(/\/$/, "")}/app/workspaces/${encodeURIComponent(projectId)}`;
 }
 
 /** @deprecated Repository-backed Builder projects are retained for compatibility. */

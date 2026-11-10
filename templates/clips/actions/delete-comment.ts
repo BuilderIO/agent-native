@@ -6,7 +6,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
+import { sameOwnerEmail } from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
@@ -14,7 +15,7 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Comment ID"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const [existing] = await db
       .select()
@@ -24,21 +25,13 @@ export default defineAction({
     if (!existing) throw new Error(`Comment not found: ${args.id}`);
 
     const userEmail = getRequestUserEmail();
-    const isAuthor = !!userEmail && existing.authorEmail === userEmail;
+    const isAuthor = sameOwnerEmail(existing.authorEmail, userEmail);
 
-    const access = await assertAccess(
-      "recording",
+    await assertCommentAccess(
       existing.recordingId,
-      "viewer",
+      "delete",
+      ctx?.requestHeaders,
     );
-    if (
-      isRecordingExpiredForViewer({
-        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
-        viewerIsOwner: access.role === "owner",
-      })
-    ) {
-      throw new ForbiddenError("Recording has expired");
-    }
 
     if (!isAuthor) {
       try {

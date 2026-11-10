@@ -2,6 +2,7 @@ import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
 import {
   parseCommentMentions,
   type CommentMention,
@@ -53,6 +54,9 @@ export interface Comment {
   field_id?: string | null;
   /** The field's name when the thread started. */
   field_name?: string | null;
+  /** Set on the root of a thread about a whole block, such as a video. */
+  block_id?: string | null;
+  block_type?: string | null;
   mentions: CommentMention[];
   author_email: string;
   author_name: string | null;
@@ -70,6 +74,8 @@ export interface Comment {
   author_model?: string | null;
   /** The thinking effort the writing run resolved, when one was recorded. */
   author_effort?: string | null;
+  /** The MCP host, such as `claude-code`, an outside agent posted it from. */
+  author_client?: string | null;
   mutation?: CommentMutationState;
 }
 
@@ -87,6 +93,30 @@ export interface CommentThreadField {
   fieldName: string | null;
 }
 
+/** The block a thread is about as a whole, in place of quoted text. */
+export interface CommentThreadBlock {
+  blockId: string;
+  blockType: string;
+}
+
+/**
+ * A thread on a Clip placed in the page, saved in Clips rather than with the
+ * page's own comments.
+ */
+export interface CommentThreadClip {
+  recordingId: string;
+  /** The thread's id in Clips. */
+  threadId: string;
+  /** The moment of the Clip's video the thread is at. */
+  videoTimestampMs: number;
+  /** Clips takes replies on this Clip from the reader. */
+  canComment: boolean;
+  /** Clips lets the reader resolve it: they wrote it, or own the Clip. */
+  canResolve: boolean;
+  /** Its replies in Clips, which can be more than the list brought. */
+  replyCount: number;
+}
+
 export interface CommentThread {
   threadId: string;
   quotedText: string | null;
@@ -97,6 +127,8 @@ export interface CommentThread {
   property?: CommentThreadProperty | null;
   /** Set when the thread is in a Blocks field tab other than the body. */
   field?: CommentThreadField | null;
+  block?: CommentThreadBlock | null;
+  clip?: CommentThreadClip | null;
   resolved: boolean;
   comments: Comment[];
 }
@@ -126,18 +158,21 @@ export interface CreateCommentVariables {
   documentId: string;
   content: string;
   threadId?: string;
-  parentId?: string;
-  quotedText?: string;
-  anchorPrefix?: string;
-  anchorSuffix?: string;
-  anchorStartOffset?: number;
+  parentId?: string | undefined;
+  quotedText?: string | undefined;
+  anchorPrefix?: string | undefined;
+  anchorSuffix?: string | undefined;
+  anchorStartOffset?: number | undefined;
   /** Starts a thread on this Property instead of on quoted text. */
   propertyId?: string;
   /** The Collection that owns propertyId. */
-  databaseId?: string;
+  databaseId?: string | undefined;
   /** Starts a thread in this Blocks field's tab instead of the body. */
   fieldId?: string;
-  mentions?: string;
+  /** Starts a thread on this whole block instead of on quoted text. */
+  blockId?: string;
+  blockType?: CommentAnchorBlockType;
+  mentions?: string | undefined;
 }
 
 export interface EditCommentVariables {
@@ -459,6 +494,9 @@ function groupCommentThreads(data: unknown): CommentThread[] {
               fieldName: comment.field_name ?? null,
             }
           : null,
+        block: comment.block_id
+          ? { blockId: comment.block_id, blockType: comment.block_type ?? "" }
+          : null,
         resolved: !!comment.resolved,
         comments: [],
       });
@@ -520,6 +558,8 @@ export function useCreateComment(author: CommentAuthor = {}) {
         property_database_id: variables.databaseId ?? null,
         field_id: variables.fieldId ?? null,
         field_name: null,
+        block_id: variables.blockId ?? null,
+        block_type: variables.blockType ?? null,
         mentions:
           variables.mentions === undefined
             ? []
@@ -927,11 +967,26 @@ export function useResolveComment() {
   );
 }
 
+/** Deleting a thread's first comment deletes the thread. */
 export function useDeleteComment() {
+  const queryClient = useQueryClient();
   return useContentActionMutation<
-    { ok: boolean },
+    { ok: boolean; deletedIds?: string[] },
     { id: string; documentId: string }
   >("delete-comment", {
+    // Gone at once rather than after the refetch the invalidation starts.
+    onSuccess: (data, { id, documentId }) => {
+      const deleted = new Set(data.deletedIds ?? [id]);
+      queryClient.setQueryData<CommentListResponse>(
+        commentQueryKey(documentId),
+        (response) =>
+          response === undefined
+            ? response
+            : updateComments(response, (comments) =>
+                comments.filter((comment) => !deleted.has(comment.id)),
+              ),
+      );
+    },
     invalidates: (_data, { documentId }) => [
       commentQueryKey(documentId),
       ["action", "list-comment-ai-requests", { documentId }],

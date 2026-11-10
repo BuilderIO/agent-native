@@ -9,10 +9,12 @@ import {
 } from "@shared/properties";
 
 import {
+  documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
   useDocumentProperties,
 } from "@/hooks/use-document-properties";
 
+import type { DatabaseRowView } from "./database/row-view-layout";
 import { DescriptionField } from "./DescriptionField";
 import { DocumentProperties } from "./DocumentProperties";
 
@@ -20,10 +22,11 @@ interface DocumentInfoPanelProps {
   document: Document;
   documentContent: string;
   additionalBlockContents?: Readonly<Record<string, string>>;
-  databaseId?: string | null;
-  databaseDocumentId?: string | null;
+  databaseId?: string | null | undefined;
+  databaseDocumentId?: string | null | undefined;
+  rowView?: DatabaseRowView | null;
+  rowViewPending?: boolean;
   canEdit: boolean;
-  popoverContainer?: HTMLElement | null;
   onSaveDescription: (description: string) => Promise<unknown>;
 }
 
@@ -33,8 +36,9 @@ export function DocumentInfoPanel({
   additionalBlockContents = {},
   databaseId,
   databaseDocumentId,
+  rowView,
+  rowViewPending,
   canEdit,
-  popoverContainer,
   onSaveDescription,
 }: DocumentInfoPanelProps) {
   const t = useT();
@@ -55,6 +59,14 @@ export function DocumentInfoPanel({
   const loadedProperties = propertiesLoaded
     ? propertiesQuery.data?.properties
     : undefined;
+  // Properties below says so and offers the retry; counts can't be known.
+  const contentUnknown =
+    hasDatabaseFields &&
+    documentPropertiesReadFailed(
+      document.id,
+      propertyDatabaseId,
+      propertiesQuery,
+    );
   const blockFields = documentInfoBlockFields({
     documentContent,
     properties:
@@ -79,34 +91,36 @@ export function DocumentInfoPanel({
         }
         onSave={onSaveDescription}
       />
-      <section className="mt-5" data-document-info-content>
-        <h3 className="px-2 py-1 text-xs font-medium text-muted-foreground">
-          {t("editor.properties.content")}
-        </h3>
-        {hasDatabaseFields && !propertiesLoaded ? (
-          <div
-            className="mx-2 h-8 animate-pulse rounded-md bg-muted/40"
-            aria-label={t("editor.properties.loadingContent")}
-          />
-        ) : (
-          <div className="grid gap-0.5">
-            {blockFields.map((field) => (
-              <div
-                key={field.propertyId ?? "primary"}
-                className="grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2 py-1.5 text-sm"
-                data-document-info-block-field={field.propertyId ?? "primary"}
-              >
-                <span className="truncate text-foreground">{field.name}</span>
-                <span className="whitespace-nowrap text-muted-foreground tabular-nums">
-                  {t("editor.properties.wordCount", {
-                    count: countWords(field.content),
-                  })}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+      {contentUnknown ? null : (
+        <section className="mt-5" data-document-info-content>
+          <h3 className="px-2 py-1 text-xs font-medium text-muted-foreground">
+            {t("editor.properties.content")}
+          </h3>
+          {hasDatabaseFields && !propertiesLoaded ? (
+            <div
+              className="mx-2 h-8 animate-pulse rounded-md bg-muted/40"
+              aria-label={t("editor.properties.loadingContent")}
+            />
+          ) : (
+            <div className="grid gap-0.5">
+              {blockFields.map((field) => (
+                <div
+                  key={field.propertyId ?? "primary"}
+                  className="grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2 py-1.5 text-sm"
+                  data-document-info-block-field={field.propertyId ?? "primary"}
+                >
+                  <span className="truncate text-foreground">{field.name}</span>
+                  <span className="whitespace-nowrap text-muted-foreground tabular-nums">
+                    {t("editor.properties.wordCount", {
+                      count: countWords(field.content),
+                    })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
       {document.databaseMembership && !isLocalFileDocument ? (
         <DocumentProperties
           documentId={document.id}
@@ -114,8 +128,9 @@ export function DocumentInfoPanel({
           databaseDocumentId={
             databaseDocumentId ?? document.databaseMembership.databaseDocumentId
           }
+          rowView={rowView}
+          rowViewPending={rowViewPending}
           canEdit={canEdit}
-          popoverContainer={popoverContainer}
         />
       ) : null}
     </div>

@@ -4,10 +4,13 @@ import * as hubspotEmail from "@shared/hubspot-email";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "@/components/design/types";
+import type { DesignFile } from "@/pages/design-editor/types";
 
 import {
   DesignSelectionPublishError,
   runPublishAgentSelectionContext,
+  summarizeAgentSelectionScreens,
+  type ScreenFrameTypeCache,
 } from "./publish-agent-selection-context";
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
@@ -20,9 +23,29 @@ import { setClientAppState } from "@agent-native/core/client/hooks";
 import { assertNoInlineImageBytes } from "@agent-native/core/testing";
 
 type Args = Parameters<typeof runPublishAgentSelectionContext>[0];
+// A debounce or retry timer left pending writes into a later test's mock.
+const selectionFixtures = new Set<Args>();
 
-function argsFor(overrides: Partial<Args> = {}): Args {
-  return {
+function disposeSelectionFixture(args: Args) {
+  args.persistedSelectionStateRef.current = null;
+  args.persistedSelectionContextRef.current = null;
+  args.pendingPersistedSelectionWriteRef.current = null;
+  if (args.persistedSelectionWriteTimerRef.current !== null) {
+    window.clearTimeout(args.persistedSelectionWriteTimerRef.current);
+    args.persistedSelectionWriteTimerRef.current = null;
+  }
+}
+
+afterEach(() => {
+  for (const args of selectionFixtures) disposeSelectionFixture(args);
+  selectionFixtures.clear();
+});
+
+function argsFor({
+  files = [],
+  ...overrides
+}: Partial<Args> & { files?: DesignFile[] } = {}): Args {
+  const args: Args = {
     activeBreakpointWidthState: undefined,
     activeCodeFile: null,
     activeFile: {
@@ -36,12 +59,13 @@ function argsFor(overrides: Partial<Args> = {}): Args {
     designDataJson: {},
     layoutGrids: {},
     designSelectionOwnerIdRef: { current: "owner-1" },
-    files: [],
     hoveredElement: null,
     id: "design-1",
     interactDevice: { name: 'MacBook Air 13"', width: 1440, height: 900 },
     interactTheme: "light",
     isSignedIn: true,
+    selectionPublishFailedLabel:
+      "The agent may not see your latest selection. Select it again.",
     mode: "edit" as Args["mode"],
     motionAutoKeyframeEnabled: false,
     motionDockOpen: false,
@@ -60,6 +84,8 @@ function argsFor(overrides: Partial<Args> = {}): Args {
     persistedSelectionStateRef: { current: null },
     persistedSelectionWriteTimerRef: { current: null },
     responsiveEditScope: "base" as Args["responsiveEditScope"],
+    reviewThreadId: null,
+    screens: summarizeAgentSelectionScreens(files, {}, new Map()),
     selectedElement: null,
     selectedScreenIds: [],
     selectedStateId: null,
@@ -67,6 +93,8 @@ function argsFor(overrides: Partial<Args> = {}): Args {
     zoom: 100,
     ...overrides,
   };
+  selectionFixtures.add(args);
+  return args;
 }
 
 function publishedSelection(): Record<string, unknown> {
@@ -217,20 +245,26 @@ describe("runPublishAgentSelectionContext frame classification", () => {
 
   it("reuses unchanged screen classifications while reflecting edits and replacement files", () => {
     const classify = vi.spyOn(hubspotEmail, "isHubSpotEmailHtml");
+    const cache: ScreenFrameTypeCache = new Map();
     const first = argsFor().activeFile!;
     const second = { ...first, id: "screen-2", filename: "second.html" };
-    const args = argsFor({ activeFile: first, files: [first, second] });
 
-    runPublishAgentSelectionContext(args);
-    expect(publishedSelection().activeFrameType).toBeNull();
+    const screens = summarizeAgentSelectionScreens([first, second], {}, cache);
     expect(classify).toHaveBeenCalledTimes(2);
 
-    runPublishAgentSelectionContext({ ...args, zoom: 60 });
-    runPublishAgentSelectionContext({ ...args, activeFile: second });
+    const rebuilt = summarizeAgentSelectionScreens(
+      [{ ...first }, { ...second }],
+      {},
+      cache,
+    );
+    expect(rebuilt).toEqual(screens);
     expect(classify).toHaveBeenCalledTimes(2);
 
-    second.content = hubspotEmail.createHubSpotEmailHtml();
-    runPublishAgentSelectionContext({ ...args, activeFile: second });
+    const email = { ...second, content: hubspotEmail.createHubSpotEmailHtml() };
+    const edited = summarizeAgentSelectionScreens([first, email], {}, cache);
+    runPublishAgentSelectionContext(
+      argsFor({ activeFile: email, screens: edited }),
+    );
     expect(publishedSelection().activeFrameType).toBe("hubspot-email");
     expect(publishedSelection().screens).toEqual([
       expect.objectContaining({ id: "screen-1", frameType: null }),
@@ -238,14 +272,70 @@ describe("runPublishAgentSelectionContext frame classification", () => {
     ]);
     expect(classify).toHaveBeenCalledTimes(3);
 
-    const replacement = { ...second, content: first.content };
-    runPublishAgentSelectionContext({
-      ...args,
-      activeFile: replacement,
-      files: [first, replacement],
-    });
-    expect(publishedSelection().activeFrameType).toBeNull();
+    const replacement = { ...email, content: first.content };
+    const replaced = summarizeAgentSelectionScreens(
+      [first, replacement],
+      {},
+      cache,
+    );
+    expect(replaced[1]?.frameType).toBeNull();
     expect(classify).toHaveBeenCalledTimes(4);
+
+    summarizeAgentSelectionScreens([first], {}, cache);
+    expect([...cache.keys()]).toEqual(["screen-1"]);
+  });
+
+  it("takes stored frame types from screen metadata without reading source", () => {
+    const classify = vi.spyOn(hubspotEmail, "isHubSpotEmailHtml");
+    const content = vi.fn(() => hubspotEmail.createHubSpotEmailHtml());
+    const screen = (id: string) =>
+      Object.defineProperty(
+        { id, filename: `${id}.html`, fileType: "html" },
+        "content",
+        { get: content },
+      ) as DesignFile;
+    const designData = {
+      screenMetadata: {
+        email: { width: 600, frameType: "hubspot-email" },
+        web: { frameType: "web" },
+      },
+    };
+
+    const screens = summarizeAgentSelectionScreens(
+      [screen("email"), screen("web")],
+      designData,
+      new Map(),
+    );
+
+    expect(screens).toEqual([
+      expect.objectContaining({ id: "email", frameType: "hubspot-email" }),
+      expect.objectContaining({ id: "web", frameType: null }),
+    ]);
+    expect(classify).not.toHaveBeenCalled();
+    expect(content).not.toHaveBeenCalled();
+  });
+
+  it("publishes a zoom change without reading any screen source", () => {
+    const classify = vi.spyOn(hubspotEmail, "isHubSpotEmailHtml");
+    const file = argsFor().activeFile!;
+    const screens = summarizeAgentSelectionScreens([file], {}, new Map());
+    classify.mockClear();
+    const content = vi.fn(() => file.content);
+    const guarded = Object.defineProperty({ ...file }, "content", {
+      get: content,
+    });
+    const args = argsFor({ activeFile: guarded, screens });
+
+    runPublishAgentSelectionContext(args);
+    runPublishAgentSelectionContext({ ...args, zoom: 60 });
+
+    expect(publishedSelection()).toMatchObject({
+      zoom: 60,
+      activeFrameType: null,
+      screens: [expect.objectContaining({ id: "screen-1", frameType: null })],
+    });
+    expect(classify).not.toHaveBeenCalled();
+    expect(content).not.toHaveBeenCalled();
   });
 });
 
@@ -303,7 +393,7 @@ describe("runPublishAgentSelectionContext application state write", () => {
       filename: `nested-${index}.html`,
       fileType: "html",
       content: "<!doctype html><html><body>Nested screen</body></html>",
-    })) as Args["files"];
+    })) as DesignFile[];
     runPublishAgentSelectionContext(
       argsFor({ files, selectedElement: deepScreenElement() }),
     );
@@ -344,6 +434,26 @@ describe("runPublishAgentSelectionContext application state write", () => {
     expect(args.persistedSelectionStateRef.current).not.toBeNull();
   });
 
+  it("publishes the open review thread, and null when none is open", () => {
+    runPublishAgentSelectionContext(argsFor({ reviewThreadId: "thread-9" }));
+    expect(publishedSelection().reviewThreadId).toBe("thread-9");
+    expect(writtenSelection().reviewThreadId).toBe("thread-9");
+
+    runPublishAgentSelectionContext(argsFor());
+    expect(publishedSelection().reviewThreadId).toBeNull();
+    expect(writtenSelection().reviewThreadId).toBeNull();
+  });
+
+  it("writes again right away when the open thread changes, not on the zoom debounce", () => {
+    const args = argsFor({ reviewThreadId: null });
+    runPublishAgentSelectionContext(args);
+    const afterFirst = vi.mocked(setClientAppState).mock.calls.length;
+
+    runPublishAgentSelectionContext({ ...args, reviewThreadId: "thread-9" });
+    expect(vi.mocked(setClientAppState).mock.calls.length).toBe(afterFirst * 2);
+    expect(writtenSelection().reviewThreadId).toBe("thread-9");
+  });
+
   it("sends a bounded selection as keepalive so a write just before navigating away lands", () => {
     runPublishAgentSelectionContext(
       argsFor({ selectedElement: deepScreenElement() }),
@@ -360,7 +470,7 @@ describe("runPublishAgentSelectionContext application state write", () => {
       filename: `${"long-screen-name-".repeat(4)}${index}.html`,
       fileType: "html",
       content: "<!doctype html><html><body>Screen</body></html>",
-    })) as Args["files"];
+    })) as DesignFile[];
     runPublishAgentSelectionContext(argsFor({ files }));
 
     const calls = vi.mocked(setClientAppState).mock.calls;
@@ -380,9 +490,10 @@ describe("runPublishAgentSelectionContext application state write", () => {
 
     runPublishAgentSelectionContext(args);
     const firstWriteCount = vi.mocked(setClientAppState).mock.calls.length;
-    await vi.waitFor(() =>
-      expect(consoleError).toHaveBeenCalledTimes(firstWriteCount),
-    );
+    await vi.waitFor(() => {
+      expect(consoleError).toHaveBeenCalledTimes(firstWriteCount);
+      expect(args.persistedSelectionWriteTimerRef.current).not.toBeNull();
+    });
 
     const reported = consoleError.mock.calls.map((call) => call[0]);
     for (const error of reported) {
@@ -404,6 +515,28 @@ describe("runPublishAgentSelectionContext application state write", () => {
     expect(vi.mocked(setClientAppState).mock.calls.length).toBe(
       firstWriteCount * 2,
     );
+    expect(args.persistedSelectionWriteTimerRef.current).toBeNull();
+  });
+
+  it("does not schedule a retry when a write rejects after fixture disposal", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const deferred: { reject?: (error: Error) => void } = {};
+      const pending = new Promise<never>((_, reject) => {
+        deferred.reject = reject;
+      });
+      vi.mocked(setClientAppState).mockReturnValue(pending);
+      const args = argsFor({ selectedElement: deepScreenElement() });
+      runPublishAgentSelectionContext(args);
+      disposeSelectionFixture(args);
+      if (!deferred.reject) throw new Error("Promise was not initialized");
+      deferred.reject(new Error("offline"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(args.persistedSelectionWriteTimerRef.current).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("retries a failed write after 1, 2 and 4 seconds, then stops", async () => {

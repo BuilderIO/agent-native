@@ -138,7 +138,14 @@ collection on with `configure-content-collection`, check it with
 
 Metrics are `ga4_pageviews` (per blog article) and `search_console_clicks` /
 `search_console_impressions` (per article, plus non-article pages stored as
-`search_console` items). Search Console data is two to three days late, so the
+`search_console` items). GA4 reads the collection's `ga4.propertyId`, set with
+`configure-content-collection --ga4PropertyId <numeric-id>`; it never falls back
+to the shared `GA4_PROPERTY_ID` used by other dashboards. An unset property
+reports `not_configured` without querying. Changing the property starts a fresh
+90-day backfill; its first successful save replaces the previous property's
+pageview history, including dates outside that window. Failed replacements
+keep the saved history. Pass `ga4PropertyId: null` to clear it; omitted settings keep
+their saved values. Search Console data is two to three days late, so the
 newest days have no row yet; read them as still arriving. Search Console
 collection stays off until a property owner adds the service account that
 `get-content-collection` returns as `serviceAccount.email`; then set its
@@ -155,14 +162,20 @@ dry-runs first, stops as `cost_limited` without querying when the estimate is
 over the cap, and runs the join with that cap as BigQuery's billing limit.
 
 The catalog's "Content" dashboard (`content-view`) is the reference for these
-tables: start from its panels before writing new content SQL. Its Articles
-panel shows why a metric is missing (`failed`, `not set up`, `still
-arriving`) in a column next to the blank number; keep that pattern. The
+tables: start from its panels before writing new content SQL. Its Missing
+data callout has no `tab`, so it shows on every tab. It joins the expected
+sources to their latest run in the last 30 days, so it names each source whose
+run failed, hit the cost cap or isn't connected, and each one with no run in
+that window; keep that pattern rather than letting a missing row read as
+"nothing missing". The
 first-party SQL policy rejects functions outside its allow-list (for example
 `concat_ws`) and reads `CASE (` as a function call, so join a status column
-instead of a scalar subquery inside `CASE`. Its trend chart uses wide rows
-(`yKeys`), not `pivot`: a pivot fills a missing series with 0, so a day a
-source didn't report would draw as a zero instead of a gap. Content is a
+instead of a scalar subquery inside `CASE`. Its parser also rejects `VALUES`
+lists and `IS DISTINCT FROM`: list fixed rows with `SELECT … UNION ALL` and
+compare with `COALESCE(x, '') <> …`. Its daily signups chart uses wide
+rows (`yKeys`), not `pivot`: a pivot fills a missing series with 0, so an
+uncollected day would draw as a zero instead of a gap. Pivot only where a
+missing row is a real zero, like an author's week without signups. Content is a
 built-in: turning collection on with `configure-content-collection` lists it
 in the organization's Dashboards at `content-view` (`contentDashboardId` in the
 result). It is read-only; build on it with `duplicate-dashboard`.
@@ -232,7 +245,7 @@ pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
 pnpm action navigate --view=adhoc --dashboardId=weekly-metrics
 ```
 
-The save path dry-runs BigQuery panels before persisting. If validation returns a provider error, fix the query and retry. Never work around validation by writing directly to a table.
+The save path dry-runs BigQuery panels before persisting. If validation returns a provider error, fix the query and retry. A `sql_validation_unavailable` error (status 503) means the validator could not run, not that the SQL is wrong: retry the same write, or report the outage, without rewriting the query. Never work around validation by writing directly to a table.
 
 ### Replicating Or Adapting Another Dashboard
 
@@ -420,7 +433,10 @@ another organization's); it is still saved. A set or note the dashboard hides
 is that dashboard's choice, so ask before showing it.
 
 To explain a spike or dip, read `keyDateSets` and `dataNotes` from
-`get-sql-dashboard` or `view-screen` first and cite what they say. If
+`get-sql-dashboard` or `view-screen` first and cite what they say. They are the
+organization's records, not part of the dashboard's saved config: a config
+write needn't carry them and can't change them, though its `annotations` field
+picks which ones this dashboard hides. If
 `annotationsError` is there instead, say the markers could not be read rather
 than that there are none. `omittedKeyDateSetCount` or `omittedDataNoteCount`
 means the list was cut to fit, so read `list-key-dates` or `list-data-notes`
@@ -488,23 +504,41 @@ declare `config.drilldown: { sql: "…" }`
 to open records for a clicked point instead of aggregate rows. The template
 receives the dashboard filters plus `{{drillX}}` (raw x-axis value) and
 `{{drillSeries}}` (raw series key, or empty when absent), escaped for the source.
-In declared BigQuery templates, scalar variables must be inside ordinary quoted strings, and `:list` variables
-must be standalone SQL tokens, such as inside `IN ({{appFilter:list}})`.
+In declared BigQuery templates, variables must be inside ordinary quoted strings.
 Lookup rejects variables in raw literals, identifiers or comments, variables
-right after a string's backslash escape, variables touching a quote other than
-a triple-quoted string's own delimiters (an empty value could join the quotes),
-and variables attached to SQL identifiers or literal prefixes. Doubled quotes
+right after a string's backslash escape, and variables touching a quote other
+than a triple-quoted string's own delimiters (an empty value could join the
+quotes). Doubled quotes
 (`''`) are refused too: GoogleSQL reads them as two literals, so escape quotes
 with a backslash. Static raw regex literals are allowed.
 Declared first-party templates follow the same position rules in PostgreSQL
-syntax: scalar variables go inside plain `'…'` strings (`''` escapes a quote),
+syntax: variables go inside plain `'…'` strings (`''` escapes a quote),
 never in `"…"` identifiers. Lookup also refuses `E`, `U&`, `B`, `X` and `N`
 strings, a prefix touching its quote (write `DATE '2026-10-01'`), `$`,
 backticks or `#` outside strings, and nested block comments.
 Declared record templates do not support `{{?variable}}…{{/variable}}`
 blocks, which could assemble new literal contexts after validation. Use SQL
 `CASE` expressions with ordinary variables for optional filters.
-Its SQL can return `COUNT(*) OVER () AS total_matching` alongside a bounded
+
+**Record templates can't use `:list` variables.** With nothing selected,
+`{{appFilter:list}}` renders as the bare name `__empty_list_filter__`. BigQuery
+and PostgreSQL reject that name even inside a `CASE` branch that never runs, so
+`IN ({{appFilter:list}})` fails every click until someone picks a value. Under
+an `all` option, such as the first-party app filter's default, it renders as
+`'all'` and matches no rows. Match the comma-joined scalar instead, and treat
+both an empty value and `all` as every app. In BigQuery:
+`('{{appFilter}}' IN ('', 'all') OR app IN UNNEST(SPLIT('{{appFilter}}', ',')))`.
+In first-party SQL, which can also run on BigQuery:
+`('{{appFilter}}' IN ('', 'all') OR STRPOS(',' || '{{appFilter}}' || ',', ',' || app || ',') > 0)`.
+An agent dashboard write that adds or changes a template with a `:list`
+variable is refused with these patterns, and one with a `{{?…}}` block is
+refused with the `CASE` advice above. A template saved earlier with `:list`
+fails every click, even with values selected, until it is rewritten to one of
+these patterns. The other rules
+above are checked only when someone clicks, and a failed click shows just
+"Couldn't load records".
+
+A record template can return `COUNT(*) OVER () AS total_matching` alongside a bounded
 record list such as `LIMIT 500`; the dialog hides that count column and reports
 truncation. Without a valid count, the total and export completeness remain
 unknown. Provider partial results also have unknown totals, even if a count is
@@ -658,6 +692,41 @@ Read `custom-blocks` before creating, embedding, cloning, or repairing one.
 }
 ```
 
+## Value Formats
+
+Metric tiles, chart axes and tooltips take `config.yFormatter` (and
+`rightYFormatter`): `"number"`, `"currency"`, `"percent"`, or `"duration"`.
+Table columns take `config.columns[].format`: `"number"`, `"currency"`,
+`"percent"`, `"delta"`, `"date"`, `"link"`, `"text"`, or `"duration"`.
+
+For a time span (time to merge, CI run time, session length), return a number
+of **seconds** and use `"duration"`. It shows "45 sec", "16 min", "7.4 hours"
+or "3.1 days", a table sorts it by the number, and an empty cell shows "–".
+Don't turn durations into text such as "16 min" in SQL or a Data Program: text
+sorts "16 min" before "2 min".
+
+## Metric Tile Comparisons
+
+A metric tile can show its change from the period before: a chip such as
+"↘ 71%" or "↗ 5.1 hours" and "vs the 7 days before", with the previous value
+in the hover text. Set `config.comparison` and return the previous value in
+each row:
+
+```sql
+SELECT 170 AS value, 588 AS previous_value, 'the 7 days before' AS period
+```
+
+- `previousKey` names the previous-value column (default `previous_value`).
+  No previous value in a row means no comparison.
+- `periodKey` names the column that says which period that was (default
+  `period`); `label` names it when the rows don't.
+- `better` is `"higher"` (the default), `"lower"` (time to merge, failures) or
+  `"neither"`. It colors the change green or red, so a slower merge time shows
+  red.
+
+Percent tiles show the change in points, duration tiles as a duration, and a
+previous value of 0 as the change itself.
+
 ## Filters And Variables
 
 `filters[]` defines dashboard-wide controls. Filter values are available in panel SQL through `{{var}}` interpolation. Date ranges emit `{{<id>Start}}` and `{{<id>End}}`.
@@ -668,6 +737,8 @@ and a predicate that consumes the declared filter, such as
 `{{timeRange}}` token must have a matching select filter and SQL branches for
 its options; date variables must have a matching date-range filter. The server
 rejects unbound first-party SQL during dashboard validation.
+
+**Traffic.** `traffic_environment` is a reserved filter id for first-party panels, with the values `all`, `production` and `beta` (beta includes PR previews and local runs). It never appears in panel SQL; reads apply it through the query scope, so don't add a hostname condition for it. A dashboard created by `compose-dashboard` or by `update-dashboard` with a new id starts with it set to `production`; a duplicate keeps its source's value, and one from folder sync, a Sigma migration or a template clone starts without it. One saved without it shows the menu on `all` until someone saves a default view with another value. A report saved without `f_traffic_environment` reads all traffic whatever the dashboard shows; set it in the report's `filters` to switch. Save verification reads all traffic unless `filters` names one, and refuses a first-party panel the dashboard's default traffic can't load, such as a rollup with no start date. Alerts always read all traffic. `get-traffic-counts` reports the events counted as production only because they have no host and no recognized environment.
 
 **Filter ids must be unique.** Two filters with the same `id` collide on the same URL param, so changing one visibly updates the other in the UI. The dashboard save endpoint rejects duplicates with a 400.
 
@@ -687,7 +758,7 @@ Use conditional blocks for optional filters:
 {{?plan}}AND plan IN ({{plan:list}}){{/plan}}
 ```
 
-An unwrapped `{{<id>:list}}` with no selection fails the query on purpose. Option values must not contain commas.
+An unwrapped `{{<id>:list}}` with no selection fails the query on purpose. Option values must not contain commas. Drill-down record templates can't use `:list` or `{{?…}}` blocks; match the comma-joined value as `config.drilldown` above describes.
 
 To offer a named group of values, give the multi-select `presets`, such as `"presets": [{ "label": "Launch apps", "values": ["clips", "slides", "design"] }]`. Each preset shows as a button beside Select all in the dropdown, and picking it replaces only that filter's selection, so the other filters keep their values. Every value must be one of the filter's options. Use a preset rather than a saved view when the user wants a shortcut for one filter: a saved view replaces every filter. In Edit mode, people manage presets themselves at the bottom of the dropdown: checking two or more values that no preset matches offers Save as group, which appends the same `presets` entry, and a selection that matches a preset offers Rename group and Delete group for that entry. Treat a preset you did not write as someone's saved choice and keep it unless asked.
 
@@ -810,7 +881,13 @@ asks for a low-level JSON-pointer edit. Use `moveBefore`, `moveAfter`,
 For visible placement requests like "second row" or "next to return rates", use
 row-aware placement: `dashboard.insertPanel({...}).nextTo("retention-over-time")`,
 `.atRow(2)`, or `dashboard.panel("panel-a").moveNextTo("panel-b")`. These keep
-panels in the intended rendered row and rebalance that row when needed. In
+panels in the intended rendered row and rebalance the widths of the row the
+panel joins and the row it leaves. A row that needs another column widens its
+section and rebalances every row there; above the first section it widens the
+dashboard, and sections without their own column count are pinned to the one
+they had. Other panels keep their widths unless that would merge their row into
+the next one. The op's `commandLog` entry names every width or column count it
+changed. In
 `operations`, `movePanels`, `insertPanel`, and `duplicatePanel` take the same
 placement as fields: `position`, `index`, `beforePanelId`, `afterPanelId`,
 `nextToPanelId` (same visible row, after that panel), or `rowNumber` (1-based

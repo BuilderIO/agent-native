@@ -10,8 +10,10 @@ import {
 } from "../shared/api.js";
 import {
   buildBuilderCmsWriteModeJson,
+  builderCmsWriteSettingsFromJson,
   type BuilderCmsLiveWriteMode,
 } from "./_builder-cms-write-settings.js";
+import { clearStagedBuilderPublicationChanges } from "./_builder-entry-status.js";
 import {
   getExistingSourceForWrite,
   mutateContentDatabaseSourceMetadata,
@@ -97,6 +99,7 @@ export default defineAction({
     }
 
     const now = new Date().toISOString();
+    let allowPublicationTransitions = false as boolean;
     await mutateContentDatabaseSourceMetadata({
       sourceId: source.id,
       now,
@@ -115,6 +118,8 @@ export default defineAction({
           allowDraftWrites: args.allowDraftWrites,
           allowPublishWrites: args.allowPublishWrites,
         });
+        allowPublicationTransitions =
+          builderCmsWriteSettingsFromJson(next).allowPublicationTransitions;
         return {
           capabilitiesJson: next.capabilitiesJson,
           metadataJson: next.metadataJson,
@@ -124,6 +129,9 @@ export default defineAction({
       failureMessage:
         "Builder source settings changed repeatedly while saving write mode.",
     });
+    if (!allowPublicationTransitions) {
+      await clearStagedBuilderPublicationChanges({ sourceId: source.id, now });
+    }
 
     return contentDatabaseResponseForCaller(
       await getContentDatabaseResponse(database.id, { limit: 100, offset: 0 }),

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   editDocument: vi.fn(),
   createSuggestion: vi.fn(),
   createProposal: vi.fn(),
+  savedProposal: vi.fn(),
   listSuggestions: vi.fn(),
   assertSourceUnchanged: vi.fn(),
   requireRequest: vi.fn(),
@@ -134,6 +135,13 @@ vi.mock(
   "@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal",
   () => ({
     default: { run: (...args: unknown[]) => mocks.createProposal(...args) },
+  }),
+);
+
+vi.mock(
+  "@agent-native/core/review/suggestions/actions/get-resource-suggestion-proposal-by-creation-key",
+  () => ({
+    default: { run: (...args: unknown[]) => mocks.savedProposal(...args) },
   }),
 );
 
@@ -503,6 +511,42 @@ describe("comment AI dedicated action boundaries", () => {
     },
   );
 
+  it("keeps an attempt's saved units when a retry gets a different answer", async () => {
+    state.request.intent = "suggest";
+    state.source.document.content = "Open source and Open source again.";
+    state.earlierRequests = [];
+    mocks.createProposal.mockRejectedValueOnce(
+      Object.assign(new Error("Idempotency key was already used"), {
+        actionContractError: true,
+        errorCode: "idempotency_conflict",
+      }),
+    );
+    mocks.savedProposal.mockResolvedValue({
+      suggestions: [
+        { metadata: { reviewUnit: "attempt-1:saved" } },
+        { metadata: { reviewUnit: "attempt-1:saved" } },
+      ],
+    });
+
+    const result = await run(createSuggestion as never, {
+      summary: "Hyphenate Open-source",
+      edits: [
+        { find: "Open source and", replace: "Open-source and" },
+        { find: "Open source again", replace: "Open-source again" },
+      ],
+    });
+
+    const saved = expect.objectContaining({
+      metadata: expect.objectContaining({ reviewUnit: "attempt-1:saved" }),
+    });
+    expect(mocks.createProposal).toHaveBeenCalledTimes(2);
+    expect(mocks.createProposal).toHaveBeenLastCalledWith(
+      expect.objectContaining({ suggestions: [saved, saved] }),
+      ctx,
+    );
+    expect(result).toMatchObject({ status: "suggested" });
+  });
+
   it("replaces the requester's earlier edits on this comment with the new proposal", async () => {
     state.request.intent = "suggest";
     state.source.document.content = "Open source and Open source again.";
@@ -534,6 +578,13 @@ describe("comment AI dedicated action boundaries", () => {
       expect.objectContaining({ supersedes: ["earlier-suggestion"] }),
       ctx,
     );
+    // The agent kept these apart, so they stay apart in one sentence too.
+    const [{ suggestions }] = mocks.createProposal.mock.lastCall as unknown as [
+      { suggestions: Array<{ metadata: { reviewUnit: string } }> },
+    ];
+    const units = suggestions.map(({ metadata }) => metadata.reviewUnit);
+    expect(units).toHaveLength(2);
+    expect(new Set(units).size).toBe(2);
   });
 
   it.each([
@@ -699,6 +750,23 @@ it("returns current running context when retrying an incomplete operation", asyn
     operationCompleted: false,
     nextAction: "reply-to-comment-ai-request",
   });
+});
+
+it("names the video a thread on a whole video is about", async () => {
+  state.request.snapshotJson = "[]";
+  state.source.root = {
+    quotedText: null,
+    blockId: "video-a1b2c3d4",
+    blockType: "video",
+  };
+  const result = await run(getContext, {});
+  expect(result).toMatchObject({
+    quotedText: null,
+    block: { blockId: "video-a1b2c3d4", blockType: "video" },
+  });
+
+  state.source.root = { quotedText: "Alpha" };
+  expect(await run(getContext, {})).toMatchObject({ block: null });
 });
 
 it("reports prior proposal decisions without treating them as the current result", async () => {

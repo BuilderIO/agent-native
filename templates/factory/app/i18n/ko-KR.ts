@@ -276,8 +276,8 @@ const messages = {
       openWorkflow: "{{name}} 열기",
       turnOn: "{{name}} 켜기",
       turnOff: "{{name}} 끄기",
-      dryRunRequired: "켜기 전에 테스트를 실행하세요.",
-      runTest: "테스트 실행",
+      dryRunRequired: "켜기 전에 모의 실행을 하세요.",
+      runTest: "모의 실행",
       neverRun: "아직 실행 없음",
       olderRun: "최근 실행 없음",
       runsFailed: "실행을 불러오지 못함",
@@ -369,9 +369,6 @@ const messages = {
       connectionsNeeded: "{{count}}개 연결 필요",
       connectionsListName: "연결 필요",
       jumpToProblem: "캔버스에서 보기",
-      testRun: "테스트 실행",
-      testing: "시작 중",
-      saveAndTest: "저장 후 테스트",
       moreActions: "작업 더보기",
       runNow: "지금 실행",
       runNowSaveFirst: "라이브로 실행하기 전에 변경 사항을 저장하세요.",
@@ -411,7 +408,8 @@ const messages = {
       confirmTitle: "버전 {{version}}을(를) 복원할까요?",
       confirmBody: "새 버전으로 저장되므로 어떤 버전도 사라지지 않습니다.",
       confirmDiscards: "저장하지 않은 변경 사항은 버려집니다.",
-      confirmSwitchesOff: "다시 테스트할 때까지 워크플로가 꺼집니다.",
+      confirmSwitchesOff:
+        "오류 없이 모의 실행이 다시 끝날 때까지 워크플로가 꺼집니다.",
       restored: "버전 {{version}}(으)로 복원했습니다.",
       restoreFailed: "해당 버전을 복원하지 못했습니다.",
       restoreInvalid_other:
@@ -420,7 +418,7 @@ const messages = {
     save: {
       invalid_other: "저장되지 않음: 해결할 문제 {{count}}개.",
       switchedOff:
-        "저장했습니다. 워크플로가 꺼졌습니다. 테스트한 후 다시 켜세요.",
+        "저장했습니다. 워크플로가 꺼졌습니다. 모의 실행을 한 후 다시 켜세요.",
       jobSyncFailed:
         "저장했지만 일정을 업데이트하지 못했습니다. 다시 저장해 재시도하세요.",
       notFound: "이 워크플로가 더 이상 존재하지 않습니다.",
@@ -442,18 +440,27 @@ const messages = {
       stay: "계속 편집",
       discard: "버리기",
     },
+    draft: {
+      restored: "저장하지 않은 변경 사항을 복원했습니다.",
+      saveFailed: "변경 사항 초안을 저장하지 못했습니다. {{reason}}",
+      unreadable:
+        "저장하지 않은 변경 사항을 복원하지 못해 저장된 버전을 열었습니다.",
+      discardFailed: "초안을 버리지 못했습니다. {{reason}}",
+    },
     liveRun: {
       dialogTitle: "이 워크플로를 라이브로 실행할까요?",
       body: "테스트가 아닙니다. 메시지를 보내고, 레코드를 업데이트하고, 풀 리퀘스트를 병합할 수 있습니다.",
       cancel: "취소",
     },
     run: {
-      started: "테스트 실행을 시작했습니다.",
-      unavailable: "테스트 실행을 아직 사용할 수 없습니다.",
-      failed: "테스트 실행을 시작하지 못했습니다. {{reason}}",
+      started: "모의 실행을 시작했습니다.",
+      unavailable: "모의 실행은 아직 사용할 수 없습니다.",
+      failed: "모의 실행을 시작하지 못했습니다. {{reason}}",
       liveStarted: "실행을 시작했습니다.",
       liveFailed: "실행을 시작하지 못했습니다. {{reason}}",
       enableFailed: "워크플로를 변경하지 못했습니다. {{reason}}",
+      testNeedsItems:
+        "이 단계를 테스트하려면 항목이 필요합니다. 먼저 워크플로를 모의 실행한 다음 단계를 테스트하세요.",
     },
     nodePanel: {
       tabsName: "단계 보기",
@@ -462,6 +469,8 @@ const messages = {
       testStepNeedsRun:
         "이 단계를 테스트할 항목이 생기도록 워크플로를 한 번 실행하세요.",
       testStepSamplesFailed: "이 단계를 테스트할 항목을 불러오지 못했습니다.",
+      testStepOlderSample:
+        "이전 실행의 항목으로 테스트 중입니다: 최근 실행에서는 이 단계에 항목이 없었습니다.",
     },
     nodeDetails: {
       dialogName: "단계 상세",
@@ -488,8 +497,8 @@ const messages = {
       ofTotal: "항목 {{total}}개 중 {{shown}}개 표시",
       noInputConnected: "연결된 입력이 없습니다",
       noInputData: "입력 데이터가 없습니다",
-      testWorkflowHint: "워크플로를 테스트하면 여기에 항목이 표시됩니다",
-      testWorkflow: "워크플로 테스트",
+      testWorkflowHint: "워크플로를 모의 실행하면 여기에 항목이 표시됩니다",
+      testWorkflow: "모의 실행",
       noOutputData: "출력 데이터가 없습니다",
       previewHint: "워크플로를 실행하면 실제 값을 볼 수 있습니다",
       noMatchingItems: "일치하는 항목이 없습니다",
@@ -503,8 +512,58 @@ const messages = {
       copyPath: "경로 복사",
       pathCopied: "경로를 복사했습니다",
       pathCopyFailed: "경로를 복사하지 못했습니다",
-      dragHint: "필드에 드래그해서 매핑하세요",
+      dragHint: "이 핸들을 필드에 드래그해서 매핑하세요",
       mappedFirstField: "방금 필드를 매핑했습니다.",
+    },
+    apiRequest: {
+      docs: "문서",
+      docsFor: "{{provider}} API 문서",
+      truncatedNotice:
+        "응답을 맞추려고 잘랐습니다. 레코드 하나가 이만큼 클 수 있습니다. per_page 같은 매개변수로 쿼리를 좁히거나 페이지네이션을 사용하세요.",
+      cutList: "{{path}}: {{of}}개 항목 중 {{kept}}개 유지",
+      cutText: "{{path}}: {{of}}글자 중 {{kept}}글자 유지",
+      cutKeys_other: "{{path}}: 필드 {{count}}개 제외됨",
+      cutsMore_other: "그 밖에 {{count}}건 더 잘림",
+      tooLargeHint:
+        "단계는 항목에 붙은 이전 응답까지 합쳐 약 64 KB와 항목 100개까지 넘길 수 있습니다. 쿼리를 좁히거나, 페이지네이션을 쓰거나, 한 번의 실행에서 호출 수를 줄이세요.",
+      fieldsMissing: "응답에서 다음 필드를 찾을 수 없습니다: {{names}}",
+      fieldsMissingMore: "그리고 {{count}}개 더",
+      cutNotice:
+        "응답의 앞부분만 표시됩니다. 단계는 읽은 내용의 짧은 기록만 보관합니다.",
+      noOutputRecorded: "이 실행에서는 이 단계의 응답이 기록되지 않았습니다.",
+      liveMark: "HTTP {{status}}, {{ms}}ms",
+      notStored:
+        "여기에서만 표시됩니다. 응답은 저장되지 않으며, 이 창을 닫으면 지워집니다.",
+      errorDetails: "오류 세부 정보",
+      detailCode: "코드",
+      detailStatus: "상태",
+      detailMessage: "메시지",
+      heading: {
+        not_connected: "제공업체가 연결되어 있지 않습니다",
+        access_denied: "제공업체가 연결의 접근을 거부했습니다",
+        not_found: "제공업체에서 해당 경로를 찾을 수 없습니다",
+        rate_limited: "제공업체가 요청을 제한하고 있습니다",
+        provider_problem: "제공업체에 문제가 있었습니다",
+        rejected: "제공업체가 요청을 거부했습니다",
+        too_large: "응답이 너무 커서 보관할 수 없습니다",
+        request_failed: "요청이 전달되지 않았습니다",
+        request_refused: "요청이 전송되기 전에 거부되었습니다",
+        unreadable: "응답을 읽을 수 없습니다",
+        expression_failed: "이 단계가 읽는 값이 비어 있습니다",
+        test_not_allowed: "이 단계는 테스트할 수 없습니다",
+        failed: "단계가 실패했습니다",
+        full_url_refused: "경로가 전체 URL입니다",
+        unsafe_path_value: "입력한 그대로는 경로를 보낼 수 없습니다",
+        invalid_query: "쿼리 매개변수가 올바르지 않습니다",
+        invalid_header: "헤더가 올바르지 않습니다",
+        header_denied: "여기서는 헤더를 설정할 수 없습니다",
+        invalid_pagination: "페이지네이션 설정이 올바르지 않습니다",
+        invalid_timeout: "제한 시간이 올바르지 않습니다",
+        incompatible_fields:
+          "페이지네이션과 함께 상태와 헤더는 반환할 수 없습니다",
+        invalid_fields_to_keep: "유지할 필드가 올바르지 않습니다",
+        invalid_field: "필드가 비어 있거나 올바르지 않습니다",
+      },
     },
     diagnostics: {
       copy: "진단 정보 복사",
@@ -762,6 +821,7 @@ const messages = {
       itemFailures_other: "항목 {{count}}개 실패",
       needsCheck: "{{count}}건 점검 필요",
       nothing: "새 항목 없음",
+      primed: "지금부터 시작",
       summary: "{{head}}: {{parts}}",
     },
     change: {
@@ -864,6 +924,11 @@ const messages = {
       searchApps: "앱 검색...",
       searchActions: "작업 검색...",
       clearSearch: "검색 지우기",
+      apiRequest: "API 요청",
+      apiRequestLink: "API 요청 단계",
+      apiRequestTip:
+        "{{link}}로 연결된 앱의 어떤 엔드포인트든 읽을 수 있습니다.",
+      anythingElseCaption: "그 밖의 작업",
       hint: {
         onSchedule: "타이머에 따라 몇 분마다 또는 매일 실행",
         newFromApp: "새 메시지, 티켓, 리드 또는 구독",
@@ -873,6 +938,7 @@ const messages = {
         data: "항목을 필터링, 분할 또는 결합",
         flow: "항목을 경로 지정, 일시 중지 또는 중지",
         describe: "에이전트에게 이 단계를 만들어 달라고 요청",
+        apiRequest: "연결된 앱의 어떤 엔드포인트든 읽기",
         decideAi: "각 항목에 대한 질문에 답변",
         builderStart: "명확한 버그를 Builder에게 넘겨 수정",
         builderCheck: "Builder 작업의 진행 상황 확인",
@@ -892,8 +958,8 @@ const messages = {
     },
     canvasActions: {
       addFirstStep: "첫 단계 추가",
-      testWorkflow: "워크플로 테스트",
-      saveAndTestWorkflow: "저장 후 워크플로 테스트",
+      testWorkflow: "모의 실행",
+      saveAndTestWorkflow: "저장 후 모의 실행",
       describeFirstPrefill: "다음 동작을 하는 워크플로를 만들어 ",
       describeTile: "에이전트에게 설명하기",
       or: "또는",
@@ -926,6 +992,7 @@ const messages = {
       match: "일치",
       otherwise: "그 외",
       limitReached: "한도 도달",
+      error: "오류",
       replied: "답장 옴",
       timedOut: "시간 초과",
       done: "완료",
@@ -1087,6 +1154,11 @@ const messages = {
       noOperations: "사용 가능한 동작이 없습니다",
       notInCatalog: "{{id}} (카탈로그에 없음)",
       resultName: "결과 이름 지정",
+      onError: {
+        label: "오류 시",
+        stop: "이 항목 중지",
+        route: "오류 출력으로 보내기",
+      },
       insertPath: "경로 삽입",
       searchPaths: "경로 검색",
       noPaths: "일치하는 경로가 없습니다.",
@@ -1192,6 +1264,7 @@ const messages = {
       combine: {
         mode: "취합 방식",
         key: "그룹 기준",
+        firstMemberIdentity: "각 그룹 이름을 첫 번째 항목으로 정하기",
         field: "수집할 필드",
         group: "그룹 기준",
         value: "합산 대상",
@@ -1283,6 +1356,155 @@ const messages = {
         confirm: "분기 삭제",
         cancel: "분기 유지",
       },
+      apiRequest: {
+        importCurl: "cURL 가져오기",
+        method: "메서드",
+        methodReadOnly: "이 단계는 읽기만 하므로 메서드는 항상 GET입니다.",
+        provider: "제공업체",
+        path: "경로",
+        pathPlaceholder: "repos/acme/web/issues",
+        authentication: "인증",
+        authProvider: "제공업체 연결",
+        authProviderHint: "연결의 자격 증명을 요청과 함께 보냅니다.",
+        authNone: "없음",
+        authNoneHint: "자격 증명을 보내지 않습니다. 공개 엔드포인트용입니다.",
+        sendQuery: "쿼리 매개변수 보내기",
+        sendHeaders: "헤더 보내기",
+        specifyQuery: "쿼리 매개변수 지정",
+        specifyHeaders: "헤더 지정",
+        modeFields: "아래 필드 사용",
+        modeJson: "JSON 사용",
+        name: "이름",
+        value: "값",
+        queryJson: "JSON 형식 쿼리 매개변수",
+        headersJson: "JSON 형식 헤더",
+        addParameter: "매개변수 추가",
+        addHeader: "헤더 추가",
+        removeRow: "삭제",
+        addOption: "옵션 추가",
+        optionTimeout: "제한 시간",
+        optionPagination: "페이지네이션",
+        optionStatus: "응답 상태와 헤더 포함",
+        optionFieldsToKeep: "유지할 필드",
+        optionFieldsToKeepHint:
+          "이후 단계에서 사용하는 필드만 유지해 긴 응답이 맞도록 합니다.",
+        fieldsPlaceholder: "user.login 같은 필드를 입력하고 Enter를 누르세요",
+        fieldsInputLabel: "유지할 필드 추가",
+        removeField: "{{path}} 삭제",
+        pickFromResponse: "마지막 응답에서 선택",
+        pickSearch: "필드 검색",
+        pickNeedsTest: "먼저 단계 테스트를 실행한 다음 그 응답에서 선택하세요.",
+        pickRunning: "단계 테스트가 아직 실행 중입니다.",
+        pickFailed: "마지막 테스트가 실패해서 선택할 응답이 없습니다.",
+        pickNoFields: "응답에 선택할 필드가 없습니다.",
+        pickCutNote:
+          "응답이 잘려서 뒤쪽 항목에만 나오는 필드는 목록에 없습니다.",
+        pickCapped: "처음 {{count}}개 필드를 보여 주는 중입니다.",
+        pickKeptNote:
+          "마지막 응답의 필드를 보여 줍니다. 모두 보려면 유지할 필드 없이 단계 테스트를 실행하세요.",
+        optionBlockedByPagination: "페이지네이션과 함께 사용할 수 없습니다.",
+        optionBlockedByStatus:
+          "응답 상태와 헤더가 포함된 동안에는 사용할 수 없습니다.",
+        removeOption: "{{option}} 삭제",
+        timeoutSeconds: "제한 시간(초)",
+        cursorPath: "커서 경로",
+        cursorParam: "커서 매개변수",
+        itemsPath: "항목 경로",
+        maxPages: "최대 페이지 수",
+        notice:
+          "요청은 읽기만 합니다. 제공업체 연결을 사용하며, 자격 증명은 여기에 표시되거나 저장되지 않습니다.",
+        cardSubtitle: "GET: {{path}}",
+        cardSubtitleEmpty: "GET:",
+        problem: {
+          pathEmpty:
+            "엔드포인트의 경로를 입력하세요. 예: repos/acme/web/issues",
+          fullUrl: "경로만 입력하세요. 호스트는 연결에서 가져옵니다.",
+          useOnlyPath: "경로만 사용",
+          pathQuery:
+            "쿼리 매개변수는 경로가 아니라 “쿼리 매개변수 보내기” 아래에 넣으세요.",
+          moveToParameters: "쿼리 매개변수로 옮기기",
+          pathFragment:
+            "# 부분을 삭제하세요. 이 부분은 제공업체로 절대 보내지 않습니다.",
+          pathPlaceholder:
+            "경로의 {name} 부분이 채워지지 않았습니다. 실제 값을 입력하세요.",
+          pathSegment:
+            "경로에 비어 있거나, 점(.)만 있거나, 제어 문자가 있는 부분이 있습니다.",
+          pathLength: "경로가 너무 깁니다.",
+          queryInvalid:
+            "쿼리 매개변수는 이름과 텍스트, 숫자 또는 목록이어야 합니다.",
+          queryName: "이름에는 문자, 숫자, - _ . [ ]만 사용하세요.",
+          queryValue: "값에 줄바꿈을 넣거나 이렇게 길게 쓸 수 없습니다.",
+          nameMissing: "이름을 추가하거나 이 행을 삭제하세요.",
+          headersInvalid: "헤더는 이름과 텍스트 값이어야 합니다.",
+          headerDenied:
+            "{{name}}은(는) 연결이 보내므로 여기서 설정할 수 없습니다.",
+          headerDeniedRow: "연결이 이 헤더를 직접 보냅니다.",
+          headerName: "올바른 헤더 이름이 아닙니다.",
+          headerValue: "값에 제어 문자를 넣거나 이렇게 길게 쓸 수 없습니다.",
+          headerDuplicate: "이 헤더는 이미 목록에 있습니다.",
+          timeout: "1부터 60 사이의 초 단위 숫자를 쓰세요.",
+          paginationShape: "페이지네이션 설정을 확인하세요.",
+          paginationCursorPath:
+            "응답에서 다음 커서의 경로를 입력하세요. 예: meta.next_cursor",
+          paginationCursorParam:
+            "커서를 되돌려 보내는 쿼리 매개변수를 입력하세요.",
+          paginationItemsPath:
+            "각 페이지에서 목록의 점 표기 경로를 쓰세요. 예: data.items",
+          paginationMaxPages: "1부터 5까지의 정수 페이지 수를 쓰세요.",
+          statusWithPaging:
+            "상태와 헤더를 끄거나 페이지네이션을 끄세요. 마지막 페이지의 상태만 알 수 있습니다.",
+          fieldsToKeepShape: "유지할 필드는 필드 이름의 목록이어야 합니다.",
+          fieldsToKeepEmpty:
+            "필드를 하나 이상 추가하거나 이 옵션을 삭제하세요.",
+          fieldsToKeepCount: "필드는 최대 50개까지 유지할 수 있습니다.",
+          fieldsToKeepControl: "필드 이름에는 제어 문자를 쓸 수 없습니다.",
+          fieldsToKeepSegment:
+            "user.login처럼 점 사이의 각 단계에 이름을 붙이세요.",
+          fieldsToKeepLong:
+            "필드 이름의 각 단계는 최대 64자까지 쓸 수 있습니다.",
+          fieldsToKeepDeep: "필드는 최대 8단계 깊이까지 가능합니다.",
+          fieldsToKeepReserved: "그 이름은 예약되어 있어 사용할 수 없습니다.",
+          fieldsToKeepDuplicate: "이 필드는 이미 목록에 있습니다.",
+          droppedCredentials:
+            "제외됨 {{names}}: 자격 증명은 단계에 절대 저장되지 않습니다.",
+        },
+        importDialog: {
+          title: "cURL 명령 가져오기",
+          label: "cURL 명령",
+          placeholder: "cURL 명령을 여기에 붙여 넣으세요",
+          warning: "이 단계의 설정을 덮어씁니다.",
+          import: "가져오기",
+          cancel: "취소",
+          done: "완료",
+          providersFailed:
+            "제공업체 목록을 불러오지 못해 아직 명령을 맞출 수 없습니다.",
+          retry: "다시 시도",
+          imported: "cURL에서 가져왔습니다",
+          leftOutTitle: "가져왔습니다. 다음 항목은 제외되었습니다:",
+          fail: {
+            not_curl: "cURL 명령이 아닙니다. curl로 시작해야 합니다.",
+            no_url: "명령에 URL이 없습니다.",
+            invalid_url:
+              "URL을 읽을 수 없습니다. 변수나 명령을 담을 수 없습니다.",
+            not_https: "https URL만 가져올 수 있습니다.",
+            unknown_host: "이 URL은 연결된 제공업체에 없습니다.",
+            unterminated_quote: "명령의 따옴표가 닫히지 않았습니다.",
+            method_not_get:
+              "이 단계는 GET으로만 읽으며, 명령은 다른 메서드를 요청합니다.",
+          },
+          failFlag:
+            "이 단계는 GET으로만 읽는데, 명령은 {{flag}}을(를) 사용합니다.",
+          leftOut: {
+            credentials: "자격 증명(연결이 제공): {{names}}",
+            headers: "요청이 직접 보내는 헤더: {{names}}",
+            bodies: "요청 본문(이 단계는 읽기만 하므로): {{names}}",
+            flags: "여기서는 의미가 없는 옵션: {{names}}",
+            unreadableHeader: "읽을 수 없는 헤더",
+            extraUrl: "첫 번째 이후의 모든 URL",
+            urlUserinfo: "URL에 있는 사용자 이름과 비밀번호",
+          },
+        },
+      },
     },
     rejection: {
       unknown_node: "해당 단계가 이 워크플로에 없습니다.",
@@ -1310,6 +1532,37 @@ const messages = {
       deleteMany: "단계 {{count}}개 삭제",
       selectAll: "모두 선택",
       clearSelection: "선택 해제",
+    },
+  },
+  providerPicker: {
+    choose: {
+      channels: "채널 선택",
+      repositories: "리포지토리 선택",
+      organizations: "조직 선택",
+      projects: "프로젝트 선택",
+    },
+    search: "검색하거나 값을 입력하세요",
+    useTyped: "“{{value}}” 사용",
+    noMatches: "일치하는 항목이 없습니다",
+    loadMore: "더 불러오기",
+    retry: "다시 시도",
+    changeOrganization: "조직 변경",
+    tag: {
+      private: "비공개",
+      botNotMember: "봇이 채널에 없음",
+      archived: "보관됨",
+    },
+    error: {
+      notConnected:
+        "{{provider}} 연결이 없어 목록을 불러올 수 없습니다. 그래도 값을 입력할 수 있습니다.",
+      refused:
+        "{{provider}} 연결의 자격 증명이 거부되었습니다. 그래도 값을 입력할 수 있습니다.",
+      missingScope:
+        "{{provider}} 연결에 {{scope}} 권한이 없습니다. 그래도 값을 입력할 수 있습니다.",
+      rateLimited:
+        "{{provider}} 요청이 제한되고 있습니다. 잠시 후 다시 시도하거나 값을 입력하세요.",
+      unreadable:
+        "{{provider}}의 목록을 읽을 수 없습니다. 다시 시도하거나 값을 입력하세요.",
     },
   },
 };

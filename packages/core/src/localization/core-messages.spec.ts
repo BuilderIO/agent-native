@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { CONSENT_BANNER_MESSAGES } from "./consent-banner-messages.js";
+import { AUTOMATION_OUTCOME_MESSAGES } from "./automation-outcome-messages.js";
 import {
   coreMessagesForLocale,
   loadCoreMessagesForLocale,
@@ -8,6 +8,7 @@ import {
 import { ENVIRONMENT_BADGE_MESSAGES } from "./environment-badge-messages.js";
 import { iconPickerMessagesForLocale } from "./icon-picker-messages.js";
 import { MCP_SETTINGS_MESSAGES } from "./mcp-settings-messages.js";
+import { CONSENT_BANNER_MESSAGES } from "./privacy-choice-messages.js";
 import { PRIVACY_SETTINGS_MESSAGES } from "./privacy-settings-messages.js";
 import { SUPPORTED_LOCALES } from "./shared.js";
 
@@ -18,6 +19,25 @@ function placeholders(value: string): string[] {
 }
 
 describe("Core localization", () => {
+  it("localizes automation approval and chaining errors in every built-in locale", () => {
+    for (const locale of SUPPORTED_LOCALES) {
+      for (const key of [
+        "mcpApprovalUnavailable",
+        "mcpTakeoverWhileRunning",
+        "chainingUnsupported",
+      ] as const) {
+        const message = AUTOMATION_OUTCOME_MESSAGES[locale][key];
+        expect(message, `${locale}.${key}`).toBeTruthy();
+        expect(placeholders(message), `${locale}.${key}`).toEqual([]);
+        if (locale !== "en-US") {
+          expect(message, `${locale}.${key}`).not.toBe(
+            AUTOMATION_OUTCOME_MESSAGES["en-US"][key],
+          );
+        }
+      }
+    }
+  });
+
   it("localizes resource pack labels in every built-in locale", async () => {
     for (const locale of SUPPORTED_LOCALES) {
       const messages = await loadCoreMessagesForLocale(locale);
@@ -63,10 +83,16 @@ describe("Core localization", () => {
   it("localizes the managed MCP OAuth return link in every built-in locale", () => {
     const english = MCP_SETTINGS_MESSAGES["en-US"].mcpOAuthBackToApp;
     expect(english).toBe("Back to app");
+    const connected = MCP_SETTINGS_MESSAGES["en-US"].mcpOAuthConnectionDone;
+    expect(connected).toBe("Connection done");
     for (const locale of SUPPORTED_LOCALES) {
       const label = MCP_SETTINGS_MESSAGES[locale].mcpOAuthBackToApp;
       expect(label, locale).toEqual(expect.any(String));
       if (locale !== "en-US") expect(label, locale).not.toBe(english);
+
+      const completion = MCP_SETTINGS_MESSAGES[locale].mcpOAuthConnectionDone;
+      expect(completion, locale).toEqual(expect.any(String));
+      if (locale !== "en-US") expect(completion, locale).not.toBe(connected);
     }
   });
 

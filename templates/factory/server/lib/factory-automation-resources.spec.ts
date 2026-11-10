@@ -106,6 +106,28 @@ describe("listFactoryAutomationDefinitions", () => {
     ).resolves.toEqual([]);
   });
 
+  it("includes a workflow job under the workflow app id and excludes one whose orgId is not its owner's", async () => {
+    const workflowJob = (id: string, orgId: string) => ({
+      id,
+      owner: "__organization__:org-1",
+      path: `jobs/factories/demo-factory/workflow-digest-${id}.md`,
+      content: `---\nenabled: true\nappId: factory-workflows\norgId: ${orgId}\nrunner: workflow\n---\nWorkflow job.\n`,
+      updatedAt: 1,
+    });
+    resourceListContentMock.mockResolvedValue([
+      workflowJob("mine", "org-1"),
+      workflowJob("other", "org-2"),
+    ]);
+
+    const definitions = await listFactoryAutomationDefinitions(
+      "org-1",
+      "demo-factory",
+    );
+
+    expect(definitions.map((entry) => entry.resource.id)).toEqual(["mine"]);
+    expect(definitions[0]?.meta.appId).toBe("factory-workflows");
+  });
+
   it("excludes a job whose declared orgId does not match its owner", async () => {
     const resource = {
       id: "resource-mismatched-org",

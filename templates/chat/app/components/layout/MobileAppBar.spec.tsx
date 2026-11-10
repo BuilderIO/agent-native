@@ -32,6 +32,12 @@ vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/rail", () => ({
   useAgentChatHomeHandoff: () => false,
   useAgentChatHomeHandoffLinks: () => undefined,
 }));
+vi.mock("@agent-native/toolkit/app/chat/composer", () => ({
+  RealtimeVoiceModeProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  useRealtimeVoiceModeOptional: () => null,
+}));
 vi.mock("@agent-native/toolkit/app/settings", () => ({
   isSettingsPathname: (pathname: string) => pathname.startsWith("/settings"),
 }));

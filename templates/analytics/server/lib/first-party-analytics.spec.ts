@@ -1066,6 +1066,14 @@ describe("validateFirstPartyAnalyticsSql", () => {
     ).toThrow("cannot call set-returning function unnest");
   });
 
+  it("reads a parenthesized CASE condition as a keyword, not a function", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT SUM(CASE WHEN (app = 'slides') THEN 1 ELSE 0 END) AS n FROM analytics_events",
+      ),
+    ).not.toThrow();
+  });
+
   it("rejects unapproved SQL functions that can escape tenant scoping", () => {
     for (const sql of [
       "SELECT Σ.sum(event_count) FROM analytics_event_daily_rollups",
@@ -2189,6 +2197,7 @@ describe("queryFirstPartyAnalytics", () => {
         rows: [{ count: 1 }],
         schema: [{ name: "count", type: "number" }],
         backend: "postgres",
+        bytesProcessed: 0,
       });
       expect(backendMocks.query).not.toHaveBeenCalled();
     });
@@ -2570,8 +2579,8 @@ describe("queryFirstPartyAnalytics", () => {
       };
       const sql = "SELECT COUNT(*) AS events FROM analytics_events";
       const first = await queryFirstPartyAnalytics(sql, scope, { cache: true });
-      expect(first).toEqual({ ...saved, cached: true });
-      expect(first).not.toHaveProperty("bytesProcessed");
+      // oracle-change: Postgres results now report bytesProcessed 0 instead of omitting it; toEqual pins the value.
+      expect(first).toEqual({ ...saved, cached: true, bytesProcessed: 0 });
       const cached = await queryFirstPartyAnalytics(sql, scope, {
         cache: true,
       });
@@ -3098,6 +3107,7 @@ describe("queryFirstPartyAnalytics", () => {
       schema: [{ name: "count", type: "string" }],
       cached: false,
       fetchedAt: expect.any(String),
+      bytesProcessed: 0,
     });
   });
 });

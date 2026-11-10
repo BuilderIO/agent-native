@@ -11,6 +11,9 @@ import type {
   WorkflowSummaryRow,
 } from "./workflow-types";
 
+/** How many recent runs the run picker reads; the page watches the same read for a queued run. */
+export const RECENT_RUNS = 25;
+
 /**
  * The longest name the server keeps (`workflowNameSchema`, one line). A copy or
  * a rename is checked against it before the request, not after the refusal.
@@ -461,6 +464,20 @@ export function scheduleLabel(
 /** Who started a run, for a label: nobody to name when the schedule did. */
 export function runStarter(startedBy: string): string | null {
   return startedBy === SCHEDULE_STARTER ? null : startedBy;
+}
+
+/**
+ * Items a run that ended `succeeded` still left needing a person: failures
+ * that ended for one. A failure parked for a retry (`retryParked`) is not one
+ * yet and may recover on a later tick; an item routed to a person on purpose
+ * is not a failure. Zero for a run in any other status.
+ */
+export function succeededItemFailures(
+  run: Pick<RunView, "status" | "counts">,
+): number {
+  if (run.status !== "succeeded") return 0;
+  const { itemFailures = 0, retryParked = 0, needsManual = 0 } = run.counts;
+  return Math.min(Math.max(itemFailures - retryParked, 0), needsManual);
 }
 
 /** True while some run in view is still going, so the list keeps refreshing. */

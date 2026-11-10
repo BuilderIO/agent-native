@@ -4,6 +4,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -23,6 +24,8 @@ import {
   preparePackagesForTagging,
 } from "./changeset-publish-sequential.ts";
 import {
+  raiseReleasedCorePeerFloors,
+  readPackageVersions,
   stableChangesetConfig,
   withStableChangesetConfig,
 } from "./changeset-version-stable.ts";
@@ -64,9 +67,44 @@ const changesetsRequire = createRequire(
   createRequire(import.meta.url).resolve("@changesets/cli"),
 );
 const semver = changesetsRequire("semver") as {
-  inc: (version: string, release: "patch") => string | null;
+  inc: (version: string, release: ReleaseBump) => string | null;
   satisfies: (version: string, range: string) => boolean;
+  minVersion: (range: string) => {
+    major: number;
+    minor: number;
+    patch: number;
+    version: string;
+  } | null;
 };
+
+const parseChangeset = (
+  changesetsRequire("@changesets/parse") as {
+    default: (contents: string) => {
+      releases: { name: string; type: ReleaseBump | "none" }[];
+    };
+  }
+).default;
+
+const RELEASE_BUMPS = ["patch", "minor", "major"] as const;
+type ReleaseBump = (typeof RELEASE_BUMPS)[number];
+
+/** The largest bump pending changesets give any package in `group`. */
+function pendingFixedGroupBump(group: readonly string[]): ReleaseBump {
+  let largest: ReleaseBump = "patch";
+  for (const file of readdirSync(".changeset")) {
+    if (!file.endsWith(".md") || file === "README.md") continue;
+    const { releases } = parseChangeset(
+      readFileSync(path.join(".changeset", file), "utf8"),
+    );
+    for (const { name, type } of releases) {
+      if (type === "none" || !group.includes(name)) continue;
+      if (RELEASE_BUMPS.indexOf(type) > RELEASE_BUMPS.indexOf(largest)) {
+        largest = type;
+      }
+    }
+  }
+  return largest;
+}
 
 const workflow = parse(
   readFileSync(".github/workflows/auto-publish.yml", "utf8"),
@@ -1138,9 +1176,8 @@ esac
     const coreVersion = readManifest("packages/core/package.json").version;
     const dispatchPeer = readManifest("packages/dispatch/package.json")
       .peerDependencies?.[core];
-    const qrRange = readManifest("templates/community/qr/package.json")
-      .dependencies?.[core];
-    assert(coreVersion && dispatchPeer && qrRange);
+    assert(coreVersion && dispatchPeer);
+    const templateRange = coreVersion;
 
     const dir = mkdtempSync(path.join(tmpdir(), "an-snapshot-links-"));
     const write = (file: string, content: unknown) => {
@@ -1176,10 +1213,10 @@ esac
         peerDependencies: { [core]: dispatchPeer },
         devDependencies: { [core]: "workspace:*" },
       });
-      write("templates/community/qr/package.json", {
-        name: "qr",
+      write("templates/community/range-fixture/package.json", {
+        name: "range-fixture",
         private: true,
-        dependencies: { [core]: qrRange },
+        dependencies: { [core]: templateRange },
       });
 
       const version = spawnSync(
@@ -1196,16 +1233,15 @@ esac
 
       const snapshot = fixtureManifest("packages/core/package.json").version;
       assert.match(String(snapshot), /-nightly-/);
+      const dispatchSnapshotPeer = fixtureManifest(
+        "packages/dispatch/package.json",
+      ).peerDependencies?.[core];
+      // oracle-change: snapshots now rewrite the peer alongside the workspace dev dependency.
+      assert.equal(dispatchSnapshotPeer, snapshot);
+      assert(semver.satisfies(String(snapshot), String(dispatchSnapshotPeer)));
       assert.equal(
-        fixtureManifest("packages/dispatch/package.json").peerDependencies?.[
-          core
-        ],
-        snapshot,
-      );
-      assert.equal(
-        fixtureManifest("templates/community/qr/package.json").dependencies?.[
-          core
-        ],
+        fixtureManifest("templates/community/range-fixture/package.json")
+          .dependencies?.[core],
         snapshot,
       );
 
@@ -1244,8 +1280,9 @@ esac
           >;
         };
         assert.equal(
-          lock.importers["templates/community/qr"]?.dependencies?.[core]
-            ?.version,
+          lock.importers["templates/community/range-fixture"]?.dependencies?.[
+            core
+          ]?.version,
           "link:../../../packages/core",
           stepName,
         );
@@ -1255,7 +1292,7 @@ esac
     }
   });
 
-  it("supports the next fixed-group Core patch without the incompatible gap release", () => {
+  it("supports the next fixed-group Core release without the incompatible gap release", () => {
     const corePackage = JSON.parse(
       readFileSync("packages/core/package.json", "utf8"),
     ) as { version: string; exports?: Record<string, unknown> };
@@ -1270,51 +1307,36 @@ esac
     ) as { fixed?: string[][] };
 
     assert.ok(corePackage.exports?.["./shared"]);
-    assert.ok(
-      changesetConfig.fixed?.some(
-        (group) =>
-          group.includes("@agent-native/core") &&
-          group.includes("@agent-native/toolkit"),
-      ),
-    );
+    const fixedGroup =
+      changesetConfig.fixed?.find((group) =>
+        group.includes("@agent-native/core"),
+      ) ?? [];
+    assert.ok(fixedGroup.includes("@agent-native/toolkit"));
     const corePeerRange =
       toolkitPackage.peerDependencies?.["@agent-native/core"];
     assert.ok(corePeerRange);
 
-    const acceptsNextCorePatch = (coreVersion: string) => {
-      const nextCorePatch = semver.inc(coreVersion, "patch");
-      return (
-        nextCorePatch !== null && semver.satisfies(nextCorePatch, corePeerRange)
-      );
-    };
+    // A fixed group releases every member at the largest bump any pending
+    // changeset gives one of them, so the next Core is not always a patch.
+    const nextCoreRelease = semver.inc(
+      corePackage.version,
+      pendingFixedGroupBump(fixedGroup),
+    );
+    assert.ok(nextCoreRelease);
+    assert.ok(
+      semver.satisfies(nextCoreRelease, corePeerRange),
+      `Toolkit must accept the next fixed-group Core release, ${nextCoreRelease}`,
+    );
 
-    for (const coreVersion of [corePackage.version, "0.205.0"]) {
-      assert.ok(
-        acceptsNextCorePatch(coreVersion),
-        `Toolkit must accept the next fixed-group Core patch after ${coreVersion}`,
-      );
-    }
-
-    for (const coreVersion of ["0.204.0", "0.205.0"]) {
+    for (const coreVersion of ["0.205.1", "0.220.1", "0.221.1"]) {
       assert.equal(
         semver.satisfies(coreVersion, corePeerRange),
         false,
-        `Toolkit must not accept published Core ${coreVersion} without the sanitizer export`,
+        `Toolkit must not accept Core ${coreVersion} before the generation API requirement`,
       );
     }
 
-    assert.equal(
-      semver.satisfies("0.204.1", corePeerRange),
-      false,
-      "Toolkit must require Core 0.205.1, which first includes the session slot export",
-    );
-
-    for (const coreVersion of ["0.205.1"]) {
-      assert.ok(
-        semver.satisfies(coreVersion, corePeerRange),
-        `Toolkit must accept Core ${coreVersion} with the session slot export`,
-      );
-    }
+    assert.ok(semver.satisfies(corePackage.version, corePeerRange));
 
     assert.equal(
       toolkitPackage.peerDependenciesMeta?.["@agent-native/core"]?.optional,
@@ -1420,8 +1442,12 @@ esac
       (step) => step.run === "node scripts/guard-no-major-changeset.mjs",
     );
     assert.ok(install >= 0 && install < check && check < bumpPolicy);
+    assert.equal(steps[install].id, "setup");
     for (const index of [check, bumpPolicy]) {
       const condition = String(steps[index].if);
+      assert.match(condition, /!cancelled\(\)/);
+      assert.match(condition, /needs\.change-scope\.result == 'success'/);
+      assert.match(condition, /steps\.setup\.outcome == 'success'/);
       assert.match(
         condition,
         /needs\.change-scope\.outputs\.changeset == 'true'/,
@@ -1432,6 +1458,61 @@ esac
       (steps[check].env as Workflow).GITHUB_BASE_REF,
       "${{ github.base_ref }}",
     );
+  });
+
+  it("installs from the frozen lockfile without restoring the pnpm store", () => {
+    const action = parse(
+      readFileSync(".github/actions/setup-pnpm/action.yml", "utf8"),
+    ) as { runs: { steps: Workflow[] } };
+    const steps = action.runs.steps;
+    const setupNode = steps.find((step) =>
+      String(step.uses).startsWith("actions/setup-node@"),
+    );
+    assert(setupNode);
+    assert.equal((setupNode.with as Workflow).cache, undefined);
+    assert(
+      !steps.some((step) =>
+        String((step.with as Workflow | undefined)?.path).includes(
+          "pnpm/store",
+        ),
+      ),
+    );
+
+    const install = steps.find((step) => step.name === "Install dependencies");
+    assert(install);
+    assert.notEqual(install["continue-on-error"], true);
+    const dir = mkdtempSync(path.join(tmpdir(), "ci-pnpm-install-"));
+    try {
+      const pnpm = path.join(dir, "pnpm");
+      writeFileSync(
+        pnpm,
+        '#!/bin/bash\nprintf "%s\\n" "$*"\nexit "${TEST_EXIT:-0}"\n',
+      );
+      chmodSync(pnpm, 0o755);
+      for (const [mode, expected] of [
+        ["full", "install --frozen-lockfile"],
+        ["no-scripts", "install --frozen-lockfile --ignore-scripts"],
+      ]) {
+        const script = String(install.run).replaceAll(
+          "${{ inputs.install }}",
+          mode,
+        );
+        const env = { ...process.env, PATH: `${dir}:${process.env.PATH}` };
+        const success = spawnSync("bash", ["-e", "-c", script], {
+          env,
+          encoding: "utf8",
+        });
+        assert.equal(success.status, 0);
+        assert.equal(success.stdout.trim(), expected);
+        const failure = spawnSync("bash", ["-e", "-c", script], {
+          env: { ...env, TEST_EXIT: "9" },
+          encoding: "utf8",
+        });
+        assert.equal(failure.status, 9);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("consumes concurrent public changesets after stable publication", () => {
@@ -1527,7 +1608,7 @@ esac
     assert(changesetsIndex < restoreIndex);
   });
 
-  it("keeps plain internal ranges like the QR template's Core out of stable releases", async () => {
+  it("updates plain internal dependency ranges only in non-stable releases", async () => {
     const { getPackages } = changesetsRequire("@manypkg/get-packages") as {
       getPackages: (cwd: string) => Promise<unknown>;
     };
@@ -1545,7 +1626,139 @@ esac
       }
     ).default;
 
-    const packages = await getPackages(process.cwd());
+    const dir = mkdtempSync(path.join(tmpdir(), "stable-range-fixture-"));
+    const write = (file: string, content: unknown) => {
+      const target = path.join(dir, file);
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(
+        target,
+        typeof content === "string"
+          ? content
+          : `${JSON.stringify(content, null, 2)}\n`,
+      );
+    };
+
+    try {
+      write("package.json", { name: "stable-range-fixture", private: true });
+      write(
+        "pnpm-workspace.yaml",
+        "packages:\n  - packages/*\n  - templates/community/*\n",
+      );
+      const config = {
+        ...JSON.parse(readFileSync(".changeset/config.json", "utf8")),
+        changelog: false,
+        fixed: [],
+        ignore: [],
+        linked: [],
+      };
+      const configSource = `${JSON.stringify(config, null, 2)}\n`;
+      write(".changeset/config.json", configSource);
+
+      const core = "@agent-native/core";
+      const coreVersion = (
+        JSON.parse(readFileSync("packages/core/package.json", "utf8")) as {
+          version: string;
+        }
+      ).version;
+      write("packages/core/package.json", { name: core, version: coreVersion });
+      write("templates/community/range-fixture/package.json", {
+        name: "range-fixture",
+        version: "1.0.0",
+        private: true,
+        dependencies: { [core]: coreVersion },
+      });
+      write(
+        ".changeset/core-patch.md",
+        `---\n"${core}": patch\n---\n\nCore patch.\n`,
+      );
+
+      const packages = (await getPackages(dir)) as {
+        packages: Array<{
+          packageJson: {
+            name: string;
+            version?: string;
+            dependencies?: Record<string, string>;
+          };
+        }>;
+      };
+      const changesets = [
+        {
+          id: "core-patch",
+          summary: "Core patch",
+          releases: [{ name: core, type: "patch" }],
+        },
+      ];
+      const releasesWith = (source: string) =>
+        assembleReleasePlan(
+          changesets,
+          packages,
+          parseChangesetConfig(JSON.parse(source), packages),
+          undefined,
+        ).releases;
+
+      const stable = releasesWith(stableChangesetConfig(configSource)).map(
+        (release) => release.name,
+      );
+      assert(stable.includes(core));
+      assert(!stable.includes("range-fixture"));
+      assert(
+        releasesWith(configSource).some(
+          (release) => release.name === "range-fixture",
+        ),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the real private QR template out of stable release plans", async () => {
+    const { getPackages } = changesetsRequire("@manypkg/get-packages") as {
+      getPackages: (cwd: string) => Promise<unknown>;
+    };
+    const { parse: parseChangesetConfig } = changesetsRequire(
+      "@changesets/config",
+    ) as { parse: (json: unknown, packages: unknown) => unknown };
+    const assembleReleasePlan = (
+      changesetsRequire("@changesets/assemble-release-plan") as {
+        default: (
+          changesets: unknown[],
+          packages: unknown,
+          config: unknown,
+          preState: undefined,
+        ) => { releases: Array<{ name: string; type: string }> };
+      }
+    ).default;
+
+    const packages = (await getPackages(process.cwd())) as {
+      packages: Array<{
+        packageJson: {
+          name: string;
+          version?: string;
+          private?: boolean;
+          dependencies?: Record<string, string>;
+        };
+      }>;
+    };
+    const corePackage = packages.packages.find(
+      (pkg) => pkg.packageJson.name === "@agent-native/core",
+    );
+    const qrPackage = packages.packages.find(
+      (pkg) => pkg.packageJson.name === "qr",
+    );
+    assert(corePackage?.packageJson.version && qrPackage);
+    const qrManifest = JSON.parse(
+      readFileSync("templates/community/qr/package.json", "utf8"),
+    ) as {
+      version?: string;
+      dependencies?: Record<string, string>;
+    };
+    assert.equal(qrPackage.packageJson.version, qrManifest.version);
+    assert.equal(qrPackage.packageJson.private, true);
+    assert.equal(
+      qrPackage.packageJson.dependencies?.["@agent-native/core"],
+      qrManifest.dependencies?.["@agent-native/core"],
+    );
+
     const sharedConfig = readFileSync(".changeset/config.json", "utf8");
     const corePatch = [
       {
@@ -1569,22 +1782,44 @@ esac
       .fixed[0];
     for (const name of fixedGroup) assert(stable.includes(name), name);
     assert(!stable.includes("qr"));
-
-    // Without the stable override, Changesets rewrites QR's Core range in a
-    // `none` release, which breaks the lockfile and Dispatch's QR blob pins.
-    assert.equal(
-      releasesWith(sharedConfig).find((release) => release.name === "qr")?.type,
-      "none",
+    assert(
+      !releasesWith(sharedConfig).some((release) => release.name === "qr"),
     );
   });
 
   it("leaves the shared Changesets config moving snapshot peer ranges", () => {
-    // Nightly and dev snapshots rewrite peers such as Dispatch's
-    // `>=0.209.1` Core range to the exact snapshot, which the range rejects.
+    // Snapshot workflows keep the shared config so ranges that reject
+    // prereleases can still be rewritten to their published snapshot.
     const config = JSON.parse(
       readFileSync(".changeset/config.json", "utf8"),
     ) as Record<string, unknown>;
     assert.notEqual(config.bumpVersionsWithWorkspaceProtocolOnly, true);
+  });
+
+  it("accepts the next Core prerelease tuple for Dispatch app-only visibility", () => {
+    const dispatch = JSON.parse(
+      readFileSync("packages/dispatch/package.json", "utf8"),
+    ) as { peerDependencies?: Record<string, string> };
+    const corePeerRange = dispatch.peerDependencies?.["@agent-native/core"];
+    assert(corePeerRange);
+    const minimum = semver.minVersion(corePeerRange);
+    assert(minimum);
+    assert(semver.satisfies(minimum.version, ">=0.222.0-0"));
+    const tuple = `${minimum.major}.${minimum.minor}.${minimum.patch}`;
+    const core = JSON.parse(
+      readFileSync("packages/core/package.json", "utf8"),
+    ) as {
+      version: string;
+    };
+    for (const version of [
+      `${tuple}-beta.0`,
+      `${tuple}-rc.0`,
+      tuple,
+      core.version,
+    ]) {
+      assert(semver.satisfies(version, corePeerRange), version);
+    }
+    assert(!semver.satisfies("0.221.1", corePeerRange));
   });
 
   it("restores the shared Changesets config when a stable version run fails", async () => {
@@ -1606,6 +1841,82 @@ esac
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  describe("stable release Core peer floors", () => {
+    const core = "@agent-native/core";
+    const withPackages = async (
+      run: (
+        write: (dir: string, manifest: Record<string, unknown>) => void,
+        packagesDir: string,
+      ) => Promise<void>,
+    ) => {
+      const packagesDir = mkdtempSync(path.join(tmpdir(), "core-peer-floor-"));
+      const write = (dir: string, manifest: Record<string, unknown>) => {
+        mkdirSync(path.join(packagesDir, dir), { recursive: true });
+        writeFileSync(
+          path.join(packagesDir, dir, "package.json"),
+          `${JSON.stringify(manifest, null, 2)}\n`,
+        );
+      };
+      try {
+        await run(write, packagesDir);
+      } finally {
+        rmSync(packagesDir, { recursive: true, force: true });
+      }
+    };
+    const corePeer = (packagesDir: string, dir: string) =>
+      JSON.parse(
+        readFileSync(path.join(packagesDir, dir, "package.json"), "utf8"),
+      ).peerDependencies[core];
+
+    it("raises a released package's floor to the Core it was released beside", async () => {
+      await withPackages(async (write, packagesDir) => {
+        write("core", { name: core, version: "0.223.0" });
+        write("dispatch", {
+          name: "@agent-native/dispatch",
+          version: "0.40.0",
+          peerDependencies: { [core]: ">=0.222.0-0" },
+        });
+        write("otel", {
+          name: "@agent-native/otel",
+          version: "0.1.30",
+          peerDependencies: { [core]: ">=0.200.0" },
+        });
+        const before = await readPackageVersions(packagesDir);
+        write("core", { name: core, version: "0.224.0" });
+        write("dispatch", {
+          name: "@agent-native/dispatch",
+          version: "0.41.0",
+          peerDependencies: { [core]: ">=0.222.0-0" },
+        });
+
+        assert.deepEqual(
+          await raiseReleasedCorePeerFloors(before, packagesDir),
+          [`@agent-native/dispatch: ${core}@>=0.224.0-0`],
+        );
+        assert.equal(corePeer(packagesDir, "dispatch"), ">=0.224.0-0");
+        assert.equal(corePeer(packagesDir, "otel"), ">=0.200.0");
+      });
+    });
+
+    it("refuses to replace a Core peer range that is not a floor", async () => {
+      await withPackages(async (write, packagesDir) => {
+        write("core", { name: core, version: "0.224.0" });
+        const before = await readPackageVersions(packagesDir);
+        write("pinpoint", {
+          name: "@agent-native/pinpoint",
+          version: "0.2.0",
+          peerDependencies: { [core]: "^0.200.0" },
+        });
+
+        await assert.rejects(
+          raiseReleasedCorePeerFloors(before, packagesDir),
+          /Only a ">=" floor can be raised/,
+        );
+        assert.equal(corePeer(packagesDir, "pinpoint"), "^0.200.0");
+      });
+    });
   });
 
   it("accepts all synchronized community QR template pins and rejects other catalog changes", () => {
@@ -2250,8 +2561,11 @@ fi
       (forceMerge.env as Workflow).GH_TOKEN,
       "${{ steps.merge-token.outputs.token }}",
     );
-    assert.match(String(forceMerge.run), /branches\/main/);
-    assert.match(String(forceMerge.run), /current_main.*BASE_SHA/s);
+    // Main moves faster than validation finishes, so the validated head merges
+    // onto the current main instead of folding main in and restarting checks.
+    assert.doesNotMatch(String(forceMerge.run), /repos\/\$REPO\/merges/);
+    assert.doesNotMatch(String(forceMerge.run), /branches\/main/);
+    assert.match(String(forceMerge.run), /\.mergeable/);
     assert.match(String(forceMerge.run), /--match-head-commit "\$HEAD_SHA"/);
     assert.match(
       String(forceMerge.run),
@@ -2265,6 +2579,108 @@ fi
       String(forceMerge.run).indexOf("release-required-checks.ts verify") <
         String(forceMerge.run).indexOf("gh pr merge"),
     );
+  });
+
+  describe("force-merge step against a main that moved", () => {
+    const forceMergeRun = String(
+      (
+        ((autoMergeWorkflow.jobs as Workflow)["auto-merge"] as Workflow)
+          .steps as Workflow[]
+      ).find((step) => step.name === "Force-merge with admin bypass")?.run,
+    );
+
+    function runForceMerge(mergeableAnswers: string[]) {
+      const tempRoot = mkdtempSync(path.join(tmpdir(), "release-force-merge-"));
+      const binDirectory = path.join(tempRoot, "bin");
+      const callsPath = path.join(tempRoot, "calls.txt");
+      const mergeableCountPath = path.join(tempRoot, "mergeable-count.txt");
+      mkdirSync(binDirectory);
+      // `gh` answers the live PR read and records every other call; `node` and
+      // `sleep` stand in for the required-checks verifier and the poll delay.
+      writeFileSync(
+        path.join(binDirectory, "gh"),
+        `#!/bin/sh
+echo "$@" >> "$CALLS_FILE"
+case "$1" in
+  api)
+    case " $* " in
+      *" --jq .mergeable "*)
+        n=0
+        if [ -f "$MERGEABLE_COUNT_FILE" ]; then n=$(cat "$MERGEABLE_COUNT_FILE"); fi
+        n=$((n + 1))
+        printf '%s' "$n" > "$MERGEABLE_COUNT_FILE"
+        printf '%s\\n' "$(printf '%s' "$MERGEABLE_ANSWERS" | cut -d, -f"$n")"
+        ;;
+      *)
+        printf '%s' '{"state":"open","draft":false,"user":{"login":"builder-io-integration[bot]"},"head":{"ref":"changeset-release/main","sha":"head-sha","repo":{"full_name":"BuilderIO/agent-native"}},"base":{"ref":"main","sha":"old-base","repo":{"full_name":"BuilderIO/agent-native"}}}'
+        ;;
+    esac
+    ;;
+  pr) exit 0 ;;
+  *) exit 1 ;;
+esac
+`,
+      );
+      writeFileSync(path.join(binDirectory, "node"), "#!/bin/sh\nexit 0\n");
+      writeFileSync(path.join(binDirectory, "sleep"), "#!/bin/sh\nexit 0\n");
+      for (const name of ["gh", "node", "sleep"]) {
+        chmodSync(path.join(binDirectory, name), 0o755);
+      }
+      try {
+        const result = spawnSync("bash", ["-e", "-c", forceMergeRun], {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+            CALLS_FILE: callsPath,
+            MERGEABLE_COUNT_FILE: mergeableCountPath,
+            MERGEABLE_ANSWERS: mergeableAnswers.join(","),
+            REPO: "BuilderIO/agent-native",
+            PR_NUMBER: "8421",
+            BASE_SHA: "old-base",
+            HEAD_SHA: "head-sha",
+          },
+        });
+        const calls = readFileSync(callsPath, "utf8");
+        return { result, calls };
+      } finally {
+        rmSync(tempRoot, { recursive: true, force: true });
+      }
+    }
+
+    it("merges the validated head onto the current main and never folds main in", () => {
+      const { result, calls } = runForceMerge(["true"]);
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(
+        calls,
+        /pr merge 8421 --repo BuilderIO\/agent-native --admin --squash --match-head-commit head-sha/,
+      );
+      assert.doesNotMatch(calls, /\/merges/);
+    });
+
+    it("waits for GitHub to compute mergeability before merging", () => {
+      const { result, calls } = runForceMerge(["null", "null", "true"]);
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(calls, /--match-head-commit head-sha/);
+    });
+
+    it("refuses to merge a release PR that conflicts with main", () => {
+      const { result, calls } = runForceMerge(["false"]);
+
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /does not merge cleanly onto main/);
+      assert.doesNotMatch(calls, /pr merge/);
+    });
+
+    it("refuses to merge when GitHub never reports mergeability", () => {
+      const { result, calls } = runForceMerge(Array(12).fill("null"));
+
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /mergeable=null/);
+      assert.doesNotMatch(calls, /pr merge/);
+    });
   });
 
   it("waits until local runtime packages are fetchable before publishing dependents", async () => {
@@ -2440,15 +2856,49 @@ fi
       });
     });
 
-    it("only runs on a manual dispatch with a non-empty devTag", () => {
+    it("exposes a Beta-only snapshot input, empty by default", () => {
+      assert.deepEqual(inputs.betaTag, {
+        description:
+          "Beta-only snapshot identifier (lowercase letters, digits, and hyphens): publish under dev-<value> and rebuild Beta Workspace without stable publication or production deploys",
+        required: false,
+        type: "string",
+        default: "",
+      });
+    });
+
+    it("runs on a manual dispatch with either snapshot input", () => {
       assert(devSnapshot);
       assert.match(
         String(devSnapshot.if),
         /github\.event_name == 'workflow_dispatch'/,
       );
       assert.match(String(devSnapshot.if), /inputs\.devTag != ''/);
+      assert.match(String(devSnapshot.if), /inputs\.betaTag != ''/);
       assert.doesNotMatch(String(devSnapshot.if), /needs\.verify-stable-merge/);
       assert.equal(devSnapshot.needs, undefined);
+
+      const conflictingInputs = (devSnapshot.steps as Workflow[]).find(
+        (step) => step.name === "Reject conflicting snapshot inputs",
+      );
+      assert(conflictingInputs);
+      assert.equal(
+        conflictingInputs.if,
+        "${{ inputs.betaTag != '' && inputs.devTag != '' }}",
+      );
+
+      const betaTagValidation = (devSnapshot.steps as Workflow[]).find(
+        (step) => step.name === "Validate Beta snapshot tag casing",
+      );
+      assert(betaTagValidation);
+      assert.equal(betaTagValidation.if, "${{ inputs.betaTag != '' }}");
+      assert.equal(
+        (betaTagValidation.env as Workflow).DEV_TAG,
+        "${{ inputs.betaTag }}",
+      );
+      assert.match(
+        String(betaTagValidation.run),
+        /Beta snapshot tags must be lowercase/,
+      );
     });
 
     it("is not gated to main and does not depend on verify-stable-merge", () => {
@@ -2463,17 +2913,26 @@ fi
       );
       assert(prepare);
       assert.match(String(prepare.run), /prepare-dev-snapshot\.ts/);
+      assert.equal(
+        (prepare.env as Workflow).DEV_TAG,
+        "${{ inputs.betaTag || inputs.devTag }}",
+      );
 
+      const prepareIndex = steps.indexOf(prepare);
       const version = steps.find(
         (step) => step.name === "Create dev snapshot versions",
       );
       assert(version);
+      assert.equal(
+        (version.env as Workflow).DEV_TAG,
+        "${{ steps.snapshot_tag.outputs.value }}",
+      );
+
       assert.match(
         String(version.run),
         /changeset version --snapshot "\$DEV_TAG"/,
       );
 
-      const prepareIndex = steps.indexOf(prepare);
       const versionIndex = steps.indexOf(version);
       assert(prepareIndex < versionIndex);
     });
@@ -2487,13 +2946,30 @@ fi
       assert.equal(publish.id, "publish");
       assert.equal(
         (publish.env as Workflow).AGENT_NATIVE_NPM_DIST_TAG,
-        "dev-${{ inputs.devTag }}",
+        "dev-${{ steps.snapshot_tag.outputs.value }}",
       );
       assert.equal(publish.run, "node scripts/changeset-publish-sequential.ts");
-      assert.doesNotMatch(
-        String((publish.env as Workflow).AGENT_NATIVE_NPM_DIST_TAG),
-        /^(latest|nightly)$/,
+    });
+
+    it("requires new Core and Dispatch versions before a Beta publish", () => {
+      const steps = devSnapshot.steps as Workflow[];
+      const preflight = steps.find(
+        (step) => step.name === "Require Core and Dispatch in Beta snapshot",
       );
+      const versionIndex = steps.findIndex(
+        (step) => step.name === "Create dev snapshot versions",
+      );
+      const publishIndex = steps.findIndex(
+        (step) => step.name === "Publish dev snapshot packages sequentially",
+      );
+      assert(preflight);
+      assert.equal(preflight.if, "${{ inputs.betaTag != '' }}");
+      assert.match(String(preflight.run), /for package in core dispatch/);
+      assert.match(String(preflight.run), /git show "HEAD:\$manifest"/);
+      assert.match(String(preflight.run), /Beta snapshot must include a new/);
+      assert.ok(versionIndex >= 0, "snapshot versioning step exists");
+      assert(versionIndex < steps.indexOf(preflight));
+      assert(steps.indexOf(preflight) < publishIndex);
     });
 
     it("reuses the npm-publish environment for OIDC trusted publishing", () => {
@@ -2520,10 +2996,23 @@ fi
       );
     });
 
-    it("has its own concurrency lane keyed by branch and tag", () => {
-      const group = String((workflow.concurrency as Workflow).group);
-      assert.match(group, /inputs\.devTag/);
-      assert.match(group, /format\('dev-\{0\}', inputs\.devTag\)/);
+    it("queues Beta and dev snapshots through one tag lock", () => {
+      const concurrency = workflow.concurrency as Workflow;
+      const group = String(concurrency.group);
+      const snapshotGroup = group.split(" || format(")[0];
+      assert.equal(concurrency.queue, "max");
+      assert.match(group, /inputs\.betaTag \|\| inputs\.devTag/);
+      assert.match(
+        snapshotGroup,
+        /format\('\{0\}-snapshot-dev', github\.workflow\)/,
+      );
+      assert.doesNotMatch(snapshotGroup, /format\('\{0\}-snapshot-dev-\{1\}'/);
+      assert.doesNotMatch(snapshotGroup, /github\.ref/);
+      assert.match(
+        group,
+        /format\('\{0\}-\{1\}-\{2\}', github\.workflow, github\.ref/,
+      );
+      assert.doesNotMatch(group, /format\('beta-\{0\}'/);
       assert.match(group, /stable-preparation/);
       assert.match(group, /stable-publication/);
     });
@@ -2531,11 +3020,62 @@ fi
     it("gates the stable release job off when devTag is set", () => {
       const release = jobs.release as Workflow;
       assert.match(String(release.if), /!inputs\.devTag/);
+      assert.match(String(release.if), /!inputs\.betaTag/);
     });
 
     it("excludes dev snapshot dispatches from downstream notification", () => {
       const notify = jobs["notify-downstream"] as Workflow;
       assert.match(String(notify.if), /!inputs\.devTag/);
+      assert.match(String(notify.if), /!inputs\.betaTag/);
+    });
+
+    it("requests the existing Beta-only Workspace rebuild after verifying fresh package tags", () => {
+      const steps = devSnapshot.steps as Workflow[];
+      const token = steps.find(
+        (step) =>
+          step.name === "Generate Builder Workspace Beta workflow token",
+      );
+      assert(token);
+      assert.equal(token.if, "${{ inputs.betaTag != '' }}");
+      assert.equal((token.with as Workflow)["permission-contents"], "write");
+
+      const betaDispatch = steps.find(
+        (step) => step.name === "Request Beta-only Builder Workspace rebuild",
+      );
+      assert(betaDispatch);
+      assert.equal(betaDispatch.if, "${{ inputs.betaTag != '' }}");
+      const buildIndex = steps.findIndex(
+        (step) => step.name === "Build all packages",
+      );
+      const publishIndex = steps.findIndex(
+        (step) => step.name === "Publish dev snapshot packages sequentially",
+      );
+      const tokenIndex = steps.indexOf(token);
+      const dispatchIndex = steps.indexOf(betaDispatch);
+      assert.ok(buildIndex >= 0, "package build step exists");
+      assert.ok(publishIndex >= 0, "snapshot publication step exists");
+      assert(buildIndex < publishIndex);
+      assert(publishIndex < tokenIndex);
+      assert(tokenIndex < dispatchIndex);
+      assert.match(
+        String(betaDispatch.run),
+        /@agent-native\/core @agent-native\/dispatch/,
+      );
+      assert.match(String(betaDispatch.run), /npm view/);
+      assert.match(String(betaDispatch.run), /dev-\$DEV_TAG/);
+      assert.match(
+        String(betaDispatch.run),
+        /event_type:"agent-native-beta-published"/,
+      );
+      assert.match(String(betaDispatch.run), /dispatch_dist_tag:\$tag/);
+      assert.match(
+        String(betaDispatch.run),
+        /builder-agent-native-workspace\/dispatches/,
+      );
+      assert.doesNotMatch(
+        String(betaDispatch.run),
+        /release-everything|deploy-production/,
+      );
     });
   });
 });

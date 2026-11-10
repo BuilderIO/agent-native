@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { resolveClipsHostedStorageConfig } from "./clips.js";
+import {
+  resolveClipsHostedStorageConfig,
+  resolveContentClipsPeerSecret,
+} from "./clips.js";
 import { AppConfigurationError } from "./configuration-error.js";
 import {
   defineAppConfig,
@@ -146,5 +149,72 @@ describe("Clips hosted storage config", () => {
   it("rejects invalid deployment limits during config parsing", () => {
     process.env.CLIPS_HOSTED_STORAGE_PER_IDENTITY_CLIP_LIMIT = "0";
     expect(() => getAppConfig()).toThrow();
+  });
+});
+
+describe("Content-to-Clips peer secret", () => {
+  const PEER_SECRET = "content-clips-peer-secret-0123456789abcdef";
+  const DEPLOYMENT_SECRET = "deployment-a2a-secret-0123456789abcdef";
+
+  beforeEach(() => {
+    resetAppConfigForTests();
+    process.env = { ...originalEnv };
+    delete process.env.CONTENT_CLIPS_PEER_SECRET;
+  });
+
+  afterEach(() => {
+    resetAppConfigForTests();
+    process.env = { ...originalEnv };
+  });
+
+  it("reads the secret from its deployment alias", () => {
+    process.env.CONTENT_CLIPS_PEER_SECRET = PEER_SECRET;
+
+    expect(
+      resolveContentClipsPeerSecret(getAppConfig().clips, DEPLOYMENT_SECRET),
+    ).toBe(PEER_SECRET);
+  });
+
+  it.each([
+    ["unset", undefined],
+    ["empty", ""],
+    ["whitespace", "   "],
+  ])("is absent, not an error, while %s", (_name, value) => {
+    if (value !== undefined) process.env.CONTENT_CLIPS_PEER_SECRET = value;
+
+    expect(
+      resolveContentClipsPeerSecret(getAppConfig().clips, DEPLOYMENT_SECRET),
+    ).toBe(null);
+  });
+
+  it("is absent, not an error, when app config sets it empty", () => {
+    defineAppConfig({ clips: { contentPeerSecret: "" } });
+
+    expect(
+      resolveContentClipsPeerSecret(getAppConfig().clips, DEPLOYMENT_SECRET),
+    ).toBe(null);
+  });
+
+  it("refuses the deployment A2A secret, which every app holds", () => {
+    process.env.CONTENT_CLIPS_PEER_SECRET = DEPLOYMENT_SECRET;
+
+    expect(() =>
+      resolveContentClipsPeerSecret(
+        getAppConfig().clips,
+        ` ${DEPLOYMENT_SECRET} `,
+      ),
+    ).toThrow(
+      new AppConfigurationError(
+        "CONTENT_CLIPS_PEER_SECRET must differ from A2A_SECRET.",
+      ),
+    );
+  });
+
+  it("refuses a secret too short to sign with", () => {
+    process.env.CONTENT_CLIPS_PEER_SECRET = "short-peer-secret";
+
+    expect(() =>
+      resolveContentClipsPeerSecret(getAppConfig().clips, undefined),
+    ).toThrow(AppConfigurationError);
   });
 });

@@ -19,6 +19,7 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   signEmbedSessionToken,
+  getEmbedSessionOrigin: () => getRequestContext().requestOrigin,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -46,7 +47,7 @@ describe("issue-visual-edit-bootstrap", () => {
           /^bootstrap\+[A-Za-z0-9_-]{32}@local\.visual-edit\.agent-native\.invalid$/,
         ),
         targetPath: "/visual-edit",
-        audienceHost: "design.example.com",
+        audienceHost: "https://design.example.com",
         scope: expect.stringMatching(
           /^capability:visual-edit-bootstrap:[A-Za-z0-9_-]{32}$/,
         ),

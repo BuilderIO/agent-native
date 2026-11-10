@@ -47,9 +47,15 @@
           "default": 0
         }
       ],
-      "content": "block*",
+      "content": "notionToggleSummary? (block | notionToggleSummary)*",
       "group": "block",
       "draggable": true,
+      "defining": true
+    },
+    {
+      "name": "notionToggleSummary",
+      "attrs": [],
+      "content": "inline*",
       "defining": true
     },
     {
@@ -247,6 +253,11 @@
           "default": null
         },
         {
+          "name": "blockId",
+          "hasDefault": true,
+          "default": null
+        },
+        {
           "name": "uploadId",
           "hasDefault": true,
           "default": null
@@ -437,7 +448,13 @@
     },
     {
       "name": "notionColumn",
-      "attrs": [],
+      "attrs": [
+        {
+          "name": "ratio",
+          "hasDefault": true,
+          "default": null
+        }
+      ],
       "content": "block+",
       "defining": true
     },

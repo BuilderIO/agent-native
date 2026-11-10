@@ -69,7 +69,49 @@ genauso für einfache manuelle Läufe und bestehende Skripte:
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
-Das ist nützlich für Agent-Dev-Schleifen, Skripte und Cron-Jobs.
+Bei `defineAction()`-Aufrufen prüft die CLI `needsApproval` anhand der vorbereiteten, geparsten Argumente mit angewendeten Schema-Standardwerten und Aufrufer `cli`. Wenn stdin und stdout TTYs sind, zeigt sie Aktionsname und Argumente an und fragt `y/N`. Nur `y` oder `yes` führt die Aktion aus.
+
+Ohne beide TTYs fordert die CLI den Agenten auf, die Person um Freigabe zu bitten. Erst nach deren Freigabe dieses konkreten Aufrufs dieselben ursprünglichen `pnpm action`-Argumente mit angehängtem `--approved` erneut ausführen:
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
+```
+
+`--approved` ist reservierte CLI-Metadaten und wird vor dem Parsen der Eingabe entfernt. Das Flag nimmt keinen Wert: Folgt ihm etwas anderes als ein weiteres Flag oder ein JSON-Objekt, wird der Aufruf abgelehnt. Eine Eingabe namens `approved` schreibt man als `--approved=<value>`. Bei Aktionen ohne Freigabepflicht ist das Flag harmlos. Die CLI kann nicht prüfen, wer es hinzugefügt hat: Ein Agent, der es ohne Rückfrage anhängt, überspringt die Abfrage. Das Flag macht die Freigabe im Befehl, den die Person freigibt, und im Audit-Log sichtbar, das sie als nicht verifiziert kennzeichnet. Unter Windows ohne POSIX-`SHELL` nennt die Ablehnung den Befehl für PowerShell und, wenn die Quotierung abweicht, auch für cmd.exe. Unter Windows reicht pnpm die Argumente einer Aktion aus jeder Shell über cmd.exe weiter, und cmd.exe expandiert `%NAME%` auch in Anführungszeichen. Enthält ein Argument so eine Variable, bietet die Ablehnung keinen erneuten Aufruf mit `--approved` an: Die Person führt den Befehl in einem Terminal aus und prüft die Werte bei der Abfrage. Enthalten die Argumente ein Anführungszeichen und eines von `&`, `|`, `<`, `>` oder `^`, kann pnpm sie nicht unverändert durch cmd.exe reichen. Die Ablehnung zeigt dann keinen Befehl, und die Person gibt den Aufruf stattdessen in der App frei. Windows PowerShell 5.1 entfernt jedes `"` innerhalb eines Arguments. Unter Windows ohne POSIX-`SHELL` geht ein Argument mit einem doppelten Anführungszeichen deshalb ebenfalls zur Abfrage statt zu einem erneuten Aufruf mit `--approved`.
+
+Die lokale Dev-Bridge sendet die Freigabemetadaten außerhalb von `input` im JSON-Body:
+
+```ts
+{ name, input, approved: true, approvalSource: "flag" }
+```
+
+Bei einem freigabepflichtigen Aufruf ohne Freigabe antwortet die Bridge mit HTTP `409`:
+
+```ts
+{
+  ok: false,
+  errorCode: "approval_required",
+  error: 'Action "<name>" requires human approval. Ask the person, then rerun with --approved.',
+  arguments: preparedArgs,
+  argumentsHash: prepared.argumentsHash,
+}
+```
+
+Nach der TTY-Bestätigung wiederholt die CLI den Aufruf mit `argumentsHash` aus der Bestätigungsanforderung:
+
+```ts
+{
+  name,
+  input,
+  approved: true,
+  approvalSource: "prompt",
+  approvalArgumentsHash: challenge.argumentsHash,
+}
+```
+
+Die Bridge führt den Aufruf, den die Person geprüft hat, genau einmal aus. Ein Standardwert, der sich pro Aufruf ändert, etwa ein Zeitstempel, behält also den angezeigten Wert. Eine Bestätigung ohne gehaltenen Aufruf (er lief schon, 10 Minuten sind vergangen oder der Dev-Server wurde neu gestartet) erhält HTTP `409` mit `errorCode: "approval_expired"`. Führe den Befehl erneut aus, um ihn zu prüfen.
+
+`arguments` enthält die vorbereiteten Argumente. Dieser Vertrag der lokalen Dev-Bridge ändert die [Freigaberegeln der öffentlichen HTTP-Aktions-API](/docs/actions-access-control#needs-approval) nicht. Ein genehmigter freigabepflichtiger CLI-Aufruf vermerkt `approval: "cli-prompt"` oder `approval: "cli-flag"` im eigenen Audit-Eintrag der Aktion, mit Aufrufer `cli`. Das Audit-Log zeigt beide als nicht verifiziert, da nur die CLI die Abfrage sieht.
 
 ## Von einem anderen Agenten aufrufen (A2A) {#a2a}
 

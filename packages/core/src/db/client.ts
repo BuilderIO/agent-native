@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import path from "path";
 
+import { withoutWriteObservation } from "../action-frame.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
@@ -13,6 +14,7 @@ import {
   isMigrationAuthorizedRuntime,
   isProductionServerlessFunctionRuntime,
 } from "./migration-runtime.js";
+import { noteSqlStatement } from "./note-sql-statement.js";
 import {
   assertPoolConnectionAvailable,
   runHoldingPoolConnection,
@@ -22,6 +24,8 @@ import {
   getRequestDbPool,
   replaceRequestDbPool,
 } from "./request-pool-context.js";
+import { getSqlFragmentParameterOffsets, isSqlFragment } from "./sql.js";
+import type { SqlFragment } from "./sql.js";
 export {
   isHostedFunctionInvocationRuntime,
   isProductionServerlessFunctionRuntime,
@@ -47,9 +51,10 @@ export interface DbExecQuery {
 }
 
 export type DbExecStatement = string | DbExecQuery;
+export type DbExecInput = DbExecStatement | SqlFragment;
 
 export interface DbExec {
-  execute(sql: DbExecStatement): Promise<{
+  execute(sql: DbExecInput): Promise<{
     rows: any[];
     rowsAffected: number;
   }>;
@@ -433,6 +438,51 @@ function finishPgliteClientOperation(): void {
   _pgliteClientOperationDrain.waiters.clear();
 }
 
+const PGLITE_PROTOCOL_METHODS = new Set([
+  "execProtocol",
+  "execProtocolRaw",
+  "execProtocolRawStream",
+]);
+
+/**
+ * Counts a statement PGlite is about to run, from its text. The wire-protocol
+ * methods carry none, so they count as writes. `transaction` hands its callback
+ * a handle that is observed the same way.
+ */
+function observePgliteCall(
+  method: string | symbol,
+  args: unknown[],
+): unknown[] {
+  if (method === "query" || method === "exec") {
+    noteSqlStatement(args[0]);
+  } else if (method === "sql") {
+    noteSqlStatement(Array.isArray(args[0]) ? args[0].join("$1") : undefined);
+  } else if (
+    typeof method === "string" &&
+    PGLITE_PROTOCOL_METHODS.has(method)
+  ) {
+    noteSqlStatement(undefined);
+  } else if (method === "transaction" && typeof args[0] === "function") {
+    const callback = args[0] as (tx: unknown) => unknown;
+    return [
+      (tx: object) => callback(observePgliteTransaction(tx)),
+      ...args.slice(1),
+    ];
+  }
+  return args;
+}
+
+function observePgliteTransaction<T extends object>(tx: T): T {
+  return new Proxy(tx, {
+    get(target, property) {
+      const member = Reflect.get(target, property, target);
+      if (typeof member !== "function") return member;
+      return (...args: unknown[]) =>
+        Reflect.apply(member, target, observePgliteCall(property, args));
+    },
+  });
+}
+
 function guardPgliteClientAccess(client: any): any {
   return new Proxy(client, {
     get(target, property) {
@@ -441,9 +491,10 @@ function guardPgliteClientAccess(client: any): any {
       if (property === "close") return method.bind(target);
       return (...args: unknown[]) => {
         assertPgliteClientAccessOpen();
+        const observed = observePgliteCall(property, args);
         _pgliteClientOperationDrain.active++;
         try {
-          const result: unknown = Reflect.apply(method, target, args);
+          const result: unknown = Reflect.apply(method, target, observed);
           if (
             result !== null &&
             (typeof result === "object" || typeof result === "function") &&
@@ -787,13 +838,35 @@ export function isLocalDatabase(): boolean {
   return isPgliteUrl(getRuntimeDatabaseUrl("pglite:./data/pglite"));
 }
 
-export function toPostgresParams(sql: string): string {
+export function toPostgresParams(
+  sql: string,
+  parameterOffsets?: readonly number[],
+): string {
+  const expectedMarkers =
+    parameterOffsets === undefined ? undefined : new Set<number>();
+  for (const offset of parameterOffsets ?? []) {
+    if (
+      !Number.isInteger(offset) ||
+      offset < 0 ||
+      offset >= sql.length ||
+      sql[offset] !== "?" ||
+      expectedMarkers?.has(offset)
+    ) {
+      throw new TypeError(
+        "SQL fragment has invalid parameter marker metadata.",
+      );
+    }
+    expectedMarkers?.add(offset);
+  }
+
   let out = "";
   let param = 0;
   let i = 0;
+  const convertedMarkers = new Set<number>();
   let mode:
     | "normal"
     | "single"
+    | "escape-single"
     | "double"
     | "line-comment"
     | "block-comment"
@@ -823,8 +896,13 @@ export function toPostgresParams(sql: string): string {
       continue;
     }
 
-    if (mode === "single") {
+    if (mode === "single" || mode === "escape-single") {
       out += ch;
+      if (mode === "escape-single" && ch === "\\" && i + 1 < sql.length) {
+        out += next;
+        i += 2;
+        continue;
+      }
       if (ch === "'" && next === "'") {
         out += next;
         i += 2;
@@ -875,7 +953,12 @@ export function toPostgresParams(sql: string): string {
     if (ch === "'") {
       out += ch;
       i++;
-      mode = "single";
+      const prefix = sql[i - 2];
+      const previous = sql.charAt(i - 3);
+      mode =
+        (prefix === "E" || prefix === "e") && !/[A-Za-z0-9_$]/.test(previous)
+          ? "escape-single"
+          : "single";
       continue;
     }
     if (ch === '"') {
@@ -886,7 +969,8 @@ export function toPostgresParams(sql: string): string {
     }
     if (ch === "$") {
       const match = /^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/.exec(sql.slice(i));
-      if (match) {
+      const previous = sql.charAt(i - 1);
+      if (match && !/[A-Za-z0-9_$]/.test(previous)) {
         dollarTag = match[0];
         out += dollarTag;
         i += dollarTag.length;
@@ -894,8 +978,12 @@ export function toPostgresParams(sql: string): string {
         continue;
       }
     }
-    if (ch === "?") {
+    if (
+      ch === "?" &&
+      (expectedMarkers === undefined || expectedMarkers.has(i))
+    ) {
       out += `$${++param}`;
+      convertedMarkers.add(i);
       i++;
       continue;
     }
@@ -904,24 +992,45 @@ export function toPostgresParams(sql: string): string {
     i++;
   }
 
+  if (
+    expectedMarkers !== undefined &&
+    convertedMarkers.size !== expectedMarkers.size
+  ) {
+    throw new TypeError(
+      "SQL fragment bind marker appears inside a SQL literal.",
+    );
+  }
+
   return out;
 }
 
-function sqlAndArgs(sql: DbExecStatement): {
+// raw-sql-ok: unwrap fragments at the database adapter boundary.
+function sqlAndArgs(sql: DbExecInput): {
   rawSql: string;
   args: unknown[];
 } {
   return typeof sql === "string"
     ? { rawSql: sql, args: [] }
-    : { rawSql: sql.sql, args: sql.args || [] };
+    : { rawSql: sql.sql, args: [...(sql.args ?? [])] }; // raw-sql-ok: preserve the legacy execute shape while unwrapping a typed fragment.
+}
+
+function postgresSqlForStatement(
+  statement: DbExecInput,
+  rawSql: string,
+): string {
+  return isSqlFragment(statement)
+    ? toPostgresParams(rawSql, getSqlFragmentParameterOffsets(statement))
+    : toPostgresParams(rawSql);
 }
 
 const POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS = 250;
 const POSTGRES_STATEMENT_TIMEOUT_RESET_MS = 5_000;
 const POSTGRES_MAX_INT = 2_147_483_647;
 
-export function hasExplicitDbTimeout(statement: DbExecStatement): boolean {
-  if (typeof statement === "string") return false;
+export function hasExplicitDbTimeout(statement: DbExecInput): boolean {
+  if (typeof statement === "string" || !("timeoutMs" in statement)) {
+    return false;
+  }
   const timeoutMs = Number(statement.timeoutMs);
   return Number.isFinite(timeoutMs) && timeoutMs > 0;
 }
@@ -938,15 +1047,140 @@ export function postgresStatementTimeoutMs(clientTimeoutMs: number): number {
   return Math.max(1, safeTimeoutMs - headroomMs);
 }
 
-export function dbExecQueryBudget(statement: DbExecStatement): {
+// The CTE is materialized so the previous value is read before set_config
+// replaces it; inlined, both calls share one projection with no order. A
+// stricter cap the transaction already holds is kept; 0 means none.
+const BOUND_STATEMENT_TIMEOUT_SQL = `WITH previous AS MATERIALIZED (
+    SELECT current_setting('statement_timeout') AS value,
+           setting::bigint AS ms
+    FROM pg_settings
+    WHERE name = 'statement_timeout'
+  )
+  SELECT value AS previous, ms AS previous_ms,
+         set_config(
+           'statement_timeout',
+           CASE WHEN ms > 0 AND ms <= CAST(? AS BIGINT) THEN value ELSE ? END,
+           true
+         )
+  FROM previous
+  LIMIT 1`;
+const SET_STATEMENT_TIMEOUT_SQL =
+  "SELECT set_config('statement_timeout', ?, true)";
+
+/**
+ * Runs one budgeted statement inside a transaction under a server-side
+ * timeout. A client-side timeout only abandons the promise, so without it the
+ * statement keeps its row locks and its connection. The transaction's previous
+ * setting is put back once the statement succeeds, or the cap would apply to
+ * every later statement and override a stricter one set earlier; a statement
+ * that fails aborts the transaction, which leaves nothing to put back.
+ */
+async function withTransactionStatementTimeout<T>(
+  runSetting: (
+    setting: DbExecQuery,
+    timeoutMs: number,
+  ) => Promise<readonly unknown[]>,
+  timeoutMs: number,
+  statement: (remainingMs: number) => Promise<T>,
+): Promise<T> {
+  const startedAt = Date.now();
+  const remainingMs = () => Math.max(1, timeoutMs - (Date.now() - startedAt));
+  const serverTimeout = () => postgresStatementTimeoutMs(remainingMs());
+  const applied = serverTimeout();
+  const bound = await runSetting(
+    { sql: BOUND_STATEMENT_TIMEOUT_SQL, args: [applied, `${applied}ms`] },
+    remainingMs(),
+  );
+  const row = bound[0] as
+    | { previous?: unknown; previous_ms?: unknown }
+    | undefined;
+  const previous = row?.previous;
+  const previousMs = Number(row?.previous_ms);
+  if (typeof previous !== "string" || !Number.isFinite(previousMs)) {
+    throw new Error(
+      "Could not read the transaction's statement_timeout before bounding a statement",
+    );
+  }
+  let installed =
+    previousMs > 0 && previousMs <= applied ? previousMs : applied;
+  // A slow round trip above leaves less of the budget than the server was
+  // given, so the statement could outlive its caller holding its locks.
+  // Tightening is itself a round trip, so a budget it also outruns is spent:
+  // the statement never starts.
+  if (installed >= remainingMs()) {
+    installed = serverTimeout();
+    await runSetting(
+      { sql: SET_STATEMENT_TIMEOUT_SQL, args: [`${installed}ms`] },
+      remainingMs(),
+    );
+    if (installed >= remainingMs()) {
+      // A caller may catch this and keep using the transaction.
+      await runSetting(
+        { sql: SET_STATEMENT_TIMEOUT_SQL, args: [previous] },
+        POSTGRES_STATEMENT_TIMEOUT_RESET_MS,
+      );
+      throw Object.assign(
+        new Error(
+          `The ${timeoutMs}ms statement budget ran out while setting its server timeout`,
+        ),
+        { code: "STATEMENT_BUDGET_EXHAUSTED" },
+      );
+    }
+  }
+  const result = await statement(remainingMs());
+  await runSetting(
+    { sql: SET_STATEMENT_TIMEOUT_SQL, args: [previous] },
+    POSTGRES_STATEMENT_TIMEOUT_RESET_MS,
+  );
+  return result;
+}
+
+type PostgresJsRows = ArrayLike<unknown> & { count?: number };
+
+function postgresJsTransactionExec(txSql: {
+  unsafe(query: string, args?: unknown[]): Promise<PostgresJsRows>;
+}): DbExec {
+  const query = (sql: DbExecInput, timeoutMs: number) => {
+    // raw-sql-ok: forwards a statement its caller already built and bound.
+    const { rawSql, args } = sqlAndArgs(sql);
+    const pgSql = postgresSqlForStatement(sql, rawSql);
+    return withDbTimeout<PostgresJsRows>(
+      "query",
+      () => txSql.unsafe(pgSql, args),
+      timeoutMs,
+      undefined,
+      { sql: rawSql },
+    );
+  };
+  return {
+    async execute(sql) {
+      const { timeoutMs } = dbExecQueryBudget(sql);
+      const result = hasExplicitDbTimeout(sql)
+        ? await withTransactionStatementTimeout(
+            async (setting, ms) => Array.from(await query(setting, ms)),
+            timeoutMs,
+            (remainingMs) => query(sql, remainingMs),
+          )
+        : await query(sql, timeoutMs);
+      return {
+        rows: Array.from(result),
+        rowsAffected: result.count ?? 0,
+      };
+    },
+  };
+}
+
+export function dbExecQueryBudget(statement: DbExecInput): {
   timeoutMs: number;
   maxAttempts: number;
 } {
   if (typeof statement === "string") {
     return { timeoutMs: dbOpTimeoutMs(), maxAttempts: 3 };
   }
-  const timeoutMs = Number(statement.timeoutMs);
-  const maxAttempts = Number(statement.maxAttempts);
+  const timeoutMs =
+    "timeoutMs" in statement ? Number(statement.timeoutMs) : Number.NaN;
+  const maxAttempts =
+    "maxAttempts" in statement ? Number(statement.maxAttempts) : Number.NaN;
   return {
     timeoutMs:
       Number.isFinite(timeoutMs) && timeoutMs > 0
@@ -1120,6 +1354,10 @@ export async function withDbTimeout<T>(
   onTimeout?: () => void | Promise<void>,
   query?: { sql: string },
 ): Promise<T> {
+  // Every statement a driver runs passes here with its text, so a query with
+  // none is counted as a write. Counted before it is sent, so a statement
+  // still in flight when its failure arrives is already seen.
+  if (op === "query") noteSqlStatement(query?.sql);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let settled = false;
   const finishTelemetry = beginDatabaseOperation(
@@ -1270,11 +1508,11 @@ export function assertHostedRuntimeDatabase(): void {
 const SCHEMA_MUTATION_STATEMENT =
   /^\s*(?:CREATE|ALTER|DROP|TRUNCATE|COMMENT|REINDEX|GRANT|REVOKE)\b/i;
 
-function rawSql(statement: DbExecStatement): string {
+function rawSql(statement: DbExecInput): string {
   return typeof statement === "string" ? statement : statement.sql;
 }
 
-export function isSchemaMutationStatement(statement: DbExecStatement): boolean {
+export function isSchemaMutationStatement(statement: DbExecInput): boolean {
   return SCHEMA_MUTATION_STATEMENT.test(rawSql(statement));
 }
 
@@ -1284,7 +1522,7 @@ export function isSchemaMutationStatement(statement: DbExecStatement): boolean {
  * reporting success against a missing table. The release migration wrapper
  * is the only supported production opt-in.
  */
-export function assertSchemaMutationAllowed(statement: DbExecStatement): void {
+export function assertSchemaMutationAllowed(statement: DbExecInput): void {
   const migrationRuntimeCanMutate =
     isMigrationExecutingRuntime() ||
     (isMigrationAuthorizedRuntime() && !isHostedFunctionInvocationRuntime());
@@ -1715,7 +1953,7 @@ async function executePglite(
   sql: Parameters<DbExec["execute"]>[0],
 ): ReturnType<DbExec["execute"]> {
   const { rawSql, args } = sqlAndArgs(sql);
-  const pgSql = toPostgresParams(rawSql);
+  const pgSql = postgresSqlForStatement(sql, rawSql);
   const result = await withDbTimeout(
     "query",
     () => client.query(pgSql, args as any[]),
@@ -1814,7 +2052,7 @@ async function createDbExecInternal(
     ) {
       const { rawSql, args } = sqlAndArgs(sql);
       const { timeoutMs } = dbExecQueryBudget(sql);
-      const pgSql = toPostgresParams(rawSql);
+      const pgSql = postgresSqlForStatement(sql, rawSql);
       const runQuery = () =>
         args.length === 0 && rawSql.includes(";")
           ? client.query(pgSql)
@@ -1867,7 +2105,7 @@ async function createDbExecInternal(
       }
       const { rawSql, args } = sqlAndArgs(sql);
       const { timeoutMs } = dbExecQueryBudget(sql);
-      const pgSql = toPostgresParams(rawSql);
+      const pgSql = postgresSqlForStatement(sql, rawSql);
       const controller = new AbortController();
       const run = async () => {
         if (!hasExplicitDbTimeout(sql)) {
@@ -1897,9 +2135,11 @@ async function createDbExecInternal(
         );
         return results[1];
       };
+      // The statement was counted by its text before this runs; the POST that
+      // carries a read is the driver's transport, not a write.
       const result = await withDbTimeout(
         "query",
-        run,
+        () => withoutWriteObservation(run),
         timeoutMs,
         () => controller.abort(),
         { sql: rawSql },
@@ -2004,18 +2244,12 @@ async function createDbExecInternal(
               if (!hasExplicitDbTimeout(sql)) {
                 return queryNeonClient(client, sql);
               }
-              const { timeoutMs } = dbExecQueryBudget(sql);
-              const startedAt = Date.now();
-              const remainingMs = () =>
-                Math.max(1, timeoutMs - (Date.now() - startedAt));
-              const statementTimeoutMs =
-                postgresStatementTimeoutMs(remainingMs());
-              await queryNeonClient(
-                client,
-                `SET LOCAL statement_timeout = ${statementTimeoutMs}`,
-                remainingMs(),
+              return withTransactionStatementTimeout(
+                async (setting, ms) =>
+                  (await queryNeonClient(client, setting, ms)).rows,
+                dbExecQueryBudget(sql).timeoutMs,
+                (remainingMs) => queryNeonClient(client, sql, remainingMs),
               );
-              return queryNeonClient(client, sql, remainingMs());
             },
           };
           try {
@@ -2069,7 +2303,7 @@ async function createDbExecInternal(
           const rawSql = typeof sql === "string" ? sql : sql.sql;
           const args = typeof sql === "string" ? [] : sql.args || [];
           const { timeoutMs } = dbExecQueryBudget(sql);
-          const pgSql = toPostgresParams(rawSql);
+          const pgSql = postgresSqlForStatement(sql, rawSql);
           const result = await withDbTimeout<
             ArrayLike<unknown> & { count?: number }
           >(
@@ -2108,29 +2342,7 @@ async function createDbExecInternal(
         });
         try {
           const result = await conn.begin(async (txSql: any) => {
-            const tx: DbExec = {
-              async execute(sql) {
-                const { rawSql, args } = sqlAndArgs(sql);
-                const { timeoutMs } = dbExecQueryBudget(sql);
-                const pgSql = toPostgresParams(rawSql);
-                const result = await withDbTimeout<
-                  ArrayLike<unknown> & { count?: number }
-                >(
-                  "query",
-                  () =>
-                    txSql.unsafe(pgSql, args as any[]) as Promise<
-                      ArrayLike<unknown> & { count?: number }
-                    >,
-                  timeoutMs,
-                  undefined,
-                  { sql: rawSql },
-                );
-                return {
-                  rows: Array.from(result),
-                  rowsAffected: result.count ?? 0,
-                };
-              },
-            };
+            const tx = postgresJsTransactionExec(txSql);
             return fn(tx);
           });
           return result as T;
@@ -2170,7 +2382,7 @@ async function createDbExecInternal(
       async execute(sql) {
         const { rawSql, args } = sqlAndArgs(sql);
         const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
-        const pgSql = toPostgresParams(rawSql);
+        const pgSql = postgresSqlForStatement(sql, rawSql);
         const result = await retryOnConnectionError<
           ArrayLike<unknown> & { count?: number }
         >(() => {
@@ -2193,29 +2405,7 @@ async function createDbExecInternal(
       async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
         const activePool = getPool();
         const result = await activePool.begin(async (txSql: any) => {
-          const tx: DbExec = {
-            async execute(sql) {
-              const { rawSql, args } = sqlAndArgs(sql);
-              const { timeoutMs } = dbExecQueryBudget(sql);
-              const pgSql = toPostgresParams(rawSql);
-              const result = await withDbTimeout<
-                ArrayLike<unknown> & { count?: number }
-              >(
-                "query",
-                () =>
-                  txSql.unsafe(pgSql, args as any[]) as Promise<
-                    ArrayLike<unknown> & { count?: number }
-                  >,
-                timeoutMs,
-                undefined,
-                { sql: rawSql },
-              );
-              return {
-                rows: Array.from(result),
-                rowsAffected: result.count ?? 0,
-              };
-            },
-          };
+          const tx = postgresJsTransactionExec(txSql);
           return runHoldingPoolConnection(activePool, () => fn(tx));
         });
         return result as T;
@@ -2369,18 +2559,19 @@ export function getDbExec(): DbExec {
   // Never hand out the raw `_exec`: it bypasses the schema-mutation guard.
   if (_proxy) return _proxy;
 
+  function sanitize(sql: DbExecStatement): DbExecStatement;
+  function sanitize(sql: DbExecInput): DbExecInput;
   function sanitize(
-    sql: string | { sql: string; args?: unknown[] },
-  ): string | { sql: string; args?: unknown[] } {
-    if (typeof sql === "object" && sql.args) {
+    sql: DbExecInput, // raw-sql-ok: this wrapper forwards typed fragments and legacy statements unchanged.
+  ): DbExecInput {
+    if (isSqlFragment(sql)) return sql;
+    if (typeof sql === "object" && sql.args !== undefined) {
       return { ...sql, args: sql.args.map((a) => a ?? null) };
     }
     return sql;
   }
 
-  async function execAnnotated(
-    s: string | { sql: string; args?: unknown[] },
-  ): ReturnType<DbExec["execute"]> {
+  async function execAnnotated(s: DbExecInput): ReturnType<DbExec["execute"]> {
     assertSchemaMutationAllowed(s);
     try {
       return await getCurrentDbExec().execute(sanitize(s));

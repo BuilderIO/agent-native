@@ -26,7 +26,6 @@ import type {
   AgentTransport,
   AgentThreadSnapshot,
   AgentToolCall,
-  AgentUploadTarget,
   FilePart,
 } from "@agent-native/agentkit/protocol";
 import type { AgentChatAttachment } from "@agent-native/core";
@@ -70,6 +69,10 @@ import {
   useAgentEngineConfigured,
   type AgentEngineConfiguredState,
 } from "@agent-native/core/client/agent-chat";
+import {
+  createAgentNativeUploadRuntime,
+  fileUploadUrlForChatApi,
+} from "@agent-native/core/client/agentkit-chat/transport";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   compareAndSetClientAppState,
@@ -174,6 +177,8 @@ import {
 import { isStreamingVoiceMessage } from "../agentkit/react/voice-transcripts.js";
 import { ThreadContextRing } from "../context-xray/ThreadContextRing.js";
 import { threadHasFinishedReply } from "../context-xray/use-thread-context-usage.js";
+import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
+import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-startup-gate.js";
 import {
   AgentKitDevCheckpointProvider,
   AgentKitDevCheckpointRestore,
@@ -237,6 +242,11 @@ import {
   isWaitingOnConnectionRequest,
   reconcileSettledRun,
 } from "./reconcile-settled-run.js";
+import {
+  pickReplyConnectionSuggestion,
+  latestReplyContext,
+  type LatestReplyContext,
+} from "./reply-connection-suggestion.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { SESSION_REPLAY_MASK_PROPS } from "./session-replay-privacy.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
@@ -244,6 +254,8 @@ import { ThinkingDisplayProvider } from "./thinking-display.js";
 export interface AgentKitAssistantChatProps extends AssistantChatProps {
   /** Reference routing follows the selected conversation even when chat is hidden. */
   isReferenceTarget?: boolean;
+  /** Set to false so mounting the composer leaves focus where it is. */
+  composerAutoFocus?: boolean;
   /** Called after AgentKit creates a fork so the host can add and activate a tab. */
   onForkedThread?: (threadId: string) => void;
   branchNavigation?: AgentKitBranchNavigation;
@@ -1455,6 +1467,8 @@ interface AgentKitSurfaceContextValue {
   hasRenderedMessages: boolean;
   canChat: boolean;
   setupMissing: boolean;
+  /** Only the server's readiness answer, never the model list's early guess. */
+  setupConfirmedMissing: boolean;
   providerStatus: AgentEngineConfiguredState;
   modelListUnavailable: boolean;
   retryProviderStatus: () => void;
@@ -1476,6 +1490,7 @@ interface AgentKitSurfaceContextValue {
   authSessionAvailable: boolean;
   setupBouncePulse: number;
   bounceSetupCard: () => void;
+  onComposerSetupRequiredChange: (required: boolean) => void;
   isSubmissionInFlight: boolean;
   composerSubmissionPending: boolean;
   onComposerSubmissionPendingChange: (pending: boolean) => void;
@@ -1542,6 +1557,19 @@ const agentKitSlots = {
   message: AgentKitUserMessage,
   messageSupplement: AgentKitMessageSupplement,
   messageActionsTrailing: AgentKitHistoryMessageSupplement,
+  feedbackNote: ({
+    renderTrigger,
+    ...props
+  }: {
+    threadId: string;
+    runId?: string;
+    messageSeq?: number;
+    renderTrigger: (
+      toggle: () => void,
+      open: boolean,
+      contentId: string,
+    ) => React.ReactNode;
+  }) => <ThumbsFeedback {...props} renderNegativeTrigger={renderTrigger} />,
   text: AgentKitMarkdownText,
   tool: AgentKitTool,
   connectionRequest: AgentKitConnectionRequest,
@@ -1923,55 +1951,54 @@ export const AgentKitAssistantChat = forwardRef<
     }),
     [formatDate, props.composerPlaceholder, t],
   );
-  const uploadedFilesRef = useRef(new Map<string, FilePart>());
+  const { session: uploadSession } = useSession();
+  const uploadScopeKey = JSON.stringify([
+    uploadSession?.email ?? null,
+    uploadSession?.orgId ?? null,
+    uploadSession?.authUserId ?? null,
+  ]);
+  const uploadRuntime = useMemo(
+    () =>
+      createAgentNativeUploadRuntime({
+        url: fileUploadUrlForChatApi(
+          props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
+        ),
+      }),
+    [props.apiUrl],
+  );
+  useEffect(
+    () => () => uploadRuntime.dispose(),
+    [uploadRuntime, uploadScopeKey],
+  );
   const upload: AgentKitUploadDriver = useCallback(
-    async (target, file, context) => {
-      if (file.size > AGENT_CHAT_UPLOAD_MAX_FILE_BYTES) {
-        throw attachmentTooLargeError(
-          uploadTooLargeMessage(translatorRef.current),
-        );
-      }
-      const form = new FormData();
-      for (const [key, value] of Object.entries(target.fields ?? {})) {
-        form.set(key, value);
-      }
-      form.set("file", file.body, file.name);
-      let response: Response;
+    async (...args) => {
       try {
-        response = await fetch(target.url, {
-          method: target.method,
-          headers: target.headers,
-          body: form,
-          signal: context?.signal,
-        });
-      } catch (error) {
-        if (context?.signal?.aborted) throw error;
+        await uploadRuntime.upload(...args);
+      } catch (cause) {
+        if (args[2]?.signal?.aborted) throw cause;
+        const status =
+          cause && typeof cause === "object" && "status" in cause
+            ? cause.status
+            : undefined;
+        if (typeof status === "number")
+          throw uploadHttpError(status, translatorRef.current);
+        const code =
+          cause && typeof cause === "object" && "code" in cause
+            ? cause.code
+            : undefined;
         throw Object.assign(
-          new Error(translatorRef.current("agentChat.composer.uploadOffline")),
-          { code: "upload_network_error", retryable: true, cause: error },
+          new Error(
+            translatorRef.current(
+              code === "upload_network_error"
+                ? "agentChat.composer.uploadOffline"
+                : "agentChat.composer.uploadFailed",
+            ),
+          ),
+          { code, cause, retryable: code === "upload_network_error" },
         );
       }
-      // The server's error body is never shown: its text is untranslated.
-      if (!response.ok) {
-        throw uploadHttpError(response.status, translatorRef.current);
-      }
-      const result: unknown = await response.json();
-      const uploaded = asRecord(result);
-      if (typeof uploaded?.url !== "string" || !uploaded.url) {
-        throw Object.assign(
-          new Error(translatorRef.current("agentChat.composer.uploadFailed")),
-          { code: "upload_invalid_response", retryable: false },
-        );
-      }
-      uploadedFilesRef.current.set(target.uploadId, {
-        type: "file",
-        name: file.name,
-        mediaType: file.mediaType,
-        url: uploaded.url,
-        ...(typeof uploaded.id === "string" ? { fileId: uploaded.id } : {}),
-      });
     },
-    [],
+    [uploadRuntime],
   );
   const transportThreadIdRef = useRef(threadId);
   const tabIdRef = useRef(props.tabId);
@@ -2011,21 +2038,7 @@ export const AgentKitAssistantChat = forwardRef<
     const operations: NonNullable<
       CreateAgentNativeAgentKitTransportOptions["operations"]
     > = {
-      createUpload: async () =>
-        ({
-          uploadId: createAgentUploadId(),
-          method: "POST",
-          url: agentNativePath("/_agent-native/file-upload"),
-          fields: {},
-        }) satisfies AgentUploadTarget,
-      completeUpload: async ({ uploadId }) => {
-        const uploaded = uploadedFilesRef.current.get(uploadId);
-        if (!uploaded) {
-          throw new Error(`Upload ${uploadId} did not complete.`);
-        }
-        uploadedFilesRef.current.delete(uploadId);
-        return uploaded;
-      },
+      ...uploadRuntime.operations,
       invokeAction: async ({ invocation }) => {
         try {
           const result = await callAction(
@@ -2341,8 +2354,22 @@ const AgentKitAssistantChatBody = forwardRef<
     props.showModelSelector !== false && props.modelListError === true;
   const effectiveReadiness = readiness.state;
   const canChat = !providerChecksEnabled || effectiveReadiness === "configured";
-  const setupMissing =
+  const [composerSetupRequired, setComposerSetupRequired] = useState(false);
+  const setupConfirmedMissing =
     providerChecksEnabled && effectiveReadiness === "missing";
+  // The composer's model list knows nothing is connected well before the
+  // readiness check answers; an answer of "configured" still wins. Only this
+  // chat's own card can show on that guess: a host-owned card waits for the
+  // server, and acting on the guess without it closes the prompt with nothing
+  // on screen to explain why.
+  const ownsSetupCard =
+    props.showMissingApiKeySetup !== false && props.setupCardOwner !== "host";
+  const setupMissing =
+    setupConfirmedMissing ||
+    (providerChecksEnabled &&
+      ownsSetupCard &&
+      effectiveReadiness !== "configured" &&
+      composerSetupRequired);
   const providerStatus: AgentEngineConfiguredState = setupMissing
     ? "missing"
     : modelListUnavailable
@@ -2514,7 +2541,7 @@ const AgentKitAssistantChatBody = forwardRef<
     ids: new Set<string>(),
   });
   const observedMessagesRef = useRef(new Set<string>());
-  const toolInputArgsRef = useRef(new Map<string, string>());
+  const toolInputArgsRef = useRef(new Map<string, ToolInputArgs>());
   const observedThreadIdRef = useRef(threadId);
   const observedTerminalEventsRef = useRef({
     threadId,
@@ -3661,10 +3688,13 @@ const AgentKitAssistantChatBody = forwardRef<
             ? { agentNativeInternalContinuation: true }
             : {}),
           ...(contextScope ? { chatScope: contextScope } : {}),
-          ...(references.length || options.recoveryReferences?.length
+          ...(references.length ||
+          options.references?.length ||
+          options.recoveryReferences?.length
             ? {
                 references: [
                   ...references,
+                  ...(options.references ?? []),
                   ...(options.recoveryReferences ?? []),
                 ],
               }
@@ -4947,6 +4977,7 @@ const AgentKitAssistantChatBody = forwardRef<
     hasRenderedMessages,
     canChat,
     setupMissing,
+    setupConfirmedMissing,
     providerStatus,
     modelListUnavailable,
     retryProviderStatus,
@@ -4971,6 +5002,7 @@ const AgentKitAssistantChatBody = forwardRef<
     authSessionAvailable,
     setupBouncePulse,
     bounceSetupCard,
+    onComposerSetupRequiredChange: setComposerSetupRequired,
     isSubmissionInFlight,
     composerSubmissionPending,
     onComposerSubmissionPendingChange: setComposerSubmissionPending,
@@ -5203,6 +5235,7 @@ function AgentKitAssistantEmptyState({ threadId }: { threadId: string }) {
           {promptSuggestions.length ? (
             <AgentKitSuggestedPrompts
               suggestions={promptSuggestions}
+              size={surface.props.emptyStateSuggestionSize}
               disabled={
                 !surface.canChat ||
                 Boolean(surface.props.composerDisabled) ||
@@ -5377,7 +5410,11 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           {surface.authError.sessionExpired && !surface.authSessionAvailable ? (
             <button
               type="button"
-              onClick={() => void signOut()}
+              onClick={() => {
+                void signOut().catch(() =>
+                  toast.error(t("agentChat.auth.logOutFailed")),
+                );
+              }}
               className="rounded-md border border-destructive/30 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10"
             >
               {t("agentChat.auth.logOut")}
@@ -5685,6 +5722,7 @@ function AgentKitComposerSurface({
   showSuggestions,
   setupBouncePulse,
   bounceSetupCard,
+  onComposerSetupRequiredChange,
   contextItems,
   providerContextItems,
   selectionLength,
@@ -5723,6 +5761,7 @@ function AgentKitComposerSurface({
   hasRenderedMessages: boolean;
   setupBouncePulse: number;
   bounceSetupCard: () => void;
+  onComposerSetupRequiredChange: (required: boolean) => void;
   contextItems: AgentChatContextItem[];
   providerContextItems: { current: readonly AgentChatContextItem[] };
   selectionLength: number | null;
@@ -5763,12 +5802,11 @@ function AgentKitComposerSurface({
       mounted.current = false;
     };
   }, []);
+  const visibleProviderContextItems = composerContext?.contextItems ?? [];
   const providerContextKeys = new Set(
-    composerContext?.contextItems.map((item) => item.key),
+    visibleProviderContextItems.map((item) => item.key),
   );
-  const visibleContextItems = composerContext
-    ? [...contextItems, ...composerContext.contextItems]
-    : contextItems;
+  const visibleContextItems = [...contextItems, ...visibleProviderContextItems];
   const submissionScope = JSON.stringify([
     threadId,
     props.tabId,
@@ -5779,9 +5817,61 @@ function AgentKitComposerSurface({
   currentSubmissionScope.current = submissionScope;
   const { controller } = useAgentKit();
   const composerRef = useRef<TiptapComposerHandle>(null);
+  const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
+  const firstRunOwnsSurfaceRef = useRef(firstRunOwnsSurface);
+  const pendingSetupFocusRef = useRef(false);
+  firstRunOwnsSurfaceRef.current = firstRunOwnsSurface;
   const selectedSuggestionRef = useRef<
     Exclude<AgentSuggestionInput, string> | undefined
   >(undefined);
+  useEffect(() => {
+    if (!props.centerComposerWhenEmpty) return;
+
+    const focusAfterSetup = () => {
+      pendingSetupFocusRef.current = true;
+      if (firstRunOwnsSurfaceRef.current) return;
+      requestAnimationFrame(() => {
+        if (!firstRunOwnsSurfaceRef.current && pendingSetupFocusRef.current) {
+          pendingSetupFocusRef.current = false;
+          composerRef.current?.focus();
+        }
+      });
+    };
+
+    window.addEventListener(
+      "agent-native:first-run-completed",
+      focusAfterSetup,
+    );
+    window.addEventListener("agent-engine:configured-changed", focusAfterSetup);
+    return () => {
+      window.removeEventListener(
+        "agent-native:first-run-completed",
+        focusAfterSetup,
+      );
+      window.removeEventListener(
+        "agent-engine:configured-changed",
+        focusAfterSetup,
+      );
+    };
+  }, [props.centerComposerWhenEmpty]);
+
+  useEffect(() => {
+    if (
+      !props.centerComposerWhenEmpty ||
+      firstRunOwnsSurface ||
+      !pendingSetupFocusRef.current
+    ) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      if (!firstRunOwnsSurfaceRef.current && pendingSetupFocusRef.current) {
+        pendingSetupFocusRef.current = false;
+        composerRef.current?.focus();
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [firstRunOwnsSurface, props.centerComposerWhenEmpty]);
   const submitComposer = async (
     message: string,
     files: PromptComposerFile[],
@@ -5939,12 +6029,6 @@ function AgentKitComposerSurface({
     },
     onError: (error) => setComposerError(error.message),
   });
-  const integration = findMcpConnectionSuggestionIntegration({
-    text,
-    variant: "composer",
-    requestedByUser: true,
-    excludedIntegrationIds: props.mcpSuggestionExcludedIntegrationIds,
-  });
   const showHomeIntro =
     props.homeIntroSlot &&
     !hasRenderedMessages &&
@@ -5956,9 +6040,15 @@ function AgentKitComposerSurface({
     props.suggestionPlacement === "context-chips" &&
     showSuggestions &&
     suggestions.length > 0;
+  const showSetupCard =
+    setupMissing &&
+    props.showMissingApiKeySetup !== false &&
+    props.setupCardOwner !== "host";
   // Starters for a docked chat share the follow-up row above the composer,
-  // so the chips never move when the first message lands.
+  // so the chips never move when the first message lands. The setup card
+  // tucks under the composer, so the row steps aside while the card shows.
   const showSuggestionsSlot =
+    !showSetupCard &&
     props.suggestionPlacement !== "hidden" &&
     (hasRenderedMessages ||
       (props.suggestionPlacement === "context-chips" &&
@@ -6017,9 +6107,7 @@ function AgentKitComposerSurface({
       {showPlanCallout ? (
         <PlanModeCallout onImplementPlan={onImplementPlan} />
       ) : null}
-      {setupMissing &&
-      props.showMissingApiKeySetup !== false &&
-      props.setupCardOwner !== "host" ? (
+      {showSetupCard ? (
         <BuilderSetupCard
           fullWidth
           attached
@@ -6037,15 +6125,6 @@ function AgentKitComposerSurface({
           providerStatus={providerStatus}
           modelListUnavailable={modelListUnavailable}
           onRetry={modelListUnavailable ? retryModelList : retryProviderStatus}
-        />
-      ) : null}
-      {integration ? (
-        <McpConnectionSuggestion
-          text={text}
-          variant="composer"
-          requestedByUser
-          excludedIntegrationIds={props.mcpSuggestionExcludedIntegrationIds}
-          integrationId={integration.id}
         />
       ) : null}
       {selectionLength !== null && selectionLength > 0 ? (
@@ -6080,6 +6159,7 @@ function AgentKitComposerSurface({
         <AgentKitComposer
           threadId={threadId}
           isReferenceTarget={props.isReferenceTarget !== false}
+          autoFocus={props.composerAutoFocus !== false}
           requireAgentEngine
           disabled={
             providerBlocksComposer || props.composerDisabled || isRestoring
@@ -6091,7 +6171,7 @@ function AgentKitComposerSurface({
             // into the queue behind it.
             (isSubmissionInFlight && !submissionHoldsTurn)
           }
-          onDisabledClick={
+          onSetupCardClick={
             props.composerDisabled || !setupMissing
               ? undefined
               : () => {
@@ -6107,6 +6187,7 @@ function AgentKitComposerSurface({
           initialTextKey={`${props.tabId ?? threadId}:${prefillRevision}`}
           showMissingApiKeySetup={false}
           setupCardVisible={composerShowsSetupCard({ setupMissing, props })}
+          onModelConnectionRequiredChange={onComposerSetupRequiredChange}
           onTextChange={onTextChange}
           announcePendingSubmission={!isThinkingVisibleInTranscript}
           onSubmissionPendingChange={onComposerSubmissionPendingChange}
@@ -6118,6 +6199,7 @@ function AgentKitComposerSurface({
             else onRemoveContextItem(key);
           }}
           onRetryContextItem={composerContext?.onRetryContextItem}
+          onPasteContext={composerContext?.onPasteContext}
           interceptBuildRequestsForBuilder={isInBuilderFrame()}
           selectedModel={props.selectedModel ?? props.defaultModel}
           contextUsageSlot={
@@ -6182,7 +6264,9 @@ function AgentKitComposerSurface({
             props.availableModels === undefined
           }
           attachmentsEnabled={fileStorageConfigured}
-          onAttachmentRequest={requestFileStorage}
+          {...(!fileStorageConfigured
+            ? { onAttachmentRequest: requestFileStorage }
+            : {})}
           contextButtonTooltipDisabled={fileStoragePromptOpen}
           onAttachmentError={setComposerError}
           onSubmit={submitComposer}
@@ -6261,12 +6345,14 @@ function AgentKitSuggestedPrompts({
   disabled,
   onSelect,
   className,
+  size = "compact",
   layout,
 }: {
   suggestions: AgentSuggestionInput[];
   disabled: boolean;
   onSelect: (suggestion: AgentSuggestionInput) => void;
   className: string;
+  size?: "compact" | "comfortable";
   layout?: "wrap" | "single-line";
 }) {
   const t = useT();
@@ -6288,6 +6374,7 @@ function AgentKitSuggestedPrompts({
       }))}
       onSelect={onSelect}
       className={className}
+      size={size}
       layout={layout}
     />
   );
@@ -6308,68 +6395,66 @@ function AgentKitUserMessage(props: AgentKitRenderProps<AgentMessage>) {
   return <AgentMessageView {...props} value={visible} />;
 }
 
-interface AgentKitSuggestionContext {
-  latestUser?: AgentMessage | undefined;
+interface AgentKitSuggestionContext extends LatestReplyContext {
   runsActive: boolean;
 }
 
-const NO_SUGGESTION_CONTEXT: AgentKitSuggestionContext = { runsActive: true };
-
-function latestUserMessageBefore(
-  messages: readonly AgentMessage[],
-  messageId: string,
-): AgentMessage | undefined {
-  const index = messages.findIndex((message) => message.id === messageId);
-  return messages
-    .slice(0, Math.max(0, index))
-    .findLast((message) => message.role === "user");
-}
+const NO_SUGGESTION_CONTEXT: AgentKitSuggestionContext = {
+  isLatest: false,
+  userText: "",
+  agentRequestedProviders: "",
+  runsActive: true,
+};
 
 function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
   const value = props.value;
   const t = useT();
   const surface = useAgentKitSurface();
-  const offersSuggestion =
-    value.role === "assistant" && value.status === "complete";
+  const isAssistant = value.role === "assistant";
   // Every row renders this, so it reads only what it shows; a whole-thread
   // subscription would re-render every row on every streamed delta.
-  const { latestUser, runsActive } = useAgentThreadSelector(
-    (thread): AgentKitSuggestionContext =>
-      offersSuggestion
-        ? {
-            latestUser: latestUserMessageBefore(thread.messages, value.id),
-            runsActive: hasActiveAgentRuns(thread),
-          }
-        : NO_SUGGESTION_CONTEXT,
+  const suggestion = useAgentThreadSelector(
+    (thread): AgentKitSuggestionContext => {
+      const context = isAssistant
+        ? latestReplyContext(thread, value.id)
+        : undefined;
+      return context?.isLatest
+        ? { ...context, runsActive: hasActiveAgentRuns(thread) }
+        : NO_SUGGESTION_CONTEXT;
+    },
     (previous, next) =>
-      previous.latestUser === next.latestUser &&
+      previous.isLatest === next.isLatest &&
+      previous.userText === next.userText &&
+      previous.agentRequestedProviders === next.agentRequestedProviders &&
       previous.runsActive === next.runsActive,
     props.threadId,
   );
-  const contextText =
-    latestUser?.parts
-      .filter((part) => part.type === "text")
-      .map((part) =>
-        part.type === "text"
-          ? splitAgentChatContextFromMessage(part.text).message
-          : "",
-      )
-      .join("\n") ?? "";
   const text = value.parts
     .filter((part) => part.type === "text")
     .map((part) => (part.type === "text" ? part.text : ""))
     .join("\n");
-  const integration =
-    offersSuggestion && !runsActive
-      ? findMcpConnectionSuggestionIntegration({
-          text,
-          contextText,
-          variant: "response",
-          requestedByAgent: true,
-          excludedIntegrationIds:
-            surface.props.mcpSuggestionExcludedIntegrationIds,
-        })
-      : null;
+  const excludedIntegrationIds =
+    surface.props.mcpSuggestionExcludedIntegrationIds;
+  const replyFinished = value.status === "complete" && !suggestion.runsActive;
+  // The streaming row re-renders on every delta; its ask is read once done.
+  const replyText = replyFinished ? text : "";
+  const integration = useMemo(
+    () =>
+      isAssistant
+        ? pickReplyConnectionSuggestion({
+            context: suggestion,
+            replyText,
+            replyFinished,
+            find: (message) =>
+              findMcpConnectionSuggestionIntegration({
+                text: message,
+                variant: "response",
+                ...(excludedIntegrationIds ? { excludedIntegrationIds } : {}),
+              }),
+          })
+        : null,
+    [excludedIntegrationIds, isAssistant, replyFinished, replyText, suggestion],
+  );
   const runWarning = asRecord(asRecord(value.metadata?.custom)?.runWarning);
   const missingFinalResponse =
     runWarning?.errorCode === "final_response_missing_after_tool";
@@ -6401,7 +6486,7 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
       {integration ? (
         <McpConnectionSuggestion
           text={text}
-          contextText={contextText}
+          contextText={suggestion.userText}
           variant="response"
           requestedByAgent
           excludedIntegrationIds={
@@ -6767,7 +6852,7 @@ function AgentKitRunFailure({
             )
           }
         />
-        {continueFailed ? (
+        {continueFailed && !superseded ? (
           <ComposerNotice
             role="alert"
             noticeId="continue-failed"
@@ -6828,8 +6913,12 @@ function AgentKitRunFailure({
             : undefined
         }
         onContinue={continueStoppedRun}
+        // A newer run carries the turn now, so a refused Continue is stale and
+        // would contradict the Stop button that run shows.
         continueError={
-          continueFailed ? t("agentChat.recovery.continueUnavailable") : null
+          continueFailed && !superseded
+            ? t("agentChat.recovery.continueUnavailable")
+            : null
         }
         onRetry={() => void retryFailedTurn()}
         onRetryWithoutAttachments={retryWithoutAttachments}
@@ -6886,7 +6975,9 @@ function useResumeAfterAiSetup(
 ): () => void {
   const surface = useAgentKitSurface();
   const sawSetupMissingRef = useRef(false);
-  if (surface.setupMissing) sawSetupMissingRef.current = true;
+  // A resend fires without a fresh user action, so only the server's answer
+  // arms it; the model list's early guess can be briefly wrong.
+  if (surface.setupConfirmedMissing) sawSetupMissingRef.current = true;
   const latestRef = useRef({ resendKey, enabled, resend });
   latestRef.current = { resendKey, enabled, resend };
   const resumed = surface.resumedAfterSetup;
@@ -7305,11 +7396,17 @@ function formatAgentKitErrorText(
   return localizeKnownChatErrorText(formatted, t);
 }
 
+/** A call's arguments so far, and whether they came whole from its start. */
+interface ToolInputArgs {
+  text: string;
+  fromStart: boolean;
+}
+
 function dispatchAgentKitCompatibilityEvent(
   event: AgentEvent,
   tabId: string,
   thread: ReturnType<typeof useAgentThread>,
-  toolInputArgs: Map<string, string>,
+  toolInputArgs: Map<string, ToolInputArgs>,
 ) {
   if (typeof window === "undefined") return;
   if (event.type === "activity.started" || event.type === "activity.updated") {
@@ -7338,7 +7435,13 @@ function dispatchAgentKitCompatibilityEvent(
     const tool = event.toolCall;
     const input = asRecord(tool.input) ?? {};
     const argsText = JSON.stringify(input);
-    toolInputArgs.set(tool.id, argsText);
+    // A start that carries no input is not the whole input: deltas fill it.
+    toolInputArgs.set(
+      tool.id,
+      Object.keys(input).length > 0
+        ? { text: argsText, fromStart: true }
+        : { text: toolInputArgs.get(tool.id)?.text ?? "", fromStart: false },
+    );
     window.dispatchEvent(
       new CustomEvent("agent-native:tool-start", {
         detail: { tool: tool.name, input },
@@ -7363,16 +7466,30 @@ function dispatchAgentKitCompatibilityEvent(
     return;
   }
   if (event.type === "tool.delta") {
-    const tool = thread.tools[event.toolCallId];
-    if (!tool || !event.inputTextDelta) return;
-    const argsText = `${toolInputArgs.get(tool.id) ?? ""}${event.inputTextDelta}`;
-    toolInputArgs.set(tool.id, argsText);
+    if (!event.inputTextDelta) return;
+    // `thread` is the last rendered snapshot, which doesn't know a tool whose
+    // first argument bytes are this event. Skipping it would cut the head off
+    // the JSON every streaming preview parses.
+    const metadataToolName = event.metadata?.toolName;
+    const knownTool = Object.hasOwn(thread.tools, event.toolCallId)
+      ? thread.tools[event.toolCallId]
+      : undefined;
+    const toolName =
+      knownTool?.name ??
+      (typeof metadataToolName === "string" ? metadataToolName : undefined);
+    if (!toolName) return;
+    const known = toolInputArgs.get(event.toolCallId);
+    // A start event carries the whole input; a delta after it repeats part of
+    // it, and appending that would leave the arguments unparseable.
+    if (known?.fromStart) return;
+    const argsText = `${known?.text ?? ""}${event.inputTextDelta}`;
+    toolInputArgs.set(event.toolCallId, { text: argsText, fromStart: false });
     window.dispatchEvent(
       new CustomEvent("agent-native:tool-input", {
         detail: {
           phase: "delta",
-          tool: tool.name,
-          id: tool.id,
+          tool: toolName,
+          id: event.toolCallId,
           argsText,
           text: event.inputTextDelta,
           tabId,
@@ -7396,6 +7513,7 @@ function dispatchAgentKitCompatibilityEvent(
             isError: tool.status !== "completed",
             completedSideEffect: tool.metadata?.completedSideEffect === true,
             tabId,
+            toolCallId: tool.id,
             eventId: tool.id,
           },
         }),

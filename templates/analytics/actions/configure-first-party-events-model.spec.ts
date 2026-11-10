@@ -1,5 +1,13 @@
 import { H3 } from "h3";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const mocks = vi.hoisted(() => ({
   dryRun: vi.fn(),
@@ -52,6 +60,15 @@ beforeEach(() => {
     checkedAt: "2026-10-16T12:00:00.000Z",
   });
   mocks.dryRun.mockResolvedValue({ error: null, totalBytesProcessed: 1024 });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+afterAll(async () => {
+  const { closeDbExec } = await import("@agent-native/core/db");
+  await closeDbExec();
 });
 
 describe("configure-first-party-events-model", () => {
@@ -192,7 +209,10 @@ describe("configure-first-party-events-model over the HTTP action route", () => 
   });
 
   it("saves the model when the signed-in app UI sets it", async () => {
-    const { signShortLivedToken } = await import("@agent-native/core/server");
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    const { addSession, COOKIE_NAME, signShortLivedToken } =
+      await import("@agent-native/core/server");
+    await addSession("test-browser-session", "admin@example.com");
     const capability = signShortLivedToken({
       resourceId: "ui-action",
       viewerEmail: "admin@example.com",
@@ -205,7 +225,7 @@ describe("configure-first-party-events-model over the HTTP action route", () => 
         {
           "x-agent-native-frontend": "1",
           "sec-fetch-site": "same-origin",
-          cookie: `agent-native-ui-capability=${capability}`,
+          cookie: `${COOKIE_NAME}=test-browser-session; agent-native-ui-capability=${capability}`,
         },
       ),
     ).resolves.toMatchObject({

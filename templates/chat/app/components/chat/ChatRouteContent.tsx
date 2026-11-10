@@ -81,6 +81,7 @@ import {
 import { useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
+import { useChatComposerMenuItems } from "@/components/ChatComposerContext";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -1011,15 +1012,27 @@ function ChatAgentFooter({ children }: { children: ReactNode }) {
     );
   }, [control]);
   const submitAnswers = useCallback(
-    async ({ formattedAnswers }: { formattedAnswers: string }) => {
-      await controller.sendMessage({ threadId, text: formattedAnswers });
+    async ({
+      formattedAnswers,
+      context,
+    }: {
+      formattedAnswers: string;
+      context: string;
+    }) => {
+      await controller.sendMessage({
+        threadId,
+        text: appendAgentChatContextToMessage(formattedAnswers, context),
+      });
       return { delivered: true };
     },
     [controller, threadId],
   );
   const skipQuestions = useCallback(
-    async ({ message }: { message: string }) => {
-      await controller.sendMessage({ threadId, text: message });
+    async ({ message, context }: { message: string; context: string }) => {
+      await controller.sendMessage({
+        threadId,
+        text: appendAgentChatContextToMessage(message, context),
+      });
       return { delivered: true };
     },
     [controller, threadId],
@@ -1040,6 +1053,8 @@ function ChatAgentFooter({ children }: { children: ReactNode }) {
     queryKey: ["guided-questions", "agentkit"],
     browserTabId: TAB_ID,
     threadId,
+    // The answers are already the message body, so the default context that repeats them is dropped; the flow still adds the settled instruction and the agent's submitContext.
+    buildSubmitContext: () => "",
     onSubmitMessage: submitAnswers,
     onSkipMessage: skipQuestions,
   });
@@ -1376,6 +1391,7 @@ function ChatCanvas({
     ),
     [setWorkspaceOpen, t, workspaceOpen],
   );
+  const contextMenuItems = useChatComposerMenuItems();
   const chatTitle = thread.thread?.title?.trim() || APP_TITLE;
 
   return (
@@ -1392,6 +1408,7 @@ function ChatCanvas({
         expectExistingThread={!isDraftThread}
         onStartNewChat={() => void navigate(NEW_CHAT_PATH)}
         composerProps={{
+          contextMenuItems,
           requireAgentEngine: true,
           contextUsageSlot: <ChatContextRing threadId={threadId} />,
           ...(initialText === undefined ? {} : { initialText }),

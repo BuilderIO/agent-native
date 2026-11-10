@@ -12,12 +12,17 @@ import {
   type AgentLoopUsage,
   type ActionEntry,
 } from "../agent/production-agent.js";
+import { IncompleteAgentRunError } from "../agent/run-errors.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { getAppConfig } from "../app-config/index.js";
 import { createGitHubRepoToolEntries } from "../provider-api/github-repo.js";
 import { loadCliBootstrap } from "../scripts/cli-bootstrap.js";
-import { resolveDevUserEmail } from "../scripts/dev-session.js";
+import {
+  devOrgChoiceFromEnv,
+  resolveDevOrgScope,
+  resolveDevUserEmail,
+} from "../scripts/dev-session.js";
 import { loadEnv, serializeCliArgs } from "../scripts/utils.js";
 import { autoDiscoverActions } from "../server/action-discovery.js";
 import { captureCliOutput } from "../server/cli-capture.js";
@@ -44,6 +49,28 @@ export interface AgentCliIo {
   stdout?: (text: string) => void;
   stderr?: (text: string) => void;
   env?: NodeJS.ProcessEnv;
+}
+
+export interface AgentCliResult {
+  responseText: string;
+  usage: AgentLoopUsage;
+  events: AgentChatEvent[];
+  tools: string[];
+  failure?: { code: string; message: string };
+}
+
+export function toIncompleteAgentCliResult(
+  error: IncompleteAgentRunError,
+  partial: Omit<AgentCliResult, "usage" | "failure">,
+): AgentCliResult {
+  return {
+    ...partial,
+    usage: error.usage,
+    failure: {
+      code: error.errorCode ?? "agent_run_incomplete",
+      message: error.message,
+    },
+  };
 }
 
 const VALUE_FLAGS = new Set([
@@ -183,16 +210,25 @@ export async function runAgent(
 
   const ownerEmail =
     parsed.userEmail ?? env.AGENT_USER_EMAIL ?? (await resolveDevUserEmail());
-  const orgId = parsed.orgId ?? env.AGENT_ORG_ID ?? undefined;
+  const envChoice = devOrgChoiceFromEnv(env);
+  const orgScope = await resolveDevOrgScope(ownerEmail, {
+    orgId: parsed.orgId ?? envChoice.orgId,
+    personal: envChoice.personal,
+  });
 
   try {
     const result = await runWithRequestContext(
-      { userEmail: ownerEmail, orgId },
+      { ...(ownerEmail ? { userEmail: ownerEmail } : {}), ...orgScope },
       () => runLocalAgentLoop(parsed),
     );
     if (parsed.json) {
       stdout(JSON.stringify(result, null, 2));
+      return result.failure ? 1 : 0;
     } else {
+      if (result.failure) {
+        stderr(result.failure.message);
+        return 1;
+      }
       stdout(result.responseText.trimEnd());
       if (result.responseText && !result.responseText.endsWith("\n")) {
         stdout("");
@@ -205,12 +241,9 @@ export async function runAgent(
   }
 }
 
-async function runLocalAgentLoop(parsed: ParsedAgentArgs): Promise<{
-  responseText: string;
-  usage: AgentLoopUsage;
-  events: AgentChatEvent[];
-  tools: string[];
-}> {
+async function runLocalAgentLoop(
+  parsed: ParsedAgentArgs,
+): Promise<AgentCliResult> {
   const localActions = await autoDiscoverActions("auto");
   const builtinActions = await createHeadlessBuiltinActions();
   const repoActions = createGitHubRepoToolEntries({
@@ -241,27 +274,39 @@ async function runLocalAgentLoop(parsed: ParsedAgentArgs): Promise<{
   const ownerEmail = getRequestUserEmail();
   const orgId = getRequestOrgId();
 
-  const usage = await runAgentLoopDirectWithSoftTimeout(
-    {
-      engine,
-      model,
-      systemPrompt: buildHeadlessSystemPrompt(tools.map((tool) => tool.name)),
-      tools,
-      actions,
-      messages,
-      signal: controller.signal,
-      ownerEmail,
-      orgId,
-      maxIterations: parsed.maxIterations,
-      send(event) {
-        events.push(event);
-        if (event.type === "text") {
-          responseText += event.text ?? "";
-        }
+  let usage: AgentLoopUsage;
+  try {
+    usage = await runAgentLoopDirectWithSoftTimeout(
+      {
+        engine,
+        model,
+        systemPrompt: buildHeadlessSystemPrompt(tools.map((tool) => tool.name)),
+        tools,
+        actions,
+        messages,
+        signal: controller.signal,
+        ownerEmail: ownerEmail ?? null,
+        orgId: orgId ?? null,
+        ...(parsed.maxIterations === undefined
+          ? {}
+          : { maxIterations: parsed.maxIterations }),
+        send(event) {
+          events.push(event);
+          if (event.type === "text") {
+            responseText += event.text ?? "";
+          }
+        },
       },
-    },
-    parsed.softTimeoutMs,
-  );
+      parsed.softTimeoutMs,
+    );
+  } catch (error) {
+    if (!(error instanceof IncompleteAgentRunError)) throw error;
+    return toIncompleteAgentCliResult(error, {
+      responseText,
+      events,
+      tools: tools.map((tool) => tool.name).sort(),
+    });
+  }
 
   return {
     responseText,

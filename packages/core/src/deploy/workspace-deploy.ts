@@ -15,6 +15,7 @@ import {
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import { getAppConfig } from "../app-config/index.js";
+import { WORKSPACE_DEPLOY_BUILD_ENV } from "../cli/process.js";
 import type { AgentNativeWorkspaceRootPage } from "../config.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
@@ -47,6 +48,10 @@ import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   isValidWorkspaceAppIdFormat,
 } from "../shared/workspace-app-id.js";
+import {
+  resolveWorkspaceDefaultApp,
+  withWorkspaceRootEnv,
+} from "../shared/workspace-default-app.js";
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
@@ -262,6 +267,8 @@ export interface WorkspaceDeployOptions {
   preset?: WorkspaceDeployPreset;
   /** @internal Override process execution in tests. */
   execFile?: typeof execFileSync;
+  /** @internal How far the deploy has got, for the CLI's finished event. */
+  onProgress?: (progress: { step: string; preset?: string }) => void;
 }
 
 export async function runWorkspaceDeploy(
@@ -281,6 +288,7 @@ export async function runWorkspaceDeploy(
   const workspaceRootPage =
     config.deployment?.workspace?.rootPage ?? "redirect";
   const appsDir = path.resolve(workspaceRoot, appsDirectory);
+  const deployEnv = withWorkspaceRootEnv(workspaceRoot, process.env);
   if (!fs.existsSync(appsDir)) {
     throw new Error(
       `No apps/ directory found at ${workspaceRoot}. Run this inside an agent-native workspace.`,
@@ -304,6 +312,17 @@ export async function runWorkspaceDeploy(
     );
   }
   assertValidWorkspaceAppIds(apps);
+  const configuredDefaultApp = deployEnv.WORKSPACE_DEFAULT_APP?.trim();
+  const defaultApp = resolveWorkspaceDefaultApp(deployEnv, apps);
+  if (configuredDefaultApp && !defaultApp) {
+    console.warn(
+      `[workspace-deploy] WORKSPACE_DEFAULT_APP="${configuredDefaultApp}" matches no app in ${appsDirectory}/; ignoring it.`,
+    );
+  }
+  const rootAppId =
+    defaultApp ?? (apps.includes("dispatch") ? "dispatch" : apps[0]);
+  const rootTarget =
+    rootAppId === "dispatch" ? "/dispatch/overview" : `/${rootAppId}/`;
   // Child builds inherit process.env, and the function shims embed it so
   // deployed apps see the builder config without the workspace package.json.
   const builtinAgentsJson = workspaceBuiltinAgentsJson(workspaceRoot);
@@ -340,6 +359,7 @@ export async function runWorkspaceDeploy(
     `[workspace-deploy] Building ${apps.length} app(s) for preset=${preset}`,
   );
 
+  opts.onProgress?.({ step: "build", preset });
   const concurrency = workspaceBuildConcurrency();
   const runBuild: BuildRunner = opts.execFile ?? spawnBuild;
   await runWithConcurrency(apps, concurrency, (app) =>
@@ -354,6 +374,7 @@ export async function runWorkspaceDeploy(
       concurrency > 1 ? "pipe" : "inherit",
     ),
   );
+  opts.onProgress?.({ step: "package" });
   // Copy in app order after all builds so shared outputs stay deterministic.
   const sweepCrons: Array<{ path: string; schedule: string }> = [];
   for (const app of apps) {
@@ -385,7 +406,13 @@ export async function runWorkspaceDeploy(
   }
 
   if (preset === "netlify") {
-    writeNetlifyRedirects(distDir, apps, workspaceApps, workspaceRootPage);
+    writeNetlifyRedirects(
+      distDir,
+      apps,
+      workspaceApps,
+      workspaceRootPage,
+      rootTarget,
+    );
     writeNetlifyHeaders(distDir, apps);
   } else {
     writeVercelBuildConfig(
@@ -393,6 +420,7 @@ export async function runWorkspaceDeploy(
       apps,
       workspaceApps,
       workspaceRootPage,
+      rootTarget,
       sweepCrons,
     );
   }
@@ -442,6 +470,7 @@ async function buildOneApp(
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     NITRO_PRESET: preset,
+    [WORKSPACE_DEPLOY_BUILD_ENV]: "1",
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_AUTH_MODE: workspaceAuthMode,
     AGENT_NATIVE_WORKSPACE_APP_ID: app,
@@ -573,13 +602,35 @@ async function runWithConcurrency<T>(
   }
 }
 
-function spawnBuild(
+/**
+ * On Windows pnpm is a pnpm.cmd shim, which only starts through a shell. Each
+ * argument is quoted there so it stays one argument.
+ */
+export function buildStart(
+  cmd: string,
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[]; shell: boolean } {
+  return platform === "win32"
+    ? {
+        command: [cmd, ...args].map((arg) => `"${arg}"`).join(" "),
+        args: [],
+        shell: true,
+      }
+    : { command: cmd, args, shell: false };
+}
+
+export function spawnBuild(
   cmd: string,
   args: string[],
   options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit" | "pipe" },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, options);
+    const start = buildStart(cmd, args);
+    const child = spawn(start.command, start.args, {
+      ...options,
+      shell: start.shell,
+    });
     // Buffered so parallel builds print as whole blocks instead of interleaving.
     const chunks: Buffer[] = [];
     child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -725,6 +776,7 @@ function writeNetlifyRedirects(
   apps: string[],
   workspaceApps: WorkspaceAppManifestEntry[],
   rootPage: AgentNativeWorkspaceRootPage,
+  rootTarget: string,
 ): void {
   const lines: string[] = [
     "# Generated by agent-native deploy --preset netlify",
@@ -756,7 +808,7 @@ function writeNetlifyRedirects(
 
   if (apps.includes("dispatch")) {
     if (rootPage !== "directory") {
-      lines.push("/ /dispatch/overview 302");
+      lines.push(`/ ${rootTarget} 302`);
     }
     lines.push("/dispatch /dispatch/overview 302");
     lines.push("/dispatch/ /dispatch/overview 302");
@@ -772,7 +824,7 @@ function writeNetlifyRedirects(
       );
     }
     if (rootPage !== "directory") {
-      lines.push(`/ /${apps[0]}/ 302`);
+      lines.push(`/ ${rootTarget} 302`);
     }
   }
 
@@ -806,6 +858,7 @@ function writeVercelBuildConfig(
   apps: string[],
   workspaceApps: WorkspaceAppManifestEntry[],
   rootPage: AgentNativeWorkspaceRootPage,
+  rootTarget: string,
   sweepCrons: Array<{ path: string; schedule: string }>,
 ): void {
   const routes: Array<Record<string, any>> = [
@@ -843,7 +896,7 @@ function writeVercelBuildConfig(
     }
 
     if (rootPage !== "directory") {
-      routes.push(vercelRedirect("/", "/dispatch/overview"));
+      routes.push(vercelRedirect("/", rootTarget));
     }
     routes.push(
       vercelRedirect("/dispatch", "/dispatch/overview"),
@@ -862,7 +915,7 @@ function writeVercelBuildConfig(
       });
     }
     if (rootPage !== "directory") {
-      routes.push(vercelRedirect("/", `/${apps[0]}/`));
+      routes.push(vercelRedirect("/", rootTarget));
     }
   }
 
@@ -1415,12 +1468,7 @@ function patchNetlifyFunctionEntry(
           basePath,
           `${basePath}.data`,
           `${basePath}/*`,
-          ...workspaceOAuthDiscoveryRoutes(app).flatMap(
-            ({ path, descendants }) => [
-              path,
-              ...(descendants ? [`${path}/*`] : []),
-            ],
-          ),
+          ...netlifyOAuthDiscoveryPaths(app),
           ...rootGoogleCallbackPath,
         ];
   const normalizeBasePathHelper =
@@ -1491,7 +1539,7 @@ export const config = {
   nodeBundler: "none",
   includedFiles: ["**"],
   excludedPath: ${JSON.stringify(
-    netlifyFunctionExcludedPaths(app, staticDir),
+    netlifyFunctionExcludedPaths(app, staticDir, workspaceApps),
     null,
     2,
   )
@@ -1605,12 +1653,33 @@ export default {
 function netlifyFunctionExcludedPaths(
   app: string,
   staticDir: string,
+  workspaceApps: WorkspaceAppManifestEntry[],
 ): string[] {
   return [
     "/.netlify/*",
     `/${app}/assets/*`,
     ...netlifyPublicAssetPaths(app, staticDir),
+    ...(app === "dispatch" ? netlifyAppOAuthDiscoveryPaths(workspaceApps) : []),
   ];
+}
+
+// Netlify does not prefer the most specific function path: when Dispatch's
+// `/.well-known/*` overlaps an app's exact discovery path, the function whose
+// name sorts first wins, so apps after "dispatch" got Dispatch's metadata.
+// Excluding each app's discovery paths from Dispatch leaves one match.
+function netlifyAppOAuthDiscoveryPaths(
+  workspaceApps: WorkspaceAppManifestEntry[],
+): string[] {
+  return workspaceApps
+    .filter((entry) => entry.id !== "dispatch")
+    .flatMap((entry) => netlifyOAuthDiscoveryPaths(entry.id));
+}
+
+function netlifyOAuthDiscoveryPaths(app: string): string[] {
+  return workspaceOAuthDiscoveryRoutes(app).flatMap(({ path, descendants }) => [
+    path,
+    ...(descendants ? [`${path}/*`] : []),
+  ]);
 }
 
 function netlifyPublicAssetPaths(app: string, staticDir: string): string[] {

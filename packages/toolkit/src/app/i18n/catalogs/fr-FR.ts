@@ -1,6 +1,23 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "Origines approuvées",
+  "settingsApiKeys.originsHint":
+    "Une origine HTTPS exacte par ligne. Vide bloque le transfert. HTTP local est autorisé.",
+  "settingsApiKeys.invalidOrigins":
+    "Saisissez des origines HTTPS exactes, une par ligne.",
+  "settingsApiKeys.editOrigins": "Modifier les origines",
+  "settingsApiKeys.originsSaved": "Origines enregistrées",
+  "settingsApiKeys.originsCount_one": "{{count}} origine approuvée",
+  "settingsApiKeys.originsCount_many": "{{count}} origines approuvées",
+  "settingsApiKeys.originsCount_other": "{{count}} origines approuvées",
+  "settingsApiKeys.noApprovedOrigins": "Aucune origine approuvée",
+  "extensions.cancel": "Annuler",
+  "extensions.context": "Contexte",
+  "extensions.confirmAgentMessage":
+    "Envoyer le message de l’extension à l’agent ?",
+  "extensions.sendToAgent": "Envoyer à l’agent",
+  "auth.logOutFailed": "Échec de la déconnexion",
   "block.renderUnavailable": "Ce bloc est temporairement indisponible.",
   "block.loading": "Chargement du bloc.",
   "composer.contextUrlLabel": "Adresse URL",
@@ -131,10 +148,15 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Ventes",
   "onboarding.roleOps": "Opérations",
+  "onboarding.roleCreator": "Créateur de contenu",
+  "onboarding.roleStudent": "Étudiant",
+  "onboarding.roleEducator": "Enseignant",
   "onboarding.roleIndividual": "Individuel",
   "onboarding.roleOther": "Autre",
   "onboarding.roleOtherInputLabel": "Décrivez votre rôle",
   "onboarding.skipForNow": "Ignorer pour l’instant",
+  "onboarding.builderProvisionFailedDetail":
+    "Impossible de créer votre compte Builder.io. Réessayez ou connectez-vous avec un compte existant.",
   "onboarding.saveRoleError": "Impossible d’enregistrer votre rôle.",
   "onboarding.builderCreateAccount": "Utiliser Builder.io",
   "onboarding.builderSignInWithAccount":
@@ -195,6 +217,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "Retour",
   "onboarding.creditsSkipAnyway": "Ignorer quand même",
   "onboarding.creditsUseCustomKeys": "Utiliser mes propres clés",
+  "onboarding.creditsUseOwnApiKeys": "Utiliser mes propres clés API",
   "onboarding.creditsAboutLabel": "À propos des crédits gratuits",
   "onboarding.creditsActivating": "Activation des crédits gratuits",
   "onboarding.creditsActivatingTooltip":
@@ -436,6 +459,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.openDesktop":
     "Ouvrez l’application de bureau pour utiliser ce chat.",
   "composer.removeAttachment": "Supprimer {{name}}",
+  "composer.attachmentReadFailed": "Impossible de lire ce fichier",
+  "composer.attachmentTooLarge": "Le fichier dépasse 8 Mo",
+  "composer.attachmentNotUtf8": "Le fichier n'est pas du texte UTF-8",
   "composer.scrollToBottom": "Faire défiler jusqu’en bas",
   "composer.suggestedPrompts": "Prompts suggérés",
   "composer.stopResponse": "Arrêter la réponse",
@@ -479,6 +505,12 @@ const messages: ToolkitAgentChatTranslation = {
   "history.copyLink": "Copier le lien",
   "history.linkCopied": "Lien copié",
   "history.copyLinkFailed": "Impossible de copier le lien",
+  "history.onlyYou": "Vous seul",
+  "history.hide": "Masquer de ma liste",
+  "history.hidden": "Masqué de votre liste",
+  "history.undo": "Annuler",
+  "history.hideFailed": "Impossible de masquer le chat",
+  "history.unhideFailed": "Impossible de rétablir le chat",
   "integrations.availableSection": "Intégrations disponibles",
   "integrations.connectedSection": "Connecté",
   "integrations.goToApiKeys": "Aller aux clés API",
@@ -998,6 +1030,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io inclut des crédits gratuits, mais vous pouvez aussi utiliser votre propre clé API.",
   "setup.builderOrOwnKeys":
     "Utilisez Builder.io (crédits gratuits) ou ajoutez les clés de votre propre fournisseur.",
+  "setup.reconnectBuilder": "Reconnecter Builder.io",
   "setup.connectAi": "Connecter l’IA",
   "setup.connectBuilder": "Utiliser Builder.io",
   "setup.connectionsDescription":
@@ -1203,7 +1236,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.menu.scheduleTask": "Planifier une tâche",
   "composer.menu.scheduleTaskDescription":
     "Exécuter quelque chose selon un calendrier",
-  "composer.menu.uploadFile": "Télécharger le fichier",
+  "composer.menu.uploadFile": "Fichiers et images",
+  "composer.menu.searchWorkspace": "Rechercher dans l’espace de travail…",
+  "composer.menu.references": "Références",
+  "composer.menu.referenceFile": "Référencer un fichier",
+  "composer.menu.attachToMessage": "Ajouter du contexte",
+  "composer.menu.commands": "Commandes",
   "composer.menu.uploadFileDescription": "Images, PDFs, texte/code, JSON, CSV",
   "composer.messageAgent": "Écrire à l’agent...",
   "composer.model": "Modèle",
@@ -1253,6 +1291,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "Télécharger le fichier de compétences",
   "composer.upload": "Télécharger",
   "composer.uploadFailed": "Impossible de télécharger le fichier sélectionné.",
+  "composer.imageTooLargeToAttach":
+    "« {{name}} » fait {{size}} Mo : les images de plus de {{limit}} Mo ne peuvent pas être jointes. Utilisez une image plus petite.",
+  "composer.imageTooManyPixelsToAttach":
+    "« {{name}} » fait {{megapixels}} mégapixels : les images de plus de {{limit}} mégapixels ne peuvent pas être jointes. Utilisez une image plus petite.",
   "composer.fileTooLarge":
     "Ce fichier dépasse la limite d’envoi de {{size}} Mo.",
   "composer.sessionExpired":
@@ -1602,8 +1644,38 @@ const messages: ToolkitAgentChatTranslation = {
     "Tous les membres de votre organisation peuvent consulter",
   "share.owner": "Propriétaire",
   "share.peopleWithAccess": "Personnes ayant accès",
-  "share.people": "Personnes",
-  "share.agents": "Agents",
+  "share.canView": "Peut afficher",
+  "share.canComment": "Peut commenter",
+  "share.canEdit": "Peut modifier",
+  "share.canManageAccess": "Peut gérer l'accès",
+  "share.onlyPeopleInvited": "Seules les personnes invitées",
+  "share.anyoneInOrganization": "Toute personne de votre organisation",
+  "share.anyoneAtOrganization": "Toute personne de {{organization}}",
+  "share.anyoneWithLink": "Toute personne disposant du lien",
+  "share.invite": "Inviter",
+  "share.addPeopleOrAgents": "Ajouter des personnes ou des agents",
+  "share.you": "vous",
+  "share.agentBadge": "Agent",
+  "share.removeAccess": "Retirer l'accès",
+  "share.loadAgentsFailed": "Impossible de charger les agents.",
+  "share.namesUnavailable":
+    "Impossible de charger les noms, les adresses e-mail sont donc affichées.",
+  "share.copyLink": "Copier le lien",
+  "share.copyLinkFailed": "Impossible de copier le lien.",
+  "share.sendTo": "Envoyer vers",
+  "share.openInClaude": "Ouvrir dans Claude",
+  "share.openInClaudeCode": "Ouvrir dans Claude Code",
+  "share.openInCodex": "Ouvrir dans Codex",
+  "share.copyAgentPrompt": "Copier le prompt de l'agent",
+  "share.copyAgentLink": "Copier le lien pour agents",
+  "share.copyAgentLinkFailed": "Impossible de copier le lien pour agents.",
+  "share.copiedAgentLink": "Lien pour agents copié",
+  "share.retryAgentLinkItem": "Réessayer le lien pour agents",
+  "share.mcpServerSettings": "Paramètres du serveur MCP",
+  "share.copiedAgentPrompt": "Prompt de l'agent copié",
+  "share.copyAgentPromptFailed": "Impossible de copier le prompt de l'agent.",
+  "share.agentReadPrompt":
+    "Lis cet élément ({{label}}) : {{url}}\n\nUtilise une connexion MCP disponible pour {{mcpUrl}} afin d'appeler {{actions}} avec {{idParam}} « {{id}} ». Utilise les autorisations actuelles de mon compte.\n\nSi cette connexion manque ou est déconnectée, demande-moi de la connecter et de me connecter : {{connectUrl}}. Une fois que j'ai confirmé, réessaie la lecture. Si la lecture est refusée, dis-le-moi.",
   "share.private": "Privé",
   "share.privateDescription":
     "Seules les personnes disposant d’un accès peuvent consulter",
@@ -2051,6 +2123,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.approvalA2AReview":
     "Approuvé sur la page de vérification des actions de l’agent",
   "settings.audit.approvalMcpClient": "Accepté par le client MCP (non vérifié)",
+  "settings.audit.approvalMcpReview":
+    "Approuvé sur la page de vérification des actions MCP",
+  "settings.audit.approvalCliPrompt":
+    "Approuvé à l’invite de la CLI (non vérifié)",
+  "settings.audit.approvalCliFlag": "Relancé avec --approved (non vérifié)",
   "settings.audit.changedBy": "Modifié par",
   "settings.audit.close": "Fermer",
   "settings.audit.empty": "Aucune modification sur cette période.",
@@ -2352,6 +2429,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Impossible de modifier {{lab}}. Réessayez.",
   "settingsShell.appGroup.mcpAbout":
     "Connectez {{app}} à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans {{app}} pour vous. Elle ne voit que ce que vous pouvez voir.",
+  "settingsShell.appGroup.mcpAppCards":
+    "Cartes d’application dans les applications de chat",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "Les outils affichent des cartes interactives, comme un brouillon d’e-mail que vous pouvez modifier et envoyer, dans les applications de chat compatibles avec MCP Apps, comme Claude et ChatGPT. Après avoir modifié ce réglage, reconnectez cette application dans votre application de chat.",
   "settingsShell.appGroup.mcpFootnote":
     "Pour les outils que l’agent utilise lui-même, consultez {{integrations}}.",
   "settingsShell.appGroup.newAutomation": "Nouvelle automatisation",
@@ -2564,6 +2645,9 @@ const messages: ToolkitAgentChatTranslation = {
     "L’agent utilise le jeton d’accès que vous ajoutez, il voit donc ce que ce jeton peut voir.",
   "settingsShell.integrationDetail.accessToken": "Jeton d’accès",
   "settingsShell.integrationDetail.addAccessToken": "Ajouter un jeton d’accès",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Impossible de vérifier le jeton d'accès enregistré.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Réessayer",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "Un admin doit configurer ceci",
   "settingsShell.integrationDetail.callout.adminNeededBody":
@@ -3571,6 +3655,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "Retirer l’application de l’espace de travail",
   "chatFirst.showMore": "Afficher plus",
   "chatFirst.showLess": "Afficher moins",
+  "chatFirst.showMoreCount": "Afficher {{count}} de plus",
   "chatFirst.appOrderUnavailable":
     "Impossible d’enregistrer l’ordre des applications sur cet appareil.",
   "chatFirst.openSideSurfaces": "Ouvrir les panneaux latéraux",

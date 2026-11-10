@@ -1,6 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
+  appApiPath,
   appBasePath,
   appPath,
 } from "@agent-native/core/client/api-path";
@@ -21,7 +22,7 @@ import {
   isImageRecording,
   screenshotFileExtension,
 } from "@shared/recording-kind";
-import { isDefaultTitle } from "@shared/title-source";
+import { isDefaultTitle, shouldPollGeneratedTitle } from "@shared/title-source";
 import {
   IconAlertTriangle,
   IconDeviceDesktop,
@@ -43,7 +44,6 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
 import {
   type HeadersArgs,
   type LoaderFunctionArgs,
@@ -60,6 +60,7 @@ import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { ClipsAvatar } from "@/components/clips-avatar";
+import { ClipsComposerContextProvider } from "@/components/ClipsComposerContext";
 import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import { RecordingContextSection } from "@/components/lookback/recording-context-panel";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
@@ -118,11 +119,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useCommentAccessToken } from "@/hooks/use-comment-access-refresh";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { withMediaVersion } from "@/lib/media-url";
-import { missingShareRetryDelayMs } from "@/lib/missing-share-retry";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
   readRecoverableRecordingBackupForServerId,
@@ -141,7 +142,10 @@ import { parseRedactions } from "@/lib/video-redactions";
 
 import { getDb, schema } from "../../server/db";
 import { resolvePlayerThumbnailUrl } from "../../server/lib/player-thumbnail-url";
-import { isRecordingExpired } from "../../server/lib/recording-page-access";
+import {
+  isRecordingExpired,
+  isRecordingTrashedForViewer,
+} from "../../server/lib/recording-page-access";
 import {
   buildAgentApiUrls,
   buildAgentDiscoveryPayload,
@@ -238,25 +242,6 @@ function failureDetail(reason: string | null | undefined): string | null {
   return trimmed.length > 800 ? `${trimmed.slice(0, 800)}...` : trimmed;
 }
 
-function shouldShowGeneratedTitleSkeleton(
-  recording: { title: string | null | undefined; createdAt?: string | null },
-  transcriptStatus?: string,
-): boolean {
-  if (!isDefaultTitle(recording.title)) return false;
-  if (transcriptStatus === "failed") return false;
-
-  const createdAtMs = Date.parse(recording.createdAt ?? "");
-  if (
-    Number.isFinite(createdAtMs) &&
-    Date.now() - createdAtMs > 2 * 60 * 1000 &&
-    transcriptStatus !== "pending"
-  ) {
-    return false;
-  }
-
-  return true;
-}
-
 export async function loader({ params, url }: LoaderFunctionArgs) {
   const id = params.shareId;
   if (!id) return emptyLoaderData(url);
@@ -314,7 +299,13 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       }).ok
     : false;
 
-  if (isRecordingExpired(rec.expiresAt)) {
+  if (
+    isRecordingExpired(rec.expiresAt) ||
+    isRecordingTrashedForViewer({
+      trashedAt: rec.trashedAt,
+      viewerIsOwner: false,
+    })
+  ) {
     return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
   }
 
@@ -368,10 +359,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     isLoomEmbedBacked: isLoomEmbedBackedRecording(rec),
   };
   const canExposeAnonymousAgentContext =
-    rec.visibility === "public" &&
-    !rec.password &&
-    !rec.archivedAt &&
-    !rec.trashedAt;
+    rec.visibility === "public" && !rec.password && !rec.archivedAt;
   return shareLoaderData(
     {
       recording,
@@ -752,7 +740,7 @@ export default function ShareRoute() {
     queryKey: shareQueryKey,
     queryFn: async () => {
       const url = new URL(
-        `${appBasePath()}/api/public-recording`,
+        appApiPath("/api/public-recording"),
         window.location.origin,
       );
       url.searchParams.set("id", shareId ?? "");
@@ -775,15 +763,6 @@ export default function ShareRoute() {
     enabled: !!shareId,
     refetchInterval: (q) => {
       const payload = (q.state.data as { data?: any } | undefined)?.data;
-      const status = (q.state.data as { status?: number } | undefined)?.status;
-      const updateCount =
-        queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0;
-      const retryDelay = missingShareRetryDelayMs({
-        status,
-        updateCount,
-        loaderFoundClip: Boolean(loaderData.accessDeniedStatus),
-      });
-      if (retryDelay !== null) return retryDelay;
       const rec = payload?.recording;
       if (!rec) return false;
       // Poll while the recording is still being assembled / transcoded so the
@@ -824,7 +803,7 @@ export default function ShareRoute() {
         return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
       }
       if (payload?.transcript?.status === "pending") return 3000;
-      if (shouldShowGeneratedTitleSkeleton(rec, payload?.transcript?.status)) {
+      if (shouldPollGeneratedTitle(rec, payload?.transcript?.status)) {
         return 3000;
       }
       return false;
@@ -833,6 +812,7 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  const getCommentAccessToken = useCommentAccessToken(dataQ, shareQueryKey);
   const hostedFailureCode = (recording as any)?.failureCode;
   const localizedHostedFailure =
     hostedFailureCode === "global_storage_cap"
@@ -956,6 +936,8 @@ export default function ShareRoute() {
   const transcriptStatus = dataQ.data?.data?.transcript?.status;
   const transcriptFailureReason =
     dataQ.data?.data?.transcript?.failureReason ?? null;
+  const transcriptUnreadable =
+    dataQ.data?.data?.transcript?.segmentsUnreadable === true;
   const ctas = dataQ.data?.data?.ctas ?? [];
   const apiStatus = dataQ.data?.status;
   const apiAccessDeniedStatus =
@@ -992,12 +974,10 @@ export default function ShareRoute() {
   );
   const viewCount = Number(dataQ.data?.data?.viewCount ?? 0);
   const agentViewCount = Number(dataQ.data?.data?.agentViewCount ?? 0);
-  const showTitleSkeleton = recording
-    ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
-    : false;
-  const visibleTitle = recording
-    ? displayRecordingTitle(recording.title)
-    : t("sharePage.untitledClip");
+  const visibleTitle =
+    recording && !isDefaultTitle(recording.title)
+      ? displayRecordingTitle(recording.title)
+      : t("sharePage.untitledClip");
   const shareBreadcrumbItems = [
     { label: t("navigation.library"), to: "/library" },
     { label: visibleTitle },
@@ -1321,19 +1301,7 @@ export default function ShareRoute() {
     retrySession();
   }, [retrySession, sessionStatus, shareNeedsSession]);
 
-  const retryingMissingShare =
-    missingShareRetryDelayMs({
-      status: dataQ.data?.status,
-      updateCount:
-        queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0,
-      loaderFoundClip: Boolean(loaderData.accessDeniedStatus),
-    }) !== null;
-
-  if (
-    dataQ.isLoading ||
-    retryingMissingShare ||
-    (sessionNeedsRetry && shareNeedsSession)
-  ) {
+  if (dataQ.isLoading || (sessionNeedsRetry && shareNeedsSession)) {
     return (
       <>
         {agentDiscovery}
@@ -1842,40 +1810,41 @@ export default function ShareRoute() {
                     }
                     className="h-full w-full rounded-none sm:rounded-xl"
                   />
-                  {commentOpen && viewerCanComment
-                    ? (() => {
-                        const composer = (
-                          <TimestampedCommentBar
-                            recordingId={recording.id}
-                            atMs={commentAtMs}
-                            draft={commentDraft}
-                            onDraftChange={setCommentDraft}
-                            onClose={() => setCommentOpen(false)}
-                            onAdded={() => {
-                              void dataQ.refetch();
-                              if (
-                                resumedAccountActionRef.current === "comment"
-                              ) {
-                                resumedAccountActionRef.current = null;
-                                trackEvent("share_account_action_completed", {
-                                  surface: "public_share",
-                                  recording_id: recording.id,
-                                  intent: "comment",
-                                });
-                              }
-                            }}
-                          />
-                        );
-                        // The Fullscreen API only paints the player's own element,
-                        // so portal the composer there instead of exiting
-                        // fullscreen when it's open.
-                        const fullscreenContainer =
-                          isPlayerFullscreen && playerRef.current?.container;
-                        return fullscreenContainer
-                          ? createPortal(composer, fullscreenContainer)
-                          : composer;
-                      })()
-                    : null}
+                  <TimestampedCommentBar
+                    open={commentOpen && viewerCanComment}
+                    commentAccessToken={
+                      recording.commentAccessToken ?? undefined
+                    }
+                    getCommentAccessToken={
+                      recording.commentAccessToken
+                        ? getCommentAccessToken
+                        : undefined
+                    }
+                    recordingId={recording.id}
+                    atMs={commentAtMs}
+                    draft={commentDraft}
+                    onDraftChange={setCommentDraft}
+                    onClose={() => setCommentOpen(false)}
+                    onAdded={() => {
+                      void dataQ.refetch();
+                      if (resumedAccountActionRef.current === "comment") {
+                        resumedAccountActionRef.current = null;
+                        trackEvent("share_account_action_completed", {
+                          surface: "public_share",
+                          recording_id: recording.id,
+                          intent: "comment",
+                        });
+                      }
+                    }}
+                    // The Fullscreen API only paints the player's own element,
+                    // so the composer moves there instead of exiting
+                    // fullscreen when it's open.
+                    portalContainer={
+                      isPlayerFullscreen
+                        ? playerRef.current?.container
+                        : undefined
+                    }
+                  />
                 </div>
               )}
             </div>
@@ -1883,16 +1852,9 @@ export default function ShareRoute() {
             <section className="flex shrink-0 flex-col gap-3 px-4 pt-1 sm:px-0">
               <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
-                  {showTitleSkeleton ? (
-                    <Skeleton
-                      aria-label={t("sharePage.generatingTitle")}
-                      className="h-7 w-72 max-w-full"
-                    />
-                  ) : (
-                    <h1 className="truncate text-xl font-semibold leading-tight tracking-[-0.02em] sm:text-2xl">
-                      {visibleTitle}
-                    </h1>
-                  )}
+                  <h1 className="truncate text-xl font-semibold leading-tight tracking-[-0.02em] sm:text-2xl">
+                    {visibleTitle}
+                  </h1>
                   <div className="mt-2 flex min-w-0 items-center gap-2">
                     <ClipsAvatar
                       email={ownerEmail}
@@ -2116,6 +2078,14 @@ export default function ShareRoute() {
                     />
                   ) : (
                     <CommentsPanel
+                      getCommentAccessToken={
+                        recording.commentAccessToken
+                          ? getCommentAccessToken
+                          : undefined
+                      }
+                      commentAccessToken={
+                        recording.commentAccessToken ?? undefined
+                      }
                       recordingId={recording.id}
                       comments={comments}
                       currentMs={playbackMs}
@@ -2155,6 +2125,7 @@ export default function ShareRoute() {
               {sessionStatus === "loading" ||
               sessionStatus === "signing-out" ? null : session ? (
                 <AgentPanel
+                  composerContextProvider={ClipsComposerContextProvider}
                   emptyStateText={t("recordingPage.askAboutClip")}
                   dynamicSuggestions={false}
                   scope={
@@ -2200,6 +2171,7 @@ export default function ShareRoute() {
                 onSeek={(ms) => playerRef.current?.seek(ms)}
                 status={transcriptStatus}
                 failureReason={transcriptFailureReason}
+                unreadable={transcriptUnreadable}
                 recordingTitle={recording.title}
                 audience="viewer"
               />

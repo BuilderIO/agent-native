@@ -1,6 +1,10 @@
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  filesNavigationPageParams,
+  filesNavigationQueryKey,
+} from "../lib/files-navigation";
 import { adoptPageOpenRead, startPageOpenRead } from "../lib/page-open-reads";
 import {
   contentActionInvalidatePredicate,
@@ -598,6 +602,22 @@ describe("contentActionInvalidatePredicate", () => {
           false,
         );
       }
+      // The sidebar's Files tree, keyed as the sidebar keys it.
+      for (const parentId of [null, "folder-1"]) {
+        const filesTreeQuery = {
+          queryKey: filesNavigationQueryKey(
+            filesNavigationPageParams({
+              databaseId: "workspace-files",
+              parentId,
+            }),
+          ),
+          isActive: () => true,
+        };
+        expect(predicate(filesTreeQuery, event)).toBe(true);
+        expect(
+          predicate({ ...filesTreeQuery, isActive: () => false }, event),
+        ).toBe(false);
+      }
       expect(
         predicate(
           {
@@ -637,7 +657,7 @@ describe("contentActionInvalidatePredicate", () => {
     ).toBe(true);
   });
 
-  it("refreshes only the active personal view and the Files tree it orders for personal presentation writes", () => {
+  it("refreshes only the active personal view, the Files tree it orders, and the open path for personal presentation writes", () => {
     const predicate = contentActionInvalidatePredicate("/page/database-page");
     const personalViewQuery = {
       queryKey: [
@@ -675,10 +695,92 @@ describe("contentActionInvalidatePredicate", () => {
     expect(
       predicate({ ...filesTreeQuery, isActive: () => false }, events),
     ).toBe(false);
+    const pathQuery = {
+      queryKey: [
+        "action",
+        "get-content-navigation-context",
+        { id: "other-page" },
+      ],
+      isActive: () => true,
+    };
+    expect(predicate(pathQuery, events)).toBe(true);
+    expect(predicate({ ...pathQuery, isActive: () => false }, events)).toBe(
+      false,
+    );
     expect(predicate(tableQuery, events)).toBe(false);
     expect(
       predicate(filesTreeQuery, [{ source: "action", key: "add-comment" }]),
     ).toBe(false);
+  });
+
+  it.each([
+    "clone-creative-context-document",
+    "create-content-database",
+    "create-document",
+    "create-inline-content-database",
+    "delete-document",
+    "duplicate-page",
+    "import-content-source",
+    "move-document",
+    "restore-document",
+    "rollback-created-slash-document",
+    "set-resource-visibility",
+    "share-resource",
+    "sync-local-folder-source",
+    "undo-content-import",
+    "unshare-resource",
+    "update-content-database-view",
+  ])("refreshes the open path when %s runs elsewhere", (key) => {
+    const predicate = contentActionInvalidatePredicate("/page/page-1");
+    const pathQuery = {
+      queryKey: ["action", "get-content-navigation-context", { id: "page-1" }],
+      isActive: () => true,
+    };
+    const events = [{ source: "action", key }];
+
+    expect(predicate(pathQuery, events)).toBe(true);
+    expect(predicate({ ...pathQuery, isActive: () => false }, events)).toBe(
+      false,
+    );
+  });
+
+  it("leaves the open path alone for writes that can't change its arrows", () => {
+    const predicate = contentActionInvalidatePredicate("/page/page-1");
+    const pathQuery = {
+      queryKey: ["action", "get-content-navigation-context", { id: "page-1" }],
+      isActive: () => true,
+    };
+
+    expect(
+      predicate(pathQuery, [{ source: "action", key: "add-comment" }]),
+    ).toBe(false);
+  });
+
+  it("refreshes the active personal view and Files tree when a property is deleted outside the editor", () => {
+    const predicate = contentActionInvalidatePredicate("/page/database-page");
+    const personalViewQuery = {
+      queryKey: [
+        "action",
+        "get-content-database-personal-view",
+        { databaseId: "database" },
+      ],
+      isActive: () => true,
+    };
+    const filesTreeQuery = {
+      queryKey: [
+        "action",
+        "query-content-database-items",
+        { databaseId: "files", limit: 20, navigation: { parentId: null } },
+      ],
+      isActive: () => true,
+    };
+    const events = [{ source: "action", key: "delete-document-property" }];
+
+    expect(predicate(personalViewQuery, events)).toBe(true);
+    expect(
+      predicate({ ...personalViewQuery, isActive: () => false }, events),
+    ).toBe(false);
+    expect(predicate(filesTreeQuery, events)).toBe(true);
   });
 
   it("does not refresh unrelated documents or action queries", () => {
@@ -972,6 +1074,72 @@ describe("page open reads under sync", () => {
         predicate(earlyDraftRead, [{ source: "action", key: "edit-document" }]),
       ).toBe(false);
     }
+  });
+
+  it("leaves a page's early reads alone for a comment on another page", () => {
+    const predicate = contentActionInvalidatePredicate(
+      "/home",
+      (query) => query === earlyRead || query === earlyDraftRead,
+    );
+    const on = (key: string, resourceId?: string) => ({
+      source: "action",
+      key,
+      ...(resourceId === undefined
+        ? {}
+        : { resourceType: "document", resourceId }),
+    });
+    for (const key of ["add-comment", "update-comment", "delete-comment"]) {
+      expect(predicate(earlyRead, [on(key, "other-page")])).toBe(false);
+      expect(predicate(earlyRead, [on(key, "next-page")])).toBe(true);
+      // A change that names no page may have touched this one.
+      expect(predicate(earlyRead, [on(key)])).toBe(true);
+    }
+    // A rollup on this page can read another page's body or when it was last
+    // edited, and a rename shows in its breadcrumb.
+    expect(predicate(earlyRead, [on("edit-document", "other-page")])).toBe(
+      true,
+    );
+    expect(predicate(earlyRead, [on("update-document", "other-page")])).toBe(
+      true,
+    );
+    expect(
+      predicate(earlyRead, [
+        on("add-comment", "other-page"),
+        on("edit-document", "next-page"),
+      ]),
+    ).toBe(true);
+    expect(
+      predicate(earlyDraftRead, [
+        on("update-preview-document-draft", "other-page"),
+      ]),
+    ).toBe(true);
+  });
+
+  it("leaves an open page's reads alone for a change only another page's reads carry", () => {
+    const predicate = contentActionInvalidatePredicate("/page/page-1");
+    const page = {
+      queryKey: ["action", "get-document", { id: "page-1" }],
+      isActive: () => true,
+    };
+    const comments = {
+      queryKey: ["action", "list-comments", { documentId: "page-1" }],
+      isActive: () => true,
+    };
+    const on = (key: string, resourceId: string) => ({
+      source: "action",
+      key,
+      resourceType: "document",
+      resourceId,
+    });
+    for (const query of [page, comments]) {
+      expect(predicate(query, [on("add-comment", "other-page")])).toBe(false);
+      expect(predicate(query, [on("add-comment", "page-1")])).toBe(true);
+      expect(predicate(query, [on("edit-document", "page-1")])).toBe(true);
+    }
+    expect(predicate(page, [on("edit-document", "other-page")])).toBe(true);
+    expect(predicate(comments, [on("edit-document", "other-page")])).toBe(
+      false,
+    );
   });
 
   it("spoils a real pending early read through Content's sync predicate", async () => {

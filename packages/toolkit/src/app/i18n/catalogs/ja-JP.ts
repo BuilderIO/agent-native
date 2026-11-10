@@ -1,6 +1,22 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "承認済みオリジン",
+  "settingsApiKeys.originsHint":
+    "HTTPS オリジンを1行に1つ入力します。空欄では転送できません。ローカル HTTP は許可されます。",
+  "settingsApiKeys.invalidOrigins":
+    "HTTPS オリジンを1行に1つ正確に入力してください。",
+  "settingsApiKeys.editOrigins": "オリジンを編集",
+  "settingsApiKeys.originsSaved": "オリジンを保存しました",
+  "settingsApiKeys.originsCount_one": "承認済みオリジン {{count}} 件",
+  "settingsApiKeys.originsCount_other": "承認済みオリジン {{count}} 件",
+  "settingsApiKeys.noApprovedOrigins": "承認済みオリジンなし",
+  "extensions.cancel": "キャンセル",
+  "extensions.context": "コンテキスト",
+  "extensions.confirmAgentMessage":
+    "拡張機能のメッセージをエージェントに送信しますか？",
+  "extensions.sendToAgent": "エージェントに送信",
+  "auth.logOutFailed": "ログアウトに失敗しました",
   "block.renderUnavailable": "このブロックは一時的に利用できません。",
   "block.loading": "ブロックを読み込み中です。",
   "composer.contextUrlLabel": "URL",
@@ -129,10 +145,15 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "マーケティング",
   "onboarding.roleSales": "営業",
   "onboarding.roleOps": "オペレーション",
+  "onboarding.roleCreator": "コンテンツクリエイター",
+  "onboarding.roleStudent": "学生",
+  "onboarding.roleEducator": "教育関係者",
   "onboarding.roleIndividual": "個人",
   "onboarding.roleOther": "その他",
   "onboarding.roleOtherInputLabel": "役割を入力してください",
   "onboarding.skipForNow": "今はスキップ",
+  "onboarding.builderProvisionFailedDetail":
+    "Builder.io アカウントを作成できませんでした。もう一度試すか、既存のアカウントでサインインしてください。",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
   "onboarding.builderCreateAccount": "Builder.io を使う",
   "onboarding.builderSignInWithAccount": "Builder.io アカウントでサインイン",
@@ -194,6 +215,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "戻る",
   "onboarding.creditsSkipAnyway": "それでもスキップ",
   "onboarding.creditsUseCustomKeys": "カスタムキーを使用",
+  "onboarding.creditsUseOwnApiKeys": "自分の API キーを使う",
   "onboarding.creditsAboutLabel": "無料クレジットについて",
   "onboarding.creditsActivating": "無料クレジットを有効化しています",
   "onboarding.creditsActivatingTooltip":
@@ -429,6 +451,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.openDesktop":
     "このチャットを使用するにはデスクトップ版を開いてください。",
   "composer.removeAttachment": "{{name}} を削除",
+  "composer.attachmentReadFailed": "このファイルを読み込めませんでした",
+  "composer.attachmentTooLarge": "ファイルが 8 MB を超えています",
+  "composer.attachmentNotUtf8": "ファイルが UTF-8 テキストではありません",
   "composer.scrollToBottom": "一番下までスクロール",
   "composer.suggestedPrompts": "おすすめのプロンプト",
   "composer.stopResponse": "応答を停止",
@@ -508,7 +533,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "{{integration}}のツールを使用",
   "composer.menu.scheduleTask": "タスクをスケジュール",
   "composer.menu.scheduleTaskDescription": "スケジュールに沿って実行",
-  "composer.menu.uploadFile": "ファイルをアップロード",
+  "composer.menu.uploadFile": "ファイルと画像",
+  "composer.menu.searchWorkspace": "ワークスペースを検索…",
+  "composer.menu.references": "参照",
+  "composer.menu.referenceFile": "ファイルを参照",
+  "composer.menu.attachToMessage": "コンテキストを追加",
+  "composer.menu.commands": "コマンド",
   "composer.menu.uploadFileDescription":
     "画像、PDF、テキスト／コード、JSON、CSV",
   "composer.messageAgent": "エージェントにメッセージを送信...",
@@ -558,6 +588,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "スキルファイルをアップロード",
   "composer.upload": "アップロード",
   "composer.uploadFailed": "選択したファイルをアップロードできませんでした。",
+  "composer.imageTooLargeToAttach":
+    "「{{name}}」は {{size}} MB です。{{limit}} MB を超える画像は添付できません。小さい画像を使用してください。",
+  "composer.imageTooManyPixelsToAttach":
+    "「{{name}}」は {{megapixels}} メガピクセルです。{{limit}} メガピクセルを超える画像は添付できません。小さい画像を使用してください。",
   "composer.fileTooLarge":
     "このファイルはアップロード上限の {{size}} MB を超えています。",
   "composer.sessionExpired":
@@ -765,6 +799,12 @@ const messages: ToolkitAgentChatTranslation = {
   "history.copyLink": "リンクをコピー",
   "history.linkCopied": "リンクをコピーしました",
   "history.copyLinkFailed": "リンクをコピーできませんでした",
+  "history.onlyYou": "自分のみ",
+  "history.hide": "自分のリストで非表示",
+  "history.hidden": "リストで非表示にしました",
+  "history.undo": "元に戻す",
+  "history.hideFailed": "チャットを非表示にできませんでした",
+  "history.unhideFailed": "チャットを元に戻せませんでした",
   "integrations.availableSection": "利用可能な連携",
   "integrations.connectedSection": "接続済み",
   "integrations.goToApiKeys": "API キーへ移動",
@@ -1327,6 +1367,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io には無料クレジットが含まれています。独自の API キーを使用することもできます。",
   "setup.builderOrOwnKeys":
     "Builder.io（無料クレジット付き）を使用するか、独自のプロバイダーキーを追加します。",
+  "setup.reconnectBuilder": "Builder.io に再接続",
   "setup.connectAi": "AI に接続",
   "setup.connectBuilder": "Builder.io を使用",
   "setup.connectionsDescription":
@@ -1438,8 +1479,39 @@ const messages: ToolkitAgentChatTranslation = {
   "share.organizationDescription": "組織内のすべてのユーザーが閲覧可能",
   "share.owner": "所有者",
   "share.peopleWithAccess": "アクセスできるユーザー",
-  "share.people": "人",
-  "share.agents": "エージェント",
+  "share.canView": "閲覧可",
+  "share.canComment": "コメント可",
+  "share.canEdit": "編集可",
+  "share.canManageAccess": "アクセスを管理可",
+  "share.onlyPeopleInvited": "招待されたユーザーのみ",
+  "share.anyoneInOrganization": "組織内の全員",
+  "share.anyoneAtOrganization": "{{organization}} の全員",
+  "share.anyoneWithLink": "リンクを知っている全員",
+  "share.invite": "招待",
+  "share.addPeopleOrAgents": "ユーザーまたはエージェントを追加",
+  "share.you": "あなた",
+  "share.agentBadge": "エージェント",
+  "share.removeAccess": "アクセスを削除",
+  "share.loadAgentsFailed": "エージェントを読み込めませんでした。",
+  "share.namesUnavailable":
+    "名前を読み込めなかったため、メールアドレスを表示しています。",
+  "share.copyLink": "リンクをコピー",
+  "share.copyLinkFailed": "リンクをコピーできませんでした。",
+  "share.sendTo": "送信先",
+  "share.openInClaude": "Claude で開く",
+  "share.openInClaudeCode": "Claude Code で開く",
+  "share.openInCodex": "Codex で開く",
+  "share.copyAgentPrompt": "エージェント用プロンプトをコピー",
+  "share.copyAgentLink": "エージェント用リンクをコピー",
+  "share.copyAgentLinkFailed": "エージェント用リンクをコピーできませんでした。",
+  "share.copiedAgentLink": "エージェント用リンクをコピーしました",
+  "share.retryAgentLinkItem": "エージェント用リンクを再試行",
+  "share.mcpServerSettings": "MCP サーバー設定",
+  "share.copiedAgentPrompt": "エージェント用プロンプトをコピーしました",
+  "share.copyAgentPromptFailed":
+    "エージェント用プロンプトをコピーできませんでした。",
+  "share.agentReadPrompt":
+    'この項目（{{label}}）を読み取ってください: {{url}}\n\n{{mcpUrl}} の利用可能な MCP 接続を使い、{{idParam}} "{{id}}" を指定して {{actions}} を呼び出してください。私のアカウントの既存の権限を使用してください。\n\n接続がない、またはサインアウトしている場合は、接続とサインインを依頼してください: {{connectUrl}}。私が確認したら、もう一度読み取ってください。読み取りが拒否された場合は教えてください。',
   "share.private": "非公開",
   "share.privateDescription": "アクセス権を持つユーザーのみ閲覧可能",
   "share.public": "公開",
@@ -1917,6 +1989,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.approvalA2AReview":
     "エージェントアクションの確認ページで承認",
   "settings.audit.approvalMcpClient": "MCP クライアントが承諾（未検証）",
+  "settings.audit.approvalMcpReview": "MCP アクションの確認ページで承認",
+  "settings.audit.approvalCliPrompt": "CLI の確認で承認（未検証）",
+  "settings.audit.approvalCliFlag": "--approved 付きで再実行（未検証）",
   "settings.audit.changedBy": "変更者",
   "settings.audit.close": "閉じる",
   "settings.audit.empty": "この期間に変更はありません。",
@@ -2189,6 +2264,9 @@ const messages: ToolkitAgentChatTranslation = {
     "{{lab}} を変更できませんでした。もう一度お試しください。",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって {{app}} で作業できます。アプリが見られるのは、あなたが見られるものだけです。",
+  "settingsShell.appGroup.mcpAppCards": "チャットアプリでのアプリカード",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "MCP Apps に対応したチャットアプリ（Claude や ChatGPT など）で、ツールが操作できるカードを表示します。たとえば、編集して送信できるメールの下書きです。変更したら、チャットアプリでこのアプリを再接続してください。",
   "settingsShell.appGroup.mcpFootnote":
     "エージェント自身が使うツールについては、{{integrations}} を参照してください。",
   "settingsShell.appGroup.newAutomation": "新しい自動化",
@@ -2399,6 +2477,9 @@ const messages: ToolkitAgentChatTranslation = {
     "エージェントは追加されたアクセストークンを使うため、そのトークンで参照できるものを参照します。",
   "settingsShell.integrationDetail.accessToken": "アクセストークン",
   "settingsShell.integrationDetail.addAccessToken": "アクセストークンを追加",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "保存済みのアクセストークンを確認できませんでした。",
+  "settingsShell.integrationDetail.tokenCheckRetry": "再試行",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "管理者による設定が必要です",
   "settingsShell.integrationDetail.callout.adminNeededBody":
@@ -3355,6 +3436,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "ワークスペースからアプリを削除",
   "chatFirst.showMore": "さらに表示",
   "chatFirst.showLess": "表示を減らす",
+  "chatFirst.showMoreCount": "さらに {{count}} 件表示",
   "chatFirst.appOrderUnavailable":
     "このデバイスではアプリの並び順を保存できませんでした。",
   "chatFirst.openSideSurfaces": "サイドパネルを開く",

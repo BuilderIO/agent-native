@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  access: {
+    role: "editor",
+    resource: { id: "rec-1", expiresAt: null as string | null },
+  },
   rows: [] as Array<Array<Record<string, unknown>>>,
   lockRows: [] as Array<Record<string, unknown>>,
   update: vi.fn(),
@@ -38,11 +42,13 @@ vi.mock("@agent-native/core/tracking", () => ({
   track: (...args: unknown[]) => mocks.track(...args),
 }));
 
-vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(async () => ({ resource: { id: "rec-1" } })),
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
+  assertAccess: vi.fn(async () => mocks.access),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (original) => ({
+  ...(await original<typeof import("drizzle-orm")>()),
   and: vi.fn((...args: unknown[]) => args),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
   isNull: vi.fn((column: unknown) => ({ isNull: column })),
@@ -67,6 +73,7 @@ vi.mock("../server/db/index.js", () => ({
       status: "recordingTranscripts.status",
       fullText: "recordingTranscripts.fullText",
       segmentsJson: "recordingTranscripts.segmentsJson",
+      earlierAudioRemovedAt: "recordingTranscripts.earlierAudioRemovedAt",
     },
   },
 }));
@@ -107,12 +114,102 @@ function recordingRow(extra: Record<string, unknown> = {}) {
   };
 }
 
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.access = { role: "editor", resource: { id: "rec-1", expiresAt: null } };
+  mocks.rows = [];
+  mocks.lockRows = [{ id: "rec-1" }];
+  mocks.listEndedMeetingsForRecording.mockResolvedValue([]);
+});
+
 describe("save-browser-transcript", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.rows = [];
-    mocks.lockRows = [{ id: "rec-1" }];
-    mocks.listEndedMeetingsForRecording.mockResolvedValue([]);
+  describe("audio recovered from before the user started", () => {
+    const earlier = {
+      startMs: 0,
+      endMs: 60_000,
+      text: "before you started",
+      source: "system" as const,
+      recovered: true as const,
+    };
+    const live = {
+      startMs: 60_000,
+      endMs: 61_000,
+      text: "the meeting",
+      source: "mic" as const,
+    };
+    const flush = {
+      recordingId: "rec-1",
+      fullText: "Them: before you started\n\nMe: the meeting",
+      source: "whisper" as const,
+      segments: [earlier, live],
+      overwriteReady: true,
+    };
+    const existing = {
+      recordingId: "rec-1",
+      status: "ready",
+      fullText: "Me: the meeting",
+      segmentsJson: JSON.stringify([live]),
+      source: null,
+    };
+
+    function trackUpdate() {
+      const set = vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn(async () => [{ recordingId: "rec-1" }]),
+        })),
+      }));
+      mocks.update.mockReturnValue({ set });
+      return set;
+    }
+
+    it("stores the marker the notice reads", async () => {
+      const set = trackUpdate();
+      mocks.rows = [[recordingRow()], [existing], []];
+
+      await saveBrowserTranscript.run(
+        saveBrowserTranscript.schema.parse(flush) as never,
+      );
+
+      expect(JSON.parse(set.mock.calls[0][0].segmentsJson)).toEqual([
+        earlier,
+        live,
+      ]);
+    });
+
+    it("can't be added back by a capture still running after its removal", async () => {
+      const set = trackUpdate();
+      mocks.rows = [
+        [recordingRow()],
+        [existing],
+        [{ removedAt: "2026-11-03T10:00:00.000Z" }],
+      ];
+
+      const result = await saveBrowserTranscript.run(flush as never);
+
+      const [patch] = set.mock.calls[0];
+      expect(JSON.parse(patch.segmentsJson)).toEqual([live]);
+      expect(patch.fullText).toBe("Me: the meeting");
+      expect(result).toMatchObject({ chars: "Me: the meeting".length });
+    });
+
+    it("keeps the capture's own text when a save holds nothing to drop", async () => {
+      const set = trackUpdate();
+      mocks.rows = [
+        [recordingRow()],
+        [existing],
+        [{ removedAt: "2026-11-03T10:00:00.000Z" }],
+      ];
+
+      await saveBrowserTranscript.run({
+        ...flush,
+        fullText: "Me: the meeting\n\nMe: and more",
+        segments: [live],
+      } as never);
+
+      expect(set.mock.calls[0][0].fullText).toBe(
+        "Me: the meeting\n\nMe: and more",
+      );
+    });
   });
 
   it("asserts editor access on the recording before mutating", async () => {
@@ -443,6 +540,7 @@ describe("save-browser-transcript", () => {
     mocks.rows = [
       [recordingRow()],
       [{ recordingId: "rec-1", status: "pending", segmentsJson: "[]" }],
+      [{ removedAt: null }],
       [{ source: "imported", status: "ready", fullText: "Imported text." }],
     ];
     mocks.listEndedMeetingsForRecording.mockResolvedValue([
@@ -475,7 +573,7 @@ describe("save-browser-transcript", () => {
   it("keeps an import that creates the row just before the first insert", async () => {
     const values = insertValues([]);
     mocks.insert.mockReturnValue({ values });
-    mocks.rows = [[recordingRow()], [], [{ source: "imported" }]];
+    mocks.rows = [[recordingRow()], [], [], [{ source: "imported" }]];
 
     const result = await saveBrowserTranscript.run({
       recordingId: "rec-1",
@@ -497,6 +595,7 @@ describe("save-browser-transcript", () => {
     mocks.rows = [
       [recordingRow()],
       [{ recordingId: "rec-1", status: "pending", segmentsJson: "[]" }],
+      [{ removedAt: null }],
       [],
     ];
 
@@ -527,3 +626,67 @@ describe("save-browser-transcript", () => {
     expect(mocks.update).not.toHaveBeenCalled();
   });
 });
+
+it.each(["2000-01-01T00:00:00Z", "not-a-date"])(
+  "refuses a delayed native transcript after availability ends (%s)",
+  async (expiresAt) => {
+    mocks.access = { role: "editor", resource: { id: "rec-1", expiresAt } };
+    mocks.rows = [[recordingRow()], []];
+    mocks.insert.mockReturnValue({ values: insertValues() });
+    await expect(
+      saveBrowserTranscript.run({
+        recordingId: "rec-1",
+        fullText: "Fake late transcript",
+        source: "web-speech",
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(dispatchPostFinalizeJob).not.toHaveBeenCalled();
+  },
+);
+it.each(["2000-01-01T00:00:00Z", "not-a-date"])(
+  "preserves owner native transcript completion (%s)",
+  async (expiresAt) => {
+    mocks.access = { role: "owner", resource: { id: "rec-1", expiresAt } };
+    mocks.rows = [[recordingRow()], []];
+    mocks.insert.mockReturnValue({ values: insertValues() });
+    await expect(
+      saveBrowserTranscript.run({
+        recordingId: "rec-1",
+        fullText: "Fake owner transcript",
+        source: "web-speech",
+      }),
+    ).resolves.toMatchObject({ status: "ready" });
+    expect(mocks.insert).toHaveBeenCalledOnce();
+  },
+);
+
+it.each([false, true])(
+  "rechecks the locked native recording's expiry (owner=%s)",
+  async (owner) => {
+    mocks.access.role = owner ? "owner" : "editor";
+    mocks.rows = [[recordingRow()], []];
+    mocks.lockRows = [
+      {
+        id: "rec-1",
+        ownerEmail: owner ? "owner@example.com" : "other-owner@example.test",
+        expiresAt: "2000-01-01T00:00:00Z",
+      },
+    ];
+    mocks.insert.mockReturnValue({ values: insertValues() });
+    const pending = saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Fake locked transcript",
+      source: "web-speech",
+    });
+    if (owner)
+      await expect(pending).resolves.toMatchObject({ status: "ready" });
+    else {
+      await expect(pending).rejects.toMatchObject({ statusCode: 403 });
+      expect(mocks.insert).not.toHaveBeenCalled();
+      expect(mocks.update).not.toHaveBeenCalled();
+      expect(dispatchPostFinalizeJob).not.toHaveBeenCalled();
+    }
+  },
+);

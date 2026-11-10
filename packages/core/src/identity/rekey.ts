@@ -154,6 +154,7 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "agent_harness_sessions", column: "owner_email" },
   { table: "workspace_apps", column: "owner_email" },
   { table: "private_icon_assets", column: "owner_email" },
+  { table: "private_media", column: "owner_email" },
   { table: "application_state", column: "session_id", mode: "state-session" },
   { table: "oauth_tokens", column: "owner", mode: "unsupported-oauth" },
   { table: "workspace_connections", column: "owner_email" },
@@ -200,6 +201,17 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "integration_conversation_scopes", column: "owner_email" },
   { table: "integration_usage_budgets", column: "owner_email" },
   { table: "mcp_device_codes", column: "owner_email", offboard: "delete" },
+  // A removed member's pending MCP approvals have no one left to review them.
+  {
+    table: "mcp_action_approvals",
+    column: "owner_email",
+    offboard: "delete",
+  },
+  {
+    table: "mcp_action_approvals",
+    column: "approver_email",
+    offboard: "retain",
+  },
   // A missing connect-token row reads as "not revoked", so revoke, never delete.
   { table: "mcp_connect_tokens", column: "owner_email", offboard: "revoke" },
   { table: "mcp_connect_tokens", column: "created_by" },

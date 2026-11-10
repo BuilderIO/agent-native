@@ -4,6 +4,7 @@ import {
   ActionContractError,
   defineAction,
   isActionContractError,
+  type ActionRunContext,
 } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -30,6 +31,10 @@ import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-gua
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { renumberDatabaseRows } from "./_database-row-batch.js";
 import { setupError } from "./_database-setup-mutation.js";
+import {
+  assertAgentsMayEditPagesText,
+  assertAgentsMayEditPageText,
+} from "./_document-agent-lock.js";
 import {
   assertPageLifecycleTarget,
   claimDocumentLifecycleIntent,
@@ -722,6 +727,7 @@ export async function trashDocumentSubtree(
   trashedAt = new Date().toISOString(),
   locks: LifecycleGroupLocks,
   origin?: string,
+  ctx?: ActionRunContext,
 ): Promise<string[]> {
   const { documentIds, ownedDatabaseIds } =
     await collectDocumentSubtreeForDelete(db, [id], ownerEmail);
@@ -778,6 +784,7 @@ export async function trashDocumentSubtree(
         ),
     );
   }
+  await assertAgentsMayEditPagesText(db, activeDocumentIds, ctx);
 
   const activeMemberships = await selectMembershipsForDocuments(
     db,
@@ -1120,6 +1127,15 @@ async function deleteCollectedDocuments(
       .where(
         inArray(schema.documentPropertyValues.propertyId, propertyIdBatch),
       );
+    // After the values: deleting them records a tombstone for each one.
+    await db
+      .delete(schema.documentPropertyValueTombstones)
+      .where(
+        inArray(
+          schema.documentPropertyValueTombstones.propertyId,
+          propertyIdBatch,
+        ),
+      );
     await db
       .delete(schema.documentBlockFieldContents)
       .where(
@@ -1165,6 +1181,15 @@ async function deleteCollectedDocuments(
         and(
           inArray(schema.documentPropertyValues.documentId, documentIdBatch),
           eq(schema.documentPropertyValues.ownerEmail, ownerEmail),
+        ),
+      );
+    // After the values: deleting them records a tombstone for each one.
+    await db
+      .delete(schema.documentPropertyValueTombstones)
+      .where(
+        inArray(
+          schema.documentPropertyValueTombstones.documentId,
+          documentIdBatch,
         ),
       );
     await db
@@ -1249,6 +1274,13 @@ async function deleteCollectedDocuments(
     await db
       .delete(schema.documentShares)
       .where(inArray(schema.documentShares.resourceId, documentIdBatch));
+    // Webhook events about these pages, sent or waiting, carry their values
+    // and comments, so they go too; the webhooks stay for the rest.
+    await db
+      .delete(schema.contentWebhookDeliveries)
+      .where(
+        inArray(schema.contentWebhookDeliveries.documentId, documentIdBatch),
+      );
   });
 
   await deleteWhereIn(documentIds, async (documentIdBatch) => {
@@ -1458,10 +1490,12 @@ const legacyTrashSchema = z
 
 async function trashDocumentWithReceipt(
   input: z.infer<typeof guardedTrashSchema>,
-  origin: string | undefined,
+  ctx: ActionRunContext | undefined,
 ) {
+  const origin = ctx?.caller;
   const access = await assertDocumentMutationAccess(input.id, "admin", "id");
   assertSourceAllowsPageEdit(access.resource, "trash");
+  assertAgentsMayEditPageText(access.resource, ctx);
   const ownerEmail = access.resource.ownerEmail as string;
   const result = await getDb().transaction(async (transaction) => {
     const tx = transaction as unknown as ReturnType<typeof getDb>;
@@ -1493,6 +1527,7 @@ async function trashDocumentWithReceipt(
       undefined,
       locks,
       origin,
+      ctx,
     );
     const after = await lockLifecycleDocument(tx, input.id, ownerEmail);
     if (!after.trashedAt || after.trashRootId !== input.id)
@@ -1532,7 +1567,7 @@ export default defineAction({
           input,
           "Agent page deletes require id, the page's exact updatedAt as expectedUpdatedAt, and idempotencyKey.",
         ),
-        ctx?.caller,
+        ctx,
       );
     const args = input as z.infer<typeof legacyTrashSchema>;
     const id = args.id;
@@ -1588,6 +1623,7 @@ export default defineAction({
     const access = await assertDocumentMutationAccess(id, "admin", "id");
     const existing = access.resource;
     assertSourceAllowsPageEdit(existing, "trash");
+    assertAgentsMayEditPageText(existing, ctx);
     const [systemDatabase] = await db
       .select({ systemRole: schema.contentDatabases.systemRole })
       .from(schema.contentDatabases)
@@ -1609,6 +1645,7 @@ export default defineAction({
         undefined,
         locks,
         ctx?.caller,
+        ctx,
       );
     });
 

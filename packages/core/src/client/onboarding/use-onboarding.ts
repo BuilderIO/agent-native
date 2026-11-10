@@ -18,6 +18,8 @@ import {
   scheduleAfterStartup,
 } from "../use-after-paint.js";
 import { useSessionPreloading } from "../use-session.js";
+import { reportWriteFailure } from "../write-failure-event.js";
+import { writeFailureFromResponse } from "../write-failure.js";
 import {
   dispatchFirstRunOnboardingStatus,
   fetchFirstRunOnboardingStatus,
@@ -791,12 +793,18 @@ export function trackOnboardingEvent(
   if (typeof window === "undefined") return;
   const identityKey = getAnalyticsIdentityKey() ?? "anonymous";
   const sessionId = getAnalyticsSessionId() ?? "unknown-session";
+  const experiment =
+    properties.flow === "first_run"
+      ? (onboardingExperiment ?? readStoredOnboardingExperiment())
+      : null;
   const key = [
     sessionId,
     identityKey,
     name,
     properties.flow,
     properties.step_id,
+    properties.experiment_id ?? experiment?.experiment_id,
+    properties.experiment_variant ?? experiment?.experiment_variant,
     properties.extension_id,
     properties.integration_id,
     properties.role,
@@ -840,11 +848,7 @@ export function trackOnboardingEvent(
     if (seenOnboardingEvents.has(key)) return;
     seenOnboardingEvents.add(key);
   }
-  const experiment =
-    properties.flow === "first_run"
-      ? (onboardingExperiment ?? readStoredOnboardingExperiment())
-      : null;
-  trackEvent(name, experiment ? { ...properties, ...experiment } : properties);
+  trackEvent(name, experiment ? { ...experiment, ...properties } : properties);
 }
 
 export interface UseOnboardingResult {
@@ -1098,11 +1102,17 @@ export function useOnboarding(
         : {}),
       reason: "user_action",
     });
-    await fetch(agentNativePath("/_agent-native/onboarding/dismiss"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
+    const response = await fetch(
+      agentNativePath("/_agent-native/onboarding/dismiss"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    if (!response.ok) {
+      reportWriteFailure(writeFailureFromResponse(response));
+    }
     await fetchAll();
   }, [fetchAll, steps]);
 
@@ -1112,11 +1122,17 @@ export function useOnboarding(
       flow: "checklist",
       reason: "user_action",
     });
-    await fetch(agentNativePath("/_agent-native/onboarding/reopen"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
+    const response = await fetch(
+      agentNativePath("/_agent-native/onboarding/reopen"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    if (!response.ok) {
+      reportWriteFailure(writeFailureFromResponse(response));
+    }
     await fetchAll();
   }, [fetchAll]);
 

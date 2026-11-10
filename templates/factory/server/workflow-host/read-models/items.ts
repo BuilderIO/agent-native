@@ -101,6 +101,8 @@ export interface ItemRow {
   /** A Factory inbox row backs this item; false for a synthetic one (a group or a list). */
   inbox: boolean;
   title: string | null;
+  /** The item's own text, such as a Slack message, cut to a short preview; null when the source gave none. */
+  summary: string | null;
   source: string | null;
   sourceUrl: string | null;
   /** The inbox status; null for a synthetic item. */
@@ -222,6 +224,7 @@ export async function selectItemRows(
       updatedAt: state.updatedAt,
       inboxId: inbox.id,
       title: inbox.title,
+      summary: inbox.summary,
       source: inbox.source,
       sourceUrl: inbox.sourceUrl,
       status: inbox.status,
@@ -376,6 +379,10 @@ export function itemRowsOf(
       itemId: row.itemId,
       inbox: row.inboxId !== null,
       title: row.title,
+      summary:
+        row.summary === null
+          ? null
+          : clipText(row.summary, READ_LIMITS.shortSummaryChars).text,
       source: row.source,
       sourceUrl: httpUrl(row.sourceUrl),
       status: row.status,

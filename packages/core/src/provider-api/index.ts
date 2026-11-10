@@ -104,6 +104,7 @@ export const PROVIDER_API_IDS = [
   "slack",
   "stripe",
   "twitter",
+  "zoom",
 ] as const;
 
 export type ProviderApiId = (typeof PROVIDER_API_IDS)[number];
@@ -492,6 +493,7 @@ export type ProviderApiCredentialResolver = (
 
 export interface ProviderApiRuntimeOptions {
   appId: string;
+  maxResponseBytes?: number;
   providerIds?: readonly (ProviderApiId | string)[];
   providerOverrides?: readonly ProviderApiConfig[];
   localCredentialSource?: string;
@@ -627,6 +629,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_BYTES = 1024 * 1024;
 const MAX_MAX_BYTES = 4 * 1024 * 1024;
+const MAX_RUNTIME_RESPONSE_BYTES = 36 * 1024 * 1024;
 const SAVE_TO_FILE_MAX_BYTES = 20 * 1024 * 1024;
 const FETCH_ALL_PAGES_MAX = 50;
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
@@ -1349,14 +1352,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     docsUrls: ["https://developers.google.com/drive/api/reference/rest/v3"],
     specUrls: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"],
     allowedHostSuffixes: ["googleapis.com"],
-    templateUses: [
-      "brain",
-      "content",
-      "slides",
-      "slides-2",
-      "dispatch",
-      "analytics",
-    ],
+    templateUses: ["brain", "content", "slides", "dispatch", "analytics"],
     examples: [
       { label: "List files", method: "GET", path: "/files" },
       { label: "Get file metadata", method: "GET", path: "/files/{fileId}" },
@@ -1412,7 +1408,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     ],
     specUrls: ["https://slides.googleapis.com/$discovery/rest?version=v1"],
     allowedHostSuffixes: ["googleapis.com"],
-    templateUses: ["brain", "content", "slides", "slides-2", "dispatch"],
+    templateUses: ["brain", "content", "slides", "dispatch"],
     examples: [
       {
         label: "Get presentation with slides and speaker notes",
@@ -1844,6 +1840,28 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       },
     ],
   },
+  zoom: {
+    id: "zoom",
+    label: "Zoom",
+    defaultBaseUrl: "https://api.zoom.us/v2",
+    auth: {
+      type: "oauth-bearer",
+      oauthProvider: "zoom",
+      tokenLabel: "Zoom OAuth token",
+      workspaceProvider: "zoom",
+    },
+    credentialKeys: ["ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET"],
+    docsUrls: ["https://developers.zoom.us/docs/api/"],
+    templateUses: ["calendar"],
+    examples: [
+      {
+        label: "Create a meeting",
+        method: "POST",
+        path: "/users/me/meetings",
+        body: { topic: "Meeting", type: 2 },
+      },
+    ],
+  },
 };
 
 export function getProviderApiConfig(
@@ -1918,14 +1936,14 @@ export function isProviderApiId(provider: string): provider is ProviderApiId {
 }
 
 export function listProviderApiIdsForTemplateUse(
-  templateUse: WorkspaceConnectionTemplateUse,
+  templateUse: string,
   overrides: readonly ProviderApiConfig[] = [],
 ): ProviderApiId[] {
   const configs = new Map(
     mergeProviderApiConfigs(overrides).map((config) => [config.id, config]),
   );
   return PROVIDER_API_IDS.filter((id) =>
-    (configs.get(id)?.templateUses ?? []).includes(templateUse),
+    (configs.get(id)?.templateUses ?? []).some((use) => use === templateUse),
   );
 }
 
@@ -1966,6 +1984,68 @@ export function listProviderApiCatalog(
   }));
 }
 
+const registeredProviderApiRuntimes = new Map<
+  string,
+  ProviderApiRuntimeOptions
+>();
+const providerApiRuntimeOptions = new WeakMap<
+  object,
+  ProviderApiRuntimeOptions
+>();
+
+export function registerProviderApiActionRuntime(runtime: object): void {
+  const options = providerApiRuntimeOptions.get(runtime);
+  if (options) registeredProviderApiRuntimes.set(options.appId, options);
+}
+
+export function getRegisteredProviderApiRuntimeOptions(
+  appId: string,
+): ProviderApiRuntimeOptions | undefined {
+  return registeredProviderApiRuntimes.get(appId);
+}
+
+export async function listRegisteredCustomProviderCapabilities(
+  appId: string,
+  context: CredentialContext,
+): Promise<{ id: string; label: string }[]> {
+  const runtime = getRegisteredProviderApiRuntimeOptions(appId);
+  if (!runtime?.getCustomProviders) return [];
+  const providers = await runtime.getCustomProviders();
+  const result: { id: string; label: string }[] = [];
+  for (const provider of providers) {
+    if (
+      !(
+        (provider.scope === "org" && provider.scopeId === context.orgId) ||
+        (provider.scope === "user" && provider.scopeId === context.userEmail)
+      )
+    )
+      continue;
+    const keys = extractCredentialKeysFromCustomAuth(provider.auth);
+    const credentials = await Promise.all(
+      keys.map((key) =>
+        (runtime.resolveCredential ?? defaultProviderApiCredentialResolver)({
+          appId,
+          provider: provider.id,
+          key,
+          ctx: context,
+          localCredentialSource: runtime.localCredentialSource ?? "app_local",
+        }),
+      ),
+    );
+    if (credentials.some((credential) => !credential)) continue;
+    for (const credential of credentials) {
+      if (credential)
+        assertCredentialCanReachEndpoint(
+          { scope: provider.scope, scopeId: provider.scopeId },
+          credential,
+          credential.key,
+        );
+    }
+    result.push({ id: provider.id, label: provider.label });
+  }
+  return result;
+}
+
 export function createProviderApiRuntime(
   options: ProviderApiRuntimeOptions,
 ): ProviderApiRuntime {
@@ -1979,7 +2059,7 @@ export function createProviderApiRuntime(
     providerIds,
     localCredentialSource: options.localCredentialSource ?? "app_local",
   };
-  return {
+  const runtime: ProviderApiRuntime = {
     providerIds,
     listCatalog: (provider) =>
       listProviderApiCatalogWithCustom(
@@ -2003,6 +2083,8 @@ export function createProviderApiRuntime(
     deleteGitHubRepositoryFile: (args) =>
       deleteGitHubRepositoryFile(args, runtimeOptions),
   };
+  providerApiRuntimeOptions.set(runtime, runtimeOptions);
+  return runtime;
 }
 
 export async function fetchProviderApiDocs(
@@ -2271,7 +2353,7 @@ export async function executeProviderApiRequest(
 
   const effectiveMaxBytes = args.saveToFile
     ? SAVE_TO_FILE_MAX_BYTES
-    : clampMaxBytes(args.maxBytes);
+    : clampMaxBytes(args.maxBytes, runtime.maxResponseBytes);
   const quotaIdentity = createProviderQuotaIdentity({
     appId: runtimeOptionsAppId(runtime),
     providerId: config.id,
@@ -2316,6 +2398,7 @@ export async function executeProviderApiRequest(
         url: pageUrl.href,
         body: pageBody,
         headers,
+        maxBytes: effectiveMaxBytes,
       });
       const resp = applyBodyEnvelopeOutcome(
         await fetchWithTimeout(pageUrl.href, {
@@ -2323,6 +2406,7 @@ export async function executeProviderApiRequest(
           headers,
           body: pageBody,
           maxBytes: effectiveMaxBytes,
+          maxResponseBytes: effectiveMaxBytes,
           timeoutMs: clampTimeout(args.timeoutMs),
           signal: args.signal,
           secretValues: auth.secretValues,
@@ -2378,6 +2462,7 @@ export async function executeProviderApiRequest(
     url: url.href,
     body,
     headers,
+    maxBytes: effectiveMaxBytes,
   });
   const response = applyBodyEnvelopeOutcome(
     await fetchWithTimeout(url.href, {
@@ -2385,6 +2470,7 @@ export async function executeProviderApiRequest(
       headers,
       body,
       maxBytes: effectiveMaxBytes,
+      maxResponseBytes: effectiveMaxBytes,
       timeoutMs: clampTimeout(args.timeoutMs),
       signal: args.signal,
       secretValues: auth.secretValues,
@@ -2488,7 +2574,10 @@ function providerAccessErrorGuidance(
 /**
  * Resolve a provider OAuth token for a trusted server-side integration bridge
  * such as a CRM adapter or Google Picker. Callers must keep the result out of
- * agent, MCP, A2A, logs, persistence, and extension/tool surfaces.
+ * agent, MCP, A2A, logs, persistence, and extension/tool surfaces. The one
+ * exception is the provider's own remote MCP endpoint, which may receive it as
+ * a per-request bearer (`mcp-client/workspace-connection-servers.ts`); it is
+ * still never stored on the server config or shown to the agent.
  */
 export async function resolveProviderApiOAuthAccessToken(
   args: {
@@ -3299,7 +3388,7 @@ async function executeCustomProviderApiRequest(
 
   const effectiveMaxBytes = args.saveToFile
     ? SAVE_TO_FILE_MAX_BYTES
-    : clampMaxBytes(args.maxBytes);
+    : clampMaxBytes(args.maxBytes, runtime.maxResponseBytes);
   const quotaIdentity = createProviderQuotaIdentity({
     appId: runtimeOptionsAppId(runtime),
     providerId: customConfig.id,
@@ -3341,12 +3430,14 @@ async function executeCustomProviderApiRequest(
         url: pageUrl.href,
         body: pageBody,
         headers,
+        maxBytes: effectiveMaxBytes,
       });
       const resp = await fetchWithTimeout(pageUrl.href, {
         method,
         headers,
         body: pageBody,
         maxBytes: effectiveMaxBytes,
+        maxResponseBytes: effectiveMaxBytes,
         timeoutMs: clampTimeout(args.timeoutMs),
         signal: args.signal,
         secretValues: auth.secretValues,
@@ -3403,6 +3494,7 @@ async function executeCustomProviderApiRequest(
     headers,
     body,
     maxBytes: effectiveMaxBytes,
+    maxResponseBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
     signal: args.signal,
     secretValues: auth.secretValues,
@@ -3415,6 +3507,7 @@ async function executeCustomProviderApiRequest(
         url: url.href,
         body,
         headers,
+        maxBytes: effectiveMaxBytes,
       }),
     },
   });
@@ -5335,6 +5428,9 @@ async function getValidOAuthAccessToken(options: {
   if (options.oauthProvider === "sigma") {
     return refreshSigmaOAuthToken(options);
   }
+  if (options.oauthProvider === "zoom") {
+    return refreshZoomOAuthToken(options, refreshToken);
+  }
   throw new Error(
     `${options.oauthProvider} OAuth token is expired and automatic refresh is not configured for provider-api.`,
   );
@@ -5576,6 +5672,63 @@ async function refreshNotionOAuthToken(
     options.oauthProvider,
     options.accountId,
     updated as unknown as Record<string, unknown>,
+    options.ownerEmail,
+  );
+  return data.access_token;
+}
+
+async function refreshZoomOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const [clientId, clientSecret] = await Promise.all([
+    resolveSecret("ZOOM_CLIENT_ID"),
+    resolveSecret("ZOOM_CLIENT_SECRET"),
+  ]);
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      "ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET are required to refresh Zoom OAuth tokens.",
+    );
+  }
+  const { response, data } = await fetchBoundedOAuthRefreshJson<{
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  }>(
+    "https://zoom.us/oauth/token",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      }),
+    },
+    "Zoom",
+  );
+  if (!response.ok || !data.access_token) {
+    throw new Error(`Zoom OAuth refresh failed (${response.status}).`);
+  }
+  const updated = {
+    ...options.tokens,
+    access_token: data.access_token,
+    token_type: data.token_type ?? "bearer",
+    expiry_date: Date.now() + (data.expires_in ?? 3600) * 1_000,
+    refresh_token: data.refresh_token ?? refreshToken,
+  };
+  await saveOAuthTokens(
+    options.oauthProvider,
+    options.accountId,
+    updated,
     options.ownerEmail,
   );
   return data.access_token;
@@ -6298,6 +6451,7 @@ async function fetchWithTimeout(
     timeoutMs?: number;
     signal?: AbortSignal;
     maxBytes?: number;
+    maxResponseBytes?: number;
     secretValues?: string[];
     quota?: ProviderApiFetchQuotaOptions;
     discardRedirectBody?: boolean;
@@ -6310,7 +6464,12 @@ async function fetchWithTimeout(
     const method = options.method ?? "GET";
     const secretValues = options.secretValues ?? [];
     try {
-      const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
+      const dispatcher = await createSsrfSafeDispatcher();
+      if (!dispatcher) {
+        throw new Error(
+          "SSRF protection is unavailable because the server dispatcher is empty.",
+        );
+      }
       const fetchOptions: RequestInit & { dispatcher?: unknown } = {
         method,
         headers: options.headers,
@@ -6320,25 +6479,19 @@ async function fetchWithTimeout(
           : controller.signal,
         redirect: "manual",
       };
-      if (dispatcher) fetchOptions.dispatcher = dispatcher;
-      try {
-        return await fetchProviderResponse(optionsUrl, fetchOptions, {
-          maxBytes: options.maxBytes,
-          secretValues,
-          discardRedirectBody: options.discardRedirectBody,
-        });
-      } catch (error) {
-        if (dispatcher && isDispatcherCompatibilityError(error)) {
-          const fallbackOptions = { ...fetchOptions };
-          delete fallbackOptions.dispatcher;
-          return await fetchProviderResponse(optionsUrl, fallbackOptions, {
-            maxBytes: options.maxBytes,
-            secretValues,
-            discardRedirectBody: options.discardRedirectBody,
-          });
-        }
-        throw error;
-      }
+      fetchOptions.dispatcher = dispatcher;
+      return await fetchProviderResponse(optionsUrl, fetchOptions, {
+        ...(options.maxBytes !== undefined
+          ? { maxBytes: options.maxBytes }
+          : {}),
+        ...(options.maxResponseBytes !== undefined
+          ? { maxResponseBytes: options.maxResponseBytes }
+          : {}),
+        secretValues,
+        ...(options.discardRedirectBody !== undefined
+          ? { discardRedirectBody: options.discardRedirectBody }
+          : {}),
+      });
     } catch (error) {
       throw normalizeFetchError(error, {
         method,
@@ -6459,6 +6612,7 @@ async function fetchProviderResponse(
   fetchOptions: RequestInit & { dispatcher?: unknown },
   options: {
     maxBytes?: number;
+    maxResponseBytes?: number;
     secretValues: string[];
     discardRedirectBody?: boolean;
   },
@@ -6486,7 +6640,7 @@ async function fetchProviderResponse(
   }
   const rawText = await readResponseTextWithLimit(
     res,
-    clampMaxBytes(options.maxBytes),
+    clampMaxBytes(options.maxBytes, options.maxResponseBytes),
   );
   const redactedText = redactString(rawText.text, options.secretValues);
   const parsed = tryParseJson(redactedText);
@@ -6503,24 +6657,6 @@ async function fetchProviderResponse(
     text: parsed === undefined ? redactedText : undefined,
     json: parsed,
   };
-}
-
-function isDispatcherCompatibilityError(error: unknown): boolean {
-  const err = error as {
-    message?: unknown;
-    cause?: { code?: unknown; message?: unknown };
-  };
-  const code = typeof err?.cause?.code === "string" ? err.cause.code : "";
-  const detail = [
-    typeof err?.message === "string" ? err.message : "",
-    typeof err?.cause?.message === "string" ? err.cause.message : "",
-  ]
-    .join(" ")
-    .toLowerCase();
-  return (
-    code === "UND_ERR_INVALID_ARG" &&
-    detail.includes("invalid onrequeststart method")
-  );
 }
 
 function normalizeFetchError(
@@ -6698,9 +6834,30 @@ function clampTimeout(timeoutMs: number | undefined): number {
   return Math.max(1_000, Math.min(MAX_TIMEOUT_MS, Math.floor(timeoutMs!)));
 }
 
-function clampMaxBytes(maxBytes: number | undefined): number {
-  if (!Number.isFinite(maxBytes)) return DEFAULT_MAX_BYTES;
-  return Math.max(1_000, Math.min(MAX_MAX_BYTES, Math.floor(maxBytes!)));
+function clampMaxBytes(
+  maxBytes: number | undefined,
+  runtimeMax?: number,
+): number {
+  if (typeof maxBytes !== "number" || !Number.isFinite(maxBytes)) {
+    return DEFAULT_MAX_BYTES;
+  }
+  return Math.max(
+    1_000,
+    Math.min(runtimeMaxBytesLimit(runtimeMax), Math.floor(maxBytes)),
+  );
+}
+
+// The runtime opt-in can raise the per-request cap above the default ceiling,
+// but never past the hard maximum, and never below the existing ceiling so
+// apps that set nothing keep their current behavior.
+function runtimeMaxBytesLimit(runtimeMax: number | undefined): number {
+  if (typeof runtimeMax !== "number" || !Number.isFinite(runtimeMax)) {
+    return MAX_MAX_BYTES;
+  }
+  return Math.max(
+    MAX_MAX_BYTES,
+    Math.min(MAX_RUNTIME_RESPONSE_BYTES, Math.floor(runtimeMax)),
+  );
 }
 
 function dotGet(obj: unknown, path: string): unknown {

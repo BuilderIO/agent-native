@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 
+import type { ComposerContextMenuItem } from "./ComposerContextMenu.js";
 import type { MentionItemMedia } from "./types.js";
 
 const referenceEventTargets = new WeakMap<Event, HTMLElement>();
@@ -123,6 +124,7 @@ export interface ComposerBuilderConnectPopoverProps {
   }>;
   onConnect?: (provisionAccount: boolean) => void;
   onTriggerClick?: MouseEventHandler<HTMLElement>;
+  keepOpenOnFocusOutside?: boolean;
 }
 
 export interface AgentChatContextItem {
@@ -187,6 +189,20 @@ export interface VoiceContextPack {
   terms?: Array<{ term: string; replacement?: string }>;
 }
 
+export interface WorkspaceComposerMenuOptions {
+  enabled: boolean;
+  onRestoreFocus?: () => void;
+  onSelectIntegration: (reference: AgentComposerReference) => void;
+}
+export interface WorkspaceComposerMenuContribution {
+  scopeKey?: string;
+  items: readonly ComposerContextMenuItem[];
+  loading?: boolean;
+  error?: string;
+  onRetry?: () => void | Promise<unknown>;
+  overlays?: ReactNode;
+}
+
 export interface ComposerRuntimeAdapters {
   resolvePath?: (path: string) => string;
   translate?: ComposerTranslate;
@@ -241,6 +257,9 @@ export interface ComposerRuntimeAdapters {
     isTrustedBuilderMessage?: (event: MessageEvent) => boolean;
   };
   resources?: {
+    useWorkspaceMenu?: (
+      options: WorkspaceComposerMenuOptions,
+    ) => WorkspaceComposerMenuContribution;
     useOrg?: () => {
       data?: { orgId?: string | null; role?: string | null } | null;
     };
@@ -267,11 +286,13 @@ export interface ComposerRuntimeAdapters {
       text: string,
       context: VoiceContextPack | undefined,
     ) => string;
+    /** Sends a voice analytics event; properties never carry transcript text. */
+    trackEvent?: (name: string, properties: Record<string, unknown>) => void;
   };
 }
 
 const identityPath = (path: string) => path;
-const fallbackTranslate: ComposerTranslate = (key, options) => {
+export const fallbackTranslate: ComposerTranslate = (key, options) => {
   const template =
     typeof options?.defaultValue === "string" ? options.defaultValue : key;
 
@@ -352,6 +373,7 @@ type ResolvedComposerRuntimeAdapters = ComposerRuntimeAdapters &
           | "setAppState"
           | "subscribeSidebarState"
           | "applyContextReplacements"
+          | "trackEvent"
         >
       >;
   };
@@ -394,6 +416,7 @@ const fallbackAdapters: ResolvedComposerRuntimeAdapters = {
     setAppState: () => {},
     subscribeSidebarState: () => () => {},
     applyContextReplacements: applyVoiceContextReplacements,
+    trackEvent: () => {},
   },
 };
 

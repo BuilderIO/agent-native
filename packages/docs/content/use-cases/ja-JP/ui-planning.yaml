@@ -1,0 +1,106 @@
+slug: ui-planning
+app: plans
+roles:
+  - engineering
+  - product
+  - design
+title: コーディングエージェントと新しい画面を計画
+seo_title: Claude Code・Codex・Cursor向けUIプランニング
+meta_description: Agent-Native Planなら、コーディングエージェントと一緒に、アプリの実際のレイアウトで状態ごとのワイヤーフレームを作って画面を計画できます。コメントすれば修正し、その後に実装します。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Planでは、コーディングエージェントが新しい画面を、アプリの実際のレイアウトで状態ごとのワイヤーフレームとして計画します。変えたい点にコメントすれば、実装前にエージェントが描き直します。
+  button:
+    label: 画面を計画する
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4f78a2d9f380427bb3da0723b14fcbe4
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8547890f69d44a0bb7e9d9d05246850a
+    alt: Planで開いた、新しい請求書画面の計画。請求書の一覧、空の状態、支払い失敗のエラーという3つのスケッチが横に並び、どれも請求アプリ自体のサイドバーとツールバーの中に描かれています。一覧のステータスフィルターにはコメントがピン留めされ、その下から文章の計画が始まります。
+how_to:
+  heading: コーディングエージェントが作る前に画面をワイヤーフレーム化する方法
+  steps:
+    - title: エージェントに画面を依頼する
+      body: "[1つのインストールコマンド](https://www.agent-native.com/docs/plan-plugin/)でClaude Code、Codex、Cursor、OpenCode、GitHub CopilotにPlanを追加し、`/visual-plan`と入力して欲しい画面を説明します。コーディングエージェントがアプリを読み、画面のワイヤーフレームを作って計画のリンクを返します。"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F96c7a6d6f73a42ed96a551c112cb269a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F60c66f4f9b2442a290e2a258cc70b3f2
+        alt: コーディングエージェントのチャットの拡大図。ステータスフィルター、空の状態、支払い失敗のエラーを備えた請求書画面を/visual-planで依頼しています。エージェントはアプリのレイアウトとコンポーネントのファイルを5つ読み、計画を作成して、確認用のリンクを返信しています。
+    - title: 変えてほしい点にコメントする
+      body: 計画を開き、画面上の直したい箇所をクリックして、変更内容を書きます。コーディングエージェントに対応してもらうならコメントを**エージェント**に、チームメンバー宛てなら**人間**に設定します。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb9adb0ff68324479a0c18c8124a77b2e
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F765ae87885404c408e1f4ee46d15711d
+        alt: 請求書一覧のフレームの拡大図。ステータスフィルターにコメントがピン留めされています。コメント欄はエージェント宛てに設定され、ステータスフィルターを「すべて」「支払い済み」「期限超過」のセグメントコントロールにするよう書かれています。
+    - title: コメントをエージェントに送る
+      body: "**エージェントに送信**をクリックして**エージェント用にコピー**を選び、プロンプトをエージェントのチャットに貼り付けます。コーディングエージェントが計画を更新し、対応したコメントを解決します。画面に納得したら、エージェントに実装を頼みましょう。"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9263e46c4be445389bfc97bee3a78e74
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5910f3c944e9443aafe166a356c27bff
+        alt: 未解決のコメントが3件ある「Send to agent」ボタンの拡大図。メニューが開き、「Copy for your agent」と「Send to inline agent」の2つの選択肢が表示されています。
+features:
+  heading: 最初から画面を正しく作るために必要な機能がすべて揃っています
+  items:
+    - title: 実際のアプリの中に描く
+      body: コーディングエージェントは描く前に既存の画面とコンポーネントを読むので、新しい画面でもサイドバー、ツールバー、メニューは今の位置のままです。
+    - title: 画面のあらゆる状態
+      body: 読み込み中、空、エラー、メニューを開いたときなど、重要な状態ごとにフレームを描くので、プロンプトでは抜け落ちる部分も確認できます。
+    - title: 要素を指定してコメント
+      body: 各コメントがどのボタン、行、カードにピン留めされたかがエージェントに伝わるので、「ここをセグメントコントロールに」といった短いメモで十分です。
+    - title: 未対応のコメントは残る
+      body: コーディングエージェントは変更が反映されたことを確かめてからコメントを解決するので、対応漏れがあればコメントは残ったままです。
+    - title: 複数ステップのフローはプロトタイプで
+      body: オンボーディングや決済などのフローでは、エージェントが画面の隣の**プロトタイプ**タブに、クリックできるプロトタイプを追加します。
+    - title: チームで確認
+      body: 計画をリンクで共有すれば、チームメンバーはブラウザーで画面を開けます。Agent-Nativeアカウントがあれば誰でもコメントできます。
+integrations:
+  heading: いつものツールとPlanを連携
+  cards:
+    - title: プラグインとしてインストール
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: Claude CodeやCodexにプラグインとしてPlanをインストールし、いつものチャットで`/visual-plan`を使って画面を依頼できます。
+    - title: ほかのエージェントもコマンド1つで
+      logos:
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: 1つのインストールコマンドでCursor、OpenCode、GitHub CopilotにPlanを設定できます。MCPに対応したほかのエージェントはPlanのURLで接続します。
+    - title: MCPであらゆるツールと連携
+      logos:
+        - name: Linear
+        - name: Notion
+        - name: Supabase
+      more: true
+      body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
+other_uses:
+  heading: Agent-Native Planでできるその他のこと
+  cards:
+    - title: コード作成前にコーディングエージェントの計画を確認
+      url: https://www.agent-native.com/use-cases/visual-plan-mode/
+      body: コーディングエージェントが何かを書く前に、計画全体を図や注釈付きコードで確認できます。
+    - title: コーディングエージェントの変更をビジュアルで要約
+      url: https://www.agent-native.com/use-cases/visually-recap-agent-changes/
+      body: コーディングエージェントが変えた画面、データ、ファイルを、コメントできる1つの要約で確認できます。
+faqs:
+  heading: よくある質問
+  items:
+    - q: Agent-Native Planは無料ですか？
+      a: はい、[Agent-Native Plan](https://www.agent-native.com/docs/template-plan/)は無料のオープンソースです。画面を描くのはご自身のコーディングエージェントなので、計画はそれぞれエージェントのモデルで実行されてその使用量に含まれ、長い計画ほど多く使います。Planはアルファ版のため、今後変更が加わる可能性があります。
+    - q: Planはどのコーディングエージェントで使えますか？
+      a: Agent-Native PlanにはClaude CodeとCodex向けのプラグインがあります。インストールコマンドでCursor、OpenCode、GitHub Copilotも同じように設定でき、1回のサインインで`/visual-plan`が追加されます。Cline、GooseなどMCPに対応したエージェントは、PlanのURLを追加して接続します。
+    - q: 計画に表示される内容はどう変えますか？
+      a: 画面は[コメントする](https://www.agent-native.com/docs/template-plan-review-workflow/)ことで変更し、コーディングエージェントが描き直します。Planでは、画面の一部を手でドラッグしたりサイズを変えたりはできません。一方、画面の下にある文章の計画は、テキストを直接編集できます。
+    - q: 画面は既存のアプリと一致しますか？
+      a: はい、既存のアプリの一部となる画面であれば一致します。コーディングエージェントは描く前にアプリのコード、レイアウト、コンポーネントを読むので、計画には実際のサイドバー、ツールバー、メニューが表示されます。まったく新しいアプリの場合は、説明をもとに画面が描かれます。
+    - q: コーディングエージェントのプランモードと何が違いますか？
+      a: Planはエージェントのプランモードと組み合わせて使い、その計画を画面として見せます。エージェントが書いたClaude Code、Codex、Markdownの計画を`/visual-plan`に渡せば、Planが計画に書かれた画面を描き、特定の箇所にピン留めするコメントを受け付けられる状態にします。

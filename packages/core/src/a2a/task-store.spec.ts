@@ -1,15 +1,21 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+import type { SqlFragment } from "../db/sql.js";
 import type { Message } from "./types.js";
 
+type MockStatement =
+  | string
+  | SqlFragment
+  | { sql: string; args: readonly unknown[] };
+
 let tables: Record<string, any[]> = {};
-let onIdempotentInsert: ((args: any[]) => void) | null = null;
+let onIdempotentInsert: ((args: readonly unknown[]) => void) | null = null;
 
 function createMockDb() {
   return {
-    execute: vi.fn(async (sql: string | { sql: string; args: any[] }) => {
-      const rawSql = typeof sql === "string" ? sql : sql.sql;
-      const args = typeof sql === "string" ? [] : sql.args || [];
+    execute: vi.fn(async (statement: MockStatement) => {
+      const rawSql = typeof statement === "string" ? statement : statement.sql;
+      const args = typeof statement === "string" ? [] : statement.args || [];
 
       if (rawSql.includes("CREATE TABLE")) {
         tables["a2a_tasks"] = tables["a2a_tasks"] || [];

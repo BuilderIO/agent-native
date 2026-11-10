@@ -25,7 +25,7 @@ describe("minimalWorkflowGraph", () => {
     const graph = minimalWorkflowGraph();
     expect(workflowGraphSchema.safeParse(graph).success).toBe(true);
     expect(validateWorkflowGraph(graph, WORKFLOW_CATALOG).issues).toEqual([]);
-    const job = planWorkflowJob(graph);
+    const job = planWorkflowJob(graph, { sentryFallbackConfigured: false });
     expect(job.issues).toEqual([]);
     expect(job.plan).not.toBeNull();
   });

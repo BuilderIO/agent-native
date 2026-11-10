@@ -9,6 +9,7 @@
     "app/components/layout/AgentInspector.test.tsx",
     "app/components/layout/AgentInspector.tsx",
     "app/components/layout/Header.tsx",
+    "app/components/layout/Layout.spec.tsx",
     "app/components/layout/MobileAppBar.spec.tsx",
     "app/components/layout/MobileAppBar.tsx",
     "app/components/layout/Sidebar.spec.tsx",

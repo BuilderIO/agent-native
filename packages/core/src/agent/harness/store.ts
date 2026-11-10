@@ -12,6 +12,7 @@ import {
   AGENT_HARNESS_SESSION_MIGRATIONS,
   AGENT_HARNESS_SESSION_MIGRATIONS_TABLE,
 } from "./migrations.js";
+import type { AgentHarnessRunPolicy } from "./types.js";
 
 const LEGACY_FOLLOW_UP_CLAIM_GRACE_MS = 15 * 60 * 1_000;
 const MAX_JOURNAL_EVENT_JSON = 512_000;
@@ -62,6 +63,7 @@ export interface StoredAgentHarnessSession {
   threadId: string;
   runId?: string | null;
   providerSessionId?: string | null;
+  runPolicy?: AgentHarnessRunPolicy | null;
   status: AgentHarnessSessionStatus;
   resumeState?: unknown;
   workspaceRef?: string | null;
@@ -92,6 +94,7 @@ export interface SaveAgentHarnessSessionInput {
   threadId: string;
   runId?: string | null;
   providerSessionId?: string | null;
+  runPolicy?: AgentHarnessRunPolicy | null;
   status?: AgentHarnessSessionStatus;
   resumeState?: unknown;
   workspaceRef?: string | null;
@@ -161,6 +164,7 @@ export const agentHarnessSessionsStore = defineStore({
           thread_id TEXT NOT NULL,
           run_id TEXT,
           provider_session_id TEXT,
+          run_policy TEXT,
           status TEXT NOT NULL DEFAULT 'idle',
           resume_state TEXT,
           workspace_ref TEXT,
@@ -181,6 +185,7 @@ export const agentHarnessSessionsStore = defineStore({
         for (const col of [
           "run_id",
           "provider_session_id",
+          "run_policy",
           "resume_state",
           "workspace_ref",
           "pending_approval",
@@ -313,6 +318,29 @@ export const agentHarnessSessionsStore = defineStore({
         });
       },
     },
+    {
+      name: "agent-harness-sessions-run-policy",
+      sql: "ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS run_policy TEXT",
+    },
+    {
+      // Local runtimes skip legacy v6/v7 and never re-run a recorded baseline.
+      // The injected client keeps a rolled-back caller transaction's catalog
+      // view from marking this done without the columns.
+      name: "agent-harness-sessions-approval-and-expiry-columns",
+      run: async (exec) => {
+        for (const column of [
+          "approval_resolution_id",
+          "expiry_cleanup_id",
+        ] as const) {
+          await ensureColumnExists(
+            "agent_harness_sessions",
+            column,
+            `ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS ${column} TEXT`,
+            { injectedClient: exec },
+          );
+        }
+      },
+    },
   ],
 });
 
@@ -335,6 +363,7 @@ export async function saveAgentHarnessSession(
     threadId: input.threadId,
     runId: input.runId ?? null,
     providerSessionId: input.providerSessionId ?? null,
+    runPolicy: input.runPolicy ?? existing?.runPolicy ?? null,
     status: input.status ?? existing?.status ?? "idle",
     resumeState:
       input.resumeState !== undefined
@@ -407,6 +436,7 @@ export async function saveAgentHarnessSession(
     record.threadId,
     record.runId ?? null,
     record.providerSessionId ?? null,
+    serializeJson(record.runPolicy),
     record.status,
     serializeJson(record.resumeState),
     record.workspaceRef ?? null,
@@ -433,14 +463,14 @@ export async function saveAgentHarnessSession(
   if (!existing) {
     const inserted = await client.execute({
       sql: `INSERT INTO agent_harness_sessions (
-              id, harness_name, thread_id, run_id, provider_session_id, status,
+              id, harness_name, thread_id, run_id, provider_session_id, run_policy, status,
               resume_state, workspace_ref, pending_approval, approval_resolution_id,
               approval_resolution_claim_expires_at, expiry_cleanup_id, resolved_approval_ids,
               owner_email, org_id, generation, created_at, updated_at, stopped_at,
               follow_up_claim_id, follow_up_id, follow_up_prompt,
               follow_up_metadata, follow_up_claim_expires_at,
               follow_up_deadline_at, follow_up_dispatched_at, follow_up_outcome
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO NOTHING`,
       args: values,
     });
@@ -494,7 +524,7 @@ export async function saveAgentHarnessSession(
   }
   const updated = await client.execute({
     sql: `UPDATE agent_harness_sessions SET
-            harness_name = ?, thread_id = ?, run_id = ?, provider_session_id = ?,
+            harness_name = ?, thread_id = ?, run_id = ?, provider_session_id = ?, run_policy = ?,
             status = ?, resume_state = ?, workspace_ref = ?, pending_approval = ?,
             approval_resolution_id = ?, approval_resolution_claim_expires_at = ?,
             expiry_cleanup_id = ?, resolved_approval_ids = ?, owner_email = ?,
@@ -509,6 +539,7 @@ export async function saveAgentHarnessSession(
       record.threadId,
       record.runId ?? null,
       record.providerSessionId ?? null,
+      serializeJson(record.runPolicy),
       record.status,
       serializeJson(record.resumeState),
       record.workspaceRef ?? null,
@@ -1187,6 +1218,8 @@ export async function finalizeAgentHarnessSessionApprovalResolution(input: {
 export async function failAgentHarnessSessionApprovalResolution(input: {
   sessionId: string;
   approvalId: string;
+  errorEvent?: Extract<AgentChatEvent, { type: "error" }>;
+  recordResolvedId?: boolean;
   eventAt?: number;
 }): Promise<StoredAgentHarnessSession | null> {
   await ensureAgentHarnessSessionTables();
@@ -1225,12 +1258,15 @@ export async function failAgentHarnessSessionApprovalResolution(input: {
       pendingApprovalId(current.pendingApproval) === input.approvalId
         ? null
         : current.pendingApproval;
-    const resolvedApprovalIds = [
-      ...(current.resolvedApprovalIds ?? []).filter(
-        (id) => id !== input.approvalId,
-      ),
-      input.approvalId,
-    ].slice(-RESOLVED_APPROVAL_LIMIT);
+    const resolvedApprovalIds =
+      input.recordResolvedId === false
+        ? (current.resolvedApprovalIds ?? [])
+        : [
+            ...(current.resolvedApprovalIds ?? []).filter(
+              (id) => id !== input.approvalId,
+            ),
+            input.approvalId,
+          ].slice(-RESOLVED_APPROVAL_LIMIT);
     const { rows: updatedRows } = await tx.execute({
       sql: `UPDATE agent_harness_sessions
             SET pending_approval = ?, approval_resolution_id = NULL,
@@ -1257,7 +1293,7 @@ export async function failAgentHarnessSessionApprovalResolution(input: {
         sessionId: input.sessionId,
         operationId,
         eventAt,
-        event: {
+        event: input.errorEvent ?? {
           type: "error",
           error:
             "The approval outcome is unknown because its worker stopped after dispatch. Check for completed effects before submitting it again.",
@@ -1810,7 +1846,7 @@ export async function startAgentHarnessSessionFollowUpDispatch<T>(
   id: string,
   expectedGeneration: number,
   claimId: string,
-  start: () => T,
+  start: (assertCurrent: (tx: DbExec) => Promise<void>) => T | Promise<T>,
 ): Promise<{ session: StoredAgentHarnessSession; started: T } | null> {
   await ensureAgentHarnessSessionTables();
   const client = getDbExec();
@@ -1819,7 +1855,7 @@ export async function startAgentHarnessSessionFollowUpDispatch<T>(
       "Agent harness follow-up dispatch requires database transactions.",
     );
   }
-  return client.transaction(async (tx) => {
+  const session = await client.transaction(async (tx) => {
     const { rows } = await tx.execute({
       sql: `UPDATE agent_harness_sessions
             SET generation = generation + 1,
@@ -1835,10 +1871,55 @@ export async function startAgentHarnessSessionFollowUpDispatch<T>(
     const session = rowToHarnessSession(rows[0]);
     if (!session) return null;
 
-    // The UPDATE holds this row lock until the first provider request is invoked.
-    const started = start();
-    return { session, started };
+    return session;
   });
+  if (!session) return null;
+
+  // Starting a run can use the same pool as this store. Release the row lock
+  // before its run admission needs another database connection.
+  const current = await getAgentHarnessSession(id);
+  if (
+    !current ||
+    current.status !== "running" ||
+    current.followUpClaimId !== claimId ||
+    current.generation !== session.generation ||
+    (current.followUpClaimExpiresAt ?? 0) <= Date.now() ||
+    (current.followUpDeadlineAt ?? 0) <= Date.now() ||
+    current.expiryCleanupId
+  ) {
+    return null;
+  }
+  return {
+    session: current,
+    started: await start((tx) =>
+      assertAgentHarnessSessionFollowUpClaimCurrent(
+        tx,
+        id,
+        current.generation,
+        claimId,
+      ),
+    ),
+  };
+}
+
+export async function assertAgentHarnessSessionFollowUpClaimCurrent(
+  tx: DbExec,
+  id: string,
+  generation: number,
+  claimId: string,
+): Promise<void> {
+  const { rows } = await tx.execute({
+    sql: `UPDATE agent_harness_sessions
+          SET updated_at = updated_at
+          WHERE id = ? AND status = 'running' AND follow_up_claim_id = ?
+            AND generation = ?
+            AND follow_up_claim_expires_at > ${DATABASE_NOW_MS_SQL}
+            AND follow_up_deadline_at > ${DATABASE_NOW_MS_SQL}
+            AND expiry_cleanup_id IS NULL
+          RETURNING id`,
+    args: [id, claimId, generation],
+  });
+  if (!rows[0]) throw new AgentHarnessSessionConflictError(id);
 }
 
 export async function startAgentHarnessSessionApprovalDispatch<T>(
@@ -2164,6 +2245,7 @@ export async function markAgentHarnessSessionStoppedIfUnclaimed(
               updated_at = ?
           WHERE id = ? AND status = ? AND generation = ?
             AND follow_up_claim_id IS NULL
+            AND approval_resolution_id IS NULL
             AND expiry_cleanup_id IS NULL
           RETURNING *`,
     args: [
@@ -2187,6 +2269,7 @@ function rowToHarnessSession(row: unknown): StoredAgentHarnessSession | null {
     threadId: String(record.thread_id),
     runId: stringOrNull(record.run_id),
     providerSessionId: stringOrNull(record.provider_session_id),
+    runPolicy: parseAgentHarnessRunPolicy(record.run_policy),
     status: normalizeStatus(record.status),
     resumeState: parseJson(record.resume_state),
     workspaceRef: stringOrNull(record.workspace_ref),
@@ -2245,6 +2328,45 @@ function parseJson(value: unknown): unknown {
   } catch {
     return undefined;
   }
+}
+
+function parseAgentHarnessRunPolicy(
+  value: unknown,
+): AgentHarnessRunPolicy | null {
+  if (value === null || value === undefined) return null;
+  const parsed = parseJson(value);
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Stored AgentHarness run policy is invalid.");
+  }
+  const policy = parsed as Record<string, unknown>;
+  if (
+    typeof policy.softTimeoutMs !== "number" ||
+    !Number.isFinite(policy.softTimeoutMs) ||
+    policy.softTimeoutMs < 0 ||
+    typeof policy.noProgressTimeoutMs !== "number" ||
+    !Number.isFinite(policy.noProgressTimeoutMs) ||
+    policy.noProgressTimeoutMs < 0 ||
+    typeof policy.backgroundFunction !== "boolean" ||
+    typeof policy.recoverChunkBoundaries !== "boolean" ||
+    typeof policy.engineName !== "string" ||
+    (policy.model !== undefined && typeof policy.model !== "string") ||
+    (policy.attemptCount !== undefined &&
+      (typeof policy.attemptCount !== "number" ||
+        !Number.isFinite(policy.attemptCount)))
+  ) {
+    throw new Error("Stored AgentHarness run policy is invalid.");
+  }
+  return {
+    softTimeoutMs: policy.softTimeoutMs,
+    noProgressTimeoutMs: policy.noProgressTimeoutMs,
+    backgroundFunction: policy.backgroundFunction,
+    recoverChunkBoundaries: policy.recoverChunkBoundaries,
+    engineName: policy.engineName,
+    ...(typeof policy.model === "string" ? { model: policy.model } : {}),
+    ...(typeof policy.attemptCount === "number"
+      ? { attemptCount: policy.attemptCount }
+      : {}),
+  };
 }
 
 async function hasActiveFollowUpClaim(

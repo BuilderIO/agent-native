@@ -1,0 +1,95 @@
+slug: specs-for-coding-agents
+app: content
+roles:
+  - engineering
+  - product
+title: Escreva specs que seu agente de código consegue ler
+seo_title: Specs para Claude Code, Codex e Cursor
+meta_description: O Agent-Native Content mantém sua spec em uma página que o Claude Code, o Codex ou o Cursor leem via MCP, e o agente constrói a versão que sua equipe edita.
+updated: 2026-10-27
+hero:
+  body: O Agent-Native Content transforma suas notas em uma spec que você, sua equipe e seu agente de código usam na mesma página. O Claude Code, o Codex ou o Cursor leem a página ao vivo e sugerem mudanças.
+  button:
+    label: Escreva uma spec
+    url: https://content.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd7f1bf8fa6054abcafa30bd60751ae40
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F93c61e2bc6ba476a938b13934f237b0c
+    alt: Uma spec chamada "Team invites" aberta no Content, com as seções Goals, Non-goals, Decisions e Open questions, e a árvore de páginas à esquerda. O chat do agente, à direita, acaba de adicionar uma decisão sobre quanto tempo os links de convite duram.
+how_to:
+  heading: Como escrever uma spec para seu agente de código
+  steps:
+    - title: Escreva a spec com o agente
+      body: Clique em **+** na barra lateral, escolha **Página** e cole suas notas, ou peça ao [agente integrado do Content](https://www.agent-native.com/docs/template-content/) para "Escrever um PRD para uma nova funcionalidade" a partir delas. Edite à mão, ou selecione uma seção e peça para reescrever.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2f4dd334ddfa4ec5bd74e67315414e8b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15247dff32574395a608e454b510e22b
+        alt: O chat do agente pede uma spec de convites de equipe a partir de notas de reunião. A resposta do agente lista as seções que ele escreveu, ao lado da nova página.
+    - title: Abra no seu agente de código
+      body: Em **Compartilhar**, abra **Agentes** e escolha **Abrir no Claude Code** ou **Abrir no Codex**. Seu agente lê a página, ou antes pede para você conectar o Content. No Cursor ou no VS Code, adicione o Content, clique em **Copiar instruções para o agente** e cole.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa052d84a44fb4e6ead8b69535f25c726
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc574e414836749119ad937c14623d14e
+        alt: "Detalhe da aba Agentes do menu Compartilhar: Copiar instruções para o agente, Abrir no Claude, Abrir no Claude Code e Abrir no Codex. Abaixo, Conectar o Content oferece Adicionar ao Cursor, Adicionar ao VS Code e Outros agentes."
+    - title: Mantenha a spec atualizada
+      body: Quando a construção resolver uma pergunta em aberto, peça ao seu agente de código para sugerir a mudança na página. Cada sugestão mostra o motivo do agente. Clique no visto para aceitar ou no X para rejeitar.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F156092664ebc424bb86899f876b88a97
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0c0108d3427d4641b5c3a2b266e8c4aa
+        alt: Detalhe da seção Open questions da spec com uma edição sugerida pelo agente de código, marcada como Agente, com o motivo e os botões Aceitar (visto) e Rejeitar (X).
+features:
+  heading: Tudo o que você precisa para escrever specs para seu agente de código
+  items:
+    - title: Feedback em comentários
+      body: Peça ao agente para revisar sua spec, e ele deixa comentários nos pontos fracos em vez de reescrever seu texto.
+    - title: Uma página por funcionalidade
+      body: Organize pesquisas, notas de API e decisões passadas sob cada spec, e pesquise títulos e texto para achar qualquer uma.
+    - title: Um quadro de specs
+      body: Guarde as specs em uma coleção com campos de responsável e status, como tabela ou quadro, com a página completa por trás de cada linha.
+    - title: Notas para seu agente
+      body: Escreva na descrição da página quais seções já estão decididas, e todo agente que ler a spec lê isso também.
+    - title: Lê edições não salvas
+      body: Seu agente de código vê as edições ainda abertas no seu editor, então sempre trabalha com a página como ela está agora.
+    - title: Revise com sua equipe
+      body: Comente qualquer trecho, mencione um colega com @ e responda em threads. O histórico de versões restaura uma spec anterior.
+integrations:
+  heading: Conecte o Content às ferramentas que você já usa
+  cards:
+    - title: Funciona com seu agente de código
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: Abra uma página no Claude Code ou no Codex pelo menu Compartilhar, ou adicione o Content ao Cursor ou ao GitHub Copilot no VS Code com um clique.
+    - title: Traga a spec que você já tem
+      logos:
+        - name: Notion
+        - name: GitHub
+      body: Sincronize uma página com o Notion nos dois sentidos, ou transforme uma pasta do GitHub com specs em Markdown em uma coleção.
+    - title: Conecte qualquer coisa via MCP
+      logos:
+        - name: Linear
+        - name: Granola
+        - name: Sentry
+      more: true
+      body: Conecte as ferramentas que sua equipe usa via MCP, ou adicione qualquer servidor MCP pela URL dele.
+faqs:
+  heading: Dúvidas? Temos respostas
+  items:
+    - q: O Agent-Native Content é gratuito?
+      a: Sim, o Agent-Native Content é gratuito e open source. Seu agente de código lê e edita a spec no próprio modelo, então isso conta para o uso do seu agente. O agente integrado do Content roda com créditos do Builder.io ou com sua própria chave de modelo. O Content está em alfa, então espere mudanças.
+    - q: Quais agentes de código conseguem ler minha spec?
+      a: O Claude Code e o Codex abrem a página pelo menu **Compartilhar** e pedem que você conecte uma vez. O Cursor e o GitHub Copilot no VS Code adicionam o Content ali com um clique. O Claude Cowork, o Goose e o OpenCode se conectam pelo terminal, e qualquer cliente MCP com login pode [se conectar ao Content pela URL](https://www.agent-native.com/docs/external-agents/#private-content-links). Cada agente vê só o que sua conta pode ver.
+    - q: Qual a diferença para um arquivo de spec no meu repositório?
+      a: Um arquivo de spec no repositório é uma cópia que normalmente só quem trabalha no código edita. No Content, sua equipe escreve e comenta na mesma página que seu agente de código lê, e as mudanças do agente chegam como sugestões. Se você também quer Markdown no repositório, o Content [sincroniza com uma pasta local](https://www.agent-native.com/docs/template-content-sync/).
+    - q: Meu agente de código pode mudar a spec?
+      a: Sim, com o acesso que sua conta tem. Peça para ele sugerir edições, e a página fica igual até você aceitar cada uma. Ele também pode editar a página direto, mas se a página mudou depois que o agente a leu, o Content recusa a edição. O [histórico de versões](https://www.agent-native.com/docs/template-content-editing/) guarda as versões anteriores.
+    - q: Posso manter minhas specs no meu repositório?
+      a: Sim. Conecte uma [pasta local de Markdown ou MDX](https://www.agent-native.com/docs/template-content-local-files/) no Content e puxe, confira ou envie mudanças, ou inicie o Content a partir do seu repositório com um comando. Os conflitos aparecem para você revisar. O navegador não lê arquivos locais sozinho, então isso exige um app local do Content ou o Agent-Native Desktop.

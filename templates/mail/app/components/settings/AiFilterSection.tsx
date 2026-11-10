@@ -6,7 +6,10 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { SettingsGroup, SettingsRow } from "@agent-native/toolkit/app/settings";
-import { AI_FILTER_RULE_NAME } from "@shared/ai-filter";
+import {
+  AI_FILTER_DEFAULT_THRESHOLD,
+  AI_FILTER_RULE_NAME,
+} from "@shared/ai-filter";
 import type { AiFilterBackfillStatus } from "@shared/ai-filter-backfill";
 import {
   aiFilterRuleActionsForMode,
@@ -568,11 +571,15 @@ export function AiFilterSection() {
     [sortedRules],
   );
 
+  const autoFilterThreshold =
+    state?.autoFilterThreshold ?? AI_FILTER_DEFAULT_THRESHOLD;
+  const hasAiFilterState = state !== undefined;
+
   useEffect(() => {
-    if (state) {
-      setThresholdDraft(String(Math.round(state.autoFilterThreshold * 100)));
+    if (hasAiFilterState) {
+      setThresholdDraft(String(Math.round(autoFilterThreshold * 100)));
     }
-  }, [state?.autoFilterThreshold]);
+  }, [autoFilterThreshold, hasAiFilterState]);
 
   const scrolledHash = useRef<string | null>(null);
   useEffect(() => {
@@ -629,18 +636,16 @@ export function AiFilterSection() {
     if (!state) return;
     const percent = Number(thresholdDraft);
     if (!Number.isInteger(percent) || percent < 50 || percent > 100) {
-      setThresholdDraft(String(Math.round(state.autoFilterThreshold * 100)));
+      setThresholdDraft(String(Math.round(autoFilterThreshold * 100)));
       return;
     }
     const value = percent / 100;
-    if (value !== state.autoFilterThreshold) {
+    if (value !== autoFilterThreshold) {
       updateSettings.mutate(
         { mode: "settings", settings: { autoFilterThreshold: value } },
         {
           onError: (error) => {
-            setThresholdDraft(
-              String(Math.round(state.autoFilterThreshold * 100)),
-            );
+            setThresholdDraft(String(Math.round(autoFilterThreshold * 100)));
             toast.error(
               actionErrorMessage(error) ?? t("mail.aiFilter.settingsFailed"),
             );

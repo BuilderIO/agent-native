@@ -17,6 +17,8 @@
  *     compiled `.js` next to it for consumers that only install `dist/`.
  */
 @import "./theme/resource-icons.css";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/geist";
 @import "./app-shell/prompt-home.css";
 @import "./app/styles/theme-families.css";
 @import "./app/styles/agent-native.css";

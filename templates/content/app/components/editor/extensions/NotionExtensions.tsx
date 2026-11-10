@@ -5,8 +5,15 @@ import {
   serializeIconValue,
   type IconValue,
 } from "@agent-native/core/icons";
+import type { ContentLinkTarget } from "@shared/api";
+import {
+  formatColumnRatio,
+  normalizeColumnRatios,
+  parseColumnRatio,
+} from "@shared/column-ratios";
+import { pageLinkBlockId } from "@shared/content-links";
 import { findTrailingPlainInlineMath } from "@shared/inline-math";
-import { NFM_COLORS } from "@shared/nfm";
+import { NFM_COLORS, serializeToggleTitle } from "@shared/nfm";
 import {
   escapeHtml,
   indentMarkdown,
@@ -21,8 +28,22 @@ import {
 } from "@tabler/icons-react";
 import { InputRule, type Editor } from "@tiptap/core";
 import { Code } from "@tiptap/extension-code";
-import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Selection } from "@tiptap/pm/state";
+import {
+  Fragment,
+  Slice,
+  type DOMOutputSpec,
+  type NodeType,
+  type Node as ProseMirrorNode,
+} from "@tiptap/pm/model";
+import {
+  Plugin,
+  PluginKey,
+  Selection,
+  TextSelection,
+  type EditorState,
+  type Transaction,
+} from "@tiptap/pm/state";
+import { Mapping } from "@tiptap/pm/transform";
 import {
   Mark,
   Node,
@@ -32,13 +53,16 @@ import {
   mergeAttributes,
   type NodeViewProps,
 } from "@tiptap/react";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { useState } from "react";
 
 import { usePageLinkTarget } from "../../../hooks/use-content-links";
 import { ContentIcon } from "../../icons/ContentIcon";
+import { runPersistableHistoryCommand } from "../editor-transaction-meta";
 import { EmojiPicker } from "../EmojiPicker";
 import { MathRenderer } from "../MathRenderer";
 import { isSuggestingEdits } from "../suggestions/read-only-blocks";
+import { COLUMN_NODE, COLUMNS_NODE, repairColumnSets } from "./column-sets";
 
 const BLOCK_ATOM_TAGS = [
   "page",
@@ -67,6 +91,14 @@ const INLINE_ATOM_TAGS = [
 interface NotionBlockAtomOptions {
   documentId?: string;
   onOpenPageLink?: (documentId: string) => void;
+  /** Whether a change is this tab's own edit. */
+  isEdit?: (transaction: Transaction) => boolean;
+  /**
+   * The page a page-link block opens, when the reader already knows it. A
+   * signed-out reader can't look pages up, so their page passes the targets
+   * it loaded with itself.
+   */
+  resolvePageLink?: (id: string) => ContentLinkTarget | null;
 }
 
 function readElementAttributes(
@@ -136,35 +168,6 @@ export function humanizeTag(tagName: string): string {
   return tagName.replace(/[_-]/g, " ");
 }
 
-function normalizeNotionPageId(input: string | null | undefined) {
-  const trimmed = input?.trim();
-  if (!trimmed) return null;
-  if (/^[0-9a-fA-F]{32}$/.test(trimmed)) return trimmed.toLowerCase();
-  if (/^[0-9a-fA-F-]{36}$/.test(trimmed)) {
-    return trimmed.replace(/-/g, "").toLowerCase();
-  }
-  try {
-    const url = new URL(trimmed);
-    const slug = url.pathname.split("/").filter(Boolean).pop() || "";
-    const match =
-      slug.match(/([0-9a-fA-F]{32})$/) || slug.match(/([0-9a-fA-F-]{36})$/);
-    return match?.[1]?.replace(/-/g, "").toLowerCase() ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function getNotionPageId(attrs: Record<string, string>) {
-  return (
-    attrs["data-agent-native-document-id"] ||
-    attrs.id ||
-    (normalizeNotionPageId(attrs.url) ??
-      normalizeNotionPageId(attrs.href) ??
-      normalizeNotionPageId(attrs.pageId) ??
-      normalizeNotionPageId(attrs.page_id))
-  );
-}
-
 export function safeExternalPageUrl(input: string | null): string | null {
   if (!input) return null;
   try {
@@ -180,6 +183,158 @@ export function safeExternalPageUrl(input: string | null): string | null {
 export const TOGGLE_SUMMARY_PLACEHOLDER = "Toggle";
 export const EMPTY_TOGGLE_BODY_PLACEHOLDER =
   "Empty toggle. Click or drop blocks inside.";
+
+// A Toggle's title is page text, as in Notion: the toggle's first child, so
+// it can be selected, commented on and formatted like a paragraph. A
+// suggestion leaves it as it is, as it left the `summary` title. Toggles saved
+// before this keep their title in the `summary` attribute and have no title
+// child.
+export const TOGGLE_TITLE_NODE = "notionToggleSummary";
+
+/** The Toggle's title node, or null for a Toggle that keeps its title in `summary`. */
+export function toggleTitleNode(
+  toggle: ProseMirrorNode,
+): ProseMirrorNode | null {
+  const first = toggle.firstChild;
+  return first?.type.name === TOGGLE_TITLE_NODE ? first : null;
+}
+
+interface ToggleTitleContext {
+  togglePos: number;
+  toggle: ProseMirrorNode;
+  title: ProseMirrorNode;
+  /** Where the title's text starts. */
+  titleStart: number;
+}
+
+/**
+ * The Toggle whose title holds the selection, when the whole selection is in
+ * its title. A title out of place, waiting on repairStrayTitles, is just a line.
+ */
+export function toggleTitleAtSelection(
+  state: EditorState,
+): ToggleTitleContext | null {
+  const { $from, $to } = state.selection;
+  if ($from.depth < 2 || $from.parent.type.name !== TOGGLE_TITLE_NODE) {
+    return null;
+  }
+  if (!$from.sameParent($to)) return null;
+  const toggleDepth = $from.depth - 1;
+  if ($from.index(toggleDepth) !== 0) return null;
+  return {
+    togglePos: $from.before(toggleDepth),
+    toggle: $from.node(toggleDepth),
+    title: $from.parent,
+    titleStart: $from.start(),
+  };
+}
+
+/** Whether any of the range is a Toggle title's text. */
+export function rangeTouchesToggleTitle(
+  doc: ProseMirrorNode,
+  from: number,
+  to: number,
+): boolean {
+  let touches = false;
+  doc.nodesBetween(from, to, (node) => {
+    if (touches) return false;
+    if (node.type.name === TOGGLE_TITLE_NODE) touches = true;
+    return !touches;
+  });
+  return touches;
+}
+
+function dispatchToggleKeyTransaction(editor: Editor, tr: Transaction) {
+  tr.setMeta("preventClearDocument", true);
+  tr.setMeta("uiEvent", "keydown");
+  editor.view.dispatch(tr.scrollIntoView());
+}
+
+/**
+ * Enter in a Toggle's title, as in Notion. An empty Toggle becomes a
+ * paragraph. Otherwise the text after the cursor starts the body of an open
+ * Toggle, a paragraph after a closed heading, or the title of a new closed
+ * Toggle after any other closed one.
+ */
+export function splitToggleTitle(editor: Editor): boolean {
+  const context = toggleTitleAtSelection(editor.state);
+  if (!context) return false;
+  const { schema } = editor.state;
+  const paragraph = schema.nodes.paragraph as NodeType | undefined;
+  const titleType = schema.nodes[TOGGLE_TITLE_NODE] as NodeType | undefined;
+  if (!paragraph || !titleType) return false;
+  const { togglePos, toggle, title, titleStart } = context;
+
+  let tr = editor.state.tr;
+  if (!tr.selection.empty) tr = tr.deleteSelection();
+  const cursor = tr.selection.from;
+  const titleNode = tr.doc.nodeAt(togglePos + 1);
+  if (!titleNode) return false;
+  const titleEnd = titleStart + titleNode.content.size;
+
+  if (title.content.size === 0 && toggle.childCount === 1) {
+    tr.replaceWith(togglePos, togglePos + toggle.nodeSize, paragraph.create());
+    tr.setSelection(Selection.near(tr.doc.resolve(togglePos + 1)));
+    dispatchToggleKeyTransaction(editor, tr);
+    return true;
+  }
+
+  if (toggle.attrs.open) {
+    tr.split(cursor, 1, [{ type: paragraph }]);
+    dispatchToggleKeyTransaction(editor, tr);
+    return true;
+  }
+
+  const rest = tr.doc.slice(cursor, titleEnd).content;
+  tr.delete(cursor, titleEnd);
+  const shortened = tr.doc.nodeAt(togglePos);
+  if (!shortened) return false;
+  const after = togglePos + shortened.nodeSize;
+  tr.insert(
+    after,
+    toggle.attrs.headingLevel
+      ? paragraph.create(null, rest)
+      : toggle.type.create(
+          { ...toggle.attrs, summary: "", open: false },
+          titleType.create(null, rest),
+        ),
+  );
+  tr.setSelection(Selection.near(tr.doc.resolve(after + 1)));
+  dispatchToggleKeyTransaction(editor, tr);
+  return true;
+}
+
+/**
+ * Backspace at the start of a Toggle's title turns the Toggle into a
+ * paragraph with the title's text, and its body follows it, as in Notion.
+ */
+export function unwrapToggleAtTitleStart(editor: Editor): boolean {
+  const context = toggleTitleAtSelection(editor.state);
+  const { selection } = editor.state;
+  if (!context || !selection.empty || selection.$from.parentOffset !== 0) {
+    return false;
+  }
+  const paragraph = editor.state.schema.nodes.paragraph as NodeType | undefined;
+  if (!paragraph) return false;
+  const { togglePos, toggle, title } = context;
+  const blocks: ProseMirrorNode[] = [
+    paragraph.create(
+      { indent: normalizeIndentAttr(toggle.attrs.indent) },
+      title.content,
+    ),
+  ];
+  toggle.forEach((child, _offset, index) => {
+    if (index > 0) blocks.push(child);
+  });
+  const tr = editor.state.tr.replaceWith(
+    togglePos,
+    togglePos + toggle.nodeSize,
+    blocks,
+  );
+  tr.setSelection(TextSelection.create(tr.doc, togglePos + 1));
+  dispatchToggleKeyTransaction(editor, tr);
+  return true;
+}
 
 export type ToggleSummaryEnterDestination =
   | "paragraph"
@@ -272,6 +427,8 @@ export function outdentDirectToggleChild(editor: Editor): boolean {
   if (!range || range.depth !== toggleDepth) return false;
   const childDepth = $from.depth;
   const child = $from.node(childDepth);
+  // The title belongs to its Toggle; only the body's blocks move out.
+  if (child.type.name === TOGGLE_TITLE_NODE) return false;
   const childPos = $from.before(childDepth);
   const togglePos = $from.before(toggleDepth);
   const cursorOffset = $from.parentOffset;
@@ -352,7 +509,13 @@ export function focusToggleSummaryAtPosition(
   target?.select();
 }
 
+/** Where a Toggle's body starts, after its title when it has one. */
+function toggleBodyStart(toggle: ProseMirrorNode, pos: number) {
+  return pos + 1 + (toggleTitleNode(toggle)?.nodeSize ?? 0);
+}
+
 function ToggleView({ node, editor, getPos }: NodeViewProps) {
+  const t = useT();
   // The page stores whether a Toggle is open, which a suggestion cannot
   // change, so while suggesting it opens and closes only in this view.
   const suggesting = isSuggestingEdits(editor.state);
@@ -360,7 +523,14 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
   const open = suggestingOpen ?? !!node.attrs.open;
   const summary = (node.attrs.summary || "") as string;
   const isEditable = editor.isEditable && !suggesting;
-  const bodyHasNoBlocks = node.childCount === 0;
+  // Browsers won't select text inside a draggable element, and someone who
+  // can't edit has to select a Toggle's text to comment on it. A titled Toggle
+  // moves by its drag handle alone, like any line of text.
+  const dragProps = isEditable
+    ? { draggable: true, "data-drag-handle": "" }
+    : {};
+  const title = toggleTitleNode(node);
+  const bodyHasNoBlocks = node.childCount === (title ? 1 : 0);
 
   const updateToggleAttributes = (
     attrs: Record<string, unknown>,
@@ -394,12 +564,16 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
 
     if (!open) setOpen(true);
 
-    const paragraph = editor.state.schema.nodes.paragraph;
-    if (!paragraph) return;
-    const tr = editor.state.tr.insert(pos + 1, paragraph.create());
+    const paragraph = editor.state.schema.nodes.paragraph as
+      | NodeType
+      | undefined;
+    const currentNode = editor.state.doc.nodeAt(pos);
+    if (!paragraph || currentNode?.type.name !== "notionToggle") return;
+    const bodyStart = toggleBodyStart(currentNode, pos);
+    const tr = editor.state.tr.insert(bodyStart, paragraph.create());
     tr.setMeta("preventClearDocument", true);
     tr.setMeta("uiEvent", "pointer");
-    tr.setSelection(Selection.near(tr.doc.resolve(pos + 2)));
+    tr.setSelection(Selection.near(tr.doc.resolve(bodyStart + 1)));
     editor.view.dispatch(tr.scrollIntoView());
     scheduleEditorViewFocus(editor);
   };
@@ -414,12 +588,12 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
     if (
       !currentNode ||
       currentNode.type.name !== "notionToggle" ||
-      currentNode.childCount > 0
+      currentNode.childCount > (toggleTitleNode(currentNode) ? 1 : 0)
     ) {
       return;
     }
 
-    return pos + 1;
+    return toggleBodyStart(currentNode, pos);
   };
 
   const allowEmptyBodyDrop = (event: React.DragEvent<HTMLElement>) => {
@@ -498,7 +672,23 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!isEditable) return;
 
-    if (e.key === "Enter") {
+    // The page never sees the summary's keys, and the browser's own undo
+    // loses track of a field the page rewrites, so undo and redo use the
+    // page's history, as they do in the body.
+    const key = e.key.toLowerCase();
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      !e.altKey &&
+      !e.nativeEvent.isComposing &&
+      (key === "z" || (key === "y" && !e.shiftKey))
+    ) {
+      e.preventDefault();
+      runPersistableHistoryCommand(
+        editor,
+        key === "z" && !e.shiftKey ? "undo" : "redo",
+        { focusEditor: false },
+      );
+    } else if (e.key === "Enter") {
       e.preventDefault();
       const pos = getPos();
       if (typeof pos !== "number") return;
@@ -532,6 +722,56 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
     }
   };
 
+  const emptyBodyPlaceholder =
+    isEditable && open && bodyHasNoBlocks ? (
+      <div
+        className="content-toggle__body-placeholder content-toggle__body-placeholder--empty-node"
+        contentEditable={false}
+        onDragEnter={allowEmptyBodyDrop}
+        onDragOver={allowEmptyBodyDrop}
+        onDrop={handleEmptyBodyDrop}
+        onMouseDown={focusEmptyBody}
+      >
+        {EMPTY_TOGGLE_BODY_PLACEHOLDER}
+      </div>
+    ) : null;
+
+  if (title) {
+    // The title is the first block of the content, so the page edits,
+    // selects and comments on it like any other text. A closed Toggle hides
+    // the blocks after it.
+    return (
+      <NodeViewWrapper
+        className={`content-toggle content-toggle--titled ${
+          open ? "content-toggle--open" : ""
+        } ${bodyHasNoBlocks ? "content-toggle--body-empty" : ""} ${
+          title.content.size === 0 ? "content-toggle--title-empty" : ""
+        }`}
+        data-color={node.attrs.color || undefined}
+        data-heading-level={node.attrs.headingLevel || undefined}
+        data-nfm-indent={normalizeIndentAttr(node.attrs.indent) || undefined}
+      >
+        <button
+          type="button"
+          className="content-toggle__chevron"
+          contentEditable={false}
+          tabIndex={-1}
+          aria-expanded={open}
+          aria-label={t("editor.slash.toggle")}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? (
+            <IconChevronDown size={18} stroke={2} />
+          ) : (
+            <IconChevronRight size={18} stroke={2} />
+          )}
+        </button>
+        <NodeViewContent className="content-toggle__content" />
+        {emptyBodyPlaceholder}
+      </NodeViewWrapper>
+    );
+  }
+
   return (
     <NodeViewWrapper
       className={`content-toggle ${open ? "content-toggle--open" : ""} ${
@@ -540,8 +780,7 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
       data-color={node.attrs.color || undefined}
       data-heading-level={node.attrs.headingLevel || undefined}
       data-nfm-indent={normalizeIndentAttr(node.attrs.indent) || undefined}
-      draggable="true"
-      data-drag-handle=""
+      {...dragProps}
     >
       <div
         className="content-toggle__summary-row"
@@ -577,18 +816,7 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
       <div
         className={`content-toggle__body ${open ? "" : "content-toggle__body--collapsed"}`}
       >
-        {isEditable && open && bodyHasNoBlocks ? (
-          <div
-            className="content-toggle__body-placeholder content-toggle__body-placeholder--empty-node"
-            contentEditable={false}
-            onDragEnter={allowEmptyBodyDrop}
-            onDragOver={allowEmptyBodyDrop}
-            onDrop={handleEmptyBodyDrop}
-            onMouseDown={focusEmptyBody}
-          >
-            {EMPTY_TOGGLE_BODY_PLACEHOLDER}
-          </div>
-        ) : null}
+        {emptyBodyPlaceholder}
         <NodeViewContent className="content-toggle__content" />
       </div>
     </NodeViewWrapper>
@@ -601,11 +829,16 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
   const attrs = parseAttrsJson(node.attrs.attrsJson as string);
   const options = extension.options as NotionBlockAtomOptions;
   const t = useT();
-  const notionPageId = tagName === "page" ? getNotionPageId(attrs) : null;
+  const notionPageId = tagName === "page" ? pageLinkBlockId(attrs) : null;
   const pageLinkQuery = usePageLinkTarget(
-    notionPageId && options.onOpenPageLink ? notionPageId : null,
+    notionPageId && options.onOpenPageLink && !options.resolvePageLink
+      ? notionPageId
+      : null,
   );
-  const pageLink = pageLinkQuery.data ?? null;
+  const pageLink =
+    (notionPageId && options.resolvePageLink
+      ? options.resolvePageLink(notionPageId)
+      : pageLinkQuery.data) ?? null;
   // An unreadable lookup is not a missing page: keep the block usable so a
   // click retries instead of presenting the link as gone.
   const pageLinkLookupFailed = pageLinkQuery.isError;
@@ -833,13 +1066,34 @@ export const CompatibleCode = Code.extend({
   excludes: "",
 });
 
-export const NotionToggle = Node.create({
+export interface NotionToggleOptions {
+  /** Whether a change is this tab's own edit, which may repair a title. */
+  isEdit: (transaction: Transaction) => boolean;
+}
+
+const isNotRemoteChange = (transaction: Transaction) =>
+  !transaction.getMeta(ySyncPluginKey)?.isChangeOrigin;
+
+export const NotionToggle = Node.create<NotionToggleOptions>({
   name: "notionToggle",
   priority: 1000,
   group: "block",
-  content: "block*",
+  // The title is optional: Toggles saved before titles were page text keep
+  // theirs in `summary`, and every reader must still take them as they are.
+  // One may also stand out of place until repairStrayTitles moves it: tabs
+  // editing at once can merge into that, and y-tiptap deletes any node the
+  // schema refuses, in every tab, with everything in it.
+  content: `${TOGGLE_TITLE_NODE}? (block | ${TOGGLE_TITLE_NODE})*`,
   defining: true,
   draggable: true,
+
+  addOptions() {
+    return { isEdit: isNotRemoteChange };
+  },
+
+  addExtensions() {
+    return [NotionToggleSummary.configure({ isEdit: this.options.isEdit })];
+  },
 
   addAttributes() {
     return {
@@ -899,7 +1153,22 @@ export const NotionToggle = Node.create({
     ];
   },
 
-  renderHTML({ HTMLAttributes }) {
+  renderHTML({ node, HTMLAttributes }) {
+    const content: DOMOutputSpec = [
+      "div",
+      { "data-notion-toggle-content": "true" },
+      0,
+    ];
+    // A titled Toggle's title is its first child, inside the content.
+    const summary: DOMOutputSpec[] = toggleTitleNode(node)
+      ? []
+      : [
+          [
+            "div",
+            { "data-notion-toggle-summary": "true" },
+            HTMLAttributes.summary || "",
+          ],
+        ];
     return [
       "div",
       mergeAttributes(HTMLAttributes, {
@@ -912,12 +1181,8 @@ export const NotionToggle = Node.create({
           ? String(HTMLAttributes.indent)
           : undefined,
       }),
-      [
-        "div",
-        { "data-notion-toggle-summary": "true" },
-        HTMLAttributes.summary || "",
-      ],
-      ["div", { "data-notion-toggle-content": "true" }, 0],
+      ...summary,
+      content,
     ];
   },
 
@@ -933,7 +1198,10 @@ export const NotionToggle = Node.create({
     return {
       markdown: {
         serialize: function (_state: any, node: any) {
+          const title = toggleTitleNode(node);
           const attrs: Record<string, string> = {};
+          // A title that is page text is written as Markdown; see nfm.ts.
+          if (title) attrs.markdown = "1";
           if (node.attrs.color) attrs.color = String(node.attrs.color);
           if (node.attrs.headingLevel) {
             attrs["data-heading-level"] = String(node.attrs.headingLevel);
@@ -941,12 +1209,21 @@ export const NotionToggle = Node.create({
           if (node.attrs.open) attrs.open = "";
           const indent = normalizeIndentAttr(node.attrs.indent);
           const prefix = "\t".repeat(indent);
-          const inner = serializeInnerMarkdown((this as any).editor, node);
+          const body = title
+            ? node.copy(node.content.cut(title.nodeSize))
+            : node;
+          // The Markdown extension calls this with its editor as `this`.
+          const { editor } = this as { editor?: unknown };
+          const inner = serializeInnerMarkdown(editor, body);
           const openTag = `<details${serializeTagAttributes(attrs)}>`;
           _state.write(`${prefix}${openTag}`);
           _state.ensureNewLine();
           _state.write(
-            `${prefix}<summary>${escapeHtml(node.attrs.summary || "")}</summary>`,
+            `${prefix}<summary>${
+              title
+                ? serializeToggleTitle(title.toJSON())
+                : escapeHtml(node.attrs.summary || "")
+            }</summary>`,
           );
           if (inner.trim()) {
             _state.ensureNewLine();
@@ -959,6 +1236,322 @@ export const NotionToggle = Node.create({
         parse: {},
       },
     };
+  },
+});
+
+// A block's Markdown marker typed at the start of a title stays text there:
+// the title is the Toggle's own line, which a heading, code block or divider
+// would take out of the Toggle. Lists and quotes can't wrap a title anyway.
+const TITLE_BLOCK_MARKERS = [
+  /^#{1,6}\s$/,
+  /^(?:```|~~~)([a-z]+)?[\s\n]$/,
+  /^(?:---|—-|___\s|\*\*\*\s)$/,
+];
+
+/**
+ * How long the page has to be quiet before a title out of place is put right.
+ * That rewrites the title, and whatever another tab types into the old one
+ * before the rewrite reaches it is lost.
+ */
+export const STRAY_TITLE_REPAIR_DELAY_MS = 1000;
+
+/**
+ * The most each tab adds to that wait, going by its Yjs client ID. Changing a
+ * node's type in Yjs is a delete and an insert, so two tabs turning one title
+ * into a line at once leave the line twice. With different waits one tab
+ * usually goes first, and the rest find the page already right.
+ */
+export const STRAY_TITLE_REPAIR_SPREAD_MS = 4000;
+
+function strayTitleRepairDelay(state: EditorState): number {
+  const clientID: unknown = ySyncPluginKey.getState(state)?.doc?.clientID;
+  return (
+    STRAY_TITLE_REPAIR_DELAY_MS +
+    (typeof clientID === "number" ? clientID % STRAY_TITLE_REPAIR_SPREAD_MS : 0)
+  );
+}
+
+/**
+ * The edit that leaves each Toggle one title, its first child, or null when
+ * they all have that. A second title that only repeats the first goes, and one
+ * with text of its own stays as a body line. Each tab sees the same merge, so
+ * they delete the same nodes and the page settles on one title.
+ */
+function repairStrayTitles(state: EditorState): Transaction | null {
+  const paragraph = state.schema.nodes.paragraph as NodeType | undefined;
+  const tr = state.tr;
+  const toggles: { pos: number; node: ProseMirrorNode }[] = [];
+  state.doc.descendants((node, pos) => {
+    if (node.type.name === "notionToggle") toggles.push({ pos, node });
+    return !node.isTextblock;
+  });
+  // From the end, so a change never moves what's left to do.
+  for (const { pos, node } of toggles.reverse()) {
+    const titles: { pos: number; node: ProseMirrorNode }[] = [];
+    node.forEach((child, offset) => {
+      if (child.type.name === TOGGLE_TITLE_NODE) {
+        titles.push({ pos: pos + 1 + offset, node: child });
+      }
+    });
+    const first = titles.shift();
+    if (!first) continue;
+    for (const stray of titles.reverse()) {
+      const at = tr.mapping.map(stray.pos);
+      if (!stray.node.content.size || stray.node.eq(first.node)) {
+        tr.delete(at, at + stray.node.nodeSize);
+      } else if (paragraph) {
+        tr.setNodeMarkup(at, paragraph);
+      }
+    }
+    if (first.pos !== pos + 1) {
+      const at = tr.mapping.map(first.pos);
+      tr.delete(at, at + first.node.nodeSize);
+      tr.insert(tr.mapping.map(pos + 1), first.node);
+    }
+  }
+  if (!tr.docChanged) return null;
+  return tr.setMeta("addToHistory", false);
+}
+
+/** The Toggles of the old document that the changes touched, by position. */
+function togglesTouchedBy(
+  transactions: readonly Transaction[],
+  oldDoc: ProseMirrorNode,
+): Map<number, ProseMirrorNode> {
+  const found = new Map<number, ProseMirrorNode>();
+  const mapping = new Mapping();
+  for (const transaction of transactions) {
+    for (const stepMap of transaction.mapping.maps) {
+      const back = mapping.invert();
+      stepMap.forEach((start, end) => {
+        oldDoc.nodesBetween(
+          back.map(start, -1),
+          back.map(end, 1),
+          (node, pos) => {
+            if (node.type.name === "notionToggle") found.set(pos, node);
+          },
+        );
+      });
+      mapping.appendMap(stepMap);
+    }
+  }
+  return found;
+}
+
+/**
+ * Where an old document's position is after the changes, or null when the
+ * token right after it was deleted.
+ */
+function mapKept(
+  transactions: readonly Transaction[],
+  pos: number,
+  assoc: -1 | 1,
+): number | null {
+  let mapped = pos;
+  for (const transaction of transactions) {
+    const result = transaction.mapping.mapResult(mapped, assoc);
+    if (result.deletedAfter) return null;
+    mapped = result.pos;
+  }
+  return mapped;
+}
+
+/**
+ * Where an old Toggle is after the changes. An edit can delete its start,
+ * such as one from the block above into its title, and leave the rest of it,
+ * which then ends where it ended.
+ */
+function toggleAfterChanges(
+  transactions: readonly Transaction[],
+  pos: number,
+  toggle: ProseMirrorNode,
+  doc: ProseMirrorNode,
+): number | null {
+  const start = mapKept(transactions, pos, 1);
+  if (start !== null) return start;
+  const end = mapKept(transactions, pos + toggle.nodeSize - 1, -1);
+  if (end === null) return null;
+  const $end = doc.resolve(end);
+  return $end.depth > 0 ? $end.before() : null;
+}
+
+export const NotionToggleSummary = Node.create<NotionToggleOptions>({
+  name: TOGGLE_TITLE_NODE,
+  priority: 1000,
+  content: "inline*",
+  defining: true,
+
+  addOptions() {
+    return { isEdit: isNotRemoteChange };
+  },
+
+  parseHTML() {
+    return [{ tag: "div[data-notion-toggle-title]" }];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    return [
+      "div",
+      mergeAttributes(HTMLAttributes, {
+        "data-notion-toggle-title": "true",
+        "data-placeholder": TOGGLE_SUMMARY_PLACEHOLDER,
+        class: "content-toggle__title",
+      }),
+      0,
+    ];
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      Enter: ({ editor }) => splitToggleTitle(editor),
+      Backspace: ({ editor }) => unwrapToggleAtTitleStart(editor),
+    };
+  },
+
+  addProseMirrorPlugins() {
+    const { editor, options } = this;
+    // A plugin's follow-up is only as much this tab's edit as the change it
+    // follows.
+    const isEdit = (transaction: Transaction) =>
+      options.isEdit(
+        (transaction.getMeta("appendedTransaction") as
+          | Transaction
+          | undefined) ?? transaction,
+      );
+    return [
+      // After the change, not with it: y-tiptap doesn't write what follows a
+      // change that came from another tab.
+      new Plugin({
+        key: new PluginKey("notionToggleStrayTitles"),
+        view() {
+          let timer: ReturnType<typeof setTimeout> | null = null;
+          return {
+            update(view, prevState) {
+              if (view.state.doc.eq(prevState.doc)) return;
+              if (timer !== null) clearTimeout(timer);
+              timer = setTimeout(() => {
+                timer = null;
+                if (
+                  view.isDestroyed ||
+                  view.composing ||
+                  !editor.isEditable ||
+                  isSuggestingEdits(view.state)
+                ) {
+                  return;
+                }
+                const repair = repairStrayTitles(view.state);
+                if (repair) view.dispatch(repair);
+              }, strayTitleRepairDelay(view.state));
+            },
+            destroy() {
+              if (timer !== null) clearTimeout(timer);
+            },
+          };
+        },
+      }),
+      new Plugin({
+        key: new PluginKey("notionToggleSummary"),
+        props: {
+          // A title belongs to its Toggle, so one pasted or dropped on its own
+          // is a line of text, not a second title for repairStrayTitles.
+          transformPasted(slice, view) {
+            const paragraph = view.state.schema.nodes.paragraph as
+              | NodeType
+              | undefined;
+            if (!paragraph) return slice;
+            const lines: ProseMirrorNode[] = [];
+            slice.content.forEach((node) =>
+              lines.push(
+                node.type.name === TOGGLE_TITLE_NODE
+                  ? paragraph.create(null, node.content)
+                  : node,
+              ),
+            );
+            return new Slice(
+              Fragment.fromArray(lines),
+              slice.openStart,
+              slice.openEnd,
+            );
+          },
+          handleTextInput(view, from, to, text) {
+            const $from = view.state.doc.resolve(from);
+            if ($from.parent.type.name !== TOGGLE_TITLE_NODE) return false;
+            const typed =
+              $from.parent.textBetween(0, $from.parentOffset, undefined, "￼") +
+              text;
+            if (!TITLE_BLOCK_MARKERS.some((marker) => marker.test(typed))) {
+              return false;
+            }
+            view.dispatch(view.state.tr.insertText(text, from, to));
+            return true;
+          },
+        },
+        // An edit that takes a titled Toggle's title away, such as deleting
+        // from the block above into the title, leaves the Toggle an empty
+        // title rather than none. The text it moved stays where the edit put
+        // it. A command that only turned the title into another kind of line,
+        // such as a heading shortcut or the toolbar's style menu, leaves it
+        // the title, and a heading makes a Toggle heading. Another tab's
+        // change is left to that tab.
+        appendTransaction(transactions, oldState, newState) {
+          if (!editor.isEditable || !transactions.some(isEdit)) return null;
+          const titleType = newState.schema.nodes[TOGGLE_TITLE_NODE] as
+            | NodeType
+            | undefined;
+          if (!titleType) return null;
+          const touched = togglesTouchedBy(transactions, oldState.doc);
+          // A Toggle that kept its title in `summary` and still starts where
+          // it did stays that way, even when a titled one's end joined it.
+          const keptUntitled = new Set<number>();
+          for (const [pos, toggle] of touched) {
+            if (toggleTitleNode(toggle)) continue;
+            const start = mapKept(transactions, pos, 1);
+            if (start !== null) keptUntitled.add(start);
+          }
+          const untitled = new Map<number, ProseMirrorNode | null>();
+          for (const [pos, toggle] of touched) {
+            const title = toggleTitleNode(toggle);
+            if (!title) continue;
+            const mapped = toggleAfterChanges(
+              transactions,
+              pos,
+              toggle,
+              newState.doc,
+            );
+            if (mapped === null || keptUntitled.has(mapped)) continue;
+            const after = newState.doc.nodeAt(mapped);
+            if (
+              after?.type.name === "notionToggle" &&
+              !toggleTitleNode(after)
+            ) {
+              const line = after.firstChild;
+              const sameLine =
+                line?.isTextblock &&
+                line.content.eq(title.content) &&
+                mapKept(transactions, pos + 2, 1) === mapped + 2;
+              untitled.set(mapped, sameLine ? line : null);
+            }
+          }
+          if (untitled.size === 0) return null;
+          const tr = newState.tr;
+          const lastFirst = [...untitled].sort(
+            ([left], [right]) => right - left,
+          );
+          for (const [pos, line] of lastFirst) {
+            if (!line) {
+              tr.insert(pos + 1, titleType.create());
+              continue;
+            }
+            tr.setNodeMarkup(pos + 1, titleType);
+            const level = Number(line.attrs.level);
+            if (line.type.name === "heading" && level <= 3) {
+              tr.setNodeAttribute(pos, "headingLevel", level);
+            }
+          }
+          return tr;
+        },
+      }),
+    ];
   },
 });
 
@@ -1103,11 +1696,20 @@ export const NotionCallout = Node.create({
   },
 });
 
-export const NotionColumns = Node.create({
-  name: "notionColumns",
+export interface NotionColumnsOptions {
+  /** Whether a change is this tab's own edit, which may repair a set. */
+  isEdit: (transaction: Transaction) => boolean;
+}
+
+export const NotionColumns = Node.create<NotionColumnsOptions>({
+  name: COLUMNS_NODE,
   group: "block",
-  content: "notionColumn+",
+  content: `${COLUMN_NODE}+`,
   defining: true,
+
+  addOptions() {
+    return { isEdit: () => false };
+  },
 
   parseHTML() {
     return [{ tag: "columns" }, { tag: "div[data-notion-columns]" }];
@@ -1118,6 +1720,23 @@ export const NotionColumns = Node.create({
       "div",
       mergeAttributes(HTMLAttributes, { "data-notion-columns": "true" }),
       0,
+    ];
+  },
+
+  addProseMirrorPlugins() {
+    const { editor, options } = this;
+    // Another tab's change, a load, or an undo in another tab is left as it
+    // came: the tab that made the change repaired it there.
+    const isEdit = (transaction: Transaction) =>
+      isNotRemoteChange(transaction) && options.isEdit(transaction);
+    return [
+      new Plugin({
+        key: new PluginKey("notionColumnSets"),
+        appendTransaction(transactions, oldState, newState) {
+          if (!editor.isEditable || !transactions.some(isEdit)) return null;
+          return repairColumnSets(transactions, oldState, newState);
+        },
+      }),
     ];
   },
 
@@ -1135,10 +1754,48 @@ export const NotionColumns = Node.create({
   },
 });
 
+function isColumnElement(element: Element) {
+  return (
+    element.tagName.toLowerCase() === "column" ||
+    element.hasAttribute("data-notion-column")
+  );
+}
+
+// A pasted set may give only some of its columns a width; each column reads
+// its share of the set's widths, as Markdown does.
+function columnRatioFromElement(element: HTMLElement): number | null {
+  const read = (column: Element) =>
+    parseColumnRatio(
+      column.getAttribute("data-ratio") ?? column.getAttribute("ratio"),
+    );
+  const siblings = element.parentElement
+    ? Array.from(element.parentElement.children).filter(isColumnElement)
+    : [element];
+  const index = siblings.indexOf(element);
+  if (index < 0) return read(element);
+  return normalizeColumnRatios(siblings.map(read))[index] ?? null;
+}
+
 export const NotionColumn = Node.create({
-  name: "notionColumn",
+  name: COLUMN_NODE,
   content: "block+",
   defining: true,
+
+  addAttributes() {
+    return {
+      // Its percentage of the row's width; null for an equal share.
+      ratio: {
+        default: null,
+        parseHTML: columnRatioFromElement,
+        renderHTML: (attributes) => {
+          const ratio = parseColumnRatio(attributes.ratio);
+          if (ratio === null) return {};
+          const written = formatColumnRatio(ratio);
+          return { "data-ratio": written, style: `flex-grow: ${written}` };
+        },
+      },
+    };
+  },
 
   parseHTML() {
     return [{ tag: "column" }, { tag: "div[data-notion-column]" }];
@@ -1152,12 +1809,54 @@ export const NotionColumn = Node.create({
     ];
   },
 
+  // The same markup as renderHTML. A resize draws its widths on the columns
+  // while the pointer moves and writes them once it lets go, so the view keeps
+  // a changed style rather than redrawing the column under the pointer.
+  addNodeView() {
+    return ({ node }) => {
+      const dom = document.createElement("div");
+      dom.setAttribute("data-notion-column", "true");
+      const showRatio = (column: ProseMirrorNode) => {
+        const ratio = parseColumnRatio(column.attrs.ratio);
+        if (ratio === null) {
+          dom.removeAttribute("data-ratio");
+          dom.style.removeProperty("flex-grow");
+        } else {
+          const written = formatColumnRatio(ratio);
+          dom.setAttribute("data-ratio", written);
+          dom.style.flexGrow = written;
+        }
+      };
+      showRatio(node);
+      return {
+        dom,
+        contentDOM: dom,
+        update: (updated) => {
+          if (updated.type !== node.type) return false;
+          showRatio(updated);
+          return true;
+        },
+        ignoreMutation: (mutation) =>
+          mutation.type === "attributes" &&
+          mutation.target === dom &&
+          mutation.attributeName === "style",
+      };
+    };
+  },
+
   addStorage() {
     return {
       markdown: {
         serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
-          _state.write(serializeContainerTag("column", {}, inner));
+          const ratio = parseColumnRatio(node.attrs.ratio);
+          _state.write(
+            serializeContainerTag(
+              "column",
+              { ratio: ratio === null ? null : formatColumnRatio(ratio) },
+              inner,
+            ),
+          );
           _state.closeBlock(node);
         },
         parse: {},
@@ -1364,9 +2063,13 @@ export function createNotionEditorExtensions(
 ) {
   return [
     NotionSpanMark,
-    NotionToggle,
+    blockAtomOptions.isEdit
+      ? NotionToggle.configure({ isEdit: blockAtomOptions.isEdit })
+      : NotionToggle,
     NotionCallout.configure({ documentId: blockAtomOptions.documentId }),
-    NotionColumns,
+    blockAtomOptions.isEdit
+      ? NotionColumns.configure({ isEdit: blockAtomOptions.isEdit })
+      : NotionColumns,
     NotionColumn,
     NotionBlockAtom.configure(blockAtomOptions),
     NotionInlineAtom,

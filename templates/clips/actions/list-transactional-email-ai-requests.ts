@@ -4,6 +4,7 @@ import { and, eq, gte, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -150,6 +151,7 @@ async function loadContextPackets(
   job: TransactionalEmailJob,
   enabledAt: string,
   accessCache: Map<string, Promise<boolean>>,
+  claimantEmail: string,
 ): Promise<
   [TransactionalEmailContextPacket, TransactionalEmailContextPacket] | null
 > {
@@ -163,6 +165,8 @@ async function loadContextPackets(
         title: schema.recordings.title,
         description: schema.recordings.description,
         visibility: schema.recordings.visibility,
+        ownerEmail: schema.recordings.ownerEmail,
+        expiresAt: schema.recordings.expiresAt,
       })
       .from(schema.recordings)
       .where(
@@ -212,7 +216,13 @@ async function loadContextPackets(
       ),
   ]);
   const recordings = await filterFederatedRecordingAccess(
-    recordingCandidates,
+    recordingCandidates.filter(
+      (recording) =>
+        !isRecordingExpiredForViewer({
+          expiresAt: recording.expiresAt,
+          viewerIsOwner: normalizeEmail(recording.ownerEmail) === claimantEmail,
+        }),
+    ),
     accessCache,
   );
 
@@ -293,6 +303,7 @@ export async function claimTransactionalEmailAiRequests(
       candidate,
       config.enabledAt,
       accessCache,
+      claimant,
     );
     if (!contextPackets) continue;
     const claimed =

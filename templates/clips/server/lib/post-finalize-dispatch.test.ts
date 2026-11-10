@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const initiatingCaller = vi.hoisted(() => ({
+  email: undefined as string | undefined,
+}));
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => initiatingCaller.email,
+}));
+
 const mockSignShortLivedToken = vi.hoisted(() =>
   vi.fn(() => "signed-job-token"),
 );
@@ -26,6 +33,7 @@ import {
 
 describe("post-finalize dispatch", () => {
   beforeEach(() => {
+    initiatingCaller.email = undefined;
     vi.stubEnv("APP_URL", "https://clips.example");
     vi.stubGlobal(
       "fetch",
@@ -39,6 +47,31 @@ describe("post-finalize dispatch", () => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
+
+  it.each(["transcript", "meeting-finalize"] as const)(
+    "binds a %s job token to its initiating caller",
+    async (kind) => {
+      initiatingCaller.email = "editor@example.test";
+      await dispatchPostFinalizeJob({
+        recordingId: "rec-1",
+        kind,
+        delayMs: 5000,
+        retryAttempt: 1,
+      });
+      expect(mockSignShortLivedToken).toHaveBeenCalledWith({
+        resourceId: `clips-post-finalize-job:rec-1:${kind}:caller:editor%40example.test`,
+        ttlSeconds: 600,
+      });
+      expect(fetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          body: expect.stringContaining(
+            '"requestedByEmail":"editor@example.test"',
+          ),
+        }),
+      );
+    },
+  );
 
   it("dispatches a signed recording-scoped worker request", async () => {
     await dispatchPostFinalizeJob({

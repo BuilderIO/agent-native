@@ -1,0 +1,101 @@
+slug: landing-page-prototypes
+app: design
+roles:
+  - marketing
+  - design
+  - founders
+title: Prototypez votre landing page à partir d'un brief
+seo_title: Prototypes de landing page IA pour vos lancements
+meta_description: Donnez votre brief de lancement à Agent-Native Design et obtenez des landing pages à votre marque, à cliquer, comparer et exporter en HTML. Gratuit, open source.
+updated: 2026-10-27
+hero:
+  body: Agent-Native Design crée plusieurs versions côte à côte, à votre marque. Modifiez la bonne à la main ou en le demandant, puis téléchargez-la en HTML pour votre site.
+  button:
+    label: Concevez votre page
+    url: https://design.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9b9b61c476d745258cbb0f1b78da71be
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F921c26eb2c474e48b203e069b070269f
+    alt: L'éditeur Design avec la version Product-first d'une page de lancement pour les paiements de prestataires le jour même de Ledgerlane, dans ses cadres desktop et mobile. Le chat de l'agent à gauche montre le brief de lancement, les trois versions proposées avec Product-first choisie, et sa note indiquant que la page est construite.
+how_to:
+  heading: Comment créer un prototype de landing page avec l'IA
+  steps:
+    - title: Décrivez votre lancement
+      body: "Sur l'écran d'accueil de Design, collez votre brief de lancement dans la zone **Nouveau design** : [l'offre, la cible et l'appel à l'action](https://www.agent-native.com/articles/how-do-you-build-a-landing-page-with-ai/). Ou joignez le brief en fichier, et choisissez le design system de votre marque sous la zone."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8d189f62f944b3d935b058b826150b3
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8db8cda1abfe476f954bfa5bc50a7b6d
+        alt: Gros plan sur la zone Nouveau design de l'accueil de Design. Un brief de lancement pour les paiements le jour même de Ledgerlane est saisi, le PDF du brief est joint et le design system Ledgerlane Brand est choisi.
+    - title: Comparez plusieurs versions
+      body: Demandez à l'agent « trois versions ». Chacune apparaît comme un écran à part, côte à côte sur le tableau. Choisissez-en une dans le chat, et l'agent en fait la page complète et retire les autres.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F45d7dcdb0a2d473e82e516e2419e21f0
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe7aac725b27c4046b57faf5e69a2abf2
+        alt: Trois versions de la page de lancement des paiements le jour même, Product-first, Editorial et Proof-led, côte à côte sur le tableau. Le chat de l'agent demande laquelle construire, avec un bouton pour chacune.
+    - title: Exportez le HTML de la page
+      body: Dans le menu de l'éditeur, choisissez **Fichier**, puis **Exporter**. **Télécharger HTML** vous donne un fichier unique qui s'ouvre dans n'importe quel navigateur. **Copier le prompt de l'agent** donne à un agent de code ce qu'il faut pour intégrer la page à votre site.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F171cf01db5ca44ee8d31ebb6f98a73b3
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd2640c796dc44746ae1c8a622ec49bdc
+        alt: Gros plan sur le menu de l'éditeur avec Fichier et Exporter ouverts au-dessus de la page de lancement Product-first. Les options comprennent Télécharger HTML, Télécharger ZIP, Télécharger pour Figma (SVG) et Copier le prompt de l'agent.
+features:
+  heading: Tout ce qu'il faut pour concevoir votre page de lancement
+  items:
+    - title: Du brief à la landing page
+      body: L'agent part des affirmations de votre brief au lieu d'en inventer. Quand le brief laisse un choix ouvert, il pose la question ou dit ce qu'il a supposé.
+    - title: Édition par IA et visuelle
+      body: Changez vous-même un titre, une couleur ou un espacement, ou faites retravailler une section par l'agent. Vous modifiez la même page.
+    - title: Des versions côte à côte
+      body: Chaque version a son style et sa mise en page mobile, pour comparer de vraies pistes en équipe avant toute mise en ligne.
+    - title: Chaque lancement à votre marque
+      body: Créez une fois un design system depuis Figma, votre site ou votre code. Chaque page de lancement reprend vos couleurs, polices et styles.
+    - title: Des retours épinglés sur la page
+      body: "Les relecteurs commentent le titre ou le bouton exact. Envoyez un commentaire à l'agent : il le traite ou vous demande de trancher."
+    - title: Passage au code pour votre développeur
+      body: Le prompt de l'agent contient vos design tokens, les fichiers de la page et les instructions pour qu'un agent de code l'intègre à votre site.
+integrations:
+  heading: Connectez Design aux outils que vous utilisez déjà
+  cards:
+    - title: Partez de votre marque
+      logos:
+        - name: Figma
+        - name: GitHub
+      body: Créez votre design system depuis Figma ou le code de votre site sur GitHub, et chaque page de lancement démarre à votre marque.
+    - title: Confiez-la à votre agent de code
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+      body: Collez le prompt de l'agent dans Claude Code, Codex ou Cursor, et il transforme la page en code pour votre site.
+    - title: Connectez n'importe quoi via MCP
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Amplitude
+      more: true
+      body: Connectez les outils de votre équipe via MCP, ou ajoutez n'importe quel serveur MCP par son URL.
+other_uses:
+  heading: Autres usages d'Agent-Native Design
+  cards:
+    - title: Transformez un brief en prototype cliquable
+      url: https://www.agent-native.com/use-cases/ai-prototype-generator/
+      body: Prototypez un nouvel écran ou parcours produit à partir de votre brief design, puis cliquez dedans avec votre équipe.
+faqs:
+  heading: Des questions ? Nous avons les réponses
+  items:
+    - q: Agent-Native Design est-il gratuit ?
+      a: Oui, Agent-Native Design est gratuit et open source. Créer une page nécessite une connexion IA, via les crédits IA Builder.io ou votre propre clé IA, l'usage de l'IA n'est donc pas illimité. Design est en alpha, attendez-vous à des changements au fil de son évolution.
+    - q: Design publie-t-il ou héberge-t-il ma landing page ?
+      a: Non. Design crée la landing page et l'exporte, et vous la déployez avec vos outils habituels. Téléchargez le HTML ou un ZIP des fichiers, ou copiez un prompt que votre agent de code utilise pour ajouter la page à votre site.
+    - q: Puis-je utiliser ma propre marque ?
+      a: Oui. Créez un design system depuis un fichier Figma, votre site, un repo GitHub ou des fichiers importés, et choisissez-le au démarrage d'une page. L'agent garde ses couleurs, polices et styles sur chaque version qu'il crée.
+    - q: Puis-je modifier la landing page après sa création par l'IA ?
+      a: Oui. Changez textes, couleurs, espacements et mise en page à la main sur la page, ou demandez à l'agent de changer une section. Vous pouvez restaurer une version antérieure depuis **Historique des versions** à tout moment.
+    - q: Qu'est-ce que j'obtiens en exportant la landing page ?
+      a: "**Télécharger HTML** donne un fichier unique qui s'ouvre dans n'importe quel navigateur et charge ses styles via Internet. **Télécharger ZIP** contient tous les fichiers de la page, et **Télécharger pour Figma (SVG)** donne des calques modifiables dans Figma. La documentation liste [toutes les options d'export](https://www.agent-native.com/docs/template-design-features/#export)."
+    - q: En quoi Design diffère-t-il d'un chatbot à qui l'on demande une landing page ?
+      a: "Un chatbot vous donne du code à coller quelque part avant de voir la page. Dans Design, l'agent construit la page dans un éditeur que vous voyez et où vous cliquez, en plusieurs versions. Vous la modifiez à la main ou en le demandant, sur la même page. C'est une [application agentique](https://www.agent-native.com/articles/what-is-an-agent-native-app/) : l'intelligence d'un agent, l'intuitivité d'une application."

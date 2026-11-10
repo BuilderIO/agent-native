@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   backfillRunIds: [] as Array<string | null>,
   updateSettings: vi.fn(),
   toastError: vi.fn(),
+  reportWriteFailure: vi.fn(),
   settingsPending: false,
   canOfferGoogleOAuthSetup: false,
   sendToAgentChat: vi.fn(),
@@ -94,6 +95,13 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("sonner", () => ({
   toast: { error: mocks.toastError },
+}));
+
+vi.mock("@agent-native/core/client/write-failure", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/write-failure")
+  >()),
+  reportWriteFailure: mocks.reportWriteFailure,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -269,6 +277,7 @@ describe("AiInboxSetup", () => {
       isError: false,
     });
     mocks.toastError.mockReset();
+    mocks.reportWriteFailure.mockReset();
     mocks.jevAvailability.data = { configured: true };
     mocks.jevAvailability.isLoading = false;
     mocks.jevAvailability.isError = false;
@@ -293,6 +302,91 @@ describe("AiInboxSetup", () => {
     cleanup();
     vi.restoreAllMocks();
     vi.clearAllMocks();
+  });
+
+  it("requires preference text to continue while keeping skip available", () => {
+    render(<AiInboxSetup embedded forceOpen firstRunStage="preferences" />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    const important = screen.getByRole("textbox", {
+      name: "mail.sort.aiSetupImportantHeadline",
+    });
+    expect(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    ).toHaveProperty("disabled", true);
+    fireEvent.change(important, { target: { value: "  " } });
+    expect(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    ).toHaveProperty("disabled", true);
+    fireEvent.change(important, { target: { value: "Important mail" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    const archive = screen.getByRole("textbox", {
+      name: "mail.sort.aiSetupSkipInboxHeadline",
+    });
+    expect(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    ).toHaveProperty("disabled", true);
+    fireEvent.change(archive, { target: { value: "  " } });
+    expect(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    ).toHaveProperty("disabled", true);
+    fireEvent.change(archive, { target: { value: "Promotions" } });
+    expect(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    ).toHaveProperty("disabled", false);
+    expect(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    ).toHaveProperty("disabled", false);
+  });
+
+  it("requires importance text in the settings setup dialog", () => {
+    render(<AiInboxSetup forceOpen />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    expect(
+      screen.getByRole("textbox", {
+        name: "mail.sort.aiSetupImportantHeadline",
+      }),
+    ).toHaveProperty("value", "");
+    expect(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    ).toHaveProperty("disabled", true);
+    expect(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    ).toHaveProperty("disabled", false);
+  });
+
+  it("requires archive text in the settings setup dialog", () => {
+    render(<AiInboxSetup forceOpen />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "mail.sort.aiSetupImportantHeadline",
+      }),
+      { target: { value: "Important mail" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    const archive = screen.getByRole("textbox", {
+      name: "mail.sort.aiSetupSkipInboxHeadline",
+    });
+    const sortInbox = () =>
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" });
+    expect(sortInbox()).toHaveProperty("disabled", true);
+    expect(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    ).toHaveProperty("disabled", false);
+    fireEvent.change(archive, { target: { value: "  " } });
+    expect(sortInbox()).toHaveProperty("disabled", true);
+    fireEvent.change(archive, { target: { value: "Promotions" } });
+    expect(sortInbox()).toHaveProperty("disabled", false);
   });
 
   it("lets users save tab, importance, and archive rules before Builder setup", async () => {
@@ -419,10 +513,10 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
@@ -655,10 +749,10 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
@@ -700,7 +794,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     expect(mocks.createRule).not.toHaveBeenCalled();
     expect(mocks.updateSettings).not.toHaveBeenCalled();
@@ -716,7 +810,7 @@ describe("AiInboxSetup", () => {
       />,
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
@@ -1254,7 +1348,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.change(
       screen.getByRole("textbox", {
@@ -1287,7 +1381,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.change(
       screen.getByRole("textbox", {
@@ -1336,8 +1430,9 @@ describe("AiInboxSetup", () => {
       undoToken: "undo-run-1",
       perRule: [],
     };
+    const undoError = new Error("temporary failure");
     if (failure === "undo mutation") {
-      mocks.startBackfill.mockRejectedValueOnce(new Error("temporary failure"));
+      mocks.startBackfill.mockRejectedValueOnce(undoError);
     } else {
       mocks.backfillStatus.refetch.mockResolvedValueOnce({ isError: true });
     }
@@ -1345,9 +1440,19 @@ describe("AiInboxSetup", () => {
     render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
     fireEvent.click(screen.getByRole("button", { name: "mail.actions.undo" }));
 
-    await waitFor(() =>
-      expect(mocks.toastError).toHaveBeenCalledWith(expectedMessage),
-    );
+    if (failure === "undo mutation") {
+      await waitFor(() =>
+        expect(mocks.reportWriteFailure).toHaveBeenCalledWith(undoError, {
+          label: expectedMessage,
+        }),
+      );
+      expect(mocks.toastError).not.toHaveBeenCalled();
+    } else {
+      await waitFor(() =>
+        expect(mocks.toastError).toHaveBeenCalledWith(expectedMessage),
+      );
+      expect(mocks.reportWriteFailure).not.toHaveBeenCalled();
+    }
   });
 
   it("lets the Settings dialog save and finish without Jev", async () => {
@@ -1366,7 +1471,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
@@ -1464,7 +1569,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
 
     expect(
@@ -1585,7 +1690,13 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "mail.sort.aiSetupSkipInboxHeadline",
+      }),
+      { target: { value: "Promotions" } },
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),

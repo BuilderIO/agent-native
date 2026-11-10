@@ -4,6 +4,11 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
+import {
+  isTranscriptReady,
+  resolveTranscriptPresentation,
+} from "../shared/transcript-status.js";
 import {
   queueBackgroundAiRequest,
   withAiRequestStatusInstructions,
@@ -17,7 +22,9 @@ export default defineAction({
     recordingId: z.string().describe("Recording ID"),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
     const [recording] = await db
@@ -39,9 +46,19 @@ export default defineAction({
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
 
-    if (!transcript || transcript.status !== "ready") {
-      throw new Error(
-        "Transcript must be ready before removing filler words. Call request-transcript first.",
+    const transcriptPresentation = resolveTranscriptPresentation(transcript);
+    if (!isTranscriptReady(transcriptPresentation.status)) {
+      const transcriptPending = transcriptPresentation.status === "pending";
+      fail(
+        transcriptPending
+          ? "Transcript is still being generated. Try removing filler words after it finishes."
+          : "Transcript must be ready before removing filler words. Call request-transcript first.",
+        {
+          errorCode: transcriptPending
+            ? "transcript_pending"
+            : "transcript_not_ready",
+          statusCode: 409,
+        },
       );
     }
 

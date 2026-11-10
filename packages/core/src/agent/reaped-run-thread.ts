@@ -141,6 +141,14 @@ export async function foldReapedRunIntoThread(
       run.turnId,
       thread.threadData,
     );
+    // A thread with no messages has no tail for the retry check below to wait
+    // on, so retrying would defer forever and fail every sweep.
+    if (repo.messages.length === 0) {
+      console.warn(
+        `[agent-chat] dropping stopped run ${runId}: thread ${run.threadId} has no messages (turn ${run.turnId})`,
+      );
+      return "superseded";
+    }
     const folded = foldAssistantTurnWithSteers(repo, assistant, steered, {
       runId,
       turnId: run.turnId,
@@ -210,8 +218,23 @@ export async function foldReapedRunIntoThread(
             last?.metadata?.custom?.[RUN_NOT_STARTED_METADATA_KEY] === true &&
             typeof unstartedTurnId === "string" &&
             unstartedTurnId !== run.turnId;
-          if (!ownsPrompt && !isRefusedNewerTurn) {
+          // A reply by another turn at the tail means this turn's prompt never
+          // reached the thread, and a stopped run cannot save it later. Only a
+          // newer prompt still waiting for its run row can resolve by retrying.
+          const tailReplyTurnId =
+            last?.role === "assistant"
+              ? last.metadata?.custom?.turnId
+              : undefined;
+          const tailIsOtherTurnReply =
+            typeof tailReplyTurnId === "string" &&
+            tailReplyTurnId !== run.turnId;
+          if (!ownsPrompt && !isRefusedNewerTurn && !tailIsOtherTurnReply) {
             rejectedDisposition = "retry";
+          }
+          if (!ownsPrompt && !isRefusedNewerTurn && tailIsOtherTurnReply) {
+            console.warn(
+              `[agent-chat] dropping stopped run ${runId}: its prompt never reached thread ${run.threadId} (turn ${run.turnId})`,
+            );
           }
           return ownsPrompt;
         },

@@ -11,11 +11,12 @@ import { getDb, schema } from "../server/db/index.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { assertLocalFileLinkable } from "../server/lib/live-body-writer.js";
 import {
-  syncPrivateCalloutReferences,
+  syncPrivateBodyReferences,
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
 import { lockDocumentRows } from "./_row-lock-order.js";
 
@@ -86,7 +87,7 @@ export default defineAction({
     decision: z.enum(["keep_content", "accept_source"]),
     sourceContent: z.string().max(MAX_SOURCE_FILE_BYTES).optional(),
   }),
-  run: async ({ changeSetId, decision, sourceContent }) => {
+  run: async ({ changeSetId, decision, sourceContent }, ctx) => {
     const db = getDb();
     const [target] = await db
       .select({
@@ -128,7 +129,11 @@ export default defineAction({
       target.database.deletedAt ||
       target.document.spaceId !== target.database.spaceId
     ) {
-      throw new Error(`Open local-folder conflict "${changeSetId}" not found`);
+      // A sync that finds a deleted file again retires its deletion proposal.
+      throw new ActionContractError(
+        `Open local-folder conflict "${changeSetId}" not found`,
+        { errorCode: "LOCAL_FOLDER_CONFLICT_NOT_FOUND", statusCode: 404 },
+      );
     }
     const targetSpaceId = target.database.spaceId;
     await resolveContentSpaceAccess(targetSpaceId, "editor");
@@ -219,8 +224,9 @@ export default defineAction({
         )
         .returning({ id: schema.contentDatabaseSourceChangeSets.id });
       if (claimedChangeSets.length !== 1) {
-        throw new Error(
+        throw new ActionContractError(
           `Open local-folder conflict "${changeSetId}" changed before resolution`,
+          { errorCode: "LOCAL_FOLDER_CONFLICT_CHANGED", statusCode: 409 },
         );
       }
       if (decision === "accept_source" && sourceDeletion) {
@@ -332,6 +338,7 @@ export default defineAction({
             "Content changed after this conflict was reviewed; refresh before resolving",
           );
         }
+        assertAgentsMayEditPageText(currentDocument, ctx);
         const metadata = proposedMetadata(target.changeSet.fieldChangesJson);
         const resolvedTitle = Object.prototype.hasOwnProperty.call(
           metadata,
@@ -412,7 +419,7 @@ export default defineAction({
             orgId: currentDocument.orgId,
           });
         }
-        await syncPrivateCalloutReferences(tx as ReturnType<typeof getDb>, {
+        await syncPrivateBodyReferences(tx as ReturnType<typeof getDb>, {
           documentId: currentDocument.id,
           before: currentDocument.content,
           after: sourceContent!,

@@ -13,6 +13,7 @@ import {
   addAgentNativeSkill,
   AGENT_NATIVE_SKILL_METADATA_FILE,
   CONNECTION_REFERENCE_MD,
+  _copyScaffoldGuidanceSkills,
   parseSkillsArgs,
   runSkills,
   VISUAL_RECAP_SKILL_MD,
@@ -25,6 +26,47 @@ import { WORKSPACE_SKILLS } from "./workspace-skill-policy.js";
 
 const tmpRoots: string[] = [];
 const PLANS_SKILL_NAMES = ["visual-plan", "visual-recap", "visualize-repo"];
+
+describe("copy scaffold guidance skills", () => {
+  it("dereferences linked source skills when refreshing copied skills", () => {
+    const root = tmpDir();
+    const sourceRoot = path.join(root, "source", ".agents", "skills");
+    const linkedSkill = path.join(
+      root,
+      "workspace",
+      ".agents",
+      "skills",
+      "actions",
+    );
+    const targetRoot = path.join(root, "app", ".claude", "skills");
+    fs.mkdirSync(path.join(linkedSkill, "references"), { recursive: true });
+    fs.writeFileSync(path.join(linkedSkill, "SKILL.md"), "# Actions\n");
+    fs.writeFileSync(
+      path.join(linkedSkill, "references", "actions.md"),
+      "Action reference\n",
+    );
+    fs.mkdirSync(sourceRoot, { recursive: true });
+    fs.symlinkSync(
+      linkedSkill,
+      path.join(sourceRoot, "actions"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    _copyScaffoldGuidanceSkills([sourceRoot], targetRoot, ["actions"], false);
+
+    const copiedSkill = path.join(targetRoot, "actions");
+    expect(fs.lstatSync(copiedSkill).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(path.join(copiedSkill, "SKILL.md"), "utf8")).toBe(
+      "# Actions\n",
+    );
+    expect(
+      fs.readFileSync(
+        path.join(copiedSkill, "references", "actions.md"),
+        "utf8",
+      ),
+    ).toBe("Action reference\n");
+  });
+});
 
 afterEach(() => {
   for (const root of tmpRoots.splice(0)) {

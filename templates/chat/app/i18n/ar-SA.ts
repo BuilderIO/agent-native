@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "الإشارة إلى محادثة…",
+    group: "المحادثات",
+    authentication: "سجّل الدخول لإضافة مرجع.",
+    invalid: "اختر مرجعًا صالحًا قبل الإرسال.",
+    unavailable: "لم يعد المرجع المحدد متاحًا. أزله أو اختره مرة أخرى.",
+  },
   composer: {
     removeAttachment: "إزالة {{name}}",
     removeReference: "إزالة مرجع {{name}}",
@@ -49,16 +56,12 @@ const messages = {
     untitledChat: "محادثة بلا عنوان",
   },
   home: {
-    composerPlaceholder: "استدعِ الإجراء hello من أجل Alex",
     communityTitle: "تواصل معنا",
     docsAddAction: "إضافة إجراء",
     docsAddPage: "إضافة صفحة",
     docsGettingStarted: "البدء",
     docsKeyConcepts: "المفاهيم الأساسية",
     docsTitle: "المستندات",
-    editHint: "عدّل {{file}} واحفظه، ثم اسأل مجددًا لترى التحية الجديدة.",
-    lead: "تتشارك واجهة تطبيقك ووكيله الإجراءات نفسها.",
-    leadTry: "اطلب من الوكيل استدعاء الإجراء hello.",
     title: "ابدأ الآن",
   },
   navigation: {

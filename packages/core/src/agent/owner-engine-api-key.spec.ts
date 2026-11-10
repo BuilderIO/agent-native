@@ -173,6 +173,7 @@ describe("resolveOwnerEngineApiKey", () => {
       credentialProvenance: {
         scope: "user",
         scopeId: "owner@example.com",
+        source: "app_secrets",
       },
     });
   });
@@ -203,6 +204,7 @@ describe("resolveOwnerEngineApiKey", () => {
       credentialProvenance: {
         scope: "user",
         scopeId: "owner@example.com",
+        source: "app_secrets",
       },
     });
   });
@@ -222,6 +224,7 @@ describe("resolveOwnerEngineApiKey", () => {
       credentialProvenance: {
         scope: "user",
         scopeId: "owner@example.com",
+        source: "app_secrets",
       },
     });
   });
@@ -238,7 +241,7 @@ describe("resolveOwnerEngineApiKey", () => {
     ).resolves.toEqual({
       apiKey: "host-anthropic-key",
       apiKeyEnvVar: "ANTHROPIC_API_KEY",
-      credentialProvenance: { scope: "deployment" },
+      credentialProvenance: { scope: "deployment", source: "env" },
     });
     expect(readAppSecretMock).not.toHaveBeenCalled();
   });
@@ -284,7 +287,7 @@ describe("resolveOwnerEngineApiKey", () => {
     ).resolves.toEqual({
       apiKey: "sk-openai-deploy",
       apiKeyEnvVar: "OPENAI_API_KEY",
-      credentialProvenance: { scope: "deployment" },
+      credentialProvenance: { scope: "deployment", source: "env" },
     });
   });
 
@@ -298,7 +301,7 @@ describe("resolveOwnerEngineApiKey", () => {
     ).resolves.toEqual({
       apiKey: "test-anthropic-plugin-key",
       apiKeyEnvVar: "ANTHROPIC_API_KEY",
-      credentialProvenance: { scope: "deployment" },
+      credentialProvenance: { scope: "deployment", source: "env" },
     });
   });
 
@@ -318,6 +321,7 @@ describe("resolveOwnerEngineApiKey", () => {
       credentialProvenance: {
         scope: "user",
         scopeId: "owner@example.com",
+        source: "app_secrets",
       },
     });
   });

@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -23,6 +24,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { isUnreadableSecret } from "../server/lib/unreadable-secret.js";
 import {
   createFactoryAutomation,
   factoryAutomationTemplatePrompt,
@@ -67,6 +69,7 @@ export default defineAction({
     enabled: z.boolean().default(false),
   }),
   http: { method: "POST" },
+  needsApproval: (_input, ctx) => isOutsideAgentCall(ctx),
   link: ({ result }) => ({
     url: buildDeepLink({
       app: "factory",
@@ -122,6 +125,8 @@ export default defineAction({
           verb: "creating",
         });
       } catch (error) {
+        // Typed already: `fail(message)` would drop its code and read as a plain setup error.
+        if (isUnreadableSecret(error)) throw error;
         if (error instanceof VaultUnavailableError) fail(error.message);
         fail(
           error instanceof Error ? error.message : "Connector is not ready.",
@@ -168,6 +173,7 @@ export default defineAction({
         config,
         enabled: input.enabled,
       },
+      context,
     );
     if (
       context?.caller === "tool" ||

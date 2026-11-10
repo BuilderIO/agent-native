@@ -31,6 +31,7 @@ import type { AgentChatEvent } from "../agent/types.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
   formatPromptWithAttachments,
+  promptAttachmentsFromMetadata,
   type AgentPromptAttachment,
 } from "../code-agents/prompt-attachments.js";
 import {
@@ -140,8 +141,18 @@ const MCP_CONFIG_REMOVE_ATTEMPTS = 3;
 const PI_CLI_ENGINE_NAME = "pi-cli";
 const OPENCODE_CLI_ENGINE_NAME = "opencode-cli";
 const CLAUDE_CLI_DEFAULT_MODEL = "claude-sonnet-5-5";
-const RECAP_SOURCE_TOOL_PROFILE = "recap-source";
+export const RECAP_SOURCE_TOOL_PROFILE = "recap-source";
 const RECAP_SOURCE_OUTPUT_FILE = "recap-source.json";
+const RECAP_SOURCE_INPUT_FILES = new Set([
+  "recap.diff",
+  "recap.stat",
+  "recap-blocks.md",
+  "recap-prompt.md",
+  "recap-source.initial.json",
+  "recap-source.json",
+  "recap-url-reason.txt",
+  "recap-repair-prompt.md",
+]);
 
 type CodeAgentToolProfile = typeof RECAP_SOURCE_TOOL_PROFILE;
 
@@ -162,8 +173,11 @@ export async function executeCodeAgentRun(
   const rawAttachments =
     options.attachments ?? latestUserPromptAttachments(existing.id, prompt);
 
-  const imageAttachments = rawAttachments.filter((a) => a.dataUrl);
-  const textOnlyAttachments = rawAttachments.filter((a) => !a.dataUrl);
+  // An SVG carries both its text and a data URL; the text is what the agent reads.
+  const isImageOnly = (a: AgentPromptAttachment) =>
+    Boolean(a.dataUrl) && a.text === undefined && !a.readError;
+  const imageAttachments = rawAttachments.filter(isImageOnly);
+  const textOnlyAttachments = rawAttachments.filter((a) => !isImageOnly(a));
   const executionPrompt = formatPromptWithAttachments(
     prompt,
     textOnlyAttachments,
@@ -2163,23 +2177,6 @@ function userPromptAttachmentsForEvent(
   return promptAttachmentsFromMetadata(event?.metadata?.attachments);
 }
 
-function promptAttachmentsFromMetadata(
-  value: unknown,
-): AgentPromptAttachment[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((item): item is Record<string, unknown> =>
-      Boolean(item && typeof item === "object" && !Array.isArray(item)),
-    )
-    .map((item) => ({
-      name: typeof item.name === "string" && item.name ? item.name : "file",
-      ...(typeof item.type === "string" ? { type: item.type } : {}),
-      ...(typeof item.size === "number" ? { size: item.size } : {}),
-      ...(typeof item.text === "string" ? { text: item.text } : {}),
-      ...(typeof item.dataUrl === "string" ? { dataUrl: item.dataUrl } : {}),
-    }));
-}
-
 function metadataString(
   run: CodeAgentRunRecord,
   key: string,
@@ -2815,8 +2812,30 @@ function createLocalCodeAgentActions(
   if (toolProfile === RECAP_SOURCE_TOOL_PROFILE) {
     const allowedOutput = path.resolve(cwd, RECAP_SOURCE_OUTPUT_FILE);
     const writeAction = actions.write;
+    const readAction = actions.read;
     return {
-      read: actions.read,
+      read: {
+        ...readAction,
+        run: async (args, context) => {
+          const requestedPath =
+            args && typeof args.path === "string" ? args.path : "";
+          try {
+            const resolved = path.resolve(cwd, requestedPath);
+            const name = path.basename(resolved);
+            if (
+              !RECAP_SOURCE_INPUT_FILES.has(name) ||
+              resolved !== path.join(cwd, name) ||
+              fs.lstatSync(resolved).isSymbolicLink() ||
+              path.dirname(fs.realpathSync(resolved)) !== fs.realpathSync(cwd)
+            ) {
+              return "Error: recap source reads are limited to generated recap inputs.";
+            }
+          } catch {
+            return "Error: recap source reads are limited to generated recap inputs.";
+          }
+          return readAction.run(args, context);
+        },
+      },
       write: {
         ...writeAction,
         run: async (args, context) => {
@@ -2824,6 +2843,13 @@ function createLocalCodeAgentActions(
             args && typeof args.path === "string" ? args.path : "";
           if (path.resolve(cwd, requestedPath) !== allowedOutput) {
             return `Error: only ${RECAP_SOURCE_OUTPUT_FILE} may be written in the recap-source tool profile.`;
+          }
+          if (
+            fs
+              .lstatSync(allowedOutput, { throwIfNoEntry: false })
+              ?.isSymbolicLink()
+          ) {
+            return `Error: ${RECAP_SOURCE_OUTPUT_FILE} cannot be a symbolic link.`;
           }
           return writeAction.run(args, context);
         },

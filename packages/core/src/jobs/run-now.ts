@@ -14,7 +14,11 @@ import {
   resourceGetByPath,
 } from "../resources/store.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
-import { parseJobResource } from "./frontmatter.js";
+import {
+  isRecoveredFactoryJob,
+  jobBelongsToApp,
+  parseJobResource,
+} from "./frontmatter.js";
 import { automationRunOwnership } from "./run-history-ownership.js";
 import {
   listUnclaimedAutomationRuns,
@@ -30,6 +34,8 @@ export interface RunAutomationNowInput {
   requestHeaders?: Headers;
   name?: string;
   path?: string;
+  /** Job `appId` values the caller's app runs besides `appId`; see `SchedulerDeps`. */
+  additionalJobAppIds?: readonly string[];
 }
 
 export interface QueuedAutomationRun {
@@ -163,9 +169,14 @@ async function resolveRunAutomation(input: RunAutomationNowInput) {
   };
 }
 
-export async function queueAutomationRunNow(
-  input: RunAutomationNowInput,
-): Promise<QueuedAutomationRun> {
+/**
+ * The automation a run-now call means, once the caller is known to be allowed
+ * to run it: not found is a 404 and no collaborate access a 403. This is the
+ * whole of the permission `queueAutomationRunNow` checks, so a caller that must
+ * be held to the same rule without queuing a run (a test that runs in the
+ * request) asks here and cannot drift from it.
+ */
+export async function authorizeAutomationRunNow(input: RunAutomationNowInput) {
   const access = await resolveRunAutomation(input);
   if (!access) {
     throw Object.assign(new Error("Automation not found."), {
@@ -177,13 +188,41 @@ export async function queueAutomationRunNow(
       input,
       access.resource,
       access.scope as AutomationScope,
+      input.additionalJobAppIds,
     ))
   ) {
+    const { meta } = parseJobResource(access.resource.content);
+    if (
+      !jobBelongsToApp(meta, input.appId, input.additionalJobAppIds) &&
+      !isRecoveredFactoryJob(
+        meta,
+        access.resource.path,
+        input.appId,
+        access.resource.owner,
+      )
+    ) {
+      const ownerAppId = meta.appId?.trim();
+      throw Object.assign(
+        new Error(
+          ownerAppId
+            ? `This automation belongs to the "${ownerAppId}" app. Run it from that app.`
+            : "This automation has no app owner and cannot be run.",
+        ),
+        { statusCode: 403 },
+      );
+    }
     throw Object.assign(
       new Error("Collaborate access is required to run this automation."),
       { statusCode: 403 },
     );
   }
+  return access;
+}
+
+export async function queueAutomationRunNow(
+  input: RunAutomationNowInput,
+): Promise<QueuedAutomationRun> {
+  const access = await authorizeAutomationRunNow(input);
   const { resource, name } = access;
   const { body } = parseJobResource(resource.content);
   if (!body.trim()) {

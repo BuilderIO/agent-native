@@ -94,10 +94,12 @@ afterEach(async () => {
   await pglite.close();
 });
 
-// Mints the write grant the Slides profile gives its deck editors (the server
-// does this for anyone authorizeWidgetWrite accepts: editor access or above).
+// A bounded deck grant exercises sharing independently of card availability.
 function mintGrant(userEmail: string) {
-  const target = slidesProfile.widgetTargets["create-deck"]({}, { id: deckA })!;
+  const target = {
+    resourceIds: { deckId: deckA, resourceType: "deck" },
+    writeActions: Object.keys(slidesProfile.widgetWriteActionArguments),
+  };
   const materialize = (rules: Record<string, McpDirectoryWidgetReadArgument>) =>
     Object.fromEntries(
       Object.entries(rules).map(([name, rule]) => [

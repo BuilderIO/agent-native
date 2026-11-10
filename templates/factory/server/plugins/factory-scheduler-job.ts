@@ -1,3 +1,5 @@
+import { isOutsideAgentCall } from "@agent-native/core";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
 import type { BUILDER_MODEL_CONFIG } from "@agent-native/core/agent/model-config";
 import { isProductionServerlessFunctionRuntime } from "@agent-native/core/db";
 import { subscribe } from "@agent-native/core/event-bus";
@@ -9,6 +11,7 @@ import {
   resourceGetByPath,
   resourceList,
   resourcePut,
+  resourcePutIfAbsent,
   resourcePutIfCurrent,
   WORKSPACE_OWNER,
 } from "@agent-native/core/resources";
@@ -53,12 +56,14 @@ import { repairFactoryAutomationsFromConfig } from "../lib/factory-automation-re
 import { listFactoryAutomationDefinitions } from "../lib/factory-automation-resources.js";
 import {
   DEFAULT_FACTORY_ID,
+  assertSingleLineFactoryAutomationSettings,
   assignCreatedByIfMissing,
   factoryAutomationJobPath,
   factoryAutomationJobPrefix,
   factoryAutomationLeafName,
   factoryAutomationRunHistoryKey,
   factoryConfigRowId,
+  normalizeFactoryAutomationFrontmatter,
   readFactoryIdFromAutomationPath,
   readTriageConfigRow,
   setAutomationFrontmatterField,
@@ -288,9 +293,10 @@ List at most 3 new or changed pull requests by passing needsReview true, source
 github, and limit 3. Never list the full queue or use the action's default page
 size.
 
-For each open factory-repository PR, inspect the item and classify whether it is a
-clear bug fix or has product or UX implications. Avoid duplicate review noise
-when no commit, review, comment, or check result changed. Call
+For each surfaced PR that remains after the review-prs selection filters,
+inspect the item and classify whether it is a clear bug fix or has product or
+UX implications. Avoid duplicate review noise when no commit, review, comment,
+or check result changed. Call
 govern-factory-pull-request with the item id, repository, pull request
 number, clearBug, productUxImplications, and a short reason. The action fetches
 fresh GitHub CI, review, and changed-file evidence before approving. For a verified current BuilderIO
@@ -379,6 +385,12 @@ function automationContent(
   userPrompt?: string,
 ): string {
   const resolved = config ?? defaultAutomationConfig("slack", "blank");
+  assertSingleLineFactoryAutomationSettings({
+    ...resolved,
+    authorIds: resolved.authorIds.join(","),
+    displayName,
+    factoryId,
+  });
   let content = `---
 schedule: "${scheduleCron(resolved)}"
 ${resolved.timezone ? `timezone: ${resolved.timezone}\n` : ""}enabled: ${enabled ? "true" : "false"}
@@ -734,6 +746,7 @@ export async function createFactoryAutomation(
     config: FactoryAutomationConfig;
     enabled?: boolean;
   },
+  context?: ActionRunContext,
 ): Promise<{ id: string; name: string; path: string }> {
   const owner = organizationResourceOwner(orgId);
   const existing = await listFactoryAutomationResources(
@@ -756,23 +769,38 @@ export async function createFactoryAutomation(
   const seed =
     AUTOMATION_SEEDS.find((entry) => entry.name === preferred) ??
     blankAutomationSeed(input.config.source, leafName);
-  const path = factoryAutomationJobPath(factoryId, leafName);
-  const content = automationContent(
-    ownerEmail,
-    orgId,
-    factoryId,
-    { ...seed, name: leafName },
-    input.enabled ?? false,
-    input.config,
-    input.displayName,
-    input.prompt,
-  );
-  const written = await resourcePut(owner, path, content, "text/markdown");
-  return {
-    id: written.id,
-    name: factoryAutomationLeafName(path),
-    path,
-  };
+  const outside = isOutsideAgentCall(context);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const path = factoryAutomationJobPath(factoryId, leafName);
+    let content = automationContent(
+      ownerEmail,
+      orgId,
+      factoryId,
+      { ...seed, name: leafName },
+      input.enabled ?? false,
+      input.config,
+      input.displayName,
+      input.prompt,
+    );
+    if (outside) {
+      content = normalizeFactoryAutomationFrontmatter(content, { context });
+    }
+    const written = await resourcePutIfAbsent(
+      owner,
+      path,
+      content,
+      "text/markdown",
+    );
+    if (written) {
+      return { id: written.id, name: factoryAutomationLeafName(path), path };
+    }
+    leafName = `${preferred}-${suffix}`;
+    suffix += 1;
+  }
+  fail("Factory automation changed concurrently. Refresh and try again.", {
+    statusCode: 409,
+    errorCode: "automation_version_conflict",
+  });
 }
 
 export function factoryAutomationTemplateSeed(

@@ -37,6 +37,7 @@ const INITIAL_TOOL_NAMES = [
 export default createAgentChatPlugin({
   appId: "assets",
   mcp: {
+    appApprovalPage: true,
     title: "Agent-Native Assets",
     description:
       "Create, search, select, and export brand image and video assets from Assets.",

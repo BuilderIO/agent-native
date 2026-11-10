@@ -15,6 +15,7 @@ const sharesQuery = {
     visibility: "private" as const,
     role: "owner" as const,
     shares: [],
+    policy: { allowPublic: true, confirmOrgVisibility: true },
   },
   refetch: vi.fn(),
 };
@@ -136,6 +137,14 @@ describe("ShareDialog primitive normalization", () => {
     expect(document.body.textContent).not.toContain(
       "https://share.example.test/doc-1",
     );
+  });
+
+  it("omits the share link row when there is no share URL to copy", async () => {
+    await renderDialog(vi.fn(), {});
+
+    expect(
+      document.body.querySelector('button[aria-label="share.copy"]'),
+    ).toBeNull();
   });
 
   it("shows the title without a redundant single Link tab", async () => {

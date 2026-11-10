@@ -3,6 +3,10 @@ import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
 import { agentNativePath } from "../client/api-path.js";
+import {
+  currentSessionIdentity,
+  subscribeSessionIdentity,
+} from "../client/session-identity.js";
 import { useAvatarUrl } from "../client/use-avatar.js";
 import {
   acquireCollabPollBoost,
@@ -21,6 +25,27 @@ import {
   forgetAwarenessClientSequence,
   postAwarenessState,
 } from "./awareness-post.js";
+import {
+  clearCollabLocalCopies,
+  forgetCollabLocalCopiesInThisTab,
+  collabLocalCopyKey,
+  deleteCollabLocalCopy,
+  peekCollabLocalCopy,
+  readCollabLocalCopy,
+  saveCollabLocalCopy,
+} from "./local-store.js";
+import {
+  COLLAB_OUTBOX_PREFIX as OUTBOX_PREFIX,
+  COLLAB_VERSIONED_OUTBOX_PREFIX as VERSIONED_OUTBOX_PREFIX,
+} from "./outbox-keys.js";
+import {
+  collabSessionGuard,
+  dropCollabStatePrefetches,
+  requestCollabState,
+  takeCollabStatePrefetch,
+  type CollabStateRequest,
+  type TakenCollabStatePrefetch,
+} from "./state-prefetch.js";
 import { dedupeCollabUsersByEmail, type CollabUser } from "./types.js";
 export {
   dedupeCollabUsersByEmail,
@@ -41,6 +66,67 @@ export interface UseCollaborativeDocOptions {
   activityResource?: { resourceType: string; resourceId: string };
   /** Application events received alongside document updates on the existing transport. */
   onEvent?: (event: SyncEvent) => void;
+  /**
+   * Keeps this tab's unacknowledged updates in localStorage until the server
+   * acknowledges them, and sends the ones a closed or reloaded tab left
+   * behind when the doc next opens for the same user. Needs `user`, whose
+   * email scopes what is kept.
+   */
+  durableUpdates?: boolean;
+  /** New updates need a known live-copy outcome handled by a current strict subscriber. */
+  requireLiveCopyOutcome?: boolean;
+  /**
+   * Called for each update the server acknowledged, with the live-copy
+   * outcome it reported. With it, an acknowledgment whose body cannot be read
+   * counts as undelivered and the update is sent again.
+   */
+  onUpdateAcknowledged?: (ack: CollabUpdateAck) => void;
+  /**
+   * Keeps the doc's acknowledged state in this browser, per account, and opens
+   * the doc from it next time: the doc is ready at once, takes edits, and
+   * catches up with the server behind it. Needs `user`, whose email scopes
+   * the copy. `fromLocalCopy` is true and `isSynced` false until the server
+   * has answered. What is typed meanwhile is sent once the server's state
+   * covers the copy; typing that state leaves out goes to `onEditsDisplaced`.
+   */
+  localCopy?: CollabLocalCopyOptions;
+}
+
+/**
+ * Typing made on a doc opened from a saved copy, before the server answered,
+ * that the server's state left out.
+ */
+export interface DisplacedCollabEdits {
+  /** The doc as it stood with that typing, as a whole Yjs state. */
+  state: Uint8Array;
+  /**
+   * `superseded`: the server's doc no longer holds the saved copy, so the doc
+   * opens again from the server's state alone. `deleted`: the server had
+   * since deleted the part of the doc the typing went into. `unavailable`:
+   * the server no longer has the doc, or this account cannot open it.
+   * `session-changed`: the tab's session is no longer this account's, before
+   * the server answered. Anything that acts for whoever is signed in would
+   * now act for someone else, so keep it for this account's next open.
+   */
+  reason: "superseded" | "deleted" | "unavailable" | "session-changed";
+}
+
+export interface CollabLocalCopyOptions {
+  /**
+   * Called at once, before the doc lets the typing go. The server's state
+   * stays as it is: keep the typing where the user can find it, and never
+   * write it back into the doc.
+   */
+  onEditsDisplaced: (edits: DisplacedCollabEdits) => void;
+}
+
+/**
+ * What the server reported for an acknowledged update: whether the app's rows
+ * were derived from its live copy, or null when the server defines none.
+ */
+export interface CollabUpdateAck {
+  liveCopy: "derived" | "not_derived" | "unchanged" | null;
+  liveCopyReason?: string;
 }
 
 export type CollabInitializationErrorCategory =
@@ -64,6 +150,11 @@ export interface UseCollaborativeDocResult {
   awareness: Awareness | null;
   isLoading: boolean;
   isSynced: boolean;
+  /**
+   * True while the doc shows this browser's saved copy and the server has not
+   * answered yet. The doc is ready and takes edits meanwhile.
+   */
+  fromLocalCopy: boolean;
   initialization: CollabInitializationState;
   retry: () => void;
   requestSync: () => Promise<CollaborativeDocSyncResult>;
@@ -74,6 +165,17 @@ export interface UseCollaborativeDocResult {
    * can already receive it through the document instead of inserting it twice.
    */
   flushUpdates: () => Promise<boolean>;
+  /**
+   * True once keeping this tab's unacknowledged updates, or reading the ones
+   * another tab left, failed. Updates still send while the tab stays open.
+   */
+  durableUpdatesFailed: boolean;
+  /**
+   * True once the server refused one of this tab's updates as too large.
+   * Resending it cannot succeed, so this tab stops sending updates; they stay
+   * unacknowledged, and kept with `durableUpdates`.
+   */
+  updatesRefused: boolean;
   activeUsers: CollabUser[];
   agentActive: boolean;
   agentPresent: boolean;
@@ -226,7 +328,12 @@ function scheduleAwarenessPush(
 interface CollabDocSnapshot {
   isLoading: boolean;
   isSynced: boolean;
+  fromLocalCopy: boolean;
+  /** This connection gave its doc up; subscribers open a new one. */
+  superseded: boolean;
   initialization: CollabInitializationState;
+  durableUpdatesFailed: boolean;
+  updatesRefused: boolean;
   activeUsers: CollabUser[];
   agentActive: boolean;
   agentPresent: boolean;
@@ -237,6 +344,12 @@ interface CollabDocSubscription {
   pollIntervalWithSse: number;
   pauseWhenHidden: boolean;
   requestSource?: string;
+  durableUpdates?: boolean;
+  localCopy?: boolean;
+  onLocalCopyEditsDisplaced?: (edits: DisplacedCollabEdits) => void;
+  requireLiveCopyOutcome: () => boolean;
+  canAcknowledge: () => boolean;
+  onUpdateAcknowledged?: (ack: CollabUpdateAck) => void;
   onSnapshot: (snapshot: CollabDocSnapshot) => void;
   onEvent: (event: SyncEvent) => void;
 }
@@ -244,11 +357,100 @@ interface CollabDocSubscription {
 const EMPTY_SNAPSHOT: CollabDocSnapshot = Object.freeze({
   isLoading: false,
   isSynced: false,
+  fromLocalCopy: false,
+  superseded: false,
   initialization: { status: "loading" as const },
+  durableUpdatesFailed: false,
+  updatesRefused: false,
   activeUsers: [],
   agentActive: false,
   agentPresent: false,
 });
+
+function readUpdateAck(body: unknown): CollabUpdateAck {
+  if (!body || typeof body !== "object") {
+    throw new Error("The collab update response was not an object.");
+  }
+  const { liveCopy, liveCopyReason } = body as {
+    liveCopy?: unknown;
+    liveCopyReason?: unknown;
+  };
+  if (liveCopy === undefined) return { liveCopy: null };
+  if (
+    liveCopy !== "derived" &&
+    liveCopy !== "not_derived" &&
+    liveCopy !== "unchanged"
+  ) {
+    throw new Error(`Unknown live-copy outcome ${String(liveCopy)}.`);
+  }
+  return typeof liveCopyReason === "string"
+    ? { liveCopy, liveCopyReason }
+    : { liveCopy };
+}
+
+// Unacknowledged updates kept in localStorage, one entry per connection. Yjs
+// integrates an update once, so sending one the server already holds again
+// changes nothing.
+const OUTBOX_ORIGIN = "collab-outbox";
+const OUTBOX_OWNER_LOCK_PREFIX = "agent-native-collab-outbox-owner:";
+
+function outboxPrefix(
+  docKey: string,
+  email: string,
+  prefix = OUTBOX_PREFIX,
+): string {
+  return `${prefix}${encodeURIComponent(docKey)}:${encodeURIComponent(email)}:`;
+}
+
+interface PendingCollabUpdate {
+  update: Uint8Array;
+  readonly requireLiveCopyOutcome: boolean;
+}
+
+interface StoredOutbox {
+  key: string;
+  raw: string;
+  version: 1 | 2;
+}
+
+function readStoredUpdates(
+  entry: StoredOutbox,
+  legacyRequireLiveCopyOutcome: boolean,
+): PendingCollabUpdate[] {
+  if (entry.version === 1)
+    return [
+      {
+        update: base64ToUint8Array(entry.raw),
+        requireLiveCopyOutcome: legacyRequireLiveCopyOutcome,
+      },
+    ];
+  const body = JSON.parse(entry.raw) as {
+    version?: unknown;
+    updates?: unknown;
+  } | null;
+  if (
+    body?.version !== 2 ||
+    !Array.isArray(body.updates) ||
+    body.updates.length === 0 ||
+    body.updates.length > 2
+  )
+    throw new Error("The collab outbox has an unreadable update list.");
+  return body.updates.map((value: unknown) => {
+    const item = value as {
+      update?: unknown;
+      requireLiveCopyOutcome?: unknown;
+    } | null;
+    if (
+      typeof item?.update !== "string" ||
+      typeof item.requireLiveCopyOutcome !== "boolean"
+    )
+      throw new Error("The collab outbox has an unreadable update.");
+    return {
+      update: base64ToUint8Array(item.update),
+      requireLiveCopyOutcome: item.requireLiveCopyOutcome,
+    };
+  });
+}
 
 const requestSyncUnavailable = (): Promise<CollaborativeDocSyncResult> =>
   Promise.resolve({ status: "unavailable" });
@@ -257,6 +459,28 @@ const requestSyncUnavailable = (): Promise<CollaborativeDocSyncResult> =>
 const flushUpdatesUnavailable = (): Promise<boolean> => Promise.resolve(true);
 
 const DISPOSE_LINGER_MS = 1000;
+// A saved local copy is written once the doc has been quiet this long.
+const LOCAL_COPY_SAVE_DELAY_MS = 2000;
+// A doc opened from its saved copy asks the server again after this, doubling.
+const SERVER_STATE_RETRY_MS = 1000;
+const SERVER_STATE_RETRY_MAX_MS = 30_000;
+
+type SentCollabStateRequest = Pick<
+  CollabStateRequest,
+  "response" | "withStateVector"
+> & {
+  /** For a boot read, whether the session it was made under is still the tab's. */
+  isCurrent?: (() => boolean) | undefined;
+};
+
+/** Whether a doc at `server` holds every struct a doc at `local` holds. */
+function stateVectorCovers(server: Uint8Array, local: Uint8Array): boolean {
+  const held = Y.decodeStateVector(server);
+  for (const [client, clock] of Y.decodeStateVector(local)) {
+    if ((held.get(client) ?? 0) < clock) return false;
+  }
+  return true;
+}
 
 class CollabDocConnection {
   readonly ydoc: Y.Doc;
@@ -270,14 +494,28 @@ class CollabDocConnection {
   private docMissing = false;
   private requestSource: string | undefined;
   private lastSetUser: CollabUser | null = null;
+  private pageHidden = false;
+  private presenceClear: Promise<Response> | null = null;
+  private signedOut = false;
+  private keepaliveSnapshots = new Set<readonly PendingCollabUpdate[]>();
+  private userGeneration = 0;
 
-  private pendingUpdates: Uint8Array[] = [];
+  private pendingUpdates: PendingCollabUpdate[] = [];
+  private readonly deliveredUpdates = new WeakSet<PendingCollabUpdate>();
+  private strictDeliveryVersion = 0;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private updateInFlight = false;
-  private keepaliveInFlight = false;
   private updateErrors = 0;
+  private updateBatchLimit = Infinity;
   private updateAbortController: AbortController | null = null;
   private updateHandlerAttached = false;
+  private keepsUnsentUpdates = false;
+  private unsentUpdatesRestored = false;
+  private onlineDuringUpdate = false;
+  private releaseOutboxOwner: (() => void) | null = null;
+  private readonly outboxOwnerId = `${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
 
   private syncActive = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -302,6 +540,30 @@ class CollabDocConnection {
   private agentTimer: ReturnType<typeof setTimeout> | null = null;
   private releaseCollabPollBoost: (() => void) | null = null;
 
+  // A saved local copy (`localCopy`). The copy is only ever state the server
+  // acknowledged; `localCopyVector` is the vector of the one this doc opened
+  // from, which the server's answer has to cover.
+  private keepsLocalCopy = false;
+  private localCopyVector: Uint8Array | null = null;
+  private awaitingServerState = false;
+  private serverStateRequest: Promise<CollaborativeDocSyncResult> | null = null;
+  private serverStateRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private serverStateRetryDelay = SERVER_STATE_RETRY_MS;
+  private localCopySaveTimer: ReturnType<typeof setTimeout> | null = null;
+  // Set once this doc gave up a copy the server did not cover; nothing it
+  // holds is saved again.
+  private localCopyRejected = false;
+  // Set once the server's state covered the copy this doc opened from.
+  private localCopyVerified = false;
+  // Until then, the vector past which content in the doc was typed here (or
+  // kept unsent from before): the copy's, or null once nothing is tracked.
+  private typingBaseline: Map<number, number> | null = null;
+  // Whether content the saved copy held has been deleted since it opened.
+  private deletedOnLocalCopy = false;
+  // The session this connection's account came from, once the tab has read one.
+  // It can name the account by id, so it's only compared with itself.
+  private sessionIdentity = currentSessionIdentity();
+
   constructor(
     readonly docId: string,
     private readonly baseUrl: string,
@@ -313,7 +575,11 @@ class CollabDocConnection {
     this.snapshot = {
       isLoading: true,
       isSynced: false,
+      fromLocalCopy: false,
+      superseded: false,
       initialization: { status: "loading" },
+      durableUpdatesFailed: false,
+      updatesRefused: false,
       activeUsers: [],
       agentActive: false,
       agentPresent: false,
@@ -329,7 +595,7 @@ class CollabDocConnection {
   }
 
   private get retiredUpdatesKey(): string | null {
-    const email = this.lastSetUser?.email?.trim().toLowerCase();
+    const email = this.lastSetUser?.email.trim().toLowerCase();
     return email
       ? `${this.registryKey}\0${email}\0${this.requestSource ?? ""}`
       : null;
@@ -355,11 +621,34 @@ class CollabDocConnection {
       collabConnectionRegistry.delete(this.registryKey);
     }
     this.actorIdentity = identity;
+    this.sessionIdentity = currentSessionIdentity();
     if (!this.detached) collabConnectionRegistry.set(nextKey, this);
     return true;
   }
 
-  add(id: symbol, sub: CollabDocSubscription): void {
+  /**
+   * Every request now carries the tab's new session. A doc still on its saved
+   * copy can't take that session's answers as this account's, and what was
+   * typed on it can't go out under that session, so the copy is given up.
+   */
+  noteSessionIdentity(identity: string | null | undefined): void {
+    if (this.sessionIdentity === undefined) {
+      this.sessionIdentity = identity;
+      return;
+    }
+    if (
+      typeof this.sessionIdentity === "string" &&
+      this.sessionIdentity !== identity &&
+      this.stillAwaitsServerState()
+    ) {
+      this.supersede(
+        `The session changed before the server answered for the saved copy of collab doc ${this.docId}; opening the server's copy instead.`,
+        "session-changed",
+      );
+    }
+  }
+
+  add(id: symbol, sub: CollabDocSubscription, user?: CollabUser): void {
     this.subscribers.set(id, sub);
     if (this.disposeTimer) {
       clearTimeout(this.disposeTimer);
@@ -369,17 +658,27 @@ class CollabDocConnection {
       this.requestSource = sub.requestSource;
       registerOwnCollabSource(sub.requestSource);
     }
+    if (user) this.setUser(user);
+    // Once kept, updates stay kept until acknowledged, even if the caller
+    // stops asking.
+    if (sub.durableUpdates && !this.keepsUnsentUpdates) {
+      this.keepsUnsentUpdates = true;
+      this.storeUnsentUpdates();
+      this.restoreUnsentUpdates();
+    }
+    if (sub.localCopy && !this.keepsLocalCopy) {
+      this.keepsLocalCopy = true;
+      this.ydoc.on("update", this.scheduleLocalCopySave);
+    }
+    this.deliverDisplacedTyping();
     if (!this.started) {
       this.started = true;
       this.start();
-    } else if (
-      !this.syncActive &&
-      this.snapshot.initialization.status === "ready"
-    ) {
+    } else if (!this.syncActive && this.serverStateReady) {
       this.startTransport();
     } else {
       this.resubscribeCollabEventsIfPauseChanged();
-      if (this.snapshot.initialization.status === "ready") this.startSync();
+      if (this.serverStateReady) this.startSync();
       this.reschedulePoll();
     }
   }
@@ -387,6 +686,10 @@ class CollabDocConnection {
   remove(id: symbol): void {
     this.subscribers.delete(id);
     if (this.subscribers.size === 0) {
+      if (this.signedOut) {
+        this.dispose();
+        return;
+      }
       cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
       // A lingering connection may outlive its document (a deleted Screen).
       this.stopSync();
@@ -412,7 +715,16 @@ class CollabDocConnection {
    */
   dispose(): void {
     if (this.disposed) return;
+    this.saveLocalCopy();
     this.disposed = true;
+    if (this.localCopySaveTimer) {
+      clearTimeout(this.localCopySaveTimer);
+      this.localCopySaveTimer = null;
+    }
+    if (this.serverStateRetryTimer) {
+      clearTimeout(this.serverStateRetryTimer);
+      this.serverStateRetryTimer = null;
+    }
     for (const controller of this.stateVectorAbortControllers) {
       controller.abort();
     }
@@ -430,20 +742,16 @@ class CollabDocConnection {
     }
     void this.flushPendingUpdates(true);
     this.detachUpdateHandler();
+    this.releaseOutboxOwner?.();
+    this.releaseOutboxOwner = null;
     if (this.agentTimer) {
       clearTimeout(this.agentTimer);
       this.agentTimer = null;
     }
     this.awareness.off("change", this.handleAwarenessChange);
-    cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
-    if (this.awareness.getLocalState()) {
-      void postAwarenessState(
-        this.baseUrl,
-        this.docId,
-        this.ydoc.clientID,
-        null,
-        true,
-      )
+    const clear = this.clearPresence();
+    if (clear) {
+      void clear
         .catch(() => {})
         .finally(() => {
           forgetAwarenessClientSequence(
@@ -468,28 +776,42 @@ class CollabDocConnection {
 
   async clearPresenceBeforeSignOut(): Promise<void> {
     if (this.disposed) return;
+    this.signedOut = true;
     this.stopSync();
-    cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
-    if (!this.awareness.getLocalState()) return;
+    const clear = this.clearPresence();
     this.awareness.setLocalState(null);
-    try {
-      const response = await postAwarenessState(
+    if (collabConnectionRegistry.get(this.registryKey) === this) {
+      collabConnectionRegistry.delete(this.registryKey);
+    }
+    if (this.subscribers.size === 0) this.dispose();
+    if (!clear) return;
+    const response = await clear;
+    if (!response.ok) {
+      throw new Error(`Awareness clear returned HTTP ${response.status}`);
+    }
+  }
+
+  private clearPresence(): Promise<Response> | null {
+    cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
+    if (!this.presenceClear && this.awareness.getLocalState()) {
+      this.presenceClear = postAwarenessState(
         this.baseUrl,
         this.docId,
         this.ydoc.clientID,
         null,
         true,
       );
-      if (!response.ok) {
-        throw new Error(`Awareness clear returned HTTP ${response.status}`);
-      }
-    } finally {
-      forgetAwarenessClientSequence(
-        this.baseUrl,
-        this.docId,
-        this.ydoc.clientID,
-      );
     }
+    return this.presenceClear;
+  }
+
+  private get canPublishPresence(): boolean {
+    return (
+      !this.disposed &&
+      !this.signedOut &&
+      !this.pageHidden &&
+      this.presenceClear === null
+    );
   }
 
   private get effectivePollInterval(): number {
@@ -522,6 +844,200 @@ class CollabDocConnection {
     }
   }
 
+  private get hasStrictSubscriber(): boolean {
+    return Array.from(this.subscribers.values()).some((sub) =>
+      sub.requireLiveCopyOutcome(),
+    );
+  }
+
+  private get outboxScope(): {
+    prefix: string;
+    key: string;
+    versionedPrefix: string;
+    versionedKey: string;
+  } | null {
+    const email = this.lastSetUser?.email.trim().toLowerCase();
+    if (!email || typeof window === "undefined") return null;
+    const prefix = outboxPrefix(this.registryKey, email);
+    const versionedPrefix = outboxPrefix(
+      this.registryKey,
+      email,
+      VERSIONED_OUTBOX_PREFIX,
+    );
+    return {
+      prefix,
+      key: prefix + this.outboxOwnerId,
+      versionedPrefix,
+      versionedKey: versionedPrefix + this.outboxOwnerId,
+    };
+  }
+
+  private markDurableUpdatesFailed(): void {
+    if (!this.snapshot.durableUpdatesFailed) {
+      this.setSnapshot({ durableUpdatesFailed: true });
+    }
+  }
+
+  private holdOutboxOwner(key: string): void {
+    if (this.disposed || this.releaseOutboxOwner) return;
+    const locks =
+      typeof navigator === "undefined" ? undefined : navigator.locks;
+    if (typeof locks?.request !== "function") {
+      this.markDurableUpdatesFailed();
+      return;
+    }
+    // Queue the owner lock before publishing bytes an adopting tab can read.
+    const held = new Promise<void>((release) => {
+      this.releaseOutboxOwner = release;
+    });
+    void locks
+      .request(OUTBOX_OWNER_LOCK_PREFIX + key, () => held)
+      .catch(() => {
+        if (!this.disposed) this.markDurableUpdatesFailed();
+      });
+  }
+
+  private storeUnsentUpdates(): void {
+    if (!this.keepsUnsentUpdates) return;
+    const scope = this.outboxScope;
+    if (!scope) return;
+    this.holdOutboxOwner(scope.key);
+    try {
+      if (this.pendingUpdates.length === 0) {
+        window.localStorage.removeItem(scope.key);
+        window.localStorage.removeItem(scope.versionedKey);
+      } else {
+        const encode = (items: PendingCollabUpdate[]) =>
+          uint8ArrayToBase64(Y.mergeUpdates(items.map((item) => item.update)));
+        const updates = [true, false].flatMap((requireLiveCopyOutcome) => {
+          const items = this.pendingUpdates.filter(
+            (item) => item.requireLiveCopyOutcome === requireLiveCopyOutcome,
+          );
+          return items.length
+            ? [{ update: encode(items), requireLiveCopyOutcome }]
+            : [];
+        });
+        // Older clients only understand v1's bare Yjs bytes and must not
+        // adopt or delete a versioned custody record.
+        window.localStorage.setItem(
+          scope.versionedKey,
+          JSON.stringify({ version: 2, updates }),
+        );
+        window.localStorage.removeItem(scope.key);
+      }
+    } catch {
+      this.markDurableUpdatesFailed();
+    }
+  }
+
+  /**
+   * Sends what other connections for this doc and user kept: a tab that
+   * closed or reloaded before its updates were acknowledged. Applying them
+   * queues what the doc lacks as this connection's own unsent updates, which
+   * are kept before the other entry is removed. A live or frozen tab keeps
+   * its owner lock, so another connection leaves its entry untouched.
+   */
+  private restoreUnsentUpdates(): void {
+    if (
+      this.unsentUpdatesRestored ||
+      !this.keepsUnsentUpdates ||
+      !this.updateHandlerAttached ||
+      this.awaitingServerState ||
+      this.disposed
+    ) {
+      return;
+    }
+    const scope = this.outboxScope;
+    if (!scope) return;
+    this.unsentUpdatesRestored = true;
+    const stored: StoredOutbox[] = [];
+    try {
+      const storage = window.localStorage;
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index);
+        if (
+          !key ||
+          (!key.startsWith(scope.prefix) &&
+            !key.startsWith(scope.versionedPrefix)) ||
+          key === scope.key ||
+          key === scope.versionedKey
+        )
+          continue;
+        const raw = storage.getItem(key);
+        if (raw !== null)
+          stored.push({
+            key,
+            raw,
+            version: key.startsWith(scope.versionedPrefix) ? 2 : 1,
+          });
+      }
+    } catch {
+      this.markDurableUpdatesFailed();
+      return;
+    }
+    const locks =
+      typeof navigator === "undefined" ? undefined : navigator.locks;
+    if (typeof locks?.request !== "function") {
+      this.markDurableUpdatesFailed();
+      return;
+    }
+    for (const entry of stored) {
+      const ownerKey = entry.key.startsWith(scope.versionedPrefix)
+        ? scope.prefix + entry.key.slice(scope.versionedPrefix.length)
+        : entry.key;
+      void locks
+        .request(
+          OUTBOX_OWNER_LOCK_PREFIX + ownerKey,
+          { ifAvailable: true },
+          (lock) => {
+            if (
+              !lock ||
+              this.disposed ||
+              this.outboxScope?.prefix !== scope.prefix
+            )
+              return;
+            try {
+              const raw = window.localStorage.getItem(entry.key);
+              if (raw !== null) this.adoptStoredOutbox({ ...entry, raw });
+            } catch {
+              this.markDurableUpdatesFailed();
+            }
+          },
+        )
+        .catch(() => {
+          if (!this.disposed) this.markDurableUpdatesFailed();
+        });
+    }
+  }
+
+  private adoptStoredOutbox(entry: StoredOutbox): void {
+    try {
+      for (const item of readStoredUpdates(entry, this.hasStrictSubscriber)) {
+        if (entry.version === 2 || item.requireLiveCopyOutcome) {
+          Y.applyUpdate(this.ydoc, item.update, "remote");
+          // Applying one custody group can integrate another's pending
+          // dependencies without emitting a separate update event.
+          this.enqueueUpdate(item.update, item.requireLiveCopyOutcome);
+        } else {
+          Y.applyUpdate(this.ydoc, item.update, OUTBOX_ORIGIN);
+        }
+      }
+      // Kept nowhere else while this connection cannot keep its own.
+      if (this.snapshot.durableUpdatesFailed) return;
+    } catch {
+      // An entry that cannot be applied never will be; it is reported,
+      // then removed so it is not reported on every open.
+      this.markDurableUpdatesFailed();
+    }
+    try {
+      if (window.localStorage.getItem(entry.key) === entry.raw) {
+        window.localStorage.removeItem(entry.key);
+      }
+    } catch {
+      this.markDurableUpdatesFailed();
+    }
+  }
+
   private markAgentActive(): void {
     this.setSnapshot({ agentActive: true });
     if (this.agentTimer) clearTimeout(this.agentTimer);
@@ -534,21 +1050,12 @@ class CollabDocConnection {
   setUser(user: CollabUser): void {
     if (this.disposed) return;
     if (!this.bindActorIdentity(user.email)) return;
+    const email = user.email.trim().toLowerCase();
     const prev = this.lastSetUser;
-    if (prev && prev.email !== user.email) {
-      if (this.pendingUpdates.length && this.retiredUpdatesKey) {
-        retiredCollabUpdates.set(this.retiredUpdatesKey, this.pendingUpdates);
-      }
-      this.pendingUpdates = [];
-      this.updateAbortController?.abort();
-      if (this.flushTimer) clearTimeout(this.flushTimer);
-      this.flushTimer = null;
-      this.updateErrors = 0;
-    }
+    if (prev?.email !== email) this.userGeneration++;
     if (
       prev &&
       prev.name === user.name &&
-      prev.email === user.email &&
       prev.color === user.color &&
       prev.avatarUrl === user.avatarUrl
     ) {
@@ -560,7 +1067,7 @@ class CollabDocConnection {
         : undefined;
     this.lastSetUser = {
       name: user.name,
-      email: user.email,
+      email,
       color: user.color,
       ...(avatarUrl ? { avatarUrl } : {}),
     };
@@ -572,14 +1079,16 @@ class CollabDocConnection {
       retiredCollabUpdates.delete(retiredKey);
       this.pendingUpdates.push(...retired);
       if (this.snapshot.initialization.status === "ready") {
-        for (const update of retired)
-          Y.applyUpdate(this.ydoc, update, "remote");
+        for (const item of retired)
+          Y.applyUpdate(this.ydoc, item.update, "remote");
         void this.flushPendingUpdates();
       }
     }
+    this.storeUnsentUpdates();
+    this.restoreUnsentUpdates();
     this.awareness.setLocalStateField("user", {
       name: user.name,
-      email: user.email,
+      email,
       color: user.color,
       ...(avatarUrl ? { avatarUrl } : {}),
     });
@@ -624,7 +1133,7 @@ class CollabDocConnection {
       this.snapshot.isSynced &&
       origin === "local" &&
       this.syncActive &&
-      !this.disposed
+      this.canPublishPresence
     ) {
       scheduleAwarenessPush(
         this.baseUrl,
@@ -649,7 +1158,547 @@ class CollabDocConnection {
   }
 
   private start(): void {
-    this.fetchInitialState();
+    const prefetch = takeCollabStatePrefetch(this.baseUrl, this.docId);
+    if (this.keepsLocalCopy && this.actorIdentity && !this.detached) {
+      void this.openFromLocalCopy(prefetch);
+      return;
+    }
+    if (!prefetch) {
+      this.fetchInitialState();
+      return;
+    }
+    // A prefetched diff is built on a saved copy this connection does not use,
+    // and an answer made for another session than the tab's now is another
+    // account's.
+    void prefetch.request.then(
+      (request) => {
+        if (this.disposed) return;
+        if (request.localState || !prefetch.isCurrent()) {
+          this.fetchInitialState();
+        } else {
+          this.fetchInitialState(request.response, prefetch.isCurrent);
+        }
+      },
+      () => {
+        if (!this.disposed) this.fetchInitialState();
+      },
+    );
+  }
+
+  // Methods, not fields, so a check after an await reads the value now.
+  private isClosed(): boolean {
+    return this.disposed;
+  }
+
+  private stillAwaitsServerState(): boolean {
+    return !this.disposed && this.awaitingServerState;
+  }
+
+  /** Whether the server's state is in the doc, so sync can run. */
+  private get serverStateReady(): boolean {
+    return (
+      this.snapshot.initialization.status === "ready" &&
+      !this.awaitingServerState
+    );
+  }
+
+  /**
+   * Opens the doc from this browser's saved copy, when there is one: the doc
+   * is ready at once, and the server is asked only for what the copy lacks.
+   * A copy already in memory opens in this task.
+   */
+  private async openFromLocalCopy(
+    prefetch: TakenCollabStatePrefetch | undefined,
+  ): Promise<void> {
+    const account = this.actorIdentity;
+    const key = collabLocalCopyKey(this.baseUrl, this.docId);
+    let request = prefetch
+      ? await prefetch.request.then(
+          (value): CollabStateRequest | undefined => value,
+          () => undefined,
+        )
+      : undefined;
+    if (this.disposed) return;
+    // An answer made for another session than the tab's now is another
+    // account's, and a copy read before the session was known may be too.
+    if (
+      request &&
+      (!prefetch?.isCurrent() ||
+        (request.localState && request.account !== account))
+    )
+      request = undefined;
+    let local = request ? request.localState : null;
+    if (!request) {
+      const inMemory = peekCollabLocalCopy(account, key);
+      if (inMemory) {
+        local = inMemory;
+      } else {
+        const read = await readCollabLocalCopy(account, key);
+        if (this.isClosed()) return;
+        local = read.status === "hit" ? read.state : null;
+      }
+    }
+    // Any read from here carries the new session's cookie into this account's doc.
+    if (this.tabLeftThisAccount()) {
+      this.supersede(
+        `The session changed while opening the saved copy of collab doc ${this.docId}; opening the server's copy instead.`,
+        "session-changed",
+      );
+      return;
+    }
+    if (rejectedLocalCopies.has(this.registryKey)) local = null;
+    if (!local || !this.applyLocalCopy(local)) {
+      if (local) deleteCollabLocalCopy(account, key);
+      if (request && !request.localState) {
+        this.fetchInitialState(request.response, prefetch?.isCurrent);
+      } else {
+        this.fetchInitialState();
+      }
+      return;
+    }
+    void this.requestServerState(
+      request?.localState
+        ? { ...request, isCurrent: prefetch?.isCurrent }
+        : undefined,
+    );
+  }
+
+  /** Applies a saved copy, unless it is not a whole doc. */
+  private applyLocalCopy(state: Uint8Array): boolean {
+    const validationDoc = new Y.Doc();
+    try {
+      Y.applyUpdate(validationDoc, state, "remote");
+      // Saved only from a whole doc, a copy missing structs it depends on, or
+      // holding none, is not one this client wrote.
+      if (
+        validationDoc.store.pendingStructs ||
+        validationDoc.store.pendingDs ||
+        validationDoc.store.clients.size === 0
+      )
+        return false;
+      // coercion-ok: a copy Yjs cannot read is not a whole doc; the caller deletes it.
+    } catch {
+      return false;
+    } finally {
+      validationDoc.destroy();
+    }
+    Y.applyUpdate(this.ydoc, state, "remote");
+    this.localCopyVector = Y.encodeStateVectorFromUpdate(state);
+    this.typingBaseline = Y.decodeStateVector(this.localCopyVector);
+    this.ydoc.on("afterTransaction", this.noteDeletionOnLocalCopy);
+    for (const item of this.pendingUpdates) {
+      Y.applyUpdate(this.ydoc, item.update, "remote");
+    }
+    this.awaitingServerState = true;
+    // Edits made now wait in the queue until the server's state covers the
+    // copy: only then is everything they build on known to be the server's.
+    this.attachUpdateHandler();
+    this.setSnapshot({
+      isLoading: false,
+      isSynced: false,
+      fromLocalCopy: true,
+      initialization: { status: "ready" },
+    });
+    return true;
+  }
+
+  /** Asks the server for what this doc lacks; one request at a time. */
+  private requestServerState(
+    prefetched?: SentCollabStateRequest,
+  ): Promise<CollaborativeDocSyncResult> {
+    if (this.serverStateRequest) return this.serverStateRequest;
+    if (this.serverStateRetryTimer) {
+      clearTimeout(this.serverStateRetryTimer);
+      this.serverStateRetryTimer = null;
+    }
+    const request = this.readServerState(prefetched);
+    this.serverStateRequest = request;
+    void request.finally(() => {
+      if (this.serverStateRequest === request) this.serverStateRequest = null;
+    });
+    return request;
+  }
+
+  private async readServerState(
+    prefetched?: SentCollabStateRequest,
+  ): Promise<CollaborativeDocSyncResult> {
+    // Only a doc opened from a saved copy waits for the server's state.
+    const localVector = this.localCopyVector;
+    if (!localVector) return { status: "unavailable" };
+    const sent: SentCollabStateRequest = prefetched ?? {
+      ...requestCollabState(
+        this.baseUrl,
+        this.docId,
+        Y.encodeStateVector(this.ydoc),
+      ),
+      isCurrent: collabSessionGuard(),
+    };
+    let res: Response;
+    try {
+      res = await sent.response;
+    } catch (error) {
+      return this.retryServerStateLater(error);
+    }
+    if (this.disposed || !this.awaitingServerState) {
+      return { status: "unavailable" };
+    }
+    // The session changed while the read was on its way, so its answer says
+    // nothing about this one, not even that the doc is gone.
+    if (sent.isCurrent?.() === false) return this.readServerState();
+    if (res.status === 404 || res.status === 403) {
+      this.forgetLocalCopy();
+      this.awaitingServerState = false;
+      this.releaseTypingOnLocalCopy("unavailable");
+      this.markInitializationFailed("forbidden-or-not-found");
+      // The typing went over with the copy, so none of it is sent: not as
+      // the page closes, and not by the next open.
+      this.dropUnsentUpdates();
+      return {
+        status: "failed",
+        error: new Error(`Collab state request failed: HTTP ${res.status}`),
+      };
+    }
+    if (!res.ok) {
+      return this.retryServerStateLater(
+        new Error(`Collab state request failed: HTTP ${res.status}`),
+      );
+    }
+    // coercion-ok: an unreadable body fails below as an invalid payload.
+    const data = (await res.json().catch(() => null)) as {
+      state?: unknown;
+      stateVector?: unknown;
+      activityBaseline?: unknown;
+    } | null;
+    if (!this.stillAwaitsServerState()) return { status: "unavailable" };
+    if (sent.isCurrent?.() === false) return this.readServerState();
+    let update: Uint8Array;
+    let serverVector: Uint8Array | null;
+    try {
+      if (typeof data?.state !== "string" || data.state.length === 0) {
+        throw new Error("The collab state response did not contain state");
+      }
+      update = base64ToUint8Array(data.state);
+      serverVector =
+        typeof data.stateVector === "string"
+          ? base64ToUint8Array(data.stateVector)
+          : sent.withStateVector
+            ? null
+            : Y.encodeStateVectorFromUpdate(update);
+      if (serverVector) Y.decodeStateVector(serverVector);
+    } catch (error) {
+      // An answer that cannot be read cannot vouch for the copy either.
+      return this.supersedeForUnreadableState(error);
+    }
+    // A server from before diffs carried its vector: ask for the whole state.
+    if (!serverVector) {
+      return this.readServerState({
+        ...requestCollabState(this.baseUrl, this.docId, null),
+        isCurrent: sent.isCurrent,
+      });
+    }
+    if (!stateVectorCovers(serverVector, localVector)) {
+      this.supersede(
+        `The saved copy of collab doc ${this.docId} holds state the server does not; opening the server's copy instead.`,
+      );
+      return { status: "unavailable" };
+    }
+    // Covering the copy keeps what it holds, but not typing that went inside
+    // something the server has deleted since: the deletion stands, and the
+    // typing as it was is handed over.
+    const typed = this.typedOnLocalCopy();
+    const withTyping =
+      typed.length > 0 || this.deletedOnLocalCopy
+        ? Y.encodeStateAsUpdate(this.ydoc)
+        : null;
+    try {
+      Y.applyUpdate(this.ydoc, update, "remote");
+    } catch (error) {
+      // A failed apply can leave part of the server's state in the doc, so
+      // the typing goes over as it stood before.
+      if (withTyping) this.handOffDisplacedTyping(withTyping, "superseded");
+      this.typingBaseline = null;
+      return this.supersedeForUnreadableState(error);
+    }
+    if (withTyping && typed.some((item) => item.deleted)) {
+      this.handOffDisplacedTyping(withTyping, "deleted");
+    }
+    this.typingBaseline = null;
+    this.localCopyVerified = true;
+    this.takeActivityBaseline(data.activityBaseline);
+    this.awaitingServerState = false;
+    this.serverStateRetryDelay = SERVER_STATE_RETRY_MS;
+    this.setSnapshot({ isSynced: true, fromLocalCopy: false });
+    this.startTransport();
+    this.restoreUnsentUpdates();
+    this.scheduleLocalCopySave();
+    // What was typed on the copy waited for this. Typing inside a block the
+    // server deleted goes too: a client's updates must arrive without gaps, or
+    // the server holds back everything after them. It arrives already deleted,
+    // so the server's doc doesn't change.
+    void this.flushPendingUpdates();
+    return { status: "synced" };
+  }
+
+  /**
+   * The server answered, but not with state this doc can take: the copy is
+   * given up as when the server does not hold it, and the new connection
+   * reads the server's state from scratch, failing there as any doc would.
+   */
+  private supersedeForUnreadableState(
+    error: unknown,
+  ): CollaborativeDocSyncResult {
+    this.supersede(
+      `The server's state for collab doc ${this.docId} could not be read over the saved copy (${error instanceof Error ? error.message : String(error)}); opening the server's copy instead.`,
+    );
+    return { status: "unavailable" };
+  }
+
+  /** The saved copy stays open and takes edits; the server is asked again. */
+  private retryServerStateLater(error: unknown): CollaborativeDocSyncResult {
+    if (this.disposed || !this.awaitingServerState) {
+      return { status: "unavailable" };
+    }
+    if (this.serverStateRetryTimer) clearTimeout(this.serverStateRetryTimer);
+    this.serverStateRetryTimer = setTimeout(() => {
+      this.serverStateRetryTimer = null;
+      void this.requestServerState();
+    }, this.serverStateRetryDelay);
+    this.serverStateRetryDelay = Math.min(
+      this.serverStateRetryDelay * 2,
+      SERVER_STATE_RETRY_MAX_MS,
+    );
+    return {
+      status: "failed",
+      error:
+        error instanceof Error
+          ? error
+          : new Error("The collab state request failed"),
+    };
+  }
+
+  private forgetLocalCopy(): void {
+    if (!this.keepsLocalCopy || !this.actorIdentity) return;
+    deleteCollabLocalCopy(
+      this.actorIdentity,
+      collabLocalCopyKey(this.baseUrl, this.docId),
+    );
+  }
+
+  /**
+   * Content the doc shows that was added since it opened from its saved copy:
+   * typed here, or kept unsent from before. Only content in a sequence (text,
+   * blocks); attribute and format changes are not typing.
+   */
+  private typedOnLocalCopy(): Y.Item[] {
+    const baseline = this.typingBaseline;
+    if (!baseline) return [];
+    const typed: Y.Item[] = [];
+    for (const [client, structs] of this.ydoc.store.clients) {
+      const from = baseline.get(client) ?? 0;
+      // Structs are in clock order, so walk back from the newest.
+      for (let index = structs.length - 1; index >= 0; index--) {
+        const struct = structs.at(index);
+        if (!struct || struct.id.clock + struct.length <= from) break;
+        if (
+          struct instanceof Y.Item &&
+          struct.countable &&
+          !struct.deleted &&
+          struct.parentSub === null
+        )
+          typed.push(struct);
+      }
+    }
+    return typed;
+  }
+
+  // Runs before the transaction's deleted items are collected, while they can
+  // still say what they held.
+  private noteDeletionOnLocalCopy = (transaction: Y.Transaction): void => {
+    const baseline = this.typingBaseline;
+    if (!baseline || this.deletedOnLocalCopy) return;
+    Y.iterateDeletedStructs(transaction, transaction.deleteSet, (struct) => {
+      if (
+        struct instanceof Y.Item &&
+        struct.countable &&
+        struct.parentSub === null &&
+        struct.id.clock < (baseline.get(struct.id.client) ?? 0)
+      )
+        this.deletedOnLocalCopy = true;
+    });
+  };
+
+  /**
+   * Hands typing on the saved copy over, if there is any; then stops looking.
+   * A deletion goes too when the copy is given up for the server's doc, which
+   * still holds what was deleted. A page that's gone has nothing to keep it for.
+   */
+  private releaseTypingOnLocalCopy(
+    reason: DisplacedCollabEdits["reason"],
+  ): void {
+    const deleted =
+      reason !== "unavailable" &&
+      this.typingBaseline !== null &&
+      this.deletedOnLocalCopy;
+    if (deleted || this.typedOnLocalCopy().length > 0) {
+      this.handOffDisplacedTyping(Y.encodeStateAsUpdate(this.ydoc), reason);
+    }
+    this.typingBaseline = null;
+  }
+
+  /** Forgets this connection's unsent updates, here and in its custody. */
+  private dropUnsentUpdates(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.updateAbortController?.abort();
+    this.pendingUpdates = [];
+    if (this.retiredUpdatesKey) {
+      retiredCollabUpdates.delete(this.retiredUpdatesKey);
+    }
+    this.storeUnsentUpdates();
+  }
+
+  private handOffDisplacedTyping(
+    state: Uint8Array,
+    reason: DisplacedCollabEdits["reason"],
+  ): void {
+    const queue = displacedTyping.get(this.registryKey) ?? [];
+    queue.push({ state, reason });
+    displacedTyping.set(this.registryKey, queue);
+    this.deliverDisplacedTyping();
+  }
+
+  /** Gives displaced typing to the newest subscriber that keeps it. */
+  private deliverDisplacedTyping(): void {
+    const queue = displacedTyping.get(this.registryKey);
+    if (!queue) return;
+    const keep = Array.from(this.subscribers.values())
+      .reverse()
+      .find((sub) => sub.onLocalCopyEditsDisplaced)?.onLocalCopyEditsDisplaced;
+    if (!keep) return;
+    displacedTyping.delete(this.registryKey);
+    for (const edits of queue) {
+      try {
+        keep(edits);
+      } catch (error) {
+        console.error("Displaced typing could not be kept", error);
+      }
+    }
+  }
+
+  /**
+   * Gives this doc up for a new connection that reads the server's state from
+   * scratch: a doc opened from a saved copy can never drop what the copy put
+   * in it. Edits made on it since go with it, since the server could not take
+   * them on top of state it does not have; typing among them is handed over
+   * first.
+   */
+  private supersede(
+    warning?: string,
+    reason: DisplacedCollabEdits["reason"] = "superseded",
+  ): void {
+    if (warning) console.warn(warning);
+    this.releaseTypingOnLocalCopy(reason);
+    rejectedLocalCopies.add(this.registryKey);
+    this.forgetLocalCopy();
+    this.localCopyRejected = true;
+    this.awaitingServerState = false;
+    if (this.serverStateRetryTimer) {
+      clearTimeout(this.serverStateRetryTimer);
+      this.serverStateRetryTimer = null;
+    }
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.updateAbortController?.abort();
+    this.pendingUpdates = [];
+    this.storeUnsentUpdates();
+    this.detachUpdateHandler();
+    this.stopSync();
+    if (collabConnectionRegistry.get(this.registryKey) === this) {
+      collabConnectionRegistry.delete(this.registryKey);
+    }
+    this.setSnapshot({
+      isLoading: true,
+      isSynced: false,
+      fromLocalCopy: false,
+      superseded: true,
+      initialization: { status: "loading" },
+    });
+  }
+
+  private scheduleLocalCopySave = (): void => {
+    if (!this.keepsLocalCopy || this.disposed || this.localCopyRejected) return;
+    if (this.localCopySaveTimer) clearTimeout(this.localCopySaveTimer);
+    this.localCopySaveTimer = setTimeout(() => {
+      this.localCopySaveTimer = null;
+      if (this.saveLocalCopy()) return;
+      // Edits on their way to the server: save once they are acknowledged.
+      if (
+        this.updateInFlight ||
+        (this.pendingUpdates.length > 0 &&
+          this.updateErrors === 0 &&
+          !this.snapshot.updatesRefused)
+      )
+        this.scheduleLocalCopySave();
+    }, LOCAL_COPY_SAVE_DELAY_MS);
+  };
+
+  private tabLeftThisAccount(): boolean {
+    return (
+      typeof this.sessionIdentity === "string" &&
+      this.sessionIdentity !== currentSessionIdentity()
+    );
+  }
+
+  /**
+   * Saves the doc's state as this browser's copy, only while the server holds
+   * all of it: synced, and none of this tab's edits waiting for an
+   * acknowledgment.
+   */
+  private saveLocalCopy(): boolean {
+    if (
+      !this.keepsLocalCopy ||
+      this.localCopyRejected ||
+      this.disposed ||
+      this.signedOut ||
+      this.docMissing ||
+      !this.actorIdentity ||
+      !this.serverStateReady ||
+      !this.snapshot.isSynced ||
+      this.pendingUpdates.length > 0 ||
+      this.updateInFlight ||
+      this.snapshot.updatesRefused
+    )
+      return false;
+    // The other account's copies are what this write would evict.
+    if (this.tabLeftThisAccount()) return false;
+    saveCollabLocalCopy(
+      this.actorIdentity,
+      collabLocalCopyKey(this.baseUrl, this.docId),
+      Y.encodeStateAsUpdate(this.ydoc),
+    );
+    return true;
+  }
+
+  private takeActivityBaseline(value: unknown): void {
+    const baseline = value as
+      | { status?: unknown; version?: unknown; cursor?: unknown }
+      | undefined;
+    if (
+      baseline?.status === "ready" &&
+      Number.isSafeInteger(baseline.version) &&
+      (baseline.version as number) >= 0 &&
+      typeof baseline.cursor === "string" &&
+      baseline.cursor.length > 0
+    ) {
+      this.pollVersion = baseline.version as number;
+      this.lastPolledVersion = baseline.version as number;
+      this.pollCursor = baseline.cursor;
+      this.pollActivityBaselineReady = true;
+    }
   }
 
   private startTransport(): void {
@@ -666,12 +1715,22 @@ class CollabDocConnection {
     });
   }
 
-  private fetchInitialState(): void {
-    fetch(`${this.baseUrl}/${this.docId}/state`, {
+  private fetchInitialState(
+    response: Promise<Response> = fetch(`${this.baseUrl}/${this.docId}/state`, {
       headers: { "X-Agent-Native-Poll-Baseline": "1" },
-    }).then(
+    }),
+    // For a boot read, whether the session it was made under is still the tab's.
+    isCurrent?: () => boolean,
+  ): void {
+    response.then(
       async (res) => {
         if (this.disposed) return;
+        // The session changed while the boot read was on its way, so its
+        // answer is another session's.
+        if (isCurrent?.() === false) {
+          this.fetchInitialState();
+          return;
+        }
         if (res.status === 404 || res.status === 403) {
           this.markInitializationFailed("forbidden-or-not-found");
           return;
@@ -689,23 +1748,15 @@ class CollabDocConnection {
           };
         } | null;
         if (this.disposed) return;
+        if (isCurrent?.() === false) {
+          this.fetchInitialState();
+          return;
+        }
         if (typeof data?.state !== "string" || data.state.length === 0) {
           this.markInitializationFailed("invalid-payload");
           return;
         }
-        const baseline = data.activityBaseline;
-        if (
-          baseline?.status === "ready" &&
-          Number.isSafeInteger(baseline.version) &&
-          (baseline.version as number) >= 0 &&
-          typeof baseline.cursor === "string" &&
-          baseline.cursor.length > 0
-        ) {
-          this.pollVersion = baseline.version as number;
-          this.lastPolledVersion = baseline.version as number;
-          this.pollCursor = baseline.cursor;
-          this.pollActivityBaselineReady = true;
-        }
+        this.takeActivityBaseline(data.activityBaseline);
         if (data.state) {
           try {
             const binary = base64ToUint8Array(data.state);
@@ -716,8 +1767,8 @@ class CollabDocConnection {
               validationDoc.destroy();
             }
             Y.applyUpdate(this.ydoc, binary, "remote");
-            for (const update of this.pendingUpdates) {
-              Y.applyUpdate(this.ydoc, update, "remote");
+            for (const item of this.pendingUpdates) {
+              Y.applyUpdate(this.ydoc, item.update, "remote");
             }
           } catch {
             this.markInitializationFailed("invalid-payload");
@@ -730,6 +1781,8 @@ class CollabDocConnection {
           initialization: { status: "ready" },
         });
         this.startTransport();
+        this.restoreUnsentUpdates();
+        this.scheduleLocalCopySave();
       },
       () => {
         if (this.disposed) return;
@@ -753,6 +1806,7 @@ class CollabDocConnection {
     this.setSnapshot({
       isLoading: false,
       isSynced: false,
+      fromLocalCopy: false,
       initialization: { status: "error", category },
     });
   }
@@ -773,10 +1827,23 @@ class CollabDocConnection {
   }
 
   retry = (): void => {
+    // What a saved copy put in this doc stays in it, so a doc opened from one
+    // the server never confirmed starts again from the server's state alone.
+    if (this.localCopyVector && !this.localCopyVerified) {
+      this.supersede();
+      return;
+    }
     this.retryInitialization();
   };
 
   requestSync = (): Promise<CollaborativeDocSyncResult> => {
+    if (
+      this.awaitingServerState &&
+      !this.disposed &&
+      this.subscribers.size > 0
+    ) {
+      return this.requestServerState();
+    }
     if (
       this.disposed ||
       this.subscribers.size === 0 ||
@@ -790,6 +1857,12 @@ class CollabDocConnection {
 
   flushUpdates = async (): Promise<boolean> => {
     while (!this.disposed && this.pendingUpdates.length > 0) {
+      // Edits on a saved copy go out only once the server's state covers it.
+      if (this.awaitingServerState) {
+        await this.requestServerState();
+        if (!this.serverStateReady || this.localCopyRejected) return false;
+        continue;
+      }
       if (this.updateInFlight) {
         await new Promise((resolve) => setTimeout(resolve, 25));
         continue;
@@ -798,25 +1871,68 @@ class CollabDocConnection {
         clearTimeout(this.flushTimer);
         this.flushTimer = null;
       }
+      const strictDeliveryVersion = this.strictDeliveryVersion;
       await this.flushPendingUpdates();
-      if (this.updateErrors > 0) return false;
+      if (this.snapshot.updatesRefused) return false;
+      if (
+        this.updateErrors > 0 &&
+        (strictDeliveryVersion === this.strictDeliveryVersion ||
+          !this.pendingUpdates.some((item) => !item.requireLiveCopyOutcome))
+      )
+        return false;
     }
     return this.pendingUpdates.length === 0;
   };
 
   private handleDocUpdate = (update: Uint8Array, origin: unknown): void => {
     if (origin === "remote") return;
-    this.pendingUpdates.push(update);
+    this.enqueueUpdate(update, this.hasStrictSubscriber);
+  };
+
+  private enqueueUpdate(
+    update: Uint8Array,
+    requireLiveCopyOutcome: boolean,
+  ): void {
+    this.pendingUpdates.push({ update, requireLiveCopyOutcome });
+    this.storeUnsentUpdates();
     if (this.updateErrors && this.flushTimer) return;
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
       void this.flushPendingUpdates();
     }, UPDATE_DEBOUNCE_MS);
-  };
+  }
 
   private handlePageHide = (): void => {
-    this.flushPendingUpdates(true);
+    this.saveLocalCopy();
+    void this.flushPendingUpdates(true);
+    this.pageHidden = true;
+    void this.clearPresence()?.catch(() => {});
+  };
+
+  private handlePageShow = (): void => {
+    if (!this.pageHidden || this.disposed || this.signedOut) return;
+    this.pageHidden = false;
+    // BFCache must retain the doc's sequence/token until it is retired.
+    this.presenceClear = null;
+    this.publishVisibility(!isDocumentHidden());
+    this.pollNow();
+  };
+
+  // A tab that comes back online sends what it kept without waiting out the
+  // retry backoff it built up while offline.
+  private handleOnline = (): void => {
+    if (this.awaitingServerState) void this.requestServerState();
+    if (!this.keepsUnsentUpdates) return;
+    if (this.updateInFlight) {
+      this.onlineDuringUpdate = true;
+      return;
+    }
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    void this.flushPendingUpdates();
   };
 
   private attachUpdateHandler(): void {
@@ -825,6 +1941,8 @@ class CollabDocConnection {
     this.ydoc.on("update", this.handleDocUpdate);
     if (typeof window !== "undefined") {
       window.addEventListener("pagehide", this.handlePageHide);
+      window.addEventListener("online", this.handleOnline);
+      window.addEventListener("pageshow", this.handlePageShow);
     }
   }
 
@@ -834,16 +1952,27 @@ class CollabDocConnection {
     this.ydoc.off("update", this.handleDocUpdate);
     if (typeof window !== "undefined") {
       window.removeEventListener("pagehide", this.handlePageHide);
+      window.removeEventListener("online", this.handleOnline);
+      window.removeEventListener("pageshow", this.handlePageShow);
     }
   }
 
   private async flushPendingUpdates(keepalive = false): Promise<void> {
+    // They wait for the server's state to cover the saved copy they build on.
+    if (this.awaitingServerState) return;
+    // A doc the server refused or no longer has takes nothing until a retry.
+    const initialization = this.snapshot.initialization;
     if (
-      keepalive
-        ? this.keepaliveInFlight
-        : this.disposed ||
+      initialization.status === "error" &&
+      initialization.category === "forbidden-or-not-found"
+    )
+      return;
+    if (
+      this.snapshot.updatesRefused ||
+      (!keepalive &&
+        (this.disposed ||
           this.updateInFlight ||
-          (this.updateErrors > 0 && this.flushTimer !== null)
+          (this.updateErrors > 0 && this.flushTimer !== null)))
     )
       return;
     if (this.flushTimer) {
@@ -851,12 +1980,36 @@ class CollabDocConnection {
       this.flushTimer = null;
     }
     if (this.pendingUpdates.length === 0) return;
-    const toSend = this.pendingUpdates.slice();
+    const ordinary = this.pendingUpdates.filter(
+      (item) => !item.requireLiveCopyOutcome,
+    );
+    // Ordinary successors may depend on retained strict bytes. Transport
+    // acceptance does not release those bytes' outcome custody.
+    const predecessors = ordinary.length
+      ? this.pendingUpdates.filter(
+          (item) =>
+            item.requireLiveCopyOutcome && !this.deliveredUpdates.has(item),
+        )
+      : [];
+    const toSend = (
+      predecessors.length
+        ? predecessors
+        : ordinary.length
+          ? ordinary
+          : this.pendingUpdates
+    ).slice(0, this.updateBatchLimit);
+    if (
+      keepalive &&
+      [...this.keepaliveSnapshots].some((snapshot) =>
+        toSend.every((item) => snapshot.includes(item)),
+      )
+    )
+      return;
+    if (keepalive) this.keepaliveSnapshots.add(toSend);
     const retiredKey = this.retiredUpdatesKey;
-    const merged = toSend.length === 1 ? toSend[0] : Y.mergeUpdates(toSend);
+    const merged = Y.mergeUpdates(toSend.map((item) => item.update));
     const controller = new AbortController();
-    if (keepalive) this.keepaliveInFlight = true;
-    else {
+    if (!keepalive) {
       this.updateInFlight = true;
       this.updateAbortController = controller;
     }
@@ -864,6 +2017,15 @@ class CollabDocConnection {
       () => controller.abort(),
       STATE_VECTOR_FETCH_TIMEOUT_MS,
     );
+    const userGeneration = this.userGeneration;
+    const requireLiveCopyOutcome = toSend.some(
+      (item) => item.requireLiveCopyOutcome,
+    );
+    const acknowledgedOwners = new Set<CollabDocSubscription>();
+    const ordinaryReceiptOwners = Array.from(this.subscribers.values()).filter(
+      (sub) => !sub.requireLiveCopyOutcome(),
+    );
+    let ack: CollabUpdateAck | null = null;
     try {
       const response = await fetch(`${this.baseUrl}/${this.docId}/update`, {
         method: "POST",
@@ -875,7 +2037,64 @@ class CollabDocConnection {
         signal: controller.signal,
         ...(keepalive ? { keepalive: true } : {}),
       });
+      // The same bytes are refused again, so a refused batch is sent in
+      // halves, and a refused single update stops this tab's updates.
+      if (this.keepsUnsentUpdates && response.status === 413) {
+        if (userGeneration !== this.userGeneration) return;
+        if (
+          !toSend.some(
+            (item) =>
+              this.pendingUpdates.includes(item) &&
+              !this.deliveredUpdates.has(item),
+          )
+        )
+          return;
+        if (toSend.length > 1) {
+          this.updateBatchLimit = Math.ceil(toSend.length / 2);
+        } else {
+          this.setSnapshot({ updatesRefused: true });
+        }
+        return;
+      }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (userGeneration !== this.userGeneration) return;
+      for (const item of toSend) {
+        if (!this.deliveredUpdates.has(item)) {
+          this.deliveredUpdates.add(item);
+          if (item.requireLiveCopyOutcome) this.strictDeliveryVersion++;
+        }
+      }
+      const parsedAck =
+        requireLiveCopyOutcome ||
+        Array.from(this.subscribers.values()).some(
+          (sub) =>
+            sub.onUpdateAcknowledged !== undefined && sub.canAcknowledge(),
+        )
+          ? readUpdateAck(await response.json())
+          : null;
+      if (userGeneration !== this.userGeneration) return;
+      if (requireLiveCopyOutcome) {
+        if (!parsedAck?.liveCopy)
+          throw new Error(
+            "The collab update response omitted its live-copy outcome.",
+          );
+        for (const sub of this.subscribers.values()) {
+          if (this.disposed || userGeneration !== this.userGeneration) break;
+          if (
+            sub.requireLiveCopyOutcome() &&
+            sub.canAcknowledge() &&
+            sub.onUpdateAcknowledged
+          ) {
+            sub.onUpdateAcknowledged(parsedAck);
+            acknowledgedOwners.add(sub);
+          }
+        }
+        if (acknowledgedOwners.size === 0)
+          throw new Error(
+            "The live-copy acknowledgment has no current strict subscriber.",
+          );
+      }
+      ack = parsedAck;
       const previous = this.pendingUpdates;
       const acknowledged = new Set(toSend);
       this.pendingUpdates = previous.filter(
@@ -892,33 +2111,67 @@ class CollabDocConnection {
           retiredCollabUpdates.delete(retiredKey);
         }
       }
+      this.storeUnsentUpdates();
       this.updateErrors = 0;
+      if (this.pendingUpdates.length === 0) this.updateBatchLimit = Infinity;
     } catch {
-      this.updateErrors++;
+      if (userGeneration === this.userGeneration) this.updateErrors++;
     } finally {
+      if (keepalive) this.keepaliveSnapshots.delete(toSend);
       clearTimeout(timeout);
-      if (keepalive) this.keepaliveInFlight = false;
-      else {
+      let online = false;
+      if (!keepalive) {
         this.updateInFlight = false;
         this.updateAbortController = null;
+        online = this.onlineDuringUpdate;
+        this.onlineDuringUpdate = false;
       }
-      if (!this.disposed && this.pendingUpdates.length && !this.flushTimer) {
-        this.flushTimer = setTimeout(
-          () => {
-            this.flushTimer = null;
-            void this.flushPendingUpdates();
-          },
-          this.updateErrors
-            ? calcBackoff(this.updateErrors)
-            : UPDATE_DEBOUNCE_MS,
-        );
+      this.schedulePendingFlush(online);
+    }
+    // Ordinary receipts keep nullable-ACK compatibility. Strict owners have
+    // already handled their outcome before its pending bytes were removed.
+    if (ack && !this.disposed && userGeneration === this.userGeneration) {
+      const receiptOwners = [
+        ...ordinaryReceiptOwners.filter((sub) => !sub.requireLiveCopyOutcome()),
+        ...Array.from(this.subscribers.values()).filter((sub) =>
+          sub.requireLiveCopyOutcome(),
+        ),
+      ];
+      for (const sub of receiptOwners) {
+        if (
+          userGeneration === this.userGeneration &&
+          !acknowledgedOwners.has(sub) &&
+          sub.canAcknowledge() &&
+          (!sub.requireLiveCopyOutcome() || ack.liveCopy !== null)
+        )
+          sub.onUpdateAcknowledged?.(ack);
       }
     }
+  }
+
+  private schedulePendingFlush(online: boolean): void {
+    if (
+      this.disposed ||
+      this.snapshot.updatesRefused ||
+      this.pendingUpdates.length === 0 ||
+      this.flushTimer
+    )
+      return;
+    this.flushTimer = setTimeout(
+      () => {
+        this.flushTimer = null;
+        void this.flushPendingUpdates();
+      },
+      this.updateErrors && !online
+        ? calcBackoff(this.updateErrors)
+        : UPDATE_DEBOUNCE_MS,
+    );
   }
 
   private startSync(): void {
     if (
       this.syncActive ||
+      this.signedOut ||
       this.docMissing ||
       this.disposed ||
       this.subscribers.size === 0
@@ -1252,7 +2505,11 @@ class CollabDocConnection {
 
       if (!this.isPollCurrent(generation)) return;
       const localState = this.awareness.getLocalState();
-      if (localState && this.isPollCurrent(generation)) {
+      if (
+        localState &&
+        this.canPublishPresence &&
+        this.isPollCurrent(generation)
+      ) {
         try {
           const awarenessRes = await postAwarenessState(
             this.baseUrl,
@@ -1318,6 +2575,7 @@ class CollabDocConnection {
   }
 
   private publishVisibility(visible: boolean): void {
+    if (!this.canPublishPresence || !this.awareness.getLocalState()) return;
     this.awareness.setLocalStateField("visible", visible);
     const localState = this.awareness.getLocalState();
     if (!localState) return;
@@ -1384,9 +2642,47 @@ class CollabDocConnection {
 }
 
 const collabConnectionRegistry = new Map<string, CollabDocConnection>();
-// ponytail: in-memory retention survives component remounts; use a durable
-// outbox if offline reload recovery becomes supported. No retired retry loop.
-const retiredCollabUpdates = new Map<string, Uint8Array[]>();
+// In-memory retention survives component remounts; a connection with durable
+// updates also keeps them in localStorage. No retired retry loop.
+const retiredCollabUpdates = new Map<string, PendingCollabUpdate[]>();
+// Saved copies the server's state did not cover, by registry key: not opened
+// again in this page, even if deleting them from storage failed.
+const rejectedLocalCopies = new Set<string>();
+// Typing the server's state displaced, by registry key, until a subscriber
+// that keeps it is attached.
+const displacedTyping = new Map<string, DisplacedCollabEdits[]>();
+
+const SIGN_OUT_LOCAL_COPY_CLEAR_MS = 2000;
+
+// A sign-out in another tab cleared the stored copies; what this tab holds of
+// them goes once it reads that session. Docs still on a copy hear first, while
+// their editors are still the account's that typed on them.
+subscribeSessionIdentity((identity) => {
+  for (const connection of [...collabConnectionRegistry.values()]) {
+    connection.noteSessionIdentity(identity);
+  }
+  if (identity === null) forgetCollabLocalCopiesInThisTab();
+});
+
+// Saved copies are one account's; none survive a sign-out.
+registerBeforeSignOutCleanup(async () => {
+  dropCollabStatePrefetches();
+  rejectedLocalCopies.clear();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      clearCollabLocalCopies(),
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Clearing saved page copies timed out")),
+          SIGN_OUT_LOCAL_COPY_CLEAR_MS,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+});
 
 registerBeforeSignOutCleanup(async () => {
   const results = await Promise.allSettled(
@@ -1445,6 +2741,9 @@ export function _resetCollabDocRegistryForTests(): void {
   }
   collabConnectionRegistry.clear();
   retiredCollabUpdates.clear();
+  rejectedLocalCopies.clear();
+  displacedTyping.clear();
+  dropCollabStatePrefetches();
 }
 
 /** @internal — current registry size, for leak assertions in tests. */
@@ -1464,10 +2763,22 @@ export function useCollaborativeDoc(
     requestSource,
     user,
     activityResource,
+    durableUpdates = false,
+    localCopy,
+    requireLiveCopyOutcome = false,
+    onUpdateAcknowledged,
     onEvent,
   } = options;
+  const onUpdateAcknowledgedRef = useRef(onUpdateAcknowledged);
+  onUpdateAcknowledgedRef.current = onUpdateAcknowledged;
+  const requireLiveCopyOutcomeRef = useRef(requireLiveCopyOutcome);
+  requireLiveCopyOutcomeRef.current = requireLiveCopyOutcome;
+  const wantsAcks = onUpdateAcknowledged !== undefined;
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
+  const keepsLocalCopy = localCopy !== undefined;
+  const onEditsDisplacedRef = useRef(localCopy?.onEditsDisplaced);
+  onEditsDisplacedRef.current = localCopy?.onEditsDisplaced;
   useEffect(() => {
     if (!docId || !activityResource) return;
     return registerCollabActivityResource(activityResource);
@@ -1501,6 +2812,13 @@ export function useCollaborativeDoc(
   }, [docId, baseUrl, actorIdentity, generation, signedOutAfterAuthentication]);
   const previousActorConnection = useRef({ actorIdentity, conn });
 
+  const acknowledgementScope = useMemo(
+    () => ({ conn, email: resolvedUser?.email }),
+    [conn, resolvedUser?.email],
+  );
+  const activeAcknowledgementScope = useRef(acknowledgementScope);
+  activeAcknowledgementScope.current = acknowledgementScope;
+
   const [snapshot, setSnapshot] = useState<CollabDocSnapshot>(() =>
     conn ? conn.snapshot : EMPTY_SNAPSHOT,
   );
@@ -1518,19 +2836,62 @@ export function useCollaborativeDoc(
       return;
     }
     const id = Symbol("useCollaborativeDoc");
-    conn.add(id, {
-      pollInterval,
-      pollIntervalWithSse,
-      pauseWhenHidden,
-      requestSource,
-      onSnapshot: setSnapshot,
-      onEvent: (event) => onEventRef.current?.(event),
-    });
+    conn.add(
+      id,
+      {
+        pollInterval,
+        pollIntervalWithSse,
+        pauseWhenHidden,
+        ...(requestSource !== undefined ? { requestSource } : {}),
+        durableUpdates,
+        localCopy: keepsLocalCopy,
+        ...(keepsLocalCopy
+          ? {
+              onLocalCopyEditsDisplaced: (edits: DisplacedCollabEdits) =>
+                onEditsDisplacedRef.current?.(edits),
+            }
+          : {}),
+        requireLiveCopyOutcome: () =>
+          activeAcknowledgementScope.current === acknowledgementScope &&
+          requireLiveCopyOutcomeRef.current,
+        canAcknowledge: () =>
+          activeAcknowledgementScope.current === acknowledgementScope &&
+          onUpdateAcknowledgedRef.current !== undefined,
+        ...(wantsAcks
+          ? {
+              onUpdateAcknowledged: (ack: CollabUpdateAck) => {
+                if (activeAcknowledgementScope.current === acknowledgementScope)
+                  onUpdateAcknowledgedRef.current?.(ack);
+              },
+            }
+          : {}),
+        onSnapshot: setSnapshot,
+        onEvent: (event) => onEventRef.current?.(event),
+      },
+      resolvedUser,
+    );
     setSnapshot(conn.snapshot);
     return () => {
       conn.remove(id);
     };
-  }, [conn, pollInterval, pollIntervalWithSse, pauseWhenHidden, requestSource]);
+  }, [
+    conn,
+    pollInterval,
+    pollIntervalWithSse,
+    pauseWhenHidden,
+    requestSource,
+    durableUpdates,
+    keepsLocalCopy,
+    requireLiveCopyOutcome,
+    wantsAcks,
+    wantsAcks ? acknowledgementScope : null,
+  ]);
+
+  // A connection that gave its doc up is replaced by a fresh one.
+  const superseded = snapshot.superseded;
+  useEffect(() => {
+    if (superseded) setGeneration((current) => current + 1);
+  }, [superseded]);
 
   useEffect(() => {
     if (!conn || conn.detached || !resolvedUser) return;
@@ -1558,6 +2919,7 @@ export function useCollaborativeDoc(
         : null,
     isLoading: snapshot.isLoading,
     isSynced: snapshot.isSynced,
+    fromLocalCopy: snapshot.fromLocalCopy,
     initialization: snapshot.initialization,
     retry: conn
       ? () => {
@@ -1570,6 +2932,8 @@ export function useCollaborativeDoc(
       : () => {},
     requestSync: conn ? conn.requestSync : requestSyncUnavailable,
     flushUpdates: conn ? conn.flushUpdates : flushUpdatesUnavailable,
+    durableUpdatesFailed: snapshot.durableUpdatesFailed,
+    updatesRefused: snapshot.updatesRefused,
     activeUsers: snapshot.activeUsers,
     agentActive: snapshot.agentActive,
     agentPresent: snapshot.agentPresent,

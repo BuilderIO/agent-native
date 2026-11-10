@@ -12,6 +12,7 @@ import { z } from "zod";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { defineAction } from "../action.js";
+import { realtimeVoiceApprovalHooks } from "../server/realtime-voice.js";
 import { withExecutionFence } from "./execution-fence.js";
 import type { ActionEntry } from "./production-agent.js";
 import { executeAgentToolCall, toolCallCacheKey } from "./production-agent.js";
@@ -80,6 +81,7 @@ const {
   denyAgentToolApproval,
   hashAgentToolApprovalKey,
   isAgentToolAlwaysAllowed,
+  resolveAgentToolApprovalTurnId,
   setAgentToolApprovalPolicy,
 } = await import("./tool-approval-store.js");
 const { claimTurnExecutionLease, ensureRunTables, insertRun, markTurnAborted } =
@@ -144,6 +146,50 @@ beforeEach(async () => {
 });
 
 describe("tool approvals bound to the arguments that run", () => {
+  it("uses opaque keyed row values and refuses a grant after key rotation", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("SECRETS_ENCRYPTION_KEY", "synthetic-approval-key-a");
+    try {
+      const grant = { ...call, argumentsHash: "known-argument-digest" };
+      const approvalId = await createAgentToolApproval(grant);
+      const row = await pglite.query<{
+        approval_key_hash: string;
+        arguments_hash: string;
+      }>(
+        "SELECT approval_key_hash, arguments_hash FROM agent_tool_approvals WHERE id = ?",
+        [approvalId],
+      );
+      expect(row.rows[0]?.approval_key_hash).toMatch(/^hmac-v1:[a-f0-9]{64}$/);
+      expect(row.rows[0]?.arguments_hash).toMatch(/^hmac-v1:[a-f0-9]{64}$/);
+      expect(row.rows[0]?.approval_key_hash).not.toBe(
+        hashAgentToolApprovalKey(call.approvalKey),
+      );
+      expect(row.rows[0]?.arguments_hash).not.toBe(
+        hashAgentToolApprovalKey(grant.argumentsHash),
+      );
+      vi.stubEnv("SECRETS_ENCRYPTION_KEY", "synthetic-approval-key-b");
+      await expect(
+        consumeAgentToolApproval({ ...grant, approvalId }),
+      ).resolves.toBe(false);
+      vi.stubEnv("SECRETS_ENCRYPTION_KEY", "synthetic-approval-key-a");
+      await expect(
+        resolveAgentToolApprovalTurnId({
+          ...scope,
+          approvalKeys: [grant.approvalKey],
+          approvalId,
+        }),
+      ).resolves.toBe(scope.turnId);
+      await expect(
+        consumeAgentToolApproval({ ...grant, approvalId }),
+      ).resolves.toBe(true);
+      await expect(
+        consumeAgentToolApproval({ ...grant, approvalId }),
+      ).resolves.toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("consumes a one-time approval only for the arguments it was granted for", async () => {
     await createAgentToolApproval({ ...call, argumentsHash: "args-1" });
 
@@ -214,6 +260,53 @@ describe("tool approvals bound to the arguments that run", () => {
         threadId: scope.threadId,
       }),
     ).resolves.toBe("already_resolved");
+  });
+
+  it("allows only one competing consumer to use a pending approval", async () => {
+    const approvalId = await createAgentToolApproval(call);
+    const attempts = await Promise.all([
+      consumeAgentToolApproval({ ...call, approvalId }),
+      consumeAgentToolApproval({ ...call, approvalId }),
+    ]);
+
+    expect(attempts.filter(Boolean)).toHaveLength(1);
+    expect(
+      (
+        await pglite.query<{ status: string; consumed_at: number | null }>(
+          "SELECT status, consumed_at FROM agent_tool_approvals WHERE id = ?",
+          [approvalId],
+        )
+      ).rows[0],
+    ).toMatchObject({ status: "consumed", consumed_at: expect.any(Number) });
+  });
+
+  it("settles a competing denial and consumption without changing the winner", async () => {
+    const approvalId = await createAgentToolApproval(call);
+    const denial = () =>
+      denyAgentToolApproval({
+        approvalId,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        threadId: scope.threadId,
+      });
+    const [consumed, denied] = await Promise.all([
+      consumeAgentToolApproval({ ...call, approvalId }),
+      denial(),
+    ]);
+
+    expect(denied).toBe(consumed ? "already_resolved" : "denied");
+    await expect(
+      consumeAgentToolApproval({ ...call, approvalId }),
+    ).resolves.toBe(false);
+    await expect(denial()).resolves.toBe(denied);
+    expect(
+      (
+        await pglite.query<{ status: string }>(
+          "SELECT status FROM agent_tool_approvals WHERE id = ?",
+          [approvalId],
+        )
+      ).rows[0]?.status,
+    ).toBe(consumed ? "consumed" : "denied");
   });
 
   it("fences approval creation and consumption to the live worker generation", async () => {
@@ -381,8 +474,119 @@ describe("tool approval and turn cancellation ordering", () => {
   });
 });
 
+describe("voice chat approvals", () => {
+  it.each([
+    ["short", "s1"],
+    ["long", `s1-${"x".repeat(2_000)}`],
+  ])(
+    "asks once, runs the approved retry of %s arguments, and does not let it be reused",
+    async (_size, slideId) => {
+      const run = vi.fn(async () => ({ deleted: true }));
+      const actions = {
+        "delete-slide": defineAction({
+          description: "Delete a slide.",
+          schema: z.object({ slideId: z.string() }),
+          needsApproval: true,
+          run,
+        }) as unknown as ActionEntry,
+      };
+      const voiceCall = (callId: string, approvalId?: string) => {
+        const args = { slideId };
+        const { recordedApprovalId, ...approvalHooks } =
+          realtimeVoiceApprovalHooks({
+            userEmail: scope.ownerEmail,
+            orgId: scope.orgId,
+            sessionId: `voice-session-${slideId.length}`,
+            callId,
+            name: "delete-slide",
+            args,
+            ...(approvalId ? { approvalId } : {}),
+          });
+        return executeAgentToolCall({
+          actions,
+          name: "delete-slide",
+          input: args,
+          callId,
+          ownerEmail: scope.ownerEmail,
+          orgId: scope.orgId,
+          threadId: `realtime:voice-session-${slideId.length}`,
+          turnId: callId,
+          ...approvalHooks,
+        }).then((result) => ({ result, approvalId: recordedApprovalId() }));
+      };
+
+      const asked = await voiceCall("call_asked");
+      expect(asked.result).toMatchObject({ status: "approval_required" });
+      expect(run).not.toHaveBeenCalled();
+
+      expect(
+        (await voiceCall("call_asked_approved", asked.approvalId)).result,
+      ).toMatchObject({ status: "completed" });
+      expect(run).toHaveBeenCalledOnce();
+
+      // The approval was used up; the same record cannot run the call again.
+      expect(
+        (await voiceCall("call_again", asked.approvalId)).result,
+      ).toMatchObject({ status: "approval_required" });
+      expect(run).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("runs the exact approval the user approved after an identical request was declined", async () => {
+    const run = vi.fn(async () => ({ deleted: true }));
+    const actions = {
+      "delete-slide": defineAction({
+        description: "Delete a slide.",
+        schema: z.object({ slideId: z.string() }),
+        needsApproval: true,
+        run,
+      }) as unknown as ActionEntry,
+    };
+    const voiceCall = (callId: string, approvalId?: string) => {
+      const hooks = realtimeVoiceApprovalHooks({
+        userEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        sessionId: "voice-session-2",
+        callId,
+        name: "delete-slide",
+        args: { slideId: "s1" },
+        ...(approvalId ? { approvalId } : {}),
+      });
+      const { recordedApprovalId, ...approvalHooks } = hooks;
+      return executeAgentToolCall({
+        actions,
+        name: "delete-slide",
+        input: { slideId: "s1" },
+        callId,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        threadId: "realtime:voice-session-2",
+        turnId: callId,
+        ...approvalHooks,
+      }).then((result) => ({ result, approvalId: recordedApprovalId() }));
+    };
+
+    const declined = await voiceCall("call_first");
+    expect(
+      await denyAgentToolApproval({
+        approvalId: declined.approvalId!,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        threadId: "realtime:voice-session-2",
+      }),
+    ).toBe("denied");
+    // Left pending, the first record would sit beside this one.
+    const asked = await voiceCall("call_second");
+    await voiceCall("call_third");
+    const approved = await voiceCall("call_second_approved", asked.approvalId);
+
+    expect(approved.result).toMatchObject({ status: "completed" });
+    expect(run).toHaveBeenCalledOnce();
+  });
+});
+
 describe("tool approvals bound to a revision", () => {
-  it("keeps rows written before the migration valid for tools without a revision", async () => {
+  it("keeps legacy policies while refusing legacy unsalted grants", async () => {
     await expect(
       isAgentToolAlwaysAllowed({ ...scope, toolName: "legacy-tool" }),
     ).resolves.toBe(true);
@@ -400,7 +604,7 @@ describe("tool approvals bound to a revision", () => {
         callId: "call-0",
         approvalKey: "legacy-tool:{}",
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBe(false);
   });
 
   it("consumes a one-time approval only for the revision it was granted for", async () => {

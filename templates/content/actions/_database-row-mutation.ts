@@ -27,6 +27,7 @@ import type {
 import {
   isBlocksPropertyType,
   isComputedPropertyType,
+  isUrlPropertyValue,
   parsePropertyOptions,
   parsePropertyValue,
   serializePropertyValue,
@@ -40,11 +41,16 @@ import {
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
+import {
+  enqueuePropertyChangeWebhooks,
+  type PropertyChangeForWebhooks,
+} from "./_content-webhooks.js";
 import { lockExistingDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   normalizeDatabasePropertyInput,
   type DatabasePropertyEntry,
 } from "./_database-property-input.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertCollectionAcceptsNewRows,
   assertSourceAllowsPageEdit,
@@ -55,6 +61,18 @@ import {
   nextAppendPosition,
   withPositionLock,
 } from "./_position-utils.js";
+import {
+  assertPropertyGenerations,
+  propertyChangeIdsFor,
+  propertyGenerationConflictError,
+  propertyGenerationConflicts,
+  propertyGenerationsFor,
+  propertyNotGuardableError,
+  readPropertyTombstones,
+  recordPropertyChangeIds,
+  unguardablePropertyIds,
+  type PropertyGenerations,
+} from "./_property-generations.js";
 import { nanoid } from "./_property-utils.js";
 import { lockDocumentRows } from "./_row-lock-order.js";
 
@@ -158,7 +176,23 @@ export interface RowSnapshot {
   item: typeof schema.contentDatabaseItems.$inferSelect;
   document: typeof schema.documents.$inferSelect;
   values: Map<string, string>;
+  /**
+   * Each stored value's change ID, from the same row as the value. A stored
+   * value's generation is its change ID; see _property-generations.ts.
+   */
+  changeIds: Map<string, number>;
+  /** The generations of this row's cleared values. */
+  tombstones: Map<string, number>;
   revision: string;
+}
+
+/** A property's generation in a snapshot: its value's change ID, else its tombstone's. */
+function snapshotGeneration(snapshot: RowSnapshot, propertyId: string) {
+  return (
+    snapshot.changeIds.get(propertyId) ??
+    snapshot.tombstones.get(propertyId) ??
+    0
+  );
 }
 
 export type DatabaseRowMutationOperation = "create" | "update" | "upsert";
@@ -176,6 +210,7 @@ export interface UpdateDatabaseRowMutationInput extends CreateDatabaseRowMutatio
   itemId: string;
   documentId: string;
   expectedRowRevision: string;
+  expectedPropertyGenerations?: PropertyGenerations;
 }
 
 export interface UpsertDatabaseRowMutationInput extends CreateDatabaseRowMutationInput {
@@ -189,6 +224,7 @@ export interface DatabaseRowPatchInput {
   itemId: string;
   documentId: string;
   expectedRowRevision: string;
+  expectedPropertyGenerations?: PropertyGenerations;
   title?: string;
   propertyEntries?: DatabasePropertyEntry[];
   propertyValues?: Record<string, unknown>;
@@ -500,6 +536,7 @@ export async function getDatabaseMutationContract(
           type,
           writable,
           sourceManaged,
+          systemRole: definition.systemRole ?? null,
           acceptedShape: writable ? acceptedShape(type) : null,
           options: parsePropertyOptions(definition.optionsJson),
         };
@@ -639,13 +676,11 @@ async function strictValue(
     case "url": {
       if (typeof value !== "string" || value !== value.trim())
         invalidProperty(definition, "expected a URL");
-      try {
-        const url = new URL(value);
-        if (url.protocol !== "http:" && url.protocol !== "https:")
-          throw new Error();
-      } catch {
-        invalidProperty(definition, "expected an http or https URL");
-      }
+      if (!isUrlPropertyValue(value))
+        invalidProperty(
+          definition,
+          "expected an http or https URL, or a t3-thread link",
+        );
       return value;
     }
     case "email":
@@ -811,22 +846,51 @@ export async function rowSnapshots(
 ): Promise<Map<string, RowSnapshot>> {
   if (rows.length === 0) return new Map();
   const requested = new Map(rows.map((row) => [row.itemId, row.documentId]));
-  const found = (
+  const items = (
     await db
-      .select({ item: schema.contentDatabaseItems, document: schema.documents })
+      .select()
       .from(schema.contentDatabaseItems)
-      .innerJoin(
-        schema.documents,
-        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-      )
       .where(
         and(
           inArray(schema.contentDatabaseItems.id, [...requested.keys()]),
           eq(schema.contentDatabaseItems.databaseId, databaseId),
-          isNull(schema.documents.trashedAt),
         ),
       )
-  ).filter((row) => requested.get(row.item.id) === row.item.documentId);
+  ).filter((item) => requested.get(item.id) === item.documentId);
+  // DbExec returns objects; a join of both complete rows has duplicate column
+  // names, which cannot be mapped back to Drizzle's positional result.
+  // guard:allow-unscoped — exact memberships of an access-checked collection; mutation callers also resolve row access.
+  const documents =
+    items.length === 0
+      ? []
+      : await db
+          .select()
+          .from(schema.documents)
+          .where(
+            and(
+              inArray(
+                schema.documents.id,
+                items.map((item) => item.documentId),
+              ),
+              isNull(schema.documents.trashedAt),
+            ),
+          );
+  const documentsById = new Map(
+    documents.map((document) => [document.id, document]),
+  );
+  const found = items.flatMap((item) => {
+    const document = documentsById.get(item.documentId);
+    return document ? [{ item, document }] : [];
+  });
+  // Before the values: see readPropertyTombstones.
+  const tombstones =
+    revisionPropertyIds.size === 0 || found.length === 0
+      ? new Map<string, Map<string, number>>()
+      : await readPropertyTombstones(
+          db,
+          found.map((row) => row.item.documentId),
+          { propertyIds: [...revisionPropertyIds] },
+        );
   const values =
     revisionPropertyIds.size === 0 || found.length === 0
       ? []
@@ -853,6 +917,7 @@ export async function rowSnapshots(
     }
     valueMap.set(value.propertyId, value.valueJson);
   }
+  const changeIds = recordPropertyChangeIds(new Map(), values);
   const snapshots = new Map<string, RowSnapshot>();
   for (const row of found) {
     const valueMap = valuesByDocument.get(row.item.documentId) ?? new Map();
@@ -865,9 +930,49 @@ export async function rowSnapshots(
         value: parsePropertyValue(valueJson),
       })),
     });
-    snapshots.set(row.item.id, { ...row, values: valueMap, revision });
+    snapshots.set(row.item.id, {
+      ...row,
+      values: valueMap,
+      changeIds: changeIds.get(row.item.documentId) ?? new Map(),
+      tombstones: tombstones.get(row.item.documentId) ?? new Map(),
+      revision,
+    });
   }
   return snapshots;
+}
+
+/** The collection's properties in the shape the generation helpers read. */
+function snapshotProperties(context: MutationContext) {
+  return context.definitions.map((definition) => ({
+    definition: {
+      id: definition.id,
+      type: definition.type as DocumentPropertyType,
+      systemRole: definition.systemRole,
+    },
+  }));
+}
+
+/**
+ * A row's generation and change ID for every stored-value property, cleared
+ * ones included, as reads list them.
+ */
+function snapshotGenerationMaps(
+  context: MutationContext,
+  snapshot: RowSnapshot,
+) {
+  const properties = snapshotProperties(context);
+  return {
+    propertyGenerations: propertyGenerationsFor(
+      snapshot.document.id,
+      properties,
+      { of: (_, propertyId) => snapshotGeneration(snapshot, propertyId) },
+    ),
+    propertyChangeIds: propertyChangeIdsFor(
+      snapshot.document.id,
+      properties,
+      new Map([[snapshot.document.id, snapshot.changeIds]]),
+    ),
+  };
 }
 
 export function revisionPropertyIds(context: MutationContext) {
@@ -880,6 +985,30 @@ export function revisionPropertyIds(context: MutationContext) {
       )
       .map((definition) => definition.id),
   );
+}
+
+/** The committed value changes of one row, in the shape webhooks report. */
+function webhookPropertyChanges(
+  context: MutationContext,
+  before: RowSnapshot,
+  changedPropertyIds: string[],
+  values: Map<string, string>,
+): PropertyChangeForWebhooks[] {
+  return changedPropertyIds.flatMap((propertyId) => {
+    const definition = context.definitions.find(
+      (candidate) => candidate.id === propertyId,
+    );
+    const newValueJson = values.get(propertyId);
+    return definition && newValueJson !== undefined
+      ? [
+          {
+            definition,
+            oldValueJson: before.values.get(propertyId),
+            newValueJson,
+          },
+        ]
+      : [];
+  });
 }
 
 export function databaseMutationPayloadDigest(
@@ -1005,6 +1134,7 @@ function resultForReceipt(
           parsePropertyValue(valueJson),
         ]),
       ),
+      ...snapshotGenerationMaps(context, snapshot),
     },
   };
   return { receipt };
@@ -1266,11 +1396,24 @@ async function updateInsideTransaction(
     itemId: string;
     documentId: string;
     expectedRowRevision: string;
+    expectedPropertyGenerations?: PropertyGenerations;
     title?: string;
     values: Map<string, string>;
   },
+  ctx: ActionRunContext | undefined,
 ) {
   const actor = requireDocumentRequestActor();
+  const unguardable = unguardablePropertyIds(
+    args.expectedPropertyGenerations,
+    context.definitions,
+  );
+  if (unguardable.length) {
+    throw propertyNotGuardableError({
+      itemId: args.itemId,
+      documentId: args.documentId,
+      propertyIds: unguardable,
+    });
+  }
   // The membership before the page, as a save takes them.
   await tx
     .update(schema.contentDatabaseItems)
@@ -1319,6 +1462,13 @@ async function updateInsideTransaction(
       documentId: args.documentId,
     });
   }
+  // The revision hashes values, so it can't see a value that changed and
+  // changed back; generations can.
+  await assertPropertyGenerations(
+    tx,
+    args.documentId,
+    args.expectedPropertyGenerations,
+  );
   const now = new Date().toISOString();
   const changedValues = [...args.values.entries()].filter(
     ([propertyId, valueJson]) => before.values.get(propertyId) !== valueJson,
@@ -1326,6 +1476,7 @@ async function updateInsideTransaction(
   const titleChanged =
     args.title !== undefined && args.title.trim() !== before.document.title;
   if (titleChanged) {
+    assertAgentsMayEditPageText(before.document, ctx);
     await writeRowTitle(tx, actor, now, before, {
       title: args.title!,
       expectedRowRevision: args.expectedRowRevision,
@@ -1360,6 +1511,20 @@ async function updateInsideTransaction(
     documentId: args.documentId,
     values: args.values,
     now,
+  });
+  await enqueuePropertyChangeWebhooks(tx, {
+    databaseId: context.database.id,
+    rows: [
+      {
+        documentId: args.documentId,
+        changes: webhookPropertyChanges(
+          context,
+          before,
+          changedValues.map(([propertyId]) => propertyId),
+          args.values,
+        ),
+      },
+    ],
   });
   const after = await rowSnapshot(
     tx,
@@ -1459,6 +1624,7 @@ export async function createDatabaseRow(
 
 export async function updateDatabaseRow(
   input: UpdateDatabaseRowMutationInput,
+  ctx?: ActionRunContext,
 ): Promise<ContentDatabaseRowMutationResult> {
   const initial = await loadContext(input.target, "editor");
   await assertAccess("document", input.documentId, "editor");
@@ -1509,9 +1675,11 @@ export async function updateDatabaseRow(
           itemId: input.itemId,
           documentId: input.documentId,
           expectedRowRevision: input.expectedRowRevision,
+          expectedPropertyGenerations: input.expectedPropertyGenerations,
           title: input.title,
           values,
         },
+        ctx,
       );
       await touchContentDatabase(
         tx as unknown as Db,
@@ -1551,6 +1719,7 @@ export async function updateDatabaseRow(
 
 export async function upsertDatabaseRow(
   input: UpsertDatabaseRowMutationInput,
+  ctx?: ActionRunContext,
 ): Promise<ContentDatabaseRowMutationResult> {
   const initial = await loadContext(input.target, "editor");
   const replayKeyPropertyId = initial.database.naturalKeyPropertyId;
@@ -1754,6 +1923,7 @@ export async function upsertDatabaseRow(
           title: input.title,
           values,
         },
+        ctx,
       );
       await touchContentDatabase(
         tx as unknown as Db,
@@ -1798,6 +1968,7 @@ interface CanonicalRowPatch {
   itemId: string;
   documentId: string;
   expectedRowRevision: string;
+  expectedPropertyGenerations?: PropertyGenerations;
   title?: string;
   propertyValues?: Record<string, unknown>;
   propertyTypeAssertions?: Record<string, string>;
@@ -2191,8 +2362,20 @@ async function patchRowsInsideTransaction(
   context: MutationContext,
   rows: CanonicalRowPatch[],
   patches: Map<string, string>[],
+  ctx: ActionRunContext | undefined,
 ): Promise<ContentDatabaseRowPatchReceipt[]> {
   const actor = requireDocumentRequestActor();
+  const unguardable = rows.flatMap((row, index) => {
+    const propertyIds = unguardablePropertyIds(
+      row.expectedPropertyGenerations,
+      context.definitions,
+    );
+    return propertyIds.length
+      ? [{ index, itemId: row.itemId, documentId: row.documentId, propertyIds }]
+      : [];
+  });
+  if (unguardable.length)
+    throw propertyNotGuardableError({ rows: unguardable });
   const itemIds = rows.map((row) => row.itemId);
   const documentIds = rows.map((row) => row.documentId);
   // Memberships, then pages, each by id, as saves take them. The snapshot
@@ -2226,6 +2409,30 @@ async function patchRowsInsideTransaction(
     unavailable,
     missing ? 404 : 409,
   );
+  const generationConflicts = await propertyGenerationConflicts(
+    tx,
+    rows.map((row) => ({
+      documentId: row.documentId,
+      expected: row.expectedPropertyGenerations,
+    })),
+  );
+  if (generationConflicts.size) {
+    throw propertyGenerationConflictError({
+      rows: rows.flatMap((row, index) => {
+        const conflicts = generationConflicts.get(row.documentId);
+        return conflicts
+          ? [
+              {
+                index,
+                itemId: row.itemId,
+                documentId: row.documentId,
+                conflicts,
+              },
+            ]
+          : [];
+      }),
+    });
+  }
 
   const now = new Date().toISOString();
   const valueUpdates: Array<{
@@ -2237,10 +2444,12 @@ async function patchRowsInsideTransaction(
   const planned = rows.map((row, index) => {
     const snapshot = before.get(row.itemId)!;
     const changedPropertyIds: string[] = [];
+    const changedValues = new Map<string, string>();
     for (const [propertyId, valueJson] of patches[index]) {
       const existing = snapshot.values.get(propertyId);
       if (existing === valueJson) continue;
       changedPropertyIds.push(propertyId);
+      changedValues.set(propertyId, valueJson);
       (existing === undefined ? valueInserts : valueUpdates).push({
         documentId: row.documentId,
         propertyId,
@@ -2249,7 +2458,14 @@ async function patchRowsInsideTransaction(
     }
     const titleChanged =
       row.title !== undefined && row.title.trim() !== snapshot.document.title;
-    return { snapshot, changedPropertyIds, titleChanged };
+    if (titleChanged) assertAgentsMayEditPageText(snapshot.document, ctx);
+    return {
+      documentId: row.documentId,
+      snapshot,
+      changedPropertyIds,
+      changedValues,
+      titleChanged,
+    };
   });
 
   const documents = schema.documents;
@@ -2354,6 +2570,18 @@ async function patchRowsInsideTransaction(
     "Some rows claim a natural key that is already in use or cannot change; nothing was written.",
     await claimNaturalKeys(tx, context, rows, patches, now),
   );
+  await enqueuePropertyChangeWebhooks(tx, {
+    databaseId: context.database.id,
+    rows: planned.map((plan) => ({
+      documentId: plan.documentId,
+      changes: webhookPropertyChanges(
+        context,
+        plan.snapshot,
+        plan.changedPropertyIds,
+        plan.changedValues,
+      ),
+    })),
+  });
 
   const after = await rowSnapshots(tx, context.database.id, rows, revisionIds);
   return rows.map((row, index) => {
@@ -2395,6 +2623,9 @@ async function patchRowsInsideTransaction(
               parsePropertyValue(snapshot.values.get(propertyId)!),
             ]),
         ),
+        // The whole row, like update receipts, so a caller can guard its
+        // next write to any property; propertyValues stays the patched ones.
+        ...snapshotGenerationMaps(context, snapshot),
       },
     };
   });
@@ -2402,6 +2633,7 @@ async function patchRowsInsideTransaction(
 
 export async function patchDatabaseRows(
   input: PatchDatabaseRowsMutationInput,
+  ctx?: ActionRunContext,
 ): Promise<ContentDatabaseRowPatchBatchResult> {
   const rows = canonicalRowPatches(input.rows);
   const initial = await loadContext(input.target, "editor");
@@ -2424,6 +2656,7 @@ export async function patchDatabaseRows(
         rows,
         patches,
         inputDigest,
+        ctx,
       );
     } catch (error) {
       // Another instance committed this key first. Replay its receipt, or
@@ -2447,6 +2680,7 @@ function patchRowsTransaction(
   rows: CanonicalRowPatch[],
   patches: Map<string, string>[],
   inputDigest: string,
+  ctx: ActionRunContext | undefined,
 ): Promise<ContentDatabaseRowPatchBatchResult> {
   return getDb().transaction(async (tx) => {
     const db = tx as unknown as Db;
@@ -2478,6 +2712,7 @@ function patchRowsTransaction(
       locked,
       rows,
       patches,
+      ctx,
     );
     const now = new Date().toISOString();
     await touchContentDatabase(db, locked.database.id, now);

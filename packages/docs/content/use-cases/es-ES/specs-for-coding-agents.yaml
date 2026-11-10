@@ -1,0 +1,95 @@
+slug: specs-for-coding-agents
+app: content
+roles:
+  - engineering
+  - product
+title: Escribe especificaciones que tu agente pueda leer
+seo_title: Especificaciones para Claude Code, Codex y Cursor
+meta_description: Agent-Native Content guarda tu especificación en una página que Claude Code, Codex o Cursor leen por MCP, y tu agente trabaja con la versión que edita tu equipo.
+updated: 2026-10-27
+hero:
+  body: Agent-Native Content pasa tus notas a una especificación que tú, tu equipo y tu agente de código usáis en una página. Claude Code, Codex o Cursor leen la página en vivo y proponen cambios que aceptas.
+  button:
+    label: Escribe una especificación
+    url: https://content.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd7f1bf8fa6054abcafa30bd60751ae40
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F93c61e2bc6ba476a938b13934f237b0c
+    alt: Una especificación llamada «Team invites» abierta en Content, con las secciones Goals, Non-goals, Decisions y Open questions, y el árbol de páginas a la izquierda. El chat del agente, a la derecha, ha añadido una decisión sobre cuánto duran los enlaces de invitación.
+how_to:
+  heading: Cómo escribir una especificación para tu agente de código
+  steps:
+    - title: Escribe la especificación con el agente
+      body: Haz clic en **+** en la barra lateral, elige **Página** y pega tus notas, o pide al [agente integrado de Content](https://www.agent-native.com/docs/template-content/) que «redacte un PRD para una nueva funcionalidad» a partir de ellas. Edítala a mano, o selecciona una sección y pide que la reescriba.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2f4dd334ddfa4ec5bd74e67315414e8b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15247dff32574395a608e454b510e22b
+        alt: En el chat, se pide al agente una especificación de invitaciones de equipo a partir de unas notas de reunión. La respuesta del agente enumera las secciones que ha escrito, junto a la página nueva.
+    - title: Ábrela en tu agente de código
+      body: En **Compartir**, abre **Agentes** y elige **Abrir en Claude Code** o **Abrir en Codex**. Tu agente lee la página, o antes te pide que conectes Content. Para Cursor o VS Code, añade Content, haz clic en **Copiar instrucciones para el agente** y pégalas.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa052d84a44fb4e6ead8b69535f25c726
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc574e414836749119ad937c14623d14e
+        alt: "Primer plano de la pestaña Agents del menú Share: Copy agent prompt, Open in Claude, Open in Claude Code y Open in Codex. Debajo, Connect Content ofrece Add to Cursor, Add to VS Code y Other agents."
+    - title: Mantén la especificación al día
+      body: Cuando el desarrollo resuelva una pregunta abierta, pide a tu agente de código que proponga el cambio en la página. Cada sugerencia muestra el motivo del agente. Haz clic en el check para aceptarla o en la X para rechazarla.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F156092664ebc424bb86899f876b88a97
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0c0108d3427d4641b5c3a2b266e8c4aa
+        alt: Primer plano de la sección Open questions de la especificación con una edición sugerida por el agente de código, marcada como Agent, con su motivo y los botones Accept (check) y Reject (X).
+features:
+  heading: Todo lo que necesitas para escribir especificaciones para tu agente
+  items:
+    - title: Opiniones en comentarios
+      body: Pide al agente que revise tu especificación y dejará comentarios en los puntos débiles en lugar de reescribir tu texto.
+    - title: Una página por funcionalidad
+      body: Anida investigación, notas de la API y decisiones pasadas bajo cada especificación, y busca por título o texto para encontrarlas.
+    - title: Un tablero de especificaciones
+      body: Guarda tus especificaciones en una colección con campos de responsable y estado, como tabla o tablero, con la página completa en cada fila.
+    - title: Notas para tu agente
+      body: Indica en la descripción de la página qué secciones están cerradas, y cualquier agente que lea la especificación lo leerá también.
+    - title: Lee lo que no has guardado
+      body: Tu agente de código ve las ediciones aún abiertas en tu editor, así que siempre trabaja con la página tal y como está ahora.
+    - title: Revísala con tu equipo
+      body: Comenta cualquier fragmento, menciona a un compañero con @ y responde en hilos. El historial de versiones restaura una versión anterior.
+integrations:
+  heading: Conecta Content con las herramientas que ya usas
+  cards:
+    - title: Funciona con tu agente de código
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: Abre una página en Claude Code o Codex desde Compartir, o añade Content a Cursor o a GitHub Copilot en VS Code con un clic.
+    - title: Trae la especificación que ya tienes
+      logos:
+        - name: Notion
+        - name: GitHub
+      body: Sincroniza una página con Notion en ambos sentidos, o convierte una carpeta de GitHub con especificaciones en Markdown en una colección.
+    - title: Conecta lo que quieras con MCP
+      logos:
+        - name: Linear
+        - name: Granola
+        - name: Sentry
+      more: true
+      body: Conecta las herramientas que usa tu equipo mediante MCP, o añade cualquier servidor MCP con su URL.
+faqs:
+  heading: ¿Dudas? Aquí tienes las respuestas
+  items:
+    - q: ¿Agent-Native Content es gratis?
+      a: Sí, Agent-Native Content es gratuito y de código abierto. Tu agente de código lee y edita la especificación con su propio modelo, así que cuenta para el uso de tu agente. El agente integrado de Content funciona con créditos de Builder.io o con tu propia clave de modelo. Content está en alfa, así que espera cambios.
+    - q: ¿Qué agentes de código pueden leer mi especificación?
+      a: Claude Code y Codex abren la página desde **Compartir** y te piden conectarte una vez. Cursor y GitHub Copilot en VS Code añaden Content desde ahí con un clic. Claude Cowork, Goose y OpenCode se conectan desde tu terminal, y cualquier cliente MCP con inicio de sesión puede [conectarse a Content con su URL](https://www.agent-native.com/docs/external-agents/#private-content-links). Cada agente ve solo lo que puede ver tu cuenta.
+    - q: ¿En qué se diferencia de un archivo de especificación en mi repositorio?
+      a: Un archivo de especificación en tu repositorio es una copia que suele editar solo quien trabaja en el código. En Content, tu equipo escribe y comenta en la misma página que lee tu agente de código, y los cambios del agente llegan como sugerencias. Si también quieres Markdown en el repositorio, Content [se sincroniza con una carpeta local](https://www.agent-native.com/docs/template-content-sync/).
+    - q: ¿Mi agente de código puede cambiar la especificación?
+      a: Sí, con el acceso que tenga tu cuenta. Pídele que sugiera ediciones, y la página no cambia hasta que aceptes cada una. También puede editar la página directamente, pero si la página ha cambiado desde que el agente la leyó, Content rechaza la edición. El [historial de versiones](https://www.agent-native.com/docs/template-content-editing/) guarda las versiones anteriores.
+    - q: ¿Puedo guardar mis especificaciones en mi repositorio?
+      a: Sí. Conecta una [carpeta local de Markdown o MDX](https://www.agent-native.com/docs/template-content-local-files/) en Content y trae, revisa o sube cambios, o inicia Content desde tu repositorio con un solo comando. Los conflictos se muestran para que los revises. El navegador no puede leer archivos locales por sí solo, así que necesitas una app local de Content o Agent-Native Desktop.

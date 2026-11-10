@@ -94,9 +94,11 @@ import {
   CLIPS_AGENT_ACCESS_TTL_SECONDS,
   describeAgentAccessFailure,
   loadPublicAgentAccess,
+  resolvePublicAgentAccess,
   loadRecordingMediaFile,
   loadRecordingMediaBytes,
   RecordingMediaFetchError,
+  transcriptStatusInstructions,
 } from "./public-agent-context";
 import { verifySharePassword } from "./share-password.js";
 
@@ -310,6 +312,42 @@ describe("public agent context access", () => {
     );
   });
 
+  describe.each([
+    "not-a-date",
+    "2030-02-30T12:00:00Z",
+    "12:30:00",
+    "123",
+    "2030-01-01T00:00:00+23:00",
+    "2030-01-01T00:00:00.1234567Z",
+    "2000-01-01T00:00:00Z",
+  ])("agent reads with unavailable expiry %s", (expiresAt) => {
+    it.each([
+      { email: null, owner: false },
+      { email: "viewer@example.com", owner: false },
+      { email: " OWNER@EXAMPLE.COM ", owner: true },
+    ])("preserves owner access only for $email", async ({ email, owner }) => {
+      mockRecordings.rows = [makeRecording({ expiresAt })];
+      mockGetSession.mockResolvedValue(email ? { email } : null);
+      const result = await loadPublicAgentAccess(
+        {} as Parameters<typeof loadPublicAgentAccess>[0],
+        "rec-1",
+      );
+      if (owner) {
+        expect(result).toMatchObject({
+          ok: true,
+          access: {
+            viewerIsOwner: true,
+            recording: { id: "rec-1", expiresAt },
+          },
+        });
+      } else {
+        expect(result).toMatchObject({ ok: false, failure: { status: 410 } });
+      }
+      expect(mockSignScopedAgentAccessToken).not.toHaveBeenCalled();
+      expect(mockRecordAgentView).not.toHaveBeenCalled();
+    });
+  });
+
   it("keeps private clips hidden from callers without a scoped agent token", async () => {
     mockRecordings.rows = [
       makeRecording({
@@ -376,6 +414,47 @@ describe("agent view recording", () => {
   });
 });
 
+describe("resolvePublicAgentAccess", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRecordings.rows = [];
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
+  });
+
+  it("takes the viewer's email instead of a request, owner included", async () => {
+    mockRecordings.rows = [makeRecording({ visibility: "private" })];
+
+    const stranger = await resolvePublicAgentAccess("rec-1", {
+      viewerEmail: "stranger@example.com",
+    });
+    const owner = await resolvePublicAgentAccess("rec-1", {
+      viewerEmail: "OWNER@example.com",
+    });
+
+    expect(stranger).toMatchObject({ ok: false, failure: { status: 404 } });
+    expect(owner).toMatchObject({ ok: true, access: { viewerIsOwner: true } });
+    expect(mockGetSession).not.toHaveBeenCalled();
+  });
+
+  it("reports a non-owner read through recordView, and none without one", async () => {
+    mockRecordings.rows = [makeRecording()];
+    const recordView = vi.fn(async () => {});
+
+    await resolvePublicAgentAccess("rec-1", { recordView });
+    await resolvePublicAgentAccess("rec-1");
+
+    expect(recordView).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: "rec-1" }),
+      {
+        agentLabel: null,
+        ownerEmail: "owner@example.com",
+        viaScopedLink: false,
+      },
+    );
+    expect(mockRecordAgentView).not.toHaveBeenCalled();
+  });
+});
+
 describe("describeAgentAccessFailure", () => {
   it("explains that a missing private share link needs agent access without exposing clip state", () => {
     const failure = describeAgentAccessFailure({
@@ -426,6 +505,30 @@ describe("describeAgentAccessFailure", () => {
       nextStep: expect.stringContaining("agent_access"),
     });
   });
+});
+
+describe("transcriptStatusInstructions", () => {
+  const transcript = (segmentsJson: string | null) =>
+    ({
+      status: "ready",
+      failureReason: null,
+      segmentsJson,
+    }) as unknown as Parameters<typeof transcriptStatusInstructions>[0];
+
+  it("tells agents when saved lines can't be read, so they don't report none", () => {
+    expect(transcriptStatusInstructions(transcript("[{"))).toEqual([
+      expect.stringContaining("couldn't be read, not that the clip has none"),
+    ]);
+  });
+
+  it.each(["[]", null])(
+    "adds nothing for a ready transcript whose lines read (%s)",
+    (segmentsJson) => {
+      expect(transcriptStatusInstructions(transcript(segmentsJson))).toEqual(
+        [],
+      );
+    },
+  );
 });
 
 const YOUTUBE_RECORDING = {
@@ -711,6 +814,10 @@ describe("buildPublicAgentContext", () => {
 
     expect(context.clip.sourceProvider).toBe("loom");
     expect(context.apis).toHaveProperty("frame");
+    expect(context.apis.mcp).toEqual({
+      tool: "get-recording-frames",
+      connectUrl: "https://clips.example.com/mcp/connect",
+    });
     expect(context.apis.frames).toMatchObject({
       method: "GET",
       urlTemplate:

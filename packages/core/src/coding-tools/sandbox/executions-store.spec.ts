@@ -57,6 +57,12 @@ function baseInput(overrides: Record<string, unknown> = {}) {
 
 beforeEach(async () => {
   pglite = await createTestPglite();
+  await pglite.exec(`
+    CREATE TABLE organizations (id TEXT PRIMARY KEY, identity_authority TEXT, identity_id TEXT);
+    CREATE TABLE org_members (org_id TEXT, email TEXT, role TEXT, federation_removal_pending_at BIGINT);
+    INSERT INTO organizations (id) VALUES ('org-1'), ('org-2');
+    INSERT INTO org_members (org_id, email, role) VALUES ('org-1', 'alice@example.com', 'member');
+  `);
   resetSandboxExecutionsStoreForTests();
 });
 
@@ -97,9 +103,26 @@ describe("sandbox executions store", () => {
 
   it("scopes owner reads: another owner cannot see the row", async () => {
     const row = await createSandboxExecution(baseInput());
-    expect(await getSandboxExecutionForOwner(row.id, OWNER)).not.toBeNull();
+    const personal = await createSandboxExecution(baseInput({ orgId: null }));
     expect(
-      await getSandboxExecutionForOwner(row.id, "mallory@example.com"),
+      await getSandboxExecutionForOwner(row.id, OWNER, "org-1"),
+    ).not.toBeNull();
+    expect(
+      await getSandboxExecutionForOwner(row.id, OWNER, "org-2"),
+    ).toBeNull();
+    expect(await getSandboxExecutionForOwner(row.id, OWNER, null)).toBeNull();
+    expect(
+      await getSandboxExecutionForOwner(personal.id, OWNER, null),
+    ).not.toBeNull();
+    expect(
+      await getSandboxExecutionForOwner(personal.id, OWNER, "org-1"),
+    ).toBeNull();
+    expect(
+      await getSandboxExecutionForOwner(row.id, "mallory@example.com", "org-1"),
+    ).toBeNull();
+    await pglite.exec("DELETE FROM org_members WHERE org_id = 'org-1'");
+    expect(
+      await getSandboxExecutionForOwner(row.id, OWNER, "org-1"),
     ).toBeNull();
     expect(await getSandboxExecutionInternal(row.id)).not.toBeNull();
   });
@@ -183,7 +206,7 @@ describe("sandbox executions store", () => {
       }),
     ).toBe(true);
 
-    const done = await getSandboxExecutionForOwner(row.id, OWNER);
+    const done = await getSandboxExecutionForOwner(row.id, OWNER, "org-1");
     expect(done!.status).toBe("succeeded");
     expect(done!.stdout).toBe("fresh result");
     expect(done!.exitCode).toBe(0);

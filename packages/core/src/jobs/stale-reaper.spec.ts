@@ -288,8 +288,16 @@ describe("reapStaleA2ATasks", () => {
           typeof input !== "string" && input.sql.startsWith("UPDATE a2a_tasks"),
       );
     expect(update?.sql).toMatch(
-      /WHERE id = \?\s+AND status_state IN \('submitted', 'working', 'processing'\)\s+AND created_at < \?\s+AND updated_at < \?/i,
+      /WHERE id = \?\s+AND status_state IN \(\?, \?, \?\)\s+AND created_at < \?\s+AND updated_at < \?/i,
     );
+    const staleBefore = NOW - STALE_A2A_TASK_AFTER_MS;
+    expect(update?.args?.slice(-5)).toEqual([
+      "submitted",
+      "working",
+      "processing",
+      staleBefore,
+      staleBefore,
+    ]);
   });
 
   it("is bounded per pass", async () => {

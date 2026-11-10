@@ -36,6 +36,7 @@ vi.mock("./providers/openai.js", () => ({
 import { decide } from "./decide.js";
 import type { DecisionInput } from "./types.js";
 import {
+  DecideInputSchema,
   MAX_DECISION_PAYLOAD_BYTES,
   validateDecisionInput,
 } from "./validation.js";
@@ -207,5 +208,26 @@ describe("decision payload size", () => {
     expect(validateDecisionInput({ input: `${input}x`, questions })).toBe(
       false,
     );
+  });
+});
+
+describe("decision question limits", () => {
+  const question = decisionInput(null).questions[0]!;
+
+  it("keeps the public action capped at eight while internal batches accept 400", () => {
+    const questions = Array.from({ length: 400 }, (_, index) => ({
+      ...question,
+      name: `route-${index}`,
+    }));
+    expect(
+      DecideInputSchema.safeParse({ input: "mail", questions }).success,
+    ).toBe(false);
+    expect(validateDecisionInput({ input: "mail", questions })).toBe(true);
+    expect(
+      validateDecisionInput({
+        input: "mail",
+        questions: [...questions, { ...question, name: "route-400" }],
+      }),
+    ).toBe(false);
   });
 });

@@ -18,6 +18,7 @@ export interface AgentChatMcpOptions {
   connectorCatalog?: string[];
   directoryProfile?: {
     connectorCatalog: string[];
+    directoryRoute?: false;
     instructions?: string;
     widgets?: boolean;
     widgetTargets?: Record<
@@ -65,6 +66,12 @@ export interface AgentChatMcpOptions {
   icons?: AgentChatMcpIcon[];
   instructions?: string;
   keyToolNames?: readonly string[];
+  /**
+   * The app's shell renders MCP approval reviews, as the toolkit's
+   * `AppProviders` does; see `MCPConfig.appApprovalPage`. Without it, a
+   * review link opens the framework's plain page, which works in any app.
+   */
+  appApprovalPage?: boolean;
 }
 
 export interface AgentChatMcpLegacyInput {
@@ -100,6 +107,7 @@ export interface ResolvedAgentChatMcp {
   icons: AgentChatMcpIcon[] | undefined;
   instructions: string | undefined;
   keyToolNames: readonly string[] | undefined;
+  appApprovalPage: boolean;
 }
 
 function conflict(
@@ -202,5 +210,6 @@ export function resolveAgentChatMcpOptions(
       mcp.instructions,
     ),
     keyToolNames: mcp.keyToolNames ?? input?.initialToolNames,
+    appApprovalPage: mcp.appApprovalPage === true,
   };
 }

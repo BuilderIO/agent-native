@@ -794,6 +794,66 @@ Process the feedback.`,
     );
   });
 
+  describe("jobs under an additional app id", () => {
+    const jobAt = (path: string, appId: string) => ({
+      id: `resource-${appId}`,
+      owner: "__organization__:org-1",
+      path,
+      content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+triggerType: schedule
+domain: factory
+appId: ${appId}
+createdBy: alice+jobs@agent-native.test
+orgId: org-1
+runAs: creator
+---
+
+Process the feedback.`,
+    });
+    const workflowPath =
+      "jobs/factories/demo-factory/workflow-digest-1a2b3c4d.md";
+    const agentPath = "jobs/factories/demo-factory/factory-pr-governance.md";
+    const deps = {
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
+    };
+
+    it("runs a job under a listed app id beside the scheduler's own", async () => {
+      resourceListAllOwnersMock.mockResolvedValueOnce([
+        jobAt(workflowPath, "factory-workflows"),
+        jobAt(agentPath, "factory"),
+      ]);
+
+      await processRecurringJobs({
+        ...deps,
+        additionalJobAppIds: ["factory-workflows"],
+      });
+
+      expect(
+        new Set(resourcePutMock.mock.calls.map((call) => call[1])),
+      ).toEqual(new Set([workflowPath, agentPath]));
+    });
+
+    it("leaves a job under an unlisted app id alone", async () => {
+      resourceListAllOwnersMock.mockResolvedValueOnce([
+        jobAt(workflowPath, "factory-workflows"),
+        jobAt(agentPath, "factory"),
+      ]);
+
+      await processRecurringJobs(deps);
+
+      expect(resourcePutMock.mock.calls.map((call) => call[1])).toEqual([
+        agentPath,
+      ]);
+    });
+  });
+
   it("records scheduler health under the owner org for a recovered Factory job without orgId", async () => {
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {
@@ -920,6 +980,30 @@ Process the feedback.`,
         beginChunk: expect.any(Function),
       }),
       expect.any(Function),
+    );
+  });
+
+  it("runs an automation another instance created right after a tick that found none", async () => {
+    const deps = {
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    };
+    resourceListAllOwnersMock.mockResolvedValueOnce([]);
+    await processRecurringJobs(deps);
+    expect(createThreadMock).not.toHaveBeenCalled();
+
+    // The new job (the default due one) was written elsewhere, so this
+    // process saw no resource event for it.
+    await processRecurringJobs(deps);
+
+    expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
+    expect(createThreadMock).toHaveBeenCalledWith(
+      "alice+jobs@agent-native.test",
+      expect.objectContaining({
+        title: expect.stringContaining("Job: daily-report"),
+      }),
     );
   });
 

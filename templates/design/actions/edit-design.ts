@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  ActionContractError,
+  defineAction,
+  NoWriteError,
+} from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,
@@ -7,6 +11,7 @@ import {
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import {
   getGenerationCreativeContext,
+  isCreativeContextOffForUser,
   recordGenerationCreativeContext,
   replaceCreativeContextElementProvenance,
   validateGenerationCreativeContext,
@@ -18,6 +23,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { trackDesign } from "../server/lib/design-tracking.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { partitionReuseLabels } from "../server/lib/generation-reuse-labels.js";
 import {
   readLiveSourceFile,
   SourceWorkspaceEditConflictError,
@@ -25,12 +31,17 @@ import {
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
 import {
+  ApplyEditConflictError,
   applyOneEdit,
   type ApplyEditsResult,
   type DesignEdit,
 } from "../shared/apply-edits.js";
+import { promoteAuthoredSvgArtworkInHtml } from "../shared/authored-svg-layers.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
-import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
+import {
+  assertLockedLayersPreserved,
+  LockedLayerEditError,
+} from "../shared/locked-layers.js";
 
 const editBlocksSchema = z.preprocess(
   (v) => {
@@ -129,10 +140,26 @@ function applyOneEditWithStableIdFallback(
   try {
     return applyOneEdit(content, edit, index);
   } catch (error) {
+    if (!(error instanceof ApplyEditConflictError)) throw error;
     const span = findUniqueStableIdAgnosticSpan(content, edit.search);
-    if (!span) throw error;
-    return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
+    if (span) {
+      return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
+    }
+    throw new DesignEditSearchConflictError(
+      error instanceof Error ? error.message : String(error),
+    );
   }
+}
+
+class DesignEditSearchConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DesignEditSearchConflictError";
+  }
+}
+
+function designEditConflictOptions() {
+  return { errorCode: "design_edit_conflict", statusCode: 409 } as const;
 }
 
 export function applySearchReplaceEdits(
@@ -140,15 +167,32 @@ export function applySearchReplaceEdits(
   edits: DesignEdit[],
 ): ApplyEditsResult {
   let next = content;
-  edits.forEach((edit, index) => {
-    next = applyOneEditWithStableIdFallback(next, edit, index);
-  });
+  try {
+    edits.forEach((edit, index) => {
+      next = applyOneEditWithStableIdFallback(next, edit, index);
+    });
+  } catch (error) {
+    if (!(error instanceof DesignEditSearchConflictError)) throw error;
+    throw new NoWriteError(error.message, designEditConflictOptions());
+  }
   return { content: next, applied: edits.length };
+}
+
+export function preCheckpointNoWriteError(error: unknown): NoWriteError {
+  if (error instanceof NoWriteError) return error;
+  return new NoWriteError(
+    error instanceof Error ? error.message : String(error),
+    error instanceof ActionContractError
+      ? { errorCode: error.errorCode, statusCode: error.statusCode }
+      : undefined,
+  );
 }
 
 export default defineAction({
   description:
     "Edit ONE file in a design after reading it with get-design-snapshot. " +
+    "To move an element to another screen use move-design-element, not two " +
+    "edits here. " +
     '`mode` defaults to "search-replace" (apply edit blocks); use ' +
     '`mode: "replace-file"` with `replacementContent` only for the ' +
     "broad-replacement cases below. For small localized refinements, apply " +
@@ -220,7 +264,9 @@ export default defineAction({
         .array(reuseLabelSchema)
         .optional()
         .default([])
-        .describe("Exact item versions that influenced this file edit."),
+        .describe(
+          "Exact item versions that influenced this file edit. A label without item ids that is not `generated`, or any non-generated label while Creative Context is off, is ignored and listed as `ignoredReuseLabels` in the result.",
+        ),
     })
     .superRefine((value, ctx) => {
       const mode =
@@ -278,13 +324,16 @@ export default defineAction({
       replacementContent,
       contextPackId,
       contextModeOverride,
-      reuseLabels,
+      reuseLabels: requestedReuseLabels,
     },
     context,
   ) => {
     await assertAccess("design", designId, "editor");
-    await snapshotDesignBeforeAgentEdit(designId, context);
-
+    const contextOff =
+      requestedReuseLabels.length > 0 &&
+      (contextModeOverride === "off" || (await isCreativeContextOffForUser()));
+    const { recordable: reuseLabels, ignored: ignoredReuseLabels } =
+      partitionReuseLabels(requestedReuseLabels, { contextOff });
     const db = getDb();
     const requestedFileId = fileId?.trim();
     const targetFilename = requestedFileId
@@ -317,7 +366,7 @@ export default defineAction({
       .limit(1);
 
     if (!file) {
-      fail(
+      throw new NoWriteError(
         requestedFileId
           ? `File id "${requestedFileId}" not found in design ${designId}`
           : `File "${targetFilename}" not found in design ${designId}`,
@@ -354,6 +403,7 @@ export default defineAction({
           }>;
         }
       | undefined;
+    let checkpointed = false;
 
     for (let attempt = 0; ; attempt += 1) {
       const currentContent =
@@ -379,10 +429,35 @@ export default defineAction({
       live = await readLiveSourceFile(workspaceFile);
       base = live.content;
 
-      ({ content: nextContent, applied } =
-        resolvedMode === "replace-file"
-          ? { content: replacementContent ?? "", applied: 0 }
-          : applySearchReplaceEdits(base, edits ?? []));
+      if (resolvedMode === "replace-file") {
+        ({ content: nextContent, applied } = {
+          content: replacementContent ?? "",
+          applied: 0,
+        });
+      } else {
+        try {
+          ({ content: nextContent, applied } = applySearchReplaceEdits(
+            base,
+            edits ?? [],
+          ));
+        } catch (error) {
+          if (!checkpointed) {
+            throw preCheckpointNoWriteError(error);
+          }
+          if (error instanceof NoWriteError) {
+            throw new ActionContractError(error.message, {
+              errorCode: error.errorCode,
+              statusCode: error.statusCode,
+            });
+          }
+          throw error;
+        }
+      }
+      if (file.fileType === "html") {
+        nextContent = promoteAuthoredSvgArtworkInHtml(nextContent, {
+          previousHtml: base,
+        }).content;
+      }
       changed = nextContent !== base;
       creativeContext = undefined;
 
@@ -406,7 +481,7 @@ export default defineAction({
           previous?.contextPackId &&
           contextPackId !== previous.contextPackId
         ) {
-          fail(
+          throw new NoWriteError(
             "The design edit must preserve the design's creative-context pack",
             { errorCode: "creative_context_pack_mismatch", statusCode: 409 },
           );
@@ -456,7 +531,23 @@ export default defineAction({
                 ),
         };
       }
-      assertLockedLayersPreserved(base, nextContent);
+      try {
+        assertLockedLayersPreserved(base, nextContent);
+      } catch (error) {
+        if (error instanceof LockedLayerEditError) {
+          if (checkpointed) throw error;
+          throw new NoWriteError(error.message, {
+            errorCode: error.errorCode,
+            statusCode: error.statusCode,
+          });
+        }
+        throw error;
+      }
+
+      if (!checkpointed) {
+        await snapshotDesignBeforeAgentEdit(designId, context);
+        checkpointed = true;
+      }
 
       agentEnterDocument(file.id);
       agentUpdateSelection(file.id, {
@@ -516,6 +607,7 @@ export default defineAction({
       _receipt: designOutputWriteReceipt(designId, changed ? 1 : 0),
       bytesBefore: base.length,
       bytesAfter: nextContent.length,
+      ...(ignoredReuseLabels.length > 0 ? { ignoredReuseLabels } : {}),
       ...(creativeContext
         ? {
             contextMode: creativeContext.contextMode,

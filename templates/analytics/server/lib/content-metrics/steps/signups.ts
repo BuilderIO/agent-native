@@ -4,7 +4,11 @@ import {
   runQuery,
 } from "../../bigquery.js";
 import type { SignupsConfig } from "../config.js";
-import { ContentStepStop, type ContentStep } from "../step.js";
+import {
+  ContentStepStop,
+  contentRunFailureFromError,
+  type ContentStep,
+} from "../step.js";
 import { listContentItems } from "../store.js";
 import { BUILDER_BLOG_ORIGIN } from "./builder-blog.js";
 import { BACKFILL_DAYS, DailyMetricValues, utcDate } from "./daily-metrics.js";
@@ -141,100 +145,119 @@ function normalizeHandle(handle: string): string | null {
 export const signupsStep: ContentStep = {
   id: "signups",
   async run({ collection, now, signal }) {
-    const tables = signupsTables(collection.config.signups);
-    const cap = signupsCap(collection.config.signups);
-    const articles = await listContentItems(collection, "builder_blog");
-    if (articles.length === 0) {
-      throw new ContentStepStop({
-        status: "not_configured",
-        errorCode: "no_content_items",
-        errorMessage:
-          "No blog articles are collected yet, so there are no articles to credit signups to.",
-      });
-    }
-
-    const query = buildSignupsQuery(tables, now);
-    const estimate = await dryRunQuerySchema(query.sql, {
-      ...(signal ? { signal } : {}),
-    });
-    if (estimate.error) {
-      throw new Error(`The signups dry run failed: ${estimate.error}`);
-    }
-    if (estimate.totalBytesProcessed === undefined) {
-      throw new Error(
-        "The signups dry run returned no byte estimate, so the cap can't be checked.",
-      );
-    }
-    if (estimate.totalBytesProcessed > cap) {
-      throw costLimited(
-        `The signups join would scan ${estimate.totalBytesProcessed} bytes, over the ${cap}-byte cap. Nothing ran.`,
-      );
-    }
-
-    let result: Awaited<ReturnType<typeof runQuery>>;
+    let bytesProcessed: number | null = 0;
+    const bytesCap = collection.config.signups.maxBytesBilled;
     try {
-      result = await runQuery(query.sql, {
-        maxBytesBilled: cap,
-        forceRefresh: true,
+      const tables = signupsTables(collection.config.signups);
+      const cap = signupsCap(collection.config.signups);
+      const articles = await listContentItems(collection, "builder_blog");
+      if (articles.length === 0) {
+        throw new ContentStepStop({
+          status: "not_configured",
+          errorCode: "no_content_items",
+          errorMessage:
+            "No blog articles are collected yet, so there are no articles to credit signups to.",
+        });
+      }
+
+      const query = buildSignupsQuery(tables, now);
+      const estimate = await dryRunQuerySchema(query.sql, {
         ...(signal ? { signal } : {}),
       });
-    } catch (error) {
-      if (error instanceof BigQueryMaximumBytesBilledError) {
-        throw costLimited(
-          `BigQuery stopped the signups join at the ${cap}-byte cap.`,
+      if (estimate.error) {
+        throw new Error(`The signups dry run failed: ${estimate.error}`);
+      }
+      if (estimate.totalBytesProcessed === undefined) {
+        throw new Error(
+          "The signups dry run returned no byte estimate, so the cap can't be checked.",
         );
       }
-      throw error;
-    }
-    if (result.truncated || result.rows.length >= MAX_ROWS) {
-      throw new Error(
-        `The signups join returned ${result.rows.length} rows, more than this step reads; nothing was written.`,
-      );
-    }
-
-    const byHandle = new Map(
-      articles.flatMap((article) => {
-        const handle = articleHandle(article.url);
-        return handle ? [[handle, article] as const] : [];
-      }),
-    );
-    const values = new DailyMetricValues();
-    let dataThrough: string | null = null;
-    for (const row of result.rows) {
-      if (typeof row.data_through === "string") dataThrough = row.data_through;
-      if (typeof row.handle !== "string" || typeof row.day !== "string") {
-        continue;
+      if (estimate.totalBytesProcessed > cap) {
+        throw costLimited(
+          `The signups join would scan ${estimate.totalBytesProcessed} bytes, over the ${cap}-byte cap. Nothing ran.`,
+        );
       }
-      const handle = normalizeHandle(row.handle);
-      const article = handle ? byHandle.get(handle) : undefined;
-      if (!article) continue;
-      values.add(
-        article,
-        row.day,
-        SIGNUPS_FIRST_TOUCH_METRIC,
-        Number(row.signups),
-      );
-      values.add(
-        article,
-        row.day,
-        SOURCE_SIGNUPS_FIRST_TOUCH_METRIC,
-        Number(row.source_signups),
-      );
-    }
 
-    const snapshots = values.snapshots({
-      items: articles,
-      metrics: [SIGNUPS_FIRST_TOUCH_METRIC, SOURCE_SIGNUPS_FIRST_TOUCH_METRIC],
-      startDate: query.startDate,
-      lastReturnedDate: dataThrough,
-    });
-    return {
-      snapshots,
-      outcome: {
-        rowCount: snapshots.length,
-        windowStart: query.startDate,
-        windowEnd: dataThrough,
-      },
-    };
+      // A submitted query can fail without returning usage; its estimate is not actual usage.
+      bytesProcessed = null;
+      let result: Awaited<ReturnType<typeof runQuery>>;
+      try {
+        result = await runQuery(query.sql, {
+          maxBytesBilled: cap,
+          forceRefresh: true,
+          ...(signal ? { signal } : {}),
+        });
+      } catch (error) {
+        if (error instanceof BigQueryMaximumBytesBilledError) {
+          throw costLimited(
+            `BigQuery stopped the signups join at the ${cap}-byte cap.`,
+          );
+        }
+        throw error;
+      }
+      bytesProcessed = result.cached ? 0 : (result.bytesProcessed ?? null);
+      if (result.truncated || result.rows.length >= MAX_ROWS) {
+        throw new Error(
+          `The signups join returned ${result.rows.length} rows, more than this step reads; nothing was written.`,
+        );
+      }
+
+      const byHandle = new Map(
+        articles.flatMap((article) => {
+          const handle = articleHandle(article.url);
+          return handle ? [[handle, article] as const] : [];
+        }),
+      );
+      const values = new DailyMetricValues();
+      let dataThrough: string | null = null;
+      for (const row of result.rows) {
+        if (typeof row.data_through === "string")
+          dataThrough = row.data_through;
+        if (typeof row.handle !== "string" || typeof row.day !== "string") {
+          continue;
+        }
+        const handle = normalizeHandle(row.handle);
+        const article = handle ? byHandle.get(handle) : undefined;
+        if (!article) continue;
+        values.add(
+          article,
+          row.day,
+          SIGNUPS_FIRST_TOUCH_METRIC,
+          Number(row.signups),
+        );
+        values.add(
+          article,
+          row.day,
+          SOURCE_SIGNUPS_FIRST_TOUCH_METRIC,
+          Number(row.source_signups),
+        );
+      }
+
+      const snapshots = values.snapshots({
+        items: articles,
+        metrics: [
+          SIGNUPS_FIRST_TOUCH_METRIC,
+          SOURCE_SIGNUPS_FIRST_TOUCH_METRIC,
+        ],
+        startDate: query.startDate,
+        lastReturnedDate: dataThrough,
+      });
+      return {
+        snapshots,
+        outcome: {
+          bytesProcessed,
+          bytesCap: cap,
+          rowCount: snapshots.length,
+          windowStart: query.startDate,
+          windowEnd: dataThrough,
+        },
+      };
+    } catch (error) {
+      throw new ContentStepStop({
+        ...contentRunFailureFromError(error),
+        bytesProcessed,
+        bytesCap,
+      });
+    }
   },
 };

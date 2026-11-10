@@ -189,7 +189,10 @@ describe("org handlers", () => {
       orgName: "Example",
       role: "owner",
     });
-    mockGetSession.mockResolvedValue({ email: "member@example.test" });
+    mockGetSession.mockResolvedValue({
+      email: "member@example.test",
+      emailVerified: true,
+    });
     mockExecute.mockResolvedValue({ rows: [], rowsAffected: 0 });
     mockAddFederatedOrganizationMember.mockResolvedValue(false);
     mockRevokeFederatedOrganizationMember.mockResolvedValue(false);
@@ -568,6 +571,24 @@ describe("org handlers", () => {
       ),
     ).rejects.toMatchObject({ statusCode: 409 });
     expect(mockExecute).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses email-derived membership before verification", async () => {
+    mockGetSession.mockResolvedValue({
+      email: "member@example.test",
+      emailVerified: false,
+    });
+    await expect(
+      joinByDomainHandler(
+        makeEvent("/_agent-native/org/join-by-domain", { orgId: "org-1" }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      acceptInvitationHandler(
+        makeEvent("/_agent-native/org/invitations/invite-1/accept"),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mockExecute).not.toHaveBeenCalled();
   });
 
   it("registers invite_sent telemetry with the event's waitUntil", async () => {
@@ -1049,6 +1070,24 @@ describe("org handlers", () => {
       "LOWER(COALESCE(u.name, '')) LIKE",
     );
     expect(mockGetUserProfiles).toHaveBeenCalledWith(["bob@example.test"]);
+  });
+
+  it("never lists a member whose removal is pending, paged or searched", async () => {
+    mockExecute.mockImplementation(async ({ sql }: { sql: string }) => ({
+      rows: sql.includes("COUNT(*) AS") ? [{ totalCount: 0 }] : [],
+    }));
+    mockGetUserProfiles.mockResolvedValue(new Map());
+
+    await listMembersHandler(makeEvent("/_agent-native/org/members?limit=25"));
+    await listMembersHandler(
+      makeEvent("/_agent-native/org/members?search=smith&limit=25"),
+    );
+
+    const statements = mockExecute.mock.calls.map(([call]) => call.sql);
+    expect(statements.length).toBeGreaterThanOrEqual(3);
+    for (const sql of statements) {
+      expect(sql).toContain("federation_removal_pending_at IS NULL");
+    }
   });
 
   it("keeps SQL name matches when profile hydration is partial", async () => {

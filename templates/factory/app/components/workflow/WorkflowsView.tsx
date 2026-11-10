@@ -103,6 +103,7 @@ import {
   joinWorkflowPages,
   parkedRefusal,
   scheduleLabel,
+  succeededItemFailures,
   withRenamedWorkflow,
   withoutWorkflow,
   withWorkflowEnabled,
@@ -116,7 +117,7 @@ import {
   type WorkflowStatusFilter,
 } from "./workflow-list-model";
 import { useWorkflowStrings, type WorkflowStrings } from "./workflow-strings";
-import { formatRelativeTime } from "./workflow-time";
+import { formatRelativeTime, formatRunTime } from "./workflow-time";
 import type {
   DeleteWorkflowResult,
   GetWorkflowResult,
@@ -1048,12 +1049,9 @@ function WorkflowRow({
     workflow.enabled && nextAt >= now
       ? formatRelativeTime(nextAt, now, locale)
       : null;
-  // A change the server stamped a moment ahead of this clock reads as just now, not as a future time.
-  const updated = formatRelativeTime(
-    Math.min(Date.parse(workflow.updatedAt), now),
-    now,
-    locale,
-  );
+  const updated = formatRelativeTime(workflow.updatedAt, now, locale, {
+    past: true,
+  });
 
   return (
     <li
@@ -1214,10 +1212,14 @@ function LastRunCell({ row, now }: { row: WorkflowListRow; now: number }) {
       <div className="text-sm text-muted-foreground">{ws.list.neverRun}</div>
     );
   }
-  const when = formatRelativeTime(run.finishedAt ?? run.startedAt, now, locale);
+  const when = formatRunTime(run, now, locale);
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-      <RunStatusChip status={run.status} triggerKind={run.triggerKind} />
+      <RunStatusChip
+        status={run.status}
+        triggerKind={run.triggerKind}
+        itemFailures={succeededItemFailures(run)}
+      />
       {when ? (
         <span className="text-sm text-muted-foreground">{when}</span>
       ) : null}

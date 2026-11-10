@@ -9,10 +9,11 @@ import {
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
 import {
-  syncPrivateCalloutReferences,
+  syncPrivateBodyReferences,
   syncPrivateIconReference,
   verifyPrivateIconCopiedFromDocument,
 } from "../server/lib/private-icon-references.js";
+import { withoutBuilderStatusValues } from "./_builder-status-property.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -167,7 +168,7 @@ export default defineAction({
         string,
         Array<typeof schema.documentPropertyValues.$inferSelect>
       >();
-      for (const value of values) {
+      for (const value of await withoutBuilderStatusValues(tx, values)) {
         const list = valuesByDocumentId.get(value.documentId) ?? [];
         list.push(value);
         valuesByDocumentId.set(value.documentId, list);
@@ -241,7 +242,7 @@ export default defineAction({
             orgId: duplicate.row.document.orgId,
           },
         );
-        await syncPrivateCalloutReferences(
+        await syncPrivateBodyReferences(
           tx as unknown as ReturnType<typeof getDb>,
           {
             documentId: duplicate.duplicatedDocumentId,

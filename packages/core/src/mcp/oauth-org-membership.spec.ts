@@ -12,7 +12,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 const signedIn = vi.hoisted(() => ({ email: null as string | null }));
 vi.mock("../server/auth.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../server/auth.js")>()),
-  getSession: async () => (signedIn.email ? { email: signedIn.email } : null),
+  getSession: async () =>
+    signedIn.email ? { email: signedIn.email, emailVerified: true } : null,
 }));
 // Local only: no invitation email and no analytics delivery.
 vi.mock("../server/email.js", async (importOriginal) => ({

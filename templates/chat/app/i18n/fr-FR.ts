@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Référencer une conversation…",
+    group: "Conversations",
+    authentication: "Connectez-vous pour ajouter une référence.",
+    invalid: "Choisissez une référence valide avant l’envoi.",
+    unavailable:
+      "Une référence sélectionnée n’est plus disponible. Supprimez-la ou sélectionnez-la à nouveau.",
+  },
   composer: {
     removeAttachment: "Supprimer {{name}}",
     removeReference: "Supprimer la référence {{name}}",
@@ -51,17 +59,12 @@ const messages = {
     untitledChat: "Chat sans titre",
   },
   home: {
-    composerPlaceholder: "Appelle l’action hello pour Alex",
     communityTitle: "Rejoignez-nous",
     docsAddAction: "Ajouter une action",
     docsAddPage: "Ajouter une page",
     docsGettingStarted: "Premiers pas",
     docsKeyConcepts: "Concepts clés",
     docsTitle: "Documentation",
-    editHint:
-      "Modifiez {{file}}, enregistrez, puis redemandez pour voir le nouveau message.",
-    lead: "L’interface de votre app et son agent partagent les mêmes actions.",
-    leadTry: "Demandez à l’agent d’appeler l’action hello.",
     title: "Commencer",
   },
   navigation: {

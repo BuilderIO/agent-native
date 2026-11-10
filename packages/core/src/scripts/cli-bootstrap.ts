@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
+import { ensureS3PrivateBlobProviders } from "../private-blob/s3-private.js";
 import { importRuntimeSourceModule } from "../server/runtime-source-module.js";
 
 const BOOTSTRAP_DIRS = ["actions", "scripts"];
@@ -23,4 +24,5 @@ export async function loadCliBootstrap(cwd = process.cwd()): Promise<void> {
     await importRuntimeSourceModule(file);
   }
   ensureS3FileUploadProvider();
+  ensureS3PrivateBlobProviders();
 }

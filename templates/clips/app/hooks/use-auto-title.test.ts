@@ -35,7 +35,7 @@ describe("notifyAiRequestQueued", () => {
 
 describe("retryWorkflowAction", () => {
   const request = {
-    operation: "stop",
+    operation: "settle",
     recordingId: "rec_123",
     requestedAt: "2026-07-11T12:00:00.000Z",
     tabId: "clips-workflow:rec_123:test",
@@ -84,6 +84,30 @@ describe("retryWorkflowAction", () => {
     await expect(retryWorkflowAction(request, "reconciled")).resolves.toBe(
       false,
     );
+    expect(mocks.callAction).toHaveBeenCalledOnce();
+  });
+
+  it("handles a confirmed rejection observed by a non-requester", async () => {
+    mocks.callAction.mockResolvedValue({
+      reconciled: false,
+      reason: "not-requester",
+    });
+
+    await expect(
+      retryWorkflowAction({ ...request, operation: "reject" }, "reconciled"),
+    ).resolves.toBe(true);
+    expect(mocks.callAction).toHaveBeenCalledOnce();
+  });
+
+  it("does not repeat a rejected dispatch without server evidence", async () => {
+    mocks.callAction.mockResolvedValue({
+      reconciled: false,
+      reason: "rejection-unverified",
+    });
+
+    await expect(
+      retryWorkflowAction({ ...request, operation: "reject" }, "reconciled"),
+    ).resolves.toBe(true);
     expect(mocks.callAction).toHaveBeenCalledOnce();
   });
 });

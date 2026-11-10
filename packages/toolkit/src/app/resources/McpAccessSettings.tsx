@@ -1,4 +1,4 @@
-import { appPath } from "@agent-native/core/client/api-path";
+import { appServerPath } from "@agent-native/core/client/api-path";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { useMcpConnectIdentity } from "@agent-native/core/client/mcp-connect-identity";
 import { docsUrl } from "@agent-native/core/shared/docs-url";
@@ -246,7 +246,7 @@ export function McpAccessSettings({
       )
       .find(Boolean);
     const appName = appNameProp?.trim() || metaSiteName || identity.appName;
-    const connectUrl = new URL(appPath("/mcp/connect"), origin);
+    const connectUrl = new URL(appServerPath("/mcp/connect"), origin);
     connectUrl.searchParams.set("locale", locale);
     connectUrl.searchParams.set("guide", activeGuide);
     setUrls({
@@ -257,7 +257,7 @@ export function McpAccessSettings({
       connect: identity.connect,
       connectUrl: connectUrl.toString(),
       agentCardUrl: new URL(
-        appPath("/.well-known/agent-card.json"),
+        appServerPath("/.well-known/agent-card.json"),
         origin,
       ).toString(),
     });

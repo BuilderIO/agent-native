@@ -81,19 +81,62 @@ export function withDatabaseWrapDefault(
   return { ...view, wrapCells, columnWrapOverrides: {} };
 }
 
-export function withoutDatabaseColumnPresentation(
+/**
+ * A view without any reference to a deleted property. A filter left on a
+ * missing property still applies and hides every row, so it can't be left for
+ * rendering to skip.
+ */
+export function withoutDeletedDatabaseProperty(
   view: ContentDatabaseView,
-  columnId: string,
+  propertyId: string,
 ): ContentDatabaseView {
-  const columnWrapOverrides = { ...view.columnWrapOverrides };
-  delete columnWrapOverrides[columnId];
+  const without = <T>(record: Record<string, T> | undefined) => {
+    if (!record) return record;
+    const next = { ...record };
+    delete next[propertyId];
+    return next;
+  };
+  const kept = (ids: string[] | undefined) =>
+    ids?.filter((id) => id !== propertyId);
+  const keptId = (id: string | null | undefined) =>
+    id === propertyId ? null : id;
+  const layout = view.itemLayout;
   return {
     ...view,
-    columnWrapOverrides,
-    frozenThroughColumnId:
-      view.frozenThroughColumnId === columnId
-        ? null
-        : view.frozenThroughColumnId,
+    sorts: view.sorts.filter((sort) => sort.key !== propertyId),
+    filters: view.filters.filter((filter) => filter.key !== propertyId),
+    columnWidths: without(view.columnWidths) ?? {},
+    groupByPropertyId: keptId(view.groupByPropertyId),
+    datePropertyId: keptId(view.datePropertyId),
+    endDatePropertyId: keptId(view.endDatePropertyId),
+    hiddenPropertyIds: kept(view.hiddenPropertyIds),
+    propertyOrderIds: kept(view.propertyOrderIds),
+    tableColumnOrderIds: kept(view.tableColumnOrderIds),
+    calculations: without(view.calculations),
+    columnWrapOverrides: without(view.columnWrapOverrides) ?? {},
+    frozenThroughColumnId: keptId(view.frozenThroughColumnId),
+    formQuestions: view.formQuestions?.filter(
+      (question) => question.key !== propertyId,
+    ),
+    ...(layout
+      ? {
+          itemLayout: {
+            ...layout,
+            // A checkbox or status slot without a property shows the first
+            // one of its type, so it goes back to the page icon instead.
+            leading:
+              layout.leading.propertyId === propertyId
+                ? { kind: "page_icon", propertyId: null }
+                : layout.leading,
+            line2: {
+              ...layout.line2,
+              propertyId: keptId(layout.line2.propertyId) ?? null,
+            },
+            line3: layout.line3.filter((id) => id !== propertyId),
+            trailing: layout.trailing.filter((id) => id !== propertyId),
+          },
+        }
+      : {}),
   };
 }
 

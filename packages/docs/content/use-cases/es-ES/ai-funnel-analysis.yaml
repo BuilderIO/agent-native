@@ -1,0 +1,111 @@
+slug: ai-funnel-analysis
+app: analytics
+roles:
+  - product
+  - founders
+  - engineering
+title: Descubre dónde abandonan los nuevos usuarios
+seo_title: Análisis de embudo con IA y sesiones grabadas
+meta_description: Pregunta a Agent-Native Analytics qué paso del registro pierde usuarios, obtén el embudo con tus propios eventos y mira las grabaciones de quienes se fueron.
+updated: 2026-10-27
+hero:
+  body: Pregunta a Agent-Native Analytics qué paso del registro pierde más gente, y el agente crea el embudo con tus eventos. Luego mira las grabaciones de quienes se fueron y pregunta al agente por qué.
+  button:
+    label: Encuentra el abandono
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F55295bda356c490984f639946e838ebe
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd84d0fd7f856406e85b739ac0429b0f3
+    alt: "La ventana de Analytics en un panel «Activation funnel». Su embudo tiene cuatro pasos: Signed up, Created a project, Connected a data source e Invited a teammate. Cada paso muestra su recuento, su porcentaje sobre los registros y la caída respecto al paso anterior, y la mayor caída está en Created a project. El chat del agente, al lado, explica dónde se detuvieron los registros de la semana pasada."
+how_to:
+  heading: Cómo hacer un análisis de embudo con IA
+  steps:
+    - title: Pregunta dónde se detienen
+      body: "Lleva tus eventos de registro a Analytics. Pregunta en **Preguntar** y el agente escribe el SQL y añade un [gráfico de embudo](https://www.agent-native.com/docs/template-analytics-dashboards/) con el recuento y la caída de cada paso. Prueba: «Añade un embudo a mi panel Activation funnel: ¿dónde se detuvieron los registros de la semana pasada?»"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa752431cecb8420c88d3d6a8f7980ea9
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F16ab210c27504ed1b71c37ebdabea744
+        alt: El chat del agente con esa petición y su respuesta, junto al embudo que ha añadido. Los pasos indican Signed up 1240, Created a project 612, Connected a data source 418 e Invited a teammate 302, cada uno con su caída.
+    - title: Encuentra a quienes se detuvieron
+      body: Activa Clasificación de sesiones en los Ajustes de Analytics. En **Sesiones**, abre **Eventos**. Elige **Con** para el paso anterior a la caída, como «signed_up», y **Sin** para el paso al que nunca llegaron, como «project_created».
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F327bf36c28ab452da87cf4f4dc65debe
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F49b79e0de78041bb93444ec4d24ce11a
+        alt: Primer plano de la página Sessions con el filtro Events abierto, signed_up en Did y project_created en Didn't. Debajo, la lista filtrada de sesiones de nuevos usuarios, cada una con su duración, su página y sus clics de frustración.
+    - title: Pregunta qué pasó en una sesión
+      body: Abre una grabación para ver la página, los clics y las peticiones de red. Haz clic en **Preguntar al agente sobre esta sesión** y pregunta «¿Qué pasó en esta sesión?». El agente resume los errores, los clics repetidos y las páginas que vio esa persona.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7e0b3a4750a143f6bcd609e1c5460fd2
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe44e9321e80d4c3f826bd7b25fa54025
+        alt: Una grabación de un nuevo usuario en la página de crear proyecto, con la respuesta del agente al lado. La persona escribió un nombre de proyecto y pulsó Create project tres veces. La petición a la API de proyectos falló todas las veces y se fue.
+features:
+  heading: Todo lo que necesitas para encontrar y corregir el abandono
+  items:
+    - title: Saltarse un paso no es abandonar
+      body: Indica al agente qué pasos se pueden saltar, y el embudo separa a quienes se los saltaron de quienes dejaron la app ahí.
+    - title: Tus propios nombres de eventos
+      body: Los administradores describen tus eventos y métricas en la página **Capa semántica**, y el agente usa esos nombres exactos en cada consulta.
+    - title: Ve la petición que falló
+      body: Abre **Herramientas de desarrollo** en una grabación para ver su consola y sus peticiones de red, y salta al momento del fallo.
+    - title: Grabaciones censuradas para agentes
+      body: Un agente externo recibe las entradas de consola y de red de la grabación, primero los errores, nunca la grabación. Su enlace caduca en dos horas.
+    - title: Privado por defecto
+      body: Lo que se escribe se oculta en todas las grabaciones, y tú eliges qué más de la página queda oculto.
+    - title: El embudo, cada día
+      body: Pide al agente que envíe tu panel del embudo a diario, a la hora que elijas, por correo a hasta cinco personas o a Slack.
+integrations:
+  heading: Conecta Analytics con las herramientas que ya usas
+  cards:
+    - title: Pregunta por los eventos que mides
+      logos:
+        - name: PostHog
+        - name: Amplitude
+        - name: Mixpanel
+        - name: Google Analytics
+        - name: BigQuery
+      body: El agente consulta los datos de producto que ya recoges en estas herramientas, o los eventos que tu app envía a Analytics.
+    - title: Pega una grabación en tu agente de código
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+      body: Haz clic en **Copiar para agente** en una grabación y pega el enlace en tu agente de código, para que depure con los registros de esa sesión.
+    - title: Conecta lo que quieras con MCP
+      logos:
+        - name: Sentry
+        - name: Linear
+        - name: GitHub
+        - name: Intercom
+      more: true
+      body: Conecta las herramientas que usa tu equipo mediante MCP, o añade cualquier servidor MCP con su URL.
+other_uses:
+  heading: Otras cosas que puedes hacer con Agent-Native Analytics
+  cards:
+    - title: Crea un panel de KPI para tu startup
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: Describe los KPI que sigues y el agente crea un panel con datos de Stripe, HubSpot y producto.
+    - title: Pregunta a tus datos en lenguaje natural
+      url: https://www.agent-native.com/use-cases/ask-your-database/
+      body: Haz preguntas sobre tus datos de BigQuery y el agente escribe SQL de solo lectura que puedes revisar.
+    - title: Haz tu informe semanal sin hojas de cálculo
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: Pregunta cómo fue tu semana de marketing y el agente responde con Google Analytics y HubSpot en un panel.
+faqs:
+  heading: ¿Dudas? Aquí tienes las respuestas
+  items:
+    - q: ¿Agent-Native Analytics es gratis?
+      a: "Sí, Agent-Native Analytics es gratuito y de código abierto. Usa la aplicación alojada o [ejecuta tu propia copia](https://www.agent-native.com/docs/template-analytics/). Los datos los pones tú: tus propios eventos o las herramientas que conectes. Analytics está en alfa, así que espera cambios."
+    - q: ¿Necesito saber SQL?
+      a: No. Pregunta con tus palabras y el agente escribe y ejecuta el SQL, y responde con un gráfico, una tabla o una cifra. Pide ver la consulta cuando quieras revisarla. Puede que alguien que conozca tus datos tenga que [conectar tus fuentes](https://www.agent-native.com/docs/template-analytics-connectors/) primero.
+    - q: ¿De dónde salen las grabaciones de sesiones?
+      a: "De tu propia aplicación web. Crea una clave pública en **Fuentes de datos** y añade a tu app el breve fragmento de seguimiento de la página **Sesiones**, con la reproducción de sesiones activada. Conecta un almacenamiento para las grabaciones: Builder.io o tu propio bucket de S3. Por defecto, las [grabaciones](https://www.agent-native.com/docs/template-analytics-monitoring-and-sessions/) solo registran a usuarios con sesión iniciada."
+    - q: ¿Qué registra una grabación de sesión?
+      a: Una grabación reproduce la página, los clics y el desplazamiento, la salida de la consola y las peticiones de red. Lo que se escribe se oculta por defecto, y los campos de contraseñas o datos de tarjeta nunca se capturan. Para ocultar cualquier otra cosa, añade una clase a esa parte de la página.
+    - q: ¿Puedo usar mis datos de PostHog, Amplitude o Mixpanel?
+      a: Sí. Conéctalos en **Fuentes de datos** y pregunta por los eventos que mides ahí. El agente consulta cada herramienta por ti. Las grabaciones de sesiones solo salen del seguimiento propio de Analytics, así que añádelo a tu app para ver a las personas que se detuvieron.
+    - q: ¿En qué se diferencia Analytics de la IA de mi herramienta de analítica?
+      a: "La IA de una herramienta de analítica trabaja con los datos de esa herramienta. El agente de Analytics trabaja con todas las fuentes que conectes, encuentra las grabaciones de las personas exactas que se detuvieron y explica cualquiera de ellas o se la pasa a tu agente de código. Además, es de código abierto. Eso es una [aplicación agéntica](https://www.agent-native.com/articles/what-is-an-agent-native-app/): la inteligencia de un agente, la intuición de una aplicación."

@@ -82,12 +82,14 @@ import {
   type RepromptDraftRequest,
   type ReviewFocusRequest,
 } from "@/components/visual-editor";
+import type { ReviewActiveThreadReporter } from "@/components/visual-editor/review-active-thread-reporter";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import { useCanvasLoadOutcome } from "@/lib/canvas-load-outcome";
 import {
   resolveDesktopDesignSnapshotLayer,
   useDesktopDesignNativePreview,
 } from "@/lib/desktop-design-preview";
+import type { ReviewThreadAgentAction } from "@/lib/review-thread-agent-actions";
 import {
   FRAME_BRIDGE_KEY_PARAM,
   isSameOriginRoutePath,
@@ -706,6 +708,9 @@ interface DesignCanvasProps {
     documentId?: string;
   }) => void;
   fusionUrl?: string;
+  /** A Builder app screen whose container is still starting: its URL would
+   * not answer yet, so the frame waits instead of loading it. */
+  appStarting?: boolean;
   /** Read-only localhost bridge credential. Filesystem write tokens never enter
    * this browser component. */
   previewToken?: string;
@@ -852,6 +857,7 @@ interface DesignCanvasProps {
     state: Omit<TextEditingState, "screenId">,
   ) => void;
   onElementDblClickText?: (info: ElementInfo) => void;
+  onFrameLabelRename?: (info: ElementInfo, name: string) => void;
   onIframeHotkey?: (event: IframeHotkeyPayload) => void;
   onFigmaClipboardPaste?: (event: IframeFigmaClipboardPastePayload) => void;
   onImagePaste?: (event: IframeImagePastePayload) => void;
@@ -947,8 +953,12 @@ interface DesignCanvasProps {
   onReviewFocusBoardPoint?: (point: ReviewAnchorWorldPoint) => boolean | void;
   reviewCurrentUserEmail?: string | null;
   reviewFocusRequest?: ReviewFocusRequest | null;
+  onReviewActiveThreadChange?: ReviewActiveThreadReporter;
   onDispatchCommentToAgent?: (comment: ReviewComment) => void;
-  onSendThreadToAgent?: (thread: ReviewThread) => void;
+  onSendThreadToAgent?: (
+    thread: ReviewThread,
+    action: ReviewThreadAgentAction,
+  ) => void;
   reviewSendingThreadId?: string | null;
   designTitle?: string;
   commentContextId?: string;
@@ -1508,6 +1518,7 @@ export function DesignCanvas({
   onScreenRootComputedStyles,
   onRuntimeVerificationSnapshot,
   fusionUrl,
+  appStarting = false,
   previewToken,
   localhostPreviewUnavailable = false,
   localhostPreviewUnavailablePublic = false,
@@ -1566,6 +1577,7 @@ export function DesignCanvas({
   onTextContentChange,
   onTextEditingStateChange,
   onElementDblClickText,
+  onFrameLabelRename,
   onIframeHotkey,
   onFigmaClipboardPaste,
   onImagePaste,
@@ -1602,6 +1614,7 @@ export function DesignCanvas({
   onReviewFocusBoardPoint,
   reviewCurrentUserEmail,
   reviewFocusRequest,
+  onReviewActiveThreadChange,
   onDispatchCommentToAgent,
   onSendThreadToAgent,
   reviewSendingThreadId,
@@ -2439,6 +2452,10 @@ export function DesignCanvas({
     Boolean(onRuntimeLayerSnapshot);
 
   const urlBackedFrame = Boolean(rawExternalPreviewUrl);
+  // Nothing loads into the frame until the Builder app's container is up, so
+  // none of the frame's own loading states apply either.
+  const appStartingFrame =
+    appStarting && sourceType === "fusion" && urlBackedFrame;
 
   const editorChromeBridgeForCurrentState = useMemo(
     () =>
@@ -2493,6 +2510,9 @@ export function DesignCanvas({
         ? MOTION_PREVIEW_BRIDGE_SCRIPT +
           SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
           TWEAK_BRIDGE_SCRIPT +
+          // Kept on the overview too: Full view takes over this registration
+          // only while the script is the same. The overview's gesture-mode
+          // message quiets it there.
           ZOOM_BRIDGE_SCRIPT +
           LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT +
           embeddedGestureBridgeForCurrentState +
@@ -2685,7 +2705,6 @@ export function DesignCanvas({
     if (!runtimeVerificationRequest || !externalPreviewUrl) return null;
     return externalPreviewUrl;
   }, [externalPreviewUrl, runtimeVerificationRequest]);
-  const waitingForEditableExternalSnapshot = false;
   const waitingForLiveEditBridge =
     registerLiveEditPreview &&
     usesLiveEditInjectedBridge &&
@@ -3710,7 +3729,9 @@ export function DesignCanvas({
       MOTION_PREVIEW_BRIDGE_SCRIPT +
       SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
       TWEAK_BRIDGE_SCRIPT +
-      ZOOM_BRIDGE_SCRIPT +
+      // An embedded frame's gesture bridge already forwards Cmd/Ctrl wheels,
+      // so a pinch-zoom-wheel copy would only double every pinch step's work.
+      (isEmbeddedFrame ? "" : ZOOM_BRIDGE_SCRIPT) +
       NAV_BRIDGE_SCRIPT +
       PREVIEW_THEME_BRIDGE_SCRIPT +
       LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT +
@@ -3981,6 +4002,9 @@ export function DesignCanvas({
 
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
+      // A wheel step arrives up to 120 times a second and reaches every
+      // screen's listener; MultiScreenCanvas reads it straight from the frame.
+      if (e.data?.type === "embedded-canvas-wheel") return;
       const iframeWindow = iframeRef.current?.contentWindow;
       const runtimeVerificationWindow =
         runtimeVerificationIframeRef.current?.contentWindow;
@@ -5678,6 +5702,16 @@ export function DesignCanvas({
         onTextEditingStateChange?.(textState);
         return;
       }
+      if (e.data.type === "frame-label-rename") {
+        if (
+          typeof e.data.name === "string" &&
+          e.data.payload &&
+          typeof e.data.payload === "object"
+        ) {
+          onFrameLabelRename?.(e.data.payload, e.data.name);
+        }
+        return;
+      }
       if (e.data.type === "element-dblclick-text") {
         onElementDblClickText?.(e.data.payload);
         return;
@@ -5835,34 +5869,6 @@ export function DesignCanvas({
         embeddedCanvasPanSessionRef.current = result.session;
         return;
       }
-      if (e.data.type === "embedded-canvas-wheel") {
-        if (!isEmbeddedFrame || interactMode) return;
-        const iframe = iframeRef.current;
-        if (!iframe) return;
-        const rect = iframe.getBoundingClientRect();
-        const scaleX =
-          iframe.clientWidth > 0 ? rect.width / iframe.clientWidth : 1;
-        const scaleY =
-          iframe.clientHeight > 0 ? rect.height / iframe.clientHeight : 1;
-        const clientX = rect.left + Number(e.data.clientX || 0) * scaleX;
-        const clientY = rect.top + Number(e.data.clientY || 0) * scaleY;
-        const forwarded = new WheelEvent("wheel", {
-          bubbles: true,
-          cancelable: true,
-          deltaX: Math.max(-240, Math.min(240, Number(e.data.deltaX) || 0)),
-          deltaY: Math.max(-240, Math.min(240, Number(e.data.deltaY) || 0)),
-          deltaZ: Math.max(-240, Math.min(240, Number(e.data.deltaZ) || 0)),
-          deltaMode: Number(e.data.deltaMode) || WheelEvent.DOM_DELTA_PIXEL,
-          clientX,
-          clientY,
-          ctrlKey: Boolean(e.data.ctrlKey),
-          metaKey: Boolean(e.data.metaKey),
-          shiftKey: Boolean(e.data.shiftKey),
-          altKey: Boolean(e.data.altKey),
-        });
-        iframe.dispatchEvent(forwarded);
-        return;
-      }
       if (e.data.type === "pinch-zoom-wheel") {
         if (isEmbeddedFrame) return;
         if (interactMode) return;
@@ -5949,6 +5955,7 @@ export function DesignCanvas({
     onTextContentChange,
     onTextEditingStateChange,
     onElementDblClickText,
+    onFrameLabelRename,
     onIframeHotkey,
     onFigmaClipboardPaste,
     onImagePaste,
@@ -8462,7 +8469,7 @@ export function DesignCanvas({
         >
           {t("designEditor.liveCanvasWaitingForOwner")}
         </div>
-      ) : rawExternalPreviewUrl &&
+      ) : appStartingFrame ? null : rawExternalPreviewUrl &&
         !externalPreviewUrl ? null : externalPreviewPendingOrigin ? null : (
         <>
           {replacedFrame ? (
@@ -8574,6 +8581,7 @@ export function DesignCanvas({
       )}
       {motionOriginProxy}
       {externalPreviewUrl &&
+      !appStartingFrame &&
       !previewFrameLoaded &&
       !liveEditConnectionFailed ? (
         <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center gap-2 bg-background px-2 text-muted-foreground">
@@ -8691,14 +8699,24 @@ export function DesignCanvas({
           onDismiss={handleDismissLocalNetworkAccessPrompt}
         />
       ) : null}
-      {localhostPreviewUnavailable ||
-      waitingForEditableExternalSnapshot ||
-      liveEditBridgeConfigurationPending ||
-      (waitingForLiveEditBridge && !bridgeRegistrationFailedForCurrentKey) ||
-      sameOriginBridgePending ||
-      (liveEditDocumentPending &&
-        liveEditSameInstanceStalledError?.bridgeKey !== liveEditBridgeKey) ||
-      liveEditRegistrationFailurePending ? (
+      {appStartingFrame ? (
+        <div
+          data-design-app-starting
+          role="status"
+          className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-background px-4 text-center text-sm text-muted-foreground"
+        >
+          <Spinner className="size-5" />
+          {
+            "Starting your app…" /* i18n-ignore Builder app screen, flag-gated feature */
+          }
+        </div>
+      ) : localhostPreviewUnavailable ||
+        liveEditBridgeConfigurationPending ||
+        (waitingForLiveEditBridge && !bridgeRegistrationFailedForCurrentKey) ||
+        sameOriginBridgePending ||
+        (liveEditDocumentPending &&
+          liveEditSameInstanceStalledError?.bridgeKey !== liveEditBridgeKey) ||
+        liveEditRegistrationFailurePending ? (
         <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
           {localhostPreviewUnavailable ? (
             <div
@@ -8936,6 +8954,7 @@ export function DesignCanvas({
         canResolve={reviewCanResolve}
         currentUserEmail={reviewCurrentUserEmail}
         focusRequest={reviewFocusRequest}
+        onActiveThreadChange={onReviewActiveThreadChange}
         onDispatchCommentToAgent={onDispatchCommentToAgent}
         onSendThreadToAgent={onSendThreadToAgent}
         sendingThreadId={reviewSendingThreadId}

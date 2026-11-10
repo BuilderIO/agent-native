@@ -1,12 +1,18 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
-import type { AiPriorityEmail, AiPriorityScore } from "@shared/ai-priority";
+import type {
+  AiPriorityEmail,
+  AiPriorityFailure,
+  AiPriorityScore,
+} from "@shared/ai-priority";
 
 export type AiPriorityResult = {
   scores: AiPriorityScore[];
+  failures: AiPriorityFailure[];
   eligibleCount: number;
   evaluatedCount: number;
+  failedCount: number;
   limit: number;
-  model: { engine?: string; model?: string } | null;
+  model: { provider: "openai" | "jev"; model: string } | null;
 };
 
 export function useAiPriority() {

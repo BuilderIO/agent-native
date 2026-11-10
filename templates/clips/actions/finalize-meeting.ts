@@ -1,11 +1,14 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import type { VoiceContextPack } from "@agent-native/core/voice";
 import { and, eq, inArray, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { readEarlierAudioRemovedAt } from "../server/lib/earlier-audio-removal.js";
+import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 import { PENDING_MEETING_FINALIZATION_STALE_MS } from "../shared/meeting-finalization.js";
 import cleanupTranscript, { CleanupResult } from "./cleanup-transcript.js";
@@ -13,7 +16,10 @@ import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 
 export function skippedFinalizeResult(
   meetingId: string,
-  reason: "no-transcript" | "transcript-pending" = "no-transcript",
+  reason:
+    | "no-transcript"
+    | "transcript-pending"
+    | "transcript-changed" = "no-transcript",
 ) {
   return {
     meetingId,
@@ -61,15 +67,32 @@ export default defineAction({
       .limit(1);
     if (!meeting) throw new Error(`Meeting not found: ${args.meetingId}`);
 
-    let transcriptText = args.overrideTranscript ?? "";
-    if (!transcriptText && meeting.recordingId) {
-      const [t] = await db
-        .select()
-        .from(schema.recordingTranscripts)
-        .where(eq(schema.recordingTranscripts.recordingId, meeting.recordingId))
-        .limit(1);
-      transcriptText = t?.fullText ?? "";
-    }
+    const earlierAudioRemovedAt = await readEarlierAudioRemovedAt(
+      db,
+      meeting.recordingId,
+    );
+
+    const linked = await loadMeetingRecordingContent(
+      meeting,
+      getRequestUserEmail(),
+    );
+    if (linked.sourcePresent && !linked.canReadTranscript)
+      throw new ForbiddenError();
+    const [linkedRecording] =
+      linked.canReadRecording && meeting.recordingId
+        ? await db
+            .select({
+              title: schema.recordings.title,
+              sourceAppName: schema.recordings.sourceAppName,
+              sourceWindowTitle: schema.recordings.sourceWindowTitle,
+              description: schema.recordings.description,
+            })
+            .from(schema.recordings)
+            .where(eq(schema.recordings.id, meeting.recordingId))
+            .limit(1)
+        : [];
+    const transcriptText =
+      args.overrideTranscript || linked.transcript?.fullText || "";
     if (!transcriptText.trim()) {
       if (meeting.transcriptStatus === "pending") {
         return skippedFinalizeResult(args.meetingId, "transcript-pending");
@@ -125,29 +148,16 @@ export default defineAction({
       };
     }
 
-    const [participants, recordingRows, agentsContext] = await Promise.all([
+    const [participants, agentsContext] = await Promise.all([
       db
         .select()
         .from(schema.meetingParticipants)
         .where(eq(schema.meetingParticipants.meetingId, args.meetingId)),
-      meeting.recordingId
-        ? db
-            .select({
-              title: schema.recordings.title,
-              sourceAppName: schema.recordings.sourceAppName,
-              sourceWindowTitle: schema.recordings.sourceWindowTitle,
-              description: schema.recordings.description,
-            })
-            .from(schema.recordings)
-            .where(eq(schema.recordings.id, meeting.recordingId))
-            .limit(1)
-        : Promise.resolve([]),
       loadAgentsMdContext({
         ownerEmail: meeting.ownerEmail,
         purpose: "summary",
       }),
     ]);
-    const linkedRecording = recordingRows[0] ?? null;
 
     const contextSnippets: NonNullable<VoiceContextPack["snippets"]> = [];
     const addSnippet = (label: string, value: string, maxChars = 2_000) => {
@@ -205,6 +215,26 @@ export default defineAction({
         task: "summary",
         contextPack,
       });
+      if (linked.sourcePresent) {
+        const currentMeetings = await db
+          .select({
+            recordingId: schema.meetings.recordingId,
+            shareTranscript: schema.meetings.shareTranscript,
+          })
+          .from(schema.meetings)
+          .where(eq(schema.meetings.id, args.meetingId))
+          .limit(1);
+        const currentMeeting = currentMeetings.values().next().value;
+        const current =
+          currentMeeting?.recordingId === meeting.recordingId
+            ? await loadMeetingRecordingContent(
+                currentMeeting,
+                getRequestUserEmail(),
+              )
+            : null;
+        if (!current?.canReadTranscript) throw new ForbiddenError();
+      }
+      await assertAccess("meeting", args.meetingId, "editor");
     } catch (err) {
       await db
         .update(schema.meetings)
@@ -227,7 +257,38 @@ export default defineAction({
     const actionItems = result.actionItems ?? [];
 
     let persistedActionItems = actionItems;
-    await db.transaction(async (tx) => {
+    const transcriptChanged = await db.transaction(async (tx) => {
+      // The removal rewrites this row, so holding it means the stamp read next
+      // is either final or this write lands first and gets cleared by it.
+      await tx
+        .select({ id: schema.meetings.id })
+        .from(schema.meetings)
+        .where(eq(schema.meetings.id, args.meetingId))
+        .for("update");
+      // A summary of audio removed since the read above must not land, even
+      // over the newer claim the removal's own rebuild holds.
+      if (
+        (await readEarlierAudioRemovedAt(tx, meeting.recordingId)) !==
+        earlierAudioRemovedAt
+      ) {
+        // Still holding this claim means it was taken after the removal cleared
+        // the meeting, where it would block the removal's own rebuild.
+        await tx
+          .update(schema.meetings)
+          .set({
+            transcriptStatus: "ready",
+            updatedAt: new Date().toISOString(),
+          })
+          .where(
+            and(
+              eq(schema.meetings.id, args.meetingId),
+              eq(schema.meetings.transcriptStatus, "pending"),
+              eq(schema.meetings.updatedAt, claimUpdatedAt),
+            ),
+          );
+        return true;
+      }
+
       const finalNow = new Date().toISOString();
       const written = await tx
         .update(schema.meetings)
@@ -294,6 +355,9 @@ export default defineAction({
         );
       }
     });
+    if (transcriptChanged) {
+      return skippedFinalizeResult(args.meetingId, "transcript-changed");
+    }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

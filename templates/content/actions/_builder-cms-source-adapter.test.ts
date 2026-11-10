@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { ContentDatabaseItem } from "../shared/api";
 import {
+  BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
+  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  BUILDER_CMS_ENTRY_NAME_KEY,
+  BUILDER_CMS_HAS_AUTOSAVES_KEY,
   buildBuilderCmsFixtureEntry,
   builderCmsQualifiedId,
   builderCmsSourceFieldKey,
@@ -218,8 +222,52 @@ describe("Builder CMS source adapter", () => {
         "data.handle": "builder-api-title",
         "data.description": "A useful field",
         lastUpdated: "2026-06-08T12:00:00.000Z",
+        [BUILDER_CMS_ENTRY_NAME_KEY]: "Fallback name",
       },
     });
+  });
+
+  it("tells an empty body Builder returned apart from a read without the body", () => {
+    const entry = (data: Record<string, unknown>) =>
+      normalizeBuilderCmsApiEntry(
+        { id: "entry-1", published: "published", lastUpdated: 1, data },
+        "blog_article",
+      )?.sourceValues;
+
+    expect(entry({ title: "Title", blocks: [] })).toMatchObject({
+      [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+    });
+    expect(entry({ title: "Title", blocks: [] })).not.toHaveProperty(
+      BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+    );
+    expect(entry({ title: "Title" })).not.toHaveProperty(
+      BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
+    );
+  });
+
+  it("records whether Builder reports unpublished changes on an entry", () => {
+    const entry = (meta: Record<string, unknown>) =>
+      normalizeBuilderCmsApiEntry(
+        {
+          id: "entry-1",
+          published: "published",
+          lastUpdated: 1782328870774,
+          meta,
+          data: { title: "Builder API title" },
+        },
+        "blog_article",
+      )?.sourceValues;
+
+    expect(entry({ hasAutosaves: true })).toMatchObject({
+      [BUILDER_CMS_HAS_AUTOSAVES_KEY]: true,
+    });
+    expect(entry({ hasAutosaves: false })).toMatchObject({
+      [BUILDER_CMS_HAS_AUTOSAVES_KEY]: false,
+    });
+    expect(entry({})).not.toHaveProperty(BUILDER_CMS_HAS_AUTOSAVES_KEY);
+    expect(entry({ hasAutosaves: "yes" })).not.toHaveProperty(
+      BUILDER_CMS_HAS_AUTOSAVES_KEY,
+    );
   });
 
   it("uses numeric Builder lastUpdated as the row source baseline", () => {

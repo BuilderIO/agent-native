@@ -191,6 +191,7 @@ export function useEditorScreenRendering({
     design,
     designAccessRole,
     canEditDesign,
+    sourceMetadata,
     publicVisualEdit,
     canCommentDesign,
     liveCollaborationEnabled,
@@ -265,6 +266,7 @@ export function useEditorScreenRendering({
     selectedCanvasSelector,
     canEditLiveScreen,
     designFusionUrl,
+    fusionAppStarting,
     motionTracksWire,
     motionPathTargetNodeId,
     motionPathTrackId,
@@ -279,6 +281,7 @@ export function useEditorScreenRendering({
   } = editorContentAndComponents;
   const {
     reviewFocusRequest,
+    setOpenReviewThreadId,
     selectionRevisionRef,
     handleDispatchCommentToAgent,
     handleSendReviewThreadToAgent,
@@ -463,7 +466,7 @@ export function useEditorScreenRendering({
       sourceFrame: HTMLIFrameElement,
     ) => {
       const target = findInteractLinkTarget(
-        files,
+        sourceMetadata.length ? sourceMetadata : files,
         screen,
         activeFileIdRef.current,
       );
@@ -487,7 +490,7 @@ export function useEditorScreenRendering({
         },
       );
     },
-    [files, handleModeChange],
+    [files, sourceMetadata, handleModeChange],
   );
 
   const handleKScaleStyleBatchChange = useCallback(
@@ -558,10 +561,10 @@ export function useEditorScreenRendering({
         return false;
       }
       if (patch.content === content) return true;
-      applyFileContentUpdate(screenId, patch.content, {
+      const publication = applyFileContentUpdate(screenId, patch.content, {
         skipPreview: true,
       });
-      return true;
+      return publication.status === "accepted";
     },
     [
       activeCanvasSourceType,
@@ -979,6 +982,7 @@ export function useEditorScreenRendering({
               : undefined
           }
           fusionUrl={designFusionUrl}
+          appStarting={fusionAppStarting}
           onComponentSourceJump={handleComponentSourceJump}
           motionTracks={screenIsActive ? motionTracksWire : NO_MOTION_TRACKS}
           motionEasingVariables={motionEasingVariables}
@@ -1163,6 +1167,7 @@ export function useEditorScreenRendering({
           reviewCanResolve={canEditDesign}
           reviewCurrentUserEmail={session?.email}
           reviewFocusRequest={reviewFocusRequest}
+          onReviewActiveThreadChange={setOpenReviewThreadId}
           onDispatchCommentToAgent={handleDispatchCommentToAgent}
           onSendThreadToAgent={handleSendReviewThreadToAgent}
           reviewSendingThreadId={reviewSendingThreadId}
@@ -1216,6 +1221,7 @@ export function useEditorScreenRendering({
       getScreenRootComputedStylesCallback,
       getRuntimeVerificationSnapshotCallback,
       designFusionUrl,
+      fusionAppStarting,
       handleComponentSourceJump,
       motionTracksWire,
       motionPathTargetNodeId,
@@ -1286,6 +1292,7 @@ export function useEditorScreenRendering({
       design?.title,
       session?.email,
       reviewFocusRequest,
+      setOpenReviewThreadId,
       handleDispatchCommentToAgent,
       handleSendReviewThreadToAgent,
       reviewSendingThreadId,

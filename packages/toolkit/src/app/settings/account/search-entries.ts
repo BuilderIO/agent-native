@@ -87,3 +87,12 @@ export const SECURITY_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [
     anchor: "data-deletion",
   },
 ];
+
+export function visiblePreferenceSearchEntries(
+  entries: readonly SettingsPageSearchEntry[],
+  canShowThemeFamily: boolean,
+): readonly SettingsPageSearchEntry[] {
+  return canShowThemeFamily
+    ? entries
+    : entries.filter((entry) => entry.id !== "theme-family");
+}

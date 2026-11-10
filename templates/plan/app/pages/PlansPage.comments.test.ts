@@ -26,7 +26,9 @@ import {
   localPlanBridgeRetryDelay,
   nativeMarkerPlacementForAnchor,
   runtimeAnnotationFromThread,
+  runtimeAnnotationMarkerTitle,
   nativePointForAnchor,
+  planSectionIdForAnchor,
   removePlanCommentFromBundle,
   removePlanCommentThreadFromBundle,
   resolveNativeAnchorTarget,
@@ -451,6 +453,23 @@ describe("plan comment thread UI model", () => {
     });
   });
 
+  it("names a pin with its comment's words, not its Markdown", () => {
+    const root = comment("root", {
+      authorEmail: "damian@example.com",
+      authorName: "Damian",
+      anchor: JSON.stringify({ x: 42, y: 24, sectionTitle: "Summary" }),
+      message:
+        "**Two fixes** for @[Sam Lee](mailto:sam@example.com):\n\n- rename `step-1`",
+    });
+    const [thread] = buildCommentThreads([root]);
+    const annotation = thread && runtimeAnnotationFromThread(thread, 0, {});
+    if (!annotation) throw new Error("expected a pinned thread");
+
+    expect(runtimeAnnotationMarkerTitle(annotation)).toBe(
+      "1 comment by Damian: Two fixes for @Sam Lee: - rename step-1",
+    );
+  });
+
   it("collects unique comment author emails for avatar image lookup", () => {
     expect(
       commentAuthorEmails(
@@ -619,6 +638,15 @@ describe("plan comment thread UI model", () => {
       mentions: [],
       resolutionTarget: "agent",
     });
+  });
+
+  it("keeps an anchor's section id only when it names a plan section", () => {
+    const sections = [{ id: "sec_1" }, { id: "sec_2" }];
+    expect(planSectionIdForAnchor(sections, "sec_2")).toBe("sec_2");
+    // Anchors record the nearest element id, such as a content block's.
+    expect(planSectionIdForAnchor(sections, "section-2")).toBeUndefined();
+    expect(planSectionIdForAnchor(sections, undefined)).toBeUndefined();
+    expect(planSectionIdForAnchor(sections, null)).toBeUndefined();
   });
 
   it("does not submit human-targeted inline comments without a mention", () => {

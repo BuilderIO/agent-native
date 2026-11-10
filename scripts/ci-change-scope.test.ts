@@ -1117,7 +1117,7 @@ test("checks the Builder Code starter scaffold for core and Chat changes", () =>
   }
   assert.equal(unrelatedCore.checks.scaffold, false);
   assert.equal(unrelatedCore.checks.builder_code_starter_scaffold, false);
-  assert.equal(unrelatedCoreTemplate.checks.scaffold, true);
+  assert.equal(unrelatedCoreTemplate.checks.scaffold, false);
   assert.equal(unrelatedCoreTemplate.scaffoldCli, false);
   assert.equal(unrelatedCoreTemplate.scaffoldWorkspace, false);
   assert.equal(
@@ -1148,6 +1148,7 @@ test("checks the Builder Code starter scaffold for core and Chat changes", () =>
   ]);
   const headlessTemplate = classifyChangedPaths([
     "packages/core/src/templates/headless/AGENTS.md",
+    "packages/core/src/templates/headless/package.json",
   ]);
   assert.equal(headlessTemplate.scaffoldCli, true);
   assert.deepEqual(
@@ -4296,7 +4297,7 @@ test("keeps package metadata targeted but runs the guards that scan it", () => {
   assert.equal(scope.checks.guards, true);
 });
 
-test("routes agent instructions to core and skills instead of the full suite", () => {
+test("runs only lint and guards for markdown-only instruction changes", () => {
   for (const path of [
     ".agents/skills/qa/SKILL.md",
     "skills/an/SKILL.md",
@@ -4308,21 +4309,41 @@ test("routes agent instructions to core and skills instead of the full suite", (
     const scope = classifyChangedPaths([path]);
     assert.equal(scope.full, false, path);
     assert.equal(scope.docsOnly, false, path);
-    const instructionFilters = [
-      "!./community-templates/**",
-      "@agent-native/core",
-      "@agent-native/skills",
-    ];
-    assert.deepEqual(scope.workspaceFilters, instructionFilters, path);
-    assert.deepEqual(scope.testWorkspaceFilters, instructionFilters, path);
+    assert.deepEqual(scope.workspaceFilters, [], path);
+    assert.deepEqual(scope.testWorkspaceFilters, [], path);
     assert.deepEqual(
       Object.entries(scope.checks)
         .filter(([, enabled]) => enabled)
         .map(([name]) => name),
-      ["lint", "fast_tests", "build", "guards"],
+      ["lint", "guards"],
       path,
     );
   }
+
+  const syncedSkill = classifyChangedPaths([
+    ".agents/skills/review-latest-feedback/SKILL.md",
+    "templates/factory/.agents/skills/review-latest-feedback/SKILL.md",
+    "packages/core/src/templates/factory/.agents/skills/review-latest-feedback/SKILL.md",
+  ]);
+  assert.equal(syncedSkill.full, false);
+  assert.deepEqual(syncedSkill.testWorkspaceFilters, []);
+  assert.equal(syncedSkill.checks.fast_tests, false);
+  assert.equal(syncedSkill.checks.typecheck, false);
+  assert.equal(syncedSkill.checks.build, false);
+  assert.equal(syncedSkill.checks.lint, true);
+  assert.equal(syncedSkill.checks.guards, true);
+
+  const withCode = classifyChangedPaths([
+    ".agents/skills/qa/SKILL.md",
+    "packages/core/src/cli/skills.ts",
+  ]);
+  assert.equal(withCode.checks.fast_tests, true);
+  assert.equal(
+    classifyChangedPaths(["verification/execution-lease/NOTES.md"]).checks
+      .verify_execution_lease,
+    true,
+  );
+  assert.equal(withCode.checks.typecheck, true);
 
   assert.equal(isInstructionPath("README.md"), false);
   assert.equal(isInstructionPath("templates/chat/AGENTS.md"), false);
@@ -4416,6 +4437,22 @@ test("resolves the root script tests a guard-scoped change must run", () => {
   );
 });
 
+test("selects chat health regression for its script or test changes", () => {
+  for (const path of [
+    "scripts/chat-health.mjs",
+    "scripts/chat-health.test.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.full, path.endsWith(".mjs"), path);
+    assert.equal(scope.checks.guards, true, path);
+    assert.deepEqual(scope.scriptTests, ["scripts/chat-health.test.ts"], path);
+  }
+  assert.deepEqual(
+    classifyChangedPaths(["scripts/new-tool.ts"]).scriptTests,
+    [],
+  );
+});
+
 test("still runs changed root script tests when the change set is full", () => {
   const scope = classifyChangedPaths([
     ".github/workflows/ci.yml",
@@ -4425,6 +4462,7 @@ test("still runs changed root script tests when the change set is full", () => {
   assert.equal(scope.full, true);
   assert.equal(scope.checks.guards, true);
   assert.deepEqual(scope.scriptTests, [
+    "scripts/feedback-fix-proof.test.ts",
     "scripts/guard-no-unbounded-table-reads.test.ts",
     "scripts/package-release-workflow.test.ts",
   ]);
@@ -4444,6 +4482,21 @@ test("selects the release workflow test when the publish workflow changes", () =
   assert.deepEqual(scope.scriptTests, [
     "scripts/package-release-workflow.test.ts",
   ]);
+});
+
+test("selects the feedback proof workflow test when its workflow changes", () => {
+  const scope = classifyChangedPaths([
+    ".github/workflows/feedback-fix-proof.yml",
+  ]);
+
+  assert.deepEqual(scope.scriptTests, ["scripts/feedback-fix-proof.test.ts"]);
+});
+
+test("selects the feedback proof contract test when CI changes", () => {
+  const scope = classifyChangedPaths([".github/workflows/ci.yml"]);
+
+  assert.equal(scope.full, true);
+  assert.deepEqual(scope.scriptTests, ["scripts/feedback-fix-proof.test.ts"]);
 });
 
 test("runs the change-scope test when the selector or its test changes", () => {
@@ -4639,6 +4692,9 @@ test("mutation-tests Core source only, never specs, declarations, templates, or 
     "packages/core/src/types.d.ts",
     "packages/core/src/templates/chat/actions/x.ts",
     "packages/core/src/cli/create.ts",
+    "packages/core/src/testing.ts",
+    "packages/core/src/client/agentkit-chat/transport.ts",
+    "packages/core/src/client/uploads/index.ts",
     "templates/chat/actions/x.ts",
   ]) {
     assert.equal(
@@ -4678,15 +4734,19 @@ test(
         "scripts/ci-change-scope.test.ts",
         "scripts/ci-change-scope-renames.test.ts",
         "scripts/ci-change-scope.ts",
+        "scripts/guard-blocker-safe-module-names.ts",
         "scripts/lib/mutation-scope.ts",
         "verification/execution-lease/manifest.json",
         "scripts/ci-build-workspaces.test.ts",
         "scripts/ci-build-workspaces.ts",
+        "scripts/chat-health.test.ts",
+        "scripts/lib/pnpm-command.ts",
         "scripts/design-e2e-regression-pin-identities.test.ts",
         "scripts/design-e2e-regression-pins.test.ts",
         "scripts/guard-no-unbounded-table-reads.test.ts",
         "scripts/deploy-alerts-workflow.test.ts",
         "scripts/package-release-workflow.test.ts",
+        "scripts/feedback-fix-proof.test.ts",
         "scripts/qa-deploy-paths-lib.ts",
         "scripts/design-e2e-regression-pins.ts",
         "scripts/design-e2e-spec-selection.ts",

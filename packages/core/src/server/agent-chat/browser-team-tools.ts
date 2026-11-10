@@ -18,9 +18,10 @@ import {
   setBuiltinMcpCapabilityEnabled,
   type BuiltinMcpCapabilityId,
 } from "../../mcp-client/index.js";
+import { frameworkMcpTools } from "../../mcp/framework-tools.js";
 import {
   getBuilderBrowserConnectUrlForOwner,
-  resolveBuilderBranchProjectId,
+  resolveBuilderHandoffProjectId,
 } from "../builder-browser.js";
 import type { BuilderOAuthPermissionScope } from "../builder-oauth.js";
 import { getRequestOrgId, getRequestUserEmail } from "../request-context.js";
@@ -284,7 +285,7 @@ export function createBuilderBrowserTool(deps: {
         const configured =
           (await builderConnectionForRequest(creds, BUILDER_OAUTH_SCOPE))
             .status === "connected";
-        const branchProjectId = await resolveBuilderBranchProjectId();
+        const branchProjectId = await resolveBuilderHandoffProjectId();
         let prompt = typeof args?.prompt === "string" ? args.prompt : "";
         const extensionId =
           typeof args?.extensionId === "string" ? args.extensionId.trim() : "";
@@ -542,7 +543,7 @@ export function createBuilderBrowserTool(deps: {
     delete entries["set-computer-use"];
   }
 
-  return entries;
+  return frameworkMcpTools(entries);
 }
 
 export function createTeamTools(deps: {
@@ -589,7 +590,7 @@ export function createTeamTools(deps: {
     }
     return task;
   };
-  return {
+  return frameworkMcpTools({
     "agent-teams": {
       dedupe: false,
       tool: {
@@ -849,5 +850,5 @@ export function createTeamTools(deps: {
         );
       },
     },
-  };
+  });
 }

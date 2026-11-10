@@ -118,6 +118,8 @@ export type RecurringJobContext = BackgroundAutomationContext;
 
 export interface SchedulerDeps extends BackgroundAutomationDeps {
   getInitialToolNames?: (job?: RecurringJobContext) => string[] | undefined;
+  /** Job `appId` values this scheduler runs besides `appId`; the lease and run history stay under `appId`. */
+  additionalJobAppIds?: readonly string[];
 }
 
 const MAX_CONCURRENT_SCHEDULED_JOBS = 8;
@@ -127,11 +129,6 @@ const MAX_PAUSED_RECHECKS_PER_TICK = 8;
 const PAUSED_RECHECK_MS = 15 * 60_000;
 const _activeScheduledJobs = new Set<string>();
 const _preflightingScheduledJobs = new Set<string>();
-
-let _hasJobsCache: boolean | undefined;
-let _lastJobsCheck = 0;
-const JOBS_CHECK_INTERVAL_MS = 5 * 60_000;
-let _emitterSubscribed = false;
 
 async function recordSchedulerHealthForScopes(input: {
   appId?: string;
@@ -162,25 +159,6 @@ async function recordSchedulerHealthForScopes(input: {
       );
     }
   }
-}
-
-function subscribeToJobsResourceEvents(): void {
-  if (_emitterSubscribed) return;
-  _emitterSubscribed = true;
-  import("../resources/emitter.js")
-    .then(({ getResourcesEmitter }) => {
-      getResourcesEmitter().on("resources", (event: any) => {
-        if (typeof event?.path === "string" && event.path.startsWith("jobs/")) {
-          _hasJobsCache = undefined;
-        }
-      });
-    })
-    .catch((err) => {
-      console.warn(
-        "[jobs] resource-event subscription failed:",
-        err instanceof Error ? err.message : err,
-      );
-    });
 }
 
 export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
@@ -249,8 +227,6 @@ async function processRecurringJobsWithLease(
   leaseSignal: AbortSignal,
   assertCanStart: () => Promise<void>,
 ): Promise<void> {
-  subscribeToJobsResourceEvents();
-
   try {
     const { runUploadReceiptCleanupOnce } =
       await import("../file-upload/actions/upload-image.js");
@@ -278,17 +254,6 @@ async function processRecurringJobsWithLease(
     orgIds: [],
     checkedAt: nowMs,
   });
-  if (
-    _hasJobsCache === false &&
-    nowMs - _lastJobsCheck < JOBS_CHECK_INTERVAL_MS
-  ) {
-    await recordSchedulerHealthForScopes({
-      appId: deps.appId,
-      orgIds: [],
-      checkedAt: nowMs,
-    });
-    return;
-  }
 
   const reservedJobKeys = new Set<string>();
   const startedJobKeys = new Set<string>();
@@ -297,12 +262,16 @@ async function processRecurringJobsWithLease(
   let dispatchedAt: number | undefined;
 
   try {
+    // Read jobs/ on every tick. Any instance can create an automation, so a
+    // remembered "no jobs" here would hold its first run back until it lapsed.
     const jobResources = await resourceListAllOwners("jobs/");
-    _hasJobsCache = jobResources.some(
-      (r) => r.path.endsWith(".md") && !r.path.endsWith(".keep"),
-    );
-    _lastJobsCheck = nowMs;
-    if (!_hasJobsCache) return;
+    if (
+      !jobResources.some(
+        (r) => r.path.endsWith(".md") && !r.path.endsWith(".keep"),
+      )
+    ) {
+      return;
+    }
     const now = new Date();
 
     const dueJobCandidates: Array<{
@@ -321,7 +290,7 @@ async function processRecurringJobsWithLease(
 
       const { meta, body } = parseJobFrontmatter(resource.content);
       if (
-        !jobBelongsToApp(meta, deps.appId) &&
+        !jobBelongsToApp(meta, deps.appId, deps.additionalJobAppIds) &&
         !isRecoveredFactoryJob(meta, resource.path, deps.appId, resource.owner)
       ) {
         continue;
@@ -660,8 +629,6 @@ async function processRecurringJobsWithLease(
     const { isConnectionError } = await import("../db/client.js");
     if (isConnectionError(err)) {
       healthError = "The scheduler could not reach the database.";
-      _hasJobsCache = undefined;
-      _lastJobsCheck = 0;
       return;
     }
     const detail =
@@ -736,7 +703,7 @@ async function recoverStaleAutomationHistory(
       // Until its claim lease passes, its worker (or the redelivery sweep) can
       // still pick it up, so it is not stale however old the frontmatter lock
       // it inherits is. This reads the stored claim, not the derived status: a
-      // row past the read-liveness ceiling still reports `interrupted`.
+      // claimed row stays live even when its queue age exceeds the ceiling.
       const lastQueueTouch = run.claimedAt ?? run.startedAt;
       const dispatchIsClaimable =
         run.dispatchPending &&

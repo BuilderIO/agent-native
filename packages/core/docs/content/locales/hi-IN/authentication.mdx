@@ -340,6 +340,8 @@ export default createAuthPlugin({
 });
 ```
 
+कस्टम प्रमाणीकरण में UI क्षमताओं और ब्राउज़र अनुमतियों के लिए वैकल्पिक `AuthOptions.getBrowserSession` कॉलबैक भी कॉन्फ़िगर करना होगा। यह `H3Event` स्वीकार करता है और `getSession` की तरह `AuthSession | null` लौटाता है, लेकिन इसे केवल ब्राउज़र कुकीज़ पढ़नी चाहिए; bearer token, query token या अन्य headers कभी नहीं। इस स्पष्ट hook के बिना, केवल ब्राउज़र के लिए उपलब्ध ये कार्रवाइयाँ `401` लौटाती हैं।
+
 ## सार्वजनिक कार्यक्षेत्र ऐप्स {#public-workspace-apps}
 
 वर्कस्पेस ऐप्स डिफ़ॉल्ट रूप से आंतरिक होते हैं। अनाम आगंतुकों को सार्वजनिक रूप से लोड करने देने के लिए
@@ -484,6 +486,20 @@ Canary user-agent marker केवल availability hint है, remote attestati
 हर Desktop build broker शुरू कर सकता है जब device preference `desktopSsoEnabled` true (default) हो; स्पष्ट रूप से persist किया गया `false` opt-out बना रहता है। Dispatch flag `desktop.workspace-sso` भी enabled होना चाहिए। Canary user-agent marker अब broker initialization को gate नहीं करता; यह केवल update channel बताता है।
 Canary अनाम ऐप sign-in navigation को intercept नहीं करता। उपयोगकर्ता को सक्रिय registered app के लिए Desktop Settings में workspace sign-in स्पष्ट रूप से चुनना होगा; सामान्य app sign-in default path बना रहता है।
 सामान्य browsers normal per-app sign-in पर रहते हैं। Self-hosted apps को `AGENT_NATIVE_IDENTITY_HUB_URL` केवल बचे हुए explicit Desktop या server-side federation path के लिए चाहिए।
+
+## साइन-इन पेज को अनुकूलित करें
+
+Chat टेम्पलेट `server/plugins/auth.ts` में `marketing: false` सेट करता है। marketing ऑब्जेक्ट देने पर पैनल चालू होता है और मोबाइल पर फ़ॉर्म के नीचे दिखता है। `AuthMarketingProps` रेंडर किए गए पेज की प्रॉपर्टी बताता है। प्लगइन नीचे दिए `marketing` फ़ील्ड स्वीकार करता है। `authHeadHtml` ऐप द्वारा लिखा विश्वसनीय HTML अंतर्निहित स्टाइल के बाद जोड़ता है। इसमें उपयोगकर्ता इनपुट न दें।
+
+```ts filename="server/plugins/auth.ts"
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
+
+export default createToolkitAuthPlugin({
+  rootAuth: true,
+  marketing: { appName: "My app", tagline: "Make work easier" },
+  authHeadHtml: "<style>.auth-root { font-family: sans-serif; }</style>",
+});
+```
 
 ## प्रशासित डिप्लॉयमेंट और आमंत्रण
 

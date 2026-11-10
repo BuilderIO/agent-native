@@ -1,9 +1,15 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { preparePromptComposerAgentHandoff } from "@agent-native/toolkit/app/chat";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
-import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import {
+  PromptComposer,
+  type PromptComposerSubmitOptions,
+  type Reference,
+} from "@agent-native/toolkit/app/chat/composer/index";
 import { IconPlus } from "@tabler/icons-react";
 import { useState } from "react";
 
+import { useAnalyticsComposerMenuItems } from "@/components/AnalyticsComposerContext";
 import {
   Popover,
   PopoverContent,
@@ -25,7 +31,7 @@ const DASHBOARD_CONTEXT =
   "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' | 'ga4' | 'amplitude' | 'first-party' | 'demo' | 'prometheus'), " +
   "chartType ('line' | 'area' | 'bar' | 'metric' | 'table' | 'pie' | 'funnel' | 'heatmap' | 'callout' | 'section'), width (1 or 2). " +
   "Optional tab labels can use 'Group / Tab' for primary and secondary dashboard tabs. " +
-  "Optional config: { xKey, yKey, yKeys, colors (series colors), color (heatmap only: the row-dimension column name, never a color), yFormatter ('number'|'currency'|'percent'), description, valueLabels }. For funnel panels, xKey is the stage label, yKey is the non-negative value, and SQL ORDER BY defines stage order; when people can skip stages, funnelOutcomes { completedKey, leftKey, skippedKey?, optionalKey? } names per-stage count columns that split each bar into completed, skipped, moved on and left the app. " +
+  "Optional config: { xKey, yKey, yKeys, colors (series colors), color (heatmap only: the row-dimension column name, never a color), yFormatter ('number'|'currency'|'percent'|'duration'; duration reads seconds), description, valueLabels }. For funnel panels, xKey is the stage label, yKey is the non-negative value, and SQL ORDER BY defines stage order; when people can skip stages, funnelOutcomes { completedKey, leftKey, skippedKey?, optionalKey? } names per-stage count columns that split each bar into completed, skipped, moved on and left the app. " +
   "For first-party analytics, source is 'first-party' and sql may read analytics_events only; do not use db-query for datasource panels. " +
   "For the built-in demo dashboard, source is 'demo' and sql uses the same Prometheus JSON descriptor shape as source 'prometheus': { promql, mode, range, step }. " +
   "Call `data-source-status` if you need to see which data sources are connected. " +
@@ -39,13 +45,29 @@ export function NewDashboardDialog({
   triggerClassName?: string;
 } = {}) {
   const t = useT();
+  const contextMenuItems = useAnalyticsComposerMenuItems();
   const [open, setOpen] = useState(false);
   const { send, isGenerating } = useSendToAgentChat();
 
-  function handleSubmit(text: string) {
+  async function handleSubmit(
+    text: string,
+    files: File[],
+    references: Reference[],
+    options: PromptComposerSubmitOptions,
+  ) {
     const trimmed = text.trim();
     if (!trimmed || isGenerating) return;
+    const handoff = await preparePromptComposerAgentHandoff(
+      files,
+      options,
+      t("composerSources.uploadFailed"),
+    );
     send({
+      ...handoff,
+      references,
+      model: options.model,
+      engine: options.engine,
+      effort: options.effort,
       message: trimmed,
       context: DASHBOARD_CONTEXT,
       submit: true,
@@ -77,6 +99,7 @@ export function NewDashboardDialog({
           {t("dialogs.newDashboardTitle")}
         </p>
         <PromptComposer
+          contextMenuItems={contextMenuItems}
           autoFocus
           requireAgentEngine
           disabled={isGenerating}

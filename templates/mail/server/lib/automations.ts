@@ -1,8 +1,5 @@
 import { fail } from "@agent-native/core/action";
-import {
-  getJevContextCredentials,
-  isJevEnabled,
-} from "@agent-native/core/server";
+import { getDecisionsStatus } from "@agent-native/core/decisions";
 import { getUserSetting, mutateUserSetting } from "@agent-native/core/settings";
 import { and, eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -222,12 +219,16 @@ function failInvalidAiFilterActions(): never {
   });
 }
 
-export async function assertMailJevEnabled(ownerEmail: string): Promise<void> {
-  const credentials = await getJevContextCredentials(ownerEmail);
-  if (!(await isJevEnabled(credentials))) {
-    fail("Jev is not enabled for this account.", {
+export async function assertMailDecisionProviderAvailable(
+  ownerEmail: string,
+): Promise<void> {
+  const status = await getDecisionsStatus(ownerEmail);
+  if (!status.providers.some(({ status }) => status === "ready")) {
+    fail("Connect an AI provider to use Mail rules.", {
       errorCode: "jev_not_enabled",
-      statusCode: 403,
+      statusCode: status.providers.some(({ status }) => status === "unknown")
+        ? 503
+        : 403,
     });
   }
 }

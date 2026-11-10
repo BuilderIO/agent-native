@@ -8,6 +8,7 @@ import {
   countRecordingAgentViews,
   listRecordingAgentViewers,
 } from "../server/lib/agent-views.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { hydrateViewerNames } from "../server/lib/user-identities.js";
 import {
   clampCompletionPct,
@@ -22,7 +23,9 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
     const viewerRows = await db

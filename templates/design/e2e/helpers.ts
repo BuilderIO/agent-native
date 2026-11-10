@@ -52,6 +52,35 @@ async function postAction(
   return res.json();
 }
 
+export async function grantLocalhostWriteConsent(
+  page: Page,
+  input: { designId: string; connectionId: string },
+): Promise<void> {
+  const url = appPath("/_agent-native/actions/grant-localhost-write-consent");
+  expect(new URL(page.url()).origin, "consent setup needs the app page").toBe(
+    new URL(url).origin,
+  );
+  const result = await page.evaluate(
+    async ({ url, input }) => {
+      const response = await fetch(url, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Agent-Native-Frontend": "1",
+        },
+        body: JSON.stringify(input),
+      });
+      return { status: response.status, body: await response.text() };
+    },
+    { url, input },
+  );
+  expect(
+    result.status,
+    `grant-localhost-write-consent failed: ${result.body}`,
+  ).toBe(200);
+}
+
 export async function createFixtureDesign(
   page: Page,
   title = SEED_TITLE,

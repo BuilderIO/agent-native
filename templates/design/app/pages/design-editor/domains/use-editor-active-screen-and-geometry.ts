@@ -1,7 +1,6 @@
 import {
   useActionQuery,
   useActionMutation,
-  actionErrorMessage,
   callAction,
   tryCallActionKeepalive,
   readClientAppState,
@@ -36,7 +35,7 @@ import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
 import type { DesignMigrationResult } from "@/components/design/editor/MakeRealDialog";
-import { type LocalhostWriteConsentPayload } from "@/components/design/LocalhostWriteConsentDialog";
+import { useLocalhostWriteConsent } from "@/components/design/LocalhostWriteConsentDialog";
 import { deviceViewportFloorForWidth } from "@/components/design/multi-screen/frame-geometry";
 import { resolveScreenHeightMode } from "@/components/design/multi-screen/screen-height";
 import type { KScaleStyleChangesByFrameId } from "@/components/design/multi-screen/types";
@@ -84,6 +83,7 @@ import {
   frameHeightChangedIds,
   getDesignDataRecord,
 } from "../design-data-geometry-utils";
+import { designMetadataQueryKey } from "../design-query-key";
 import { type UndoRedoOrderKind } from "../editor-state";
 import { runResumePendingGeneration } from "../effects/resume-pending-generation";
 import {
@@ -97,7 +97,6 @@ import {
   warnIfPoisonedBoardCoordsNormalized,
 } from "../html-layer-positioning";
 import { applyKScaleStyleChanges } from "../k-scale";
-import { localhostConsentRequestDisposition } from "../localhost-consent-request";
 import { type MotionTimelineQueryResult } from "../motion-state";
 import {
   clampOverviewDisplayZoom,
@@ -271,7 +270,7 @@ export function discardDesignReadsInFlight(
   queryClient: QueryClient,
   designId: string,
 ): void {
-  const queryKey = ["action", "get-design", { id: designId }];
+  const queryKey = designMetadataQueryKey(designId);
   if (queryClient.isFetching({ queryKey }) === 0) return;
   void queryClient.cancelQueries({ queryKey });
   void queryClient.invalidateQueries({ queryKey });
@@ -349,15 +348,12 @@ export function useEditorActiveScreenAndGeometry({
     resetAgentGenerating,
     trackAgentGeneration,
     design,
+    sourceMetadata,
     designDataReady,
     overviewDataReady,
     activeBreakpointStateVersion,
     designAccessRole,
     canEditDesign,
-    failedLocalhostConsentClear,
-    setFailedLocalhostConsentClear,
-    localhostConsentRequestQuery,
-    clearLocalhostConsentRequestMutation,
     creativeContextLab,
     canEditDesignRef,
     updateDesignMutation,
@@ -376,6 +372,7 @@ export function useEditorActiveScreenAndGeometry({
     journalOutboxEntry,
     acknowledgeOutboxEntry,
     retryDesignSaveOutbox,
+    noteSaveLeftQueued,
     queueFileContentSave,
     flushPendingFileContentSavesForBackground,
     flushPendingTweakSave,
@@ -460,13 +457,10 @@ export function useEditorActiveScreenAndGeometry({
   const frameGeometryMutationChainRef = useRef<Promise<void>>(
     Promise.resolve(),
   );
-  const [localhostWriteConsentOpen, setLocalhostWriteConsentOpen] =
-    useState(false);
-  const [localhostWriteConsentPayload, setLocalhostWriteConsentPayload] =
-    useState<LocalhostWriteConsentPayload | null>(null);
-  const [localhostConsentConnectionId, setLocalhostConsentConnectionId] =
-    useState<string>("");
-  const lastLocalhostConsentRequestRef = useRef<string | null>(null);
+  const localhostWriteConsent = useLocalhostWriteConsent({
+    designId: id,
+    canEditDesign,
+  });
   const saveDesignDataAsync = useActionMutation("update-design", {
     skipActionQueryInvalidation: true,
   }).mutateAsync;
@@ -508,8 +502,8 @@ export function useEditorActiveScreenAndGeometry({
 
   const boardFileContent = useMemo(() => {
     if (!boardFileId) return undefined;
-    const boardFile = files.find((file) => file.id === boardFileId);
-    return typeof boardFile?.content === "string" ? boardFile.content : "";
+    // A board whose source has not loaded is unknown, not empty.
+    return files.find((file) => file.id === boardFileId)?.content;
   }, [boardFileId, files]);
 
   useEffect(() => {
@@ -776,6 +770,9 @@ export function useEditorActiveScreenAndGeometry({
             queuedForRetry =
               journaled &&
               classifyDesignSaveFailure(error, navigator.onLine) === "offline";
+            // The entry stays journaled for the replay unless this failure
+            // already saved or discarded it above.
+            if (journaled && !reconciledEntryWasSaved) noteSaveLeftQueued();
           } finally {
             if (!queuedForRetry) {
               frameGeometryOperationsInFlightRef.current =
@@ -803,6 +800,7 @@ export function useEditorActiveScreenAndGeometry({
       saveDesignDataAsync,
       shellMode,
       reportSaveFailure,
+      noteSaveLeftQueued,
     ],
   );
 
@@ -853,10 +851,12 @@ export function useEditorActiveScreenAndGeometry({
         operation,
       ]);
       designDataJsonRef.current = nextData;
-      queryClient.setQueryData(["action", "get-design", { id }], (old: any) =>
-        old && typeof old === "object"
-          ? { ...old, data: JSON.stringify(nextData) }
-          : old,
+      queryClient.setQueryData(
+        designMetadataQueryKey(id),
+        (old: Record<string, unknown> | undefined) =>
+          old && typeof old === "object"
+            ? { ...old, data: JSON.stringify(nextData) }
+            : old,
       );
       enqueueFrameGeometryDataSave([operation]);
     },
@@ -1213,7 +1213,7 @@ export function useEditorActiveScreenAndGeometry({
       )
     : null;
   generationOutputBaselineRef.current = designDataReady
-    ? snapshotGenerationOutputBaseline(files)
+    ? () => snapshotGenerationOutputBaseline(files)
     : undefined;
 
   useEffect(() => {
@@ -1367,33 +1367,33 @@ export function useEditorActiveScreenAndGeometry({
     retryDesignSaveOutbox,
   ]);
 
-  const defaultActiveFile =
-    files.find(
+  const availableFiles = sourceMetadata.length ? sourceMetadata : files;
+  const defaultActiveMetadata =
+    availableFiles.find(
       (file) =>
         normalizedDesignFileType(file.fileType) === "html" &&
         !isBoardFile(file.filename) &&
         file.filename.toLowerCase() === "index.html",
     ) ??
-    files.find(
+    availableFiles.find(
       (file) =>
         normalizedDesignFileType(file.fileType) === "html" &&
         !isBoardFile(file.filename),
     ) ??
-    files[0];
+    (availableFiles.length > 0 ? availableFiles[0] : undefined);
 
   useEffect(() => {
     const nextActiveFileId = resolveAvailableActiveFileId({
       activeFileId,
-      availableFileIds: files.map((file) => file.id),
-      defaultFileId: defaultActiveFile?.id,
+      availableFileIds: availableFiles.map((file) => file.id),
+      defaultFileId: defaultActiveMetadata?.id,
     });
-    if (nextActiveFileId !== activeFileId) {
-      setActiveFileId(nextActiveFileId);
-    }
-  }, [activeFileId, defaultActiveFile?.id, files]);
+    if (nextActiveFileId !== activeFileId) setActiveFileId(nextActiveFileId);
+  }, [activeFileId, availableFiles, defaultActiveMetadata?.id]);
 
-  const activeFile =
-    files.find((f) => f.id === activeFileId) ?? defaultActiveFile;
+  const activeFile = files.find(
+    (file) => file.id === (activeFileId ?? defaultActiveMetadata?.id),
+  );
   const handleActiveScreenRuntimeReload = useCallback(() => {
     if (activeFile) {
       handleLiveScreenRuntimeReload(
@@ -1506,64 +1506,6 @@ export function useEditorActiveScreenAndGeometry({
       cancelled = true;
     };
   }, [activeBreakpointStateVersion, designBreakpoints, id, isSignedIn]);
-
-  // Agent requests run in a design-scoped capability session, separate from
-  // the browser's app-state session, so retrieve the handoff through an editor
-  // action instead of reading it from client app state.
-  useEffect(() => {
-    const request = localhostConsentRequestQuery.data?.request;
-    if (
-      !id ||
-      !canEditDesign ||
-      !request ||
-      request.designId !== id ||
-      !request.connectionId
-    ) {
-      return;
-    }
-    const requestKey = `${id}:${request.requestedAt}`;
-    const disposition = localhostConsentRequestDisposition({
-      requestKey,
-      lastHandledKey: lastLocalhostConsentRequestRef.current,
-      failedClearKey: failedLocalhostConsentClear,
-    });
-    if (disposition === "ignore") return;
-    const retryingClear = disposition === "retry-clear";
-    if (!retryingClear) {
-      lastLocalhostConsentRequestRef.current = requestKey;
-      setLocalhostConsentConnectionId(request.connectionId);
-      setLocalhostWriteConsentPayload({
-        rootPath: request.rootPath,
-        files: request.files,
-        onGranted: () => {
-          toast.success("File writes allowed for 8 hours." /* i18n-ignore */);
-        },
-        onCancel: () => {},
-      });
-      setLocalhostWriteConsentOpen(true);
-    }
-    void clearLocalhostConsentRequestMutation
-      .mutateAsync({ designId: id, requestedAt: request.requestedAt })
-      .then(async () => {
-        setFailedLocalhostConsentClear(null);
-        await localhostConsentRequestQuery.refetch();
-      })
-      .catch((error) => {
-        setFailedLocalhostConsentClear(requestKey);
-        if (!retryingClear) {
-          toast.error(actionErrorMessage(error) ?? t("common.genericError"));
-        }
-      });
-  }, [
-    canEditDesign,
-    clearLocalhostConsentRequestMutation.mutateAsync,
-    failedLocalhostConsentClear,
-    id,
-    localhostConsentRequestQuery.dataUpdatedAt,
-    localhostConsentRequestQuery.refetch,
-    localhostConsentRequestQuery.data?.request,
-    t,
-  ]);
 
   const activeScreenBaseWidthPx = useMemo<number | null>(() => {
     if (!activeFile?.id) return null;
@@ -2071,12 +2013,7 @@ export function useEditorActiveScreenAndGeometry({
     reviewAuditedAt,
     reviewAuditError,
     applyGeometryHistoryContentChangesRef,
-    localhostWriteConsentOpen,
-    setLocalhostWriteConsentOpen,
-    localhostWriteConsentPayload,
-    setLocalhostWriteConsentPayload,
-    localhostConsentConnectionId,
-    setLocalhostConsentConnectionId,
+    localhostWriteConsent,
     persistActiveBreakpoint,
     makeRealDialogOpen,
     setMakeRealDialogOpen,

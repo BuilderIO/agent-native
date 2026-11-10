@@ -1,3 +1,8 @@
+import {
+  getOrCreateRequestDbPool,
+  retainRequestDbPoolScope,
+  runWithRequestDbPoolScope,
+} from "@agent-native/core/db/request-pool-context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SqlPanel } from "../../app/pages/adhoc/sql-dashboard/types";
@@ -138,6 +143,56 @@ describe("fetchReportPanelData", () => {
     expect(data.get("empty")).toEqual({ status: "rows", rows: [], schema: [] });
   });
 
+  it("reads only the traffic the report saved, never the dashboard's default", async () => {
+    mocks.resolveAnalyticsPanelSource.mockResolvedValue({
+      rows: [],
+      schema: [],
+    });
+    const panels = [panel({ id: "signups", sql: "select 1" })];
+
+    await fetchReportPanelData({
+      ...owner,
+      snapshot: {
+        ...snapshotOf(panels),
+        filters: { f_traffic_environment: "production" },
+      },
+    });
+    expect(mocks.resolveAnalyticsPanelSource.mock.lastCall?.[0]).toMatchObject({
+      trafficEnvironment: "production",
+    });
+
+    await fetchReportPanelData({ ...owner, snapshot: snapshotOf(panels) });
+    expect(
+      mocks.resolveAnalyticsPanelSource.mock.lastCall?.[0],
+    ).not.toHaveProperty("trafficEnvironment");
+
+    await fetchReportPanelData({
+      ...owner,
+      snapshot: {
+        ...snapshotOf(panels),
+        filters: { f_traffic_environment: "all" },
+      },
+    });
+    expect(
+      mocks.resolveAnalyticsPanelSource.mock.lastCall?.[0],
+    ).not.toHaveProperty("trafficEnvironment");
+  });
+
+  it("fails a report saved with a traffic value the filter doesn't offer", async () => {
+    const panels = [panel({ id: "signups", sql: "select 1" })];
+
+    const data = await fetchReportPanelData({
+      ...owner,
+      snapshot: {
+        ...snapshotOf(panels),
+        filters: { f_traffic_environment: "staging" },
+      },
+    });
+
+    expect(data.get("signups")).toMatchObject({ status: "query-failed" });
+    expect(mocks.resolveAnalyticsPanelSource).not.toHaveBeenCalled();
+  });
+
   it("maps a missing-credential response to its own status", async () => {
     mocks.resolveAnalyticsPanelSource.mockResolvedValue({
       error: "missing_api_key",
@@ -197,6 +252,7 @@ describe("fetchReportPanelData", () => {
         source: "first-party",
         query: "select 1",
         timeoutMs: 147,
+        signal: expect.any(AbortSignal),
       },
       {
         userEmail: "owner@example.test",
@@ -337,6 +393,44 @@ describe("fetchReportPanelData", () => {
     });
 
     await expect(dataPromise).resolves.toBeInstanceOf(Map);
+  });
+
+  it("cancels a timed-out report source and releases its request pool", async () => {
+    let sourceSignal: AbortSignal | undefined;
+    let sourceWork: Promise<never> | undefined;
+    const ended = vi.fn(async () => {});
+    mocks.resolveAnalyticsPanelSource.mockImplementation(
+      (request: { signal?: AbortSignal }) => {
+        sourceSignal = request.signal;
+        sourceWork = retainRequestDbPoolScope(
+          new Promise<never>((_resolve, reject) => {
+            request.signal?.addEventListener(
+              "abort",
+              () => reject(new Error("source cancelled")),
+              { once: true },
+            );
+          }),
+        );
+        return sourceWork;
+      },
+    );
+    const data = await runWithRequestDbPoolScope(true, undefined, async () => {
+      getOrCreateRequestDbPool("report-timeout-fixture", () => ({
+        end: ended,
+      }));
+      return fetchReportPanelData({
+        ...owner,
+        perPanelTimeoutMs: 20,
+        snapshot: snapshotOf([panel({ id: "slow", source: "bigquery" })]),
+      });
+    });
+    expect(data.get("slow")).toMatchObject({
+      status: "query-failed",
+      timedOut: true,
+    });
+    expect(sourceSignal?.aborted).toBe(true);
+    await expect(sourceWork).rejects.toThrow("source cancelled");
+    expect(ended).toHaveBeenCalledOnce();
   });
 
   it("lets healthy panels resolve while another panel hangs past its timeout", async () => {
@@ -535,6 +629,103 @@ describe("renderReportEmail", () => {
     expect(rendered.html).toContain(
       '<td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#111827;">javascript:alert(1)</td>',
     );
+  });
+
+  it("shows duration columns and tiles as text, as the dashboard does", async () => {
+    const rendered = await renderReportEmail({
+      snapshot: snapshotOf([
+        panel({
+          id: "checks",
+          config: {
+            columns: [
+              { key: "check" },
+              { key: "median", label: "Median time", format: "duration" },
+            ],
+          },
+        }),
+        panel({
+          id: "to-merge",
+          chartType: "metric",
+          config: { yFormatter: "duration" },
+        }),
+      ]),
+      panelData: new Map([
+        [
+          "checks",
+          {
+            status: "rows" as const,
+            rows: [
+              { check: "build", median: 960 },
+              { check: "lint", median: "120" },
+              { check: "docs", median: null },
+            ],
+            schema: [],
+          },
+        ],
+        [
+          "to-merge",
+          {
+            status: "rows" as const,
+            rows: [{ seconds: 57600 }],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    expect(rendered.text).toContain("build | 16 min");
+    expect(rendered.text).toContain("lint | 2 min");
+    expect(rendered.text).toContain("docs | –");
+    expect(rendered.html).toContain(">16 hours</p>");
+  });
+
+  it("shows the duration dash for missing and invalid durations", async () => {
+    const rendered = await renderReportEmail({
+      snapshot: snapshotOf([
+        panel({
+          id: "checks",
+          config: {
+            columns: [
+              { key: "check" },
+              { key: "median", label: "Median time", format: "duration" },
+            ],
+          },
+        }),
+        panel({
+          id: "to-merge",
+          chartType: "metric",
+          config: { yFormatter: "duration" },
+        }),
+      ]),
+      panelData: new Map([
+        [
+          "checks",
+          {
+            status: "rows" as const,
+            rows: [
+              { check: "lint", median: Number.NaN },
+              { check: "docs", median: "" },
+              { check: "types", median: "Infinity" },
+            ],
+            schema: [],
+          },
+        ],
+        [
+          "to-merge",
+          {
+            status: "rows" as const,
+            rows: [{ seconds: null }],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    expect(rendered.text).toContain("lint | –");
+    expect(rendered.text).toContain("docs | –");
+    expect(rendered.text).toContain("types | –");
+    expect(rendered.html).toContain(">–</p>");
+    expect(rendered.html).not.toContain(">null</p>");
   });
 
   it("attaches exactly one inline PNG per chart panel and references it by cid", async () => {
@@ -1296,4 +1487,160 @@ describe("renderReportEmail data notes", () => {
       expect(await listsIncident("30d")).toBe(false);
     },
   );
+});
+
+describe("renderReportEmail tiles, tables and callouts", () => {
+  async function renderOne(
+    overrides: Partial<SqlPanel>,
+    rows: Array<Record<string, unknown>>,
+  ) {
+    return renderReportEmail({
+      snapshot: snapshotOf([panel({ id: "p", ...overrides })]),
+      panelData: new Map([
+        ["p", { status: "rows" as const, rows, schema: [] }],
+      ]),
+    });
+  }
+
+  it("writes a tile's change from the period before under its value", async () => {
+    const rendered = await renderOne(
+      { chartType: "metric", config: { yKey: "value", comparison: {} } },
+      [{ value: 170, previous_value: 588, period: "the 7 days before" }],
+    );
+
+    expect(rendered.html).toContain(
+      'color:#b91c1c;font-weight:600;font-variant-numeric:tabular-nums;">↘ 71%</span> vs 588, the 7 days before</p>',
+    );
+    expect(rendered.html).toContain("background:#fef2f2;");
+    expect(rendered.text).toContain(
+      "170\n↘ 71% vs 588, the 7 days before (worse)",
+    );
+  });
+
+  it("colors a tile's change by its better direction and format", async () => {
+    const slower = await renderOne(
+      {
+        chartType: "metric",
+        config: { yFormatter: "duration", comparison: { better: "lower" } },
+      },
+      [{ seconds: 172800, previous_value: 129600 }],
+    );
+    expect(slower.html).toContain("color:#b91c1c;");
+    expect(slower.text).toContain(
+      "2 days\n↗ 12 hours vs 36 hours, the period before (worse)",
+    );
+
+    const share = await renderOne(
+      {
+        chartType: "metric",
+        config: {
+          yFormatter: "percent",
+          comparison: { label: "last week" },
+        },
+      },
+      [{ share: 0.53, previous_value: 0.5 }],
+    );
+    expect(share.html).toContain("color:#047857;");
+    expect(share.text).toContain("↗ 3 pts vs 50.00%, last week (better)");
+
+    const steady = await renderOne(
+      {
+        chartType: "metric",
+        config: { comparison: { better: "neither" } },
+      },
+      [{ runs: 15, previous_value: 10 }],
+    );
+    expect(steady.html).toContain("color:#4b5563;");
+    expect(steady.text).toContain("↗ 50% vs 10, the period before");
+    expect(steady.text).not.toContain("(better)");
+  });
+
+  it("leaves the comparison off a tile without a previous value", async () => {
+    const rendered = await renderOne(
+      { chartType: "metric", config: { comparison: {} } },
+      [{ value: 170 }],
+    );
+
+    expect(rendered.html).toContain(">170</p>");
+    expect(rendered.html).not.toContain(" vs ");
+  });
+
+  it("right-aligns number cells in tabular figures under one-line headers", async () => {
+    const rendered = await renderOne(
+      {
+        config: {
+          columns: [
+            { key: "repo", label: "Repository" },
+            { key: "wait", label: "Waiting for" },
+            { key: "prs", label: "Open PRs" },
+          ],
+        },
+      },
+      [
+        { repo: "agent-native", wait: "4.8 days", prs: 1234 },
+        { repo: "toolkit", wait: "3 min", prs: 7 },
+      ],
+    );
+
+    const nowrapHead =
+      "padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:12px;font-weight:600;color:#6b7280;white-space:nowrap;";
+    expect(rendered.html).toContain(
+      `<th style="${nowrapHead}text-align:left;">Repository</th>`,
+    );
+    expect(rendered.html).toContain(
+      `<th style="${nowrapHead}text-align:right;">Waiting for</th>`,
+    );
+    const numberCell =
+      "padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#111827;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;";
+    expect(rendered.html).toContain(`<td style="${numberCell}">4.8 days</td>`);
+    expect(rendered.html).toContain(`<td style="${numberCell}">1,234</td>`);
+    expect(rendered.html).toContain(
+      '<td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#111827;">agent-native</td>',
+    );
+    expect(rendered.text).toContain("agent-native | 4.8 days | 1,234");
+  });
+
+  it("lists callout rows with a severity icon each and no tinted boxes", async () => {
+    const rendered = await renderOne({ chartType: "callout" }, [
+      { severity: "critical", message: "main is failing" },
+      { severity: "warning", message: "3 PRs wait on review" },
+      { severity: "note", message: "All caught up" },
+    ]);
+
+    expect(rendered.html).toContain('aria-label="Critical"');
+    expect(rendered.html).toContain('aria-label="Warning"');
+    expect(rendered.html).toContain('aria-label="Info"');
+    expect(rendered.html).toContain("background:#dc2626;color:#ffffff;");
+    expect(rendered.html).toContain("background:#b45309;color:#ffffff;");
+    expect(rendered.html).toContain("background:#0369a1;color:#ffffff;");
+    expect(rendered.html.match(/border-top:1px solid #e5e7eb;/g)).toHaveLength(
+      4,
+    );
+    expect(rendered.html).not.toContain("#fef2f2");
+    expect(rendered.html).not.toContain("#fffbeb");
+    expect(rendered.text).toContain(
+      "CRITICAL: main is failing\nWARNING: 3 PRs wait on review\nINFO: All caught up",
+    );
+  });
+
+  it("renders the links in callout rows, safely", async () => {
+    const rendered = await renderOne({ chartType: "callout" }, [
+      {
+        severity: "warning",
+        message:
+          "[#8067](https://github.com/o/r/pull/8067) waits on **you**; see [open PRs](/dashboards/prs)",
+      },
+      {
+        severity: "info",
+        message: "[run](javascript:alert(1)) <img src=x onerror=alert(1)>",
+      },
+    ]);
+
+    expect(rendered.html).toContain(
+      '<a href="https://github.com/o/r/pull/8067" style="color:#111827;text-decoration:underline;">#8067</a> waits on <strong>you</strong>; see <a href="https://analytics.example.test/dashboards/prs" style="color:#111827;text-decoration:underline;">open PRs</a>',
+    );
+    expect(rendered.html).not.toContain('href="javascript:');
+    expect(rendered.html).not.toContain("<img src=x");
+    expect(rendered.html).toContain("run &lt;img src=x onerror=alert(1)&gt;");
+  });
 });

@@ -8,7 +8,7 @@ import {
   CredentialStoreUnavailableError,
   runWithRequestContext,
 } from "@agent-native/core/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   archiveWorkspaceApp,
@@ -209,6 +209,20 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => {
   return {
     ...actual,
     resolveAccess: (...args: any[]) => mocks.resolveAccess(...args),
+    // core's own tests prove resolveAccessMany agrees with resolveAccess, so
+    // this double answers through the same per-app mock the cases configure.
+    resolveAccessMany: async (
+      resourceType: string,
+      resourceIds: string[],
+      ...rest: any[]
+    ) => {
+      const access = new Map<string, unknown>();
+      for (const id of resourceIds) {
+        const resolved = await mocks.resolveAccess(resourceType, id, ...rest);
+        if (resolved) access.set(id, resolved);
+      }
+      return access;
+    },
   };
 });
 
@@ -1226,6 +1240,106 @@ describe("listWorkspaceApps", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  describe("gateway failure trail", () => {
+    let warn: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+      stubManifest([{ id: "dispatch", name: "Dispatch", path: "/dispatch" }]);
+    });
+
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
+    function gatewayFailureLog(): Record<string, unknown> | undefined {
+      return warn.mock.calls.find(
+        (call) => call[0] === "[dispatch] workspace apps gateway read failed:",
+      )?.[1] as Record<string, unknown> | undefined;
+    }
+
+    it("names a gateway that did not answer in time, apart from one that was unreachable", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          (_url: unknown, init?: RequestInit) =>
+            new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () =>
+                reject(new DOMException("aborted", "AbortError")),
+              );
+            }),
+        ),
+      );
+
+      await expect(
+        runWithRequestContext(
+          { userEmail: "dev@example.test", requestId: "req-dispatch-1" },
+          () => listWorkspaceApps({ includeAgentCards: false }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 503,
+        errorCode: "workspace_gateway_timeout",
+      });
+
+      expect(gatewayFailureLog()).toMatchObject({
+        errorCode: "workspace_gateway_timeout",
+        status: 503,
+        requestId: "req-dispatch-1",
+        gateway: "https://agent-workspace.builder.io",
+        cause: expect.stringContaining("aborted"),
+      });
+    }, 10_000);
+
+    it("keeps the cause of a transport failure in the log, not on the screen", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new TypeError("fetch failed", {
+            cause: Object.assign(new Error("getaddrinfo ENOTFOUND"), {
+              code: "ENOTFOUND",
+            }),
+          });
+        }),
+      );
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          listWorkspaceApps({ includeAgentCards: false }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "workspace_gateway_unavailable" });
+
+      expect(gatewayFailureLog()?.cause).toContain("ENOTFOUND");
+    });
+
+    it("logs the workspace's own request id when it answered with an error", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response("down", {
+              status: 503,
+              headers: { "x-agent-native-request-id": "req-workspace-9" },
+            }),
+        ),
+      );
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          listWorkspaceApps({ includeAgentCards: false }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "workspace_gateway_http_503" });
+
+      expect(gatewayFailureLog()).toMatchObject({
+        errorCode: "workspace_gateway_http_503",
+        upstreamStatus: 503,
+        upstreamRequestId: "req-workspace-9",
+      });
+      expect(gatewayFailureLog()).not.toHaveProperty("cause");
+    });
+  });
+
   it("surfaces malformed hosted registry responses instead of using manifest apps", async () => {
     const fetchMock = vi.fn(
       async () =>
@@ -1362,29 +1476,55 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
   });
 
-  it("does not make an unauthenticated local gateway read when the org domain is unavailable", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
-    vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://localhost:3000");
-    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
-    mocks.getOrgDomain.mockResolvedValueOnce(null);
+  it.each(["http://localhost:3000", "https://agent-workspace.builder.io"])(
+    "lists domainless deployment apps read-only with access checks (%s)",
+    async (gatewayUrl) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", gatewayUrl);
+      stubManifest([
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "clips", name: "Clips", path: "/clips" },
+        { id: "unknown", name: "Unknown", path: "/unknown" },
+      ]);
+      mocks.getOrgDomain.mockResolvedValueOnce(null);
+      mocks.state.workspaceApps = [
+        {
+          id: "clips",
+          owner_email: "owner@example.test",
+          org_id: "org-without-domain",
+          visibility: "org",
+          org_enabled: 1,
+          name: "Old name",
+          path: "/old-path",
+        },
+      ];
+      mocks.resolveAccess.mockImplementation(async (_type, id) =>
+        id === "clips" ? { role: "viewer", resource: {} } : null,
+      );
 
-    await expect(
-      runWithRequestContext(
+      const apps = await runWithRequestContext(
         { userEmail: "dev@example.test", orgId: "org-without-domain" },
         () => listWorkspaceApps({ includeAgentCards: false }),
-      ),
-    ).rejects.toMatchObject({
-      name: "WorkspaceAppsGatewayAuthorizationError",
-      statusCode: 401,
-      errorCode: "workspace_gateway_org_domain_missing",
-      message:
-        "Workspace apps gateway cannot authenticate without a resolved organization domain.",
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
+      );
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(
+        mocks.executedSql.filter((sql) =>
+          /\b(INSERT|UPDATE|DELETE)\b/i.test(sql),
+        ),
+      ).toEqual([]);
+      expect(apps.map((app) => app.id)).toEqual(["dispatch", "clips"]);
+      expect(mocks.resolveAccess).toHaveBeenCalledWith(
+        "workspace-app",
+        "unknown",
+        { userEmail: "dev@example.test", orgId: "org-without-domain" },
+        { skipResourceBody: true },
+      );
+    },
+  );
 
   it("binds hosted registry tokens to the workspace domain, not its local org id", async () => {
     const fetchMock = vi
@@ -2990,6 +3130,37 @@ describe("startWorkspaceAppCreation", () => {
       startWorkspaceAppCreation({ prompt: "Track onboarding tasks", appId }),
     );
   }
+
+  describe("in a Builder-linked workspace", () => {
+    beforeEach(() => {
+      vi.stubEnv("BUILDER_WORKSPACE_PROJECT_ID", "ws-123");
+      vi.stubEnv("BUILDER_APP_HOST", "https://builder.io");
+    });
+
+    it("links to Builder instead of creating the app", async () => {
+      const settingsBefore = new Map(mocks.settings);
+
+      const result = await create("onboarding");
+
+      expect(result).toEqual({
+        mode: "builder-managed",
+        url: "https://builder.io/app/workspaces/ws-123",
+        message: expect.stringContaining("built in Builder"),
+      });
+      expect(mocks.settings).toEqual(settingsBefore);
+      expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
+      expect(mocks.createBuilderProject).not.toHaveBeenCalled();
+    });
+
+    it("refuses to scaffold a template", async () => {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "dev@example.test", orgId: "org-123" },
+          () => scaffoldWorkspaceAppFromTemplate({ template: "mail" }),
+        ),
+      ).rejects.toThrow("built in Builder");
+    });
+  });
 
   it("persists the private default for local-agent app creation", async () => {
     mocks.getOrgSetting.mockResolvedValueOnce({ visibility: "private" });

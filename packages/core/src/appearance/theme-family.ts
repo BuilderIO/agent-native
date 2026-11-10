@@ -2,6 +2,16 @@ export const THEME_FAMILIES = ["agent-native", "original"] as const;
 
 export type ThemeFamily = (typeof THEME_FAMILIES)[number];
 
+export interface ThemeFamilyConfig {
+  families?: readonly ThemeFamily[];
+  defaultFamily?: ThemeFamily;
+}
+
+export interface ResolvedThemeFamilyConfig {
+  families: ThemeFamily[];
+  defaultFamily: ThemeFamily;
+}
+
 export const DEFAULT_THEME_FAMILY: ThemeFamily = "original";
 export const THEME_FAMILY_STORAGE_KEY = "theme-family";
 export const THEME_FAMILY_ATTRIBUTE = "data-theme-family";
@@ -11,6 +21,32 @@ export const THEME_FAMILY_SETTING_PREFIX = "theme-family";
 
 export function isThemeFamily(value: unknown): value is ThemeFamily {
   return value === "agent-native" || value === "original";
+}
+
+export function resolveThemeFamilyConfig(
+  config?: ThemeFamilyConfig | null,
+): ResolvedThemeFamilyConfig {
+  const configuredFamilies = config?.families ?? [DEFAULT_THEME_FAMILY];
+  const families = [...new Set(configuredFamilies.filter(isThemeFamily))];
+  if (families.length === 0) families.push(DEFAULT_THEME_FAMILY);
+
+  const defaultFamily =
+    isThemeFamily(config?.defaultFamily) &&
+    families.includes(config.defaultFamily)
+      ? config.defaultFamily
+      : (families.find((family) => family === DEFAULT_THEME_FAMILY) ??
+        families.at(0) ??
+        DEFAULT_THEME_FAMILY);
+
+  return { families, defaultFamily };
+}
+
+export function getThemeFamilyUrlOverride(
+  search: string,
+  families: readonly ThemeFamily[] = THEME_FAMILIES,
+): ThemeFamily | null {
+  const family = new URLSearchParams(search).get("theme-family");
+  return isThemeFamily(family) && families.includes(family) ? family : null;
 }
 
 export function themeFamilySettingKey(appId?: string): string {
@@ -47,8 +83,14 @@ export function themeFamilyAppStateKey(appId?: string): string {
   return `${THEME_FAMILY_APP_STATE_KEY}:${encodedAppId}`;
 }
 
-export function getThemeFamilyInitScript(appId?: string | null): string {
+export function getThemeFamilyInitScript(
+  appId?: string | null,
+  familyConfig?: ThemeFamilyConfig | null,
+): string {
   const storageKey = themeFamilyStorageKey(appId ?? undefined);
+  const { families: allowedFamilies, defaultFamily } =
+    resolveThemeFamilyConfig(familyConfig);
+  const families = JSON.stringify(allowedFamilies);
 
-  return `(function(){var root=document.documentElement;var fallback=${JSON.stringify(DEFAULT_THEME_FAMILY)};try{var value=window.localStorage.getItem(${JSON.stringify(storageKey)});if(value===null){root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},fallback);root.setAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)},'awaiting-app-setting');return}if(value==='agent-native'||value==='original'){root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},value);root.removeAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)});return}root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},fallback);root.setAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)},'invalid')}catch(e){root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},fallback);root.setAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)},'unreadable')}})();`;
+  return `(function(){var root=document.documentElement;var fallback=${JSON.stringify(defaultFamily)};try{var requested=new URLSearchParams(window.location.search).get('theme-family');if(${families}.includes(requested)){root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},requested);root.removeAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)});return}var value=window.localStorage.getItem(${JSON.stringify(storageKey)});if(value===null){root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},fallback);root.setAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)},'awaiting-app-setting');return}if(${families}.includes(value)){root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},value);root.removeAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)});return}root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},fallback);root.setAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)},'invalid')}catch(e){root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},fallback);root.setAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)},'unreadable')}})();`;
 }

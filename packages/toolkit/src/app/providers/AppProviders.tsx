@@ -2,6 +2,8 @@ import { ActionQueryCacheGate } from "@agent-native/core/client/action-query-cac
 import {
   agentNativePath,
   frameworkRoutePrefix,
+  isWorkspaceRuntime,
+  resolveAppBasePath,
 } from "@agent-native/core/client/api-path";
 import {
   AgentNativeI18nProvider,
@@ -33,6 +35,10 @@ import React, { useContext, useEffect, useRef } from "react";
 import { useInRouterContext } from "react-router";
 
 import { RequireSession } from "../auth/RequireSession.js";
+import {
+  McpApprovalReviewGate,
+  McpApprovalReviewSkeleton,
+} from "../mcp-approval/McpApprovalReview.js";
 import { FirstRunOnboardingStartupGate } from "../onboarding/first-run-startup-gate.js";
 import {
   AppShellSkeleton,
@@ -47,6 +53,8 @@ import {
   UnsupportedDeviceGate,
   type UnsupportedDeviceGateProps,
 } from "../shared/UnsupportedDeviceGate.js";
+import { WriteFailureToaster } from "../shared/WriteFailureToaster.js";
+import { BuilderSignupStartupGate } from "./BuilderSignupActivation.js";
 
 export interface AppProvidersProps {
   queryClient: QueryClient;
@@ -77,7 +85,13 @@ export interface AppProvidersProps {
 
   sessionBypass?: boolean;
 
+  /** See `RequireSessionProps.signedOutHref`. */
+  signedOutHref?: () => string | null;
+
   skipFirstRunOnboarding?: boolean;
+
+  /** Opt in to the app-specific, consented Builder signup experiment. */
+  builderSignupExperiment?: string;
 
   /**
    * Replaces the app with a hand-off notice on touch screens smaller than an
@@ -129,10 +143,17 @@ function EarlyBetaRedirectScript() {
 // Marks <html> as an MCP App widget before the server-rendered skeleton below
 // paints, so the widget never flashes the app's own sidebar.
 function McpAppWidgetBootScript() {
+  const workspaceRuntime = isWorkspaceRuntime();
+  // Workspace mount metadata is available to the inline browser script.
   return (
     <script
       data-agent-native-mcp-widget-boot="1"
-      dangerouslySetInnerHTML={{ __html: getMcpAppWidgetEmbedBootScriptBody() }}
+      dangerouslySetInnerHTML={{
+        __html: getMcpAppWidgetEmbedBootScriptBody(
+          workspaceRuntime ? undefined : resolveAppBasePath(),
+          workspaceRuntime,
+        ),
+      }}
     />
   );
 }
@@ -416,6 +437,44 @@ function AgentRunAwareness({ persistUnread }: { persistUnread?: boolean }) {
   );
 }
 
+/**
+ * An MCP approval review the URL names replaces the app. It sits outside the
+ * device gate, so a phone can decide, and outside first-run onboarding, so a
+ * new user can decide before setting up the app.
+ */
+function McpApprovalReviewBoundary({
+  appName,
+  themeFamily,
+  children,
+}: {
+  appName: string | undefined;
+  themeFamily: boolean;
+  children: React.ReactNode;
+}) {
+  const name = appName ?? readDocumentTitleFallback();
+  return (
+    <McpApprovalReviewGate
+      appName={name}
+      wrap={(review) => (
+        <RequireSession fallback={<McpApprovalReviewSkeleton appName={name} />}>
+          {themeFamily ? (
+            <React.Suspense fallback={null}>
+              <ThemeFamilySync />
+            </React.Suspense>
+          ) : null}
+          {review}
+        </RequireSession>
+      )}
+    >
+      {children}
+    </McpApprovalReviewGate>
+  );
+}
+
+// Under ClientOnly the script is created by the client, where it never runs
+// and React 19 logs an error for it; the document's head script applies the theme.
+const CLIENT_ONLY_THEME_SCRIPT_PROPS = { type: "application/json" } as const;
+
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
@@ -432,9 +491,11 @@ function ProvidersInner({
   showEnvironmentBadge,
   settingsShortcut,
   ownsDocument = true,
+  clientOnly = false,
   children,
 }: {
   ownsDocument?: boolean;
+  clientOnly?: boolean;
   queryClient: QueryClient;
   defaultTheme?: string;
   themeAttribute?: Attribute | Attribute[];
@@ -451,17 +512,20 @@ function ProvidersInner({
   settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
-  // The banner reads the app's locale, so it sits inside the same provider.
+  // The banner and the failure toasts read the app's locale, so they sit
+  // inside the same provider.
   const localizedChildren =
     i18n === false ? (
       <>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
+        <WriteFailureToaster />
       </>
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
+        <WriteFailureToaster />
       </AgentNativeI18nProvider>
     );
 
@@ -494,6 +558,7 @@ function ProvidersInner({
           defaultTheme={defaultTheme}
           enableSystem
           disableTransitionOnChange={disableThemeTransitions}
+          scriptProps={clientOnly ? CLIENT_ONLY_THEME_SCRIPT_PROPS : undefined}
         >
           <EmbeddedThemeSync />
           {content}
@@ -518,7 +583,9 @@ export function AppProviders({
   clientOnlyFallback,
   skeletonLayout,
   sessionBypass = false,
+  signedOutHref,
   skipFirstRunOnboarding = false,
+  builderSignupExperiment,
   unsupportedDevice,
   disableWebMcp = false,
   webMcpExcludeActionNames,
@@ -563,7 +630,11 @@ export function AppProviders({
   }
 
   const sessionGated = (
-    <RequireSession bypass={sessionBypass} fallback={fallback}>
+    <RequireSession
+      bypass={sessionBypass}
+      fallback={fallback}
+      signedOutHref={signedOutHref}
+    >
       {sessionBypass ? (
         <>
           {ownsDocument ? <AgentRunAwareness persistUnread={false} /> : null}
@@ -578,24 +649,46 @@ export function AppProviders({
             </React.Suspense>
           ) : null}
           <AgentEngineReadinessBootstrap />
-          <FirstRunOnboardingStartupGate
-            suppressSurface={skipFirstRunOnboarding}
-            fallback={fallback}
-          >
-            {children}
-          </FirstRunOnboardingStartupGate>
+          {builderSignupExperiment ? (
+            <BuilderSignupStartupGate
+              experimentId={builderSignupExperiment}
+              suppressSurface={skipFirstRunOnboarding}
+            >
+              {children}
+            </BuilderSignupStartupGate>
+          ) : (
+            <FirstRunOnboardingStartupGate
+              suppressSurface={skipFirstRunOnboarding}
+            >
+              {children}
+            </FirstRunOnboardingStartupGate>
+          )}
         </>
       )}
     </RequireSession>
   );
 
-  const gated = unsupportedDevice ? (
+  const deviceGated = unsupportedDevice ? (
     <UnsupportedDeviceGate {...unsupportedDevice}>
       {sessionGated}
     </UnsupportedDeviceGate>
   ) : (
     sessionGated
   );
+
+  // A token-authenticated embed or an app inside another app's document
+  // never shows a review: neither is the reader's own top-level page.
+  const gated =
+    sessionBypass || !ownsDocument ? (
+      deviceGated
+    ) : (
+      <McpApprovalReviewBoundary
+        appName={documentTitleFallback}
+        themeFamily={enableThemeFamily}
+      >
+        {deviceGated}
+      </McpApprovalReviewBoundary>
+    );
 
   return (
     <>
@@ -623,6 +716,7 @@ export function AppProviders({
           showEnvironmentBadge={showEnvironmentBadge}
           settingsShortcut={!sessionBypass}
           ownsDocument={ownsDocument}
+          clientOnly
         >
           {sessionBypass ? (
             gated

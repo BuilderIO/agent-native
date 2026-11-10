@@ -4936,12 +4936,149 @@ describe("createAgentNativeAgentKitTransport", () => {
       ),
     ).toEqual([
       expect.objectContaining({
-        id: "server-assistant",
+        id: "snapshot-assistant",
         parts: [{ type: "text", text: finalAnswer }],
       }),
     ]);
     await transport.dispose();
   });
+
+  const streamedDraft = "Here are the main answers so you can pick.";
+  it.each([
+    ["a saved reply of text", [], [{ type: "text", text: streamedDraft }]],
+    [
+      "a saved reply of text and an empty reasoning part",
+      [{ type: "reasoning", text: "" }],
+      [{ type: "text", text: streamedDraft }],
+    ],
+    [
+      "a streamed reply of reasoning and a rejected draft",
+      [],
+      [
+        { type: "reasoning", text: "Comparing the options." },
+        {
+          type: "text",
+          text: `${streamedDraft}Here are the main answers, so you can pick your own.`,
+        },
+      ],
+    ],
+  ])(
+    "keeps the streamed id when %s differs from the stream",
+    async (_shape, leadingParts, streamedParts) => {
+      const threadId = "thread-saved-reply-differs";
+      const runId = "run-saved-reply-differs";
+      const turnId = "turn-saved-reply-differs";
+      const streamedId = "message-streamed-reply";
+      const savedAnswer =
+        "Here are the main answers, so you can pick your own.";
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/runs/active")
+            ? json({ active: false, status: "completed", runId })
+            : json({
+                id: threadId,
+                threadData: JSON.stringify({
+                  messages: [
+                    {
+                      message: {
+                        id: `server-user-${runId}`,
+                        role: "user",
+                        content: [{ type: "text", text: "Compare them" }],
+                        metadata: {
+                          custom: {
+                            submittedRunId: runId,
+                            submittedTurnId: turnId,
+                            agentKitMessageId: "message-prompt",
+                          },
+                        },
+                      },
+                      parentId: null,
+                    },
+                    {
+                      message: {
+                        id: `server-${runId}`,
+                        role: "assistant",
+                        status: { type: "complete", reason: "stop" },
+                        content: [
+                          ...leadingParts,
+                          { type: "text", text: savedAnswer },
+                        ],
+                        metadata: {
+                          runId,
+                          custom: {
+                            turnId,
+                            foldedRunIds: [runId],
+                            agentNativeRunDurationMs: 19_027,
+                          },
+                        },
+                      },
+                      parentId: `server-user-${runId}`,
+                    },
+                  ],
+                  agentKit: {
+                    messages: [
+                      {
+                        id: "message-prompt",
+                        role: "user",
+                        parts: [{ type: "text", text: "Compare them" }],
+                      },
+                      {
+                        id: streamedId,
+                        role: "assistant",
+                        status: "complete",
+                        parts: streamedParts,
+                      },
+                    ],
+                    events: [
+                      {
+                        id: `${runId}:1`,
+                        type: "message.completed",
+                        sequence: 1,
+                        threadId,
+                        runId,
+                        occurredAt: "2026-10-26T21:44:13.604Z",
+                        message: {
+                          id: streamedId,
+                          role: "assistant",
+                          status: "complete",
+                          parts: streamedParts,
+                        },
+                      },
+                    ],
+                    runs: [
+                      {
+                        id: runId,
+                        threadId,
+                        status: "completed",
+                        lastSequence: 1,
+                        activeMessageId: streamedId,
+                      },
+                    ],
+                  },
+                }),
+              }),
+        ) as typeof fetch,
+      });
+
+      const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+      expect(
+        snapshot?.messages.filter((message) => message.role === "assistant"),
+      ).toEqual([
+        expect.objectContaining({
+          id: streamedId,
+          parts: expect.arrayContaining([{ type: "text", text: savedAnswer }]),
+          metadata: expect.objectContaining({
+            runId,
+            custom: expect.objectContaining({
+              agentNativeRunDurationMs: 19_027,
+            }),
+          }),
+        }),
+      ]);
+      await transport.dispose();
+    },
+  );
 
   it("drops repeated snapshot text and preserves distinct same-run content", async () => {
     const threadId = "thread-duplicate-assistant-snapshot";
@@ -6603,6 +6740,14 @@ describe("createAgentNativeAgentKitTransport", () => {
       "run.status",
       "run.completed",
     ]);
+    expect(runStateMocks.dispatchAgentChatRunning).toHaveBeenCalledWith({
+      isRunning: true,
+      phase: "working",
+      threadId: "thread-1",
+      tabId: "thread-1",
+      runId: "run-2",
+      reason: "run.submitted",
+    });
     expect(runStateMocks.dispatchAgentChatRunning).toHaveBeenCalledWith(
       expect.objectContaining({
         isRunning: true,
@@ -11055,7 +11200,7 @@ describe("createAgentNativeAgentKitTransport", () => {
       resumableRuns: true,
       threadForking: true,
       threadHistory: true,
-      uploads: false,
+      uploads: true,
     });
   });
 });

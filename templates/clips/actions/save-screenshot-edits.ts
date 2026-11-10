@@ -1,3 +1,4 @@
+import { defineAction } from "@agent-native/core/action";
 /**
  * Save a screenshot's edits, and burn its redactions in when asked.
  *
@@ -22,8 +23,6 @@
  *
  * A burn has no undo. Burned regions are recorded (where, never what).
  */
-
-import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -42,6 +41,8 @@ import {
 } from "../server/lib/pending-redactions.js";
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { deleteStoredMediaUrl } from "../server/lib/recording-media-cleanup.js";
+import { withRecordingMediaProduction } from "../server/lib/recording-media-lifecycle.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
   hasDeleteClaim,
@@ -229,7 +230,9 @@ export default defineAction({
   maxBodyBytes: Math.ceil((2 * 4 * MAX_SCREENSHOT_BYTES) / 3) + 1024 * 1024,
   schema: saveScreenshotEditsSchema,
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
@@ -352,13 +355,17 @@ export default defineAction({
     // this recording's own folder — the scoping the media routes check before
     // they will serve it. The provider stamps every upload, so this is still a
     // new object at a new URL, and no cache can hand back the old bytes.
-    const uploaded = await uploadFile({
-      data: bytes,
-      mimeType,
-      filename: `${args.recordingId}${IMAGE_EXTENSION_BY_MIME[mimeType]}`,
-      ownerEmail,
-      recordAsset: false,
-    });
+    const uploaded = await withRecordingMediaProduction(
+      { recordingId: args.recordingId, ownerEmail, recordAsset: false },
+      () =>
+        uploadFile({
+          data: bytes,
+          mimeType,
+          filename: `${args.recordingId}${IMAGE_EXTENSION_BY_MIME[mimeType]}`,
+          ownerEmail,
+          recordAsset: false,
+        }),
+    );
     if (!uploaded?.url) {
       failStorageSetupRequired();
     }
@@ -372,13 +379,17 @@ export default defineAction({
         args.baseDataUrl,
         "The redacted base image",
       );
-      const uploadedBase = await uploadFile({
-        data: base.bytes,
-        mimeType: base.mimeType,
-        filename: `${args.recordingId}${IMAGE_EXTENSION_BY_MIME[base.mimeType]}`,
-        ownerEmail,
-        recordAsset: false,
-      });
+      const uploadedBase = await withRecordingMediaProduction(
+        { recordingId: args.recordingId, ownerEmail, recordAsset: false },
+        () =>
+          uploadFile({
+            data: base.bytes,
+            mimeType: base.mimeType,
+            filename: `${args.recordingId}${IMAGE_EXTENSION_BY_MIME[base.mimeType]}`,
+            ownerEmail,
+            recordAsset: false,
+          }),
+      );
       if (!uploadedBase?.url) {
         failStorageSetupRequired();
       }
@@ -461,6 +472,28 @@ export default defineAction({
       ? withBurnMarker(existing.editsJson, staleUrls, burnResult)
       : withUnreclaimed(staleUrls);
     const heldEditsJson = burning ? writtenEditsJson : null;
+    const discardUploads = async () => {
+      for (const url of newUrls) {
+        try {
+          await deleteStoredMediaUrl(url);
+        } catch (err) {
+          // Costs storage, not correctness; the throw below is what the
+          // caller needs to see.
+          console.warn(
+            `[save-screenshot-edits] could not delete an orphaned upload for ${args.recordingId}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+    };
+    try {
+      assertRecordingNotExpired(
+        await assertAccess("recording", args.recordingId, "editor"),
+      );
+    } catch (error) {
+      await discardUploads();
+      throw error;
+    }
     const updated = await db
       .update(schema.recordings)
       .set({
@@ -481,18 +514,7 @@ export default defineAction({
     if (!updated.length) {
       // Someone else saved first. Nothing here was published, so the new
       // files are only orphans.
-      for (const url of newUrls) {
-        try {
-          await deleteStoredMediaUrl(url);
-        } catch (err) {
-          // Costs storage, not correctness; the throw below is what the
-          // caller needs to see.
-          console.warn(
-            `[save-screenshot-edits] could not delete an orphaned upload for ${args.recordingId}:`,
-            err instanceof Error ? err.message : String(err),
-          );
-        }
-      }
+      await discardUploads();
       throw new Error(CHANGED_ELSEWHERE);
     }
 

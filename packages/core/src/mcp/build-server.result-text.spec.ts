@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("./builtin-tools.js", () => ({ getBuiltinCrossAppTools: () => ({}) }));
 
-const { conciseToolResultText, textPagingInputs } =
+const { conciseMcpAppToolText, conciseToolResultText, textPagingInputs } =
   await import("./build-server.js");
+const { HIDDEN_EMBED_URL } = await import("./embed-redaction.js");
 
 describe("conciseToolResultText truncation notice", () => {
   it("returns text at the limit untouched", () => {
@@ -222,5 +223,40 @@ describe("conciseToolResultText", () => {
     });
     expect(text).toContain("/deck/d1");
     expect(text).toContain("Next: update-slide");
+  });
+
+  it("reads a hidden value as absent and falls back to the next field", () => {
+    expect(
+      conciseToolResultText("update-row", {
+        message: HIDDEN_EMBED_URL,
+        summary: "Row saved.",
+        url: HIDDEN_EMBED_URL,
+        webUrl: "/rows/r1",
+        nextRequiredAction: HIDDEN_EMBED_URL,
+      }),
+    ).toBe("Row saved. /rows/r1");
+    expect(
+      conciseToolResultText("update-row", {
+        message: HIDDEN_EMBED_URL,
+        title: HIDDEN_EMBED_URL,
+        name: "Row",
+        id: "r1",
+      }),
+    ).toBe("Row (r1) is ready.");
+    expect(
+      conciseToolResultText("start", { ok: true, startUrl: HIDDEN_EMBED_URL }),
+    ).toBe("start completed.");
+  });
+});
+
+describe("conciseMcpAppToolText", () => {
+  it("reads a hidden message as absent and falls back to the title", () => {
+    expect(
+      conciseMcpAppToolText(
+        "open_app",
+        {},
+        { message: HIDDEN_EMBED_URL, title: "Thread" },
+      ),
+    ).toBe("Thread is ready.");
   });
 });

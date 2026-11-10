@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { appPath } from "@agent-native/core/client/api-path";
+import { isClientAppStateMutationPending } from "@agent-native/core/client/application-state";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -26,6 +27,17 @@ vi.mock("@agent-native/core/client/analytics", async (importOriginal) => ({
   >()),
   trackEvent: vi.fn(),
 }));
+// Background reads wait until the page is 3 s old; a fresh test worker may
+// not be.
+vi.mock(
+  "@agent-native/core/client/use-after-paint",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/client/use-after-paint")
+    >()),
+    useAfterStartup: () => true,
+  }),
+);
 vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/mcp-app-host")
@@ -115,6 +127,12 @@ describe("DocumentToolbar in an MCP App widget", () => {
     return container.querySelector<T>(`[aria-label="${label}"]`);
   }
 
+  function lastShareProps() {
+    const props = [...mocks.shareProps].pop();
+    if (!props) throw new Error("Share wasn't rendered");
+    return props;
+  }
+
   function openLink() {
     return byLabel<HTMLAnchorElement>("editor.toolbar.openInAgentNative");
   }
@@ -185,6 +203,14 @@ describe("DocumentToolbar in an MCP App widget", () => {
 
   afterEach(async () => {
     await act(async () => root.unmount());
+    // A toolbar outside a widget clears its history state when it unmounts.
+    // Application-state writes leave a tick after they're made, so let them go
+    // here, against this test's fetch, rather than inside the next test.
+    await vi.waitFor(() =>
+      expect(
+        isClientAppStateMutationPending("content-history:widget-fixture"),
+      ).toBe(false),
+    );
     queryClient.clear();
     container.remove();
     vi.restoreAllMocks();
@@ -238,6 +264,7 @@ describe("DocumentToolbar in an MCP App widget", () => {
         { name: "Ada Lovelace", email: "ada@example.com", color: "#ff0000" },
       ],
       agentPresent: true,
+      showAgentTab: true,
       showCommentsControl: true,
       suggesting: true,
       canSuggest: true,
@@ -252,7 +279,7 @@ describe("DocumentToolbar in an MCP App widget", () => {
     });
 
     for (const label of [
-      "agentPanel.toggleAgent",
+      "navigation.agent",
       "comments.discussion",
       "editor.toolbar.stopSuggesting",
       "editor.toolbar.undo",
@@ -288,16 +315,17 @@ describe("DocumentToolbar in an MCP App widget", () => {
     await renderToolbar(1040, {
       readOnly: false,
       agentPresent: true,
+      showAgentTab: true,
       showCommentsControl: true,
     });
 
     expect(byLabel(AI_AGENT_LABEL)).not.toBeNull();
-    expect(byLabel("agentPanel.toggleAgent")).not.toBeNull();
+    // oracle-change: the agent's toolbar button became the Agent tab.
+    expect(byLabel("navigation.agent")).not.toBeNull();
     expect(byLabel("comments.discussion")).not.toBeNull();
     expect(byLabel("editor.toolbar.openInAgentNative")).toBeNull();
     const trigger = byLabel("editor.toolbar.morePageActions");
-    expect(trigger?.className).toContain("h-9");
-    expect(trigger?.className).toContain("w-9");
+    expect(trigger?.className).toContain("size-9");
     expect(trigger?.className).not.toContain("size-11");
   });
 
@@ -326,12 +354,11 @@ describe("DocumentToolbar in an MCP App widget", () => {
     mocks.widget.write = false;
     await renderToolbar(1040, { readOnly: false });
     const app = measure();
-    expect(app.share).toContain(
-      "[&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:!h-9",
-    );
-    expect(app.share).not.toContain("[&>*]:h-8");
+    // The app's Share is plain text beside its link, not a joined control.
+    expect(app.share).not.toContain(":!h-8");
     expect(app.bar).toEqual(widget.bar);
-    expect(app.copy).toEqual(widget.copy);
+    expect(app.copy).toContain("w-8");
+    expect(widget.copy).toContain("w-8");
   });
 
   describe("the Open link", () => {
@@ -497,7 +524,6 @@ describe("DocumentToolbar in an MCP App widget", () => {
       // The widget's session cannot set discoverability, mint agent links,
       // or open the app's agent deep links.
       expect(props.hideInSearchControl).toBeUndefined();
-      expect(props.agentTabContent).toBeUndefined();
       expect(props.shareTabs).toBeUndefined();
       // The popover's own trigger group matches the one drawn before it.
       expect(props.quickCopy.size).toBe("sm");
@@ -514,11 +540,49 @@ describe("DocumentToolbar in an MCP App widget", () => {
       await act(async () => Promise.resolve());
       await act(async () => Promise.resolve());
 
-      const props = mocks.shareProps[mocks.shareProps.length - 1];
+      const props = lastShareProps();
       expect(props.basicSharingOnly).toBe(false);
       expect(props.hideInSearchControl).toBeDefined();
-      expect(props.agentTabContent).toBeDefined();
+      // Sending the page to an agent lives in the Agents tab, not a menu.
+      expect(props.hideSendTo).toBe(true);
+      expect(props.shareTabs).toMatchObject({
+        shareLabel: "editor.toolbar.sharePeopleTab",
+        defaultValue: "share",
+      });
+      expect(props.shareTabs.tabs[0]).toMatchObject({
+        value: "agents",
+        label: "editor.toolbar.shareAgentsTab",
+      });
       expect(props.quickCopy.className).toBeUndefined();
+    });
+
+    it("opens the Agents tab from the note beside Share", async () => {
+      mocks.widget.inWidget = false;
+      mocks.widget.write = false;
+      await renderToolbar(1040, { readOnly: false, agentTextLocked: true });
+
+      const note = byLabel<HTMLButtonElement>(
+        "editor.toolbar.agentLevelNoteHint",
+      );
+      if (!note) throw new Error("No note beside Share");
+      await act(async () => note.click());
+      await act(async () => Promise.resolve());
+      await act(async () => Promise.resolve());
+
+      const props = lastShareProps();
+      expect(props.defaultOpen).toBe(true);
+      expect(props.shareTabs.defaultValue).toBe("agents");
+    });
+
+    it("shows no note while agents can edit, and none in a widget", async () => {
+      mocks.widget.inWidget = false;
+      mocks.widget.write = false;
+      await renderToolbar(1040, { readOnly: false });
+      expect(byLabel("editor.toolbar.agentLevelNoteHint")).toBeNull();
+
+      mocks.widget.inWidget = true;
+      await renderToolbar(1040, { agentTextLocked: true });
+      expect(byLabel("editor.toolbar.agentLevelNoteHint")).toBeNull();
     });
   });
 });

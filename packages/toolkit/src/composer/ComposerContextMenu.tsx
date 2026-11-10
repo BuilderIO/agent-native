@@ -1,10 +1,12 @@
-import { IconPlus } from "@tabler/icons-react";
+import { IconPaperclip, IconPlus } from "@tabler/icons-react";
 import {
   useCallback,
+  useId,
   useEffect,
   useRef,
   useState,
   type ReactNode,
+  type ReactElement,
 } from "react";
 
 import { Button } from "../ui/button.js";
@@ -14,12 +16,13 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu.js";
-import { Skeleton } from "../ui/skeleton.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
 import {
@@ -49,20 +52,47 @@ interface ComposerContextMenuEntry {
   label: string;
   description?: string;
   intent?: "add-context" | "invoke-integration";
+  order?: number;
+  section?: "context" | "integrations" | "commands";
+  referenceType?: string;
+  referencePicker?: { referenceType: string; source: string };
   keywords?: readonly string[];
   icon?: ReactNode;
   disabled?: boolean;
+  opensDialog?: boolean;
 }
 export type ComposerContextMenuAction = ComposerContextMenuEntry & {
   checked?: boolean;
   onDismiss?: () => void;
   children?: never;
 } & (
-    | { picker: ComposerContextPickerConfig; render?: never; onSelect?: never }
+    | {
+        picker: ComposerContextPickerConfig;
+        referencePicker?: never;
+        render?: never;
+        onSelect?: never;
+        renderLink?: never;
+      }
+    | {
+        referencePicker: { referenceType: string; source: string };
+        picker?: never;
+        render?: never;
+        onSelect?: never;
+        renderLink?: never;
+      }
+    | {
+        renderLink: (children: ReactNode) => ReactElement;
+        referencePicker?: never;
+        picker?: never;
+        render?: never;
+        onSelect?: never;
+      }
     | {
         onSelect: () => void | Promise<void>;
+        referencePicker?: never;
         render?: (controls: ComposerContextPageControls) => ReactNode;
         picker?: never;
+        renderLink?: never;
       }
   );
 export interface ComposerContextPageControls {
@@ -71,6 +101,7 @@ export interface ComposerContextPageControls {
   onResume(): void;
 }
 export interface ComposerContextMenuCategory extends ComposerContextMenuEntry {
+  referencePicker?: never;
   children: readonly ComposerContextMenuItem[];
   searchPlaceholder?: string;
   onSelect?: never;
@@ -82,6 +113,12 @@ export type ComposerContextMenuItem =
   | ComposerContextMenuCategory;
 export interface ComposerContextMenuProps {
   items: readonly ComposerContextMenuItem[];
+  integrationStatus?: {
+    scopeKey?: string;
+    loading?: boolean;
+    error?: string;
+    onRetry?: () => void | Promise<unknown>;
+  };
   menuActionItems?: readonly ComposerContextMenuItem[];
   loading?: boolean;
   error?: string;
@@ -223,7 +260,11 @@ function ContextSubmenu({
   return (
     <DropdownMenuSub open={open} onOpenChange={onOpenChange}>
       <DropdownMenuSubTrigger ref={trigger} disabled={disabled}>
-        {icon}
+        {icon && (
+          <span aria-hidden="true" className="shrink-0 [&>svg]:size-4">
+            {icon}
+          </span>
+        )}
         <span className="min-w-0 truncate">{label}</span>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent
@@ -269,30 +310,42 @@ function LegacyContextPage({ children }: { children: ReactNode }) {
   return <div ref={element}>{children}</div>;
 }
 
-function ContextEntryLabel({ label, description }: ComposerContextMenuEntry) {
+function ContextEntryLabel({
+  label,
+  description,
+  icon,
+}: ComposerContextMenuEntry) {
   return (
-    <span className="flex min-w-0 flex-1 flex-col gap-0.5 @md:flex-row @md:items-baseline @md:gap-2">
-      <span
-        className={
-          description
-            ? "min-w-0 truncate @md:max-w-[60%] @md:shrink-0"
-            : "min-w-0 truncate"
-        }
-      >
-        {label}
-      </span>
-      {description && (
-        <span className="min-w-0 flex-1 truncate text-muted-foreground">
-          {description}
+    <>
+      {icon && (
+        <span aria-hidden="true" className="shrink-0 [&>svg]:size-4">
+          {icon}
         </span>
       )}
-    </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5 @md:flex-row @md:items-baseline @md:gap-2">
+        <span
+          className={
+            description
+              ? "min-w-0 truncate @md:max-w-[60%] @md:shrink-0"
+              : "min-w-0 truncate"
+          }
+        >
+          {label}
+        </span>
+        {description && (
+          <span className="min-w-0 flex-1 truncate text-muted-foreground">
+            {description}
+          </span>
+        )}
+      </span>
+    </>
   );
 }
 
 export function ComposerContextMenu({
   items,
   menuActionItems = [],
+  integrationStatus,
   loading,
   error: searchError,
   onRetry,
@@ -309,6 +362,66 @@ export function ComposerContextMenu({
   openEntry,
 }: ComposerContextMenuProps) {
   const t = useComposerRuntimeAdapters().translate!;
+  const sectionId = useId();
+  const sortEntries = (entries: readonly ComposerContextMenuItem[]) =>
+    [...entries].sort(
+      (left, right) =>
+        (left.order ?? 100) - (right.order ?? 100) ||
+        left.label.localeCompare(right.label) ||
+        left.id.localeCompare(right.id),
+    );
+  const seen = new Set<string>();
+  const sections: Record<
+    "context" | "integrations" | "commands",
+    ComposerContextMenuItem[]
+  > = { context: [], integrations: [], commands: [] };
+  const collect = (
+    entries: readonly ComposerContextMenuItem[],
+    inherited?: "context" | "integrations" | "commands",
+    inheritedDisabled = false,
+  ) => {
+    const retained: ComposerContextMenuItem[] = [];
+    for (const item of entries) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      const section =
+        item.section ??
+        (item.intent === "invoke-integration"
+          ? "integrations"
+          : (inherited ?? "context"));
+      const entry = inheritedDisabled ? { ...item, disabled: true } : item;
+      if (item.children && !item.section && !item.intent) {
+        const children = collect(
+          item.children,
+          section,
+          inheritedDisabled || item.disabled === true,
+        );
+        if (children.length)
+          retained.push({
+            ...item,
+            ...(inheritedDisabled ? { disabled: true } : {}),
+            children,
+          });
+      } else if (section !== (inherited ?? "context"))
+        sections[section].push(entry);
+      else retained.push(entry);
+    }
+    return retained;
+  };
+  sections.context.push(...collect(items));
+  sections.commands.push(...collect(menuActionItems, "commands"));
+  const hasIntegrations = Boolean(
+    sections.integrations.length ||
+    integrationStatus?.loading ||
+    integrationStatus?.error,
+  );
+  const hasAttachments = Boolean(
+    sections.context.length ||
+    addAttachment ||
+    onAttachmentRequest ||
+    loading ||
+    searchError,
+  );
   const allItems = [...menuActionItems, ...items];
   const onDisabledFocusRef = useRef(onDisabledFocus);
   onDisabledFocusRef.current = onDisabledFocus;
@@ -363,7 +476,7 @@ export function ComposerContextMenu({
     defaultValue: "Add context",
   });
   const uploadLabel = t("agentChat.composer.menu.uploadFile", {
-    defaultValue: "Upload File",
+    defaultValue: "Files and images",
   });
   const reportError = useCallback(
     (cause: unknown) => {
@@ -493,7 +606,7 @@ export function ComposerContextMenu({
     origin: string[],
   ): ReactNode => (
     <>
-      {entries.map((entry) => {
+      {sortEntries(entries).map((entry) => {
         const branch = [...origin, entry.id];
         const expanded = branch.every((id, index) => path[index] === id);
         if (entry.children) {
@@ -501,9 +614,17 @@ export function ComposerContextMenu({
             <ContextSubmenu
               key={entry.id}
               label={entry.label}
+              icon={entry.icon}
               disabled={entry.disabled}
               open={expanded}
-              onOpenChange={(next) => {
+              onOpenChange={(next, reason) => {
+                if (
+                  !next &&
+                  reason !== "escape" &&
+                  resumedPageClose.current &&
+                  pathRef.current.includes(resumedPageClose.current)
+                )
+                  return;
                 const isOpen = branch.every(
                   (id, index) => pathRef.current[index] === id,
                 );
@@ -548,6 +669,7 @@ export function ComposerContextMenu({
             <ContextSubmenu
               key={entry.id}
               label={entry.label}
+              icon={entry.icon}
               disabled={entry.disabled}
               open={expanded}
               onOpenChange={(next, reason) => {
@@ -605,7 +727,6 @@ export function ComposerContextMenu({
                         );
                         return;
                       }
-                      // Radix can emit one stale close after native-picker focus returns.
                       resumedPageClose.current = entry.id;
                       if (resumedPageCloseFrame.current !== null)
                         window.cancelAnimationFrame(
@@ -625,6 +746,17 @@ export function ComposerContextMenu({
                 </LegacyContextPage>
               ) : null}
             </ContextSubmenu>
+          );
+        }
+        if (entry.renderLink) {
+          return (
+            <DropdownMenuItem
+              key={entry.id}
+              asChild
+              disabled={entry.disabled === true}
+            >
+              {entry.renderLink(<ContextEntryLabel {...entry} />)}
+            </DropdownMenuItem>
           );
         }
         if (entry.checked !== undefined) {
@@ -647,6 +779,7 @@ export function ComposerContextMenu({
             key={entry.id}
             disabled={entry.disabled}
             onSelect={() => {
+              if (entry.opensDialog) restoreFocusOnClose.current = false;
               changeOpen(false);
               selectAction(entry);
             }}
@@ -717,7 +850,7 @@ export function ComposerContextMenu({
             maxHeight: placement.maxHeight,
             boxShadow: "none",
           }}
-          className={`@container flex w-64 max-w-[calc(100vw-24px)] flex-col p-1 data-[state=open]:fade-in-100 data-[state=closed]:fade-out-100 ${COMPOSER_POPOVER_SURFACE_CLASS}`}
+          className={`@container [&_[role^=menuitem]]:min-h-8 flex w-64 max-w-[calc(100vw-24px)] flex-col overflow-y-auto p-1 data-[state=open]:fade-in-100 data-[state=closed]:fade-out-100 ${COMPOSER_POPOVER_SURFACE_CLASS}`}
           data-agent-native-composer-popover="true"
           onCloseAutoFocus={(event) => {
             if (pendingDialog.current) {
@@ -744,76 +877,154 @@ export function ComposerContextMenu({
             restoreFocusOnClose.current = true;
           }}
         >
-          <div className="min-h-0 overflow-y-auto">
-            <DropdownMenuGroup>
-              {(addAttachment || onAttachmentRequest) && (
-                <DropdownMenuItem
-                  onSelect={() => {
-                    if (addAttachment) {
-                      changeOpen(false);
-                      inputRef.current?.click();
-                    } else {
-                      pendingAttachmentRequest.current = true;
-                      changeOpen(false);
-                    }
-                  }}
+          <div className="contents">
+            {hasAttachments && (
+              <DropdownMenuGroup
+                aria-labelledby={`${sectionId}-context`}
+                aria-busy={loading || undefined}
+              >
+                <DropdownMenuLabel id={`${sectionId}-context`}>
+                  {t("agentChat.composer.menu.attachToMessage", {
+                    defaultValue: "Add context",
+                  })}
+                </DropdownMenuLabel>
+                {(addAttachment || onAttachmentRequest) && (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      if (onAttachmentRequest) {
+                        pendingAttachmentRequest.current = true;
+                        changeOpen(false);
+                      } else {
+                        changeOpen(false);
+                        inputRef.current?.click();
+                      }
+                    }}
+                  >
+                    <IconPaperclip aria-hidden="true" />
+                    {uploadLabel}
+                  </DropdownMenuItem>
+                )}
+                {renderEntries(sections.context, [])}
+                <div
+                  role="presentation"
+                  aria-hidden="true"
+                  className={
+                    loading
+                      ? "px-2 py-1 text-xs text-muted-foreground"
+                      : "sr-only"
+                  }
                 >
-                  {uploadLabel}
-                </DropdownMenuItem>
-              )}
-              {(items.length > 0 || loading || searchError) && (
-                <ContextSubmenu
-                  label={label}
-                  open={path[0] === "add-context"}
-                  onOpenChange={(next) => {
-                    if (next === (pathRef.current[0] === "add-context")) return;
-                    if (!next) {
-                      dismissPage();
-                      updatePath([]);
-                      return;
-                    }
-                    setError(null);
-                    updatePath(["add-context"]);
-                  }}
-                >
-                  {renderEntries(items, ["add-context"])}
-                  {loading && (
-                    <div
-                      role="status"
-                      aria-label={t("agentChat.composer.contextPending", {
+                  {loading
+                    ? t("agentChat.composer.contextPending", {
                         defaultValue: "Loading context…",
-                      })}
-                      className="grid gap-2 p-3"
-                    >
-                      <Skeleton className="h-5 w-2/3" />
-                      <Skeleton className="h-5 w-1/2" />
-                    </div>
-                  )}
-                  {searchError && (
+                      })
+                    : ""}
+                </div>
+                {searchError && (
+                  <div
+                    role="presentation"
+                    aria-hidden="true"
+                    className="px-2 py-1 text-sm text-destructive"
+                  >
+                    {searchError}
+                  </div>
+                )}
+                {searchError && onRetry && (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      try {
+                        void Promise.resolve(onRetry()).catch(reportError);
+                      } catch (cause) {
+                        reportError(cause);
+                      }
+                    }}
+                  >
+                    {t("agentChat.common.retry", { defaultValue: "Retry" })}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuGroup>
+            )}
+            {hasIntegrations && (
+              <>
+                {hasAttachments && <DropdownMenuSeparator />}
+                <DropdownMenuGroup
+                  aria-labelledby={`${sectionId}-integrations`}
+                  aria-busy={integrationStatus?.loading || undefined}
+                >
+                  <DropdownMenuLabel id={`${sectionId}-integrations`}>
+                    {t("agentChat.composer.menu.integrations", {
+                      defaultValue: "Integrations",
+                    })}
+                  </DropdownMenuLabel>
+                  {renderEntries(sections.integrations, [])}
+                  {integrationStatus?.loading && (
                     <div
-                      role="alert"
-                      className="px-3 py-2 text-sm text-destructive"
+                      role="presentation"
+                      aria-hidden="true"
+                      className="px-2 py-1 text-xs text-muted-foreground"
                     >
-                      {searchError}
+                      {t("agentChat.common.loading", {
+                        defaultValue: "Loading...",
+                      })}
                     </div>
                   )}
-                  {searchError && onRetry && (
+                  {integrationStatus?.error && (
+                    <div
+                      role="presentation"
+                      aria-hidden="true"
+                      className="px-2 py-1 text-sm text-destructive"
+                    >
+                      {integrationStatus.error}
+                    </div>
+                  )}
+                  {integrationStatus?.error && integrationStatus.onRetry && (
                     <DropdownMenuItem
                       onSelect={(event) => {
                         event.preventDefault();
-                        onRetry();
+                        try {
+                          void Promise.resolve(
+                            integrationStatus.onRetry?.(),
+                          ).catch(reportError);
+                        } catch (cause) {
+                          reportError(cause);
+                        }
                       }}
                     >
                       {t("agentChat.common.retry", { defaultValue: "Retry" })}
                     </DropdownMenuItem>
                   )}
-                </ContextSubmenu>
-              )}
-              {renderEntries(menuActionItems, [])}
-            </DropdownMenuGroup>
+                </DropdownMenuGroup>
+              </>
+            )}
+            {sections.commands.length > 0 && (
+              <>
+                {(hasAttachments || hasIntegrations) && (
+                  <DropdownMenuSeparator />
+                )}
+                <DropdownMenuGroup aria-labelledby={`${sectionId}-commands`}>
+                  <DropdownMenuLabel id={`${sectionId}-commands`}>
+                    {t("agentChat.composer.menu.commands", {
+                      defaultValue: "Commands",
+                    })}
+                  </DropdownMenuLabel>
+                  {renderEntries(sections.commands, [])}
+                </DropdownMenuGroup>
+              </>
+            )}
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
+      <div role="status" aria-live="polite" className="sr-only">
+        {open && (loading || integrationStatus?.loading)
+          ? t("agentChat.common.loading", { defaultValue: "Loading..." })
+          : ""}
+      </div>
+      {open && (searchError || integrationStatus?.error) && (
+        <div role="alert" className="sr-only">
+          {searchError ?? integrationStatus?.error}
+        </div>
+      )}
       {dialog && dialogAvailable && dialogAction?.picker && (
         <ComposerContextPickerDialog
           key={JSON.stringify([dialog.id, dialogAction.picker.scopeKey])}

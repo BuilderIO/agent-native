@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -8,6 +9,8 @@ import {
   materializeCalendarMeetingFromVirtualId,
   parseCalendarMeetingId,
 } from "../server/lib/calendar-event-meetings.js";
+import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
+import { storedEarlierAudioMinutes } from "../shared/earlier-audio.js";
 
 interface Bullet {
   text: string;
@@ -40,7 +43,7 @@ function safeParseArray<T>(
 
 export default defineAction({
   description:
-    'Get a meeting by id with its participants, action items, and a reference to its recording (if any). When no meeting is returned, `meeting` is null and `reason` is "unavailable" — it does not distinguish missing from inaccessible. A read failure throws instead.',
+    'Get a meeting by id with its participants, action items, and a reference to its recording (if any). `earlierAudioMinutes` is how much audio from before the user started recording its transcript holds, 0 when none; remove-earlier-meeting-audio takes it out. When no meeting is returned, `meeting` is null and `reason` is "unavailable" — it does not distinguish missing from inaccessible. A read failure throws instead.',
   schema: z.object({
     id: z.string().describe("Meeting id"),
   }),
@@ -102,22 +105,10 @@ export default defineAction({
       ? actionItemRows
       : actionItemsParsed;
 
-    let recording = null;
-    let transcript = null;
-    if (row.recordingId) {
-      const [rec] = await db
-        .select()
-        .from(schema.recordings)
-        .where(eq(schema.recordings.id, row.recordingId))
-        .limit(1);
-      recording = rec ?? null;
-      const [tr] = await db
-        .select()
-        .from(schema.recordingTranscripts)
-        .where(eq(schema.recordingTranscripts.recordingId, row.recordingId))
-        .limit(1);
-      transcript = tr ?? null;
-    }
+    const { recording, transcript } = await loadMeetingRecordingContent(
+      row,
+      getRequestUserEmail(),
+    );
 
     return {
       meeting,
@@ -125,6 +116,7 @@ export default defineAction({
       actionItems,
       recording,
       transcript,
+      earlierAudioMinutes: storedEarlierAudioMinutes(transcript?.segmentsJson),
       role: access.role,
     };
   },

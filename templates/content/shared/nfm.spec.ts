@@ -2,11 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import {
   canonicalizeNfm,
+  canonicalizeNotionNfm,
   collapseExactRepeatedNfm,
   docToNfm,
   inspectNfmFidelity,
   nfmToDoc,
+  parseNfmWithLosses,
 } from "./nfm";
+
+function found<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected the fixture to have it");
+  return value;
+}
 
 const L = (...lines: string[]) => lines.join("\n");
 
@@ -112,6 +119,19 @@ const FIXTURES: Array<{ name: string; nfm: string }> = [
       "\t</column>",
       "\t<column>",
       "\t\tRight column text",
+      "\t</column>",
+      "</columns>",
+    ),
+  },
+  {
+    name: "columns with widths",
+    nfm: L(
+      "<columns>",
+      '\t<column ratio="62.5">',
+      "\t\tWide column text",
+      "\t</column>",
+      '\t<column ratio="37.5">',
+      "\t\tNarrow column text",
       "\t</column>",
       "</columns>",
     ),
@@ -234,6 +254,121 @@ describe("nfm converter — canonical fixpoints", () => {
         ],
       }),
     ).toBe("Top\n<empty-block/>\nBottom");
+  });
+});
+
+describe("nfm converter — column widths", () => {
+  const columnRatios = (nfm: string) =>
+    nfmToDoc(nfm).content[0]?.content?.map((column) => column.attrs?.ratio);
+
+  it("reads each column's ratio as a number", () => {
+    expect(
+      columnRatios(
+        L(
+          "<columns>",
+          '\t<column ratio="60">',
+          "\t\tA",
+          "\t</column>",
+          '\t<column ratio="40%">',
+          "\t\tB",
+          "\t</column>",
+          "</columns>",
+        ),
+      ),
+    ).toEqual([60, 40]);
+  });
+
+  it("gives every column a width once one of them has one", () => {
+    const source = L(
+      "<columns>",
+      '\t<column ratio="50">',
+      "\t\tA",
+      "\t</column>",
+      "\t<column>",
+      "\t\tB",
+      "\t</column>",
+      "\t<column>",
+      "\t\tC",
+      "\t</column>",
+      "</columns>",
+    );
+    expect(columnRatios(source)).toEqual([50, 25, 25]);
+    expect(canonicalizeNfm(source)).toBe(
+      L(
+        "<columns>",
+        '\t<column ratio="50">',
+        "\t\tA",
+        "\t</column>",
+        '\t<column ratio="25">',
+        "\t\tB",
+        "\t</column>",
+        '\t<column ratio="25">',
+        "\t\tC",
+        "\t</column>",
+        "</columns>",
+      ),
+    );
+  });
+
+  it("scales widths that don't fill the row", () => {
+    expect(
+      columnRatios(
+        L(
+          "<columns>",
+          '\t<column ratio="30">',
+          "\t\tA",
+          "\t</column>",
+          '\t<column ratio="10">',
+          "\t\tB",
+          "\t</column>",
+          "</columns>",
+        ),
+      ),
+    ).toEqual([75, 25]);
+  });
+
+  it("reports a ratio it can't read and draws the column without it", () => {
+    const { doc, losses } = parseNfmWithLosses(
+      L(
+        "<columns>",
+        '\t<column ratio="wide">',
+        "\t\tA",
+        "\t</column>",
+        "\t<column>",
+        "\t\tB",
+        "\t</column>",
+        "</columns>",
+      ),
+    );
+    expect(losses).toEqual([
+      expect.objectContaining({ kind: "dropped-attribute" }),
+    ]);
+    expect(doc.content[0]?.content?.map((column) => column.attrs)).toEqual([
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("writes a column without a width as a bare tag", () => {
+    expect(
+      docToNfm({
+        type: "doc",
+        content: [
+          {
+            type: "notionColumns",
+            content: [
+              {
+                type: "notionColumn",
+                attrs: { ratio: null },
+                content: [
+                  { type: "paragraph", content: [{ type: "text", text: "A" }] },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBe(L("<columns>", "\t<column>", "\t\tA", "\t</column>", "</columns>"));
   });
 });
 
@@ -1155,6 +1290,159 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
+  describe("titled toggles", () => {
+    // A Toggle whose title is its first child rather than `summary`.
+    const titledToggleDoc = (attrs: Record<string, unknown>): any => ({
+      type: "doc",
+      content: [
+        {
+          type: "notionToggle",
+          attrs: { summary: "", open: false, color: null, ...attrs },
+          content: [
+            {
+              type: "notionToggleSummary",
+              content: [
+                { type: "text", text: "Plan", marks: [{ type: "bold" }] },
+                { type: "text", text: " for <today> " },
+                {
+                  type: "text",
+                  text: "here",
+                  marks: [{ type: "link", attrs: { href: "https://x" } }],
+                },
+              ],
+            },
+            {
+              type: "paragraph",
+              content: [{ type: "text", text: "Body" }],
+            },
+          ],
+        },
+      ],
+    });
+
+    // The title as nfmToDoc reads it back.
+    const titleOf = (doc: any) => {
+      const [title, ...body] = doc.content[0].content;
+      return { summary: doc.content[0].attrs.summary, title, body };
+    };
+
+    it("writes the title as the summary's inline Markdown, marked, and reads it back as the title", () => {
+      const doc = titledToggleDoc({});
+      const nfm = docToNfm(doc);
+      expect(nfm).toBe(
+        L(
+          '<details markdown="1">',
+          "<summary>**Plan** for \\<today\\> [here](https://x)</summary>",
+          "\tBody",
+          "</details>",
+        ),
+      );
+      const reread = nfmToDoc(nfm);
+      expect(titleOf(reread)).toEqual({
+        summary: "",
+        title: doc.content[0].content[0],
+        body: [doc.content[0].content[1]],
+      });
+      expect(docToNfm(reread)).toBe(nfm);
+    });
+
+    it("writes a titled toggle heading's title as its heading text, marked", () => {
+      const doc = titledToggleDoc({ headingLevel: 2, open: true });
+      const nfm = docToNfm(doc);
+      expect(nfm).toBe(
+        L(
+          '## **Plan** for \\<today\\> [here](https://x) {toggle="true" markdown="1"}',
+          "\tBody",
+        ),
+      );
+      const reread = nfmToDoc(nfm);
+      expect(titleOf(reread).title).toEqual(doc.content[0].content[0]);
+      expect(docToNfm(reread)).toBe(nfm);
+    });
+
+    it("keeps an empty title and an empty body", () => {
+      const nfm = L(
+        '<details markdown="1">',
+        "<summary></summary>",
+        "</details>",
+      );
+      const reread = nfmToDoc(nfm);
+      expect(reread.content).toEqual([
+        expect.objectContaining({ content: [{ type: "notionToggleSummary" }] }),
+      ]);
+      expect(docToNfm(reread)).toBe(nfm);
+    });
+
+    it("still reads an unmarked summary into `summary`, as written", () => {
+      const nfm = L(
+        "<details>",
+        "<summary>**Plan** stays as typed</summary>",
+        "\tBody",
+        "</details>",
+      );
+      const reread = nfmToDoc(nfm);
+      expect(reread.content).toEqual([
+        expect.objectContaining({
+          attrs: expect.objectContaining({
+            summary: "**Plan** stays as typed",
+          }),
+          content: [expect.objectContaining({ type: "paragraph" })],
+        }),
+      ]);
+      expect(docToNfm(reread)).toBe(nfm);
+    });
+
+    it("reports a `markdown` value it doesn't know and reads the summary as written", () => {
+      const nfm = L(
+        '<details markdown="0">',
+        "<summary>**Plan**</summary>",
+        "</details>",
+      );
+      const { doc, losses } = parseNfmWithLosses(nfm);
+      expect(losses.map((loss) => loss.kind)).toContain("dropped-attribute");
+      expect(doc.content).toEqual([
+        expect.objectContaining({
+          attrs: expect.objectContaining({ summary: "**Plan**" }),
+        }),
+      ]);
+    });
+
+    it("reads a toggle heading's `data-markdown` as another attribute, not the marker", () => {
+      const { doc, losses } = parseNfmWithLosses(
+        '## **Plan** {toggle="true" data-markdown="1"}',
+      );
+      expect(losses.map((loss) => loss.kind)).toContain("dropped-attribute");
+      expect(doc.content).toEqual([
+        expect.objectContaining({
+          attrs: expect.objectContaining({ summary: "**Plan**" }),
+        }),
+      ]);
+    });
+
+    it("writes a title's line break on the summary's one line", () => {
+      const doc: any = {
+        type: "doc",
+        content: [
+          {
+            type: "notionToggle",
+            attrs: { summary: "", open: false, color: null },
+            content: [
+              {
+                type: "notionToggleSummary",
+                content: [{ type: "text", text: "a\nb" }],
+              },
+            ],
+          },
+        ],
+      };
+      const nfm = docToNfm(doc);
+      expect(nfm).toBe(
+        L('<details markdown="1">', "<summary>a b</summary>", "</details>"),
+      );
+      expect(docToNfm(nfmToDoc(nfm))).toBe(nfm);
+    });
+  });
+
   describe("n26: toggle-heading summary corruption resistance", () => {
     const headingToggleDoc = (summary: string, headingLevel = 2): any => ({
       type: "doc",
@@ -1898,5 +2186,41 @@ describe("docToNfm — long containers", () => {
     expect(lines).toHaveLength(count);
     expect(lines[0]).toBe("> p0");
     expect(lines[count - 1]).toBe(`\tp${count - 1}`);
+  });
+});
+
+describe("video block ids", () => {
+  const withId =
+    '<video src="https://example.com/demo.mp4" id="video-a1b2c3d4">Demo</video>';
+
+  it("keeps a video's block id through a round trip", () => {
+    const doc = nfmToDoc(withId);
+    expect(doc.content[0]).toMatchObject({
+      type: "video",
+      attrs: {
+        src: "https://example.com/demo.mp4",
+        title: "Demo",
+        blockId: "video-a1b2c3d4",
+      },
+    });
+    expect(docToNfm(doc)).toBe(withId);
+    expect(inspectNfmFidelity(withId)).toMatchObject({
+      normalizedChanged: false,
+      unresolved: [],
+    });
+  });
+
+  it("writes no id for a video that has none", () => {
+    const plain = '<video src="https://example.com/demo.mp4"></video>';
+    expect(found(nfmToDoc(plain).content?.[0]).attrs).not.toHaveProperty(
+      "blockId",
+    );
+    expect(canonicalizeNfm(plain)).toBe(plain);
+  });
+
+  it("leaves the id out of the form Notion receives", () => {
+    expect(canonicalizeNotionNfm(withId)).toBe(
+      '<video src="https://example.com/demo.mp4">Demo</video>',
+    );
   });
 });

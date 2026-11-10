@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 
 import { H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,27 +32,119 @@ import {
   isMcpDirectoryWidgetWriteCapabilityScope,
   renewMcpDirectoryWidgetCapabilityScope,
 } from "../shared/embed-auth.js";
+import { resolveEmbedRequestOrigin } from "./embed-request-origin.js";
+import { createEmbedStartRouteHandler } from "./embed-route.js";
 import {
   requestMatchesEmbedTarget,
   normalizeEmbedTargetPath,
   requestHasEmbedAuthMarker,
   resolveEmbedSessionFromRequest,
-  consumeEmbedSessionTicket,
-  createEmbedSessionTicket,
+  consumeEmbedSessionTicket as consumeEmbedSessionTicketForAudience,
+  createEmbedSessionTicket as createEmbedSessionTicketForAudience,
   hasExplicitEmbedSessionCredential,
-  readMcpDirectoryWidgetRenewalTicket,
-  renewMcpDirectoryWidgetSession,
+  hasPresentedEmbedSessionCredential,
+  hasEmbedSessionRequestMarker,
+  isExpiredMcpDirectoryWidgetSessionRequest,
+  readMcpDirectoryWidgetRenewalTicket as readMcpDirectoryWidgetRenewalTicketForAudience,
+  renewMcpDirectoryWidgetSession as renewMcpDirectoryWidgetSessionForAudience,
   revokeEmbedSessionsForOwner,
   revokeEmbedSessionsForOwners,
   resolveEmbedSessionCookieOwners,
-  resolveEmbedSessionTokenForHost,
+  resolveEmbedSessionTokenForOrigin,
   setEmbedSessionCookie,
   signEmbedSessionToken,
   verifyEmbedSessionToken,
+  embedSessionsStore,
 } from "./embed-session.js";
 import { getRequestContext, runWithRequestContext } from "./request-context.js";
 
 const ORIGINAL_ENV = { ...process.env };
+
+function ticketAudienceFixture(
+  audienceHost = "https://content.example.test",
+  audienceBasePath = "",
+) {
+  return { audience_host: audienceHost, audience_base_path: audienceBasePath };
+}
+
+function createEmbedSessionTicket(
+  input: Parameters<typeof createEmbedSessionTicketForAudience>[0],
+) {
+  return createEmbedSessionTicketForAudience({
+    audienceHost: "https://content.example.test",
+    ...input,
+  });
+}
+
+function consumeEmbedSessionTicket(
+  ticket: string | undefined | null,
+  options: Parameters<typeof consumeEmbedSessionTicketForAudience>[1] = {},
+) {
+  return consumeEmbedSessionTicketForAudience(ticket, {
+    audienceHost: "https://content.example.test",
+    ...options,
+  });
+}
+
+function readMcpDirectoryWidgetRenewalTicket(
+  ticket: string,
+  options: { audienceHost?: string } = {},
+) {
+  return readMcpDirectoryWidgetRenewalTicketForAudience(ticket, {
+    audienceHost: "https://content.example.test",
+    ...options,
+  });
+}
+
+function renewMcpDirectoryWidgetSession(
+  input: Parameters<typeof renewMcpDirectoryWidgetSessionForAudience>[0],
+) {
+  return renewMcpDirectoryWidgetSessionForAudience({
+    audienceHost: "https://content.example.test",
+    ...input,
+  });
+}
+
+function installTicketStore() {
+  const rows = new Map<string, Record<string, any>>();
+  dbExec.execute.mockImplementation(async ({ sql, args }: any) => {
+    if (sql.includes("INSERT INTO agent_native_embed_tickets")) {
+      rows.set(args[0], {
+        ticket_hash: args[0],
+        owner_email: args[1],
+        org_id: args[2],
+        target_path: args[3],
+        scope: args[4],
+        created_at: args[5],
+        expires_at: args[6],
+        consumed_at: args[7],
+        renewal_expires_at: args[8],
+        session_active_until: args[9],
+        audience_host: args[10],
+        audience_base_path: args[11],
+      });
+    }
+    if (sql.includes("FROM agent_native_embed_tickets WHERE ticket_hash")) {
+      const row = rows.get(args[0]);
+      return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
+    }
+    if (sql.startsWith("UPDATE agent_native_embed_tickets SET consumed_at")) {
+      const row = rows.get(args[2]);
+      if (!row || row.consumed_at !== null)
+        return { rows: [], rowsAffected: 0 };
+      row.consumed_at = args[0];
+      row.session_active_until = args[1];
+    }
+    if (sql.startsWith("UPDATE agent_native_embed_tickets SET scope")) {
+      const row = rows.get(args[2]);
+      if (!row || row.scope !== args[3]) return { rows: [], rowsAffected: 0 };
+      row.scope = args[0];
+      row.session_active_until = args[1];
+    }
+    return { rows: [], rowsAffected: 1 };
+  });
+  return rows;
+}
 
 function contentWidgetWriteScope({
   userEmail = "owner@example.com",
@@ -86,6 +178,208 @@ function contentWidgetWriteScope({
   return scope;
 }
 
+describe("embed session origin audience", () => {
+  beforeEach(() => {
+    process.env = { ...ORIGINAL_ENV, OAUTH_STATE_SECRET: "embed-test-secret" };
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    delete process.env.APP_URL;
+    delete process.env.WORKSPACE_GATEWAY_URL;
+    dbExec.execute.mockReset().mockResolvedValue({ rows: [], rowsAffected: 1 });
+  });
+
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  function event(
+    origin: string,
+    path: string,
+    proxyOrigin?: string,
+    headers: Record<string, string> = {},
+  ) {
+    const proxy = proxyOrigin ? new URL(proxyOrigin) : undefined;
+    return new H3Event(
+      Object.assign(
+        new Request(new URL(path, origin), {
+          headers: {
+            ...headers,
+            ...(proxy
+              ? {
+                  "x-forwarded-host": proxy.host,
+                  "x-forwarded-proto": proxy.protocol.slice(0, -1),
+                }
+              : {}),
+          },
+        }),
+        { context: { clientAddress: proxy ? "127.0.0.1" : "203.0.113.20" } },
+      ),
+    );
+  }
+
+  async function mint(origin: string, proxyOrigin?: string) {
+    await embedSessionsStore.ready();
+    const rows = installTicketStore();
+    const source = event(origin, "/mcp", proxyOrigin);
+    const ticket = await runWithRequestContext(
+      { resolveEmbedRequestOrigin: () => resolveEmbedRequestOrigin(source) },
+      () =>
+        createEmbedSessionTicketForAudience({
+          ownerEmail: "owner@example.com",
+          targetPath: "/visual-edit/design_1",
+          scope: "capability:visual-edit:design:design_1",
+        }),
+    );
+    return { ticket, rows };
+  }
+
+  async function redeem(ticket: string, origin: string, proxyOrigin?: string) {
+    return (await createEmbedStartRouteHandler()(
+      event(origin, `/_agent-native/embed/start?ticket=${ticket}`, proxyOrigin),
+    )) as Response;
+  }
+
+  it.each([
+    "http://cards.example.test:4201",
+    "https://cards.example.test:4200",
+  ])(
+    "rejects ticket redemption at a different origin %s without consuming it",
+    async (otherOrigin) => {
+      const { ticket, rows } = await mint("http://cards.example.test:4200");
+      expect((await redeem(ticket.ticket, otherOrigin)).status).toBe(401);
+      expect(rows.get(ticket.ticketHash)?.consumed_at).toBeNull();
+      expect(
+        (await redeem(ticket.ticket, "http://cards.example.test:4200")).status,
+      ).toBe(302);
+    },
+  );
+
+  it.each([
+    "http://cards.example.test:4201",
+    "https://cards.example.test:4200",
+  ])(
+    "rejects a redeemed token at a different origin %s",
+    async (otherOrigin) => {
+      const origin = "http://cards.example.test:4200";
+      const { ticket } = await mint(origin);
+      const response = await redeem(ticket.ticket, origin);
+      expect(response.status).toBe(302);
+      const location = response.headers.get("location");
+      if (!location) throw new Error("Missing embed redirect");
+      const target = new URL(location, origin);
+      const token = target.searchParams.get("__an_embed_token");
+      if (!token) throw new Error("Missing embed token");
+      for (const transport of ["query", "cookie", "bearer"] as const) {
+        const path =
+          target.pathname + (transport === "query" ? target.search : "");
+        const headers =
+          transport === "cookie"
+            ? { cookie: `${EMBED_SESSION_COOKIE}=${token}` }
+            : transport === "bearer"
+              ? { authorization: `Bearer ${token}` }
+              : {};
+        await expect(
+          resolveEmbedSessionFromRequest(
+            event(origin, path, undefined, headers),
+          ),
+        ).resolves.toMatchObject({ email: "owner@example.com" });
+        await expect(
+          resolveEmbedSessionFromRequest(
+            event(otherOrigin, path, undefined, headers),
+          ),
+        ).resolves.toBeNull();
+      }
+    },
+  );
+
+  it.each(["https://cards.example.test:443", "http://cards.example.test:80"])(
+    "accepts an equivalent default port at %s",
+    async (origin) => {
+      const { ticket } = await mint(origin);
+      const normalized = new URL(origin).origin;
+      expect((await redeem(ticket.ticket, normalized)).status).toBe(302);
+    },
+  );
+
+  it("uses the same validated public origin through a loopback proxy", async () => {
+    const publicOrigin = "https://cards.example.test:4443";
+    process.env.APP_URL = publicOrigin;
+    const { ticket } = await mint("http://127.0.0.1:3400", publicOrigin);
+    const response = await redeem(
+      ticket.ticket,
+      "http://127.0.0.1:3500",
+      publicOrigin,
+    );
+    expect(response.status).toBe(302);
+    const location = response.headers.get("location");
+    if (!location) throw new Error("Missing embed redirect");
+    const target = new URL(location, publicOrigin);
+    await expect(
+      resolveEmbedSessionFromRequest(
+        event(
+          "http://127.0.0.1:3600",
+          target.pathname + target.search,
+          publicOrigin,
+        ),
+      ),
+    ).resolves.toMatchObject({ email: "owner@example.com" });
+  });
+
+  it.each([
+    "https://cards.example.test:4444",
+    "http://cards.example.test:4443",
+  ])(
+    "rejects a different loopback-proxied public origin %s even when configured",
+    async (otherOrigin) => {
+      const publicOrigin = "https://cards.example.test:4443";
+      process.env.APP_URL = publicOrigin;
+      process.env.BETTER_AUTH_TRUSTED_ORIGINS = otherOrigin;
+      const { ticket, rows } = await mint(
+        "http://127.0.0.1:3400",
+        publicOrigin,
+      );
+      expect(
+        (await redeem(ticket.ticket, "http://127.0.0.1:3400", otherOrigin))
+          .status,
+      ).toBe(401);
+      expect(rows.get(ticket.ticketHash)?.consumed_at).toBeNull();
+      expect(
+        (await redeem(ticket.ticket, "http://127.0.0.1:3400", publicOrigin))
+          .status,
+      ).toBe(302);
+    },
+  );
+
+  it.each([undefined, "cards.example.test"])(
+    "requires a fresh call for a legacy token audience %s",
+    async (audienceHost) => {
+      const signed = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        targetPath: "/visual-edit/design_1",
+        scope: "capability:visual-edit:design:design_1",
+      });
+      const claims = JSON.parse(
+        Buffer.from(signed.split(".")[0], "base64url").toString(),
+      );
+      if (audienceHost !== undefined) claims.audienceHost = audienceHost;
+      const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
+      const signature = createHmac("sha256", "embed-test-secret")
+        .update(payload)
+        .digest("base64url");
+      await expect(
+        resolveEmbedSessionFromRequest(
+          event(
+            "http://cards.example.test:4200",
+            "/visual-edit/design_1",
+            undefined,
+            { cookie: `${EMBED_SESSION_COOKIE}=${payload}.${signature}` },
+          ),
+        ),
+      ).resolves.toBeNull();
+    },
+  );
+});
+
 describe("embed session tokens", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -98,7 +392,7 @@ describe("embed session tokens", () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    process.env = ORIGINAL_ENV;
+    process.env = { ...ORIGINAL_ENV };
   });
 
   it("round-trips signed owner/org claims", () => {
@@ -137,15 +431,15 @@ describe("embed session tokens", () => {
   it("checks host audience and logout revocation without an H3 request", async () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
-      audienceHost: "calendar.example.test",
+      audienceHost: "https://calendar.example.test",
       targetPath: "/inbox",
     });
 
     await expect(
-      resolveEmbedSessionTokenForHost(token, "other.example.test"),
+      resolveEmbedSessionTokenForOrigin(token, "https://other.example.test"),
     ).resolves.toBeNull();
     await expect(
-      resolveEmbedSessionTokenForHost(token, "calendar.example.test"),
+      resolveEmbedSessionTokenForOrigin(token, "https://calendar.example.test"),
     ).resolves.toMatchObject({ ownerEmail: "owner@example.com" });
 
     const legacyToken = signEmbedSessionToken({
@@ -153,9 +447,9 @@ describe("embed session tokens", () => {
       targetPath: "/inbox",
     });
     await expect(
-      resolveEmbedSessionTokenForHost(
+      resolveEmbedSessionTokenForOrigin(
         legacyToken,
-        "beta.calendar.agent-native.com",
+        "https://beta.calendar.agent-native.com",
       ),
     ).resolves.toBeNull();
 
@@ -164,7 +458,7 @@ describe("embed session tokens", () => {
       rowsAffected: 0,
     });
     await expect(
-      resolveEmbedSessionTokenForHost(token, "calendar.example.test"),
+      resolveEmbedSessionTokenForOrigin(token, "https://calendar.example.test"),
     ).resolves.toBeNull();
   });
 
@@ -182,6 +476,7 @@ describe("embed session tokens", () => {
               ticket_hash: "a".repeat(64),
               owner_email: "owner@example.com",
               target_path: "/page/doc_123",
+              ...ticketAudienceFixture(),
               scope,
               created_at: ticketCreatedAtMs,
               consumed_at: ticketCreatedAtMs,
@@ -197,7 +492,7 @@ describe("embed session tokens", () => {
     });
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
-      audienceHost: "content.example.test",
+      audienceHost: "https://content.example.test",
       targetPath: "/page/doc_123",
       scope,
       ticketCreatedAtMs,
@@ -205,7 +500,7 @@ describe("embed session tokens", () => {
     });
 
     await expect(
-      resolveEmbedSessionTokenForHost(token, "content.example.test"),
+      resolveEmbedSessionTokenForOrigin(token, "https://content.example.test"),
     ).resolves.toBeNull();
     expect(dbExec.execute).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -225,6 +520,7 @@ describe("embed session tokens", () => {
             {
               owner_email: "owner@example.com",
               target_path: "/page/doc_123",
+              ...ticketAudienceFixture(),
               scope: contentWidgetWriteScope(),
               created_at: createdAt,
               expires_at: Date.now() + 60_000,
@@ -264,6 +560,7 @@ describe("embed session tokens", () => {
             {
               owner_email: "owner@example.com",
               target_path: "/page/doc_123",
+              ...ticketAudienceFixture(),
               scope: "capability:mcp-directory-widget-read:example",
               created_at: createdAtMs,
               expires_at: Date.now() + 60_000,
@@ -303,6 +600,7 @@ describe("embed session tokens", () => {
                 ticket_hash: "a".repeat(64),
                 owner_email: "owner@example.com",
                 target_path: "/page/doc_123",
+                ...ticketAudienceFixture(),
                 scope: contentWidgetWriteScope(),
                 created_at: createdAt,
                 expires_at: Date.now() + 60_000,
@@ -335,7 +633,7 @@ describe("embed session tokens", () => {
     expect(scope).toBeDefined();
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
-      audienceHost: "content.example.test",
+      audienceHost: "https://content.example.test",
       targetPath: "/page/doc_123",
       scope: scope!,
       ticketCreatedAtMs,
@@ -346,7 +644,7 @@ describe("embed session tokens", () => {
     });
 
     await expect(
-      resolveEmbedSessionTokenForHost(token, "content.example.test"),
+      resolveEmbedSessionTokenForOrigin(token, "https://content.example.test"),
     ).resolves.toBeNull();
     expect(dbExec.execute).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -358,12 +656,12 @@ describe("embed session tokens", () => {
   it("finds signed sibling-host cookie owners for logout without authenticating them", async () => {
     const siblingToken = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
-      audienceHost: "mail.example.test",
+      audienceHost: "https://mail.example.test",
       targetPath: "/inbox",
     });
     const capabilityToken = signEmbedSessionToken({
       ownerEmail: "capability-owner@example.com",
-      audienceHost: "mail.example.test",
+      audienceHost: "https://mail.example.test",
       targetPath: "/inbox",
       scope: "capability:calendar.read",
     });
@@ -372,7 +670,10 @@ describe("embed session tokens", () => {
       resolveEmbedSessionCookieOwners([siblingToken, capabilityToken]),
     ).resolves.toEqual(["owner@example.com"]);
     await expect(
-      resolveEmbedSessionTokenForHost(siblingToken, "calendar.example.test"),
+      resolveEmbedSessionTokenForOrigin(
+        siblingToken,
+        "https://calendar.example.test",
+      ),
     ).resolves.toBeNull();
   });
 });
@@ -415,7 +716,11 @@ describe("embed session tickets", () => {
     expect(inserted[0].args[7]).toBeNull();
     expect(inserted[0].args[8]).toBe(Date.now() + 30 * 24 * 60 * 60 * 1000);
     expect(inserted[0].args[9]).toBeNull();
-    expect(inserted[0].args).toHaveLength(10);
+    expect(inserted[0].args.slice(10)).toEqual([
+      "https://content.example.test",
+      "",
+    ]);
+    expect(inserted[0].args).toHaveLength(12);
   });
 
   it("rejects an initial write-widget ticket authenticated before owner logout", async () => {
@@ -559,7 +864,11 @@ describe("embed session tickets", () => {
     expect(inserted).toHaveLength(1);
     expect(inserted[0].args[8]).toBe(renewalExpiresAtMs);
     expect(inserted[0].args[9]).toBe(Date.now() + 15 * 60 * 1000);
-    expect(inserted[0].args).toHaveLength(10);
+    expect(inserted[0].args.slice(10)).toEqual([
+      "https://content.example.test",
+      "",
+    ]);
+    expect(inserted[0].args).toHaveLength(12);
   });
 
   it("rejects renewing a widget ticket created before owner logout", async () => {
@@ -684,6 +993,7 @@ describe("embed session tickets", () => {
                 ticket_hash: "b".repeat(64),
                 owner_email: "owner@example.com",
                 target_path: "/page/doc_123",
+                ...ticketAudienceFixture(),
                 scope: "capability:mcp-directory-widget-write:example",
                 created_at: createdAt,
                 expires_at: expiresAt,
@@ -715,6 +1025,7 @@ describe("embed session tickets", () => {
                 ticket_hash: "c".repeat(64),
                 owner_email: "owner@example.com",
                 target_path: "/page/doc_123",
+                ...ticketAudienceFixture(),
                 scope: "capability:mcp-directory-widget-read:example",
                 created_at: createdAt,
                 expires_at: createdAt + 15 * 60 * 1000,
@@ -746,6 +1057,7 @@ describe("embed session tickets", () => {
                 ticket_hash: "d".repeat(64),
                 owner_email: "owner@example.com",
                 target_path: "/page/doc_123",
+                ...ticketAudienceFixture(),
                 scope: "capability:mcp-directory-widget-read:example",
                 created_at: createdAt,
                 expires_at: createdAt + 5 * 60 * 1000,
@@ -919,6 +1231,7 @@ describe("embed session tickets", () => {
             owner_email: "owner@example.com",
             org_id: "owner-org",
             target_path: "/visual-edit/design-1?editorView=overview",
+            ...ticketAudienceFixture(),
             scope: "capability:visual-edit:design:design-1",
             created_at: Date.now(),
             expires_at: Date.now() + 60_000,
@@ -943,7 +1256,7 @@ describe("embed session tickets", () => {
 
 describe("normalizeEmbedTargetPath", () => {
   afterEach(() => {
-    process.env = ORIGINAL_ENV;
+    process.env = { ...ORIGINAL_ENV };
   });
 
   it("accepts same-origin absolute URLs and strips APP_BASE_PATH", () => {
@@ -994,16 +1307,19 @@ describe("requestMatchesEmbedTarget", () => {
   });
 
   afterEach(() => {
-    process.env = ORIGINAL_ENV;
+    process.env = { ...ORIGINAL_ENV };
   });
 
   function fakeEvent(
     path: string,
     headers: Record<string, string> = {},
-    options: { clientAddress?: string } = {},
+    options: { clientAddress?: string; origin?: string } = {},
   ) {
     const requestHeaders = new Headers(headers);
-    const requestUrl = new URL(path, `http://${headers.host ?? "mail.test"}`);
+    const requestUrl = new URL(
+      path,
+      options.origin ?? `http://${headers.host ?? "mail.test"}`,
+    );
     const responseHeaders = new Headers();
     return {
       path,
@@ -1027,6 +1343,89 @@ describe("requestMatchesEmbedTarget", () => {
     } as any;
   }
 
+  it("resolves Visual Edit metadata without granting other framework routes", async () => {
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "http://mail.test",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    await expect(
+      resolveEmbedSessionFromRequest(
+        credentialEvent("/_agent-native/webmcp/manifest", token, "query"),
+      ),
+    ).resolves.toMatchObject({
+      scope: "capability:visual-edit:design:design_1",
+    });
+    await expect(
+      resolveEmbedSessionFromRequest(
+        credentialEvent("/_agent-native/org/me", token, "query"),
+      ),
+    ).resolves.toBeNull();
+    const ordinary = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "http://mail.test",
+      targetPath: "/inbox",
+    });
+    await expect(
+      resolveEmbedSessionFromRequest(
+        credentialEvent("/_agent-native/webmcp/manifest", ordinary, "query"),
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("resolves card read metadata without admitting other framework routes", async () => {
+    const scope = createMcpDirectoryWidgetReadCapability({
+      appId: "content",
+      resourceUri: "ui://content/card",
+      resourceIds: { documentId: "doc-1" },
+      actionArguments: { "get-document": { id: "doc-1" } },
+    })!;
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "http://mail.test",
+      targetPath: "/page/doc-1",
+      scope,
+      ticketCreatedAtMs: Date.now(),
+    });
+    for (const path of [
+      "/_agent-native/webmcp/manifest",
+      "/_agent-native/webmcp/manifest/",
+    ]) {
+      await expect(
+        resolveEmbedSessionFromRequest(credentialEvent(path, token, "query")),
+      ).resolves.toMatchObject({ scope });
+    }
+    await expect(
+      resolveEmbedSessionFromRequest(
+        credentialEvent("/_agent-native/org/me", token, "query"),
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("distinguishes explicit embed traffic from an ambient capability cookie", () => {
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "http://mail.test",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    const path = "/_agent-native/webmcp/manifest";
+    expect(
+      hasEmbedSessionRequestMarker(credentialEvent(path, token, "cookie")),
+    ).toBe(false);
+    expect(
+      hasEmbedSessionRequestMarker(credentialEvent(path, token, "query")),
+    ).toBe(true);
+    expect(
+      hasEmbedSessionRequestMarker(
+        credentialEvent(path, token, "bearer", {
+          [EMBED_TARGET_HEADER]: "/visual-edit/design_1",
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it.each([
     "/page/github%3Aowner%2Frepo",
     "/page/local-file%3Adocs%2Freadme%2emd",
@@ -1035,6 +1434,884 @@ describe("requestMatchesEmbedTarget", () => {
     event.url = new H3Event(new Request(event.req.url)).url;
     expect(requestMatchesEmbedTarget(event, target)).toBe(true);
     expect(requestMatchesEmbedTarget(event, "/page/unrelated")).toBe(false);
+  });
+
+  function credentialEvent(
+    path: string,
+    token: string,
+    transport: "bearer" | "query" | "cookie",
+    headers: Record<string, string> = {},
+  ) {
+    const url = new URL(path, "http://mail.test");
+    if (transport === "query") url.searchParams.set("__an_embed_token", token);
+    return fakeEvent(`${url.pathname}${url.search}`, {
+      host: "mail.test",
+      origin: "null",
+      ...(transport === "bearer" ? { authorization: `Bearer ${token}` } : {}),
+      ...(transport === "cookie"
+        ? { cookie: `${EMBED_SESSION_COOKIE}=${token}` }
+        : {}),
+      ...headers,
+    });
+  }
+
+  it.each([
+    { "x-forwarded-host": "" },
+    { "x-forwarded-host": "mail.test/path" },
+    { "x-forwarded-proto": "" },
+    { "x-forwarded-proto": "javascript" },
+  ])(
+    "does not resolve an embed session with malformed authority: %j",
+    async (headers) => {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        audienceHost: "http://mail.test",
+        targetPath: "/inbox",
+      });
+      const event = credentialEvent("/inbox", token, "cookie", headers);
+      event.req.context.clientAddress = "127.0.0.1";
+      await expect(resolveEmbedSessionFromRequest(event)).resolves.toBeNull();
+      await expect(
+        isExpiredMcpDirectoryWidgetSessionRequest(event),
+      ).resolves.toBe(false);
+    },
+  );
+
+  it.each([
+    { "x-forwarded-host": "" },
+    { "x-forwarded-host": "mail.test/path" },
+    { "x-forwarded-proto": "" },
+    { "x-forwarded-proto": "javascript" },
+  ])(
+    "keeps ticket mint, start and renewal strict for malformed authority: %j",
+    async (headers) => {
+      await embedSessionsStore.ready();
+      const rows = installTicketStore();
+      const scope = contentWidgetWriteScope();
+      const ticket = await createEmbedSessionTicket({
+        ownerEmail: "owner@example.com",
+        targetPath: "/inbox",
+        scope,
+        audienceHost: "http://mail.test",
+        revocationAnchorCreatedAtMs: Date.now(),
+      });
+      const event = fakeEvent(
+        `/_agent-native/embed/start?ticket=${ticket.ticket}`,
+        {
+          host: "mail.test",
+          ...headers,
+        },
+        { clientAddress: "127.0.0.1" },
+      );
+      const context = {
+        userEmail: "owner@example.com",
+        requestOrigin: "http://mail.test",
+        resolveEmbedRequestOrigin: () => resolveEmbedRequestOrigin(event),
+      };
+      await expect(
+        runWithRequestContext(context, () =>
+          createEmbedSessionTicketForAudience({
+            ownerEmail: "owner@example.com",
+            targetPath: "/inbox",
+          }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 400 });
+      await expect(createEmbedStartRouteHandler()(event)).rejects.toMatchObject(
+        { statusCode: 400 },
+      );
+      await expect(
+        runWithRequestContext(context, () =>
+          renewMcpDirectoryWidgetSessionForAudience({
+            sourceTicket: ticket.ticket,
+            ownerEmail: "owner@example.com",
+            expectedScope: scope,
+            renewedScope: scope,
+          }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 400 });
+      expect(rows.get(ticket.ticketHash)?.consumed_at).toBeNull();
+      expect(rows.get(ticket.ticketHash)?.scope).toBe(scope);
+    },
+  );
+
+  it.each([
+    ["/_agent-native/auth/session", "GET"],
+    ["/_agent-native/application-state", "GET"],
+    ["/_agent-native/actions/update-document", "POST"],
+    ["/api/emails", "GET"],
+  ])(
+    "rejects ordinary embed cookies on unrelated %s requests with target hints",
+    async (path, method) => {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        audienceHost: "http://mail.test",
+        targetPath: "/inbox",
+        scope: "full",
+      });
+      const event = credentialEvent(
+        `${path}?__an_embed_target=%2Finbox`,
+        token,
+        "cookie",
+        {
+          [EMBED_TARGET_HEADER]: "/inbox",
+          referer: "http://mail.test/inbox?embedded=1",
+        },
+      );
+      event.req.method = method;
+      await expect(resolveEmbedSessionFromRequest(event)).resolves.toBeNull();
+      expect(requestHasEmbedAuthMarker(event)).toBe(false);
+    },
+  );
+
+  it.each([undefined, "full", "minimal", "none"])(
+    "limits ordinary scope %s to its document and static runtime requests",
+    async (scope) => {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        audienceHost: "http://mail.test",
+        targetPath: "/inbox?documentId=doc-1",
+        scope,
+      });
+      for (const transport of ["bearer", "query", "cookie"] as const) {
+        for (const path of [
+          "/inbox?documentId=doc-1",
+          "/@vite/client",
+          "/app/entry.client.tsx",
+          "/assets/app.js",
+        ]) {
+          const event = credentialEvent(path, token, transport);
+          await expect(
+            resolveEmbedSessionFromRequest(event),
+          ).resolves.toMatchObject({ email: "owner@example.com" });
+          expect(requestHasEmbedAuthMarker(event)).toBe(true);
+        }
+        for (const path of [
+          "/inbox?documentId=doc-2",
+          "/inbox?documentId=doc-1&documentId=doc-2",
+          "/inbox",
+          "/settings",
+          "/api/emails",
+          "/_agent-native/actions/list-emails",
+          "/_agent-native/webmcp/actions/list-emails",
+          "/_agent-native/auth/session",
+          "/_agent-native/auth/session?__an_embed_target=%2Finbox%3FdocumentId%3Ddoc-1",
+          "/_agent-native/application-state",
+          "/_agent-native/db/query",
+          "/_agent-native/files",
+          "/_agent-native/agent/run",
+          "/app/private-data",
+          "/@other/runtime",
+        ]) {
+          const event = credentialEvent(path, token, transport, {
+            [EMBED_TARGET_HEADER]: "/inbox?documentId=doc-1",
+            referer: "http://mail.test/inbox?documentId=doc-1",
+          });
+          await expect(
+            resolveEmbedSessionFromRequest(event),
+          ).resolves.toBeNull();
+          expect(requestHasEmbedAuthMarker(event)).toBe(false);
+        }
+        await expect(
+          resolveEmbedSessionFromRequest(
+            credentialEvent("/inbox?documentId=doc-1", token, transport, {
+              host: "other.test",
+            }),
+          ),
+        ).resolves.toBeNull();
+      }
+    },
+  );
+
+  it.each(["read", "write", "visual-edit", "bootstrap"] as const)(
+    "resolves %s capability actions without a target hint or referrer",
+    async (kind) => {
+      const scope =
+        kind === "read"
+          ? createMcpDirectoryWidgetReadCapability({
+              appId: "content",
+              resourceUri: "ui://content/shell-v66",
+              resourceIds: { documentId: "doc_123" },
+              actionArguments: { "get-document": { documentId: "doc_123" } },
+            })
+          : kind === "write"
+            ? contentWidgetWriteScope()
+            : kind === "bootstrap"
+              ? `capability:visual-edit-bootstrap:${"a".repeat(32)}`
+              : "capability:visual-edit:design:design-1";
+      if (!scope) throw new Error("Could not build capability fixture.");
+      const ticketCreatedAtMs = Date.now();
+      if (kind === "write") {
+        dbExec.execute.mockImplementation(async ({ sql }: any) => ({
+          rows: sql.includes("FROM agent_native_embed_tickets")
+            ? [
+                {
+                  ticket_hash: "a".repeat(64),
+                  owner_email: "owner@example.com",
+                  target_path: "/page/doc_123",
+                  ...ticketAudienceFixture("http://mail.test"),
+                  scope,
+                  created_at: ticketCreatedAtMs,
+                  consumed_at: ticketCreatedAtMs,
+                  renewal_expires_at: ticketCreatedAtMs + 24 * 60 * 60 * 1000,
+                  session_active_until: ticketCreatedAtMs + 60_000,
+                },
+              ]
+            : [],
+        }));
+      }
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        audienceHost: "http://mail.test",
+        targetPath: "/page/doc_123",
+        scope,
+        ticketCreatedAtMs,
+        ...(kind === "write" ? { sessionId: "a".repeat(64) } : {}),
+      });
+      for (const transport of ["bearer", "query", "cookie"] as const) {
+        for (const path of [
+          "/page/doc_123",
+          "/@vite/client",
+          "/_agent-native/actions/get-document",
+          "/_agent-native/webmcp/actions/get-document",
+        ]) {
+          const event = credentialEvent(path, token, transport);
+          await expect(
+            resolveEmbedSessionFromRequest(event),
+          ).resolves.toMatchObject({ email: "owner@example.com", scope });
+          expect(requestHasEmbedAuthMarker(event)).toBe(true);
+          expect(hasExplicitEmbedSessionCredential(event)).toBe(true);
+        }
+        for (const path of [
+          "/page/other-document",
+          "/api/documents/doc_123",
+          "/_agent-native/application-state",
+          "/_agent-native/auth/session",
+          "/_agent-native/actions-other/get-document",
+          "/_agent-native/webmcp/actions-other/get-document",
+        ]) {
+          const event = credentialEvent(path, token, transport, {
+            [EMBED_TARGET_HEADER]: "/page/doc_123",
+            referer: "http://mail.test/page/doc_123",
+          });
+          await expect(
+            resolveEmbedSessionFromRequest(event),
+          ).resolves.toBeNull();
+          expect(requestHasEmbedAuthMarker(event)).toBe(false);
+        }
+        await expect(
+          resolveEmbedSessionFromRequest(
+            credentialEvent(
+              "/_agent-native/actions/get-document",
+              token,
+              transport,
+              { host: "other.test" },
+            ),
+          ),
+        ).resolves.toBeNull();
+      }
+    },
+  );
+
+  it.each([
+    [
+      "/_agent-native/open?app=content&view=editor&documentId=doc-2",
+      "/_agent-native/open?app=content&view=editor&documentId=doc-1",
+    ],
+    [
+      "/_agent-native/open?app=mail&view=editor&documentId=doc-1",
+      "/_agent-native/open?app=content&view=editor&documentId=doc-1",
+    ],
+    ["/inbox?documentId=doc-2", "/inbox?documentId=doc-1"],
+    ["/?documentId=doc-2", "/?documentId=doc-1"],
+    ["/?documentId=doc-2", "/"],
+    [
+      "/inbox?documentId=doc-2",
+      "/_agent-native/open?view=inbox&documentId=doc-1",
+    ],
+    ["/inbox", "/_agent-native/open?to=%2Finbox%3FdocumentId%3Ddoc-1"],
+    [
+      "/inbox?documentId=doc-2",
+      "/_agent-native/open?to=%2Finbox%3FdocumentId%3Ddoc-1",
+    ],
+    [
+      "/page/doc-1?documentId=doc-2",
+      "/_agent-native/open?view=editor&documentId=doc-1",
+    ],
+  ])(
+    "rejects resource selectors %s outside target %s",
+    async (path, targetPath) => {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        audienceHost: "http://mail.test",
+        targetPath,
+      });
+      const event = credentialEvent(path, token, "query", {
+        [EMBED_TARGET_HEADER]: targetPath,
+      });
+      expect(requestMatchesEmbedTarget(event, targetPath)).toBe(false);
+      await expect(resolveEmbedSessionFromRequest(event)).resolves.toBeNull();
+    },
+  );
+
+  it.each([
+    [
+      "/inbox?documentId=doc-1&embedded=1&agentSidebar=closed",
+      "/_agent-native/open?to=%2Finbox%3FdocumentId%3Ddoc-1",
+    ],
+    ["/inbox", "/_agent-native/open?app=mail&view=inbox&to=%2Finbox"],
+  ])("preserves signed open destination %s", async (path, targetPath) => {
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "http://mail.test",
+      targetPath,
+    });
+    await expect(
+      resolveEmbedSessionFromRequest(credentialEvent(path, token, "query")),
+    ).resolves.toMatchObject({ targetPath });
+  });
+
+  it.each([
+    ["/inbox", undefined],
+    ["/@vite/client", undefined],
+    [
+      "/_agent-native/actions/get-document",
+      "capability:visual-edit:design:design-1",
+    ],
+  ])("confines %s to the configured mounted app", async (path, scope) => {
+    process.env.APP_BASE_PATH = "/mail";
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "http://mail.test",
+      targetPath: "/inbox",
+      scope,
+    });
+    await expect(
+      resolveEmbedSessionFromRequest(
+        credentialEvent(`/mail${path}`, token, "cookie"),
+      ),
+    ).resolves.toMatchObject({ email: "owner@example.com" });
+    for (const prefix of ["", "/calendar", "/mailbox", "/mail/../calendar"]) {
+      const event = credentialEvent(`${prefix}${path}`, token, "cookie", {
+        [EMBED_TARGET_HEADER]: "/mail/inbox",
+      });
+      await expect(resolveEmbedSessionFromRequest(event)).resolves.toBeNull();
+      expect(requestHasEmbedAuthMarker(event)).toBe(false);
+    }
+    const mounted = credentialEvent(path, token, "cookie");
+    mounted.context = { _mountedPathname: `/mail${path}` };
+    mounted.url = new URL(mounted.req.url);
+    await expect(
+      resolveEmbedSessionFromRequest(mounted),
+    ).resolves.toMatchObject({ email: "owner@example.com" });
+    mounted.context._mountedPathname = `/calendar${path}`;
+    await expect(resolveEmbedSessionFromRequest(mounted)).resolves.toBeNull();
+  });
+
+  it.each([
+    ["/mail", "/calendar"],
+    ["", "/mail"],
+    ["/mail", ""],
+  ])(
+    "binds tokens issued at %s to that mount when config changes to %s",
+    async (sourceBase, otherBase) => {
+      process.env.APP_BASE_PATH = sourceBase ? `${sourceBase}/` : "";
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        audienceHost: "http://mail.test",
+        targetPath: "/inbox?documentId=doc-1",
+      });
+      expect(verifyEmbedSessionToken(token)).toMatchObject({
+        ok: true,
+        claims: { audienceBasePath: sourceBase },
+      });
+      for (const transport of ["bearer", "query", "cookie"] as const) {
+        process.env.APP_BASE_PATH = sourceBase;
+        const source = credentialEvent(
+          `${sourceBase}/inbox?documentId=doc-1`,
+          token,
+          transport,
+        );
+        await expect(
+          resolveEmbedSessionFromRequest(source),
+        ).resolves.toMatchObject({ email: "owner@example.com" });
+        expect(requestHasEmbedAuthMarker(source)).toBe(true);
+        await expect(
+          resolveEmbedSessionTokenForOrigin(token, "http://mail.test"),
+        ).resolves.toMatchObject({ audienceBasePath: sourceBase });
+
+        process.env.APP_BASE_PATH = otherBase;
+        const other = credentialEvent(
+          `${otherBase}/inbox?documentId=doc-1`,
+          token,
+          transport,
+          {
+            [EMBED_TARGET_HEADER]: `${otherBase}/inbox?documentId=doc-1`,
+          },
+        );
+        await expect(resolveEmbedSessionFromRequest(other)).resolves.toBeNull();
+        await expect(
+          resolveEmbedSessionTokenForOrigin(token, "http://mail.test"),
+        ).resolves.toBeNull();
+        expect(requestHasEmbedAuthMarker(other)).toBe(false);
+      }
+    },
+  );
+
+  it("allows pre-mount audience claims only in an unmounted app", async () => {
+    process.env.OAUTH_STATE_SECRET = "embed-test-secret";
+    const current = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "http://mail.test",
+      targetPath: "/inbox",
+    });
+    const claims = JSON.parse(
+      Buffer.from(current.split(".")[0], "base64url").toString(),
+    );
+    delete claims.audienceBasePath;
+    const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
+    const signature = createHmac("sha256", "embed-test-secret")
+      .update(payload)
+      .digest("base64url");
+    const legacy = `${payload}.${signature}`;
+    await expect(
+      resolveEmbedSessionFromRequest(
+        credentialEvent("/inbox", legacy, "cookie"),
+      ),
+    ).resolves.toMatchObject({ email: "owner@example.com" });
+    process.env.APP_BASE_PATH = "/mail";
+    const mounted = credentialEvent("/mail/inbox", legacy, "cookie", {
+      [EMBED_TARGET_HEADER]: "/mail/inbox",
+    });
+    await expect(resolveEmbedSessionFromRequest(mounted)).resolves.toBeNull();
+    expect(requestHasEmbedAuthMarker(mounted)).toBe(false);
+  });
+
+  it("keeps renewed and expired widget sessions within their issuing mount", async () => {
+    vi.useFakeTimers();
+    try {
+      process.env.APP_BASE_PATH = "/mail";
+      const createdAtMs = Date.now();
+      const scope = contentWidgetWriteScope();
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        audienceHost: "http://mail.test",
+        targetPath: "/page/doc_123",
+        scope,
+        ticketCreatedAtMs: createdAtMs,
+        sessionId: "a".repeat(64),
+        ttlSeconds: 1,
+      });
+      let activeUntilMs = createdAtMs + 60_000;
+      dbExec.execute.mockImplementation(async ({ sql }: any) => ({
+        rows: sql.includes("FROM agent_native_embed_tickets")
+          ? [
+              {
+                ticket_hash: "a".repeat(64),
+                owner_email: "owner@example.com",
+                target_path: "/page/doc_123",
+                ...ticketAudienceFixture("http://mail.test", "/mail"),
+                scope,
+                created_at: createdAtMs,
+                consumed_at: createdAtMs,
+                renewal_expires_at: createdAtMs + 24 * 60 * 60 * 1000,
+                session_active_until: activeUntilMs,
+              },
+            ]
+          : [],
+      }));
+      vi.advanceTimersByTime(2_000);
+      await expect(
+        resolveEmbedSessionFromRequest(
+          credentialEvent(
+            "/mail/_agent-native/actions/get-document",
+            token,
+            "cookie",
+          ),
+        ),
+      ).resolves.toMatchObject({ scope });
+      activeUntilMs = Date.now() - 1;
+      await expect(
+        isExpiredMcpDirectoryWidgetSessionRequest(
+          credentialEvent(
+            "/mail/_agent-native/actions/get-document",
+            token,
+            "cookie",
+          ),
+        ),
+      ).resolves.toBe(true);
+      process.env.APP_BASE_PATH = "/calendar";
+      const other = credentialEvent(
+        "/calendar/_agent-native/actions/get-document",
+        token,
+        "cookie",
+        { [EMBED_TARGET_HEADER]: "/calendar/page/doc_123" },
+      );
+      await expect(
+        isExpiredMcpDirectoryWidgetSessionRequest(other),
+      ).resolves.toBe(false);
+      activeUntilMs = Date.now() + 60_000;
+      await expect(resolveEmbedSessionFromRequest(other)).resolves.toBeNull();
+      await expect(
+        resolveEmbedSessionTokenForOrigin(token, "http://mail.test"),
+      ).resolves.toBeNull();
+      expect(requestHasEmbedAuthMarker(other)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["bearer", "cookie"] as const)(
+    "distinguishes explicit %s credentials from ambient cookies by route eligibility and expiry",
+    async (transport) => {
+      vi.useFakeTimers();
+      try {
+        const token = signEmbedSessionToken({
+          ownerEmail: "owner@example.com",
+          audienceHost: "http://mail.test",
+          targetPath: "/inbox",
+          ttlSeconds: 1,
+        });
+        const event = credentialEvent(
+          "/_agent-native/actions/get-document",
+          token,
+          transport,
+        );
+        event.req.method = "POST";
+        await expect(resolveEmbedSessionFromRequest(event)).resolves.toBeNull();
+        expect(hasExplicitEmbedSessionCredential(event)).toBe(false);
+        expect(hasPresentedEmbedSessionCredential(event)).toBe(
+          transport === "bearer",
+        );
+        const document = credentialEvent("/inbox", token, transport);
+        expect(hasPresentedEmbedSessionCredential(document)).toBe(true);
+        vi.advanceTimersByTime(2_000);
+        expect(verifyEmbedSessionToken(token)).toMatchObject({
+          ok: false,
+          reason: "expired",
+        });
+        expect(hasPresentedEmbedSessionCredential(event)).toBe(
+          transport === "bearer",
+        );
+        expect(hasPresentedEmbedSessionCredential(document)).toBe(
+          transport === "bearer",
+        );
+        const invalid = credentialEvent(
+          "/_agent-native/actions/get-document",
+          "invalid-stale-token",
+          transport,
+        );
+        expect(hasPresentedEmbedSessionCredential(invalid)).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each([
+    {
+      path: "/inbox?documentId=doc-1",
+      host: "mail.test",
+      base: "",
+      presented: true,
+    },
+    {
+      path: "/inbox?documentId=doc-2",
+      host: "mail.test",
+      base: "",
+      presented: false,
+    },
+    {
+      path: "/inbox?documentId=doc-1&extra=1",
+      host: "mail.test",
+      base: "",
+      presented: false,
+    },
+    { path: "/settings", host: "mail.test", base: "", presented: false },
+    {
+      path: "/inbox?documentId=doc-1",
+      host: "calendar.test",
+      base: "",
+      presented: false,
+    },
+    {
+      path: "/calendar/inbox?documentId=doc-1",
+      host: "mail.test",
+      base: "/calendar",
+      presented: false,
+    },
+  ])(
+    "classifies an ambient cookie from its signed target: $host $path",
+    async ({ path, host, base, presented }) => {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        audienceHost: "http://mail.test",
+        targetPath: "/inbox?documentId=doc-1",
+      });
+      process.env.APP_BASE_PATH = base;
+      const event = credentialEvent(path, token, "cookie", {
+        host,
+        referer: "http://mail.test/inbox?documentId=doc-1",
+      });
+      expect(hasPresentedEmbedSessionCredential(event)).toBe(presented);
+      if (!presented)
+        await expect(resolveEmbedSessionFromRequest(event)).resolves.toBeNull();
+    },
+  );
+
+  it("recognizes explicit embed markers without treating an unrelated cookie as embed credentials", () => {
+    expect(
+      hasPresentedEmbedSessionCredential(
+        fakeEvent("/_agent-native/actions/get-document?embedded=1"),
+      ),
+    ).toBe(true);
+    expect(
+      hasPresentedEmbedSessionCredential(
+        fakeEvent(
+          "/_agent-native/actions/get-document?__an_embed_token=invalid",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      hasPresentedEmbedSessionCredential(
+        fakeEvent("/_agent-native/actions/get-document", {
+          [EMBED_TARGET_HEADER]: "/inbox",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      hasPresentedEmbedSessionCredential(
+        fakeEvent(
+          "/_agent-native/actions/get-document?__an_embed_target=%2Finbox",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      hasPresentedEmbedSessionCredential(
+        fakeEvent("/_agent-native/actions/get-document", {
+          cookie: `${EMBED_SESSION_COOKIE}=invalid-stale-cookie`,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it.each(["mount", "host"] as const)(
+    "checks the ticket issuing %s before embed-start consumption",
+    async (change) => {
+      process.env.APP_BASE_PATH = "/mail";
+      const rows = installTicketStore();
+      const ticket = await runWithRequestContext(
+        { requestOrigin: "http://mail.test" },
+        () =>
+          createEmbedSessionTicketForAudience({
+            ownerEmail: "owner@example.com",
+            targetPath: "/inbox",
+          }),
+      );
+      expect(rows.get(ticket.ticketHash)).toMatchObject({
+        audience_host: "http://mail.test",
+        audience_base_path: "/mail",
+      });
+      const { createEmbedStartRouteHandler } = await import("./embed-route.js");
+      const handler = createEmbedStartRouteHandler();
+      process.env.APP_BASE_PATH = change === "mount" ? "/calendar" : "/mail";
+      const other = fakeEvent(
+        `${process.env.APP_BASE_PATH}/_agent-native/embed/start?ticket=${ticket.ticket}`,
+        {
+          host: change === "host" ? "other.test" : "mail.test",
+          [EMBED_TARGET_HEADER]: `${process.env.APP_BASE_PATH}/inbox`,
+        },
+      );
+      other.req.method = "GET";
+      const denied = (await handler(other)) as Response;
+      expect(denied.status).toBe(401);
+      expect(rows.get(ticket.ticketHash)?.consumed_at).toBeNull();
+
+      process.env.APP_BASE_PATH = "/mail";
+      const source = fakeEvent(
+        `/mail/_agent-native/embed/start?ticket=${ticket.ticket}`,
+        { host: "mail.test" },
+      );
+      source.req.method = "GET";
+      const accepted = (await handler(source)) as Response;
+      expect(accepted.status).toBe(302);
+      const location = new URL(
+        accepted.headers.get("location")!,
+        "http://mail.test",
+      );
+      expect(location.pathname).toBe("/mail/inbox");
+      expect(
+        verifyEmbedSessionToken(location.searchParams.get("__an_embed_token")),
+      ).toMatchObject({
+        ok: true,
+        claims: {
+          audienceHost: "http://mail.test",
+          audienceBasePath: "/mail",
+          targetPath: "/inbox",
+        },
+      });
+      expect(rows.get(ticket.ticketHash)?.consumed_at).toEqual(
+        expect.any(Number),
+      );
+    },
+  );
+
+  it("redeems and resolves an embed using a non-loopback platform's public request URL", async () => {
+    process.env.WORKSPACE_GATEWAY_URL = "https://workspace.example.test";
+    process.env.APP_BASE_PATH = "/mail";
+    installTicketStore();
+    const ticket = await runWithRequestContext(
+      { requestOrigin: "https://workspace.example.test" },
+      () =>
+        createEmbedSessionTicketForAudience({
+          ownerEmail: "owner@example.com",
+          targetPath: "/inbox",
+        }),
+    );
+    const { createEmbedStartRouteHandler } = await import("./embed-route.js");
+    const headers = {
+      host: "workspace.example.test",
+      "x-forwarded-host": "internal.gateway:8100",
+      "x-forwarded-proto": "http",
+    };
+    const start = fakeEvent(
+      `/mail/_agent-native/embed/start?ticket=${ticket.ticket}`,
+      headers,
+      {
+        clientAddress: "203.0.113.20",
+        origin: "https://workspace.example.test",
+      },
+    );
+    start.req.method = "GET";
+    const response = (await createEmbedStartRouteHandler()(start)) as Response;
+    expect(response.status).toBe(302);
+    const location = new URL(
+      response.headers.get("location")!,
+      "https://workspace.example.test",
+    );
+    const document = fakeEvent(
+      `${location.pathname}${location.search}`,
+      headers,
+      {
+        clientAddress: "203.0.113.20",
+        origin: "https://workspace.example.test",
+      },
+    );
+    await expect(
+      resolveEmbedSessionFromRequest(document),
+    ).resolves.toMatchObject({ email: "owner@example.com" });
+    const otherHost = fakeEvent(
+      `${location.pathname}${location.search}`,
+      {
+        ...headers,
+        host: "other.example",
+        "x-forwarded-host": "workspace.example.test",
+      },
+      { clientAddress: "203.0.113.20", origin: "https://other.example" },
+    );
+    await expect(resolveEmbedSessionFromRequest(otherHost)).resolves.toBeNull();
+  });
+
+  it.each(["audience_host", "audience_base_path"])(
+    "requires a fresh ticket when legacy metadata %s is unknown",
+    async (column) => {
+      const rows = installTicketStore();
+      const ticket = await createEmbedSessionTicketForAudience({
+        ownerEmail: "owner@example.com",
+        targetPath: "/inbox",
+        audienceHost: "http://mail.test",
+      });
+      delete rows.get(ticket.ticketHash)![column];
+      await expect(
+        consumeEmbedSessionTicketForAudience(ticket.ticket, {
+          audienceHost: "http://mail.test",
+        }),
+      ).resolves.toBeNull();
+      expect(rows.get(ticket.ticketHash)?.consumed_at).toBeNull();
+    },
+  );
+
+  it("requires a trusted origin or explicit server host to mint an embed ticket", async () => {
+    installTicketStore();
+    await expect(
+      runWithRequestContext({ requestOrigin: undefined }, () =>
+        createEmbedSessionTicketForAudience({
+          ownerEmail: "owner@example.com",
+          targetPath: "/inbox",
+        }),
+      ),
+    ).rejects.toThrow("trusted app audience");
+    await expect(
+      runWithRequestContext({ requestOrigin: undefined }, () =>
+        createEmbedSessionTicketForAudience({
+          ownerEmail: "owner@example.com",
+          targetPath: "/inbox",
+          audienceHost: "http://mail.test",
+        }),
+      ),
+    ).resolves.toMatchObject({ ticket: expect.any(String) });
+  });
+
+  it("binds source-ticket lookup and in-place renewal to the original host and mount", async () => {
+    process.env.APP_BASE_PATH = "/mail";
+    const rows = installTicketStore();
+    const scope = contentWidgetWriteScope();
+    const ticket = await runWithRequestContext(
+      { requestOrigin: "http://mail.test" },
+      () =>
+        createEmbedSessionTicketForAudience({
+          ownerEmail: "owner@example.com",
+          targetPath: "/page/doc_123",
+          scope,
+          ttlSeconds: 300,
+          revocationAnchorCreatedAtMs: Date.now(),
+        }),
+    );
+    await expect(
+      consumeEmbedSessionTicketForAudience(ticket.ticket, {
+        audienceHost: "http://mail.test",
+      }),
+    ).resolves.toMatchObject({ ownerEmail: "owner@example.com" });
+    const original = { ...rows.get(ticket.ticketHash)! };
+    for (const [base, origin] of [
+      ["/calendar", "http://mail.test"],
+      ["/mail", "http://other.test"],
+      ["", "http://mail.test"],
+      ["/mail", "http://mail.test:4201"],
+      ["/mail", "https://mail.test"],
+    ]) {
+      process.env.APP_BASE_PATH = base;
+      await runWithRequestContext({ requestOrigin: origin }, async () => {
+        await expect(
+          readMcpDirectoryWidgetRenewalTicketForAudience(ticket.ticket),
+        ).resolves.toBeNull();
+        await expect(
+          renewMcpDirectoryWidgetSessionForAudience({
+            sourceTicket: ticket.ticket,
+            ownerEmail: "owner@example.com",
+            expectedScope: scope,
+            renewedScope: scope,
+          }),
+        ).resolves.toBeNull();
+      });
+      expect(rows.get(ticket.ticketHash)).toEqual(original);
+    }
+    process.env.APP_BASE_PATH = "/mail";
+    await runWithRequestContext(
+      { requestOrigin: "http://mail.test" },
+      async () => {
+        await expect(
+          readMcpDirectoryWidgetRenewalTicketForAudience(ticket.ticket),
+        ).resolves.toMatchObject({ targetPath: "/page/doc_123", scope });
+        await expect(
+          renewMcpDirectoryWidgetSessionForAudience({
+            sourceTicket: ticket.ticket,
+            ownerEmail: "owner@example.com",
+            expectedScope: scope,
+            renewedScope: scope,
+          }),
+        ).resolves.toBeGreaterThan(original.session_active_until);
+      },
+    );
   });
 
   it("allows the route produced by an embedded open deep link", () => {
@@ -1153,7 +2430,7 @@ describe("requestMatchesEmbedTarget", () => {
     ).toBe(true);
   });
 
-  it("allows app runtime requests from the embedded target referrer", () => {
+  it("does not match runtime requests through an embedded target referrer", () => {
     expect(
       requestMatchesEmbedTarget(
         fakeEvent("/_agent-native/application-state/compose", {
@@ -1162,7 +2439,7 @@ describe("requestMatchesEmbedTarget", () => {
         }),
         "/_agent-native/open?app=mail&view=inbox&composeDraftId=d1",
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       requestMatchesEmbedTarget(
         fakeEvent("/api/emails?view=inbox", {
@@ -1210,9 +2487,7 @@ describe("requestMatchesEmbedTarget", () => {
   it("uses the browser URL, not the mounted handler path, for framework routes", () => {
     const event = fakeEvent("/");
     event.context = { _mountedPathname: "/_agent-native/open" };
-    event.url = {
-      search: "?app=mail&view=inbox&embedded=1&__an_embed_token=tok",
-    };
+    event.url.search = "?app=mail&view=inbox&embedded=1&__an_embed_token=tok";
 
     expect(
       requestMatchesEmbedTarget(
@@ -1221,6 +2496,25 @@ describe("requestMatchesEmbedTarget", () => {
       ),
     ).toBe(true);
   });
+
+  it.each([false, true])(
+    "keeps signed open selectors at a base path (handler-relative URL: %s)",
+    (handlerRelative) => {
+      process.env.APP_BASE_PATH = "/mail";
+      const event = fakeEvent("/mail/_agent-native/open?view=editor");
+      if (handlerRelative) {
+        event.context = { _mountedPathname: "/mail/_agent-native/open" };
+        event.url = new URL("http://mail.test/?view=editor");
+      }
+      const target =
+        "/_agent-native/open?app=content&view=editor&documentId=doc-1";
+      expect(requestMatchesEmbedTarget(event, target)).toBe(false);
+      event.url.search = "?app=content&view=editor&documentId=doc-1";
+      expect(requestMatchesEmbedTarget(event, target)).toBe(true);
+      event.url.search = "?app=content&view=editor&documentId=doc-2";
+      expect(requestMatchesEmbedTarget(event, target)).toBe(false);
+    },
+  );
 
   it("rejects unrelated page routes for the same token", () => {
     expect(
@@ -1231,7 +2525,7 @@ describe("requestMatchesEmbedTarget", () => {
     ).toBe(false);
   });
 
-  it("allows same-origin fetches only when the embed target header matches", () => {
+  it("does not match runtime requests through an embed target header", () => {
     expect(
       requestMatchesEmbedTarget(
         fakeEvent("/_agent-native/actions/list-emails", {
@@ -1239,7 +2533,7 @@ describe("requestMatchesEmbedTarget", () => {
         }),
         "/_agent-native/open?app=mail&view=inbox",
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       requestMatchesEmbedTarget(
         fakeEvent("/api/emails?view=inbox&limit=25", {
@@ -1247,7 +2541,7 @@ describe("requestMatchesEmbedTarget", () => {
         }),
         "/_agent-native/open?app=mail&view=inbox",
       ),
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       requestMatchesEmbedTarget(
@@ -1259,7 +2553,7 @@ describe("requestMatchesEmbedTarget", () => {
     ).toBe(false);
   });
 
-  it("treats bearer embed tokens as embed auth markers for CORS headers", () => {
+  it("does not mark ordinary bearer sessions on action routes through target headers", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       targetPath: "/picker?embedded=1",
@@ -1274,7 +2568,7 @@ describe("requestMatchesEmbedTarget", () => {
           [EMBED_TARGET_HEADER]: "/picker?embedded=1",
         }),
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       requestHasEmbedAuthMarker(
         fakeEvent("/_agent-native/actions/list-libraries", {
@@ -1286,7 +2580,7 @@ describe("requestMatchesEmbedTarget", () => {
     ).toBe(false);
   });
 
-  it("allows app runtime requests with the embed cookie when referrer headers are unavailable", async () => {
+  it("rejects app data requests with an ordinary embed cookie without referrer headers", async () => {
     process.env.OAUTH_STATE_SECRET = "embed-test-secret";
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
@@ -1302,11 +2596,7 @@ describe("requestMatchesEmbedTarget", () => {
       }),
     );
 
-    expect(runtimeSession).toMatchObject({
-      email: "owner@example.com",
-      orgId: "org_123",
-      targetPath: "/inbox?__an_mcp_chat_bridge=1",
-    });
+    expect(runtimeSession).toBeNull();
 
     await expect(
       resolveEmbedSessionFromRequest(
@@ -1344,7 +2634,7 @@ describe("requestMatchesEmbedTarget", () => {
 
     const embedCookie = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
-      audienceHost: "mail.test",
+      audienceHost: "http://mail.test",
       targetPath: "/design/design-1",
       scope: "capability:mcp-directory-widget-read:test",
       ticketCreatedAtMs: Date.now(),
@@ -1356,7 +2646,7 @@ describe("requestMatchesEmbedTarget", () => {
           cookie: `${EMBED_SESSION_COOKIE}=${embedCookie}`,
         }),
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       hasExplicitEmbedSessionCredential(
         fakeEvent("/_agent-native/actions/get-document", {
@@ -1367,10 +2657,10 @@ describe("requestMatchesEmbedTarget", () => {
     ).toBe(true);
   });
 
-  it("resolves the embed owner for logout without a target referrer", async () => {
+  it("does not authenticate logout with an ordinary embed cookie", async () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
-      audienceHost: "mail.test",
+      audienceHost: "http://mail.test",
       targetPath: "/inbox",
       ttlSeconds: 60,
     });
@@ -1382,7 +2672,7 @@ describe("requestMatchesEmbedTarget", () => {
           cookie: `${EMBED_SESSION_COOKIE}=${token}`,
         }),
       ),
-    ).resolves.toMatchObject({ email: "owner@example.com" });
+    ).resolves.toBeNull();
   });
 
   it("revokes embed cookies across browser partitions after logout", async () => {
@@ -1403,7 +2693,7 @@ describe("requestMatchesEmbedTarget", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       targetPath: "/inbox",
-      audienceHost: "beta.calendar.agent-native.com",
+      audienceHost: "http://beta.calendar.agent-native.com",
       ttlSeconds: 60,
     });
     const partitionedEmbedRequest = fakeEvent("/inbox", {
@@ -1436,6 +2726,7 @@ describe("requestMatchesEmbedTarget", () => {
     try {
       const token = signEmbedSessionToken({
         ownerEmail: "owner@example.com",
+        audienceHost: "http://mail.test",
         targetPath: "/inbox",
         ttlSeconds: 60,
       });
@@ -1500,6 +2791,7 @@ describe("requestMatchesEmbedTarget", () => {
             {
               owner_email: "owner@example.com",
               target_path: "/inbox",
+              ...ticketAudienceFixture(),
               created_at: createdAt,
               expires_at: Date.now() + 60_000,
               consumed_at: null,
@@ -1534,6 +2826,7 @@ describe("requestMatchesEmbedTarget", () => {
               ticket_hash: ticketHash,
               owner_email: "owner@example.com",
               target_path: "/page/doc_123",
+              ...ticketAudienceFixture(),
               scope,
               created_at: createdAt,
               expires_at: expiresAt,
@@ -1574,6 +2867,7 @@ describe("requestMatchesEmbedTarget", () => {
             {
               owner_email: "owner@example.com",
               target_path: "/inbox",
+              ...ticketAudienceFixture(),
               created_at: createdAt,
               expires_at: Date.now() + 60_000,
               consumed_at: null,
@@ -1605,7 +2899,7 @@ describe("requestMatchesEmbedTarget", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       targetPath: "/inbox",
-      audienceHost: betaHost,
+      audienceHost: `http://${betaHost}`,
       ttlSeconds: 60,
     });
     const betaRequest = fakeEvent("/inbox", {
@@ -1672,7 +2966,7 @@ describe("requestMatchesEmbedTarget", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "bootstrap@example.invalid",
       targetPath: "/visual-edit",
-      audienceHost: host,
+      audienceHost: `https://${host}`,
       scope: `capability:visual-edit-bootstrap:${"a".repeat(32)}`,
       ttlSeconds: 300,
     });
@@ -1711,11 +3005,11 @@ describe("requestMatchesEmbedTarget", () => {
     expect(requestHasEmbedAuthMarker(siblingRequest)).toBe(false);
   });
 
-  it("binds custom-host embed sessions to their audience while preserving legacy tokens", async () => {
+  it("binds custom-host embed sessions to their origin and rejects unbound legacy tokens", async () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       targetPath: "/inbox",
-      audienceHost: "app-a.example.com",
+      audienceHost: "http://app-a.example.com",
       ttlSeconds: 60,
     });
 
@@ -1748,7 +3042,7 @@ describe("requestMatchesEmbedTarget", () => {
           cookie: `${EMBED_SESSION_COOKIE}=${legacyToken}`,
         }),
       ),
-    ).resolves.toMatchObject({ email: "legacy@example.com" });
+    ).resolves.toBeNull();
   });
 
   it("keeps first-party embed session cookies host-only", () => {
@@ -1760,17 +3054,50 @@ describe("requestMatchesEmbedTarget", () => {
       "x-forwarded-proto": "https",
     });
 
-    setEmbedSessionCookie(event, "embed-token");
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/",
+    });
+    setEmbedSessionCookie(event, token);
 
     const cookie = event.res.headers.get("set-cookie") ?? "";
-    expect(cookie).toContain(`${EMBED_SESSION_COOKIE}=embed-token`);
+    expect(cookie).toContain(`${EMBED_SESSION_COOKIE}=${token}`);
     expect(cookie).not.toMatch(/Domain=\.agent-native\.com/i);
+  });
+
+  it("caps cookie Max-Age at the signed token's remaining lifetime", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-22T12:00:00.000Z"));
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        targetPath: "/inbox",
+        ttlSeconds: 60,
+      });
+      vi.advanceTimersByTime(20_250);
+      const event = fakeEvent("/inbox");
+      setEmbedSessionCookie(event, token);
+      expect(event.res.headers.get("set-cookie")).toMatch(/Max-Age=39(?:;|$)/i);
+      vi.advanceTimersByTime(39_750);
+      expect(verifyEmbedSessionToken(token)).toMatchObject({
+        ok: false,
+        reason: "expired",
+      });
+      const expired = fakeEvent("/inbox");
+      setEmbedSessionCookie(expired, token);
+      expect(expired.res.headers.get("set-cookie")).toMatch(
+        /Max-Age=0(?:;|$)/i,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("allows Vite module runtime requests with the embed query token", async () => {
     process.env.OAUTH_STATE_SECRET = "embed-test-secret";
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
+      audienceHost: "http://mail.test",
       orgId: "org_123",
       targetPath: "/picker?mediaType=image",
       ttlSeconds: 60,
@@ -1791,7 +3118,7 @@ describe("requestMatchesEmbedTarget", () => {
     process.env.OAUTH_STATE_SECRET = "embed-test-secret";
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
-      audienceHost: "mail.test",
+      audienceHost: "http://mail.test",
       targetPath: "/inbox",
       ttlSeconds: 60,
     });
@@ -1806,46 +3133,25 @@ describe("requestMatchesEmbedTarget", () => {
     expect(event.responseHeaders.get("referrer-policy")).toBe("no-referrer");
   });
 
-  it("binds capability sessions to their visual-edit target on data requests", async () => {
-    process.env.OAUTH_STATE_SECRET = "embed-test-secret";
+  it("allows visual-edit actions independently of target hints while retaining document scope", async () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
+      audienceHost: "http://mail.test",
       targetPath: "/visual-edit/design-1?editorView=overview",
       scope: "capability:visual-edit:design:design-1",
       ttlSeconds: 60,
     });
-    const matchingTarget = encodeURIComponent(
-      "/visual-edit/design-1?editorView=overview&embedded=1",
-    );
-
-    await expect(
-      resolveEmbedSessionFromRequest(
-        fakeEvent(
-          `/_agent-native/actions/get-design?__an_embed_token=${token}&${EMBED_TARGET_QUERY_PARAM}=${matchingTarget}`,
-          { host: "mail.test" },
-        ),
-      ),
-    ).resolves.toMatchObject({
-      scope: "capability:visual-edit:design:design-1",
-      targetPath: "/visual-edit/design-1?editorView=overview",
-    });
-
-    await expect(
-      resolveEmbedSessionFromRequest(
-        fakeEvent(
-          `/_agent-native/actions/get-design?__an_embed_token=${token}&${EMBED_TARGET_QUERY_PARAM}=${encodeURIComponent("/design/design-1")}`,
-          { host: "mail.test" },
-        ),
-      ),
-    ).resolves.toBeNull();
-    await expect(
-      resolveEmbedSessionFromRequest(
-        fakeEvent("/_agent-native/actions/get-design", {
-          host: "mail.test",
-          cookie: `${EMBED_SESSION_COOKIE}=${token}`,
-        }),
-      ),
-    ).resolves.toBeNull();
+    for (const hint of ["/visual-edit/design-1", "/design/design-2"]) {
+      const event = fakeEvent(
+        `/_agent-native/actions/get-design?__an_embed_token=${token}&${EMBED_TARGET_QUERY_PARAM}=${encodeURIComponent(hint)}`,
+        { host: "mail.test", origin: "null" },
+      );
+      await expect(
+        resolveEmbedSessionFromRequest(event),
+      ).resolves.toMatchObject({
+        scope: "capability:visual-edit:design:design-1",
+      });
+    }
     await expect(
       resolveEmbedSessionFromRequest(
         fakeEvent("/design/design-1", {
@@ -1860,6 +3166,7 @@ describe("requestMatchesEmbedTarget", () => {
     process.env.OAUTH_STATE_SECRET = "embed-test-secret";
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
+      audienceHost: "http://mail.test",
       targetPath: "/visual-edit/design-1",
       scope: "capability:visual-edit:design:design-1",
       ttlSeconds: 60,
@@ -1877,7 +3184,7 @@ describe("requestMatchesEmbedTarget", () => {
     });
     expect(
       requestHasEmbedAuthMarker(
-        fakeEvent("/_agent-native/actions/get-design", {
+        fakeEvent("/_agent-native/application-state", {
           host: "mail.test",
           cookie: `${EMBED_SESSION_COOKIE}=${token}`,
         }),
@@ -1899,7 +3206,7 @@ describe("directory widget write session renewal", () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    process.env = ORIGINAL_ENV;
+    process.env = { ...ORIGINAL_ENV };
   });
 
   function sessionRow(overrides: Record<string, unknown> = {}) {
@@ -1908,6 +3215,7 @@ describe("directory widget write session renewal", () => {
       owner_email: "owner@example.com",
       org_id: "org_123",
       target_path: "/page/doc_123",
+      ...ticketAudienceFixture(),
       scope: contentWidgetWriteScope({ orgId: "org_123" }),
       created_at: createdAtMs,
       consumed_at: createdAtMs + 1,
@@ -2031,7 +3339,7 @@ describe("directory widget write session renewal", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       orgId: "org_123",
-      audienceHost: "content.example.test",
+      audienceHost: "https://content.example.test",
       targetPath: "/page/doc_123",
       scope,
       ticketCreatedAtMs: createdAtMs,
@@ -2052,7 +3360,7 @@ describe("directory widget write session renewal", () => {
     vi.advanceTimersByTime(2_000);
 
     await expect(
-      resolveEmbedSessionTokenForHost(token, "content.example.test"),
+      resolveEmbedSessionTokenForOrigin(token, "https://content.example.test"),
     ).resolves.toMatchObject({ ownerEmail: "owner@example.com", scope });
 
     dbExec.execute.mockImplementation(async ({ sql }: any) =>
@@ -2065,7 +3373,7 @@ describe("directory widget write session renewal", () => {
         : { rows: [], rowsAffected: 1 },
     );
     await expect(
-      resolveEmbedSessionTokenForHost(token, "content.example.test"),
+      resolveEmbedSessionTokenForOrigin(token, "https://content.example.test"),
     ).resolves.toBeNull();
   });
 
@@ -2074,7 +3382,7 @@ describe("directory widget write session renewal", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "attacker@example.com",
       orgId: "org_123",
-      audienceHost: "content.example.test",
+      audienceHost: "https://content.example.test",
       targetPath: "/page/doc_123",
       scope: contentWidgetWriteScope({
         userEmail: "attacker@example.com",
@@ -2099,7 +3407,7 @@ describe("directory widget write session renewal", () => {
     );
 
     await expect(
-      resolveEmbedSessionTokenForHost(token, "content.example.test"),
+      resolveEmbedSessionTokenForOrigin(token, "https://content.example.test"),
     ).resolves.toBeNull();
   });
 });
@@ -2132,6 +3440,8 @@ describe("directory widget recovery after a chat reload", () => {
             owner_email: owner,
             org_id: org,
             target_path: target,
+            audience_host: args[10],
+            audience_base_path: args[11],
             scope,
             created_at: created,
             expires_at: expires,
@@ -2172,7 +3482,7 @@ describe("directory widget recovery after a chat reload", () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    process.env = ORIGINAL_ENV;
+    process.env = { ...ORIGINAL_ENV };
   });
 
   /** The result ticket the tool call minted, as the widget persists it. */
@@ -2330,7 +3640,7 @@ describe("directory widget session token size", () => {
   });
 
   afterEach(() => {
-    process.env = ORIGINAL_ENV;
+    process.env = { ...ORIGINAL_ENV };
   });
 
   function slidesWidgetToken({
@@ -2342,11 +3652,10 @@ describe("directory widget session token size", () => {
     email: string;
     orgId?: string;
   }) {
-    const target = slidesProfile.widgetTargets["create-deck"](
-      {},
-      { id: deckId },
-    );
-    if (!target) throw new Error("Slides create-deck target is missing.");
+    const target = {
+      resourceIds: { deckId, resourceType: "deck" },
+      writeActions: Object.keys(slidesProfile.widgetWriteActionArguments),
+    };
     const materialize = (
       argumentMaps: Record<string, Record<string, unknown>>,
       only?: readonly string[],
@@ -2386,7 +3695,7 @@ describe("directory widget session token size", () => {
         ownerEmail: email,
         orgId,
         targetPath: `/deck/${encodeURIComponent(deckId)}?__an_mcp_chat_bridge=1`,
-        audienceHost: "slides.agent-native.com",
+        audienceHost: "https://slides.agent-native.com",
         scope,
         ticketCreatedAtMs: Date.now(),
         sessionId: "a".repeat(64),
@@ -2395,7 +3704,7 @@ describe("directory widget session token size", () => {
     };
   }
 
-  it("fits the full Slides grant in one cookie for a realistic deck, user and org", () => {
+  it("fits a representative deck grant in one cookie for a realistic user and org", () => {
     const { scope, token } = slidesWidgetToken({
       deckId: "deck-V1StGXR8_Z5jdHi6B-myT-cd1",
       email: "taylor.reviewer@example-company.com",

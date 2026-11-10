@@ -1,0 +1,104 @@
+slug: ai-kpi-dashboard
+app: analytics
+roles:
+  - founders
+  - finance
+title: スタートアップのKPIダッシュボードを作成
+seo_title: スタートアップ創業者向けのAI KPIダッシュボード
+meta_description: 追っている指標を説明すれば、Agent-Native AnalyticsがStripe、HubSpot、製品データからスタートアップのKPIダッシュボードを作り、数値が動いた理由も伝えます。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Analyticsは、Stripe、HubSpot、製品データからMRR、解約率、登録数を1つのダッシュボードにまとめます。追っている指標を説明すればエージェントが作成し、数値が動いた理由も答えます。
+  button:
+    label: ダッシュボードを作る
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb23d4e197c9841e7b0eeaefc15090443
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F260764ee953f4b4f80f6a6cf631b2143
+    alt: AnalyticsのスタートアップのKPIダッシュボード。MRR、解約率、新規登録数、アクティベーションのカードの下に、月次のMRRと登録数のグラフがあります。エージェントのサイドバーでは、今四半期のMRR成長をけん引したプランはどれかに、プラン別の表で答えています。
+how_to:
+  heading: AIでKPIダッシュボードを作る方法
+  steps:
+    - title: 売上と製品のデータを連携する
+      body: "**データソース**ページでStripeのシークレットキーを貼り付け、HubSpotと使っている製品分析ツールを追加します。データソースのメニューから**接続をテスト**を選べば、Analyticsがデータを読み取れるか確認できます。"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6ea7e1568d3b4afd9fc6a2a01bc969b0
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F78b97b8d077644f28c627377157f1331
+        alt: データソースページのStripeの拡大図。「接続済み」と表示され、シークレットキーが設定済みで、接続テスト後に「接続成功」と表示されています。
+    - title: 欲しいダッシュボードを説明する
+      body: "**新しいダッシュボード**をクリックし、「StripeのMRRと解約率、PostHogの新規登録数とアクティベーションを月ごとに」のように、[追っているSaaS指標](https://www.agent-native.com/articles/what-should-a-saas-metrics-dashboard-include/)を説明します。エージェントは必要なら先に質問し、各パネルを作ってダッシュボードを開きます。"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fca8b7f3746ca419383e042cc0c142271
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb167e98f0ac049fa8ad4b169e8f77ec9
+        alt: サイドバーのダッシュボード一覧から開いた「新しいダッシュボード」ボックスの拡大図。スタートアップのKPIダッシュボードの説明が入力されています。
+    - title: 数値が動いた理由を質問する
+      body: グラフのメニューから**パネルについてチャット**を選び、「9月に解約率が上がったのはなぜ？」のように質問します。エージェントは連携したデータから答え、頼めばダッシュボードにパネルを追加します。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9b18fbf5a7cd4b4ba65d9efede75538b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9edee9cd613741e2ba670e414be767c7
+        alt: 月別解約率のパネルと、その横のエージェントチャット。9月に解約率が上がった理由を聞かれたエージェントが、上昇をプラン別に分解しています。Starterプランの解約率はほぼ2倍になっていました。
+features:
+  heading: スタートアップのKPIを追うために必要な機能がすべて揃っています
+  items:
+    - title: 売上、パイプライン、利用状況をまとめて
+      body: StripeのMRR、HubSpotの取引、PostHogやMixpanelの登録数が、1つのダッシュボードに並びます。
+    - title: 手でも、頼んでも編集
+      body: フィルターは自分で変え、新しいパネルはエージェントに頼めます。どちらも同じダッシュボードに反映され、履歴から戻せます。
+    - title: 各数値の裏にあるクエリ
+      body: グラフ上の任意の点をクリックすると、その元になったレコード、それを取得したSQL、CSVダウンロードが表示されます。
+    - title: 自社のMRRの定義
+      body: 自社でMRRやアクティブユーザーをどう数えるかを**セマンティックレイヤー**ページに書いておけます。エージェントはクエリを書く前にそれを確認します。
+    - title: 共有するまで非公開
+      body: 新しいダッシュボードは自分だけのものです。準備ができたら、共同創業者や会社全体に閲覧用または編集用として共有できます。
+    - title: KPIをメールで受け取る
+      body: ダッシュボードを毎朝、指定した時刻にメールで最大5人まで届けられるので、数値のほうからやって来ます。
+integrations:
+  heading: いつものツールとAnalyticsを連携
+  cards:
+    - title: 売上とパイプライン
+      logos:
+        - name: Stripe
+        - name: HubSpot
+      body: AnalyticsはStripeからサブスクリプションと支払いを、HubSpotから取引を読み取るので、売上の数値は元データから直接得られます。
+    - title: 製品の利用状況
+      logos:
+        - name: PostHog
+        - name: Mixpanel
+        - name: Amplitude
+        - name: Google Analytics
+        - name: BigQuery
+      body: 登録数、アクティブユーザー、アクティベーションは、すでに使っている製品分析ツールやデータウェアハウスから取得します。
+    - title: MCPであらゆるツールと連携
+      logos:
+        - name: Notion
+        - name: Intercom
+        - name: Linear
+      more: true
+      body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
+other_uses:
+  heading: Agent-Native Analyticsでできるその他のこと
+  cards:
+    - title: 普段の言葉でデータに質問
+      url: https://www.agent-native.com/use-cases/ask-your-database/
+      body: BigQueryのデータについて質問すれば、SQLを書かずに答えが得られます。
+    - title: 新規ユーザーの離脱ポイントを見つける
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: 登録やオンボーディングのステップのどこで新規ユーザーが離脱しているかを確認できます。
+    - title: 表計算なしで週次マーケティングレポートを作成
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: 週次マーケティングレポートを一度作れば、毎週手作業で作り直す必要はありません。
+faqs:
+  heading: よくある質問
+  items:
+    - q: Agent-Native Analyticsは無料ですか？
+      a: はい、Agent-Native Analyticsは無料のオープンソースです。エージェントはBuilder.io AIクレジットかご自身のモデルキーで動き、各データソースにはStripeのシークレットキーなど、それぞれの認証情報が必要です。Analyticsはアルファ版のため、画面や機能が今後変わる可能性があります。
+    - q: AnalyticsはどのツールからKPIを取得できますか？
+      a: AnalyticsはStripe、HubSpot、PostHog、Mixpanel、Amplitude、Google Analytics（GA4）、BigQueryのほか、十数種類以上のデータソースに接続します。それぞれ専用のキーで[データソースページ](https://www.agent-native.com/docs/template-analytics-connectors/)から追加でき、1つのダッシュボードで複数のデータソースを組み合わせられます。
+    - q: KPIダッシュボードを作るのにSQLの知識は必要ですか？
+      a: いいえ。ダッシュボードを説明したり、普段の言葉で質問したりすれば、エージェントがSQLを書きます。クエリはどのグラフの裏でも見られるので、データに詳しい人が確認や編集をできます。
+    - q: 数値が正しいかどうかはどうすればわかりますか？
+      a: ダッシュボードのすべての数値は、エージェントが連携データに対して実行したクエリから得られたもので、どのグラフでもクエリと元のレコードを開けます。クエリを実行できなかった場合、エージェントはその数値に「Unverified」と印を付けます。ダッシュボードに頼る前に、いくつかの数値をStripeと照らし合わせましょう。
+    - q: KPIダッシュボードは誰が見られますか？
+      a: 共有するまでは自分だけです。[ダッシュボードを共有](https://www.agent-native.com/docs/sharing/)すれば、チームメンバーや組織全体が閲覧者、編集者、管理者として見られます。変更したフィルターは自分にだけ適用されます。共有したい場合は、ビューを保存するかリンクを送りましょう。
+    - q: 分析ツールに付属するAIと何が違いますか？
+      a: 1つの分析ツールに組み込まれたAIアシスタントは、そのツールのデータを扱います。AnalyticsはStripe、CRM、製品データを横断し、あなたが見ているダッシュボードそのものをエージェントが作成・編集するので、回答はそのまま残るパネルになります。これがAnalyticsを[エージェント型アプリ](https://www.agent-native.com/articles/what-is-an-agent-native-app/)にしている点です。エージェントの頭脳と、アプリの直感的な使いやすさを兼ね備えています。

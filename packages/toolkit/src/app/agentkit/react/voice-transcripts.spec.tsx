@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   realtimeVoiceTranscriptRegistry,
   type RealtimeVoiceTranscriptMessage,
+  type RealtimeVoiceWorkUpdate,
 } from "../../../composer/realtime-voice-transcript.js";
 import { ComposerRuntimeAdaptersProvider } from "../../../composer/runtime-adapters.js";
 import { AgentKitChat } from "./components.js";
@@ -25,8 +26,16 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function mountChat(threadId: string) {
+async function mountChat(
+  threadId: string,
+  stored: Partial<AgentThreadSnapshot> = {},
+  { loadBeforeMount = true } = {},
+) {
   const saved: AgentThreadSnapshot[] = [];
+  let releaseSnapshot = () => {};
+  const snapshotReleased = loadBeforeMount
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => (releaseSnapshot = resolve));
   const transport: AgentTransport = {
     async startRun() {
       return { runId: "unused" };
@@ -34,7 +43,14 @@ async function mountChat(threadId: string) {
     async *subscribeToRun() {},
     async cancelRun() {},
     async getThreadSnapshot() {
-      return { id: threadId, createdAt: AT, updatedAt: AT, messages: [] };
+      await snapshotReleased;
+      return {
+        id: threadId,
+        createdAt: AT,
+        updatedAt: AT,
+        messages: [],
+        ...stored,
+      };
     },
     async persistThreadSnapshot({ snapshot }) {
       saved.push(snapshot);
@@ -45,7 +61,8 @@ async function mountChat(threadId: string) {
     aiSetupReadiness: "not-applicable",
     reconnect: { attempts: 0, delayMs: 0 },
   });
-  await client.loadThread(threadId);
+  const loaded = client.loadThread(threadId);
+  if (loadBeforeMount) await loaded;
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -65,7 +82,14 @@ async function mountChat(threadId: string) {
     await client.shutdown();
     container.remove();
   });
-  return { container, client, saved };
+  const finishLoading = async () => {
+    await act(async () => {
+      releaseSnapshot();
+      await loaded;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  };
+  return { container, client, saved, finishLoading };
 }
 
 async function publish(
@@ -192,5 +216,216 @@ describe("voice chat transcripts in AgentKitChat", () => {
     });
 
     expect(messages(container)).toEqual([]);
+  });
+
+  it("waits for running work to finish before saving a final turn", async () => {
+    const threadId = "thread-voice-open-work";
+    const { saved } = await mountChat(threadId);
+    const call = {
+      id: "call-edit",
+      name: "edit-design",
+      startedAt: "2026-10-24T00:00:02.000Z",
+    };
+    const publishWork = async (update: RealtimeVoiceWorkUpdate) => {
+      await act(async () => {
+        realtimeVoiceTranscriptRegistry.publishWork(update);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+
+    await publishWork({
+      id: "call-edit",
+      threadId,
+      calls: [{ ...call, status: "running" }],
+    });
+    await publish(threadId, {
+      id: `${threadId}:user-2`,
+      role: "user",
+      text: "Make it blue too.",
+      createdAt: "2026-10-24T00:00:03.000Z",
+    });
+    expect(saved).toEqual([]);
+
+    await publishWork({
+      id: "call-edit",
+      threadId,
+      calls: [
+        {
+          ...call,
+          status: "completed",
+          output: "{}",
+          completedAt: "2026-10-24T00:00:04.000Z",
+        },
+      ],
+      completedAt: "2026-10-24T00:00:04.000Z",
+    });
+    expect(saved.at(-1)?.runs).toEqual([
+      expect.objectContaining({ id: "voice:call-edit", status: "completed" }),
+    ]);
+    expect(saved.at(-1)?.messages.map((message) => message.id)).toContain(
+      `${threadId}:user-2`,
+    );
+  });
+
+  it.each([
+    ["before", true],
+    ["after", false],
+  ])(
+    "closes voice work a reload left running when the thread loads %s the chat mounts",
+    async (_when, loadBeforeMount) => {
+      const threadId = `thread-voice-orphan-${String(loadBeforeMount)}`;
+      const runId = "voice:call-edit";
+      const started = "2026-10-24T00:00:02.000Z";
+      const { client, saved, finishLoading } = await mountChat(
+        threadId,
+        {
+          events: [
+            {
+              id: `${runId}:call-edit:tool-started`,
+              threadId,
+              runId,
+              sequence: 1,
+              occurredAt: started,
+              type: "tool.started",
+              toolCall: {
+                id: "call-edit",
+                name: "edit-design",
+                status: "running",
+                runId,
+              },
+            },
+          ],
+          runs: [{ id: runId, threadId, status: "running", lastSequence: 1 }],
+        },
+        { loadBeforeMount },
+      );
+      await finishLoading();
+
+      expect(
+        client
+          .getThread(threadId)
+          .events.filter((event) => event.runId === runId)
+          .map((event) =>
+            event.type === "tool.updated"
+              ? `${event.type}:${event.toolCall.status}`
+              : event.type,
+          ),
+      ).toEqual([
+        "tool.started",
+        "activity.started",
+        "tool.updated:cancelled",
+        "activity.completed",
+        "run.completed",
+      ]);
+
+      await publish(threadId, {
+        id: `${threadId}:user-1`,
+        role: "user",
+        text: "Try again.",
+      });
+      expect(saved.at(-1)?.messages.map((message) => message.id)).toEqual([
+        `${threadId}:user-1`,
+      ]);
+    },
+  );
+
+  it("shows a reply's tool calls as one work item between the turns and saves it", async () => {
+    const threadId = "thread-voice-work";
+    const { container, client, saved } = await mountChat(threadId);
+    const search = {
+      id: "call-search",
+      name: "web-search",
+      input: { query: "cats" },
+      startedAt: "2026-10-24T00:00:02.000Z",
+    };
+    const read = {
+      id: "call-read",
+      name: "web-request",
+      input: { url: "https://example.com/cats" },
+      startedAt: "2026-10-24T00:00:03.000Z",
+    };
+    const publishWork = async (update: RealtimeVoiceWorkUpdate) => {
+      await act(async () => {
+        realtimeVoiceTranscriptRegistry.publishWork(update);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+    const reply = { id: "call-search", threadId };
+
+    await publish(threadId, {
+      id: `${threadId}:user-1`,
+      role: "user",
+      text: "Search the web for cats.",
+    });
+    await publish(threadId, {
+      id: `${threadId}:assistant-1`,
+      role: "assistant",
+      text: "On it, searching now.",
+      createdAt: "2026-10-24T00:00:01.000Z",
+    });
+    await publishWork({ ...reply, calls: [{ ...search, status: "running" }] });
+
+    const running = container.textContent ?? "";
+    expect(running.indexOf("Searched 1 query")).toBeGreaterThan(
+      running.indexOf("On it, searching now."),
+    );
+    // The local run never holds the composer the way a server run does.
+    expect(client.getThread(threadId).activeRunIds).toEqual([]);
+    // It still shows what it is doing now.
+    const liveStep = () =>
+      container.querySelector('[data-agentkit-current-activity="true"]')
+        ?.textContent;
+    expect(liveStep()).toBeTruthy();
+
+    const finishedSearch = {
+      ...search,
+      status: "completed" as const,
+      output: "{}",
+      completedAt: "2026-10-24T00:00:02.500Z",
+    };
+    await publishWork({
+      ...reply,
+      calls: [finishedSearch, { ...read, status: "running" }],
+    });
+    await publishWork({
+      ...reply,
+      calls: [
+        finishedSearch,
+        {
+          ...read,
+          status: "completed",
+          output: "<html>",
+          completedAt: "2026-10-24T00:00:04.000Z",
+        },
+      ],
+      completedAt: "2026-10-24T00:00:04.000Z",
+    });
+    await publish(threadId, {
+      id: `${threadId}:assistant-2`,
+      role: "assistant",
+      text: "Cats are great.",
+      createdAt: "2026-10-24T00:00:05.000Z",
+    });
+
+    const done = container.textContent ?? "";
+    expect(liveStep()).toBeUndefined();
+    expect(done.match(/Worked/g)).toHaveLength(1);
+    const row = done.indexOf("Worked");
+    expect(row).toBeGreaterThan(done.indexOf("On it, searching now."));
+    expect(row).toBeLessThan(done.indexOf("Cats are great."));
+    expect(saved.at(-1)?.events?.map((event) => event.type)).toEqual([
+      "tool.started",
+      "activity.started",
+      "tool.updated",
+      "activity.completed",
+      "tool.started",
+      "activity.started",
+      "tool.updated",
+      "activity.completed",
+      "run.completed",
+    ]);
+    expect(saved.at(-1)?.runs).toEqual([
+      expect.objectContaining({ id: "voice:call-search", status: "completed" }),
+    ]);
   });
 });

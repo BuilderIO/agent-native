@@ -46,6 +46,13 @@ import type { DraftSuggestion } from "./suggestions/draft-session";
 
 const { replyMutate } = vi.hoisted(() => ({ replyMutate: vi.fn() }));
 
+/** The suggestion reply sent last, or a failed test saying there is none. */
+function lastReply() {
+  const call = replyMutate.mock.lastCall;
+  if (!call) throw new Error("No reply sent");
+  return { request: call[0], handlers: call[1] };
+}
+
 it("isolates comment AI model selection by organization and user", () => {
   expect(
     commentAiModelStorageKey(" Reviewer@Example.test ", "workspace-a"),
@@ -92,6 +99,40 @@ it("remembers status across pages and remounts without sharing accounts or persi
     await act(async () => root.unmount());
     for (const user of [first, second])
       localStorage.removeItem(`content-review-status:${JSON.stringify(user)}`);
+  }
+});
+
+it("leaves the page alone when a click closes a reply that isn't open", async () => {
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  let controller!: ReturnType<typeof useCommentReplyDrafts>;
+  // Stands for the page under the editor, which redraws with its owner.
+  let renders = 0;
+  function Page() {
+    renders += 1;
+    return null;
+  }
+  function Harness() {
+    controller = useCommentReplyDrafts("open-reply");
+    return <Page />;
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    const settled = renders;
+    await act(async () => controller.setOpenReply(null));
+    expect(renders).toBe(settled);
+
+    await act(async () => controller.setOpenReply("thread-1"));
+    expect(controller.openReply?.threadId).toBe("thread-1");
+    const opened = renders;
+    await act(async () => controller.setOpenReply("thread-1"));
+    expect(renders).toBe(opened);
+
+    await act(async () => controller.setOpenReply(null));
+    expect(controller.openReply?.threadId ?? null).toBeNull();
+    expect(renders).toBe(opened + 1);
+  } finally {
+    await act(async () => root.unmount());
   }
 });
 
@@ -266,9 +307,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     })[key] ?? key,
 }));
 vi.mock("@agent-native/toolkit/app/review", () => ({
-  InlineMarkdown: ({ content }: { content: string }) => (
-    <>{content.trimEnd()}</>
-  ),
+  CommentBody: ({ body }: { body: string }) => <>{body.trimEnd()}</>,
 }));
 vi.mock("@agent-native/core/client/review", () => ({
   useReviewComments: ({ targetId }: { targetId: string }) => ({
@@ -1370,6 +1409,101 @@ it("highlights only changed text beside unchanged markdown formatting", async ()
   }
 });
 
+it("marks whole words, not scattered letters, when a suggestion rewrites words", async () => {
+  const replacement = (ordinal: number, before: string, after: string) => ({
+    ordinal,
+    kind: "replace_text" as const,
+    before: { markdown: before, changedText: before },
+    after: { markdown: after, changedText: after },
+    anchor: { from: 0, to: before.length, prefix: "", suffix: "" },
+    schemaVersion: 1,
+  });
+  const card = async (
+    id: string,
+    operations: ReturnType<typeof replacement>[],
+    check: (card: Element) => void,
+  ) => {
+    const saved = suggestionFixture({
+      id,
+      revision: 1,
+      threadId: `thread-${id}`,
+      authorEmail: "reviewer@example.test",
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations,
+    });
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    function Harness() {
+      const replyDrafts = useCommentReplyDrafts(`document-${id}`);
+      return (
+        <CommentsSidebar
+          replyDrafts={replyDrafts}
+          documentId={`document-${id}`}
+          suggestions={[saved]}
+          canComment
+          forceVisible
+        />
+      );
+    }
+    try {
+      await act(async () => root.render(<Harness />));
+      const shown = container.querySelector(`[data-suggestion-id="${id}"]`);
+      if (!shown) throw new Error(`No card for ${id}`);
+      check(shown);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  };
+  const marked = (card: Element) =>
+    [...card.querySelectorAll("span")]
+      .filter((span) =>
+        span.className.includes("decoration-[hsl(var(--suggestion))]"),
+      )
+      .map((span) => span.textContent.trim());
+
+  // By letters, this marks "m", "de n", "e" and "d" of the new sentence.
+  await card(
+    "rewritten-sentence",
+    [
+      replacement(
+        0,
+        "Clips keeps the recording you already made",
+        "No special recording mode needed",
+      ),
+    ],
+    (rewritten) => {
+      expect(rewritten.textContent).toContain(
+        "with: “No special recording mode needed”",
+      );
+      expect(marked(rewritten)).toEqual([]);
+    },
+  );
+  await card(
+    "swapped-word",
+    [replacement(0, "The quick brown fox jumps", "The quick red fox jumps")],
+    (swapped) => {
+      expect(swapped.textContent).toContain("with: “The quick red fox jumps”");
+      expect(marked(swapped)).toEqual(["red"]);
+    },
+  );
+  // An agent's find and replace narrows to the word; by letters, it marks "ed".
+  await card("narrowed-word", [replacement(0, "brown", "red")], (narrowed) => {
+    expect(narrowed.textContent).toContain("with: “red”");
+    expect(marked(narrowed)).toEqual([]);
+  });
+  await card(
+    "formatted-rewrite",
+    [replacement(0, "**Clips** keeps the take", "**Clips** makes no demands")],
+    (formatted) => {
+      expect(formatted.querySelector("strong")?.textContent).toBe("Clips");
+      expect(formatted.textContent).toContain("with: “Clips makes no demands”");
+      expect(marked(formatted)).toEqual([]);
+    },
+  );
+});
+
 it("shows an explicit unavailable label for invalid provided suggestion context", async () => {
   const saved = suggestionFixture({
     id: "invalid-presentation",
@@ -1891,6 +2025,95 @@ it("keeps decided suggestion history readable and replies only to pending thread
     expect(replyMutate.mock.calls[1][0].clientOperationId).toBe(
       firstOperationId,
     );
+    const refused = Object.assign(new Error("Too many requests"), {
+      status: 429,
+    });
+    await act(async () => {
+      lastReply().handlers.onError(refused);
+      lastReply().handlers.onSettled();
+    });
+    await act(async () => submit?.click());
+    expect(replyMutate).toHaveBeenCalledTimes(3);
+    expect(lastReply().request.clientOperationId).toBe(firstOperationId);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it("keeps a suggestion reply's key when its card remounts", async () => {
+  replyMutate.mockClear();
+  const suggestions = [
+    suggestionFixture({
+      id: "pending-suggestion",
+      revision: 1,
+      threadId: "thread-pending-suggestion",
+      authorEmail: "reviewer@example.test",
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations: [
+        {
+          ordinal: 0,
+          kind: "replace_text",
+          before: { changedText: "original" },
+          after: { changedText: "proposal" },
+          schemaVersion: 1,
+        },
+      ],
+    }),
+  ];
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  let drafts!: ReturnType<typeof useCommentReplyDrafts>;
+  function Harness({ mount }: { mount: number }) {
+    drafts = useCommentReplyDrafts("document-reply-remount");
+    return (
+      <CommentsSidebar
+        key={mount}
+        replyDrafts={drafts}
+        documentId="document-reply-remount"
+        suggestions={suggestions}
+        presentation="history"
+        canComment
+        forceVisible
+      />
+    );
+  }
+  const button = (matches: (button: HTMLButtonElement) => boolean) =>
+    [...container.querySelectorAll("button")].find(matches);
+  const reply = () =>
+    act(async () => {
+      button((b) => b.textContent === "comments.reply")?.click();
+    });
+  const send = () =>
+    act(async () => {
+      button(
+        (b) => b.getAttribute("aria-label") === "comments.submit",
+      )?.click();
+    });
+  try {
+    await act(async () => root.render(<Harness mount={0} />));
+    await reply();
+    await act(async () => {
+      drafts.setText("thread-pending-suggestion", "Pending reply");
+    });
+    await send();
+    const key = lastReply().request.clientOperationId;
+    await act(async () => {
+      lastReply().handlers.onError(
+        Object.assign(new Error("Request timed out"), { timedOut: true }),
+      );
+      lastReply().handlers.onSettled();
+    });
+
+    await act(async () => root.render(<Harness mount={1} />));
+    if (!button((b) => b.getAttribute("aria-label") === "comments.submit"))
+      await reply();
+    await send();
+    expect(replyMutate).toHaveBeenCalledTimes(2);
+    expect(lastReply().request.clientOperationId).toBe(key);
   } finally {
     await act(async () => root.unmount());
     container.remove();

@@ -45,6 +45,7 @@ import type {
   AgentHarnessAdapter,
   AgentHarnessSession,
 } from "./harness/types.js";
+import { lockThreadRunSlot } from "./run-slot-lock.js";
 import {
   beginAgentExecutionStep,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
@@ -60,6 +61,8 @@ import {
   reapIfStale,
   recordLateAgentExecutionStepOutcome,
   renewTaskExecutionLease,
+  lockTaskExecutionLease,
+  tryClaimRunSlot,
   type AgentExecutionStepIntent,
 } from "./run-store.js";
 import {
@@ -69,7 +72,9 @@ import {
 } from "./thread-data-builder.js";
 
 const databaseUrl = process.env.AGENT_RUN_POSTGRES_TEST_URL; // config-ok: isolated integration-test database selector, not app runtime config
-if (process.env.CI && !databaseUrl) {
+const coreIntegrationJob = process.env.GITHUB_JOB === "core-integration-tests"; // config-ok: selects the PostgreSQL-backed test lane, not a credential
+// This PostgreSQL suite belongs to the service-backed Core integration job.
+if (process.env.CI && coreIntegrationJob && !databaseUrl) {
   throw new Error("AGENT_RUN_POSTGRES_TEST_URL is required in CI");
 }
 const repositoryRoot = resolve(
@@ -77,7 +82,7 @@ const repositoryRoot = resolve(
   "../../../../",
 );
 const workerPath = fileURLToPath(
-  new URL("./run-store.fencing.worker.ts", import.meta.url),
+  new URL("./run-store.fencing.worker.test.support.ts", import.meta.url),
 );
 const fireInternalDispatchMock = vi.fn(async () => {});
 
@@ -263,6 +268,25 @@ async function stopBarrierWorker(worker: BarrierWorker): Promise<void> {
     worker.child.kill("SIGKILL");
   }
   await worker.closed;
+}
+
+async function killProcessAndWait(pid: number): Promise<void> {
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+      throw error;
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+  }
+  throw new Error(`Native harness process ${pid} did not exit after SIGKILL.`);
 }
 
 function workerJson<T>(result: WorkerResult): T {
@@ -457,6 +481,90 @@ async function removeHarnessSessionUpdateGate(
 describe.skipIf(!databaseUrl)(
   "execution lease and journal process failures",
   () => {
+    it("acquires the thread slot before the fenced lease during admission", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const holderSql = postgres(databaseUrl!, { max: 1 });
+        const admissionSql = postgres(databaseUrl!, { max: 1 });
+        const threadId = `${prefix}:lock-order-thread`;
+        const turnId = `${prefix}:lock-order-turn`;
+        const runId = `${prefix}:lock-order-current`;
+        const fence = await claimInProcess(sql, threadId, turnId, runId);
+
+        let releaseSlot!: () => void;
+        let notifySlotLocked!: () => void;
+        const slotGate = new Promise<void>((resolve) => {
+          releaseSlot = resolve;
+        });
+        const slotLocked = new Promise<void>((resolve) => {
+          notifySlotLocked = resolve;
+        });
+        let holderAcquiredLease = false;
+        let admissionPid: number | undefined;
+        const holderDb = executor(holderSql);
+        const admissionDb = executor(admissionSql, async (tx) => {
+          const [{ pid }] = await tx`SELECT pg_backend_pid() AS pid`;
+          admissionPid = Number(pid);
+        });
+        if (!holderDb.transaction) {
+          throw new Error(
+            "Expected the PostgreSQL test client to support transactions",
+          );
+        }
+
+        const holder = withDbExec(holderDb, () =>
+          holderDb.transaction!(async (tx) => {
+            await lockThreadRunSlot(tx, threadId);
+            notifySlotLocked();
+            await slotGate;
+            await lockTaskExecutionLease(tx, threadId, turnId);
+            holderAcquiredLease = true;
+          }),
+        );
+        let admission:
+          | Promise<Awaited<ReturnType<typeof tryClaimRunSlot>>>
+          | undefined;
+        try {
+          await slotLocked;
+          admission = withDbExec(admissionDb, () =>
+            withExecutionFence(fence, () =>
+              tryClaimRunSlot(
+                threadId,
+                `${prefix}:lock-order-contender`,
+                undefined,
+                { turnId },
+              ),
+            ),
+          );
+          await expect
+            .poll(async () => {
+              if (admissionPid === undefined) return null;
+              const [activity] = await sql`
+                SELECT wait_event FROM pg_stat_activity WHERE pid = ${admissionPid}
+              `;
+              return activity?.wait_event ?? null;
+            })
+            .toBe("advisory");
+          releaseSlot();
+
+          const [holderResult, admissionResult] = await Promise.allSettled([
+            holder,
+            admission,
+          ]);
+          expect(holderResult.status).toBe("fulfilled");
+          expect(holderAcquiredLease).toBe(true);
+          expect(admissionResult).toMatchObject({
+            status: "fulfilled",
+            value: { claimed: false, activeRunId: runId },
+          });
+        } finally {
+          releaseSlot();
+          await Promise.allSettled([holder, admission]);
+          await holderSql.end();
+          await admissionSql.end();
+        }
+      }, 4);
+    }, 45_000);
+
     it("recovers a killed dispatched follow-up as unknown without replaying its effect", async () => {
       await withTestDatabase(async (sql, prefix) => {
         const sessionId = `${prefix}:harness-follow-up-crash`;
@@ -542,6 +650,132 @@ describe.skipIf(!databaseUrl)(
           ]);
         } finally {
           await stopBarrierWorker(worker);
+        }
+      });
+    }, 45_000);
+
+    it("recovers an approval from the real follow-up driver after killing its worker and native subprocess", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const sessionId = `${prefix}:native-follow-up-session`;
+        const runId = `${prefix}:native-follow-up-run`;
+        const nativeSessionId = `${prefix}:native-session`;
+        const approvalId = `${nativeSessionId}:approval`;
+        const effectId = `${prefix}:native-effect`;
+        await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "subprocess-follow-up-approval-test",
+            threadId: `${prefix}:thread`,
+            runId,
+            status: "idle",
+            resumeState: { sessionId: nativeSessionId },
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+          }),
+        );
+        const worker = startBarrierWorker(
+          "harness-follow-up-native-approval-crash",
+          sessionId,
+          "unused",
+          runId,
+          "unused",
+          JSON.stringify({
+            approvalId,
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+            effectId,
+          }),
+        );
+        let nativePid: number | undefined;
+        try {
+          const ready = await worker.ready;
+          expect(Number(ready.databaseBackendPid)).toBeGreaterThan(0);
+          expect(ready.approvalId).toBe(approvalId);
+          nativePid = Number(ready.nativePid);
+          expect(Number.isSafeInteger(nativePid)).toBe(true);
+          expect(nativePid).toBeGreaterThan(0);
+
+          const dispatched = await withDbExec(executor(sql), () =>
+            getAgentHarnessSession(sessionId),
+          );
+          expect(dispatched).toMatchObject({
+            status: "running",
+            pendingApproval: expect.objectContaining({
+              type: "approval-request",
+              id: approvalId,
+            }),
+          });
+          expect(dispatched?.followUpDispatchedAt).toBeGreaterThan(0);
+          const [effectBeforeCrash] = await sql`
+            SELECT effect_count FROM agent_harness_test_effects
+            WHERE effect_id = ${effectId}
+          `;
+          expect(Number(effectBeforeCrash?.effect_count)).toBe(1);
+
+          worker.child.kill("SIGKILL");
+          expect((await worker.closed).signal).toBe("SIGKILL");
+          await killProcessAndWait(nativePid);
+          nativePid = undefined;
+
+          await sql`
+            UPDATE agent_harness_sessions
+            SET follow_up_claim_expires_at = ${Date.now() - 1}
+            WHERE id = ${sessionId} AND follow_up_claim_id IS NOT NULL
+          `;
+          const recovered = await runWorker(
+            "harness-follow-up-native-approval-recover",
+            sessionId,
+            "unused",
+            runId,
+            "unused",
+            JSON.stringify({
+              approvalId,
+              ownerEmail: "owner@example.com",
+              orgId: prefix,
+              effectId,
+            }),
+          );
+          expect(recovered.exitCode).toBe(0);
+          const result = workerJson<{
+            recovered: number;
+            reconciledOutcome: string | null;
+            ok: boolean;
+            status: string;
+            followUpOutcome: string | null;
+            resolvedApprovalIds: string[];
+            pendingApproval: unknown;
+            nativeApprovalAck?: {
+              id: string;
+              approved: boolean;
+            };
+            nativeExitCode: number | null;
+            effectCount: number;
+            transcript: Array<Record<string, unknown>>;
+          }>(recovered);
+          expect(result).toMatchObject({
+            recovered: expect.any(Number),
+            reconciledOutcome: "unknown",
+            ok: true,
+            status: "idle",
+            followUpOutcome: "unknown",
+            pendingApproval: null,
+            nativeApprovalAck: { id: approvalId, approved: true },
+            nativeExitCode: 0,
+            effectCount: 1,
+          });
+          expect(result.recovered).toBeGreaterThanOrEqual(1);
+          expect(result.resolvedApprovalIds).toContain(approvalId);
+          expect(result.transcript).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                type: "error",
+                errorCode: "harness_follow_up_outcome_unknown",
+              }),
+            ]),
+          );
+        } finally {
+          await stopBarrierWorker(worker);
+          if (nativePid !== undefined) await killProcessAndWait(nativePid);
         }
       });
     }, 45_000);
@@ -700,6 +934,66 @@ describe.skipIf(!databaseUrl)(
         } finally {
           await stopBarrierWorker(worker);
         }
+      });
+    }, 45_000);
+
+    it("rehydrates a pending approval in a replacement process through a native subprocess", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const sessionId = `${prefix}:approval-rehydrate-session`;
+        const runId = `${prefix}:approval-rehydrate-run`;
+        const approvalId = `${prefix}:approval-rehydrate`;
+        const nativeSessionId = `${prefix}:native-session`;
+        const ownerEmail = "owner@example.com";
+        await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "subprocess-approval-test",
+            threadId: `${prefix}:thread`,
+            runId,
+            status: "idle",
+            pendingApproval: {
+              type: "approval-request",
+              id: approvalId,
+              tool: "read_file",
+              message: "Allow this read?",
+            },
+            resumeState: { sessionId: nativeSessionId },
+            ownerEmail,
+            orgId: prefix,
+          }),
+        );
+
+        const worker = await runWorker(
+          "harness-approval-rehydrate-subprocess",
+          sessionId,
+          "unused",
+          runId,
+          "unused",
+          JSON.stringify({ approvalId, ownerEmail, orgId: prefix }),
+        );
+
+        expect(worker.exitCode).toBe(0);
+        const outcome = workerJson<Record<string, unknown>>(worker);
+        expect(outcome, JSON.stringify(outcome)).toMatchObject({
+          ok: true,
+          resolvedApprovalIds: [approvalId],
+          pendingApproval: null,
+          nativeApprovalAck: {
+            type: "approval-ack",
+            sessionId: nativeSessionId,
+            id: approvalId,
+            approved: true,
+          },
+          nativeExitCode: 0,
+        });
+        const persisted = await withDbExec(executor(sql), () =>
+          getAgentHarnessSession(sessionId),
+        );
+        expect(persisted).toMatchObject({
+          status: "idle",
+          resolvedApprovalIds: [approvalId],
+        });
+        expect(persisted?.pendingApproval ?? null).toBeNull();
       });
     }, 45_000);
 
@@ -1110,7 +1404,7 @@ describe.skipIf(!databaseUrl)(
             releaseLiveAgentHarnessSession(sessionId, nativeSession);
           }
         }
-      });
+      }, 4);
     }, 45_000);
 
     it("serializes independent workers and rejects the old generation after takeover", async () => {
@@ -1657,6 +1951,55 @@ describe.skipIf(!databaseUrl)(
             (entry: any) => (entry.message ?? entry).role === "assistant",
           ),
         ).toHaveLength(1);
+
+        const successorId = String(successors[0]!.id);
+        const effectId = `${prefix}:checkpoint-recovery-effect`;
+        const resumedWorker = await runWorkerWithTimeout(
+          60_000,
+          "production-loop-resume",
+          threadId,
+          turnId,
+          successorId,
+          effectId,
+          JSON.stringify({
+            replayPolicy: "never",
+            providerCallId: `${prefix}:checkpoint-recovery-call`,
+          }),
+        );
+        expect(resumedWorker.exitCode).toBe(0);
+        expect(workerJson<{ status: string }>(resumedWorker).status).toBe(
+          "completed",
+        );
+
+        const [effect] = await sql`
+          SELECT effect_count FROM agent_harness_test_effects
+          WHERE effect_id = ${effectId}
+        `;
+        expect(Number(effect?.effect_count)).toBe(1);
+        const executionSteps = await sql`
+          SELECT status, run_id FROM agent_execution_steps
+          WHERE thread_id = ${threadId} AND turn_id = ${turnId}
+            AND tool_name = 'test-external-effect'
+        `;
+        expect(executionSteps).toHaveLength(1);
+        const executionStep = executionSteps[0];
+        expect(executionStep).toMatchObject({
+          status: "completed",
+          run_id: successorId,
+        });
+        const resumedEvents = await sql`
+          SELECT event_data::jsonb AS event_data
+          FROM agent_run_events
+          WHERE run_id = ${successorId}
+          ORDER BY seq
+        `;
+        const toolDoneEvents = resumedEvents.filter(
+          (row) => row.event_data.type === "tool_done",
+        );
+        expect(toolDoneEvents).toHaveLength(1);
+        expect(toolDoneEvents[0]?.event_data).toMatchObject({
+          result: `Recorded effect ${effectId}`,
+        });
       }, 2);
     }, 180_000);
 

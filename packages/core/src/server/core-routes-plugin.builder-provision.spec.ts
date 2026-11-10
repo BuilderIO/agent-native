@@ -1,10 +1,11 @@
-import { createApp } from "h3";
+import { createApp, defineEventHandler } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getOrgContext: vi.fn(),
   isRestricted: vi.fn(async () => false),
   writeBuilderCredentials: vi.fn(),
+  hasCompletedAutomaticBuilderSignup: vi.fn(async () => true),
   settings: new Map<string, Record<string, unknown>>(),
   track: vi.fn(),
   recordAudit: vi.fn(async () => undefined),
@@ -22,6 +23,7 @@ vi.mock("./personal-provider-key-policy.js", async (importOriginal) => ({
 vi.mock("./credential-provider.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./credential-provider.js")>()),
   writeBuilderCredentials: mocks.writeBuilderCredentials,
+  hasCompletedAutomaticBuilderSignup: mocks.hasCompletedAutomaticBuilderSignup,
 }));
 
 vi.mock("../settings/store.js", async (importOriginal) => ({
@@ -56,6 +58,8 @@ import {
 } from "./builder-browser.js";
 import {
   createBuilderProvisionHandler,
+  activateBuilderAccount,
+  reconcileBuilderSignupActivation,
   getBuilderConnectErrorKey,
   type BuilderOwnerContext,
 } from "./core-routes-plugin.js";
@@ -168,6 +172,66 @@ afterEach(() => {
 });
 
 describe("POST /builder/provision", () => {
+  it("passes the server-owned signup receipt into credential persistence", async () => {
+    const app = createApp();
+    app.use(
+      PATH,
+      defineEventHandler((event) =>
+        activateBuilderAccount(event, {
+          ownerEmail: OWNER,
+          session: session(),
+          provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+          requestedScope: null,
+          connectAttemptId: null,
+          tracking: {},
+          newAccountOnly: true,
+          signupActivationReceipt: "design_builder_signup_v1:server-attempt",
+        }),
+      ),
+    );
+    const response = await app.fetch(
+      new Request(`${ORIGIN}${PATH}`, { method: "POST" }),
+    );
+    expect(await response.json()).toEqual(
+      expect.objectContaining({ ok: true, scope: "user" }),
+    );
+    expect(mocks.writeBuilderCredentials).toHaveBeenCalledWith(
+      OWNER,
+      expect.anything(),
+      { automaticSignupReceipt: "design_builder_signup_v1:server-attempt" },
+    );
+  });
+
+  it("offers existing-account sign-in when a newly provisioned credential cannot be saved", async () => {
+    mocks.writeBuilderCredentials.mockRejectedValueOnce(
+      new Error("credential store unavailable"),
+    );
+    const response = await post({
+      provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      code: "account_exists",
+    });
+    expect(mocks.writeBuilderCredentials).toHaveBeenCalledTimes(1);
+    expect(mocks.track).toHaveBeenCalledWith(
+      "builder connect failed",
+      expect.objectContaining({ reason: "credential_write_failed" }),
+      expect.anything(),
+    );
+  });
+
+  it("keeps a stored connection connected when post-write audit reporting fails", async () => {
+    mocks.recordAudit.mockRejectedValueOnce(new Error("audit unavailable"));
+    const response = await post({
+      provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, scope: "user" });
+    expect(mocks.writeBuilderCredentials).toHaveBeenCalledTimes(1);
+  });
+
   it("creates the account with one upstream call and stores its keys", async () => {
     mocks.settings.set("builder-disconnected", { at: 1 });
     mocks.settings.set(getBuilderConnectErrorKey(OWNER), { message: "old" });
@@ -311,7 +375,13 @@ describe("POST /builder/provision", () => {
   });
 
   it("reports an upstream failure as provision_failed without storing anything", async () => {
-    upstreamAnswers(500, { error: "boom" });
+    upstreamAnswers(500, {
+      code: "upstream_busy",
+      error: "Could not provision steve@example.com",
+      detail:
+        "Provider returned access_token: sensitive-token, client_secret='sensitive-secret', and private_key=private-value",
+      access_token: "sensitive-response-value",
+    });
 
     const response = await post({
       provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
@@ -323,6 +393,89 @@ describe("POST /builder/provision", () => {
       code: "provision_failed",
     });
     expect(mocks.writeBuilderCredentials).not.toHaveBeenCalled();
+    expect(trackedEvents("builder connect failed")).toEqual([
+      expect.objectContaining({
+        reason: "provision_failed",
+        stage: "provision",
+        upstream_response_received: true,
+        upstream_status: 500,
+        upstream_body: JSON.stringify({
+          code: "upstream_busy",
+          error: "Could not provision [redacted-email]",
+          detail:
+            "Provider returned access_token: [redacted], client_secret=[redacted], and private_key=[redacted]",
+        }),
+      }),
+    ]);
+  });
+
+  it("redacts credentials inside escaped upstream JSON error strings", async () => {
+    upstreamAnswers(502, {
+      error: String.raw`Upstream returned {\"apiKey\":\"escaped-private-value\"}`,
+    });
+
+    const response = await post({
+      provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+    });
+
+    expect(response.status).toBe(503);
+    const event = trackedEvents("builder connect failed")[0];
+    expect(event?.upstream_body).toContain("[redacted]");
+    expect(event?.upstream_body).not.toContain("escaped-private-value");
+  });
+
+  it("records status and a sanitized field summary for an invalid success response", async () => {
+    upstreamAnswers(200, {
+      credentials: {
+        privateKey: "sensitive-private-key",
+      },
+    });
+
+    const response = await post({
+      provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      code: "provision_failed",
+    });
+    expect(mocks.writeBuilderCredentials).not.toHaveBeenCalled();
+    expect(trackedEvents("builder connect failed")).toEqual([
+      expect.objectContaining({
+        reason: "provision_failed",
+        upstream_response_received: true,
+        upstream_status: 200,
+        upstream_body: JSON.stringify({ fields: "credentials" }),
+      }),
+    ]);
+  });
+
+  it("records the diagnostic body read failure type", async () => {
+    const response = new Response(JSON.stringify({ credentials: {} }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    vi.spyOn(response, "clone").mockReturnValue({
+      text: async () => {
+        throw new TypeError("body stream unavailable");
+      },
+    } as Response);
+    upstream.mockResolvedValue(response);
+
+    const result = await post({
+      provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+    });
+
+    expect(result.status).toBe(503);
+    expect(trackedEvents("builder connect failed")).toEqual([
+      expect.objectContaining({
+        upstream_response_received: true,
+        upstream_status: 200,
+        upstream_body: JSON.stringify({ fields: "credentials" }),
+        upstream_body_read_error_type: "TypeError",
+      }),
+    ]);
   });
 
   it("refuses an unverified email before calling Builder", async () => {
@@ -509,5 +662,65 @@ describe("POST /builder/provision", () => {
 
     expect(response.status).toBe(400);
     expect(upstream).not.toHaveBeenCalled();
+  });
+});
+
+describe("automatic signup receipt custody", () => {
+  it.each([
+    {
+      name: "solo",
+      context: { email: OWNER, orgId: null, role: null },
+      scope: { orgId: null, role: null, deny: expect.any(String) },
+    },
+    {
+      name: "organization owner",
+      context: { email: OWNER, orgId: "org-example", role: "owner" },
+      scope: { orgId: "org-example", role: "owner", deny: null },
+    },
+  ])(
+    "reconciles a $name through its effective credential scope",
+    async ({ context, scope }) => {
+      mocks.getOrgContext.mockResolvedValue(context);
+      mocks.hasCompletedAutomaticBuilderSignup.mockClear();
+      const app = createApp();
+      app.use(
+        "/receipt",
+        defineEventHandler(async (event) => ({
+          recovered: await reconcileBuilderSignupActivation(event, session(), {
+            experimentId: "clips_builder_signup_v1",
+            attempt: "receipt-attempt",
+            startedAt: 100,
+          }),
+        })),
+      );
+      const r = await app.fetch(new Request(ORIGIN + "/receipt"));
+      expect(await r.json()).toEqual({ recovered: true });
+      expect(mocks.hasCompletedAutomaticBuilderSignup).toHaveBeenCalledWith(
+        OWNER,
+        "clips_builder_signup_v1:receipt-attempt",
+        100,
+        expect.objectContaining(scope),
+      );
+    },
+  );
+  it("does not read receipts when organization membership cannot be checked", async () => {
+    mocks.getOrgContext.mockRejectedValue(
+      new Error("membership read unavailable"),
+    );
+    mocks.hasCompletedAutomaticBuilderSignup.mockClear();
+    const app = createApp();
+    app.use(
+      "/receipt",
+      defineEventHandler(async (event) => ({
+        recovered: await reconcileBuilderSignupActivation(event, session(), {
+          experimentId: "clips_builder_signup_v1",
+          attempt: "receipt-attempt",
+          startedAt: 100,
+        }),
+      })),
+    );
+    const r = await app.fetch(new Request(ORIGIN + "/receipt"));
+    expect(await r.json()).toEqual({ recovered: false });
+    expect(mocks.hasCompletedAutomaticBuilderSignup).not.toHaveBeenCalled();
   });
 });

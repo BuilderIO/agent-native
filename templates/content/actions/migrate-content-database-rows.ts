@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { isLocalDatabase } from "@agent-native/core/db";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -25,6 +26,7 @@ import {
   validatePlan,
 } from "./_content-database-row-migration.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { assertAgentsMayEditPagesText } from "./_document-agent-lock.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
 const validateSchema = z.object({
@@ -154,7 +156,10 @@ async function flushMigrationDocuments(rows: Array<{ documentId: string }>) {
   }
 }
 
-export async function runMigration(args: MigrationInput) {
+export async function runMigration(
+  args: MigrationInput,
+  ctx?: ActionRunContext,
+) {
   const db = getDb();
   const databaseId =
     args.phase === "apply" || args.phase === "validate"
@@ -450,6 +455,7 @@ export async function runMigration(args: MigrationInput) {
           snapshot,
           receiptId,
           now,
+          ctx,
         );
         const current = await snapshotMigration(tx, args.plan.databaseId);
         const postDigest = snapshotDigest(current);
@@ -727,6 +733,12 @@ export async function runMigration(args: MigrationInput) {
             ),
           },
         );
+        // Under the row locks, which a person's switch has to wait for.
+        await assertAgentsMayEditPagesText(
+          tx as unknown as ReturnType<typeof getDb>,
+          priors.map((prior) => prior.documentId),
+          ctx,
+        );
         for (const prior of priors) {
           const version = versions.get(prior.versionId)!;
           const restoredRows = await tx
@@ -754,6 +766,12 @@ export async function runMigration(args: MigrationInput) {
           await tx
             .delete(schema.documentPropertyValues)
             .where(inArray(schema.documentPropertyValues.propertyId, ids));
+          // After the values: deleting them records a tombstone for each one.
+          await tx
+            .delete(schema.documentPropertyValueTombstones)
+            .where(
+              inArray(schema.documentPropertyValueTombstones.propertyId, ids),
+            );
           await tx
             .delete(schema.documentPropertyDefinitions)
             .where(inArray(schema.documentPropertyDefinitions.id, ids));
@@ -827,6 +845,15 @@ export async function runMigration(args: MigrationInput) {
         await tx
           .delete(schema.documentPropertyValues)
           .where(inArray(schema.documentPropertyValues.propertyId, legacyIds));
+        // After the values: deleting them records a tombstone for each one.
+        await tx
+          .delete(schema.documentPropertyValueTombstones)
+          .where(
+            inArray(
+              schema.documentPropertyValueTombstones.propertyId,
+              legacyIds,
+            ),
+          );
         await tx
           .delete(schema.documentPropertyDefinitions)
           .where(inArray(schema.documentPropertyDefinitions.id, legacyIds));
@@ -910,5 +937,5 @@ export default defineAction({
   mcpApp: { structuredContent: true },
   schema: safeOperationalSchema,
   audit: migrationAudit,
-  run: (args) => runMigration(args as MigrationInput),
+  run: (args, ctx) => runMigration(args as MigrationInput, ctx),
 });

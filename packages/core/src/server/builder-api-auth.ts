@@ -16,9 +16,11 @@ import {
   toHttpServerConfigAsync,
   type RemoteMcpScope,
 } from "../mcp-client/remote-store.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
+  hasStoredBuilderOAuthGrantForUse,
   type BuilderOAuthPermissionScope,
 } from "./builder-oauth.js";
 import {
@@ -31,6 +33,16 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "./request-context.js";
+
+export function isBuilderReauthorizationRequired(error: unknown): boolean {
+  return (
+    (error instanceof ActionContractError &&
+      error.errorCode === "builder_oauth_reauthorization_required") ||
+    error instanceof AppSecretDecryptionError ||
+    (error instanceof CredentialStoreUnavailableError &&
+      error.cause instanceof AppSecretDecryptionError)
+  );
+}
 
 function getBuilderCredentialScope(): {
   orgId: string | null;
@@ -405,6 +417,18 @@ export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
     return true;
   }
   return !!(await resolveBuilderCredential("BUILDER_PRIVATE_KEY"));
+}
+
+/** A Builder OAuth grant is stored for this request, readable or not. */
+export async function hasStoredBuilderApiOAuthGrant(): Promise<boolean> {
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) return false;
+  const { orgId, storageOnly } = getBuilderCredentialScope();
+  return readCredentialStore(() =>
+    storageOnly
+      ? hasStoredBuilderOAuthGrantForUse(ownerEmail, orgId, { orgOnly: true })
+      : hasStoredBuilderOAuthGrantForUse(ownerEmail, orgId),
+  );
 }
 
 export async function canAuthorizeBuilderApiRequest(

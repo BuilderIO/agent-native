@@ -1,7 +1,12 @@
 import { getOrgContext } from "@agent-native/core/org";
-import { createAgentChatPlugin } from "@agent-native/core/server";
+import {
+  createAgentChatPlugin,
+  getBuilderWorkspaceUrl,
+  registerAgentContextAgentFilter,
+} from "@agent-native/core/server";
 
 import { dispatchActions } from "../../actions/index.js";
+import { hideHostedAppsWhenOff } from "../lib/hosted-apps-settings.js";
 import {
   workspaceAppActionRouteAuth,
   WORKSPACE_APP_CLAIM_ACTION_PATH,
@@ -38,12 +43,15 @@ const INITIAL_TOOL_NAMES = [
   "navigate",
 ];
 
+registerAgentContextAgentFilter("dispatch", hideHostedAppsWhenOff);
+
 export default createAgentChatPlugin({
   appId: "dispatch",
   connectApps: true,
   durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
+    appApprovalPage: true,
     connectorCatalog: [
       "resolve-integration-source-context",
       "start-workspace-app-creation",
@@ -85,11 +93,12 @@ Use the standard workspace primitives:
 - You receive a compact available-apps block with sibling workspace app names and descriptions. Use it to pick the right A2A target, and call list-connected-agents or tool-search only when you need fresh details.
 - Hosted/connected A2A neighbors such as Analytics and Content come from the available-apps context or list-connected-agents. list-workspace-apps only inventories apps mounted inside this workspace deployment; never use a missing row there to conclude that a connected agent is unavailable.
 - When answering whether a mounted workspace app exposes an agent card or A2A endpoint, call list-workspace-apps with includeAgentCards=true. If you have not requested that probe, absence of agent-card fields means unchecked, not unavailable.
-- When creating a new workspace app, create a separate app under apps/<app-id> with apps/<app-id>/package.json including a concise generated description, mount it at /<app-id>, use relative /<app-id> links, never hardcode localhost or dev ports, use shadcn/ui with @tabler/icons-react rather than lucide-react, and ensure the React Router client entry preserves APP_BASE_PATH/VITE_APP_BASE_PATH via appBasePath(). There is no separate workspace app registry to edit.
+- When creating a new workspace app, create a separate app under apps/<app-id> with apps/<app-id>/package.json including a concise generated description, mount it at /<app-id>, use relative /<app-id> links, never hardcode localhost or dev ports, use shadcn/ui with @tabler/icons-react rather than lucide-react, and keep the configureClientRouterBasename() call in app/entry.client.tsx so the app hydrates at /<app-id>. There is no separate workspace app registry to edit.
 - When a user asks to rename an existing workspace app or change its Dispatch title/description, call update-workspace-app-metadata with the existing appId from list-workspace-apps. This is a metadata-only edit — never call start-workspace-app-creation, which creates a new app and Builder branch.
 - When an explicit app-creation request already includes a source brief or a concrete repeatable workflow, call start-workspace-app-creation without asking non-blocking product or UX questions. Choose recommended defaults, let the Builder handoff record assumptions, and ask only for authorization, credentials, a destructive action, an ambiguous target workspace, or a genuinely missing workflow.
 - If the chat template is used, treat it as scaffolding only: the finished app must be branded as the requested app with its own home screen/navigation/package metadata/manifest, and must not leave visible "Chat", "Starter", "Blank app", or "New app" UI behind.
-- Treat first-party apps such as Mail, Calendar, Analytics, Brain, Assets, and Dispatch as existing hosted/connected neighbors available through links and A2A/default connected agents. Do not create wrapper apps, child apps, nested routes, or cloned template copies just to give a new app access to them; build only the genuinely new workflow and delegate cross-app work to those existing apps.
+- Treat the apps in the available-apps context as existing neighbors available through links and A2A. Do not create wrapper apps, child apps, nested routes, or cloned template copies just to give a new app access to them; build only the genuinely new workflow and delegate cross-app work to those existing apps.
+- Owners and admins can hide Agent-Native.com hosted apps for the organization with set-hosted-apps-settings; get-hosted-apps-settings reads it. When hidden they are left out of available-apps and list-connected-agents marks them hiddenFromLaunchers, but call-agent by name still reaches them.
 - Integration grants are not provider capability limits. For ad hoc provider inspection, querying, reporting, or troubleshooting, call provider-api-catalog/provider-api-docs, then provider-api-request against the provider's real HTTP API. Use connectionId for a specific shared grant and accountId for a specific OAuth account. Never expose secret values or silently widen app access while doing this.
 - For broad provider searches, joins, classification, corpus counts, or absence claims, fetch every relevant page or an explicitly bounded cohort, stage/save large responses with stageAs/saveToFile/fetchAllPages, and reduce them with query-staged-dataset or run-code. Report source, filters, row counts, pagination, truncation, failed pages, and uncovered gaps.
 - Use list-dispatch-usage-metrics only for this workspace's own members' agent/LLM usage and spend, or aggregate adoption of an accessible workspace app. For agent/LLM usage or spend, call it with scope=workspace and the requested sinceDays; it reports workspace-member usage only. For app adoption, call it with scope=app and appId; app creators can see aggregate daily/weekly active users and tracked actions for their own app, while organization owners/admins can inspect any accessible app. App scope omits individual users and prompt previews. External customer, account, or company usage, credits, activity, or product data belongs to the relevant app: use its identity in <relevant-apps> when clear, or call describe-workspace-apps with a query when ownership is unclear. Do not use this action for external customer/account/company data.
@@ -97,5 +106,17 @@ Use the standard workspace primitives:
 When a user asks for something like a digest, reminder, routing rule, or saved behavior:
 - First decide whether it should be a resource, a recurring job, a destination, or a delegated task.
 - Keep responses concise and operational.
-- Avoid inventing integrations or destinations that are not configured yet.`,
+- Avoid inventing integrations or destinations that are not configured yet.${builderManagedAppsNote()}`,
 });
+
+/**
+ * A Builder-linked workspace builds its apps in Builder; app-creation actions
+ * return a link there, and the agent should offer it rather than retry.
+ */
+function builderManagedAppsNote(): string {
+  const url = getBuilderWorkspaceUrl();
+  if (!url) return "";
+  return `
+
+This workspace is managed in Builder. Never create, scaffold, remix, or install workspace apps from here. When someone asks for a new app, point them to ${url} and tell them to use New app there.`;
+}

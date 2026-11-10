@@ -452,7 +452,7 @@ export default defineAction({
         if (existing) return existing;
         return templateCopyConflict();
       }
-      trackDesignCreated(
+      await trackDesignCreated(
         designId,
         {
           creationMethod: "template",

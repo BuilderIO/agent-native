@@ -639,6 +639,65 @@ describe("secrets storage CRUD (real pglite)", () => {
     const meta = await mod.readAppSecretMeta(userRef);
     expect(meta!.description).toBe("updated");
     expect(meta!.urlAllowlist).toEqual(["https://api.openai.com"]);
+
+    await mod.writeAppSecret({ ...userRef, value: "rotated-value" });
+    expect((await mod.readAppSecretMeta(userRef))!.urlAllowlist).toEqual([
+      "https://api.openai.com",
+    ]);
+  });
+
+  it("approves origins without changing either ciphertext or the saved scope", async () => {
+    await mod.writeAppSecret({
+      ...userRef,
+      value: "fake-value",
+      urlAllowlist: "[]",
+    });
+    const { validateUrlAllowlist } = await import("./substitution.js");
+    expect(
+      validateUrlAllowlist(
+        "https://api.example.test/data",
+        (await mod.readAppSecretMeta(userRef))?.urlAllowlist ?? null,
+      ),
+    ).toBe(false);
+    const before = await pglite
+      .prepare(
+        `SELECT scope, scope_id, encrypted_value, shared_encrypted_value FROM app_secrets WHERE key = ?`,
+      )
+      .get(userRef.key);
+
+    expect(
+      await mod.updateAppSecretUrlAllowlist(userRef, [
+        "https://api.example.test",
+      ]),
+    ).toBe(true);
+    const after = await pglite
+      .prepare(
+        `SELECT scope, scope_id, encrypted_value, shared_encrypted_value, url_allowlist FROM app_secrets WHERE key = ?`,
+      )
+      .get(userRef.key);
+    expect(after).toMatchObject({
+      ...before,
+      url_allowlist: '["https://api.example.test"]',
+    });
+    expect(
+      validateUrlAllowlist(
+        "https://api.example.test/data",
+        (await mod.readAppSecretMeta(userRef))?.urlAllowlist ?? null,
+      ),
+    ).toBe(true);
+    expect(
+      validateUrlAllowlist(
+        "https://other.example.test/data",
+        (await mod.readAppSecretMeta(userRef))?.urlAllowlist ?? null,
+      ),
+    ).toBe(false);
+    expect(
+      await mod.updateAppSecretUrlAllowlist(
+        { ...userRef, scopeId: "other@example.test" },
+        [],
+      ),
+    ).toBe(false);
+    expect((await mod.readAppSecret(userRef))?.value).toBe("fake-value");
   });
 
   it("handles concurrent writes to the same key without throwing (atomic upsert)", async () => {
@@ -759,7 +818,7 @@ describe("secrets storage CRUD (real pglite)", () => {
     expect(JSON.stringify(meta)).not.toContain("sk-meta-7777");
   });
 
-  it("readAppSecretMeta parses a valid allowlist and tolerates malformed JSON", async () => {
+  it("readAppSecretMeta parses a valid allowlist and rejects malformed policy", async () => {
     await mod.writeAppSecret({
       ...userRef,
       value: "v",
@@ -773,12 +832,16 @@ describe("secrets storage CRUD (real pglite)", () => {
     await pglite
       .prepare(`UPDATE app_secrets SET url_allowlist = ?`)
       .run("{not json");
-    expect((await mod.readAppSecretMeta(userRef))!.urlAllowlist).toBeNull();
+    await expect(mod.readAppSecretMeta(userRef)).rejects.toThrow(
+      "Stored secret URL policy is unreadable",
+    );
 
     await pglite
       .prepare(`UPDATE app_secrets SET url_allowlist = ?`)
       .run(JSON.stringify([1, 2, 3]));
-    expect((await mod.readAppSecretMeta(userRef))!.urlAllowlist).toBeNull();
+    await expect(mod.readAppSecretMeta(userRef)).rejects.toThrow(
+      "Stored secret URL policy is invalid",
+    );
   });
 
   it("lists only the requested scope's secrets as metadata (no values), newest first", async () => {
@@ -1356,5 +1419,34 @@ describe("development process on a shared database", () => {
     expect(message).toContain(orgRef.key);
     expect(message).not.toContain("deployment-value");
     expect(message).not.toContain(orgRef.scopeId);
+  });
+
+  it("remembers, for the request, keys it couldn't decrypt", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    useDeploymentKeys();
+    await mod.writeAppSecret({ ...orgRef, value: "deployment-value" });
+
+    useDevelopmentKeys();
+    const seen = await runWithRequestContext(
+      { userEmail: "alice@example.test" },
+      async () => {
+        await expect(
+          mod.readAppSecrets({
+            keys: [orgRef.key],
+            scope: orgRef.scope,
+            scopeId: orgRef.scopeId,
+          }),
+        ).rejects.toMatchObject({ name: "AppSecretDecryptionError" });
+        return [...mod.undecryptableSecretKeysForRequest()];
+      },
+    );
+    expect(seen).toEqual([orgRef.key]);
+    await expect(
+      runWithRequestContext({ userEmail: "alice@example.test" }, async () => [
+        ...mod.undecryptableSecretKeysForRequest(),
+      ]),
+    ).resolves.toEqual([]);
   });
 });

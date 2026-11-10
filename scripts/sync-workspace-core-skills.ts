@@ -97,7 +97,7 @@ const FACTORY_REPO_ONLY_MARKERS = {
   end: "<!-- framework-repo-only:end -->",
 };
 const FACTORY_EXCLUDED_SKILL_FILES = {
-  "review-latest-feedback": new Set(["references/ci-red-report.md"]),
+  "review-latest-feedback": new Set(["references/chat-run-health.md"]),
 };
 
 const workspaceSkillIncludes = [...WORKSPACE_SKILLS];
@@ -434,8 +434,13 @@ function factorySkillFiles(skill) {
   );
 }
 
+const FACTORY_REPO_ONLY_SKILLS = new Set([
+  "review-latest-feedback",
+  "review-prs",
+]);
+
 function factorySkillContent(skill, file, content) {
-  if (skill !== "review-latest-feedback") return content;
+  if (!FACTORY_REPO_ONLY_SKILLS.has(skill)) return content;
   const output = [];
   let inRepoOnlyBlock = false;
   let blockCount = 0;
@@ -457,7 +462,14 @@ function factorySkillContent(skill, file, content) {
     }
     if (!inRepoOnlyBlock) output.push(line);
   }
-  if (inRepoOnlyBlock || (file === "SKILL.md" && blockCount === 0)) {
+  if (inRepoOnlyBlock) {
+    throw new Error(`${skill} has an unclosed framework-repo-only marker`);
+  }
+  if (
+    skill === "review-latest-feedback" &&
+    file === "SKILL.md" &&
+    blockCount === 0
+  ) {
     throw new Error("review-latest-feedback needs repo-only section markers");
   }
   if (blockCount === 0) return content;

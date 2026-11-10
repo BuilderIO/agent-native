@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { JevContextCredentials } from "../agent/production-agent.js";
+import { DECISION_PROVIDER_CAPABILITIES } from "./capabilities.js";
 
 const mocks = vi.hoisted(() => ({
   getJevContextCredentials: vi.fn(),
@@ -58,6 +59,27 @@ const choiceQuestion = {
     { value: "technical", description: "Product problems" },
   ],
 };
+const scoreQuestion = {
+  type: "score" as const,
+  name: "urgency",
+  instructions: "How soon does this need attention?",
+  levels: [
+    { label: "none", description: "No action is needed." },
+    { label: "this_week", description: "It can wait a few days." },
+    { label: "today", description: "It needs attention today." },
+  ],
+};
+const jevScoreAnswer = {
+  type: "score",
+  score: 2,
+  legend: {
+    "answer-a": "none: No action is needed.",
+    "answer-b": "this_week: It can wait a few days.",
+    "answer-c": "today: It needs attention today.",
+  },
+  probabilities: { "answer-a": 0.2, "answer-b": 0.5, "answer-c": 0.3 },
+  confidence: 0.82,
+};
 
 describe("decide", () => {
   beforeEach(() => {
@@ -92,6 +114,13 @@ describe("decide", () => {
     vi.useRealTimers();
     vi.clearAllMocks();
     __resetDecisionCacheForTests();
+  });
+
+  it("marks Builder Jev score support as verified", () => {
+    expect(DECISION_PROVIDER_CAPABILITIES.jev.builderProxy.score).toEqual({
+      status: "verified",
+      enabled: true,
+    });
   });
 
   it("uses the configured default provider and returns typed keyed answers", async () => {
@@ -129,6 +158,58 @@ describe("decide", () => {
     expect(timeoutMs).toBeGreaterThan(0);
     expect(timeoutMs).toBeLessThanOrEqual(10_000);
     expect(mocks.getJevContextCredentials).toHaveBeenCalledOnce();
+  });
+
+  it("returns per-question failures without discarding sibling answers", async () => {
+    mocks.requestOpenAiDecision.mockResolvedValueOnce({
+      answers: [
+        { type: "predicate", name: "keep", probability: 0.8 },
+        { type: "refusal", name: "refused" },
+      ],
+    });
+    const questions = [
+      { type: "predicate" as const, name: "keep", instructions: "Keep?" },
+      { type: "predicate" as const, name: "refused", instructions: "Refuse?" },
+      { type: "predicate" as const, name: "missing", instructions: "Missing?" },
+    ];
+
+    const result = await decide({ ownerEmail, input: "mail", questions });
+
+    expect(result).toEqual({
+      status: "ok",
+      provider: "openai",
+      model: "gpt-6-luna",
+      answers: {
+        keep: { type: "predicate", name: "keep", probability: 0.8 },
+        refused: { type: "refusal", name: "refused" },
+      },
+      questionFailures: { missing: "invalid_response" },
+    });
+    await decide({ ownerEmail, input: "mail", questions });
+    expect(mocks.requestOpenAiDecision).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls through when a Builder Jev space reports the enterprise denial", async () => {
+    mocks.getJevContextCredentials.mockResolvedValue({
+      apiKey: undefined,
+      personalApiKey: undefined,
+      builderAuth: {
+        authorization: "Bearer fake-builder-session",
+        spaceId: "space-test",
+      },
+    });
+    mocks.isJevEnabled.mockResolvedValue(false);
+
+    const result = await decide({
+      ownerEmail,
+      input: "I was charged twice.",
+      questions: [choiceQuestion],
+      options: { providers: ["jev", "openai"] },
+    });
+
+    expect(result).toMatchObject({ status: "ok", provider: "openai" });
+    expect(mocks.requestJev).not.toHaveBeenCalled();
+    expect(mocks.requestOpenAiDecision).toHaveBeenCalledOnce();
   });
 
   it("times out when OpenAI credential lookup exceeds the decision budget", async () => {
@@ -173,7 +254,7 @@ describe("decide", () => {
     expect(mocks.getOwnerApiKeyForEngine).not.toHaveBeenCalled();
   });
 
-  it("maps predicate and choice questions for the Builder Jev proxy", async () => {
+  it("sends mixed predicate, choice, and score questions through Builder Jev once", async () => {
     mocks.getJevContextCredentials.mockResolvedValue({
       apiKey: undefined,
       personalApiKey: undefined,
@@ -194,6 +275,7 @@ describe("decide", () => {
           probabilities: { billing: 0.8, technical: 0.2 },
           confidence: 0.8,
         },
+        urgency: jevScoreAnswer,
       },
       usage: { input_tokens: 42, output_tokens: 8 },
     });
@@ -205,6 +287,7 @@ describe("decide", () => {
         instructions: "Does the report need immediate attention?",
       },
       choiceQuestion,
+      scoreQuestion,
     ];
     const result = await decide({
       ownerEmail,
@@ -227,6 +310,30 @@ describe("decide", () => {
             { value: "billing", probability: 0.8 },
             { value: "technical", probability: 0.2 },
           ],
+        },
+        urgency: {
+          type: "score",
+          name: "urgency",
+          score: 1.1,
+          levels: [
+            { value: 0, label: "none", description: "No action is needed." },
+            {
+              value: 1,
+              label: "this_week",
+              description: "It can wait a few days.",
+            },
+            {
+              value: 2,
+              label: "today",
+              description: "It needs attention today.",
+            },
+          ],
+          probabilities: [
+            { value: 0, probability: 0.2 },
+            { value: 1, probability: 0.5 },
+            { value: 2, probability: 0.3 },
+          ],
+          confidence: 0.82,
         },
       },
       usage: { inputTokens: 42, outputTokens: 8 },
@@ -256,78 +363,156 @@ describe("decide", () => {
                 technical: "Product problems",
               },
             },
+            urgency: {
+              type: "score",
+              instructions: "How soon does this need attention?",
+              criteria: [
+                "none: No action is needed.",
+                "this_week: It can wait a few days.",
+                "today: It needs attention today.",
+              ],
+            },
           },
         },
       }),
     );
+    expect(mocks.requestJev).toHaveBeenCalledOnce();
+    expect(mocks.requestOpenAiDecision).not.toHaveBeenCalled();
   });
 
-  it("skips Jev's unverified score capability and continues to OpenAI", async () => {
-    const scoreQuestion = {
-      type: "score" as const,
-      name: "severity",
-      instructions: "How severe is the issue?",
-      levels: [
-        { label: "low", description: "A minor inconvenience" },
-        { label: "medium", description: "A task has a workaround" },
-        { label: "high", description: "The task is blocked" },
-      ],
-    };
-    mocks.requestOpenAiDecision.mockResolvedValue({
-      answers: [
-        {
-          type: "score",
-          name: "severity",
-          score: 1.1,
-          probabilities: [
-            { value: 0, probability: 0.1 },
-            { value: 1, probability: 0.7 },
-            { value: 2, probability: 0.2 },
-          ],
-          confidence: 0.55,
-        },
-      ],
+  it("supports a score-only request through Builder Jev", async () => {
+    mocks.getJevContextCredentials.mockResolvedValue({
+      apiKey: undefined,
+      personalApiKey: undefined,
+      directApiKey: undefined,
+      builderAuth: { authorization: "Bearer fake-builder-session" },
+    });
+    mocks.isJevEnabled.mockResolvedValue(true);
+    mocks.requestJev.mockResolvedValue({
+      answers: { urgency: jevScoreAnswer },
     });
 
     const result = await decide({
       ownerEmail,
-      input: "A task fails but a workaround is available.",
+      input: "A task can wait a few days.",
       questions: [scoreQuestion],
+      options: { providers: ["jev"] },
     });
 
-    expect(result).toMatchObject({ status: "ok", provider: "openai" });
-    expect(mocks.getJevContextCredentials).not.toHaveBeenCalled();
-    expect(mocks.requestJev).not.toHaveBeenCalled();
-    expect(mocks.requestOpenAiDecision).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      status: "ok",
+      provider: "jev",
+      answers: { urgency: { type: "score", score: 1.1 } },
+    });
+    expect(mocks.getJevContextCredentials).toHaveBeenCalledOnce();
+    expect(mocks.requestJev).toHaveBeenCalledOnce();
+    expect(mocks.requestOpenAiDecision).not.toHaveBeenCalled();
   });
 
-  it("returns an unverified-capability failure for a Jev-only score request", async () => {
+  it.each([
+    [
+      "missing legend",
+      {
+        type: "score",
+        score: 2,
+        probabilities: {
+          "answer-a": 0.2,
+          "answer-b": 0.5,
+          "answer-c": 0.3,
+        },
+        confidence: 0.82,
+      },
+    ],
+    [
+      "missing probabilities",
+      {
+        type: "score",
+        score: 2,
+        legend: jevScoreAnswer.legend,
+        confidence: 0.82,
+      },
+    ],
+    [
+      "out-of-range probability",
+      {
+        ...jevScoreAnswer,
+        probabilities: { ...jevScoreAnswer.probabilities, "answer-b": 1.1 },
+      },
+    ],
+  ] as const)(
+    "returns a per-question invalid_response for a Jev score with %s",
+    async (_case, answer) => {
+      mocks.getJevContextCredentials.mockResolvedValue({
+        apiKey: "jev-test-key",
+        personalApiKey: undefined,
+        directApiKey: "jev-test-key",
+        builderAuth: null,
+      });
+      mocks.requestJev.mockResolvedValue({ answers: { urgency: answer } });
+
+      const result = await decide({
+        ownerEmail,
+        input: "A task can wait a few days.",
+        questions: [scoreQuestion],
+        options: { providers: ["jev"] },
+      });
+
+      expect(result).toEqual({
+        status: "ok",
+        provider: "jev",
+        model: "jev-latest",
+        answers: {},
+        questionFailures: { urgency: "invalid_response" },
+      });
+    },
+  );
+
+  it("keeps valid Jev answers when a score has no matching legend entry", async () => {
+    const actionableQuestion = {
+      type: "predicate" as const,
+      name: "actionable",
+      instructions: "Does this need action?",
+    };
+    mocks.getJevContextCredentials.mockResolvedValue({
+      apiKey: "jev-test-key",
+      personalApiKey: undefined,
+      directApiKey: "jev-test-key",
+      builderAuth: null,
+    });
+    mocks.requestJev.mockResolvedValue({
+      answers: {
+        urgency: {
+          ...jevScoreAnswer,
+          legend: {
+            "answer-a": "not a known level",
+            "answer-b": "also not a known level",
+            "answer-c": "still not a known level",
+          },
+        },
+        actionable: { type: "noul", noul: 0.88 },
+      },
+    });
+
     const result = await decide({
       ownerEmail,
-      input: "A task fails but a workaround is available.",
-      questions: [
-        {
-          type: "score",
-          name: "severity",
-          instructions: "How severe is the issue?",
-          levels: [
-            { label: "low", description: "A minor inconvenience" },
-            { label: "medium", description: "A task has a workaround" },
-            { label: "high", description: "The task is blocked" },
-          ],
-        },
-      ],
+      input: "A task can wait a few days.",
+      questions: [scoreQuestion, actionableQuestion],
       options: { providers: ["jev"] },
     });
 
     expect(result).toEqual({
-      status: "failed",
-      reason: "unverified_capability",
+      status: "ok",
       provider: "jev",
-      questionNames: ["severity"],
+      model: "jev-latest",
+      answers: {
+        actionable: {
+          type: "predicate",
+          name: "actionable",
+          probability: 0.88,
+        },
+      },
+      questionFailures: { urgency: "invalid_response" },
     });
-    expect(mocks.getJevContextCredentials).not.toHaveBeenCalled();
-    expect(mocks.requestJev).not.toHaveBeenCalled();
   });
 
   it("reports verified and unverified question capabilities separately from readiness", async () => {
@@ -338,7 +523,7 @@ describe("decide", () => {
         builderProxy: {
           predicate: { status: "verified", enabled: true },
           choice: { status: "verified", enabled: true },
-          score: { status: "unverified", enabled: false },
+          score: { status: "verified", enabled: true },
         },
       },
       openai: {
@@ -572,6 +757,34 @@ describe("decide", () => {
       provider: "openai",
     });
     expect(mocks.getJevContextCredentials).toHaveBeenCalledOnce();
+  });
+
+  it("continues to Jev when the earlier OpenAI credential lookup fails", async () => {
+    mocks.getOwnerApiKeyForEngine.mockImplementation(
+      async (_engine, _email, options) => {
+        options.onLookupFailure();
+        return { apiKey: undefined };
+      },
+    );
+    mocks.getJevContextCredentials.mockResolvedValue({
+      apiKey: "jev-test-key",
+      personalApiKey: "jev-test-key",
+      builderAuth: null,
+    });
+    mocks.requestJev.mockResolvedValue({
+      answers: { route: { type: "choice", choice: "billing" } },
+    });
+
+    const result = await decide({
+      ownerEmail,
+      input: "A ticket",
+      questions: [choiceQuestion],
+      options: { providers: ["openai", "jev"] },
+    });
+
+    expect(result).toMatchObject({ status: "ok", provider: "jev" });
+    expect(mocks.requestOpenAiDecision).not.toHaveBeenCalled();
+    expect(mocks.requestJev).toHaveBeenCalledOnce();
   });
 
   it("does not use a deployment key after an owner credential lookup fails", async () => {

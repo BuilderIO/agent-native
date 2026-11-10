@@ -6,6 +6,14 @@ import {
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import { normalizeImageMediaType } from "./attachment-bytes.js";
 import {
+  decodeTextAttachmentData,
+  isOverTextAttachmentLimit,
+  isTextLikeFilename,
+  MAX_INLINE_TEXT_ATTACHMENT_CHARS,
+  MAX_INLINE_TEXT_ATTACHMENTS_TOTAL_CHARS,
+  unwrapOwnAttachmentEnvelope,
+} from "./attachment-text.js";
+import {
   classifyInlineAttachment,
   describeInlineBlockReason,
   isInlineReadableDocumentType,
@@ -18,6 +26,7 @@ import {
   describeOwnedImageReadFailure,
   hydrateOwnedFileUrl,
   hydrateOwnedImageUrl,
+  ownedAttachmentBytePool,
   type OwnedAttachmentHydrationBudget,
   type OwnedAttachmentReadFailure,
   type OwnedFileReadFailureCode,
@@ -90,9 +99,26 @@ function readableDocumentMediaType(
                 : extension === "xls"
                   ? "application/vnd.ms-excel"
                   : undefined;
-  return inferred && isInlineReadableDocumentType(inferred, att.name)
-    ? inferred
-    : undefined;
+  if (inferred && isInlineReadableDocumentType(inferred, att.name)) {
+    return inferred;
+  }
+  return isTextLikeFilename(att.name) ? "text/plain" : undefined;
+}
+
+/**
+ * How much text the prompt builder will inline for this attachment, following
+ * its branches: a reference, an image or a binary file part sends no text.
+ */
+function inlineTextLength(att: AgentChatAttachment): number {
+  const decoded = decodeTextAttachmentData(att);
+  if (decoded.kind === "text") return decoded.text.length;
+  if (decoded.kind === "undecodable") return 0;
+  if (att.referenceOnly === true && typeof att.url === "string") return 0;
+  if (att.type === "image") return 0;
+  if (typeof att.data === "string" && parseBase64DataUrl(att.data)) return 0;
+  return typeof att.text === "string"
+    ? unwrapOwnAttachmentEnvelope(att.text, att.name).length
+    : 0;
 }
 
 function hasSvgFilename(name: string | undefined): boolean {
@@ -288,11 +314,13 @@ export async function preUploadAttachments(opts: {
     };
   }
 
+  const readableCandidates: Array<{ att: AgentChatAttachment; label: string }> =
+    [];
   const recordStorageGap = (att: AgentChatAttachment) => {
     const label = att.name || att.type || "attachment";
     const reason = classifyInlineAttachment(att);
     if (reason === null) {
-      readableWithoutStorage.push(label);
+      readableCandidates.push({ att, label });
     } else {
       unreadableWithoutStorage.push({ label, reason });
     }
@@ -335,7 +363,11 @@ export async function preUploadAttachments(opts: {
   }
 
   for (const att of list) {
-    if (att.referenceOnly === true && typeof att.url === "string") {
+    if (
+      att.referenceOnly === true &&
+      typeof att.url === "string" &&
+      !(includeFiles && isSvgAttachment(att))
+    ) {
       const svg = isSvgAttachment(att);
       uploadedFiles.push({
         name: att.name,
@@ -369,6 +401,9 @@ export async function preUploadAttachments(opts: {
         isFile = false;
       }
     }
+    // Over the text limit nothing is encoded or uploaded; the prompt reports
+    // the file as too large from the same check.
+    if (isFile && isOverTextAttachmentLimit(att)) continue;
     if (
       typeof data !== "string" &&
       includeFiles &&
@@ -376,7 +411,12 @@ export async function preUploadAttachments(opts: {
       typeof att.text === "string" &&
       att.text.length > 0
     ) {
-      const encoded = Buffer.from(att.text, "utf8").toString("base64");
+      // Upload the file body, not the composer's <attachment> wrapper, so a
+      // later re-read from storage sees the same text and offsets as now.
+      const encoded = Buffer.from(
+        unwrapOwnAttachmentEnvelope(att.text, att.name),
+        "utf8",
+      ).toString("base64");
       data = `data:${normalizeContentType(att.contentType) || "text/plain"};base64,${encoded}`;
     }
 
@@ -391,10 +431,15 @@ export async function preUploadAttachments(opts: {
       if (isReferenceOnlySvg) {
         markReferenceOnlySvgAttachment(att, att.contentType);
       }
-      const fileMediaType =
-        isFile && includeFiles && !isReferenceOnlySvg
-          ? readableDocumentMediaType(att)
-          : undefined;
+      // SVG stays a reference for embedding, but its markup is still read:
+      // a user who attaches one usually wants it edited.
+      const fileMediaType = !includeFiles
+        ? undefined
+        : isReferenceOnlySvg
+          ? "image/svg+xml"
+          : isFile
+            ? readableDocumentMediaType(att)
+            : undefined;
       if (fileMediaType && !parseBase64DataUrl(data ?? "")) {
         let hydration:
           | Awaited<ReturnType<typeof hydrateOwnedFileUrl>>
@@ -410,7 +455,10 @@ export async function preUploadAttachments(opts: {
         } else {
           if (Date.now() >= attachmentHydrationBudget.deadlineAt) {
             hydration = { kind: "failed", code: "request-time-limit" };
-          } else if (attachmentHydrationBudget.remainingBytes <= 0) {
+          } else if (
+            attachmentHydrationBudget[ownedAttachmentBytePool(fileMediaType)] <=
+            0
+          ) {
             hydration = { kind: "failed", code: "request-byte-limit" };
           } else {
             hydration = await hydrateOwnedFileUrl(
@@ -431,7 +479,9 @@ export async function preUploadAttachments(opts: {
             att.data,
           );
           if (spreadsheetContext) spreadsheetContexts.push(spreadsheetContext);
-        } else {
+        } else if (!(isReferenceOnlySvg && hydration.kind === "unowned")) {
+          // An SVG linked from outside our storage was never ours to read; it
+          // stays the reference it always was rather than a read failure.
           recordAttachmentReadFailure(
             att.name || "file",
             hydration.code,
@@ -582,6 +632,30 @@ export async function preUploadAttachments(opts: {
         err instanceof Error ? err.message : String(err),
       );
     }
+  }
+
+  // A text file the prompt shows only partly, by its own cap or the shared
+  // total, gets a truncation note; listing it as readable here would tell
+  // the model it has all of it. This walks attachments in prompt order.
+  const fullyInlined = new Set<AgentChatAttachment>();
+  let remainingInlineTextChars = MAX_INLINE_TEXT_ATTACHMENTS_TOTAL_CHARS;
+  for (const att of list) {
+    if (att.displayOnly === true) continue;
+    const length = inlineTextLength(att);
+    if (length === 0) {
+      fullyInlined.add(att);
+      continue;
+    }
+    const shown = Math.min(
+      length,
+      MAX_INLINE_TEXT_ATTACHMENT_CHARS,
+      remainingInlineTextChars,
+    );
+    remainingInlineTextChars -= shown;
+    if (shown === length) fullyInlined.add(att);
+  }
+  for (const { att, label } of readableCandidates) {
+    if (fullyInlined.has(att)) readableWithoutStorage.push(label);
   }
 
   const injectedBlocks: string[] = [...spreadsheetContexts];

@@ -284,7 +284,7 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 
 ### コンポーザーに準備するコンテキスト {#composer-context}
 
-`PromptComposer` と `TiptapComposer` の `submissionDisabled` は送信だけを無効にし、下書き・ファイル・コンテキストの準備は許可します。プロバイダーが未設定でも準備は可能です。`disabled` は引き続きコンポーザー全体を無効にします。
+`PromptComposer` と `TiptapComposer` の `submissionDisabled` は送信だけを無効にし、下書き・ファイル・コンテキストの準備は許可します。`requireAgentEngine` を指定すると、プロバイダーが未設定のあいだは、セットアップ カードが表示されている限り `PromptComposer` に入力できず、クリックするとカードを示します。カードが表示されていない場合は、送信だけを無効にします。`disabled` は引き続きコンポーザー全体を無効にします。
 
 `PromptComposer`、`TiptapComposer`、`AgentKitComposer` は `contextItems` と `contextMenuItems` を受け取ります。ソースの読み取りとメニューの翻訳はアプリが管理します。
 
@@ -307,7 +307,11 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 />
 ```
 
-コンテキストソースは `ComposerContextMenuItem` の `picker` に登録します。`ComposerContextMenu` は画面を差し替えるパネルではなく、shadcn/Radix の連結したカスケードサブメニューを管理します。ルートにはファイルのアップロード、その後にコンテキストを追加 → ホストのカテゴリ → ソースのピッカーが並びます。ホストの項目がなければコンテキストを追加は表示しません。矢印キーと Escape でメニュー階層を移動します。リンク用ピッカー内の戻る操作は、同じサブメニュー内で結果からリンク入力に戻るためだけに使います。共有ピッカーが検索、一覧の行、読み込み・空・エラー状態、再試行、ページ切り替え、リンク入力を管理します。アプリは独自のピッカー JSX ではなく、アクセス確認済みデータと選択コールバックを提供します。
+コンテキストソースは `ComposerContextMenuItem` に名前付きの直接操作を登録します。共有メニューは「コンテキストを追加」「連携」「コマンド」を個別のアクセシブルなグループとして表示します。ソースはメニューを一度選択するとピッカーダイアログを開きます。ワークスペースの連携は専用グループに表示され、コマンドには使用頻度の低いタスクモードが入ります。データはダイアログ内で読み込まれ、ルート項目は安定したままです。矢印キー、文字入力による検索、Escape を利用できます。ダイアログは検索、グループ化された結果、読み込み、空の結果、エラー、再試行、フォーカス復元を管理します。
+
+項目は `section: "context" | "integrations" | "commands"` と昇順の `order` を使い、同順位ではラベルと id で並べます。`renderLink(children)` はネイティブなリンク操作を維持します。スコープ付きメンションプロバイダーがあるアプリは `referencePicker: { source, referenceType }` を登録できます。選択は通常のコンポーザー参照を挿入します。`referenceType` は共有ワークスペース検索ダイアログからアプリ固有のリソース型を除外し、重複を防ぎます。ワークスペースは `resources.useWorkspaceMenu({ enabled, onSelectIntegration })` で登録します。識別情報が変わると、その `scopeKey` がピッカーをリセットし要求を中止します。プロバイダーの失敗は空の結果ではなくエラーのままです。
+
+Figma などのソースはアクセス確認中も表示されます。ダイアログには読み込み状態または再試行可能なエラー、未接続時には実際の接続リンク、接続時には認可済みの URL ピッカーが表示されます。「スキルを作成」はスキルモードを直接選択します。「スキルファイルをアップロード」はネイティブなファイル選択後に確認と保存のダイアログを開きます。
 
 ピッカー設定は次を受け取ります。
 
@@ -330,6 +334,7 @@ const contextMenuItems: ComposerContextMenuItem[] = [
     label: labels.references,
     picker: {
       searchPlaceholder: labels.searchReferences,
+      presentation: { type: "dialog", mode: "single" },
       items: authorizedReferences,
       selectedIds,
       onSelect: stageReference,
@@ -403,7 +408,7 @@ const websiteContextItem: ComposerContextMenuItem = {
 
 任意の `footerAction` は読み込み中、エラー時、一覧が空の場合も結果の下に残ります。翻訳済みの `label`、任意の `icon` と `disabled`、そして `onSelect()` または `renderLink(children)` を指定します。モーダルなどの状態を持つ操作にはコールバックを使います。`false` はメニューを開いたままにし、`true` または `void` は閉じ、拒否された Promise はエラーと再試行を表示します。単純なページ移動には、`renderLink` から実際の React Router の `Link` または HTML リンクを返します。共有メニューが `asChild` で行を提供し、`href` とブラウザ本来の移動操作を維持します。仮の操作ではなく、既存の認可されたフローにつなげてください。
 
-`ComposerContextMenu` に `addAttachment` を渡すと、標準のアップロード操作が先頭に表示され、ホストのファイル処理コールバックが維持されます。
+`ComposerContextMenu` に `addAttachment` を渡すと、添付セクションに「ファイルと画像」が追加され、ホストのファイル処理コールバックが維持されます。
 
 `PromptComposer` と `AgentKitComposer` は、`@assistant-ui/react` の公開型 `AttachmentAdapter` を使う `attachmentAdapter` を受け付けます。このアダプターでホストの受付ファイル形式、サイズ検証、添付準備の方針を提供します。省略すると標準アダプターを維持します。アップロード操作、ファイル選択、コンテキスト選択、添付チップは引き続き共有コンポーザーが管理します。ファイル準備のカスタマイズのためにこれらの操作部品を置き換えないでください。
 

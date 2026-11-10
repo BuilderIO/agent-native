@@ -103,6 +103,8 @@ describe("deriveMcpResponseOutputSchema", () => {
       z.object({
         id: z.string(),
         embedTicket: z.string(),
+        embedStartUrl: z.string(),
+        _meta: z.object({ "agent-native/embedStart": z.string() }),
         session: z.object({ ticket: z.string(), count: z.number() }),
         panes: z.array(
           z.object({ label: z.string(), embedTicket: z.string() }),
@@ -113,6 +115,7 @@ describe("deriveMcpResponseOutputSchema", () => {
     expect(
       accepts(response, {
         id: "s1",
+        _meta: {},
         session: { count: 1 },
         panes: [{ label: "Main" }],
       }),

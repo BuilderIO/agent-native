@@ -146,9 +146,10 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
       "<table>\n<tr>\n<th>A</th>\n<th>B</th>\n</tr>\n<tr>\n<td>1</td>\n<td>2</td>\n</tr>\n</table>",
     canonical:
       '<table header-row="true">\n<tr>\n<td>A</td>\n<td>B</td>\n</tr>\n<tr>\n<td>1</td>\n<td>2</td>\n</tr>\n</table>',
-    // The editor draws a header cell as a td with this class, never as a th.
+    // The editor draws a header cell as a th with this class; the saved form
+    // keeps it a td under the table's header-row attribute.
     renders: [
-      { selector: "td.content-table-header-cell", text: "A" },
+      { selector: "th.content-table-header-cell", text: "A" },
       { selector: "td:not(.content-table-header-cell)", text: "2" },
     ],
   },

@@ -46,6 +46,11 @@ vi.mock("../server/lib/factory-definitions.js", async () => {
     await import("../server/workflow-host/testing/workflow-actions-kit.js");
   return kit.factoryDefinitionsModule;
 });
+vi.mock("../server/lib/factory-sentry-fallback.js", async () => {
+  const kit =
+    await import("../server/workflow-host/testing/workflow-actions-kit.js");
+  return kit.sentryFallbackModule;
+});
 
 import { factoryWorkflowUrl } from "../app/lib/factory-tab-params.js";
 import * as kit from "../server/workflow-host/testing/workflow-actions-kit.js";
@@ -403,6 +408,75 @@ describe("save-factory-workflow: refusing a graph", () => {
         code: "schedule_cadence_unsupported",
       }),
     ]);
+  });
+});
+
+describe("save-factory-workflow: a Sentry source and its project", () => {
+  beforeEach(() => {
+    readProviderConnectionsMock.mockImplementation(
+      async (providers: string[]) =>
+        providers.map((provider) => ({
+          provider,
+          status: "connected",
+          connectWith: "workspace-connection",
+        })),
+    );
+  });
+
+  it("saves a source that names its project, whatever the factory's settings hold", async () => {
+    const result = await create({
+      graph: STORY_GRAPHS["incident-to-postmortem"],
+    });
+
+    expect(result.version).toBe(1);
+    expect(kit.readJob(result.job.path)).toContain("acme");
+  });
+
+  it("saves a source that names none when the factory's settings name a Sentry organization", async () => {
+    kit.setSentryFallbackConfigured(true);
+
+    const result = await create({ graph: kit.graphWithUnscopedSentry() });
+
+    expect(result.version).toBe(1);
+    expect(kit.readJob(result.job.path)).not.toContain("acme");
+  });
+
+  it("refuses a source that names none when the factory has no Sentry settings, and saves nothing", async () => {
+    const failure = await kit.failureOf(() =>
+      create({ graph: kit.graphWithUnscopedSentry() }),
+    );
+
+    expect(failure).toMatchObject({ errorCode: "graph_invalid" });
+    expect(failure.details?.issues).toEqual([
+      expect.objectContaining({
+        source: "job",
+        code: "source_scope_unsupported",
+      }),
+    ]);
+    expect(failure.message).toContain('"organization/project"');
+    expect((await kit.currentStore().listWorkflows(scope)).items).toEqual([]);
+    expect(kit.jobFiles()).toEqual([]);
+  });
+});
+
+describe("save-factory-workflow: holding an edit to the reference rule", () => {
+  it("refuses a node that reads a field its operation does not return", async () => {
+    readProviderConnectionsMock.mockImplementation(
+      async (providers: string[]) =>
+        providers.map((provider) => ({
+          provider,
+          status: "connected",
+          connectWith: "workspace-connection",
+        })),
+    );
+
+    const failure = await kit.failureOf(() =>
+      create({ graph: kit.graphReadingUndeclaredOutput() }),
+    );
+
+    expect(failure).toMatchObject({ errorCode: "graph_invalid" });
+    expect(failure.message).toContain("bad_reference");
+    expect(failure.message).toContain("nodes.check.status");
   });
 });
 

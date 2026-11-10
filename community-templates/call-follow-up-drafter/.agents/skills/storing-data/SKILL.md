@@ -17,7 +17,7 @@ All application data lives in **SQL** (local PGlite, hosted Postgres in producti
 
 Large binary or file-like payloads (images, video/audio, PDFs, ZIPs, screenshots, session replay chunks, thumbnails, generated assets, `data:` URLs, and base64 file bodies) must go through configured file/blob storage such as `uploadFile()` or `putPrivateBlob()`. Persist only the returned URL, asset id, or opaque blob handle in SQL. If storage is unavailable in hosted or persistent-database mode, fail closed with setup guidance instead of falling back to base64 in `application_state`, `settings`, `resources`, or app tables.
 
-**Uploaded files an action opens later** (chat attachments, import controls, chunked commits) are one core `AttachmentRef`: mint with `mintAttachmentRef`, open with `resolveAttachment` and `unwrapAttachment` from `@agent-native/core/private-blob`. Never write a template descriptor, never branch on error text, and never truncate a ref (`ATTACHMENT_REF_MAX_CHARS` is the floor for any prompt or field that carries one). Each failure is typed: `notFound`, `forbiddenScope`, `expired` and `malformed` are definitive and stop the turn; only `storageUnavailable` is retryable, and the same ref works once storage is back, so never ask the user to attach the file again for it.
+**Uploaded files an action opens later** (chat attachments, import controls, chunked commits) are one core `AttachmentRef`: mint with `mintAttachmentRef`, open with `resolveAttachment` and `unwrapAttachment` from `@agent-native/core/private-blob`. Never write a template descriptor, never branch on error text, and never truncate a ref (`ATTACHMENT_REF_MAX_CHARS` is the floor for any prompt or field that carries one). Each failure is typed: `notFound`, `forbiddenScope`, `expired` and `malformed` are definitive and stop the turn, except a value that is not a ref at all or is missing (`malformed` with `unrecognized_scheme` or `empty`), which is an ordinary action error the model corrects by passing the listed ref; only `storageUnavailable` is retryable, and the same ref works once storage is back, so never ask the user to attach the file again for it.
 
 **Local File Mode exception:** some artifact apps (Content, Plans, Slides, Dashboards, Designs, etc.) can intentionally use repo files as the source of truth for the artifact itself. This must be explicit via `agent-native.json`, `AGENT_NATIVE_MODE=local-files`, or an app-owned local-file action helper. In that mode, the UI and agent still go through app actions, but those actions read/write scoped files through `@agent-native/core/local-artifacts` instead of SQL rows. App state, auth, settings, credentials, collaboration metadata, and hosted database mode remain SQL. File-to-database or file-to-provider synchronization is an explicit sync step, not an implicit side effect of editing.
 
@@ -28,6 +28,24 @@ When you add a data model, a list, or a read path, also follow the `performance`
 Agent-Native apps use Drizzle ORM over PostgreSQL. Local development uses PGlite at `data/pglite`; production and shared preview deploys need a persistent hosted PostgreSQL `DATABASE_URL`.
 
 For app code, use Drizzle's schema/query DSL by default. Raw SQL is an escape hatch for additive migrations, health checks, or one-off maintenance, not the normal way to build features.
+
+### Typed raw SQL fragments
+
+When Drizzle cannot express a PostgreSQL query, import `sql` from
+`@agent-native/core/db` and pass its fragment directly to
+`getDbExec().execute()`. Use `sql.value(value)` for bound values,
+`sql.ident(name)` for validated lowercase identifiers, `sql.in(values)` for a
+nonempty list (it includes parentheses), and `sql.join(fragments, separator)`
+or nested fragments for composition. The tag rejects plain string interpolation
+at compile time; do not build `{ sql: `...${value}...` }` or pass interpolated
+templates directly to `execute()`. The diff-scoped guard checks new
+interpolated SQL reaching `getDbExec().execute()` through the helper and wrapper
+paths it analyzes. A reviewed exception needs `// raw-sql-ok: <reason>` as
+a standalone comment immediately before the sink statement or after it on the
+same line. Markers inside SQL text, callbacks, and object properties do not opt
+out. The guard does not audit Drizzle `sql.raw()` or raw adapter `query()` calls,
+so use bound Drizzle fragments or the typed kernel instead of interpolating
+dynamic values through those APIs.
 
 ### Schema and migration ownership
 
@@ -132,6 +150,22 @@ offboarding hands them to the successor. A table without `org_id` needs
 | **Content**  | documents in SQL; connected local-folder sources sync separately |
 | **Slides**   | decks (JSON stored in SQL)                    |
 | **Clips**    | recording metadata in SQL; video and image files use blob storage |
+
+#### Lifecycle status columns are state machines
+
+A status column with more than two values gets a `defineMachine` from
+`@agent-native/core/state-machine` beside its store; the SQL derives from it.
+
+- Read stored values with `machine.parseState(row.status)`, never `as Status`.
+  An unknown value throws instead of flowing on as a plausible state.
+- Write each transition as a compare-and-set against its source states —
+  `WHERE status IN (${machine.sqlStateList("claim")})`, or
+  `inArray(table.status, machine.fromStates("claim"))` in Drizzle — and treat
+  zero updated rows as a lost race or an illegal transition, never success.
+- Pin each event's source and target states in a spec, so a lifecycle change
+  is a visible test diff.
+
+Core's A2A task store (`a2a/task-lifecycle` in `@agent-native/core`) is the reference.
 
 ### Agent Access
 

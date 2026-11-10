@@ -600,15 +600,15 @@ const messages = {
     reviewDuplicates: "Review duplicates",
     duplicateReviewTitle: "Possible duplicate records",
     duplicateReviewDescription:
-      "Check this record against accessible candidates. Running Jev sends record names, types, and match signals for up to five candidates to TypeSafe. Its probability is a suggestion; merging always requires a separate review.",
+      "Check this record against accessible candidates. A semantic review sends record names, types, and match signals for up to five candidates to the configured AI decision provider. Its probability is a suggestion; merging always requires a separate review.",
     duplicateReviewRun: "Check duplicates",
     duplicateReviewLoading: "Checking…",
     duplicateReviewFailed: "Duplicate review could not be completed.",
     duplicateReviewUnavailable:
-      "Jev could not review these records. Rule-based candidates remain visible.",
+      "The AI decision provider could not review these records. Rule-based candidates remain visible.",
     duplicateReviewEmpty: "No likely duplicates found.",
     duplicateRuleConfidence: "Rule-based match: {{percent}}%",
-    duplicateJevProbability: "Jev same-entity probability: {{percent}}%",
+    duplicateDecisionProbability: "Same-entity probability: {{percent}}%",
     duplicateMatchedOn: "Matched on: {{values}}",
     evidenceAttached: "Call evidence attached.",
     evidenceAttachFailed: "Evidence could not be attached.",
@@ -624,11 +624,10 @@ const messages = {
     automate: "Automate",
     reviewNewClipsCalls: "Review new Clips calls",
     reviewDescription:
-      "Prepare a review recipe for this CRM record without copying Clips media or transcripts.",
-    disabledAutomationDescription:
-      "This starts disabled and stays tied to {{name}}. Once explicitly activated, each new clip may attach only its access-checked recording-page reference to this record.",
+      "Setting up CRM-to-Clips call automations isn't available yet.",
+    disabledAutomationDescription: "Selected CRM record: {{name}}.",
     handoffDescription:
-      "The handoff keeps only an opaque clip ID, a durable {{path}} page URL, and capture time. It rejects event URLs, media, access tokens, transcripts, inferred records, and provider writes.",
+      "Automatic attachment of {{path}} page links is unavailable.",
     manageAutomations: "Manage automations",
     configureWithAgent: "Configure with agent",
     editField: "Edit field",

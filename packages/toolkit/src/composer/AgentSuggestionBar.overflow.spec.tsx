@@ -271,7 +271,7 @@ describe("AgentSuggestionBar overflow", () => {
       /\[data-agent-suggestion-scroller="true"\]\[data-overflow-end\] \{\n\s+--agent-suggestion-fade-end: 1\.5rem;/,
     );
     expect(styles).toMatch(
-      /\.agentkit-suggestions \{\n\s+--agent-suggestion-gap: 0\.375rem;/,
+      /\.agentkit-suggestions \{\n\s+--agent-suggestion-gap: 0\.5rem;/,
     );
   });
 });

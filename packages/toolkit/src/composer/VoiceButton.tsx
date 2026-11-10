@@ -4,10 +4,9 @@ import {
   IconLoader2,
   IconMicrophone,
   IconPlayerStopFilled,
-  IconWaveSine,
   IconX,
 } from "@tabler/icons-react";
-import type { MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
@@ -22,6 +21,7 @@ import {
   useRealtimeVoiceModeOptional,
 } from "./useRealtimeVoiceMode.js";
 import type { VoiceDictationApi } from "./useVoiceDictation.js";
+import { IconVoiceChat } from "./voice-chat-icon.js";
 import { VoiceLevelWaveform } from "./voice-waveform.js";
 
 export interface VoiceButtonProps {
@@ -48,16 +48,19 @@ export function VoiceButton({
 }: VoiceButtonProps) {
   const t = useComposerRuntimeAdapters().translate;
   const realtimeVoice = useRealtimeVoiceModeOptional();
+  const [supportChecked, setSupportChecked] = useState(false);
+
+  useEffect(() => setSupportChecked(true), []);
 
   if (voiceChat && realtimeVoice?.active) {
     return <ActiveVoiceChatControls voice={realtimeVoice} />;
   }
-  if (!voice.supported) return null;
+  if (supportChecked && !voice.supported) return null;
   if (isVoiceRecordingActive(voice.state)) {
     return <VoiceDictationPill voice={voice} />;
   }
 
-  const shortcut = isMac ? "⌘⇧M" : "Ctrl+Shift+M";
+  const shortcut = supportChecked && isMac ? "⌘⇧M" : "Ctrl+Shift+M";
   const label = t("agentChat.voice.dictation.start", {
     shortcut,
     defaultValue: `Dictate (${shortcut})`,
@@ -69,8 +72,10 @@ export function VoiceButton({
         <button
           type="button"
           data-agent-composer-slot="voice-button"
-          onClick={() => void voice.start()}
-          disabled={disabled}
+          onClick={() => {
+            if (supportChecked) void voice.start();
+          }}
+          disabled={disabled || !supportChecked}
           aria-label={label}
           className={cn(
             "shrink-0 flex size-[var(--agentkit-composer-toolbar-control-size,1.5rem)] items-center justify-center rounded-[var(--agentkit-composer-control-radius,var(--radius-md))] text-muted-foreground transition-colors duration-150 hover:bg-accent/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30",
@@ -227,6 +232,8 @@ export interface ComposerSendButtonProps {
   voiceEnabled?: boolean;
   /** Nothing to send and no run active, so the slot may offer voice chat. */
   voiceChatEligible?: boolean;
+  /** Starts voice chat in place of the provider's default start. */
+  onVoiceChatStart?: () => void;
   disabled?: boolean;
 }
 
@@ -257,6 +264,7 @@ function VoiceChatSendButton({
   sendLabel,
   busy,
   voiceChatEligible = false,
+  onVoiceChatStart,
   disabled,
 }: Omit<ComposerSendButtonProps, "voiceEnabled">) {
   const adapters = useComposerRuntimeAdapters();
@@ -276,7 +284,9 @@ function VoiceChatSendButton({
   return offerVoiceChat ? (
     <ComposerPrimaryButton
       mode="voice-chat"
-      onClick={() => void realtimeVoice.start()}
+      onClick={() =>
+        onVoiceChatStart ? onVoiceChatStart() : void realtimeVoice.start()
+      }
       disabled={Boolean(disabled)}
       label={copy.startVoiceMode}
     />
@@ -339,7 +349,7 @@ function ComposerPrimaryButton({
                 )}
               />
             ) : mode === "voice-chat" ? (
-              <IconWaveSine className={iconClass} />
+              <IconVoiceChat className={iconClass} />
             ) : (
               <IconArrowUp className={iconClass} />
             )}

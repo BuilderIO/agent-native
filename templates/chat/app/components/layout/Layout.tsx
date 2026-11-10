@@ -9,8 +9,12 @@ import {
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/toolkit/app/chat/agentkit-chat/rail";
+import {
+  RealtimeVoiceModeProvider,
+  useRealtimeVoiceModeOptional,
+} from "@agent-native/toolkit/app/chat/composer";
 import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router";
 
 import {
@@ -21,17 +25,17 @@ import {
 } from "@/components/ui/sheet";
 import { APP_TITLE } from "@/lib/app-config";
 import { HOME_PATH, isChatPathname } from "@/lib/chat-paths";
+import { TAB_ID } from "@/lib/tab-id";
 
+// Not lazy() like Header: the inspector wraps the page, so a Suspense fallback
+// would mount the page once before its chunk loads and again after.
+// AgentSidebar already lazy-loads its own panel.
+import { AgentInspector } from "./AgentInspector";
 import { MobileAppBar } from "./MobileAppBar";
 import { Sidebar } from "./Sidebar";
 
 const Header = lazy(() =>
   import("./Header").then((module) => ({ default: module.Header })),
-);
-const AgentInspector = lazy(() =>
-  import("./AgentInspector").then((module) => ({
-    default: module.AgentInspector,
-  })),
 );
 
 interface LayoutProps {
@@ -49,7 +53,37 @@ function routeOwnsToolbar(pathname: string): boolean {
   );
 }
 
+/**
+ * A voice chat follows the user into a chat thread, so Get started can hand
+ * one off. Other pages show no controls for this session, so any other
+ * navigation ends it rather than leave the microphone open with nothing to
+ * stop it. The agent sidebar owns a separate session and keeps its own
+ * controls on screen, so this leaves that one alone.
+ */
+function EndVoiceChatOutsideChat() {
+  const { pathname } = useLocation();
+  const end = useRealtimeVoiceModeOptional()?.end;
+  const previousPathnameRef = useRef(pathname);
+
+  useEffect(() => {
+    if (previousPathnameRef.current === pathname) return;
+    previousPathnameRef.current = pathname;
+    if (!isChatPathname(pathname)) end?.();
+  }, [end, pathname]);
+
+  return null;
+}
+
 export function Layout({ children }: LayoutProps) {
+  return (
+    <RealtimeVoiceModeProvider browserTabId={TAB_ID}>
+      <EndVoiceChatOutsideChat />
+      <LayoutShell>{children}</LayoutShell>
+    </RealtimeVoiceModeProvider>
+  );
+}
+
+function LayoutShell({ children }: LayoutProps) {
   const location = useLocation();
   const t = useT();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -174,14 +208,12 @@ export function Layout({ children }: LayoutProps) {
             {contentFrame}
           </div>
         ) : (
-          <Suspense fallback={contentFrame}>
-            <AgentInspector
-              chatHomeHandoffActive={chatHomeHandoffActive}
-              chatHomeHandoffPending={chatHomeHandoffPending}
-            >
-              {contentFrame}
-            </AgentInspector>
-          </Suspense>
+          <AgentInspector
+            chatHomeHandoffActive={chatHomeHandoffActive}
+            chatHomeHandoffPending={chatHomeHandoffPending}
+          >
+            {contentFrame}
+          </AgentInspector>
         )}
       </div>
     </HeaderActionsProvider>

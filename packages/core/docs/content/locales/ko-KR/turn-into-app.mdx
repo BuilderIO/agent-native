@@ -10,9 +10,13 @@ description: "/turn-into-app skill은 스레드, skill, 스프레드시트 또�
 ## 시작하기 전에 {#before-you-start}
 
 - 터미널 명령을 실행할 수 있는 AI 에이전트(예: Claude Code, Codex, Cursor). 웹의 Claude나 ChatGPT는 대신 작업을 Builder에 전달할 수 있습니다. [실행 환경](#hosts)을 참조하세요.
-- [Node.js](https://nodejs.org) 22.22 이상. nodejs.org의 설치 프로그램에는 아래 설치 명령을 실행하는 `npx`가 포함되어 있습니다. `node --version`으로 버전을 확인하세요.
-- [pnpm](https://pnpm.io)이 `PATH`에 있어야 합니다. `pnpm --version`이 실패하면 `corepack enable`을 실행하세요. corepack은 Node.js에 포함되어 있습니다.
+- [Node.js](https://nodejs.org). nodejs.org의 설치 프로그램에는 아래 설치 명령을 실행하는 `npx`가 포함되어 있습니다.
 - 새 앱을 위한 빈 폴더와 약 45분.
+
+skill은 앱을 내 컴퓨터에서 실행할지, Builder에서 호스팅할지 묻습니다. 어느 쪽이든 한 가지가 더 필요합니다:
+
+- **내 컴퓨터에서.** Node.js 22.22 이상(`node --version`으로 확인)과 `PATH`에 있는 [pnpm](https://pnpm.io). `pnpm --version`이 실패하면 `corepack enable`을 실행하세요. corepack은 Node.js에 포함되어 있습니다.
+- **Builder에서 호스팅.** 무료 Builder 계정. 그 밖에 설치할 것은 없습니다.
 
 앱을 만드는 데는 AI 제공자 키가 필요하지 않습니다. 앱 내 에이전트가 답하게 하고 싶을 때만 필요합니다.
 
@@ -43,14 +47,16 @@ Agent-Native CLI가 이미 있는 프로젝트 안에서는 `agent-native skills
 
 ## 실행 환경 {#hosts}
 
-| 호스트                                              | 동작                                                                                                                  |
-| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Claude Code, Codex, Cursor, 기타 로컬 코딩 에이전트 | 사용자의 체크아웃에서 앱을 빌드하고 실행하며 검토합니다.                                                              |
-| 웹의 Claude 또는 ChatGPT                            | 범위가 정해진 브리프를 작성하여 Dispatch 커넥터를 통해 Builder에 전달합니다. 자체적으로는 아무것도 실행하지 않습니다. |
+| 호스트                                              | 동작                                                                                                                                           |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code, Codex, Cursor, 기타 로컬 코딩 에이전트 | 앱을 어디서 실행할지 묻습니다. 내 컴퓨터를 고르면 사용자의 체크아웃에서 앱을 빌드하고 실행하며 검토합니다. 그렇지 않으면 Builder에 전달합니다. |
+| 웹의 Claude 또는 ChatGPT                            | 범위가 정해진 브리프를 작성하여 Dispatch 커넥터를 통해 Builder에 전달합니다. 자체적으로는 아무것도 실행하지 않습니다.                          |
 
 호스트에 실제 작업 디렉터리, 터미널, 워크스페이스가 있으면 로컬 호스트로 간주합니다. Builder나 Dispatch 커넥터가 있다고 해서 브라우저 호스트가 되는 것은 아닙니다.
 
-브라우저 호스트에서는 skill이 Agent-Native Dispatch MCP 커넥터(`https://dispatch.agent-native.com/mcp`, OAuth)를 필요로 하며 해당 커넥터의 `start-workspace-app-creation` 액션을 호출합니다. 호스트는 앱을 실행하거나 검사할 수 없으므로, Dispatch가 반환한 브랜치가 빌드될 때까지 보고서는 보류 또는 미검증 상태로 남습니다. skill은 Dispatch가 실제로 반환한 내용만 보고하며 브랜치 URL을 지어내지 않습니다. ChatGPT 프로젝트나 MCP만 노출하는 호스트에서는 skill 지침을 프로젝트 지침이나 지식 파일에 넣으세요.
+로컬 호스트에서 skill은 브리프를 보여 준 뒤 질문 하나를 합니다: **내 컴퓨터에서**(Node.js와 pnpm 필요, 컴퓨터가 켜져 있는 동안 폴더에서 앱이 실행됨) 또는 **Builder에서 호스팅**(무료 Builder 계정 필요, Builder가 앱을 빌드해 온라인으로 호스팅하며 무료 플랜에는 일일 크레딧 한도가 있음). Node.js 22.22+나 pnpm이 없거나, 로컬 앱을 계속 실행해 둘 수 없는 Claude Cowork에서는 Builder를 권장하고, 그 밖에는 내 컴퓨터를 권장합니다. 이미 실행 위치를 말했거나, 이전 실행을 재개하거나, 앱의 기준 소스가 내 컴퓨터의 파일이거나(Local File Mode), 헤드리스 실행(내 컴퓨터에서 빌드함)에서는 묻지 않습니다. Builder를 선택하면 폴더의 소스 파일을 첨부하고 로컬에서는 아무것도 실행하지 않습니다.
+
+Builder 호스팅은 어느 종류의 호스트에서든 Agent-Native Dispatch MCP 커넥터(`https://dispatch.agent-native.com/mcp`, OAuth)가 필요하며 해당 커넥터의 `start-workspace-app-creation` 액션을 호출합니다. 사용자 쪽에서는 아무것도 실행되지 않으므로, Dispatch가 반환한 브랜치가 빌드될 때까지 보고서는 보류 또는 미검증 상태로 남습니다. skill은 Dispatch가 실제로 반환한 내용만 보고하며 브랜치 URL을 지어내지 않습니다. 커넥터가 없는 로컬 에이전트에서는 skill이 `npx @agent-native/core@latest connect https://dispatch.agent-native.com --client claude-code`(또는 `codex`, `cursor`, `cowork`)로 설정하겠다고 제안합니다. 에이전트를 다시 시작한 뒤 skill을 다시 실행하세요. Node.js가 없으면 에이전트별 설정 단계가 있는 `https://dispatch.agent-native.com/mcp/connect`로 안내합니다. 묻지 않고 로컬 빌드로 바꾸는 일은 없습니다. ChatGPT 프로젝트나 MCP만 노출하는 호스트에서는 skill 지침을 프로젝트 지침이나 지식 파일에 넣으세요.
 
 ## 소스 {#sources}
 
@@ -72,7 +78,7 @@ skill은 소스 브리프를 `docs/brief.md`로 저장하고 화면 디자인을
 ## 실행 과정 {#how-it-works}
 
 1. **브리프.** 전체 소스를 읽고 짧은 브리프를 작성합니다. 작업, 최대 세 개의 에이전트 순간, 불변 조건, 데이터 위험, 기준 소스, 가정이 포함됩니다.
-2. **디자인.** 아키타입, 방향, 셸, 첫 뷰포트와 샘플 데이터, 에이전트 순간을 결정하고 브리프를 체크포인트로 한 번 게시하면서 나머지에 걸리는 시간도 알려 줍니다. 기다리지 않고 계속 진행합니다.
+2. **디자인.** 아키타입, 방향, 셸, 첫 뷰포트와 샘플 데이터, 에이전트 순간을 결정하고 브리프를 체크포인트로 한 번 게시하면서 나머지에 걸리는 시간도 알려 줍니다. 로컬 호스트에서는 이어서 앱을 어디서 실행할지 묻고 답을 기다립니다. 그 밖에는 기다리지 않고 계속 진행합니다. Builder 호스팅에서는 Dispatch 인계가 3~6단계를 대신합니다.
 3. **스캐폴드.** chat 템플릿으로 실제 앱을 만들며 기존 앱을 덮어쓰지 않습니다.
 
    ```bash
@@ -107,6 +113,8 @@ skill의 목표 소요 시간은 약 45분입니다. 리뷰를 시작할 때 이
 pnpm dev
 ```
 
+앱을 바꾸려면 같은 폴더에서 앱을 만든 에이전트에게 요청하세요. localhost에서는 앱 자체의 에이전트가 앱 코드를 편집할 수 없습니다. Builder에서 호스팅하는 앱의 코드는 Builder에 있으므로 Builder에서 변경합니다.
+
 로컬에서 자신의 모델 제공자를 사용하려면 같은 `.env`에 `ANTHROPIC_API_KEY` 같은 키를 넣으세요. 그렇지 않아도 앱은 샘플 데이터로 열리며, 에이전트를 사용할 때 에이전트 사이드바에 공유 Use Builder.io 또는 Custom keys 설정이 표시됩니다.
 
 skill은 사용자가 요청하거나 제공자가 이미 구성된 경우에만 배포합니다. 정상적인 로컬 빌드도 종료 코드 0과 함께 "production configuration errors" 블록을 출력합니다. 이것이 배포 체크리스트이며, 안정적인 `BETTER_AUTH_SECRET`과 영구적인 `DATABASE_URL`, 그리고 워크스페이스 안의 앱에는 `A2A_SECRET`이 포함됩니다. skill은 이를 보류 중인 단계로 보고하며 자리 표시자 값을 만들지 않습니다. [앱 배포](/docs/deploy-an-app)와 [워크스페이스 배포](/docs/workspace-deployment)를 참조하세요.
@@ -120,10 +128,10 @@ skill은 사용자가 요청하거나 제공자가 이미 구성된 경우에만
 - **브라우저 호스트의 스프레드시트.** 워크북은 첨부할 수 없습니다. 호스트가 제한된 CSV 렌더링을 텍스트로 전달하거나 의도적으로 공개된 URL을 전달하며, 인계 시 제외된 내용을 알려 줍니다. 비공개 시트 링크는 소스가 아닙니다. 스킬은 인증된 Sheets 또는 Drive 연결이나 내보내기 파일을 요청하며, 접근 제어를 우회하기 위해 공개 내보내기 URL을 사용하지 않습니다.
 - **셀 색상.** 텍스트 미리 보기로는 색상을 증명할 수 없으므로, 로컬 호스트에서는 skill이 수식과 캐시된 값을 모두 읽고 색상은 약한 힌트로 취급합니다.
 - **Local File Mode 앱.** 기준 소스가 호스트의 파일인 앱은 로컬 전용이며 배포되지 않습니다.
-- **브라우저 호스트 인계.** Dispatch가 빌드된 브랜치를 반환할 때까지 결과는 미검증 상태입니다. skill은 그곳에서 앱을 실행하거나 스크린샷을 찍을 수 없습니다.
+- **Builder 인계.** Dispatch가 빌드된 브랜치를 반환할 때까지 결과는 미검증 상태입니다. skill은 Builder가 호스팅하는 앱을 실행하거나 스크린샷을 찍을 수 없습니다.
 
 ## 다음 단계 {#whats-next}
 
 - skills가 설치되고 로드되는 방식은 [Skills 가이드](/docs/skills-guide)
-- 웹의 Claude와 ChatGPT에서 사용하는 커넥터는 [Dispatch](/docs/dispatch)
+- Builder 호스팅에 사용하는 커넥터는 [Dispatch](/docs/dispatch)
 - 생성된 앱을 프로덕션으로 가져가려면 [앱 배포](/docs/deploy-an-app)

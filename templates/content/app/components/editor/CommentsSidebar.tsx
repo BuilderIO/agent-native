@@ -10,11 +10,9 @@ import type {
 } from "@agent-native/core/review";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import {
-  IconCheck,
   IconArrowBackUp,
   IconCircleCheck,
   IconCornerDownRight,
-  IconChevronDown,
   IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -26,7 +24,6 @@ import {
   useLayoutEffect,
   useMemo,
   useCallback,
-  useId,
   type RefObject,
   type ReactNode,
 } from "react";
@@ -35,6 +32,9 @@ import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
 import type { DocumentProperty } from "@shared/api";
+import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
+import type { CommentAiRequest } from "@shared/comment-ai";
+import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
 import {
   commentMentionsForText,
   findCommentMentions,
@@ -44,6 +44,7 @@ import {
   findReplaceSuggestionSummary,
   suggestionDiffParts,
 } from "@shared/suggestion-diff";
+import { WORD_CHARACTER } from "@shared/suggestion-placement";
 import {
   suggestionAnchorText,
   suggestionTextForDisplay,
@@ -81,12 +82,19 @@ import {
 } from "./blockFieldTabs";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
+  commentThreadAt,
+  commentThreadMarkSelector,
+  commentThreadQuote,
+} from "./comment-block-anchors";
+import {
   draftMention,
   useCommentDraft,
   useCommentDraftContext,
   useCommentPanelSession,
   type CommentDraft,
+  type CommentDraftRevision,
   type MentionEntry,
+  type UncertainSubmission,
 } from "./comment-drafts";
 import type { CommentAiSelection } from "./CommentAiRecipient";
 import {
@@ -95,9 +103,8 @@ import {
   type CommentAiDraft,
   type CommentAiSubmitPayload,
 } from "./CommentComposer";
-import { CommentEntry } from "./CommentEntry";
+import { AgentAttributionBadge, CommentEntry } from "./CommentEntry";
 import {
-  CommentAgentBadge,
   CommentAvatar,
   CommentIconButton,
   CommentRow,
@@ -129,11 +136,20 @@ import {
 } from "./property-comments";
 export { getAiCommentSource } from "./CommentEntry";
 import {
+  clipMarginThreadId,
+  optimisticClipCommentId,
+  seekClip,
+  useClipStackFronts,
+} from "./clip-embed/clip-comments";
+import { msToClock } from "./clip-embed/scrubber-position";
+import { useClipCommentWrites } from "./clip-embed/use-clip-comment-writes";
+import {
   CommentAiConversation,
   CommentAiRequestStatus,
   isCommentAiWorkingOn,
   latestCommentAiRequest,
   startCommentAiSubmission,
+  threadHasAppliedAiChange,
   type CommentAiController,
 } from "./comment-ai";
 import {
@@ -157,15 +173,27 @@ import {
   ReviewCommentMenu,
   ReviewReactionList,
 } from "./ReviewDiscussionTools";
+import { ProposalGroup, SuggestionDecisionButtons } from "./SuggestionControls";
 import type { DraftSuggestion } from "./suggestions/draft-session";
 import { SuggestionText } from "./SuggestionText";
 import {
   proposalGroups,
   receiptSuggestion,
+  reviewUnitDiffParts,
+  piecesOfStaleUnits,
+  reviewUnitLabel,
+  reviewUnitOperations,
+  reviewUnits,
   suggestionSourceThreadId,
   suggestionsByThread,
+  withWholeReviewUnits,
+  type ReviewUnit,
 } from "./thread-suggestions";
-import { ThreadSuggestionBody, ThreadSuggestionRow } from "./ThreadSuggestion";
+import {
+  ThreadSuggestionBody,
+  ThreadSuggestionPlaceholder,
+  ThreadSuggestionRow,
+} from "./ThreadSuggestion";
 
 /** Where a thread card is shown; each surface shares the same rows. */
 export type CommentSurface = "rail" | "popover" | "panel";
@@ -218,10 +246,35 @@ function isAmbiguousCommentCreateError(error: unknown) {
     timedOut === true ||
     (typeof status === "number"
       ? status < 400 || status === 408 || status >= 500
-      : /^Action (?:add-comment|reply-review-comment) failed:/.test(
+      : /^Action (?:add-comment|add-clip-comment|reply-review-comment) failed:/.test(
           error.message,
         ) || error.name === "AbortError")
   );
+}
+
+/**
+ * The operation id a draft handed back after an uncertain failure keeps, when
+ * the request about to be sent is that same one.
+ */
+function retryOperationId(
+  draft: CommentDraftRevision | undefined,
+  payload: string,
+): string | undefined {
+  return draft?.retry?.payload === payload
+    ? draft.retry.operationId
+    : undefined;
+}
+
+/**
+ * What a failed send leaves to retry with. A retry's refusal says nothing about
+ * the try it repeats, which may have saved, so its key stays however it fails.
+ */
+function uncertainAfterFailure(
+  error: unknown,
+  retried: boolean,
+  submission: UncertainSubmission,
+): UncertainSubmission | null {
+  return retried || isAmbiguousCommentCreateError(error) ? submission : null;
 }
 
 /** The session's name for the signed-in person's own entries, if it has one. */
@@ -247,6 +300,8 @@ function cssEscape(value: string) {
 export type CommentThreadPosition = {
   documentTop: number;
   layoutTop: number | null;
+  /** Measured past the highlight's start, which is drawn nowhere for now. */
+  partial?: true;
 };
 
 function anchorPosition(
@@ -269,7 +324,10 @@ function anchorPosition(
 /**
  * Where a thread's highlight is. `fieldId` names the Blocks field tab whose
  * editor holds it; null or omitted is the page body. A highlight in a tab
- * that isn't open has no position.
+ * that isn't open has no position. While an accepted edit settles its
+ * original text is hidden, and with it the highlight's start: the rest of the
+ * highlight is a partial position, and a highlight drawn nowhere is
+ * "unrendered", since it would measure at the top of the page.
  */
 export function findThreadPosition(
   threadId: string,
@@ -280,7 +338,7 @@ export function findThreadPosition(
     | "data-comment-thread"
     | "data-suggestion-id" = "data-comment-thread",
   fieldId: string | null = null,
-): CommentThreadPosition | null {
+): CommentThreadPosition | "unrendered" | null {
   if (!scrollContainer) return null;
   const fieldEditor =
     fieldId === null ? null : blockFieldEditor(scrollContainer, fieldId);
@@ -289,16 +347,23 @@ export function findThreadPosition(
     (!fieldEditor || inHiddenBlockFieldPanel(fieldEditor))
   )
     return null;
-  const marked = (fieldEditor ?? scrollContainer).querySelector(
-    `${anchorAttribute === "data-suggestion-id" && !fieldEditor ? ".ProseMirror " : ""}[${anchorAttribute}="${cssEscape(threadId)}"]`,
-  ) as HTMLElement | null;
-  if (marked && !inHiddenBlockFieldPanel(marked)) {
-    return anchorPosition(
-      marked.getBoundingClientRect().top,
+  const marks = [
+    ...(fieldEditor ?? scrollContainer).querySelectorAll<HTMLElement>(
+      anchorAttribute === "data-comment-thread"
+        ? commentThreadMarkSelector(threadId)
+        : `${fieldEditor ? "" : ".ProseMirror "}[${anchorAttribute}="${cssEscape(threadId)}"]`,
+    ),
+  ].filter((mark) => !inHiddenBlockFieldPanel(mark));
+  const drawn = marks.find((mark) => mark.getClientRects().length > 0);
+  if (drawn) {
+    const position = anchorPosition(
+      drawn.getBoundingClientRect().top,
       scrollContainer,
       layoutContainer,
     );
+    return drawn === marks[0] ? position : { ...position, partial: true };
   }
+  if (marks.length) return "unrendered";
 
   if (!quotedText) return null;
   const pm = fieldEditor ?? primaryBlockFieldEditor(scrollContainer);
@@ -310,8 +375,11 @@ export function findThreadPosition(
   );
   const searchStr = quotedText.slice(0, 40);
   let node: Node | null;
+  let found = false;
   while ((node = walker.nextNode())) {
     if (node.textContent && node.textContent.includes(searchStr)) {
+      found = true;
+      if (!node.parentElement?.getClientRects().length) continue;
       const range = window.document.createRange();
       range.selectNode(node);
       return anchorPosition(
@@ -321,7 +389,7 @@ export function findThreadPosition(
       );
     }
   }
-  return null;
+  return found ? "unrendered" : null;
 }
 
 // The elements a page's text blocks render as.
@@ -378,6 +446,23 @@ function measureThreadQuotes(
   return quotes;
 }
 
+/** The edits the thread's AI requests made that the page is still loading. */
+function loadingThreadSuggestionIds(
+  requests: readonly CommentAiRequest[],
+  threadId: string,
+  awaitedSuggestionIds: ReadonlySet<string>,
+) {
+  return requests.flatMap((request) => {
+    const suggestionId = request.result?.suggestionId;
+    return request.threadId === threadId &&
+      request.status === "suggested" &&
+      suggestionId &&
+      awaitedSuggestionIds.has(suggestionId)
+      ? [suggestionId]
+      : [];
+  });
+}
+
 /** Whether a thread's tab is on the page but not open. */
 function sameThreadIds(a: ReadonlySet<string>, b: ReadonlySet<string>) {
   return a.size === b.size && [...b].every((threadId) => a.has(threadId));
@@ -400,14 +485,25 @@ function threadTabHidden(
   return !!editor && inHiddenBlockFieldPanel(editor);
 }
 
+/** What a new comment sits beside: its text's highlight, or its Clip. */
+function pendingCommentMark(
+  container: ParentNode,
+  clipRecordingId: string | null,
+): HTMLElement | null {
+  return container.querySelector<HTMLElement>(
+    clipRecordingId
+      ? `[data-clip-embed="${cssEscape(clipRecordingId)}"]`
+      : ".comment-highlight--pending",
+  );
+}
+
 export function findPendingCommentPosition(
   scrollContainer: HTMLElement | null,
   layoutContainer: HTMLElement | null,
+  clipRecordingId: string | null = null,
 ): CommentThreadPosition | null {
   if (!scrollContainer) return null;
-  const pending = scrollContainer.querySelector(
-    ".comment-highlight--pending",
-  ) as HTMLElement | null;
+  const pending = pendingCommentMark(scrollContainer, clipRecordingId);
   if (!pending) return null;
   return anchorPosition(
     pending.getBoundingClientRect().top,
@@ -420,6 +516,7 @@ type ThreadLayoutIdentity = { threadId: string; comments: readonly unknown[] };
 
 const NO_THREADS: CommentThread[] = [];
 const NO_SUGGESTIONS: ResourceSuggestion[] = [];
+const NO_SUGGESTION_IDS: ReadonlySet<string> = new Set();
 const NO_DRAFT_SUGGESTIONS: DraftSuggestion[] = [];
 
 export function estimateThreadCardHeight(thread: ThreadLayoutIdentity) {
@@ -432,6 +529,8 @@ export function estimateThreadCardHeight(thread: ThreadLayoutIdentity) {
  */
 export const PENDING_COMMENT_LAYOUT_ID = "pending-comment";
 const PENDING_COMMENT_CARD_ESTIMATE = 112;
+/** How much of a new entry must show in a capped card to count as in view. */
+const NEW_ENTRY_MIN_VISIBLE = 64;
 /** An open stack's Collapse row, laid out like a card above its threads. */
 const STACK_HEADER_LAYOUT_ID = "comment-stack-header";
 const STACK_HEADER_HEIGHT = 28;
@@ -549,6 +648,53 @@ export function layoutCommentThreads<T extends ThreadLayoutIdentity>(
   });
 }
 
+/**
+ * An open stack laid out as one block: its Collapse row, then its cards, each
+ * at an offset from the block's top. The card in focus, selected or a new
+ * comment, sits level with its highlight, under the cards before it when they
+ * fit above it. Near the top of the margin they don't, and pushing them above
+ * it would leave the Collapse row where nothing can scroll to it, so the card
+ * in focus comes first and the rest follow in document order.
+ */
+export function arrangeOpenStack(
+  cards: readonly { threadId: string; height: number }[],
+  focusId: string | null,
+  positions: ReadonlyMap<string, CommentThreadPosition>,
+  headerHeight: number,
+  gap = 12,
+): { offsets: Map<string, number>; height: number; layoutTop: number | null } {
+  const focusIndex = cards.findIndex((card) => card.threadId === focusId);
+  const focus = focusIndex >= 0 ? cards[focusIndex] : undefined;
+  const focusTop = focus
+    ? (positions.get(focus.threadId)?.layoutTop ?? null)
+    : null;
+  const above = cards
+    .slice(0, Math.max(0, focusIndex))
+    .reduce((sum, card) => sum + card.height + gap, headerHeight + gap);
+  const order =
+    focus && focusTop !== null && focusTop < above
+      ? [focus, ...cards.filter((_, index) => index !== focusIndex)]
+      : cards;
+  const offsets = new Map<string, number>();
+  let bottom = headerHeight;
+  for (const card of order) {
+    offsets.set(card.threadId, bottom + gap);
+    bottom += gap + card.height;
+  }
+  const anchor = focusTop !== null ? focus : cards[0];
+  const anchorTop = anchor
+    ? (positions.get(anchor.threadId)?.layoutTop ?? null)
+    : null;
+  return {
+    offsets,
+    height: bottom,
+    layoutTop:
+      anchor && anchorTop !== null
+        ? anchorTop - (offsets.get(anchor.threadId) ?? 0)
+        : null,
+  };
+}
+
 export function scrollToCommentAnchor(
   scrollContainer: HTMLElement | null,
   documentTop: number | null | undefined,
@@ -581,7 +727,9 @@ export function preserveCommentComposerEscape(event: KeyboardEvent) {
     target.closest("[data-comment-composer], [data-discussion-toolbar]")
   ) {
     event.preventDefault();
+    return true;
   }
+  return false;
 }
 
 type CommentHistoryFilters = {
@@ -743,7 +891,9 @@ export function useCommentReplyDrafts(
     [documentId, accountKey],
   );
   const [openReplies, setOpenReplies] = useState<
-    Record<string, { threadId: string | null; suggestionId: string | null }>
+    Partial<
+      Record<string, { threadId: string | null; suggestionId: string | null }>
+    >
   >({});
   const focus = useRef<{
     documentId: string;
@@ -752,9 +902,6 @@ export function useCommentReplyDrafts(
     end?: number;
     direction?: "forward" | "backward" | "none";
   } | null>(null);
-  const replyRetries = useRef(
-    new Map<string, { payload: string; operationId: string }>(),
-  );
   const setOpenReply = useCallback(
     (
       threadId: string | null,
@@ -763,10 +910,18 @@ export function useCommentReplyDrafts(
     ) => {
       focus.current =
         threadId && focusComposer ? { documentId, threadId } : null;
-      setOpenReplies((current) => ({
-        ...current,
-        [documentId]: { threadId, suggestionId },
-      }));
+      // Every click on a page closes its reply, so an unchanged one must keep
+      // this state as it is: a new object re-renders the whole page each click.
+      setOpenReplies((current) => {
+        const open = current[documentId];
+        if (
+          (open?.threadId ?? null) === threadId &&
+          (open?.suggestionId ?? null) === suggestionId
+        ) {
+          return current;
+        }
+        return { ...current, [documentId]: { threadId, suggestionId } };
+      });
     },
     [documentId],
   );
@@ -828,25 +983,24 @@ export function useCommentReplyDrafts(
         },
       );
     },
-    restoreSubmittedDraft: (threadId: string, operationId: string) =>
+    restoreSubmittedDraft: (
+      threadId: string,
+      operationId: string,
+      retry?: UncertainSubmission | null,
+    ) =>
       draftStore.restoreSubmittedDraft(
         `reply:${documentId}:${threadId}`,
         operationId,
+        retry,
       ),
     finishSubmission: draftStore.finishSubmission,
     isSubmitting: (threadId: string) =>
       draftStore.isSubmittingDraft(`reply:${documentId}:${threadId}`),
-    retryOperationId: (threadId: string, payload: string) => {
-      const retry = replyRetries.current.get(threadId);
-      return retry?.payload === payload ? retry.operationId : undefined;
-    },
-    rememberRetry: (threadId: string, payload: string, operationId: string) =>
-      replyRetries.current.set(threadId, { payload, operationId }),
-    clearRetry: (threadId: string, operationId: string) => {
-      if (replyRetries.current.get(threadId)?.operationId === operationId) {
-        replyRetries.current.delete(threadId);
-      }
-    },
+    retryOperationId: (threadId: string, payload: string) =>
+      retryOperationId(
+        draftStore.drafts.get(`reply:${documentId}:${threadId}`),
+        payload,
+      ),
   };
 }
 
@@ -854,13 +1008,17 @@ export type PendingCommentSelection = {
   quotedText: string;
   offsetTop: number;
   anchor?: CommentTextAnchor;
-  range?: { from: number; to: number };
+  range?: { from: number; to: number; blockId?: string };
+  /** Set when the comment is on a whole block, such as a video. */
+  block?: { blockId: string; blockType: CommentAnchorBlockType };
   /** The Blocks field tab the quoted text is in; absent is the page body. */
   fieldId?: string | null;
   /** Set when the comment is on a Property value instead of quoted text. */
   property?: CommentPropertyTarget;
   /** The Collection whose Property it is. */
   databaseId?: string | null;
+  /** Set when the comment starts a thread at a moment of a Clip's video. */
+  clip?: { recordingId: string; videoTimestampMs: number };
 };
 
 type PendingCommentDraft = PendingCommentSelection & {
@@ -890,7 +1048,22 @@ export function usePendingCommentDraft(documentId: string) {
   const currentDocumentId = useRef(documentId);
   currentDocumentId.current = documentId;
   const setPendingComment = useCallback(
-    (selection: PendingCommentSelection | null) => {
+    (
+      selection: PendingCommentSelection | null,
+      options?: { keepWritten?: boolean },
+    ) => {
+      // Opening another thread leaves a comment someone has started, so
+      // nothing they wrote is lost; an empty one closes as before.
+      if (!selection && options?.keepWritten && current.current) {
+        const { text, mentions, aiDraft } = pendingDraftRef.current.draft;
+        if (
+          current.current.submitting ||
+          text.trim() ||
+          mentions.length ||
+          aiDraft
+        )
+          return;
+      }
       pendingDraftRef.current.discard();
       current.current = selection
         ? {
@@ -971,6 +1144,9 @@ interface CommentsSidebarOptions {
   unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
   focusSuggestionId?: string | null;
   onSuggestionFocused?: () => void;
+  /** Puts the caret in Discussion's composer, for a comment on the whole Page. */
+  focusPageComposer?: boolean;
+  onPageComposerFocused?: () => void;
   hoveredSuggestionId?: string | null;
   anchoredSuggestionIds?: string[] | null;
   onActivateSuggestion?: (id: string) => void;
@@ -989,11 +1165,26 @@ interface CommentsSidebarOptions {
   alignToAnchors?: boolean;
   forceVisible?: boolean;
   suggestions?: ResourceSuggestion[];
+  /** Suggestions an agent's request names that the Page has not loaded yet. */
+  awaitedSuggestionIds?: ReadonlySet<string>;
+  /** Awaited suggestions whose last read failed. */
+  unreadableSuggestionIds?: ReadonlySet<string>;
+  onRetrySuggestionRead?: () => void;
   draftSuggestions?: DraftSuggestion[];
   onMaterializeDraft?: (
     suggestion: DraftSuggestion,
   ) => Promise<ResourceSuggestion | null>;
+  /** Shows the decision on a draft at once, then saves and decides it. */
+  onDecideDraftSuggestion?: (
+    suggestion: DraftSuggestion,
+    decision: SuggestionDecision,
+  ) => void;
   canDecideSuggestions?: boolean;
+  /**
+   * Accepting a tab's suggestion writes its Collection's field, so it also
+   * takes edit access to the Collection. Rejecting one writes nothing.
+   */
+  canDecideFieldSuggestions?: boolean;
   decidingSuggestion?: (suggestionId: string) => boolean;
   onDecideSuggestion?: (
     suggestion: ResourceSuggestion,
@@ -1003,7 +1194,9 @@ interface CommentsSidebarOptions {
     proposalId: string,
     decision: SuggestionDecision,
     pendingMembers: ResourceSuggestion[],
-  ) => void;
+    /** Decide just these, as one review unit, not all that's pending by then. */
+    exactMembers?: boolean,
+  ) => void | Promise<void>;
   visibleThreadId?: string | null;
   presentation?: "inline" | "history";
   /** Card treatment: margin rail, anchored popover, or the comments panel. */
@@ -1015,6 +1208,7 @@ interface CommentsSidebarOptions {
   /** Whether comment highlights show on the page; the panel can switch them. */
   highlightsVisible?: boolean;
   onHighlightsVisibleChange?: (visible: boolean) => void;
+  pageComposerRef?: RefObject<TiptapComposerHandle | null>;
 }
 
 type CommentsSidebarProps = CommentsSidebarOptions &
@@ -1062,6 +1256,8 @@ export function CommentsSidebar({
   unplaceableSuggestionRevisions,
   focusSuggestionId,
   onSuggestionFocused,
+  focusPageComposer = false,
+  onPageComposerFocused,
   hoveredSuggestionId,
   anchoredSuggestionIds,
   onActivateSuggestion,
@@ -1078,9 +1274,14 @@ export function CommentsSidebar({
   alignToAnchors = true,
   forceVisible = false,
   suggestions = NO_SUGGESTIONS,
+  awaitedSuggestionIds = NO_SUGGESTION_IDS,
+  unreadableSuggestionIds = NO_SUGGESTION_IDS,
+  onRetrySuggestionRead,
   draftSuggestions = NO_DRAFT_SUGGESTIONS,
   onMaterializeDraft,
+  onDecideDraftSuggestion,
   canDecideSuggestions = false,
+  canDecideFieldSuggestions = false,
   decidingSuggestion = () => false,
   onDecideSuggestion,
   onDecideSuggestionProposal,
@@ -1091,6 +1292,7 @@ export function CommentsSidebar({
   renderThreadActions,
   highlightsVisible = true,
   onHighlightsVisibleChange,
+  pageComposerRef,
 }: CommentsSidebarProps) {
   const surface: CommentSurface =
     surfaceProp ?? (presentation === "history" ? "panel" : "rail");
@@ -1099,13 +1301,22 @@ export function CommentsSidebar({
     currentUserEmail,
     currentUserOrgId,
   );
-  const createComment = useCreateComment({ email: currentUserEmail });
+  const createComment = useCreateComment({
+    email: currentUserEmail ?? null,
+    name: currentUserName ?? null,
+  });
+  const clipWrites = useClipCommentWrites(documentId, {
+    email: currentUserEmail,
+    name: currentUserName,
+  });
   const deleteComment = useDeleteComment();
   const resolveComment = useResolveComment();
   const queryClient = useQueryClient();
   const pendingDraft = useCommentDraft("pending");
   const pageDraft = useCommentDraft("page");
-  const pageComposerRef = useRef<TiptapComposerHandle>(null);
+  const ownPageComposerRef = useRef<TiptapComposerHandle>(null);
+  const pageComposerHandleRef = pageComposerRef ?? ownPageComposerRef;
+  const pageComposerBoxRef = useRef<HTMLDivElement>(null);
   const draftStore = useCommentDraftContext();
   const [pendingHandoff, setPendingHandoff] = useState<{
     id: symbol;
@@ -1207,6 +1418,10 @@ export function CommentsSidebar({
   const isUnplaceable = (suggestion: ResourceSuggestion) =>
     suggestion.status === "pending" &&
     unplaceableSuggestionRevisions?.get(suggestion.id) === suggestion.revision;
+  const staleUnitPieces = useMemo(
+    () => piecesOfStaleUnits(suggestions),
+    [suggestions],
+  );
   const activeConflictId = suggestions.find(
     (suggestion) =>
       suggestion.id === activeSuggestionId &&
@@ -1393,6 +1608,10 @@ export function CommentsSidebar({
     alignToAnchors &&
     !visibleThreadId;
   const [threadBlocks, setThreadBlocks] = useState(NO_BLOCKS);
+  // The open threads the blocks were measured for. A thread the margin hasn't
+  // measured yet sits outside its stack, so until then a stack's front is
+  // only provisional: a posted comment's saved copy, say, before its highlight.
+  const [placedThreadIds, setPlacedThreadIds] = useState<string | null>(null);
   // The block a new comment's text is in, once measured; `key` is null for
   // text in no block, such as a Property.
   const [pendingBlock, setPendingBlock] = useState<{
@@ -1406,6 +1625,9 @@ export function CommentsSidebar({
   // When each thread was last touched, so a folded stack shows that one.
   // Thread ids are unique across tabs, so a touch never crosses tabs.
   const [stackTouches, setStackTouches] = useState(NO_TOUCHES);
+  // The thread each folded card last showed in front, by its stack's threads,
+  // so a card that comes back with another thread in front plays the change.
+  const [shownStackFronts] = useState(() => new Map<string, string>());
   const touchCountRef = useRef(0);
   const touchThread = useCallback((threadId: string) => {
     touchCountRef.current += 1;
@@ -1419,6 +1641,17 @@ export function CommentsSidebar({
     () => (stacksEnabled ? groupCommentStacks(openThreads, threadBlocks) : []),
     [openThreads, stacksEnabled, threadBlocks],
   );
+  // A folded Clip stack follows its video: it shows the thread the playhead
+  // last passed.
+  const clipStackFronts = useClipStackFronts(
+    documentId,
+    commentStacks,
+    (stack) => commentStackFront(stack.threads, stackTouches).threadId,
+  );
+  const openThreadIds = useMemo(
+    () => openThreads.map((thread) => thread.threadId).join(","),
+    [openThreads],
+  );
   const stackOfThread = useMemo(() => {
     const stacks = new Map<string, CommentStack<CommentThread>>();
     for (const stack of commentStacks) {
@@ -1428,6 +1661,8 @@ export function CommentsSidebar({
   }, [commentStacks]);
   const stackOfThreadRef = useRef(stackOfThread);
   stackOfThreadRef.current = stackOfThread;
+  const openThreadIdRef = useRef(hoveredThreadId ?? selectedThreadId);
+  openThreadIdRef.current = hoveredThreadId ?? selectedThreadId;
   const pendingStackKey =
     displayedPendingComment && pendingBlock?.id === displayedPendingComment.id
       ? pendingBlock.key
@@ -1438,8 +1673,9 @@ export function CommentsSidebar({
       ) ?? null)
     : null;
   // A new comment outside the open stack folds it, as does leaving it with
-  // nothing selected.
+  // nothing selected. A thread opened while the comment waits keeps its own.
   const pendingFoldsOpenStack =
+    !selectedThreadId &&
     pendingStackKey !== undefined &&
     pendingStackKey !== (openedStack?.key ?? null);
   const expandedStack =
@@ -1460,6 +1696,18 @@ export function CommentsSidebar({
       ),
     );
   }, []);
+  // Cards closed by a resolve still saving. One is passed over once the
+  // selection leaves the thread that opened in its place or a new comment
+  // starts, so a failed resolve doesn't take back what came after.
+  const closedResolvesRef = useRef(
+    new Set<{ selection: string | null; passedOver: boolean }>(),
+  );
+  useEffect(() => {
+    for (const closed of closedResolvesRef.current) {
+      if ((selectedThreadId ?? null) !== closed.selection || pendingComment)
+        closed.passedOver = true;
+    }
+  }, [pendingComment, selectedThreadId]);
   const previousSelectionRef = useRef<string | null>(null);
   useEffect(() => {
     const previous = previousSelectionRef.current;
@@ -1510,9 +1758,7 @@ export function CommentsSidebar({
     const container = scrollContainerRef?.current;
     if (!stacksEnabled || !container) return;
     const openFromHighlight = (event: MouseEvent) => {
-      const threadId = (event.target as Element | null)
-        ?.closest?.("[data-comment-thread]")
-        ?.getAttribute("data-comment-thread");
+      const threadId = commentThreadAt(event.target, openThreadIdRef.current);
       if (!threadId || !stackOfThreadRef.current.has(threadId)) return;
       touchThread(threadId);
       openStackOn(threadId);
@@ -1521,32 +1767,22 @@ export function CommentsSidebar({
     return () => container.removeEventListener("click", openFromHighlight);
   }, [openStackOn, scrollContainerRef, stacksEnabled, touchThread]);
   // Resting on a highlight brings its thread to the front of a folded stack;
-  // passing over one on the way to the margin doesn't.
+  // passing over one on the way to the margin doesn't. It does so once per
+  // rest, so a thread touched while the pointer stays put, like a comment
+  // just posted, keeps the front.
+  const peekedThreadRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!hoveredThreadId) return;
+    if (peekedThreadRef.current !== hoveredThreadId)
+      peekedThreadRef.current = null;
+    if (!hoveredThreadId || peekedThreadRef.current) return;
     const stack = stackOfThread.get(hoveredThreadId);
     if (!stack || stack === expandedStack) return;
-    // Touching the stack's last-touched thread again would only rerun this.
-    const touch = stackTouches.get(hoveredThreadId);
-    if (
-      touch !== undefined &&
-      stack.threads.every(
-        (member) => (stackTouches.get(member.threadId) ?? 0) <= touch,
-      )
-    )
-      return;
-    const timer = setTimeout(
-      () => touchThread(hoveredThreadId),
-      STACK_HOVER_INTENT_MS,
-    );
+    const timer = setTimeout(() => {
+      peekedThreadRef.current = hoveredThreadId;
+      touchThread(hoveredThreadId);
+    }, STACK_HOVER_INTENT_MS);
     return () => clearTimeout(timer);
-  }, [
-    expandedStack,
-    hoveredThreadId,
-    stackOfThread,
-    stackTouches,
-    touchThread,
-  ]);
+  }, [expandedStack, hoveredThreadId, stackOfThread, touchThread]);
   const expandedStackKey = expandedStack?.key ?? null;
   const selectedInExpandedStack =
     !!selectedThreadId &&
@@ -1632,20 +1868,24 @@ export function CommentsSidebar({
     suggestions,
     threads,
   ]);
-  // Suggestions edit the page body, so they sit in its tab.
-  const historyBodyTabShown =
-    activeHistoryTab === null || activeHistoryTab === commentTabKey(null);
   // Suggested edits point at text and carry no @mentions of their own.
   const historyShowsSuggestions =
     historyKind !== "comments" &&
-    historyBodyTabShown &&
     (historyTarget === "all" || historyTarget === "text") &&
     !historyMentionsMe;
+  // A suggestion sits in the tab it edits.
+  const historyTabShowsSuggestion = useCallback(
+    (suggestion: Parameters<typeof suggestionBlocksFieldId>[0]) =>
+      activeHistoryTab === null ||
+      commentTabKey(suggestionBlocksFieldId(suggestion)) === activeHistoryTab,
+    [activeHistoryTab],
+  );
   const historySuggestions = useMemo(() => {
     if (!historyShowsSuggestions) return [];
-    return suggestions.filter((suggestion) => {
+    const matches = suggestions.filter((suggestion) => {
       if (historyKind === "all" && embeddedSuggestionIds.has(suggestion.id))
         return false;
+      if (!historyTabShowsSuggestion(suggestion)) return false;
       const unresolved =
         suggestion.status === "pending" || suggestion.status === "stale";
       if (historyStatus === "open" && !unresolved) {
@@ -1658,6 +1898,7 @@ export function CommentsSidebar({
         return false;
       return suggestionMatchesSearch(suggestion, historySearch);
     });
+    return withWholeReviewUnits(matches, suggestions);
   }, [
     embeddedSuggestionIds,
     historyAuthor,
@@ -1665,6 +1906,7 @@ export function CommentsSidebar({
     historySearch,
     historyShowsSuggestions,
     historyStatus,
+    historyTabShowsSuggestion,
     suggestions,
   ]);
   const historyDraftSuggestions = useMemo(() => {
@@ -1673,6 +1915,7 @@ export function CommentsSidebar({
     return draftSuggestions.filter(
       (suggestion) =>
         (!historyAuthor || suggestion.authorEmail === historyAuthor) &&
+        historyTabShowsSuggestion(suggestion) &&
         suggestionMatchesSearch(suggestion, historySearch),
     );
   }, [
@@ -1681,6 +1924,7 @@ export function CommentsSidebar({
     historySearch,
     historyShowsSuggestions,
     historyStatus,
+    historyTabShowsSuggestion,
   ]);
   // Comments someone just posted on the page stay in view even when their
   // filters would hide them, until they change the filters.
@@ -1907,6 +2151,67 @@ export function CommentsSidebar({
     };
   }, [pendingFocus, presentation]);
 
+  const onPageComposerFocusedRef = useRef(onPageComposerFocused);
+  onPageComposerFocusedRef.current = onPageComposerFocused;
+  useEffect(() => {
+    if (!focusPageComposer || presentation !== "history") return;
+    let attempts = 0;
+    let frame = 0;
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      cancelAnimationFrame(frame);
+      onPageComposerFocusedRef.current?.();
+    };
+    // The preview and the panel move focus as they open, so a focus change
+    // isn't the person moving on; only their own click or key press elsewhere
+    // drops the request.
+    const relinquish = (event: Event) => {
+      if (!pageComposerBoxRef.current?.contains(event.target as Node)) settle();
+    };
+    document.addEventListener("pointerdown", relinquish, true);
+    document.addEventListener("keydown", relinquish, true);
+    const focusComposer = () => {
+      const box = pageComposerBoxRef.current;
+      if (!box?.contains(document.activeElement))
+        pageComposerHandleRef.current?.focus();
+      // The panel may still be opening, so the composer may not be on screen
+      // yet. A request that never lands is dropped rather than left to take
+      // focus the next time Discussion opens.
+      if (box?.contains(document.activeElement) || ++attempts >= 60) {
+        settle();
+        return;
+      }
+      frame = requestAnimationFrame(focusComposer);
+    };
+    frame = requestAnimationFrame(focusComposer);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("pointerdown", relinquish, true);
+      document.removeEventListener("keydown", relinquish, true);
+    };
+  }, [focusPageComposer, presentation, pageComposerHandleRef]);
+
+  // A Clip's thread is saved in Clips; the margin knows it by an id that
+  // also names the Clip.
+  const startClipThread = async (
+    clip: { recordingId: string; videoTimestampMs: number },
+    content: string,
+    operationId: string,
+  ) => {
+    const saved = await clipWrites.startThread({
+      recordingId: clip.recordingId,
+      content,
+      videoTimestampMs: clip.videoTimestampMs,
+      operationId,
+    });
+    return {
+      id: saved.id,
+      threadId: clipMarginThreadId(clip.recordingId, saved.threadId),
+    };
+  };
+
   const handlePendingSubmit = async (
     agent?: CommentAiSelection,
   ): Promise<{
@@ -1924,32 +2229,64 @@ export function CommentsSidebar({
     )
       return null;
     const id = pendingComment.id;
-    const clientOperationId = crypto.randomUUID();
+    const clip = pendingComment.clip;
+    // Only a Clip comment comes back as a draft after a failure that may
+    // have saved it; posting it unchanged is a repeat Clips answers once.
+    const clipPayload = clip
+      ? JSON.stringify({
+          documentId,
+          recordingId: clip.recordingId,
+          videoTimestampMs: clip.videoTimestampMs,
+          content: pendingText.trim(),
+        })
+      : null;
+    const retryId =
+      clipPayload !== null
+        ? retryOperationId(pendingDraft.draft, clipPayload)
+        : undefined;
+    const clientOperationId = retryId ?? crypto.randomUUID();
     pendingDraft.beginSubmission(clientOperationId);
     onPendingChange(id, () => ({ submitting: true }));
     setPendingHandoff({ id, operationId: clientOperationId });
-    touchThread(`optimistic-${clientOperationId}`);
+    touchThread(
+      clip
+        ? clipMarginThreadId(
+            clip.recordingId,
+            optimisticClipCommentId(clientOperationId),
+          )
+        : `optimistic-${clientOperationId}`,
+    );
     try {
-      const result = await createComment.mutateAsync({
-        clientOperationId,
-        documentId,
-        content: pendingText.trim(),
-        ...(pendingComment.property
-          ? {
-              propertyId: pendingComment.property.propertyId,
-              databaseId: pendingComment.databaseId ?? undefined,
-            }
-          : {
-              quotedText: pendingComment.quotedText,
-              anchorPrefix: pendingComment.anchor?.prefix,
-              anchorSuffix: pendingComment.anchor?.suffix,
-              anchorStartOffset: pendingComment.anchor?.startOffset,
-              ...(pendingComment.fieldId
-                ? { fieldId: pendingComment.fieldId }
-                : {}),
-            }),
-        mentions: mentionsJsonFor(pendingText, pendingMentions, agent),
-      });
+      const result = clip
+        ? await startClipThread(clip, pendingText.trim(), clientOperationId)
+        : await createComment.mutateAsync({
+            clientOperationId,
+            documentId,
+            content: pendingText.trim(),
+            ...(pendingComment.property
+              ? {
+                  propertyId: pendingComment.property.propertyId,
+                  databaseId: pendingComment.databaseId ?? undefined,
+                }
+              : pendingComment.block
+                ? {
+                    blockId: pendingComment.block.blockId,
+                    blockType: pendingComment.block.blockType,
+                    ...(pendingComment.fieldId
+                      ? { fieldId: pendingComment.fieldId }
+                      : {}),
+                  }
+                : {
+                    quotedText: pendingComment.quotedText,
+                    anchorPrefix: pendingComment.anchor?.prefix,
+                    anchorSuffix: pendingComment.anchor?.suffix,
+                    anchorStartOffset: pendingComment.anchor?.startOffset,
+                    ...(pendingComment.fieldId
+                      ? { fieldId: pendingComment.fieldId }
+                      : {}),
+                  }),
+            mentions: mentionsJsonFor(pendingText, pendingMentions, agent),
+          });
       pendingDraft.finishSubmission(clientOperationId);
       setPendingHandoff(null);
       // The new thread is its stack's front. Selecting it leaves its stack
@@ -1962,8 +2299,19 @@ export function CommentsSidebar({
       return { id: result.id, threadId: result.threadId };
     } catch (error) {
       const isCurrentPendingComment = pendingCommentRef.current?.id === id;
-      if (!isAmbiguousCommentCreateError(error) && isCurrentPendingComment) {
-        pendingDraft.restoreSubmittedDraft(clientOperationId);
+      // A text comment Content may have saved stays as a card it reconciles;
+      // a Clip comment has no such card, so its text comes back on any failure.
+      const ambiguous = isAmbiguousCommentCreateError(error);
+      if ((clip || !ambiguous) && isCurrentPendingComment) {
+        pendingDraft.restoreSubmittedDraft(
+          clientOperationId,
+          clipPayload !== null
+            ? uncertainAfterFailure(error, retryId !== undefined, {
+                payload: clipPayload,
+                operationId: clientOperationId,
+              })
+            : null,
+        );
         setPendingHandoff(null);
       }
       pendingDraft.finishSubmission(clientOperationId);
@@ -2077,36 +2425,48 @@ export function CommentsSidebar({
     )
       return null;
     const thread = threads?.find((t) => t.threadId === threadId);
-    if (!thread || thread.resolved) return null;
+    if (!thread || thread.resolved || !threadCanComment(thread)) return null;
+    // What the request sends, and only that: a retry of the same request must
+    // match it, and a Clip reply carries no mentions.
     const payload = JSON.stringify({
       documentId,
       threadId,
       parentId: thread.comments[0]?.id,
       content: replyText.trim(),
-      mentions: mentionsJsonFor(replyText, replyMentions, agent),
+      ...(thread.clip
+        ? {}
+        : { mentions: mentionsJsonFor(replyText, replyMentions, agent) }),
     });
-    const clientOperationId =
-      replyDrafts.retryOperationId(threadId, payload) ?? crypto.randomUUID();
+    const retryId = replyDrafts.retryOperationId(threadId, payload);
+    const clientOperationId = retryId ?? crypto.randomUUID();
     replyDrafts.beginSubmission(threadId, clientOperationId);
     try {
-      const created = await createComment.mutateAsync({
-        clientOperationId,
-        documentId,
-        content: replyText.trim(),
-        threadId,
-        parentId: thread?.comments[0]?.id,
-        mentions: mentionsJsonFor(replyText, replyMentions, agent),
-      });
-      replyDrafts.clearRetry(threadId, clientOperationId);
+      const created = thread.clip
+        ? await clipWrites.reply({
+            recordingId: thread.clip.recordingId,
+            threadId: thread.clip.threadId,
+            content: replyText.trim(),
+            operationId: clientOperationId,
+          })
+        : await createComment.mutateAsync({
+            clientOperationId,
+            documentId,
+            content: replyText.trim(),
+            threadId,
+            parentId: thread.comments[0]?.id,
+            mentions: mentionsJsonFor(replyText, replyMentions, agent),
+          });
       if (!holdDraft) replyDrafts.finishSubmission(clientOperationId);
       return { id: created.id, operationId: clientOperationId };
     } catch (error) {
-      replyDrafts.restoreSubmittedDraft(threadId, clientOperationId);
-      if (isAmbiguousCommentCreateError(error)) {
-        replyDrafts.rememberRetry(threadId, payload, clientOperationId);
-      } else {
-        replyDrafts.clearRetry(threadId, clientOperationId);
-      }
+      replyDrafts.restoreSubmittedDraft(
+        threadId,
+        clientOperationId,
+        uncertainAfterFailure(error, retryId !== undefined, {
+          payload,
+          operationId: clientOperationId,
+        }),
+      );
       replyDrafts.finishSubmission(clientOperationId);
       toast.error(t("empty.genericError"), {
         description: error instanceof Error ? error.message : undefined,
@@ -2215,6 +2575,7 @@ export function CommentsSidebar({
   const pendingCommentId = displayedPendingComment?.id;
   const pendingFieldId = displayedPendingComment?.fieldId ?? null;
   const pendingOnProperty = !!displayedPendingComment?.property;
+  const pendingClipId = displayedPendingComment?.clip?.recordingId ?? null;
   const recomputeOffsets = useCallback(() => {
     const container = scrollContainerRef?.current ?? null;
     const blocks =
@@ -2222,10 +2583,11 @@ export function CommentsSidebar({
         ? measureCommentBlocks(container, openThreads)
         : NO_BLOCKS;
     setThreadBlocks((prev) => (sameBlocks(prev, blocks) ? prev : blocks));
+    setPlacedThreadIds(openThreadIds);
     if (stacksEnabled && container && pendingCommentId) {
       const highlight = pendingOnProperty
         ? null
-        : container.querySelector(".comment-highlight--pending");
+        : pendingCommentMark(container, pendingClipId);
       const block =
         highlight && !inHiddenBlockFieldPanel(highlight)
           ? commentBlockKey(highlight)
@@ -2244,7 +2606,7 @@ export function CommentsSidebar({
     const layoutContainer = alignToAnchors ? sidebarRef.current : null;
     const nextPendingPosition =
       hasPendingComment && alignToAnchors
-        ? findPendingCommentPosition(container, layoutContainer)
+        ? findPendingCommentPosition(container, layoutContainer, pendingClipId)
         : null;
     setPendingPosition((prev) =>
       prev?.documentTop === nextPendingPosition?.documentTop &&
@@ -2263,15 +2625,22 @@ export function CommentsSidebar({
     // the text would reshuffle page order, so the last places measured stay.
     if (presentation === "history" && !highlightsVisible) return;
     if (highlightsReturningRef.current) {
-      if (!container.querySelector(".ProseMirror [data-comment-thread]"))
+      if (
+        !container.querySelector(
+          ".ProseMirror [data-comment-thread], .ProseMirror [data-comment-block-threads]",
+        )
+      )
         return;
       highlightsReturningRef.current = false;
     }
     const positions = new Map<string, CommentThreadPosition>();
+    const held: string[] = [];
     const hiddenTabIds = new Set<string>();
     for (const thread of measuredThreads) {
       const fieldId =
-        "suggestion" in thread ? null : commentThreadFieldId(thread);
+        "suggestion" in thread
+          ? suggestionBlocksFieldId(thread.suggestion)
+          : commentThreadFieldId(thread);
       const position = findThreadPosition(
         "suggestion" in thread ? thread.suggestion.id : thread.threadId,
         "suggestion" in thread ? null : thread.quotedText,
@@ -2280,8 +2649,11 @@ export function CommentsSidebar({
         "suggestion" in thread ? "data-suggestion-id" : "data-comment-thread",
         fieldId,
       );
-      if (position) positions.set(thread.threadId, position);
-      else if (threadTabHidden(container, fieldId))
+      if (position === "unrendered") held.push(thread.threadId);
+      else if (position) {
+        positions.set(thread.threadId, position);
+        if (position.partial) held.push(thread.threadId);
+      } else if (threadTabHidden(container, fieldId))
         hiddenTabIds.add(thread.threadId);
     }
     const quotes = measureThreadQuotes(container, openThreads);
@@ -2294,6 +2666,11 @@ export function CommentsSidebar({
       sameThreadIds(prev, lookedFor) ? prev : lookedFor,
     );
     setThreadPositions((prev) => {
+      // A highlight not drawn from its start keeps the card where it last was.
+      for (const threadId of held) {
+        const last = prev.get(threadId);
+        if (last) positions.set(threadId, last);
+      }
       if (
         prev.size === positions.size &&
         [...positions].every(([key, value]) => {
@@ -2313,7 +2690,9 @@ export function CommentsSidebar({
     hasPendingComment,
     highlightsVisible,
     measuredThreads,
+    openThreadIds,
     openThreads,
+    pendingClipId,
     pendingCommentId,
     pendingFieldId,
     pendingOnProperty,
@@ -2367,7 +2746,12 @@ export function CommentsSidebar({
           subtree: true,
           characterData: true,
           attributes: true,
-          attributeFilter: ["hidden", "data-comment-thread"],
+          attributeFilter: [
+            "hidden",
+            "data-comment-thread",
+            "data-comment-block-threads",
+            "data-clip-comment-threads",
+          ],
         });
       }
     } else {
@@ -2378,7 +2762,11 @@ export function CommentsSidebar({
         subtree: true,
         characterData: true,
         attributes: true,
-        attributeFilter: ["data-comment-thread"],
+        attributeFilter: [
+          "data-comment-thread",
+          "data-comment-block-threads",
+          "data-clip-comment-threads",
+        ],
       });
     }
     const resizeObserver =
@@ -2439,6 +2827,81 @@ export function CommentsSidebar({
     }
   }, [onSelectedThreadChange, selectedThreadId, selectableThreads]);
 
+  // Accepting moves the source thread's quote, which a revision still in
+  // flight would read as changed feedback and abandon.
+  const suggestionBusy = (suggestion: ResourceSuggestion) => {
+    const threadId = suggestionSourceThreadId(suggestion);
+    return (
+      decidingSuggestion(suggestion.id) ||
+      Boolean(
+        commentAi && threadId && isCommentAiWorkingOn(commentAi, threadId),
+      )
+    );
+  };
+
+  // Accept and resolve resolves only once its accepts land: a thread resolved
+  // first would send its still-pending edits out to cards of their own. While
+  // a decision is in flight its edits already show the status it asked for,
+  // so only a finished decision tells whether the accept landed.
+  const [resolveOnAccept, setResolveOnAccept] = useState<
+    ReadonlyMap<string, readonly string[]>
+  >(() => new Map());
+  const settledResolveOnAccept = [...resolveOnAccept]
+    .filter(([, requested]) =>
+      suggestions.every(
+        (suggestion) =>
+          !requested.includes(suggestion.id) || !suggestionBusy(suggestion),
+      ),
+    )
+    .map(([threadId]) => threadId)
+    .join(" ");
+  // No hook may follow the empty-sidebar return, and the resolve handler is
+  // defined below it, so it reaches this effect through a ref.
+  const resolveAcceptedRef = useRef<((thread: CommentThread) => void) | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!settledResolveOnAccept) return;
+    const settled = settledResolveOnAccept.split(" ");
+    setResolveOnAccept((current) => {
+      const next = new Map(current);
+      for (const threadId of settled) next.delete(threadId);
+      return next;
+    });
+    for (const threadId of settled) {
+      const thread = threads.find((item) => item.threadId === threadId);
+      const requested = resolveOnAccept.get(threadId) ?? [];
+      // A failed or refused accept leaves an edit pending, and an edit can
+      // also end rejected or withdrawn; the thread then stays open. So does
+      // an edit its AI made while the accept was in flight, loaded or still
+      // loading.
+      const undecided =
+        (threadSuggestions.get(threadId) ?? []).some(
+          (suggestion) => suggestion.status === "pending",
+        ) ||
+        Boolean(
+          commentAi &&
+          loadingThreadSuggestionIds(
+            commentAi.requests,
+            threadId,
+            awaitedSuggestionIds,
+          ).length > 0,
+        );
+      if (
+        thread &&
+        !thread.resolved &&
+        requested.every((id) =>
+          suggestions.some(
+            (suggestion) =>
+              suggestion.id === id && suggestion.status === "accepted",
+          ),
+        ) &&
+        !undecided
+      )
+        resolveAcceptedRef.current?.(thread);
+    }
+  }, [settledResolveOnAccept]);
+
   const hasContent =
     presentation === "history"
       ? threads.length > 0 ||
@@ -2484,24 +2947,6 @@ export function CommentsSidebar({
     documentTop: pendingPosition?.documentTop ?? pendingAnchorTop,
     layoutTop: pendingAnchorTop,
   };
-  // An open stack's Collapse row is laid out like a card above its first one.
-  const stackHeaderLayout: ThreadLayoutIdentity | null = expandedStack
-    ? { threadId: STACK_HEADER_LAYOUT_ID, comments: [] }
-    : null;
-  const firstStackAnchor = expandedStack
-    ? [
-        ...expandedStack.threads.map((member) =>
-          threadPositions.get(member.threadId),
-        ),
-        pendingInExpandedStack ? pendingAnchor : undefined,
-      ].reduce<CommentThreadPosition | null>(
-        (first, position) =>
-          position && (!first || position.documentTop < first.documentTop)
-            ? position
-            : first,
-        null,
-      )
-    : null;
   const layoutPositions = new Map(threadPositions);
   const layoutHeights = new Map(threadCardHeights);
   if (pendingLayout) {
@@ -2511,78 +2956,144 @@ export function CommentsSidebar({
       pendingCardHeight ?? PENDING_COMMENT_CARD_ESTIMATE,
     );
   }
-  if (stackHeaderLayout) {
-    if (firstStackAnchor) {
+  // A thread opened while a new comment waits takes the slot; the waiting
+  // comment keeps its place beside its own highlight.
+  const layoutFocusId =
+    pendingLayout && !selectedThreadId
+      ? PENDING_COMMENT_LAYOUT_ID
+      : selectedLayoutThreadId;
+  // An open stack is laid out as one block, its Collapse row on top: its
+  // threads' cards, and a new comment in it.
+  // The stack has its threads in document order, which their highlights'
+  // tops can't give when two share a line.
+  const stackOrder = new Map(
+    expandedStack?.threads.map((member, index) => [member.threadId, index]),
+  );
+  const documentTopOf = (thread: ThreadLayoutIdentity) =>
+    layoutPositions.get(thread.threadId)?.documentTop ?? Infinity;
+  const stackCards: ThreadLayoutIdentity[] = layoutThreads
+    .filter((thread) => stackOrder.has(thread.threadId))
+    .sort(
+      (left, right) =>
+        (stackOrder.get(left.threadId) ?? 0) -
+        (stackOrder.get(right.threadId) ?? 0),
+    );
+  if (pendingInExpandedStack && pendingLayout) {
+    const pendingTop = documentTopOf(pendingLayout);
+    const after = stackCards.findIndex(
+      (card) => documentTopOf(card) > pendingTop,
+    );
+    stackCards.splice(
+      after === -1 ? stackCards.length : after,
+      0,
+      pendingLayout,
+    );
+  }
+  const stackTop = Math.min(...stackCards.map(documentTopOf));
+  const openStackLayout =
+    stackCards.length > 0
+      ? arrangeOpenStack(
+          stackCards.map((card) => ({
+            threadId: card.threadId,
+            height:
+              layoutHeights.get(card.threadId) ??
+              estimateThreadCardHeight(card),
+          })),
+          layoutFocusId ?? null,
+          layoutPositions,
+          STACK_HEADER_HEIGHT,
+        )
+      : null;
+  const stackLayout: ThreadLayoutIdentity | null = openStackLayout
+    ? { threadId: STACK_HEADER_LAYOUT_ID, comments: [] }
+    : null;
+  if (openStackLayout) {
+    if (Number.isFinite(stackTop)) {
       layoutPositions.set(STACK_HEADER_LAYOUT_ID, {
-        documentTop: firstStackAnchor.documentTop - 0.5,
-        layoutTop:
-          firstStackAnchor.layoutTop === null
-            ? null
-            : firstStackAnchor.layoutTop - STACK_HEADER_HEIGHT - 12,
+        documentTop: stackTop - 0.5,
+        layoutTop: openStackLayout.layoutTop,
       });
     }
-    layoutHeights.set(STACK_HEADER_LAYOUT_ID, STACK_HEADER_HEIGHT);
+    layoutHeights.set(STACK_HEADER_LAYOUT_ID, openStackLayout.height);
   }
   const anchoredItems = layoutCommentThreads<
     LayoutThread | ThreadLayoutIdentity
   >(
     [
-      ...layoutThreads,
-      ...(pendingLayout ? [pendingLayout] : []),
-      ...(stackHeaderLayout ? [stackHeaderLayout] : []),
+      ...layoutThreads.filter((thread) => !stackOrder.has(thread.threadId)),
+      ...(pendingLayout && !pendingInExpandedStack ? [pendingLayout] : []),
+      ...(stackLayout ? [stackLayout] : []),
     ],
     layoutPositions,
     layoutHeights,
-    pendingLayout ? PENDING_COMMENT_LAYOUT_ID : selectedLayoutThreadId,
+    stackCards.some((card) => card.threadId === layoutFocusId)
+      ? STACK_HEADER_LAYOUT_ID
+      : layoutFocusId,
   );
-  // Keeping the selected card level with its highlight pushes the cards above
-  // it upward. Near the top of a page that would put an open stack's Collapse
-  // row and first cards above the margin, where nothing can scroll to them, so
-  // the stack starts at the top instead.
+  // Keeping a card lower down level with its highlight pushes the cards above
+  // it upward, and could push an open stack's Collapse row above the margin,
+  // where nothing can scroll to it. The stack starts at the top instead.
   const stackOverflow = Math.max(
     0,
-    -(
-      anchoredItems.find((item) => item.thread === stackHeaderLayout)?.top ?? 0
-    ),
+    -(anchoredItems.find((item) => item.thread === stackLayout)?.top ?? 0),
   );
-  const selectedItems = stackOverflow
-    ? anchoredItems.map((item) => ({ ...item, top: item.top + stackOverflow }))
-    : anchoredItems;
-  const pendingTop =
-    selectedItems.find((item) => item.thread === pendingLayout)?.top ??
-    pendingAnchorTop;
-  const stackHeaderTop = selectedItems.find(
-    (item) => item.thread === stackHeaderLayout,
-  )?.top;
-  const items = selectedItems.filter(
-    (item): item is CommentLayoutItem<LayoutThread> =>
-      item.thread !== pendingLayout && item.thread !== stackHeaderLayout,
+  const tops = new Map(
+    anchoredItems.map((item) => [
+      item.thread.threadId,
+      item.top + stackOverflow,
+    ]),
   );
-  // The guide beside an open stack spans its cards, and a new comment in it.
-  const stackSpans = expandedStack
-    ? selectedItems
-        .filter((item) =>
-          item.thread === pendingLayout
-            ? pendingInExpandedStack
-            : expandedStack.threads.some(
-                (member) => member.threadId === item.thread.threadId,
-              ),
-        )
-        .map((item) => ({
-          top: item.top,
-          bottom:
-            item.top +
-            (layoutHeights.get(item.thread.threadId) ??
-              estimateThreadCardHeight(item.thread)),
-        }))
-    : [];
-  const stackGuideTop = Math.min(...stackSpans.map((span) => span.top)) + 16;
+  const stackHeaderTop = stackLayout
+    ? tops.get(STACK_HEADER_LAYOUT_ID)
+    : undefined;
+  if (openStackLayout && stackHeaderTop !== undefined) {
+    for (const [threadId, offset] of openStackLayout.offsets)
+      tops.set(threadId, stackHeaderTop + offset);
+  }
+  const pendingTop = tops.get(PENDING_COMMENT_LAYOUT_ID) ?? pendingAnchorTop;
+  // Cards keep the resting layout's order, since their places in the flow
+  // follow it, and move by their offset from there.
+  const items = restingItems.map((item) => ({
+    ...item,
+    top: tops.get(item.thread.threadId) ?? item.top,
+  }));
+  // The guide beside an open stack spans its cards.
+  const stackGuideTop = (stackHeaderTop ?? 0) + STACK_HEADER_HEIGHT + 12 + 16;
   const stackGuideHeight =
-    Math.max(...stackSpans.map((span) => span.bottom)) - 16 - stackGuideTop;
+    (stackHeaderTop ?? 0) + (openStackLayout?.height ?? 0) - 16 - stackGuideTop;
 
+  // Resolving the open thread closes its card; staying selected would keep it
+  // in the margin with no highlight to sit by. In an open stack the next
+  // thread opens in its place, so the stack stays open for the rest.
+  // Clips decides who comments on a Clip and who resolves its threads.
+  const threadCanComment = (thread: CommentThread) =>
+    canComment && (!thread.clip || thread.clip.canComment);
+  const threadCanResolve = (thread: CommentThread) =>
+    thread.clip ? canComment && thread.clip.canResolve : canResolve;
+  // Opening a Clip's thread moves its video to the thread's moment.
+  const seekToThread = (thread: CommentThread) => {
+    if (!thread.clip) return;
+    seekClip(documentId, thread.clip.recordingId, thread.clip.videoTimestampMs);
+  };
+
+  const closeResolvedThread = (threadId: string) => {
+    const members = expandedStack?.threads ?? [];
+    const index = members.findIndex((member) => member.threadId === threadId);
+    const rest = members.filter((member) => member.threadId !== threadId);
+    const next =
+      index >= 0 && rest.length >= 2
+        ? (rest[Math.min(index, rest.length - 1)]?.threadId ?? null)
+        : null;
+    setReplyingThreadId(null);
+    onSelectedThreadChange?.(next);
+    return next;
+  };
   const changeResolution = async (thread: CommentThread, resolved: boolean) => {
     if (
-      !canResolve ||
+      !threadCanResolve(thread) ||
+      !thread.comments[0] ||
+      // Clips lists only open threads, so a resolved one is out of reach.
+      (thread.clip && !resolved) ||
       thread.comments.some(
         (comment) =>
           comment.mutation?.status === "pending" || comment.mutation?.ambiguous,
@@ -2590,59 +3101,79 @@ export function CommentsSidebar({
       !startResolution(thread.threadId)
     )
       return;
+    const closed =
+      resolved &&
+      presentation === "inline" &&
+      thread.threadId === selectedThreadId
+        ? { selection: closeResolvedThread(thread.threadId), passedOver: false }
+        : null;
+    if (closed) closedResolvesRef.current.add(closed);
     try {
-      await resolveComment.mutateAsync({
-        id: thread.comments[0].id,
-        documentId,
-        resolved,
-      });
+      if (thread.clip) {
+        await clipWrites.resolveThread({
+          recordingId: thread.clip.recordingId,
+          threadId: thread.clip.threadId,
+        });
+      } else {
+        await resolveComment.mutateAsync({
+          id: thread.comments[0].id,
+          documentId,
+          resolved,
+        });
+      }
     } catch (error) {
+      // A failed resolve reopens the thread, so its card opens again too,
+      // unless the selection has moved or a new comment started since.
+      if (closed && !closed.passedOver)
+        onSelectedThreadChange?.(thread.threadId);
       toast.error(t("empty.genericError"), {
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
+      if (closed) closedResolvesRef.current.delete(closed);
       finishResolution(thread.threadId);
     }
   };
   const handleResolve = (thread: CommentThread) => {
     void changeResolution(thread, true);
   };
+  resolveAcceptedRef.current = handleResolve;
 
   const handleReopen = (thread: CommentThread) => {
     void changeResolution(thread, false);
   };
 
-  // Accepting moves the source thread's quote, which a revision still in
-  // flight would read as changed feedback and abandon.
-  const suggestionBusy = (suggestion: ResourceSuggestion) => {
-    const threadId = suggestionSourceThreadId(suggestion);
-    return (
-      decidingSuggestion(suggestion.id) ||
-      Boolean(
-        commentAi && threadId && isCommentAiWorkingOn(commentAi, threadId),
-      )
-    );
-  };
+  // Whoever decides on the page's suggestions can reject a tab's, which
+  // writes nothing. Accepting one writes its Collection's field, which the
+  // server lets only the Collection's editors do.
+  const acceptBlocked = (suggestion: ResourceSuggestion | DraftSuggestion) =>
+    !canDecideFieldSuggestions && suggestionBlocksFieldId(suggestion) !== null;
 
   const renderFoldedStack = (
     stack: CommentStack<CommentThread>,
     layoutId: string,
   ) => {
-    const front = commentStackFront(stack.threads, stackTouches);
+    const passed = clipStackFronts.get(stack.key);
+    const front =
+      stack.threads.find((member) => member.threadId === passed) ??
+      commentStackFront(stack.threads, stackTouches);
     return (
       <CommentStackCard
         stackKey={stack.key}
         heightId={layoutId}
         threads={stack.threads}
         front={front}
-        quote={threadQuotes.get(front.threadId) ?? front.quotedText}
+        frontPlaced={placedThreadIds === openThreadIds}
+        shownFronts={shownStackFronts}
+        quotes={threadQuotes}
         isActive={stack.threads.some(
           (member) => member.threadId === activeThreadId,
         )}
         onOpen={() => {
           openStackOn(front.threadId);
           onActivateThread?.(front.threadId);
-          if (canComment) setReplyingThreadId(front.threadId);
+          seekToThread(front);
+          if (threadCanComment(front)) setReplyingThreadId(front.threadId);
         }}
         onHoverChange={(hovered) =>
           onHoveredThreadChange?.(hovered ? front.threadId : null)
@@ -2683,17 +3214,46 @@ export function CommentsSidebar({
     const aiWorking = Boolean(
       commentAi && isCommentAiWorkingOn(commentAi, thread.threadId),
     );
+    const loadingSuggestionIds = commentAi
+      ? loadingThreadSuggestionIds(
+          commentAi.requests,
+          thread.threadId,
+          awaitedSuggestionIds,
+        )
+      : [];
     const suggestionProps = (members: ResourceSuggestion[]) => {
       const proposalId = members.length > 1 ? members[0]?.proposalId : null;
+      const pendingMembers = suggestions.filter(
+        (suggestion) =>
+          members.some((member) => member.id === suggestion.id) &&
+          suggestion.status === "pending",
+      );
+      // Resolving takes the thread's other pending edits out of it, so only
+      // the last group with any left offers to resolve, and none while an
+      // edit is still loading.
+      const pendingElsewhere =
+        loadingSuggestionIds.length > 0 ||
+        embedded.some(
+          (suggestion) =>
+            suggestion.status === "pending" && !members.includes(suggestion),
+        );
       return {
         suggestions: members,
         canDecide: canDecideSuggestions,
         busy: suggestionBusy,
         conflict: isUnplaceable,
+        acceptBlocked,
         onDecide: (
           suggestion: ResourceSuggestion,
           decision: SuggestionDecision,
         ) => onDecideSuggestion?.(suggestion, decision),
+        onDecideUnit: (
+          unit: ResourceSuggestion[],
+          decision: SuggestionDecision,
+        ) => {
+          if (proposalId)
+            void onDecideSuggestionProposal?.(proposalId, decision, unit, true);
+        },
         onDecideRemaining:
           proposalId && onDecideSuggestionProposal
             ? (decision: SuggestionDecision) =>
@@ -2706,6 +3266,30 @@ export function CommentsSidebar({
                       suggestion.status === "pending",
                   ),
                 )
+            : undefined,
+        onAcceptAndResolve:
+          !thread.resolved && threadCanResolve(thread) && !pendingElsewhere
+            ? () => {
+                const requested =
+                  proposalId && onDecideSuggestionProposal
+                    ? suggestions.filter(
+                        (suggestion) =>
+                          suggestion.proposalId === proposalId &&
+                          suggestion.status === "pending",
+                      )
+                    : pendingMembers;
+                setResolveOnAccept((current) =>
+                  new Map(current).set(
+                    thread.threadId,
+                    requested.map(({ id }) => id),
+                  ),
+                );
+                if (proposalId && onDecideSuggestionProposal)
+                  onDecideSuggestionProposal(proposalId, "accepted", requested);
+                else
+                  for (const member of requested)
+                    onDecideSuggestion?.(member, "accepted");
+              }
             : undefined,
       };
     };
@@ -2820,7 +3404,7 @@ export function CommentsSidebar({
         thread={thread}
         marginTop={marginTop}
         isActive={isActive}
-        canExpand={canComment}
+        canExpand={threadCanComment(thread) || !!thread.clip}
         isExpanded={replyingThreadId === thread.threadId}
         isSubmitting={
           isResolving(thread.threadId) || ambiguousCreate(thread.threadId)
@@ -2833,13 +3417,14 @@ export function CommentsSidebar({
           onHoveredThreadChange?.(hovered ? thread.threadId : null)
         }
         onExpand={() => {
+          seekToThread(thread);
           if (replyingThreadId === thread.threadId) return;
           onActivateThread?.(thread.threadId);
           scrollToCommentAnchor(
             scrollContainerRef?.current ?? null,
             threadPositions.get(thread.threadId)?.documentTop,
           );
-          if (canComment) setReplyingThreadId(thread.threadId);
+          if (threadCanComment(thread)) setReplyingThreadId(thread.threadId);
         }}
         onCollapse={() => {
           setReplyingThreadId(null);
@@ -2853,8 +3438,8 @@ export function CommentsSidebar({
           replyDrafts.setAiDraft(thread.threadId, aiDraft)
         }
         onHeightChange={handleThreadCardHeightChange}
-        canComment={canComment && !thread.resolved}
-        canResolve={canResolve}
+        canComment={threadCanComment(thread) && !thread.resolved}
+        canResolve={threadCanResolve(thread)}
         onSubmitReply={() => handleReply(thread.threadId)}
         onResolve={() =>
           thread.resolved ? handleReopen(thread) : handleResolve(thread)
@@ -2862,10 +3447,13 @@ export function CommentsSidebar({
         resolved={Boolean(thread.resolved)}
         surface={surface}
         onClose={onClose}
-        threadActions={renderThreadActions?.(thread)}
+        threadActions={thread.clip ? undefined : renderThreadActions?.(thread)}
         currentUserEmail={currentUserEmail}
-        quote={threadQuotes.get(thread.threadId) ?? thread.quotedText}
-        showQuote={inStack}
+        currentUserName={currentUserName}
+        quote={
+          threadQuotes.get(thread.threadId) ?? commentThreadQuote(thread, t)
+        }
+        showQuote={inStack || !!thread.clip}
         propertyTarget={
           thread.property
             ? propertyThreadTarget(thread.property, documentProperties)
@@ -2873,7 +3461,7 @@ export function CommentsSidebar({
         }
         anchorUnavailable={
           measuredThreadIds.has(thread.threadId) &&
-          !!thread.quotedText &&
+          (!!thread.quotedText || !!thread.block) &&
           !thread.resolved &&
           !threadPositions.has(thread.threadId) &&
           !hiddenTabThreadIds.has(thread.threadId)
@@ -2883,7 +3471,27 @@ export function CommentsSidebar({
             comment={thread.comments.find((comment) => comment.id === id)!}
             documentId={documentId}
             currentUserEmail={currentUserEmail}
-            canComment={canComment}
+            currentUserName={currentUserName}
+            // A Clip's comments are kept in Clips, so the page doesn't edit,
+            // delete, or react to them.
+            canComment={canComment && !thread.clip}
+            // Its author deletes a thread no one else has written in, while
+            // the AI isn't working on it.
+            canDeleteThread={
+              id === thread.comments[0]?.id &&
+              !aiWorking &&
+              !!currentUserEmail &&
+              thread.comments.every(
+                (comment) =>
+                  !comment.notion_comment_id &&
+                  comment.author_email.toLowerCase() ===
+                    currentUserEmail.toLowerCase(),
+              )
+            }
+            keepsAppliedAiChange={threadHasAppliedAiChange(
+              commentAi?.requests,
+              thread.threadId,
+            )}
             headerActions={slots.headerActions}
             revealActions={slots.revealActions}
             replyAction={slots.replyAction}
@@ -2933,9 +3541,24 @@ export function CommentsSidebar({
                   continuation={continuation}
                 />
               ) : null}
+              {/* Any request's edit still loading holds the thread open, so the
+                  thread shows it loading and, once a read fails, a retry. */}
+              {loadingSuggestionIds.some(
+                (id) => !embedded.some((suggestion) => suggestion.id === id),
+              ) ? (
+                <ThreadSuggestionPlaceholder
+                  onRetry={
+                    loadingSuggestionIds.some((id) =>
+                      unreadableSuggestionIds.has(id),
+                    )
+                      ? onRetrySuggestionRead
+                      : undefined
+                  }
+                />
+              ) : null}
               {!aiRequest ||
               !commentAi ||
-              (showsRequestSuggestion && !continuation) ? null : (
+              (aiRequest.status === "suggested" && !continuation) ? null : (
                 <CommentAiRequestStatus
                   request={aiRequest}
                   continuation={continuation}
@@ -2958,7 +3581,11 @@ export function CommentsSidebar({
             </>
           ) : undefined
         }
-        onAiSubmit={commentAi && !thread.field ? submitAi : undefined}
+        onAiSubmit={
+          commentAi && !thread.field && !thread.clip
+            ? (selection) => void submitAi(selection)
+            : undefined
+        }
         aiModelStorageKey={
           commentAi && !thread.field ? aiModelStorageKey : undefined
         }
@@ -2972,11 +3599,16 @@ export function CommentsSidebar({
     marginTop = 0,
     onHeightChange = handleThreadCardHeightChange,
     inProposalGroup = false,
+    unit: ReviewUnit = { leader: suggestion, members: [suggestion] },
   ) => {
+    const anchored = unit.members.filter((member) =>
+      anchoredSuggestionIds?.includes(member.id),
+    );
+    const [activated = suggestion] = anchored;
     const anchorUnavailable =
       suggestion.status === "pending" &&
       anchoredSuggestionIds !== null &&
-      !anchoredSuggestionIds?.includes(suggestion.id);
+      anchored.length === 0;
     return (
       <SuggestionThreadView
         surface={surface}
@@ -2989,35 +3621,59 @@ export function CommentsSidebar({
         marginTop={marginTop}
         onHeightChange={onHeightChange}
         suggestion={suggestion}
+        operations={reviewUnitOperations(unit)}
+        isReviewUnit={
+          unit.members.length > 1 || reviewUnitLabel(suggestion) !== null
+        }
         reason={inProposalGroup ? null : agentSuggestionReason(suggestion)}
         documentId={documentId}
-        isActive={
-          activeSuggestionId === suggestion.id ||
-          hoveredSuggestionId === suggestion.id
-        }
-        expandRequested={expandedSuggestionId === suggestion.id}
-        focusRequested={focusSuggestionId === suggestion.id}
+        isActive={unit.members.some(
+          (member) =>
+            activeSuggestionId === member.id ||
+            hoveredSuggestionId === member.id,
+        )}
+        expandRequested={unit.members.some(
+          (member) => member.id === expandedSuggestionId,
+        )}
+        focusRequested={unit.members.some(
+          (member) => focusSuggestionId === member.id,
+        )}
         onFocused={onSuggestionFocused}
         anchorUnavailable={anchorUnavailable}
-        unplaceable={isUnplaceable(suggestion)}
+        unplaceable={unit.members.some(
+          (member) => isUnplaceable(member) || staleUnitPieces.has(member.id),
+        )}
         canComment={canComment}
         canDecide={canDecideSuggestions}
-        deciding={suggestionBusy(suggestion)}
+        acceptDisabled={unit.members.some(acceptBlocked)}
+        deciding={unit.members.some(suggestionBusy)}
         onActivate={() => {
-          if (presentation !== "history") onActivateSuggestion?.(suggestion.id);
+          if (presentation !== "history") onActivateSuggestion?.(activated.id);
         }}
         onExpansionChange={(expanded) =>
           setExpandedSuggestionId(expanded ? suggestion.id : null)
         }
-        onDecide={(decision) => onDecideSuggestion?.(suggestion, decision)}
+        onDecide={(decision) => {
+          if (unit.members.length > 1 && suggestion.proposalId) {
+            void onDecideSuggestionProposal?.(
+              suggestion.proposalId,
+              decision,
+              unit.members.filter(({ status }) => status === "pending"),
+              true,
+            );
+          } else {
+            onDecideSuggestion?.(suggestion, decision);
+          }
+        }}
         t={t}
       />
     );
   };
 
-  const renderProposalGroup = (
+  const renderProposalUnits = (
     proposalId: string,
     members: ResourceSuggestion[],
+    units: ReviewUnit[],
     leaderThreadId?: string,
   ) => (
     <ProposalGroup
@@ -3025,6 +3681,13 @@ export function CommentsSidebar({
       proposalId={proposalId}
       summary={members[0]?.proposalSummary || members[0]?.summary || ""}
       totalCount={proposalMemberCounts.get(proposalId) ?? members.length}
+      totalUnits={
+        reviewUnits(
+          suggestions.filter(
+            (suggestion) => suggestion.proposalId === proposalId,
+          ),
+        ).length
+      }
       members={members}
       active={members.some(
         (member) =>
@@ -3033,6 +3696,15 @@ export function CommentsSidebar({
       expanded={expandedProposalIds.has(proposalId)}
       onExpandedChange={(expanded) => setProposalExpanded(proposalId, expanded)}
       deciding={members.some(suggestionBusy)}
+      // Accept all decides the whole proposal, even what a filter is hiding.
+      acceptDisabled={suggestions.some(
+        (suggestion) =>
+          suggestion.proposalId === proposalId &&
+          suggestion.status === "pending" &&
+          (isUnplaceable(suggestion) ||
+            staleUnitPieces.has(suggestion.id) ||
+            acceptBlocked(suggestion)),
+      )}
       canDecide={canDecideSuggestions && !!onDecideSuggestionProposal}
       onDecide={(decision) =>
         onDecideSuggestionProposal?.(
@@ -3050,11 +3722,35 @@ export function CommentsSidebar({
           ? (height) => handleThreadCardHeightChange(leaderThreadId, height)
           : undefined
       }
-      t={t}
     >
-      {members.map((member) => renderSuggestionCard(member, 0, () => {}, true))}
+      {units.map((unit) =>
+        renderSuggestionCard(unit.leader, 0, () => {}, true, unit),
+      )}
     </ProposalGroup>
   );
+
+  const renderProposalGroup = (
+    proposalId: string,
+    members: ResourceSuggestion[],
+    leaderThreadId?: string,
+  ) => {
+    const units = reviewUnits(members);
+    const [onlyUnit = null] = units;
+    // A proposal that is one unit is one decision, so it has nothing to group.
+    // Its height sizes the place laid out for the whole proposal.
+    return onlyUnit && units.length === 1 && reviewUnitLabel(onlyUnit.leader)
+      ? renderSuggestionCard(
+          onlyUnit.leader,
+          0,
+          leaderThreadId
+            ? (_threadId, height) =>
+                handleThreadCardHeightChange(leaderThreadId, height)
+            : undefined,
+          false,
+          onlyUnit,
+        )
+      : renderProposalUnits(proposalId, members, units, leaderThreadId);
+  };
 
   const renderDraftSuggestionCard = (
     suggestion: DraftSuggestion,
@@ -3074,8 +3770,11 @@ export function CommentsSidebar({
         hoveredSuggestionId === suggestion.id
       }
       canDecide={canDecideSuggestions}
+      acceptDisabled={acceptBlocked(suggestion)}
+      deciding={decidingSuggestion(suggestion.id)}
       onActivate={() => onActivateSuggestion?.(suggestion.id)}
       onMaterialize={onMaterializeDraft}
+      onDecideDraft={onDecideDraftSuggestion}
       onActivateSaved={(saved) => {
         replyDrafts.setOpenReply(saved.threadId, saved.id);
         onActivateSuggestion?.(saved.id);
@@ -3281,10 +3980,14 @@ export function CommentsSidebar({
       />
     );
     const composer = canComment ? (
-      <div className="sticky bottom-0 z-10 mt-auto border-t border-border bg-background">
+      <div
+        ref={pageComposerBoxRef}
+        className="sticky bottom-0 z-10 mt-auto border-t border-border bg-background"
+      >
         <DiscussionComposer
-          ref={pageComposerRef}
+          ref={pageComposerHandleRef}
           currentUserEmail={currentUserEmail}
+          currentUserName={currentUserName}
           value={pageDraft.draft.text}
           onChange={pageDraft.setText}
           mentions={pageDraft.draft.mentions}
@@ -3376,7 +4079,10 @@ export function CommentsSidebar({
                 (entry): CommentTabPlacement =>
                   entry.kind === "comment"
                     ? commentThreadPlacement(entry.thread)
-                    : { fieldId: null, fieldName: null },
+                    : {
+                        fieldId: suggestionBlocksFieldId(entry.suggestion),
+                        fieldName: null,
+                      },
               ).map((group) => (
                 <Fragment key={`tab:${group.key}`}>
                   <h3
@@ -3433,7 +4139,7 @@ export function CommentsSidebar({
           t={t}
         />
       ) : null}
-      {expandedStack && stackSpans.length > 0 ? (
+      {expandedStack && openStackLayout && stackHeaderTop !== undefined ? (
         <CommentStackGuide top={stackGuideTop} height={stackGuideHeight} />
       ) : null}
       {/* Pending new comment — positioned at the selection Y offset */}
@@ -3485,7 +4191,7 @@ export function CommentsSidebar({
               <div className="flex h-9.5 shrink-0 items-center">
                 <CommentAvatar
                   email={currentUserEmail}
-                  name={currentUserEmail}
+                  name={currentUserName?.trim() || currentUserEmail}
                 />
               </div>
               <div className="min-w-0 flex-1">
@@ -3497,6 +4203,18 @@ export function CommentsSidebar({
                       documentProperties,
                     )}
                   />
+                ) : null}
+                {displayedPendingComment.clip ? (
+                  <span
+                    className="mb-2 block border-s-2 border-border ps-2.5 text-sm tabular-nums text-muted-foreground"
+                    data-comment-quote
+                  >
+                    {t("clipEmbed.commentMoment", {
+                      time: msToClock(
+                        displayedPendingComment.clip.videoTimestampMs,
+                      ),
+                    })}
+                  </span>
                 ) : null}
                 {!pendingTargetValid && (
                   <p
@@ -3522,7 +4240,9 @@ export function CommentsSidebar({
                   }
                   onSubmit={() => void handlePendingSubmit()}
                   onAiSubmit={
-                    commentAi && !displayedPendingComment.fieldId
+                    commentAi &&
+                    !displayedPendingComment.fieldId &&
+                    !displayedPendingComment.clip
                       ? (selection) => void handlePendingAiSubmit(selection)
                       : undefined
                   }
@@ -3673,119 +4393,6 @@ function ResolvedByAiMark({
   );
 }
 
-function ProposalGroup({
-  proposalId,
-  summary,
-  totalCount,
-  members,
-  active,
-  expanded,
-  onExpandedChange,
-  deciding,
-  canDecide,
-  onDecide,
-  onHeightChange,
-  children,
-  t,
-}: {
-  proposalId: string;
-  summary: string;
-  totalCount: number;
-  members: ResourceSuggestion[];
-  active: boolean;
-  expanded: boolean;
-  onExpandedChange: (expanded: boolean) => void;
-  deciding: boolean;
-  canDecide: boolean;
-  onDecide: (decision: SuggestionDecision) => void;
-  onHeightChange?: (height: number) => void;
-  children: ReactNode;
-  t: ReturnType<typeof useT>;
-}) {
-  const groupRef = useRef<HTMLDivElement>(null);
-  const detailsId = useId();
-  useLayoutEffect(() => {
-    if (active) onExpandedChange(true);
-  }, [active]);
-  useLayoutEffect(() => {
-    const element = groupRef.current;
-    if (!element || !onHeightChange) return;
-    const measure = () =>
-      onHeightChange(element.getBoundingClientRect().height);
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [onHeightChange]);
-  const pending = members.filter((member) => member.status === "pending");
-  const undecided = pending.length === totalCount;
-  return (
-    <div
-      ref={groupRef}
-      data-suggestion-proposal={proposalId}
-      className="overflow-hidden rounded-lg bg-popover shadow-sm ring-1 ring-border/50"
-    >
-      <button
-        type="button"
-        aria-expanded={expanded}
-        aria-controls={detailsId}
-        onClick={() => onExpandedChange(!expanded)}
-        className="flex w-full min-w-0 items-start gap-2 px-3 py-2 text-start text-xs hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-      >
-        <IconChevronDown
-          size={14}
-          className={cn(
-            "mt-px shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)]",
-            !expanded && "-rotate-90",
-          )}
-        />
-        <span
-          className={cn(
-            "min-w-0 flex-1 break-words font-medium",
-            !expanded && "line-clamp-2",
-          )}
-        >
-          {summary}
-        </span>
-        <span className="shrink-0 text-muted-foreground">
-          {t("comments.proposalEditCount", {
-            count: pending.length || totalCount,
-          })}
-        </span>
-      </button>
-      {expanded ? (
-        <div
-          id={detailsId}
-          className="grid gap-2 border-t border-border/60 p-2"
-        >
-          {children}
-        </div>
-      ) : null}
-      {canDecide && pending.length > 0 ? (
-        <div className="flex justify-end gap-1 border-t border-border/60 px-2 py-1.5">
-          <button
-            type="button"
-            disabled={deciding}
-            onClick={() => onDecide("accepted")}
-            className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
-          >
-            {t(undecided ? "comments.acceptAll" : "comments.acceptRemaining")}
-          </button>
-          <button
-            type="button"
-            disabled={deciding}
-            onClick={() => onDecide("rejected")}
-            className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
-          >
-            {t(undecided ? "comments.rejectAll" : "comments.rejectRemaining")}
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 /**
  * Why an agent suggested an edit, for a suggestion on its own card. A grouped
  * suggestion's reason is its group's header instead. People's suggestions and
@@ -3827,13 +4434,48 @@ function changesLayout(removed: string, inserted: string) {
   );
 }
 
+/**
+ * A replacement's change letter by letter, or null when that wouldn't read as
+ * an edit. Changing whole words reads fine, as does a word keeping most of its
+ * letters ("workflow" → "workflows"). Marking part of a word otherwise picks
+ * out letters a different word happens to share: "brown" → "red" would mark
+ * the "ed" after a kept "r", and a rewritten sentence a letter here and there.
+ */
+function letterDiff(removed: string, inserted: string) {
+  const parts = suggestionDiffParts(removed, inserted);
+  if (!parts) return null;
+  const splitsWord = (["delete", "insert"] as const).some((side) => {
+    let previous: (typeof parts)[number] | undefined;
+    for (const part of parts) {
+      if (part.type !== "equal" && part.type !== side) continue;
+      if (
+        previous &&
+        (previous.type === "equal") !== (part.type === "equal") &&
+        WORD_CHARACTER.test(previous.text.slice(-1)) &&
+        WORD_CHARACTER.test(part.text.charAt(0))
+      )
+        return true;
+      previous = part;
+    }
+    return false;
+  });
+  if (!splitsWord) return parts;
+  if (/\s/.test(removed.trim() + inserted.trim())) return null;
+  const kept = parts
+    .filter((part) => part.type === "equal")
+    .reduce((length, part) => length + part.text.length, 0);
+  return kept * 2 > Math.max(removed.length, inserted.length) ? parts : null;
+}
+
 function SuggestionOperationSummary({
   operations,
   expanded,
+  wordLevel = false,
   t,
 }: {
   operations: ResourceSuggestion["operations"];
   expanded: boolean;
+  wordLevel?: boolean;
   t: ReturnType<typeof useT>;
 }) {
   return operations.map((operation, index) => {
@@ -3876,12 +4518,14 @@ function SuggestionOperationSummary({
         : undefined;
 
     if (previousText && nextText) {
-      const diff =
-        operation.kind === "replace_text"
-          ? suggestionDiffParts(previousText, nextText)
-          : null;
-      const hasSharedContext = diff?.some((part) => part.type === "equal");
       const richText = /[<>*_`\[\]]/.test(previousText + nextText);
+      const diff =
+        operation.kind !== "replace_text"
+          ? null
+          : (!wordLevel && letterDiff(previousText, nextText)) ||
+            // Formatted text can only be read as a whole against its source.
+            (richText ? null : reviewUnitDiffParts(previousText, nextText));
+      const hasSharedContext = diff?.some((part) => part.type === "equal");
       const changed = (type: "delete" | "insert", whole: string) =>
         diff && hasSharedContext
           ? diff
@@ -3985,8 +4629,11 @@ function DraftSuggestionThreadView({
   suggestion,
   isActive,
   canDecide,
+  acceptDisabled,
+  deciding,
   onActivate,
   onMaterialize,
+  onDecideDraft,
   onActivateSaved,
   onDecide,
   surface = "rail",
@@ -4004,10 +4651,17 @@ function DraftSuggestionThreadView({
   suggestion: DraftSuggestion;
   isActive: boolean;
   canDecide: boolean;
+  /** Accepting needs more access than this person has; rejecting doesn't. */
+  acceptDisabled: boolean;
+  deciding: boolean;
   onActivate: () => void;
   onMaterialize?: (
     suggestion: DraftSuggestion,
   ) => Promise<ResourceSuggestion | null>;
+  onDecideDraft?: (
+    suggestion: DraftSuggestion,
+    decision: SuggestionDecision,
+  ) => void;
   onActivateSaved: (suggestion: ResourceSuggestion) => void;
   onDecide: (
     suggestion: ResourceSuggestion,
@@ -4048,6 +4702,7 @@ function DraftSuggestionThreadView({
         surface={surface}
         onClose={onClose}
         currentUserEmail={currentUserEmail}
+        currentUserName={currentUserName}
         popoverTitle={t("comments.suggestionTitle")}
         thread={thread}
         marginTop={marginTop}
@@ -4085,44 +4740,21 @@ function DraftSuggestionThreadView({
         }
         threadActions={
           canDecide ? (
-            <>
-              {(["accepted", "rejected"] as const).map((decision) => (
-                <Tooltip key={decision}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={t(
-                        decision === "accepted"
-                          ? "editor.acceptSuggestion"
-                          : "editor.rejectSuggestion",
-                      )}
-                      disabled={isSaving || !onMaterialize}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void materialize().then((saved) => {
-                          if (saved) onDecide(saved, decision);
-                        });
-                      }}
-                      className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
-                      data-suggestion-decision={decision}
-                    >
-                      {decision === "accepted" ? (
-                        <IconCheck size={18} />
-                      ) : (
-                        <IconX size={18} />
-                      )}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t(
-                      decision === "accepted"
-                        ? "editor.acceptSuggestion"
-                        : "editor.rejectSuggestion",
-                    )}
-                  </TooltipContent>
-                </Tooltip>
-              ))}
-            </>
+            <SuggestionDecisionButtons
+              disabled={
+                isSaving || deciding || (!onDecideDraft && !onMaterialize)
+              }
+              acceptDisabled={acceptDisabled}
+              onDecide={(decision) => {
+                if (onDecideDraft) {
+                  onDecideDraft(suggestion, decision);
+                  return;
+                }
+                void materialize().then((saved) => {
+                  if (saved) onDecide(saved, decision);
+                });
+              }}
+            />
           ) : null
         }
       />
@@ -4136,6 +4768,8 @@ function SuggestionThreadView({
   marginTop = 0,
   onHeightChange,
   suggestion,
+  operations,
+  isReviewUnit,
   reason,
   documentId,
   isActive,
@@ -4146,6 +4780,7 @@ function SuggestionThreadView({
   unplaceable,
   canComment,
   canDecide,
+  acceptDisabled,
   deciding,
   onActivate,
   onExpansionChange,
@@ -4165,6 +4800,10 @@ function SuggestionThreadView({
   marginTop?: number;
   onHeightChange: (threadId: string, height: number) => void;
   suggestion: ResourceSuggestion;
+  /** What the card decides, read as one edit even when it takes several pieces. */
+  operations: ResourceSuggestion["operations"];
+  /** Spells out what the edit replaces without being opened first. */
+  isReviewUnit: boolean;
   /** Why the agent suggested this edit, shown above it in full. */
   reason: string | null;
   documentId: string;
@@ -4176,6 +4815,8 @@ function SuggestionThreadView({
   unplaceable: boolean;
   canComment: boolean;
   canDecide: boolean;
+  /** Accepting needs more access than this person has; rejecting doesn't. */
+  acceptDisabled: boolean;
   deciding: boolean;
   onActivate: () => void;
   onExpansionChange: (expanded: boolean) => void;
@@ -4205,10 +4846,6 @@ function SuggestionThreadView({
     includeResolved: true,
   });
   const reply = useReplyReviewComment();
-  const uncertainReply = useRef<{
-    payload: string;
-    operationId: string;
-  } | null>(null);
   const expanded = expandRequested;
   const { text: draft, mentions } = replyDrafts.get(suggestion.threadId);
   const root = comments.data?.comments.find(
@@ -4219,7 +4856,7 @@ function SuggestionThreadView({
     canComment && suggestion.status === "pending" && root?.status === "open";
   const canExpand =
     canReply ||
-    suggestion.operations.some((operation) => {
+    operations.some((operation) => {
       const before = operation.before as { changedText?: string } | undefined;
       const after = operation.after as { changedText?: string } | undefined;
       return !!before?.changedText && !!after?.changedText;
@@ -4285,6 +4922,7 @@ function SuggestionThreadView({
         surface={surface}
         onClose={onClose}
         currentUserEmail={currentUserEmail}
+        currentUserName={currentUserName}
         popoverTitle={t("comments.suggestionTitle")}
         replyDrafts={replyDrafts}
         documentId={documentId}
@@ -4340,10 +4978,11 @@ function SuggestionThreadView({
             body: draft.trim(),
             mentions: replyMentions,
           });
-          const clientOperationId =
-            uncertainReply.current?.payload === payload
-              ? uncertainReply.current.operationId
-              : crypto.randomUUID();
+          const retryId = replyDrafts.retryOperationId(
+            suggestion.threadId,
+            payload,
+          );
+          const clientOperationId = retryId ?? crypto.randomUUID();
           replyDrafts.beginSubmission(suggestion.threadId, clientOperationId);
           reply.mutate(
             {
@@ -4355,16 +4994,14 @@ function SuggestionThreadView({
               mentions: replyMentions,
             },
             {
-              onSuccess: () => {
-                uncertainReply.current = null;
-              },
               onError: (error) => {
-                uncertainReply.current = isAmbiguousCommentCreateError(error)
-                  ? { payload, operationId: clientOperationId }
-                  : null;
                 replyDrafts.restoreSubmittedDraft(
                   suggestion.threadId,
                   clientOperationId,
+                  uncertainAfterFailure(error, retryId !== undefined, {
+                    payload,
+                    operationId: clientOperationId,
+                  }),
                 );
               },
               onSettled: () => {
@@ -4420,22 +5057,15 @@ function SuggestionThreadView({
         renderCommentBadge={(commentId) =>
           commentId === thread.comments[0]?.id &&
           suggestion.actorKind === "agent" ? (
-            <CommentAgentBadge
-              ariaLabel={`${t("comments.aiAttribution", {
-                name: suggestion.authorEmail ?? "",
-              })}. ${t("comments.aiSourceAgent")}`}
-              details={
-                <span className="grid gap-0.5">
-                  <span>
-                    {t("comments.aiAttribution", {
-                      name: suggestion.authorEmail ?? "",
-                    })}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {t("comments.aiSourceAgent")}
-                  </span>
-                </span>
+            <AgentAttributionBadge
+              source={suggestion.authorSource === "mcp" ? "mcp" : "agent"}
+              authorName={
+                suggestion.authorEmail
+                  ? (thread.comments[0]?.author_name ??
+                    suggestion.authorEmail.replace(/@.*$/, ""))
+                  : ""
               }
+              client={suggestion.authorClient}
             />
           ) : null
         }
@@ -4457,8 +5087,9 @@ function SuggestionThreadView({
               </p>
             ) : null}
             <SuggestionOperationSummary
-              operations={suggestion.operations}
-              expanded={expanded}
+              operations={operations}
+              expanded={expanded || isReviewUnit}
+              wordLevel={isReviewUnit}
               t={t}
             />
             {anchorUnavailable || sourceUrl ? (
@@ -4481,42 +5112,11 @@ function SuggestionThreadView({
         }
         threadActions={
           canDecide && suggestion.status === "pending" ? (
-            <>
-              {(["accepted", "rejected"] as const).map((decision) => (
-                <Tooltip key={decision}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={t(
-                        decision === "accepted"
-                          ? "editor.acceptSuggestion"
-                          : "editor.rejectSuggestion",
-                      )}
-                      disabled={deciding}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onDecide(decision);
-                      }}
-                      className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
-                      data-suggestion-decision={decision}
-                    >
-                      {decision === "accepted" ? (
-                        <IconCheck size={18} />
-                      ) : (
-                        <IconX size={18} />
-                      )}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t(
-                      decision === "accepted"
-                        ? "editor.acceptSuggestion"
-                        : "editor.rejectSuggestion",
-                    )}
-                  </TooltipContent>
-                </Tooltip>
-              ))}
-            </>
+            <SuggestionDecisionButtons
+              disabled={deciding}
+              acceptDisabled={acceptDisabled || unplaceable}
+              onDecide={onDecide}
+            />
           ) : null
         }
         feedback={
@@ -4545,6 +5145,7 @@ function ThreadView({
   onClose,
   popoverTitle,
   currentUserEmail,
+  currentUserName,
   resolved = false,
   replyDrafts,
   documentId,
@@ -4594,6 +5195,7 @@ function ThreadView({
   onClose?: () => void;
   popoverTitle?: string;
   currentUserEmail?: string;
+  currentUserName?: string;
   resolved?: boolean;
   replyDrafts?: ReturnType<typeof useCommentReplyDrafts>;
   documentId?: string;
@@ -4648,13 +5250,30 @@ function ThreadView({
   const seenEntryCount = useRef(thread.comments.length);
 
   // A capped card hides what arrives below the fold, such as the AI's revised
-  // suggestion after a follow-up, so bring new entries into view.
+  // suggestion after a follow-up, so bring a new entry into view from its
+  // start: a long suggestion opens on its reason, not its last edit.
   useEffect(() => {
     const added = thread.comments.length > seenEntryCount.current;
     seenEntryCount.current = thread.comments.length;
     const body = bodyRef.current;
-    if (!added || !body || body.scrollHeight <= body.clientHeight) return;
-    body.scrollTo({ top: body.scrollHeight, behavior: "smooth" });
+    const latest = thread.comments.slice(-1).pop();
+    if (!added || !body || !latest || body.scrollHeight <= body.clientHeight)
+      return;
+    const entry = body.querySelector<HTMLElement>(
+      `[data-comment-entry="${cssEscape(latest.id)}"]`,
+    );
+    if (!entry) return;
+    const entryTop =
+      entry.getBoundingClientRect().top - body.getBoundingClientRect().top;
+    // Its start already shows, under the comment that asked for it: leave
+    // the reader where they are.
+    if (entryTop >= 0 && entryTop <= body.clientHeight - NEW_ENTRY_MIN_VISIBLE)
+      return;
+    const padding = Number.parseFloat(getComputedStyle(body).paddingTop) || 0;
+    body.scrollTo({
+      top: body.scrollTop + entryTop - padding,
+      behavior: "smooth",
+    });
   }, [thread.comments.length]);
 
   useEffect(() => {
@@ -4842,7 +5461,9 @@ function ThreadView({
           "relative grid grid-cols-1 gap-3.5",
           isPanel
             ? "px-4 py-3.5"
-            : "max-h-96 min-h-0 overflow-y-auto px-4 pb-3.5 pt-3.5",
+            : // Scrolling past either end of a long thread stays in the card
+              // instead of moving the page behind it.
+              "max-h-96 min-h-0 overflow-y-auto overscroll-y-contain px-4 pb-3.5 pt-3.5",
         )}
         data-comment-thread-body
       >
@@ -4924,7 +5545,7 @@ function ThreadView({
           return renderEntry ? (
             <Fragment key={c.id}>
               {earlier}
-              <div className={indent}>
+              <div className={indent} data-comment-entry={c.id}>
                 {renderEntry(c.id, {
                   headerActions: index === 0 ? firstRowActions : undefined,
                   revealActions: index === 0 ? "always" : "hover",
@@ -4937,6 +5558,7 @@ function ThreadView({
               {earlier}
               <CommentRow
                 className={indent}
+                data-comment-entry={c.id}
                 avatar={
                   <CommentAvatar
                     email={c.author_email}
@@ -5002,7 +5624,11 @@ function ThreadView({
           <div className="flex h-9.5 shrink-0 items-center">
             <CommentAvatar
               email={currentUserEmail ?? thread.comments[0]?.author_email}
-              name={currentUserEmail ?? thread.comments[0]?.author_name}
+              name={
+                currentUserEmail
+                  ? currentUserName?.trim() || currentUserEmail
+                  : thread.comments[0]?.author_name
+              }
             />
           </div>
           <CommentComposer

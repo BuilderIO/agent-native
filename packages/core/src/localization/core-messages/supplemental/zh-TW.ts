@@ -103,6 +103,7 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpIdentityError: "無法載入此應用程式的連線資訊。",
   mcpRetry: "重試",
   mcpOAuthBackToApp: "返回應用程式",
+  mcpOAuthConnectionDone: "連線完成",
   mcpConnect: mcpConnectMessages,
 };
 

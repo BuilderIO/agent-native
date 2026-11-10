@@ -12,6 +12,32 @@ describe("docs auth session scoping", () => {
     expect(docsAuthOptions.workspaceAppAudience).toBe("public");
   });
 
+  it("resolves browser identity only from an existing docs cookie", async () => {
+    const event = mockEvent(
+      "https://docs.example.com/_agent-native/ui-capability",
+      {
+        headers: { cookie: "an_docs_session=existing" },
+      },
+    );
+    await expect(docsAuthOptions.getBrowserSession!(event)).resolves.toEqual({
+      email: "anon-existing@agent-native.com",
+      userId: "existing",
+    });
+  });
+
+  it("does not create a browser session from a bearer or an anonymous request", async () => {
+    for (const headers of [{}, { authorization: "Bearer docs-test-session" }]) {
+      const event = mockEvent(
+        "https://docs.example.com/_agent-native/ui-capability",
+        { headers },
+      );
+      await expect(
+        docsAuthOptions.getBrowserSession!(event),
+      ).resolves.toBeNull();
+      expect(event.res.headers.get("set-cookie")).toBeNull();
+    }
+  });
+
   it("creates anonymous sessions for framework and API routes under a mount path", () => {
     expect(
       shouldCreateDocsSessionForPath(
@@ -42,6 +68,7 @@ describe("docs auth session scoping", () => {
       { headers: { cookie: "an_docs_session=existing" } },
     );
     await expect(docsAuthOptions.getSession!(event)).resolves.toBeNull();
+    await expect(docsAuthOptions.getBrowserSession!(event)).resolves.toBeNull();
   });
 
   it("preserves WebMCP auth exclusion after mounted-route path stripping", async () => {
@@ -54,5 +81,6 @@ describe("docs auth session scoping", () => {
     };
 
     await expect(docsAuthOptions.getSession!(event)).resolves.toBeNull();
+    await expect(docsAuthOptions.getBrowserSession!(event)).resolves.toBeNull();
   });
 });

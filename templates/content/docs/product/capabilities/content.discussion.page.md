@@ -47,9 +47,9 @@ A reviewer opens a Collection row's peek and, with nothing selected, writes "Loo
 - The panel's composer, "Comment on this page…", starts a page comment. It supports @mentions, @AI, and reactions like any Comment. Page comments reply, resolve, reopen, notify, and react exactly like other threads, and they never show "Highlight unavailable". A text comment whose text was deleted still does, with its quote.
 - Page comments do not appear in the margin beside the text, because they point at nothing there.
 - The panel opens in page order with only open threads. Page order is page comments first, then Property comments in Property order, then text comments in reading order, then threads whose text is gone. Newest activity puts the thread with the latest reply on top; Oldest first sorts by when each thread started.
-- Filters show as chips, like a Collection's: Status (Open by default, or Resolved), Type (Comments or Suggested edits), Points at (the Page, text, or a Property), Who (an author, or Mentions me), Tab (only on Pages with several Blocks fields), and search. Sort and filters are personal and remembered for each reader, and a search lasts until they leave the Page; none of it is saved on the Page.
+- Filters show as chips, like a Collection's: Status (Open by default, or Resolved), Type (Comments or Suggested edits), Points at (the Page, text, or a Property, where a thread on a video counts as text), Who (an author, or Mentions me), Tab (only on Pages with several Blocks fields), and search. Sort and filters are personal and remembered for each reader, and a search lasts until they leave the Page; none of it is saved on the Page.
 - Opening a Comment link (`?comment=`) opens the Discussion at that thread, showing it even when the reader's filters would hide it, without changing those filters. Comment emails link to the thread this way. A page comment someone has just posted also stays in view until they change a filter.
-- The same Comment Actions serve agents. `add-comment` with no quoted text and no Property starts a page comment, and `list-comments` returns it.
+- The same Comment Actions serve agents. `add-comment` with no quoted text, no Block, and no Property starts a page comment, and `list-comments` returns it.
 
 ## Boundaries and non-goals
 
@@ -81,7 +81,7 @@ Given a Page with page, Property, and text comments, the panel opens in page ord
 
 ## Current evidence
 
-Page comments use the existing `document_comments` storage: a root with no quoted text and no Property. Collection row counts already count every open root, so page comments add to them with no new storage. The panel, composer, sort, filters, counts, naming, and email links are being built and tested; this remains `approved_shape` until that lands and Version cursors are designed.
+Page comments use the existing `document_comments` storage: a root with no quoted text, no Block, and no Property. Collection row counts already count every open root, so page comments add to them with no new storage. The panel, composer, sort, filters, counts, naming, and email links are being built and tested; this remains `approved_shape` until that lands and Version cursors are designed.
 
 ## Proof plan
 

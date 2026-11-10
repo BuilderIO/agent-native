@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import type { ActionRunContext } from "@agent-native/core/action";
+import type { DbExec } from "@agent-native/core/db";
 
 import type { DocumentBodyIntent } from "../../shared/document-intent-order.js";
 
@@ -31,7 +32,7 @@ export interface ContentBodyIntentRecord {
  * recorded twice would claim two revisions.
  */
 export interface ContentBodyWriteCause {
-  ctx?: ActionRunContext;
+  ctx?: ActionRunContext | undefined;
   /** The History operation, such as `"accept-suggestion"`. */
   operation: string;
   origin?: string;
@@ -46,12 +47,35 @@ export interface ContentBodyWriteCause {
   calloutSource?:
     | { kind: "version"; versionId: string }
     | { kind: "document"; documentId: string };
+  /**
+   * Collections the commit locks with the page's own, in the same id-ordered
+   * pass before its memberships and the page, so a writer can check their
+   * rows under those locks. A source-policy change locks its collection
+   * first, so locking that collection after the page could deadlock.
+   */
+  lockCollections?: readonly string[];
+  /**
+   * The primary Blocks field revision the writer read, checked under the page
+   * lock as the field's identity moves. A body that went A→B→A still matches
+   * the text an edit names, but not this revision.
+   */
+  expectedBlocksFieldRevision?: { propertyId: string; revision: number };
+  /** Target-field IDs from a granular edit; other primary aliases keep their own IDs. */
+  blocksFieldIdentity?: {
+    propertyId: string;
+    preferredIdsByPath: Readonly<Record<string, string>>;
+    rejectCrossFieldIdRemapping: true;
+  };
+  /** Runs under the body-write locks, before the body or its identities move. */
+  beforeWrite?: (tx: DbExec) => Promise<void>;
 }
 
 /** A page being switched to its live copy, from the body at `baseRevision`. */
 export interface LiveBodyConversion {
   documentId: string;
   baseRevision: number;
+  /** The backfill's: refused `opted_out` for a page sent back to legacy. */
+  unlessOptedOut?: true;
 }
 
 interface WriteScope {

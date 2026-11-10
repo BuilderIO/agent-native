@@ -135,7 +135,7 @@ class AcpHarnessSession implements AgentHarnessSession {
   private readonly acp: any;
   private readonly child: ChildProcessWithoutNullStreams;
   private readonly command: string;
-  private readonly cwd: string;
+  private cwd: string;
   private readonly permissionMode: AgentHarnessPermissionMode;
   private connection: any;
   private acpSessionId = "";
@@ -207,10 +207,15 @@ class AcpHarnessSession implements AgentHarnessSession {
     this.supportsLoad = Boolean(initResponse?.agentCapabilities?.loadSession);
 
     const resume = opts.resumeState as
-      | { sessionId?: string }
+      | { sessionId?: unknown; cwd?: unknown }
       | undefined
       | null;
-    if (resume?.sessionId && this.supportsLoad) {
+    if (
+      typeof resume?.sessionId === "string" &&
+      resume.sessionId.length > 0 &&
+      this.supportsLoad
+    ) {
+      this.cwd = await resolveAcpResumeCwd(resume.cwd, this.cwd);
       try {
         await this.connection.loadSession({
           sessionId: resume.sessionId,
@@ -275,17 +280,30 @@ class AcpHarnessSession implements AgentHarnessSession {
     yield* queue;
   }
 
-  async approve(approval: AgentHarnessApproval): Promise<void> {
+  approve(approval: AgentHarnessApproval): Promise<void> {
     const pending = this.pendingPermissions.get(approval.id);
-    if (!pending) return;
+    if (!pending) {
+      throw new Error(
+        `[acp-harness] Approval ${approval.id} is not pending in this process.`,
+      );
+    }
     this.pendingPermissions.delete(approval.id);
     pending.resolve(
       buildAcpPermissionResponse(pending.options, approval.approved),
     );
+    return Promise.resolve();
+  }
+
+  canResolveApproval(approval: AgentHarnessApproval): boolean {
+    return this.pendingPermissions.has(approval.id);
+  }
+
+  async checkpoint(): Promise<unknown> {
+    return { sessionId: this.acpSessionId, cwd: this.cwd };
   }
 
   async detach(): Promise<unknown> {
-    const state = { sessionId: this.acpSessionId, cwd: this.cwd };
+    const state = await this.checkpoint();
     await this.destroy();
     return state;
   }
@@ -672,6 +690,37 @@ export function resolveAcpWorkspacePath(
     );
   }
   return abs;
+}
+
+export async function resolveAcpResumeCwd(
+  checkpointCwd: unknown,
+  fallbackCwd: string,
+): Promise<string> {
+  if (checkpointCwd === undefined || checkpointCwd === null) {
+    return path.resolve(fallbackCwd);
+  }
+  if (typeof checkpointCwd !== "string" || !path.isAbsolute(checkpointCwd)) {
+    throw new Error(
+      "[acp-harness] Checkpoint working directory must be an absolute path.",
+    );
+  }
+
+  const cwd = path.resolve(checkpointCwd);
+  let stats: Awaited<ReturnType<typeof fs.stat>>;
+  try {
+    stats = await fs.stat(cwd);
+  } catch (error) {
+    throw new Error(
+      `[acp-harness] Checkpoint working directory is not accessible: ${cwd}`,
+      { cause: error },
+    );
+  }
+  if (!stats.isDirectory()) {
+    throw new Error(
+      `[acp-harness] Checkpoint working directory is not a directory: ${cwd}`,
+    );
+  }
+  return cwd;
 }
 
 function sliceTextFile(

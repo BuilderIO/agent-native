@@ -112,6 +112,7 @@ describe("AgentEngine registry", () => {
     vi.doUnmock("../../server/chatgpt-subscription-oauth.js");
     vi.doUnmock("../../server/request-context.js");
     vi.doUnmock("../../extensions/url-safety.js");
+    vi.doUnmock("node:dns/promises");
     vi.doUnmock("../../secrets/storage.js");
     vi.doUnmock("../../db/client.js");
     vi.doUnmock("../../org/context.js");
@@ -1656,7 +1657,7 @@ describe("AgentEngine registry", () => {
 
     it("does not select builder from the Builder-credits pair in hosted production", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("FUSION_ENVIRONMENT", "cloud-v2");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
       process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: hosted requests must ignore deployment model credentials
       process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: hosted requests must ignore deployment model credentials
       vi.doMock("../../db/client.js", () => ({
@@ -1998,7 +1999,7 @@ describe("AgentEngine registry", () => {
       ).resolves.toBe(true);
     });
 
-    it("does not report Builder usable from deploy credentials in a Fusion preview", async () => {
+    it("reports the builder engine as runnable in a preview", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("FUSION_ENVIRONMENT", "cloud-v2");
       process.env.BUILDER_GATEWAY_TOKEN = "btk-preview-token"; // guard:allow-env-credential — fixture: the preview pod's Builder-credits pair is the credential under test
@@ -2014,7 +2015,7 @@ describe("AgentEngine registry", () => {
 
       await expect(
         isStoredEngineUsableForRequest({ engine: "builder" }, entry),
-      ).resolves.toBe(false);
+      ).resolves.toBe(true);
     });
 
     it("runs the builder engine on OAuth custody with no key pair stored", async () => {
@@ -3585,7 +3586,7 @@ describe("AgentEngine registry", () => {
       vi.doMock("../../secrets/storage.js", () => {
         const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
           if (key === "OPENAI_BASE_URL") {
-            return { key, value: "https://gateway.example/v1///" };
+            return { key, value: "https://93.184.216.34/v1///" };
           }
           return null;
         });
@@ -3617,7 +3618,7 @@ describe("AgentEngine registry", () => {
       expect(openAiCreate).toHaveBeenCalledWith({
         apiKey: undefined,
         allowEnvFallback: false,
-        baseUrl: "https://gateway.example/v1",
+        baseUrl: "https://93.184.216.34/v1",
         requestFetch: expect.any(Function),
       });
       expect(resolved).toBe(openAiEngine);
@@ -3720,6 +3721,9 @@ describe("AgentEngine registry", () => {
       expect(create).toHaveBeenCalledWith(
         expect.objectContaining({ apiKey: "openai-test-key" }),
       );
+      const { getEngineLlmConnectionSource } =
+        await import("./credential-owner.js");
+      expect(getEngineLlmConnectionSource(engine)).toBe("app_secrets");
     });
 
     it.each([
@@ -4081,6 +4085,14 @@ describe("AgentEngine registry", () => {
     });
 
     it("does not treat the first-party OpenAI endpoint as a custom gateway", async () => {
+      vi.doMock("node:dns/promises", () => ({
+        lookup: vi.fn(async (hostname: string) => {
+          if (hostname === "api.openai.com") {
+            return [{ address: "93.184.216.34", family: 4 }];
+          }
+          throw new Error(`Unexpected DNS lookup for ${hostname}`);
+        }),
+      }));
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",

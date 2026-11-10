@@ -12,6 +12,7 @@ import { isImageRecording, resolveRecordingKind } from "@shared/recording-kind";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { trimsRevisionOf } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 const IMAGE_TOKEN_STEP_SECONDS = 5 * 60;
 
@@ -64,6 +65,7 @@ import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
   isRecordingExpiredForViewer,
+  isRecordingTrashedForViewer,
 } from "../server/lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../server/lib/recording-share-grant.js";
 import {
@@ -88,6 +90,7 @@ import { parseStoredChapters } from "../shared/stored-chapters.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
+  storedSegmentsUnreadable,
 } from "../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../shared/transcript-status.js";
 import { boundTranscriptForAgent } from "./lib/transcript-preview.js";
@@ -162,6 +165,15 @@ export default defineAction({
     const rec: any = access.resource;
 
     if (
+      isRecordingTrashedForViewer({
+        trashedAt: rec.trashedAt,
+        viewerIsOwner: access.role === "owner",
+      })
+    ) {
+      throw new ForbiddenError(`No access to recording ${args.recordingId}`);
+    }
+
+    if (
       isRecordingExpiredForViewer({
         expiresAt: rec.expiresAt,
         viewerIsOwner: access.role === "owner",
@@ -191,11 +203,14 @@ export default defineAction({
       );
     }
 
-    const [transcript] = await db
+    const transcriptRows = await db
       .select()
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
+    // A recording can have no transcript row, which indexing alone wouldn't type.
+    const transcript =
+      transcriptRows.length > 0 ? transcriptRows[0] : undefined;
     const canEditRecording =
       access.role === "owner" ||
       access.role === "admin" ||
@@ -241,14 +256,17 @@ export default defineAction({
       ? normalizeBuilderCreditsStatus(builderCreditsRaw)
       : null;
 
-    const comments = await db
-      .select()
-      .from(schema.recordingComments)
-      .where(eq(schema.recordingComments.recordingId, args.recordingId))
-      .orderBy(
-        asc(schema.recordingComments.videoTimestampMs),
-        asc(schema.recordingComments.createdAt),
-      );
+    const comments =
+      rec.enableComments || access.role === "owner"
+        ? await db
+            .select()
+            .from(schema.recordingComments)
+            .where(eq(schema.recordingComments.recordingId, args.recordingId))
+            .orderBy(
+              asc(schema.recordingComments.videoTimestampMs),
+              asc(schema.recordingComments.createdAt),
+            )
+        : [];
     const hydratedComments = await hydrateCommentAuthorNames(comments);
 
     const reactions = await db
@@ -317,8 +335,14 @@ export default defineAction({
       fullText: transcript?.fullText,
       durationMs: rec.durationMs,
     });
+    const segmentsUnreadable = storedSegmentsUnreadable(
+      transcript?.segmentsJson,
+    );
+    // Saved lines that can't be read aren't "no speech": the panel says the
+    // transcript couldn't be read instead.
     const transcriptReadyButEmpty =
       transcript?.status === "ready" &&
+      !segmentsUnreadable &&
       !transcript.fullText?.trim() &&
       transcriptSegments.length === 0;
     const transcriptPresentation = resolveTranscriptPresentation(transcript);
@@ -424,6 +448,9 @@ export default defineAction({
           : canEditRecording
             ? editorScreenshotEditsJson(rec.editsJson)
             : viewerScreenshotEditsJson(rec.editsJson),
+        ...(canEditRecording
+          ? { trimsRevision: trimsRevisionOf(rec.editsJson) }
+          : {}),
         videoUrl: resolvedVideoUrl,
         videoFormat: rec.videoFormat,
         videoSizeBytes: rec.videoSizeBytes ?? null,
@@ -485,6 +512,9 @@ export default defineAction({
               ? "No speech was detected by transcription. Check microphone and speech permissions, then retry transcription."
               : transcriptPresentation.failureReason,
             segments: agentTranscript?.segments ?? transcriptSegments,
+            ...(segmentsUnreadable
+              ? { segmentsUnreadable: true as const }
+              : {}),
             ...(transcriptVersions ? { versions: transcriptVersions } : {}),
             cleanup: cleanupState
               ? {

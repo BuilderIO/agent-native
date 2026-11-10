@@ -17,7 +17,7 @@ import {
   type Resource,
 } from "@agent-native/core/resources";
 
-import type { WorkflowGraph } from "../workflow/contract.js";
+import type { WorkflowGraph, WorkflowNode } from "../workflow/contract.js";
 import {
   WorkflowScheduleError,
   deriveJobSchedule,
@@ -38,7 +38,10 @@ import {
   factoryAutomationRunHistoryKey,
   setAutomationFrontmatterField,
 } from "./factory-scope.js";
-import { WORKFLOW_RUNNER } from "./factory-workflow-runner.js";
+import {
+  WORKFLOW_JOB_APP_ID,
+  WORKFLOW_RUNNER,
+} from "./factory-workflow-runner.js";
 import { canonicalGitHubRepository } from "./github-repository.js";
 import { isSlackChannelId } from "./slack-channel-id.js";
 
@@ -76,7 +79,9 @@ interface WorkflowJobIssue {
     | "source_scope_unsupported"
     | "source_filter_invalid"
     | "source_filter_conflict"
-    | "source_poller_duplicate";
+    | "source_poller_duplicate"
+    | "repository_invalid"
+    | "repository_conflict";
   nodeId?: string;
   detail: string;
 }
@@ -99,6 +104,25 @@ const SCHEDULE_ISSUES: Partial<
   cadence_unsupported: "schedule_cadence_unsupported",
 };
 
+export interface WorkflowJobPlanOptions {
+  /**
+   * The factory's settings name a Sentry organization, which the poller falls
+   * back on when the job file names none. A Sentry Source with no project is
+   * refused only when this is false.
+   */
+  sentryFallbackConfigured: boolean;
+}
+
+/** A Sentry Source that leaves its organization and project to the factory's settings. */
+export function leavesSentryToFactorySettings(node: WorkflowNode): boolean {
+  return (
+    node.kind === "source" &&
+    node.settings.source === "inbox-poll" &&
+    node.settings.poller === "sentry" &&
+    (node.settings.filter?.scopes ?? []).length === 0
+  );
+}
+
 const CONFIG_KEYS = [
   "slackChannelId",
   "repository",
@@ -109,7 +133,38 @@ const CONFIG_KEYS = [
   "workLimit",
 ] as const;
 
-function inboxConfig(graph: WorkflowGraph): {
+/**
+ * The one repository a workflow declares it acts on: `settings.extras.repository`,
+ * the setting its Builder step already checks pull requests against. A workflow
+ * with no GitHub source has no other way to tell the merge gate which repository
+ * it may touch. A graph that declares none leaves it unset, and the gate then
+ * refuses; nothing here defaults it.
+ */
+function declaredRepository(graph: WorkflowGraph): {
+  repository?: string;
+  issue?: WorkflowJobIssue;
+} {
+  const value = graph.settings.extras?.repository;
+  if (value === undefined || value === "") return {};
+  const invalid = {
+    issue: {
+      code: "repository_invalid" as const,
+      detail:
+        'The workflow\'s repository setting (`settings.extras.repository`) must be a GitHub repository written as "owner/name", for example "acme/web".',
+    },
+  };
+  if (typeof value !== "string") return invalid;
+  try {
+    return { repository: canonicalGitHubRepository(value) };
+  } catch {
+    return invalid;
+  }
+}
+
+function inboxConfig(
+  graph: WorkflowGraph,
+  { sentryFallbackConfigured }: WorkflowJobPlanOptions,
+): {
   config: WorkflowJobPlan["config"];
   issues: WorkflowJobIssue[];
 } {
@@ -153,6 +208,14 @@ function inboxConfig(graph: WorkflowGraph): {
         ),
       );
     }
+    if (leavesSentryToFactorySettings(node) && !sentryFallbackConfigured) {
+      issues.push(
+        issue(
+          "source_scope_unsupported",
+          'A Sentry source needs the project it polls, or a Sentry organization in this factory\'s settings. Enter the project as "organization/project", for example "acme/web".',
+        ),
+      );
+    }
     const scope = scopes[0];
     if (scope && scopes.length === 1) {
       if (poller === "slack") {
@@ -182,7 +245,7 @@ function inboxConfig(graph: WorkflowGraph): {
           issues.push(
             issue(
               "source_scope_unsupported",
-              'A Sentry source names its project as "organization/project".',
+              'A Sentry source names its project as "organization/project", for example "acme/web".',
             ),
           );
         } else {
@@ -235,6 +298,19 @@ function inboxConfig(graph: WorkflowGraph): {
       }
     }
   }
+  const declared = declaredRepository(graph);
+  if (declared.issue) issues.push(declared.issue);
+  else if (declared.repository) {
+    const polled = config.repository;
+    if (polled && polled.toLowerCase() !== declared.repository.toLowerCase()) {
+      issues.push({
+        code: "repository_conflict",
+        detail: `The workflow's repository setting is ${declared.repository}, but its GitHub source polls ${polled}. A workflow acts on one repository.`,
+      });
+    } else {
+      config.repository = polled ?? declared.repository;
+    }
+  }
   if (author) {
     config.authorMode = author.mode;
     config.authorIds = author.ids.join(",");
@@ -247,11 +323,14 @@ function inboxConfig(graph: WorkflowGraph): {
  * What the job file must say for this graph, or why it cannot say it. Pure, so
  * a save can refuse before it writes anything.
  */
-export function planWorkflowJob(graph: WorkflowGraph): {
+export function planWorkflowJob(
+  graph: WorkflowGraph,
+  options: WorkflowJobPlanOptions,
+): {
   plan: WorkflowJobPlan | null;
   issues: WorkflowJobIssue[];
 } {
-  const { config, issues } = inboxConfig(graph);
+  const { config, issues } = inboxConfig(graph, options);
   let schedule: JobSchedule | null = null;
   try {
     schedule = deriveJobSchedule(graph);
@@ -301,6 +380,7 @@ function renderJob(
     plan: WorkflowJobPlan;
     enabled: boolean;
     name: string;
+    orgId: string;
     factoryId: string;
     latest: JobFrontmatter;
   },
@@ -312,6 +392,14 @@ function renderJob(
     enabled,
     runner: WORKFLOW_RUNNER,
   };
+  if (latest.appId?.trim() !== WORKFLOW_JOB_APP_ID) {
+    fields.appId = WORKFLOW_JOB_APP_ID;
+  }
+  if (latest.triggerType !== "schedule") fields.triggerType = "schedule";
+  if (latest.domain !== "factory") fields.domain = "factory";
+  // The workflow appId takes the file out of core's org recovery, which reads
+  // only a missing or `factory` appId, so the file has to name its own org.
+  if (!latest.orgId?.trim()) fields.orgId = input.orgId;
   if (timezone !== null) fields.timezone = timezone;
   const zone = timezone ?? latest.timezone;
   const moved = latest.schedule !== cron || latest.timezone !== zone;
@@ -360,7 +448,7 @@ export async function createWorkflowJob(input: {
     enabled: false,
     triggerType: "schedule",
     domain: "factory",
-    appId: "factory",
+    appId: WORKFLOW_JOB_APP_ID,
     createdBy: input.ownerEmail,
     orgId: input.orgId,
     runAs: "creator",
@@ -550,6 +638,7 @@ export function summarizeWorkflowJob(
   const { meta } = definition;
   const drift: string[] = [];
   if (meta.runner !== WORKFLOW_RUNNER) drift.push("runner");
+  if (meta.appId?.trim() !== WORKFLOW_JOB_APP_ID) drift.push("appId");
   if (meta.enabled !== expected.enabled) drift.push("enabled");
   if (expected.schedule) {
     if (meta.schedule !== expected.schedule.cron) drift.push("schedule");

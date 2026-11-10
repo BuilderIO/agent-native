@@ -11,11 +11,13 @@ import type {
   RemoteCommand,
   RemoteDevice,
 } from "../integrations/remote-types.js";
+import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import {
   resourceGetByPath,
   resourcePutIfCurrent,
   type Resource,
 } from "../resources/store.js";
+import { CONFIG_INVALID_ERROR_CODE } from "./automation-outcome.js";
 import {
   parseJobResource,
   patchJobFrontmatterFields,
@@ -162,6 +164,12 @@ export async function dispatchRemoteAutomation(
     throw new Error("The automation changed before remote dispatch.");
   }
   const parsed = parseJobResource(latest.content);
+  if (parsed.meta.mcpManaged) {
+    const messages = await automationOutcomeMessagesForUser(input.ownerEmail);
+    throw Object.assign(new Error(messages.mcpApprovalUnavailable), {
+      errorCode: CONFIG_INVALID_ERROR_CODE,
+    });
+  }
   if (parsed.meta.lastStatus !== "running") {
     throw new Error("The automation is no longer marked as running.");
   }

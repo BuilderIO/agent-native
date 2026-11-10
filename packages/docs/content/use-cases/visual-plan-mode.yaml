@@ -1,0 +1,106 @@
+slug: visual-plan-mode
+app: plans
+roles:
+  - engineering
+title: Review your coding agent's plan before it writes code
+seo_title: Visual plan mode for Claude Code, Codex and Cursor
+meta_description: Agent-Native Plan turns your coding agent's plan into a page you can review, with diagrams, file trees and annotated code, before it writes any code.
+updated: 2026-10-27
+hero:
+  body: Agent-Native Plan turns the plan your agent writes into a page of diagrams, file trees and annotated code. You comment on any part, and the agent revises the plan and edits no code until you approve.
+  button:
+    label: Plan your build
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Faad0afc668dc461f9023eeba3ba55800
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c2e3c83e79248e69829bb38f71a6704
+    alt: A plan for adding team invites, open in Plan. A diagram shows the invite flow from the Settings page through the API and the invites table to the invite email. Below it, a file tree marks the five files that change. A teammate's comment for the agent is pinned to the email step.
+how_to:
+  heading: How to use visual plan mode with your coding agent
+  steps:
+    - title: Ask for a visual plan
+      body: Add Plan to Claude Code, Codex or Cursor with [one install command](https://www.agent-native.com/docs/plan-plugin/). Then type `/visual-plan` and the task. The agent reads your code and posts a link to the plan.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15e26ab97a68472a958aabf9657fdeb2
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F01168fa31ed5412080d49febc37f1068
+        alt: A coding agent's chat where the user typed /visual-plan with a task to add team invites. The agent lists the files it read, publishes the plan and replies with its link.
+    - title: Comment on what should change
+      body: Select a sentence or a spot on a diagram and write what should change. [Set the comment](https://www.agent-native.com/docs/template-plan-review-workflow/) to **Agent** for the agent to fix, or **Human** for a teammate. Answer the plan's open questions, too.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8a16bd566384f4080dde591a1b30c3f
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F598a137b56d149f98409ed79c024cb2b
+        alt: Close-up of a new comment pinned to the invite email step of the plan's diagram, with the Agent and Human toggle set to Agent and the comment typed in.
+    - title: Send your comments to the agent
+      body: Click **Send to agent** and choose **Copy for your agent** to copy your comments as a prompt. Paste it into your agent's chat to update the plan. When the plan is right, approve it there and the agent starts building.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0f841d0983ec4e3386d13c4c4ad7895d
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F356c269c867048c392ca26ef5c5767c8
+        alt: "Close-up of the plan's Send to agent button with its menu open: Copy for your agent and Send to inline agent, each with its one-line description."
+features:
+  heading: Everything you need to review your agent's plan
+  items:
+    - title: Diagrams of the approach
+      body: Request flows, data models and API endpoints are drawn out, so a wrong endpoint or a missing table stands out before it's built.
+    - title: See which files change
+      body: File trees and annotated code show where the work lands and what each step reuses from your codebase.
+    - title: Questions with a default
+      body: Decisions the agent can't settle from your code go in one form at the end, each with the answer it recommends.
+    - title: Starts from plan mode
+      body: Already have a plan from Claude Code, Codex or a Markdown file? `/visual-plan` builds the page from it instead of starting over.
+    - title: No code before approval
+      body: Plan's instructions keep the agent to reading your code while it plans. It starts editing only after you approve the plan.
+    - title: Review with a teammate
+      body: Send a teammate the plan's link. They can read and edit it as a guest, and sign in with an Agent-Native account to comment.
+integrations:
+  heading: Connect Plan to the tools you already use
+  cards:
+    - title: A plugin for your coding agent
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: Install Plan as a plugin in Claude Code or Codex, and use `/visual-plan` in the chat you already work in.
+    - title: One command for other agents
+      logos:
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: One install command sets up Plan in Cursor, OpenCode or GitHub Copilot in VS Code, and any other MCP agent can add it by URL.
+    - title: Connect anything through MCP
+      logos:
+        - name: Linear
+        - name: Sentry
+        - name: Context7
+      more: true
+      body: Connect the tools your team uses through MCP, or add any MCP server by its URL.
+other_uses:
+  heading: Other things you can do with Agent-Native Plan
+  cards:
+    - title: Get a visual recap of your coding agent's changes
+      url: https://www.agent-native.com/use-cases/visually-recap-agent-changes/
+      body: Turn a pull request, commit or diff into a visual walkthrough of what changed.
+    - title: Plan new screens with your coding agent
+      url: https://www.agent-native.com/use-cases/ui-planning/
+      body: Have your coding agent wireframe a screen, and give feedback before it builds anything.
+faqs:
+  heading: Questions? We have answers
+  items:
+    - q: Is Agent-Native Plan free?
+      a: Yes, Agent-Native Plan is free and open source. Each plan runs as a session of your coding agent, on the model you choose. That uses your agent's tokens, and a bigger plan uses more. Plan is in alpha, so expect changes.
+    - q: Which coding agents does Plan work with?
+      a: Claude Code and Codex have plugin installs. One install command also sets up Plan in Cursor, OpenCode, GitHub Copilot in VS Code and Claude Cowork. Any other MCP host, such as Cline or Goose, can add Plan's connector by its URL. You review every plan in your browser.
+    - q: How is Plan different from my coding agent's plan mode?
+      a: Plan mode in Claude Code, Codex, Cursor or OpenCode gives you the plan as text in the chat. Plan turns that plan, or one from a Markdown file, into a page with diagrams, file trees and annotated code. There you comment on exact parts, answer the agent's questions and bring in a teammate.
+    - q: Does the agent change my code while it plans?
+      a: No. While it writes or revises the plan, Plan's instructions keep the agent to reading your code. It starts editing after you approve the plan, and it re-reads the approved plan before major steps.
+    - q: Can a teammate review a plan without an account?
+      a: Partly. Anyone you share the link with can open and edit the plan as a guest. Leaving comments, saving and sharing need an Agent-Native account, so a teammate who wants to comment signs in first.
+    - q: Can I keep plans on my own machine?
+      a: Yes. [Local-files mode](https://www.agent-native.com/docs/template-plan-local-and-desktop/) keeps a plan as MDX files on your computer, so its content never reaches the hosted app. In exchange, you can't share a local plan or comment on it in the browser, and its link opens only on your machine. Local-files mode doesn't change where your coding agent's AI model runs.

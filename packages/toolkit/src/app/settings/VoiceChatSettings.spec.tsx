@@ -165,7 +165,12 @@ describe("VoiceChatSettings", () => {
 
     expect(appState.set).toHaveBeenLastCalledWith(
       REALTIME_VOICE_PREFERENCES_KEY,
-      { language: "ja", intelligence: "deep", voice: "marin" },
+      {
+        language: "ja",
+        intelligence: "deep",
+        voice: "marin",
+        intelligenceChosen: true,
+      },
       { requestSource: "realtime-voice" },
     );
     expect(select("Voice style")?.value).toBe("marin");

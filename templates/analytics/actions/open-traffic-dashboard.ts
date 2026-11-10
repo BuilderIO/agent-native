@@ -15,6 +15,7 @@ function trafficDashboardDeepLink(): string {
 }
 
 export default defineAction({
+  mcpTool: true,
   description:
     "Open the first-party traffic dashboard in the real Analytics app. Use this directly when the user asks to see their traffic dashboard, site traffic, app traffic, or first-party analytics dashboard inline in ChatGPT or Claude. Do not call view-screen, ask_app, or broad resource discovery first for this known dashboard.",
   schema: z.object({}),

@@ -17,6 +17,7 @@ Core rules:
 - Inspect the current state when it matters. Use \`view-screen\` when the active form, selected field, publish state, response table, or current route is unclear.
 - Every form the user describes is its own form. Call \`create-form\` for each new form request, even when a form is already open in \`<current-screen>\` or you created one earlier in this conversation; the open form is context, not a default target. Call \`update-form\` or \`patch-form-fields\` only when the user is asking to change that specific form ("add a phone field", "publish it", "rename this"). A prompt describing a different purpose, audience, or set of questions is a new form, not an edit.
 - Use \`create-form\`, \`update-form\`, \`patch-form-fields\`, \`restore-form\`, and \`delete-form\` for form lifecycle and field edits. Treat \`delete-form\` as Archive by default; pass \`purge: true\` only when the user explicitly asks to permanently delete a form and its responses.
+- \`view-screen\`, \`get-form\`, \`create-form\`, \`update-form\`, and \`patch-form-fields\` return a \`revision\`. Send it back as \`expectedRevision\` when you change an existing field or replace \`fields\`. A \`save_conflict\` means the fields changed since your read and nothing was saved: redo your edit on \`details.current\` (call \`get-form\` if it was left out) with \`details.currentRevision\`.
 - When a form is published, copy the returned \`publicUrl\` verbatim into the response. Never derive a public link from \`slug\` or remove the \`/f/\` path segment; if \`publicUrl\` is missing, say that the public link could not be retrieved instead of inventing one. For an anonymous feedback form or survey, create the complete form atomically with \`status: "published"\` and verify the saved status and fields before claiming it is live.
 - Use \`preview-form\` when the user asks about a form's setup, fields, configuration, publish state, or response count. It renders a native chat summary.
 - When the user wants email notifications for new responses, set \`settings.emailOnNewResponses: true\` with \`create-form\` or \`update-form\`; notifications go to the form owner's account email.
@@ -57,6 +58,7 @@ export default createAgentChatPlugin({
   leanPrompt: true,
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
+    appApprovalPage: true,
     instructions:
       "Build a complete new form with create-form. For edits, publishing, existing forms, response analysis, or exports, use ask_app because these operations have no advertised direct tool. Include the form ID when known and describe the requested outcome. If ask_app returns a taskId, follow its ask_app_status polling instruction until the task completes. Copy a returned publicUrl verbatim instead of constructing a public link. Never invent SQL or response data.",
   },

@@ -30,9 +30,14 @@ import type { AgentChatEvent } from "../../agent/types.js";
 import { getAppConfig } from "../../app-config/index.js";
 import { isFrameworkGroupedAction } from "../../framework-tools.js";
 import {
+  hasRawQueryInput,
+  isFrameworkRuntimeAction,
+} from "../../mcp/action-eligibility.js";
+import {
   isAuthenticatedReadAction,
   isAutoReadExcludedActionName,
 } from "../../mcp/build-server.js";
+export { hasRawQueryInput } from "../../mcp/action-eligibility.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { withConfiguredAppBasePath } from "../app-base-path.js";
@@ -86,22 +91,18 @@ export function filterPublicAgentActions(
   );
 }
 
-const RAW_QUERY_INPUT_FIELDS = new Set(["sql", "code", "script", "expression"]);
-
-export function hasRawQueryInput(entry: ActionEntry): boolean {
-  const parameters = entry.tool?.parameters as
-    | { properties?: Record<string, { type?: unknown }> }
-    | undefined;
-  const properties = parameters?.properties;
-  if (!properties || typeof properties !== "object") return false;
-  return Object.entries(properties).some(([field, schema]) => {
-    const type = schema?.type;
-    const acceptsString =
-      type === "string" ||
-      type === undefined ||
-      (Array.isArray(type) && type.includes("string"));
-    return RAW_QUERY_INPUT_FIELDS.has(field.toLowerCase()) && acceptsString;
-  });
+// A run an outside caller started keeps the app's own actions, as the in-app
+// agent has them (`mcpTool` and raw inputs are direct-MCP policy), and loses
+// the framework runtime. Apply it after the request's actions merge and before
+// `tool-search` attaches, so every set the run reads leaves out the same.
+export function filterDelegatedRegistry(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  return Object.fromEntries(
+    Object.entries(filterAgentTools(actions)).filter(
+      ([name, entry]) => !isFrameworkRuntimeAction(name, entry),
+    ),
+  );
 }
 
 export interface A2AExternalAgentSurface {
@@ -638,6 +639,9 @@ export async function executeApprovedA2AToolCall(
     ownerEmail: approval.ownerEmail,
     orgId: approval.orgId ?? null,
     appId: options.appId,
+    caller: "tool",
+    networkProtocol: "a2a",
+    networkId: approval.taskId,
     approvedToolCalls: [approval.approvalKey],
     // The replay runs under the lease's thread and turn, never the task's
     // own: as the replay's thread and turn, the task id would load the task's

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { runWithRequestContext } from "@agent-native/core/server";
 import { asc, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -1348,6 +1350,7 @@ async function rowWriters(seed: Awaited<ReturnType<typeof seedCollection>>) {
 /** A primary Blocks property on the collection; deleting it clears the rows' bodies. */
 async function addPrimaryBlocksProperty(
   seed: Awaited<ReturnType<typeof seedCollection>>,
+  ctx?: typeof agent,
 ) {
   const propertyId = `${seed.key}_body`;
   await getDb()
@@ -1368,11 +1371,14 @@ async function addPrimaryBlocksProperty(
     .where(eq(schema.contentDatabases.id, seed.ids.collection));
   return () =>
     asOwner(() =>
-      deleteDocumentProperty.run({
-        documentId: seed.ids.collectionPage,
-        databaseId: seed.ids.collection,
-        propertyId,
-      }),
+      deleteDocumentProperty.run(
+        {
+          documentId: seed.ids.collectionPage,
+          databaseId: seed.ids.collection,
+          propertyId,
+        },
+        ctx,
+      ),
     );
 }
 
@@ -1488,6 +1494,13 @@ New body.
       }),
     );
   return { ids, rows, sync };
+}
+
+function setFolderTruthPolicy(db: Db, sourceId: string, truthPolicy: string) {
+  return db
+    .update(schema.contentDatabaseSources)
+    .set({ metadataJson: JSON.stringify({ truthPolicy }) })
+    .where(eq(schema.contentDatabaseSources.id, sourceId));
 }
 
 /**
@@ -2491,6 +2504,18 @@ describe.skipIf(!POSTGRES_URL)(
         expect(report.waitedOn).toEqual(COLLECTION_ROWS);
       });
 
+      it("an agent deleting a primary Blocks property", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedCollection();
+          return {
+            rows: seed.rows,
+            run: await addPrimaryBlocksProperty(seed, agent),
+          };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual(COLLECTION_ROWS);
+      });
+
       it("the historical-icon script's callout migration", async () => {
         const report = await probeLockOrder(async () => {
           const seed = await seedCollection();
@@ -3022,6 +3047,145 @@ describe.skipIf(!POSTGRES_URL)(
       });
     });
 
+    it("plans a folder sync again from its pages as locked, so a save that lands while it waits is a conflict", async () => {
+      const seed = await seedLocalFolderPage();
+      // A folder edit applies unless the page changed too.
+      await setFolderTruthPolicy(
+        getDb(),
+        seed.ids.source,
+        "reviewed_bidirectional",
+      );
+      await seed.sync();
+      const page = seed.ids.page;
+      const saved = "Saved while the sync waited for the page.";
+      const { action } = await raceAgainst(
+        // A save: the page, then its body.
+        async (tx) => {
+          await lockDocumentRows(tx, [page]);
+          await tx
+            .update(schema.documents)
+            .set({ content: saved, updatedAt: new Date().toISOString() })
+            .where(eq(schema.documents.id, page));
+        },
+        () =>
+          asOwner(() =>
+            syncLocalFolder.run({
+              sourceId: seed.ids.source,
+              files: {
+                "page.md": `---
+id: "${page}"
+title: "Folder page"
+---
+Folder edit.
+`,
+              },
+            }),
+          ),
+      );
+      await expect(action).resolves.toMatchObject({
+        conflicts: [expect.objectContaining({ id: page })],
+      });
+      expect((await readPage(page)).content).toBe(saved);
+    });
+
+    it("proposes a folder conflict from its page as locked, so a save that lands while the sync waits is the Content side", async () => {
+      const seed = await seedLocalFolderPage();
+      const page = seed.ids.page;
+      const unchanged = `${page}_unchanged`;
+      const sync = (body: string) =>
+        asOwner(() =>
+          syncLocalFolder.run({
+            sourceId: seed.ids.source,
+            files: {
+              "page.md": `---
+id: "${page}"
+title: "Folder page"
+---
+${body}
+`,
+              "unchanged.md": `---
+id: "${unchanged}"
+title: "Unchanged page"
+---
+Unchanged body.
+`,
+            },
+          }),
+        );
+      // Under the seed's database_primary policy, a folder edit to a linked
+      // page is a conflict.
+      await sync("New body.");
+      const saved = "Saved while the sync waited for the page.";
+      const { action } = await raceAgainst(
+        // A save to the conflict page. Holding the unchanged page as well
+        // keeps a sync that locks only the pages it writes waiting too.
+        async (tx) => {
+          await lockDocumentRows(tx, [page, unchanged]);
+          await tx
+            .update(schema.documents)
+            .set({ content: saved, updatedAt: new Date().toISOString() })
+            .where(eq(schema.documents.id, page));
+        },
+        () => sync("Folder edit."),
+      );
+      await expect(action).resolves.toMatchObject({
+        conflicts: [expect.objectContaining({ id: page })],
+      });
+      // The same folder again: a proposal built before the save would be
+      // joined by one built after it.
+      await sync("Folder edit.");
+      const proposals = await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceChangeSets)
+        .where(eq(schema.contentDatabaseSourceChangeSets.documentId, page));
+      expect(proposals).toEqual([
+        expect.objectContaining({ direction: "incoming", state: "proposed" }),
+      ]);
+      expect(JSON.parse(proposals[0]!.bodyChangeJson)).toMatchObject({
+        currentHash: createHash("sha256").update(saved).digest("hex"),
+      });
+      expect((await readPage(page)).content).toBe(saved);
+    });
+
+    it("syncs under the truth policy a reconnect sets while the sync waits for its folder", async () => {
+      const seed = await seedLocalFolderPage();
+      await setFolderTruthPolicy(getDb(), seed.ids.source, "source_primary");
+      await seed.sync();
+      const { action } = await raceAgainst(
+        // connect-local-folder-source run again, which rewrites the policy in
+        // place.
+        (tx) => setFolderTruthPolicy(tx, seed.ids.source, "database_primary"),
+        () =>
+          asOwner(() =>
+            syncLocalFolder.run({ sourceId: seed.ids.source, files: {} }),
+          ),
+      );
+      await expect(action).resolves.toMatchObject({
+        truthPolicy: "database_primary",
+      });
+      // A file gone from the folder: database_primary proposes unlinking its
+      // page, where source_primary unlinks it.
+      expect(
+        await getDb()
+          .select({ id: schema.contentDatabaseSourceRows.id })
+          .from(schema.contentDatabaseSourceRows)
+          .where(
+            eq(schema.contentDatabaseSourceRows.sourceId, seed.ids.source),
+          ),
+      ).toHaveLength(1);
+      expect(
+        await getDb()
+          .select({ state: schema.contentDatabaseSourceChangeSets.state })
+          .from(schema.contentDatabaseSourceChangeSets)
+          .where(
+            eq(
+              schema.contentDatabaseSourceChangeSets.sourceId,
+              seed.ids.source,
+            ),
+          ),
+      ).toEqual([{ state: "proposed" }]);
+    });
+
     it.each([
       {
         path: "revisioned",
@@ -3246,48 +3410,7 @@ describe.skipIf(!POSTGRES_URL)(
       });
     });
 
-    it("holds memberships with a lock suggestion acceptance's table guard refuses", async () => {
-      const seed = await seedCollection();
-      let release!: () => void;
-      const released = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      let held!: () => void;
-      const holding = new Promise<void>((resolve) => {
-        held = resolve;
-      });
-      const holder = getDb().transaction(async (tx) => {
-        await lockDatabaseMemberships(tx, [seed.ids.rowItem]);
-        held();
-        await released;
-      });
-      let guard: string | undefined;
-      try {
-        await Promise.race([
-          holding,
-          holder.then(() => {
-            throw new Error("The holder ended before it held its rows.");
-          }),
-        ]);
-        // suggested-edits.ts takes this lock after the page and before the
-        // memberships, and accepts only when it's free.
-        guard = await getDb()
-          .transaction(async (tx) => {
-            await tx.execute(
-              sql`LOCK TABLE content_database_items IN SHARE ROW EXCLUSIVE MODE NOWAIT`,
-            );
-          })
-          .then(
-            () => "acquired",
-            (error: unknown) => postgresCode(error) ?? String(error),
-          );
-      } finally {
-        release();
-        await holder;
-      }
-      expect(guard).toBe("55P03");
-    });
-
+    // oracle-change: Accept no longer takes a table lock on memberships, so no membership writer can meet one.
     it("restarts a restore that meets a favorite added while it waited, and locks it before any page", async () => {
       const seed = await seedFavorites();
       const pages = [seed.ids.collectionPage, seed.ids.kept, seed.ids.removed];
@@ -4594,5 +4717,169 @@ isFavorite: true
         });
       },
     );
+
+    describe("Deleting a comment thread", () => {
+      /** Holds one row's lock in its own transaction until released. */
+      async function holdRowIn(table: string, id: string) {
+        let release!: () => void;
+        const released = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let held!: (pid: number) => void;
+        const pid = new Promise<number>((resolve) => {
+          held = resolve;
+        });
+        const done = getDb().transaction(async (transaction) => {
+          const tx = transaction as unknown as Db;
+          const holderPid = await backendPid(tx);
+          await tx.execute(
+            sql`SELECT id FROM ${sql.identifier(table)} WHERE id = ${id} FOR UPDATE`,
+          );
+          held(holderPid);
+          await released;
+        });
+        return {
+          pid: await Promise.race([
+            pid,
+            done.then(() => {
+              throw new Error("The holder ended before it held its row.");
+            }),
+          ]),
+          release,
+          done,
+        };
+      }
+
+      async function commentLocked(id: string) {
+        try {
+          await getDb().execute(
+            sql`SELECT id FROM document_comments WHERE id = ${id} FOR UPDATE NOWAIT`,
+          );
+          return false;
+        } catch (error) {
+          if (postgresCode(error) === "55P03") return true;
+          throw error;
+        }
+      }
+
+      /** A page with a thread of a root and a reply, and an Ask AI request on it. */
+      async function seedThread(
+        request: Partial<typeof schema.commentAiRequests.$inferInsert>,
+      ) {
+        const key = fixtureKey();
+        const ids = {
+          page: `${key}_page`,
+          root: `${key}_root`,
+          reply: `${key}_reply`,
+          request: `${key}_request`,
+        };
+        await getDb()
+          .insert(schema.documents)
+          .values(pageValues(ids.page, null, "Comment thread"));
+        const comment = (id: string, parentId: string | null) => ({
+          id,
+          ownerEmail: OWNER,
+          documentId: ids.page,
+          threadId: ids.root,
+          parentId,
+          content: "A comment",
+          authorEmail: OWNER,
+        });
+        await getDb()
+          .insert(schema.documentComments)
+          .values([comment(ids.root, null), comment(ids.reply, ids.root)]);
+        await getDb()
+          .insert(schema.commentAiRequests)
+          .values({
+            id: ids.request,
+            ownerEmail: OWNER,
+            requesterEmail: OWNER,
+            documentId: ids.page,
+            threadId: ids.root,
+            rootCommentId: ids.root,
+            fieldId: "body",
+            intent: "suggest",
+            status: "needs-review",
+            threadDigest: "digest",
+            snapshotJson: "[]",
+            baseRevision: "base",
+            suggestionRevision: "suggestion",
+            ...request,
+          });
+        return { ids };
+      }
+
+      async function deleteThread(ids: { page: string; root: string }) {
+        (await import("../server/plugins/suggested-edits.js")).default();
+        const deleteComment = (await import("./delete-comment.js")).default;
+        return asOwner(() =>
+          deleteComment.run({ id: ids.root, documentId: ids.page }, agent),
+        );
+      }
+
+      it("refuses at once, rather than waiting, while the AI holds one of its requests", async () => {
+        const { ids } = await seedThread({});
+
+        // Saving a suggestion locks its request and then the thread's
+        // comments, so a delete that waited here while holding the thread
+        // could deadlock.
+        const holder = await holdRowIn("comment_ai_requests", ids.request);
+        try {
+          const outcome = await Promise.race([
+            deleteThread(ids).then(
+              () => "deleted",
+              (error: unknown) => error,
+            ),
+            sleep(5_000).then(() => "waited"),
+          ]);
+          expect(outcome).toMatchObject({
+            errorCode: "comment_ai_already_active",
+          });
+        } finally {
+          holder.release();
+          await holder.done;
+        }
+
+        await deleteThread(ids);
+        expect(
+          await getDb()
+            .select({ id: schema.commentAiRequests.id })
+            .from(schema.commentAiRequests)
+            .where(eq(schema.commentAiRequests.id, ids.request)),
+        ).toEqual([]);
+      });
+
+      it("refuses at once, rather than waiting, while another write holds one of its replies", async () => {
+        const { ids } = await seedThread({});
+
+        // Some writers lock a thread's comments in one statement that can
+        // reach a reply before the root, so a delete that waited on the reply
+        // while holding the root could deadlock with them.
+        const holder = await holdRowIn("document_comments", ids.reply);
+        try {
+          const outcome = await Promise.race([
+            deleteThread(ids).then(
+              () => "deleted",
+              (error: unknown) => error,
+            ),
+            sleep(5_000).then(() => "waited"),
+          ]);
+          expect(outcome).toMatchObject({ errorCode: "comment_thread_busy" });
+          // The refused delete let go of the root.
+          expect(await commentLocked(ids.root)).toBe(false);
+        } finally {
+          holder.release();
+          await holder.done;
+        }
+
+        await deleteThread(ids);
+        expect(
+          await getDb()
+            .select({ id: schema.documentComments.id })
+            .from(schema.documentComments)
+            .where(eq(schema.documentComments.threadId, ids.root)),
+        ).toEqual([]);
+      });
+    });
   },
 );

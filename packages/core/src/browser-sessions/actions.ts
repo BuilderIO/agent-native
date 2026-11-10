@@ -1,4 +1,5 @@
 import type { ActionEntry } from "../agent/production-agent.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import {
   callBrowserSession,
   getBrowserSession,
@@ -99,7 +100,7 @@ function compactSession(
 export function createBrowserSessionActionEntries(
   options: CreateBrowserSessionActionEntriesOptions,
 ): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "list-browser-sessions": {
       readOnly: true,
       tool: {
@@ -400,5 +401,5 @@ export function createBrowserSessionActionEntries(
         return { ok: true, sessionId, command, result };
       },
     },
-  };
+  });
 }

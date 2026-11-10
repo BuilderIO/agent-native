@@ -56,10 +56,11 @@ import {
   liveBodyWriterPageColumns,
 } from "../server/lib/live-body-writer.js";
 import {
-  syncPrivateCalloutReferences,
+  syncPrivateBodyReferences,
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { liveCopyHoldsSave } from "../server/live-copy/holds.js";
 import type {
   DocumentUpdateResponse,
@@ -97,6 +98,7 @@ import {
 } from "./_content-save-outcomes.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertEditableDocument,
   documentContentHash,
@@ -605,8 +607,10 @@ const updateDocumentAction = defineAction({
         "Opaque body revision from get-document; guards browser content saves without treating metadata changes as body conflicts",
       ),
     authoredBaseRevision: z.string().optional(),
-    authoredBaseContent: z.string().max(500_000).optional(),
-    authoredCandidateContent: z.string().max(500_000).optional(),
+    // Body copies take any length `content` takes. A tighter cap here refused
+    // every editor save of a longer page, so the editor retried until closed.
+    authoredBaseContent: z.string().optional(),
+    authoredCandidateContent: z.string().optional(),
     baseTitle: z
       .string()
       .optional()
@@ -643,7 +647,7 @@ const updateDocumentAction = defineAction({
       .describe(
         "The saved title the editor's snapshot title started from; when they match, the editor never edited the title",
       ),
-    editorSnapshotContent: z.string().max(500_000).optional(),
+    editorSnapshotContent: z.string().optional(),
     browserSaveAttemptId: z
       .string()
       .min(1)
@@ -1088,6 +1092,7 @@ const updateDocumentAction = defineAction({
         args.description.trim() !== existing.description;
       if (titleChanged || contentChanged || descriptionChanged) {
         assertSourceAllowsPageEdit(existing);
+        assertAgentsMayEditPageText(existing, ctx);
       }
       const anyChange =
         titleChanged ||
@@ -1201,6 +1206,10 @@ const updateDocumentAction = defineAction({
           // After the replay check, so a retried save that already landed
           // still gets its receipt. The page lock above makes this see Trash.
           if (!favoriteOnly) assertEditableDocument(existing);
+          // Again under the page lock, which a person's switch has to wait for.
+          if (titleChanged || contentChanged || descriptionChanged) {
+            assertAgentsMayEditPageText(existing, ctx);
+          }
           if (settlesPreviewDraft) {
             await lockPreviewDocumentDraftSettlement({
               db: tx,
@@ -1588,6 +1597,10 @@ const updateDocumentAction = defineAction({
           if (lockedDescriptionChanged)
             updates.description = args.description?.trim();
           if (lockedContentChanged) {
+            assertNoNewlySharedVideoIds(
+              historyBefore.content,
+              content as string,
+            );
             // Only a browser save takes a switched page's body to its live
             // copy; it reached here because the gate above chose legacy.
             const legacy = await lockLegacyBodyWrites(tx, [id], {
@@ -1708,7 +1721,7 @@ const updateDocumentAction = defineAction({
             );
           }
           if (lockedContentChanged && content !== undefined) {
-            await syncPrivateCalloutReferences(
+            await syncPrivateBodyReferences(
               tx as unknown as ReturnType<typeof getDb>,
               {
                 documentId: id,

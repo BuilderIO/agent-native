@@ -33,16 +33,12 @@ const MAX_CONSENT_BODY_BYTES = 256;
  * can't outrank them.
  */
 export function requestCountry(event: H3Event): string | undefined {
-  return (
-    netlifyGeoCountry(event) ??
-    getHeader(event, "cf-ipcountry") ??
-    getHeader(event, "x-vercel-ip-country") ??
-    getHeader(event, "x-country")
-  );
+  return requestCountryFromHeader((name) => getHeader(event, name));
 }
 
-function netlifyGeoCountry(event: H3Event): string | undefined {
-  const geo = getHeader(event, "x-nf-geo");
+function netlifyGeoCountryFromHeader(
+  geo: string | undefined,
+): string | undefined {
   if (!geo) return undefined;
   try {
     const parsed = JSON.parse(Buffer.from(geo, "base64").toString("utf8"));
@@ -55,6 +51,56 @@ function netlifyGeoCountry(event: H3Event): string | undefined {
   }
 }
 
+function requestCountryFromHeader(
+  readHeader: (name: string) => string | undefined,
+): string | undefined {
+  return (
+    netlifyGeoCountryFromHeader(readHeader("x-nf-geo")) ??
+    readHeader("cf-ipcountry") ??
+    readHeader("x-vercel-ip-country") ??
+    readHeader("x-country")
+  );
+}
+
+export function requestCountryFromHeaders(
+  headers: Headers | null | undefined,
+): string | undefined {
+  return requestCountryFromHeader((name) => headers?.get(name) ?? undefined);
+}
+
+function allowsConsentCategory(
+  cookieHeader: string | undefined,
+  country: string | undefined,
+  category: ConsentCategory,
+): boolean {
+  const consent = parseConsent(
+    parseCookieHeader(cookieHeader)[CONSENT_COOKIE_NAME],
+  );
+  if (consent) return consent[category];
+  const normalizedCountry = country?.trim().toUpperCase();
+  if (
+    !normalizedCountry ||
+    !/^[A-Z]{2}$/.test(normalizedCountry) ||
+    normalizedCountry === "XX" ||
+    normalizedCountry === "ZZ"
+  ) {
+    return false;
+  }
+  return !isConsentRegionCountry(normalizedCountry);
+}
+
+/** Consent decision for auth callbacks using standard request headers. */
+export function requestAllowsConsentCategoryFromHeaders(
+  headers: Headers | null | undefined,
+  category: ConsentCategory,
+): boolean {
+  return allowsConsentCategory(
+    headers?.get("cookie") ?? undefined,
+    requestCountryFromHeaders(headers),
+    category,
+  );
+}
+
 /**
  * A stored choice applies everywhere; without one, the country decides
  * whether storing `category` cookies requires an opt-in.
@@ -63,11 +109,11 @@ export function requestAllowsConsentCategory(
   event: H3Event,
   category: ConsentCategory,
 ): boolean {
-  const consent = parseConsent(
-    parseCookieHeader(getHeader(event, "cookie"))[CONSENT_COOKIE_NAME],
+  return allowsConsentCategory(
+    getHeader(event, "cookie"),
+    requestCountry(event),
+    category,
   );
-  if (consent) return consent[category];
-  return !isConsentRegionCountry(requestCountry(event));
 }
 
 /**

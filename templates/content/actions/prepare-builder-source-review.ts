@@ -1,7 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, like, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -16,6 +16,7 @@ import type {
   PrepareBuilderSourceReviewRequest,
   PrepareBuilderSourceReviewResponse,
 } from "../shared/api.js";
+import { isBuilderCmsWriteEffect } from "../shared/api.js";
 import {
   builderExecutionPayloadReference,
   cleanupBuilderPrivatePayload,
@@ -35,10 +36,10 @@ import {
   findOpenSourceChangeSet,
   getContentDatabaseSourceSnapshotForReview,
   getContentDatabaseSourceSnapshotForWrite,
-  reviewedBuilderChangeSetRevisionId,
   resolveDatabaseForSourceMutation,
   serializeSourceRowRecord,
   sourceChangeSetKey,
+  unusedBuilderChangeSetRevisionId,
 } from "./_database-source-utils.js";
 
 export const BUILDER_SOURCE_REVIEW_PREPARE_LIMIT = 100;
@@ -184,17 +185,12 @@ export function buildBuilderSourceReviewPayload(args: {
       changeSet.fieldChanges.find((field) => field.localFieldKey === "title")
         ?.proposedValue ?? null;
     const plannedEffect = latestExecution?.payload.effect;
-    const effect =
-      plannedEffect === "autosave" ||
-      plannedEffect === "update_in_place" ||
-      plannedEffect === "create_draft" ||
-      plannedEffect === "publish" ||
-      plannedEffect === "unpublish"
-        ? plannedEffect
-        : resolveBuilderCmsWriteEffect({
-            source: args.source,
-            changeSet,
-          });
+    const effect = isBuilderCmsWriteEffect(plannedEffect)
+      ? plannedEffect
+      : resolveBuilderCmsWriteEffect({
+          source: args.source,
+          changeSet,
+        });
 
     return {
       changeSetId: changeSet.id,
@@ -211,6 +207,7 @@ export function buildBuilderSourceReviewPayload(args: {
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
+      stagedPublicationTransition: changeSet.stagedPublicationTransition,
       effect,
       execution: latestExecution,
     };
@@ -350,6 +347,25 @@ async function approveChangeSetForReview(args: {
       (args.changeSet.bodyChange
         ? JSON.stringify(args.changeSet.bodyChange)
         : null);
+  const approvedFromRow = (
+    row: typeof schema.contentDatabaseSourceChangeSets.$inferSelect,
+  ) => ({
+    id: row.id,
+    state: "approved" as const,
+    changeSet: {
+      ...approvedChangeSet(row.id),
+      summary: row.summary,
+      fieldChanges: JSON.parse(
+        row.fieldChangesJson,
+      ) as ContentDatabaseSourceChangeSet["fieldChanges"],
+      bodyChange: row.bodyChangeJson
+        ? (JSON.parse(
+            row.bodyChangeJson,
+          ) as ContentDatabaseSourceChangeSet["bodyChange"])
+        : null,
+      updatedAt: row.updatedAt,
+    },
+  });
 
   if (existing) {
     // An approved payload is immutable execution evidence. Even a locally
@@ -357,25 +373,7 @@ async function approveChangeSetForReview(args: {
     // proposal always receives a new revision identity instead of rewriting
     // the proposal beneath an in-flight execution.
     if (existing.state === "approved") {
-      if (existingPayloadMatches(existing)) {
-        return {
-          id: existing.id,
-          state: "approved" as const,
-          changeSet: {
-            ...approvedChangeSet(existing.id),
-            summary: existing.summary,
-            fieldChanges: JSON.parse(
-              existing.fieldChangesJson,
-            ) as ContentDatabaseSourceChangeSet["fieldChanges"],
-            bodyChange: existing.bodyChangeJson
-              ? (JSON.parse(
-                  existing.bodyChangeJson,
-                ) as ContentDatabaseSourceChangeSet["bodyChange"])
-              : null,
-            updatedAt: existing.updatedAt,
-          },
-        };
-      }
+      if (existingPayloadMatches(existing)) return approvedFromRow(existing);
       // Fall through to a revision-bound change-set ID below.
     } else {
       const [updated] = await db
@@ -438,27 +436,77 @@ async function approveChangeSetForReview(args: {
   }
 
   const changeSetId = selectedExisting
-    ? reviewedBuilderChangeSetRevisionId(args.changeSet)
+    ? unusedBuilderChangeSetRevisionId(
+        args.changeSet,
+        new Set(
+          (
+            await db
+              .select({ id: schema.contentDatabaseSourceChangeSets.id })
+              .from(schema.contentDatabaseSourceChangeSets)
+              .where(
+                and(
+                  eq(
+                    schema.contentDatabaseSourceChangeSets.sourceId,
+                    args.sourceId,
+                  ),
+                  like(
+                    schema.contentDatabaseSourceChangeSets.id,
+                    `${args.changeSet.id}-revision-%`,
+                  ),
+                ),
+              )
+          ).map((row) => row.id),
+        ),
+      )
     : args.changeSet.id;
-  await db.insert(schema.contentDatabaseSourceChangeSets).values({
-    id: changeSetId,
-    ownerEmail: args.ownerEmail,
-    sourceId: args.sourceId,
-    databaseItemId: args.changeSet.databaseItemId,
-    documentId: args.changeSet.documentId,
-    kind: args.changeSet.kind,
-    direction: "outbound",
-    state: "approved",
-    pushMode: args.changeSet.pushMode ?? "autosave",
-    localOnly: 1,
-    summary,
-    fieldChangesJson: JSON.stringify(args.changeSet.fieldChanges),
-    bodyChangeJson: args.changeSet.bodyChange
-      ? JSON.stringify(args.changeSet.bodyChange)
-      : null,
-    createdAt: args.now,
-    updatedAt: args.now,
-  });
+  const [inserted = null] = await db
+    .insert(schema.contentDatabaseSourceChangeSets)
+    .values({
+      id: changeSetId,
+      ownerEmail: args.ownerEmail,
+      sourceId: args.sourceId,
+      databaseItemId: args.changeSet.databaseItemId,
+      documentId: args.changeSet.documentId,
+      kind: args.changeSet.kind,
+      direction: "outbound",
+      state: "approved",
+      pushMode: args.changeSet.pushMode ?? "autosave",
+      localOnly: 1,
+      summary,
+      fieldChangesJson: JSON.stringify(args.changeSet.fieldChanges),
+      bodyChangeJson: args.changeSet.bodyChange
+        ? JSON.stringify(args.changeSet.bodyChange)
+        : null,
+      createdAt: args.now,
+      updatedAt: args.now,
+    })
+    .onConflictDoNothing()
+    .returning({ id: schema.contentDatabaseSourceChangeSets.id });
+  if (!inserted) {
+    // A review prepared at the same time for the same payload picks the same
+    // id, so its approval stands for this one.
+    const [concurrent = null] = await db
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceChangeSets.sourceId, args.sourceId),
+          eq(schema.contentDatabaseSourceChangeSets.id, changeSetId),
+        ),
+      )
+      .limit(1);
+    if (
+      concurrent?.state === "approved" &&
+      concurrent.pushMode === (args.changeSet.pushMode ?? "autosave") &&
+      existingPayloadMatches(concurrent)
+    ) {
+      return approvedFromRow(concurrent);
+    }
+    fail("Builder change set changed during approval.", {
+      errorCode: "builder_change_set_changed",
+      statusCode: 409,
+    });
+  }
   await db.insert(schema.contentDatabaseSourceChangeReviews).values({
     id: crypto.randomUUID(),
     ownerEmail: args.ownerEmail,
@@ -930,6 +978,16 @@ export default defineAction({
             reviewPreparePriority(b, snapshot),
         )
         .slice(0, BUILDER_SOURCE_REVIEW_PREPARE_LIMIT);
+      // Publishing or unpublishing an entry needs edit access to its page, so
+      // one the caller can only view refuses the review before any approval.
+      for (const changeSet of reviewableChanges) {
+        const transition =
+          args.transitions?.[changeSet.id]?.publicationTransition ??
+          args.publicationTransition;
+        if (transition && changeSet.documentId) {
+          await assertAccess("document", changeSet.documentId, "editor");
+        }
+      }
       const authoritativeSnapshot = await withAuthoritativeBuilderTargetRows({
         source: snapshot,
         changeSets: reviewableChanges,

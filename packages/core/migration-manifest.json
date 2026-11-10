@@ -5999,7 +5999,7 @@
           "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
         },
         "isTrustedReviewAttachmentUrl": {
-          "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
+          "to": "@agent-native/toolkit/app/review/ReviewCommentItem"
         },
         "ReviewThread": {
           "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"

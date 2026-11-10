@@ -5,6 +5,7 @@ import path from "node:path";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { AgentFileMutationProof } from "../agent/types.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 
 export interface CodingCommandResult {
   code: number | null;
@@ -115,7 +116,7 @@ export function createCodingToolRegistry(
       contentSha256: createHash("sha256").update(content).digest("hex"),
     });
 
-  return {
+  return frameworkMcpTools({
     bash: {
       mcpAnnotations: {
         readOnlyHint: false,
@@ -464,7 +465,7 @@ export function createCodingToolRegistry(
         });
       },
     },
-  };
+  });
 }
 
 export async function runCodingCommand(

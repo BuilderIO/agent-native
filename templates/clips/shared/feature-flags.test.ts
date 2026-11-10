@@ -7,6 +7,7 @@ import {
 } from "./feature-flags.js";
 
 describe("Clips feature flags", () => {
+  // oracle-change: first-run credits is no longer registered as a flag.
   it("registers hosted free Clips as default-off without legacy migration", () => {
     expect(CLIPS_HOSTED_FREE_CLIPS_FLAG).toMatchObject({
       key: "clips-hosted-free-clips",

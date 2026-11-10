@@ -1,7 +1,7 @@
 // Compile-time proofs for the state machine types, checked by
 // tsconfig.type-tests.json. Each expect-error directive below fails the check
 // if its line stops being an error.
-import { defineMachine } from "./index.js";
+import { defineMachine, type Machine } from "./index.js";
 
 declare const text: string;
 
@@ -18,6 +18,22 @@ const run = defineMachine({
 
 const valid = run.transition("queued", "start");
 void valid;
+
+const legacyMachine: Machine<"ready", "go"> = {
+  id: "legacy",
+  states: ["ready"],
+  events: ["go"],
+  initial: "ready",
+  isState: (value): value is "ready" => value === "ready",
+  parseState: () => "ready",
+  can: () => true,
+  transition: () => "ready",
+  fromStates: () => ["ready"],
+  sqlStateList: () => "'ready'",
+  isTerminal: () => true,
+  shortestPaths: () => new Map<"ready", readonly "go"[]>([["ready", []]]),
+};
+void legacyMachine;
 
 const misspelledFrom = defineMachine({
   id: "m",

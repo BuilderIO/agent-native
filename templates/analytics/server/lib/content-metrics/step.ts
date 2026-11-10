@@ -10,6 +10,7 @@ import type {
 export type ContentStepResult = {
   items?: ContentItemInput[];
   snapshots?: ContentSnapshotInput[];
+  replaceSnapshots?: boolean;
   outcome: ContentRunOutcome;
 };
 

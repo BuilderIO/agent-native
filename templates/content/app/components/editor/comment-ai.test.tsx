@@ -15,6 +15,7 @@ import {
   shouldIgnoreContinuationAcceptanceError,
   startCommentAiSubmission,
   CommentAiRequestStatus,
+  type CommentAiContinuationState,
   type CommentAiController,
   useCommentAiRequests,
   useFreshAiResolutions,
@@ -217,6 +218,65 @@ describe("comment AI controls", () => {
         .click(),
     );
     expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it("names the model a comment was sent to while it works", async () => {
+    const label = async (
+      overrides: Partial<CommentAiRequest>,
+      continuation?: CommentAiContinuationState,
+    ) => {
+      await act(async () => {
+        root.render(
+          createElement(CommentAiRequestStatus, {
+            request: request({ errorCode: null, error: null, ...overrides }),
+            ...(continuation ? { continuation } : {}),
+            onRetry: vi.fn(),
+            onStop: vi.fn(),
+          }),
+        );
+      });
+      return document.querySelector('[role="status"] > span')?.textContent;
+    };
+    expect(await label({ status: "running", model: "claude-haiku-5-5" })).toBe(
+      "comments.aiWorkingNamed",
+    );
+    expect(await label({ status: "queued", model: "claude-haiku-5-5" })).toBe(
+      "comments.aiQueuedNamed",
+    );
+    expect(
+      await label({
+        status: "queued",
+        model: null,
+        submittedModel: "claude-haiku-5-5",
+      }),
+    ).toBe("comments.aiQueuedNamed");
+    expect(
+      await label({
+        status: "classifying",
+        model: null,
+        submittedModel: "claude-haiku-5-5",
+      }),
+    ).toBe("comments.aiWorkingNamed");
+    // A follow-up runs on request.model alone, so it doesn't name the
+    // submitted model.
+    expect(
+      await label(
+        {
+          status: "replied",
+          model: null,
+          submittedModel: "claude-haiku-5-5",
+        },
+        {
+          operationId: "follow-up-1",
+          threadId: "agent-thread-1",
+          turnId: "turn-1",
+          status: "running",
+        },
+      ),
+    ).toBe("comments.aiWorking");
+    expect(await label({ status: "running", model: null })).toBe(
+      "comments.aiWorking",
+    );
   });
 
   it("shows what an applied change replaced, with Undo and Done", async () => {
@@ -783,7 +843,7 @@ describe("comment AI controls", () => {
 
   it("keeps fresh Ask AI blocked while a transport-unknown original completes late", async () => {
     vi.useFakeTimers();
-    let controller: CommentAiController;
+    let controller: CommentAiController | undefined;
     function Probe() {
       controller = useCommentAiRequests("document-1", { enabled: true });
       return null;
@@ -840,6 +900,8 @@ describe("comment AI controls", () => {
     act(() => root.render(createElement(Probe)));
 
     expect(controller!.requests[0]).toMatchObject({ status: "needs-review" });
+    // What the run writes is read from the server's status, not the shown one.
+    expect(controller?.serverRequests[0]).toMatchObject({ status: "queued" });
     await act(async () => {
       await controller!.start({
         threadId: "thread-1",

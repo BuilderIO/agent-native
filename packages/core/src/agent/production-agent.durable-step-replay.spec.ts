@@ -144,6 +144,68 @@ beforeEach(() => {
 });
 
 describe("durable execution step replay", () => {
+  it("keeps failed reads counted when a cached result is reconstructed from durable steps", async () => {
+    const events: AgentChatEvent[] = [];
+    const actionRun = vi.fn(async ({ id }: { id: string }) => {
+      if (id !== "found") throw new Error(`Missing view ${id}`);
+      return "Found the view";
+    });
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("read-0", { id: "found" })],
+            [toolCall("read-1", { id: "missing-1" })],
+            [toolCall("read-2", { id: "missing-2" })],
+            [toolCall("cached-read", { id: "found" })],
+            [text("Checks complete.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Check views" }] },
+        ],
+        actions: {
+          "create-deck": {
+            schema: z.object({ id: z.string() }),
+            tool: {
+              description: "Read a view",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: true,
+            run: actionRun,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(actionRun).toHaveBeenCalledTimes(3);
+    durableStep.priorEvents = events;
+    const journalSeed = await import("./engine/tool-call-journal-seed.js");
+    const journal = await journalSeed.loadPriorTurnToolCallJournal(
+      fence.threadId,
+      fence.turnId,
+    );
+    if (journal.status !== "read")
+      throw new Error("Expected a readable journal");
+    const seeded = journalSeed.seedRepeatedToolErrorCountsFromJournal(
+      journal.priorToolCallSequence,
+      (name, input) => `${name}:${JSON.stringify(input)}`,
+      (error) => error,
+    );
+    expect(seeded.failureStreaks.get("create-deck")).toBe(2);
+  });
+
   it("leaves a prepared write retryable when interrupted before dispatch", async () => {
     const controller = new AbortController();
     const actionRun = vi.fn(async () => "Deck saved");
@@ -212,6 +274,7 @@ describe("durable execution step replay", () => {
         },
       },
       readOnly: false,
+      retrySafe: true,
       run: actionRun,
     };
     const runStore = await import("./run-store.js");
@@ -219,6 +282,10 @@ describe("durable execution step replay", () => {
     vi.mocked(runStore.resetAgentExecutionStepBeforeInvocation).mockClear();
     vi.mocked(runStore.markAgentExecutionStepUnknown).mockClear();
     vi.mocked(runStore.completeAgentExecutionStep).mockClear();
+    vi.mocked(runStore.beginAgentExecutionStep).mockResolvedValueOnce({
+      status: "execute",
+      wasDispatched: true,
+    });
     vi.mocked(runStore.markAgentExecutionStepDispatched).mockImplementationOnce(
       () =>
         new Promise<void>((resolve) => {
@@ -260,6 +327,11 @@ describe("durable execution step replay", () => {
     expect(
       runStore.resetAgentExecutionStepBeforeInvocation,
     ).toHaveBeenCalledOnce();
+    expect(
+      runStore.resetAgentExecutionStepBeforeInvocation,
+    ).toHaveBeenCalledWith(expect.anything(), {
+      preserveDispatchHistory: true,
+    });
     expect(runStore.markAgentExecutionStepUnknown).not.toHaveBeenCalled();
     expect(runStore.completeAgentExecutionStep).not.toHaveBeenCalled();
     expect(events).toContainEqual(

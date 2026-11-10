@@ -31,6 +31,7 @@ import {
 } from "@agent-native/core/blocks/server";
 
 import { builderDocsBlockConfigs } from "./builder-docs-blocks";
+import { clipEmbedBlockConfig } from "./clip-embed-block";
 import { inlineDatabaseBlockConfig } from "./inline-database-block";
 import { sourceComponentBlockConfig } from "./source-component-block";
 
@@ -43,6 +44,7 @@ export function registerContentBlocks(registry: BlockRegistry): void {
   }
   registry.register(sourceComponentBlockConfig);
   registry.register(inlineDatabaseBlockConfig);
+  registry.register(clipEmbedBlockConfig);
 }
 
 let cachedRegistry: BlockRegistry | null = null;
@@ -64,6 +66,14 @@ export function registryBlockSpecByTag(tag: string): BlockSpec | undefined {
 
 export function registryBlockSpecByType(type: string): BlockSpec | undefined {
   return contentBlockRegistry().get(type);
+}
+
+// The ids Content mints and the editor accepts on paste; anything else isn't
+// quoted to the agent.
+const REGISTRY_BLOCK_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+
+export function isRegistryBlockId(value: unknown): value is string {
+  return typeof value === "string" && REGISTRY_BLOCK_ID.test(value);
 }
 
 export function serializeRegistryBlockToMdx(

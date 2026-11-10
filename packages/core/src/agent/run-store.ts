@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   TURN_RUN_LEDGER_SLACK,
@@ -7,8 +9,16 @@ import {
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
 import type { DbExec } from "../db/client.js";
-import { getDbExec, getScopedTransactionDbExec } from "../db/client.js";
-import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  getDbExec,
+  getScopedDbExec,
+  getScopedTransactionDbExec,
+} from "../db/client.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
@@ -18,6 +28,7 @@ import {
   prepareServicePrincipalRunStart,
   recordServicePrincipalDenial,
 } from "../org/service-principal-guard.js";
+import { getSecretEncryptionKey } from "../secrets/crypto.js";
 import { platformWaitUntil } from "../server/background-work.js";
 import { captureError } from "../server/capture-error.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -27,7 +38,11 @@ import {
   stripInlineBytesFromJson,
 } from "../shared/inline-bytes.js";
 import { isRequestedStopAbortReason } from "./abort-reasons.js";
-import { approvalKeyForHistory } from "./approval-key.js";
+import {
+  approvalKeyForHistory,
+  approvalKeyForPrivateHistory,
+  PRIVATE_APPROVAL_UNAVAILABLE,
+} from "./approval-key.js";
 import {
   admitAutoContinue,
   admitManualContinue,
@@ -45,6 +60,7 @@ import {
   ExecutionFenceError,
   MissingExecutionFenceError,
   lockAndAssertCurrentExecutionFences,
+  ownsLapsedTurnLease,
   StaleExecutionFenceError,
   type ExecutionFence,
   withFencedExecutionWrite,
@@ -420,7 +436,24 @@ export const agentRunsStore = defineStore({
     ...fromMigrationEntries(AGENT_RUN_MIGRATIONS_TABLE, AGENT_RUN_MIGRATIONS),
     {
       name: "thread-projection-retry-quarantine-runtime-schema",
+      // Stands in for legacy v9–v11, which a local boot skips: a database
+      // whose baseline was already recorded never re-runs the baseline's
+      // column ensures either, so this entry must create every column it
+      // touches before the index that reads them. The retry_order backfill
+      // does not belong here: a database that already recorded this entry
+      // never runs an edited body again, so the backfill lives in the
+      // append-only repair entry at the end of this list.
       run: async (exec) => {
+        await ensureColumnExists(
+          "agent_runs",
+          "thread_projection_pending",
+          "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE",
+        );
+        await ensureColumnExists(
+          "agent_runs",
+          "thread_projection_retry_order",
+          "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_retry_order BIGINT",
+        );
         await exec.execute({
           sql: "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_error_code TEXT",
         });
@@ -487,6 +520,124 @@ export const agentRunsStore = defineStore({
            SET DEFAULT nextval('agent_run_admission_order_seq')`,
       ],
     },
+    {
+      name: "execution-leases-and-steps",
+      run: async (exec) => {
+        await ensureTableExists(
+          "agent_execution_leases",
+          `CREATE TABLE IF NOT EXISTS agent_execution_leases (
+          thread_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          generation BIGINT NOT NULL,
+          owner_run_id TEXT NOT NULL,
+          lease_expires_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+          PRIMARY KEY (thread_id, turn_id)
+        )`,
+          { injectedClient: exec },
+        );
+        await ensureColumnExists(
+          "agent_runs",
+          "worker_generation",
+          `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS worker_generation BIGINT`,
+          { injectedClient: exec },
+        );
+        await ensureTableExists(
+          "agent_execution_steps",
+          `CREATE TABLE IF NOT EXISTS agent_execution_steps (
+          thread_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          step_id TEXT NOT NULL,
+          operation_id TEXT NOT NULL,
+          tool_name TEXT NOT NULL,
+          input_json TEXT NOT NULL,
+          replay_policy TEXT NOT NULL,
+          status TEXT NOT NULL,
+          run_id TEXT NOT NULL,
+          generation BIGINT NOT NULL,
+          result_json TEXT,
+          receipt_json TEXT,
+          error_json TEXT,
+          dispatched_at TIMESTAMPTZ,
+          completed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+          PRIMARY KEY (thread_id, turn_id, step_id)
+        )`,
+          { injectedClient: exec },
+        );
+        await ensureIndexExists(
+          "agent_execution_steps_pending_idx",
+          `CREATE INDEX IF NOT EXISTS agent_execution_steps_pending_idx
+          ON agent_execution_steps (thread_id, turn_id, status, created_at)`,
+          { injectedClient: exec },
+        );
+      },
+    },
+    {
+      name: "retained-private-thread-runs",
+      sql: [
+        `CREATE TABLE IF NOT EXISTS agent_thread_private_runs (
+        thread_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        recorded_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        PRIMARY KEY (thread_id, run_id)
+      )`,
+      ],
+    },
+    {
+      name: "thread-projection-retry-order-backfill-repair",
+      kind: "data",
+      // Append-only repair for databases that recorded
+      // thread-projection-retry-quarantine-runtime-schema before its
+      // column ensures existed: the ledger skips that entry forever, so
+      // the retry_order backfill legacy v10 performed for pending rows
+      // has to land here instead of in an edited body. Marked data so
+      // hosted replays skip it entirely. The self-check makes the body
+      // once-only even for a runtime whose ledger view is unavailable:
+      // re-running the backfill against live rows would re-impose queue
+      // order on projections that are still being written.
+      run: async (exec) => {
+        const alreadyApplied = await exec.execute({
+          // Literal name of STORE_MIGRATIONS_TABLE, kept interpolation-free.
+          sql: "SELECT 1 FROM _an_store_migrations WHERE store_id = 'agent_runs' AND name = ? LIMIT 1",
+          args: ["thread-projection-retry-order-backfill-repair"],
+        });
+        if (alreadyApplied.rows.length > 0) return;
+        await ensureColumnExists(
+          "agent_runs",
+          "thread_projection_pending",
+          "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE",
+        );
+        await ensureColumnExists(
+          "agent_runs",
+          "thread_projection_retry_order",
+          "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_retry_order BIGINT",
+        );
+        await exec.execute({
+          sql: "CREATE SEQUENCE IF NOT EXISTS agent_run_projection_retry_order_seq",
+        });
+        await exec.execute({
+          sql: `CREATE INDEX IF NOT EXISTS agent_runs_thread_projection_retry_order_idx
+                ON agent_runs (thread_projection_retry_order ASC NULLS FIRST, completed_at ASC, id ASC)
+                WHERE thread_projection_pending IS TRUE`,
+        });
+        const unassigned = await exec.execute({
+          sql: `SELECT 1 FROM agent_runs
+                WHERE thread_projection_pending IS TRUE
+                  AND thread_projection_retry_order IS NULL
+                LIMIT 1`,
+          args: [],
+        });
+        if (unassigned.rows.length === 0) return;
+        await exec.execute({
+          sql: `UPDATE agent_runs
+                SET thread_projection_retry_order = nextval('agent_run_projection_retry_order_seq')
+                WHERE thread_projection_pending IS TRUE
+                  AND thread_projection_retry_order IS NULL`,
+        });
+      },
+    },
   ],
 });
 
@@ -495,6 +646,12 @@ export function ensureRunTables(): Promise<void> {
 }
 
 export const TURN_EXECUTION_LEASE_MS = 15_000;
+
+// A hung renewal holds the worker's only heartbeat slot, so the database gives
+// up on each of its statements well inside the lease and the next tick tries
+// again. Set once for the renewal's own short transaction: it runs every
+// 1.5 s per active run, so a per-statement setting would triple its queries.
+const LEASE_RENEWAL_STATEMENT_TIMEOUT_MS = 4_000;
 
 function truthySqlValue(value: unknown): boolean {
   return value === true || value === "t" || value === 1 || value === "1";
@@ -648,23 +805,37 @@ async function renewExecutionLease(
     throw new Error("Turn execution leases require transaction support");
   }
   await client.transaction(async (tx) => {
-    const renewed = await tx.execute({
-      sql: `UPDATE agent_execution_leases
-            SET lease_expires_at = clock_timestamp() +
-                  (CAST(? AS BIGINT) * INTERVAL '1 millisecond'),
-                updated_at = clock_timestamp()
-            WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
-              AND generation = CAST(? AS BIGINT)
-              AND lease_expires_at > clock_timestamp()`,
-      args: [
-        TURN_EXECUTION_LEASE_MS,
-        fence.threadId,
-        fence.turnId,
-        fence.runId,
-        fence.generation,
-      ],
+    await tx.execute({
+      sql: "SELECT set_config('statement_timeout', ?, true)",
+      args: [`${LEASE_RENEWAL_STATEMENT_TIMEOUT_MS}ms`],
     });
-    if (renewed.rowsAffected !== 1) throw new StaleExecutionFenceError(fence);
+    const renew = (requireLive: boolean) =>
+      tx.execute({
+        sql: `UPDATE agent_execution_leases
+              SET lease_expires_at = clock_timestamp() +
+                    (CAST(? AS BIGINT) * INTERVAL '1 millisecond'),
+                  updated_at = clock_timestamp()
+              WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
+                AND generation = CAST(? AS BIGINT)
+                AND (lease_expires_at > clock_timestamp() OR NOT CAST(? AS BOOLEAN))`,
+        args: [
+          TURN_EXECUTION_LEASE_MS,
+          fence.threadId,
+          fence.turnId,
+          fence.runId,
+          fence.generation,
+          requireLive,
+        ],
+      });
+    if ((await renew(true)).rowsAffected !== 1) {
+      if (
+        !renewRunLiveness ||
+        !(await ownsLapsedTurnLease(tx, fence)) ||
+        (await renew(false)).rowsAffected !== 1
+      ) {
+        throw new StaleExecutionFenceError(fence);
+      }
+    }
     if (renewRunLiveness) {
       await tx.execute({
         sql: `UPDATE agent_runs
@@ -783,6 +954,29 @@ export type AgentExecutionStepAdmission =
   | { status: "completed"; resultJson: string | null; errorJson: string | null }
   | { status: "unknown" };
 
+export function privateExecutionStepInputJson(input: {
+  threadId: string;
+  turnId: string;
+  toolName: string;
+  argumentsHash: string;
+}): string {
+  const identity = createHmac("sha256", getSecretEncryptionKey())
+    .update("agent-private-execution-step-v1\0")
+    .update(
+      JSON.stringify([
+        input.threadId,
+        input.turnId,
+        input.toolName,
+        input.argumentsHash,
+      ]),
+    )
+    .digest("hex");
+  return JSON.stringify({
+    omitFromPersistedHistory: true,
+    identity: `hmac-v1:${identity}`,
+  });
+}
+
 const ARGUMENTS_HASH_INPUT_PREFIX = '{"argumentsHash":';
 
 /**
@@ -792,7 +986,31 @@ const ARGUMENTS_HASH_INPUT_PREFIX = '{"argumentsHash":';
 function executionStepInputIdentity(
   inputJson: string | undefined,
 ): string | undefined {
-  if (!inputJson?.startsWith(ARGUMENTS_HASH_INPUT_PREFIX)) return inputJson;
+  if (!inputJson?.startsWith(ARGUMENTS_HASH_INPUT_PREFIX)) {
+    if (!inputJson) return inputJson;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(inputJson);
+    } catch {
+      return inputJson;
+    }
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "omitFromPersistedHistory" in parsed &&
+      parsed.omitFromPersistedHistory === true
+    ) {
+      if (
+        !("identity" in parsed) ||
+        typeof parsed.identity !== "string" ||
+        !/^hmac-v1:[a-f0-9]{64}$/.test(parsed.identity)
+      ) {
+        throw new Error("Private execution step identity is unavailable");
+      }
+      return `private:${parsed.identity}`;
+    }
+    return inputJson;
+  }
   const { argumentsHash } = JSON.parse(inputJson) as {
     argumentsHash?: unknown;
   };
@@ -829,7 +1047,8 @@ export async function beginAgentExecutionStep(
       });
       const selected = await tx.execute({
         sql: `SELECT operation_id, tool_name, input_json, replay_policy,
-                   status, run_id, generation, result_json, error_json
+                   status, run_id, generation, result_json, error_json,
+                   dispatched_at
             FROM agent_execution_steps
             WHERE thread_id = ? AND turn_id = ? AND step_id = ?
             FOR UPDATE`,
@@ -846,6 +1065,7 @@ export async function beginAgentExecutionStep(
             generation?: number | string;
             result_json?: string | null;
             error_json?: string | null;
+            dispatched_at?: number | string | null;
           }
         | undefined;
       if (!row) throw new Error("Execution step intent was not persisted");
@@ -866,8 +1086,9 @@ export async function beginAgentExecutionStep(
           errorJson: row.error_json ?? null,
         };
       }
-      const wasDispatched =
-        row.status === "dispatched" || row.status === "unknown";
+      const hadDispatch =
+        row.status === "dispatched" || row.dispatched_at != null;
+      const wasDispatched = hadDispatch || row.status === "unknown";
       if (row.status === "unknown") {
         const canReplay =
           row.replay_policy === intent.replayPolicy &&
@@ -875,7 +1096,7 @@ export async function beginAgentExecutionStep(
             intent.replayPolicy === "retry-safe");
         if (!canReplay) return { status: "unknown" };
       }
-      if (row.status === "dispatched") {
+      if (hadDispatch) {
         const canReplay =
           row.replay_policy === intent.replayPolicy &&
           (intent.replayPolicy === "read-only" ||
@@ -940,6 +1161,7 @@ export async function markAgentExecutionStepDispatched(
 
 export async function resetAgentExecutionStepBeforeInvocation(
   intent: AgentExecutionStepIntent,
+  options: { preserveDispatchHistory?: boolean } = {},
 ): Promise<void> {
   await ensureRunTables();
   const expectedFence: ExecutionFence = {
@@ -952,12 +1174,15 @@ export async function resetAgentExecutionStepBeforeInvocation(
     const result = await withAgentExecutionStepIntentFence(intent, (tx) =>
       tx.execute({
         sql: `UPDATE agent_execution_steps
-              SET status = 'prepared', dispatched_at = NULL,
+              SET status = 'prepared',
+                  dispatched_at = CASE WHEN ? THEN
+                    COALESCE(dispatched_at, clock_timestamp()) ELSE NULL END,
                   updated_at = clock_timestamp()
               WHERE thread_id = ? AND turn_id = ? AND step_id = ?
                 AND run_id = ? AND generation = CAST(? AS BIGINT)
                 AND status IN ('prepared', 'dispatched')`,
         args: [
+          options.preserveDispatchHistory === true,
           intent.threadId,
           intent.turnId,
           intent.stepId,
@@ -1019,7 +1244,9 @@ export async function resetAgentExecutionStepBeforeInvocation(
     const reconciled = await tx.execute({
       sql: `UPDATE agent_execution_steps
             SET status = 'prepared', run_id = ?,
-                generation = CAST(? AS BIGINT), dispatched_at = NULL,
+                generation = CAST(? AS BIGINT),
+                dispatched_at = CASE WHEN ? THEN
+                  COALESCE(dispatched_at, clock_timestamp()) ELSE NULL END,
                 updated_at = clock_timestamp()
             WHERE thread_id = ? AND turn_id = ? AND step_id = ?
               AND run_id = ? AND generation = CAST(? AS BIGINT)
@@ -1027,6 +1254,7 @@ export async function resetAgentExecutionStepBeforeInvocation(
       args: [
         currentLease.ownerRunId,
         currentLease.generation,
+        options.preserveDispatchHistory === true,
         intent.threadId,
         intent.turnId,
         intent.stepId,
@@ -1456,6 +1684,7 @@ export async function insertRun(
     afterInsert?: (tx: DbExec) => Promise<void>;
   },
 ): Promise<void> {
+  const executionFence = currentExecutionFence();
   if (options?.dispatchPayload) {
     assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
   }
@@ -1497,7 +1726,7 @@ export async function insertRun(
     }
   };
   if (!client.transaction) {
-    if (currentExecutionFence()) {
+    if (executionFence) {
       throw new Error("Fenced run insertion requires transaction support");
     }
     if (options?.afterInsert)
@@ -1694,7 +1923,7 @@ function earlierTurnProjectionPendingSql(): string {
 }
 
 export async function claimBackgroundRun(runId: string): Promise<boolean> {
-  await ensureRunTables();
+  if (getScopedDbExec() === undefined) await ensureRunTables();
   const client = getDbExec();
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs
@@ -1758,11 +1987,15 @@ export async function readRunDispatchPayload(
 
 export async function clearRunDispatchPayload(runId: string): Promise<void> {
   await ensureRunTables();
-  const client = getDbExec();
-  await client.execute({
-    sql: `UPDATE agent_runs SET dispatch_payload = NULL WHERE id = ?`,
-    args: [runId],
-  });
+  await withFencedExecutionWrite(
+    async (tx) => {
+      await tx.execute({
+        sql: `UPDATE agent_runs SET dispatch_payload = NULL WHERE id = ?`,
+        args: [runId],
+      });
+    },
+    { runId },
+  );
 }
 
 export async function listUnclaimedBackgroundRunIds(): Promise<string[]> {
@@ -2096,6 +2329,7 @@ export async function tryClaimRunSlot(
   turnAborted?: boolean;
   continueRefused?: ContinueRefusalCode;
 }> {
+  currentExecutionFence();
   if (options?.dispatchPayload) {
     assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
   }
@@ -2126,6 +2360,7 @@ export async function tryClaimRunSlot(
       if (denied) return { refused: denied } as const;
     }
     await lockThreadRunSlot(tx, threadId);
+    await lockAndAssertCurrentExecutionFences(tx);
     await lockContinuationOrder(tx, threadId, turnId);
     const abortMarker = await tx.execute({
       sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,
@@ -2667,19 +2902,48 @@ export const RUN_DIAG_STAGE = {
 
 export type RunDiagStage = (typeof RUN_DIAG_STAGE)[keyof typeof RUN_DIAG_STAGE];
 
+export interface RouteFailureDiagnosticEvidence {
+  format: "route_failure_v1";
+  errorMetadata?: "unreadable";
+  errorName?: string;
+  errorCode?: string;
+  httpStatus?: string;
+  causeName?: string;
+}
+
 export async function recordRunDiagnostic(
   runId: string,
   stage: RunDiagStage,
   detail?: string,
+  evidence?: RouteFailureDiagnosticEvidence,
 ): Promise<void> {
   if (!runId) return;
   try {
     await ensureRunTables();
-    const payload = JSON.stringify({
+    // raw-sql-ok: diagnostic JSON is passed only as a bound SQL value.
+    const payloadFields = {
       stage,
       ...(detail ? { detail: detail.slice(0, 1500) } : {}),
+      ...(stage === RUN_DIAG_STAGE.routeThrew && evidence ? { evidence } : {}),
       at: Date.now(),
-    }).slice(0, 2000);
+    };
+    // raw-sql-ok: diagnostic JSON is passed only as a bound SQL value.
+    let payload = JSON.stringify(payloadFields);
+    if (payload.length > 2000 && typeof payloadFields.detail === "string") {
+      const fullDetail = payloadFields.detail;
+      let low = 0;
+      let high = fullDetail.length;
+      while (low < high) {
+        const middle = Math.ceil((low + high) / 2);
+        payloadFields.detail = fullDetail.slice(0, middle);
+        if (JSON.stringify(payloadFields).length <= 2000) low = middle;
+        else high = middle - 1;
+      }
+      if (low === 0) delete payloadFields.detail;
+      else payloadFields.detail = fullDetail.slice(0, low);
+      // raw-sql-ok: diagnostic JSON is passed only as a bound SQL value.
+      payload = JSON.stringify(payloadFields);
+    }
     const isWorkerStage =
       stage === RUN_DIAG_STAGE.workerSetupStep ||
       stage === RUN_DIAG_STAGE.workerStarted;
@@ -4250,13 +4514,213 @@ export async function getRunAbortState(
   };
 }
 
-function persistedRunEventData(
+function omitPersistedRunEventContent(event: Record<string, unknown>) {
+  const base = {
+    type: event.type,
+    omitFromPersistedHistory: true,
+  };
+  switch (event.type) {
+    case "text":
+    case "thinking":
+      return { ...base, text: "" };
+    case "suggestions":
+      return { ...base, suggestions: [] };
+    case "rich_event":
+      return {
+        ...base,
+        event: {
+          namespace: "agent-native",
+          name: "private-content-omitted",
+          data: {},
+        },
+      };
+    case "model_stream":
+      return {
+        ...base,
+        status: event.status,
+      };
+    case "activity":
+      return {
+        ...base,
+        label: "Private content omitted",
+        ...(typeof event.tool === "string" ? { tool: event.tool } : {}),
+        ...(typeof event.id === "string" ? { id: event.id } : {}),
+      };
+    case "tool_input_start":
+      return {
+        ...base,
+        ...(typeof event.tool === "string" ? { tool: event.tool } : {}),
+        ...(typeof event.id === "string" ? { id: event.id } : {}),
+      };
+    case "tool_input_delta":
+      return {
+        ...base,
+        ...(typeof event.tool === "string" ? { tool: event.tool } : {}),
+        ...(typeof event.id === "string" ? { id: event.id } : {}),
+        text: "",
+      };
+    case "tool_start":
+      return {
+        ...base,
+        tool: event.tool,
+        ...(typeof event.id === "string" ? { id: event.id } : {}),
+        input: {},
+      };
+    case "tool_done":
+      return {
+        ...base,
+        tool: event.tool,
+        ...(typeof event.id === "string" ? { id: event.id } : {}),
+        input: {},
+        result: "[Private content omitted]",
+        ...(typeof event.isError === "boolean"
+          ? { isError: event.isError }
+          : {}),
+        ...(typeof event.completedSideEffect === "boolean"
+          ? { completedSideEffect: event.completedSideEffect }
+          : {}),
+        ...(event.approvalPause === true ? { approvalPause: true } : {}),
+        ...(event.outcomeUnknown === true ? { outcomeUnknown: true } : {}),
+        ...(event.replayed === true ? { replayed: true } : {}),
+      };
+    case "approval_required":
+      return {
+        ...base,
+        tool: event.tool,
+        input: {},
+        approvalKey:
+          approvalKeyForPrivateHistory(event.askId) ??
+          PRIVATE_APPROVAL_UNAVAILABLE,
+        ...(event.allowPersistentApproval === false
+          ? { allowPersistentApproval: false }
+          : {}),
+        ...(typeof event.toolCallId === "string"
+          ? { toolCallId: event.toolCallId }
+          : {}),
+        ...(typeof event.askId === "string" ? { askId: event.askId } : {}),
+      };
+    case "connection_required":
+      return {
+        ...base,
+        requestId: event.requestId,
+        provider: event.provider,
+        reason: event.reason,
+        ...(typeof event.appId === "string" ? { appId: event.appId } : {}),
+      };
+    case "agent_call":
+      return {
+        ...base,
+        agent: event.agent,
+        status: event.status,
+        ...(typeof event.agentCallId === "string"
+          ? { agentCallId: event.agentCallId }
+          : {}),
+        ...(typeof event.taskId === "string" ? { taskId: event.taskId } : {}),
+        ...(typeof event.durationMs === "number"
+          ? { durationMs: event.durationMs }
+          : {}),
+        ...(typeof event.terminalCode === "string"
+          ? { terminalCode: event.terminalCode }
+          : {}),
+      };
+    case "agent_call_progress":
+      return {
+        ...base,
+        agent: event.agent,
+        state: "private_content_omitted",
+        elapsedSeconds: event.elapsedSeconds,
+        detail: "",
+        ...(typeof event.agentCallId === "string"
+          ? { agentCallId: event.agentCallId }
+          : {}),
+      };
+    case "agent_call_text":
+      return {
+        ...base,
+        agent: event.agent,
+        text: "",
+        ...(typeof event.agentCallId === "string"
+          ? { agentCallId: event.agentCallId }
+          : {}),
+      };
+    case "agent_call_activity":
+      return {
+        ...base,
+        agent: event.agent,
+        snapshot: {},
+        ...(typeof event.agentCallId === "string"
+          ? { agentCallId: event.agentCallId }
+          : {}),
+      };
+    case "agent_task":
+      return {
+        ...base,
+        taskId: event.taskId,
+        threadId: event.threadId,
+        description: "",
+        status: event.status,
+      };
+    case "agent_task_update":
+      return {
+        ...base,
+        taskId: event.taskId,
+        preview: "",
+      };
+    case "agent_task_complete":
+      return { ...base, taskId: event.taskId, summary: "" };
+    case "done":
+      return {
+        ...base,
+        ...(event.reason ? { reason: event.reason } : {}),
+      };
+    case "error":
+      return {
+        ...base,
+        error: "Private content omitted",
+        ...(event.recoverable === true ? { recoverable: true } : {}),
+        ...(event.providerRetryable === true
+          ? { providerRetryable: true }
+          : {}),
+      };
+    case "loop_limit":
+      return {
+        ...base,
+        ...(typeof event.maxIterations === "number"
+          ? { maxIterations: event.maxIterations }
+          : {}),
+      };
+    case "tripwire":
+      return {
+        ...base,
+        reason: "Private content omitted",
+      };
+    case "auto_continue":
+      return {
+        ...base,
+        reason: event.reason,
+        ...(typeof event.maxIterations === "number"
+          ? { maxIterations: event.maxIterations }
+          : {}),
+      };
+    default:
+      return base;
+  }
+}
+
+export function persistedRunEventData(
   eventData: string,
   inputSource?: "execution",
   parsedEvent?: Record<string, unknown> & { type: string },
 ): string {
-  const stripped = stripInlineBytesFromJson(eventData, "placeholder");
   const original = parsedEvent ?? JSON.parse(eventData);
+  if (
+    original &&
+    typeof original === "object" &&
+    original.omitFromPersistedHistory === true
+  ) {
+    return JSON.stringify(omitPersistedRunEventContent(original));
+  }
+  const stripped = stripInlineBytesFromJson(eventData, "placeholder");
   if (original.type === "approval_required") {
     return JSON.stringify({
       ...(stripped === eventData ? original : JSON.parse(stripped)),
@@ -5073,6 +5537,64 @@ export interface AgentRunSummary {
   inFlightSince: number | null;
 }
 
+export async function recordThreadPrivateRun(
+  threadId: string,
+  runId: string,
+): Promise<void> {
+  await ensureRunTables();
+  await getDbExec().execute({
+    sql: `INSERT INTO agent_thread_private_runs (thread_id, run_id) VALUES (?, ?) ON CONFLICT (thread_id, run_id) DO NOTHING`,
+    args: [threadId, runId],
+  });
+}
+
+/** Caller must establish thread access before invoking this query. */
+export async function getThreadPrivateHistoryState(threadId: string): Promise<{
+  hasPrivateHistory: boolean;
+  projectionPending: boolean;
+  privateRunIds: string[];
+}> {
+  await ensureRunTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT
+      EXISTS (
+        SELECT 1 FROM agent_thread_private_runs p WHERE p.thread_id = ?
+        UNION ALL
+        SELECT 1 FROM agent_runs r JOIN agent_run_events e ON e.run_id = r.id
+        WHERE r.thread_id = ? AND e.event_data::jsonb @> '{"omitFromPersistedHistory":true}'::jsonb
+      ) AS has_private_history,
+      ARRAY(SELECT p.run_id FROM agent_thread_private_runs p WHERE p.thread_id = ?
+        UNION SELECT r.id FROM agent_runs r JOIN agent_run_events e ON e.run_id = r.id
+        WHERE r.thread_id = ? AND e.event_data::jsonb @> '{"omitFromPersistedHistory":true}'::jsonb) AS private_run_ids,
+      EXISTS (
+        SELECT 1 FROM agent_runs r WHERE r.thread_id = ?
+        AND (r.thread_projection_pending IS TRUE OR r.thread_projection_error_code IS NOT NULL)
+      ) AS projection_pending`,
+    args: [threadId, threadId, threadId, threadId, threadId],
+  });
+  const row = rows[0] as
+    | {
+        has_private_history?: unknown;
+        projection_pending?: unknown;
+        private_run_ids?: unknown;
+      }
+    | undefined;
+  if (
+    !row ||
+    typeof row.has_private_history !== "boolean" ||
+    typeof row.projection_pending !== "boolean" ||
+    !Array.isArray(row.private_run_ids) ||
+    !row.private_run_ids.every((id) => typeof id === "string")
+  ) {
+    throw new Error("Could not read thread privacy provenance");
+  }
+  return {
+    hasPrivateHistory: row.has_private_history,
+    projectionPending: row.projection_pending,
+    privateRunIds: row.private_run_ids as string[],
+  };
+}
+
 export async function listRunsForThread(
   threadId: string,
   options: { limit?: number; runIds?: readonly string[] } = {},
@@ -5584,8 +6106,8 @@ async function pruneAndRollUpPrunedRunOutcomes(
         args: runIds,
       });
     }
-    // Keep execution receipts through the longest configured recovery window,
-    // even when the run rows they belong to have already been pruned.
+    // Same-turn recovery can outlive the run row, so keep recent receipts
+    // until the longest configured run-retention window has elapsed.
     await tx.execute({
       sql: `DELETE FROM agent_execution_steps AS s
             WHERE s.updated_at < to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
@@ -5593,8 +6115,22 @@ async function pruneAndRollUpPrunedRunOutcomes(
                 SELECT 1 FROM agent_runs r
                 WHERE r.thread_id = s.thread_id
                   AND COALESCE(r.turn_id, r.id) = s.turn_id
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_execution_leases l
+                WHERE l.thread_id = s.thread_id
+                  AND l.turn_id = s.turn_id
+                  AND l.lease_expires_at > clock_timestamp()
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_execution_steps active
+                WHERE active.thread_id = s.thread_id
+                  AND active.turn_id = s.turn_id
+                  AND active.status <> 'completed'
+                  AND (active.status <> 'prepared' OR active.dispatched_at IS NOT NULL)
+                  AND active.updated_at >= to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
               )`,
-      args: [erroredCutoff],
+      args: [erroredCutoff, erroredCutoff],
     });
     await tx.execute({
       sql: `DELETE FROM agent_execution_leases AS l
@@ -5603,8 +6139,17 @@ async function pruneAndRollUpPrunedRunOutcomes(
                 SELECT 1 FROM agent_runs r
                 WHERE r.thread_id = l.thread_id
                   AND COALESCE(r.turn_id, r.id) = l.turn_id
+              )
+              AND l.lease_expires_at <= clock_timestamp()
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_execution_steps active
+                WHERE active.thread_id = l.thread_id
+                  AND active.turn_id = l.turn_id
+                  AND active.status <> 'completed'
+                  AND (active.status <> 'prepared' OR active.dispatched_at IS NOT NULL)
+                  AND active.updated_at >= to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
               )`,
-      args: [erroredCutoff],
+      args: [erroredCutoff, erroredCutoff],
     });
     await tx.execute({
       sql: `DELETE FROM agent_turn_initiators i
@@ -6404,11 +6949,20 @@ async function retryPendingStaleRunThreadProjections(
     };
     if (projection.thread_projection_error_code != null) {
       failed += 1;
+      console.error(
+        `[run-store] stale projection stuck for run ${String(projection.id)}:`,
+        projection.thread_projection_error_code,
+      );
       continue;
     }
     const runId = projection.id;
     if (typeof runId !== "string") continue;
-    if (!(await finalizeStaleRun(runId, "stale-projection-retry"))) failed += 1;
+    if (!(await finalizeStaleRun(runId, "stale-projection-retry"))) {
+      failed += 1;
+      console.error(
+        `[run-store] stale projection retry failed for run ${runId}`,
+      );
+    }
   }
   return { failed, truncated };
 }

@@ -1,3 +1,4 @@
+export { parseAgentChatReferences } from "./agent-chat-references.js";
 export {
   agentChat,
   type AgentChatMessage,
@@ -82,6 +83,15 @@ export {
   type ParsedDataUrl,
 } from "./data-url.js";
 export { stripInlineAttachmentPayloads } from "./attachments.js";
+export {
+  assignFirstRunBuilderCreditsV2,
+  FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
+  FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
+  FIRST_RUN_BUILDER_CREDITS_V2_VARIANTS,
+  type FirstRunBuilderCreditsV2Assignment,
+  type FirstRunBuilderCreditsV2RequestAssignment,
+  type FirstRunBuilderCreditsV2Variant,
+} from "./first-run-builder-credits-experiment.js";
 export { stripInlineBytes, type InlineBytesPolicy } from "./inline-bytes.js";
 export {
   DEFAULT_REASONING_EFFORT,
@@ -129,6 +139,7 @@ export {
 } from "./environment-lanes.js";
 export {
   SSR_HTML_CONTENT_TYPE,
+  SSR_MAX_AGE_HEADER,
   SSR_QUERY_CACHE_KEY_HEADER,
   type SsrHtmlContentTypeOptions,
   withSsrHtmlContentType,

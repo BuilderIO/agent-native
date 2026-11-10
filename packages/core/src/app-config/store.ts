@@ -9,6 +9,11 @@ import {
 
 const LAYER_ORDER = ["env", "legacy", "app"] as const;
 
+type QuestionIntakeEnvironment = {
+  enabled?: boolean;
+  disabled?: boolean;
+};
+
 export type AppConfigLayer = (typeof LAYER_ORDER)[number];
 
 interface AppConfigState {
@@ -53,8 +58,43 @@ function mergeLayers(
   return result;
 }
 
-function resolve(envLayer: Record<string, unknown>): AppConfig {
-  state.layers.env = envLayer as AppConfigInput;
+function resolve(
+  envLayer: Record<string, unknown>,
+  questionIntakeEnvironment: QuestionIntakeEnvironment | undefined,
+): AppConfig {
+  const nonEnvironmentConfig = LAYER_ORDER.filter(
+    (layer) => layer !== "env",
+  ).reduce<Record<string, unknown>>(
+    (merged, layer) =>
+      state.layers[layer]
+        ? mergeLayers(merged, state.layers[layer] as Record<string, unknown>)
+        : merged,
+    {},
+  );
+  const configuredAgent = nonEnvironmentConfig.agent;
+  const configuredQuestionIntake = isPlainObject(configuredAgent)
+    ? configuredAgent.questionIntake
+    : undefined;
+  const hasQuestionIntakeConfig =
+    isPlainObject(configuredQuestionIntake) &&
+    typeof configuredQuestionIntake.experimentId === "string" &&
+    typeof configuredQuestionIntake.treatmentInstructions === "string";
+
+  const resolvedEnvLayer = mergeLayers({}, envLayer);
+  if (
+    hasQuestionIntakeConfig &&
+    questionIntakeEnvironment?.enabled !== undefined
+  ) {
+    const agentLayer = isPlainObject(resolvedEnvLayer.agent)
+      ? resolvedEnvLayer.agent
+      : (resolvedEnvLayer.agent = {} as Record<string, unknown>);
+    const questionIntakeLayer = isPlainObject(agentLayer.questionIntake)
+      ? agentLayer.questionIntake
+      : (agentLayer.questionIntake = {} as Record<string, unknown>);
+    questionIntakeLayer.enabled = questionIntakeEnvironment.enabled;
+  }
+
+  state.layers.env = resolvedEnvLayer as AppConfigInput;
 
   let merged: Record<string, unknown> = {};
   for (const layer of LAYER_ORDER) {
@@ -62,6 +102,24 @@ function resolve(envLayer: Record<string, unknown>): AppConfig {
     if (value) merged = mergeLayers(merged, value as Record<string, unknown>);
   }
   const parsed = appConfigSchema.parse(merged);
+  if (
+    questionIntakeEnvironment?.enabled !== undefined &&
+    parsed.agent.questionIntake
+  ) {
+    parsed.agent.questionIntake = {
+      ...parsed.agent.questionIntake,
+      enabled: questionIntakeEnvironment.enabled,
+    };
+  }
+  if (
+    questionIntakeEnvironment?.disabled === true &&
+    parsed.agent.questionIntake
+  ) {
+    parsed.agent.questionIntake = {
+      ...parsed.agent.questionIntake,
+      disabled: true,
+    };
+  }
   assertRunLifecycleInvariants(parsed.agent);
   parsed.app = deriveAppIdentity(parsed.app);
   return parsed;
@@ -110,11 +168,26 @@ export function defineAppConfig(config: AppConfigInput): () => void {
 }
 
 export function getAppConfig(): AppConfig {
-  const envLayer = readEnvConfigLayer(appConfigSchema, readConfigEnvironment());
-  const signature = JSON.stringify(envLayer);
+  const environment = readConfigEnvironment();
+  const questionIntakeEnvironment = (
+    readEnvConfigLayer(appConfigSchema, {
+      AGENT_QUESTION_INTAKE_EXPERIMENT_ENABLED:
+        environment.AGENT_QUESTION_INTAKE_EXPERIMENT_ENABLED,
+      AGENT_QUESTION_INTAKE_EXPERIMENT_DISABLED:
+        environment.AGENT_QUESTION_INTAKE_EXPERIMENT_DISABLED,
+    }).agent as { questionIntake?: QuestionIntakeEnvironment } | undefined
+  )?.questionIntake;
+  const environmentWithoutQuestionIntakeSwitches = { ...environment };
+  delete environmentWithoutQuestionIntakeSwitches.AGENT_QUESTION_INTAKE_EXPERIMENT_ENABLED;
+  delete environmentWithoutQuestionIntakeSwitches.AGENT_QUESTION_INTAKE_EXPERIMENT_DISABLED;
+  const envLayer = readEnvConfigLayer(
+    appConfigSchema,
+    environmentWithoutQuestionIntakeSwitches,
+  );
+  const signature = JSON.stringify({ envLayer, questionIntakeEnvironment });
   if (state.resolved && state.envSignature === signature) return state.resolved;
   state.envSignature = signature;
-  return (state.resolved = resolve(envLayer));
+  return (state.resolved = resolve(envLayer, questionIntakeEnvironment));
 }
 
 export function resetAppConfigForTests(): void {

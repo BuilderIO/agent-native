@@ -80,10 +80,14 @@ export {
 } from "./framework-request-handler.js";
 export { directHttpActionApprovalRefusal } from "./action-approval.js";
 export { runWithRequestContext } from "./request-context.js";
-export { isSameOriginRequest } from "./request-origin.js";
+export {
+  hasSameOriginBrowserEvidence,
+  isSameOriginRequest,
+} from "./request-origin.js";
 export {
   hasUiActionCapability,
   mountUiActionCapabilityRoute,
 } from "./ui-action-capability.js";
-export { getSession } from "./auth.js";
+export { getBrowserCookieSession, getSession } from "./auth.js";
+export { hasPresentedEmbedSessionCredential } from "./embed-session.js";
 export { resolveOrgIdForEmailViaEvent } from "../org/context.js";

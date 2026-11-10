@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 
+import { sql } from "./sql.js";
+
 // Drizzle's PGlite session opens a transaction by calling `client.transaction`
 // on the raw PGlite engine directly — it never goes through this module's own
 // `createDbExecInternal` transaction() path. Without `pgliteDrizzleClient`
@@ -73,5 +75,16 @@ describe("Drizzle-opened PGlite transactions register with the shared exec", () 
       "SELECT count(*)::int AS count FROM pglite_drizzle_tx_probe",
     );
     expect(rows[0]?.count).toBe(0);
+  });
+
+  it("executes a typed SQL fragment with bound values", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+
+    const { getDbExec } = await import("./client.js");
+    const { rows } = await getDbExec().execute(
+      sql`SELECT ${sql.value("fragment-value")}::text AS value`,
+    );
+
+    expect(rows[0]?.value).toBe("fragment-value");
   });
 });

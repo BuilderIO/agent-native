@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 
 import { readAgentSqlQuery } from "@agent-native/core/agent-sql";
@@ -5,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   assertFirstPartyAnalyticsBigQuerySql,
+  ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS,
   renderFirstPartyAnalyticsBigQuerySql,
 } from "./first-party-analytics-backend.js";
 import {
@@ -21,11 +23,19 @@ import {
   type OnboardingJourneyPersonMember,
   type OnboardingJourneyTerminalStep,
 } from "./first-party-metric-catalog.js";
+import {
+  ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
+  ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS,
+} from "./onboarding-journey.js";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
+
+/** The hash the journey read returns for a session email. */
+const emailHash = (email: string) =>
+  createHash("md5").update(email.toLowerCase()).digest("hex");
 
 const SCOPE = { userEmail: "owner@example.test", orgId: "org-1" };
 
@@ -85,6 +95,7 @@ describe("onboarding journey events SQL", () => {
       template?: string;
       date?: string;
       path?: string;
+      hostname?: string;
       properties?: Record<string, unknown>;
       orgId?: string;
     } = {},
@@ -94,7 +105,7 @@ describe("onboarding journey events SQL", () => {
     await client.query(
       `INSERT INTO analytics_events
         (id, event_name, user_id, anonymous_id, session_id, timestamp, received_at, event_date, app, template, hostname, path, properties, org_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $8, 'clips.agent-native.com', $9, $10, $11)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $8, $9, $10, $11, $12)`,
       [
         `ev-${nextId++}`,
         eventName,
@@ -104,6 +115,7 @@ describe("onboarding journey events SQL", () => {
         stamp,
         date,
         options.template ?? "clips",
+        options.hostname ?? "clips.agent-native.com",
         options.path ?? null,
         JSON.stringify(options.properties ?? {}),
         options.orgId ?? SCOPE.orgId,
@@ -152,7 +164,14 @@ describe("onboarding journey events SQL", () => {
       page,
       window,
     );
-    const scoped = scopedAnalyticsSql(sql, SCOPE);
+    // Read through the production projection, so a column the SQL names but
+    // the projection leaves out fails here as it would in BigQuery.
+    const scoped = scopedAnalyticsSql(
+      sql,
+      SCOPE,
+      undefined,
+      ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
+    );
     const result = (await client.query(scoped.sql, scoped.args)) as {
       rows: Array<Record<string, unknown>>;
     };
@@ -186,7 +205,12 @@ describe("onboarding journey events SQL", () => {
       members,
       window,
     );
-    const scoped = scopedAnalyticsSql(sql, SCOPE);
+    const scoped = scopedAnalyticsSql(
+      sql,
+      SCOPE,
+      undefined,
+      ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS,
+    );
     const result = (await client.query(scoped.sql, scoped.args)) as {
       rows: Array<Record<string, unknown>>;
     };
@@ -242,6 +266,7 @@ describe("onboarding journey events SQL", () => {
       { limit: 10, offset: 0 },
       window,
     );
+    expect(journeySql).toContain("'onboarding_experiment_exposed'");
     const followupSql = buildOnboardingJourneyFollowupSql(
       filters(),
       [
@@ -271,6 +296,34 @@ describe("onboarding journey events SQL", () => {
       expect(() => assertFirstPartyAnalyticsBigQuerySql(sql)).not.toThrow();
       expect(sql).toContain(window.observationCutoff);
     }
+  });
+
+  it("applies host exclusion to both follow-up activity reads", async () => {
+    await setup();
+    const selectedFilters = filters({ excludeNonProductionHosts: true });
+    const window = observation();
+    const terminal = {
+      sessionId: "session-1",
+      stepKey: "step:role",
+      tsMs: Date.parse(`${today}T12:00:00.000Z`),
+    };
+    const sessionSql = buildOnboardingJourneyFollowupSql(
+      selectedFilters,
+      [terminal],
+      window,
+    );
+    const personSql = buildOnboardingJourneyPersonFollowupSql(
+      selectedFilters,
+      [{ ...terminal, app: "clips", authUserId: "person-1" }],
+      window,
+    );
+
+    expect(sessionSql).toContain(
+      "AND NOT (lower(coalesce(NULLIF(e.hostname, ''), ''))",
+    );
+    expect(personSql).toContain(
+      "AND NOT (lower(coalesce(NULLIF(e.hostname, ''), ''))",
+    );
   });
 
   it("reuses one scoped source pass and preserves output uniqueness in BigQuery", async () => {
@@ -326,6 +379,7 @@ describe("onboarding journey events SQL", () => {
       tsMs: Date.parse(`${today}T12:00:00.000Z`),
       app: "clips",
       authUserId: "person'\\u0027\nline",
+      emailHash: emailHash("o'neil@example.com"),
     };
     const sql = buildOnboardingJourneyPersonFollowupSql(
       filters(),
@@ -345,6 +399,7 @@ describe("onboarding journey events SQL", () => {
       app: member.app,
       timestamp: new Date(member.tsMs).toISOString(),
       authUserId: member.authUserId,
+      emailHash: member.emailHash,
     });
     const table = {
       projectId: "example-project",
@@ -367,6 +422,61 @@ describe("onboarding journey events SQL", () => {
     expect(rendered).toContain(
       "FROM `example-project.analytics.first_party_analytics_events_raw`",
     );
+  });
+
+  it("renders the person follow-up's narrow source for BigQuery and keeps response events", async () => {
+    await setup();
+    const window = observation();
+    const sql = buildOnboardingJourneyPersonFollowupSql(
+      filters({ excludeNonProductionHosts: true }),
+      [
+        {
+          sessionId: "session-1",
+          stepKey: "step:role",
+          tsMs: Date.parse(`${today}T12:00:00.000Z`),
+          app: "clips",
+          authUserId: "person-1",
+          emailHash: emailHash("person@example.com"),
+        },
+      ],
+      window,
+    );
+    const scoped = scopedAnalyticsSql(
+      sql,
+      SCOPE,
+      undefined,
+      ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS,
+    );
+    await client.query(scoped.sql, scoped.args);
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      scoped.sql,
+      scoped.args,
+      {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "example-project.analytics.first_party_analytics_events_raw",
+      },
+      {
+        eventDateRange: { startDate: yesterday, endDate: today },
+        ...ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS,
+      },
+    );
+
+    expect(() =>
+      readAgentSqlQuery(rendered, { dialect: "bigquery" }),
+    ).not.toThrow();
+    expect(rendered).not.toMatch(/SELECT \* FROM `example-project/);
+    expect(rendered).toContain(
+      `SELECT ${ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS.join(", ")} FROM`,
+    );
+    expect(rendered).not.toContain("event_name != 'http.response'");
+    // Both engines spell the email hash as lowercase hex.
+    expect(rendered).toMatch(
+      /TO_HEX\(MD5\(lower\(activity\.funnel_user_email\)\)\)/i,
+    );
+    expect(rendered).not.toContain("person@example.com");
   });
 
   it("avoids an unused identity-bridge scan while keeping session email filters", async () => {
@@ -628,6 +738,223 @@ describe("onboarding journey events SQL", () => {
         later_activity_observed_anywhere: 1,
       },
     ]);
+  });
+
+  it("matches later activity by email when a member has no sign-in ID", async () => {
+    await setup();
+    const terminalAt = Date.parse(`${today}T12:00:02.000Z`);
+    // Grace returns in Design, signed in under a differently cased email.
+    await insert("grace-later", "button_click", 5, {
+      email: "Grace@Example.com",
+      template: "design",
+    });
+    // Heidi's own session continues under someone else's email: not hers.
+    await insert("heidi-cohort", "button_click", 6, {
+      email: "mallory@example.com",
+    });
+    // Ivan matches on his sign-in ID alone.
+    await insert("ivan-later", "button_click", 7, {
+      template: "design",
+      properties: { auth_user_id: "person-ivan" },
+    });
+    const member = (
+      sessionId: string,
+      identity: Pick<OnboardingJourneyPersonMember, "authUserId" | "emailHash">,
+    ): OnboardingJourneyPersonMember => ({
+      sessionId,
+      stepKey: "step:role",
+      tsMs: terminalAt,
+      app: "clips",
+      ...identity,
+    });
+
+    const rows = await runPersonFollowup(
+      [
+        member("grace-cohort", {
+          authUserId: null,
+          emailHash: emailHash("grace@example.com"),
+        }),
+        member("heidi-cohort", {
+          authUserId: null,
+          emailHash: emailHash("heidi@example.com"),
+        }),
+        member("ivan-cohort", { authUserId: "person-ivan", emailHash: null }),
+        member("unknown-cohort", { authUserId: null, emailHash: null }),
+      ],
+      {},
+      observation(),
+    );
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        canonical_people: 3,
+        identity_unavailable_sessions: 1,
+        later_activity_in_selected_session: 0,
+        later_activity_outside_selected_session_or_app: 2,
+        later_activity_observed_anywhere: 2,
+        no_activity_observed_within_horizon: 0,
+        right_censored_horizon: 1,
+      }),
+    ]);
+  });
+
+  it("matches a joined person by every email and sign-in ID, and keeps other accounts out of their session", async () => {
+    await setup();
+    const terminalAt = Date.parse(`${today}T12:00:02.000Z`);
+    // Jane returns under an older email one of her sessions carried.
+    await insert("jane-later", "button_click", 5, {
+      email: "jane.old@example.com",
+      template: "design",
+    });
+    // Leo returns under the second sign-in ID his sessions carried.
+    await insert("leo-later", "button_click", 6, {
+      template: "design",
+      properties: { auth_user_id: "person-leo-2" },
+    });
+    // Kim's session goes on under another account's sign-in ID: not hers.
+    await insert("kim-cohort", "button_click", 7, {
+      properties: { auth_user_id: "person-mallory" },
+    });
+    // Nina's session goes on under another account's email: not hers either.
+    await insert("nina-cohort", "button_click", 8, {
+      email: "mallory@example.com",
+    });
+    const member = (
+      sessionId: string,
+      identity: Pick<
+        OnboardingJourneyPersonMember,
+        "authUserId" | "emailHash" | "aliases"
+      >,
+    ): OnboardingJourneyPersonMember => ({
+      sessionId,
+      stepKey: "step:role",
+      tsMs: terminalAt,
+      app: "clips",
+      ...identity,
+    });
+
+    const rows = await runPersonFollowup([
+      member("jane-cohort", {
+        authUserId: "person-jane",
+        emailHash: emailHash("jane@example.com"),
+        aliases: {
+          emailHashes: ["jane.old@example.com", "jane@example.com"].map(
+            emailHash,
+          ),
+          authUserIds: ["person-jane"],
+        },
+      }),
+      member("leo-cohort", {
+        authUserId: "person-leo",
+        emailHash: null,
+        aliases: {
+          emailHashes: [],
+          authUserIds: ["person-leo", "person-leo-2"],
+        },
+      }),
+      member("kim-cohort", {
+        authUserId: null,
+        emailHash: emailHash("kim@example.com"),
+      }),
+      member("nina-cohort", { authUserId: "person-nina", emailHash: null }),
+    ]);
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        canonical_people: 4,
+        later_activity_in_selected_session: 0,
+        later_activity_outside_selected_session_or_app: 2,
+        later_activity_observed_anywhere: 2,
+        right_censored_horizon: 2,
+      }),
+    ]);
+    await expect(
+      runPersonFollowup([
+        member("unknown-only", { authUserId: null, emailHash: null }),
+      ]),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        canonical_people: 0,
+        identity_unavailable_sessions: 1,
+      }),
+    ]);
+    expect(() =>
+      buildOnboardingJourneyPersonFollowupSql(
+        filters(),
+        [
+          member("alias-without-email", {
+            authUserId: null,
+            emailHash: null,
+            aliases: {
+              emailHashes: [emailHash("a@example.com")],
+              authUserIds: [],
+            },
+          }),
+        ],
+        observation(),
+      ),
+    ).toThrow("Invalid onboarding person follow-up member");
+    expect(() =>
+      buildOnboardingJourneyPersonFollowupSql(
+        filters(),
+        [
+          member("same", { authUserId: "person-a", emailHash: null }),
+          member("same", { authUserId: "person-b", emailHash: null }),
+        ],
+        observation(),
+      ),
+    ).toThrow("Invalid onboarding person follow-up member");
+  });
+
+  it("names a session's email only when its emails agree, and counts the whole read on every page", async () => {
+    await setup();
+    await seedSessions();
+    await insert("two-emails", "signup", 3, { email: "x@example.com" });
+    await insert("two-emails", "onboarding_step_viewed", 4, {
+      email: "Y@example.com",
+      properties: { flow: "first_run", step_id: "role" },
+    });
+
+    const all = await run();
+    const emailsBySession = new Map(
+      all.map((row) => [row.session_id, row.session_email_hash]),
+    );
+    expect(emailsBySession.get("normal")).toBe(emailHash("alice@example.com"));
+    expect(emailsBySession.get("two-emails")).toBeNull();
+    expect(all.every((row) => row.journey_total_rows === all.length)).toBe(
+      true,
+    );
+
+    const first = await run({}, { limit: 2, offset: 0 });
+    const second = await run({}, { limit: 2, offset: 2 });
+    expect([...first, ...second].map((row) => row.journey_total_rows)).toEqual(
+      Array(first.length + second.length).fill(all.length),
+    );
+    const fingerprint = all[0]!.journey_rows_fingerprint;
+    expect(Number.isSafeInteger(fingerprint)).toBe(true);
+    expect(
+      [...all, ...first, ...second].every(
+        (row) => row.journey_rows_fingerprint === fingerprint,
+      ),
+    ).toBe(true);
+
+    // One event leaves the read and another joins it: the same total, but a
+    // different set of rows.
+    const leaving = all.find(
+      (row) =>
+        row.session_id === "normal" &&
+        row.event_name === "onboarding_step_viewed",
+    );
+    await client.query("DELETE FROM analytics_events WHERE id = $1", [
+      leaving!.id,
+    ]);
+    await insert("normal", "onboarding_step_viewed", 9, {
+      email: "alice@example.com",
+      properties: { flow: "first_run", step_id: "goal" },
+    });
+    const changed = await run({}, { limit: 2, offset: 2 });
+    expect(changed[0]?.journey_total_rows).toBe(all.length);
+    expect(changed[0]?.journey_rows_fingerprint).not.toBe(fingerprint);
   });
 
   it("selects renderable Design output events for onboarding sessions", async () => {
@@ -1409,12 +1736,18 @@ describe("onboarding journey events SQL", () => {
       "attempt_id",
       "auth_user_id",
       "event_name",
+      "experiment_id",
+      "experiment_variant",
+      "first_touch_path",
       "flow",
       "id",
       "journey_kind",
+      "journey_rows_fingerprint",
+      "journey_total_rows",
       "method_id",
       "outcome",
       "path",
+      "session_email_hash",
       "session_id",
       "session_replay_id",
       "session_replay_started_at",
@@ -1556,5 +1889,46 @@ describe("onboarding journey events SQL", () => {
     expect(() =>
       buildOnboardingJourneyEventsSql(filters(), { limit: 0, offset: 0 }),
     ).toThrow(/limit/);
+  });
+
+  it("can exclude beta and localhost hosts from the event read", async () => {
+    await setup();
+    await insert("production", "signup", 1);
+    await insert("beta", "signup", 2, {
+      hostname: "beta.clips.agent-native.com",
+    });
+    await insert("localhost", "signup", 3, { hostname: "localhost" });
+
+    const rows = await run({ excludeNonProductionHosts: true });
+
+    expect(rows.map((row) => row.session_id)).toEqual(["production"]);
+  });
+
+  it("keeps internal and test identities out of sessionless OAuth signups", async () => {
+    await setup();
+    await insert(null, "signup", 1, {
+      email: "dev@builder.io",
+      template: "design",
+      properties: { first_touch_path: "/mcp/oauth/callback" },
+    });
+    await insert(null, "signup", 2, {
+      email: "qa+autoz1@example.com",
+      template: "design",
+      properties: { first_touch_path: "/mcp/oauth/callback" },
+    });
+    await insert(null, "signup", 3, {
+      email: "person@example.com",
+      template: "design",
+      properties: { first_touch_path: "/mcp/oauth/callback" },
+    });
+
+    const rows = await run({ app: "design" });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      event_name: "signup",
+      journey_kind: "onboarding",
+      first_touch_path: "/mcp/oauth/callback",
+    });
   });
 });

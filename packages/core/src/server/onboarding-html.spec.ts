@@ -62,6 +62,21 @@ describe("getOnboardingHtml", () => {
     vi.unstubAllEnvs();
   });
 
+  it("adds trusted head customization without replacing the sign-in page", () => {
+    const html = getOnboardingHtml({
+      authHeadHtml:
+        '<style id="custom-auth">.card { border-radius: 0 }</style>',
+    });
+
+    expect(html).toContain(
+      '<style id="custom-auth">.card { border-radius: 0 }</style>',
+    );
+    expect(html.indexOf('id="custom-auth"')).toBeLessThan(
+      html.indexOf("</head>"),
+    );
+    expect(html).toContain('<main data-auth-view="signup" />');
+  });
+
   it("does not include local upgrade copy in SSR HTML by default", () => {
     const html = getOnboardingHtml();
 
@@ -94,6 +109,27 @@ describe("getOnboardingHtml", () => {
     expect(fallbackStyles).toContain(".auth-fallback {");
     expect(fallbackStyles).toContain("justify-content: center;");
     expect(readAuthPageData(fallback).initialView).toBe("signup");
+  });
+
+  it("spins the Google button loader without Tailwind on the page", () => {
+    const styles = (html: string) =>
+      html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? "";
+    const pages = [
+      getOnboardingHtml(),
+      getOnboardingHtml({ googleOnly: true }),
+      getOnboardingHtml({ requestHost: "mail.agent-native.com" }),
+    ];
+
+    for (const page of pages) {
+      const css = styles(page);
+      expect(css).toContain(".animate-spin { animation: spin 0.75s linear");
+      expect(css).toContain(
+        "@keyframes spin { to { transform: rotate(360deg); } }",
+      );
+      expect(css).toMatch(
+        /@media \(prefers-reduced-motion: reduce\) \{\s*\.animate-spin \{ animation: none; \}/,
+      );
+    }
   });
 
   it("uses the injected reset renderer and a plain HTML fallback", () => {

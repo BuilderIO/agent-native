@@ -2,6 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -359,8 +360,8 @@ describe("OrgSwitcher (account menu)", () => {
     expect(button.parentElement?.className).not.toContain("flex-1");
     expect(button.textContent).toBe("BL");
     expect(button.getAttribute("title")).toBeNull();
-    // The tooltip and the menu both target this one button. Anything
-    // rendered between the menu trigger and the button eats the click.
+    // The menu trigger stays on the button while the tooltip anchors to its
+    // wrapper, so each popper owns a separate ref target.
     expect(button.getAttribute("aria-haspopup")).toBe("menu");
 
     act(() => {
@@ -959,6 +960,49 @@ describe("OrgSwitcher (account menu)", () => {
     );
   });
 
+  it("hides Create organization when organization creation is closed", () => {
+    mocks.useOrg.mockReturnValue({
+      data: {
+        ...ownerOrg,
+        access: { signup: "invited", orgCreation: "closed" },
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+    const menu = openMenu();
+
+    expect(menuItemLabels()).toEqual([
+      "Acme",
+      "Globex",
+      expect.stringMatching(/^Settings(⌘,|Ctrl\+,)$/),
+      "Usage",
+      "Log out",
+    ]);
+    for (const group of menu.querySelectorAll('[role="group"]')) {
+      expect(group.childElementCount).toBeGreaterThan(0);
+    }
+    expect(menu.querySelectorAll('[role="separator"]').length).toBe(2);
+  });
+
+  it("keeps the workspace link when organization creation is closed", () => {
+    const workspaceUrl = "https://agent-workspace.builder.io";
+    mocks.useOrg.mockReturnValue({
+      data: {
+        ...ownerOrg,
+        workspaceUrl,
+        access: { signup: "invited", orgCreation: "closed" },
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+    const menu = openMenu();
+
+    expect(menu.querySelector(`a[href="${workspaceUrl}"]`)).not.toBeNull();
+    expect(menuItemLabels()).not.toContain("Create organization");
+  });
+
   it("hides Get apps and extensions unless the app passes utility links", () => {
     mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
 
@@ -1087,6 +1131,34 @@ describe("OrgSwitcher (account menu)", () => {
     );
     expect(menuItemLabels()).toContain("Turn off demo mode");
     expect(document.body.textContent).not.toContain("anonymous@builder.io");
+  });
+
+  it("allows another log out attempt when local cleanup fails", async () => {
+    const { registerSignOutCleanup } =
+      await import("@agent-native/core/client/sign-out");
+    const cleanup = vi.fn().mockRejectedValue(new Error("storage unavailable"));
+    const notify = vi.spyOn(toast, "error").mockImplementation(() => "error");
+    const unregister = registerSignOutCleanup(cleanup);
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    try {
+      render(<OrgSwitcher />);
+      openMenu();
+      await act(async () => {
+        findItem("Log out").click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(findItem("Log out").getAttribute("data-disabled")).toBeNull();
+      await act(async () => {
+        findItem("Log out").click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(cleanup).toHaveBeenCalledTimes(2);
+      expect(notify).toHaveBeenCalledTimes(2);
+      // oracle-change: the missing key now resolves to the localized error; retry and cleanup assertions stay fixed.
+      expect(notify).toHaveBeenCalledWith("Log out failed");
+    } finally {
+      unregister();
+    }
   });
 
   it("reloads after a failed log out without returning to sign-in", async () => {

@@ -6,16 +6,18 @@ import { useOnboardingPreviewMode } from "@agent-native/core/client/onboarding/u
 import { useSessionPreloading } from "@agent-native/core/client/use-session";
 import { FIRST_RUN_ONBOARDING_COOKIE } from "@agent-native/core/shared/first-run-onboarding";
 import { Button } from "@agent-native/toolkit/ui/button";
-import React, {
-  Suspense,
-  createContext,
-  lazy,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
+import React, { Suspense, lazy, useEffect, useState } from "react";
 
-import { AppShellSkeleton } from "../shared/AppShellSkeleton.js";
+import {
+  FirstRunOnboardingGateContext,
+  StartupInteractionContext,
+  useStartupInteractionBlocked,
+} from "./first-run-startup-gate-context.js";
+
+export {
+  useFirstRunOnboardingGateOwnsSurface,
+  useStartupInteractionBlocked,
+} from "./first-run-startup-gate-context.js";
 
 const FirstRunOnboarding = lazy(() =>
   import("./FirstRunOnboarding.js").then((module) => ({
@@ -34,16 +36,6 @@ const FIRST_RUN_STATUS_RETRY_DELAY_MS = 500;
 // load twice. One context per copy left the sidebar reading `false` and
 // mounting a second questionnaire behind the gate, revealed at step 1 once
 // the gate stepped aside. Every copy shares one context through globalThis.
-const FIRST_RUN_ONBOARDING_GATE_CONTEXT_KEY = Symbol.for(
-  "agent-native.toolkit.firstRunOnboardingGateContext",
-);
-const firstRunOnboardingGateGlobal = globalThis as typeof globalThis & {
-  [FIRST_RUN_ONBOARDING_GATE_CONTEXT_KEY]?: React.Context<boolean>;
-};
-const FirstRunOnboardingGateContext = (firstRunOnboardingGateGlobal[
-  FIRST_RUN_ONBOARDING_GATE_CONTEXT_KEY
-] ??= createContext(false));
-
 function readFirstRunOnboardingCookieState(): FirstRunCookieState {
   if (typeof document === "undefined") return "present";
   const prefix = `${FIRST_RUN_ONBOARDING_COOKIE}=`;
@@ -61,20 +53,18 @@ function readFirstRunOnboardingCookieState(): FirstRunCookieState {
   }
 }
 
-export function useFirstRunOnboardingGateOwnsSurface(): boolean {
-  return useContext(FirstRunOnboardingGateContext);
-}
-
 export function FirstRunOnboardingStartupGate({
   children,
-  fallback = <AppShellSkeleton />,
   suppressSurface = false,
+  deferSurface = false,
 }: {
   children: React.ReactNode;
-  fallback?: React.ReactNode;
   suppressSurface?: boolean;
+  /** Another startup operation owns onboarding until it settles. */
+  deferSurface?: boolean;
 }) {
   const t = useT();
+  const inheritedInteractionBlock = useStartupInteractionBlocked();
   const previewMode = useOnboardingPreviewMode();
   const preloading = useSessionPreloading();
   const [firstRunCookieState] = useState(readFirstRunOnboardingCookieState);
@@ -148,73 +138,53 @@ export function FirstRunOnboardingStartupGate({
     };
   }, [retryNumber, shouldResolve, preloading]);
 
-  const ownsSurface = !suppressSurface && decision === "eligible";
-  const gateOwnsSurface = !suppressSurface && decision !== "ineligible";
-  const hideApp = gateOwnsSurface;
-  const app = shouldResolve ? (
-    <div
-      aria-hidden={hideApp ? "true" : undefined}
-      data-first-run-app-hidden={hideApp ? "true" : undefined}
-      style={{
-        display: "contents",
-        ...(hideApp ? { visibility: "hidden" } : {}),
-      }}
-    >
-      {children}
-    </div>
-  ) : (
-    children
-  );
+  const ownsSurface =
+    !suppressSurface && !deferSurface && decision === "eligible";
+  const gateOwnsSurface =
+    deferSurface || (!suppressSurface && decision !== "ineligible");
+
+  // Deferral only reserves onboarding ownership. The operation deferring it
+  // owns any cover; unknown eligibility must not disable unrelated app content.
+  const appIsInert = gateOwnsSurface && !deferSurface;
 
   return (
     <FirstRunOnboardingGateContext.Provider value={gateOwnsSurface}>
-      {app}
-      {!suppressSurface && decision === "pending" && (
-        <FirstRunOnboardingStartupLoading fallback={fallback} />
-      )}
-      {!suppressSurface && decision === "unavailable" && (
+      <StartupInteractionContext.Provider
+        value={inheritedInteractionBlock || appIsInert}
+      >
         <div
-          role="alert"
-          data-first-run-status-error="true"
-          className="fixed inset-0 z-[110] flex flex-col items-center justify-center gap-2 bg-background px-6 text-center"
+          aria-hidden={appIsInert ? "true" : undefined}
+          data-first-run-app-inert={appIsInert ? "true" : undefined}
+          inert={appIsInert}
+          style={{ display: "contents" }}
         >
-          <span className="text-sm text-muted-foreground">
-            {t("agentChat.common.chunkLoadFailed")}
-          </span>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setRetryNumber((current) => current + 1)}
-          >
-            {t("agentChat.common.retry")}
-          </Button>
+          {children}
         </div>
-      )}
-      {ownsSurface && (
-        <Suspense
-          fallback={<FirstRunOnboardingStartupLoading fallback={fallback} />}
-        >
-          <FirstRunOnboarding initialFirstRun />
-        </Suspense>
-      )}
+        {!suppressSurface && !deferSurface && decision === "unavailable" && (
+          <div
+            role="alert"
+            data-first-run-status-error="true"
+            className="fixed inset-x-4 bottom-4 z-[110] mx-auto flex max-w-md items-center justify-between gap-3 rounded-lg border border-border bg-background px-4 py-3 text-start shadow-lg"
+          >
+            <span className="text-sm text-muted-foreground">
+              {t("agentChat.common.chunkLoadFailed")}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setRetryNumber((current) => current + 1)}
+            >
+              {t("agentChat.common.retry")}
+            </Button>
+          </div>
+        )}
+        {ownsSurface && (
+          <Suspense fallback={null}>
+            <FirstRunOnboarding initialFirstRun />
+          </Suspense>
+        )}
+      </StartupInteractionContext.Provider>
     </FirstRunOnboardingGateContext.Provider>
-  );
-}
-
-function FirstRunOnboardingStartupLoading({
-  fallback,
-}: {
-  fallback: React.ReactNode;
-}) {
-  return (
-    <div
-      role="status"
-      aria-label="Loading application"
-      data-first-run-startup-loading="true"
-      className="fixed inset-0 z-[110] bg-background"
-    >
-      <div inert>{fallback}</div>
-    </div>
   );
 }

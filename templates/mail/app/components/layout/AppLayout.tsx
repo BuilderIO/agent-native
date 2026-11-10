@@ -9,6 +9,7 @@ import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   AgentSidebar,
   AgentToggleButton,
+  focusAgentChat,
 } from "@agent-native/toolkit/app/chat";
 import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
@@ -63,6 +64,7 @@ import { Link, useNavigate, useLocation, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import type { ComposePaletteCommands } from "@/components/email/ComposeModal";
+import { DraftConflictPrompt } from "@/components/email/DraftConflictPrompt";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { AiInboxSetup } from "@/components/onboarding/AiInboxSetup";
@@ -138,6 +140,7 @@ import {
   resolvePinnedLabels,
   resolveDefaultMailHref,
   labelTabHref,
+  isLabelCountLowerBound,
   resolveInboxEmailQueryScope,
   filterInboxTabEmails,
 } from "@/lib/inbox-tabs";
@@ -169,7 +172,7 @@ const ComposeModal = lazy(async () => {
   return { default: ComposeModal };
 });
 
-const BARE_ROUTES = new Set(["/email"]);
+const BARE_ROUTES = new Set(["/email", "/draft"]);
 const EMPTY_SAVED_FILTERS: SavedMailFilter[] = [];
 
 type SnoozeTarget = {
@@ -582,9 +585,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       );
     }
   }, [activeAccounts]);
-  const { data: labelsData } = useLabels(
-    activeAccounts.size > 0 ? [...activeAccounts] : undefined,
-  );
+  const {
+    data: labelsData,
+    accountErrors: labelAccountErrors,
+    isError: labelsFailed,
+  } = useLabels(activeAccounts.size > 0 ? [...activeAccounts] : undefined);
   // The Filtered shortcut describes the whole connected mailbox, regardless
   // of which accounts are selected for the current label list.
   const {
@@ -819,6 +824,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     return inboxTabs.map((tab) => {
       const label = labels.find((l) => l.id === tab.id);
       const aiTagName = aiTagDisplayNames.get(tab.id);
+      const mailboxWideLabelTab =
+        tab.kind === "label" && !isInboxScopedLabel(tab.id, labels);
       return {
         id: tab.id,
         pinnedId: tab.kind === "label" ? tab.id : undefined,
@@ -826,21 +833,43 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         label:
           tab.kind === "all" ? t("mail.views.all") : (aiTagName ?? tab.name),
         fullLabel: aiTagName ?? label?.name,
-        href: inboxTabHref(tab.id),
-        isActive: view === "inbox" && activeInboxTabId === tab.id,
+        href: mailboxWideLabelTab
+          ? labelTabHref(tab.id, labels)
+          : inboxTabHref(tab.id),
+        isActive:
+          (view === "inbox" && activeInboxTabId === tab.id) ||
+          (mailboxWideLabelTab && activeLabel === tab.id && view === "all"),
         color: label?.color,
         tooltip: tab.query,
-        total: tab.total,
-        totalIsLowerBound: tab.totalIsLowerBound,
-        unread: tab.unread,
+        total: mailboxWideLabelTab ? label?.totalCount : tab.total,
+        totalIsLowerBound: mailboxWideLabelTab
+          ? isLabelCountLowerBound(labelsFailed, labelAccountErrors)
+          : tab.totalIsLowerBound,
+        unread: mailboxWideLabelTab ? label?.unreadCount : tab.unread,
         isSystemView: false,
       };
     });
-  }, [aiTagDisplayNames, inboxTabs, activeInboxTabId, labels, t, view]);
+  }, [
+    activeLabel,
+    activeInboxTabId,
+    aiTagDisplayNames,
+    inboxTabs,
+    labels,
+    labelsFailed,
+    labelAccountErrors,
+    t,
+    view,
+  ]);
 
   const topBarTabs = useMemo<RenderedTab[]>(
-    () => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])],
-    [systemViewTabs, dataTabs, view],
+    () => [
+      ...systemViewTabs,
+      ...(view === "inbox" ||
+      dataTabs.some((tab) => tab.isActive && tab.pinnedId === activeLabel)
+        ? dataTabs
+        : []),
+    ],
+    [activeLabel, systemViewTabs, dataTabs, view],
   );
 
   const hiddenViews = useMemo(
@@ -1015,12 +1044,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       return;
     }
     dismissEmail(targetEmail.id);
-    reportSpam.mutate({
-      id: targetEmail.id,
-      threadId: targetEmail.threadId || targetEmail.id,
-      accountEmail: targetEmail.accountEmail,
-    });
-    toast(t("mail.toasts.reportedSpam"));
+    reportSpam.mutate(
+      {
+        id: targetEmail.id,
+        threadId: targetEmail.threadId || targetEmail.id,
+        accountEmail: targetEmail.accountEmail,
+      },
+      { onSuccess: () => toast(t("mail.toasts.reportedSpam")) },
+    );
   }, [targetEmail, reportSpam, dismissEmail, t]);
 
   const handleBlockSender = useCallback(() => {
@@ -1029,14 +1060,21 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       return;
     }
     dismissEmail(targetEmail.id);
-    blockSender.mutate({
-      id: targetEmail.id,
-      threadId: targetEmail.threadId || targetEmail.id,
-      senderEmail: targetEmail.from.email,
-      accountEmail: targetEmail.accountEmail,
-    });
-    toast(
-      t("mail.toasts.reportedSpamBlocked", { email: targetEmail.from.email }),
+    blockSender.mutate(
+      {
+        id: targetEmail.id,
+        threadId: targetEmail.threadId || targetEmail.id,
+        senderEmail: targetEmail.from.email,
+        accountEmail: targetEmail.accountEmail,
+      },
+      {
+        onSuccess: () =>
+          toast(
+            t("mail.toasts.reportedSpamBlocked", {
+              email: targetEmail.from.email,
+            }),
+          ),
+      },
     );
   }, [targetEmail, blockSender, dismissEmail, t]);
 
@@ -1049,11 +1087,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       return;
     }
     if (targetEmail) dismissEmail(targetEmail.id);
-    muteThread.mutate({
-      threadId: tid,
-      accountEmail: targetEmail?.accountEmail,
-    });
-    toast(t("mail.toasts.threadMuted"));
+    muteThread.mutate(
+      {
+        threadId: tid,
+        accountEmail: targetEmail?.accountEmail,
+      },
+      { onSuccess: () => toast(t("mail.toasts.threadMuted")) },
+    );
   }, [threadId, targetEmail, muteThread, dismissEmail, t]);
 
   const togglePinned = useCallback(
@@ -1352,6 +1392,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       shift: "either",
       handler: () => {
         document.getElementById("mail-search")?.focus();
+      },
+    },
+    { key: "?", shift: "either", handler: focusAgentChat },
+    {
+      key: "U",
+      shift: true,
+      handler: () => {
+        void navigate("/unread");
       },
     },
     { key: "c", handler: handleCompose },
@@ -2176,6 +2224,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           )}
         </div>
       </div>
+      <DraftConflictPrompt
+        drafts={compose.drafts}
+        onRestore={(draft) => compose.update(draft.id, draft)}
+      />
       {(() => {
         const popoutDrafts = compose.drafts.filter((d) => !d.inline);
         if (popoutDrafts.length === 0) return null;

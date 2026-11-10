@@ -2,6 +2,7 @@ import type { H3Event } from "h3";
 import {
   defineEventHandler,
   getCookie,
+  getHeader,
   getMethod,
   setCookie,
   setResponseHeader,
@@ -12,10 +13,15 @@ import {
   getConfiguredAppBasePath,
   normalizeAppBasePath,
 } from "./app-base-path.js";
-import { getSession } from "./auth.js";
+import {
+  getBrowserCookieSession,
+  getBrowserSessionConfigurationError,
+} from "./auth.js";
+import { hasEmbedSessionRequestMarker } from "./embed-session.js";
 import { getH3App } from "./framework-request-handler.js";
 import { publicFrameworkPath } from "./framework-route-prefix.js";
 import { isHttpsRequest } from "./https-request.js";
+import { hasSameOriginBrowserEvidence } from "./request-origin.js";
 import {
   signShortLivedToken,
   verifyShortLivedToken,
@@ -60,11 +66,25 @@ export function hasUiActionCapability(
 }
 
 async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
-  const session = await getSession(event);
+  if (hasEmbedSessionRequestMarker(event)) {
+    setResponseStatus(event, 403);
+    return { error: "Browser cookie session required" };
+  }
+
+  const session = getHeader(event, "authorization")
+    ? null
+    : await getBrowserCookieSession(event);
   const ownerEmail = normalizedEmail(session?.email);
   if (!ownerEmail) {
     setResponseStatus(event, 401);
-    return { error: "Authentication required" };
+    return {
+      error: getBrowserSessionConfigurationError() ?? "Authentication required",
+    };
+  }
+
+  if (!hasSameOriginBrowserEvidence(event)) {
+    setResponseStatus(event, 403);
+    return { error: "Same-origin request required" };
   }
 
   const token = signShortLivedToken({

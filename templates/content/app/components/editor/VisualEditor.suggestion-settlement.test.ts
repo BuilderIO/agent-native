@@ -2,6 +2,7 @@
 
 import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { Editor } from "@tiptap/core";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { describe, expect, it } from "vitest";
 
 import { suggestionPresentations } from "./DocumentEditor";
@@ -65,8 +66,11 @@ describe("accepted suggestion canonical handoff", () => {
         project(editor, settling);
         const spec = suggestionHighlightSpec(editor.state.doc, settling)!;
         expect(spec).not.toBeNull();
+        // The server's accepted text arrives over live sync.
         editor.view.dispatch(
-          editor.state.tr.insertText(settling.afterText, spec.from, spec.to),
+          editor.state.tr
+            .insertText(settling.afterText, spec.from, spec.to)
+            .setMeta(ySyncPluginKey, { isChangeOrigin: true }),
         );
 
         const canonical = docToNfm(editor.getJSON() as any);

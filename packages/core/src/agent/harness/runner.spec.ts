@@ -7,6 +7,14 @@ import type { AgentHarnessAdapter, AgentHarnessEvent } from "./types.js";
 const mocks = vi.hoisted(() => ({
   liveSessions: new Map<string, { session: object; generation: number }>(),
   startRun: vi.fn(),
+  resolveRunSoftTimeoutMs: vi.fn(
+    (overrideMs?: number, options?: { useHostedDefault?: boolean }) =>
+      overrideMs ?? (options?.useHostedDefault ? 40_000 : 0),
+  ),
+  resolveRunNoProgressTimeoutMs: vi.fn(
+    (options: { overrideMs?: number; backgroundOverrideMs?: number }) =>
+      options.backgroundOverrideMs ?? options.overrideMs ?? 0,
+  ),
   registerLiveAgentHarnessSession: vi.fn(),
   getLiveAgentHarnessSessionGeneration: vi.fn(),
   refreshLiveAgentHarnessSessionGeneration: vi.fn(),
@@ -22,6 +30,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../run-manager.js", () => ({
   startRun: mocks.startRun,
+  resolveRunSoftTimeoutMs: mocks.resolveRunSoftTimeoutMs,
+  resolveRunNoProgressTimeoutMs: mocks.resolveRunNoProgressTimeoutMs,
 }));
 
 vi.mock("./lifecycle.js", () => ({
@@ -344,12 +354,14 @@ describe("startAgentHarnessRun", () => {
       status?: string;
       generation: number;
       pendingApproval?: unknown;
+      resumeState?: unknown;
     } = { generation: 0 };
     mocks.saveAgentHarnessSession.mockImplementation(async (input) => {
       persistedSession = {
         status: input.status,
         generation: 0,
         pendingApproval: input.pendingApproval ?? null,
+        resumeState: input.resumeState,
       };
       return persistedSession;
     });
@@ -375,7 +387,10 @@ describe("startAgentHarnessRun", () => {
     const streamSuspended = new Promise<void>((resolve) => {
       signalStreamSuspended = resolve;
     });
-    const session = fakeSession("native-paused-approval", []);
+    const session = {
+      ...fakeSession("native-paused-approval", []),
+      checkpoint: vi.fn(async () => ({ token: "checkpoint-before-approval" })),
+    };
     session.streamTurn = async function* () {
       yield approval;
       await new Promise<void>((resolve) => {
@@ -409,7 +424,19 @@ describe("startAgentHarnessRun", () => {
       threadId: "thread-paused-approval",
       adapter,
       input: { prompt: "work" },
-      createSession: { sessionId: "stored-paused-approval" },
+      createSession: {
+        sessionId: "stored-paused-approval",
+        resumeState: { token: "before-approval" },
+      },
+      onHarnessEvent: (event) => {
+        if (event.type === "approval-request") {
+          expect(session.checkpoint).toHaveBeenCalledOnce();
+          expect(persistedSession).toMatchObject({
+            pendingApproval: approval,
+            resumeState: { token: "checkpoint-before-approval" },
+          });
+        }
+      },
     });
 
     const execution = capturedRunFn?.(() => {}, new AbortController().signal);
@@ -419,6 +446,7 @@ describe("startAgentHarnessRun", () => {
       expect(persistedSession).toMatchObject({
         status: "running",
         pendingApproval: { id: approval.id },
+        resumeState: { token: "checkpoint-before-approval" },
       });
 
       persistedSession = { ...persistedSession, pendingApproval: null };
@@ -551,6 +579,60 @@ describe("startAgentHarnessRun", () => {
     });
   });
 
+  it("persists a non-destructive checkpoint while waiting for approval", async () => {
+    const approval: AgentHarnessEvent = {
+      type: "approval-request",
+      id: "approval-checkpoint-native",
+      message: "Allow the tool?",
+    };
+    const session = {
+      ...fakeSession("native-checkpoint", [approval]),
+      checkpoint: vi.fn(async () => ({ token: "checkpoint-with-approval" })),
+    };
+    const adapter = fakeAdapter(session);
+    let capturedRunFn:
+      | ((
+          send: (event: AgentChatEvent) => void,
+          signal: AbortSignal,
+        ) => Promise<void>)
+      | undefined;
+    mocks.startRun.mockImplementation((runId, threadId, runFn) => {
+      capturedRunFn = runFn;
+      return {
+        runId,
+        threadId,
+        turnId: runId,
+        events: [],
+        status: "running",
+        subscribers: new Set(),
+        abort: new AbortController(),
+        startedAt: Date.now(),
+      };
+    });
+
+    startAgentHarnessRun({
+      runId: "run-native-checkpoint",
+      threadId: "thread-native-checkpoint",
+      adapter,
+      input: { prompt: "work" },
+      createSession: {
+        sessionId: "stored-native-checkpoint",
+        resumeState: { token: "previous" },
+      },
+    });
+    await capturedRunFn?.(() => {}, new AbortController().signal);
+
+    expect(session.checkpoint).toHaveBeenCalled();
+    await expect(
+      mocks.getAgentHarnessSession("stored-native-checkpoint"),
+    ).resolves.toMatchObject({
+      status: "idle",
+      pendingApproval: approval,
+      resumeState: { token: "checkpoint-with-approval" },
+    });
+    expect(session.detach).not.toHaveBeenCalled();
+  });
+
   it("waits for a reserved approval before checkpointing idle", async () => {
     const approval: AgentHarnessEvent = {
       type: "approval-request",
@@ -656,7 +738,10 @@ describe("startAgentHarnessRun", () => {
       "stored-checkpoint-approval",
       "running",
       0,
-      { pendingApproval: approval },
+      {
+        pendingApproval: approval,
+        resumeState: { token: "before-approval" },
+      },
       undefined,
       true,
     );
@@ -1081,7 +1166,15 @@ describe("startAgentHarnessRun", () => {
       ]!,
     );
     expect(mocks.startRun.mock.calls[0]?.[4]).toEqual(
-      expect.objectContaining({ recoverChunkBoundaries: true }),
+      expect.objectContaining({
+        recoverChunkBoundaries: true,
+        useHostedSoftTimeoutDefault: true,
+      }),
+    );
+    expect(mocks.saveAgentHarnessSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runPolicy: expect.objectContaining({ softTimeoutMs: 40_000 }),
+      }),
     );
   });
 

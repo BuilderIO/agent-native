@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
@@ -28,6 +29,7 @@ import {
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 
 interface EventRulesStatus {
+  decisionProviderConfigured: boolean;
   jevConfigured: boolean;
   enabled: boolean;
   intervalMinutes: number | null;
@@ -41,7 +43,7 @@ interface EventRulesStatus {
 
 const EMPTY_EVENT_RULES = { accept: "", decline: "", hide: "" };
 
-/** Jev invitation rules: the accept, decline, and hide prompts, and a Recent activity tab. */
+/** Calendar invitation rules: accept, decline, and hide prompts with recent activity. */
 export function CalendarEventRules() {
   const t = useT();
   const { data: settings } = useSettings();
@@ -110,7 +112,8 @@ export function CalendarEventRules() {
       { eventRules },
       {
         onSuccess: () => toast.success(t("settings.saved")),
-        onError: () => toast.error(t("settings.saveFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, { label: t("settings.saveFailed") }),
       },
     );
   }
@@ -123,7 +126,8 @@ export function CalendarEventRules() {
           setEventRules(EMPTY_EVENT_RULES);
           toast.success(t("settings.saved"));
         },
-        onError: () => toast.error(t("settings.saveFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, { label: t("settings.saveFailed") }),
       },
     );
   }
@@ -134,8 +138,9 @@ export function CalendarEventRules() {
   );
   const statusData = eventRulesStatus.data;
   const statusReady = !eventRulesStatus.isLoading && !eventRulesStatus.isError;
-  const jevConfigured = statusData?.jevConfigured === true;
-  const canEditEventRules = statusReady && jevConfigured;
+  const decisionProviderConfigured =
+    statusData?.decisionProviderConfigured === true;
+  const canEditEventRules = statusReady && decisionProviderConfigured;
   const unavailableRulesMessage =
     statusData?.enabled === false && hasEventRules
       ? t(
@@ -207,7 +212,7 @@ export function CalendarEventRules() {
               {eventRulesStatusError}
             </p>
           ) : null}
-          {statusReady && !jevConfigured ? (
+          {statusReady && !decisionProviderConfigured ? (
             <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-foreground">
@@ -279,7 +284,9 @@ export function CalendarEventRules() {
             >
               {t("settings.eventRulesSave")}
             </Button>
-            {statusReady && !jevConfigured && hasSavedEventRules ? (
+            {statusReady &&
+            !decisionProviderConfigured &&
+            hasSavedEventRules ? (
               <Button
                 variant="outline"
                 size="sm"

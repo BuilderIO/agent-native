@@ -71,6 +71,14 @@
     {
       "name": "agent-harness-transcript-order-runtime-schema",
       "checksum": null
+    },
+    {
+      "name": "agent-harness-sessions-run-policy",
+      "checksum": "005df5375106ffa4"
+    },
+    {
+      "name": "agent-harness-sessions-approval-and-expiry-columns",
+      "checksum": null
     }
   ],
   "agent_runs": [
@@ -137,6 +145,18 @@
     {
       "name": "agent-run-admission-order",
       "checksum": "b4cd3c0f84735807"
+    },
+    {
+      "name": "execution-leases-and-steps",
+      "checksum": null
+    },
+    {
+      "name": "retained-private-thread-runs",
+      "checksum": "985f2cb44c16174a"
+    },
+    {
+      "name": "thread-projection-retry-order-backfill-repair",
+      "checksum": null
     }
   ],
   "agent_team_run_queue": [
@@ -208,6 +228,10 @@
     },
     {
       "name": "indexes",
+      "checksum": null
+    },
+    {
+      "name": "write-order",
       "checksum": null
     }
   ],
@@ -417,6 +441,10 @@
     {
       "name": "viewer-state",
       "checksum": "12d60e0fc4587fc5"
+    },
+    {
+      "name": "chat-thread-inbox-runtime-schema",
+      "checksum": null
     }
   ],
   "checkpoints": [
@@ -521,6 +549,10 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "ticket-audience",
+      "checksum": null
     }
   ],
   "extension_slots": [
@@ -609,6 +641,10 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "review-page-columns",
+      "checksum": "5219a7b9642c4847"
     }
   ],
   "mcp_connect": [
@@ -859,6 +895,12 @@
       "checksum": null
     }
   ],
+  "private_media": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
   "progress": [
     {
       "name": "baseline",
@@ -953,11 +995,19 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "storage-contract",
+      "checksum": "ed0e701a19ad1c15"
     }
   ],
   "review_suggestions": [
     {
       "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "author-source-and-client",
       "checksum": null
     }
   ],
@@ -1077,6 +1127,10 @@
     {
       "name": "usage-alert-notification-column",
       "checksum": "6bf0a66d6dd9c131"
+    },
+    {
+      "name": "usage-alert-default-twenty-a-month",
+      "checksum": "f32710e732e54ea5"
     }
   ],
   "usage_budgets": [

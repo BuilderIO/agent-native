@@ -51,11 +51,13 @@ import {
 } from "@/lib/public-meeting";
 
 import { getDb, schema } from "../../server/db";
+import { loadMeetingRecordingContent } from "../../server/lib/meeting-recording-access.js";
 import { CLIPS_MEETING_AGENT_RESOURCE_KIND } from "../../shared/meeting-agent-access";
 import { privateShareLoaderData } from "../../shared/share-loader-response";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
+  storedSegmentsUnreadable,
 } from "../../shared/transcript-segments";
 import { resolveTranscriptPresentation } from "../../shared/transcript-status";
 
@@ -135,7 +137,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     );
   }
 
-  const [participants, actionItems, transcriptRows] = await Promise.all([
+  const [participants, actionItems] = await Promise.all([
     getDb()
       .select({
         email: schema.meetingParticipants.email,
@@ -153,32 +155,23 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       })
       .from(schema.meetingActionItems)
       .where(eq(schema.meetingActionItems.meetingId, meetingId)),
-    meeting.shareTranscript && meeting.recordingId
-      ? getDb()
-          .select({
-            status: schema.recordingTranscripts.status,
-            language: schema.recordingTranscripts.language,
-            fullText: schema.recordingTranscripts.fullText,
-            failureReason: schema.recordingTranscripts.failureReason,
-            segmentsJson: schema.recordingTranscripts.segmentsJson,
-            updatedAt: schema.recordingTranscripts.updatedAt,
-          })
-          .from(schema.recordingTranscripts)
-          .where(
-            eq(schema.recordingTranscripts.recordingId, meeting.recordingId),
-          )
-          .limit(1)
-      : Promise.resolve([]),
   ]);
 
-  const transcript = transcriptRows[0] ?? null;
+  const linked = meeting.shareTranscript
+    ? await loadMeetingRecordingContent(meeting, undefined)
+    : null;
+  const transcript = linked?.transcript ?? null;
   const transcriptPresentation = resolveTranscriptPresentation(transcript);
-  const transcriptSegments = transcript
-    ? normalizeTranscriptSegments({
-        segments: parseTranscriptSegments(transcript.segmentsJson),
-        fullText: transcript.fullText,
-      })
-    : [];
+  // Lines built from the full text would read as the transcript with its
+  // speakers gone; the page shows that text as saved instead.
+  const segmentsUnreadable = storedSegmentsUnreadable(transcript?.segmentsJson);
+  const transcriptSegments =
+    transcript && !segmentsUnreadable
+      ? normalizeTranscriptSegments({
+          segments: parseTranscriptSegments(transcript.segmentsJson),
+          fullText: transcript.fullText,
+        })
+      : [];
 
   let bullets: PublicMeeting["bullets"] = [];
   try {
@@ -219,6 +212,9 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
               language: transcript.language,
               fullText: transcript.fullText,
               segments: transcriptSegments,
+              ...(segmentsUnreadable
+                ? { segmentsUnreadable: true as const }
+                : {}),
             }
           : null,
       },
@@ -621,7 +617,11 @@ export default function ShareMeetingRoute() {
               </div>
             ) : (
               <div className="flex min-h-40 flex-col overflow-hidden rounded-lg border border-border">
-                <TranscriptBubbles segments={[]} isLive={false} />
+                <TranscriptBubbles
+                  segments={[]}
+                  isLive={false}
+                  unreadable={transcript.segmentsUnreadable === true}
+                />
               </div>
             )}
           </section>

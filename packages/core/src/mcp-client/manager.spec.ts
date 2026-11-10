@@ -48,6 +48,14 @@ const orgContextMocks = vi.hoisted(() => ({
 
 vi.mock("../org/context.js", () => orgContextMocks);
 
+const workspaceConnectionBearer = vi.hoisted(() => vi.fn());
+vi.mock("./workspace-connection-servers.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("./workspace-connection-servers.js")
+  >()),
+  resolveWorkspaceConnectionMcpBearer: workspaceConnectionBearer,
+}));
+
 function decodeJwtPayload(token: string): Record<string, unknown> {
   const [, payload] = token.split(".");
   return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
@@ -215,8 +223,8 @@ describe("McpClientManager", () => {
     orgContextMocks.getOrgWorkspaceUrl.mockReset().mockResolvedValue(null);
     delete process.env.A2A_SECRET;
     delete process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS;
-    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
-      "https://directory.example.com";
+    // A public IP literal reaches the mocked fetch without a real DNS lookup.
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://93.184.216.34";
     globalThis.fetch = vi.fn(async (_input, init) => {
       if (String(_input).includes("/_agent-native/org/apps")) {
         return new Response(
@@ -256,6 +264,76 @@ describe("McpClientManager", () => {
       process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS =
         originalConnectTimeout;
     }
+  });
+
+  it("keeps substituted workspace MCP credentials on their approved origin", async () => {
+    const origin = "https://93.184.216.34";
+    const mgr = new McpClientManager({
+      servers: {
+        guarded: {
+          type: "http",
+          url: `${origin}/mcp`,
+          headers: { Authorization: "Bearer fake-token" },
+          secretRequestOrigin: origin,
+        },
+      },
+    });
+    await mgr.start();
+    const transport = fakeClients[0]!.getTransport() as FakeHttp;
+    const fetchImpl = transport.fetchImpl!;
+    await expect(
+      fetchImpl("https://93.184.216.35/collect", {
+        headers: transport.requestInit?.headers,
+      }),
+    ).rejects.toThrow("Workspace MCP destination changed origin");
+
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://93.184.216.35/collect" },
+      }),
+    );
+    const response = (await fetchImpl(`${origin}/mcp`, {
+      headers: transport.requestInit?.headers,
+    })) as Response;
+    expect(response.status).toBe(302);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    await mgr.stop();
+  });
+
+  it("replaces the HTTP transport when its credential origin guard changes", async () => {
+    const configFor = (secretRequestOrigin?: string) => ({
+      servers: {
+        guarded: {
+          type: "http" as const,
+          url: "https://mcp.example.test/mcp",
+          headers: { Authorization: "Bearer fake-token" },
+          ...(secretRequestOrigin ? { secretRequestOrigin } : {}),
+        },
+      },
+    });
+    const mgr = new McpClientManager(configFor());
+    await mgr.start();
+    const initial = fakeClients[0]!.getTransport() as FakeHttp;
+    expect(initial.fetchImpl).toBeUndefined();
+
+    for (const [index, origin] of [
+      "https://mcp.example.test",
+      "https://other.example.test",
+      undefined,
+    ].entries()) {
+      const previous = fakeClients[index]!.getTransport() as FakeHttp;
+      const result = await mgr.reconfigure(configFor(origin));
+
+      expect(result.reconnected).toEqual(["guarded"]);
+      expect(fakeClients).toHaveLength(index + 2);
+      const replacement = fakeClients[index + 1]!.getTransport() as FakeHttp;
+      expect(previous.closed).toBe(true);
+      expect(replacement).not.toBe(previous);
+      expect(Boolean(replacement.fetchImpl)).toBe(Boolean(origin));
+    }
+
+    await mgr.stop();
   });
 
   it("is disabled when config is null", async () => {
@@ -871,6 +949,82 @@ describe("McpClientManager", () => {
     },
     FIRST_A2A_SIGNING_TIMEOUT_MS,
   );
+
+  it("authenticates each workspace-connection request with a freshly resolved token", async () => {
+    workspaceConnectionBearer
+      .mockReset()
+      .mockResolvedValueOnce("hubspot-token-1")
+      .mockResolvedValueOnce("hubspot-token-2");
+    serverFixtures["http https://mcp.hubspot.com/"] = {
+      tools: [{ name: "get_user_details" }],
+      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const workspaceConnection = {
+      provider: "hubspot" as const,
+      connectionId: "hubspot-connection-1",
+      ownerEmail: "alice@example.com",
+      orgId: "org-123",
+      appId: "crm",
+    };
+    const mgr = new McpClientManager({
+      servers: {
+        hubspot: {
+          type: "http",
+          url: "https://mcp.hubspot.com",
+          headers: { Authorization: "Bearer stale-static-token" },
+          workspaceConnection,
+        },
+      },
+    });
+    await mgr.start();
+
+    await mgr.callTool("mcp__hubspot__get_user_details", {});
+    await mgr.callTool("mcp__hubspot__get_user_details", {});
+
+    expect(httpCallHeaders.map((headers) => headers.Authorization)).toEqual([
+      "Bearer hubspot-token-1",
+      "Bearer hubspot-token-2",
+    ]);
+    expect(workspaceConnectionBearer).toHaveBeenCalledWith(workspaceConnection);
+    const transport = fakeClients[0]!.getTransport() as FakeHttp;
+    expect(
+      headersFromUnknown(transport.requestInit?.headers).Authorization,
+    ).toBeUndefined();
+    expect(JSON.stringify(mgr.getConfig())).not.toContain("hubspot-token");
+    await mgr.stop();
+  });
+
+  it("reconnects a workspace-connection server when its connection changes", async () => {
+    workspaceConnectionBearer.mockReset().mockResolvedValue("hubspot-token");
+    serverFixtures["http https://mcp.hubspot.com/"] = {
+      tools: [{ name: "get_user_details" }],
+      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const serverFor = (connectionId: string) => ({
+      servers: {
+        hubspot: {
+          type: "http" as const,
+          url: "https://mcp.hubspot.com",
+          workspaceConnection: {
+            provider: "hubspot" as const,
+            connectionId,
+            ownerEmail: "alice@example.com",
+            orgId: null,
+            appId: "crm",
+          },
+        },
+      },
+    });
+    const mgr = new McpClientManager(serverFor("connection-a"));
+    await mgr.start();
+
+    const unchanged = await mgr.reconfigure(serverFor("connection-a"));
+    const changed = await mgr.reconfigure(serverFor("connection-b"));
+
+    expect(unchanged.reconnected).toEqual([]);
+    expect(changed.reconnected).toEqual(["hubspot"]);
+    await mgr.stop();
+  });
 
   it("does not mint a first-party identity token when the org domain is unavailable", async () => {
     process.env.A2A_SECRET = "test-a2a-secret";

@@ -38,6 +38,20 @@ describe("cost tracker", () => {
     expect(tracker.getTotalBytes()).toBe(1234);
   });
 
+  it("prices scanned bytes at $6.25 per binary TiB", async () => {
+    const tracker = await loadTracker();
+
+    tracker.recordQueryCost({
+      status: "success",
+      cached: false,
+      providerCacheHit: false,
+      bytesProcessed: 1024 ** 4,
+    });
+
+    expect(tracker.getTotalBytes()).toBe(1024 ** 4);
+    expect(tracker.getTotalCost()).toBe(6.25);
+  });
+
   it("counts a scan once and nothing for a result that did not scan", async () => {
     const tracker = await loadTracker(memoryStorage());
 
@@ -54,7 +68,6 @@ describe("cost tracker", () => {
       [{ providerCacheHit: true, bytesProcessed: 9_000 }, "provider-cache"],
       [{ restored: true, bytesProcessed: 9_000 }, "restored"],
       [{ bytesProcessed: 0 }, "no-bytes"],
-      [{}, "no-bytes"],
       [{ bytesProcessed: -1 }, "invalid-bytes"],
       [{ bytesProcessed: Number.NaN }, "invalid-bytes"],
       [{ bytesProcessed: Infinity }, "invalid-bytes"],
@@ -69,9 +82,15 @@ describe("cost tracker", () => {
     expect(tracker.getUnknownScans()).toBe(0);
   });
 
-  it.each([{}, { cached: false }, { providerCacheHit: false }])(
-    "keeps positive bytes with incomplete provenance unknown: %j",
-    async (metadata) => {
+  it.each([
+    { bytesProcessed: 4096 },
+    { bytesProcessed: 4096, cached: false },
+    { bytesProcessed: 4096, providerCacheHit: false },
+    { cached: false, providerCacheHit: false },
+    { cached: false, providerCacheHit: false, bytesProcessed: null },
+  ])(
+    "tallies scans with unknown usage or cache provenance: %j",
+    async (record) => {
       const storage = memoryStorage();
       const tracker = await loadTracker(storage);
       const listener = vi.fn();
@@ -80,8 +99,7 @@ describe("cost tracker", () => {
       expect(
         tracker.recordQueryCost({
           status: "success",
-          bytesProcessed: 4096,
-          ...metadata,
+          ...record,
         }),
       ).toEqual({ counted: 0, reason: "unknown-scan" });
 

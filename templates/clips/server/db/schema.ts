@@ -12,6 +12,12 @@ import {
 } from "@agent-native/core/db/schema";
 import { bigint, boolean, check } from "drizzle-orm/pg-core";
 
+export {
+  recordingMediaCleanups,
+  recordingMediaCleanupObjects,
+  recordingMediaProducers,
+} from "./media-cleanup-tables.js";
+
 export const organizationSettings = table("organization_settings", {
   organizationId: text("organization_id").primaryKey(),
   brandColor: text("brand_color").notNull().default("#18181B"),
@@ -182,6 +188,10 @@ export const recordings = table("recordings", {
   recordingPlatform: text("recording_platform", {
     enum: ["web", "desktop", "extension", "mobile", "import", "unknown"],
   }),
+  // Hex SHA-256 of the uploaded file's first megabyte (shared/source-fingerprint),
+  // so an automatic retry of a file the owner already uploaded gets that clip
+  // back instead of a second copy. Null for live recordings.
+  sourceHeadSha256: text("source_head_sha256"),
   loomImportClaimId: text("loom_import_claim_id"),
   loomImportClaimedAt: text("loom_import_claimed_at"),
 
@@ -262,6 +272,10 @@ export const recordingTranscripts = table("recording_transcripts", {
   // New on every import, even of the same file in the same millisecond, so a
   // regenerate replaces only the import it started from.
   importId: text("import_id"),
+  // Set once the owner removes audio recovered from before they started
+  // recording. A capture still running re-sends its whole transcript, so its
+  // later saves drop that audio again.
+  earlierAudioRemovedAt: text("earlier_audio_removed_at"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
@@ -353,6 +367,59 @@ export const recordingBugReports = table("recording_bug_reports", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
+// A Clip placed in an Agent-Native Content document. Only an `upload` binding
+// in `active` state lets the document's readers open the Clip; a `link` binding
+// grants nothing, so a pasted Clip keeps its own sharing. `state` carries no
+// CHECK constraint, so lifecycle states can be added without a migration.
+export const recordingContentBindings = table(
+  "recording_content_bindings",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    // The Content app's canonical URL, from the issuer of its A2A token.
+    contentApp: text("content_app").notNull(),
+    documentId: text("document_id").notNull(),
+    blockId: text("block_id"),
+    origin: text("origin", { enum: ["upload", "link"] }).notNull(),
+    state: text("state", { enum: ["active", "trashed"] })
+      .notNull()
+      .default("active"),
+    // Content's time for the latest state change, so a transition that
+    // arrives late cannot undo a newer one.
+    stateChangedAt: text("state_changed_at"),
+    createdBy: text("created_by").notNull(),
+    // The file an editor picked, from Content: a start repeated with it
+    // reaches the same upload. Null for a link.
+    uploadKey: text("upload_key"),
+    // What the first start said of that file. A repeat must say the same,
+    // and gets the plan made for it.
+    uploadMimeType: text("upload_mime_type"),
+    uploadSizeBytes: bigint("upload_size_bytes", { mode: "number" }),
+    // When a start of it failed without Clips saying it left nothing: if it
+    // left no recording, the next repeat starts it again under the same id.
+    uploadStartFailedAt: text("upload_start_failed_at"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (binding) => ({
+    recordingDocumentUnique: uniqueIndex(
+      "recording_content_bindings_recording_document_unique_idx",
+    ).on(binding.recordingId, binding.contentApp, binding.documentId),
+    uploadKeyUnique: uniqueIndex(
+      "recording_content_bindings_upload_key_unique_idx",
+    ).on(
+      binding.contentApp,
+      binding.documentId,
+      binding.createdBy,
+      binding.uploadKey,
+    ),
+    documentIndex: index("recording_content_bindings_document_idx").on(
+      binding.contentApp,
+      binding.documentId,
+    ),
+  }),
+);
+
 export const recordingCtas = table("recording_ctas", {
   id: text("id").primaryKey(),
   recordingId: text("recording_id").notNull(),
@@ -365,22 +432,33 @@ export const recordingCtas = table("recording_ctas", {
   createdAt: text("created_at").notNull().default(now()),
 });
 
-export const recordingComments = table("recording_comments", {
-  id: text("id").primaryKey(),
-  recordingId: text("recording_id").notNull(),
-  organizationId: text("workspace_id").notNull(),
-  threadId: text("thread_id").notNull(),
-  parentId: text("parent_id"),
-  authorEmail: text("author_email").notNull(),
-  authorName: text("author_name"),
-  content: text("content").notNull(),
-  mentionsJson: text("mentions_json"),
-  videoTimestampMs: integer("video_timestamp_ms").notNull().default(0),
-  emojiReactionsJson: text("emoji_reactions_json").notNull().default("{}"),
-  resolved: boolean("resolved").notNull().default(false),
-  createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
-});
+export const recordingComments = table(
+  "recording_comments",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    organizationId: text("workspace_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    parentId: text("parent_id"),
+    authorEmail: text("author_email").notNull(),
+    authorName: text("author_name"),
+    content: text("content").notNull(),
+    mentionsJson: text("mentions_json"),
+    videoTimestampMs: integer("video_timestamp_ms").notNull().default(0),
+    emojiReactionsJson: text("emoji_reactions_json").notNull().default("{}"),
+    resolved: boolean("resolved").notNull().default(false),
+    // The key its author sent with it: a repeat with the same key gets this
+    // comment rather than saving another. Null when none was sent.
+    idempotencyKey: text("idempotency_key"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (comment) => ({
+    idempotencyKeyUnique: uniqueIndex(
+      "recording_comments_idempotency_key_unique_idx",
+    ).on(comment.authorEmail, comment.idempotencyKey),
+  }),
+);
 
 export const recordingReactions = table("recording_reactions", {
   id: text("id").primaryKey(),
@@ -470,6 +548,29 @@ export const recordingAgentViews = table(
   }),
 );
 
+// Recommended agent frames, cut once and stored so serving one never downloads
+// the video. Bytes live in file storage; `media_key` pins the video and edits
+// the frame was cut from.
+export const recordingAgentFrames = table(
+  "recording_agent_frames",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    atMs: integer("at_ms").notNull(),
+    mediaKey: text("media_key").notNull(),
+    storageUrl: text("storage_url").notNull(),
+    storageProvider: text("storage_provider").notNull(),
+    storageId: text("storage_id"),
+    sizeBytes: integer("size_bytes").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (frame) => ({
+    recordingAgentFrameUnique: uniqueIndex(
+      "recording_agent_frames_recording_at_unique_idx",
+    ).on(frame.recordingId, frame.atMs),
+  }),
+);
+
 export const meetings = table("clips_meetings", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id"),
@@ -478,6 +579,7 @@ export const meetings = table("clips_meetings", {
   scheduledEnd: text("scheduled_end"),
   actualStart: text("actual_start"),
   actualEnd: text("actual_end"),
+  captureStopRevision: integer("capture_stop_revision").notNull().default(0),
   endReason: text("end_reason"),
   platform: text("platform", {
     enum: ["zoom", "meet", "teams", "webex", "phone", "adhoc", "other"],

@@ -1,4 +1,5 @@
 import { appMountedPath } from "@agent-native/core/client/api-path";
+import { injectedAgentNativeConfig } from "@agent-native/core/client/app-config";
 import {
   deleteClientAppState,
   writeClientAppState,
@@ -12,6 +13,7 @@ import { useFeatureFlags } from "@agent-native/core/client/feature-flags/use-fea
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabStates } from "@agent-native/core/client/labs/use-lab";
 import { useOrg } from "@agent-native/core/client/org";
+import { useSession } from "@agent-native/core/client/use-session";
 import { STANDARD_APP_ROUTES } from "@agent-native/core/navigation";
 import {
   SETTINGS_VIEW_STATE_KEY,
@@ -31,6 +33,7 @@ import {
 } from "@agent-native/toolkit/ui/sheet";
 import { cn } from "@agent-native/toolkit/utils";
 import {
+  IconArrowLeft,
   IconChevronRight,
   IconMenu2,
   IconSearch,
@@ -50,6 +53,8 @@ import {
 } from "react";
 import { useInRouterContext, useLocation, useNavigate } from "react-router";
 
+import { canShowThemeFamilySwitcher } from "../../shared/is-builder-io-employee.js";
+import { visiblePreferenceSearchEntries } from "../account/search-entries.js";
 import { getCoreSettingsSearchEntries } from "../agent-settings-search.js";
 import { SettingsSkeleton } from "../SettingsSkeleton.js";
 import {
@@ -395,6 +400,15 @@ function SettingsShellContent({
   ...bridgeInput
 }: ShellContentProps) {
   const t = useT();
+  const { session, status: sessionStatus } = useSession();
+  const [themeFamilyClientReady, setThemeFamilyClientReady] = useState(false);
+  useEffect(() => setThemeFamilyClientReady(true), []);
+  const canShowThemeFamily = canShowThemeFamilySwitcher({
+    clientReady: themeFamilyClientReady,
+    authenticated: sessionStatus === "authenticated",
+    email: session?.email,
+    familyCount: injectedAgentNativeConfig().themeFamily?.families.length ?? 1,
+  });
   const { location, go } = navigator;
 
   const { data: org } = useOrg();
@@ -785,14 +799,28 @@ function SettingsShellContent({
         label: pageLabel(page),
         groupLabel: groupLabel(page.group),
         entries: [
-          ...(page.searchEntries ?? []),
+          ...(page.id === "preferences"
+            ? visiblePreferenceSearchEntries(
+                page.searchEntries ?? [],
+                canShowThemeFamily,
+              )
+            : (page.searchEntries ?? [])),
           ...(coreEntries.get(page.id) ?? []),
           ...(bridgedEntries.get(page.id) ?? []),
         ],
       })),
       t,
     );
-  }, [bridge, groupLabel, pageIcon, pageLabel, pages, t, visiblePages]);
+  }, [
+    bridge,
+    canShowThemeFamily,
+    groupLabel,
+    pageIcon,
+    pageLabel,
+    pages,
+    t,
+    visiblePages,
+  ]);
 
   const shellContext = useMemo<SettingsShellContextValue>(
     () => ({ route: { page: routePage, sub: routeSub }, navigate, setHeader }),
@@ -1208,9 +1236,13 @@ function SettingsNav({
             event.preventDefault();
             onReturn();
           }}
-          // ps-8 lines the label up with the nav labels after their 16px icon.
-          className="flex h-[30px] items-center rounded-md pe-2 ps-8 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-foreground"
+          className="flex h-[30px] items-center gap-2 rounded-md px-2 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-foreground"
         >
+          <IconArrowLeft
+            aria-hidden="true"
+            size={16}
+            className="shrink-0 rtl:rotate-180"
+          />
           <span className="truncate">
             {t("agentChat.settingsShell.backToApp", { app: appName })}
           </span>

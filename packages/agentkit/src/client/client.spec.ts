@@ -1057,6 +1057,53 @@ describe("AgentKitClient", () => {
     },
   );
 
+  it.each(["transport", "explicit", "http"] as const)(
+    "selects the %s upload driver at the shared client boundary",
+    async (source) => {
+      const provided = vi.fn(async () => undefined);
+      const explicit = vi.fn(async () => undefined);
+      const http = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: 200 }));
+      const transport: AgentTransport = {
+        ...createTransport([]),
+        capabilities: { uploads: true },
+        createUpload: async () => ({
+          uploadId: "upload",
+          method: "PUT",
+          url: "https://storage.example.test/object",
+        }),
+        completeUpload: async () => ({
+          type: "file",
+          name: "context.txt",
+          mediaType: "text/plain",
+          url: "https://storage.example.test/object",
+        }),
+        ...(source !== "http" ? { upload: provided } : {}),
+      };
+      const client = new AgentKitClient({
+        transport,
+        ...(source === "explicit" ? { upload: explicit } : {}),
+      });
+      try {
+        await client.uploadFiles("thread", [
+          {
+            name: "context.txt",
+            mediaType: "text/plain",
+            size: 4,
+            body: new Blob(["data"]),
+          },
+        ]);
+        expect(provided).toHaveBeenCalledTimes(source === "transport" ? 1 : 0);
+        expect(explicit).toHaveBeenCalledTimes(source === "explicit" ? 1 : 0);
+        expect(http).toHaveBeenCalledTimes(source === "http" ? 1 : 0);
+      } finally {
+        await client.shutdown();
+        http.mockRestore();
+      }
+    },
+  );
+
   it("stores resized queued image payloads by URL instead of persisting base64", async () => {
     const queuedRequest = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
       async (input) => ({
@@ -2243,6 +2290,53 @@ describe("AgentKitClient", () => {
       expect(messages.at(-2)?.id).not.toBe("assistant-1");
     },
   );
+
+  it("orders tool history around the text a replaced draft kept", async () => {
+    const messages = await assistantPartsAfterToolHistory({
+      beforeToolEvents: [
+        {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: "Searching first. ",
+        },
+      ],
+      afterToolEvents: [
+        {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: "Rejected draft.",
+        },
+        {
+          type: "message.replaced",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "Searching first. " }],
+          },
+        },
+        {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: "The release is ready.",
+        },
+      ],
+      finalParts: [
+        { type: "text", text: "Searching first. " },
+        { type: "text", text: "The release is ready." },
+      ],
+    });
+
+    expect(
+      messages
+        .find((message) => message.id === "assistant-1")
+        ?.parts.map((part) => (part.type === "data" ? part.mediaType : part)),
+    ).toEqual([
+      { type: "text", text: "Searching first. " },
+      "application/x-agent-native-tool-call",
+      "application/x-agent-native-tool-result",
+      { type: "text", text: "The release is ready." },
+    ]);
+  });
 
   it("reports completed tool-call history without an assistant message link", async () => {
     const messages = await assistantPartsAfterToolHistory({
@@ -9272,6 +9366,48 @@ describe("AgentKitClient", () => {
           parts: [{ text: "Already accepted" }],
         },
       ]);
+    } finally {
+      await client.shutdown();
+    }
+  });
+
+  it("keeps an explicitly rejected 409 out of the submitted-run receipt path", async () => {
+    const subscribeToRun = vi.fn(async function* () {
+      yield {
+        ...protocolEvent(1, { type: "run.started" }),
+        threadId: "thread-1",
+        runId: "run-unrelated",
+      };
+    });
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        async startRun() {
+          throw Object.assign(
+            new Error("The approved tool call is no longer pending"),
+            {
+              code: "approved_tool_call_not_pending",
+              status: 409,
+              submittedRunId: "run-unrelated",
+            },
+          );
+        },
+        subscribeToRun,
+      },
+    });
+
+    try {
+      await expect(
+        client.sendMessage({
+          threadId: "thread-1",
+          text: "Continue",
+          queueWhileRunning: false,
+        }),
+      ).rejects.toMatchObject({
+        code: "approved_tool_call_not_pending",
+        status: 409,
+      });
+      expect(subscribeToRun).not.toHaveBeenCalled();
     } finally {
       await client.shutdown();
     }
