@@ -2541,6 +2541,8 @@ export default {
     changesDiscarded:
       "تعذّر حفظ بعض التغييرات لأن الملف لم يعد موجودًا، وتم تجاهلها.",
     offline: "غير متصل",
+    unsaved: "غير محفوظ",
+    saveRetrying: "تعذّر حفظ تغييراتك. جارٍ إعادة المحاولة تلقائيًا.",
     saving: "جارٍ الحفظ...",
     clearedAllAnnotations: "تم مسح جميع التعليقات التوضيحية",
     annotationsDiscardedOnViewChange:

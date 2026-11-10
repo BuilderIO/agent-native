@@ -948,6 +948,8 @@ const editorMediaMessages = {
   altText: "Alt text",
   altTextGenerationFailed: "Could not start alt text generation.",
   assets: "Assets",
+  assetsCopyFailed:
+    "Couldn't copy this image from Assets. Try again, or upload the file instead.",
   assetsImagePicker: "Assets image picker",
   assetsMissingImageUrl: "Assets did not return an image URL.",
   audio: "Audio",

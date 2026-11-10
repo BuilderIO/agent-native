@@ -6,7 +6,7 @@ Analytics owns sources, queries, charts, and dashboards; dashboards are canonica
 
 The skills summary lists every skill; find more with `rg --hidden --follow` in `.agents/skills/<name>/SKILL.md` and read one with `pnpm action docs-search --slug "skill-<name>"` before deeper work.
 
-Use local docs only (no web research): `pnpm action docs-search --query "<topic>"` and `pnpm action docs-search --slug "<slug>"`. Source examples: `pnpm action source-search --query "<pattern>"` or `pnpm action source-search --path <path>`.
+Use local docs only (no web research): `pnpm action docs-search --query "<topic>"` or `--slug "<slug>"`. Source examples: `pnpm action source-search --query "<pattern>"` or `--path <path>`.
 
 ## Data questions
 

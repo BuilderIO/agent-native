@@ -1,7 +1,12 @@
 import type { Document } from "@shared/api";
 import { describe, expect, it } from "vitest";
 
-import { documentSidebarActionAvailability } from "./document-sidebar-actions";
+import {
+  documentSidebarActionAvailability,
+  navigationAfterConfirmedDelete,
+  remainingPageAfterDelete,
+  stillOnPageOpenedForDelete,
+} from "./document-sidebar-actions";
 
 function access(
   accessRole: NonNullable<Document["accessRole"]>,
@@ -64,5 +69,103 @@ describe("document sidebar action availability", () => {
       canManage: true,
       hasMenuActions: false,
     });
+  });
+});
+
+describe("navigation after a confirmed delete", () => {
+  it("stays on the remaining page the sidebar already opened", () => {
+    expect(
+      navigationAfterConfirmedDelete("/home", { leftDeletedPage: true }),
+    ).toBeNull();
+  });
+
+  it("follows the server when the open page went with an unloaded parent", () => {
+    expect(
+      navigationAfterConfirmedDelete("/home", { leftDeletedPage: false }),
+    ).toBe("/home");
+  });
+
+  it("stays put when the open page survived", () => {
+    expect(
+      navigationAfterConfirmedDelete(null, { leftDeletedPage: false }),
+    ).toBeNull();
+    expect(
+      navigationAfterConfirmedDelete(undefined, { leftDeletedPage: false }),
+    ).toBeNull();
+  });
+});
+
+describe("the remaining page after a delete", () => {
+  const activePath = [
+    { id: "projects", parentId: null },
+    { id: "launch", parentId: "projects" },
+    { id: "notes", parentId: "launch" },
+  ];
+
+  it("opens the deleted page's parent", () => {
+    expect(
+      remainingPageAfterDelete("launch", {
+        activePath,
+        filesRootDocumentIds: ["projects", "inbox"],
+      }),
+    ).toBe("projects");
+  });
+
+  it("opens a top-level row when the deleted page has no parent", () => {
+    expect(
+      remainingPageAfterDelete("projects", {
+        activePath,
+        filesRootDocumentIds: ["projects", "inbox"],
+      }),
+    ).toBe("inbox");
+  });
+
+  it("skips a parent the person can't open or that is also going to Trash", () => {
+    expect(
+      remainingPageAfterDelete("launch", {
+        activePath: [
+          { id: "projects", parentId: null, canView: false },
+          ...activePath.slice(1),
+        ],
+        filesRootDocumentIds: ["inbox"],
+      }),
+    ).toBe("inbox");
+    expect(
+      remainingPageAfterDelete("launch", {
+        activePath,
+        filesRootDocumentIds: ["projects", "inbox", "archive"],
+        pendingTrashIds: new Set(["projects", "inbox"]),
+      }),
+    ).toBe("archive");
+  });
+
+  it("knows no remaining page without a parent or another top-level row", () => {
+    expect(
+      remainingPageAfterDelete("projects", {
+        activePath,
+        filesRootDocumentIds: ["projects"],
+      }),
+    ).toBeNull();
+    expect(
+      remainingPageAfterDelete("launch", {
+        activePath: [],
+        filesRootDocumentIds: [],
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("going back after a failed delete", () => {
+  it("goes back only from the page the delete opened", () => {
+    expect(stillOnPageOpenedForDelete("/page/projects", "projects")).toBe(true);
+    expect(
+      stillOnPageOpenedForDelete("/content/page/projects", "projects"),
+    ).toBe(true);
+    expect(stillOnPageOpenedForDelete("/page/inbox", "projects")).toBe(false);
+    expect(stillOnPageOpenedForDelete("/home", "projects")).toBe(false);
+  });
+
+  it("stays put when the delete never left the page", () => {
+    expect(stillOnPageOpenedForDelete("/page/launch", null)).toBe(false);
   });
 });
