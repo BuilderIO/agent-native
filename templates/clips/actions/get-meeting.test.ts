@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   transcript: null as { segmentsJson: string; fullText?: string } | null,
+  stored: { bulletsJson: "[]", actionItemsJson: "[]" },
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -13,20 +14,15 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("../server/db/index.js", () => {
-  const rows = [
-    {
-      id: "meeting-1",
-      bulletsJson: "[]",
-      actionItemsJson: "[]",
-      recordingId: "recording-1",
-    },
+  const rows = () => [
+    { id: "meeting-1", ...mocks.stored, recordingId: "recording-1" },
   ];
   return {
     getDb: () => ({
       select: () => ({
         from: () => ({
           where: () =>
-            Object.assign(Promise.resolve([]), { limit: async () => rows }),
+            Object.assign(Promise.resolve([]), { limit: async () => rows() }),
         }),
       }),
     }),
@@ -119,6 +115,7 @@ describe("get-meeting transcript", () => {
 
   beforeEach(() => {
     mocks.transcript = { fullText, segmentsJson };
+    mocks.stored = { bulletsJson: "[]", actionItemsJson: "[]" };
   });
 
   it.each(["mcp", "a2a", "tool", "webmcp"])(
@@ -187,6 +184,36 @@ describe("get-meeting transcript", () => {
       bulletsJson: "[]",
       actionItemsJson: "[]",
       actionItemsParsed: [],
+    });
+  });
+
+  it("tells an agent a stored list it can't read from an empty one", async () => {
+    mocks.stored = { bulletsJson: "not json", actionItemsJson: '{"text":"x"}' };
+    const result = await agentCall("mcp");
+
+    expect(result.meeting).toMatchObject({ bullets: null });
+    expect(result).toHaveProperty("actionItems", null);
+    expect((await agentCall("frontend")).meeting).toMatchObject({
+      bullets: [],
+      actionItemsParsed: [],
+    });
+  });
+
+  it("tells an agent the transcript's segments can't be read", async () => {
+    mocks.transcript = { fullText: "Me: hi", segmentsJson: "not json" };
+
+    expect(await agentCall("mcp")).toMatchObject({
+      transcript: {
+        fullText: "Me: hi",
+        segments: [],
+        segmentCount: null,
+        segmentsUnreadable: true,
+        note: expect.stringContaining("couldn't be read"),
+      },
+    });
+    mocks.transcript = { fullText, segmentsJson };
+    expect(await agentCall("mcp")).toMatchObject({
+      transcript: { segmentsUnreadable: false },
     });
   });
 

@@ -92,10 +92,24 @@ describe("search-meetings", () => {
       id: `meeting-${index}`,
     }));
 
+    expect(await search("mcp")).toMatchObject({
+      meetings: expect.any(Array),
+      hasMore: true,
+    });
     expect((await search("mcp")).meetings).toHaveLength(
       AGENT_MEETINGS_PER_CALL,
     );
+    expect(await search("frontend")).toMatchObject({ hasMore: false });
     expect((await search("frontend")).meetings).toHaveLength(30);
+  });
+
+  it("takes a query of at most 200 characters", () => {
+    expect(action.schema.safeParse({ query: "a".repeat(201) }).success).toBe(
+      false,
+    );
+    expect(action.schema.safeParse({ query: "a".repeat(200) }).success).toBe(
+      true,
+    );
   });
 
   it("leaves the app's own searches whole", async () => {

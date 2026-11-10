@@ -82,9 +82,9 @@ function buildSnippet(
 
 export default defineAction({
   description:
-    "Search meetings by title, AI summary, user notes, attendee name/email, or the transcript of the linked recording. Returns each match with a snippet showing why it matched. Use this to find an older call by what was said in it — list-meetings only filters by date. Agent calls get at most 25 matches, each with summaryPreview and hasNotes in place of its whole summary and notes; get-meeting has those and the transcript.",
+    "Search meetings by title, AI summary, user notes, attendee name/email, or the transcript of the linked recording. Returns each match with a snippet showing why it matched. Use this to find an older call by what was said in it — list-meetings only filters by date. Agent calls get at most 25 matches, each with summaryPreview and hasNotes in place of its whole summary and notes; get-meeting has those and the transcript. hasMore=true means more meetings match than came back; narrow the query to reach them.",
   schema: z.object({
-    query: z.string().min(1).describe("Search text"),
+    query: z.string().min(1).max(200).describe("Search text"),
     limit: z.coerce.number().int().min(1).max(100).default(30),
     includeTrashed: booleanParam
       .default(false)
@@ -124,7 +124,7 @@ export default defineAction({
           ),
         )
         .orderBy(recencyOrder)
-        .limit(limit),
+        .limit(limit + 1),
       db
         .selectDistinct({
           meetingId: schema.meetingParticipants.meetingId,
@@ -142,7 +142,7 @@ export default defineAction({
           ),
         )
         .orderBy(recencyOrder)
-        .limit(limit),
+        .limit(limit + 1),
       db
         .select({
           ...MEETING_COLUMNS,
@@ -168,7 +168,7 @@ export default defineAction({
           ),
         )
         .orderBy(recencyOrder)
-        .limit(limit),
+        .limit(limit + 1),
     ]);
 
     const participantMeetingIdList = participantMeetingIds.map(
@@ -274,6 +274,8 @@ export default defineAction({
 
     return {
       meetings: forAgent ? meetings.map(meetingRowForAgent) : meetings,
+      // Each source reads one past the page, so a match left out shows here.
+      hasMore: merged.size > limit,
       query: args.query,
     };
   },

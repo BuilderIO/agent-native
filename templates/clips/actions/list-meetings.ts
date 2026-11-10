@@ -59,7 +59,7 @@ function meetingHasContentFilter() {
 
 export default defineAction({
   description:
-    "List meetings (Granola-style) the current user has access to. Connected calendars are read live; use view='upcoming' / 'past' / 'all' / 'trash' to filter by lifecycle. For meetings that already have notes or a transcript, use view='past' with hasContent=true. Agent calls get at most 25 meetings per call, paged with offset and hasMore, each with summaryPreview, hasNotes and actionItemCount in place of its whole summary, notes, bullets and action items; get-meeting has those and the transcript. Live calendar events are merged into the first 1,000 saved meetings; historyCapped=true means older saved meetings remain past that, reachable with includeLiveCalendar=false and offset, or with search-meetings.",
+    "List meetings (Granola-style) the current user has access to. Connected calendars are read live; use view='upcoming' / 'past' / 'all' / 'trash' to filter by lifecycle. For meetings that already have notes or a transcript, use view='past' with hasContent=true. Agent calls get at most 25 meetings per call, paged with offset and hasMore, each with summaryPreview, hasNotes and actionItemCount in place of its whole summary, notes, bullets and action items; get-meeting has those and the transcript. Live calendar events are merged into the first 1,000 saved meetings; historyCapped=true means older saved meetings remain past that, reachable with includeLiveCalendar=false and offset, or with search-meetings. calendarCapped=true means a connected calendar held more events in the window than one read returns, so some of its events are missing.",
   mcpApp: { compactCatalog: true },
   schema: z.object({
     view: z
@@ -266,6 +266,8 @@ export default defineAction({
 
     const liveMeetings: any[] = [];
     const calendarErrors: CalendarFetchError[] = [];
+    // A calendar still had pages when its read stopped.
+    let calendarCapped = false;
 
     const emittedLiveEventKeys = new Set<string>();
     const excludedLiveEventKeys = new Set<string>();
@@ -317,7 +319,7 @@ export default defineAction({
               : (upcomingWindowMaxIso ??
                 new Date(now.getTime() + THIRTY_DAYS_MS).toISOString());
 
-          const [{ items }, cachedEvents] = await Promise.all([
+          const [{ items, nextPageToken }, cachedEvents] = await Promise.all([
             listEvents({
               accessToken,
               calendarId: "primary",
@@ -330,6 +332,7 @@ export default defineAction({
               .from(schema.calendarEvents)
               .where(eq(schema.calendarEvents.calendarAccountId, account.id)),
           ]);
+          if (nextPageToken) calendarCapped = true;
 
           const cachedByExternalId = new Map(
             cachedEvents.map((event) => [event.externalId, event]),
@@ -459,6 +462,7 @@ export default defineAction({
         calendarErrors,
         hasMore: persistedHasMore,
         historyCapped: false,
+        calendarCapped,
       };
     }
 
@@ -481,6 +485,7 @@ export default defineAction({
       calendarErrors,
       hasMore,
       historyCapped,
+      calendarCapped,
     };
   },
 });

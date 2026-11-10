@@ -127,8 +127,10 @@ vi.mock("../server/lib/google-calendar-client.js", () => ({
 
 import {
   recordCalendarFetchError,
+  recordCalendarFetchSuccess,
   resolveCalendarAccessToken,
 } from "../server/lib/calendar-event-meetings";
+import { listEvents } from "../server/lib/google-calendar-client";
 import { AGENT_MEETINGS_PER_CALL } from "./lib/meeting-content";
 import action from "./list-meetings";
 
@@ -183,6 +185,26 @@ describe("list-meetings history", () => {
       expect.objectContaining({ message: "Token refresh failed" }),
       { needsReauth: true },
     );
+  });
+
+  it("says when a calendar read stopped with events still to read", async () => {
+    state.calendarAccounts = [
+      { id: "calendar-1", provider: "google", ownerEmail: "owner@example.com" },
+    ];
+    vi.mocked(resolveCalendarAccessToken).mockResolvedValue("token");
+    vi.mocked(recordCalendarFetchSuccess).mockResolvedValue(undefined);
+    vi.mocked(listEvents).mockResolvedValueOnce({
+      items: [],
+      nextPageToken: "page-6",
+    });
+    expect(
+      await action.run(action.schema.parse({ view: "upcoming" })),
+    ).toMatchObject({ calendarErrors: [], calendarCapped: true });
+
+    vi.mocked(listEvents).mockResolvedValueOnce({ items: [] });
+    expect(
+      await action.run(action.schema.parse({ view: "upcoming" })),
+    ).toMatchObject({ calendarErrors: [], calendarCapped: false });
   });
 
   it("accepts content-aware history queries without recordedOnly", () => {
