@@ -730,7 +730,7 @@ export function AgentSidebar({
                 return (
                   pending.order < navigation.order &&
                   !isPanelNavigationEvent(pending.event) &&
-                  !submit?.targetTabId
+                  !sendsToOwnTab(submit)
                 );
               }),
             );
@@ -860,7 +860,11 @@ export function AgentSidebar({
               pending.targetId == null &&
               !pending.reference &&
               !isComposerReferenceEvent(pending.event) &&
-              !isPanelNavigationEvent(pending.event)
+              !isPanelNavigationEvent(pending.event) &&
+              !(
+                pending.event instanceof MessageEvent &&
+                sendsToOwnTab(parseSubmitChatMessage(pending.event))
+              )
             )
               pending.targetId = targetId;
           }
@@ -871,7 +875,7 @@ export function AgentSidebar({
               pending.event instanceof MessageEvent
                 ? parseSubmitChatMessage(pending.event)
                 : null;
-            if (submit?.targetTabId) return false;
+            if (sendsToOwnTab(submit)) return false;
             const recipient =
               pending.referenceTargetId ??
               pending.reference?.referenceTargetId ??
@@ -1143,12 +1147,13 @@ export function AgentSidebar({
             : recipient
           : undefined,
         navigation:
-          submit?.targetTabId || isPanelNavigationEvent(event)
+          sendsToOwnTab(submit) || isPanelNavigationEvent(event)
             ? undefined
             : navigation,
         targetId:
           submit?.targetTabId ??
           (navigation ||
+          sendsToOwnTab(submit) ||
           isPanelNavigationEvent(event) ||
           isComposerReferenceEvent(event)
             ? undefined
@@ -1157,7 +1162,7 @@ export function AgentSidebar({
               : recipient),
         reference:
           !isPanelNavigationEvent(event) &&
-          !submit?.targetTabId &&
+          !sendsToOwnTab(submit) &&
           reference &&
           isComposerReferenceEvent(reference.event)
             ? reference
@@ -2025,6 +2030,15 @@ function isComposerReferenceEvent(event: Event): boolean {
     (event instanceof MessageEvent &&
       event.data?.type === AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE)
   );
+}
+
+// A send that names its tab, or opens a new one, already knows where it lands.
+// The chat the panel happens to show meanwhile is not its recipient, so a
+// switch away from that chat must not cancel it.
+function sendsToOwnTab(
+  submit: ReturnType<typeof parseSubmitChatMessage>,
+): boolean {
+  return Boolean(submit?.targetTabId || submit?.newTab);
 }
 
 function isPanelNavigationEvent(event: Event): boolean {

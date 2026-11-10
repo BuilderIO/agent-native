@@ -319,7 +319,34 @@ describe("sidebar writes refresh only the affected branch", () => {
     );
   });
 
-  it("create refreshes the parent's children, the parent's row, the new page's path, and search", async () => {
+  it("rename refreshes the path through the renamed page's parent, whose arrow can follow a name filter", async () => {
+    await mountReads(["otherPath", "pagePath"]);
+    queryClient.setQueryData(
+      ["action", "get-content-navigation-context", { id: "other-child" }],
+      {
+        document: { id: "other-child" },
+        path: [
+          { id: "other", parentId: null },
+          { id: "other-child", parentId: "other" },
+        ],
+      },
+    );
+    actionResponses["update-document"] = {
+      id: "other-child",
+      title: "Renamed",
+      updatedAt: "2026-09-27T00:00:00.000Z",
+      softDeletedDatabaseIds: [],
+    };
+    const update = await renderHook(() => useUpdateDocument());
+
+    await act(() =>
+      update.current.mutateAsync({ id: "other-child", title: "Renamed" }),
+    );
+
+    expect(await refetched()).toEqual(["otherPath"]);
+  });
+
+  it("create refreshes the parent's children, the parent's row, the paths through the parent and the new page, and search", async () => {
     await mountReads();
     actionResponses["create-document"] = {
       id: "new-page",
@@ -336,6 +363,7 @@ describe("sidebar writes refresh only the affected branch", () => {
     expect(await refetched()).toEqual([
       "newPath",
       "pageChildren",
+      "pagePath",
       "search",
       "sectionChildren",
       "titles",
@@ -363,7 +391,7 @@ describe("sidebar writes refresh only the affected branch", () => {
     expect(await refetched()).toEqual(["root", "rootPage2"]);
   });
 
-  it("move refreshes the old branch, the new parent's children and row, the Files collection, and search", async () => {
+  it("move refreshes the old branch, the new parent's children and row, the paths through both parents, the Files collection, and search", async () => {
     await mountReads();
     actionResponses["move-document"] = { id: "sibling", parentId: "other" };
     const move = await renderHook(() => useMoveDocument());
@@ -376,6 +404,8 @@ describe("sidebar writes refresh only the affected branch", () => {
       "documents",
       "files",
       "otherChildren",
+      "otherPath",
+      "pagePath",
       "root",
       "search",
       "sectionChildren",
@@ -402,6 +432,7 @@ describe("sidebar writes refresh only the affected branch", () => {
       "documents",
       "favorites",
       "files",
+      "pagePath",
       "recent",
       "root",
       "search",
@@ -418,7 +449,7 @@ describe("sidebar writes refresh only the affected branch", () => {
 describe("Trash writes", () => {
   const trashLists = ["trash", "trashedDatabases", "trashedDocuments"];
 
-  it("delete refreshes the deleted row's branch, its parent's row, collections, search, and Trash", async () => {
+  it("delete refreshes the deleted row's branch, its parent's row and paths, collections, search, and Trash", async () => {
     await mountReads();
     actionResponses["delete-document"] = { success: true, deleted: 1 };
     const remove = await renderHook(() => useDeleteDocument());
@@ -430,6 +461,7 @@ describe("Trash writes", () => {
         "documents",
         "favorites",
         "files",
+        "pagePath",
         "recent",
         "root",
         "search",
@@ -442,6 +474,26 @@ describe("Trash writes", () => {
         ...trashLists,
       ].sort(),
     );
+  });
+
+  it("delete refreshes the open parent's path when only a cached path knows the parent", async () => {
+    await mountReads(["otherPath", "pagePath"]);
+    queryClient.setQueryData(
+      ["action", "get-content-navigation-context", { id: "other-child" }],
+      {
+        document: { id: "other-child" },
+        path: [
+          { id: "other", parentId: null },
+          { id: "other-child", parentId: "other" },
+        ],
+      },
+    );
+    actionResponses["delete-document"] = { success: true, deleted: 1 };
+    const remove = await renderHook(() => useDeleteDocument());
+
+    await act(() => remove.current.mutateAsync({ id: "other-child" }));
+
+    expect(await refetched()).toEqual(["otherPath"]);
   });
 
   it.each([
@@ -693,6 +745,12 @@ describe("optimistic sidebar creates", () => {
       "new-page",
     ]);
     expect(seeded?.path[2]?.databaseId).toBe(FILES);
+    expect(seeded?.path[1]?.hasChildren).toBe(true);
+    expect(
+      queryClient
+        .getQueryData<ContentNavigationContext>(keys.pagePath)
+        ?.path.map((entry) => entry.hasChildren),
+    ).toEqual([undefined, true]);
     expect(
       queryClient
         .getQueryData<any>(keys.sectionChildren)
@@ -707,6 +765,7 @@ describe("optimistic sidebar creates", () => {
     expect(queryClient.getQueryState(keys.sectionChildren)?.isInvalidated).toBe(
       true,
     );
+    expect(queryClient.getQueryState(keys.pagePath)?.isInvalidated).toBe(true);
   });
 
   it("reveal a new root page through its space's Files collection", () => {

@@ -49,6 +49,7 @@ interface UseTweaksArgs {
   designSaveActorScope: string;
   designSaveOperationSourceRef: RefObject<string>;
   id: string | undefined;
+  noteSaveLeftQueued: () => void;
   queryClient: QueryClient;
   t: PersistTweakSaveArgs["t"];
   warnChangesWillRetry: () => void;
@@ -75,6 +76,7 @@ export function useTweaks({
   designSaveActorScope,
   designSaveOperationSourceRef,
   id,
+  noteSaveLeftQueued,
   queryClient,
   t,
   warnChangesWillRetry,
@@ -131,6 +133,7 @@ export function useTweaks({
           createTweakSaveOutboxEntry,
           id,
           journalTweakOutboxEntry,
+          noteSaveLeftQueued,
           pendingTweakSaveRef,
           queryClient,
           setTweakSaveActive,
@@ -148,6 +151,7 @@ export function useTweaks({
       createTweakSaveOutboxEntry,
       id,
       journalTweakOutboxEntry,
+      noteSaveLeftQueued,
       queryClient,
       t,
       warnChangesWillRetry,

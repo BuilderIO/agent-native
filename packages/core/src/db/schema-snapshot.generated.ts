@@ -55,7 +55,7 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
     'CREATE TABLE "agent_review_suggestion_proposal_creations" (\n  "idempotency_key" text NOT NULL,\n  "proposal_id" text NOT NULL,\n  "author_email" text,\n  "actor_kind" text NOT NULL,\n  "request_hash" text NOT NULL,\n  "suggestion_ids_json" text NOT NULL\n);',
     'CREATE TABLE "agent_review_suggestion_proposal_decisions" (\n  "idempotency_key" text NOT NULL,\n  "proposal_id" text NOT NULL,\n  "reviewer" text,\n  "decision" text NOT NULL,\n  "request_json" text NOT NULL,\n  "suggestion_ids_json" text NOT NULL,\n  "created_at" text NOT NULL\n);',
     'CREATE TABLE "agent_review_suggestion_proposals" (\n  "id" text NOT NULL,\n  "resource_type" text NOT NULL,\n  "resource_id" text NOT NULL,\n  "adapter_kind" text NOT NULL,\n  "summary" text NOT NULL,\n  "author_email" text,\n  "actor_kind" text NOT NULL,\n  "created_at" text NOT NULL\n);',
-    'CREATE TABLE "agent_review_suggestions" (\n  "id" text NOT NULL,\n  "resource_type" text NOT NULL,\n  "resource_id" text NOT NULL,\n  "adapter_kind" text NOT NULL,\n  "adapter_version" integer NOT NULL,\n  "thread_id" text NOT NULL,\n  "author_email" text,\n  "actor_kind" text NOT NULL,\n  "base_revision" text NOT NULL,\n  "status" text DEFAULT \'pending\'::text NOT NULL,\n  "summary" text NOT NULL,\n  "owner_email" text,\n  "org_id" text,\n  "visibility" text DEFAULT \'private\'::text NOT NULL,\n  "created_at" text NOT NULL,\n  "updated_at" text NOT NULL,\n  "metadata_json" text,\n  "revision" integer DEFAULT 1 NOT NULL,\n  "proposal_id" text\n);',
+    'CREATE TABLE "agent_review_suggestions" (\n  "id" text NOT NULL,\n  "resource_type" text NOT NULL,\n  "resource_id" text NOT NULL,\n  "adapter_kind" text NOT NULL,\n  "adapter_version" integer NOT NULL,\n  "thread_id" text NOT NULL,\n  "author_email" text,\n  "actor_kind" text NOT NULL,\n  "base_revision" text NOT NULL,\n  "status" text DEFAULT \'pending\'::text NOT NULL,\n  "summary" text NOT NULL,\n  "owner_email" text,\n  "org_id" text,\n  "visibility" text DEFAULT \'private\'::text NOT NULL,\n  "created_at" text NOT NULL,\n  "updated_at" text NOT NULL,\n  "metadata_json" text,\n  "revision" integer DEFAULT 1 NOT NULL,\n  "proposal_id" text,\n  "author_source" text,\n  "author_client" text\n);',
     'CREATE TABLE "agent_review_thread_preferences" (\n  "thread_id" text NOT NULL,\n  "user_email" text NOT NULL,\n  "muted" integer DEFAULT 0 NOT NULL,\n  "unread" integer DEFAULT 0 NOT NULL,\n  "updated_at" text NOT NULL\n);',
     'CREATE TABLE "agent_run_events" (\n  "run_id" text NOT NULL,\n  "seq" bigint NOT NULL,\n  "event_at" bigint,\n  "event_data" text NOT NULL,\n  "transcript_order" bigint\n);',
     'CREATE TABLE "agent_run_outcome_daily" (\n  "day" text NOT NULL,\n  "status" text NOT NULL,\n  "terminal_reason" text DEFAULT \'\'::text NOT NULL,\n  "run_count" bigint DEFAULT 0 NOT NULL\n);',
@@ -845,6 +845,11 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
     ["agent_harness_sessions", "agent-harness-follow-up-recovery", null],
     [
       "agent_harness_sessions",
+      "agent-harness-sessions-approval-and-expiry-columns",
+      null,
+    ],
+    [
+      "agent_harness_sessions",
       "agent-harness-sessions-approval-resolution",
       "11882889ef267cdb",
     ],
@@ -1189,6 +1194,7 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
     ["resources", "widen-bigint", null],
     ["review", "baseline", null],
     ["review", "storage-contract", "ed0e701a19ad1c15"],
+    ["review_suggestions", "author-source-and-client", null],
     ["review_suggestions", "baseline", null],
     ["sandbox_executions", "baseline", null],
     [
