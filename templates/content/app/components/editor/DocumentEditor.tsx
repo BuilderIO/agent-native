@@ -10685,7 +10685,7 @@ function PageEditorSessionBody({
       // Accepting a tab's suggestion writes the Collection's field.
       canDecideFieldSuggestions={pagePropertiesInScope?.canEditValues === true}
       decidingSuggestion={(suggestionId) =>
-        fieldSuggestions.deciding ||
+        fieldSuggestions.decidingSuggestion(suggestionId) ||
         isSubmittingSuggestions ||
         isStartingSuggestion ||
         !!pendingSuggestionDecision ||
