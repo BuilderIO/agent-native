@@ -172,6 +172,24 @@ describe("get-meeting transcript", () => {
     }
   });
 
+  it("gives an agent each meeting detail once", async () => {
+    const { meeting } = await agentCall("mcp");
+
+    expect(meeting).toMatchObject({ id: "meeting-1", bullets: [] });
+    for (const field of [
+      "bulletsJson",
+      "actionItemsJson",
+      "actionItemsParsed",
+    ]) {
+      expect(meeting).not.toHaveProperty(field);
+    }
+    expect((await agentCall("frontend")).meeting).toMatchObject({
+      bulletsJson: "[]",
+      actionItemsJson: "[]",
+      actionItemsParsed: [],
+    });
+  });
+
   it("returns no transcript to an agent when the meeting has none", async () => {
     mocks.transcript = null;
 

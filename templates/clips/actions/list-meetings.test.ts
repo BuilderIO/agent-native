@@ -304,7 +304,7 @@ describe("list-meetings history", () => {
     });
 
     it("says when older meetings sit past the live calendar merge", async () => {
-      state.rows = Array.from({ length: 1000 }, (_, index) =>
+      state.rows = Array.from({ length: 1001 }, (_, index) =>
         meeting(`meeting-${index}`),
       );
       const page = (offset: number) =>
@@ -321,6 +321,12 @@ describe("list-meetings history", () => {
       expect(pastTheMerge).toMatchObject({
         hasMore: false,
         historyCapped: true,
+      });
+
+      state.rows = state.rows.slice(0, 1000);
+      expect(await page(1000)).toMatchObject({
+        hasMore: false,
+        historyCapped: false,
       });
     });
 

@@ -213,15 +213,19 @@ export default defineAction({
         ];
 
     let persistedHasMore = false;
+    // Saved meetings exist past the ones the live calendar merge reads.
+    let persistedCapped = false;
     let rows: Array<typeof schema.meetings.$inferSelect>;
     if (willMergeLiveCalendar) {
-      rows = await db
+      const merged = await db
         .select()
         .from(schema.meetings)
         .where(and(...whereClauses))
         .orderBy(...orderBy)
-        .limit(Math.min(MAX_PERSISTED_ROWS_PER_QUERY, windowCount + 1))
+        .limit(Math.min(MAX_PERSISTED_ROWS_PER_QUERY + 1, windowCount + 1))
         .offset(0);
+      persistedCapped = merged.length > MAX_PERSISTED_ROWS_PER_QUERY;
+      rows = merged.slice(0, MAX_PERSISTED_ROWS_PER_QUERY);
     } else {
       const page = await db
         .select()
@@ -470,10 +474,7 @@ export default defineAction({
     const hasMore = combined.length > args.offset + limit;
     // The merge reads at most MAX_PERSISTED_ROWS_PER_QUERY saved rows, so a
     // page past them would end the list early without saying so.
-    const historyCapped =
-      !hasMore &&
-      windowCount + 1 > MAX_PERSISTED_ROWS_PER_QUERY &&
-      rows.length >= MAX_PERSISTED_ROWS_PER_QUERY;
+    const historyCapped = !hasMore && persistedCapped;
 
     return {
       meetings: forAgent ? meetings.map(meetingRowForAgent) : meetings,

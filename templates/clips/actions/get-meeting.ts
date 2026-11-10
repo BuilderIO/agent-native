@@ -44,6 +44,26 @@ function safeParseArray<T>(
   }
 }
 
+/**
+ * The meeting for an agent, with each detail once: bullets come parsed and
+ * action items come in the top-level `actionItems`, so the stored JSON copies
+ * and the parsed duplicate go.
+ */
+function meetingForAgent<
+  T extends {
+    bulletsJson: string;
+    actionItemsJson: string;
+    actionItemsParsed: unknown;
+  },
+>({
+  bulletsJson: _bulletsJson,
+  actionItemsJson: _actionItemsJson,
+  actionItemsParsed: _actionItemsParsed,
+  ...meeting
+}: T) {
+  return meeting;
+}
+
 function transcriptForAgent<T extends { fullText?: string | null }>(
   { segmentsJson, ...transcript }: T & { segmentsJson?: string | null },
   fullTextOffset: number | undefined,
@@ -61,7 +81,7 @@ function transcriptForAgent<T extends { fullText?: string | null }>(
 
 export default defineAction({
   description:
-    'Get a meeting by id with its participants, action items, transcript, and a reference to its recording (if any). Agent calls receive a bounded transcript chunk; pass transcriptOffset from nextFullTextOffset until it is null to read the complete transcript. `earlierAudioMinutes` is how much audio from before the user started recording its transcript holds, 0 when none; remove-earlier-meeting-audio takes it out. When no meeting is returned, `meeting` is null and `reason` is "unavailable" — it does not distinguish missing from inaccessible. A read failure throws instead.',
+    'Get a meeting by id with its participants, action items, transcript, and a reference to its recording (if any). Agent calls receive the summary, notes, bullets, action items and participants whole, each once (action items only in actionItems), and the transcript in bounded chunks; pass transcriptOffset from nextFullTextOffset until it is null to read the complete transcript. `earlierAudioMinutes` is how much audio from before the user started recording its transcript holds, 0 when none; remove-earlier-meeting-audio takes it out. When no meeting is returned, `meeting` is null and `reason` is "unavailable" — it does not distinguish missing from inaccessible. A read failure throws instead.',
   schema: z.object({
     id: z.string().describe("Meeting id"),
     transcriptOffset: z.coerce.number().int().min(0).optional(),
@@ -82,6 +102,7 @@ export default defineAction({
     const access = await resolveAccess("meeting", meetingId);
     if (!access) return { meeting: null, reason: "unavailable" as const };
 
+    const forAgent = isAgentMeetingCaller(ctx?.caller);
     const db = getDb();
     const [row] = await db
       .select()
@@ -131,12 +152,12 @@ export default defineAction({
     );
 
     return {
-      meeting,
+      meeting: forAgent ? meetingForAgent(meeting) : meeting,
       participants,
       actionItems,
       recording,
       transcript:
-        transcript && isAgentMeetingCaller(ctx?.caller)
+        transcript && forAgent
           ? transcriptForAgent(transcript, args.transcriptOffset)
           : transcript,
       earlierAudioMinutes: storedEarlierAudioMinutes(transcript?.segmentsJson),
