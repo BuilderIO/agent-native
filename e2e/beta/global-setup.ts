@@ -72,7 +72,7 @@ async function globalSetup(): Promise<void> {
 
   if (!hasSessionCredentials()) throw new Error(missingCredentialsMessage());
 
-  const email = expectedEmail();
+  expectedEmail();
   const needsProviderKey = providerKeyRequired();
   const resolvedKey = needsProviderKey ? resolveOpenAiKey() : undefined;
   if (needsProviderKey && !resolvedKey) {
@@ -108,7 +108,7 @@ async function globalSetup(): Promise<void> {
     );
   }
   console.log(
-    `[beta-e2e] establishing sessions as ${email} on: ${targets.map((site) => site.id).join(", ")}`,
+    `[beta-e2e] establishing sessions on: ${targets.map((site) => `${site.id} (${expectedEmail(site.id)})`).join(", ")}`,
   );
 
   // The key is written only where a turn will actually run. Every install is a

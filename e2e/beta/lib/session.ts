@@ -103,8 +103,24 @@ export function authedLaneReady(): boolean {
   return existsSync(laneMarkerPath());
 }
 
-export function expectedEmail(): string {
-  const email = process.env.BETA_E2E_EMAIL?.trim();
+export function expectedEmail(appId?: string): string {
+  const overrides = parseJsonEnv<Record<string, unknown>>("BETA_E2E_EMAILS");
+  if (
+    overrides !== undefined &&
+    (!overrides || typeof overrides !== "object" || Array.isArray(overrides))
+  ) {
+    throw new Error("BETA_E2E_EMAILS must be an app-to-QA-email object.");
+  }
+  const override = appId ? overrides?.[appId] : undefined;
+  if (override !== undefined && typeof override !== "string") {
+    throw new Error(
+      "BETA_E2E_EMAILS entries must be dedicated QA email strings.",
+    );
+  }
+  const email =
+    typeof override === "string"
+      ? override.trim()
+      : process.env.BETA_E2E_EMAIL?.trim();
   if (!email) {
     throw new Error(
       "BETA_E2E_EMAIL is not set. Authenticated beta specs must assert which identity they are running as; without it a bootstrap that silently lands as the wrong user would pass.",
@@ -241,7 +257,7 @@ export async function bootstrapAppSession(
   onStep: SetupStep = () => {},
 ): Promise<SessionIdentity> {
   const origin = originFor(site);
-  const email = expectedEmail();
+  const email = expectedEmail(site.id);
   const blob = storageStateBlob();
   const token = sessionTokenFor(site.id);
 
