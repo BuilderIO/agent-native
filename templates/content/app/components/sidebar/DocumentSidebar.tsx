@@ -3000,7 +3000,10 @@ export function DocumentSidebar({
             },
           },
         },
-        { onError: () => toast.error(t("sidebar.failedSaveOrder")) },
+        {
+          onError: (error) =>
+            reportWriteFailure(error, { label: t("sidebar.failedSaveOrder") }),
+        },
       );
     },
     [

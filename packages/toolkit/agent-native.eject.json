@@ -744,7 +744,9 @@
         "@agent-native/core/shared/mcp-app-widget-embed",
         "@agent-native/core/shared/ssr-beta-redirect",
         "@agent-native/core/shared/ssr-session-bootstrap",
-        "@agent-native/core/shared/ssr-session-bootstrap-slot"
+        "@agent-native/core/shared/ssr-session-bootstrap-slot",
+        "@agent-native/core/client/analytics",
+        "@agent-native/core/client/auth/builder-signup"
       ]
     },
     {
