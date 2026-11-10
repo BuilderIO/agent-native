@@ -17,10 +17,13 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
 import { meetingRecordingTranscriptFilter } from "../server/lib/meeting-recording-access.js";
 import { booleanParam } from "./lib/cli-params.js";
-import { meetingRowForAgent } from "./lib/meeting-content.js";
+import {
+  AGENT_MEETINGS_PER_CALL,
+  isAgentMeetingCaller,
+  meetingRowForAgent,
+} from "./lib/meeting-content.js";
 import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
 const SNIPPET_RADIUS = 90;
@@ -79,7 +82,7 @@ function buildSnippet(
 
 export default defineAction({
   description:
-    "Search meetings by title, AI summary, user notes, attendee name/email, or the transcript of the linked recording. Returns each match with a snippet showing why it matched. Use this to find an older call by what was said in it — list-meetings only filters by date. Agent calls get summaryPreview and hasNotes in place of each match's whole summary and notes; get-meeting has those and the transcript.",
+    "Search meetings by title, AI summary, user notes, attendee name/email, or the transcript of the linked recording. Returns each match with a snippet showing why it matched. Use this to find an older call by what was said in it — list-meetings only filters by date. Agent calls get at most 25 matches, each with summaryPreview and hasNotes in place of its whole summary and notes; get-meeting has those and the transcript.",
   schema: z.object({
     query: z.string().min(1).describe("Search text"),
     limit: z.coerce.number().int().min(1).max(100).default(30),
@@ -92,6 +95,12 @@ export default defineAction({
   run: async (args, ctx) => {
     const db = getDb();
     const pattern = buildCaseInsensitiveSearchPattern(args.query);
+    const forAgent = isAgentMeetingCaller(ctx?.caller);
+    // Each transcript match loads its whole transcript for the snippet, so
+    // agents, who search often, load fewer.
+    const limit = forAgent
+      ? Math.min(args.limit, AGENT_MEETINGS_PER_CALL)
+      : args.limit;
 
     const visible = () => {
       const clauses = [accessFilter(schema.meetings, schema.meetingShares)];
@@ -115,7 +124,7 @@ export default defineAction({
           ),
         )
         .orderBy(recencyOrder)
-        .limit(args.limit),
+        .limit(limit),
       db
         .selectDistinct({
           meetingId: schema.meetingParticipants.meetingId,
@@ -133,7 +142,7 @@ export default defineAction({
           ),
         )
         .orderBy(recencyOrder)
-        .limit(args.limit),
+        .limit(limit),
       db
         .select({
           ...MEETING_COLUMNS,
@@ -159,7 +168,7 @@ export default defineAction({
           ),
         )
         .orderBy(recencyOrder)
-        .limit(args.limit),
+        .limit(limit),
     ]);
 
     const participantMeetingIdList = participantMeetingIds.map(
@@ -261,12 +270,10 @@ export default defineAction({
           (Number.isNaN(aStart) ? 0 : aStart)
         );
       })
-      .slice(0, args.limit);
+      .slice(0, limit);
 
     return {
-      meetings: isAgentRecordingCaller(ctx?.caller)
-        ? meetings.map(meetingRowForAgent)
-        : meetings,
+      meetings: forAgent ? meetings.map(meetingRowForAgent) : meetings,
       query: args.query,
     };
   },

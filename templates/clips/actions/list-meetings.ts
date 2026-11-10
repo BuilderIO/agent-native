@@ -19,7 +19,6 @@ import {
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
 import {
   isDeclinedCalendarEvent,
   isSoloCalendarEvent,
@@ -38,6 +37,7 @@ import { listEvents } from "../server/lib/google-calendar-client.js";
 import { booleanParam } from "./lib/cli-params.js";
 import {
   AGENT_MEETINGS_PER_CALL,
+  isAgentMeetingCaller,
   meetingRowForAgent,
   meetingRowHasContent,
 } from "./lib/meeting-content.js";
@@ -59,7 +59,7 @@ function meetingHasContentFilter() {
 
 export default defineAction({
   description:
-    "List meetings (Granola-style) the current user has access to. Connected calendars are read live; use view='upcoming' / 'past' / 'all' / 'trash' to filter by lifecycle. For meetings that already have notes or a transcript, use view='past' with hasContent=true. Agent calls get at most 25 meetings per call, paged with offset and hasMore, each with summaryPreview and hasNotes in place of its whole summary, notes and bullets; get-meeting has those and the transcript.",
+    "List meetings (Granola-style) the current user has access to. Connected calendars are read live; use view='upcoming' / 'past' / 'all' / 'trash' to filter by lifecycle. For meetings that already have notes or a transcript, use view='past' with hasContent=true. Agent calls get at most 25 meetings per call, paged with offset and hasMore, each with summaryPreview, hasNotes and actionItemCount in place of its whole summary, notes, bullets and action items; get-meeting has those and the transcript. Live calendar events are merged into the first 1,000 saved meetings; historyCapped=true means older saved meetings remain past that, reachable with includeLiveCalendar=false and offset, or with search-meetings.",
   mcpApp: { compactCatalog: true },
   schema: z.object({
     view: z
@@ -127,7 +127,7 @@ export default defineAction({
     const currentUserEmail = getRequestUserEmail();
     const now = new Date();
     const nowIso = now.toISOString();
-    const forAgent = isAgentRecordingCaller(ctx?.caller);
+    const forAgent = isAgentMeetingCaller(ctx?.caller);
     const limit = forAgent
       ? Math.min(args.limit, AGENT_MEETINGS_PER_CALL)
       : args.limit;
@@ -454,6 +454,7 @@ export default defineAction({
         meetings: forAgent ? combined.map(meetingRowForAgent) : combined,
         calendarErrors,
         hasMore: persistedHasMore,
+        historyCapped: false,
       };
     }
 
@@ -467,11 +468,18 @@ export default defineAction({
 
     const meetings = combined.slice(args.offset, args.offset + limit);
     const hasMore = combined.length > args.offset + limit;
+    // The merge reads at most MAX_PERSISTED_ROWS_PER_QUERY saved rows, so a
+    // page past them would end the list early without saying so.
+    const historyCapped =
+      !hasMore &&
+      windowCount + 1 > MAX_PERSISTED_ROWS_PER_QUERY &&
+      rows.length >= MAX_PERSISTED_ROWS_PER_QUERY;
 
     return {
       meetings: forAgent ? meetings.map(meetingRowForAgent) : meetings,
       calendarErrors,
       hasMore,
+      historyCapped,
     };
   },
 });

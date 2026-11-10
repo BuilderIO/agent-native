@@ -47,6 +47,7 @@ vi.mock("../server/db/index.js", () => {
   };
 });
 
+import { AGENT_MEETINGS_PER_CALL } from "./lib/meeting-content";
 import action from "./search-meetings";
 
 const summaryMd = "# Summary\n\nWe talked about the renewal.";
@@ -68,7 +69,7 @@ describe("search-meetings", () => {
     ];
   });
 
-  it.each(["mcp", "a2a", "tool"])(
+  it.each(["mcp", "a2a", "tool", "webmcp"])(
     "gives a %s caller the match and a preview instead of the whole notes",
     async (caller) => {
       const { meetings } = await search(caller);
@@ -84,6 +85,18 @@ describe("search-meetings", () => {
       expect(meetings[0]).not.toHaveProperty("userNotesMd");
     },
   );
+
+  it("gives an agent at most one page of matches", async () => {
+    state.rows = Array.from({ length: 30 }, (_, index) => ({
+      ...state.rows[0],
+      id: `meeting-${index}`,
+    }));
+
+    expect((await search("mcp")).meetings).toHaveLength(
+      AGENT_MEETINGS_PER_CALL,
+    );
+    expect((await search("frontend")).meetings).toHaveLength(30);
+  });
 
   it("leaves the app's own searches whole", async () => {
     const { meetings } = await search("frontend");

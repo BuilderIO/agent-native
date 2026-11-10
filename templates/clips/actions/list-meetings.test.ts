@@ -261,6 +261,7 @@ describe("list-meetings history", () => {
       ["mcp", false],
       ["a2a", false],
       ["tool", false],
+      ["webmcp", false],
       ["mcp", true],
     ])(
       "gives a %s caller one page of short rows (live calendar: %s)",
@@ -274,9 +275,14 @@ describe("list-meetings history", () => {
         expect(result.meetings[0]).toMatchObject({
           summaryPreview: "# Summary We agreed to ship.",
           hasNotes: true,
-          actionItemsJson: '[{"text":"Ship it"}]',
+          actionItemCount: 1,
         });
-        for (const field of ["summaryMd", "userNotesMd", "bulletsJson"]) {
+        for (const field of [
+          "summaryMd",
+          "userNotesMd",
+          "bulletsJson",
+          "actionItemsJson",
+        ]) {
           expect(result.meetings[0]).not.toHaveProperty(field);
         }
       },
@@ -295,6 +301,27 @@ describe("list-meetings history", () => {
 
       expect(state.limit).toBe(AGENT_MEETINGS_PER_CALL + 1);
       expect(state.offset).toBe(25);
+    });
+
+    it("says when older meetings sit past the live calendar merge", async () => {
+      state.rows = Array.from({ length: 1000 }, (_, index) =>
+        meeting(`meeting-${index}`),
+      );
+      const page = (offset: number) =>
+        action.run(action.schema.parse({ view: "past", limit: 25, offset }), {
+          caller: "mcp",
+        } as never);
+
+      expect(await page(950)).toMatchObject({
+        hasMore: true,
+        historyCapped: false,
+      });
+      const pastTheMerge = await page(1000);
+      expect(pastTheMerge.meetings).toHaveLength(0);
+      expect(pastTheMerge).toMatchObject({
+        hasMore: false,
+        historyCapped: true,
+      });
     });
 
     it("leaves the app's own lists whole", async () => {

@@ -121,7 +121,7 @@ describe("get-meeting transcript", () => {
     mocks.transcript = { fullText, segmentsJson };
   });
 
-  it.each(["mcp", "a2a", "tool"])(
+  it.each(["mcp", "a2a", "tool", "webmcp"])(
     "gives a %s caller a chunk and where to continue",
     async (caller) => {
       const result = await agentCall(caller);

@@ -5,7 +5,6 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
 import {
   materializeCalendarMeetingFromVirtualId,
   parseCalendarMeetingId,
@@ -13,6 +12,7 @@ import {
 import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 import { storedEarlierAudioMinutes } from "../shared/earlier-audio.js";
 import { parseTranscriptSegments } from "../shared/transcript-segments.js";
+import { isAgentMeetingCaller } from "./lib/meeting-content.js";
 import { boundTranscriptForAgent } from "./lib/transcript-preview.js";
 
 interface Bullet {
@@ -53,7 +53,7 @@ function transcriptForAgent<T extends { fullText?: string | null }>(
     ...boundTranscriptForAgent({
       fullText: transcript.fullText,
       segments: parseTranscriptSegments(segmentsJson),
-      fullTextOffset,
+      ...(fullTextOffset === undefined ? {} : { fullTextOffset }),
       action: "get-meeting",
     }),
   };
@@ -136,7 +136,7 @@ export default defineAction({
       actionItems,
       recording,
       transcript:
-        transcript && isAgentRecordingCaller(ctx?.caller)
+        transcript && isAgentMeetingCaller(ctx?.caller)
           ? transcriptForAgent(transcript, args.transcriptOffset)
           : transcript,
       earlierAudioMinutes: storedEarlierAudioMinutes(transcript?.segmentsJson),

@@ -3,7 +3,11 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { meetingRowForAgent, meetingRowHasContent } from "./meeting-content.js";
+import {
+  isAgentMeetingCaller,
+  meetingRowForAgent,
+  meetingRowHasContent,
+} from "./meeting-content.js";
 
 const emptyCalendarHusk = {
   recordingId: null,
@@ -35,6 +39,41 @@ describe("meetingRowForAgent", () => {
       hasNotes: false,
     });
   });
+});
+
+describe("meetingRowForAgent action items", () => {
+  it("counts action items instead of returning them", () => {
+    const row = meetingRowForAgent({
+      ...emptyCalendarHusk,
+      actionItemsJson: '[{"text":"send the deck"},{"text":"book the room"}]',
+    });
+
+    expect(row.actionItemCount).toBe(2);
+    expect(row).not.toHaveProperty("actionItemsJson");
+  });
+
+  it("counts none when the stored list can't be read", () => {
+    expect(
+      meetingRowForAgent({ ...emptyCalendarHusk, actionItemsJson: "{" }),
+    ).toMatchObject({ actionItemCount: 0 });
+    expect(meetingRowForAgent({})).toMatchObject({ actionItemCount: 0 });
+  });
+});
+
+describe("isAgentMeetingCaller", () => {
+  it.each(["tool", "mcp", "a2a", "webmcp"])(
+    "counts %s as an agent",
+    (caller) => {
+      expect(isAgentMeetingCaller(caller)).toBe(true);
+    },
+  );
+
+  it.each(["frontend", "http", "cli", undefined])(
+    "leaves %s whole",
+    (caller) => {
+      expect(isAgentMeetingCaller(caller)).toBe(false);
+    },
+  );
 });
 
 describe("meetingRowHasContent", () => {
