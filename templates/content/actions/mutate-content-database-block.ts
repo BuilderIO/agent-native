@@ -27,8 +27,8 @@ export default defineAction({
         : "Mutated Content database block";
     },
   },
-  run: async (args) => {
-    const result = await mutateDatabaseBlock(args);
+  run: async (args, ctx) => {
+    const result = await mutateDatabaseBlock(args, ctx);
     await writeAppState("refresh-signal", { ts: Date.now() });
     return result;
   },

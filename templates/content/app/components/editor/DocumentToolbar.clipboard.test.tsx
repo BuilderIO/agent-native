@@ -2,7 +2,7 @@
 
 import { appPath } from "@agent-native/core/client/api-path";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, createElement } from "react";
+import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -55,10 +55,10 @@ vi.mock("@agent-native/toolkit/app/sharing", async (importOriginal) => ({
   >()),
   ShareButton: ({
     quickCopy,
-    sendTo,
+    shareTabs,
   }: {
     quickCopy: { label: string; onCopy: () => Promise<boolean | void> };
-    sendTo?: { copyAgentPrompt?: () => unknown };
+    shareTabs?: { tabs: Array<{ value: string; content: ReactNode }> };
   }) =>
     createElement(
       "div",
@@ -68,13 +68,15 @@ vi.mock("@agent-native/toolkit/app/sharing", async (importOriginal) => ({
         { onClick: () => void quickCopy.onCopy() },
         quickCopy.label,
       ),
-      sendTo?.copyAgentPrompt
-        ? createElement(
-            "button",
-            { onClick: () => void sendTo.copyAgentPrompt?.() },
-            "send-to:copy-agent-prompt",
-          )
-        : null,
+      shareTabs?.tabs.find((tab) => tab.value === "agents")?.content,
+    ),
+}));
+vi.mock("./AgentsShareTab", () => ({
+  AgentsShareTab: ({ onCopyPrompt }: { onCopyPrompt: () => unknown }) =>
+    createElement(
+      "button",
+      { onClick: () => void onCopyPrompt() },
+      "agents-tab:copy-agent-prompt",
     ),
 }));
 
@@ -156,6 +158,8 @@ describe("DocumentToolbar clipboard behavior", () => {
     await act(async () => {
       trigger!.click();
     });
+    await act(async () => Promise.resolve());
+    await act(async () => Promise.resolve());
 
     const item = Array.from(
       container.querySelectorAll<HTMLButtonElement>("button"),
@@ -194,7 +198,7 @@ describe("DocumentToolbar clipboard behavior", () => {
     expect(mocks.copy).toHaveBeenCalledWith(
       `${window.location.origin}${appPath("/p/clipboard-fixture")}`,
     );
-    expect(container.textContent).not.toContain("send-to:copy-agent-prompt");
+    expect(container.textContent).not.toContain("agents-tab:copy-agent-prompt");
   });
 
   it("reports failure without a success toast or analytics", async () => {
@@ -213,7 +217,7 @@ describe("DocumentToolbar clipboard behavior", () => {
   it("copies an agent request without creating a share grant", async () => {
     mocks.copy.mockResolvedValue(true);
 
-    await copyFromShare("send-to:copy-agent-prompt");
+    await copyFromShare("agents-tab:copy-agent-prompt");
 
     expect(mocks.copy).toHaveBeenCalledWith("editor.toolbar.agentPrompt");
     expect(mocks.success).toHaveBeenCalledWith(
@@ -229,7 +233,7 @@ describe("DocumentToolbar clipboard behavior", () => {
   it("does not report an agent copy when clipboard access fails", async () => {
     mocks.copy.mockResolvedValue(false);
 
-    await copyFromShare("send-to:copy-agent-prompt");
+    await copyFromShare("agents-tab:copy-agent-prompt");
 
     expect(mocks.error).toHaveBeenCalledWith(
       "editor.toolbar.couldNotCopyAgentPrompt",

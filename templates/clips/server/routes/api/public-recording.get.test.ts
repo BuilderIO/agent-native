@@ -213,9 +213,9 @@ describe("/api/public-recording route", () => {
     mockVerifySharePassword.mockReturnValue(true);
     mockResolvePlayerVideoUrl.mockReturnValue("/api/video/rec-1");
     mockSignScopedAgentAccessToken.mockReturnValue("agent-token");
-    mockSignShortLivedToken
-      .mockReturnValueOnce("media-token")
-      .mockReturnValueOnce("unused-media-token");
+    mockSignShortLivedToken.mockImplementation(({ resourceId }) =>
+      resourceId.startsWith("clips-comment:") ? "comment-token" : "media-token",
+    );
     mockBuildAgentApiUrls.mockReturnValue({
       contextUrl: "https://clips.example/api/agent-context.json?id=rec-1",
     });
@@ -324,6 +324,82 @@ describe("/api/public-recording route", () => {
     },
   );
 
+  it.each(
+    [
+      { mode: "password", expected: "comment-token" },
+      { mode: "agent", expected: null },
+      { mode: "owner", expected: null },
+      { mode: "unprotected", expected: null },
+      { mode: "missing", expected: undefined },
+      { mode: "wrong", expected: undefined },
+    ].flatMap((entry) =>
+      [true, false].map((enableComments) => ({ ...entry, enableComments })),
+    ),
+  )(
+    "issues password proof independently of comments being enabled: $mode / $enableComments",
+    async ({ mode, expected, enableComments }) => {
+      const rec = makeRecording({
+        enableComments,
+        sharePasswordVersion: "initial",
+        ...(mode === "unprotected" ? { password: null } : {}),
+      });
+      mockGetDb.mockReturnValue(
+        createDbWithSelectResults([[rec], [], [], [], []]),
+      );
+      mockSignShortLivedToken
+        .mockReset()
+        .mockImplementation(({ resourceId }) =>
+          resourceId.startsWith("clips-comment:")
+            ? "comment-token"
+            : "media-token",
+        );
+      if (mode === "agent") {
+        mockGetQuery.mockReturnValue({
+          id: "rec-1",
+          agent_access: "agent-read-token",
+        });
+        mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+      }
+      if (mode === "owner") {
+        mockGetSession.mockResolvedValue({ email: "owner@example.com" });
+        mockResolveAccess.mockResolvedValue({ role: "owner", resource: rec });
+      }
+      if (mode === "password" && !enableComments) {
+        mockGetSession.mockResolvedValue({ email: "viewer@example.test" });
+        mockResolveAccess.mockResolvedValue({ role: "viewer", resource: rec });
+      }
+      if (mode === "missing") mockGetQuery.mockReturnValue({ id: "rec-1" });
+      if (mode === "wrong") mockVerifySharePassword.mockReturnValue(false);
+      const result = await handler({ setCookies: [] } as unknown as Parameters<
+        typeof handler
+      >[0]);
+      const recording = "recording" in result ? result.recording : undefined;
+      expect(recording?.commentAccessToken).toBe(expected);
+      if (mode === "password" && !enableComments) {
+        expect(recording?.enableComments).toBe(false);
+        expect("comments" in result ? result.comments : undefined).toEqual([]);
+      }
+      const grants = mockSignShortLivedToken.mock.calls.filter(([claims]) =>
+        claims.resourceId.startsWith("clips-comment:"),
+      );
+      if (mode === "password") {
+        expect(grants).toEqual([
+          [
+            {
+              resourceId:
+                "clips-comment:rec-1:fb0b690c4db3c30649e97252a8748e8e6e6a7c00b0f01d68d7beffa54343f494",
+              ttlSeconds: 600,
+            },
+          ],
+        ]);
+        expect(mockVerifySharePassword).toHaveBeenCalledWith(
+          "open-sesame",
+          "encrypted-password",
+        );
+      } else expect(grants).toEqual([]);
+    },
+  );
+
   it("sets a protected media cookie and long fallback token after password unlock", async () => {
     const event = { setCookies: [] as unknown[] };
     mockGetDb.mockReturnValue(
@@ -365,9 +441,22 @@ describe("/api/public-recording route", () => {
   });
 
   it("reuses a valid protected-media token across public-share polling", async () => {
+    mockSignShortLivedToken
+      .mockReset()
+      .mockImplementation(({ resourceId }) =>
+        resourceId.startsWith("clips-comment:")
+          ? "comment-token"
+          : "media-token",
+      );
     const firstEvent = { setCookies: [] as unknown[] };
     mockGetDb.mockReturnValue(
-      createDbWithSelectResults([[makeRecording()], [], [], [], []]),
+      createDbWithSelectResults([
+        [makeRecording({ enableComments: true })],
+        [],
+        [],
+        [],
+        [],
+      ]),
     );
 
     const firstResult = (await handler(firstEvent as any)) as any;
@@ -380,7 +469,13 @@ describe("/api/public-recording route", () => {
     );
     mockVerifyShortLivedToken.mockReturnValue({ ok: true });
     mockGetDb.mockReturnValue(
-      createDbWithSelectResults([[makeRecording()], [], [], [], []]),
+      createDbWithSelectResults([
+        [makeRecording({ enableComments: true })],
+        [],
+        [],
+        [],
+        [],
+      ]),
     );
 
     const secondResult = (await handler(secondEvent as any)) as any;
@@ -389,11 +484,21 @@ describe("/api/public-recording route", () => {
       firstResult.recording.videoUrl,
     );
     expect(secondResult.recording.mediaAccessToken).toBe(firstToken);
+    expect(secondResult.recording.commentAccessToken).toBe("comment-token");
+    expect(
+      mockSignShortLivedToken.mock.calls.filter(([claims]) =>
+        claims.resourceId.startsWith("clips-comment:"),
+      ),
+    ).toHaveLength(2);
     expect(mockVerifyShortLivedToken).toHaveBeenCalledWith(
       firstToken,
       "rec-1:password-scoped",
     );
-    expect(mockSignShortLivedToken).toHaveBeenCalledTimes(1);
+    expect(
+      mockSignShortLivedToken.mock.calls.filter(
+        ([claims]) => claims.resourceId === "rec-1:password-scoped",
+      ),
+    ).toHaveLength(1);
   });
 
   it("does not inspect a cached media token until the password gate succeeds", async () => {
