@@ -115,7 +115,7 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 /** Cancelled by the page or by the page leaving, not failed by the network. */
-function isAbortedRequest(payload: Record<string, unknown>): boolean {
+export function isAbortedRequest(payload: Record<string, unknown>): boolean {
   if (payload.pageLeaving === true) return true;
   const error = payload.error;
   if (typeof error !== "string") return false;
@@ -376,9 +376,12 @@ function trimFailures(state: ReplayFrictionDetectorState): void {
     .forEach((key) => delete state.failures[key]);
 }
 
+export type ReplayClickFrictionKind = "rage-click" | "dead-click";
+
 export function detectReplayFriction(
   events: readonly unknown[],
   previous: ReplayFrictionDetectorState | null,
+  onClickFriction?: (kind: ReplayClickFrictionKind, clickedAt: number) => void,
 ): {
   state: ReplayFrictionDetectorState;
   delta: ReplayFrictionDelta;
@@ -405,13 +408,17 @@ export function detectReplayFriction(
     if (type === null || at === null) continue;
     const data = record(event.data);
     state.lastEventAt = Math.max(state.lastEventAt ?? at, at);
-    if (countRageClick(state, event)) delta.rageClicks += 1;
+    if (countRageClick(state, event)) {
+      delta.rageClicks += 1;
+      onClickFriction?.("rage-click", at);
+    }
 
     if (
       state.pendingClickAt !== null &&
       at - state.pendingClickAt > DEAD_CLICK_WINDOW_MS
     ) {
       delta.deadClicks += 1;
+      onClickFriction?.("dead-click", state.pendingClickAt);
       state.pendingClickAt = null;
     }
     if (state.pendingClickAt !== null && answersClick(type, data)) {

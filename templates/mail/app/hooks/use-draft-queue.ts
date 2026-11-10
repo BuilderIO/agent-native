@@ -108,6 +108,6 @@ export function useOpenQueuedDraft() {
   return useActionMutation("open-queued-draft");
 }
 
-export function useSendQueuedDrafts() {
-  return useActionMutation("send-queued-drafts");
+export function useSendQueuedDrafts(errorLabel: string) {
+  return useActionMutation("send-queued-drafts", { errorLabel });
 }

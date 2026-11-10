@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-09
+
+### Improved
+
+- Some new accounts now connect to Builder automatically during signup, with the Builder terms and privacy notice shown before signup.
+
 ## 2026-11-05
 
 ### Improved

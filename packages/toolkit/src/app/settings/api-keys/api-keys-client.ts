@@ -65,6 +65,19 @@ export async function saveApiKeyValue({
   notifyKeysChanged();
 }
 
+/** Remove a registered key's saved value. Throws the server's message. */
+export async function removeApiKeyValue(name: string): Promise<void> {
+  const res = await fetch(`${secretsEndpoint()}/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    throw new Error(
+      (await readError(res)) ?? `Could not remove ${name} (${res.status})`,
+    );
+  }
+  notifyKeysChanged();
+}
+
 export type SavedApiKeyTest = { ok: true } | { ok: false; error: string };
 
 /** Run a registered key's validator against its saved value. */

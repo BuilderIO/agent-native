@@ -1077,6 +1077,26 @@ const editor = {
     hideInSearch: "खोज में छिप जाओ",
     hideInSearchDescription:
       "संगठन से छिपाएँ और खोजें। जिन लोगों के पास लिंक है वे अभी भी देख सकते हैं.",
+    sharePeopleTab: "लोग",
+    shareAgentsTab: "एजेंट",
+    agentLevelHeading: "इस पेज पर एजेंट",
+    agentLevelMenuLabel: "इस पेज पर एजेंट क्या कर सकते हैं",
+    agentLevelDefault: "(डिफ़ॉल्ट)",
+    agentLevelCommentDescription:
+      "पढ़ सकते हैं, टिप्पणी कर सकते हैं और बदलाव सुझा सकते हैं। उन्हें सिर्फ़ लोग स्वीकार कर सकते हैं।",
+    agentLevelEditDescription:
+      "पढ़ सकते हैं, टिप्पणी कर सकते हैं, सुझाव दे सकते हैं, टेक्स्ट, शीर्षक और टैब संपादित कर सकते हैं, और पेज को ट्रैश में ले जा सकते हैं।",
+    agentLevelCommentConfirm:
+      "एजेंट अब इस पेज पर टिप्पणी कर सकते हैं और बदलाव सुझा सकते हैं, लेकिन इसे संपादित नहीं कर सकते।",
+    agentLevelEditConfirm: "एजेंट इस पेज को फिर से संपादित कर सकते हैं।",
+    agentLevelLimit:
+      "एजेंट को कभी भी उस व्यक्ति से ज़्यादा अधिकार नहीं मिलते जिसके लिए वह काम करता है।",
+    agentLevelManagersOnly: "इसे सिर्फ़ वे लोग बदल सकते हैं जो इस पेज को मैनेज करते हैं।",
+    agentLevelUpdateFailed: "यहाँ एजेंट क्या कर सकते हैं, यह बदला नहीं जा सका।",
+    agentLevelNote: "एजेंट टिप्पणी कर सकते हैं",
+    agentLevelNoteHint: "एजेंट इस पेज पर टिप्पणी कर सकते हैं। इसे ‘साझा करें’ में बदलें।",
+    sendPageToAgent: "यह पेज किसी एजेंट को भेजें",
+    connectAgentOverMcp: "MCP से एजेंट कनेक्ट करें",
     importingFromNotion: "नोशन से आयात किया जा रहा है...",
     lastSynced: "अंतिम बार समन्वयित किया गया",
     linkedToNotion: "धारणा से जुड़ा हुआ",
@@ -1149,7 +1169,7 @@ const rawLiterals = {
     previewDraftUseSaved: "सहेजा गया वर्शन इस्तेमाल करें",
     previewDraftSaveSeparately: "मेरे वर्शन को अलग पेज के रूप में सहेजें",
     previewDraftSavedToHistory: "आपके बदलाव वर्शन इतिहास में सहेजे गए",
-    previewDraftSavedSeparately: "आपके बदलाव अलग पेज के रूप में सहेजे गए",
+    previewDraftSavedSeparately: "आपके बदलाव आपके स्पेस में निजी पेज के रूप में सहेजे गए",
     previewDraftOpenSavedPage: "पेज खोलें",
     previewDraftMoreOptions: "ज़्यादा विकल्प",
     previewDraftViewFullVersions: "पूरे वर्शन देखें",
