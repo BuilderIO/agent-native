@@ -32,6 +32,7 @@ import { isYouTubeEmbedBackedRecording } from "../../shared/youtube.js";
 import { getDb, schema } from "../db/index.js";
 import {
   deleteRecordingMediaObjects,
+  deleteStoredMediaUrl,
   deleteSupersededHostedMedia,
 } from "./recording-media-cleanup.js";
 import { ownerEmailMatches } from "./recordings.js";
@@ -546,11 +547,25 @@ export async function ensureRecordingAudioLevel(params: {
     };
   }
 
-  if (rec.storageMode === "hosted" && upload.url !== rec.videoUrl) {
-    await deleteSupersededHostedMedia(rec.videoUrl, {
-      recordingId,
-      replacementUrl: upload.url,
-    });
+  if (upload.url !== rec.videoUrl) {
+    // Own storage hands back a new key, so the quiet original would otherwise
+    // stay in the bucket with nothing pointing at it.
+    if (rec.storageMode === "hosted") {
+      await deleteSupersededHostedMedia(rec.videoUrl, {
+        recordingId,
+        replacementUrl: upload.url,
+      });
+    } else {
+      await deleteStoredMediaUrl(rec.videoUrl, {
+        recordingId,
+        storageMode: rec.storageMode,
+      }).catch((err: unknown) => {
+        console.warn("[audio-level] could not delete the replaced media", {
+          recordingId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
   }
   await writeMarker({
     recordingId,
