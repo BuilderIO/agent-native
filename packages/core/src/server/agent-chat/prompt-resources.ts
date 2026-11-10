@@ -903,7 +903,10 @@ async function loadResourceSkillsPromptBlock(
     lines.push(
       `- ${inspectionNotice} ${resourceToolHint("list", '`prefix: "skills/"` to inspect the full catalog')}`,
     );
-  } else if (total > metadataRead) {
+  } else if (
+    total > metadataRead ||
+    metadataRead > PROMPT_SKILL_SUMMARY_LIMIT
+  ) {
     lines.push(
       `- ...more skills omitted from the startup summary. ${resourceToolHint("list", '`prefix: "skills/"` to inspect the full catalog')}`,
     );
