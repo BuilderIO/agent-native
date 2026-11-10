@@ -53,13 +53,7 @@ function QuickSendRow({
       toast.success(t("dispatch.pages.messageSent"));
       setText("");
     },
-    onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t("dispatch.pages.unableToSendMessage"),
-      );
-    },
+    errorLabel: t("dispatch.pages.unableToSendMessage"),
   });
   return (
     <div className="mt-3 flex gap-2">

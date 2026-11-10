@@ -31,10 +31,10 @@ describe("SlideEditor render-phase safety", () => {
   it("flushes an active inline draft before browser teardown", () => {
     expect(source).toContain("flushPendingSaves");
     expect(source).toContain(
-      'window.addEventListener("beforeunload", flushInlineEditDraft',
+      'window.addEventListener("beforeunload", flushPlain',
     );
     expect(source).toContain(
-      'window.addEventListener("pagehide", flushInlineEditDraft',
+      'window.addEventListener("pagehide", flushKeepalive',
     );
     expect(source).toContain(
       'document.addEventListener("visibilitychange", flushWhenHidden',
@@ -45,7 +45,7 @@ describe("SlideEditor render-phase safety", () => {
     const start = source.indexOf("const flushInlineEditDraft");
     const end = source.indexOf("const flushWhenHidden", start);
     const flushBody = source.slice(start, end);
-    expect(flushBody).toContain("flushPendingSaves();");
+    expect(flushBody).toContain("flushPendingSaves(options);");
     expect(flushBody).not.toContain("inlineEditDraftRef.current = null");
     expect(flushBody).not.toContain("onUpdateSlideRef.current");
   });

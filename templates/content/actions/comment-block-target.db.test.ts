@@ -6,7 +6,10 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { derivedVideoBlockId } from "../shared/comment-block-anchor.js";
+import {
+  derivedCommentAnchorBlockId,
+  derivedVideoBlockId,
+} from "../shared/comment-block-anchor.js";
 
 function found<T>(value: T | null | undefined): T {
   if (value == null) throw new Error("Expected the fixture to have it");
@@ -612,5 +615,68 @@ describe("add-comment with blockId", () => {
         }),
       ),
     ).toEqual({ statusCode: 400, errorCode: "comment_block_id_shared" });
+  });
+});
+
+describe("add-comment on a whole image or audio clip", () => {
+  const PNG = "https://example.com/painting.png";
+  const MP3 = "https://example.com/memo.mp3";
+  const IMAGE_ID = derivedCommentAnchorBlockId("image", PNG, 0);
+
+  async function seedMedia(id: string) {
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id,
+        ownerEmail: OWNER,
+        title: "Paintings",
+        content: [
+          "Intro",
+          `![A painting](${PNG})`,
+          `<audio src="${MP3}"></audio>`,
+        ].join("\n"),
+      });
+    return id;
+  }
+
+  it("saves a person's thread on an image by the id its file gives it", async () => {
+    const page = await seedMedia("media-image-person");
+    const created = await byPerson({
+      documentId: page,
+      content: "Love the light here",
+      blockId: IMAGE_ID,
+    });
+    expect(await storedComment(created.id)).toMatchObject({
+      quotedText: null,
+      blockId: IMAGE_ID,
+      blockType: "image",
+    });
+    const { comments } = await as(() => listComments.run({ documentId: page }));
+    expect(comments).toEqual([
+      expect.objectContaining({ block_id: IMAGE_ID, block_type: "image" }),
+    ]);
+  });
+
+  it("saves a person's thread on an audio clip", async () => {
+    const page = await seedMedia("media-audio-person");
+    const blockId = derivedCommentAnchorBlockId("audio", MP3, 0);
+    const created = await byPerson({
+      documentId: page,
+      content: "Trim the start",
+      blockId,
+    });
+    expect(await storedComment(created.id)).toMatchObject({
+      blockId,
+      blockType: "audio",
+    });
+  });
+
+  it("tells an agent an image's id isn't one it can comment by", async () => {
+    const page = await seedMedia("media-image-agent");
+    expect(
+      await rejection(
+        byAgent({ documentId: page, content: "Brighter?", blockId: IMAGE_ID }),
+      ),
+    ).toEqual({ statusCode: 400, errorCode: "comment_block_id_unsaved" });
   });
 });
