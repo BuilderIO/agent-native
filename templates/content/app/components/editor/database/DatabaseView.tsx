@@ -5,6 +5,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
@@ -286,6 +287,7 @@ import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
 } from "../database-sources/BuilderSourceReviewDialog";
+import { leaveEscapeToPagePanel } from "../document-page-panel-state";
 import {
   PageEditorSurface,
   type PageCommentIntent,
@@ -2606,7 +2608,10 @@ function DatabaseTable({
         clearTimeout(personalViewSaveTimerRef.current);
         personalViewSaveTimerRef.current = null;
       }
-      updatePersonalView.mutate({ databaseId, overrides: null });
+      updatePersonalView.mutate(
+        { databaseId, overrides: null },
+        { onError: (error) => reportWriteFailure(error) },
+      );
       setSavedViewConfig(nextViewConfig);
       setViewConfig(nextViewConfig);
       setPersonalQueryDirty(false);
@@ -2633,10 +2638,10 @@ function DatabaseTable({
         current,
         savedViewConfig,
       );
-      updatePersonalView.mutate({
-        databaseId,
-        overrides: null,
-      });
+      updatePersonalView.mutate(
+        { databaseId, overrides: null },
+        { onError: (error) => reportWriteFailure(error) },
+      );
       setPersonalQueryDirty(false);
       hydratedViewRef.current = databaseViewStateKey(
         databaseId,
@@ -5445,6 +5450,20 @@ function DatabaseItemPreviewSheet({
       <SheetContent
         side="right"
         showOverlay={false}
+        onEscapeKeyDown={(event) => {
+          const preview =
+            event.target instanceof Element
+              ? event.target.closest('[role="dialog"]')
+              : null;
+          if (
+            preview?.querySelector(
+              "[data-document-page-panel]:not([aria-hidden])",
+            )
+          ) {
+            event.preventDefault();
+            leaveEscapeToPagePanel(event);
+          }
+        }}
         onOpenAutoFocus={() => {
           const active = window.document.activeElement;
           returnFocusRef.current =
@@ -20267,10 +20286,15 @@ function RowNameCell({
       }
       return;
     }
-    await updateDocument.mutateAsync({
-      id: item.document.id,
-      title: nextTitle,
-    });
+    try {
+      await updateDocument.mutateAsync({
+        id: item.document.id,
+        title: nextTitle,
+      });
+    } catch (error) {
+      reportWriteFailure(error);
+      return;
+    }
     await queryClient.invalidateQueries({
       queryKey: [
         "action",

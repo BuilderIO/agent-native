@@ -1,5 +1,12 @@
 # @agent-native/creative-context
 
+## 0.8.69
+
+### Patch Changes
+
+- dc1be54: Add `isCreativeContextOffForUser`, which reports when the lab is unavailable to the user or their saved preference is off, so callers can drop reuse labels that `validateGenerationCreativeContext` would refuse.
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.68
 
 ### Patch Changes
@@ -637,11 +644,5 @@
 ### Patch Changes
 
 - 25f588e: Redirect legacy `/agent` management URLs to the canonical settings routes and preserve app-owned settings tabs.
-
-## 0.6.2
-
-### Patch Changes
-
-- e177059: Restore the serverless Playwright fallback so production URL extraction can use packaged Chromium.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

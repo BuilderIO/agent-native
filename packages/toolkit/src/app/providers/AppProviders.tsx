@@ -53,6 +53,8 @@ import {
   UnsupportedDeviceGate,
   type UnsupportedDeviceGateProps,
 } from "../shared/UnsupportedDeviceGate.js";
+import { WriteFailureToaster } from "../shared/WriteFailureToaster.js";
+import { BuilderSignupStartupGate } from "./BuilderSignupActivation.js";
 
 export interface AppProvidersProps {
   queryClient: QueryClient;
@@ -87,6 +89,9 @@ export interface AppProvidersProps {
   signedOutHref?: () => string | null;
 
   skipFirstRunOnboarding?: boolean;
+
+  /** Opt in to the app-specific, consented Builder signup experiment. */
+  builderSignupExperiment?: string;
 
   /**
    * Replaces the app with a hand-off notice on touch screens smaller than an
@@ -507,17 +512,20 @@ function ProvidersInner({
   settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
-  // The banner reads the app's locale, so it sits inside the same provider.
+  // The banner and the failure toasts read the app's locale, so they sit
+  // inside the same provider.
   const localizedChildren =
     i18n === false ? (
       <>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
+        <WriteFailureToaster />
       </>
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
+        <WriteFailureToaster />
       </AgentNativeI18nProvider>
     );
 
@@ -577,6 +585,7 @@ export function AppProviders({
   sessionBypass = false,
   signedOutHref,
   skipFirstRunOnboarding = false,
+  builderSignupExperiment,
   unsupportedDevice,
   disableWebMcp = false,
   webMcpExcludeActionNames,
@@ -640,11 +649,20 @@ export function AppProviders({
             </React.Suspense>
           ) : null}
           <AgentEngineReadinessBootstrap />
-          <FirstRunOnboardingStartupGate
-            suppressSurface={skipFirstRunOnboarding}
-          >
-            {children}
-          </FirstRunOnboardingStartupGate>
+          {builderSignupExperiment ? (
+            <BuilderSignupStartupGate
+              experimentId={builderSignupExperiment}
+              suppressSurface={skipFirstRunOnboarding}
+            >
+              {children}
+            </BuilderSignupStartupGate>
+          ) : (
+            <FirstRunOnboardingStartupGate
+              suppressSurface={skipFirstRunOnboarding}
+            >
+              {children}
+            </FirstRunOnboardingStartupGate>
+          )}
         </>
       )}
     </RequireSession>

@@ -1,5 +1,6 @@
 import {
   createOAuthSession,
+  recordBuilderSignupBinding,
   decodeOAuthState,
   ensureGoogleAuthIdentity,
   getAppUrl,
@@ -144,6 +145,21 @@ async function handleGoogleSignInCallback(
         isNewUser,
       },
     });
+
+    if (isNewUser) {
+      await recordBuilderSignupBinding(
+        event,
+        state.builderSignupAttemptId,
+        "google",
+        email,
+        {
+          email,
+          ...(sessionToken ? { token: sessionToken } : {}),
+          ...(typeof user.name === "string" ? { name: user.name } : {}),
+          emailVerified: true,
+        },
+      );
+    }
 
     if (flowId && sessionToken) {
       if (!state.desktopVerifierHash) {
