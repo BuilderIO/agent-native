@@ -10,7 +10,6 @@ import {
 } from "@agent-native/core/client/mcp-app-host";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
-import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import type { ShareButtonActionHandle } from "@agent-native/toolkit/app/sharing";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
@@ -38,8 +37,8 @@ import {
   IconLoader2,
   IconSearch,
   IconFileText,
+  IconTrash,
   IconPlus,
-  IconMessageCircle,
   IconRefresh,
   IconPencil,
   IconUserPlus,
@@ -71,6 +70,7 @@ const ShareButton = lazy(() =>
   })),
 );
 
+import { CONTENT_SHEET_MAX_WIDTH } from "@/components/layout/content-layout";
 import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import {
   AlertDialog,
@@ -139,6 +139,11 @@ import {
   DatabaseExportDialog,
   type DatabaseExportContext,
 } from "./database/DatabaseExportDialog";
+import {
+  type DocumentPagePanelTab,
+  leaveEscapeToPagePanel,
+} from "./document-page-panel-state";
+import { DocumentPanelTabs } from "./DocumentPanelTabs";
 import {
   VersionHistoryPanel,
   type HistoryRestoreApplyResult,
@@ -857,11 +862,12 @@ interface DocumentToolbarProps {
   onDelete?: () => Promise<void>;
   isFavorite?: boolean;
   onToggleFavorite?: (isFavorite: boolean) => void;
-  utilityPanel: "info" | "comments" | null;
-  commentsHistoryOpen?: boolean;
+  utilityPanel: DocumentPagePanelTab | null;
   /** Open comment threads on the Page, the count its Collection row shows. */
   openCommentCount?: number;
-  onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
+  onUtilityPanelChange: (panel: DocumentPagePanelTab | null) => void;
+  showAgentTab?: boolean;
+  panelId?: string | undefined;
   showCommentsControl?: boolean;
   commentsTriggerRef?: Ref<HTMLButtonElement>;
   utilityPanelFocusFallbackRef?: Ref<HTMLButtonElement>;
@@ -890,12 +896,16 @@ const TOOLBAR_GAP = 12;
 const TOOLBAR_SIDEBAR_TRIGGER_WIDTH = 40;
 
 // The room for the controls where the toolbar folds one step further. Under
-// the first, presence shows fewer avatars. Then the Suggesting chip moves
-// into the page-actions menu, presence leaves, and Comments moves into the
-// menu. Under the last, Share leaves and its Copy page link moves into the
-// menu: the Share popover anchors to its own trigger, so it cannot open from
-// the menu, and a phone's room stays above that step.
-const TOOLBAR_FOLD_ROOMS = [384, 320, 260, 152, 112];
+// the first, presence shows fewer avatars. Then the Suggesting chip moves into
+// the page-actions menu, presence leaves, and Share and Copy page link move
+// into the menu. The Share popover anchors to its own trigger, which stays
+// mounted, hidden, for the menu to open it. The panel tabs and the menu never
+// fold, so the menu ends the bar at every width.
+const TOOLBAR_FOLD_ROOMS = [440, 400, 340, 300];
+const TOOLBAR_SHARE_FOLD = TOOLBAR_FOLD_ROOMS.length;
+// A phone's bar, whatever room it has: Share lives in the menu, and the tabs
+// and the menu are 44 px touch targets.
+const TOOLBAR_PHONE_FOLD = TOOLBAR_SHARE_FOLD + 1;
 
 const WIDGET_SHARE_CONTROL_SIZE = "sm" as const;
 
@@ -904,7 +914,12 @@ const WIDGET_SHARE_CONTROL_SIZE = "sm" as const;
  * holds the padding, the sidebar trigger and the breadcrumb at their
  * narrowest.
  */
-export function toolbarFoldLevel(width: number, reserved: number) {
+export function toolbarFoldLevel(
+  width: number,
+  reserved: number,
+  viewportWidth: number,
+) {
+  if (viewportWidth <= CONTENT_SHEET_MAX_WIDTH) return TOOLBAR_PHONE_FOLD;
   const room = width - reserved;
   return TOOLBAR_FOLD_ROOMS.filter((step) => room < step).length;
 }
@@ -955,9 +970,10 @@ export function DocumentToolbar({
   isFavorite = false,
   onToggleFavorite,
   utilityPanel,
-  commentsHistoryOpen = false,
   openCommentCount = 0,
   onUtilityPanelChange,
+  showAgentTab = false,
+  panelId,
   showCommentsControl = true,
   commentsTriggerRef,
   utilityPanelFocusFallbackRef,
@@ -993,7 +1009,7 @@ export function DocumentToolbar({
     (compact ? 0 : breadcrumbMinWidth(toolbarBreadcrumbItems) + TOOLBAR_GAP);
   const foldLevel = useElementWidthValue(
     toolbarRef,
-    (width) => toolbarFoldLevel(width, reservedWidth),
+    (width) => toolbarFoldLevel(width, reservedWidth, window.innerWidth),
     0,
     true,
     reservedWidth,
@@ -1002,8 +1018,15 @@ export function DocumentToolbar({
   // what the menu holds, so Share and Open stay in the bar.
   const suggestingInMenu = !inWidget && foldLevel >= 2;
   const presenceHidden = inWidget || foldLevel >= 3;
-  const commentsInMenu = !inWidget && foldLevel >= 4;
-  const shareInMenu = !inWidget && foldLevel >= 5;
+  const shareInMenu = !inWidget && foldLevel >= TOOLBAR_SHARE_FOLD;
+  const phoneBar = !inWidget && foldLevel >= TOOLBAR_PHONE_FOLD;
+  const panelTabs: DocumentPagePanelTab[] = inWidget
+    ? []
+    : [
+        ...(showAgentTab ? (["agent"] as const) : []),
+        ...(showCommentsControl ? (["comments"] as const) : []),
+        "info",
+      ];
   // A widget shares only through a write grant, and not a document its
   // viewer cannot edit; the app shares everything it does not hold read-only.
   const shareAvailable = canShare && (inWidget ? writeWidget : !readOnly);
@@ -1116,6 +1139,7 @@ export function DocumentToolbar({
   const pageActionsRestoreFrameRef = useRef<number | null>(null);
   const shareFocusFrameRef = useRef<number | null>(null);
   const pageActionsTriggerClosingRef = useRef(false);
+  const pageActionsEscapedRef = useRef(false);
   const pageActionsOpenRef = useRef(false);
 
   useEffect(
@@ -1181,6 +1205,15 @@ export function DocumentToolbar({
   const copyPageUrl = isLocalFileDocument ? pageUrl : shareUrl;
   const effectiveHideFromSearch = pendingHideFromSearch ?? hideFromSearch;
   const editedLabel = formatEditedLabel(documentUpdatedAt);
+  // The history panel mounts beside Share.
+  const historyAvailable = shareAvailable && !inWidget && !isLocalFileDocument;
+  const openHistory = () => {
+    trackEvent("document_history_opened", {
+      app_name: "content",
+      template_name: "content",
+    });
+    setHistoryOpen(true);
+  };
 
   const { data: searchResults, isLoading: searchLoading } =
     useSearchNotionPages(debouncedQuery, open && isConnected && !isLinked);
@@ -1588,36 +1621,33 @@ export function DocumentToolbar({
     [documentContent, documentId, documentTitle, exportDocument, t],
   );
 
-  const toggleCommentsHistory = () => {
-    const nextPanel = commentsHistoryOpen ? null : "comments";
-    if (nextPanel === "comments") {
-      trackEvent("document_utility_panel_opened", {
-        app_name: "content",
-        template_name: "content",
-        panel: "comments",
-      });
-    }
-    onUtilityPanelChange(nextPanel);
-  };
-  const shareLabel = (
+  // A widget keeps the joined, filled control: it has no tabs to sit beside.
+  const shareLabel = inWidget ? (
     <span className="hidden @min-[40rem]/toolbar:inline">
       {t("editor.toolbar.share")}
     </span>
+  ) : (
+    t("editor.toolbar.share")
   );
   const unopenedShareControl = (
     <JoinedShareControl
+      appearance={inWidget ? "joined" : "plain"}
       trigger={
         <ShareTrigger
           aria-expanded={false}
           aria-label={t("editor.toolbar.share")}
           label={
-            <span className="flex items-center gap-2">
-              <IconUserPlus aria-hidden="true" />
-              {shareLabel}
-            </span>
+            inWidget ? (
+              <span className="flex items-center gap-2">
+                <IconUserPlus aria-hidden="true" />
+                {shareLabel}
+              </span>
+            ) : (
+              shareLabel
+            )
           }
-          intent="primary"
-          emphasis="solid"
+          intent={inWidget ? "primary" : undefined}
+          emphasis={inWidget ? "solid" : "ghost"}
           onPress={() => setShareRequested(true)}
         />
       }
@@ -1637,10 +1667,9 @@ export function DocumentToolbar({
 
   return (
     <>
-      {/* As the toolbar narrows, the Edited label goes first, then the Share
-          and Suggesting labels, then controls fold by `toolbarFoldLevel`;
-          the breadcrumb folds its ancestors before the page title drops below
-          a readable width. */}
+      {/* As the toolbar narrows, the Edited label goes first, then controls
+          fold by `toolbarFoldLevel`; the breadcrumb folds its ancestors before
+          the page title drops below a readable width. */}
       <div
         ref={toolbarRef}
         className={cn(
@@ -1667,9 +1696,19 @@ export function DocumentToolbar({
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
           {editedLabel && !compact ? (
-            <span className="hidden shrink-0 px-2 text-sm text-muted-foreground @min-[48rem]/toolbar:inline">
-              {editedLabel}
-            </span>
+            historyAvailable ? (
+              <button
+                type="button"
+                className="hidden h-8 shrink-0 items-center rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-[1024px]:flex"
+                onClick={openHistory}
+              >
+                {editedLabel}
+              </button>
+            ) : (
+              <span className="hidden shrink-0 px-2 text-sm text-muted-foreground min-[1024px]:inline">
+                {editedLabel}
+              </span>
+            )
           ) : null}
 
           {/* Presence — shared PresenceBar (agent + collaborator avatars) */}
@@ -1683,6 +1722,50 @@ export function DocumentToolbar({
               className="mr-1"
             />
           )}
+          {!inWidget && !readOnly && suggesting && !suggestingInMenu ? (
+            <div className="flex h-8 items-center gap-1 rounded-md bg-primary/10 ps-2 text-sm text-primary">
+              <IconPencil aria-hidden="true" className="size-3.5" />
+              <span className="sr-only @min-[40rem]/toolbar:not-sr-only">
+                {t("editor.toolbar.suggesting")}
+              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    ref={editorEscapeTargetRef}
+                    className="ms-0.5 flex size-7 items-center justify-center rounded-sm text-primary/70 hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={t("editor.toolbar.stopSuggesting")}
+                    onClick={() => onSuggestingChange?.(false)}
+                  >
+                    <IconX aria-hidden="true" className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("editor.toolbar.stopSuggesting")}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          ) : null}
+
+          {panelTabs.length ? (
+            <>
+              <DocumentPanelTabs
+                tabs={panelTabs}
+                activeTab={utilityPanel}
+                openCommentCount={openCommentCount}
+                plain={phoneBar}
+                panelId={panelId}
+                commentsTriggerRef={commentsTriggerRef}
+                onTabChange={onUtilityPanelChange}
+              />
+              <div
+                aria-hidden="true"
+                className="mx-1.5 h-4 w-px shrink-0 bg-border"
+                data-document-toolbar-divider
+              />
+            </>
+          ) : null}
+
           {shareAvailable &&
           !isLocalFileDocument &&
           !shareInMenu &&
@@ -1699,15 +1782,11 @@ export function DocumentToolbar({
                   <DropdownMenuTrigger asChild>
                     <ShareTrigger
                       className="h-9 rounded-lg px-3"
+                      emphasis="ghost"
                       pending={shareLocalFile.isPending}
                       disabled={shareLocalFile.isPending}
                       aria-label={t("editor.toolbar.share")}
-                      label={
-                        <span className="flex items-center gap-2">
-                          <IconUserPlus aria-hidden="true" />
-                          {shareLabel}
-                        </span>
-                      }
+                      label={shareLabel}
                     />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
@@ -1741,13 +1820,18 @@ export function DocumentToolbar({
                     triggerContent={shareLabel}
                     // ShareButton wraps the label in a span gapped from its
                     // icon; the gap goes with the label.
-                    triggerClassName="[&>span]:gap-0 @min-[40rem]/toolbar:[&>span]:gap-2"
+                    triggerClassName={
+                      inWidget
+                        ? "[&>span]:gap-0 @min-[40rem]/toolbar:[&>span]:gap-2"
+                        : undefined
+                    }
                     showShareLinks={false}
                     quickCopy={{
                       label: t("editor.toolbar.copyPageLink"),
                       copiedLabel: t("editor.toolbar.copiedPageLink"),
                       onCopy: handleCopyPageLink,
                       size: inWidget ? WIDGET_SHARE_CONTROL_SIZE : undefined,
+                      appearance: inWidget ? "joined" : "plain",
                     }}
                     basicSharingOnly={inWidget}
                     peopleAccessLabel={t("editor.toolbar.whoHasAccess")}
@@ -1860,68 +1944,6 @@ export function DocumentToolbar({
             )
           ) : null}
 
-          {!inWidget && !readOnly && suggesting && !suggestingInMenu ? (
-            <div className="flex h-8 items-center gap-1 rounded-md bg-primary/10 ps-2 text-sm text-primary">
-              <IconPencil aria-hidden="true" className="size-3.5" />
-              <span className="sr-only @min-[40rem]/toolbar:not-sr-only">
-                {t("editor.toolbar.suggesting")}
-              </span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    ref={editorEscapeTargetRef}
-                    className="ms-0.5 flex size-7 items-center justify-center rounded-sm text-primary/70 hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={t("editor.toolbar.stopSuggesting")}
-                    onClick={() => onSuggestingChange?.(false)}
-                  >
-                    <IconX aria-hidden="true" className="size-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {t("editor.toolbar.stopSuggesting")}
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          ) : null}
-
-          {showCommentsControl && !inWidget && !commentsInMenu ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  ref={commentsTriggerRef}
-                  data-comments-history-trigger
-                  type="button"
-                  className={cn(
-                    "relative flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    commentsHistoryOpen && "bg-accent text-accent-foreground",
-                  )}
-                  aria-label={
-                    openCommentCount
-                      ? t("comments.discussionOpenCount", {
-                          count: openCommentCount,
-                        })
-                      : t("comments.discussion")
-                  }
-                  aria-pressed={commentsHistoryOpen}
-                  onClick={toggleCommentsHistory}
-                  data-open-comment-count={openCommentCount || undefined}
-                >
-                  <IconMessageCircle size={16} />
-                  {openCommentCount ? (
-                    <span
-                      aria-hidden="true"
-                      className="absolute end-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-medium leading-none text-background"
-                    >
-                      {openCommentCount > 99 ? "99+" : openCommentCount}
-                    </span>
-                  ) : null}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("comments.discussion")}</TooltipContent>
-            </Tooltip>
-          ) : null}
-
           {inWidget ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1984,13 +2006,10 @@ export function DocumentToolbar({
                     <button
                       ref={pageActionsRef}
                       className={cn(
-                        "flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
-                        utilityPanel === "info" && "bg-accent text-foreground",
-                        // Folded, the menu holds Comments and Stop suggesting,
-                        // so it shows their state.
-                        commentsInMenu &&
-                          commentsHistoryOpen &&
-                          "bg-accent text-foreground",
+                        "flex items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
+                        phoneBar ? "size-11" : "size-9",
+                        // Folded, the menu holds Stop suggesting, so it shows
+                        // its state.
                         suggestingInMenu &&
                           suggesting &&
                           "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
@@ -2020,7 +2039,7 @@ export function DocumentToolbar({
                     </button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
-                <TooltipContent>
+                <TooltipContent onEscapeKeyDown={leaveEscapeToPagePanel}>
                   {t("editor.toolbar.morePageActions")}
                 </TooltipContent>
               </Tooltip>
@@ -2029,8 +2048,48 @@ export function DocumentToolbar({
               align="end"
               className="w-60"
               data-database-preview-portal={compact ? "" : undefined}
-              onCloseAutoFocus={(event) => event.preventDefault()}
+              onEscapeKeyDown={() => {
+                pageActionsEscapedRef.current = true;
+              }}
+              onCloseAutoFocus={(event) => {
+                event.preventDefault();
+                // Escape goes back to ⋮ unless a text selection took focus back.
+                if (
+                  pageActionsEscapedRef.current &&
+                  globalThis.document.activeElement === globalThis.document.body
+                ) {
+                  pageActionsButtonRef.current?.focus();
+                }
+                pageActionsEscapedRef.current = false;
+              }}
             >
+              {shareInMenu ? (
+                <>
+                  <DropdownMenuGroup>
+                    {!isLocalFileDocument ? (
+                      <DropdownMenuItem
+                        onSelect={() => setShareRequested(true)}
+                      >
+                        {t("editor.toolbar.share")}
+                      </DropdownMenuItem>
+                    ) : null}
+                    <DropdownMenuItem
+                      onSelect={() => void handleCopyPageLink()}
+                    >
+                      {t("editor.toolbar.copyPageLink")}
+                    </DropdownMenuItem>
+                    {isLocalFileDocument ? (
+                      <DropdownMenuItem
+                        disabled={shareLocalFile.isPending}
+                        onSelect={() => void handleShareLocalFile()}
+                      >
+                        {t("editor.toolbar.createShareableCopy")}
+                      </DropdownMenuItem>
+                    ) : null}
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
               {!readOnly && (canSuggest || suggesting) ? (
                 <>
                   <DropdownMenuItem
@@ -2067,8 +2126,8 @@ export function DocumentToolbar({
                 </DropdownMenuItem>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                {!readOnly && onToggleFavorite ? (
+              {!readOnly && onToggleFavorite ? (
+                <>
                   <DropdownMenuItem
                     onSelect={() => onToggleFavorite(!isFavorite)}
                   >
@@ -2076,67 +2135,6 @@ export function DocumentToolbar({
                       ? t("editor.toolbar.unpin")
                       : t("editor.toolbar.pin")}
                   </DropdownMenuItem>
-                ) : null}
-                {showCommentsControl && commentsInMenu ? (
-                  <DropdownMenuItem
-                    onSelect={toggleCommentsHistory}
-                    className={cn(
-                      commentsHistoryOpen && "bg-accent text-accent-foreground",
-                    )}
-                  >
-                    {t("comments.discussion")}
-                    {openCommentCount ? (
-                      <span className="ms-auto ps-3 text-xs text-muted-foreground">
-                        {openCommentCount}
-                      </span>
-                    ) : null}
-                  </DropdownMenuItem>
-                ) : null}
-                <DropdownMenuItem
-                  onSelect={() => {
-                    const nextPanel = utilityPanel === "info" ? null : "info";
-                    if (nextPanel === "info") {
-                      trackEvent("document_utility_panel_opened", {
-                        app_name: "content",
-                        template_name: "content",
-                        panel: "info",
-                      });
-                    }
-                    onUtilityPanelChange(nextPanel);
-                  }}
-                  className={cn(
-                    utilityPanel === "info" &&
-                      "bg-accent text-accent-foreground",
-                  )}
-                >
-                  {t("editor.toolbar.info")}
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              {shareInMenu ? (
-                <>
-                  <DropdownMenuGroup>
-                    {!isLocalFileDocument ? (
-                      <DropdownMenuItem
-                        onSelect={() => setShareRequested(true)}
-                      >
-                        {t("editor.toolbar.share")}
-                      </DropdownMenuItem>
-                    ) : null}
-                    <DropdownMenuItem
-                      onSelect={() => void handleCopyPageLink()}
-                    >
-                      {t("editor.toolbar.copyPageLink")}
-                    </DropdownMenuItem>
-                    {isLocalFileDocument ? (
-                      <DropdownMenuItem
-                        disabled={shareLocalFile.isPending}
-                        onSelect={() => void handleShareLocalFile()}
-                      >
-                        {t("editor.toolbar.createShareableCopy")}
-                      </DropdownMenuItem>
-                    ) : null}
-                  </DropdownMenuGroup>
                   <DropdownMenuSeparator />
                 </>
               ) : null}
@@ -2170,15 +2168,7 @@ export function DocumentToolbar({
               {!isLocalFileDocument ? (
                 <>
                   <DropdownMenuGroup>
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        trackEvent("document_history_opened", {
-                          app_name: "content",
-                          template_name: "content",
-                        });
-                        setHistoryOpen(true);
-                      }}
-                    >
+                    <DropdownMenuItem onSelect={openHistory}>
                       {t("editor.toolbar.versionHistory")}
                     </DropdownMenuItem>
                   </DropdownMenuGroup>
@@ -2599,13 +2589,13 @@ export function DocumentToolbar({
                     className="text-destructive focus:text-destructive"
                     onSelect={() => setDeleteDialogOpen(true)}
                   >
-                    {t("database.delete")}
+                    <IconTrash aria-hidden="true" className="me-2 size-4" />
+                    {t("sidebar.moveToTrash")}
                   </DropdownMenuItem>
                 </>
               ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
-          {inWidget ? null : <AgentToggleButton />}
         </div>
       </div>
       {inWidget ? null : (

@@ -734,6 +734,8 @@ const messages = {
     noMatches: "Keine Übereinstimmungen.",
     noTranscript: "Noch kein Transkript.",
     noTranscriptCaptured: "Es wurde kein Transkript erfasst.",
+    unreadableDescription:
+      "Das gespeicherte Transkript ist beschädigt. Beim Neuerstellen entsteht aus dem Ton des Clips ein neues.",
     partialTranscript:
       "Teiltranskript: Die Aufnahme wurde abgeschnitten, daher fehlen möglicherweise Teile.",
     backupFailed:

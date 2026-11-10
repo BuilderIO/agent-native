@@ -23,6 +23,7 @@ import {
   buildOnboardingJourneyPersonFollowupSql,
   onboardingJourneyEventDateRange,
   onboardingJourneyPersonFollowupDateRange,
+  onboardingPersonFollowupEmailHash,
   MAX_ONBOARDING_PERSON_FOLLOWUP_MEMBERS,
   ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS,
   type OnboardingJourneyEventsFilters,
@@ -447,6 +448,10 @@ export interface JourneyPersonFollowup {
         | "unknown";
       terminalSessions: number | null;
       sessionsWithCanonicalIdentity: number | null;
+      /** Identified sessions matched by their one email. */
+      sessionsIdentifiedByEmail: number | null;
+      /** Identified sessions with no usable email, matched by sign-in ID. */
+      sessionsIdentifiedBySignInIdOnly: number | null;
       sessionsWithoutCanonicalIdentity: number | null;
       uniqueCanonicalPeople: number | null;
       coveragePct: number | null;
@@ -525,6 +530,7 @@ export function parseJourneyEventRow(
     sessionReplayId.length > 0 &&
     sessionReplayStartedAt !== null &&
     sessionReplayId.length <= MAX_SESSION_ID_LENGTH;
+  const sessionEmailHash = text(raw.session_email_hash);
   return {
     id,
     sessionId,
@@ -532,6 +538,7 @@ export function parseJourneyEventRow(
     tsMs,
     eventName,
     ...(text(raw.auth_user_id) ? { authUserId: text(raw.auth_user_id)! } : {}),
+    ...(sessionEmailHash ? { sessionEmailHash } : {}),
     ...(text(raw.app) ? { app: text(raw.app)! } : {}),
     templateName: text(raw.template_name),
     path: text(raw.path),
@@ -591,6 +598,18 @@ export const ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS = {
   },
 } as const;
 
+/**
+ * The person follow-up reads its one raw source through the narrow identity
+ * projection: it needs the identity, time, app and host columns, and unlike the
+ * journey event projection it keeps `http.response` events as later activity.
+ */
+export const ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS = {
+  scopedEventsSingleScan: true,
+  scopedEventsSourceProjections: {
+    e: "onboarding_journey_response_identity",
+  },
+} as const;
+
 export function buildOnboardingJourneyEventPageRequest(
   filters: OnboardingJourneyEventsFilters,
   maxEventRows: number,
@@ -636,6 +655,7 @@ async function readJourneyEvents(
   let overflowSessionId: string | null = null;
   let pages = 0;
   let rowsFetched = 0;
+  const pageTotals: JourneyPageTotal[] = [];
   const deadline = new AbortController();
   const deadlineTimer = setTimeout(
     () =>
@@ -708,6 +728,12 @@ async function readJourneyEvents(
       pages += 1;
       raw.push(...page.rows);
       rowsFetched += page.rows.length;
+      if (page.rows.length) {
+        pageTotals.push({
+          rows: integer(page.rows[0]?.journey_total_rows),
+          fingerprint: integer(page.rows[0]?.journey_rows_fingerprint),
+        });
+      }
       if (page.truncated) {
         truncated = true;
         truncationReason = "backend_result";
@@ -776,9 +802,40 @@ async function readJourneyEvents(
     standaloneSetupTruncated: truncated,
     lastSessionDroppedFor,
     pages,
-    paginationConsistency: pages > 1 ? "may_have_shifted" : "stable",
+    paginationConsistency: journeyPagesAgree(
+      pages,
+      pageTotals,
+      rowsFetched,
+      truncated,
+    )
+      ? "stable"
+      : "may_have_shifted",
     truncationReason,
   };
+}
+
+type JourneyPageTotal = { rows: number | null; fingerprint: number | null };
+
+/**
+ * OFFSET pages are separate queries, so an event that arrives between them can
+ * move a page boundary. A matching row count alone does not rule that out: a
+ * late duplicate can drop one event and settle another's ambiguous link. So
+ * every page also fingerprints the whole read's sort keys, and pages agree
+ * only when every count and fingerprint matches and a read that ran to its end
+ * returned exactly that many rows.
+ */
+function journeyPagesAgree(
+  pages: number,
+  pageTotals: readonly JourneyPageTotal[],
+  rowsFetched: number,
+  truncated: boolean,
+): boolean {
+  if (pages <= 1) return true;
+  const rows = new Set(pageTotals.map((total) => total.rows));
+  const fingerprints = new Set(pageTotals.map((total) => total.fingerprint));
+  if (rows.size !== 1 || fingerprints.size !== 1) return false;
+  if (rows.has(null) || fingerprints.has(null)) return false;
+  return truncated || rows.has(rowsFetched);
 }
 
 function groupSessions(rows: readonly JourneyEventRow[]): {
@@ -812,6 +869,9 @@ function groupSessions(rows: readonly JourneyEventRow[]): {
         tsMs: terminal.tsMs,
         app: terminal.app ?? "",
         authUserId: terminal.authUserId ?? null,
+        emailHash: onboardingPersonFollowupEmailHash(
+          sessionRows.find((row) => row.sessionEmailHash)?.sessionEmailHash,
+        ),
       });
     } else sessionsWithoutSteps += 1;
   }
@@ -1128,6 +1188,104 @@ function canonicalPersonId(value: string | null | undefined): string | null {
   return value;
 }
 
+/** The email hash and direct auth ID a terminal session can be matched on. */
+function personFollowupMember(
+  terminal: OnboardingJourneyPersonMember,
+): OnboardingJourneyPersonMember {
+  return {
+    ...terminal,
+    app: terminal.app.toLowerCase(),
+    authUserId: canonicalPersonId(terminal.authUserId),
+    emailHash: onboardingPersonFollowupEmailHash(terminal.emailHash),
+  };
+}
+
+function isLaterTerminal(
+  terminal: OnboardingJourneyPersonMember,
+  current: OnboardingJourneyPersonMember,
+): boolean {
+  return (
+    terminal.tsMs > current.tsMs ||
+    (terminal.tsMs === current.tsMs &&
+      (terminal.sessionId > current.sessionId ||
+        (terminal.sessionId === current.sessionId &&
+          terminal.stepKey > current.stepKey)))
+  );
+}
+
+/**
+ * Sessions that share an email or a direct auth ID belong to one person, who
+ * keeps their latest terminal step. That member matches later activity by
+ * every email and auth ID its sessions carried, and names one of each when its
+ * own session lacks it.
+ */
+function groupPersonFollowupMembers(
+  members: readonly OnboardingJourneyPersonMember[],
+): OnboardingJourneyPersonMember[] {
+  const parent = new Map<string, string>();
+  const root = (key: string): string => {
+    const next = parent.get(key);
+    if (next === undefined) parent.set(key, key);
+    if (next === undefined || next === key) return key;
+    const top = root(next);
+    parent.set(key, top);
+    return top;
+  };
+  const emailKey = (emailHash: string) => `email:${emailHash}`;
+  const authKey = (authUserId: string) => `auth:${authUserId}`;
+  for (const member of members) {
+    if (member.emailHash && member.authUserId) {
+      parent.set(
+        root(authKey(member.authUserId)),
+        root(emailKey(member.emailHash)),
+      );
+    }
+  }
+  const people = new Map<
+    string,
+    {
+      latest: OnboardingJourneyPersonMember;
+      emailHashes: Set<string>;
+      authUserIds: Set<string>;
+    }
+  >();
+  for (const member of members) {
+    const key = member.emailHash
+      ? emailKey(member.emailHash)
+      : member.authUserId
+        ? authKey(member.authUserId)
+        : null;
+    if (key === null) continue;
+    const id = root(key);
+    const person = people.get(id) ?? {
+      latest: member,
+      emailHashes: new Set<string>(),
+      authUserIds: new Set<string>(),
+    };
+    if (member.emailHash) person.emailHashes.add(member.emailHash);
+    if (member.authUserId) person.authUserIds.add(member.authUserId);
+    if (isLaterTerminal(member, person.latest)) person.latest = member;
+    people.set(id, person);
+  }
+  return [...people.values()].map(({ latest, emailHashes, authUserIds }) => {
+    const aliases = {
+      emailHashes: [...emailHashes].sort(),
+      authUserIds: [...authUserIds].sort(),
+    };
+    return {
+      ...latest,
+      emailHash: latest.emailHash ?? firstValue(aliases.emailHashes),
+      authUserId: latest.authUserId ?? firstValue(aliases.authUserIds),
+      aliases,
+    };
+  });
+}
+
+function firstValue(values: Iterable<string>): string | null {
+  for (const value of values) return value;
+  return null;
+}
+
 interface PersonFollowupStepCohort {
   terminalSessions: number;
   identifiedTerminalSessions: number;
@@ -1215,6 +1373,8 @@ async function readPersonFollowup(
     status: "unknown" as const,
     terminalSessions: null,
     sessionsWithCanonicalIdentity: null,
+    sessionsIdentifiedByEmail: null,
+    sessionsIdentifiedBySignInIdOnly: null,
     sessionsWithoutCanonicalIdentity: null,
     uniqueCanonicalPeople: null,
     coveragePct: null,
@@ -1292,32 +1452,18 @@ async function readPersonFollowup(
     });
   }
 
-  const canonicalSessions = terminals.filter(
-    (terminal) => canonicalPersonId(terminal.authUserId) !== null,
+  const terminalMembers = terminals.map(personFollowupMember);
+  const isIdentified = (member: OnboardingJourneyPersonMember) =>
+    member.emailHash !== null || member.authUserId !== null;
+  const identifiedMembers = terminalMembers.filter(isIdentified);
+  const identityUnavailableMembers = terminalMembers.filter(
+    (member) => !isIdentified(member),
+  );
+  const canonicalSessions = identifiedMembers.length;
+  const sessionsIdentifiedByEmail = identifiedMembers.filter(
+    (member) => member.emailHash !== null,
   ).length;
-  const identityUnavailableSessions = terminals.length - canonicalSessions;
-  const peopleById = new Map<string, OnboardingJourneyPersonMember>();
-  const identityUnavailableMembers: OnboardingJourneyPersonMember[] = [];
-  for (const terminal of terminals) {
-    const app = terminal.app.toLowerCase();
-    const personId = canonicalPersonId(terminal.authUserId);
-    if (!personId) {
-      identityUnavailableMembers.push({ ...terminal, app, authUserId: null });
-      continue;
-    }
-    const current = peopleById.get(personId);
-    if (
-      !current ||
-      terminal.tsMs > current.tsMs ||
-      (terminal.tsMs === current.tsMs &&
-        (terminal.sessionId > current.sessionId ||
-          (terminal.sessionId === current.sessionId &&
-            terminal.stepKey > current.stepKey)))
-    ) {
-      peopleById.set(personId, { ...terminal, app, authUserId: personId });
-    }
-  }
-  const personMembers = [...peopleById.values()];
+  const personMembers = groupPersonFollowupMembers(identifiedMembers);
   const members = [...personMembers, ...identityUnavailableMembers];
   const identityJoin: JourneyPersonFollowup["coverage"]["identityJoin"] = {
     status:
@@ -1330,7 +1476,10 @@ async function readPersonFollowup(
             : "partial",
     terminalSessions: terminals.length,
     sessionsWithCanonicalIdentity: canonicalSessions,
-    sessionsWithoutCanonicalIdentity: identityUnavailableSessions,
+    sessionsIdentifiedByEmail,
+    sessionsIdentifiedBySignInIdOnly:
+      canonicalSessions - sessionsIdentifiedByEmail,
+    sessionsWithoutCanonicalIdentity: identityUnavailableMembers.length,
     uniqueCanonicalPeople: personMembers.length,
     coveragePct: terminals.length
       ? Math.round((canonicalSessions / terminals.length) * 1_000) / 10
@@ -1377,10 +1526,10 @@ async function readPersonFollowup(
     }
     return cohort;
   };
-  for (const terminal of terminals) {
+  for (const terminal of terminalMembers) {
     const cohort = ensureStep(terminal.stepKey);
     cohort.terminalSessions += 1;
-    if (canonicalPersonId(terminal.authUserId)) {
+    if (isIdentified(terminal)) {
       cohort.identifiedTerminalSessions += 1;
     } else {
       cohort.identityUnavailableSessions += 1;
@@ -1447,6 +1596,7 @@ async function readPersonFollowup(
       timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
       maxBytesBilled: ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED,
       eventDateRange,
+      ...ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS,
       signal,
     });
   } catch (error) {
@@ -2282,10 +2432,10 @@ export async function getOnboardingJourney(
       `Some onboarding or standalone setup sessions continue beyond maxDepth=${args.maxDepth}; deeperN counts observed continuation omitted below each returned node.`,
     );
   }
-  if (read.pages > 1) {
+  if (read.paginationConsistency === "may_have_shifted") {
     // Late-arriving events can change OFFSET page membership in any window.
     notes.push(
-      `The event read took ${read.pages} OFFSET pages; late-arriving events can shift page membership in any window, so returned tree counts may be incomplete.`,
+      `The event read took ${read.pages} OFFSET pages and their row totals disagreed; late-arriving events can shift page membership in any window, so returned tree counts may be incomplete.`,
     );
   }
   if (capped.dropped) {

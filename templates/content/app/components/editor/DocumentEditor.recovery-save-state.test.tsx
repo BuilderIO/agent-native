@@ -41,6 +41,9 @@ const fixture = vi.hoisted(() => ({
     presentation?: "inline" | "history";
     focusPageComposer?: boolean;
   }[],
+  toolbar: null as {
+    onUtilityPanelChange?: (tab: "info" | "comments" | null) => void;
+  } | null,
   fields: null as DocumentPropertiesResponse | null,
   realAdditionalEditors: false,
   realPrimaryEditor: false,
@@ -279,7 +282,12 @@ vi.mock("./CommentsSidebar", () => ({
 vi.mock("./PageDraftRecovery", () => ({
   PageDraftRecovery: ({ children }: { children: ReactNode }) => children,
 }));
-vi.mock("./DocumentToolbar", () => ({ DocumentToolbar: () => null }));
+vi.mock("./DocumentToolbar", () => ({
+  DocumentToolbar: (props: NonNullable<typeof fixture.toolbar>) => {
+    fixture.toolbar = props;
+    return null;
+  },
+}));
 vi.mock("./ContentImportDialog", () => ({ ContentImportDialog: () => null }));
 vi.mock("./NotionConflictBanner", () => ({ NotionConflictBanner: () => null }));
 vi.mock("./EmojiPicker", () => ({
@@ -467,6 +475,7 @@ beforeEach(() => {
     canEdit: true,
   } as Document;
   fixture.commentsSidebars = [];
+  fixture.toolbar = null;
   fixture.save.mockReset();
   fixture.flushUpdates.mockReset().mockResolvedValue(true);
   fixture.recoverySaveSettled.mockReset();
@@ -2744,12 +2753,11 @@ describe("a link that starts a comment on the whole page", () => {
     fixture.commentsSidebars.filter(
       (props) => props.presentation === "history",
     );
-  async function selectTab(name: string) {
-    const tab = [
-      ...document.querySelectorAll<HTMLElement>('[role="tab"]'),
-    ].find((candidate) => candidate.textContent === name);
-    if (!tab) throw new Error(`No "${name}" tab.`);
-    await act(async () => tab.click());
+  // The page panel's tabs sit in the toolbar, which these tests leave out.
+  async function selectTab(name: "info" | "comments") {
+    const change = fixture.toolbar?.onUtilityPanelChange;
+    if (!change) throw new Error("No page panel tabs.");
+    await act(async () => change(name));
   }
 
   beforeEach(() => {
@@ -2763,8 +2771,8 @@ describe("a link that starts a comment on the whole page", () => {
 
   it("drops the request when Discussion closes before the composer takes it", async () => {
     await act(async () => renderEditor({ host: "page", location: link }));
-    await selectTab("editor.toolbar.info");
-    await selectTab("comments.discussion");
+    await selectTab("info");
+    await selectTab("comments");
     expect(discussions().pop()?.focusPageComposer).toBe(false);
   });
 

@@ -205,7 +205,10 @@ vi.mock("../shared/builder-credits.js", () => ({
   normalizeBuilderCreditsStatus: vi.fn(() => null),
 }));
 
-vi.mock("../shared/transcript-segments.js", () => ({
+vi.mock("../shared/transcript-segments.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../shared/transcript-segments.js")
+  >()),
   normalizeTranscriptSegments: vi.fn(() => []),
   parseTranscriptSegments: vi.fn(() => []),
 }));
@@ -541,6 +544,63 @@ describe("get-recording-player-data view count", () => {
         expect(mockListTranscriptVersions).not.toHaveBeenCalled();
       }
       mockListTranscriptVersions.mockReset();
+    },
+  );
+
+  it.each([
+    { segmentsJson: "[{", unreadable: true },
+    { segmentsJson: "[]", unreadable: false },
+  ])(
+    "only calls an empty transcript no speech when its saved lines can be read ($segmentsJson)",
+    async ({ segmentsJson, unreadable }) => {
+      mockResolveAccess.mockResolvedValue({
+        role: "owner",
+        resource: {
+          id: "rec-1",
+          ownerEmail: "owner@example.com",
+          visibility: "private",
+          password: null,
+          expiresAt: null,
+          status: "ready",
+          chaptersJson: "[]",
+        },
+      });
+      let transcriptRead = false;
+      mockPlayerQuery.build = () => {
+        const query: Record<string, unknown> = {};
+        query.from = () => query;
+        query.where = () => query;
+        query.orderBy = async () => [];
+        query.limit = async () => {
+          if (transcriptRead) return [];
+          transcriptRead = true;
+          return [
+            {
+              recordingId: "rec-1",
+              status: "ready",
+              fullText: "",
+              segmentsJson,
+              language: "en",
+            },
+          ];
+        };
+        query.then = (resolve: (rows: unknown[]) => unknown) => resolve([]);
+        return query;
+      };
+
+      const result = await action.run({ recordingId: "rec-1" });
+
+      if (unreadable) {
+        expect(result.transcript).toMatchObject({ segmentsUnreadable: true });
+        expect(result.transcript?.status).not.toBe("failed");
+        expect(result.transcript?.failureReason).toBeNull();
+      } else {
+        expect(result.transcript).not.toHaveProperty("segmentsUnreadable");
+        expect(result.transcript).toMatchObject({
+          status: "failed",
+          failureReason: expect.stringContaining("No speech was detected"),
+        });
+      }
     },
   );
 

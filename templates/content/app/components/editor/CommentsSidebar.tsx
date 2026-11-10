@@ -728,7 +728,9 @@ export function preserveCommentComposerEscape(event: KeyboardEvent) {
     target.closest("[data-comment-composer], [data-discussion-toolbar]")
   ) {
     event.preventDefault();
+    return true;
   }
+  return false;
 }
 
 type CommentHistoryFilters = {
@@ -1207,6 +1209,7 @@ interface CommentsSidebarOptions {
   /** Whether comment highlights show on the page; the panel can switch them. */
   highlightsVisible?: boolean;
   onHighlightsVisibleChange?: (visible: boolean) => void;
+  pageComposerRef?: RefObject<TiptapComposerHandle | null>;
 }
 
 type CommentsSidebarProps = CommentsSidebarOptions &
@@ -1290,6 +1293,7 @@ export function CommentsSidebar({
   renderThreadActions,
   highlightsVisible = true,
   onHighlightsVisibleChange,
+  pageComposerRef,
 }: CommentsSidebarProps) {
   const surface: CommentSurface =
     surfaceProp ?? (presentation === "history" ? "panel" : "rail");
@@ -1311,7 +1315,8 @@ export function CommentsSidebar({
   const queryClient = useQueryClient();
   const pendingDraft = useCommentDraft("pending");
   const pageDraft = useCommentDraft("page");
-  const pageComposerRef = useRef<TiptapComposerHandle>(null);
+  const ownPageComposerRef = useRef<TiptapComposerHandle>(null);
+  const pageComposerHandleRef = pageComposerRef ?? ownPageComposerRef;
   const pageComposerBoxRef = useRef<HTMLDivElement>(null);
   const draftStore = useCommentDraftContext();
   const [pendingHandoff, setPendingHandoff] = useState<{
@@ -2171,7 +2176,7 @@ export function CommentsSidebar({
     const focusComposer = () => {
       const box = pageComposerBoxRef.current;
       if (!box?.contains(document.activeElement))
-        pageComposerRef.current?.focus();
+        pageComposerHandleRef.current?.focus();
       // The panel may still be opening, so the composer may not be on screen
       // yet. A request that never lands is dropped rather than left to take
       // focus the next time Discussion opens.
@@ -2187,7 +2192,7 @@ export function CommentsSidebar({
       document.removeEventListener("pointerdown", relinquish, true);
       document.removeEventListener("keydown", relinquish, true);
     };
-  }, [focusPageComposer, presentation]);
+  }, [focusPageComposer, presentation, pageComposerHandleRef]);
 
   // A Clip's thread is saved in Clips; the margin knows it by an id that
   // also names the Clip.
@@ -3981,7 +3986,7 @@ export function CommentsSidebar({
         className="sticky bottom-0 z-10 mt-auto border-t border-border bg-background"
       >
         <DiscussionComposer
-          ref={pageComposerRef}
+          ref={pageComposerHandleRef}
           currentUserEmail={currentUserEmail}
           currentUserName={currentUserName}
           value={pageDraft.draft.text}

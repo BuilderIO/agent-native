@@ -19,6 +19,11 @@ const rawClient = {
     if (/^\s*(select|with)/i.test(input.sql)) {
       return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
+    // A write that returns rows reports them, as the real clients do.
+    if (/\breturning\b/i.test(input.sql)) {
+      const rows = await stmt.all(...args);
+      return { rows, rowsAffected: rows.length };
+    }
     const info = await stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),
@@ -58,6 +63,9 @@ const resolveReviewThreadAction = (await import("./resolve-review-thread.js"))
   .default;
 const updateReviewCommentAction = (await import("./update-review-comment.js"))
   .default;
+const updateReviewCommentAnchorAction = (
+  await import("./update-review-comment-anchor.js")
+).default;
 const deleteReviewCommentAction = (await import("./delete-review-comment.js"))
   .default;
 const sendReviewThreadToAgentAction = (
@@ -560,6 +568,57 @@ describe("review actions", () => {
         { userEmail: "outsider@example.com" },
       ),
     ).rejects.toThrow();
+  });
+
+  it("moves a pin at the revision its mover read", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "public",
+      body: "Pinned",
+      anchor: { point: { xPct: 10, yPct: 10 } },
+      authorEmail: COMMENTER_EMAIL,
+      visibility: "public",
+    });
+    const move = (
+      userEmail: string,
+      xPct: number,
+      expectedRevision?: number,
+      commentId = root.id,
+    ) =>
+      updateReviewCommentAnchorAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "public",
+          commentId,
+          anchor: { point: { xPct, yPct: 50 } },
+          ...(expectedRevision === undefined ? {} : { expectedRevision }),
+        },
+        { userEmail },
+      );
+
+    await expect(move(COMMENTER_EMAIL, 20, 1)).resolves.toEqual({
+      commentId: root.id,
+      anchor: { point: { xPct: 20, yPct: 50 } },
+      anchorKind: null,
+      anchorVersion: null,
+      revision: 2,
+      updatedCount: 1,
+    });
+    await expect(move(EDITOR_EMAIL, 30, 1)).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "revision_conflict",
+    });
+    await expect(move(EDITOR_EMAIL, 30)).resolves.toMatchObject({
+      anchor: { point: { xPct: 30, yPct: 50 } },
+      revision: 3,
+    });
+    await expect(move("outsider@example.com", 40)).rejects.toThrow(
+      "Not allowed to move this review comment",
+    );
+    await expect(move("", 40)).rejects.toMatchObject({ statusCode: 401 });
+    await expect(move(EDITOR_EMAIL, 40, undefined, "missing")).rejects.toThrow(
+      "Review comment not found",
+    );
   });
 
   it("lets authors and editors delete a comment, which clears its text", async () => {
@@ -1245,6 +1304,58 @@ describe("review actions", () => {
       message: "This thread was deleted.",
       statusCode: 404,
       errorCode: "not_found",
+    });
+  });
+
+  it("replays a saved reply after the comment it answered moves to a new anchor version", async () => {
+    registerReviewableResource({
+      type: "pinned",
+      resolveAccess: () => ({
+        role: "editor",
+        ownerEmail: OWNER_EMAIL,
+        visibility: "private",
+      }),
+      anchorKinds: { pin: { version: 2, parse: (anchor) => anchor } },
+    });
+    const ctx = { userEmail: EDITOR_EMAIL, caller: "frontend" } as const;
+    const root = await insertReviewComment({
+      resourceType: "pinned",
+      resourceId: "private",
+      body: "Open thread",
+      anchor: { at: 1 },
+      anchorKind: "pin",
+      anchorVersion: 1,
+      ownerEmail: OWNER_EMAIL,
+    });
+    const answer = {
+      resourceType: "pinned",
+      resourceId: "private",
+      commentId: root.id,
+      body: "Answer",
+      clientOperationId: "00000000-0000-4000-8000-000000000031",
+    };
+    const saved = await replyReviewCommentAction.run(answer, ctx);
+    expect(saved).toMatchObject({ anchorKind: "pin", anchorVersion: 1 });
+    await updateReviewCommentAnchorAction.run(
+      {
+        resourceType: "pinned",
+        resourceId: "private",
+        commentId: root.id,
+        anchor: { at: 2 },
+        anchorVersion: 2,
+      },
+      ctx,
+    );
+
+    // The retry keeps the anchor, kind and version the reply was saved with.
+    await expect(
+      replyReviewCommentAction.run(answer, ctx),
+    ).resolves.toMatchObject({
+      id: saved.id,
+      replayed: true,
+      anchor: { at: 1 },
+      anchorKind: "pin",
+      anchorVersion: 1,
     });
   });
 

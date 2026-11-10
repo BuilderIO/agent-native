@@ -782,6 +782,7 @@ const editorPropertiesMessages = {
   addPropertyLink: "Add {{name}} link",
   addPropertyPerson: "Add {{name}} person",
   addPropertyType: "Add {{type}} property",
+  alwaysHiddenCount: "{{count}} always hidden",
   connectASource: "Connect a source",
   addQuoted: 'Add "{{value}}"',
   backToColumnMenu: "Back to sort & filter",
@@ -817,6 +818,8 @@ const editorPropertiesMessages = {
     "Unpublished changes come from Builder's editor, so they can't be set here.",
   editStartDate: "Edit {{name}} start date",
   editValue: "Edit {{name}} value",
+  moreProperties: "{{count}} more properties",
+  morePropertiesOne: "1 more property",
   moveColumnLeft: "Move column left",
   moveColumnRight: "Move column right",
   empty: "Empty",
@@ -830,8 +833,6 @@ const editorPropertiesMessages = {
     video: "Video",
   },
   fromSource: "From {{name}}",
-  hiddenInThisView: "Hidden in this view",
-  hiddenProperties: "Hidden properties",
   imageUploaded_zero: "Images uploaded",
   imageUploaded_one: "Image uploaded",
   imageUploaded_two: "Images uploaded",
@@ -927,6 +928,7 @@ const editorPropertiesMessages = {
   unchecked: "Unchecked",
   upload: "Upload",
   visibility: "Visibility",
+  visibilityScope: "On every row, for everyone. A view can still hide it.",
 };
 
 const editorMediaMessages = {
@@ -1222,6 +1224,10 @@ const editorSlashMessages = {
   bulletedListDescription: "Unordered list",
   callout: "Callout",
   calloutDescription: "Highlighted info block",
+  columnsDescription: "Put blocks side by side",
+  twoColumns: "2 columns",
+  threeColumns: "3 columns",
+  fourColumns: "4 columns",
   codeBlock: "Code Block",
   codeBlockDescription: "Code snippet",
   collapsibleBlockDescription: "Collapsible block",
@@ -1533,6 +1539,7 @@ const enUS = {
     strikethrough: "Strikethrough",
     code: "Code",
     textColor: "Text color",
+    resizeColumns: "Resize columns",
     backgroundColor: "Background color",
     defaultColor: "Default",
     color: {
