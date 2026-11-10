@@ -77,6 +77,7 @@ description: "공개 경로를 에이전트(robots.txt, llms.txt, 마크다운 �
 
 ```ts
 // vite.config.ts
+import { defineConfig } from "vite";
 import { createAgentWebVitePlugin } from "@agent-native/core/vite";
 
 export default defineConfig({
@@ -101,13 +102,13 @@ export default defineConfig({
 
 플러그인은 나열한 페이지만 게시하고 그 외에는 아무것도 게시하지 않습니다. 라우트 접근 설정을 읽지 않으며, 직접 전달하지 않는 한 `package.json`의 `agentWeb`도 읽지 않습니다. 설정을 `package.json`의 `agent-native.workspaceApp.agentWeb`에 두려면 `@agent-native/core/agent-web`에서 가져온 `agentWebConfigFromPackageJson(pkg)`를 `agentWeb`으로 전달하세요.
 
-| 옵션            | 기본값                          | 동작                                                                                                                                                            |
-| --------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `discoverable`  | `pages`가 비어 있지 않으면 켜짐 | `false`이면 파일을 쓰지 않습니다.                                                                                                                               |
-| `llmsTxt`       | `true`                          | `/llms.txt`와 `/llms-full.txt`를 씁니다.                                                                                                                        |
-| `markdownTwins` | `true`                          | `markdown`이 있는 각 페이지의 `.md` 사본을 씁니다.                                                                                                              |
-| `crawlerPolicy` | `"discoverable-no-training"`    | `robots.txt` 규칙을 정합니다: `"discoverable-no-training"`, `"allow-all"`, `"disallow-all"` 중 하나입니다.                                                      |
-| `crawlers`      | 없음                            | 크롤러 카테고리 하나를 재정의합니다: `training`, `search`, `userTriggered`, `codingAgents`, `autonomousAgents` 각각에 `"allow"` 또는 `"disallow"`를 지정합니다. |
+| 옵션            | 기본값                          | 동작                                                                                                                                                                  |
+| --------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `discoverable`  | `pages`가 비어 있지 않으면 켜짐 | `false`이면 파일을 쓰지 않습니다.                                                                                                                                     |
+| `llmsTxt`       | `true`                          | `/llms.txt`와 `/llms-full.txt`를 씁니다.                                                                                                                              |
+| `markdownTwins` | `true`                          | `markdown`이 있는 각 페이지의 `.md` 사본을 씁니다.                                                                                                                    |
+| `crawlerPolicy` | `"discoverable-no-training"`    | `robots.txt` 규칙을 정합니다: `"discoverable-no-training"`, `"allow-all"`, `"disallow-all"` 중 하나입니다.                                                            |
+| `crawlers`      | 없음                            | 크롤러 카테고리를 개별적으로 재정의합니다: `training`, `search`, `userTriggered`, `codingAgents`, `autonomousAgents` 각각에 `"allow"` 또는 `"disallow"`를 지정합니다. |
 
 기본 크롤러 정책은 "검색 가능, 학습 불가"입니다. 검색, 사용자가 시작한 검색, 코딩 에이전트, 자율 브라우징 에이전트는 허용되고, 학습용 크롤러는 허용되지 않습니다.
 

@@ -77,6 +77,7 @@ Das Veröffentlichen dieser Dateien macht nie eine Aktion verfügbar. Eine Aktio
 
 ```ts
 // vite.config.ts
+import { defineConfig } from "vite";
 import { createAgentWebVitePlugin } from "@agent-native/core/vite";
 
 export default defineConfig({
@@ -101,13 +102,13 @@ export default defineConfig({
 
 Das Plugin veröffentlicht die Seiten, die Sie auflisten, und sonst nichts. Es liest weder Ihre Routenzugriffseinstellungen noch `agentWeb` aus `package.json`, solange Sie es nicht übergeben. Um die Einstellungen in `package.json` unter `agent-native.workspaceApp.agentWeb` zu behalten, übergeben Sie `agentWeb: agentWebConfigFromPackageJson(pkg)`, importiert aus `@agent-native/core/agent-web`.
 
-| Option          | Standard                        | Wirkung                                                                                                                                                  |
-| --------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `discoverable`  | An, wenn `pages` nicht leer ist | `false` schreibt keine Dateien.                                                                                                                          |
-| `llmsTxt`       | `true`                          | Schreibt `/llms.txt` und `/llms-full.txt`.                                                                                                               |
-| `markdownTwins` | `true`                          | Schreibt eine `.md`-Kopie jeder Seite, die `markdown` hat.                                                                                               |
-| `crawlerPolicy` | `"discoverable-no-training"`    | Legt die Regeln in `robots.txt` fest: `"discoverable-no-training"`, `"allow-all"` oder `"disallow-all"`.                                                 |
-| `crawlers`      | Keiner                          | Überschreibt eine Crawler-Kategorie: `training`, `search`, `userTriggered`, `codingAgents` oder `autonomousAgents`, jeweils `"allow"` oder `"disallow"`. |
+| Option          | Standard                        | Wirkung                                                                                                                                                       |
+| --------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `discoverable`  | An, wenn `pages` nicht leer ist | `false` schreibt keine Dateien.                                                                                                                               |
+| `llmsTxt`       | `true`                          | Schreibt `/llms.txt` und `/llms-full.txt`.                                                                                                                    |
+| `markdownTwins` | `true`                          | Schreibt eine `.md`-Kopie jeder Seite, die `markdown` hat.                                                                                                    |
+| `crawlerPolicy` | `"discoverable-no-training"`    | Legt die Regeln in `robots.txt` fest: `"discoverable-no-training"`, `"allow-all"` oder `"disallow-all"`.                                                      |
+| `crawlers`      | Keiner                          | Überschreibt einzelne Crawler-Kategorien: `training`, `search`, `userTriggered`, `codingAgents` oder `autonomousAgents`, jeweils `"allow"` oder `"disallow"`. |
 
 Die Standard-Crawler-Richtlinie ist „erkennbar, nicht trainierbar“: Suche, vom Benutzer ausgelöster Abruf, Codierungsagenten und autonome Browsing-Agenten sind zulässig; Trainings-Crawler sind nicht zulässig.
 

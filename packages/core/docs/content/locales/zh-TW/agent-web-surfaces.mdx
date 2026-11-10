@@ -77,6 +77,7 @@ description: "使公開路由可爬行、可讀、可引用，並可選取由代
 
 ```ts
 // vite.config.ts
+import { defineConfig } from "vite";
 import { createAgentWebVitePlugin } from "@agent-native/core/vite";
 
 export default defineConfig({
@@ -107,7 +108,7 @@ export default defineConfig({
 | `llmsTxt`       | `true`                       | 寫出 `/llms.txt` 和 `/llms-full.txt`。                                                                                            |
 | `markdownTwins` | `true`                       | 為每個帶有 `markdown` 的頁面寫出一份 `.md` 副本。                                                                                 |
 | `crawlerPolicy` | `"discoverable-no-training"` | 設定 `robots.txt` 規則：`"discoverable-no-training"`、`"allow-all"` 或 `"disallow-all"`。                                         |
-| `crawlers`      | 無                           | 單獨覆寫一類爬蟲：`training`、`search`、`userTriggered`、`codingAgents` 或 `autonomousAgents`，每類取 `"allow"` 或 `"disallow"`。 |
+| `crawlers`      | 無                           | 單獨覆寫各類爬蟲：`training`、`search`、`userTriggered`、`codingAgents` 或 `autonomousAgents`，每類取 `"allow"` 或 `"disallow"`。 |
 
 預設爬蟲政策是「可被發現，不可訓練」：允許搜尋、使用者觸發的擷取、程式設計代理和自主瀏覽代理；不允許訓練爬蟲。
 

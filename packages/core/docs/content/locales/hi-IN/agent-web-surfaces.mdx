@@ -77,6 +77,7 @@ description: "सार्वजनिक मार्गों को एजे
 
 ```ts
 // vite.config.ts
+import { defineConfig } from "vite";
 import { createAgentWebVitePlugin } from "@agent-native/core/vite";
 
 export default defineConfig({
@@ -101,13 +102,13 @@ export default defineConfig({
 
 प्लगइन सिर्फ़ वही पेज प्रकाशित करता है जो आप सूची में देते हैं, और कुछ नहीं। यह आपकी रूट एक्सेस सेटिंग्स नहीं पढ़ता, और जब तक आप इसे पास न करें, `package.json` से `agentWeb` भी नहीं पढ़ता। सेटिंग्स को `package.json` में `agent-native.workspaceApp.agentWeb` के तहत रखने के लिए `@agent-native/core/agent-web` से इम्पोर्ट किया गया `agentWeb: agentWebConfigFromPackageJson(pkg)` पास करें।
 
-| विकल्प          | डिफ़ॉल्ट                     | क्या करता है                                                                                                                                       |
-| --------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `discoverable`  | `pages` खाली न हो तो चालू    | `false` होने पर कोई फ़ाइल नहीं लिखता।                                                                                                              |
-| `llmsTxt`       | `true`                       | `/llms.txt` और `/llms-full.txt` लिखता है।                                                                                                          |
-| `markdownTwins` | `true`                       | जिस भी पेज में `markdown` है, उसकी एक `.md` कॉपी लिखता है।                                                                                         |
-| `crawlerPolicy` | `"discoverable-no-training"` | `robots.txt` के नियम तय करता है: `"discoverable-no-training"`, `"allow-all"` या `"disallow-all"`।                                                  |
-| `crawlers`      | कोई नहीं                     | एक क्रॉलर श्रेणी को ओवरराइड करता है: `training`, `search`, `userTriggered`, `codingAgents` या `autonomousAgents`, हर एक `"allow"` या `"disallow"`। |
+| विकल्प          | डिफ़ॉल्ट                     | क्या करता है                                                                                                                                               |
+| --------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `discoverable`  | `pages` खाली न हो तो चालू    | `false` होने पर कोई फ़ाइल नहीं लिखता।                                                                                                                      |
+| `llmsTxt`       | `true`                       | `/llms.txt` और `/llms-full.txt` लिखता है।                                                                                                                  |
+| `markdownTwins` | `true`                       | जिस भी पेज में `markdown` है, उसकी एक `.md` कॉपी लिखता है।                                                                                                 |
+| `crawlerPolicy` | `"discoverable-no-training"` | `robots.txt` के नियम तय करता है: `"discoverable-no-training"`, `"allow-all"` या `"disallow-all"`।                                                          |
+| `crawlers`      | कोई नहीं                     | अलग-अलग क्रॉलर श्रेणियों को ओवरराइड करता है: `training`, `search`, `userTriggered`, `codingAgents` या `autonomousAgents`, हर एक `"allow"` या `"disallow"`। |
 
 डिफ़ॉल्ट क्रॉलर नीति "खोजने योग्य, प्रशिक्षण योग्य नहीं" है: सर्च, उपयोगकर्ता द्वारा शुरू की गई पुनर्प्राप्ति, कोडिंग एजेंट्स और स्वायत्त ब्राउज़िंग एजेंट्स की अनुमति है; प्रशिक्षण क्रॉलर्स की अनुमति नहीं है।
 

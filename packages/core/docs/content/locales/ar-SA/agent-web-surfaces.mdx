@@ -77,6 +77,7 @@ description: "اجعل المسارات العامة قابلة للزحف، و�
 
 ```ts
 // vite.config.ts
+import { defineConfig } from "vite";
 import { createAgentWebVitePlugin } from "@agent-native/core/vite";
 
 export default defineConfig({
@@ -101,13 +102,13 @@ export default defineConfig({
 
 ينشر المكوّن الإضافي الصفحات التي تدرجها فقط، ولا شيء غيرها. لا يقرأ إعدادات الوصول إلى المسارات، ولا يقرأ `agentWeb` من `package.json` ما لم تمرره إليه. لإبقاء الإعدادات في `package.json` تحت `agent-native.workspaceApp.agentWeb`، مرّر `agentWeb: agentWebConfigFromPackageJson(pkg)` المستورد من `@agent-native/core/agent-web`.
 
-| الخيار          | الافتراضي                         | ما يفعله                                                                                                                                       |
-| --------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `discoverable`  | مفعّل عندما لا تكون `pages` فارغة | القيمة `false` لا تكتب أي ملفات.                                                                                                               |
-| `llmsTxt`       | `true`                            | يكتب `/llms.txt` و`/llms-full.txt`.                                                                                                            |
-| `markdownTwins` | `true`                            | يكتب نسخة `.md` من كل صفحة لها `markdown`.                                                                                                     |
-| `crawlerPolicy` | `"discoverable-no-training"`      | يحدد قواعد `robots.txt`: `"discoverable-no-training"` أو `"allow-all"` أو `"disallow-all"`.                                                    |
-| `crawlers`      | لا شيء                            | يتجاوز فئة زواحف واحدة: `training` أو `search` أو `userTriggered` أو `codingAgents` أو `autonomousAgents`، وكل منها `"allow"` أو `"disallow"`. |
+| الخيار          | الافتراضي                         | ما يفعله                                                                                                                                                  |
+| --------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `discoverable`  | مفعّل عندما لا تكون `pages` فارغة | القيمة `false` لا تكتب أي ملفات.                                                                                                                          |
+| `llmsTxt`       | `true`                            | يكتب `/llms.txt` و`/llms-full.txt`.                                                                                                                       |
+| `markdownTwins` | `true`                            | يكتب نسخة `.md` من كل صفحة لها `markdown`.                                                                                                                |
+| `crawlerPolicy` | `"discoverable-no-training"`      | يحدد قواعد `robots.txt`: `"discoverable-no-training"` أو `"allow-all"` أو `"disallow-all"`.                                                               |
+| `crawlers`      | لا شيء                            | يتجاوز فئات الزواحف كلًّا على حدة: `training` أو `search` أو `userTriggered` أو `codingAgents` أو `autonomousAgents`، وكل منها `"allow"` أو `"disallow"`. |
 
 سياسة الزواحف الافتراضية هي "قابل للاكتشاف، غير قابل للتدريب": يُسمح بالبحث والاسترجاع الذي يبدأه المستخدم ووكلاء البرمجة ووكلاء التصفح المستقلين؛ ولا يُسمح بزواحف التدريب.
 

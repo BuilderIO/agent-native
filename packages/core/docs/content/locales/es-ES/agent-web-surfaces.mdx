@@ -77,6 +77,7 @@ Publicar estos archivos nunca expone una acción. Una acción solo llega a agent
 
 ```ts
 // vite.config.ts
+import { defineConfig } from "vite";
 import { createAgentWebVitePlugin } from "@agent-native/core/vite";
 
 export default defineConfig({
@@ -101,13 +102,13 @@ export default defineConfig({
 
 El plugin publica las páginas que indicas y nada más. No lee la configuración de acceso a rutas ni lee `agentWeb` de `package.json` a menos que se lo pases. Para mantener la configuración en `package.json` bajo `agent-native.workspaceApp.agentWeb`, pasa `agentWeb: agentWebConfigFromPackageJson(pkg)`, importado de `@agent-native/core/agent-web`.
 
-| Opción          | Predeterminado                        | Qué hace                                                                                                                                            |
-| --------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `discoverable`  | Activado cuando `pages` no está vacío | `false` no escribe ningún archivo.                                                                                                                  |
-| `llmsTxt`       | `true`                                | Escribe `/llms.txt` y `/llms-full.txt`.                                                                                                             |
-| `markdownTwins` | `true`                                | Escribe una copia `.md` de cada página que tenga `markdown`.                                                                                        |
-| `crawlerPolicy` | `"discoverable-no-training"`          | Define las reglas de `robots.txt`: `"discoverable-no-training"`, `"allow-all"` o `"disallow-all"`.                                                  |
-| `crawlers`      | Ninguno                               | Anula una categoría de rastreadores: `training`, `search`, `userTriggered`, `codingAgents` o `autonomousAgents`, cada una `"allow"` o `"disallow"`. |
+| Opción          | Predeterminado                        | Qué hace                                                                                                                                                      |
+| --------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `discoverable`  | Activado cuando `pages` no está vacío | `false` no escribe ningún archivo.                                                                                                                            |
+| `llmsTxt`       | `true`                                | Escribe `/llms.txt` y `/llms-full.txt`.                                                                                                                       |
+| `markdownTwins` | `true`                                | Escribe una copia `.md` de cada página que tenga `markdown`.                                                                                                  |
+| `crawlerPolicy` | `"discoverable-no-training"`          | Define las reglas de `robots.txt`: `"discoverable-no-training"`, `"allow-all"` o `"disallow-all"`.                                                            |
+| `crawlers`      | Ninguno                               | Anula categorías de rastreadores individuales: `training`, `search`, `userTriggered`, `codingAgents` o `autonomousAgents`, cada una `"allow"` o `"disallow"`. |
 
 La política de rastreo predeterminada es "descubrible, no entrenable": se permiten la búsqueda, la recuperación iniciada por el usuario, los agentes de programación y los agentes de navegación autónomos; los rastreadores de entrenamiento no se permiten.
 

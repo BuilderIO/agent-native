@@ -77,6 +77,7 @@ Publishing these files never exposes an action. An action reaches external agent
 
 ```ts
 // vite.config.ts
+import { defineConfig } from "vite";
 import { createAgentWebVitePlugin } from "@agent-native/core/vite";
 
 export default defineConfig({
@@ -101,13 +102,13 @@ export default defineConfig({
 
 The plugin publishes the pages you list and nothing else. It doesn't read your route access settings, and it doesn't read `agentWeb` from `package.json` unless you pass it in. To keep the settings in `package.json` under `agent-native.workspaceApp.agentWeb`, pass `agentWeb: agentWebConfigFromPackageJson(pkg)`, imported from `@agent-native/core/agent-web`.
 
-| Option          | Default                      | What it does                                                                                                                                  |
-| --------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `discoverable`  | On when `pages` isn't empty  | `false` writes no files.                                                                                                                      |
-| `llmsTxt`       | `true`                       | Writes `/llms.txt` and `/llms-full.txt`.                                                                                                      |
-| `markdownTwins` | `true`                       | Writes a `.md` copy of each page that has `markdown`.                                                                                         |
-| `crawlerPolicy` | `"discoverable-no-training"` | Sets the `robots.txt` rules: `"discoverable-no-training"`, `"allow-all"`, or `"disallow-all"`.                                                |
-| `crawlers`      | None                         | Overrides one crawler category: `training`, `search`, `userTriggered`, `codingAgents`, or `autonomousAgents`, each `"allow"` or `"disallow"`. |
+| Option          | Default                      | What it does                                                                                                                                           |
+| --------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `discoverable`  | On when `pages` isn't empty  | `false` writes no files.                                                                                                                               |
+| `llmsTxt`       | `true`                       | Writes `/llms.txt` and `/llms-full.txt`.                                                                                                               |
+| `markdownTwins` | `true`                       | Writes a `.md` copy of each page that has `markdown`.                                                                                                  |
+| `crawlerPolicy` | `"discoverable-no-training"` | Sets the `robots.txt` rules: `"discoverable-no-training"`, `"allow-all"`, or `"disallow-all"`.                                                         |
+| `crawlers`      | None                         | Overrides individual crawler categories: `training`, `search`, `userTriggered`, `codingAgents`, or `autonomousAgents`, each `"allow"` or `"disallow"`. |
 
 The default crawler policy is "discoverable, not trainable": search, user-triggered retrieval, coding agents, and autonomous browsing agents are allowed; training crawlers are disallowed.
 
