@@ -495,6 +495,8 @@ export interface AuthOptions {
    * fallback markup, which the auth client script replaces in the browser.
    */
   renderSignInPage?: (props: AuthPageProps) => string | undefined;
+  /** Trusted HTML appended to the sign-in document head. */
+  authHeadHtml?: string;
   renderResetPasswordPage?: (
     props: ResetPasswordPageProps,
   ) => string | undefined;
@@ -2607,6 +2609,7 @@ function getOnboardingHtmlOptions(
     signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
     renderSignInPage: options.renderSignInPage,
+    authHeadHtml: options.authHeadHtml,
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
     requestOrigin: event ? getOrigin(event) : undefined,
