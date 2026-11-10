@@ -3,10 +3,23 @@
 All notable user-facing changes to Agent-Native Plan are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-09
+
+### Improved
+
+- More save failures now say why, such as being offline or lacking permission.
+
+## 2026-11-05
+
+### Improved
+
+- Failed saves now show a clear error message instead of failing silently.
+
 ## 2026-11-03
 
 ### Fixed
 
+- When you and someone else change the same part of a plan, you now choose which version to keep instead of one edit being lost.
 - After you drag a block down by its handle, the caret stays on that block instead of landing in the one below it.
 
 ## 2026-11-01
@@ -14,6 +27,12 @@ time from the command menu (Cmd+K → "What's new").
 ### Fixed
 
 - Local plans open correctly in the browser.
+
+## 2026-10-31
+
+### Fixed
+
+- Editing a comment you pinned on a plan saves again, instead of failing with a server error.
 
 ## 2026-10-29
 

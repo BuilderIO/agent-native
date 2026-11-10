@@ -1330,6 +1330,16 @@ function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
     }
     return `FORMAT_DATE('%Y-%m-%d', CAST(${translatePostgresDateExpression(args[0] ?? "")} AS DATE))`;
   });
+  // PostgreSQL's md5(text) is lowercase hex; BigQuery's MD5 returns bytes.
+  translated = rewriteSqlFunctionCalls(translated, "md5", (args) => {
+    if (args.length !== 1) {
+      throw new FirstPartyAnalyticsUnsupportedSqlError(
+        "a multi-argument md5(...) call",
+        "First-party BigQuery query has an invalid md5 call",
+      );
+    }
+    return `TO_HEX(MD5(${args[0]}))`;
+  });
   translated = rewriteSqlFunctionCalls(translated, "chr", (args) => {
     if (args.length !== 1) {
       throw new FirstPartyAnalyticsUnsupportedSqlError(
@@ -2143,6 +2153,9 @@ export async function queryFirstPartyAnalyticsInBigQuery(
     rows: result.rows,
     schema: result.schema,
     bytesProcessed: result.bytesProcessed,
+    ...(result.usageAccounting
+      ? { usageAccounting: result.usageAccounting }
+      : {}),
     ...(eventsSource ? { eventsSource } : {}),
     ...(result.sourceGeneration !== undefined
       ? { sourceGeneration: result.sourceGeneration }

@@ -31,6 +31,8 @@ export const documents = table("documents", {
   position: integer("position").notNull().default(0),
   isFavorite: integer("is_favorite").notNull().default(0),
   hideFromSearch: integer("hide_from_search").notNull().default(0),
+  // 1 when a person has set agents to Can comment on this page.
+  agentTextLocked: integer("agent_text_locked").notNull().default(0),
   sourceMode: text("source_mode"),
   sourceKind: text("source_kind"),
   sourcePath: text("source_path"),
@@ -325,6 +327,11 @@ export const documentComments = table(
     actorKind: text("actor_kind"),
     authorModel: text("author_model"),
     authorEffort: text("author_effort"),
+    /**
+     * The MCP host an outside agent said it was, as a connect host id such as
+     * `claude-code`, on a comment it posted over MCP.
+     */
+    authorClient: text("author_client"),
     resolved: integer("resolved").notNull().default(0),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
