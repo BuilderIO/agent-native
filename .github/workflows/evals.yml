@@ -207,8 +207,17 @@ jobs:
             else
               report_dir="$RUNNER_TEMP/question-search"
               export SEARCH_QUESTION_BAKEOFF=1 SEARCH_QUESTION_BAKEOFF_REPORT="$report_dir"
+              # The report names the method that leaked, so a failed run keeps it.
+              set +e
               pnpm --filter content exec vitest run evals/question-search
-              cat "$report_dir/question-search-bakeoff.md" >> "$GITHUB_STEP_SUMMARY"
+              eval_status=$?
+              set -e
+              if [[ -f "$report_dir/question-search-bakeoff.md" ]]; then
+                cat "$report_dir/question-search-bakeoff.md" >> "$GITHUB_STEP_SUMMARY"
+              fi
+              if [[ "$eval_status" -ne 0 ]]; then
+                exit "$eval_status"
+              fi
             fi
           fi
 
@@ -224,3 +233,11 @@ jobs:
               echo ""
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Upload the question search bake-off report
+        if: ${{ always() && inputs.suite == 'content-question-search' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: content-question-search-bakeoff
+          path: ${{ runner.temp }}/question-search
+          if-no-files-found: ignore
