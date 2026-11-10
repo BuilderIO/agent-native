@@ -480,14 +480,18 @@ export function useOwnershipChatHistory(
     field: Field,
     value: OverrideValues[Field],
     persist: () => Promise<boolean>,
-    failed: (...cause: [] | [unknown]) => void = (...cause) => {
-      if (kind !== "hide")
-        latest.current.options.onMutationFailed?.(kind, id, ...cause);
-    },
+    failed?: (...cause: [] | [unknown]) => void,
   ) => {
     if (!enabled || !current() || !permits(kind, id)) return false;
     const view = generation.view;
     const permitted = () => current() && generation.view === view;
+    // A caller's own notice, like the hide toast, can outlive this view, so
+    // only the app's callback waits for the view that made the change.
+    const report = (...cause: [] | [unknown]) => {
+      if (failed) failed(...cause);
+      else if (permitted() && kind !== "hide")
+        latest.current.options.onMutationFailed?.(kind, id, ...cause);
+    };
     const token = ++tokenRef.current;
     generation.writes += 1;
     const intent = {
@@ -530,13 +534,11 @@ export function useOwnershipChatHistory(
         persist,
       );
     } catch (cause) {
-      const isLatest = complete(false);
-      if (permitted() && isLatest) failed(cause);
+      if (complete(false)) report(cause);
       return false;
     }
     if (!succeeded) {
-      const isLatest = complete(false);
-      if (permitted() && isLatest) failed();
+      if (complete(false)) report();
       return false;
     }
     complete(true);
@@ -612,7 +614,12 @@ export function useOwnershipChatHistory(
       "hidden",
       hidden,
       () => hideChatThread(id, hidden, target),
-      failed,
+      (...cause) => {
+        failed(...cause);
+        // A refusal can mean access was revoked mid-request, so rolling back
+        // alone could bring back a row the server no longer lists.
+        void refreshWithResults();
+      },
     );
   // Undo goes to the scope that hid the chat, and its toast outlives this
   // view, so a closed view sends the request itself.

@@ -53,6 +53,7 @@ import {
   readPageShapeHint,
 } from "@/lib/page-startup-hints";
 
+import { AgentPanelHostProvider, useAgentPanelHost } from "./agent-panel-host";
 import { Header } from "./Header";
 import { isContentSettingsRoute } from "./settings-route-policy";
 import {
@@ -65,7 +66,6 @@ import {
 import { SidebarTriggerContext } from "./sidebar-trigger";
 import {
   ContentLayoutContext,
-  ContentUtilityRailContext,
   useContentShellLayout,
 } from "./use-content-layout";
 
@@ -288,12 +288,12 @@ export function Layout({ children }: LayoutProps) {
     layout: shellLayout,
     dockedSidebarMaxWidth,
     canDockSidebar,
-    holdUtilityRail,
   } = useContentShellLayout({
     shellRef: layoutShellRef,
     sidebar: { collapsed: userSidebarCollapsed, width: sidebarWidth },
   });
   const isCompactLayout = shellLayout.sidebar === "drawer";
+  const { host: agentPanelHost, panelHost } = useAgentPanelHost();
   const sidebarCollapsed = shellLayout.sidebar === "rail";
 
   const handleSidebarResize = useCallback(
@@ -356,7 +356,7 @@ export function Layout({ children }: LayoutProps) {
         aria-label={t("navigation.openSidebar")}
         aria-expanded={mobileSidebarOpen}
         aria-haspopup="dialog"
-        className="shrink-0 rounded-lg text-muted-foreground"
+        className="shrink-0 rounded-lg text-muted-foreground max-[599.98px]:size-11"
         onClick={() => setMobileSidebarOpen(true)}
       >
         <IconMenu2 size={18} />
@@ -478,6 +478,7 @@ export function Layout({ children }: LayoutProps) {
             <AgentSidebar
               position="right"
               forceOverlay={shellLayout.agentPanel === "overlay"}
+              panelHost={panelHost}
               defaultOpen={false}
               agentPageHref="/settings/agent"
               emptyStateText={t("chat.emptyState")}
@@ -496,9 +497,9 @@ export function Layout({ children }: LayoutProps) {
               }
             >
               <ContentLayoutContext.Provider value={shellLayout}>
-                <ContentUtilityRailContext.Provider value={holdUtilityRail}>
+                <AgentPanelHostProvider value={agentPanelHost}>
                   {page}
-                </ContentUtilityRailContext.Provider>
+                </AgentPanelHostProvider>
               </ContentLayoutContext.Provider>
             </AgentSidebar>
           </>

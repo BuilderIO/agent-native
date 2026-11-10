@@ -4,6 +4,10 @@ import { useAppearance } from "@agent-native/core/client/appearance";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
 import { extensionPath } from "@agent-native/core/extensions/path";
 import { THEME_VAR_NAMES } from "@agent-native/core/extensions/theme";
 import {
@@ -546,12 +550,17 @@ function EmbeddedToolMenu({
       (old ?? []).filter((i) => i.extensionId !== extensionId),
     );
     try {
-      await fetch(
+      const res = await fetch(
         agentNativePath(
           `/_agent-native/slots/${encodeURIComponent(slotId)}/install/${encodeURIComponent(extensionId)}`,
         ),
         { method: "DELETE" },
       );
+      if (!res.ok) {
+        reportWriteFailure(writeFailureFromResponse(res));
+      }
+    } catch (error) {
+      reportWriteFailure(error);
     } finally {
       void queryClient.invalidateQueries({
         queryKey: ["slot-installs", slotId],

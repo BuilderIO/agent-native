@@ -1102,19 +1102,23 @@ async function* parseJsonlStream(
               event.error ||
               event.message ||
               "Builder gateway rejected the request as malformed.";
-            const rawErrCode =
+            const gatewayErrCode =
               typeof event.errorCode === "string"
                 ? event.errorCode
                 : typeof event.code === "string"
                   ? event.code
-                  : "invalid_request";
+                  : undefined;
             const errCode =
-              canonicalizeBuilderGatewayErrorCode(rawErrCode, String(errMsg)) ??
-              rawErrCode;
+              canonicalizeBuilderGatewayErrorCode(
+                gatewayErrCode,
+                String(errMsg),
+              ) ??
+              gatewayErrCode ??
+              "invalid_request";
             const gatewayRequestId =
               typeof event.requestId === "string" ? event.requestId : undefined;
             console.warn(
-              `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} requestId=${gatewayRequestId ?? "(none)"} providerMessagePresent=${Boolean(event.error || event.message || event.detail)}`,
+              `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} requestId=${gatewayRequestId ?? "(none)"} requestShape=${JSON.stringify(captureContext.requestShape)} providerMessagePresent=${Boolean(event.error || event.message || event.detail)}`,
             );
             if (isExplicitBuilderCreditsLimitCode(errCode)) {
               await notifyBuilderCreditLimit();
@@ -1122,7 +1126,10 @@ async function* parseJsonlStream(
             yield stop({
               error: errMsg,
               errorCode: errCode,
+              // Without a gateway code the masked envelope does not say the fault
+              // was transient, and the rejected request would be sent unchanged.
               providerRetryable:
+                gatewayErrCode !== undefined &&
                 errCode === BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
               ...(isCreditsLimitErrorCode(errCode)
                 ? { upgradeUrl: await buildUpgradeUrl() }

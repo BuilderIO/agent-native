@@ -70,6 +70,7 @@ describe("list-agent-engines", () => {
     defaultSetting = { value: null, source: "none" };
     defaultAuthority = { allowed: true };
     vi.doMock("../../agent/default-agent-engine.js", () => ({
+      isDefaultAgentEngineScopeResolved: vi.fn(() => true),
       readDefaultAgentEngineSettingDetailed: vi.fn(async () => defaultSetting),
       resolveDefaultAgentEngineAuthority: vi.fn(async () => defaultAuthority),
     }));
@@ -104,6 +105,25 @@ describe("list-agent-engines", () => {
       engine: "fixture-configured-model",
       model: "configured-model",
     });
+  });
+
+  it("lists engines and reports an unresolved default when org scope is unknown", async () => {
+    vi.doMock("../../agent/default-agent-engine.js", () => ({
+      isDefaultAgentEngineScopeResolved: vi.fn(() => false),
+      readDefaultAgentEngineSettingDetailed: vi.fn(async () => {
+        throw new Error("Organization scope could not be resolved.");
+      }),
+      resolveDefaultAgentEngineAuthority: vi.fn(async () => ({
+        allowed: false,
+        reason: "scope-unavailable",
+        message: "Organization scope could not be resolved.",
+      })),
+    }));
+    const { run } = await import("./list-agent-engines.js");
+    const result = JSON.parse(await run());
+    expect(result.defaultSource).toBe("unresolved");
+    expect(result.canUpdateDefault).toBe(false);
+    expect(result.engines.length).toBeGreaterThan(0);
   });
 
   it("prefetches installed provider keys in one catalog batch", async () => {
