@@ -10,6 +10,7 @@ import {
   type BuiltinLocaleCode,
   type LocaleCode,
 } from "./shared.js";
+import { writeFailureMessagesForLocale } from "./write-failure-messages.js";
 
 export type CoreLocaleMessages = Record<string, unknown>;
 
@@ -118,6 +119,7 @@ export async function loadCoreMessagesForLocale(
     environmentBadge: environmentBadgeMessagesForLocale(locale),
     iconPicker: iconPickerMessagesForLocale(locale),
     saveConflict: saveConflictMessagesForLocale(locale),
+    writeFailure: writeFailureMessagesForLocale(locale),
     settings: {
       ...supplementalMessages.mcpSettingsMessages,
       ...supplementalMessages.privacySettingsMessages,
@@ -131,6 +133,7 @@ const englishCoreMessages = {
   environmentBadge: englishSupplementalMessages.environmentBadgeMessages,
   iconPicker: iconPickerMessagesForLocale(DEFAULT_LOCALE),
   saveConflict: saveConflictMessagesForLocale(DEFAULT_LOCALE),
+  writeFailure: writeFailureMessagesForLocale(DEFAULT_LOCALE),
   settings: {
     ...englishSupplementalMessages.mcpSettingsMessages,
     ...englishSupplementalMessages.privacySettingsMessages,

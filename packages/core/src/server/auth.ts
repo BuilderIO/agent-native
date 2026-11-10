@@ -49,7 +49,7 @@ import {
 } from "../shared/mcp-embed-headers.js";
 import {
   bindBuilderSignupAttempt,
-  BUILDER_SIGNUP_COOKIE,
+  builderSignupAssignmentCookieName,
 } from "./builder-signup-experiment.js";
 import {
   createConsentHandler,
@@ -394,13 +394,16 @@ function headersWithSignupAttribution(
   );
 }
 
-async function recordBuilderSignupBinding(
+export async function recordBuilderSignupBinding(
   event: H3Event,
   attemptId: unknown,
   method: "password" | "magic-link" | "google",
   email: string,
 ): Promise<void> {
-  if (typeof attemptId !== "string" && !getCookie(event, BUILDER_SIGNUP_COOKIE))
+  if (
+    typeof attemptId !== "string" &&
+    !getCookie(event, builderSignupAssignmentCookieName())
+  )
     return;
   try {
     await bindBuilderSignupAttempt(event, attemptId, method, email);
