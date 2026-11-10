@@ -44,6 +44,7 @@ const {
   provisionFederatedOrganization,
   resolveFederatedOrganizationForA2A,
   revokeFederatedOrganizationMember,
+  revokeFederatedOrganizationMemberForCurrentRequest,
   syncOrganizationToIdentityHub,
   updateFederatedOrganizationMemberRole,
   validateFederatedOrganizationMembership,
@@ -372,6 +373,51 @@ describe("cross-app organization federation", () => {
         }),
       }),
     );
+  });
+
+  describe("revokeFederatedOrganizationMemberForCurrentRequest", () => {
+    const removal = {
+      orgId: "dispatch-org-1",
+      actorEmail: "owner@example.test",
+      actorRole: "owner" as const,
+      memberEmail: "removed@example.test",
+    };
+
+    function stubOrganization(row: Record<string, unknown>) {
+      executeMock.mockImplementation(async (input) => {
+        const sql = (typeof input === "string" ? input : input.sql).trim();
+        if (/FROM organizations/i.test(sql)) return { rows: [row] };
+        throw new Error(`unexpected SQL in test: ${sql}`);
+      });
+    }
+
+    it("does nothing for a workspace that is not linked, with no request origin", async () => {
+      stubOrganization({
+        id: "dispatch-org-1",
+        name: "Example Org",
+        identity_authority: null,
+        identity_id: null,
+      });
+
+      await expect(
+        revokeFederatedOrganizationMemberForCurrentRequest(removal),
+      ).resolves.toBe(false);
+      expect(signA2ATokenMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses to revoke a linked workspace member without a request origin", async () => {
+      stubOrganization({
+        id: "dispatch-org-1",
+        name: "Example Org",
+        identity_authority: "https://dispatch.agent-native.com",
+        identity_id: "dispatch-org-1",
+      });
+
+      await expect(
+        revokeFederatedOrganizationMemberForCurrentRequest(removal),
+      ).rejects.toThrow("Federated member changes require a request origin.");
+      expect(signA2ATokenMock).not.toHaveBeenCalled();
+    });
   });
 
   it("accepts the canonical identity id returned for a mapped local organization", async () => {

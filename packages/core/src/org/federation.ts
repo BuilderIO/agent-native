@@ -239,7 +239,7 @@ async function sendFederationAssertion(
 }
 
 async function sendFederatedMemberOperation(
-  event: H3Event,
+  event: H3Event | undefined,
   input: {
     orgId: string;
     actorEmail: string;
@@ -293,6 +293,9 @@ async function sendFederatedMemberOperation(
         ? "Cross-app organization federation rollout is unavailable."
         : "Cross-app organization federation is disabled for this organization.",
     );
+  }
+  if (!event) {
+    throw new Error("Federated member changes require a request origin.");
   }
 
   const hub = resolveIdentityHubUrl(event);
@@ -464,6 +467,22 @@ export async function revokeFederatedOrganizationMember(
   },
 ): Promise<boolean> {
   return sendFederatedMemberOperation(event, input, "remove-member");
+}
+
+export async function revokeFederatedOrganizationMemberForCurrentRequest(
+  input: {
+    orgId: string;
+    actorEmail: string;
+    actorRole: OrgRole;
+    memberEmail: string;
+  },
+  event?: H3Event,
+): Promise<boolean> {
+  return sendFederatedMemberOperation(
+    event ?? requestEventFromContext(),
+    input,
+    "remove-member",
+  );
 }
 
 export async function validateFederatedOrganizationMembership(

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockExecute = vi.hoisted(() => vi.fn());
 const mockOffboardMember = vi.hoisted(() => vi.fn());
+const mockRevoke = vi.hoisted(() => vi.fn());
 
 vi.mock("../../db/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../db/client.js")>()),
@@ -10,10 +11,15 @@ vi.mock("../../db/client.js", async (importOriginal) => ({
 vi.mock("../../identity/offboard.js", () => ({
   offboardMember: (...args: unknown[]) => mockOffboardMember(...args),
 }));
+vi.mock("../federation.js", () => ({
+  revokeFederatedOrganizationMemberForCurrentRequest: (...args: unknown[]) =>
+    mockRevoke(...args),
+}));
 vi.mock("../actions.js", () => ({
   requireOrgMember: async () => ({
     email: "owner@example.test",
     orgId: "org-1",
+    role: "owner",
   }),
 }));
 
@@ -43,6 +49,7 @@ describe("offboard-member invalidates cached memberships", () => {
         : { rows: [{ one: 1 }] },
     );
     mockOffboardMember.mockResolvedValue({ removedMemberships: 1 });
+    mockRevoke.mockResolvedValue(true);
   });
 
   it("re-reads the removed member's memberships after the removal", async () => {
@@ -83,5 +90,45 @@ describe("offboard-member invalidates cached memberships", () => {
     const after = vi.fn(async () => []);
     await cachedMemberships("member@example.test", after);
     expect(after).toHaveBeenCalledTimes(1);
+  });
+
+  it("revokes the member at the identity authority before removing them locally", async () => {
+    const order: string[] = [];
+    mockRevoke.mockImplementation(async () => {
+      order.push("revoke");
+      return true;
+    });
+    mockOffboardMember.mockImplementation(async () => {
+      order.push("offboard");
+      return { removedMemberships: 1 };
+    });
+
+    await offboardMemberAction.run(args, ctx);
+
+    expect(order).toEqual(["revoke", "offboard"]);
+    expect(mockRevoke).toHaveBeenCalledWith({
+      orgId: "org-1",
+      actorEmail: "owner@example.test",
+      actorRole: "owner",
+      memberEmail: "member@example.test",
+    });
+  });
+
+  it("keeps the member pending and offboards nothing when the revoke fails", async () => {
+    mockRevoke.mockRejectedValueOnce(new Error("hub down"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(offboardMemberAction.run(args, ctx)).rejects.toThrow(
+      "Could not synchronize this member removal with the identity authority.",
+    );
+
+    expect(mockOffboardMember).not.toHaveBeenCalled();
+    // raw-sql-ok: asserts on the arguments of a mocked execute call; no SQL is composed or run
+    expect(mockExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("SET federation_removal_pending_at = ?"),
+        args: [expect.any(Number), "org-1", "member@example.test"],
+      }),
+    );
   });
 });

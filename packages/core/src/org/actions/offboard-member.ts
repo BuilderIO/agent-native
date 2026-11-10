@@ -1,9 +1,10 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, fail } from "../../action.js";
 import { getDbExec } from "../../db/client.js";
 import { offboardMember } from "../../identity/offboard.js";
 import { requireOrgMember } from "../actions.js";
+import { revokeFederatedOrganizationMemberForCurrentRequest } from "../federation.js";
 import { invalidateMemberOrgCaches } from "../request-org-cache.js";
 
 export default defineAction({
@@ -51,6 +52,30 @@ export default defineAction({
       throw new Error(
         "Transfer target must be an active member of this organization.",
       );
+    await getDbExec().execute({
+      sql: `UPDATE org_members SET federation_removal_pending_at = ?
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL`,
+      args: [Date.now(), caller.orgId, targetEmail],
+    });
+    invalidateMemberOrgCaches();
+    try {
+      await revokeFederatedOrganizationMemberForCurrentRequest({
+        orgId: caller.orgId,
+        actorEmail: caller.email,
+        actorRole: caller.role,
+        memberEmail: targetEmail,
+      });
+    } catch (error) {
+      console.error(
+        "[org] offboard-member: identity authority revoke failed",
+        error,
+      );
+      fail(
+        "Could not synchronize this member removal with the identity authority.",
+        { errorCode: "identity_authority_unavailable", statusCode: 503 },
+      );
+    }
     try {
       return await offboardMember(getDbExec(), targetEmail, {
         transferTo: successorEmail,
