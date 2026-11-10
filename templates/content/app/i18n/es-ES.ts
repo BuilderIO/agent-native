@@ -829,7 +829,6 @@ const editor = {
     image: "Imagen",
     imageAdded: "Imagen agregada",
     imageBroken: "No se pudo cargar la imagen",
-    imageCommentWithAlt: "Imagen: {{alt}}",
     imageCopied: "Imagen copiada.",
     imageDownloadStarted: "Se inició la descarga de la imagen.",
     imageLinkHint: "Funciona con cualquier imagen de la web.",
@@ -1120,6 +1119,29 @@ const editor = {
     hideInSearch: "Ocultar en la búsqueda",
     hideInSearchDescription:
       "Ocultarse de la organización y buscar. Las personas con el enlace aún pueden verlo.",
+    sharePeopleTab: "Personas",
+    shareAgentsTab: "Agentes",
+    agentLevelHeading: "Agentes en esta página",
+    agentLevelMenuLabel: "Qué pueden hacer los agentes en esta página",
+    agentLevelDefault: "(predeterminado)",
+    agentLevelCommentDescription:
+      "Pueden leer, comentar y sugerir cambios. Solo las personas pueden aceptarlos.",
+    agentLevelEditDescription:
+      "Pueden leer, comentar, sugerir, editar el texto, el título y las pestañas, y mover la página a la papelera.",
+    agentLevelCommentConfirm:
+      "Ahora los agentes pueden comentar y sugerir cambios en esta página, pero no editarla.",
+    agentLevelEditConfirm: "Los agentes pueden volver a editar esta página.",
+    agentLevelLimit:
+      "Un agente nunca tiene más permisos que la persona para la que trabaja.",
+    agentLevelManagersOnly:
+      "Solo las personas que administran esta página pueden cambiar esto.",
+    agentLevelUpdateFailed:
+      "No se pudo cambiar lo que pueden hacer los agentes aquí.",
+    agentLevelNote: "Los agentes pueden comentar",
+    agentLevelNoteHint:
+      "Los agentes pueden comentar en esta página. Cámbialo en Compartir.",
+    sendPageToAgent: "Enviar esta página a un agente",
+    connectAgentOverMcp: "Conectar un agente por MCP",
     importingFromNotion: "Importando desde Notion...",
     lastSynced: "Última sincronización",
     linkedToNotion: "Vinculado a la noción",

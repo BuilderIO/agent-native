@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
 import { materializeLiveBody } from "../../shared/live-body.js";
-import { nfmToDoc } from "../../shared/nfm.js";
+import { canonicalizeNfm, nfmToDoc } from "../../shared/nfm.js";
 import {
   operationAnchor,
   suggestionEditorSchema,
+  type AcceptedSiblingRange,
 } from "../../shared/suggestion-apply.js";
 import { markdownSuggestionOperationsForFindReplace } from "../../shared/suggestion-diff.js";
 import {
@@ -335,6 +336,58 @@ describe("applySuggestionEdit", () => {
       detail: "step 1",
     });
     expect(Y.encodeStateAsUpdate(doc)).toEqual(state);
+  });
+
+  it("places each piece of an agent's edit on a page saved without its blank lines", () => {
+    const written = [
+      "**To confirm:**",
+      "",
+      "- **Vendor:** whether to feature request signing, and in which piece; which plan includes the retry hooks we'd use; whether the vendor's test tool can point at our host; and the vendor's technical reviewer.",
+      "- **Host:** which regions to test, and who reviews the benchmark.",
+      "",
+      "Thanks.",
+    ].join("\n");
+    const rewrites = [
+      {
+        find: "which regions to test, and who reviews the benchmark.",
+        replace:
+          "\n\t- **Regions.** Which three should we test?\n\t- **Benchmark.** Who reviews it?",
+      },
+      {
+        find: "whether to feature request signing, and in which piece; which plan includes the retry hooks we'd use; whether the vendor's test tool can point at our host; and the vendor's technical reviewer.",
+        replace:
+          "\n\t- **Request signing.** Would the vendor like to show that, and in which article?\n\t- **Retries.** Which vendor plan includes them?\n\t- **Testing.** Can its test tool point at our host?\n\t- **Reviewer.** Who should check the vendor claims?",
+      },
+    ];
+    const operations = rewrites.flatMap(({ find, replace }) =>
+      markdownSuggestionOperationsForFindReplace({
+        before: written,
+        find,
+        replace,
+        start: written.indexOf(find),
+      }),
+    );
+    const doc = seededDoc(written);
+    expect(bodyOf(doc)).toBe(canonicalizeNfm(written));
+    expect(bodyOf(doc)).not.toBe(written);
+    const accepted: AcceptedSiblingRange[] = [];
+    for (const operation of operations) {
+      expect(
+        applySuggestionEdit(doc, "default", {
+          steps: [{ operation, acceptedSiblingRanges: [...accepted] }],
+        }),
+      ).toBeUndefined();
+      const { from, to } = operationAnchor(operation);
+      accepted.push({ from, to, text: operation.after.changedText });
+    }
+    expect(bodyOf(doc)).toBe(
+      canonicalizeNfm(
+        rewrites.reduce(
+          (text, { find, replace }) => text.replace(find, replace),
+          written,
+        ),
+      ),
+    );
   });
 
   describe("on pages an agent wrote", () => {

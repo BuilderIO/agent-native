@@ -24,6 +24,27 @@ describe("MCP embed headers", () => {
     }
   });
 
+  it("covers each bundled root icon with an exact CDN route", () => {
+    const rules = mcpEmbedStaticAssetRouteRules("/chat");
+    for (const name of [
+      "icon-180.svg",
+      "icon-192.svg",
+      "icon-512.svg",
+      "agent-native-icon-dark.svg",
+      "agent-native-icon-light.svg",
+      "agent-native-icon-light-512.svg",
+      "agent-native-logo-dark.svg",
+      "agent-native-logo-light.svg",
+    ]) {
+      expect(rules[`/${name}`]?.headers["X-Content-Type-Options"]).toBe(
+        "nosniff",
+      );
+      expect(rules[`/chat/${name}`]?.headers["X-Content-Type-Options"]).toBe(
+        "nosniff",
+      );
+    }
+  });
+
   it("allows frontend action-client headers from embedded apps", () => {
     expect(MCP_EMBED_CORS_ALLOW_HEADERS.split(",")).toContain(
       "X-Content-Save-Origin",

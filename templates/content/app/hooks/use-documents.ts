@@ -1383,6 +1383,7 @@ export function useUpdatePreviewDocumentDraft() {
       }
   >("update-preview-document-draft", {
     skipActionQueryInvalidation: true,
+    errorNotification: "caller",
     // This tab's own draft writes never come back through sync.
     onMutate: (variables) => {
       spoilPageOpenReads(queryClient, variables.documentId);

@@ -819,7 +819,6 @@ const editor = {
     image: "画像",
     imageAdded: "画像追加",
     imageBroken: "画像を読み込めませんでした",
-    imageCommentWithAlt: "画像: {{alt}}",
     imageCopied: "画像をコピーしました。",
     imageDownloadStarted: "画像のダウンロードが始まりました。",
     imageLinkHint: "ウェブ上のあらゆる画像を扱うことができます",
@@ -1108,6 +1107,29 @@ const editor = {
     hideInSearch: "検索で非表示にする",
     hideInSearchDescription:
       "組織から非表示にして検索します。リンクを知っている人は引き続き閲覧できます。",
+    sharePeopleTab: "ユーザー",
+    shareAgentsTab: "エージェント",
+    agentLevelHeading: "このページのエージェント",
+    agentLevelMenuLabel: "このページでエージェントができること",
+    agentLevelDefault: "(デフォルト)",
+    agentLevelCommentDescription:
+      "閲覧、コメント、編集の提案ができます。提案を承認できるのは人だけです。",
+    agentLevelEditDescription:
+      "閲覧、コメント、提案、本文・タイトル・タブの編集、ページのゴミ箱への移動ができます。",
+    agentLevelCommentConfirm:
+      "エージェントはこのページでコメントと編集の提案ができるようになりましたが、編集はできません。",
+    agentLevelEditConfirm: "エージェントは再びこのページを編集できます。",
+    agentLevelLimit:
+      "エージェントの権限が、代理で作業する人の権限を超えることはありません。",
+    agentLevelManagersOnly:
+      "これを変更できるのは、このページを管理している人だけです。",
+    agentLevelUpdateFailed:
+      "ここでエージェントができることを変更できませんでした。",
+    agentLevelNote: "エージェントはコメント可",
+    agentLevelNoteHint:
+      "エージェントはこのページにコメントできます。「シェアする」から変更できます。",
+    sendPageToAgent: "このページをエージェントに送信",
+    connectAgentOverMcp: "MCP でエージェントを接続",
     importingFromNotion: "Notion からインポートしています...",
     lastSynced: "最後に同期しました",
     linkedToNotion: "概念にリンク",

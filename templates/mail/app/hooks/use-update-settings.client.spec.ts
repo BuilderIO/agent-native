@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 
+import { WRITE_FAILURE_EVENT } from "@agent-native/core/client/write-failure";
 import type { UserSettings } from "@shared/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -143,6 +144,63 @@ describe("useUpdateSettings request source", () => {
     expect(
       invalidateQueries.mock.calls.map(([filters]) => filters?.queryKey),
     ).toEqual([["settings"]]);
+    hook.unmount();
+    queryClient.clear();
+  });
+});
+
+describe("useUpdateSettings failure reporting", () => {
+  function setup(settings?: { email: string; pinnedLabels: string[] }) {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    if (settings) queryClient.setQueryData(["settings"], settings);
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const hook = renderHook(() => useUpdateSettings(), { wrapper });
+    return { hook, queryClient };
+  }
+
+  it("announces a failed write unless the call passes its own onError", async () => {
+    const settings = { email: "mail-test@example.test", pinnedLabels: [] };
+    mocks.callAction.mockImplementation(async (action: string) => {
+      if (action === "update-mail-preferences") {
+        throw Object.assign(new Error("Internal server error"), {
+          status: 500,
+        });
+      }
+      return settings;
+    });
+    const reported = vi.fn();
+    window.addEventListener(WRITE_FAILURE_EVENT, reported);
+    const { hook, queryClient } = setup(settings);
+
+    act(() => hook.result.current.mutate({ imagePolicy: "show" }));
+    await waitFor(() => expect(reported).toHaveBeenCalledTimes(1));
+
+    const onError = vi.fn();
+    act(() =>
+      hook.result.current.mutate({ imagePolicy: "block-all" }, { onError }),
+    );
+    await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+    expect(reported).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener(WRITE_FAILURE_EVENT, reported);
+    hook.unmount();
+    queryClient.clear();
+  });
+
+  it("stays quiet when a pinned-labels write is dropped before preferences load", async () => {
+    mocks.callAction.mockRejectedValue(new Error("settings unavailable"));
+    const reported = vi.fn();
+    window.addEventListener(WRITE_FAILURE_EVENT, reported);
+    const { hook, queryClient } = setup();
+
+    act(() => hook.result.current.mutate({ pinnedLabels: ["important"] }));
+    await waitFor(() => expect(hook.result.current.isError).toBe(true));
+
+    expect(reported).not.toHaveBeenCalled();
+    window.removeEventListener(WRITE_FAILURE_EVENT, reported);
     hook.unmount();
     queryClient.clear();
   });

@@ -1986,6 +1986,7 @@ export function useProcessBuilderBodyHydration(documentId: string) {
     ProcessBuilderBodyHydrationRequest
   >("process-builder-body-hydration", {
     skipActionQueryInvalidation: true,
+    errorNotification: "caller",
     onSuccess: (data, variables) => {
       if (data.remaining === 0 || variables.documentId) {
         invalidateBuilderBodyHydrationQueries(
