@@ -275,6 +275,17 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
     ).resolves.toEqual(["https://api.github.com"]);
   });
 
+  it("gives a previously saved Figma key its registered API origin", async () => {
+    mockReadAppSecretMeta.mockResolvedValue({ urlAllowlist: null });
+    await expect(
+      getResolvedKeyAllowlist({
+        name: "FIGMA_ACCESS_TOKEN",
+        scope: "user",
+        scopeId: "owner@example.test",
+      }),
+    ).resolves.toEqual(["https://api.figma.com"]);
+  });
+
   it("intersects a saved provider policy with its fixed destinations", async () => {
     mockReadAppSecretMeta.mockResolvedValue({
       urlAllowlist: ["https://api.github.com", "https://other.example.test"],

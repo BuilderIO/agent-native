@@ -26,6 +26,34 @@ import {
 
 export const MCP_TOOL_PREFIX = "mcp__";
 
+export async function fetchMcpOriginBound(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  origin: string,
+): Promise<Response> {
+  const request = new Request(input, init);
+  const requestOptions: RequestInit & { duplex?: "half" } = {
+    method: request.method,
+    headers: request.headers,
+    body: request.body,
+    signal: request.signal,
+    ...(request.body ? { duplex: "half" as const } : {}),
+  };
+  const parsedOrigin = new URL(origin);
+  return ssrfSafeFetch(request.url, requestOptions, {
+    ...(parsedOrigin.hostname === "localhost"
+      ? { allowedLocalhostOrigin: origin }
+      : parsedOrigin.hostname === "127.0.0.1"
+        ? { allowedPrivateOrigins: [origin] }
+        : {}),
+    assertUrlAllowed: (candidate) => {
+      if (new URL(candidate).origin !== origin) {
+        throw new Error("MCP destination changed origin");
+      }
+    },
+  });
+}
+
 export interface McpTool {
   source: string;
   name: string;
@@ -480,15 +508,15 @@ export class McpClientManager {
           requestInit.headers = staticHeaders;
         }
         const auth = cfg.workspaceConnection;
-        const nativeFetch = fetch.bind(globalThis);
         transportOptions.fetch = async (input: unknown, init?: unknown) =>
-          nativeFetch(
+          fetchMcpOriginBound(
             input as Parameters<typeof fetch>[0],
             await buildWorkspaceConnectionRequestInit(
               staticHeaders,
               init,
               auth,
             ),
+            new URL(cfg.url).origin,
           );
       } else if (this.shouldInjectFirstPartyIdentity(entry)) {
         const baselineHeaders = { ...staticHeaders };
@@ -497,49 +525,38 @@ export class McpClientManager {
           requestInit.headers = baselineHeaders;
         }
         if (typeof fetch === "function") {
-          const nativeFetch = fetch.bind(globalThis);
           transportOptions.fetch = async (input: unknown, init?: unknown) =>
-            nativeFetch(
+            fetchMcpOriginBound(
               input as Parameters<typeof fetch>[0],
               await buildFirstPartyRequestInit(
                 staticHeaders,
                 init,
                 this.firstPartyTrust(entry),
               ),
+              new URL(cfg.url).origin,
             );
         }
-      } else if (cfg.secretRequestOrigin) {
+      } else if (
+        cfg.secretRequestOrigin ||
+        Object.keys(staticHeaders).length > 0
+      ) {
         requestInit.headers = staticHeaders;
         transportOptions.fetch = async (
           input: RequestInfo | URL,
           init?: RequestInit,
         ) => {
-          const request = new Request(input, init);
-          const requestOptions: RequestInit & { duplex?: "half" } = {
-            method: request.method,
-            headers: request.headers,
-            body: request.body,
-            signal: request.signal,
-            ...(request.body ? { duplex: "half" as const } : {}),
-          };
-          return ssrfSafeFetch(request.url, requestOptions, {
-            followRedirects: false,
-            assertUrlAllowed: (candidate) => {
-              if (new URL(candidate).origin !== cfg.secretRequestOrigin) {
-                throw new Error("Workspace MCP destination changed origin");
-              }
-            },
-          });
+          return fetchMcpOriginBound(
+            input,
+            init,
+            cfg.secretRequestOrigin ?? new URL(cfg.url).origin,
+          );
         };
-      } else if (Object.keys(staticHeaders).length > 0) {
-        requestInit.headers = staticHeaders;
       }
       if (
         !this.shouldInjectFirstPartyIdentity(entry) &&
         cfg.oauthAccessRefresh &&
         typeof fetch === "function"
       ) {
-        const nativeFetch = fetch.bind(globalThis);
         const refreshAccessToken = cfg.oauthAccessRefresh.refresh;
         let refreshedAuthorization: string | undefined;
         transportOptions.fetch = async (
@@ -551,7 +568,11 @@ export class McpClientManager {
             request.headers.set("Authorization", refreshedAuthorization);
           }
           const retryRequest = request.clone();
-          const response = await nativeFetch(request);
+          const response = await fetchMcpOriginBound(
+            request,
+            undefined,
+            new URL(cfg.url).origin,
+          );
           if (response.status !== 401) return response;
 
           let accessToken: string | null;
@@ -576,7 +597,11 @@ export class McpClientManager {
           const headers = new Headers(retryRequest.headers);
           headers.set("Authorization", `Bearer ${accessToken}`);
           refreshedAuthorization = `Bearer ${accessToken}`;
-          return nativeFetch(new Request(retryRequest, { headers }));
+          return fetchMcpOriginBound(
+            new Request(retryRequest, { headers }),
+            undefined,
+            new URL(cfg.url).origin,
+          );
         };
       }
       transport = new sdk.StreamableHTTPClientTransport(

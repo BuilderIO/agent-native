@@ -48,6 +48,10 @@ const orgContextMocks = vi.hoisted(() => ({
 
 vi.mock("../org/context.js", () => orgContextMocks);
 
+vi.mock("node:dns/promises", () => ({
+  lookup: vi.fn().mockResolvedValue([{ address: "93.184.216.34", family: 4 }]),
+}));
+
 const workspaceConnectionBearer = vi.hoisted(() => vi.fn());
 vi.mock("./workspace-connection-servers.js", async (importOriginal) => ({
   ...(await importOriginal<
@@ -244,9 +248,13 @@ describe("McpClientManager", () => {
           },
         );
       }
-      httpCallHeaders.push(
-        headersFromUnknown((init as { headers?: unknown })?.headers),
+      const recordedHeaders = headersFromUnknown(
+        (init as { headers?: unknown })?.headers,
       );
+      if (recordedHeaders.authorization) {
+        recordedHeaders.Authorization = recordedHeaders.authorization;
+      }
+      httpCallHeaders.push(recordedHeaders);
       return new Response(null, { status: 204 });
     }) as any;
   });
@@ -285,7 +293,7 @@ describe("McpClientManager", () => {
       fetchImpl("https://93.184.216.35/collect", {
         headers: transport.requestInit?.headers,
       }),
-    ).rejects.toThrow("Workspace MCP destination changed origin");
+    ).rejects.toThrow("MCP destination changed origin");
 
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(
       new Response(null, {
@@ -293,11 +301,61 @@ describe("McpClientManager", () => {
         headers: { location: "https://93.184.216.35/collect" },
       }),
     );
-    const response = (await fetchImpl(`${origin}/mcp`, {
+    await expect(
+      fetchImpl(`${origin}/mcp`, {
+        headers: transport.requestInit?.headers,
+      }),
+    ).rejects.toThrow("MCP destination changed origin");
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: `${origin}/mcp/next` },
+      }),
+    );
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(null, { status: 204 }),
+    );
+    const sameOrigin = (await fetchImpl(`${origin}/mcp`, {
       headers: transport.requestInit?.headers,
     })) as Response;
-    expect(response.status).toBe(302);
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(sameOrigin.status).toBe(204);
+    await mgr.stop();
+  });
+
+  it("refreshes a saved OAuth request on its configured origin", async () => {
+    const origin = "https://93.184.216.34";
+    const refresh = vi.fn().mockResolvedValue("new-fake-token");
+    const mgr = new McpClientManager({
+      servers: {
+        oauth: {
+          type: "http",
+          url: `${origin}/mcp`,
+          headers: { Authorization: "Bearer old-fake-token" },
+          secretRequestOrigin: origin,
+          oauthAccessRefresh: { identity: "grant-1", refresh },
+        },
+      },
+    });
+    await mgr.start();
+    const transport = fakeClients[0]!.getTransport() as FakeHttp;
+    vi.mocked(globalThis.fetch)
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    const response = (await transport.fetchImpl!(origin + "/mcp", {
+      headers: transport.requestInit?.headers,
+    })) as Response;
+
+    expect(response.status).toBe(204);
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(
+      new Headers(vi.mocked(globalThis.fetch).mock.calls[1]?.[1]?.headers).get(
+        "authorization",
+      ),
+    ).toBe("Bearer new-fake-token");
     await mgr.stop();
   });
 
@@ -315,7 +373,7 @@ describe("McpClientManager", () => {
     const mgr = new McpClientManager(configFor());
     await mgr.start();
     const initial = fakeClients[0]!.getTransport() as FakeHttp;
-    expect(initial.fetchImpl).toBeUndefined();
+    expect(initial.fetchImpl).toBeDefined();
 
     for (const [index, origin] of [
       "https://mcp.example.test",
@@ -330,7 +388,7 @@ describe("McpClientManager", () => {
       const replacement = fakeClients[index + 1]!.getTransport() as FakeHttp;
       expect(previous.closed).toBe(true);
       expect(replacement).not.toBe(previous);
-      expect(Boolean(replacement.fetchImpl)).toBe(Boolean(origin));
+      expect(replacement.fetchImpl).toBeDefined();
     }
 
     await mgr.stop();

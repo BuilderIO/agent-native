@@ -583,6 +583,7 @@ describe("stored remote MCP headers", () => {
     });
 
     expect(config.headers?.Authorization).toBe("Bearer <OLD_ACCESS_TOKEN>");
+    expect(config.secretRequestOrigin).toBe("https://mcp.example.com");
     expect(config.oauthAccessRefresh?.identity).toMatch(/^[a-f0-9]{64}$/);
     await expect(config.oauthAccessRefresh?.refresh()).resolves.toBe(
       "<NEW_ACCESS_TOKEN>",
