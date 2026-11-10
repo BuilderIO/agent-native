@@ -50,6 +50,7 @@ import { useUploadVideoPicker } from "@/hooks/use-upload-video-picker";
 import {
   fetchVideoStorageStatus,
   useVideoStorageStatus,
+  type VideoStorageStatus,
 } from "@/hooks/use-video-storage-status";
 import { OPEN_CREATE_FOLDER_EVENT } from "@/lib/command-events";
 import {
@@ -199,6 +200,16 @@ function buildMoveTargets(
 
   walk(null, 0);
   return targets;
+}
+
+/**
+ * How many more clips free hosted storage takes, or null when uploads
+ * aren't limited by it (own storage, or no storage yet).
+ */
+function freeClipsCapacity(status: VideoStorageStatus | undefined) {
+  if (status?.mode === "hosted") return status.hostedRemaining;
+  if (status?.mode === "none" && status.denyReason === "exhausted") return 0;
+  return null;
 }
 
 export function LibraryGrid({
@@ -406,8 +417,16 @@ export function LibraryGrid({
     setStorageGateIssue,
   );
   const dropGate = useFreeClipsGate("upload");
+  // Drops are admitted one at a time against what's left. Files admitted
+  // since the last render aren't in `uploads` yet, so they're counted here
+  // until it catches up.
   const uploadsRef = useRef(uploads);
-  uploadsRef.current = uploads;
+  const admittedSinceRenderRef = useRef(0);
+  if (uploadsRef.current !== uploads) {
+    uploadsRef.current = uploads;
+    admittedSinceRenderRef.current = 0;
+  }
+  const dropAdmissionRef = useRef<Promise<void>>(Promise.resolve());
   const activeUploadIds = useMemo(
     () =>
       new Set(
@@ -652,16 +671,19 @@ export function LibraryGrid({
       // would queue files the server is about to refuse. A fresh read counts
       // the clips earlier uploads reserved; queued files that haven't
       // created their recording yet aren't in it.
-      let status = storageStatus.data;
-      if (status?.mode === "hosted") {
+      let capacity = freeClipsCapacity(storageStatus.data);
+      if (capacity !== null) {
         const fresh = await storageStatus.refetch();
-        if (fresh.data) status = fresh.data;
+        if (fresh.data) capacity = freeClipsCapacity(fresh.data);
       }
-      const queued = uploadsRef.current.filter((u) => !u.recordingId).length;
+      const queued =
+        uploadsRef.current.filter((u) => !u.recordingId).length +
+        admittedSinceRenderRef.current;
       const allowed =
-        status?.mode === "hosted"
-          ? files.slice(0, Math.max(0, status.hostedRemaining - queued))
-          : files;
+        capacity === null
+          ? files
+          : files.slice(0, Math.max(0, capacity - queued));
+      admittedSinceRenderRef.current += allowed.length;
       if (allowed.length < files.length) {
         toast(
           t("freeClips.dropOverLimit", {
@@ -672,7 +694,14 @@ export function LibraryGrid({
       }
       if (allowed.length > 0) uploadFiles(allowed);
     };
-    const proceed = () => void uploadWithinFreeClips();
+    const proceed = () => {
+      dropAdmissionRef.current = dropAdmissionRef.current
+        .then(uploadWithinFreeClips)
+        .catch((error: unknown) => {
+          console.error("[clips] dropped video upload failed to start:", error);
+          toast.error(t("recordRoute.uploadFailed"));
+        });
+    };
     if (dropGate.guard(proceed)) return;
     proceed();
   };
