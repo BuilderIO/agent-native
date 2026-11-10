@@ -594,6 +594,65 @@ describe("AgentSidebar panel", () => {
     }
   });
 
+  it("delivers a cold new-tab send after the panel switches to its new tab", async () => {
+    mockPanel.resolveImport();
+    mockPanel.composer = (
+      <div data-agent-chat-reference-target="restored">
+        <textarea />
+      </div>
+    );
+    // The panel mounts on the chat it last showed, then opens the send's own
+    // tab before the retained send is replayed.
+    mockPanel.onReady = (notify) => {
+      notify?.("restored", []);
+      container!
+        .querySelector("textarea")!
+        .parentElement!.setAttribute(
+          "data-agent-chat-reference-target",
+          "automation-tab",
+        );
+      notify?.("automation-tab", []);
+    };
+    const chat = await import("@agent-native/core/client/agent-chat");
+    const results: unknown[] = [];
+    const record = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+    try {
+      renderSidebar(false);
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            origin: window.location.origin,
+            data: {
+              type: "agentNative.submitChat",
+              data: {
+                message: "Create an automation that does this: say ok",
+                submit: true,
+                newTab: true,
+                tabId: "automation-tab",
+                submitMessageId: "cold-new-tab-send",
+              },
+            },
+          }),
+        );
+      });
+      expect(results).toEqual([]);
+      expect(mockPanel.events).toEqual([
+        {
+          type: "message",
+          detail: expect.objectContaining({
+            data: expect.objectContaining({
+              submitMessageId: "cold-new-tab-send",
+            }),
+          }),
+        },
+      ]);
+    } finally {
+      window.removeEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+    }
+  });
+
   it.each(["second", "first-again", "missing-marker"])(
     "binds navigation references at commit before delayed acknowledgement (%s)",
     async (selection) => {

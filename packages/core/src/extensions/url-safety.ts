@@ -129,11 +129,12 @@ export async function isBlockedExtensionUrlWithDns(
   try {
     const { lookup } = await import("node:dns/promises");
     const records = await lookup(hostname, { all: true, verbatim: true });
-    return records.some((record) => isPrivateHost(record.address));
+    return (
+      records.length === 0 ||
+      records.some((record) => isPrivateHost(record.address))
+    );
   } catch {
-    // Some edge runtimes do not expose DNS lookup. Keep the deterministic
-    // parser-based protections instead of failing every outbound request.
-    return false;
+    return true;
   }
 }
 
@@ -226,13 +227,10 @@ async function createSsrfSafeDispatcherUncached(
     undici = await import(/* @vite-ignore */ undiciSpecifier);
     dnsModule = await import("node:dns");
   } catch (error) {
-    if (options.required) {
-      throw new Error(
-        "SSRF protection is unavailable because the server dispatcher could not be loaded.",
-        { cause: error },
-      );
-    }
-    return null;
+    throw new Error(
+      "SSRF protection is unavailable because the server dispatcher could not be loaded.",
+      { cause: error },
+    );
   }
 
   const { Agent } = undici;
@@ -247,12 +245,9 @@ async function createSsrfSafeDispatcherUncached(
       parsed.port || (parsed.protocol === "https:" ? "443" : "80");
   }
   if (!Agent || !lookup) {
-    if (options.required) {
-      throw new Error(
-        "SSRF protection is unavailable because the server dispatcher is incomplete.",
-      );
-    }
-    return null;
+    throw new Error(
+      "SSRF protection is unavailable because the server dispatcher is incomplete.",
+    );
   }
 
   return new Agent({
@@ -276,6 +271,13 @@ async function createSsrfSafeDispatcherUncached(
             )
               ? addresses
               : [{ address: addresses, family: 4 }];
+            if (list.length === 0 || list.some((record) => !record.address)) {
+              const error = new Error(
+                `Connect blocked: ${hostname} returned no DNS address`,
+              ) as NodeJS.ErrnoException;
+              error.code = "EAI_BLOCKED";
+              return callback(error);
+            }
             for (const record of list) {
               const allowedOrigin = allowedPrivateOriginKeys.has(
                 `${normalizeLookupHostname(hostname)}:${destinationPort}`,
@@ -325,18 +327,25 @@ export async function createSsrfSafeDispatcher(
         "SSRF protection requires an exact localhost origin for loopback-only dispatch.",
       );
     }
-    options = { ...options, required: true };
   }
   if (!allowedPrivateOrigin) {
     sharedSsrfDispatcher ??= createSsrfSafeDispatcherUncached();
-    const dispatcher = await sharedSsrfDispatcher;
-    if (dispatcher || !options.required) return dispatcher;
-    return createSsrfSafeDispatcherUncached([], undefined, options);
+    try {
+      const dispatcher = await sharedSsrfDispatcher;
+      if (!dispatcher) {
+        throw new Error(
+          "SSRF protection is unavailable because the server dispatcher is empty.",
+        );
+      }
+      return dispatcher;
+    } catch (error) {
+      sharedSsrfDispatcher = undefined;
+      throw error;
+    }
   }
 
   const cacheKey = JSON.stringify([
     allowedPrivateOrigin,
-    options.required === true,
     options.loopbackOnly === true,
   ]);
   let dispatcher = privateSsrfDispatchers.get(cacheKey);
@@ -351,8 +360,10 @@ export async function createSsrfSafeDispatcher(
 
   try {
     const resolved = await dispatcher;
-    if (!resolved && privateSsrfDispatchers.get(cacheKey) === dispatcher) {
-      privateSsrfDispatchers.delete(cacheKey);
+    if (!resolved) {
+      throw new Error(
+        "SSRF protection is unavailable because the server dispatcher is empty.",
+      );
     }
     return resolved;
   } catch (error) {
@@ -371,9 +382,7 @@ export async function createSsrfSafeDispatcher(
  *   1. Pre-flight DNS-aware private-address check (isBlockedExtensionUrlWithDns)
  *      on the initial URL and on every redirect hop.
  *   2. A connect-time dispatcher that re-checks the resolved IP at TCP-connect
- *      time (closes the DNS-rebinding TOCTOU) when the runtime supports the
- *      Node dispatcher. Edge runtimes retain preflight DNS checks, literal and
- *      rebinding-domain rejection, and per-hop redirect validation.
+ *      time (closes the DNS-rebinding TOCTOU). If unavailable, the request fails.
  *   3. Manual redirect handling — a public URL cannot 30x-redirect into the
  *      private network because each hop is re-validated before it is followed.
  *
@@ -460,7 +469,6 @@ export async function ssrfSafeFetch(
         : options.allowedPrivateOrigins,
       currentUrl,
       {
-        required: Boolean(allowedLocalhostOrigin || options.requireDispatcher),
         loopbackOnly: Boolean(allowedLocalhostOrigin),
       },
     );

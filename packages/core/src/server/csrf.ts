@@ -73,6 +73,7 @@ import { getConfiguredAppBasePath } from "./app-base-path.js";
  * and cookie-authenticated control routes share one subtree.
  */
 const CSRF_PROTECTED_PREFIXES = [
+  "/auth/logout-all",
   // Remote-device relay. The device's own routes (poll/result/heartbeat)
   // authenticate with a bearer token and send no cookies, so they never reach
   // the check; the sibling routes (register, enqueue, computer/approvals,

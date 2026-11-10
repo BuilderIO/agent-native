@@ -1,6 +1,20 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "승인된 출처",
+  "settingsApiKeys.originsHint":
+    "한 줄에 정확한 HTTPS 출처 하나씩 입력하세요. 비워 두면 전달이 차단됩니다. 로컬 HTTP는 허용됩니다.",
+  "settingsApiKeys.invalidOrigins":
+    "정확한 HTTPS 출처를 한 줄에 하나씩 입력하세요.",
+  "settingsApiKeys.editOrigins": "출처 편집",
+  "settingsApiKeys.originsSaved": "출처 저장됨",
+  "settingsApiKeys.originsCount_one": "승인된 출처 {{count}}개",
+  "settingsApiKeys.originsCount_other": "승인된 출처 {{count}}개",
+  "settingsApiKeys.noApprovedOrigins": "승인된 출처 없음",
+  "extensions.cancel": "취소",
+  "extensions.context": "컨텍스트",
+  "extensions.confirmAgentMessage": "확장 기능 메시지를 에이전트에게 보낼까요?",
+  "extensions.sendToAgent": "에이전트에게 보내기",
   "auth.logOutFailed": "로그아웃하지 못했습니다",
   "block.renderUnavailable": "이 블록은 일시적으로 사용할 수 없습니다.",
   "block.loading": "블록을 불러오는 중입니다.",
