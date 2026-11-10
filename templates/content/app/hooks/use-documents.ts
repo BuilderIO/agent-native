@@ -1,6 +1,7 @@
 import { isOpenAiMcpAppHost } from "@agent-native/core/client/agent-chat";
 import {
   callAction,
+  callActionWithRetry,
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
@@ -856,8 +857,10 @@ export function startDatabaseItemPreviewReads(
     () =>
       void queryClient.prefetchQuery({
         queryKey: documentPropertiesQueryKey(item.document.id, item.databaseId),
+        // The row's panel joins this read rather than starting its own, so
+        // this read has to retry the way the panel's would.
         queryFn: ({ signal }) =>
-          callAction<DocumentPropertiesResponse>(
+          callActionWithRetry<DocumentPropertiesResponse>(
             "list-document-properties",
             { documentId: item.document.id, databaseId: item.databaseId },
             { method: "GET", signal },
