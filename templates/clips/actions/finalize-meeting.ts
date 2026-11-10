@@ -130,11 +130,15 @@ export default defineAction({
       .returning({ id: schema.meetings.id });
 
     if (!claimed.length) {
-      const [current] = await db
-        .select()
-        .from(schema.meetings)
-        .where(eq(schema.meetings.id, args.meetingId))
-        .limit(1);
+      const current = (
+        await db
+          .select()
+          .from(schema.meetings)
+          .where(eq(schema.meetings.id, args.meetingId))
+          .limit(1)
+      )
+        .values()
+        .next().value;
       const bulletsJson = current?.bulletsJson ?? meeting.bulletsJson ?? "[]";
       const actionItemsJson =
         current?.actionItemsJson ?? meeting.actionItemsJson ?? "[]";
