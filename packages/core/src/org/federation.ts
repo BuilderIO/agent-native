@@ -707,8 +707,12 @@ export async function resolveFederatedOrganizationForA2A(
   };
   const checked = await checkMemberWithHub(event, identity);
   if (!checked.present) return null;
-  await ensureLocalMembership(orgId, { ...identity, role: checked.role });
-  return { orgId, orgDomain };
+  const recorded = await ensureLocalMembership(
+    orgId,
+    { ...identity, role: checked.role },
+    { clearPendingRemoval: false },
+  );
+  return recorded ? { orgId, orgDomain } : null;
 }
 
 export async function validateFederatedOrganizationMembershipForCurrentRequest(
@@ -809,7 +813,8 @@ export async function syncOrganizationToIdentityHub(
 async function ensureLocalMembership(
   orgId: string,
   identity: FederatedOrganizationIdentity,
-): Promise<void> {
+  options: { clearPendingRemoval: boolean } = { clearPendingRemoval: true },
+): Promise<boolean> {
   const exec = getDbExec();
   const now = Date.now();
   await exec.execute({
@@ -824,13 +829,34 @@ async function ensureLocalMembership(
       now,
     ],
   });
+  const email = identity.email.toLowerCase();
+  if (options.clearPendingRemoval) {
+    await exec.execute({
+      sql: `UPDATE org_members
+            SET role = ?, federation_removal_pending_at = NULL
+            WHERE org_id = ? AND LOWER(email) = ?`,
+      args: [identity.role, orgId, email],
+    });
+    invalidateMemberOrgCaches();
+    return true;
+  }
+  // A removal can start between this caller's read and this write, so the
+  // marker is checked here, where it would otherwise be overwritten.
   await exec.execute({
-    sql: `UPDATE org_members
-          SET role = ?, federation_removal_pending_at = NULL
-          WHERE org_id = ? AND LOWER(email) = ?`,
-    args: [identity.role, orgId, identity.email.toLowerCase()],
+    sql: `UPDATE org_members SET role = ?
+          WHERE org_id = ? AND LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL`,
+    args: [identity.role, orgId, email],
   });
   invalidateMemberOrgCaches();
+  const active = await exec.execute({
+    sql: `SELECT 1 FROM org_members
+          WHERE org_id = ? AND LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
+    args: [orgId, email],
+  });
+  return active.rows.length > 0;
 }
 
 export async function provisionFederatedOrganization(

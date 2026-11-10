@@ -52,11 +52,12 @@ export default defineAction({
       throw new Error(
         "Transfer target must be an active member of this organization.",
       );
+    const markedAt = Date.now();
     await getDbExec().execute({
       sql: `UPDATE org_members SET federation_removal_pending_at = ?
             WHERE org_id = ? AND LOWER(email) = ?
               AND federation_removal_pending_at IS NULL`,
-      args: [Date.now(), caller.orgId, targetEmail],
+      args: [markedAt, caller.orgId, targetEmail],
     });
     invalidateMemberOrgCaches();
     try {
@@ -71,6 +72,16 @@ export default defineAction({
         "[org] offboard-member: identity authority revoke failed",
         error,
       );
+      // Pending members are hidden from the member list and refused above, so a
+      // marker left behind here would leave the admin no way to retry. Only the
+      // marker this call wrote is cleared.
+      await getDbExec().execute({
+        sql: `UPDATE org_members SET federation_removal_pending_at = NULL
+              WHERE org_id = ? AND LOWER(email) = ?
+                AND federation_removal_pending_at = ?`,
+        args: [caller.orgId, targetEmail, markedAt],
+      });
+      invalidateMemberOrgCaches();
       fail(
         "Could not synchronize this member removal with the identity authority.",
         { errorCode: "identity_authority_unavailable", statusCode: 503 },

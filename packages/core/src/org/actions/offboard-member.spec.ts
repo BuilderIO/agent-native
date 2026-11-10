@@ -114,7 +114,7 @@ describe("offboard-member invalidates cached memberships", () => {
     });
   });
 
-  it("keeps the member pending and offboards nothing when the revoke fails", async () => {
+  it("offboards nothing and clears only its own marker when the revoke fails", async () => {
     mockRevoke.mockRejectedValueOnce(new Error("hub down"));
     vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -123,12 +123,23 @@ describe("offboard-member invalidates cached memberships", () => {
     );
 
     expect(mockOffboardMember).not.toHaveBeenCalled();
-    // raw-sql-ok: asserts on the arguments of a mocked execute call; no SQL is composed or run
-    expect(mockExecute).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sql: expect.stringContaining("SET federation_removal_pending_at = ?"),
-        args: [expect.any(Number), "org-1", "member@example.test"],
-      }),
-    );
+    const marker = mockExecute.mock.calls.find(([input]) =>
+      // raw-sql-ok: inspects the arguments of a mocked execute call; no SQL is composed or run
+      input.sql.includes("SET federation_removal_pending_at = ?"),
+    )?.[0];
+    const rollback = mockExecute.mock.calls.find(([input]) =>
+      // raw-sql-ok: inspects the arguments of a mocked execute call; no SQL is composed or run
+      input.sql.includes("SET federation_removal_pending_at = NULL"),
+    )?.[0];
+    expect(marker?.args).toEqual([
+      expect.any(Number),
+      "org-1",
+      "member@example.test",
+    ]);
+    expect(rollback?.args).toEqual([
+      "org-1",
+      "member@example.test",
+      marker?.args[0],
+    ]);
   });
 });

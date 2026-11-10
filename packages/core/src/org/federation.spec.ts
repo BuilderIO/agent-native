@@ -739,6 +739,8 @@ describe("cross-app organization federation", () => {
     function stubLocalRows(rows: {
       org?: Record<string, unknown>;
       member?: Record<string, unknown>;
+      // Whether the member row is active (no removal marker) once it is written.
+      activeAfterWrite?: boolean;
     }) {
       executeMock.mockImplementation(async (input) => {
         const sql = (typeof input === "string" ? input : input.sql).trim();
@@ -759,6 +761,9 @@ describe("cross-app organization federation", () => {
           )
         ) {
           return { rows: rows.member ? [rows.member] : [] };
+        }
+        if (/^SELECT 1 FROM org_members/i.test(sql)) {
+          return { rows: rows.activeAfterWrite === false ? [] : [{ one: 1 }] };
         }
         if (
           /^(INSERT INTO org_members|UPDATE org_members|DELETE FROM org_members)/i.test(
@@ -1017,6 +1022,32 @@ describe("cross-app organization federation", () => {
       ).resolves.toBeNull();
       expect(fetchMock).not.toHaveBeenCalled();
       expect(executeMock).not.toHaveBeenCalledWith(localWriteMatcher);
+    });
+
+    it("records a hub-confirmed member without clearing a removal marker", async () => {
+      stubLocalRows({ org: localOrg });
+      stubHubResponse(presentBody);
+
+      await expect(
+        resolveFederatedOrganizationForA2A(event, claim),
+      ).resolves.toEqual({ orgId: "local-org-1", orgDomain: null });
+      const writes = executeMock.mock.calls
+        .map(([input]) => (typeof input === "string" ? input : input.sql))
+        .filter((sql) => /^\s*UPDATE org_members/i.test(sql));
+      expect(writes).toHaveLength(1);
+      expect(writes[0]).not.toMatch(
+        /federation_removal_pending_at\s*=\s*NULL/i,
+      );
+      expect(writes[0]).toMatch(/federation_removal_pending_at IS NULL/);
+    });
+
+    it("refuses the member when a removal started after the hub confirmed them", async () => {
+      stubLocalRows({ org: localOrg, activeAfterWrite: false });
+      stubHubResponse(presentBody);
+
+      await expect(
+        resolveFederatedOrganizationForA2A(event, claim),
+      ).resolves.toBeNull();
     });
 
     it("lowercases the allowed domain returned for the organization", async () => {

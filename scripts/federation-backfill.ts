@@ -250,11 +250,26 @@ async function runPlan(databases: Databases, args: readonly string[]) {
   }
 }
 
+// The same digest `rosterHash` computes in JS, over the members a workspace has
+// right now: lowercase `email|role` lines in byte order, pending removals left out.
+const LIVE_ROSTER_HASH_SQL = `encode(sha256(convert_to((SELECT COALESCE(string_agg(LOWER(m.email) || '|' || m.role, chr(10) ORDER BY (LOWER(m.email) || '|' || m.role) COLLATE "C"), '') FROM org_members m WHERE m.org_id = o.id AND m.federation_removal_pending_at IS NULL), 'UTF8')), 'hex')`;
+
 async function runApply(databases: Databases, args: readonly string[]) {
   const apply = args.includes("--apply");
-  const plan = buildBackfillPlan(await readSnapshots(databases), {
+  const snapshots = await readSnapshots(databases);
+  const plan = buildBackfillPlan(snapshots, {
     authority: CANONICAL_IDENTITY_SSO_HUB_URL,
   });
+  const plannedRosters = new Map<
+    string,
+    Array<{ email: string; role: string }>
+  >();
+  for (const snapshot of snapshots) {
+    for (const member of snapshot.members) {
+      const key = `${snapshot.app}\n${member.orgId}`;
+      plannedRosters.set(key, [...(plannedRosters.get(key) ?? []), member]);
+    }
+  }
   console.log(
     JSON.stringify({
       mode: apply ? "apply" : "dry-run",
@@ -344,13 +359,21 @@ async function runApply(databases: Databases, args: readonly string[]) {
     for (const [app, links] of linksByApp) {
       const exec = requireDb(databases, app);
       for (const batch of chunk(links, LINK_BATCH)) {
+        // The hub roster was written from the plan's snapshot, so a workspace
+        // whose members changed since then is left unlinked for the next plan.
         // raw-sql-ok: the interpolated parts are `?` placeholder lists built from array lengths; every value is a bound argument
         const result = await exec.execute({
-          sql: `UPDATE organizations AS o SET identity_authority = ?, identity_id = v.canonical_id, federation_roster_initialized_at = ? FROM (VALUES ${batch.map(() => "(?::text, ?::text)").join(", ")}) AS v(org_id, canonical_id) WHERE o.id = v.org_id AND o.identity_authority IS NULL AND o.identity_id IS NULL RETURNING o.id`,
+          sql: `UPDATE organizations AS o SET identity_authority = ?, identity_id = v.canonical_id, federation_roster_initialized_at = ? FROM (VALUES ${batch.map(() => "(?::text, ?::text, ?::text)").join(", ")}) AS v(org_id, canonical_id, roster_hash) WHERE o.id = v.org_id AND o.identity_authority IS NULL AND o.identity_id IS NULL AND ${LIVE_ROSTER_HASH_SQL} = v.roster_hash RETURNING o.id`,
           args: [
             plan.authority,
             Date.now(),
-            ...batch.flatMap((link) => [link.orgId, link.canonicalId]),
+            ...batch.flatMap((link) => [
+              link.orgId,
+              link.canonicalId,
+              rosterHash(
+                plannedRosters.get(`${link.app}\n${link.orgId}`) ?? [],
+              ),
+            ]),
           ],
         });
         const updated = new Set(result.rows.map((row) => String(row.id)));
