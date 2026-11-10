@@ -64,6 +64,8 @@ import {
   getBuilderSignupConnectError,
   getBuilderSignupTrackingIdentity,
   createBuilderSignupExperiment,
+  setBuilderSignupVerifiedStarter,
+  startBuilderSignupForVerifiedSession,
   builderSignupAssignmentCookieName,
   decodeBuilderSignupAssignment,
   encodeBuilderSignupAssignment,
@@ -230,11 +232,12 @@ describe("pre-signup Builder experiment", () => {
         activate,
         reconcile,
       });
+      setBuilderSignupVerifiedStarter(experiment.startVerifiedSignup);
       const server = createApp();
       server.use(
         "/callback",
         defineEventHandler(async (event) => {
-          await experiment.startVerifiedSignup(event, signedSession());
+          await startBuilderSignupForVerifiedSession(event, signedSession());
           return { signedIn: true };
         }),
       );
