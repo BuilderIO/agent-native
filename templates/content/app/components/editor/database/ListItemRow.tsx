@@ -40,6 +40,7 @@ import {
   ListItemLayoutSlotEditor,
   listItemLayoutSlotLabel,
 } from "./ListItemLayout";
+import { databaseRowOpenTarget } from "./row-open-target";
 
 export interface ListItemRowLayout {
   /** The layout being edited: the saved one or the default rows' equivalent. */
@@ -389,6 +390,7 @@ export function DatabaseLayoutListRow({
           <button
             type="button"
             className="block w-full rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            {...databaseRowOpenTarget(item.document.id)}
             onClick={onPreview}
           >
             {titleText}
@@ -470,6 +472,7 @@ export function DatabaseLayoutListRow({
         // Only the title is the button, so web addresses in values stay links.
         <div
           className="block min-w-0 flex-1 cursor-pointer rounded px-1.5 py-0.5 hover:bg-accent/60"
+          {...databaseRowOpenTarget(item.document.id)}
           onClick={openDatabaseItemOnClick(onPreview)}
         >
           {body}

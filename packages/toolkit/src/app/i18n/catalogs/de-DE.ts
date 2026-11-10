@@ -1015,6 +1015,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io enthält kostenlose Credits. Alternativ kannst du deinen eigenen API-Schlüssel verwenden.",
   "setup.builderOrOwnKeys":
     "Verwende Builder.io (kostenlose Credits) oder füge eigene Anbieterschlüssel hinzu.",
+  "setup.reconnectBuilder": "Builder.io erneut verbinden",
   "setup.connectAi": "KI verbinden",
   "setup.connectBuilder": "Builder.io verwenden",
   "setup.connectionsDescription":
@@ -2584,6 +2585,9 @@ const messages: ToolkitAgentChatTranslation = {
     "Der Agent nutzt das Zugriffstoken, das du hinzufügst, und sieht daher, was dieses Token sehen kann.",
   "settingsShell.integrationDetail.accessToken": "Zugriffstoken",
   "settingsShell.integrationDetail.addAccessToken": "Zugriffstoken hinzufügen",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Gespeichertes Zugriffstoken konnte nicht geprüft werden.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Erneut versuchen",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "Ein Admin muss das einrichten",
   "settingsShell.integrationDetail.callout.adminNeededBody":

@@ -1342,6 +1342,7 @@ const messages: ToolkitAgentChatTranslation = {
     "يتضمن Builder.io أرصدة مجانية، أو يمكنك استخدام مفتاح API الخاص بك.",
   "setup.builderOrOwnKeys":
     "استخدم Builder.io (بأرصدة مجانية)، أو أضف مفاتيح مزوّديك الخاصة.",
+  "setup.reconnectBuilder": "إعادة الاتصال بـ Builder.io",
   "setup.connectAi": "اتصال بالذكاء الاصطناعي",
   "setup.connectBuilder": "استخدم Builder.io",
   "setup.connectionsDescription":
@@ -2598,6 +2599,9 @@ const messages: ToolkitAgentChatTranslation = {
     "يستخدم الوكيل رمز الوصول الذي تضيفه، لذلك يرى ما يمكن لهذا الرمز رؤيته.",
   "settingsShell.integrationDetail.accessToken": "رمز الوصول",
   "settingsShell.integrationDetail.addAccessToken": "إضافة رمز وصول",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "تعذّر التحقق من رمز الوصول المحفوظ.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "إعادة المحاولة",
   "settingsShell.integrationDetail.callout.adminNeeded": "يجب أن يُعدّ مسؤول هذا",
   "settingsShell.integrationDetail.callout.adminNeededBody":
     "اطلب من مالك أو مسؤول في {{org}} إضافة معرّف العميل والسر الخاصين بـ {{name}}. بعد ذلك يمكنك ربط حسابك.",

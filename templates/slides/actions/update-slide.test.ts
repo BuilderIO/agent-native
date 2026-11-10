@@ -798,32 +798,83 @@ describe("update-slide", () => {
     ).toEqual(animations);
   });
 
-  it("refuses a content edit that inserts a sibling before a stored reveal's target, with a typed error and no write", async () => {
-    mockDeckRow!.data = JSON.stringify({
-      title: "Deck",
-      slides: [
+  it("moves a kept reveal with its target when a content edit inserts a sibling before it, and reports the move", async () => {
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify({
+        title: "Deck",
+        slides: [
+          {
+            id: "slide-1",
+            content:
+              '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>',
+            animations: [
+              {
+                id: "reveal-two",
+                elementIndex: 1,
+                elementPath: [1, 1],
+                type: "fade",
+              },
+            ],
+          },
+        ],
+      }),
+    };
+
+    const result = await runSlideActionWithCurrentHash({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      fullContent:
+        '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>New</p><p>One</p><p>Two</p></div></div>',
+    });
+
+    expect(result).toMatchObject({
+      repointedReveals: [
         {
-          id: "slide-1",
-          content:
-            '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>',
-          animations: [
-            {
-              id: "reveal-two",
-              elementIndex: 1,
-              elementPath: [1, 1],
-              type: "fade",
-            },
-          ],
+          slideId: "slide-1",
+          animationIndex: 0,
+          animationId: "reveal-two",
+          fromPath: [1, 1],
+          toPath: [1, 2],
         },
       ],
     });
+    expect(
+      JSON.parse(String(lastUpdateSet?.data)).slides[0].animations,
+    ).toEqual([
+      { id: "reveal-two", elementIndex: 2, elementPath: [1, 2], type: "fade" },
+    ]);
+  });
+
+  it("refuses a content edit whose kept reveal's target cannot be told apart after the edit, with a typed error and no write", async () => {
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify({
+        title: "Deck",
+        slides: [
+          {
+            id: "slide-1",
+            content:
+              '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>',
+            animations: [
+              {
+                id: "reveal-two",
+                elementIndex: 1,
+                elementPath: [1, 1],
+                type: "fade",
+              },
+            ],
+          },
+        ],
+      }),
+    };
 
     await expect(
       runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         fullContent:
-          '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>New</p><p>One</p><p>Two</p></div></div>',
+          '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>New</p><p>Rewritten</p></div></div>',
       }),
     ).rejects.toMatchObject({
       errorCode: "slide_animation_retargeted",
@@ -994,6 +1045,36 @@ describe("update-slide", () => {
     );
     expect(mockNotifyClients).not.toHaveBeenCalled();
     expect(mockRecordGenerationCreativeContext).not.toHaveBeenCalled();
+  });
+
+  it("returns the current slide and hash with a stale-content error so the agent can rebase", async () => {
+    onUpdateMiss = () => {
+      const latest = JSON.parse(String(mockDeckRow?.data ?? "{}"));
+      latest.slides[0].content = "<div>Old UIEDITB</div>";
+      mockDeckRow = {
+        ...mockDeckRow,
+        data: JSON.stringify(latest),
+        updatedAt: "2026-01-01T00:00:00.001Z",
+      };
+    };
+    updateRowsAffected = 0;
+
+    await expect(
+      runSlideActionWithCurrentHash({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "Old", replace: "New" }],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "slide_content_stale",
+      statusCode: 409,
+      details: {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        currentContent: "<div>Old UIEDITB</div>",
+        currentContentHash: hashSlideContent("<div>Old UIEDITB</div>"),
+      },
+    });
   });
 
   it("does not reapply a bounded edit after the slide changes during a lost CAS", async () => {

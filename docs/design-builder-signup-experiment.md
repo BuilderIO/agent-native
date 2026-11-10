@@ -23,18 +23,25 @@ that attempt. Organization-managed SSO and delegated preview sign-in retain thei
 existing connection flow; cross-device magic links also fall back when the original
 acceptance cookie is absent.
 
-A non-secret pending cookie lets Design hold the first-run surface while activation
-runs. Ordinary returning visitors make no activation request. Server-side settings
-under `design_builder_signup_v1:<auth-user-id>` retain the assignment, policy revision,
-acceptance time, attempt and terminal outcome. Separate `:attempt:<id>` and
-`:consent:<user-id>` settings bind treatment consent to its authenticated completion.
-Anonymous acceptance writes only the signed cookie; durable records are created only
-after account creation, avoiding abandoned pre-signup records.
+Design's first authenticated POST checks durable consent and starts eligible setup
+in that same request. Non-enrolled visitors remain interactive and never call the
+Builder provider. The app covers its mounted contents only after the server confirms
+an activation is pending. On Netlify the owning work is attached to `waitUntil`, so
+closing the page after this POST does not cancel provisioning. Other hosts return eligibility first and await the following covered activation
+request rather than rely on best-effort background execution. Requests use
+`keepalive` to survive navigation. The separate `status` operation remains read-only.
+Server-side settings under `design_builder_signup_v1:<auth-user-id>` retain the
+assignment, policy revision, acceptance time, attempt and terminal outcome. Separate
+`:attempt:<id>` and `:consent:<user-id>` settings bind consent to signup completion.
+Anonymous acceptance writes only the signed cookie; durable records are created
+only after account creation, avoiding abandoned pre-signup records.
 Automatic attempts are reserved atomically and are not retried after an uncertain
 outcome. Only the owning request finalizes its reservation; other requests return
-pending without taking over. The client waits at most 30 seconds before allowing the
-existing connection flow and clears the non-secret UI gate cookie on every exit, including request failures, so later loads do
-not wait again. A later successful completion still records connected.
+pending without taking over. Terminal writes retry safely without repeating the
+provider call. Uncertain reservations older than a minute release the UI to manual
+setup while preserving the original owner’s right to finish. The client waits at most 30 seconds before allowing the
+existing connection flow. Terminal responses clear the non-secret UI hint; it is
+never an authorization check. A later successful completion still records connected.
 A thrown activation error records terminal fallback immediately. Post-write audit or
 telemetry failures keep the connection connected and report an explicit warning. The old connection flow
 remains available after errors and for every existing Builder account, including
@@ -79,3 +86,63 @@ success, existing-account refusal, and both variants on the intended Design host
 Legal/privacy review of the combined-account disclosure is separate from technical
 verification. Signup acceptance does not opt the user into optional marketing or
 paid billing.
+
+## End-to-end readout
+
+`builder_signup_experiment_enrolled` links an assignment to the authenticated new
+account at signup, independently of Builder consent or activation success. This
+analytics event never authorizes provisioning or adds a prerequisite SQL write.
+The owning activation emits one outcome, including early ineligibility.
+Polling and returning-user responses read the existing result without replaying
+outcome telemetry; un-enrolled start checks emit no experiment outcome. Missing assignments emit `builder_signup_experiment_unattributed`
+without inventing a variant. Identity-store unavailability has a separate event, and
+owned activation attempts emit a start event and completion duration.
+
+Analytics exposes three reusable metrics through `compose-dashboard`:
+`design-builder-signup-ab`, `design-builder-signup-outcomes`, and
+`design-builder-signup-tracking-health`. Use a private dashboard with the first-party
+time, app, and employee filters. The funnel deduplicates by assignment, includes
+signup abandoners, joins signed-in Design activity through enrollment, and uses
+24-hour milestones. Compare mature first-design conversion; D1 and D7 rates include
+only fully observed windows. Milestones are independent: a user can produce a design
+with custom keys without connecting Builder. Historical outcome events provide a
+compatible signup link where the new enrollment event is not yet available.
+
+A public auth shell can render before app configuration is populated. Its app
+identifier falls back to the existing first-party host/path catalog, so Design
+actually fetches its experiment assignment on both production and beta hosts.
+Production rollout still requires promotion and live exposure verification; a merged
+commit or a zero-filled dashboard does not prove the test is running.
+
+Auth beacons include the originating hostname. Dashboard cohorts are split into
+production, beta, and unknown environments; unknown history is never silently
+classified as production. Employee filtering is applied after the assignment-to-user
+join so identified internal visitors are removed from both numerator and denominator.
+Anonymous abandoners with no linked identity cannot be classified as employees.
+
+Historical ranges mature only through the selected end date, so a partial follow-up
+window never enters a mature denominator. Assignments linked to multiple people
+remain in the exposure denominator and are reported explicitly in tracking health;
+they are excluded from signup and person-linked milestones rather than choosing an
+arbitrary account.
+
+Person-linked milestones must match the exposure environment. Unknown hosts only
+join unknown cohorts; they never supply activity to production or beta cohorts.
+
+Employee classification uses authenticated assignment identity evidence before
+signup eligibility, primary-person ranking, or ambiguity exclusion. Any known Builder identity excludes
+the assignment from the external cohort.
+
+## Clips and Slides rollout
+
+Clips and Slides use the same pre-signup 50/50 assignment, Builder terms/privacy disclosure, verified consent, first-request background activation, and existing-account fallback. They use `clips_builder_signup_v1` and `slides_builder_signup_v1`, respectively. Design remains `design_builder_signup_v1`. Assignments, consent records and activation reservations are isolated by experiment ID, including the cookie signature. Exposure events carry the ID returned by the server rather than assuming Design.
+
+Their AppProviders startup gate defers first-run onboarding during eligibility lookup while keeping ordinary app content interactive. An inconclusive lookup shows a nonblocking Retry notice. Confirmed activation covers the app until its outcome, then refreshes connection queries. Controls and ineligible or fallback users retain the existing connection flow. Public and embedded routes do not provision accounts.
+
+Analyze each app separately using its experiment ID and production app identity; do not pool Clips or Slides into the Design dashboard. Use common exposure/enrollment/activation/outcome events for connection funnels, and the app's native creation events for activation.
+
+Design, Clips, and Slides now share the AppProviders activation gate and bounded retry UI. Pending reservations remain pending on hosts without background execution; uncertain reservations remain owned even after a timeout, so a late automatic result cannot race a manual connection. Bounded client recovery then offers Retry while the server outcome remains unknown. Manual setup resumes only after a recorded terminal fallback.
+
+Completed automatic credential writes carry an attempt-specific receipt on the final private-key write, after all other credential metadata has saved. A later authenticated status/start/activate request checks the same authorized user or organization scope and can reconcile a failed terminal outcome write from that receipt, without re-provisioning or releasing an active provider operation. Legacy unreceipted unknown attempts remain pending for explicit investigation. Command menus use actual startup interaction blocking, rather than mere onboarding deferral, so keyboard portals cannot escape confirmed activation.
+
+After an activation transport failure, a failed status query pauses automatic polling and keeps the confirmed cover with a manual Retry action. Signup canaries accept configured credentials in either supported user or organization scope; this connection check is distinct from the experiment’s recorded automatic-provisioning outcome.

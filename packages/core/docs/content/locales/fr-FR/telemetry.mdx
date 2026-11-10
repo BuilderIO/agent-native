@@ -86,6 +86,29 @@ Certains événements sont aussi envoyés sous un second nom plus récent, `cano
 
 `error` est le court indice de message décrit dans [Rapports de plantage](#crash-reports).
 
+### Activité des projets {#project-activity}
+
+Ces événements montrent combien de machines ayant lancé `create` ont ensuite démarré un serveur de développement et terminé un build de production, et avec quels modèles.
+
+| Événement             | Quand                                                                                                                                                                                                | Propriétés                                          |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `cli_create_finished` | `create` se termine, est annulée ou échoue.                                                                                                                                                          | `outcome`, `templates`, `projectKind`, `failedStep` |
+| `cli_dev_ready`       | Le serveur de développement commence à écouter pour la première fois lors d’une exécution de `dev`. Un redémarrage ne le renvoie pas et, dans un workspace, seule la première app démarrée l’envoie. | `workspace`, `appCount`, `readySeconds`             |
+| `cli_deploy_finished` | `build` ou `deploy` se termine ou échoue.                                                                                                                                                            | `outcome`, `preset`, `failedStep`                   |
+
+| Propriété      | Ce que c’est                                                                                                                                                                                                                          |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `outcome`      | `completed` ou `failed`. `create` peut aussi envoyer `cancelled`.                                                                                                                                                                     |
+| `templates`    | Les modèles choisis, séparés par des virgules. Les modèles d’Agent-Native sont envoyés par leur nom. Un modèle de la communauté est envoyé comme `community` et tout autre nom comme `unknown`, donc aucune URL n’est jamais envoyée. |
+| `projectKind`  | Ce que `create` a créé : `workspace`, `standalone`, `headless` ou `workspace-add` (une app ajoutée à un workspace).                                                                                                                   |
+| `failedStep`   | Où une exécution échouée s’est arrêtée. `create` : `choose`, `scaffold` ou `finish`. `build` : `doctor`, `react-router-build`, `vite-build` ou `deploy-build`. `deploy` : `prepare`, `build` ou `package`.                            |
+| `workspace`    | Si `dev` tourne dans un workspace.                                                                                                                                                                                                    |
+| `appCount`     | Le nombre d’apps du workspace, ou 1 hors d’un workspace.                                                                                                                                                                              |
+| `readySeconds` | Les secondes entre le lancement de `dev` et le moment où le serveur écoute.                                                                                                                                                           |
+| `preset`       | L’hébergeur visé par un build : `aws`, `azure`, `bun`, `cloudflare`, `deno`, `firebase`, `netlify`, `node` ou `vercel`. Un preset pour tout autre hébergeur est envoyé comme `other`.                                                 |
+
+`deploy` compile votre app et affiche la commande qui la publie, donc `completed` signifie que le build est terminé, pas que quoi que ce soit a été mis en ligne. Les deux événements de fin partent quand la commande se termine, via un processus auxiliaire de courte durée que la sortie attend au plus 1,5 seconde. Cette attente s’ajoute à toute attente précédente d’autres événements. Ctrl+C à une invite de `create` compte comme `cancelled`. Arrêter `build` ou `deploy` avec Ctrl+C n’envoie aucun événement de fin.
+
 ### Installer des skills {#installing-skills}
 
 Ces événements suivent `skills add` et `npx @agent-native/skills`, pour voir où une installation s’arrête. Les skills du catalogue d’Agent-Native sont envoyées par leur nom. Une skill venant d’ailleurs, comme un manifeste local ou un autre dépôt, est envoyée comme `custom`.

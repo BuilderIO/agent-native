@@ -3,7 +3,38 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-09
+
+### Improved
+
+- Automatic Builder setup now has bounded retries and a visible retry action when status is unavailable.
+
+### Fixed
+
+- Automatic Builder setup starts sooner and continues if you leave the page during setup.
+
+## 2026-11-06
+
+### Added
+
+- Adds a signup experiment that connects new Builder accounts automatically after acceptance and verification.
+
+### Improved
+
+- Selecting a layer or screen on a large board responds faster.
+
+### Fixed
+
+- Selecting or duplicating screens on a large design no longer makes the editor run out of memory.
+
 ## 2026-11-05
+
+### Improved
+
+- Add Figma designs, design references, and websites directly from the composer.
+- Large designs stay more responsive while screens load
+- Large designs with hundreds of screens load, pan, and select faster on the canvas.
+- Smoother panning, zooming and selecting on large designs
 
 ### Fixed
 
@@ -2212,33 +2243,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Fixed
 
 - Local-code screens keep their connection when duplicated, and source saves now detect conflicts
-
-## 2026-07-03
-
-### Added
-
-- The AI now edits like a collaborator on canvas: its cursor glides to the element it changes, with a labeled selection ring and a fading highlight after each edit
-
-### Improved
-
-- Canvas interactions are sharper: rotation-aware resizing, shift constraints, smarter snapping with equal-gap guides, group rotation, and reliable alt-drag duplicating
-- Design system setup now indexes Figma, code, and design.md sources through Builder DSI.
-- Layers panel is smarter: top layer on top, drag with auto-scroll and spring-open folders, and hidden layers stay out of exports
-- Much faster editor: smooth dragging, zooming, and panel updates in large multi-screen files
-- Pen tool refinements: click the first point to close with a drag-to-curve, double-click to finish, alt to break handles, and anchors stay visible at any zoom
-- The code editor is easier to use with top sidebar tabs, clearer screen names, no minimap, and fewer false reload conflicts.
-- The Code panel is now a full VS Code-style editor with a file explorer, tabs, search, quick open (⌘P), a command palette, and automatic Prettier formatting
-
-### Fixed
-
-- Design chat can now wait longer for large background screen updates instead of retrying the same step too early.
-- Design chat now keeps continuing when a quiet model recovery briefly overlaps with the previous run finishing.
-- Design chat now keeps selected-variant screen edits moving when a large edit stalls during preparation, instead of leaving the chat waiting for a browser-side recovery.
-- Design retries stalled screen edits with a smaller, safer follow-up instead of repeating the same stuck update.
-- Inspector fixes: mixed selections show Mixed instead of wrong values, gradients edit safely, and hidden fills restore their original colors
-- Keyframe timeline works reliably: drag keyframes smoothly, pick easing per keyframe, and motion edits save safely without reverting
-- Text editing: Enter adds a line break, international (IME) typing works, and text keeps its content during live collaboration
-- Undo and redo are dependable across agent edits, screen switches, and copy/paste between tabs
-- Variant picks now more reliably expand the selected direction into the full requested screen instead of leaving a direction summary behind.
 
 For the full list of updates, see the [changelog folder](./changelog/).

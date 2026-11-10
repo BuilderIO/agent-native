@@ -24,11 +24,20 @@ import { assertNoInlineImageBytes } from "@agent-native/core/testing";
 
 type Args = Parameters<typeof runPublishAgentSelectionContext>[0];
 
+// A debounce or retry timer left pending writes into a later test's mock.
+const createdArgs: Args[] = [];
+afterEach(() => {
+  for (const args of createdArgs.splice(0)) {
+    if (args.persistedSelectionWriteTimerRef.current !== null)
+      window.clearTimeout(args.persistedSelectionWriteTimerRef.current);
+  }
+});
+
 function argsFor({
   files = [],
   ...overrides
 }: Partial<Args> & { files?: DesignFile[] } = {}): Args {
-  return {
+  const args: Args = {
     activeBreakpointWidthState: undefined,
     activeCodeFile: null,
     activeFile: {
@@ -47,6 +56,8 @@ function argsFor({
     interactDevice: { name: 'MacBook Air 13"', width: 1440, height: 900 },
     interactTheme: "light",
     isSignedIn: true,
+    selectionPublishFailedLabel:
+      "The agent may not see your latest selection. Select it again.",
     mode: "edit" as Args["mode"],
     motionAutoKeyframeEnabled: false,
     motionDockOpen: false,
@@ -74,6 +85,8 @@ function argsFor({
     zoom: 100,
     ...overrides,
   };
+  createdArgs.push(args);
+  return args;
 }
 
 function publishedSelection(): Record<string, unknown> {

@@ -122,6 +122,9 @@ const messages = {
     noAssetsYet: "Aún no hay recursos.",
     assetUploadFailed: "Algunas subidas fallaron",
     assetDeleteFailed: "No se pudo eliminar el recurso",
+    assetLoadFailed: "No se pudieron cargar los recursos",
+    assetSelectNoChange: "No se pudo aplicar esta imagen a esta diapositiva",
+    retry: "Reintentar",
     assetDeleteInUse:
       "Este recurso se usa en una presentación. Quítalo primero de la presentación",
     assetDeleteStorageRemains:
@@ -439,6 +442,8 @@ const messages = {
       "Ver las notas del presentador mientras presentas",
     presenterViewBlocked:
       "Permite las ventanas emergentes para abrir la vista del presentador.",
+    presenterViewUnsupported:
+      "La vista del presentador no es compatible con este navegador.",
     export: "Exportar",
     privacyPrivate: "Privado",
     privacyOrg: "Compartido con la organización",
@@ -494,6 +499,11 @@ const messages = {
   editorExport: {
     pptxFailed: "No se pudo generar el archivo PPTX.",
     exportFailed: "Error al exportar",
+    exportFinishedWithWarnings: "Exportado con advertencias",
+    imagesDropped:
+      "No se pudieron cargar {{count}} imagen(es) y se omitieron del archivo de PowerPoint (diapositivas {{slides}}).",
+    pdfSidecarSkipped:
+      "Este PDF se exportó sin su fuente editable. Al volver a importarlo, las diapositivas se reconstruirán a partir del contenido de las páginas.",
     exporting: "Exportando...",
     exportPptxError: "Algo salió mal al exportar como PPTX.",
     googleSlidesDownloaded: "Descargado para Google Slides",
@@ -512,6 +522,9 @@ const messages = {
     exportPdf: "Exportar como PDF",
     exportPptx: "Exportar como PPTX",
     connectGoogle: "Conectar Google",
+    disconnectGoogle: "Desconectar Google",
+    googleDisconnectFailed: "No se pudo desconectar Google Drive.",
+    googleSlidesStatusUnknown: "No se pudo comprobar el estado",
     openInGoogleSlides: "Abrir en Google Slides",
     googleSlidesUnavailable: "No disponible",
     googleSlidesOpenImporter: "Abrir la importación de Google Slides",
@@ -535,6 +548,7 @@ const messages = {
   share: {
     createFailed: "No se pudo crear el enlace para compartir",
     snapshotLinks: "Enlaces de instantánea",
+    snapshotLinksLoadFailed: "No se pudieron cargar los enlaces de instantánea",
     revokeLink: "Revocar",
     revokeFailed: "No se pudo revocar el enlace para compartir",
     title: "Compartir presentación",

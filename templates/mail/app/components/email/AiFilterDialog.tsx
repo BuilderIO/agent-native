@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   AI_FILTER_LABEL,
   AI_FILTER_MIN_LEARNED_EXAMPLES,
@@ -327,8 +328,10 @@ export function AiFilterDialog({
                         undoToken: status.undoToken,
                       });
                       await backfillStatus.refetch();
-                    } catch {
-                      toast.error(t("mail.aiFilter.actionFailed"));
+                    } catch (error) {
+                      reportWriteFailure(error, {
+                        label: t("mail.aiFilter.actionFailed"),
+                      });
                     }
                   }}
                   disabled={
