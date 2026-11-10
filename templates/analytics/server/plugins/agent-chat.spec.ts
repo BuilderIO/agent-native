@@ -1068,6 +1068,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
         truncated: false,
       });
     return guardContext({
+      runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
       userText:
         options.userText ?? "Show the active accounts figure from BigQuery.",
       draftText,
@@ -3458,6 +3459,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     }, asked);
     const result = await dbtFinalResponseGuard(
       guardContext({
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
         userText: "What were active accounts and signups last month?",
         draftText: "There were 10 active accounts and 3 signups last month.",
         retryCount: 1,
@@ -3589,6 +3591,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     const asked: Asked[] = [];
     const result = await dbtFinalResponseGuard(
       guardContext({
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
         userText: "What were active accounts and signups last month?",
         draftText: "There were 10 active accounts and 12 signups last month.",
         retryCount: 1,
@@ -3672,6 +3675,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     }, asked);
     const result = await dbtFinalResponseGuard(
       guardContext({
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
         userText: "What were active accounts and signups last month?",
         draftText: "There were 10 active accounts and 3 signups last month.",
         retryCount: 1,
@@ -3780,6 +3784,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
   it("treats a successful empty dbt result as a failed metric query", () => {
     const result = realDataFinalGuard(
       guardContext({
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
         userText: question,
         draftText: draft,
         toolCalls: [
@@ -4689,6 +4694,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       };
       const { asked, result } = await judged(
         {
+          runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
           userText,
           draftText,
           toolCalls: [
@@ -4762,6 +4768,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       };
       const { asked, result } = await judged(
         {
+          runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
           userText: question,
           draftText: draft,
           toolCalls: [

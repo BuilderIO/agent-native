@@ -9,6 +9,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import {
+  readTrafficEnvironment,
+  type TrafficEnvironment,
+} from "../../../shared/traffic-environment";
 import { fmt, useErrorsT } from "./errors/i18n";
 import { IssueDetail } from "./errors/IssueDetail";
 import { IssueList } from "./errors/IssueList";
@@ -35,6 +39,7 @@ export function ErrorsPanel() {
   const selectedId = searchParams.get("issue");
   const status = errorStatusFromSearchParams(searchParams);
   const search = searchParams.get("q") ?? "";
+  const environment = readTrafficEnvironment(searchParams.get("environment"));
   const debouncedSearch = useDebouncedValue(search, 250);
 
   const sync = useChangeVersions(["error-issues", "action"]);
@@ -43,9 +48,10 @@ export function ErrorsPanel() {
     () => ({
       status,
       query: debouncedSearch.trim() || undefined,
+      environment,
       limit: 100,
     }),
-    [status, debouncedSearch],
+    [status, debouncedSearch, environment],
   );
 
   const { data, isLoading, isFetching, error, refetch } = useActionQuery(
@@ -88,11 +94,16 @@ export function ErrorsPanel() {
             view: "errors",
             status,
             ...(search.trim() ? { query: search.trim() } : {}),
+            ...(environment ? { environment } : {}),
           };
     void setClientAppState("monitoring", value).catch(() => {});
-  }, [search, selectedIssue, selectedId, status]);
+  }, [environment, search, selectedIssue, selectedId, status]);
 
-  const updateFilters = (next: { status?: StatusFilter; search?: string }) => {
+  const updateFilters = (next: {
+    status?: StatusFilter;
+    search?: string;
+    environment?: TrafficEnvironment | null;
+  }) => {
     setSearchParams(
       (prev) => {
         const params = new URLSearchParams(prev);
@@ -104,6 +115,10 @@ export function ErrorsPanel() {
           const query = next.search.trim();
           if (query) params.set("q", next.search);
           else params.delete("q");
+        }
+        if (next.environment !== undefined) {
+          if (next.environment) params.set("environment", next.environment);
+          else params.delete("environment");
         }
         return params;
       },
@@ -202,6 +217,10 @@ export function ErrorsPanel() {
       onStatusChange={(nextStatus) => updateFilters({ status: nextStatus })}
       search={search}
       onSearchChange={(nextSearch) => updateFilters({ search: nextSearch })}
+      environment={environment}
+      onEnvironmentChange={(nextEnvironment) =>
+        updateFilters({ environment: nextEnvironment })
+      }
       onRefresh={() => void refetch()}
       isFetching={isFetching}
       onSelect={selectIssue}
