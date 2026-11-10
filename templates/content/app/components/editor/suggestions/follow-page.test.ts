@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   SUGGESTION_FOLLOW_QUIET_MS,
   SUGGESTION_FOLLOW_RECHECK_MS,
+  readPageOnLiveCopyChange,
   suggestionPageFollow,
 } from "./follow-page";
 
@@ -119,5 +120,88 @@ describe("suggestionPageFollow", () => {
         },
       }),
     ).toEqual({ kind: "stay" });
+  });
+});
+
+describe("readPageOnLiveCopyChange", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  /** A live copy to change, and reads that finish when the test says. */
+  function setUp(alreadyReading = () => false) {
+    let changed: (() => void) | null = null;
+    const finishes: Array<() => void> = [];
+    const read = vi.fn(
+      () => new Promise<void>((resolve) => finishes.push(resolve)),
+    );
+    const stop = readPageOnLiveCopyChange({
+      subscribe: (listener) => {
+        changed = listener;
+        return () => {
+          changed = null;
+        };
+      },
+      read,
+      alreadyReading,
+    });
+    return {
+      read,
+      stop,
+      change: () => changed?.(),
+      subscribed: () => changed !== null,
+      async finishRead() {
+        finishes.shift()?.();
+        await Promise.resolve();
+        await Promise.resolve();
+      },
+    };
+  }
+
+  it("reads once for a burst of changes", () => {
+    const live = setUp();
+    live.change();
+    live.change();
+    live.change();
+    expect(live.read).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(SUGGESTION_FOLLOW_RECHECK_MS);
+    expect(live.read).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a read finish when changes keep coming, then reads once more", async () => {
+    const live = setUp();
+    live.change();
+    vi.advanceTimersByTime(SUGGESTION_FOLLOW_RECHECK_MS);
+    for (let step = 0; step < 5; step++) {
+      live.change();
+      vi.advanceTimersByTime(SUGGESTION_FOLLOW_RECHECK_MS);
+    }
+    expect(live.read).toHaveBeenCalledTimes(1);
+    await live.finishRead();
+    vi.advanceTimersByTime(SUGGESTION_FOLLOW_RECHECK_MS);
+    expect(live.read).toHaveBeenCalledTimes(2);
+    await live.finishRead();
+    vi.advanceTimersByTime(SUGGESTION_FOLLOW_RECHECK_MS * 4);
+    expect(live.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads once more after joining a read that was already on its way", async () => {
+    const live = setUp(() => true);
+    live.change();
+    vi.advanceTimersByTime(SUGGESTION_FOLLOW_RECHECK_MS);
+    await live.finishRead();
+    vi.advanceTimersByTime(SUGGESTION_FOLLOW_RECHECK_MS);
+    expect(live.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops listening and reading once stopped", async () => {
+    const live = setUp();
+    live.change();
+    vi.advanceTimersByTime(SUGGESTION_FOLLOW_RECHECK_MS);
+    live.change();
+    live.stop();
+    expect(live.subscribed()).toBe(false);
+    await live.finishRead();
+    vi.advanceTimersByTime(SUGGESTION_FOLLOW_RECHECK_MS * 4);
+    expect(live.read).toHaveBeenCalledTimes(1);
   });
 });

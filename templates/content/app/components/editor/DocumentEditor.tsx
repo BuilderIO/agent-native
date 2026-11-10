@@ -388,7 +388,7 @@ import {
 import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
 import { useRememberedEditorMode } from "./suggestions/editor-mode-memory";
 import {
-  SUGGESTION_FOLLOW_RECHECK_MS,
+  readPageOnLiveCopyChange,
   suggestionPageFollow,
 } from "./suggestions/follow-page";
 import {
@@ -7355,22 +7355,18 @@ function PageEditorSessionBody({
   // passes the update on, so read the Page again when the live copy changes.
   useEffect(() => {
     if (!isSuggesting || !bodyWritesThroughLiveCopy || !ydoc) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const refetch = () => {
-      if (timer) return;
-      timer = setTimeout(() => {
-        timer = null;
-        void queryClient.refetchQueries({
-          ...documentQueryFilter(documentId),
-          type: "active",
-        });
-      }, SUGGESTION_FOLLOW_RECHECK_MS);
+    const filter = {
+      ...documentQueryFilter(documentId),
+      type: "active" as const,
     };
-    ydoc.on("update", refetch);
-    return () => {
-      ydoc.off("update", refetch);
-      if (timer) clearTimeout(timer);
-    };
+    return readPageOnLiveCopyChange({
+      subscribe: (changed) => {
+        ydoc.on("update", changed);
+        return () => ydoc.off("update", changed);
+      },
+      read: () => queryClient.refetchQueries(filter, { cancelRefetch: false }),
+      alreadyReading: () => queryClient.isFetching(filter) > 0,
+    });
   }, [bodyWritesThroughLiveCopy, documentId, isSuggesting, queryClient, ydoc]);
 
   const refreshSuggestionDecisionDocument = useCallback(

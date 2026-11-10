@@ -68,3 +68,41 @@ export function suggestionPageFollow(args: {
     return { kind: "wait", ms: SUGGESTION_FOLLOW_QUIET_MS - quietFor };
   return { kind: "restart" };
 }
+
+/**
+ * Reads the Page again after its live copy changes, at most once per recheck.
+ * A change while a read is on its way waits for that read and then reads once
+ * more, rather than cancelling it: steady typing elsewhere would otherwise
+ * keep every read from coming back. A read that joined one already on its way
+ * reads once more too, since that one may have left before the change.
+ */
+export function readPageOnLiveCopyChange(args: {
+  subscribe: (changed: () => void) => () => void;
+  read: () => Promise<unknown>;
+  alreadyReading: () => boolean;
+}): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let reading = false;
+  let readAgain = false;
+  let stopped = false;
+  const changed = () => {
+    if (reading) readAgain = true;
+    else if (!timer) timer = setTimeout(read, SUGGESTION_FOLLOW_RECHECK_MS);
+  };
+  const settled = () => {
+    reading = false;
+    if (readAgain && !stopped) changed();
+  };
+  const read = () => {
+    timer = null;
+    reading = true;
+    readAgain = args.alreadyReading();
+    void args.read().then(settled, settled);
+  };
+  const unsubscribe = args.subscribe(changed);
+  return () => {
+    stopped = true;
+    unsubscribe();
+    if (timer) clearTimeout(timer);
+  };
+}
