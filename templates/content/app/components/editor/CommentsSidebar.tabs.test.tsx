@@ -537,15 +537,15 @@ describe("comments across Blocks field tabs", () => {
     expect(actions.create.mock.calls[0]?.[0]).not.toHaveProperty("fieldId");
   });
 
-  it("offers Ask AI only on the page body's threads", () => {
+  it("offers Ask AI on a tab's threads, as on the page body's", () => {
     render([thread("notes-1", "notes", "Notes")], {
       presentation: "inline",
       selected: "notes-1",
       commentAi,
     });
     expect(richEditor(container)).not.toBeNull();
-    expect(actions.aiEnabled.length).toBeGreaterThan(0);
-    expect(actions.aiEnabled.every((enabled) => !enabled)).toBe(true);
+    // oracle-change: a tab's thread now offers Ask AI, so it is enabled rather than disabled everywhere.
+    expect(actions.aiEnabled).toContain(true);
 
     actions.aiEnabled.length = 0;
     render([thread("body-1", null)], {
@@ -556,14 +556,14 @@ describe("comments across Blocks field tabs", () => {
     expect(actions.aiEnabled).toContain(true);
   });
 
-  it("offers Ask AI only on new comments in the page body", () => {
+  it("offers Ask AI on new comments in a tab, as in the page body", () => {
     render([], {
       presentation: "inline",
       pending: { quotedText: "Notes", offsetTop: 0, fieldId: "notes" },
       commentAi,
     });
     expect(richEditor(container)).not.toBeNull();
-    expect(actions.aiEnabled.every((enabled) => !enabled)).toBe(true);
+    expect(actions.aiEnabled).toContain(true);
 
     actions.aiEnabled.length = 0;
     render([], {

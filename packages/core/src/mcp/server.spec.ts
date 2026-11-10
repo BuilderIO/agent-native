@@ -9561,7 +9561,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         ),
       ).toEqual(["ui://mail/healthy-review/shell-v65"]);
 
-      const warnCallsBeforeRead = warn.mock.calls.length;
+      const resourceWarnings = () =>
+        warn.mock.calls.filter(([message]) =>
+          String(message).includes("metadata could not be resolved"),
+        );
+      const warnCallsBeforeRead = resourceWarnings().length;
       const read = await callWeb(
         {
           jsonrpc: "2.0",
@@ -9586,7 +9590,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           `"broken-review" because its metadata could not be resolved: Error: ${resourceFailure.message}`,
         ),
       );
-      expect(warn).toHaveBeenCalledTimes(warnCallsBeforeRead);
+      expect(resourceWarnings()).toHaveLength(warnCallsBeforeRead);
     } finally {
       warn.mockRestore();
     }

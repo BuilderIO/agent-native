@@ -620,6 +620,8 @@ const messages = {
     them: "그들을",
     me: "나",
     regeneratingNotes: "요약 재생성 중",
+    notesAlreadyGenerating:
+      "요약을 이미 생성하고 있습니다. 준비되면 여기에 표시됩니다.",
     meetingRemoved: "회의가 삭제되었습니다.",
     couldNotRemoveMeeting: "회의를 삭제할 수 없습니다.",
     couldNotLoadMeeting: "이 회의를 로드할 수 없습니다.",
