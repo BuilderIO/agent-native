@@ -20,13 +20,17 @@ export function isAgentMeetingCaller(caller: string | undefined): boolean {
   return isAgentRecordingCaller(caller) || caller === "webmcp";
 }
 
-function countActionItems(raw: string | null | undefined): number {
+/** How many action items the row stores, or null when its list can't be read. */
+function countActionItems(raw: string | null | undefined): number | null {
+  if (!raw) return 0;
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(raw || "[]");
-    return Array.isArray(parsed) ? parsed.length : 0;
+    parsed = JSON.parse(raw);
   } catch {
-    return 0;
+    // coercion-ok: null says the list couldn't be read; an empty one counts 0
+    return null;
   }
+  return Array.isArray(parsed) ? parsed.length : null;
 }
 
 /**

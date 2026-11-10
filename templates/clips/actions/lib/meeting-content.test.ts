@@ -52,10 +52,19 @@ describe("meetingRowForAgent action items", () => {
     expect(row).not.toHaveProperty("actionItemsJson");
   });
 
-  it("counts none when the stored list can't be read", () => {
+  it("gives no count when the stored list can't be read", () => {
     expect(
       meetingRowForAgent({ ...emptyCalendarHusk, actionItemsJson: "{" }),
-    ).toMatchObject({ actionItemCount: 0 });
+    ).toMatchObject({ actionItemCount: null });
+    expect(
+      meetingRowForAgent({ ...emptyCalendarHusk, actionItemsJson: "{}" }),
+    ).toMatchObject({ actionItemCount: null });
+  });
+
+  it("counts none when the row has no action items", () => {
+    expect(meetingRowForAgent(emptyCalendarHusk)).toMatchObject({
+      actionItemCount: 0,
+    });
     expect(meetingRowForAgent({})).toMatchObject({ actionItemCount: 0 });
   });
 });
