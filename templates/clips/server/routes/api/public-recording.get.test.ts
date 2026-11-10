@@ -116,8 +116,12 @@ vi.mock("../../lib/share-password.js", () => ({
   getRecordingAccessTokenResourceId: (
     id: string,
     password: string | null,
-    _sharePasswordVersion?: string | null,
-  ) => (password ? `${id}:password-scoped` : `${id}:update-scoped`),
+    _version: string,
+    visibility: string,
+  ) => {
+    const base = password ? `${id}:password-scoped` : `${id}:update-scoped`;
+    return visibility === "public" ? base : `${base}:visibility:${visibility}`;
+  },
   verifySharePassword: (...args: unknown[]) => mockVerifySharePassword(...args),
 }));
 
@@ -695,7 +699,7 @@ describe("/api/public-recording route", () => {
       "agent-token",
       {
         resourceKind: "clip-agent-context",
-        resourceId: "rec-1:update-scoped",
+        resourceId: "rec-1:update-scoped:visibility:private",
       },
     );
     expect(mockSetResponseStatus).not.toHaveBeenCalledWith(event, 404);
@@ -704,6 +708,32 @@ describe("/api/public-recording route", () => {
       expect.objectContaining({ token: "agent-token" }),
     );
   });
+
+  it.each(["private", "org"] as const)(
+    "scopes media derived from a %s agent grant away from the public password gate",
+    async (visibility) => {
+      const event = { setCookies: [] as unknown[] };
+      mockGetQuery.mockReturnValue({
+        id: "rec-1",
+        agent_access: "agent-token",
+      });
+      mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+      mockGetDb.mockReturnValue(
+        createDbWithSelectResults([
+          [makeRecording({ visibility, password: "encrypted-password" })],
+          [],
+          [],
+          [],
+          [],
+        ]),
+      );
+      await handler(event as unknown as Parameters<typeof handler>[0]);
+      expect(mockSignShortLivedToken).toHaveBeenCalledWith({
+        resourceId: `rec-1:password-scoped:visibility:${visibility}`,
+        ttlSeconds: 21_600,
+      });
+    },
+  );
 
   it("rejects a token minted before a recording gained a password", async () => {
     const event = { setCookies: [] as unknown[] };

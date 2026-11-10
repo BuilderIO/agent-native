@@ -95,6 +95,7 @@ export default defineAction({
         recording.id,
         recording.password,
         recording.sharePasswordVersion,
+        recording.visibility,
       ),
       viewerEmail: getRequestUserEmail() || undefined,
       agentLabel: args.agentLabel,

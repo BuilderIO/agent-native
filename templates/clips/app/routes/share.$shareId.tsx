@@ -295,6 +295,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
           id,
           rec.password,
           rec.sharePasswordVersion,
+          rec.visibility,
         ),
       }).ok
     : false;

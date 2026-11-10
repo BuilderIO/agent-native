@@ -103,6 +103,7 @@ describe("resolvePlayerVideoUrl", () => {
       "rec-1",
       "encrypted",
       "initial",
+      "public",
     );
 
     expect(

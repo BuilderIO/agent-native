@@ -78,6 +78,7 @@ export default defineAction({
         recordingId,
         recording.password,
         recording.sharePasswordVersion,
+        recording.visibility,
       );
       if (!accessToken || !verifyShortLivedToken(accessToken, scopeId).ok) {
         fail("Password required.", {

@@ -120,6 +120,7 @@ function renewProtectedMediaCookie(
       scopeId,
       password,
       sharePasswordVersion,
+      "public",
     ),
     ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
   });
@@ -553,6 +554,7 @@ export default defineEventHandler(async (event: H3Event) => {
           loaded.gateId,
           recording.password,
           recording.sharePasswordVersion,
+          "public",
         );
         const password =
           typeof query.password === "string" ? query.password : "";

@@ -435,6 +435,7 @@ export async function resolvePublicAgentAccess(
     recording.id,
     recording.password,
     recording.sharePasswordVersion,
+    recording.visibility,
   );
   const suppliedToken = options.token ?? "";
   const tokenAccess = suppliedToken

@@ -111,11 +111,13 @@ function setProtectedMediaAccessCookie(
   recordingId: string,
   password: string | null | undefined,
   sharePasswordVersion: string | null | undefined,
+  visibility: "private" | "org" | "public",
 ): string {
   const resourceId = getRecordingAccessTokenResourceId(
     recordingId,
     password,
     sharePasswordVersion,
+    visibility,
   );
   // This helper runs only after the share or agent-access gate above.
   const existingToken = getHeader(event, "x-clips-media-token") ?? "";
@@ -243,6 +245,7 @@ export default defineEventHandler(async (event) => {
           rec.id,
           rec.password,
           rec.sharePasswordVersion,
+          rec.visibility,
         ),
       }).ok
     : false;
@@ -356,6 +359,7 @@ export default defineEventHandler(async (event) => {
       recordingId,
       rec.password,
       rec.sharePasswordVersion,
+      rec.visibility,
     );
   } else if (tokenAllowsAgentAccess && !viewerIsOwner) {
     protectedMediaToken = setProtectedMediaAccessCookie(
@@ -363,6 +367,7 @@ export default defineEventHandler(async (event) => {
       recordingId,
       rec.password,
       rec.sharePasswordVersion,
+      rec.visibility,
     );
   }
 
@@ -469,6 +474,7 @@ export default defineEventHandler(async (event) => {
               recordingId,
               rec.password,
               rec.sharePasswordVersion,
+              rec.visibility,
             ),
           })
         : undefined;

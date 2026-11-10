@@ -78,6 +78,7 @@ import {
   viewerScreenshotEditsJson,
 } from "../server/lib/screenshot-edits.js";
 import { isSeekableRepairPending } from "../server/lib/seekable-media-state.js";
+import { getRecordingAccessTokenResourceId } from "../server/lib/share-password.js";
 import { listTranscriptVersions } from "../server/lib/transcript-versions.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { parseAppActivitySummary } from "../shared/app-activity.js";
@@ -365,7 +366,12 @@ export default defineAction({
       rec.password &&
       access.role !== "owner"
         ? signShortLivedToken({
-            resourceId: rec.id,
+            resourceId: getRecordingAccessTokenResourceId(
+              rec.id,
+              rec.password,
+              rec.sharePasswordVersion,
+              "public",
+            ),
             ttlSeconds: steppedTokenTtlSeconds(),
           })
         : null;

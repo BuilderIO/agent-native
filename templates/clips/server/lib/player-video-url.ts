@@ -85,6 +85,7 @@ export function resolvePlayerVideoUrl(
         recording.id,
         recording.password,
         recording.sharePasswordVersion,
+        "public",
       ),
     });
     resolvedVideoUrl = appendQueryParam(resolvedVideoUrl, "t", token);

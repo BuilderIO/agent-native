@@ -169,6 +169,7 @@ function setProtectedMediaAccessCookie(
       scopeId,
       password,
       sharePasswordVersion,
+      "public",
     ),
     ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
   });
@@ -501,6 +502,7 @@ export default defineEventHandler(async (event: H3Event) => {
           gateId,
           gate.password,
           gate.sharePasswordVersion,
+          "public",
         );
         if (token) {
           const result = verifyShortLivedToken(token, scopedRecordingId);
