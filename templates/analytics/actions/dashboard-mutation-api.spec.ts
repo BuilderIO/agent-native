@@ -426,7 +426,7 @@ describe("dashboard mutation api", () => {
     expect(root.columns).toBe(3);
     expect(renderedRows(root)).toEqual([["a", "b", "b-bar"], ["c"], ["d"]]);
     expect(result.commandLog).toEqual([
-      "duplicatePanel(b -> b-bar) -> index 2",
+      "duplicatePanel(b -> b-bar) -> index 2; also changed dashboard columns 2 to 3, c width 1 to 3",
     ]);
   });
 
@@ -472,7 +472,124 @@ describe("dashboard mutation api", () => {
     ]);
     expect(root.columns).toBe(3);
     expect(renderedRows(root)).toEqual([["a", "b", "new"], ["c"], ["d"]]);
-    expect(result.commandLog).toEqual(["insertPanel(new) -> index 2"]);
+    expect(result.commandLog).toEqual([
+      "insertPanel(new) -> index 2; also changed dashboard columns 2 to 3, c width 1 to 3",
+    ]);
+    expect(root.panels.find((p) => p.id === "d")?.width).toBe(1);
+  });
+
+  it("names the placed panel's own resize, against the width an insert asked for", () => {
+    const inserted = clone(config());
+    const insert = applyDashboardMutationOperations(
+      inserted,
+      parseDashboardMutationScript(
+        inserted,
+        'dashboard.insertPanel({"id":"new","title":"New","source":"first-party","chartType":"metric","width":2,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).nextTo("b");',
+      ),
+    );
+    expect(renderedRows(inserted)).toEqual([["a", "b", "new"], ["c"], ["d"]]);
+    expect(insert.commandLog).toEqual([
+      "insertPanel(new) -> index 2; also changed dashboard columns 2 to 3, new width 2 to 1, c width 1 to 3",
+    ]);
+
+    const root = {
+      name: "Moved",
+      columns: 2,
+      panels: [{ ...panel("a"), width: 2 }, panel("b"), panel("c")],
+    };
+    const move = applyDashboardMutationOperations(
+      root,
+      parseDashboardMutationScript(root, 'dashboard.panel("a").nextTo("b");'),
+    );
+    expect(renderedRows(root)).toEqual([["b", "a", "c"]]);
+    expect(move.commandLog).toEqual([
+      "movePanels(a) -> index 1; also changed dashboard columns 2 to 3, a width 2 to 1",
+    ]);
+  });
+
+  it("pins a section that follows the dashboard's columns when an insert widens them", () => {
+    const root = {
+      name: "Inherited",
+      columns: 2,
+      panels: [
+        panel("a"),
+        panel("b"),
+        { id: "section", title: "Section", chartType: "section", width: 1 },
+        ...["c", "d", "e", "f"].map((id) => panel(id)),
+      ],
+    };
+    const operations = parseDashboardMutationScript(
+      root,
+      'dashboard.insertPanel({"id":"new","title":"New","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).nextTo("a");',
+    );
+
+    const result = applyDashboardMutationOperations(root, operations);
+
+    expect(root.columns).toBe(3);
+    expect(renderedRows(root)).toEqual([
+      ["a", "new", "b"],
+      ["c", "d"],
+      ["e", "f"],
+    ]);
+    expect(result.commandLog).toEqual([
+      "insertPanel(new) -> index 1; also changed dashboard columns 2 to 3, section columns unset to 2",
+    ]);
+  });
+
+  it("resizes only the row a nextTo insert joins and names that resize", () => {
+    const root = {
+      name: "Nurture",
+      columns: 2,
+      panels: [
+        panel("a"),
+        panel("b"),
+        panel("c"),
+        {
+          id: "nurture",
+          title: "Nurture",
+          chartType: "section",
+          width: 1,
+          columns: 3,
+        },
+        { ...panel("p"), width: 2 },
+        panel("q"),
+        panel("r"),
+        {
+          id: "later",
+          title: "Later",
+          chartType: "section",
+          width: 1,
+          columns: 2,
+        },
+        panel("x"),
+        panel("y"),
+      ],
+    };
+    const widths = () => root.panels.map((p) => [p.id, p.width]);
+    const before = widths();
+    const operations = parseDashboardMutationScript(
+      root,
+      'dashboard.insertPanel({"id":"new","title":"New","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).nextTo("r");',
+    );
+
+    const result = applyDashboardMutationOperations(root, operations);
+
+    expect(renderedRows(root)).toEqual([
+      ["a", "b"],
+      ["c"],
+      ["p", "q"],
+      ["r", "new"],
+      ["x", "y"],
+    ]);
+    expect(widths()).toEqual(
+      [...before.slice(0, 7), ["new", 1], ...before.slice(7)].map(
+        ([id, width]) => [id, id === "r" ? 2 : width],
+      ),
+    );
+    expect(root.columns).toBe(2);
+    expect(result.commandLog).toEqual([
+      "insertPanel(new) -> index 7; also changed r width 1 to 2",
+    ]);
   });
 
   it("places inserted panels by 1-based visible row number", () => {

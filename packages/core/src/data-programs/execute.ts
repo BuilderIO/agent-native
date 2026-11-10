@@ -606,6 +606,7 @@ async function runBackgroundProgram(
       execution = await getSandboxExecutionForOwner(
         active.executionId,
         args.ctx.userEmail,
+        args.ctx.orgId ?? null,
       );
     } catch (err) {
       console.error(

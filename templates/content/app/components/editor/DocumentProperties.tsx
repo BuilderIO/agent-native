@@ -62,7 +62,6 @@ import {
   IconClockFilled,
   IconDatabase,
   IconEdit,
-  IconEyeOff,
   IconFileText,
   IconGripVertical,
   IconHash,
@@ -99,6 +98,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -118,6 +118,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -148,6 +149,7 @@ import {
   useContentDatabases,
 } from "@/hooks/use-content-database";
 import {
+  documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
   useContentDatabaseRowSearch,
@@ -213,6 +215,8 @@ interface DocumentPropertiesProps {
    * don't arrive later and push the page down.
    */
   schemaRowsExpected?: boolean;
+  /** The page reports a failed read itself, so saying so here would repeat it. */
+  leaveReadFailureToPage?: boolean;
   popoversPortalled?: boolean;
   popoverContainer?: HTMLElement | null;
 }
@@ -1008,18 +1012,22 @@ export function DocumentProperties({
   rowViewPending = false,
   canEdit,
   schemaRowsExpected = false,
+  leaveReadFailureToPage = false,
   popoversPortalled = true,
   popoverContainer,
 }: DocumentPropertiesProps) {
   const t = useT();
-  const { data, isLoading, isError, dataUpdatedAt } = useDocumentProperties(
-    documentId,
-    databaseId,
-  );
+  const propertiesQuery = useDocumentProperties(documentId, databaseId);
+  const { data, isLoading, isError, dataUpdatedAt } = propertiesQuery;
   const loaded = documentPropertiesResponseMatchesScope(
     documentId,
     databaseId,
     data,
+  );
+  const readFailed = documentPropertiesReadFailed(
+    documentId,
+    databaseId,
+    propertiesQuery,
   );
   const canEditValues =
     canEdit &&
@@ -1041,11 +1049,28 @@ export function DocumentProperties({
     (property) => property.definition.type !== "blocks",
   );
   const layout = databaseRowPropertyLayout(properties, rowView);
-  const visibleProperties = layout.listed.filter(isPropertyVisible);
-  const hiddenInViewProperties = layout.hiddenInView.filter(isPropertyVisible);
-  const hiddenProperties = properties.filter(
-    (property) => !isPropertyVisible(property),
+  const emptyWhenOpened = useEmptyWhenOpened(
+    `${documentId}\n${databaseId}`,
+    properties,
   );
+  const isListable = (property: DocumentProperty) =>
+    property.definition.visibility !== "always_hide" &&
+    !emptyWhenOpened.has(property.definition.id);
+  const visibleProperties = layout.listed.filter(isListable);
+  const hiddenInViewProperties = layout.hiddenInView.filter(isListable);
+  const orderedProperties = [...layout.listed, ...layout.hiddenInView];
+  const emptyProperties = canManageSchema
+    ? orderedProperties.filter((property) =>
+        emptyWhenOpened.has(property.definition.id),
+      )
+    : [];
+  const alwaysHiddenProperties = canManageSchema
+    ? orderedProperties.filter(
+        (property) => property.definition.visibility === "always_hide",
+      )
+    : [];
+  const moreProperties = [...hiddenInViewProperties, ...emptyProperties];
+  const collapsedCount = moreProperties.length + alwaysHiddenProperties.length;
   const propertyRow = (property: DocumentProperty) => (
     <PropertyRow
       key={property.definition.id}
@@ -1062,7 +1087,14 @@ export function DocumentProperties({
 
   return (
     <div className="mt-5 border-y border-transparent py-1">
-      {isLoading || !loaded || rowViewPending ? (
+      {readFailed && !leaveReadFailureToPage ? (
+        <QueryErrorState
+          compact
+          onRetry={() => void propertiesQuery.refetch()}
+        />
+      ) : readFailed && !loaded ? null : isLoading ||
+        !loaded ||
+        rowViewPending ? (
         <div className="flex h-8 items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-3.5" />
           {t("editor.properties.loadingProperties")}
@@ -1071,29 +1103,42 @@ export function DocumentProperties({
         <div className="grid gap-0.5">{visibleProperties.map(propertyRow)}</div>
       ) : null}
 
-      {loaded && !rowViewPending && hiddenInViewProperties.length > 0 ? (
-        <HiddenInViewProperties
-          properties={hiddenInViewProperties}
+      {loaded &&
+      !rowViewPending &&
+      (!readFailed || leaveReadFailureToPage) &&
+      collapsedCount > 0 ? (
+        <CollapsedProperties
+          key={documentId}
+          label={
+            collapsedCount === 1
+              ? t("editor.properties.morePropertiesOne")
+              : t("editor.properties.moreProperties", {
+                  count: collapsedCount,
+                })
+          }
+          properties={moreProperties}
+          opensForProperties={[...moreProperties, ...alwaysHiddenProperties]}
           renderRow={propertyRow}
-          t={t}
-        />
+        >
+          {alwaysHiddenProperties.length > 0 ? (
+            <CollapsedProperties
+              withoutLine={moreProperties.length === 0}
+              label={t("editor.properties.alwaysHiddenCount", {
+                count: alwaysHiddenProperties.length,
+              })}
+              properties={alwaysHiddenProperties}
+              opensForProperties={alwaysHiddenProperties}
+              renderRow={propertyRow}
+            />
+          ) : null}
+        </CollapsedProperties>
       ) : null}
 
       {showSchemaRows && databaseId ? (
-        // Rows drawn on expectation hold their place, even before any
+        // Add property, drawn on expectation, holds its place even before any
         // Property answer, and can't be used until this viewer's rights are
         // confirmed.
         <div className="contents" inert={!canManageSchema || undefined}>
-          {hiddenProperties.length > 0 ? (
-            <HiddenPropertiesMenu
-              databaseDocumentId={databaseDocumentId ?? documentId}
-              documentId={documentId}
-              databaseId={databaseId}
-              properties={hiddenProperties}
-              popoverContainer={popoverContainer}
-              t={t}
-            />
-          ) : null}
           <AddProperty
             databaseDocumentId={databaseDocumentId ?? documentId}
             documentId={documentId}
@@ -1107,140 +1152,105 @@ export function DocumentProperties({
   );
 }
 
-function isPropertyVisible(property: DocumentProperty) {
-  const visibility = property.definition.visibility;
-  if (visibility === "always_hide") return false;
-  if (visibility === "hide_when_empty") {
-    return !isEmptyPropertyValue(property.value);
-  }
-  return true;
+/**
+ * Which "Hide when empty" Properties were empty when this row opened. Filling
+ * one in from the collapsed line, or clearing a listed one, leaves it where it
+ * is until the row reopens, so it doesn't jump away from the cursor. A
+ * Property that joins the list later is read when it joins; the others stay held.
+ */
+function useEmptyWhenOpened(scope: string, properties: DocumentProperty[]) {
+  const hideWhenEmpty = properties.filter(
+    (property) => property.definition.visibility === "hide_when_empty",
+  );
+  const ids = hideWhenEmpty.map((property) => property.definition.id);
+  const key = [scope, ...[...ids].sort()].join("\n");
+  const [held, setHeld] = useState({
+    key: "",
+    scope: "",
+    ids: new Set<string>(),
+    empty: new Set<string>(),
+  });
+  if (held.key === key) return held.empty;
+  const known = held.scope === scope ? held.ids : new Set<string>();
+  const empty = new Set(
+    hideWhenEmpty
+      .filter((property) =>
+        known.has(property.definition.id)
+          ? held.empty.has(property.definition.id)
+          : isEmptyPropertyValue(property.value),
+      )
+      .map((property) => property.definition.id),
+  );
+  setHeld({ key, scope, ids: new Set(ids), empty });
+  return empty;
 }
 
 /**
- * The Properties this row's view hides, a click away. Opening it changes
- * nothing about the view or the collection, and a Comment being written or
- * read on one of them opens it so the Property is there to point at.
+ * Properties tucked behind one line, a click away. Opening it changes nothing
+ * about the view or the collection, and a Comment being written or read on one
+ * of them opens it so the Property is there to point at. `withoutLine` lists
+ * the Properties straight inside a parent line; they stay open and mounted if
+ * they later need a line of their own.
  */
-function HiddenInViewProperties({
+function CollapsedProperties({
+  label,
   properties,
+  opensForProperties,
   renderRow,
-  t,
+  withoutLine = false,
+  children,
 }: {
+  label: string;
   properties: DocumentProperty[];
+  opensForProperties: DocumentProperty[];
   renderRow: (property: DocumentProperty) => ReactNode;
-  t: TFunction;
+  withoutLine?: boolean;
+  children?: ReactNode;
 }) {
   const comments = usePropertyComments();
   const [open, setOpen] = useState(false);
-  const holdsCurrentComment =
-    !!comments &&
-    properties.some(
-      (property) =>
-        comments.pendingPropertyId === property.definition.id ||
-        comments.selectedPropertyId === property.definition.id,
-    );
+  if (withoutLine && !open) setOpen(true);
+  // Keyed on which Property holds the Comment, so a different one opens a line
+  // that was closed by hand.
+  const heldHere = (id: string | null | undefined) =>
+    id && opensForProperties.some((property) => property.definition.id === id)
+      ? id
+      : null;
+  const pendingHere = heldHere(comments?.pendingPropertyId);
+  const selectedHere = heldHere(comments?.selectedPropertyId);
   useEffect(() => {
-    if (holdsCurrentComment) setOpen(true);
-  }, [holdsCurrentComment]);
+    if (pendingHere || selectedHere) setOpen(true);
+  }, [pendingHere, selectedHere]);
   const Chevron = open ? IconChevronDown : IconChevronRight;
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger asChild>
-        <button
-          type="button"
-          className="mt-1 flex h-8 items-center gap-2 rounded px-1 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-        >
-          <Chevron className="size-4" />
-          {t("editor.properties.hiddenInThisView")}
-          <span className="text-xs text-muted-foreground/70">
-            {properties.length}
-          </span>
-        </button>
-      </CollapsibleTrigger>
+      {withoutLine ? null : (
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="mt-1 flex h-8 items-center gap-2 rounded px-1 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          >
+            <Chevron className="size-4" />
+            {label}
+          </button>
+        </CollapsibleTrigger>
+      )}
       <CollapsibleContent>
-        <div className="grid gap-0.5">{properties.map(renderRow)}</div>
+        {/* Rows give up 20px of name column, once at any depth, so values in a
+            narrow panel lose less and long names still fit. */}
+        <div
+          className={cn(
+            "grid gap-0.5",
+            !withoutLine &&
+              "ml-[11px] border-l border-border pl-2 [--property-name-inset:20px]",
+          )}
+        >
+          {properties.map(renderRow)}
+          {children}
+        </div>
       </CollapsibleContent>
     </Collapsible>
-  );
-}
-
-function HiddenPropertiesMenu({
-  documentId,
-  databaseDocumentId = documentId,
-  databaseId,
-  properties,
-  popoverContainer,
-  t,
-}: {
-  documentId: string;
-  databaseDocumentId?: string;
-  databaseId: string;
-  properties: DocumentProperty[];
-  popoverContainer?: HTMLElement | null | undefined;
-  t: TFunction;
-}) {
-  const configure = useConfigureDocumentProperty(
-    documentId,
-    databaseId,
-    databaseDocumentId,
-  );
-
-  async function showProperty(property: DocumentProperty) {
-    await configure.mutateAsync({
-      id: property.definition.id,
-      documentId,
-      name: property.definition.name,
-      type: property.definition.type,
-      visibility: "always_show",
-      options: property.definition.options,
-    });
-  }
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="mt-1 flex h-8 items-center gap-2 rounded px-1 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-        >
-          <IconEyeOff className="size-4" />
-          {t("editor.properties.hiddenProperties")}
-          <span className="text-xs text-muted-foreground/70">
-            {properties.length}
-          </span>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="w-72"
-        container={popoverContainer}
-      >
-        {properties.map((property) => {
-          return (
-            <DropdownMenuItem
-              key={property.definition.id}
-              disabled={configure.isPending}
-              onSelect={(event) => {
-                event.preventDefault();
-                void showProperty(property);
-              }}
-            >
-              <PropertyDefinitionIcon
-                property={property}
-                className="mr-2 size-4 text-muted-foreground"
-              />
-              <span className="min-w-0 flex-1 truncate">
-                {property.definition.name}
-              </span>
-              <span className="ml-2 text-xs text-muted-foreground">
-                {t("editor.properties.show")}
-              </span>
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 
@@ -1278,7 +1288,7 @@ function PropertyRow({
   return (
     <div
       className={cn(
-        "group/property relative grid min-h-8 grid-cols-[120px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm transition-colors hover:bg-muted/40",
+        "group/property relative grid min-h-8 grid-cols-[120px_minmax(0,1fr)] sm:grid-cols-[calc(160px-var(--property-name-inset,0px))_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm transition-colors hover:bg-muted/40",
         // The Comment control floats at the right edge; room is kept for
         // it only while it stays visible, so narrow panels keep their values,
         // or where it would cover the edit button beside a value's links.
@@ -1519,6 +1529,7 @@ export function PropertyManagementPopover({
   popoverContainer?: HTMLElement | null;
 }) {
   const t = useT();
+  const visibilityScopeId = useId();
   const hasColumnMenu = !!(
     sorts &&
     filters &&
@@ -2122,22 +2133,30 @@ export function PropertyManagementPopover({
                   className="z-[310] w-56"
                   container={popoverContainer}
                 >
-                  {DOCUMENT_PROPERTY_VISIBILITIES.map((visibility) => (
-                    <DropdownMenuItem
-                      key={visibility}
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        void updateVisibility(visibility);
-                      }}
-                    >
-                      <span className="flex-1">
-                        {t(`editor.propertyVisibility.${visibility}`)}
-                      </span>
-                      {property.definition.visibility === visibility ? (
-                        <IconCheck className="size-4 text-muted-foreground" />
-                      ) : null}
-                    </DropdownMenuItem>
-                  ))}
+                  <DropdownMenuLabel
+                    id={visibilityScopeId}
+                    className="py-1.5 font-normal"
+                  >
+                    {t("editor.properties.visibilityScope")}
+                  </DropdownMenuLabel>
+                  <DropdownMenuGroup aria-labelledby={visibilityScopeId}>
+                    {DOCUMENT_PROPERTY_VISIBILITIES.map((visibility) => (
+                      <DropdownMenuItem
+                        key={visibility}
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void updateVisibility(visibility);
+                        }}
+                      >
+                        <span className="flex-1">
+                          {t(`editor.propertyVisibility.${visibility}`)}
+                        </span>
+                        {property.definition.visibility === visibility ? (
+                          <IconCheck className="size-4 text-muted-foreground" />
+                        ) : null}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuGroup>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
 
