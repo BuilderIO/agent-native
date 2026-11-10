@@ -47,6 +47,29 @@ describe("AgentNativeI18nProvider locale loading", () => {
     act(() => root.unmount());
     container.remove();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("normalizes configured locale codes before applying catalog restrictions", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      translations: { locales: ["FR-fr", "ja-JP"] },
+    });
+    function Options() {
+      return <span>{useLocale().supportedLocales.join(",")}</span>;
+    }
+    const catalog: AgentNativeI18nCatalog = {
+      sourceLocale: "en-US",
+      supportedLocales: ["en-US", "fr-FR"],
+      restrictToCatalogLocales: true,
+    };
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
+          <Options />
+        </AgentNativeI18nProvider>,
+      );
+    });
+    expect(container.textContent).toBe("en-US,fr-FR");
   });
 
   it("falls back to the source locale when supplemental messages fail to load", async () => {

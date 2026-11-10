@@ -27,7 +27,6 @@ import { cn } from "@/lib/utils";
 
 import {
   AgentAvatar,
-  agentDisplayName,
   commentAiModelLabel,
   modelDisplayName,
 } from "./agent-identity";
@@ -123,6 +122,12 @@ interface CommentAiDispatchRecovery {
 
 export interface CommentAiController {
   requests: CommentAiRequest[];
+  /**
+   * The requests as the server last reported them, before a local dispatch
+   * or continuation error shows one as needing review. What a run wrote to
+   * the page or its comments follows these.
+   */
+  serverRequests: CommentAiRequest[];
   startingThreadIds: ReadonlySet<string>;
   stoppingRequestIds: ReadonlySet<string>;
   continuations: ReadonlyMap<string, CommentAiContinuationState>;
@@ -159,6 +164,75 @@ function isAppliedResolution(request: CommentAiRequest) {
     Boolean(request.result?.editApplied) &&
     !request.result?.undone
   );
+}
+
+/**
+ * Whether any of these requests made in the thread changed the page and
+ * hasn't undone it, whether it resolved the thread or left it for review.
+ * Deleting the thread deletes all of its requests, not just the latest,
+ * while the change stays in the page. The client sees only the viewer's own
+ * requests; someone else's applied change leaves their receipt reply in the
+ * thread, which already keeps its author from deleting it.
+ */
+export function threadHasAppliedAiChange(
+  requests: readonly CommentAiRequest[] | undefined,
+  threadId: string,
+) {
+  return !!requests?.some(
+    (request) =>
+      request.threadId === threadId &&
+      !!request.result?.editApplied &&
+      !request.result.undone,
+  );
+}
+
+/**
+ * The comments finished requests wrote, such as AI's reply or the receipt
+ * for its suggestion or change, that the loaded threads don't have yet, as
+ * one sorted string so a caller can read the list again once per new set.
+ * Nothing counts as missing before the threads first load.
+ */
+export function missingCommentAiReplyIds(
+  requests: readonly CommentAiRequest[],
+  threads: readonly { comments: readonly { id: string }[] }[] | undefined,
+) {
+  if (!threads) return "";
+  const loaded = new Set(
+    threads.flatMap((thread) => thread.comments.map((comment) => comment.id)),
+  );
+  return requests
+    .flatMap((request) =>
+      !ACTIVE_STATUSES.has(request.status) && request.result?.commentId
+        ? [request.result.commentId]
+        : [],
+    )
+    .filter((id) => !loaded.has(id))
+    .sort()
+    .join(" ");
+}
+
+/**
+ * Records each request's status in `known` and says whether one that was
+ * running when last seen has since finished with a change to the page.
+ */
+export function noteCommentAiPageChanges(
+  known: Map<string, CommentAiRequest["status"]>,
+  requests: readonly CommentAiRequest[],
+) {
+  let changed = false;
+  for (const request of requests) {
+    const prior = known.get(request.operationId);
+    known.set(request.operationId, request.status);
+    if (
+      prior !== undefined &&
+      ACTIVE_STATUSES.has(prior) &&
+      !ACTIVE_STATUSES.has(request.status) &&
+      request.result?.editApplied &&
+      !request.result.undone
+    )
+      changed = true;
+  }
+  return changed;
 }
 
 /**
@@ -1010,6 +1084,7 @@ export function useCommentAiRequests(
   return useMemo(
     () => ({
       requests,
+      serverRequests,
       startingThreadIds,
       stoppingRequestIds,
       continuations,
@@ -1026,6 +1101,7 @@ export function useCommentAiRequests(
     }),
     [
       requests,
+      serverRequests,
       startingThreadIds,
       stoppingRequestIds,
       continuations,
@@ -1070,7 +1146,6 @@ function requestStatusLabel(
   if (request.status === "failed") return t("comments.aiFailed");
   if (request.status === "cancelled") return t("comments.aiCancelled");
   if (request.status === "needs-review") return t("comments.aiNeedsReview");
-  if (request.status === "suggested") return t("comments.aiSuggestionReady");
   if (request.status === "resolved")
     return request.result?.undone
       ? t("comments.aiChangeUndone")
@@ -1352,10 +1427,8 @@ export function CommentAiConversation({
             }}
             name={
               <>
-                <span className="sr-only">
-                  {agentDisplayName(request.model)}:{" "}
-                </span>
-                <span aria-hidden>{agentDisplayName(request.model)}</span>
+                <span className="sr-only">{modelLabel}: </span>
+                <span aria-hidden>{modelLabel}</span>
               </>
             }
             badge={

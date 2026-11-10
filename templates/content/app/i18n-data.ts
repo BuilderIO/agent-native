@@ -827,6 +827,7 @@ const editorPropertiesMessages = {
     video: "Video",
   },
   fromSource: "From {{name}}",
+  hiddenInThisView: "Hidden in this view",
   hiddenProperties: "Hidden properties",
   imageUploaded_zero: "Images uploaded",
   imageUploaded_one: "Image uploaded",
@@ -1125,6 +1126,25 @@ const editorToolbarMessages = {
   closeUtilityPanel: "Close panel",
   hideInSearchDescription:
     "Hide from Organization and search. People with the link can still view.",
+  sharePeopleTab: "People",
+  shareAgentsTab: "Agents",
+  agentLevelHeading: "Agents on this page",
+  agentLevelMenuLabel: "What agents can do on this page",
+  agentLevelDefault: "(default)",
+  agentLevelCommentDescription:
+    "Can read, comment and suggest edits. Only people can accept them.",
+  agentLevelEditDescription:
+    "Can read, comment, suggest and edit its text, title and tabs, and move it to Trash.",
+  agentLevelCommentConfirm:
+    "Agents can now comment and suggest edits on this page, but not edit it.",
+  agentLevelEditConfirm: "Agents can edit this page again.",
+  agentLevelLimit: "An agent never gets more than the person it works for.",
+  agentLevelManagersOnly: "Only people who manage this page can change this.",
+  agentLevelUpdateFailed: "Couldn't change what agents can do here.",
+  agentLevelNote: "Agents can comment",
+  agentLevelNoteHint: "Agents can comment on this page. Change it in Share.",
+  sendPageToAgent: "Send this page to an agent",
+  connectAgentOverMcp: "Connect an agent over MCP",
   importingFromNotion: "Importing from Notion...",
   lastSynced: "Last synced",
   linkedToNotion: "Linked to Notion",
@@ -1595,7 +1615,8 @@ const enUS = {
     previewDraftUseSaved: "Use saved version",
     previewDraftSaveSeparately: "Save mine as a separate page",
     previewDraftSavedToHistory: "Your edits were saved to Version History",
-    previewDraftSavedSeparately: "Your edits were saved as a separate page",
+    previewDraftSavedSeparately:
+      "Your edits were saved as a private page in your space",
     previewDraftOpenSavedPage: "Open page",
     previewDraftMoreOptions: "More options",
     previewDraftViewFullVersions: "View full versions",
@@ -1800,6 +1821,28 @@ const enUS = {
     discardEditDescription: "Your comment will stay as it was.",
     discard: "Discard",
     keepEditing: "Keep editing",
+    deleteComment: "Delete comment",
+    deleteThread: "Delete thread",
+    deleteCommentQuestion: "Delete comment?",
+    deleteCommentDescription:
+      "It's deleted for everyone, and this can't be undone.",
+    deleteThreadQuestion: "Delete thread?",
+    deleteThreadDescription:
+      "The thread and its replies are deleted for everyone, and this can't be undone.",
+    deleteThreadAiChangeDescription:
+      "The thread and its replies are deleted for everyone, and this can't be undone. The AI's change to the page stays, but you won't be able to undo it from the thread.",
+    delete: "Delete",
+    deleting: "Deleting…",
+    deleteRefusedReplied:
+      "Someone else replied, so only an editor can delete this thread.",
+    deleteRefusedNotion:
+      "This comment is synced with Notion. Delete it in Notion.",
+    deleteRefusedAiWorking:
+      "The AI is working on this thread. Stop it before deleting the thread.",
+    deleteRefusedAiSuggestion:
+      "The AI's suggestion in this thread is waiting for review. Accept or reject it before deleting the thread.",
+    deleteRefusedBusy:
+      "This thread is being changed right now. Try deleting it again in a moment.",
     submit: "Comment",
     askAi: "Ask AI",
     aiBadge: "AI",
@@ -1810,7 +1853,6 @@ const enUS = {
     mentionPeopleLoadFailed: "Couldn't load people.",
     mentionAgents: "Agents",
     identityPerson: "Person",
-    identityModel: "Model",
     identityEffort: "Effort",
     identityRan: "Ran",
     identityNotRecorded: "Not recorded",
@@ -1844,7 +1886,6 @@ const enUS = {
     aiPromptApplyResolve: "Apply changes for this comment and resolve it.",
     aiWorking: "AI is working…",
     aiReplied: "AI replied",
-    aiSuggestionReady: "Review suggestion",
     aiChangesApplied: "Changes applied",
     aiAppliedAndResolved: "Applied and resolved",
     aiChangeUndone: "Change undone",
@@ -1889,6 +1930,9 @@ const enUS = {
     rejectRemaining: "Reject remaining",
     acceptAll: "Accept all",
     rejectAll: "Reject all",
+    acceptAllAndResolve: "Accept all and resolve",
+    acceptAndResolve: "Accept and resolve",
+    suggestionLoadFailed: "Couldn't load this suggestion",
     suggestionReviewReadOnly:
       "Only people who can edit this page can accept or reject its suggestions.",
     resolve: "Resolve",
@@ -1955,10 +1999,20 @@ const enUS = {
   },
   publicDocument: {
     chat: "Chat",
+    freeAndOpenSource: "Free and open source on GitHub",
+    pagePath: "Page path",
     privateDescription:
       "Ask the owner to share it with your account or workspace before opening this link.",
     privateTitle: "This document is private",
+    signIn: "Sign in",
+    signUp: "Sign up",
+    signUpFree: "Sign up free",
+    subPages: "Sub-pages",
+    tryContentFree: "Try Content free",
     updated: "Updated {{date}}",
+    writtenIn: "Written in Agent-Native Content.",
+    writtenInDescription:
+      "Write and publish your own pages, with an AI agent that works inside your docs.",
   },
   database: databaseMessages,
   localFiles: localFilesMessages,

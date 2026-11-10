@@ -1,5 +1,6 @@
 import type { AgentEngineKeyScope } from "@agent-native/core/client/agent-engine-key";
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { surfaceMutationError } from "@agent-native/core/client/write-failure";
 import type { ApolloPersonResult } from "@shared/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -36,6 +37,7 @@ export function useApolloConnect() {
   const qc = useQueryClient();
 
   return useMutation({
+    meta: surfaceMutationError(),
     mutationFn: async ({
       apiKey,
       scope,

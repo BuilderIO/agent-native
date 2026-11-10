@@ -134,6 +134,7 @@ it("supersedes a pending active save with a composed non-active update", () => {
       files: [targetFile, activeFile],
       getScreenContent: () => firstEdit,
       id: "design-1",
+      primeAcceptedSource: () => {},
       markPendingLocalFileContent: vi.fn(),
       overviewIsSynced: false,
       overviewPresenceFileId: null,

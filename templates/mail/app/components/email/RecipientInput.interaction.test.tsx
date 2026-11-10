@@ -246,6 +246,23 @@ describe("RecipientInput autocomplete interaction", () => {
     expect(input.value).toBe("");
   });
 
+  it("offers to save several recipients as an alias unless told not to", () => {
+    const recipients = "ada@example.test, bea@example.test";
+    const { rerender } = render(
+      <RecipientInput value={recipients} onChange={() => {}} />,
+    );
+    expect(screen.queryByText("mail.recipients.saveAsAlias")).not.toBeNull();
+
+    rerender(
+      <RecipientInput
+        value={recipients}
+        onChange={() => {}}
+        offerSaveAlias={false}
+      />,
+    );
+    expect(screen.queryByText("mail.recipients.saveAsAlias")).toBeNull();
+  });
+
   it("names the recipient field and chip removal control", () => {
     render(<RecipientHarness initialValue="ada@example.test" />);
     const input = screen.getByRole("combobox") as HTMLInputElement;

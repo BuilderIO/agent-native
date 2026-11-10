@@ -22,6 +22,7 @@ import {
   type DatabaseBoardGroup,
   type DatabaseFilter,
 } from "./DatabaseView";
+import { databaseRowOpenTarget } from "./row-open-target";
 
 export function DatabaseGalleryView({
   properties,
@@ -133,7 +134,6 @@ export function DatabaseGalleryView({
                   properties={properties}
                   databaseDocumentId={databaseDocumentId}
                   canEdit={canEdit}
-                  rowIndex={index}
                   canReorder={rowsAreManuallyOrdered}
                   canMoveUp={rowsAreManuallyOrdered && index > 0}
                   canMoveDown={
@@ -204,7 +204,6 @@ function DatabaseGroupedGallerySection({
               properties={properties}
               databaseDocumentId={databaseDocumentId}
               canEdit={canEdit}
-              rowIndex={index}
               canReorder={false}
               canMoveUp={false}
               canMoveDown={false}
@@ -232,7 +231,6 @@ function DatabaseGalleryCard({
   properties,
   databaseDocumentId,
   canEdit,
-  rowIndex,
   canReorder,
   canMoveUp,
   canMoveDown,
@@ -245,7 +243,6 @@ function DatabaseGalleryCard({
   properties: DocumentProperty[];
   databaseDocumentId: string;
   canEdit: boolean;
-  rowIndex: number;
   canReorder: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -259,11 +256,13 @@ function DatabaseGalleryCard({
   return (
     <div
       className="group cursor-pointer overflow-hidden rounded-md border border-border bg-background shadow-sm transition-colors hover:bg-accent/40"
+      {...databaseRowOpenTarget(item.document.id)}
       onClick={openDatabaseItemOnClick(onPreview)}
     >
       <button
         type="button"
         className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        {...databaseRowOpenTarget(item.document.id)}
         onClick={onPreview}
       >
         <span className="flex aspect-[5/3] items-center justify-center border-b border-border bg-muted/45">
@@ -310,7 +309,6 @@ function DatabaseGalleryCard({
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
-            rowIndex={rowIndex}
             canReorder={canReorder}
             canMoveUp={canMoveUp}
             canMoveDown={canMoveDown}

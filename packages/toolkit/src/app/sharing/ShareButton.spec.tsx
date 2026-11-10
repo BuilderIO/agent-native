@@ -858,6 +858,34 @@ describe("ShareButton", () => {
     expect(refetchShares.mock.calls.length).toBe(refetchesBefore + 1);
   });
 
+  it("hides cached permission details when a shares refresh fails", async () => {
+    sharesError.current = true;
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "org",
+      role: "owner",
+      shares: [],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="plan"
+            resourceId="plan-1"
+            defaultOpen
+            shareUrl="https://plan.agent-native.com/plans/plan-1"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Couldn't load sharing settings.");
+    expect(container.textContent).not.toContain("People with access");
+    expect(container.textContent).not.toContain("General access");
+  });
+
   it("renders one Copy link button labeled for its link without printing the URL", async () => {
     await act(async () => {
       root.render(
@@ -1026,6 +1054,29 @@ describe("ShareButton", () => {
     expect(buttonWithText(container, "Copy link")).toBeDefined();
     expect(buttonWithText(container, "Send to")).toBeUndefined();
     expect(agentLinkMutate).not.toHaveBeenCalled();
+  });
+
+  it("leaves Send to out for an app that offers it in a tab of its own", async () => {
+    sharesData.current = {
+      ...sharesData.current,
+      agentReadable: true,
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            shareUrl="https://slides.agent-native.com/deck/deck-1"
+            hideSendTo
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(buttonWithText(container, "Copy link")).toBeDefined();
+    expect(buttonWithText(container, "Send to")).toBeUndefined();
   });
 
   it("lists the app's Send to destinations in order and runs the chosen one", async () => {
@@ -1447,6 +1498,194 @@ describe("ShareButton", () => {
       expect.any(Object),
     );
     expect(shareMutate).not.toHaveBeenCalled();
+  });
+
+  it("sets what the organization can do from general access", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "org",
+      role: "owner",
+      shares: [
+        {
+          id: "share-org",
+          principalType: "org",
+          principalId: "org-1",
+          displayName: "Builder.io",
+          role: "editor",
+        },
+      ],
+    };
+    otherMutate.mockResolvedValue({ ok: true, visibility: "org" });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="document" resourceId="doc-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    // The organization's grant is general access, not a person row.
+    const rows = Array.from(container.querySelectorAll("li"));
+    expect(rows.some((row) => row.textContent?.includes("Builder.io"))).toBe(
+      false,
+    );
+    const roleButtons = container.querySelectorAll<HTMLButtonElement>(
+      'button[aria-label="Role"]',
+    );
+    const generalRole = roleButtons[roleButtons.length - 1];
+    expect(generalRole?.textContent).toContain("Can edit");
+    await act(async () => generalRole?.click());
+    const options = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((option) => option.textContent);
+    expect(options).toEqual(["Can view", "Can comment", "Can edit"]);
+    const commenter = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((option) => option.textContent === "Can comment");
+    await act(async () => commenter?.click());
+
+    expect(otherMutate).toHaveBeenCalledWith({
+      resourceType: "document",
+      resourceId: "doc-1",
+      visibility: "org",
+      expectedVisibility: "org",
+      role: "commenter",
+    });
+    expect(shareMutate).not.toHaveBeenCalled();
+  });
+
+  it("sets what anyone with the link can do, up to commenting", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "public",
+      linkRole: "commenter",
+      role: "owner",
+      shares: [],
+    };
+    otherMutate.mockResolvedValue({ ok: true, visibility: "public" });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="document" resourceId="doc-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    const roleButtons = container.querySelectorAll<HTMLButtonElement>(
+      'button[aria-label="Role"]',
+    );
+    const linkRole = roleButtons[roleButtons.length - 1];
+    expect(linkRole?.textContent).toContain("Can comment");
+    await act(async () => linkRole?.click());
+    const options = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    );
+    expect(options.map((option) => option.textContent)).toEqual([
+      "Can view",
+      "Can comment",
+    ]);
+    await act(async () =>
+      options.find((option) => option.textContent === "Can view")?.click(),
+    );
+
+    expect(otherMutate).toHaveBeenCalledWith({
+      resourceType: "document",
+      resourceId: "doc-1",
+      visibility: "public",
+      expectedVisibility: "public",
+      role: "viewer",
+    });
+  });
+
+  it("shares with the organization without asking first", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "private",
+      role: "owner",
+      shares: [],
+    };
+    otherMutate.mockResolvedValue({ ok: true, visibility: "org" });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="document" resourceId="doc-1" defaultOpen />
+        </QueryClientProvider>,
+      );
+    });
+
+    const access = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="General access"]',
+    );
+    await act(async () => access?.click());
+    const org = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((option) => option.textContent?.includes("organization"));
+    await act(async () => org?.click());
+
+    expect(otherMutate).toHaveBeenCalledWith({
+      resourceType: "document",
+      resourceId: "doc-1",
+      visibility: "org",
+    });
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+  });
+
+  it("offers no organization role for a resource with no organization", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      visibility: "org",
+      role: "owner",
+      shares: [],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="document" resourceId="doc-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    // Only the invite field's role picker is left.
+    expect(
+      container.querySelectorAll('button[aria-label="Role"]'),
+    ).toHaveLength(1);
+    expect(container.textContent).toContain("Can view");
+  });
+
+  it("shows the organization's role as text to someone who can't manage access", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "org",
+      role: "editor",
+      shares: [
+        {
+          id: "share-org",
+          principalType: "org",
+          principalId: "org-1",
+          role: "editor",
+        },
+      ],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="document" resourceId="doc-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.querySelector('button[aria-label="Role"]')).toBeNull();
+    expect(container.textContent).toContain("Can edit");
   });
 
   it("does not render a redundant Done button", async () => {
@@ -1916,6 +2155,31 @@ describe("ShareButton", () => {
           Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
     }
+  });
+
+  it("lets a host put general access before people", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="deck"
+              resourceId="deck-1"
+              defaultOpen
+              peopleFirst={false}
+            />
+          </QueryClientProvider>
+        </TooltipProvider>,
+      );
+    });
+
+    const sections = Array.from(
+      container.querySelectorAll<HTMLElement>("section"),
+    );
+    expect(sections.map((section) => section.firstChild?.textContent)).toEqual([
+      "General access",
+      "People with access",
+    ]);
   });
 
   it("keeps quick copy separate from the popover's Copy link", async () => {

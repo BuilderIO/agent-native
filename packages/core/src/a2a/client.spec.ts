@@ -28,8 +28,14 @@ vi.mock("../extensions/url-safety.js", async (importOriginal) => {
     await importOriginal<typeof import("../extensions/url-safety.js")>();
   return {
     ...original,
-    ssrfSafeFetch: async (url: string, init?: RequestInit) => {
-      if (original.isBlockedExtensionUrl(url)) {
+    ssrfSafeFetch: async (
+      url: string,
+      init?: RequestInit,
+      options?: { allowedPrivateOrigins?: readonly string[] },
+    ) => {
+      const allowed =
+        options?.allowedPrivateOrigins?.includes(new URL(url).origin) ?? false;
+      if (original.isBlockedExtensionUrl(url) && !allowed) {
         throw new Error(
           `SSRF blocked: refusing to fetch private/internal address (${url})`,
         );
@@ -1977,6 +1983,7 @@ describe("A2AClient", () => {
   });
 
   it("retries async task polling with fallback delegated bearer tokens", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     process.env.A2A_SECRET = "global-a2a-secret";
     const calls: Array<{ method: string; token: string }> = [];
     vi.stubGlobal(
@@ -2142,6 +2149,44 @@ describe("A2AClient", () => {
 
     await expect(client.getAgentCard()).rejects.toThrow(/SSRF blocked/i);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reaches a configured private origin and still blocks any other", async () => {
+    const allowed = "http://127.0.0.1:19100";
+    const other = "http://127.0.0.1:19200";
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            id: "task-ok",
+            status: {
+              state: "completed",
+              message: { role: "agent", parts: [{ type: "text", text: "ok" }] },
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const options = { allowedPrivateOrigins: [allowed] };
+    const message = {
+      role: "user" as const,
+      parts: [{ type: "text" as const, text: "hi" }],
+    };
+
+    const task = await new A2AClient(`${allowed}/a2a`, undefined, options).send(
+      message,
+    );
+    expect(task.status.state).toBe("completed");
+
+    await expect(
+      new A2AClient(`${other}/a2a`, undefined, options).send(message),
+    ).rejects.toThrow(/SSRF blocked/i);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("uses an explicit card URL and the card's v1 JSON-RPC interface", async () => {

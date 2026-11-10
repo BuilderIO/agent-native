@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "auth.logOutFailed": "No se pudo cerrar la sesión",
   "block.renderUnavailable": "Este bloque no está disponible temporalmente.",
   "block.loading": "Cargando bloque.",
   "composer.contextUrlLabel": "Dirección URL",
@@ -128,6 +129,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Ventas",
   "onboarding.roleOps": "Operaciones",
+  "onboarding.roleCreator": "Creador de contenido",
+  "onboarding.roleStudent": "Estudiante",
+  "onboarding.roleEducator": "Docente",
   "onboarding.roleIndividual": "Individual",
   "onboarding.roleOther": "Otro",
   "onboarding.roleOtherInputLabel": "Describe tu función",
@@ -1004,6 +1008,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io incluye créditos gratuitos, o puedes usar tu propia clave de API.",
   "setup.builderOrOwnKeys":
     "Usa Builder.io (créditos gratuitos) o añade las claves de tu propio proveedor.",
+  "setup.reconnectBuilder": "Reconectar Builder.io",
   "setup.connectAi": "Conectar IA",
   "setup.connectBuilder": "Usar Builder.io",
   "setup.connectionsDescription":
@@ -1207,7 +1212,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "Usar las herramientas de {{integration}}",
   "composer.menu.scheduleTask": "Programar tarea",
   "composer.menu.scheduleTaskDescription": "Ejecutar algo según un horario",
-  "composer.menu.uploadFile": "Cargar archivo",
+  "composer.menu.uploadFile": "Archivos e imágenes",
+  "composer.menu.searchWorkspace": "Buscar en el espacio de trabajo…",
+  "composer.menu.references": "Referencias",
+  "composer.menu.referenceFile": "Referenciar un archivo",
+  "composer.menu.attachToMessage": "Añadir contexto",
+  "composer.menu.commands": "Comandos",
   "composer.menu.uploadFileDescription":
     "Imágenes, PDFs, texto/código, JSON, CSV",
   "composer.messageAgent": "Escribe al agente...",
@@ -2598,6 +2608,9 @@ const messages: ToolkitAgentChatTranslation = {
     "El agente usa el token de acceso que añadas, así que ve lo que ese token puede ver.",
   "settingsShell.integrationDetail.accessToken": "Token de acceso",
   "settingsShell.integrationDetail.addAccessToken": "Añadir token de acceso",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "No se pudo comprobar si hay un token de acceso guardado.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Reintentar",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "Un administrador tiene que configurarlo",
   "settingsShell.integrationDetail.callout.adminNeededBody":
@@ -3594,6 +3607,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "Quitar la aplicación del espacio de trabajo",
   "chatFirst.showMore": "Mostrar más",
   "chatFirst.showLess": "Mostrar menos",
+  "chatFirst.showMoreCount": "Mostrar {{count}} más",
   "chatFirst.appOrderUnavailable":
     "No se pudo guardar el orden de las aplicaciones en este dispositivo.",
   "chatFirst.openSideSurfaces": "Abrir paneles laterales",

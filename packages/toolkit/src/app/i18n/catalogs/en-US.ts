@@ -1,4 +1,5 @@
 const messages = {
+  "auth.logOutFailed": "Log out failed",
   "block.renderUnavailable": "This block is temporarily unavailable.",
   "block.loading": "Loading block.",
   "composer.contextUrlLabel": "URL",
@@ -124,6 +125,9 @@ const messages = {
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Sales",
   "onboarding.roleOps": "Ops",
+  "onboarding.roleCreator": "Content creator",
+  "onboarding.roleStudent": "Student",
+  "onboarding.roleEducator": "Educator",
   "onboarding.roleIndividual": "Individual",
   "onboarding.roleOther": "Other",
   "onboarding.roleOtherInputLabel": "Describe your role",
@@ -502,7 +506,12 @@ const messages = {
   "composer.useIntegrationTools": "Use {{integration}} tools",
   "composer.menu.scheduleTask": "Schedule Task",
   "composer.menu.scheduleTaskDescription": "Run something on a schedule",
-  "composer.menu.uploadFile": "Upload File",
+  "composer.menu.uploadFile": "Files and images",
+  "composer.menu.searchWorkspace": "Search workspace…",
+  "composer.menu.references": "References",
+  "composer.menu.referenceFile": "Reference a file",
+  "composer.menu.attachToMessage": "Add context",
+  "composer.menu.commands": "Commands",
   "composer.menu.uploadFileDescription": "Images, PDFs, text/code, JSON, CSV",
   "composer.messageAgent": "Message agent...",
   "composer.model": "Model",
@@ -1330,6 +1339,7 @@ const messages = {
     "Builder.io includes free credits, or use your own API key.",
   "setup.builderOrOwnKeys":
     "Use Builder.io (free credits), or add your own provider keys.",
+  "setup.reconnectBuilder": "Reconnect Builder.io",
   "setup.connectAi": "Connect AI",
   "setup.connectBuilder": "Use Builder.io",
   "setup.connectionsDescription":
@@ -2449,6 +2459,9 @@ const messages = {
     "The agent uses the access token you add, so it sees what that token can see.",
   "settingsShell.integrationDetail.accessToken": "Access token",
   "settingsShell.integrationDetail.addAccessToken": "Add access token",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Couldn't check for a saved access token.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Try again",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "An admin needs to set this up",
   "settingsShell.integrationDetail.callout.adminNeededBody":
@@ -3409,6 +3422,7 @@ const messages = {
   "chatFirst.removeApp": "Remove app from workspace",
   "chatFirst.showMore": "Show more",
   "chatFirst.showLess": "Show less",
+  "chatFirst.showMoreCount": "Show {{count}} more",
   "chatFirst.appOrderUnavailable":
     "App order could not be saved on this device.",
   "chatFirst.openSideSurfaces": "Open side surfaces",

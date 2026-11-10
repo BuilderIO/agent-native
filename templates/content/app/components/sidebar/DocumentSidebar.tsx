@@ -7,6 +7,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
 import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
@@ -1110,16 +1111,19 @@ function WorkspaceSidebarItem({
               onDocumentExpandedChange={onDocumentExpandedChange}
               onSelectView={(viewId) => {
                 const current = filesPersonalView.data?.overrides;
-                updateFilesPersonalView.mutate({
-                  databaseId: space.filesDatabaseId,
-                  overrides: {
-                    version:
-                      current?.version ??
-                      CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
-                    activeViewId: viewId,
-                    views: current?.views ?? [],
+                updateFilesPersonalView.mutate(
+                  {
+                    databaseId: space.filesDatabaseId,
+                    overrides: {
+                      version:
+                        current?.version ??
+                        CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+                      activeViewId: viewId,
+                      views: current?.views ?? [],
+                    },
                   },
-                });
+                  { onError: (error) => reportWriteFailure(error) },
+                );
               }}
               sidebarOrder={sidebarOrder}
               manualReorder={
@@ -2995,7 +2999,10 @@ export function DocumentSidebar({
             },
           },
         },
-        { onError: () => toast.error(t("sidebar.failedSaveOrder")) },
+        {
+          onError: (error) =>
+            reportWriteFailure(error, { label: t("sidebar.failedSaveOrder") }),
+        },
       );
     },
     [

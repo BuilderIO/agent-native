@@ -75,6 +75,10 @@ import type {
 import { toast } from "sonner";
 
 import { AccessRequestsSection } from "./AccessRequestsSection.js";
+import {
+  agentLinkExpiresAt,
+  isAgentLinkExpiring,
+} from "./agent-link-expiry.js";
 import { ShareVisibilityConfirmDialog } from "./ShareVisibilityConfirmDialog.js";
 
 export interface ShareButtonProps {
@@ -118,6 +122,8 @@ export interface ShareButtonProps {
   agentShareLabel?: string;
   /** Destinations in the Send to menu beside Copy link. */
   sendTo?: ShareSendTo;
+  /** Leaves the Send to menu out, for an app that offers it in a tab of its own. */
+  hideSendTo?: boolean;
   /** Immediate human-link copy action beside the Share trigger. */
   quickCopy?: {
     label: string;
@@ -132,6 +138,8 @@ export interface ShareButtonProps {
   shareUrlDescription?: ReactNode;
   /** @deprecated Copy link always sits in the panel footer. */
   shareUrlPlacement?: "top" | "bottom";
+  /** Keep invitations and people access ahead of general access. Defaults on. */
+  peopleFirst?: boolean;
   /** Show the Copy link button. Defaults to true when `shareUrl` is set. */
   showShareLinks?: boolean;
   /** @deprecated The Done action was removed; share popovers dismiss directly. */
@@ -153,7 +161,7 @@ export interface ShareButtonProps {
    */
   visibilityConfirmDetail?: ReactNode;
   roleCopy?: Partial<Record<Role, { label?: string; description?: string }>>;
-  allowedRoles?: readonly Role[];
+  allowedRoles?: readonly ShareButtonRole[] | undefined;
   peopleAccessLabel?: ReactNode;
   generalAccessLabel?: ReactNode;
   accessNote?: ReactNode;
@@ -283,6 +291,8 @@ function visibilityMeta(
 
 // A scoped host session cannot grant the admin role, so it is not offered.
 const BASIC_SHARING_ROLES: readonly Role[] = ["viewer", "commenter", "editor"];
+// set-resource-visibility refuses more for anyone with the link.
+const LINK_ROLES: readonly Role[] = ["viewer", "commenter"];
 
 function allowedRolesFor(
   props: Pick<ShareButtonProps, "allowedRoles" | "basicSharingOnly">,
@@ -513,7 +523,7 @@ function SharePanel(
     handleHideInSearch,
   } = controller;
 
-  const loadFailed = controller.sharesQuery.isError && data === undefined;
+  const loadFailed = controller.sharesQuery.isError;
   const isLoading = !loadFailed && data === undefined;
   const peopleAccessLabel =
     props.peopleAccessLabel ??
@@ -544,6 +554,57 @@ function SharePanel(
   const shareTabLabel =
     props.shareTabs?.shareLabel ??
     t("agentChat.share.shareLink", { defaultValue: "Share link" });
+
+  const peopleContent = (
+    <>
+      <SharePeopleInvite
+        controller={controller}
+        basicSharingOnly={props.basicSharingOnly}
+        roleCopy={props.roleCopy}
+        allowedRoles={allowedRolesFor(props)}
+      />
+
+      {accessRequests}
+
+      <section className="flex flex-col gap-1.5">
+        <div className={SHARE_SECTION_LABEL}>{peopleAccessLabel}</div>
+        <SharePeopleList
+          controller={controller}
+          roleCopy={props.roleCopy}
+          allowedRoles={allowedRolesFor(props)}
+        />
+      </section>
+
+      {shareError && !canManage ? (
+        <div
+          role="alert"
+          className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          {shareError}
+        </div>
+      ) : null}
+    </>
+  );
+  const generalAccessContent = (
+    <section className="flex flex-col gap-1.5">
+      <div className={SHARE_SECTION_LABEL}>{generalAccessLabel}</div>
+      <ShareGeneralAccessRow
+        controller={controller}
+        visibilityCopy={props.visibilityCopy}
+        confirmDetail={props.visibilityConfirmDetail}
+        roleCopy={props.roleCopy}
+        allowedRoles={allowedRolesFor(props)}
+      >
+        {visibility === "org" && props.hideInSearchControl ? (
+          <AdvancedAccessPopover
+            control={props.hideInSearchControl}
+            canManage={canManage}
+            onToggle={handleHideInSearch}
+          />
+        ) : null}
+      </ShareGeneralAccessRow>
+    </section>
+  );
 
   const sharePanel = loadFailed ? (
     <div className="flex flex-col gap-4">
@@ -585,49 +646,17 @@ function SharePanel(
     </div>
   ) : (
     <div className="flex flex-col gap-4">
-      <SharePeopleInvite
-        controller={controller}
-        basicSharingOnly={props.basicSharingOnly}
-        roleCopy={props.roleCopy}
-        allowedRoles={allowedRolesFor(props)}
-      />
-
-      {accessRequests}
-
-      <section className="flex flex-col gap-1.5">
-        <div className={SHARE_SECTION_LABEL}>{peopleAccessLabel}</div>
-        <SharePeopleList
-          controller={controller}
-          roleCopy={props.roleCopy}
-          allowedRoles={allowedRolesFor(props)}
-        />
-      </section>
-
-      {shareError && !canManage ? (
-        <div
-          role="alert"
-          className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-        >
-          {shareError}
-        </div>
-      ) : null}
-
-      <section className="flex flex-col gap-1.5">
-        <div className={SHARE_SECTION_LABEL}>{generalAccessLabel}</div>
-        <ShareGeneralAccessRow
-          controller={controller}
-          visibilityCopy={props.visibilityCopy}
-          confirmDetail={props.visibilityConfirmDetail}
-        >
-          {visibility === "org" && props.hideInSearchControl ? (
-            <AdvancedAccessPopover
-              control={props.hideInSearchControl}
-              canManage={canManage}
-              onToggle={handleHideInSearch}
-            />
-          ) : null}
-        </ShareGeneralAccessRow>
-      </section>
+      {props.peopleFirst === false ? (
+        <>
+          {generalAccessContent}
+          {peopleContent}
+        </>
+      ) : (
+        <>
+          {peopleContent}
+          {generalAccessContent}
+        </>
+      )}
 
       {props.accessNote ? (
         <div className="rounded-md border border-border bg-muted/35 p-3 text-xs text-muted-foreground">
@@ -722,11 +751,12 @@ function ShareFooter(
       </span>
     ) : null;
   const hasSendTo =
-    Boolean(sendTo?.openInAgent) ||
-    Boolean(sendTo?.items?.length) ||
-    Boolean(sendTo?.copyAgentPrompt) ||
-    Boolean(sendTo?.openMcpSettings) ||
-    props.agentReadable;
+    !props.hideSendTo &&
+    (Boolean(sendTo?.openInAgent) ||
+      Boolean(sendTo?.items?.length) ||
+      Boolean(sendTo?.copyAgentPrompt) ||
+      Boolean(sendTo?.openMcpSettings) ||
+      props.agentReadable);
   if (!copyLink && !hasSendTo) return null;
   return (
     <div className="flex items-center justify-between gap-2">
@@ -888,15 +918,8 @@ type AgentLinkState =
   | { status: "ready"; url: string; expiresAt: number | null }
   | { status: "error" };
 
-// Re-mint a little before expiry so a copied link still opens for the agent.
-const AGENT_LINK_EXPIRY_MARGIN_MS = 60_000;
-
 function isAgentLinkStale(state: AgentLinkState): boolean {
-  return (
-    state.status === "ready" &&
-    state.expiresAt !== null &&
-    state.expiresAt - AGENT_LINK_EXPIRY_MARGIN_MS <= Date.now()
-  );
+  return state.status === "ready" && isAgentLinkExpiring(state.expiresAt);
 }
 
 /**
@@ -930,15 +953,12 @@ function ShareSendToMenu({
       { resourceType, resourceId },
       {
         onSuccess: (result) => {
-          const expiresAt = result.expiresAt
-            ? Date.parse(result.expiresAt)
-            : Number.NaN;
           setAgentLink(
             result.contextUrl
               ? {
                   status: "ready",
                   url: result.contextUrl,
-                  expiresAt: Number.isFinite(expiresAt) ? expiresAt : null,
+                  expiresAt: agentLinkExpiresAt(result.expiresAt),
                 }
               : { status: "error" },
           );
@@ -2004,8 +2024,14 @@ export interface ShareGeneralAccessRowProps {
     | "policy"
     | "handleVisibility"
     | "visibilityTransition"
+    | "generalAccessRole"
+    | "canSetGeneralAccessRole"
+    | "handleGeneralAccessRole"
   >;
   visibilityCopy?: ShareButtonProps["visibilityCopy"];
+  roleCopy?: ShareButtonProps["roleCopy"];
+  /** Roles general access can give; managing access is never one. */
+  allowedRoles?: ShareButtonProps["allowedRoles"];
   /** Show the description in the trigger instead of the label. */
   sentenceTrigger?: boolean;
   /** Resource-specific text added to the organization confirmation. */
@@ -2030,6 +2056,8 @@ export function ShareGeneralAccessRow({
   confirmDetail,
   menuOpen,
   onMenuOpenChange,
+  roleCopy,
+  allowedRoles,
   children,
 }: ShareGeneralAccessRowProps) {
   const t = useT();
@@ -2064,7 +2092,8 @@ export function ShareGeneralAccessRow({
           open={menuOpen}
           onOpenChange={onMenuOpenChange}
         />
-        {!sentenceTrigger ? (
+        {/* Beside a role, the description's "can view" could contradict it. */}
+        {!sentenceTrigger && controller.visibility === "private" ? (
           <span className="sr-only">{meta.description}</span>
         ) : null}
         {children ? (
@@ -2073,9 +2102,24 @@ export function ShareGeneralAccessRow({
           </div>
         ) : null}
       </div>
-      {controller.visibility !== "private" && !sentenceTrigger ? (
+      {controller.canSetGeneralAccessRole && !sentenceTrigger ? (
+        <div className="shrink-0">
+          <RoleSelect
+            value={controller.generalAccessRole}
+            onChange={controller.handleGeneralAccessRole}
+            disabled={controller.visibilityTransition.submitting}
+            plain
+            roleCopy={roleCopy}
+            allowedRoles={(allowedRoles ?? BASIC_SHARING_ROLES).filter((role) =>
+              controller.visibility === "public"
+                ? LINK_ROLES.includes(role)
+                : role !== "admin",
+            )}
+          />
+        </div>
+      ) : controller.visibility !== "private" && !sentenceTrigger ? (
         <span className="shrink-0 px-2 text-xs text-muted-foreground">
-          {t("agentChat.share.canView", { defaultValue: "Can view" })}
+          {roleMeta(controller.generalAccessRole, t, roleCopy).label}
         </span>
       ) : null}
       <ShareVisibilityConfirmDialog

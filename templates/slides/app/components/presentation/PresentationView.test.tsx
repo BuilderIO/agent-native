@@ -8,7 +8,7 @@ import {
   screen,
 } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Slide } from "@/context/DeckContext";
 
@@ -33,7 +33,14 @@ vi.mock("@/components/deck/SlideRenderer", () => ({
 }));
 
 vi.mock("@/lib/export-pdf-client", () => ({ exportDeckAsPdf: vi.fn() }));
-vi.mock("./present-channel", () => ({ openPresentChannel: () => null }));
+const presentChannel = vi.hoisted(() => ({ supported: true }));
+vi.mock("./present-channel", () => ({
+  openPresentChannel: () => null,
+  presentChannelSupported: () => presentChannel.supported,
+}));
+vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+
+import { toast } from "sonner";
 
 import PresentationView from "./PresentationView";
 
@@ -497,5 +504,93 @@ describe("PresentationView paragraph animations", () => {
 
     fireEvent.click(previous);
     expect(revealed()).toEqual([true, true, false, false]);
+  });
+});
+
+describe("PresentationView presenter window", () => {
+  function pressS() {
+    fireEvent(
+      window,
+      new KeyboardEvent("keydown", {
+        key: "s",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  }
+
+  beforeEach(() => {
+    vi.mocked(toast.error).mockClear();
+    presentChannel.supported = true;
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("does not open a presenter window on a shared deck", () => {
+    const open = vi.spyOn(window, "open");
+    render(
+      <MemoryRouter>
+        <PresentationView slides={slides} deckId="__shared__/token-1" />
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "presentation.presenterView" }),
+    ).toBeNull();
+    const key = new KeyboardEvent("keydown", {
+      key: "s",
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(window, key);
+    expect(open).not.toHaveBeenCalled();
+    expect(key.defaultPrevented).toBe(false);
+  });
+
+  it("opens a presenter window named after the deck", () => {
+    const open = vi.spyOn(window, "open").mockReturnValue({} as Window);
+    render(
+      <MemoryRouter>
+        <PresentationView slides={slides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    pressS();
+    expect(open).toHaveBeenCalledWith(
+      expect.stringContaining("presenter=1"),
+      "slides-presenter-deck-1",
+      expect.any(String),
+    );
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("tells the user when the presenter popup is blocked", () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    render(
+      <MemoryRouter>
+        <PresentationView slides={slides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    pressS();
+    expect(toast.error).toHaveBeenCalledWith(
+      "editorToolbar.presenterViewBlocked",
+    );
+  });
+
+  it("tells the user instead of opening an unsyncable presenter window", () => {
+    presentChannel.supported = false;
+    const open = vi.spyOn(window, "open");
+    render(
+      <MemoryRouter>
+        <PresentationView slides={slides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    pressS();
+    expect(open).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(
+      "editorToolbar.presenterViewUnsupported",
+    );
   });
 });
