@@ -1924,13 +1924,13 @@ function PlanStatusControl({
           {badgeInner}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44 rounded-xl">
+      <DropdownMenuContent align="end" className="w-44">
         <DropdownMenuLabel>{t("plansPage.status.setStatus")}</DropdownMenuLabel>
         <DropdownMenuGroup>
           {APPROVAL_STATUSES.map((s) => (
             <DropdownMenuItem
               key={s}
-              className={cn("gap-2", s === status && "font-medium")}
+              className={cn(s === status && "font-medium")}
               onClick={() => handleSelect(s)}
             >
               {s === "approved" ? (
@@ -5107,10 +5107,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         <IconChevronDown className="size-3.5 opacity-70" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      align="end"
-                      className="w-64 rounded-xl"
-                    >
+                    <DropdownMenuContent align="end" className="w-64">
                       <DropdownMenuLabel>
                         {t("plansPage.reader.sendFeedback")}
                       </DropdownMenuLabel>
@@ -5176,10 +5173,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       <IconDotsVertical className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56 rounded-xl">
+                  <DropdownMenuContent align="end" className="w-56">
                     {localPlanMode && (
                       <>
-                        <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                        <DropdownMenuLabel className="font-medium text-muted-foreground">
                           {t("plansPage.reader.localFiles")}
                         </DropdownMenuLabel>
                         <div className="px-2 pb-1 text-xs leading-5 text-muted-foreground">
@@ -5242,7 +5239,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     <DropdownMenuGroup>
                       {!localPlanMode && (
                         <>
-                          <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                          <DropdownMenuLabel className="font-medium text-muted-foreground">
                             {t("plansPage.comments.comments")}
                           </DropdownMenuLabel>
                           <DropdownMenuRadioGroup value={commentVisibility}>
@@ -5375,7 +5372,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         <IconCopy className="size-4" />
                         {t("plansPage.reader.copyLink")}
                       </DropdownMenuItem>
-                      <DropdownMenuItem asChild className="gap-2">
+                      <DropdownMenuItem asChild>
                         <a
                           href={PLAN_DOCS_URL}
                           target="_blank"
@@ -5396,7 +5393,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       {desktopPlanFilesAvailable && !localPlanMode && (
                         <>
                           <DropdownMenuSeparator />
-                          <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                          <DropdownMenuLabel className="font-medium text-muted-foreground">
                             {t("plansPage.reader.localFiles")}
                           </DropdownMenuLabel>
                           <DropdownMenuItem
@@ -5465,11 +5462,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         </>
                       )}
                       <DropdownMenuSub>
-                        <DropdownMenuSubTrigger className="gap-2">
+                        <DropdownMenuSubTrigger>
                           <IconDownload className="size-4" />
                           {t("plansPage.reader.export")}
                         </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-56 rounded-xl">
+                        <DropdownMenuSubContent className="w-56">
                           <DropdownMenuItem
                             onClick={() =>
                               runPlanExportAction(copyPlanMarkdown)
@@ -9725,7 +9722,7 @@ function AnnotationPopover({
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
-                className="w-48 rounded-xl"
+                className="w-48"
                 data-comment-popover-portal
                 onCloseAutoFocus={(event) => {
                   // Edit puts focus in its editor; leave it there. Other
@@ -9736,7 +9733,6 @@ function AnnotationPopover({
               >
                 {canResolve && (
                   <DropdownMenuItem
-                    className="gap-2"
                     onClick={() =>
                       onStatusChange(isResolved ? "open" : "resolved")
                     }
@@ -9749,7 +9745,6 @@ function AnnotationPopover({
                 )}
                 {canEditRootComment && (
                   <DropdownMenuItem
-                    className="gap-2"
                     onClick={() => {
                       editChosenFromMenuRef.current = true;
                       setEditing(true);
@@ -9763,7 +9758,7 @@ function AnnotationPopover({
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
-                      className="gap-2 text-destructive focus:text-destructive"
+                      className="text-destructive focus:text-destructive"
                       onClick={onDelete}
                     >
                       <IconTrash className="size-4" />

@@ -390,7 +390,6 @@ export function BlockActionsMenu({
       <DropdownMenuItem
         key={target}
         aria-checked={checked}
-        className="gap-2"
         onSelect={() => turnInto(target)}
         role="menuitemradio"
       >
@@ -496,9 +495,7 @@ export function BlockActionsMenu({
       <>
         {!needle && turnTargets.length > 0 ? (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="gap-2">
-              {turnIntoLabel}
-            </DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger>{turnIntoLabel}</DropdownMenuSubTrigger>
             <DropdownMenuSubContent
               className={cn(
                 "max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto",
@@ -529,7 +526,6 @@ export function BlockActionsMenu({
           <DropdownMenuItem
             aria-describedby={lockReasonId(locks.duplicate)}
             aria-keyshortcuts={ariaShortcut("D")}
-            className="gap-2"
             disabled={!canDuplicate}
             onSelect={request.duplicate}
           >
@@ -543,7 +539,7 @@ export function BlockActionsMenu({
           <DropdownMenuItem
             aria-describedby={lockReasonId(locks.remove)}
             aria-keyshortcuts="Delete"
-            className="gap-2 text-destructive focus:text-destructive"
+            className="text-destructive focus:text-destructive"
             disabled={!canRemove}
             onSelect={request.remove}
           >
@@ -554,7 +550,7 @@ export function BlockActionsMenu({
           </DropdownMenuItem>
         ) : null}
         {showInsert ? (
-          <DropdownMenuItem className="gap-2" onSelect={request.insertBelow}>
+          <DropdownMenuItem onSelect={request.insertBelow}>
             {t("editor.blockMenu.insertBelow")}
           </DropdownMenuItem>
         ) : null}
@@ -575,7 +571,6 @@ export function BlockActionsMenu({
       "comment",
       <DropdownMenuItem
         aria-keyshortcuts={ariaShortcut("M", true)}
-        className="gap-2"
         onSelect={comment}
       >
         {t("editor.comment")}

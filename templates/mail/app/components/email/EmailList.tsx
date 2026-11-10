@@ -2560,30 +2560,21 @@ export function EmailList({
                   : t("mail.aiFilter.filterButton")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={archiveFocused}
-                className="gap-2 text-xs"
-              >
+              <DropdownMenuItem onClick={archiveFocused}>
                 <IconArchive className="h-3.5 w-3.5" />
                 {t("mail.actions.archive")}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={markFocusedRead}
-                className="gap-2 text-xs"
-              >
+              <DropdownMenuItem onClick={markFocusedRead}>
                 <IconMailOpened className="h-3.5 w-3.5" />
                 {t("mail.actions.markRead")}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={markFocusedUnread}
-                className="gap-2 text-xs"
-              >
+              <DropdownMenuItem onClick={markFocusedUnread}>
                 <IconMail className="h-3.5 w-3.5" />
                 {t("mail.actions.markUnread")}
               </DropdownMenuItem>
               {movableLabels.length > 0 && (
                 <DropdownMenuSub>
-                  <DropdownMenuSubTrigger className="gap-2 text-xs">
+                  <DropdownMenuSubTrigger>
                     <IconFolder className="h-3.5 w-3.5" />
                     {t("mail.actions.moveTo")}
                   </DropdownMenuSubTrigger>
@@ -2603,7 +2594,7 @@ export function EmailList({
               {view !== "trash" && (
                 <DropdownMenuItem
                   onClick={trashFocused}
-                  className="gap-2 text-xs text-destructive focus:text-destructive"
+                  className="text-destructive focus:text-destructive"
                 >
                   <IconTrash className="h-3.5 w-3.5" />
                   {t("mail.actions.moveToTrash")}
@@ -2613,31 +2604,22 @@ export function EmailList({
               <DropdownMenuLabel>
                 {t("mail.selection.select")}
               </DropdownMenuLabel>
-              <DropdownMenuItem onClick={selectAllThreads} className="text-xs">
+              <DropdownMenuItem onClick={selectAllThreads}>
                 {t("mail.selection.all")}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={clearSelection} className="text-xs">
+              <DropdownMenuItem onClick={clearSelection}>
                 {t("mail.selection.none")}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={selectReadThreads} className="text-xs">
+              <DropdownMenuItem onClick={selectReadThreads}>
                 {t("mail.selection.read")}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={selectUnreadThreads}
-                className="text-xs"
-              >
+              <DropdownMenuItem onClick={selectUnreadThreads}>
                 {t("mail.views.unread")}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={selectStarredThreads}
-                className="text-xs"
-              >
+              <DropdownMenuItem onClick={selectStarredThreads}>
                 {t("mail.views.starred")}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={selectUnstarredThreads}
-                className="text-xs"
-              >
+              <DropdownMenuItem onClick={selectUnstarredThreads}>
                 {t("mail.selection.unstarred")}
               </DropdownMenuItem>
             </DropdownMenuContent>

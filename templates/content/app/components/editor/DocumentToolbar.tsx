@@ -678,7 +678,6 @@ function ToolbarBreadcrumbMenuEntry({
   return (
     <DropdownMenuItem
       ref={itemRef}
-      className="gap-2"
       disabled={menuItem.id === currentDocumentId}
       onSelect={() => onOpen(menuItem.id, menuItem.filesDatabaseId)}
     >
@@ -2142,7 +2141,7 @@ export function DocumentToolbar({
               ) : null}
               {isLocalFileDocument ? (
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  <DropdownMenuLabel className="text-muted-foreground">
                     {t("editor.toolbar.localFile")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem disabled className="min-w-0">
