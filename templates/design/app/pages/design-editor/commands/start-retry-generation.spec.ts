@@ -226,4 +226,33 @@ describe("runStartRetryGeneration auto retry", () => {
     expect(args.agentSubmit).toHaveBeenCalledTimes(1);
     expect(args.trackActiveRun).not.toHaveBeenCalled();
   });
+
+  it("keeps the Figma placement directive when retrying a Figma request", async () => {
+    mocks.readAgentRunStatus.mockResolvedValue({
+      ok: true,
+      status: "idle",
+      active: false,
+    });
+    const args = createArgs();
+
+    await runStartRetryGeneration(
+      args,
+      {
+        ...promptState,
+        contextItems: [
+          {
+            key: "figma-reference:file:App.fig:10:1",
+            title: "App.fig",
+            context: "Figma frames",
+          },
+        ] as never,
+      },
+      2,
+      "auto",
+    );
+
+    expect(JSON.stringify(vi.mocked(args.agentSubmit).mock.calls)).toContain(
+      "place-figma-frames",
+    );
+  });
 });

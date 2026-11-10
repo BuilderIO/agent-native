@@ -1,4 +1,17 @@
 const messages = {
+  "settingsApiKeys.approvedOrigins": "Approved origins",
+  "settingsApiKeys.originsHint":
+    "One exact HTTPS origin per line. Empty blocks forwarding. Local loopback HTTP is allowed.",
+  "settingsApiKeys.invalidOrigins": "Enter exact HTTPS origins, one per line.",
+  "settingsApiKeys.editOrigins": "Edit origins",
+  "settingsApiKeys.originsSaved": "Origins saved",
+  "settingsApiKeys.originsCount_one": "{{count}} approved origin",
+  "settingsApiKeys.originsCount_other": "{{count}} approved origins",
+  "settingsApiKeys.noApprovedOrigins": "No approved origins",
+  "extensions.cancel": "Cancel",
+  "extensions.context": "Context",
+  "extensions.confirmAgentMessage": "Send extension message to agent?",
+  "extensions.sendToAgent": "Send to agent",
   "auth.logOutFailed": "Log out failed",
   "block.renderUnavailable": "This block is temporarily unavailable.",
   "block.loading": "Loading block.",
@@ -2485,6 +2498,9 @@ const messages = {
     "The agent uses the access token you add, so it sees what that token can see.",
   "settingsShell.integrationDetail.accessToken": "Access token",
   "settingsShell.integrationDetail.addAccessToken": "Add access token",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Couldn't check for a saved access token.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Try again",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "An admin needs to set this up",
   "settingsShell.integrationDetail.callout.adminNeededBody":

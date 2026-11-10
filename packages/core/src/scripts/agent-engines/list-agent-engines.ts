@@ -1,6 +1,7 @@
 import { getAgentAppModelDefaultForCurrentRequest } from "../../agent/app-model-defaults.js";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../../agent/chatgpt-subscription-contract.js";
 import {
+  isDefaultAgentEngineScopeResolved,
   readDefaultAgentEngineSettingDetailed,
   resolveDefaultAgentEngineAuthority,
 } from "../../agent/default-agent-engine.js";
@@ -159,10 +160,17 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
     }
     return pending;
   };
-  const [defaultSetting, defaultAuthority] = await Promise.all([
-    readDefaultAgentEngineSettingDetailed(),
-    resolveDefaultAgentEngineAuthority(),
-  ]);
+  // An unresolved scope cannot say which default applies. Listing engines
+  // must still work, so the read is skipped and reported as "unresolved"
+  // instead of "none", which would claim no default is saved.
+  const defaultAuthority = await resolveDefaultAgentEngineAuthority();
+  const scopeUnresolved = !isDefaultAgentEngineScopeResolved();
+  const defaultSetting: {
+    value: Record<string, unknown> | null;
+    source: string;
+  } = scopeUnresolved
+    ? { value: null, source: "unresolved" }
+    : await readDefaultAgentEngineSettingDetailed();
   const current = defaultSetting.value
     ? (defaultSetting.value as { engine?: string; model?: string })
     : null;

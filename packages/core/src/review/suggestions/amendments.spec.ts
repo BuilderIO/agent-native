@@ -41,6 +41,8 @@ vi.mock("../../db/client.js", () => ({
 }));
 vi.mock("../registry.js", () => ({
   assertReviewableResourceAccess: (...args: unknown[]) => access(...args),
+  REVIEW_SUGGESTION_ANCHOR_KIND: "review-suggestion",
+  reviewSuggestionAuthorRole: () => "commenter",
 }));
 vi.mock("../notifications.js", () => ({ notifyReviewComment: vi.fn() }));
 vi.mock("../store.js", () => ({

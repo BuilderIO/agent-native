@@ -1,6 +1,21 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "Origens aprovadas",
+  "settingsApiKeys.originsHint":
+    "Uma origem HTTPS exata por linha. Vazio bloqueia o encaminhamento. HTTP local é permitido.",
+  "settingsApiKeys.invalidOrigins":
+    "Informe origens HTTPS exatas, uma por linha.",
+  "settingsApiKeys.editOrigins": "Editar origens",
+  "settingsApiKeys.originsSaved": "Origens salvas",
+  "settingsApiKeys.originsCount_one": "{{count}} origem aprovada",
+  "settingsApiKeys.originsCount_many": "{{count}} origens aprovadas",
+  "settingsApiKeys.originsCount_other": "{{count}} origens aprovadas",
+  "settingsApiKeys.noApprovedOrigins": "Nenhuma origem aprovada",
+  "extensions.cancel": "Cancelar",
+  "extensions.context": "Contexto",
+  "extensions.confirmAgentMessage": "Enviar a mensagem da extensão ao agente?",
+  "extensions.sendToAgent": "Enviar ao agente",
   "auth.logOutFailed": "Não foi possível sair",
   "block.renderUnavailable": "Este bloco está temporariamente indisponível.",
   "block.loading": "Carregando bloco.",
@@ -2626,6 +2641,9 @@ const messages: ToolkitAgentChatTranslation = {
     "O agente usa o token de acesso que você adicionar, então vê o que esse token pode ver.",
   "settingsShell.integrationDetail.accessToken": "Token de acesso",
   "settingsShell.integrationDetail.addAccessToken": "Adicionar token de acesso",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Não foi possível verificar um token de acesso salvo.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Tentar de novo",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "Um admin precisa configurar isso",
   "settingsShell.integrationDetail.callout.adminNeededBody":

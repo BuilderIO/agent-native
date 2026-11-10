@@ -1,6 +1,21 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "Genehmigte Ursprünge",
+  "settingsApiKeys.originsHint":
+    "Ein exakter HTTPS-Ursprung pro Zeile. Leer sperrt die Weitergabe. Lokales HTTP ist erlaubt.",
+  "settingsApiKeys.invalidOrigins":
+    "Exakte HTTPS-Ursprünge eingeben, einen pro Zeile.",
+  "settingsApiKeys.editOrigins": "Ursprünge bearbeiten",
+  "settingsApiKeys.originsSaved": "Ursprünge gespeichert",
+  "settingsApiKeys.originsCount_one": "{{count}} genehmigter Ursprung",
+  "settingsApiKeys.originsCount_other": "{{count}} genehmigte Ursprünge",
+  "settingsApiKeys.noApprovedOrigins": "Keine genehmigten Ursprünge",
+  "extensions.cancel": "Abbrechen",
+  "extensions.context": "Kontext",
+  "extensions.confirmAgentMessage":
+    "Nachricht der Erweiterung an den Agenten senden?",
+  "extensions.sendToAgent": "An Agenten senden",
   "auth.logOutFailed": "Abmelden fehlgeschlagen",
   "block.renderUnavailable": "Dieser Block ist vorübergehend nicht verfügbar.",
   "block.loading": "Block wird geladen.",
@@ -2613,6 +2628,9 @@ const messages: ToolkitAgentChatTranslation = {
     "Der Agent nutzt das Zugriffstoken, das du hinzufügst, und sieht daher, was dieses Token sehen kann.",
   "settingsShell.integrationDetail.accessToken": "Zugriffstoken",
   "settingsShell.integrationDetail.addAccessToken": "Zugriffstoken hinzufügen",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Gespeichertes Zugriffstoken konnte nicht geprüft werden.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Erneut versuchen",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "Ein Admin muss das einrichten",
   "settingsShell.integrationDetail.callout.adminNeededBody":

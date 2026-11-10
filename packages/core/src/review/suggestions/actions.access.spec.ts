@@ -233,6 +233,38 @@ describe("suggestion action access", () => {
     expectNoReviewWrites();
   });
 
+  it("asks a suggester for the role the resource asks of commenters", async () => {
+    registerReviewableResource({
+      type: "doc",
+      resolveAccess: () => ({
+        role: "commenter",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+      }),
+      comments: { minimumRole: "editor" },
+    });
+
+    await expect(
+      createResourceSuggestion.run(createArgs, {
+        userEmail: suggestion.authorEmail,
+      }),
+    ).rejects.toThrow("Not allowed to access doc:doc-1");
+    await expect(
+      decideResourceSuggestion.run(
+        {
+          id: suggestion.id,
+          decision: "withdrawn",
+          idempotencyKey: "withdraw-policy-1",
+          observedBase: suggestion.baseRevision,
+        },
+        { userEmail: suggestion.authorEmail },
+      ),
+    ).rejects.toThrow("Not allowed to access doc:doc-1");
+    expect(validateProposal).not.toHaveBeenCalled();
+    expect(client.transaction).not.toHaveBeenCalled();
+    expectNoReviewWrites();
+  });
+
   it("replays the original creation receipt before canonical validation", async () => {
     vi.mocked(suggestionStore.getSuggestionByCreationKey).mockResolvedValueOnce(
       creationReceipt,
@@ -292,6 +324,34 @@ describe("suggestion action access", () => {
       duplicate.id,
     );
     expect(reviewStore.insertReviewCommentWithClient).not.toHaveBeenCalled();
+  });
+
+  it("records that an MCP suggestion came over MCP and which client sent it", async () => {
+    const agentSuggestion = { ...suggestion, actorKind: "agent" as const };
+    vi.mocked(suggestionStore.insertSuggestion).mockResolvedValueOnce(
+      agentSuggestion,
+    );
+    vi.mocked(suggestionStore.recordSuggestionCreation).mockResolvedValueOnce({
+      ...creationReceipt,
+      suggestion: agentSuggestion,
+      actorKind: "agent",
+    });
+    validateProposal.mockResolvedValueOnce(createArgs.operations);
+
+    await createResourceSuggestion.run(createArgs, {
+      userEmail: suggestion.authorEmail,
+      caller: "mcp",
+      mcpClient: { userAgent: "codex-mcp-client/0.167.0" },
+    });
+
+    expect(suggestionStore.insertSuggestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorKind: "agent",
+        authorSource: "mcp",
+        authorClient: "codex",
+      }),
+      transaction,
+    );
   });
 
   it.each([
