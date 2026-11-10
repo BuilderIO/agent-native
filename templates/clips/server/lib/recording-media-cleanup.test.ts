@@ -578,7 +578,8 @@ describe("recording-media-cleanup", () => {
           recordingId: "rec_1",
           replacementUrl,
         }),
-      ).resolves.toBeUndefined();
+        // oracle-change: the helper now returns whether the delete was confirmed.
+      ).resolves.toBe(false);
 
       expect(errorLog).toHaveBeenCalled();
       expect(mockTrack).toHaveBeenCalledWith(

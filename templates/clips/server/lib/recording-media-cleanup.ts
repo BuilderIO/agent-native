@@ -210,30 +210,35 @@ async function deleteHostedMediaObject(
  * user's action already succeeded, so a delete that fails or goes unconfirmed
  * is reported, not thrown. URLs outside the bucket are not ours to delete.
  * With no `replacementUrl` it removes an upload that never became referenced.
+ * Returns false only when a delete was needed and could not be confirmed.
  */
 export async function deleteSupersededHostedMedia(
   previousUrl: string | null | undefined,
   options: { recordingId: string; replacementUrl?: string },
-): Promise<void> {
-  if (!previousUrl || previousUrl === options.replacementUrl) return;
+): Promise<boolean> {
+  if (!previousUrl || previousUrl === options.replacementUrl) return true;
   try {
     if (
       (await isUrlInS3Storage(previousUrl, { storageMode: "hosted" })) === false
     ) {
-      return;
+      return true;
     }
-    if (await deleteHostedMediaObject(previousUrl, options.recordingId)) return;
+    if (await deleteHostedMediaObject(previousUrl, options.recordingId)) {
+      return true;
+    }
     reportHostedByteAccountingFailure(
       options.recordingId,
       "superseded_delete_unconfirmed",
       new Error("The provider did not confirm deleting the superseded object."),
     );
+    return false;
   } catch (error) {
     reportHostedByteAccountingFailure(
       options.recordingId,
       "superseded_delete_unconfirmed",
       error,
     );
+    return false;
   }
 }
 

@@ -555,10 +555,10 @@ export async function ensureRecordingAudioLevel(params: {
     // Own storage hands back a new key, so the quiet original would otherwise
     // stay in the bucket with nothing pointing at it.
     if (rec.storageMode === "hosted") {
-      await deleteSupersededHostedMedia(rec.videoUrl, {
-        recordingId,
-        replacementUrl: upload.url,
-      });
+      replacedOriginalDeleted = await deleteSupersededHostedMedia(
+        rec.videoUrl,
+        { recordingId, replacementUrl: upload.url },
+      );
     } else {
       replacedOriginalDeleted = await deleteStoredMediaUrl(rec.videoUrl, {
         recordingId,
