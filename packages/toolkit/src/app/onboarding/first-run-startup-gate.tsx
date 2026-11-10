@@ -57,11 +57,14 @@ export function FirstRunOnboardingStartupGate({
   children,
   suppressSurface = false,
   deferSurface = false,
+  cover = null,
 }: {
   children: React.ReactNode;
   suppressSurface?: boolean;
   /** Another startup operation owns onboarding until it settles. */
   deferSurface?: boolean;
+  /** Fills the screen while first run is possible but not yet on screen. */
+  cover?: React.ReactNode;
 }) {
   const t = useT();
   const inheritedInteractionBlock = useStartupInteractionBlocked();
@@ -138,14 +141,37 @@ export function FirstRunOnboardingStartupGate({
     };
   }, [retryNumber, shouldResolve, preloading]);
 
+  // A deferral that starts once onboarding is on screen must not unmount it:
+  // that drops the user's answers and shows the app between two dialogs.
+  const [surfaceShown, setSurfaceShown] = useState(false);
   const ownsSurface =
-    !suppressSurface && !deferSurface && decision === "eligible";
+    !suppressSurface &&
+    decision === "eligible" &&
+    (!deferSurface || surfaceShown);
+  useEffect(() => {
+    if (ownsSurface) setSurfaceShown(true);
+  }, [ownsSurface]);
   const gateOwnsSurface =
     deferSurface || (!suppressSurface && decision !== "ineligible");
+  // Until first run is ruled out, the app must not paint: a frame of it
+  // before (or between) onboarding screens reads as a flash of the home.
+  const coversApp =
+    !suppressSurface &&
+    !ownsSurface &&
+    (decision === "pending" || decision === "eligible");
 
-  // Deferral only reserves onboarding ownership. The operation deferring it
-  // owns any cover; unknown eligibility must not disable unrelated app content.
-  const appIsInert = gateOwnsSurface && !deferSurface;
+  // Deferral alone does not block the app: an ineligible user keeps using it
+  // while another startup operation settles.
+  const appIsInert = coversApp || (gateOwnsSurface && !deferSurface);
+  const coverElement = (
+    <div
+      aria-busy="true"
+      data-first-run-cover="true"
+      className="fixed inset-0 z-[100] bg-background"
+    >
+      {cover}
+    </div>
+  );
 
   return (
     <FirstRunOnboardingGateContext.Provider value={gateOwnsSurface}>
@@ -179,8 +205,9 @@ export function FirstRunOnboardingStartupGate({
             </Button>
           </div>
         )}
+        {coversApp && coverElement}
         {ownsSurface && (
-          <Suspense fallback={null}>
+          <Suspense fallback={coverElement}>
             <FirstRunOnboarding initialFirstRun />
           </Suspense>
         )}

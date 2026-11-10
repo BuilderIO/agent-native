@@ -653,12 +653,14 @@ export function AppProviders({
             <BuilderSignupStartupGate
               experimentId={builderSignupExperiment}
               suppressSurface={skipFirstRunOnboarding}
+              cover={fallback}
             >
               {children}
             </BuilderSignupStartupGate>
           ) : (
             <FirstRunOnboardingStartupGate
               suppressSurface={skipFirstRunOnboarding}
+              cover={fallback}
             >
               {children}
             </FirstRunOnboardingStartupGate>

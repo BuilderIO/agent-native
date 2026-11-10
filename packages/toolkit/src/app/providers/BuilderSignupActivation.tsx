@@ -218,7 +218,8 @@ export function BuilderSignupActivationCover({
         {children}
       </div>
       {activating ? (
-        <div className="fixed inset-0 z-50 flex gap-4 bg-background p-4">
+        // Above the first-run gate's cover, which waits under this one.
+        <div className="fixed inset-0 z-[110] flex gap-4 bg-background p-4">
           <span role="status" className="sr-only">
             {t("agentChat.common.loading")}
           </span>
@@ -251,10 +252,12 @@ export function BuilderSignupActivationCover({
 export function BuilderSignupStartupGate({
   experimentId,
   suppressSurface,
+  cover,
   children,
 }: {
   experimentId?: string;
   suppressSurface: boolean;
+  cover?: ReactNode;
   children: ReactNode;
 }) {
   const { session } = useSession();
@@ -272,8 +275,11 @@ export function BuilderSignupStartupGate({
       retryStatus={retryStatus}
     >
       <FirstRunOnboardingStartupGate
-        suppressSurface={suppressSurface}
+        // An unknown eligibility keeps onboarding deferred, but its Retry
+        // notice needs the app usable rather than under a startup cover.
+        suppressSurface={suppressSurface || (statusError && !activating)}
         deferSurface={resolving || activating}
+        cover={cover}
       >
         {children}
       </FirstRunOnboardingStartupGate>
