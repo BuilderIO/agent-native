@@ -23,6 +23,8 @@ interface HeldPreview {
   preview: ImageUploadPreview;
   owner: object;
   running: boolean;
+  /** Its uploaded copy is in the page; only the page's save is left. */
+  committed: boolean;
   /** Its block was deleted while it uploaded, so it mustn't come back. */
   removed: boolean;
   retry: (() => void) | null;
@@ -93,6 +95,7 @@ export function holdImageUploadPreview(
     preview: { url, failure: null },
     owner,
     running: false,
+    committed: false,
     removed: false,
     retry: null,
   });
@@ -113,9 +116,48 @@ export function startImageUploadPreview(uploadId: string) {
   const entry = key ? held.get(key) : undefined;
   if (!key || !entry) return;
   entry.running = true;
+  entry.committed = false;
   entry.removed = false;
   entry.retry = null;
   setFailure(entry, null);
+}
+
+/** The uploaded copy for `uploadId` is in the page, waiting for its save. */
+export function commitImageUploadPreview(uploadId: string) {
+  const key = previewKey(uploadId);
+  const entry = key ? held.get(key) : undefined;
+  if (!key || !entry) return;
+  entry.committed = true;
+  notify();
+}
+
+function hasUnsettledImageUpload(owner: object): boolean {
+  for (const entry of held.values()) {
+    if (
+      entry.owner === owner &&
+      !entry.committed &&
+      entry.preview.failure === null
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Resolves once none of `owner`'s images is still waiting for, or running,
+ * its upload. The page doesn't save while one is, so a save waits for this.
+ */
+export function waitForImageUploadsToSettle(owner: object): Promise<void> {
+  return new Promise((resolve) => {
+    const unsubscribe = subscribe(check);
+    function check() {
+      if (hasUnsettledImageUpload(owner)) return;
+      unsubscribe();
+      resolve();
+    }
+    check();
+  });
 }
 
 /** Keeps the preview after a failed upload, with what Retry does. */

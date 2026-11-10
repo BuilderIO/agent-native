@@ -4016,7 +4016,7 @@ describe("image upload previews", () => {
     }
   }
 
-  it("shows the picked file until the uploaded copy has drawn and saved", async () => {
+  it("shows the picked file until the uploaded copy has drawn, then saves", async () => {
     await withMountedEditor(async (editor) => {
       const upload = deferred<string>();
       const persist = vi.fn(() => true);
@@ -4256,13 +4256,18 @@ describe("image upload previews", () => {
           }),
         );
       });
+      // The Retry waits for the batch's save before it lets go of its pick.
       expect(persist).not.toHaveBeenCalled();
+      expect(URL.revokeObjectURL).not.toHaveBeenCalledWith("blob:preview-1");
 
       await act(async () => {
         second.reject(new Error("Network down"));
         await done;
       });
       expect(persist).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() =>
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1"),
+      );
     });
   });
 

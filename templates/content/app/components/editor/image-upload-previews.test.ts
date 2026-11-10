@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  commitImageUploadPreview,
   failedImageUploadId,
   failImageUploadPreview,
   hasImageUploadPreview,
@@ -16,6 +17,7 @@ import {
   retryImageUpload,
   startImageUploadPreview,
   useImageUploadPreview,
+  waitForImageUploadsToSettle,
   wasImageUploadBlockRemoved,
   type ImageUploadPreview,
 } from "./image-upload-previews";
@@ -144,6 +146,28 @@ describe("image upload previews", () => {
     noteImageUploadBlockRemoved("image-failed-1");
     expect(hasImageUploadPreview("image-upload-1")).toBe(false);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1");
+  });
+
+  it("waits for an editor's waiting and running uploads, not its saved or failed ones", async () => {
+    const otherOwner = {};
+    holdImageUploadPreview("image-upload-1", file, owner);
+    holdImageUploadPreview("image-upload-2", file, owner);
+    holdImageUploadPreview("image-upload-3", file, otherOwner);
+    startImageUploadPreview("image-upload-1");
+    let settled = false;
+    const wait = waitForImageUploadsToSettle(owner).then(() => {
+      settled = true;
+    });
+
+    commitImageUploadPreview("image-upload-1");
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    startImageUploadPreview("image-upload-2");
+    failImageUploadPreview("image-upload-2", "upload", vi.fn());
+    await wait;
+    expect(settled).toBe(true);
+    releaseImageUploadPreviewsFor(otherOwner);
   });
 
   it("ignores ids that aren't image uploads", () => {

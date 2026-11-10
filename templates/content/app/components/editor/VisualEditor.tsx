@@ -214,6 +214,7 @@ import {
   videoUploadErrorMessage,
 } from "./image-upload";
 import {
+  commitImageUploadPreview,
   failedImageUploadId,
   failImageUploadPreview,
   hasAnyImageUploadPreview,
@@ -224,6 +225,7 @@ import {
   releaseImageUploadPreview,
   releaseImageUploadPreviewsFor,
   startImageUploadPreview,
+  waitForImageUploadsToSettle,
   wasImageUploadBlockRemoved,
 } from "./image-upload-previews";
 import { LinkHoverPreview } from "./LinkHoverPreview";
@@ -2702,6 +2704,7 @@ export async function runImageUpload(
           src,
           uploadId: null,
         });
+        if (progress.committed) commitImageUploadPreview(uploadId);
       },
       persistCommittedImage: async () =>
         progress.committed && !closed() && (await persist()),
@@ -2935,6 +2938,7 @@ export async function uploadAndInsertImageFiles(
   if (files.length === 0) return;
 
   let pendingUploads: PendingMediaUpload[];
+  const heldIds: string[] = [];
   try {
     // Held before the blocks exist, so each draws its file from the start.
     pendingUploads = insertPendingMediaNodes(
@@ -2945,10 +2949,12 @@ export async function uploadAndInsertImageFiles(
       (pending) => {
         for (const { uploadId, file } of pending) {
           holdImageUploadPreview(uploadId, file, owner);
+          heldIds.push(uploadId);
         }
       },
     );
   } catch (error) {
+    for (const uploadId of heldIds) releaseImageUploadPreview(uploadId);
     toast.error(imageUploadErrorMessage(error));
     return;
   }
@@ -2958,17 +2964,27 @@ export async function uploadAndInsertImageFiles(
   let firstError: unknown = null;
   // A save skips the page while any of its blocks still waits for an upload,
   // so the batch saves once its last upload has settled, for every image
-  // added meanwhile, a Retry's included. A Retry after that saves for itself.
-  // Set from the uploads' callbacks, so it is read through the object.
-  const batch = { settled: false, saveOwed: false };
-  const persistOnceSettled = () => {
+  // added meanwhile. A Retry that finishes before then waits for that save;
+  // one after it saves for itself. Set from the uploads' callbacks, so it is
+  // read through the object.
+  const batch = {
+    running: null as string | null,
+    settled: false,
+    saveOwed: false,
+  };
+  let reportBatchSave: (saved: boolean) => void = () => {};
+  const batchSave = new Promise<boolean>((resolve) => {
+    reportBatchSave = resolve;
+  });
+  const persistInBatch = (uploadId: string) => () => {
     if (batch.settled) return persist();
     batch.saveOwed = true;
-    return true;
+    return batch.running === uploadId ? true : batchSave;
   };
 
   for (const pending of pendingUploads) {
-    if (!view.dom.isConnected) return;
+    if (!view.dom.isConnected) break;
+    batch.running = pending.uploadId;
     const outcome = await runImageUpload({
       view,
       file: pending.file,
@@ -2979,7 +2995,7 @@ export async function uploadAndInsertImageFiles(
         attrs: { src: null, alt: "", uploadId: pending.uploadId },
       },
       upload,
-      persist: persistOnceSettled,
+      persist: persistInBatch(pending.uploadId),
       isBlocked,
       messages,
     });
@@ -2989,9 +3005,15 @@ export async function uploadAndInsertImageFiles(
       firstError ??= outcome.error;
     }
   }
+  batch.running = null;
   batch.settled = true;
-  if (!view.dom.isConnected) return;
-  if (batch.saveOwed && !(await persist())) {
+  if (!view.dom.isConnected) {
+    reportBatchSave(false);
+    return;
+  }
+  const saved = !batch.saveOwed || (await persist());
+  reportBatchSave(saved);
+  if (!saved) {
     toast.error(
       imageUploadFailureMessage(new ImagePersistenceError(), messages),
     );
@@ -4835,6 +4857,9 @@ export function VisualEditor({
     [editor, imageUploadOptions, imageUploadOwner, uploadBodyImage],
   );
   persistUploadedImageRef.current = async () => {
+    // The page doesn't save while another of this editor's images is still on
+    // its way, so the save waits for those rather than being skipped.
+    await waitForImageUploadsToSettle(imageUploadOwner);
     if (editor.isDestroyed || suggestingRef.current) return false;
     return isEditorDraftSaveAccepted(
       await persistEditorContent(editor, {
