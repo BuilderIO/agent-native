@@ -1,7 +1,8 @@
-// An estimate: `totalBytesProcessed` at the on-demand list price. It is not
-// the bill and not a bound on it. BigQuery bills `totalBytesBilled`, and
-// capacity pricing or the free allowance can make the actual bill lower.
-const COST_PER_BYTE = 6.25 / 1_000_000_000_000;
+// An estimate: `totalBytesProcessed` at the on-demand list price, $6.25 per
+// TiB (2^40 bytes). It is not the bill and not a bound on it. BigQuery bills
+// `totalBytesBilled`, and capacity pricing or the free allowance can make the
+// actual bill lower.
+const COST_PER_BYTE = 6.25 / 1024 ** 4;
 const STORAGE_KEY = "analytics_query_cost/v3";
 // Earlier counters included cache hits (v1) or unconfirmed misses (v2).
 // Aggregated totals cannot recover that provenance.

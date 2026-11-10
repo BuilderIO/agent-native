@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import * as schema from "../db/schema";
 import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-dashboards-store";
+import { BIGQUERY_USAGE_MIGRATION_SQL } from "../lib/bigquery-usage";
 import { BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL } from "../lib/builtin-dashboard-checks-migration";
 import {
   CONTENT_METRICS_MIGRATION_SQL,
@@ -43,6 +44,7 @@ const analyticsRollupsTsSource = readFileSync(
 // though db.ts does not spell the columns out.
 const migrationHistorySource = [
   dbTsSource,
+  BIGQUERY_USAGE_MIGRATION_SQL,
   SOURCE_INDEX_RUNS_MIGRATION_SQL.join("\n"),
   EXTERNAL_DASHBOARD_MIGRATION_SQL.join("\n"),
   CONTENT_METRICS_MIGRATION_SQL.join("\n"),
@@ -424,7 +426,7 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
 describe("Analytics release migrations repair persisted first-party dashboards", () => {
   it("runs the bounded dashboard repair after both release migration sets", () => {
     expect(migrateProductionTsSource).toMatch(
-      /await runFrameworkReleaseMigrations\(null\);[\s\S]*?await runAnalyticsMigrations\(null\);[\s\S]*?await repairPersistedFirstPartyDashboardQueries\(\);/,
+      /await runFrameworkReleaseMigrations\(null, \{ requirePostgres: true \}\);[\s\S]*?await runAnalyticsMigrations\(null\);[\s\S]*?await repairPersistedFirstPartyDashboardQueries\(\);/,
     );
   });
 });

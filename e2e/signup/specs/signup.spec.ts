@@ -7,6 +7,10 @@ import type { TestInfo } from "@playwright/test";
 import { isQaTestEmail } from "../../../packages/core/src/shared/qa-test-email";
 import { collectAppPageErrors, renderedText } from "../../beta/lib/app";
 import {
+  BETA_E2E_TEST_TRAFFIC_HEADERS,
+  installBetaE2ETrafficMarker,
+} from "../../beta/lib/test-traffic";
+import {
   createQaEmail,
   isMailosaurInconclusiveError,
   verificationLinkFor,
@@ -109,6 +113,8 @@ for (const target of targets) {
     page,
   }, testInfo) => {
     test.setTimeout(360_000);
+    await page.context().setExtraHTTPHeaders(BETA_E2E_TEST_TRAFFIC_HEADERS);
+    await installBetaE2ETrafficMarker(page.context());
     const failedRequests: string[] = [];
     const observePage = (observedPage: Page) => {
       const diagnostics = collectAppPageErrors(observedPage, target.origin);
@@ -131,6 +137,36 @@ for (const target of targets) {
       isQaTestEmail(email),
       `${email} must be suppressed by tracking`,
     ).toBe(true);
+    // Use the same browser cookie jar as signup: observe the real assignment
+    // without forcing treatment or creating extra accounts to change the split.
+    let automaticBuilderSignup = false;
+    if (["design", "clips", "slides"].includes(target.app)) {
+      const assignment = await readJson(
+        page,
+        `${target.origin}/_agent-native/auth/builder-signup-experiment`,
+      );
+      const body = assignment.body as {
+        status?: string;
+        variant?: string;
+      };
+      expect(
+        assignment.status,
+        "Builder signup assignment request failed",
+      ).toBe(200);
+      expect(["assigned", "disabled"]).toContain(body.status);
+      if (body.status === "assigned") {
+        expect(["control", "automatic"]).toContain(body.variant);
+      }
+      automaticBuilderSignup =
+        body.status === "assigned" && body.variant === "automatic";
+      testInfo.annotations.push({
+        type: "builder-signup-variant",
+        description: automaticBuilderSignup
+          ? "automatic"
+          : "control-or-disabled",
+      });
+    }
+
     const signInUrl = `${target.origin}/sign-in?signup_e2e=${Date.now()}`;
     const emailRequestedAt = Date.now() - 5_000;
     const magicLinkStatuses: number[] = [];
@@ -170,6 +206,12 @@ for (const target of targets) {
     });
 
     const message = await test.step("request a fresh magic link", async () => {
+      // Suppress anonymous assignment/page traffic above, then exercise the
+      // normal auth transport and the new QA account's own credential scopes.
+      // Synthetic request mode intentionally cannot inherit deployment mail
+      // credentials or organization Builder keys. The +autoz identity and
+      // browser marker continue excluding this signup from customer metrics.
+      await page.context().setExtraHTTPHeaders({});
       const emailResult = waitForVerificationEmail(
         email,
         emailRequestedAt,
@@ -232,6 +274,41 @@ for (const target of targets) {
         /sign-in|login/i,
       );
     });
+
+    if (automaticBuilderSignup) {
+      await test.step("confirm automatic Builder connection after verified signup", async () => {
+        await expect
+          .poll(
+            async () => {
+              const connection = await readJson(
+                verificationPage,
+                "/_agent-native/connection-status/builder",
+              );
+              // Never attach the full response: it may contain a provisioning token.
+              const status = connection.body as {
+                configured?: boolean;
+                credentialSource?: string;
+              };
+              return (
+                connection.status === 200 &&
+                status.configured === true &&
+                (status.credentialSource === "user" ||
+                  status.credentialSource === "org")
+              );
+            },
+            {
+              timeout: 90_000,
+              message: `${target.app} automatic signup must connect Builder`,
+            },
+          )
+          .toBe(true);
+        writeFileSync(
+          testInfo.outputPath("automatic-builder-connection.json"),
+          `${JSON.stringify({ app: target.app, environment: target.environment, connected: true, verificationToConnectionMs: Date.now() - verificationStartedAt })}\n`,
+          "utf8",
+        );
+      });
+    }
 
     if (target.app === "design" && target.environment === "beta") {
       await test.step("capture fresh-user first-run readiness", async () => {
