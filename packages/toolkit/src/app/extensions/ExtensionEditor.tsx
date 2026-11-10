@@ -2,6 +2,10 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { injectSessionReplayIframeBootstrap } from "@agent-native/core/client/host";
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
 import { extensionPath } from "@agent-native/core/extensions/path";
 import {
   Popover,
@@ -123,7 +127,9 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
             body,
           },
         );
-        if (!res.ok) throw new Error("Update failed");
+        if (!res.ok) {
+          throw writeFailureFromResponse(res);
+        }
         void queryClient.invalidateQueries({
           queryKey: ["extension", extensionId],
         });
@@ -135,11 +141,15 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
           headers: { "Content-Type": "application/json" },
           body,
         });
-        if (!res.ok) throw new Error("Create failed");
+        if (!res.ok) {
+          throw writeFailureFromResponse(res);
+        }
         const created = await res.json();
         void queryClient.invalidateQueries({ queryKey: ["extensions"] });
         void navigate(extensionPath(created.id, created.name ?? name.trim()));
       }
+    } catch (error) {
+      reportWriteFailure(error);
     } finally {
       setSaving(false);
     }
@@ -177,12 +187,17 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
   const handleRemoveFromSlot = async (slotId: string) => {
     if (!extensionId) return;
     try {
-      await fetch(
+      const res = await fetch(
         agentNativePath(
           `/_agent-native/slots/${encodeURIComponent(slotId)}/install/${encodeURIComponent(extensionId)}`,
         ),
         { method: "DELETE" },
       );
+      if (!res.ok) {
+        reportWriteFailure(writeFailureFromResponse(res));
+      }
+    } catch (error) {
+      reportWriteFailure(error);
     } finally {
       void queryClient.invalidateQueries({
         queryKey: ["slot-installs", slotId],

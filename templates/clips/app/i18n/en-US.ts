@@ -2007,6 +2007,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "{{count}} free clip left",
     freeClipsLeft_other: "{{count}} free clips left",
+    activateBuilder: "Activate Builder.io",
     hostedClipsExhaustedTitle: "Connect Builder.io for free to keep recording",
     hostedClipsExhaustedDescription:
       "Your free hosted clips are used up. Connect Builder.io storage to keep saving clips to your library.",
@@ -2210,6 +2211,11 @@ const messages = {
     flowOriginalTranscript: "Show original transcript",
     flowCleanupSkipped: "Text cleanup was skipped; original text was kept",
     flowBacktrackSkipped: "Text editing was skipped; recognized text was kept",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet not downloaded",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Parakeet downloading",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet loading",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet busy",
+    flowAppleSpeechParakeetFailed: "Apple Speech · Parakeet failed to load",
     flowCancelDictation: "Cancel dictation",
     flowCopying: "Copying transcript…",
     aiProcessed: "AI Processed",
