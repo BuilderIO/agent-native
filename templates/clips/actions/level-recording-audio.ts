@@ -54,6 +54,8 @@ const outputSchema = z.object({
   unprocessedIds: z.array(z.string()).optional(),
   /** True when the sweep has more clips; call again (with nextBefore if set). */
   moreRemaining: z.boolean().optional(),
+  /** Clips that failed in a retryable way; pass them as `ids` to try again. */
+  retryIds: z.array(z.string()).optional(),
 });
 const DEFAULT_ALL_LIMIT = 20;
 const cliBoolean = z.preprocess((value) => {
@@ -219,12 +221,14 @@ export default defineAction({
     let nextBefore: string | undefined;
     let sweepRows: { id: string; createdAt: string }[] = [];
     let sweepFilledBatch = false;
+    let sweepLimit = 0;
     if (args.all) {
       const cursor = args.before ? decodeSweepCursor(args.before) : null;
       const limit = Math.min(
         args.limit ?? DEFAULT_ALL_LIMIT,
         MAX_TARGETS_PER_CALL - targetIds.length,
       );
+      sweepLimit = limit;
       const rows =
         limit > 0
           ? await db
@@ -311,21 +315,24 @@ export default defineAction({
     // id that also sits further down the sweep must not move the cursor past
     // clips that were never reached.
     let reachedCount = 0;
-    // A retryable failure also stops the cursor, so continuing the sweep
-    // tries that clip again instead of passing it.
     const statusById = new Map(results.map((r) => [r.recordingId, r.status]));
     for (;;) {
       const row = itemAt(sweepRows, reachedCount);
-      const status = row ? statusById.get(row.id) : undefined;
-      if (!status || isRetryableAudioLevelStatus(status)) break;
+      if (!row || !statusById.has(row.id)) break;
       reachedCount += 1;
     }
     const lastReached = itemAt(sweepRows, reachedCount - 1);
     if (lastReached && (sweepFilledBatch || reachedCount < sweepRows.length)) {
       nextBefore = encodeSweepCursor(lastReached.createdAt, lastReached.id);
-    } else if (!lastReached && args.before && reachedCount < sweepRows.length) {
-      nextBefore = args.before;
     }
+    // The cursor moves past clips that failed in a retryable way, so one broken
+    // clip cannot block the rest of the sweep. They are listed separately for
+    // a retry with `ids`.
+    const retryIds = results
+      .filter((r) => isRetryableAudioLevelStatus(r.status))
+      .map((r) => r.recordingId);
+    // 50 explicit ids leave no room for the sweep; it still has to run.
+    const sweepPending = Boolean(args.all) && sweepLimit === 0;
 
     const changed = results.filter((r) => r.changed).length;
     return {
@@ -335,9 +342,9 @@ export default defineAction({
       results,
       ...(nextBefore ? { nextBefore } : {}),
       ...(unprocessedIds.length > 0 ? { unprocessedIds } : {}),
-      // Also set when the first swept clip failed in a retryable way and no
-      // cursor could advance: calling again (with the same `before`) retries it.
-      ...(args.all && (sweepFilledBatch || reachedCount < sweepRows.length)
+      ...(retryIds.length > 0 ? { retryIds } : {}),
+      ...(args.all &&
+      (sweepPending || sweepFilledBatch || reachedCount < sweepRows.length)
         ? { moreRemaining: true }
         : {}),
     };

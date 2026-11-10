@@ -197,22 +197,31 @@ describe("level-recording-audio", () => {
     expect(result).toMatchObject({ unprocessedIds: ["rec-a", "rec-b"] });
   });
 
-  it("keeps the cursor before a clip that failed in a retryable way", async () => {
+  it("moves past a retryable failure and lists it for a retry", async () => {
     mockRows.value = [
       { id: "rec-a", createdAt: "2026-11-10T10:00:00.000Z" },
       { id: "rec-b", createdAt: "2026-11-09T10:00:00.000Z" },
     ];
     mockEnsure.mockImplementation(async ({ recordingId }) => ({
       recordingId,
-      status: recordingId === "rec-b" ? "skipped-fetch-failed" : "boosted",
-      changed: recordingId !== "rec-b",
+      status: recordingId === "rec-a" ? "skipped-fetch-failed" : "boosted",
+      changed: recordingId !== "rec-a",
     }));
 
     const result = await levelRecordingAudio.run({ all: true, limit: 2 });
 
     expect(result).toMatchObject({
       processed: 2,
-      nextBefore: "2026-11-10T10:00:00.000Z|rec-a",
+      nextBefore: "2026-11-09T10:00:00.000Z|rec-b",
+      retryIds: ["rec-a"],
+      moreRemaining: true,
     });
+  });
+
+  it("reports a pending sweep when explicit ids fill the batch", async () => {
+    const ids = Array.from({ length: 50 }, (_, i) => `rec-${i}`);
+    const result = await levelRecordingAudio.run({ ids, all: true });
+    expect(mockLimit).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ processed: 50, moreRemaining: true });
   });
 });

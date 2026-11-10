@@ -810,6 +810,20 @@ export async function ensureRecordingAudioLevel(params: {
           "[audio-level] could not confirm deletion of the replaced media",
           { recordingId, replacedUrl: rec.videoUrl },
         );
+        // Queue it, already settled: the row no longer points at it, so the
+        // next run for this clip deletes it.
+        await writeAppState(audioLevelPendingUploadKey(recordingId), {
+          recordingId,
+          url: rec.videoUrl,
+          at: new Date(0).toISOString(),
+        }).catch((stateErr: unknown) => {
+          console.warn("[audio-level] could not queue the replaced media", {
+            recordingId,
+            replacedUrl: rec.videoUrl,
+            error:
+              stateErr instanceof Error ? stateErr.message : String(stateErr),
+          });
+        });
       }
     }
   }
