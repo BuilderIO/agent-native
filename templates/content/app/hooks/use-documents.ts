@@ -46,6 +46,7 @@ import {
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
+import type { DocumentTitlesResponse } from "@/lib/content-command-search";
 import { contentSaveTelemetryHeaders } from "@/lib/content-save-telemetry";
 
 import type {
@@ -103,6 +104,7 @@ import {
   contentSpaceFilesDatabaseId,
   documentScopedQueryFilter,
   invalidateContentQueries,
+  SEARCH_QUERY_KEYS,
   useContentActionMutation,
   type ContentQueryTarget,
 } from "./use-content-action-mutation";
@@ -243,6 +245,7 @@ export function restoreDeletedDocumentSnapshots(
 }
 
 const DOCUMENT_LIST_PAGE_SIZE = 200;
+const DOCUMENT_TITLES_STALE_MS = 5 * 60 * 1000;
 
 export async function fetchCompleteDocumentList(
   fetchPage: (offset: number, limit: number) => Promise<DocumentListResponse>,
@@ -884,6 +887,41 @@ export function useDocuments(options?: { enabled?: boolean }) {
   });
 }
 
+const DOCUMENT_TITLES_ACTION = "list-document-titles";
+
+/**
+ * The titles search ranks in the browser. One read fills it, however large the
+ * library, so it stays across closing and reopening the command menu rather
+ * than making the next search wait for it again.
+ */
+export function useDocumentTitles(options?: { enabled?: boolean }) {
+  return useActionQuery<DocumentTitlesResponse>(
+    DOCUMENT_TITLES_ACTION,
+    {},
+    {
+      enabled: options?.enabled !== false,
+      retry: false,
+      staleTime: DOCUMENT_TITLES_STALE_MS,
+      gcTime: Infinity,
+    },
+  );
+}
+
+/** Reads the titles ahead of the first search, once the page has settled. */
+export function prefetchDocumentTitles(queryClient: QueryClient) {
+  return queryClient.prefetchQuery({
+    queryKey: ["action", DOCUMENT_TITLES_ACTION, {}],
+    queryFn: () =>
+      callAction<DocumentTitlesResponse>(
+        DOCUMENT_TITLES_ACTION,
+        {},
+        { method: "GET" },
+      ),
+    staleTime: DOCUMENT_TITLES_STALE_MS,
+    gcTime: Infinity,
+  });
+}
+
 // The sidebar and the editor breadcrumbs read the same entry.
 export function useContentNavigationContext(documentId: string | null) {
   return useActionQuery<ContentNavigationContext>(
@@ -1345,6 +1383,7 @@ export function useUpdatePreviewDocumentDraft() {
       }
   >("update-preview-document-draft", {
     skipActionQueryInvalidation: true,
+    errorNotification: "caller",
     // This tab's own draft writes never come back through sync.
     onMutate: (variables) => {
       spoilPageOpenReads(queryClient, variables.documentId);
@@ -1400,16 +1439,16 @@ export function useCreateDocument() {
     {
       skipActionQueryInvalidation: true,
       onSuccess: (created) =>
-        invalidateContentQueries(
-          queryClient,
-          contentPlacementTargets(queryClient, {
+        invalidateContentQueries(queryClient, [
+          ...contentPlacementTargets(queryClient, {
             documentIds: [created.id],
             parentIds: [created.parentId ?? null],
             databaseId: created.parentId
               ? undefined
               : contentSpaceFilesDatabaseId(queryClient, created.spaceId),
           }),
-        ),
+          ...SEARCH_QUERY_KEYS,
+        ]),
     },
   );
 }
@@ -1791,7 +1830,7 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
             contentDatabaseConstrainedQueryFilter(),
             contentDatabaseExcerptContainingDocumentFilter(variables.id),
             ...contentRowTargets(queryClient, [variables.id]),
-            ["action", "search-documents"],
+            ...SEARCH_QUERY_KEYS,
           ]);
         }
         if (renamedContentSpace) {
@@ -1946,7 +1985,7 @@ export function useDeleteDocument() {
       ["action", "get-content-database"],
       ["action", "list-content-spaces"],
       ["action", "get-content-recent"],
-      ["action", "search-documents"],
+      ...SEARCH_QUERY_KEYS,
       ...TRASH_LIST_QUERY_KEYS,
     ],
   });
@@ -1992,7 +2031,7 @@ export function useImportContent() {
                 parentIds: [parentId ?? null],
               }),
               ["action", "list-documents"],
-              ["action", "search-documents"],
+              ...SEARCH_QUERY_KEYS,
             ],
     },
   );
@@ -2008,7 +2047,7 @@ export function useUndoContentImport() {
       ...contentPlacementTargets(queryClient, { documentIds: trashedIds }),
       ...trashedIds.map((id) => documentQueryFilter(id)),
       ["action", "list-documents"],
-      ["action", "search-documents"],
+      ...SEARCH_QUERY_KEYS,
       ...TRASH_LIST_QUERY_KEYS,
     ],
   });
@@ -2034,7 +2073,7 @@ export function restoredDocumentTargets(
     ["action", "list-documents"],
     ["action", "get-content-database"],
     ["action", "get-content-recent"],
-    ["action", "search-documents"],
+    ...SEARCH_QUERY_KEYS,
     ...TRASH_LIST_QUERY_KEYS,
   ];
 }
@@ -2092,6 +2131,7 @@ export function useMoveDocument() {
       documentQueryFilter(variables.id),
       contentFilesCollectionFilter(),
       ["action", "list-documents"],
+      ...SEARCH_QUERY_KEYS,
       ...(variables.spaceId
         ? [
             ["action", "get-content-database"],

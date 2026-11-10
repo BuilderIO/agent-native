@@ -8,7 +8,6 @@ import {
   AssetLibraryPanel,
   DesignExtensionsPanel,
 } from "@/components/design/DesignExtensionsPanel";
-import { DesignImportPanel } from "@/components/design/DesignImportPanel";
 import {
   DesignWorkspaceRail,
   INITIAL_GENERATION_DISABLED_LEFT_PANELS,
@@ -138,7 +137,6 @@ export function renderLeftSidebar({
   const { hoveredCodeLayerNode } = editorContentAndComponents;
   const { setActiveCodeFile, reviewCommentsPanelProps } = editorToolsAndVectors;
   const { designExtensionContext } = editorSelectionAndStyles;
-  const { showPastedImagesNotice } = editorClipboard;
   const { handleDeleteInlineFile } = editorEditCommands;
   const {
     handleSidebarScreenSelect,
@@ -169,7 +167,6 @@ export function renderLeftSidebar({
     handleFirstRunTemplate,
     workbenchLocalhostConnections,
     handleWorkbenchLocalWriteConsent,
-    importPanelRef,
   } = editorSourceAndSync;
 
   const showFirstRunStart = designIsEmpty && chatMessageCount === 0;
@@ -411,35 +408,6 @@ export function renderLeftSidebar({
                   }}
                 />
               ) : null}
-            </div>
-            <div
-              className={cn(
-                "min-h-0 flex-1 flex-col overflow-hidden",
-                activeLeftPanel === "import" ? "flex" : "hidden",
-              )}
-            >
-              {canEditDesign ? (
-                <DesignImportPanel
-                  ref={importPanelRef}
-                  context={designExtensionContext}
-                  onImport={(result) => {
-                    const count = result.unresolvedImageRefCount ?? 0;
-                    if (count > 0 && result.files?.length) {
-                      showPastedImagesNotice({
-                        count,
-                        fileIds: result.files.map((f) => f.id),
-                      });
-                    }
-                  }}
-                />
-              ) : (
-                <ReadOnlyEditorPanel
-                  title={"Import requires editor access" /* i18n-ignore */}
-                  description={
-                    "Ask an owner for edit access before importing files into this design." /* i18n-ignore */
-                  }
-                />
-              )}
             </div>
             {SHOW_DESIGN_SECONDARY_LEFT_PANELS ? (
               <>

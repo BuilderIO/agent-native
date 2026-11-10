@@ -21,12 +21,11 @@ interface DocumentInfoPanelProps {
   document: Document;
   documentContent: string;
   additionalBlockContents?: Readonly<Record<string, string>>;
-  databaseId?: string | null;
-  databaseDocumentId?: string | null;
+  databaseId?: string | null | undefined;
+  databaseDocumentId?: string | null | undefined;
   rowView?: DatabaseRowView | null;
   rowViewPending?: boolean;
   canEdit: boolean;
-  popoverContainer?: HTMLElement | null;
   onSaveDescription: (description: string) => Promise<unknown>;
 }
 
@@ -39,7 +38,6 @@ export function DocumentInfoPanel({
   rowView,
   rowViewPending,
   canEdit,
-  popoverContainer,
   onSaveDescription,
 }: DocumentInfoPanelProps) {
   const t = useT();
@@ -122,7 +120,6 @@ export function DocumentInfoPanel({
           rowView={rowView}
           rowViewPending={rowViewPending}
           canEdit={canEdit}
-          popoverContainer={popoverContainer}
         />
       ) : null}
     </div>
