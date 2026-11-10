@@ -2068,6 +2068,7 @@ const messages = {
     freeClipsLeft_one: "{{count}} clipe grátis restante",
     freeClipsLeft_other: "{{count}} clipes grátis restantes",
     freeClipsLeft_many: "{{count}} clipes grátis restantes",
+    activateBuilder: "Ativar Builder.io",
     hostedClipsExhaustedTitle:
       "Conecte o Builder.io gratuitamente para continuar gravando",
     hostedClipsExhaustedDescription:
@@ -2276,6 +2277,12 @@ const messages = {
     flowOriginalTranscript: "Mostrar transcrição original",
     flowCleanupSkipped: "Ajuste do texto ignorado; texto original mantido",
     flowBacktrackSkipped: "Edição ignorada; texto reconhecido mantido",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet não baixado",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Baixando o Parakeet",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Carregando o Parakeet",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet ocupado",
+    flowAppleSpeechParakeetFailed:
+      "Apple Speech · Falha ao carregar o Parakeet",
     flowCancelDictation: "Cancelar ditado",
     flowCopying: "Copiando a transcrição…",
     aiProcessed: "Processado por IA",

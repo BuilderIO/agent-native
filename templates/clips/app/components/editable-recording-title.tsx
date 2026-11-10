@@ -1,5 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { isDefaultTitle } from "@shared/title-source";
 import { IconEdit } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -107,13 +108,13 @@ export function EditableRecordingTitle({
 
       return { playerSnapshots, listSnapshots };
     },
-    onError: (_error, _variables, context) => {
+    onError: (error, _variables, context) => {
       const snapshots = context as
         | { playerSnapshots?: QuerySnapshot; listSnapshots?: QuerySnapshot }
         | undefined;
       restoreSnapshots(queryClient, snapshots?.playerSnapshots);
       restoreSnapshots(queryClient, snapshots?.listSnapshots);
-      toast.error(t("editableTitle.renameFailed"));
+      reportWriteFailure(error, { label: t("editableTitle.renameFailed") });
     },
   });
 

@@ -1922,6 +1922,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "還剩 {{count}} 個免費片段",
     freeClipsLeft_other: "還剩 {{count}} 個免費片段",
+    activateBuilder: "啟用 Builder.io",
     hostedClipsExhaustedTitle: "免費連接 Builder.io，繼續錄製",
     hostedClipsExhaustedDescription:
       "免費託管錄製次數已用完。連接 Builder.io 儲存空間，即可繼續將片段儲存到資料庫。",
@@ -2108,6 +2109,11 @@ const messages = {
     flowOriginalTranscript: "顯示原始轉錄文字",
     flowCleanupSkipped: "未整理文字，已保留原始文字",
     flowBacktrackSkipped: "未套用文字編輯，已保留辨識結果",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet 尚未下載",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Parakeet 下載中",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet 載入中",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet 忙碌中",
+    flowAppleSpeechParakeetFailed: "Apple Speech · Parakeet 載入失敗",
     flowCancelDictation: "取消聽寫",
     flowCopying: "正在複製轉錄文字…",
     aiProcessed: "AI 已處理",

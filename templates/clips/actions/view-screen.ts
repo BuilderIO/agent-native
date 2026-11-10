@@ -21,6 +21,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
 import {
   activeUploadFromContent,
   contentPageUrls,
@@ -149,6 +150,7 @@ async function fetchTranscript(recordingId: string) {
 }
 
 async function fetchComments(recordingId: string) {
+  await assertCommentAccess(recordingId, "read");
   const db = getDb();
   const rows = await db
     .select()
@@ -520,23 +522,29 @@ async function addRecordingContext(
   const recording = await fetchRecording(recordingId);
   if (!recording) return;
 
-  const transcriptProtected = isRecordingPasswordProtectedForViewer({
+  // A password-protected Clip keeps its transcript and comments behind the
+  // share flow for nonowners; the screen still carries permitted metadata.
+  const passwordProtected = isRecordingPasswordProtectedForViewer({
     hasPassword: recording.hasPassword,
     viewerIsOwner: sameOwnerEmail(recording.ownerEmail, getRequestUserEmail()),
   });
   const [transcript, comments, browserDiagnosticsSummary, bugReportSummary] =
     await Promise.all([
-      transcriptProtected ? null : fetchTranscript(recordingId),
-      recording.enableComments ||
-      sameOwnerEmail(recording.ownerEmail, getRequestUserEmail())
-        ? fetchComments(recordingId)
-        : [],
+      passwordProtected ? null : fetchTranscript(recordingId),
+      passwordProtected
+        ? null
+        : recording.enableComments ||
+            sameOwnerEmail(recording.ownerEmail, getRequestUserEmail())
+          ? fetchComments(recordingId)
+          : [],
       fetchBrowserDiagnosticsSummary(recordingId),
       fetchBugReportSummary(recordingId),
     ]);
   screen.recording = recording;
-  if (transcriptProtected)
+  if (passwordProtected) {
     screen.transcriptUnavailableReason = "password_required";
+    screen.commentsUnavailableReason = "password_required";
+  }
   if (transcript) {
     screen.transcript = buildTranscriptPreview({
       recordingId: transcript.recordingId,
@@ -547,7 +555,7 @@ async function addRecordingContext(
       segments: transcript.segments,
     });
   }
-  screen.comments = comments.slice(0, 50);
+  if (comments) screen.comments = comments.slice(0, 50);
   if (browserDiagnosticsSummary) {
     screen.browserDiagnostics = {
       summary: browserDiagnosticsSummary,

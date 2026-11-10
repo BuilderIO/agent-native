@@ -36,6 +36,20 @@ type FlowFailure =
   | "paste"
   | "history-save";
 type FlowInsertion = "inserted" | "copied";
+type FlowEngineFallback =
+  | "missing"
+  | "downloading"
+  | "loading"
+  | "busy"
+  | "failed";
+
+const ENGINE_FALLBACK_NOTE = {
+  missing: "dictateRoute.flowAppleSpeechParakeetMissing",
+  downloading: "dictateRoute.flowAppleSpeechParakeetDownloading",
+  loading: "dictateRoute.flowAppleSpeechParakeetLoading",
+  busy: "dictateRoute.flowAppleSpeechParakeetBusy",
+  failed: "dictateRoute.flowAppleSpeechParakeetFailed",
+} as const satisfies Record<FlowEngineFallback, string>;
 type FlowStateChangePayload = {
   state: FlowState;
   stage?: FlowProcessingStage;
@@ -49,6 +63,7 @@ type FlowStateChangePayload = {
   retryHistory?: boolean;
   cleanupFailed?: boolean;
   backtrackFailed?: boolean;
+  engineFallback?: FlowEngineFallback;
   transcript?: string;
   originalTranscript?: string;
 };
@@ -279,6 +294,9 @@ export function FlowBar() {
               ) : null}
               {payload.backtrackFailed ? (
                 <span>{t("dictateRoute.flowBacktrackSkipped")}</span>
+              ) : null}
+              {payload.engineFallback ? (
+                <span>{t(ENGINE_FALLBACK_NOTE[payload.engineFallback])}</span>
               ) : null}
             </div>
             <button

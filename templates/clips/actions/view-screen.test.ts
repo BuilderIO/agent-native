@@ -12,6 +12,7 @@ const context = vi.hoisted(() => ({
   email: "viewer@example.com",
   role: null as "owner" | "editor" | null,
   childReads: vi.fn(),
+  accessFailure: null as Error | null,
   transcriptFailure: null as Error | null,
 }));
 
@@ -185,10 +186,26 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => context.email,
 }));
 
-vi.mock("@agent-native/core/sharing", () => ({
-  accessFilter: () => ({ kind: "access-filter" }),
-  resolveAccess: async () => (context.role ? { role: context.role } : null),
-}));
+vi.mock("@agent-native/core/sharing", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/sharing")>();
+  return {
+    ForbiddenError: actual.ForbiddenError,
+    accessFilter: () => ({ kind: "access-filter" }),
+    resolveAccess: async () => (context.role ? { role: context.role } : null),
+    assertAccess: async () => {
+      if (context.accessFailure) throw context.accessFailure;
+      return {
+        resource: context.recording,
+        role:
+          context.email.toLowerCase() ===
+          String(context.recording?.ownerEmail).toLowerCase()
+            ? "owner"
+            : (context.role ?? "viewer"),
+      };
+    },
+  };
+});
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ kind: "and", conditions }),
@@ -363,6 +380,7 @@ describe("view-screen recording access", () => {
     context.navigation.view = "recording";
     context.email = "viewer@example.com";
     context.role = null;
+    context.accessFailure = null;
     recording = {
       id: "rec-test",
       title: "Fake recording",
@@ -376,16 +394,24 @@ describe("view-screen recording access", () => {
     context.transcriptFailure = null;
   });
 
-  it.each(["viewer", "editor"] as const)(
-    "withholds protected transcript context from a shared %s",
-    async (role) => {
+  it.each([
+    { role: "viewer", enableComments: true },
+    { role: "viewer", enableComments: false },
+    { role: "editor", enableComments: true },
+    { role: "editor", enableComments: false },
+  ] as const)(
+    "withholds protected transcript and comments from a shared $role with comments enabled=$enableComments",
+    async ({ role, enableComments }) => {
       context.role = role === "editor" ? role : null;
       recording.password = "fake-password-digest";
+      recording.enableComments = enableComments;
       const screen = JSON.parse(await action.run({}));
       expect(screen.recording.id).toBe("rec-test");
       expect(screen.transcript).toBeUndefined();
       expect(screen.transcriptUnavailableReason).toBe("password_required");
-      expect(screen.comments[0].content).toBe("Fake discussion");
+      expect(screen.comments).toBeUndefined();
+      expect(screen.commentsUnavailableReason).toBe("password_required");
+      expect(context.childReads).not.toHaveBeenCalledWith("recordingComments");
       expect(
         context.childReads.mock.calls.some(
           ([table]) =>
@@ -395,8 +421,28 @@ describe("view-screen recording access", () => {
         ),
       ).toBe(false);
       expect(JSON.stringify(screen)).not.toContain("Fake secret spoken words");
+      expect(JSON.stringify(screen)).not.toContain("Fake discussion");
     },
   );
+
+  it.each([true, false])(
+    "keeps protected owner history with comments enabled=%s",
+    async (enableComments) => {
+      context.email = "OWNER@example.com";
+      recording.password = "fake-stored-password-hash";
+      recording.enableComments = enableComments;
+      const screen = JSON.parse(await action.run({}));
+      expect(screen.comments[0].content).toBe("Fake discussion");
+    },
+  );
+
+  it("preserves an unreadable comment-access failure", async () => {
+    const cause = new Error("fake membership read failure");
+    context.accessFailure = cause;
+    await expect(action.run({})).rejects.toBe(cause);
+    expect(context.childReads).not.toHaveBeenCalledWith("recordingComments");
+  });
+
   it.each([
     { email: "OWNER@example.com", password: "fake-password-digest" },
     { email: "viewer@example.com", password: null },
@@ -411,13 +457,17 @@ describe("view-screen recording access", () => {
         "Fake secret spoken words",
       );
       expect(screen.transcriptUnavailableReason).toBeUndefined();
+      expect(screen.comments[0].content).toBe("Fake discussion");
+      expect(screen.commentsUnavailableReason).toBeUndefined();
     },
   );
+
   it("propagates transcript query failures instead of reporting an empty transcript", async () => {
     const failure = new Error("Fake transcript query failure");
     context.transcriptFailure = failure;
     await expect(action.run({})).rejects.toBe(failure);
   });
+
   it.each([
     { trashedAt: "2026-01-01T00:00:00Z" },
     { expiresAt: "2020-01-01T00:00:00Z" },
