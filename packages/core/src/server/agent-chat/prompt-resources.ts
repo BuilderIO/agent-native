@@ -805,10 +805,9 @@ async function loadResourceSkillPromptEntries(
       const loaded = await Promise.all(
         skillCandidates.map(async (resource) => ({
           resource,
-          // coercion-ok: an unreadable optional skill is absent from Jev's catalog, not a required prompt failure.
           full: await resourceGet(resource.id, {
             ...(orgId !== undefined ? { orgId } : {}),
-          }).catch(() => null),
+          }).catch(() => null), // coercion-ok: an unreadable optional skill is absent from Jev's catalog, not a required prompt failure.
         })),
       );
       const parsed = loaded.map(({ resource, full }) => ({
