@@ -10,10 +10,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   callAction,
 }));
 
-vi.mock("sonner", () => ({
-  toast: { error: vi.fn() },
-}));
-
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { serverReadState } from "@/pages/adhoc/sql-dashboard/dashboard-filter-restore";

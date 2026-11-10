@@ -989,6 +989,10 @@ export default {
     hide: "Hide",
     show: "Show",
     saveAsView: "Save as View",
+    unknownTraffic: "Unknown {{count}}",
+    unknownTrafficUnavailable: "Unknown count unavailable",
+    unknownTrafficTip:
+      "Events from the last {{days}} days with no host and no recognized environment. They count as production.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
