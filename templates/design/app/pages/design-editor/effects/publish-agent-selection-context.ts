@@ -2,6 +2,7 @@ import {
   getBrowserTabId,
   setClientAppState,
 } from "@agent-native/core/client/hooks";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { stripInlineBytes } from "@agent-native/core/shared";
 import {
   HUBSPOT_EMAIL_FRAME_TYPE,
@@ -19,7 +20,6 @@ import type { RefObject } from "react";
 import type { CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
 import type { MotionDockLiveState } from "@/components/design/MotionDock";
 import type { ElementInfo } from "@/components/design/types";
-import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 import type { ResponsiveEditScope } from "@/pages/design-editor/command-types";
 import { KEEPALIVE_ACTION_MAX_BYTES } from "@/pages/design-editor/data-operations";
 import { DESIGN_SELECTION_ZOOM_SAVE_DELAY_MS } from "@/pages/design-editor/editor-constants";
@@ -175,6 +175,8 @@ export interface PublishAgentSelectionContextArgs {
   interactDevice: { name: string; width: number; height: number };
   interactTheme: InteractThemeMode;
   isSignedIn: boolean;
+  /** Already translated: tells the person to select again, since the agent may not see the selection. */
+  selectionPublishFailedLabel: string;
   mode: EditorMode;
   motionAutoKeyframeEnabled: boolean;
   motionDockOpen: boolean;
@@ -216,6 +218,7 @@ export function runPublishAgentSelectionContext({
   interactDevice,
   interactTheme,
   isSignedIn,
+  selectionPublishFailedLabel,
   mode,
   motionAutoKeyframeEnabled,
   motionDockOpen,
@@ -420,10 +423,7 @@ export function runPublishAgentSelectionContext({
       persistedSelectionStateRef.current = null;
       persistedSelectionContextRef.current = null;
       if (attempt >= SELECTION_PUBLISH_RETRY_DELAYS_MS.length) {
-        reportDesignWriteFailure(
-          failure,
-          "designEditor.selectionPublishFailed",
-        );
+        reportWriteFailure(failure, { label: selectionPublishFailedLabel });
         return;
       }
       if (persistedSelectionWriteTimerRef.current !== null) return;

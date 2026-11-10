@@ -1433,6 +1433,7 @@ export default {
     drilldownOverByteCap:
       "Ces enregistrements liraient plus de {{gib}} Gio, ils n'ont donc pas été chargés. Restreignez les filtres ou la période du tableau de bord, puis réessayez.",
     filterSeries: "Filter",
+    noXValue: "Sans valeur",
     chartTimeRangeOverride: "Remplacer la plage horaire de ce graphique",
     chartTimeRangeInherit: "Plage du tableau de bord",
     hide: "Hide",

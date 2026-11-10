@@ -122,6 +122,7 @@ export function useMarkInboxItemReady() {
       onSettled: () => {
         runMarkInboxItemReadyInvalidation(queryClient);
       },
+      errorNotification: "shared",
     },
   );
 }
@@ -194,6 +195,7 @@ export function useReorderInboxItems() {
       onSettled: () => {
         void invalidateInboxItems(queryClient);
       },
+      errorNotification: "shared",
     },
   );
 }

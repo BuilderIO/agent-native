@@ -636,6 +636,8 @@ const messages = {
     noMatches: "No matches.",
     noTranscript: "No transcript yet.",
     noTranscriptCaptured: "No transcript was captured.",
+    unreadableDescription:
+      "The saved transcript is damaged. Regenerating makes a new one from the clip's audio.",
     partialTranscript:
       "Partial transcript: this recording was cut off, so some of it may be missing.",
     backupFailed:
@@ -2007,6 +2009,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "{{count}} free clip left",
     freeClipsLeft_other: "{{count}} free clips left",
+    activateBuilder: "Activate Builder.io",
     hostedClipsExhaustedTitle: "Connect Builder.io for free to keep recording",
     hostedClipsExhaustedDescription:
       "Your free hosted clips are used up. Connect Builder.io storage to keep saving clips to your library.",
