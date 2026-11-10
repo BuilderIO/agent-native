@@ -373,13 +373,16 @@ async function runBakeoff(models: BakeoffModels | null) {
         const queries = replyJson(
           await models.chat(REWRITE_PROMPT, kase.query, usage.rewrite),
         )?.queries;
-        if (!Array.isArray(queries))
-          throw new Error(`The rewrite of "${kase.query}" named no searches.`);
         // search-documents refuses a blank search.
-        const rewrites = queries
-          .map((query) => String(query).trim())
-          .filter(Boolean)
-          .slice(0, 3);
+        const rewrites = Array.isArray(queries)
+          ? queries
+              .filter((query): query is string => typeof query === "string")
+              .map((query) => query.trim())
+              .filter(Boolean)
+              .slice(0, 3)
+          : [];
+        if (rewrites.length === 0)
+          throw new Error(`The rewrite of "${kase.query}" named no searches.`);
         const rewritten = await Promise.all(
           rewrites.map((query) => currentSearch(kase, query)),
         );
