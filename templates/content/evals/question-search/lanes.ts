@@ -59,21 +59,29 @@ export function keywordLane(
     body: keywordTokens(doc.body),
   }));
   const frequency = new Map<string, number>();
+  const titleFrequency = new Map<string, number>();
   for (const doc of fields) {
     for (const word of new Set([...doc.title, ...doc.description, ...doc.body]))
       frequency.set(word, (frequency.get(word) ?? 0) + 1);
+    for (const word of new Set(doc.title))
+      titleFrequency.set(word, (titleFrequency.get(word) ?? 0) + 1);
   }
-  const averageLength =
-    fields.reduce((sum, doc) => sum + doc.body.length, 0) / fields.length || 1;
+  const averageOf = (length: (doc: (typeof fields)[number]) => number) =>
+    fields.reduce((sum, doc) => sum + length(doc), 0) / fields.length || 1;
+  const averageLength = averageOf((doc) => doc.body.length);
+  const averageTitleLength = averageOf((doc) => doc.title.length);
   const k1 = 1.2;
   const b = 0.75;
   return (query, searchFields = "all") => {
     const words = [...new Set(keywordTokens(query))];
     // A title-only search scores titles alone, as search-documents does.
-    const scored =
-      searchFields === "title"
-        ? (["title"] as const)
-        : (Object.keys(FIELD_WEIGHTS) as (keyof typeof FIELD_WEIGHTS)[]);
+    const titleOnly = searchFields === "title";
+    const scored = titleOnly
+      ? (["title"] as const)
+      : (Object.keys(FIELD_WEIGHTS) as (keyof typeof FIELD_WEIGHTS)[]);
+    // Its words are weighed against titles alone, as their length is.
+    const counted = titleOnly ? titleFrequency : frequency;
+    const average = titleOnly ? averageTitleLength : averageLength;
     return fields
       .map((doc) => {
         let score = 0;
@@ -86,13 +94,18 @@ export function keywordLane(
             0,
           );
           if (!weighted) continue;
-          const containing = frequency.get(word) ?? 0;
+          const containing = counted.get(word) ?? 0;
           const idf = Math.log(
             1 + (fields.length - containing + 0.5) / (containing + 0.5),
           );
           score +=
             (idf * weighted * (k1 + 1)) /
-            (weighted + k1 * (1 - b + (b * doc.body.length) / averageLength));
+            (weighted +
+              k1 *
+                (1 -
+                  b +
+                  (b * (titleOnly ? doc.title.length : doc.body.length)) /
+                    average));
         }
         return { key: doc.key, score };
       })
