@@ -1449,8 +1449,10 @@ function useChartDrilldownItems(
   valueFormatter: (value: number, name?: string | number) => string,
 ) {
   const formatters = useFormatters();
+  const noXValueLabel = useT()("sqlDashboard.noXValue");
   const formatAccessibleXLabel = useCallback(
     (value: unknown) => {
+      if (value == null) return noXValueLabel;
       const text = stringifyValue(value);
       const dateKey =
         /^\d{8}$/.test(text) || /^\d{4}-\d{2}-\d{2}(?:[T ]|$)/.test(text);
@@ -1463,7 +1465,7 @@ function useChartDrilldownItems(
         ...(isDailyChartKey(xKey) ? { weekday: "long" } : {}),
       });
     },
-    [formatXLabel, formatters, xKey],
+    [formatXLabel, formatters, noXValueLabel, xKey],
   );
   const formatValue = useCallback(
     (value: unknown, key?: string) => {
@@ -1643,8 +1645,7 @@ function ChartClickLocator({
   useLayoutEffect(() => {
     if (!scale || !domain || !plot) return;
     // Recharts plots row i at the i-th domain value, not at the row's own x:
-    // null x values drop out of the domain, and repeated ones turn it into
-    // row indexes.
+    // repeated x values turn the domain into row indexes.
     const positions = domain.map((value) =>
       scale(value, { position: "middle" }),
     );
@@ -3613,16 +3614,33 @@ const LEVEL_CATEGORY_AXIS: CategoryAxisPlan = {
   labelWidth: Number.POSITIVE_INFINITY,
 };
 
+/**
+ * The axis value of a row. Recharts leaves a null x off the axis yet still draws
+ * every row, shifting later values onto the wrong labels, so null gets its own
+ * tick. Rows keep their null: a drill-down filters on the value, not this label.
+ */
+function useChartXValue(xKey: string) {
+  const noXValueLabel = useT()("sqlDashboard.noXValue");
+  return useCallback(
+    (row: Record<string, unknown>) => row[xKey] ?? noXValueLabel,
+    [xKey, noXValueLabel],
+  );
+}
+
 /** Formatted x labels when the axis holds named categories, else null. */
 function useCategoryAxisLabels(
   rows: Record<string, unknown>[],
   xKey: string,
   formatLabel: (value: unknown) => string,
 ): string[] | null {
-  return useMemo(() => {
-    const values = rows.map((row) => row[xKey]);
-    return isCategoryAxis(values) ? values.map(formatLabel) : null;
-  }, [rows, xKey, formatLabel]);
+  const xValue = useChartXValue(xKey);
+  return useMemo(
+    () =>
+      isCategoryAxis(rows.map((row) => row[xKey]))
+        ? rows.map((row) => formatLabel(xValue(row)))
+        : null,
+    [rows, xKey, xValue, formatLabel],
+  );
 }
 
 function CategoryAxisTick({
@@ -3666,7 +3684,7 @@ function CategoryXAxis({
   labels,
   formatLabel,
 }: {
-  dataKey: string;
+  dataKey: (row: Record<string, unknown>) => unknown;
   labels: string[];
   formatLabel: (value: unknown) => string;
 }) {
@@ -3743,6 +3761,7 @@ function BarRenderer({
     [panel],
   );
   const categoryLabels = useCategoryAxisLabels(rows, xKey, xLabelFormatter);
+  const xValue = useChartXValue(xKey);
   const xTooltipLabelFormatter = (value: any) =>
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = useCallback(
@@ -3814,13 +3833,13 @@ function BarRenderer({
         >
           {categoryLabels ? (
             <CategoryXAxis
-              dataKey={xKey}
+              dataKey={xValue}
               labels={categoryLabels}
               formatLabel={xLabelFormatter}
             />
           ) : (
             <XAxis
-              dataKey={xKey}
+              dataKey={xValue}
               stroke="hsl(var(--muted-foreground))"
               fontSize={12}
               tickLine={false}
@@ -3920,6 +3939,7 @@ function ComboRenderer({
     [panel],
   );
   const categoryLabels = useCategoryAxisLabels(rows, xKey, xLabelFormatter);
+  const xValue = useChartXValue(xKey);
   const xTooltipLabelFormatter = (value: any) =>
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = useCallback(
@@ -3994,13 +4014,13 @@ function ComboRenderer({
           {chartClick.locator}
           {categoryLabels ? (
             <CategoryXAxis
-              dataKey={xKey}
+              dataKey={xValue}
               labels={categoryLabels}
               formatLabel={xLabelFormatter}
             />
           ) : (
             <XAxis
-              dataKey={xKey}
+              dataKey={xValue}
               stroke="hsl(var(--muted-foreground))"
               fontSize={12}
               tickLine={false}
@@ -4117,6 +4137,7 @@ function TimeSeriesRenderer({
     (value: unknown) => formatXLabel(String(value ?? ""), panel),
     [panel],
   );
+  const xValue = useChartXValue(xKey);
   const xTooltipLabelFormatter = (value: any) =>
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = useCallback(
@@ -4199,7 +4220,7 @@ function TimeSeriesRenderer({
           >
             {chartClick.locator}
             <XAxis
-              dataKey={xKey}
+              dataKey={xValue}
               stroke="hsl(var(--muted-foreground))"
               fontSize={12}
               tickLine={false}
@@ -4345,7 +4366,7 @@ function TimeSeriesRenderer({
             </defs>
           )}
           <XAxis
-            dataKey={xKey}
+            dataKey={xValue}
             stroke="hsl(var(--muted-foreground))"
             fontSize={12}
             tickLine={false}

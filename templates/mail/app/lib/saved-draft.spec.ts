@@ -1,6 +1,60 @@
 import { describe, expect, it } from "vitest";
 
-import { savedEmailDraftMetadata } from "./saved-draft";
+import {
+  savedEmailDraftAttachments,
+  savedEmailDraftMetadata,
+} from "./saved-draft";
+
+describe("savedEmailDraftAttachments", () => {
+  const attachment = {
+    id: "abc123.pdf",
+    filename: "invoice.pdf",
+    mimeType: "application/pdf",
+    size: 2048,
+    url: "https://cdn.builder.io/o/assets/abc123",
+  };
+
+  it("reads a Gmail draft's files as parts of that draft", () => {
+    expect(
+      savedEmailDraftAttachments({
+        id: "gmail-draft-1",
+        accountEmail: "owner@example.com",
+        attachments: [attachment],
+      }),
+    ).toEqual([
+      {
+        id: "abc123.pdf",
+        filename: "invoice.pdf",
+        originalName: "invoice.pdf",
+        mimeType: "application/pdf",
+        size: 2048,
+        url: "/api/attachments?messageId=gmail-draft-1&id=abc123.pdf&mimeType=application%2Fpdf",
+        source: "gmail",
+        gmailMessageId: "gmail-draft-1",
+        gmailAttachmentId: "abc123.pdf",
+        accountEmail: "owner@example.com",
+      },
+    ]);
+  });
+
+  it("reads a local draft's files as uploads, which is how they send", () => {
+    expect(
+      savedEmailDraftAttachments({
+        id: "local-draft-1",
+        attachments: [attachment],
+      }),
+    ).toEqual([
+      {
+        id: "abc123.pdf",
+        filename: "abc123.pdf",
+        originalName: "invoice.pdf",
+        mimeType: "application/pdf",
+        size: 2048,
+        url: "https://cdn.builder.io/o/assets/abc123",
+      },
+    ]);
+  });
+});
 
 describe("savedEmailDraftMetadata", () => {
   it("preserves the Gmail account as both sender and saved-draft owner", () => {

@@ -103,7 +103,13 @@ describe("agent teams message queue", () => {
   }, 30_000);
 
   it("scopes task reads and controls by owner and organization", async () => {
-    const { getTask, listTasks, sendToTask } = await import("./agent-teams.js");
+    const {
+      getTask,
+      getAgentTeamBackgroundRun,
+      listAgentTeamBackgroundTranscriptEvents,
+      listTasks,
+      sendToTask,
+    } = await import("./agent-teams.js");
     appState.set("agent-task:private", {
       taskId: "private",
       threadId: "thread-private",
@@ -129,6 +135,21 @@ describe("agent teams message queue", () => {
         orgId: "org-a",
       }),
     ).resolves.toBeUndefined();
+    for (const orgId of ["org-b", null]) {
+      const scope = { ownerEmail: "alice@example.com", orgId };
+      await expect(
+        getAgentTeamBackgroundRun("run-task-private", scope),
+      ).resolves.toBeNull();
+      await expect(
+        listAgentTeamBackgroundTranscriptEvents("run-task-private", scope),
+      ).resolves.toEqual([]);
+    }
+    await expect(
+      getAgentTeamBackgroundRun("run-task-private", {
+        ownerEmail: "alice@example.com",
+        orgId: "org-a",
+      }),
+    ).resolves.toMatchObject({ id: "run-task-private" });
     await expect(
       listTasks({ ownerEmail: "alice@example.com", orgId: "org-a" }),
     ).resolves.toHaveLength(1);

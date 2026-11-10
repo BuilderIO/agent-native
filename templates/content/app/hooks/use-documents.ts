@@ -1,6 +1,7 @@
 import { isOpenAiMcpAppHost } from "@agent-native/core/client/agent-chat";
 import {
   callAction,
+  callActionWithRetry,
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
@@ -46,6 +47,7 @@ import {
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
+import type { DocumentTitlesResponse } from "@/lib/content-command-search";
 import { contentSaveTelemetryHeaders } from "@/lib/content-save-telemetry";
 
 import type {
@@ -109,6 +111,7 @@ import {
   contentSpaceFilesDatabaseId,
   documentScopedQueryFilter,
   invalidateContentQueries,
+  SEARCH_QUERY_KEYS,
   useContentActionMutation,
   type ContentQueryTarget,
 } from "./use-content-action-mutation";
@@ -249,6 +252,7 @@ export function restoreDeletedDocumentSnapshots(
 }
 
 const DOCUMENT_LIST_PAGE_SIZE = 200;
+const DOCUMENT_TITLES_STALE_MS = 5 * 60 * 1000;
 
 export async function fetchCompleteDocumentList(
   fetchPage: (offset: number, limit: number) => Promise<DocumentListResponse>,
@@ -679,8 +683,9 @@ function cachedNavigationPath(
 
 /**
  * Shows a page this tab is creating in the Files sidebar: its parent becomes
- * expandable and the page stays at the end of its branch until the server
- * lists it. `removeCreatedDocumentNavigation` undoes both.
+ * expandable, in its branch rows and in every cached path through it, and the
+ * page stays at the end of its branch until the server lists it.
+ * `removeCreatedDocumentNavigation` undoes them.
  */
 export function showCreatedDocumentInFiles(
   queryClient: QueryClient,
@@ -700,6 +705,20 @@ export function showCreatedDocumentInFiles(
         : null) ??
       cachedNavigationPath(queryClient, parentId)?.workspaceFilesDatabaseId ??
       filesDatabaseId;
+    queryClient.setQueriesData<ContentNavigationContext>(
+      { queryKey: NAVIGATION_CONTEXT_QUERY_KEY },
+      (current) =>
+        current?.path.some(
+          (entry) => entry.id === parentId && entry.hasChildren !== true,
+        )
+          ? {
+              ...current,
+              path: current.path.map((entry) =>
+                entry.id === parentId ? { ...entry, hasChildren: true } : entry,
+              ),
+            }
+          : current,
+    );
     queryClient.setQueriesData<ContentDatabaseNavigationPageResponse>(
       contentNavigationBranchFilter({ documentIds: [parentId] }),
       (current) =>
@@ -733,6 +752,13 @@ export function seedCreatedDocumentNavigation(
   type: "page" | "database" = "page",
 ) {
   const parentId = document.parentId ?? null;
+  // First, so the parent's cached path below already shows it as expandable.
+  showCreatedDocumentInFiles(
+    queryClient,
+    document,
+    workspaceFilesDatabaseId,
+    type,
+  );
   let parentPath: ContentNavigationPathEntry[] = [];
   if (parentId) {
     const parentContext = cachedNavigationPath(queryClient, parentId);
@@ -741,12 +767,6 @@ export function seedCreatedDocumentNavigation(
       workspaceFilesDatabaseId ??= parentContext.workspaceFilesDatabaseId;
     }
   }
-  showCreatedDocumentInFiles(
-    queryClient,
-    document,
-    workspaceFilesDatabaseId,
-    type,
-  );
   queryClient.setQueryData<ContentNavigationContext>(
     [...NAVIGATION_CONTEXT_QUERY_KEY, { id: document.id }],
     {
@@ -786,6 +806,7 @@ export function removeCreatedDocumentNavigation(
   if (document.parentId) {
     invalidateContentQueries(queryClient, [
       contentNavigationBranchFilter({ documentIds: [document.parentId] }),
+      contentNavigationContextFilter([document.parentId]),
     ]);
   }
 }
@@ -903,8 +924,10 @@ export function startDatabaseItemPreviewReads(
     () =>
       void queryClient.prefetchQuery({
         queryKey: documentPropertiesQueryKey(item.document.id, item.databaseId),
+        // The row's panel joins this read rather than starting its own, so
+        // this read has to retry the way the panel's would.
         queryFn: ({ signal }) =>
-          callAction<DocumentPropertiesResponse>(
+          callActionWithRetry<DocumentPropertiesResponse>(
             "list-document-properties",
             { documentId: item.document.id, databaseId: item.databaseId },
             { method: "GET", signal },
@@ -931,6 +954,41 @@ export function useDocuments(options?: { enabled?: boolean }) {
     select: (data) => data.documents,
     retry: false,
     enabled: options?.enabled !== false,
+  });
+}
+
+const DOCUMENT_TITLES_ACTION = "list-document-titles";
+
+/**
+ * The titles search ranks in the browser. One read fills it, however large the
+ * library, so it stays across closing and reopening the command menu rather
+ * than making the next search wait for it again.
+ */
+export function useDocumentTitles(options?: { enabled?: boolean }) {
+  return useActionQuery<DocumentTitlesResponse>(
+    DOCUMENT_TITLES_ACTION,
+    {},
+    {
+      enabled: options?.enabled !== false,
+      retry: false,
+      staleTime: DOCUMENT_TITLES_STALE_MS,
+      gcTime: Infinity,
+    },
+  );
+}
+
+/** Reads the titles ahead of the first search, once the page has settled. */
+export function prefetchDocumentTitles(queryClient: QueryClient) {
+  return queryClient.prefetchQuery({
+    queryKey: ["action", DOCUMENT_TITLES_ACTION, {}],
+    queryFn: () =>
+      callAction<DocumentTitlesResponse>(
+        DOCUMENT_TITLES_ACTION,
+        {},
+        { method: "GET" },
+      ),
+    staleTime: DOCUMENT_TITLES_STALE_MS,
+    gcTime: Infinity,
   });
 }
 
@@ -1456,16 +1514,16 @@ export function useCreateDocument() {
         if (variables.id && variables.id !== created.id) {
           removeCreatedFilesRows(queryClient, [variables.id]);
         }
-        invalidateContentQueries(
-          queryClient,
-          contentPlacementTargets(queryClient, {
+        invalidateContentQueries(queryClient, [
+          ...contentPlacementTargets(queryClient, {
             documentIds: [created.id],
             parentIds: [created.parentId ?? null],
             databaseId: created.parentId
               ? undefined
               : contentSpaceFilesDatabaseId(queryClient, created.spaceId),
           }),
-        );
+          ...SEARCH_QUERY_KEYS,
+        ]);
       },
     },
   );
@@ -1848,7 +1906,7 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
             contentDatabaseConstrainedQueryFilter(),
             contentDatabaseExcerptContainingDocumentFilter(variables.id),
             ...contentRowTargets(queryClient, [variables.id]),
-            ["action", "search-documents"],
+            ...SEARCH_QUERY_KEYS,
           ]);
         }
         if (renamedContentSpace) {
@@ -2005,7 +2063,7 @@ export function useDeleteDocument() {
       ["action", "get-content-database"],
       ["action", "list-content-spaces"],
       ["action", "get-content-recent"],
-      ["action", "search-documents"],
+      ...SEARCH_QUERY_KEYS,
       ...TRASH_LIST_QUERY_KEYS,
     ],
   });
@@ -2052,7 +2110,7 @@ export function useImportContent() {
                 parentIds: [parentId ?? null],
               }),
               ["action", "list-documents"],
-              ["action", "search-documents"],
+              ...SEARCH_QUERY_KEYS,
             ],
     },
   );
@@ -2068,7 +2126,7 @@ export function useUndoContentImport() {
       ...contentPlacementTargets(queryClient, { documentIds: trashedIds }),
       ...trashedIds.map((id) => documentQueryFilter(id)),
       ["action", "list-documents"],
-      ["action", "search-documents"],
+      ...SEARCH_QUERY_KEYS,
       ...TRASH_LIST_QUERY_KEYS,
     ],
   });
@@ -2094,7 +2152,7 @@ export function restoredDocumentTargets(
     ["action", "list-documents"],
     ["action", "get-content-database"],
     ["action", "get-content-recent"],
-    ["action", "search-documents"],
+    ...SEARCH_QUERY_KEYS,
     ...TRASH_LIST_QUERY_KEYS,
   ];
 }
@@ -2154,6 +2212,7 @@ export function useMoveDocument() {
       documentQueryFilter(variables.id),
       contentFilesCollectionFilter(),
       ["action", "list-documents"],
+      ...SEARCH_QUERY_KEYS,
       ...(variables.spaceId
         ? [
             ["action", "get-content-database"],
