@@ -71,6 +71,38 @@ type FilesNavigationRead =
   | ContentDatabaseUnavailableResponse;
 
 /**
+ * The top-level rows of every Files tree this browser has read, in tree
+ * order, with the tree that holds `documentId` first.
+ */
+export function cachedFilesRootDocumentIds(
+  queryClient: Pick<QueryClient, "getQueriesData">,
+  documentId: string,
+): string[] {
+  const roots = queryClient
+    .getQueriesData<FilesNavigationRead>({
+      queryKey: ["action", "query-content-database-items"],
+      predicate: ({ queryKey }) => {
+        const params = queryKey[2] as
+          | Partial<FilesNavigationPageParams>
+          | undefined;
+        return (
+          params?.navigation?.parentId === null &&
+          params.navigation.cursor === undefined
+        );
+      },
+    })
+    .flatMap(([, data]) =>
+      data && !("available" in data)
+        ? [data.items.map((item) => item.documentId)]
+        : [],
+    );
+  return [
+    ...roots.filter((ids) => ids.includes(documentId)),
+    ...roots.filter((ids) => !ids.includes(documentId)),
+  ].flat();
+}
+
+/**
  * Reads one Files page and asks for any expanded folders that do not have a
  * cached page yet, so opening a cached root can still load its new branches.
  */

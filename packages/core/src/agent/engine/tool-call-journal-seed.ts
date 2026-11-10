@@ -1,4 +1,5 @@
 import type { ActionChatUIConfig } from "../../action-ui.js";
+import type { WriteReceipt } from "../../action.js";
 import {
   isArtifactReceipt,
   type ArtifactReceipt,
@@ -16,6 +17,7 @@ import {
   type ToolCallJournal,
 } from "../tool-call-journal.js";
 import type { AgentChatEvent, AgentFileMutationProof } from "../types.js";
+import { readWriteReceipt } from "../write-receipts.js";
 
 export interface PriorTurnToolCallSummary {
   name: string;
@@ -43,6 +45,7 @@ export interface PriorTurnToolResultSummary {
   content: string;
   isError: boolean;
   artifacts?: ArtifactReceipt[];
+  receipt?: WriteReceipt;
 }
 
 export type PriorTurnToolCallJournalRead =
@@ -177,6 +180,7 @@ function durableStepToolDone(
   const mcpApp = durableStepMcpApp(outcome.mcpApp);
   const chatUI = durableStepChatUI(outcome.chatUI);
   const fileMutation = durableStepFileMutation(outcome.fileMutation);
+  const receipt = readWriteReceipt({ _receipt: outcome.receipt });
   return {
     type: "tool_done",
     tool: event.tool,
@@ -197,6 +201,16 @@ function durableStepToolDone(
       ? { errorCode: outcome.errorCode }
       : {}),
     completedSideEffect: outcome.completedSideEffect,
+    ...(outcome.hasAgentWarnings === true
+      ? { hasAgentWarnings: true as const }
+      : {}),
+    ...(receipt ? { receipt } : {}),
+    ...(!outcome.isError &&
+    outcome.actionSettled === true &&
+    outcome.settledOnCleanToolStop === true &&
+    outcome.replayTruncated !== true
+      ? { actionSettled: true as const, settledOnCleanToolStop: true as const }
+      : {}),
     ...(outcome.replayed === true ? { replayed: true } : {}),
     argumentsHash: input.argumentsHash,
     ...(artifacts.length > 0 ? { artifacts } : {}),
@@ -552,11 +566,13 @@ export async function loadPriorTurnToolCallJournal(
         matchedStart: call !== undefined,
       });
       const artifacts = event.artifacts?.filter(isArtifactReceipt);
+      const receipt = readWriteReceipt({ _receipt: event.receipt });
       priorToolResults.push({
         name: event.tool,
         input: event.input ?? call?.input,
         content: event.result,
         isError: event.isError === true,
+        ...(receipt ? { receipt } : {}),
         ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
       });
     }

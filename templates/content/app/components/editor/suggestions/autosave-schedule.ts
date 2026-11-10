@@ -75,6 +75,17 @@ export function resetSuggestionAutosave(autosave: SuggestionAutosave) {
   autosave.retryDelay = 0;
 }
 
+/**
+ * The typing debounce for a draft unsaved since `dirtySince`: a pause saves
+ * it, and typing without one still saves it once the max wait has passed.
+ */
+export function suggestionAutosaveDebounce(dirtySince: number, now: number) {
+  return Math.min(
+    SUGGESTION_AUTOSAVE_IDLE_MS,
+    Math.max(0, dirtySince + SUGGESTION_AUTOSAVE_MAX_WAIT_MS - now),
+  );
+}
+
 function setSuggestionAutosaveTimer(
   autosave: SuggestionAutosave,
   save: () => void,
@@ -87,10 +98,7 @@ function setSuggestionAutosaveTimer(
   // The max-wait deadline bounds only the typing debounce, which reaches zero
   // once it passes; retries and waits behind an in-flight save keep their own
   // delay or they would spin.
-  const debounce = Math.min(
-    SUGGESTION_AUTOSAVE_IDLE_MS,
-    Math.max(0, autosave.dirtySince + SUGGESTION_AUTOSAVE_MAX_WAIT_MS - now),
-  );
+  const debounce = suggestionAutosaveDebounce(autosave.dirtySince, now);
   autosave.retrying = retrying;
   autosave.timer = setTimeout(
     () => {
