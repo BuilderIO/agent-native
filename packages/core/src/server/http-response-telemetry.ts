@@ -27,6 +27,7 @@ import {
   type TrackingEventScope,
 } from "../observability/tracing.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
+import { flushTrackingSendsForResponse } from "../tracking/providers.js";
 import {
   getAppBasePathFromViteEnv,
   stripAppBasePath,
@@ -339,7 +340,11 @@ async function emitTelemetry(
       durationMs: Date.now() - state.startedAt,
     });
   const flush = async () => {
-    await flushTrackingEvents(state.trackingScope);
+    await Promise.all([
+      flushTrackingEvents(state.trackingScope),
+      // Analytics sends still under way when the reply goes out.
+      flushTrackingSendsForResponse(),
+    ]);
     await flushObservability();
   };
   const exported = flush().catch((error: unknown) => {

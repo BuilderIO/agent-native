@@ -1,5 +1,6 @@
 import { withoutWriteObservation } from "../action-frame.js";
 import { getAppConfig } from "../app-config/index.js";
+import { platformWaitUntil } from "../server/background-work.js";
 import { getRequestContext } from "../server/request-context.js";
 import { isTestIdentity } from "../server/test-identity.js";
 import { resolveLaneEndpoint } from "../shared/environment-lanes.js";
@@ -28,10 +29,12 @@ interface EnqueueOptions {
 
 const QUEUE_KEY = Symbol.for("@agent-native/core/tracking.queue");
 const TIMER_KEY = Symbol.for("@agent-native/core/tracking.timer");
+const SENDING_KEY = Symbol.for("@agent-native/core/tracking.sending");
 
 interface GlobalWithQueue {
   [QUEUE_KEY]?: QueuedEvent[];
   [TIMER_KEY]?: ReturnType<typeof setTimeout> | null;
+  [SENDING_KEY]?: Set<Promise<unknown>>;
 }
 
 function getQueue(): QueuedEvent[] {
@@ -49,6 +52,27 @@ function setTimer(t: ReturnType<typeof setTimeout> | null): void {
   (globalThis as unknown as GlobalWithQueue)[TIMER_KEY] = t;
 }
 
+/** Sends already started and not yet ended, so a flush can wait for them. */
+function getSending(): Set<Promise<unknown>> {
+  const g = globalThis as unknown as GlobalWithQueue;
+  const sending = g[SENDING_KEY] ?? new Set<Promise<unknown>>();
+  g[SENDING_KEY] = sending;
+  return sending;
+}
+
+/**
+ * A serverless host can freeze the function once the reply is out, cutting
+ * off a send still under way. Inside a request, the host's waitUntil keeps the
+ * function up until the send ends; actions reach it without the request event.
+ */
+function keepAlive(sending: Promise<unknown>): void {
+  try {
+    platformWaitUntil()?.(sending);
+  } catch {
+    // coercion-ok: the send is already under way; a host refusing to wait for it only risks that event.
+  }
+}
+
 function enqueue(
   url: string,
   body: string,
@@ -59,7 +83,7 @@ function enqueue(
   queue.push({ url, body, headers });
   const flushImmediately = options?.flushImmediately ?? isServerlessRuntime();
   if (flushImmediately || queue.length >= MAX_BATCH_SIZE) {
-    void drainQueue();
+    keepAlive(drainQueue());
   } else if (!getTimer()) {
     const timer = setTimeout(() => {
       void drainQueue();
@@ -77,7 +101,7 @@ function drainQueue(): Promise<void[]> {
   }
   const queue = getQueue();
   const batch = queue.splice(0, queue.length);
-  return Promise.all(
+  const sending = Promise.all(
     batch.map((item) =>
       // Whichever call's frame drains the queue, the events are not its writes.
       withoutWriteObservation(() =>
@@ -93,6 +117,32 @@ function drainQueue(): Promise<void[]> {
       ),
     ),
   );
+  if (batch.length > 0) {
+    const allSending = getSending();
+    allSending.add(sending);
+    void sending.then(() => allSending.delete(sending));
+  }
+  return sending;
+}
+
+/**
+ * Sends what is queued, then waits for every send still under way, including
+ * the ones a serverless runtime started the moment their event was tracked.
+ */
+function flushSends(): Promise<void> {
+  return drainQueue()
+    .then(() => Promise.all(getSending()))
+    .then(() => undefined);
+}
+
+/**
+ * The end-of-request flush. On serverless, the caller hands this to the
+ * host's waitUntil, so sends still under way outlive the reply. Long-running
+ * servers don't freeze, and a flush per request would end their 10-second
+ * batching, so there it resolves at once.
+ */
+export function flushTrackingSendsForResponse(): Promise<void> {
+  return isServerlessRuntime() ? flushSends() : Promise.resolve();
 }
 
 function isLocalhostUrl(value: string | undefined): boolean {
@@ -250,9 +300,7 @@ function createPostHogProvider(
         }),
       );
     },
-    flush: () => {
-      return drainQueue().then(() => undefined);
-    },
+    flush: flushSends,
   };
 }
 
@@ -319,9 +367,7 @@ function createMixpanelProvider(token: string): TrackingProvider {
       };
       enqueue("https://api.mixpanel.com/engage", JSON.stringify([data]));
     },
-    flush: () => {
-      return drainQueue().then(() => undefined);
-    },
+    flush: flushSends,
   };
 }
 
@@ -379,9 +425,7 @@ function createAmplitudeProvider(apiKey: string): TrackingProvider {
       };
       enqueue("https://api2.amplitude.com/2/httpapi", JSON.stringify(data));
     },
-    flush: () => {
-      return drainQueue().then(() => undefined);
-    },
+    flush: flushSends,
   };
 }
 
@@ -418,9 +462,7 @@ function createWebhookProvider(
         extra,
       );
     },
-    flush: () => {
-      return drainQueue().then(() => undefined);
-    },
+    flush: flushSends,
   };
 }
 
@@ -462,9 +504,7 @@ function createAgentNativeAnalyticsProvider(
         { flushImmediately },
       );
     },
-    flush: () => {
-      return drainQueue().then(() => undefined);
-    },
+    flush: flushSends,
   };
 }
 
