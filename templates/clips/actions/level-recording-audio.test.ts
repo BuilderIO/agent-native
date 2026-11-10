@@ -54,6 +54,7 @@ vi.mock("../server/lib/audio-level.js", () => ({
 import levelRecordingAudio, {
   decodeSweepCursor,
   encodeSweepCursor,
+  isValidSweepCursor,
 } from "./level-recording-audio.js";
 
 describe("level-recording-audio", () => {
@@ -119,5 +120,17 @@ describe("level-recording-audio", () => {
       createdAt: "2026-11-09T10:00:00.000Z",
       id: null,
     });
+  });
+
+  it("rejects malformed sweep cursors", async () => {
+    expect(isValidSweepCursor("2026-11-09T10:00:00.000Z|rec-b")).toBe(true);
+    expect(isValidSweepCursor("2026-11-09T10:00:00.000Z")).toBe(true);
+    expect(isValidSweepCursor("")).toBe(false);
+    expect(isValidSweepCursor("2026-11-09T10:00:00.000Z|")).toBe(false);
+    expect(isValidSweepCursor("yesterday|rec-b")).toBe(false);
+    await expect(
+      levelRecordingAudio.run({ all: true, before: "not-a-cursor" }),
+    ).rejects.toThrow();
+    expect(mockLimit).not.toHaveBeenCalled();
   });
 });

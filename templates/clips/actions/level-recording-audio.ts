@@ -65,6 +65,18 @@ export function encodeSweepCursor(createdAt: string, id: string): string {
   return `${createdAt}${CURSOR_SEPARATOR}${id}`;
 }
 
+/** A cursor is an ISO time, optionally followed by `|<recording id>`. */
+export function isValidSweepCursor(value: string): boolean {
+  const at = value.lastIndexOf(CURSOR_SEPARATOR);
+  const createdAt = at < 0 ? value : value.slice(0, at);
+  const id = at < 0 ? null : value.slice(at + 1);
+  if (id !== null && id.trim() === "") return false;
+  return (
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(createdAt) &&
+    !Number.isNaN(Date.parse(createdAt))
+  );
+}
+
 export function decodeSweepCursor(value: string): {
   createdAt: string;
   id: string | null;
@@ -124,6 +136,7 @@ export default defineAction({
     before: z
       .string()
       .max(300)
+      .refine(isValidSweepCursor, "Invalid sweep cursor")
       .optional()
       .describe(
         "With `all`, continue after this point. Pass the previous call's `nextBefore` unchanged.",
