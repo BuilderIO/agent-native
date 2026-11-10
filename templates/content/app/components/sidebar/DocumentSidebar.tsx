@@ -48,6 +48,7 @@ import {
   ContentFilesSidebarView,
   PagedContentFilesSidebarView,
   contentSidebarOrderedItems,
+  type ActivePathDocument,
   type ContentFilesSidebarRenderReorder,
 } from "@/components/editor/database/sidebar";
 import {
@@ -93,6 +94,7 @@ import {
   contentFilesCollectionFilter,
   contentRowTargets,
   invalidateContentQueries,
+  SEARCH_QUERY_KEYS,
   useContentActionMutation,
 } from "@/hooks/use-content-action-mutation";
 import {
@@ -664,7 +666,7 @@ function WorkspaceSidebarItem({
   activeDocumentId: string | null;
   expandedDocumentIds: ReadonlySet<string>;
   documentMetadata: ReadonlyMap<string, Document>;
-  activePathDocuments: readonly Document[];
+  activePathDocuments: readonly ActivePathDocument[];
   onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
   onActivate: (space: ContentSpaceSummary, documentId?: string) => void;
   onToggleExpanded: () => void;
@@ -1933,34 +1935,26 @@ export function DocumentSidebar({
             ),
           )
         : (navigationContextQuery.data?.path.map(
-            (entry): Document => ({
-              id: entry.id,
-              parentId: entry.parentId,
-              title: entry.title,
+            ({
+              databaseId,
+              databaseDocumentId,
+              ...entry
+            }): ActivePathDocument => ({
+              ...entry,
               content: "",
               description: "",
-              icon: entry.icon,
               position: 0,
-              isFavorite: entry.isFavorite,
               hideFromSearch: false,
-              visibility: entry.visibility,
-              accessRole: entry.accessRole,
-              canView: entry.canView,
-              canComment: entry.canComment,
-              canEdit: entry.canEdit,
-              canManage: entry.canManage,
-              source: entry.source,
-              database: undefined,
-              createdAt: entry.createdAt,
-              updatedAt: entry.updatedAt,
-              databaseMembership: entry.databaseId
+              ...(databaseId
                 ? {
-                    databaseId: entry.databaseId,
-                    databaseDocumentId: entry.databaseDocumentId,
-                    databaseTitle: null,
-                    position: null,
+                    databaseMembership: {
+                      databaseId,
+                      databaseDocumentId,
+                      databaseTitle: null,
+                      position: null,
+                    },
                   }
-                : undefined,
+                : {}),
             }),
           ) ?? []),
     [documents, localFileMode, navigationContextQuery.data?.path],
@@ -3042,6 +3036,7 @@ export function DocumentSidebar({
       invalidateContentQueries(queryClient, [
         ...contentRowTargets(queryClient, [documentId]),
         contentFilesCollectionFilter(),
+        ...SEARCH_QUERY_KEYS,
       ]),
   });
   const [movingPage, setMovingPage] = useState<MovePageTarget | null>(null);

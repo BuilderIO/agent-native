@@ -189,7 +189,10 @@ describe("org handlers", () => {
       orgName: "Example",
       role: "owner",
     });
-    mockGetSession.mockResolvedValue({ email: "member@example.test" });
+    mockGetSession.mockResolvedValue({
+      email: "member@example.test",
+      emailVerified: true,
+    });
     mockExecute.mockResolvedValue({ rows: [], rowsAffected: 0 });
     mockAddFederatedOrganizationMember.mockResolvedValue(false);
     mockRevokeFederatedOrganizationMember.mockResolvedValue(false);
@@ -568,6 +571,24 @@ describe("org handlers", () => {
       ),
     ).rejects.toMatchObject({ statusCode: 409 });
     expect(mockExecute).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses email-derived membership before verification", async () => {
+    mockGetSession.mockResolvedValue({
+      email: "member@example.test",
+      emailVerified: false,
+    });
+    await expect(
+      joinByDomainHandler(
+        makeEvent("/_agent-native/org/join-by-domain", { orgId: "org-1" }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      acceptInvitationHandler(
+        makeEvent("/_agent-native/org/invitations/invite-1/accept"),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mockExecute).not.toHaveBeenCalled();
   });
 
   it("registers invite_sent telemetry with the event's waitUntil", async () => {

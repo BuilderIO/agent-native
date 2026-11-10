@@ -603,6 +603,11 @@ CREATE INDEX IF NOT EXISTS design_motion_bridge_receipt_challenges_chain_idx
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`,
   },
+  {
+    version: 48,
+    name: "design-file-content-operation-receipts",
+    sql: `ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_revisions TEXT NOT NULL DEFAULT '{}'`,
+  },
 ];
 
 export const designVisualEditPendingBigintRevisionMigration =

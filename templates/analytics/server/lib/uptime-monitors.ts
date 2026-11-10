@@ -859,7 +859,10 @@ let sharedSsrfDispatcherPromise: Promise<unknown> | undefined;
 
 function getSharedSsrfDispatcher(): Promise<unknown> {
   if (!sharedSsrfDispatcherPromise) {
-    sharedSsrfDispatcherPromise = createSsrfSafeDispatcher().catch(() => null);
+    sharedSsrfDispatcherPromise = createSsrfSafeDispatcher().catch((error) => {
+      sharedSsrfDispatcherPromise = undefined;
+      throw error;
+    });
   }
   return sharedSsrfDispatcherPromise;
 }
@@ -870,7 +873,7 @@ async function prepareMonitorFetch(
 ): Promise<{ dispatcher: unknown }> {
   const dispatcher = opts.allowPrivateHosts
     ? undefined
-    : ((await getSharedSsrfDispatcher()) ?? undefined);
+    : await getSharedSsrfDispatcher();
 
   if (!opts.allowPrivateHosts && (await isBlockedExtensionUrlWithDns(url))) {
     throw new Error(
@@ -897,7 +900,7 @@ async function safeMonitorFetch(
       ? opts.dispatcher
       : opts.allowPrivateHosts
         ? undefined
-        : ((await getSharedSsrfDispatcher()) ?? undefined);
+        : await getSharedSsrfDispatcher();
 
   let currentUrl = url;
   const maxHops = opts.followRedirects ? opts.maxRedirects : 0;

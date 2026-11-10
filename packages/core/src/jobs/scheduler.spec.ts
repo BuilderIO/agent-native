@@ -983,6 +983,30 @@ Process the feedback.`,
     );
   });
 
+  it("runs an automation another instance created right after a tick that found none", async () => {
+    const deps = {
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    };
+    resourceListAllOwnersMock.mockResolvedValueOnce([]);
+    await processRecurringJobs(deps);
+    expect(createThreadMock).not.toHaveBeenCalled();
+
+    // The new job (the default due one) was written elsewhere, so this
+    // process saw no resource event for it.
+    await processRecurringJobs(deps);
+
+    expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
+    expect(createThreadMock).toHaveBeenCalledWith(
+      "alice+jobs@agent-native.test",
+      expect.objectContaining({
+        title: expect.stringContaining("Job: daily-report"),
+      }),
+    );
+  });
+
   it("runs multiple due automations from one scan without serial starvation", async () => {
     let releaseFirst: () => void = () => {};
     const firstRunGate = new Promise<void>((resolve) => {

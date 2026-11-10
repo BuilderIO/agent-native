@@ -19,6 +19,7 @@ import {
 import { z } from "zod";
 
 import { getAppConfig } from "../app-config/index.js";
+import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import { getSetting, mutateSetting } from "../settings/store.js";
 import { flushTracking, track } from "../tracking/index.js";
 import type { AuthSession } from "./auth.js";
@@ -74,13 +75,43 @@ function hasSignupConsentOwnership(
   );
 }
 
+/** Keep deployment identity distinct from its source template, as in manual connect. */
+export function getBuilderSignupTrackingIdentity() {
+  const { app } = getAppConfig();
+  const identity = trackingIdentityProperties();
+  const deployment = app.workspaceId ?? app.id ?? identity.agent_native_app;
+  const template =
+    app.template ??
+    app.sourceTemplate ??
+    app.slug ??
+    identity.agent_native_template;
+  return {
+    ...(deployment ? { agentNativeApp: deployment } : {}),
+    ...(template ? { agentNativeTemplate: template } : {}),
+  };
+}
+
+function experimentId(): string {
+  return getAppConfig().onboarding.builderSignupExperimentId;
+}
+
+export function builderSignupAssignmentCookieName(): string {
+  const id = experimentId();
+  // Preserve existing Design assignments; other experiments get distinct names
+  // even when apps share an origin under different base paths.
+  return id === BUILDER_SIGNUP_EXPERIMENT
+    ? BUILDER_SIGNUP_COOKIE
+    : `${BUILDER_SIGNUP_COOKIE}_${Buffer.from(id).toString("hex")}`;
+}
+
 function experimentProperties(
   assignment?: Assignment,
 ): Record<string, unknown> {
+  const identity = trackingIdentityProperties();
   return {
-    app_name: "design",
-    template_name: "design",
-    experiment_id: BUILDER_SIGNUP_EXPERIMENT,
+    ...(identity.app ? { app_name: identity.app } : {}),
+    ...(identity.template ? { template_name: identity.template } : {}),
+    experiment_id: experimentId(),
     ...(assignment
       ? { experiment_variant: assignment.variant, assignment_id: assignment.id }
       : {}),
@@ -89,7 +120,7 @@ function experimentProperties(
 
 function mac(body: string): Buffer {
   return createHmac("sha256", getAuthSecret())
-    .update(`${BUILDER_SIGNUP_EXPERIMENT}:${body}`)
+    .update(`${experimentId()}:${body}`)
     .digest();
 }
 
@@ -137,7 +168,7 @@ export function decodeBuilderSignupAssignment(
 function writeAssignment(event: H3Event, assignment: Assignment): void {
   setCookie(
     event,
-    BUILDER_SIGNUP_COOKIE,
+    builderSignupAssignmentCookieName(),
     encodeBuilderSignupAssignment(assignment),
     {
       httpOnly: true,
@@ -163,10 +194,10 @@ export async function bindBuilderSignupAttempt(
   attemptId: unknown,
   method: "password" | "magic-link" | "google",
   email: string,
-): Promise<boolean> {
+): Promise<{ userId: string } | false> {
   if (!isBuilderSignupExperimentEnabled()) return false;
   const assignment = decodeBuilderSignupAssignment(
-    getCookie(event, BUILDER_SIGNUP_COOKIE),
+    getCookie(event, builderSignupAssignmentCookieName()),
   );
   if (!assignment) return false;
   const normalizedEmail = email.trim().toLowerCase();
@@ -180,7 +211,8 @@ export async function bindBuilderSignupAttempt(
   if (
     !identity ||
     !Number.isFinite(createdAtMs) ||
-    createdAtMs < assignment.issuedAt
+    createdAtMs < assignment.issuedAt ||
+    (assignment.acceptedAt !== undefined && createdAtMs < assignment.acceptedAt)
   )
     return false;
   track(
@@ -189,7 +221,7 @@ export async function bindBuilderSignupAttempt(
     { authUserId: identity.user.id, userId: normalizedEmail },
   );
   if (assignment.variant === "control") {
-    const key = `${BUILDER_SIGNUP_EXPERIMENT}:${identity.user.id}`;
+    const key = `${experimentId()}:${identity.user.id}`;
     const record = await mutateSetting(
       key,
       (current) =>
@@ -221,13 +253,12 @@ export async function bindBuilderSignupAttempt(
     assignment.attemptId !== attemptId
   )
     return false;
-  const key = `${BUILDER_SIGNUP_EXPERIMENT}:attempt:${attemptId}`;
+  const key = `${experimentId()}:attempt:${attemptId}`;
   if (
     assignment.method !== method ||
     (assignment.email && assignment.email !== normalizedEmail)
   )
     return false;
-  if (createdAtMs < assignment.acceptedAt) return false;
   const bound = z
     .object({ id: z.string(), boundUserId: z.string() })
     .parse(
@@ -240,7 +271,7 @@ export async function bindBuilderSignupAttempt(
   if (bound.id !== assignment.id || bound.boundUserId !== identity.user.id)
     return false;
   await mutateSetting(
-    `${BUILDER_SIGNUP_EXPERIMENT}:consent:${identity.user.id}`,
+    `${experimentId()}:consent:${identity.user.id}`,
     (current) =>
       current ?? {
         ...assignment,
@@ -254,7 +285,7 @@ export async function bindBuilderSignupAttempt(
     maxAge: TTL,
     secure: getHeader(event, "host")?.includes("localhost") !== true,
   });
-  return true;
+  return { userId: identity.user.id };
 }
 
 export async function getBuilderSignupConnectError(
@@ -263,7 +294,7 @@ export async function getBuilderSignupConnectError(
   { code: "account_exists"; message: string; at: number } | undefined
 > {
   if (!userId || !isBuilderSignupExperimentEnabled()) return undefined;
-  const record = await getSetting(`${BUILDER_SIGNUP_EXPERIMENT}:${userId}`);
+  const record = await getSetting(`${experimentId()}:${userId}`);
   if (record?.status !== "fallback" || record.code !== "account_exists")
     return undefined;
   const error = z
@@ -285,14 +316,17 @@ async function finishSignupActivation(
     message?: string;
   },
 ) {
+  let changed = false;
   const commit = () =>
     mutateSetting(key, (current) => {
+      changed = false;
       if (!current || current.attempt !== attempt)
         throw new Error("Signup activation reservation ownership changed");
       const status = z
         .enum(["started", "connected", "fallback"])
         .parse(current.status);
       if (status !== "started") return current;
+      changed = true;
       return {
         ...current,
         status: outcome.status,
@@ -307,26 +341,114 @@ async function finishSignupActivation(
     return commit();
   };
   const committed = await commit().catch(retryCommit).catch(retryCommit);
-  return z
-    .object({
-      status: z.enum(["connected", "fallback"]),
-      code: z.string().nullable().optional(),
-    })
-    .parse(committed);
+  return {
+    ...z
+      .object({
+        status: z.enum(["connected", "fallback"]),
+        code: z.string().nullable().optional(),
+      })
+      .parse(committed),
+    changed,
+  };
 }
 
-export function createBuilderSignupExperimentHandler(dependencies: {
+let verifiedSignupStarter:
+  | ((event: H3Event, session: AuthSession) => Promise<unknown>)
+  | undefined;
+
+export function setBuilderSignupVerifiedStarter(
+  starter: (event: H3Event, session: AuthSession) => Promise<unknown>,
+): void {
+  verifiedSignupStarter = starter;
+}
+
+/** Called only after the auth provider issued this verified signup's session. */
+export async function startBuilderSignupForVerifiedSession(
+  event: H3Event,
+  session: AuthSession,
+): Promise<void> {
+  if (
+    !isBuilderSignupExperimentEnabled() ||
+    !session.userId ||
+    !session.token ||
+    session.emailVerified !== true
+  )
+    return;
+  if (!verifiedSignupStarter)
+    throw new Error("Builder signup activation handler is unavailable");
+  await verifiedSignupStarter(event, session);
+}
+
+export function createBuilderSignupExperiment(dependencies: {
   getSession: (event: H3Event) => Promise<AuthSession | null>;
   sameOrigin: (event: H3Event) => boolean;
   activate: (
     event: H3Event,
     session: AuthSession,
+    owner: { experimentId: string; attempt: string },
   ) => Promise<{ ok: boolean; code?: string; message?: string }>;
+  reconcile?: (
+    event: H3Event,
+    session: AuthSession,
+    owner: { experimentId: string; attempt: string; startedAt: number },
+  ) => Promise<boolean>;
 }) {
-  return defineEventHandler(async (event) => {
+  const reconcile = async (
+    event: H3Event,
+    session: AuthSession,
+    key: string,
+    existing: Record<string, unknown>,
+    assignment: Assignment | null,
+  ) => {
+    const { attempt, startedAt } = existing;
+    if (
+      !session.userId ||
+      !dependencies.reconcile ||
+      typeof attempt !== "string" ||
+      typeof startedAt !== "number" ||
+      !Number.isFinite(startedAt) ||
+      Date.now() - startedAt < 60_000
+    )
+      return null;
+    if (
+      !(await dependencies.reconcile(event, session, {
+        experimentId: experimentId(),
+        attempt,
+        startedAt,
+      }))
+    )
+      return null;
+    const result = await finishSignupActivation(key, attempt, {
+      status: "connected",
+      code: "connection_reconciled",
+    });
+    if (result.changed) {
+      track(
+        "builder_signup_experiment_outcome",
+        {
+          ...experimentProperties(assignment ?? undefined),
+          status: result.status,
+          code: result.code ?? result.status,
+          replayed: false,
+          activation_duration_ms: Date.now() - startedAt,
+        },
+        { userId: session.email, authUserId: session.userId },
+      );
+      await flushTracking();
+    }
+    deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+    return {
+      status: result.status,
+      ...(result.code ? { code: result.code } : {}),
+    };
+  };
+  const handle = async (
+    event: H3Event,
+    verifiedSignupSession?: AuthSession,
+  ) => {
     setResponseHeader(event, "Cache-Control", "no-store");
     const refuse = (status: number, code: string) => {
-      setResponseStatus(event, status);
+      if (!verifiedSignupSession) setResponseStatus(event, status);
       return { status: "unavailable" as const, code };
     };
     if (!isBuilderSignupExperimentEnabled()) {
@@ -334,13 +456,15 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
       return { status: "disabled" as const };
     }
-    const method = getMethod(event);
+    const method = verifiedSignupSession ? "POST" : getMethod(event);
     if (method !== "GET" && method !== "POST")
       return refuse(405, "method_not_allowed");
-    if (!dependencies.sameOrigin(event)) return refuse(403, "cross_origin");
-    const session = await dependencies.getSession(event);
+    if (!verifiedSignupSession && !dependencies.sameOrigin(event))
+      return refuse(403, "cross_origin");
+    const session =
+      verifiedSignupSession ?? (await dependencies.getSession(event));
     let assignment = decodeBuilderSignupAssignment(
-      getCookie(event, BUILDER_SIGNUP_COOKIE),
+      getCookie(event, builderSignupAssignmentCookieName()),
     );
     if (method === "GET") {
       if (session) return { status: "disabled" as const };
@@ -353,9 +477,14 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         };
         writeAssignment(event, assignment);
       }
-      return { status: "assigned" as const, ...assignment };
+      return {
+        status: "assigned" as const,
+        ...assignment,
+        experimentId: experimentId(),
+      };
     }
     if (
+      !verifiedSignupSession &&
       !/^application\/json\s*(;|$)/i.test(
         getHeader(event, "content-type") ?? "",
       )
@@ -369,7 +498,11 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         method: z.enum(["password", "magic-link", "google"]).optional(),
         email: z.string().email().max(320).optional(),
       })
-      .safeParse(await readBodyWithSizeLimit(event, 4096));
+      .safeParse(
+        verifiedSignupSession
+          ? { operation: "start" }
+          : await readBodyWithSizeLimit(event, 4096),
+      );
     if (!body.success) return refuse(400, "invalid_request");
     const waitUntil =
       body.data.operation === "start"
@@ -381,9 +514,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       body.data.operation !== "accept" &&
       session?.emailVerified &&
       session.userId
-        ? await getSetting(
-            `${BUILDER_SIGNUP_EXPERIMENT}:consent:${session.userId}`,
-          )
+        ? await getSetting(`${experimentId()}:consent:${session.userId}`)
         : null;
     if (consent && session?.userId) {
       const saved = consentSchema.safeParse(consent);
@@ -425,7 +556,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     }
     if (
       body.data.operation === "status" ||
-      (body.data.operation === "start" && !waitUntil)
+      (body.data.operation === "start" && !waitUntil && !verifiedSignupSession)
     ) {
       if (!session?.emailVerified || !session.userId)
         return refuse(401, "verified_session_required");
@@ -433,19 +564,24 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "not_enrolled" };
       }
-      const existing = await getSetting(
-        `${BUILDER_SIGNUP_EXPERIMENT}:${session.userId}`,
-      );
+      const existing = await getSetting(`${experimentId()}:${session.userId}`);
       if (existing) {
         const status = existingSignupStatusSchema.parse(existing.status);
+        if (status === "started") {
+          // Age cannot prove the provider has stopped. Keep the reservation
+          // until its owner records an outcome; the client offers bounded Retry.
+          return (
+            (await reconcile(
+              event,
+              session,
+              `${experimentId()}:${session.userId}`,
+              existing,
+              assignment ?? null,
+            )) ?? { status: "pending" as const }
+          );
+        }
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
-        return {
-          status: "disabled" as const,
-          code:
-            status === "started"
-              ? "activation_in_progress"
-              : "already_completed",
-        };
+        return { status: "disabled" as const, code: "already_completed" };
       }
       return { status: "eligible" as const };
     }
@@ -568,7 +704,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       createdAtMs < assignment.acceptedAt
     )
       return terminal("fallback", "identity_ineligible");
-    const key = `${BUILDER_SIGNUP_EXPERIMENT}:${session.userId}`;
+    const key = `${experimentId()}:${session.userId}`;
     const existing = await getSetting(key);
     if (existing) {
       const status = existingSignupStatusSchema.parse(existing.status);
@@ -580,27 +716,15 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "already_completed" };
       }
-      if (
-        status === "started" &&
-        body.data.operation === "start" &&
-        typeof existing.startedAt === "number" &&
-        Date.now() - existing.startedAt > 60_000
-      ) {
-        // An uncertain provider result must never cause a second provision call.
-        // Let the old owner finish, but release later visits to manual setup.
-        track(
-          "builder_signup_experiment_activation_unavailable",
-          {
-            ...experimentProperties(assignment),
-            code: "activation_result_unknown",
-          },
-          trackingSource,
+      if (status === "started") {
+        const recovered = await reconcile(
+          event,
+          session,
+          key,
+          existing,
+          assignment,
         );
-        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
-        return {
-          status: "fallback" as const,
-          code: "activation_result_unknown",
-        };
+        if (recovered) return recovered;
       }
       if (status !== "started") {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
@@ -635,7 +759,10 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     const complete = async () => {
       let result: { ok: boolean; code?: string; message?: string };
       try {
-        result = await dependencies.activate(event, session);
+        result = await dependencies.activate(event, session, {
+          experimentId: experimentId(),
+          attempt,
+        });
       } catch {
         result = { ok: false, code: "activation_interrupted" };
       }
@@ -646,6 +773,11 @@ export function createBuilderSignupExperimentHandler(dependencies: {
           ...(result.message ? { message: result.message } : {}),
         });
         const status = committed.status;
+        if (!committed.changed)
+          return {
+            status,
+            ...(committed.code ? { code: committed.code } : {}),
+          };
         const outcome = terminal(
           status,
           committed.code ?? undefined,
@@ -676,5 +808,10 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     }
     // Hosts without a durable background lifetime must await the write.
     return completion;
-  });
+  };
+  return {
+    handler: defineEventHandler((event) => handle(event)),
+    startVerifiedSignup: (event: H3Event, session: AuthSession) =>
+      handle(event, session),
+  };
 }

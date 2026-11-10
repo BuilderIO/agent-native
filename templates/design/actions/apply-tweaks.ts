@@ -13,6 +13,7 @@ import {
   isSafeCssTokenValue,
   tweakSelectionsHash,
 } from "../shared/resolve-tweaks.js";
+import { TWEAK_SELECTIONS_CONFLICT_ERROR_CODE } from "../shared/save-conflict.js";
 
 function designDeepLink(designId: string): string {
   return buildDeepLink({
@@ -24,6 +25,7 @@ function designDeepLink(designId: string): string {
 
 export class TweakSelectionsConflictError extends Error {
   readonly statusCode = 409;
+  readonly errorCode = TWEAK_SELECTIONS_CONFLICT_ERROR_CODE;
 
   constructor() {
     super(
