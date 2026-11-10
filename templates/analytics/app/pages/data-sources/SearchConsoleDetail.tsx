@@ -239,6 +239,7 @@ export function SearchConsoleDetail() {
   }, [savedSitesKey]);
 
   const configure = useActionMutation("configure-content-collection", {
+    errorNotification: "caller",
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-collection"],

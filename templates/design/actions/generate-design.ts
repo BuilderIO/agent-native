@@ -14,6 +14,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   getGenerationCreativeContext,
+  isCreativeContextOffForUser,
   recordGenerationCreativeContext,
   replaceCreativeContextElementProvenance,
   resolveGenerationCreativeContext,
@@ -32,6 +33,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { trackDesign } from "../server/lib/design-tracking.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { partitionReuseLabels } from "../server/lib/generation-reuse-labels.js";
 import { readDesignDataForUpdate } from "../server/lib/screen-frame-type-store.js";
 import {
   readLiveSourceFile,
@@ -202,33 +204,19 @@ function isFixedCanvasFormatConversion(prompt: string): boolean {
   );
 }
 
-const reuseLabelSchema = z
-  .object({
-    itemId: z.string().min(1).optional(),
-    itemVersionId: z.string().min(1).optional(),
-    kind: z.string().min(1),
-    label: z.string().min(1),
-    dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
-    elementId: z.string().min(1).optional(),
-    influence: z
-      .enum(["reused", "adapted", "reference-conditioned", "generated"])
-      .optional(),
-  })
-  .superRefine((label, context) => {
-    const influence = label.influence ?? "reference-conditioned";
-    if (Boolean(label.itemId) !== Boolean(label.itemVersionId)) {
-      context.addIssue({
-        code: "custom",
-        message: "itemId and itemVersionId must be provided together",
-      });
-    }
-    if (influence !== "generated" && !label.itemId) {
-      context.addIssue({
-        code: "custom",
-        message: "Only generated labels may omit context item ids",
-      });
-    }
-  });
+// Which labels can be recorded is decided in `run` (partitionReuseLabels), not
+// here: a schema refusal rejects the whole design save over a provenance label.
+const reuseLabelSchema = z.object({
+  itemId: z.string().min(1).optional(),
+  itemVersionId: z.string().min(1).optional(),
+  kind: z.string().min(1),
+  label: z.string().min(1),
+  dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+  elementId: z.string().min(1).optional(),
+  influence: z
+    .enum(["reused", "adapted", "reference-conditioned", "generated"])
+    .optional(),
+});
 
 function classifyBreakpointSet(
   value: unknown,
@@ -604,7 +592,9 @@ const reuseLabelsField = z
   .default([])
   .describe(
     "Optional exact item/version labels, with elementId set to a target filename or frame id when evidence applies to one screen. " +
-      "itemId and itemVersionId go together; only `generated` labels may omit them.",
+      "itemId and itemVersionId go together; only `generated` labels may omit them. " +
+      "A label that cannot be recorded (no item ids, or Creative Context is off) is ignored, not an error, and the result lists it as `ignoredReuseLabels`. " +
+      "Omit this field for material outside the library, such as photos the user attached.",
   );
 
 const primaryViewportField = z
@@ -861,12 +851,24 @@ const generateDesignAction = defineAction({
       );
     }
 
+    // A session without a pack records generated labels only, like every
+    // generation the shared validator treats as Creative Context off.
+    const contextOff =
+      reuseLabels.length > 0 &&
+      (contextModeOverride === "off" ||
+        Boolean(
+          generationSession?.creativeContext &&
+          !generationSession.creativeContext.contextPackId,
+        ) ||
+        (await isCreativeContextOffForUser()));
+    const { recordable: recordableReuseLabels, ignored: ignoredReuseLabels } =
+      partitionReuseLabels(reuseLabels, { contextOff });
     const creativeContextProvenance = await resolveDesignCreativeContext({
       prompt,
       generationSession,
       ...(contextPackId ? { contextPackId } : {}),
       ...(contextModeOverride ? { contextModeOverride } : {}),
-      reuseLabels: reuseLabels.map(
+      reuseLabels: recordableReuseLabels.map(
         ({
           itemId,
           itemVersionId,
@@ -1871,6 +1873,7 @@ const generateDesignAction = defineAction({
       ...(ignoredModelDevices.length > 0
         ? { ignoredDevices: ignoredModelDevices }
         : {}),
+      ...(ignoredReuseLabels.length > 0 ? { ignoredReuseLabels } : {}),
       ...(integrityWarnings.length > 0 ? { warnings: integrityWarnings } : {}),
       ...(fileErrors.length > 0 ? { fileErrors } : {}),
       ...creativeContextProvenance,
