@@ -1,5 +1,124 @@
 # @agent-native/toolkit
 
+## 0.226.0
+
+### Patch Changes
+
+- 5e251c0: Preserve Builder connection cancellation checks across asynchronous operations.
+- 5ee10e8: Separate app context from scoped workspace integration contributions in the shared composer, preserve references through app handoffs, and revalidate integration access before engine dispatch. Preserve bounded app-owned source identifiers in composer draft metadata. Support transport-owned binary uploads in AgentKit and provide the native file-storage upload lifecycle across shared composers.
+- 9aabcfb: Add a pre-signup experiment for automatic Builder account activation with recorded acceptance, verified identity checks, and a new-account-only provisioning contract.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5ee10e8]
+- Updated dependencies
+  - @agent-native/agentkit@0.226.0
+
+## 0.225.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [1a62c08]
+- Updated dependencies
+  - @agent-native/agentkit@0.225.1
+
+## 0.225.0
+
+### Minor Changes
+
+- aeb3d12: Let the share panel choose what general access allows. Anyone at the organization gets a role picker for Can view, Can comment, or Can edit, and Anyone with the link gets one for Can view or Can comment. `set-resource-visibility` takes an optional `role` with `visibility: "org"` or `"public"`. The organization's role is stored as the share grant to the resource's own organization, and the link's role as a share row for the new `link` principal, which only signed-in callers receive and which is never listed or shared as a person. Each is removed when the resource leaves that visibility, and raising the link role needs the same approval as making a resource public. `list-resource-shares` returns `linkRole` for a public resource. `useShareButtonController` adds `generalAccessRole`, `canSetGeneralAccessRole` and `handleGeneralAccessRole`, and while visibility is `org` its `shares` no longer lists the organization grant. `ShareGeneralAccessRow` takes `roleCopy` and `allowedRoles`.
+
+  Going from private to the organization no longer opens a confirmation for every resource type. A registration opts in with `confirmOrgVisibility: true`, which chat threads set; `useShareVisibilityTransition` takes the matching `confirmOrgVisibility` option.
+
+### Patch Changes
+
+- 9108a0b: Keep a reply box expanded until a press outside it has finished, so collapsing it can't move a Resolve button or other control out from under the pointer.
+- 59b8c47: Stop the composer from re-rendering on every editor update, which could hit React's maximum update depth.
+- Release all public npm packages with a patch version bump.
+- 7557e39: The composer's @ menu lists an exact name or alias match first, so typing "@ai" picks the agent that answers to "AI". A host that passes its own mention list without the default search keeps that list's section order, even for a section named "Agents".
+- bce674a: Stop AppProviders logging React 19's "Encountered a script tag" error in dev on every private page load.
+- Updated dependencies
+  - @agent-native/agentkit@0.225.0
+
+## 0.224.0
+
+### Minor Changes
+
+- 6552f04: Let organizations hide Agent-Native.com hosted apps in Dispatch, group Dispatch's app pages into Pinned apps, Apps, and Agent-Native.com hosted apps, and keep the sidebar to pinned apps.
+  - Organization owners and admins get a "Show Agent-Native.com hosted apps" switch under Settings › Organization › Apps, backed by the new `get-hosted-apps-settings` and `set-hosted-apps-settings` actions (recorded in Dispatch's audit log, on by default). When it is off, Agent-Native.com hosted apps leave Dispatch's app lists, `list_apps`, and the Dispatch agent's app context; `list-connected-agents` still returns them marked `hiddenFromLaunchers`, and `call-agent` by name still reaches them. An unreadable stored value hides Agent-Native.com hosted apps and Settings offers to repair it.
+  - Core adds `registerAgentContextAgentFilter` and `discoverAgentContextAgents` so an app can narrow the peers its own agent is shown (`<available-apps>`, relevant apps, @-mention Connected Agents, `describe-workspace-apps`) without changing `discoverAgents` routing.
+  - Home, New chat, and All apps show Pinned apps, Apps, and Agent-Native.com hosted apps sections. The sidebar shows pinned apps, or until something is pinned, three suggested apps, above an All apps link. Every app row has a visible pin button, and pins stay in sync across surfaces. The toolkit apps rail accepts optional `sections` and `onTogglePinned` (pin changes go to the host instead of a whole layout); without them it renders as before.
+
+- 810b9e0: Two writers changing one record no longer silently overwrite each other. Core adds `saveIfCurrent` in `@agent-native/core/save-conflict/server`, which writes only when the record still has the revision the caller read and otherwise throws a typed `save_conflict` carrying the current value, and `saveWithMerge` in `@agent-native/core/save-conflict`, which merges and saves again before asking anyone. Toolkit adds `useSaveConflictPrompt` in `@agent-native/toolkit/app/save-conflict`, the one prompt for when both writers changed the same field. Forms, Clips and Mail use them first.
+
+### Patch Changes
+
+- aa0b323: Keep the caret on a block dragged downward with the drag handle, instead of the block after it.
+- Release all public npm packages with a patch version bump.
+- 7abe86d: New-workspace-app instructions now tell the agent to keep `configureClientRouterBasename()` in `app/entry.client.tsx`, matching the shipped templates.
+- Updated dependencies
+  - @agent-native/agentkit@0.224.0
+
+## 0.223.1
+
+### Patch Changes
+
+- 0d88792: Restore the feedback form on negative chat ratings.
+- 10735e3: Point to the Connect AI card when clicking anywhere in its chat field.
+- 70c5c8f: Keep the Connect AI setup card inside narrow chat panels and phone screens: its buttons wrap onto a second line instead of overflowing, a connect error wraps under the buttons instead of pushing Custom keys out of the card, and a long "Connected to" workspace name truncates. The Waiting, Cancel, and Custom keys buttons now share one size while a Builder.io connection is in progress. `BuilderConnectPopover` accepts `cancelSize` so the Cancel button can match its trigger.
+- Release all public npm packages with a patch version bump.
+- 110efd1: Add Content creator, Student and Educator to the onboarding role question.
+- Updated dependencies
+  - @agent-native/agentkit@0.223.1
+
+## 0.223.0
+
+### Minor Changes
+
+- 033d9ad: One way to show a comment, in every app:
+  - New `CommentBody` from `@agent-native/toolkit/app/review` draws a comment's Markdown: paragraphs, bold, italic, strikethrough, code, links, lists, quotes, code blocks and mention chips, with headings as bold lines. Raw HTML shows as written, so a note like `use <Button> here` keeps its tag; HTML comments stay hidden. Mentions come from a `mentions` list (`@label`, whole words only, or pinned with `at`) or from `@[Name](mailto:…)` text. A label two listed people share stays text, rather than name one of them for both. `renderMention` draws a mention an app's own way; returning nothing keeps the kit's chip. `compact` flattens it to one run of text for previews, with links shown as text and chips in the line's size and color, so they read on a dark card. Past 20,000 characters, or from a paragraph nested or tangled far past what people write (brackets, quotes or list markers more than 16 deep, more than 1,000 emphasis markers in one paragraph, or brackets the parser would spend long looking back for), the rest shows as plain text, so one comment can't stall the page. Code in a fence doesn't count, and rather than split a code block at 20,000 characters, the plain text starts before it. If drawing a comment fails, it shows as written instead of breaking the list it sits in.
+  - `ReviewCommentItem` uses it, so review comments keep their lists, quotes and code blocks, and mentions show as chips.
+  - New `commentPlainText()` and `commentExcerpt()` from `@agent-native/core/review/plain-text` turn a comment into plain text for emails and webhooks. They read the comment with the same Markdown parser as the renderer, so the text matches what the comment shows. The kit's reply and mention emails quote comments with them, so they no longer show Markdown markers or `@[Name](mailto:…)`. `COMMENT_MARKDOWN_LIMIT` and `splitCommentAtMarkdownLimit()` from the same module give the cut both use.
+  - `InlineMarkdown` shows a protected span's own text inside inline code and code blocks, instead of its placeholder link. A new `showRawHtml` option shows raw HTML as text rather than skip it, with its HTML comments cut out.
+  - Toolkit now requires Core 0.223.0 or newer, because `CommentBody` uses Core's comment plain text.
+
+- 7138000: One send key in every comment box: Enter sends, Shift+Enter starts a new line, and Cmd/Ctrl+Enter sends too. Nothing sends while an input method is composing, so Enter can confirm a Japanese, Chinese or Korean word.
+  - New `isCommentSendKey()` and `isComposingKey()` from `@agent-native/toolkit/app/review` check a keydown against that rule.
+  - `ReviewCommentComposer` now sends on Enter by default. Pass `submitOnEnter={false}` to keep Enter for new lines; Cmd/Ctrl+Enter then still sends, where before it did nothing.
+
+- f527363: The share popover is one panel: an invite field for people, groups and org agents, one "People with access" list, general access ("Only people invited", "Anyone at <org>", "Anyone with the link"), and a footer with Copy link and a Send to menu. Roles read "Can view", "Can comment", "Can edit" and "Can manage access", and Remove access moved into each row's role menu.
+
+  Org service principals can now be shared with like people: `list-resource-shares` returns `agents` for owners and admins in the resource's org, marks agent rows with `agent: true`, and resolves people's profile names into `displayName` and `ownerDisplayName`. Resources locked to their org accept live agents of that org, and agents are never emailed.
+
+  Breaking for `ShareButton`: `agentTabContent`, `peopleTabLabel`, `agentsTabLabel` and the `secondaryShareUrl*` props are removed. Pass a `sendTo` prop (`openInAgent`, `items`, `copyAgentPrompt`, `openMcpSettings`) instead. `shareUrlPlacement` and `shareUrlDescription` no longer affect rendering.
+
+  `writeClipboardText` keeps its fallback copy inside the open dialog or menu, so copying from a popover no longer closes it when the async clipboard is unavailable.
+
+  `registerShareableResource` accepts `agentRead: { actions, idParam? }` naming the MCP tool that reads one resource. `list-resource-shares` returns it, and the share panel then offers Open in Claude, Open in Claude Code, Open in Codex and Copy agent prompt with a prompt that sends the agent to the app's MCP server. Analytics, Assets, Brain, Design, Forms, Plan, Slides and Slides 2 declare it.
+
+### Patch Changes
+
+- 3a2fa31: Accept explicit undefined for optional composer seed values without changing runtime behavior.
+- 92d54bb: Scrub inputs show and commit at most two decimals when a field sets no `precision`, so float noise from the browser no longer reaches the field. `VisualColorPicker` takes `textColor` to draw its swatch as a bold "A" over a bar in the picked color, and its menu caret is a Tabler chevron.
+- 23cf2ea: Build each app faster. The resource icon picker's Tabler chunks now carry icon data instead of importing every icon component, so an app's client build handles about 3,200 modules instead of 9,200, and the picker's icon chunks are about 20% smaller. Core's stub and shim Vite plugins declare hook filters, so the bundler no longer calls into them for every import. Icons render exactly as before.
+- 92d54bb: `FontSizeField` from the design tweaks entry is a compact font size combobox: type a size and press Enter, pick one from a caller-provided type scale (with optional named sizes listed first), or step through the scale with the arrow keys. An optional `scrubIcon` adds a drag handle that previews and commits like the inspector's scrub fields, and `allowRelativeExpressions` reports a typed `Mixed+2` on a mixed selection as `meta.relativeExpression`.
+- 92d54bb: `@agent-native/core/server` reads Google's public font catalog with `readGoogleFontCatalog`, listing every family with the weights and italics it ships, most popular first. The toolkit font picker searches that whole library, previews each family in its own face, and loads any catalog family on the canvas through `ensureGoogleFontStylesheets`.
+- Release all public npm packages with a patch version bump.
+- 8cdee8a: In Safari, the More actions toggle on an agent reply closes on a second click, and Copy request ID copies again.
+- 3a2fa31: Allow applications to select the initial resource icon tab, observe temporary upload previews and add upload controls.
+- 3a2fa31: Show result-scoped semantic model attribution after built-in charts when valid metadata is provided.
+- 2428fde: `ReviewAuthorAvatar` is now the one avatar for a person on every review surface, and the `@` picker's `ReviewMentionAvatar` uses it too. It shows their photo when they have one and otherwise their initials ("EA") on a color that stays the same for that person, from the `--review-avatar-1` to `--review-avatar-6` tokens when an app defines them and a dark gray when it does not. It gains a 16px size (one letter) and a `decorative` prop, an agent shows its brand mark, and `reviewInitials` is exported. Initials now skip words that have no letter in them.
+- 2428fde: Review comments can carry their own menu: the new `ReviewCommentMenu` (Edit, Delete) goes in `ReviewCommentItem`'s new `menu` slot, which replaces the reply clock time (a comment now shows only its age). The card's resolve, close and More actions buttons show tooltips, `ReviewThreadMenu` drops its "Reply in thread" item, and `ReviewCommentComposer` reports the text after an `@` through `onMentionQueryChange` (and again with an empty query when it unmounts) so a host can search its people list server-side. While the host's `mentionOptionsLoading` is true and nothing in the list matches yet, the picker stays hidden instead of saying no one was found, and when `mentionOptionsFailed` is true it says the people could not be loaded (`mentionFailedLabel`) instead.
+- eacd478: Reply emails from the Comments & Review Kit now reach everyone in the thread on busy resources. The kit used to look for a thread's people among the resource's first 200 comments, so on a design or page with more comments than that, people in newer threads got no email; it now looks them up by thread with `listReviewThreadParticipantEmails`. Deleting a review comment now clears its text, mentions, anchor (which can quote the text it points at), image attachments and any resolution note, as apps that remove the row do, and so does deleting a thread for each reply it takes along. The comment box's mention parser reads the characters beside each `@` without copying the line, so loading a long line with many `@` signs into the box takes linear time.
+- 95841d4: Show a back arrow beside "Back to <app>" in Settings instead of an empty gap.
+- 92d54bb: `ShareButton` takes an `anchor` element for `hideTrigger`, so a share popover opened from a menu can sit beside the item it shares instead of the window corner. `normalizeCanvasHotkeyKey` from the canvas interactions entry reads a shortcut's letter from its physical key, so Option chords on macOS still match.
+- 3a2fa31: Add reusable chart schemas and optional UI controls while preserving current framework defaults.
+- 3a2fa31: Tighten shared audit and SQL boundary types, preserve scoped connection updates, and localize sign-out cleanup errors.
+- 3a2fa31: Allow application-selected empty-state suggestion sizing and explicit optional-value clearing for sharing and charts.
+- d795784: A sheet opened from inside a dialog now opens above it instead of behind it, and a popover inside a dialog or sheet scrolls with the mouse wheel instead of only by dragging its scrollbar.
+- 4699487: Opening a menu or popover no longer restyles the whole page in Safari. A message-queue rule in the AgentKit styles used `:first-of-type`, which made WebKit recompute every element's style whenever an overlay inserted its focus guards at the top of `<body>`.
+- Updated dependencies
+  - @agent-native/agentkit@0.223.0
+
 ## 0.222.2
 
 ### Patch Changes
@@ -1489,47 +1608,5 @@
 ### Patch Changes
 
 - 81fb79e: Keep shared composer labels theme-safe and translatable.
-
-## 0.16.2
-
-### Patch Changes
-
-- 43fa797: Keep shared composer labels theme-safe and translatable.
-
-## 0.16.1
-
-### Patch Changes
-
-- fb18771: Keep shared composer labels theme-safe and translatable.
-
-## 0.16.0
-
-### Minor Changes
-
-- 9e21e1b: Add a Core-free data grid kit with keyboard navigation, selection, resizing, typed editor slots, and app-owned persistence callbacks.
-
-### Patch Changes
-
-- 9e21e1b: Align chat history rail overflow actions with trailing timestamps.
-- 9e21e1b: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
-
-## 0.15.1
-
-### Patch Changes
-
-- 73c4a97: Align chat history rail overflow actions with trailing timestamps.
-- 73c4a97: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
-
-## 0.15.0
-
-### Minor Changes
-
-- f07ec04: Localize the Core agent-chat interface and Toolkit composer across every supported locale, provide built-in Core translations with app-level catalog overrides, and guard the complete chat surface against new raw visible strings.
-
-## 0.14.3
-
-### Patch Changes
-
-- 89f194f: Fix toolkit canvas interaction and collaboration UI behavior.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

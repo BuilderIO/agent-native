@@ -64,6 +64,7 @@ import {
   ensureBuilderProject,
   findBuilderProjectForRepo,
   getBuilderBranchProjectId,
+  getBuilderWorkspaceUrl,
   getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserConnectUrl,
   getBuilderBrowserConnectUrlForOwner,
@@ -213,6 +214,53 @@ describe("Builder account provisioning", () => {
       name: "Owner",
       agentNativeApp: "agent-native-clips",
       agentNativeTemplate: "clips",
+    });
+  });
+
+  it("signs the new-account-only mode without downgrading when older servers reject it", async () => {
+    const secret = "test-builder-sso-secret-with-at-least-32-chars";
+    vi.stubEnv(BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV, secret);
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ message: "Invalid Agent-Native account request." }),
+          { status: 401 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    await expect(
+      provisionBuilderAccount({
+        email: "owner@example.com",
+        name: "Owner",
+        agentNativeApp: "design",
+        agentNativeTemplate: "design",
+        newAccountOnly: true,
+      }),
+    ).rejects.toThrow();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const init = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(headers["x-agent-native-account-version"]).toBe(
+      "agent-native-account-v3",
+    );
+    expect(headers["x-agent-native-account-signature"]).toBe(
+      createHmac("sha256", secret)
+        .update(
+          [
+            "agent-native-account-v3",
+            headers["x-agent-native-account-timestamp"],
+            headers["x-agent-native-account-request-id"],
+            "owner@example.com",
+            "Owner",
+            "design",
+            "design",
+            "new-account-only",
+          ].join("\n"),
+        )
+        .digest("base64url"),
+    );
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      newAccountOnly: true,
     });
   });
 
@@ -2391,5 +2439,19 @@ describe("Builder callback CSRF state", () => {
         name: "Agent-Native Workspace",
       });
     });
+  });
+});
+
+describe("getBuilderWorkspaceUrl", () => {
+  it("links a Builder-linked workspace to its page in Builder", () => {
+    vi.stubEnv("BUILDER_APP_HOST", "https://builder.io/");
+    expect(
+      getBuilderWorkspaceUrl({ BUILDER_WORKSPACE_PROJECT_ID: " ws 1 " }),
+    ).toBe("https://builder.io/app/workspaces/ws%201");
+    vi.unstubAllEnvs();
+  });
+
+  it("is null when the workspace is not linked to Builder", () => {
+    expect(getBuilderWorkspaceUrl({})).toBeNull();
   });
 });

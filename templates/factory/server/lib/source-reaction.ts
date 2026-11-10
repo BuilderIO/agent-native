@@ -1,4 +1,5 @@
-const REACTION_NAME = /^[a-z0-9_+-]{1,50}$/;
+/** A Slack emoji name as written without colons: lowercase letters, digits, `_`, `+` and `-`. */
+export const REACTION_NAME = /^[a-z0-9_+-]{1,50}$/;
 
 /**
  * Where the Slack poller records which reactions a person put on a message,

@@ -128,4 +128,31 @@ describe("MultiScreenCanvas geometry hydration camera", () => {
 
     expect(readView(container)).toEqual(userPan);
   });
+
+  it("shows a capacity-deferred screen as an idle selectable placeholder", async () => {
+    const onPick = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "deferred",
+              filename: "Deferred.html",
+              content: "",
+              sourceState: "deferred",
+            },
+          ]}
+          zoom={100}
+          creation={{ activeTool: "move" }}
+          onPick={onPick}
+        />,
+      );
+    });
+    const card = container.querySelector<HTMLElement>("[data-screen-card]");
+    expect(card?.querySelector("[data-screen-placeholder]")).not.toBeNull();
+    expect(card?.querySelector("[data-source-loading]")).toBeNull();
+    if (!card) throw new Error("Screen card was not rendered");
+    await act(async () => card.click());
+    expect(onPick).toHaveBeenCalledWith("deferred");
+  });
 });

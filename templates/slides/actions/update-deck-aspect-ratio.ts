@@ -1,11 +1,11 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import {
   createDeckVersionSnapshot,
   deckVersionChangeGroupFromAction,
@@ -68,7 +68,7 @@ export default defineAction({
       );
       const updateResult = await tx
         .update(schema.decks)
-        .set({ data: JSON.stringify(data), updatedAt: now })
+        .set({ ...deckDataColumns(data), updatedAt: now })
         .where(deckRevisionWhere(schema.decks, deckId, rows[0].updatedAt));
       assertDeckWriteApplied(updateResult, deckId, "aspect ratio change");
     });
@@ -78,10 +78,6 @@ export default defineAction({
     } else {
       await notifyClients(deckId);
     }
-    await writeAppState("refresh-signal", {
-      ts: now,
-      source: "update-deck-aspect-ratio",
-    });
     return { id: deckId, aspectRatio };
   },
 });

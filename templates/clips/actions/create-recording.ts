@@ -35,6 +35,7 @@ import {
 } from "../server/lib/resumable-session.js";
 import { abortResumableUploadSession } from "../server/lib/resumable-upload-cleanup.js";
 import { S3MultipartStartError } from "../server/lib/s3-upload-provider.js";
+import { findUploadedSourceRecording } from "../server/lib/source-fingerprint.js";
 import { shouldEnableStreamingUpload } from "../server/lib/streaming-upload-mode.js";
 import { uploadLeaseExpiry } from "../server/lib/upload-lease.js";
 import {
@@ -153,10 +154,18 @@ export default defineAction({
           statusCode: 409,
         });
       }
-
       const { organizationId } = await requireOrganizationAccess(
         args.organizationId,
       );
+      const uploaded = args.sourceHeadSha256
+        ? await findUploadedSourceRecording(
+            ownerEmail,
+            organizationId,
+            args.sourceHeadSha256,
+          )
+        : null;
+      if (uploaded) return { uploaded } as const;
+
       const visibility = await getDefaultRecordingVisibility(
         organizationId,
         actionContext?.userEmail ?? ownerEmail,
@@ -181,6 +190,7 @@ export default defineAction({
       await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
 
       return {
+        uploaded: null,
         db,
         ownerEmail,
         organizationId,
@@ -212,6 +222,14 @@ export default defineAction({
         details: { retryable: true, cleanupConfirmed: true },
       });
     });
+    if (prepared.uploaded !== null) {
+      return {
+        id: prepared.uploaded.id,
+        organizationId: prepared.uploaded.organizationId,
+        status: prepared.uploaded.status,
+        existingRecording: true as const,
+      };
+    }
     const {
       db,
       ownerEmail,
@@ -262,6 +280,7 @@ export default defineAction({
               await releaseHostedClipRecording({
                 recordingId: id,
                 userId: authUserId,
+                reason: "create_failed",
               });
               cleanupConfirmed = true;
             }
@@ -304,6 +323,7 @@ export default defineAction({
       await releaseHostedClipRecording({
         recordingId: id,
         userId: hostedUserId,
+        reason: "create_failed",
       });
     };
     const maxUploadBytes =
@@ -602,6 +622,7 @@ export default defineAction({
             ...session.meta,
             stableUrl: true,
             recordAsset: false,
+            clipsHiddenUpload: true,
           },
           bytesUploaded: 0,
           lastCommittedIndex: -1,

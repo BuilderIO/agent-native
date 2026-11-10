@@ -30,11 +30,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   actionErrorMessage: (error: { actionMessage?: unknown }) =>
     typeof error?.actionMessage === "string" ? error.actionMessage : undefined,
 }));
-vi.mock("./GoogleDriveConnectionCta", () => ({
-  GoogleDriveConnectionCta: () => (
-    <button type="button">Connect Google Drive</button>
-  ),
-}));
 vi.mock("@/hooks/use-slide-file-storage-status", () => ({
   useSlideFileStorageStatus: () => ({
     data: { configured: storageStatus.configured },
@@ -78,11 +73,8 @@ function Harness({ onImport }: { onImport: PromptImportHandler }) {
   const controller = usePromptImport({ onImport });
   return <ImportDeckButton controller={controller} />;
 }
-function openMenu() {
-  fireEvent.pointerDown(screen.getByRole("button", { name: "Import" }), {
-    button: 0,
-    ctrlKey: false,
-  });
+function importButton() {
+  return screen.getByRole("button", { name: "Import" });
 }
 function selectFile(file?: File) {
   fireEvent.change(screen.getByLabelText("Import file"), {
@@ -99,41 +91,23 @@ afterEach(() => {
   storageStatus.refetch.mockClear();
 });
 
-describe("toolbar deck import", () => {
-  it("waits for Radix menu close-focus cleanup before mounting the Google popover", async () => {
-    render(<Harness onImport={vi.fn()} />);
-    openMenu();
-    const menu = await screen.findByRole("menu");
-    const duringMenuCleanup = vi.fn(() => screen.queryByRole("dialog"));
-    menu.addEventListener("focusScope.autoFocusOnUnmount", duringMenuCleanup);
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Google Slides" }),
-    );
-    await waitFor(() => expect(duringMenuCleanup).toHaveBeenCalledOnce());
-    expect(duringMenuCleanup.mock.results[0].value).toBeNull();
-    const dialog = await screen.findByRole("dialog", { name: "Google Slides" });
-    expect(screen.queryByRole("menu")).toBeNull();
-    await waitFor(() =>
-      expect(document.activeElement).toBe(
-        screen.getByLabelText("Paste a Google Slides link"),
-      ),
-    );
-    expect(screen.getByRole("dialog", { name: "Google Slides" })).toBe(dialog);
-  });
-  it("opens import options from the whole button and cancelling is a no-op", () => {
+// oracle-change: the PDF / Google Slides / PPT menu is gone; one button opens the dialog for every type and Google Slides links are pasted into the prompt.
+describe("home deck import", () => {
+  it("is one button that opens the file dialog for every supported type", () => {
     const onImport = vi.fn();
     const click = vi
       .spyOn(HTMLInputElement.prototype, "click")
       .mockImplementation(() => {});
     render(<Harness onImport={onImport} />);
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Import" }), {
-      button: 0,
-      ctrlKey: false,
-    });
-    expect(screen.getByRole("menuitem", { name: "PDF" })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: "PPT" })).toBeTruthy();
-    expect(click).not.toHaveBeenCalled();
+    const button = importButton();
+    expect(button.getAttribute("aria-haspopup")).toBeNull();
+    fireEvent.click(button);
+    expect(click).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("menu")).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByLabelText("Import file").getAttribute("accept")).toBe(
+      `${DECK_FILE_ACCEPT.pdf},${DECK_FILE_ACCEPT.pptx}`,
+    );
     selectFile();
     expect(onImport).not.toHaveBeenCalled();
     expect(screen.queryByRole("alert")).toBeNull();
@@ -146,17 +120,17 @@ describe("toolbar deck import", () => {
           resolveImport = resolve;
         }),
     );
+    vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
     render(<Harness onImport={onImport} />);
     expect(screen.getByRole("status").textContent).toBe("");
-    openMenu();
-    fireEvent.click(await screen.findByRole("menuitem", { name: "PPT" }));
+    fireEvent.click(importButton());
     selectFile(new File(["source"], "source.pptx"));
 
-    const importButton = await screen.findByRole("button", {
+    const pendingButton = await screen.findByRole("button", {
       name: "Importing...",
     });
-    expect((importButton as HTMLButtonElement).disabled).toBe(true);
-    expect(importButton.getAttribute("aria-busy")).toBe("true");
+    expect((pendingButton as HTMLButtonElement).disabled).toBe(true);
+    expect(pendingButton.getAttribute("aria-busy")).toBe("true");
     expect(screen.getByRole("status").textContent).toBe("Importing...");
 
     await act(async () => resolveImport(true));
@@ -170,9 +144,8 @@ describe("toolbar deck import", () => {
       .spyOn(HTMLInputElement.prototype, "click")
       .mockImplementation(() => {});
     render(<Harness onImport={vi.fn()} />);
-    openMenu();
     expect(screen.queryByRole("dialog")).toBeNull();
-    fireEvent.click(screen.getByRole("menuitem", { name: "PDF" }));
+    fireEvent.click(importButton());
     expect(click).not.toHaveBeenCalled();
     expect(
       screen.getByRole("dialog", {
@@ -187,8 +160,7 @@ describe("toolbar deck import", () => {
     storageStatus.isError = true;
     storageStatus.isSuccess = false;
     render(<Harness onImport={vi.fn()} />);
-    openMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "PDF" }));
+    fireEvent.click(importButton());
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(storageStatus.refetch).toHaveBeenCalledOnce();
   });
@@ -196,22 +168,19 @@ describe("toolbar deck import", () => {
     storageStatus.isSuccess = false;
     storageStatus.isLoading = false;
     render(<Harness onImport={vi.fn()} />);
-    openMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "PDF" }));
+    fireEvent.click(importButton());
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(storageStatus.refetch).toHaveBeenCalledOnce();
   });
   it.each(["pdf", "pptx"] as const)(
-    "dispatches a %s from the main picker without confirmation",
+    "routes a picked .%s by its extension",
     async (kind) => {
       const onImport = vi.fn().mockResolvedValue(true);
-      render(<Harness onImport={onImport} />);
-      openMenu();
-      fireEvent.click(
-        screen.getByRole("menuitem", {
-          name: kind === "pdf" ? "PDF" : "PPT",
-        }),
+      vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(
+        () => {},
       );
+      render(<Harness onImport={onImport} />);
+      fireEvent.click(importButton());
       const file = new File(["source"], `source.${kind}`);
       selectFile(file);
       await waitFor(() =>
@@ -220,27 +189,6 @@ describe("toolbar deck import", () => {
       expect(screen.queryByRole("dialog")).toBeNull();
     },
   );
-  it.each([
-    ["PDF", "pdf"],
-    ["PPT", "pptx"],
-  ] as const)("opens the scoped %s picker immediately", async (label, kind) => {
-    const onImport = vi.fn().mockResolvedValue(true);
-    const click = vi
-      .spyOn(HTMLInputElement.prototype, "click")
-      .mockImplementation(() => {});
-    render(<Harness onImport={onImport} />);
-    openMenu();
-    fireEvent.click(await screen.findByRole("menuitem", { name: label }));
-    expect(click).toHaveBeenCalledOnce();
-    expect(screen.getByLabelText("Import file").getAttribute("accept")).toBe(
-      DECK_FILE_ACCEPT[kind],
-    );
-    const file = new File(["source"], `source.${kind}`);
-    selectFile(file);
-    await waitFor(() =>
-      expect(onImport).toHaveBeenCalledWith({ kind, files: [file] }),
-    );
-  });
   it.each([
     ["old.ppt", "application/vnd.ms-powerpoint"],
     ["pptx", "application/octet-stream"],
@@ -258,17 +206,6 @@ describe("toolbar deck import", () => {
       expect(onImport).not.toHaveBeenCalled();
     },
   );
-  it("enforces the scoped format even when the picker provides a different file", async () => {
-    const onImport = vi.fn();
-    render(<Harness onImport={onImport} />);
-    openMenu();
-    fireEvent.click(await screen.findByRole("menuitem", { name: "PPT" }));
-    selectFile(new File(["source"], "source.pdf"));
-    expect((await screen.findByRole("alert")).textContent).toBe(
-      "Choose a PPTX file.",
-    );
-    expect(onImport).not.toHaveBeenCalled();
-  });
   it("rejects oversized documents through the existing attachment validator", async () => {
     const onImport = vi.fn();
     render(<Harness onImport={onImport} />);
@@ -377,80 +314,25 @@ describe("toolbar deck import", () => {
       translate("home.fileStorageStatusUnavailable"),
     );
   });
-  it("opens an anchored Google Slides form, retains URL on failure, and submits through the same pipeline", async () => {
-    const onImport = vi
-      .fn()
-      .mockRejectedValueOnce(
-        Object.assign(new Error("action failed"), {
-          actionMessage: "Reconnect Google Drive",
-        }),
-      )
-      .mockResolvedValue(true);
-    render(<Harness onImport={onImport} />);
-    openMenu();
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Google Slides" }),
-    );
-    const popover = await screen.findByRole("dialog", {
-      name: "Google Slides",
-    });
-    expect(popover.hasAttribute("data-radix-popper-content-wrapper")).toBe(
-      false,
-    );
-    expect(popover.closest("[data-radix-popper-content-wrapper]")).toBeTruthy();
-    expect(screen.getByText("Connect Google Drive")).toBeTruthy();
-    const input = screen.getByLabelText("Paste a Google Slides link");
-    fireEvent.change(input, {
-      target: { value: "https://docs.google.com/presentation/d/example" },
-    });
-    fireEvent.submit(input.closest("form")!);
-    expect((await screen.findByRole("alert")).textContent).toBe(
-      "Reconnect Google Drive",
-    );
-    expect((input as HTMLInputElement).value).toBe(
-      "https://docs.google.com/presentation/d/example",
-    );
-    fireEvent.submit(input.closest("form")!);
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(onImport).toHaveBeenLastCalledWith({
-      kind: "google-slides",
-      url: "https://docs.google.com/presentation/d/example",
-    });
-  });
-  it("clears failed-file state for a new Google source and restores focus on Escape", async () => {
+  it("restores focus to Import when the error popover closes, and a new pick clears the error", async () => {
     const onImport = vi.fn().mockRejectedValue(
       Object.assign(new Error("action failed"), {
         actionMessage: "PDF upload failed",
       }),
     );
+    const click = vi
+      .spyOn(HTMLInputElement.prototype, "click")
+      .mockImplementation(() => {});
     render(<Harness onImport={onImport} />);
     selectFile(new File(["source"], "source.pdf"));
     expect((await screen.findByRole("alert")).textContent).toBe(
       "PDF upload failed",
     );
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    await waitFor(() =>
-      expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "Import" }),
-      ),
-    );
-    openMenu();
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Google Slides" }),
-    );
-    await screen.findByRole("dialog", { name: "Google Slides" });
+    await waitFor(() => expect(document.activeElement).toBe(importButton()));
+    fireEvent.click(importButton());
+    expect(click).toHaveBeenCalledOnce();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
-    await waitFor(() =>
-      expect(document.activeElement).toBe(
-        screen.getByLabelText("Paste a Google Slides link"),
-      ),
-    );
-    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    await waitFor(() =>
-      expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "Import" }),
-      ),
-    );
   });
 });

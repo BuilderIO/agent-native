@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   CreativeContextShareSheet,
   parseCreativeContexts,
@@ -83,6 +84,8 @@ import { toast } from "sonner";
 import { trace } from "@/components/design/design-trace";
 import { DesignThumbnail } from "@/components/design/DesignThumbnail";
 import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
+import { useDetectedFigmaComposerLink } from "@/components/editor/FigmaLinkComposerBubble";
+import { HomeFigmaLinkBubble } from "@/components/editor/HomeFigmaLinkBubble";
 import { useHomePromptContext } from "@/components/editor/HomePromptContext";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type {
@@ -380,9 +383,13 @@ export default function Index() {
     "create-design-from-template",
   );
   const createFusionAppMutation = useActionMutation("create-builder-app");
-  const deleteMutation = useActionMutation("delete-design");
+  const deleteMutation = useActionMutation("delete-design", {
+    errorNotification: "shared",
+  });
   const duplicateMutation = useActionMutation("duplicate-design");
-  const updateMutation = useActionMutation("update-design");
+  const updateMutation = useActionMutation("update-design", {
+    errorNotification: "shared",
+  });
   const generateTitleMutation = useActionMutation("generate-design-title");
   const userRenamedDesignIdsRef = useRef<Set<string>>(new Set());
   const {
@@ -395,7 +402,10 @@ export default function Index() {
   const agentEngineConfigured = agentEngine.canChat;
   const agentEngineMissing = agentEngine.missing;
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
-  const bounceSetupCard = () => {
+  // Portaled menus (the model picker) bubble their events through React to
+  // this wrapper; only a click or focus inside its own DOM should bounce.
+  const bounceSetupCard = (event: React.SyntheticEvent) => {
+    if (!event.currentTarget.contains(event.target as Node)) return;
     if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
   };
   const retryAgentEngineStatus = useCallback(() => {
@@ -441,16 +451,22 @@ export default function Index() {
       ? firstPaintPrompt.text
       : null,
   );
-  const handleHomePromptTextChange = useCallback((text: string) => {
-    if (
-      homeSuggestionPromptSourceRef.current &&
-      homeSuggestionPromptTextRef.current !== null &&
-      homeSuggestionPromptTextRef.current !== text
-    ) {
-      homeSuggestionPromptSourceRef.current = false;
-      homeSuggestionPromptTextRef.current = null;
-    }
-  }, []);
+  const { link: detectedFigmaLink, onComposerTextChange: detectFigmaLink } =
+    useDetectedFigmaComposerLink();
+  const handleHomePromptTextChange = useCallback(
+    (text: string) => {
+      detectFigmaLink(text);
+      if (
+        homeSuggestionPromptSourceRef.current &&
+        homeSuggestionPromptTextRef.current !== null &&
+        homeSuggestionPromptTextRef.current !== text
+      ) {
+        homeSuggestionPromptSourceRef.current = false;
+        homeSuggestionPromptTextRef.current = null;
+      }
+    },
+    [detectFigmaLink],
+  );
   const homeSuggestionSeed = useHomeSuggestionSeed();
   const shellSuggestionRole = useHomeSuggestionRole();
   const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
@@ -594,7 +610,9 @@ export default function Index() {
           pinnedPackId: null,
         })
         .catch((error) => {
-          toast.error(t("creativeContext.stateSaveFailed"));
+          reportWriteFailure(error, {
+            label: t("creativeContext.stateSaveFailed"),
+          });
           throw error;
         });
     },
@@ -673,6 +691,10 @@ export default function Index() {
     systemsError: designSystemsError,
     retrySystems: () => void refetchDesignSystems(),
   });
+  // Submitting navigates away, and unmounting discards every Figma
+  // attachment the context still holds; accepting hands the sent ones over.
+  const acceptHomeContext = useRef(homeContext.submissionAccepted);
+  acceptHomeContext.current = homeContext.submissionAccepted;
 
   const resolveAppDesignSystemId = useCallback(async () => {
     const linkedSystemId = selectedTemplate?.designSystemId;
@@ -1013,6 +1035,8 @@ export default function Index() {
               queryKey: ["action", "list-designs"],
             })
             .catch(() => {});
+          if (result.adaptationPending && options.contextItems)
+            acceptHomeContext.current(options.contextItems);
           reportPromptSubmitted(result.id);
           void navigate(`/design/${result.id}`);
           return;
@@ -1051,7 +1075,7 @@ export default function Index() {
             designSystemId,
             message: error instanceof Error ? error.message : String(error),
           });
-          toast.error(t("home.failedToCreateDesign"));
+          reportWriteFailure(error, { label: t("home.failedToCreateDesign") });
           throw error;
         }
         void createFusionAppMutation
@@ -1107,11 +1131,16 @@ export default function Index() {
             designSystemId,
             message: error instanceof Error ? error.message : String(error),
           });
-          toast.error(t("home.failedToCreateDesign"));
+          reportWriteFailure(error, { label: t("home.failedToCreateDesign") });
           throw error;
         }
       }
 
+      if (
+        !(fullAppBuildingEnabled && newDesignMode === "app") &&
+        options.contextItems
+      )
+        acceptHomeContext.current(options.contextItems);
       reportPromptSubmitted(id);
       homeSuggestionPromptSourceRef.current = false;
       homeSuggestionPromptTextRef.current = null;
@@ -1156,7 +1185,7 @@ export default function Index() {
     } catch (error) {
       skipToEditorPendingRef.current = false;
       setNewDesignHandoffPending(false);
-      toast.error(t("home.failedToCreateDesign"));
+      reportWriteFailure(error, { label: t("home.failedToCreateDesign") });
       throw error;
     }
   }, [
@@ -1376,6 +1405,7 @@ export default function Index() {
   return (
     <>
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
+      {homeContext.dialogs}
       <PromptHome
         title={t("home.designPromptTitle")}
         focusComposer={focusComposer}
@@ -1421,6 +1451,11 @@ export default function Index() {
                 homePromptInitialText !== undefined
               }
               onPromptTextChange={handleHomePromptTextChange}
+              composerHeaderSlot={
+                detectedFigmaLink ? (
+                  <HomeFigmaLinkBubble link={detectedFigmaLink} />
+                ) : null
+              }
               placeholder={
                 selectedTemplate
                   ? t("promptDialog.templatePromptPlaceholder", {
@@ -1440,6 +1475,7 @@ export default function Index() {
                 submissionErrorRef.current = true;
               }}
               beforeSubmitContext={homeContext.prepareSubmission}
+              onPasteContext={homeContext.onPasteContext}
               submissionIdentity={homeContext.identity}
               contextItems={homeContext.contextItems}
               contextMenuItems={homeContext.menuItems}

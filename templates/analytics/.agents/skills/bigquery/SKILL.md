@@ -83,6 +83,13 @@ Never label a current partial-month snapshot as last month's completed usage.
 | `query-dbt-semantic-metric --metricName <exact dbt name>` | Run an owner-defined dbt Semantic Layer metric before warehouse SQL. |
 | `get-dbt-connection`                                      | Check each `connections[].readiness` and its missing setup step.        |
 
+## Saved Dashboard Cost Estimates
+
+External connectors can call `estimate-dashboard-cost` with a saved dashboard ID,
+an optional panel ID, and filter values. It uses the existing free dry-run path
+and requires read access to the saved dashboard. It cannot accept raw SQL or
+change a saved query. Partial and unpriced results are not zero-cost results.
+
 ## Check Cost Before Big Queries
 
 Before running a query over a large event or pageview table, call
@@ -197,3 +204,10 @@ WHERE col IS NOT NULL
 -- CORRECT: single WHERE with AND
 WHERE col IS NOT NULL AND date BETWEEN '...' AND '...'
 ```
+
+
+## Warehouse usage receipts
+
+BigQuery query responses may include a usageAccounting receipt for the original warehouse job. A recorded status means an observation was persisted; only usageStatus complete confirms that the provider supplied both processed and billed bytes plus cache provenance. Pending and unavailable statuses mean accounting is incomplete, never zero cost.
+
+App-cache responses do not launch another job. Any retained receipt describes the original result, not new spend. The ledger covers read jobs launched through the common Analytics runner; external jobs and delivery/backfill writes are outside it. Billed bytes are provider metadata, not invoice dollars or measured savings. Budget enforcement and recurring reconciliation are separate decisions.

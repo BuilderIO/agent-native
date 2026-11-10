@@ -115,7 +115,7 @@ export function NotionButton() {
 
   const redirectUri =
     typeof window !== "undefined"
-      ? `${window.location.origin}${appApiPath("/api/notion/callback")}`
+      ? new URL(appApiPath("/api/notion/callback"), window.location.origin).href
       : "";
 
   const pollRef = useRef<ReturnType<typeof setInterval>>(undefined);

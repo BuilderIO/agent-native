@@ -66,6 +66,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -85,6 +86,7 @@ import {
   CartesianGrid,
   Cell,
   ComposedChart,
+  getRelativeCoordinate,
   Legend,
   Line,
   LineChart,
@@ -93,8 +95,11 @@ import {
   ResponsiveContainer,
   Tooltip,
   usePlotArea,
+  useXAxisDomain,
+  useXAxisScale,
   XAxis,
   YAxis,
+  type RelativePointer,
 } from "recharts";
 
 import { Badge } from "@/components/ui/badge";
@@ -1608,7 +1613,10 @@ function rowDatum(
   series?: string,
   valueKey?: string,
 ): ChartDatum | null {
-  const row = rows[Number(index)];
+  const row =
+    typeof index === "number" && Number.isInteger(index)
+      ? rows[index]
+      : undefined;
   if (!row) return null;
   return {
     x: stringifyValue(row[xKey]),
@@ -1617,25 +1625,81 @@ function rowDatum(
   };
 }
 
-function chartClickProps(
+type ChartRowLocator = (pointer: RelativePointer) => number | null;
+
+/**
+ * The index of the row plotted nearest the pointer, or null when the pointer is
+ * outside the plot.
+ */
+function ChartClickLocator({
+  locatorRef,
+}: {
+  locatorRef: { current: ChartRowLocator | null };
+}) {
+  const scale = useXAxisScale();
+  const domain = useXAxisDomain();
+  const plot = usePlotArea();
+  // Installed before paint, so a click never meets the previous data's locator.
+  useLayoutEffect(() => {
+    if (!scale || !domain || !plot) return;
+    // Recharts plots row i at the i-th domain value, not at the row's own x:
+    // null x values drop out of the domain, and repeated ones turn it into
+    // row indexes.
+    const positions = domain.map((value) =>
+      scale(value, { position: "middle" }),
+    );
+    locatorRef.current = ({ relativeX, relativeY }) => {
+      const insidePlot =
+        plot.x <= relativeX &&
+        relativeX <= plot.x + plot.width &&
+        plot.y <= relativeY &&
+        relativeY <= plot.y + plot.height;
+      if (!insidePlot) return null;
+      let nearest: number | null = null;
+      let nearestDistance = Infinity;
+      for (const [index, position] of positions.entries()) {
+        if (position == null) continue;
+        const distance = Math.abs(position - relativeX);
+        if (distance < nearestDistance) {
+          nearest = index;
+          nearestDistance = distance;
+        }
+      }
+      return nearest;
+    };
+    return () => {
+      locatorRef.current = null;
+    };
+  }, [scale, domain, plot, locatorRef]);
+  return null;
+}
+
+/**
+ * Recharts hands a chart click the hovered index, which trails the pointer by
+ * a frame and is null when a click lands before the first hover, so the click
+ * is located from its own position instead. Render `locator` inside the chart.
+ */
+function useChartClick(
   rows: Record<string, unknown>[],
   xKey: string,
   onDatumClick: DatumClickHandler | undefined,
 ) {
-  if (!onDatumClick) return {};
+  const locatorRef = useRef<ChartRowLocator | null>(null);
+  if (!onDatumClick) return { props: {}, locator: null };
   return {
-    style: { cursor: "pointer" } as CSSProperties,
-    onClick: (state: {
-      activeIndex?: unknown;
-      activeTooltipIndex?: unknown;
-    }) => {
-      const datum = rowDatum(
-        rows,
-        state?.activeIndex ?? state?.activeTooltipIndex,
-        xKey,
-      );
-      if (datum) onDatumClick(datum);
+    props: {
+      style: { cursor: "pointer" } as CSSProperties,
+      onClick: (
+        _state: unknown,
+        event?: ReactMouseEvent<SVGGraphicsElement>,
+      ) => {
+        if (!event) return;
+        const index = locatorRef.current?.(getRelativeCoordinate(event));
+        const datum = rowDatum(rows, index, xKey);
+        if (datum) onDatumClick(datum);
+      },
     },
+    locator: <ChartClickLocator locatorRef={locatorRef} />,
   };
 }
 
@@ -3903,6 +3967,7 @@ function ComboRenderer({
     drilldownValueKeys,
     valueFormatter,
   );
+  const chartClick = useChartClick(rows, xKey, onDatumClick);
   const barKeySet = new Set(barKeys);
 
   return (
@@ -3924,8 +3989,9 @@ function ComboRenderer({
         <ComposedChart
           data={rows}
           margin={chartMargin.margin}
-          {...chartClickProps(rows, xKey, onDatumClick)}
+          {...chartClick.props}
         >
+          {chartClick.locator}
           {categoryLabels ? (
             <CategoryXAxis
               dataKey={xKey}
@@ -4107,6 +4173,7 @@ function TimeSeriesRenderer({
   const eventGroups = useEventMarkerGroups(panelEvents, chartRows, xKey);
   const chartMargin = useDataNoteChartMargin(dataNoteLayout.shaded);
   const xPadding = useEventMarkerAxisPadding(eventGroups, chartRows, xKey);
+  const chartClick = useChartClick(chartRows, xKey, onDatumClick);
 
   if (chartType === "line") {
     return (
@@ -4128,8 +4195,9 @@ function TimeSeriesRenderer({
           <LineChart
             data={chartRows}
             margin={chartMargin.margin}
-            {...chartClickProps(chartRows, xKey, onDatumClick)}
+            {...chartClick.props}
           >
+            {chartClick.locator}
             <XAxis
               dataKey={xKey}
               stroke="hsl(var(--muted-foreground))"
@@ -4248,8 +4316,9 @@ function TimeSeriesRenderer({
           key={JSON.stringify(yKeys)}
           data={chartRows}
           margin={chartMargin.margin}
-          {...chartClickProps(chartRows, xKey, onDatumClick)}
+          {...chartClick.props}
         >
+          {chartClick.locator}
           {showFill && (
             <defs>
               {yKeys.map((key, i) => (

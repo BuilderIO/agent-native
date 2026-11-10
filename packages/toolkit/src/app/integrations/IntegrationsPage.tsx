@@ -79,6 +79,7 @@ import {
 } from "../settings/shell/context.js";
 import { settingsPageHref } from "../settings/shell/routing.js";
 import { useBuilderStatus } from "../settings/useBuilderStatus.js";
+import { connectedServerIntegrationId } from "./connected-server-id.js";
 import {
   startMcpOAuthReconnect,
   useMcpIntegrationsController,
@@ -256,6 +257,8 @@ function ConnectedServerTile({
   canRemove,
   reconnecting,
   reconnectError,
+  detailHref,
+  onOpen,
   onReconnect,
   onRemove,
 }: {
@@ -264,13 +267,20 @@ function ConnectedServerTile({
   canRemove: boolean;
   reconnecting: boolean;
   reconnectError: string | null;
+  detailHref: string;
+  onOpen: () => void;
   onReconnect: () => void;
   onRemove: () => void;
 }) {
   const t = useT();
-  // A connected server can carry an error too: the tools it held back.
-  const hasError =
-    server.status.state !== "unknown" && Boolean(server.status.error);
+  const serverError =
+    server.status.state !== "unknown" ? server.status.error : null;
+  const error = reconnectError
+    ? t("mcpIntegrations.reconnectFailed", { error: reconnectError })
+    : serverError
+      ? t("mcpIntegrations.connectionErrorReason", { reason: serverError })
+      : null;
+  const hasError = server.status.state === "error" || Boolean(error);
   const scope =
     server.scope === "user"
       ? t("mcpIntegrations.personal")
@@ -286,64 +296,85 @@ function ConnectedServerTile({
       className="flex min-w-0 items-center gap-3 rounded-lg p-2.5"
       data-connected-server={server.name}
     >
-      {logo}
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-foreground">
-          {server.name}
-        </span>
-        <span className="block truncate text-xs leading-5 text-muted-foreground">
-          {detail}
-        </span>
-        {server.status.state !== "unknown" && server.status.error ? (
-          <span
-            className="block truncate text-xs leading-5 text-destructive"
-            title={server.status.error}
-          >
-            {reconnectError
-              ? t("mcpIntegrations.reconnectFailed", { error: reconnectError })
-              : t("mcpIntegrations.connectionErrorReason", {
-                  reason: server.status.error,
-                })}
+      {/*
+        A connected tile opens the same detail page a catalog tile does: status, scope,
+        tools, Reconnect and Remove. It used to be an inert div with only a "…" menu, so
+        a connected remote MCP server (Steve's "notion", 11/6) could not be opened at all.
+        The menu stays outside the anchor so its clicks never navigate.
+      */}
+      <a
+        href={detailHref}
+        onClick={(event) => {
+          if (isModifiedClick(event)) return;
+          event.preventDefault();
+          onOpen();
+        }}
+        data-connected-server-link={server.name}
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-start transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {logo}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-foreground">
+            {server.name}
           </span>
-        ) : null}
-      </span>
-      {hasError || canRemove ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              disabled={reconnecting}
-              aria-label={t(`${K}.moreActions`, { name: server.name })}
+          <span className="block truncate text-xs leading-5 text-muted-foreground">
+            {detail}
+          </span>
+          {error ? (
+            <span
+              className="block truncate text-xs leading-5 text-muted-foreground"
+              title={error}
             >
-              {reconnecting ? (
-                <Spinner aria-hidden="true" />
-              ) : (
-                <IconDots aria-hidden="true" />
-              )}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
-            {hasError ? (
-              <DropdownMenuItem onSelect={onReconnect}>
-                <IconRefresh className="size-4" aria-hidden="true" />
-                {t("mcpIntegrations.reconnect")}
-              </DropdownMenuItem>
-            ) : null}
-            {hasError && canRemove ? <DropdownMenuSeparator /> : null}
-            {canRemove ? (
-              <DropdownMenuItem
-                onSelect={onRemove}
-                className="text-destructive focus:text-destructive"
-              >
-                <IconTrash className="size-4" aria-hidden="true" />
-                {t(`${K}.remove`)}
-              </DropdownMenuItem>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              {error}
+            </span>
+          ) : null}
+        </span>
+      </a>
+      {hasError ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onReconnect}
+          disabled={reconnecting}
+        >
+          {reconnecting ? <Spinner aria-hidden="true" /> : null}
+          {t("mcpIntegrations.reconnect")}
+        </Button>
       ) : null}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            disabled={reconnecting}
+            aria-label={t(`${K}.moreActions`, { name: server.name })}
+          >
+            {reconnecting ? (
+              <Spinner aria-hidden="true" />
+            ) : (
+              <IconDots aria-hidden="true" />
+            )}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem onSelect={onReconnect}>
+            <IconRefresh className="size-4" aria-hidden="true" />
+            {t("mcpIntegrations.reconnect")}
+          </DropdownMenuItem>
+          {canRemove ? <DropdownMenuSeparator /> : null}
+          {canRemove ? (
+            <DropdownMenuItem
+              onSelect={onRemove}
+              className="text-destructive focus:text-destructive"
+            >
+              <IconTrash className="size-4" aria-hidden="true" />
+              {t(`${K}.remove`)}
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
@@ -553,10 +584,13 @@ export function IntegrationsPage({ appName }: IntegrationsPageProps) {
       isMcpIntegrationUrl(item, server.url),
     );
     const key = serverKey(server);
+    const integrationId = connectedServerIntegrationId(server, catalog);
     return (
       <ConnectedServerTile
         key={key}
         server={server}
+        detailHref={settingsPageHref("integrations", integrationId)}
+        onOpen={() => navigate("integrations", integrationId)}
         logo={
           integration ? (
             catalogLogo(integration)

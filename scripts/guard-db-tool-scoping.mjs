@@ -38,6 +38,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "private payload cleanup outbox processed by Content source actions",
   "content:document_property_value_tombstones":
     "property generation bookkeeping written only by a database trigger; holds no content",
+  "content:content_private_media_references":
+    "page-to-image links; the private image route checks the page's access before using one",
   "content:content_webhook_deliveries":
     "webhook delivery outbox sent by the Content webhook sweep; list-content-webhooks shows delivery status to admins",
   "analytics:bigquery_cache": "provider cache, not a user-facing resource",
@@ -148,15 +150,6 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "slides:deck_access_request_limits":
     "internal anonymous access-request throttling buckets",
   "slides:slide_comments": "child rows scoped through decks",
-  "slides-2:deck_share_links":
-    "public share-token snapshots scoped by token and created through authorized deck actions",
-  "slides-2:deck_events":
-    "deck access-request audit rows read and written through scoped actions",
-  "slides-2:deck_access_request_limits":
-    "internal anonymous access-request throttling buckets",
-  "slides-2:slide_comments": "child rows scoped through authorized decks",
-  "slides-2:uploaded_asset_object_lifecycle":
-    "global stored-object identity lifecycle registry, accessed only by the uploaded asset lifecycle helper",
 };
 
 async function* walk(dir) {

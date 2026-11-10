@@ -50,33 +50,22 @@ describe("recording sharing adoption", () => {
     expect(summary).toContain("shareDialog.expiresOn");
   });
 
-  it("holds private to organization, cancels, then retries a failed confirmation", async () => {
+  it("shares private with the organization at once", async () => {
     await render();
-    await select(button("General access"), "Organization");
-    expect(mocks.visibility).not.toHaveBeenCalled();
-    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
-    await click(button("Cancel"));
-    expect(mocks.visibility).not.toHaveBeenCalled();
-    await select(button("General access"), "Organization");
-    mocks.visibility.mockRejectedValueOnce(new Error("save unavailable"));
-    await click(button("Share with organization"));
-    expect(
-      document.querySelector('[role="alertdialog"]')?.textContent,
-    ).toContain("save unavailable");
-    await click(button("Retry"));
-    expect(mocks.visibility).toHaveBeenCalledTimes(2);
-    expect(mocks.visibility).toHaveBeenLastCalledWith({
+    await select(button("General access"), "Anyone in your organization");
+    // oracle-change: recordings no longer ask before opening to the organization; only resource types that set confirmOrgVisibility (chats) show the confirm, cancel and retry dialog
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(mocks.visibility).toHaveBeenCalledWith({
       resourceType: "recording",
       resourceId: "clip-test",
       visibility: "org",
     });
-    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
   });
 
   it("narrows public to organization immediately", async () => {
     mocks.data!.visibility = "public";
     await render({ initialVisibility: "public" });
-    await select(button("General access"), "Organization");
+    await select(button("General access"), "Anyone in your organization");
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
     expect(mocks.visibility).toHaveBeenCalledWith({
       resourceType: "recording",
@@ -95,7 +84,7 @@ describe("recording sharing adoption", () => {
       document.querySelector<HTMLInputElement>('input[type="checkbox"]')
         ?.checked,
     ).toBe(true);
-    await click(button("Add"));
+    await click(button("Invite"));
     expect(mocks.share).toHaveBeenCalledWith(
       expect.objectContaining({
         resourceType: "recording",
@@ -115,7 +104,7 @@ describe("recording sharing adoption", () => {
     const row = Array.from(document.querySelectorAll("li")).find((el) =>
       el.textContent?.includes("viewer@example.test"),
     )!;
-    await select(button("Role", row), "Editor");
+    await select(button("Role", row), "Can edit");
     expect(mocks.share).toHaveBeenCalledWith(
       expect.objectContaining({
         principalId: "viewer@example.test",
@@ -127,8 +116,8 @@ describe("recording sharing adoption", () => {
     await act(async () =>
       mocks.share.mock.calls[0][1].onError(new Error("role denied")),
     );
-    expect(row.textContent).toContain("Viewer");
-    await click(button("Remove", row));
+    expect(row.textContent).toContain("Can view");
+    await select(button("Role", row), "Remove access");
     expect(mocks.unshare).toHaveBeenCalledWith(
       {
         resourceType: "recording",
@@ -248,7 +237,7 @@ describe("recording sharing adoption", () => {
       (document.getElementById("share-password-required") as HTMLButtonElement)
         .disabled,
     ).toBe(false);
-    expect(document.querySelector('button[aria-label="Remove"]')).toBeNull();
+    expect(document.querySelector('button[aria-label="Role"]')).toBeNull();
   });
 
   it("does not fetch share details for viewer reshares and keeps unprotected agent handoff", async () => {

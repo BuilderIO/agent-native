@@ -736,6 +736,7 @@ describe("runLoomImportJob", () => {
     expect(mockReleaseHostedClipRecording).toHaveBeenCalledWith({
       recordingId: "rec_embed_hosted",
       ownerEmail: "owner@example.com",
+      reason: "loom_embed_fallback",
     });
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -898,3 +899,11 @@ describe("runLoomImportJob", () => {
     );
   });
 });
+vi.mock("../../server/lib/recording-media-lifecycle.js", () => ({
+  beginMediaProduction: vi.fn(async () => "fake-producer"),
+  finishMediaProduction: vi.fn(async () => undefined),
+  withRecordingMediaProduction: async (
+    _input: unknown,
+    produce: () => Promise<unknown>,
+  ) => produce(),
+}));

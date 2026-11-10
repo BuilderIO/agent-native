@@ -100,6 +100,7 @@ const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
 export type PromptComposerFile = File;
 
 export interface PromptComposerSubmitOptions {
+  references?: Reference[];
   intent?: ComposerSubmitIntent;
   steer?: boolean;
   /** Clear the submitted draft once the host owns the message and its failure recovery. */
@@ -122,6 +123,11 @@ export interface PromptComposerProps {
   onRemoveContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
+  /**
+   * Claims a paste as app context before the composer handles it. Return true
+   * when the paste was taken, so nothing is inserted or attached.
+   */
+  onPasteContext?: (clipboard: DataTransfer) => boolean;
   /** When provided, + opens this shared Add menu; a typed @ also suggests its context sources. */
   contextMenuItems?: readonly ComposerContextMenuItem[];
   /** Called when the user submits the composer. */
@@ -185,6 +191,8 @@ export interface PromptComposerProps {
   queuesBehindSubmission?: boolean;
   /** Called when a host-gated composer is clicked while it is disabled. */
   onDisabledClick?: () => void;
+  /** Called when the composer is clicked while the host shows its setup card. */
+  onSetupCardClick?: () => void;
   /** Override the generic document attachment cap for a multipart host. */
   maxDocumentAttachmentBytes?: number;
   /** Label used in the visible document attachment limit error. */
@@ -234,9 +242,9 @@ export interface PromptComposerProps {
    */
   extensionTools?: boolean;
   /** Programmatically seed the composer with plain text. */
-  initialText?: string;
+  initialText?: string | undefined;
   /** Stable key used to re-apply `initialText` when the host picks a preset. */
-  initialTextKey?: string | number;
+  initialTextKey?: string | number | undefined;
   /** Let an explicit host handoff replace a saved draft. */
   initialTextOverridesSavedDraft?: boolean;
   /** Skip onTextChange notifications caused only by initial draft setup. */
@@ -787,6 +795,7 @@ function PromptComposerInner({
   onRemoveContextItem,
   onInspectContextItem,
   onRetryContextItem,
+  onPasteContext,
   contextMenuItems,
   placeholder,
   replyPlaceholder,
@@ -803,6 +812,7 @@ function PromptComposerInner({
   willQueue = false,
   queuesBehindSubmission,
   onDisabledClick,
+  onSetupCardClick,
   maxDocumentAttachmentBytes,
   documentAttachmentLimitLabel,
   autoFocus,
@@ -966,8 +976,7 @@ function PromptComposerInner({
     : undefined;
   const composerModelListLoading =
     showModelSelector &&
-    (modelListLoading ??
-      (availableModels ? availableModels.length === 0 : models.isLoading));
+    (modelListLoading ?? (availableModels ? false : models.isLoading));
   const handleModelChange = showModelSelector
     ? (onModelChange ?? models.onModelChange)
     : undefined;
@@ -1019,9 +1028,12 @@ function PromptComposerInner({
     disabled || (missingApiKey && setupCardVisible),
   );
   const handleDisabledComposerClick = useCallback(() => {
-    if (missingApiKey) setSetupBouncePulse((pulse) => pulse + 1);
-    onDisabledClick?.();
-  }, [missingApiKey, onDisabledClick]);
+    if (setupCardVisible) {
+      setSetupBouncePulse((pulse) => pulse + 1);
+      onSetupCardClick?.();
+    }
+    if (composerDisabled) onDisabledClick?.();
+  }, [composerDisabled, setupCardVisible, onDisabledClick, onSetupCardClick]);
   const validateEngineBeforeSubmit = useCallback(async () => {
     if (!engineStatusChecksEnabled) return "configured" as const;
     try {
@@ -1114,6 +1126,7 @@ function PromptComposerInner({
         inlineTextAttachments,
       });
       await onSubmit(finalText, files, references, {
+        references,
         intent: submitOptions?.intent ?? "immediate",
         ...(submitOptions?.steer ? { steer: true } : {}),
         onLocalSubmit: submitOptions?.onLocalSubmit,
@@ -1158,6 +1171,7 @@ function PromptComposerInner({
       <AgentComposerFrame
         className={cn(
           "text-start",
+          setupCardVisible && "agent-composer-setup-gated",
           (composerDisabled ||
             (engineStatusChecksEnabled && engineState === "missing") ||
             (missingApiKey && setupCardVisible)) &&
@@ -1169,9 +1183,15 @@ function PromptComposerInner({
         rootStyle={rootStyle}
         layoutVariant={layoutVariant}
         noticeOutlet={noticeOutlet}
-        onClick={composerDisabled ? handleDisabledComposerClick : undefined}
+        onClickCapture={
+          setupCardVisible || composerDisabled
+            ? handleDisabledComposerClick
+            : undefined
+        }
       >
-        {engineState === "unavailable" && !engineNoticeDismissed ? (
+        {engineState === "unavailable" &&
+        !setupCardVisible &&
+        !engineNoticeDismissed ? (
           <ComposerNotice
             noticeId="provider-status-unavailable"
             actions={
@@ -1197,6 +1217,7 @@ function PromptComposerInner({
           onRemoveContextItem={onRemoveContextItem}
           onInspectContextItem={onInspectContextItem}
           onRetryContextItem={onRetryContextItem}
+          onPasteContext={onPasteContext}
           attachmentsEnabled={attachmentsEnabled}
           onAttachmentRequest={onAttachmentRequest}
           contextButtonTooltipDisabled={contextButtonTooltipDisabled}

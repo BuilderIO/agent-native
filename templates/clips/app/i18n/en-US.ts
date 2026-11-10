@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Reference a recording…",
+    group: "Recordings",
+    authentication: "Sign in to add a reference.",
+    invalid: "Choose a valid reference before sending.",
+    unavailable:
+      "A selected reference is no longer available. Remove it or choose it again.",
+  },
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
   meetingBrowserConfirmation:
     "Clips sees microphone activity in this browser, but can't tell which tab is in the meeting.",
@@ -250,6 +258,47 @@ const messages = {
     clipsRestoreFailed: "{{count}} clips could not be restored",
     clipsPermanentlyDeleted: "{{count}} clips permanently deleted",
     clipsDeleteFailed: "{{count}} clips could not be deleted",
+    deletedMediaPending:
+      "Video removed from Clips. Deletion checks are running.",
+    deletedMediaBlocked:
+      "Video removed from Clips. Couldn't confirm file deletion.",
+    deletedMediaRetained:
+      "Recording deleted. Media files other recordings still use were kept.",
+    clipsDeletedMediaPending:
+      "Videos removed from Clips: {{count}}. Deletion checks are running.",
+    clipsDeletedMediaBlocked:
+      "Videos removed from Clips: {{count}}. Couldn't confirm file deletion.",
+    clipsDeletedMediaRetained:
+      "Recordings deleted: {{count}}. Media files other recordings still use were kept.",
+    deletedMediaFinalizing:
+      "Video removed from Clips. Storage usage update needs a retry.",
+    clipsDeletedMediaFinalizing:
+      "Videos removed from Clips: {{count}}. Storage usage update needs a retry.",
+    mediaCleanupFinalizing: "Storage usage update needs a retry",
+    mediaCleanupFinalizingHelp:
+      "File-removal checks finished, but this video may still count toward your storage limit. Retry usage update to update your storage total.",
+    mediaCleanupListLabel: "Media removal",
+    mediaCleanupPending: "Deletion checks in progress",
+    mediaCleanupPendingHelp:
+      "Clips continues checking in the background. You can leave this page and check Trash for updates.",
+    mediaCleanupBlocked: "Couldn't confirm video file deletion",
+    mediaCleanupBlockedHelp:
+      "Stored video files may still exist. Retry removal starts another attempt. You can leave this page and check Trash for the result.",
+    mediaCleanupReconnect:
+      "Reconnect storage to remove media files from deleted recordings",
+    mediaCleanupRetained:
+      "Shared media files from deleted recordings are kept while other recordings use them",
+    mediaCleanupHelp: "More info",
+    mediaCleanupRetryFiles: "Retry removal",
+    mediaCleanupRetryingFiles: "Retrying video file deletion",
+    mediaCleanupRetryUsage: "Retry usage update",
+    mediaCleanupRetryingUsage: "Retrying storage usage update",
+    mediaCleanupRemoved: "Media files removed",
+    mediaCleanupUsageUpdated: "Storage usage updated",
+    mediaCleanupStillBlocked: "Still couldn't confirm video file deletion",
+    mediaCleanupStillFinalizing: "Storage usage update still needs a retry",
+    mediaCleanupRetryFailed: "Couldn't start the retry. Try again.",
+    mediaCleanupLoadFailed: "Couldn't load media removal status",
   },
   recordingRoute: {
     pageTitle: "Clip recording · Clips",
@@ -530,6 +579,13 @@ const messages = {
     desktopHint:
       "To start notes, open Clips Desktop from the menu bar and choose Start Meeting Notes, or click Start notes when the reminder appears. Clips captures mic + system audio and writes the transcript here.",
     getDesktopApp: "Get desktop app",
+    earlierAudioAdded_one: "Added {{count}} minute from before you started",
+    earlierAudioAdded_other: "Added {{count}} minutes from before you started",
+    earlierAudioUnreadable: "Couldn't check this transcript for earlier audio",
+    removeEarlierAudioTitle: "Remove earlier audio?",
+    removeEarlierAudioDescription:
+      "This takes it out of the transcript and rebuilds the summary, action items, and Clip description, even if you wrote that description yourself. A generated title is rebuilt too; one you chose stays. Any chapters are deleted too.",
+    couldNotRemoveEarlierAudio: "Couldn't remove earlier audio",
     generateNotesFailed: "Couldn't generate summary. Try again.",
     attendee_one: "{{count}} attendee",
     attendee_other: "{{count}} attendees",
@@ -580,6 +636,8 @@ const messages = {
     noMatches: "No matches.",
     noTranscript: "No transcript yet.",
     noTranscriptCaptured: "No transcript was captured.",
+    partialTranscript:
+      "Partial transcript: this recording was cut off, so some of it may be missing.",
     backupFailed:
       "No speech was captured locally, and backup transcription did not finish. Retry or check microphone and speech permissions.",
     backupNotSetup:
@@ -684,7 +742,7 @@ const messages = {
     openInCodex: "Open in Codex",
     copyAgentPrompt: "Copy agent prompt",
     agentPrompt:
-      "Read this Clips agent context URL: {{agentContextUrl}}. Read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images. Keep id and agent_access exactly as provided. For any error, inspect the JSON failureKind, error, and nextStep. If failureKind=access, explain that the link does not grant access; for a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link. If failureKind=media while the transcript works, explain that the stored media could not be retrieved; another link will not fix it. If failureKind=processing, follow nextStep; this does not mean the clip is missing or the link is invalid. If failureKind=expired, ask the owner to extend or remove the clip expiry in the Clips Share menu, save, then choose {{shareWithAgents}} and send the new link. Also use browserDiagnostics when present for a bug report. If your tool cannot return images or open these links, say that your tool has this limit; it is not a Clips error.",
+      "Read this Clips agent context URL: {{agentContextUrl}}. Read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images. Keep id and agent_access exactly as provided. For any error, inspect the JSON failureKind, error, and nextStep. If failureKind=access, explain that the link does not grant access; for a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link. If failureKind=media while the transcript works, explain that the stored media could not be retrieved; another link will not fix it. If failureKind=processing, follow nextStep; this does not mean the clip is missing or the link is invalid. If failureKind=expired, ask the owner to extend or remove the clip expiry in the Clips Share menu, save, then choose {{shareWithAgents}} and send the new link. Also use browserDiagnostics when present for a bug report. If you can't open the frame URLs as images, call the Clips get-recording-frames tool with the recording id from this context URL if it's available. If not, tell the user that connecting Clips at {{connectUrl}} lets you see frames.",
     agentTokenDescription:
       "Temporary read-only link for agents, since this clip is not public. Expires in 2 hours.",
     agentPublicDescription:
@@ -1404,6 +1462,7 @@ const messages = {
   transcriptBubbles: {
     listening: "Listening…",
     noTranscript: "No transcript yet.",
+    unreadable: "Couldn't read this transcript.",
     liveTranscriptDescription:
       "The live transcript will appear here once notes start.",
     me: "Me",
@@ -1948,6 +2007,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "{{count}} free clip left",
     freeClipsLeft_other: "{{count}} free clips left",
+    activateBuilder: "Activate Builder.io",
     hostedClipsExhaustedTitle: "Connect Builder.io for free to keep recording",
     hostedClipsExhaustedDescription:
       "Your free hosted clips are used up. Connect Builder.io storage to keep saving clips to your library.",
@@ -2151,6 +2211,11 @@ const messages = {
     flowOriginalTranscript: "Show original transcript",
     flowCleanupSkipped: "Text cleanup was skipped; original text was kept",
     flowBacktrackSkipped: "Text editing was skipped; recognized text was kept",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet not downloaded",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Parakeet downloading",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet loading",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet busy",
+    flowAppleSpeechParakeetFailed: "Apple Speech · Parakeet failed to load",
     flowCancelDictation: "Cancel dictation",
     flowCopying: "Copying transcript…",
     aiProcessed: "AI Processed",

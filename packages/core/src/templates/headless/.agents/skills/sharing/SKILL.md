@@ -28,8 +28,8 @@ change the app's visibility or manage its share grants.
 ### Three visibility levels
 
 - **`private`** — owner + explicit share grants only. Default.
-- **`org`** — owner + explicit grants + anyone in the same org (read-only).
-- **`public`** — owner + explicit grants + **anyone with the link** (read-only). Public docs do NOT appear in other users' list/sidebar/search results — `accessFilter` omits them by default. They're reachable by id (`resolveAccess` admits them) so direct links and SSR routes like `/p/:id` keep working. If a list endpoint legitimately needs cross-user public discovery (a template gallery, etc.), pass `accessFilter(table, shares, ctx, minRole, { includePublic: true })`.
+- **`org`** — owner + explicit grants + anyone in the same org. Members can view by default; `set-resource-visibility` with `role` lets them comment or edit. That role is stored as the share grant to the resource's own org, so it is removed when the resource leaves `org`.
+- **`public`** — owner + explicit grants + **anyone with the link**. They can view by default; `set-resource-visibility` with `role: "commenter"` lets signed-in people with the link comment (never edit). That role is a share row for the `link` principal, which is never listed or shared as a person, and it is removed when the resource leaves `public`. Public docs do NOT appear in other users' list/sidebar/search results — `accessFilter` omits them by default. They're reachable by id (`resolveAccess` admits them) so direct links and SSR routes like `/p/:id` keep working. If a list endpoint legitimately needs cross-user public discovery (a template gallery, etc.), pass `accessFilter(table, shares, ctx, minRole, { includePublic: true })`.
 
 Visibility is coarse. Explicit share grants are fine-grained (per user, reusable
 organization group, or per org).
@@ -98,6 +98,9 @@ registerShareableResource({
   getDb,
 });
 ```
+
+Add `agentRead: { actions: ["get-deck"] }` naming the MCP tool that reads one
+resource, so the share panel can send it to Claude, Claude Code and Codex.
 
 The `type` string is the stable id the UI and actions use. `getDb` is required — the framework-level share actions use it to reach your template's DB.
 
@@ -171,6 +174,10 @@ For delete actions use `"admin"` (or fold in `"owner"` to require the real owner
 
 `authorize` is a different axis, not an alternative: it gates whether the caller may run the operation at all, while `assertAccess` scopes which row they may touch. A write action restricted to some teammates needs both — `authorize: appAccess.requireAny(...)` on the action, `assertAccess` inside `run`.
 
+## Check many resources at once
+
+Never call `resolveAccess` in a loop over a list: each call runs several queries, so a page that checks every row pays that per row. When rows come from somewhere `accessFilter` cannot reach (a manifest, a gateway response), use `resolveAccessMany("deck", ids, ctx, { skipResourceBody: true })`. It returns a `Map` of the ids the viewer can open, makes the same decision as `resolveAccess`, and reads rows, shares, org membership, and group membership once. Give a registration that uses `canManageAccess` a `canManageAccessKey` (for example `resource.orgId`) so the manager check is asked once per key, not once per row.
+
 ## Create actions must set owner
 
 When inserting a new row, fill `ownerEmail` and `orgId` from the request context:
@@ -214,27 +221,43 @@ For list views, show `<VisibilityBadge visibility={row.visibility} />` next to e
 
 ## Standard share surface
 
-All app share popovers should use the same compact surface contract:
+All app share popovers use one single-panel surface, top to bottom:
+
+1. The invite field: one input for people, organization groups, and the
+   org's agents, a role picker, and Invite.
+2. People with access: the owner, people, groups, and agents in one list.
+   Roles read "Can view", "Can comment", "Can edit", "Can manage access";
+   Remove access lives in each row's role menu.
+3. General access: Only people invited / Anyone at <org> / Anyone with the
+   link. Anyone at <org> has a role picker (Can view / Can comment / Can
+   edit) and Anyone with the link has one (Can view / Can comment); the
+   grants behind them are not listed under People. Changes save at once;
+   only a type registered with `confirmOrgVisibility: true` (chats) asks
+   before going from private to the organization.
+4. A footer with Copy link (`shareUrl`) and a Send to menu.
+
+Rules:
 
 - Use the text-only `ShareTrigger` from `@agent-native/toolkit/sharing`.
-- Render ordinary links with `ShareCopyRow`, which exposes a Copy action without
-  printing the raw URL.
-- Keep general access and individual people access in the standard Core sharing
-  flow. The people flow supports email invites, roles, notifications, and
-  removal through the shared share actions.
-- Add `ShareAgentsSection` only when the resource has a real agent-readable
-  link or prompt. Keep it collapsed by default and supply domain-specific
-  content through the shared section shell.
-- When `supportsGroupShares` is enabled, keep the existing people input as the
-  only entry point and include organization groups in its autocomplete. Do not
-  add a separate group-management surface to each resource.
-- App-specific tabs or controls may remain when they represent a real domain
-  action (for example, an embed-code editor), but they should retain the same
-  trigger, copy-row, access, and spacing language.
-
-`ShareDisclosureSection` is the toolkit-owned shell for optional expandable
-share details; use its `ShareAgentsSection` or `SharePeopleSection` wrappers
-instead of creating another collapsible share panel in a template.
+- Never split people and agents into separate tabs or sections. Agents that
+  can hold their own access are org service principals
+  (`svc-<name>@service.<orgId>`); `list-resource-shares` returns them as
+  `agents` for managers, and they are shared as ordinary `user` principals.
+  Agents that connect over MCP or OAuth act as the person who connected
+  them, so they get no row: put ways to hand the resource to them in Send to.
+- Send to (`sendTo`) holds every handoff: `openInAgent` (Claude, Claude Code,
+  Codex), resource-specific `items`, `copyAgentPrompt`, and
+  `openMcpSettings`. Do not add another agent panel or tab.
+- Declare `agentRead: { actions: ["get-<thing>"] }` (plus `idParam` when the
+  tool's id argument is not `id`) on the registration. The panel then builds
+  Open in Claude, Claude Code and Codex and Copy agent prompt itself: the
+  prompt sends the agent to this app's MCP server to call that tool with the
+  person's own permissions. Pass `sendTo.openInAgent` only when the app needs
+  a different prompt. Agent-readable resources also get Copy agent link.
+- When `supportsGroupShares` is enabled, groups come from the same invite
+  field's autocomplete. Do not add a separate group-management surface.
+- App-specific tabs (`shareTabs`) may remain when they represent a real
+  domain action (for example, an embed-code editor).
 
 ## Actions available everywhere
 
@@ -245,7 +268,7 @@ The framework auto-mounts these actions in every template — no per-template bo
 | `share-resource`           | `resourceType, resourceId, principalType, principalId, role, notify?, resourceUrl?, message?` | Grant a user, group, or org access. `notify` defaults to true for individual user shares; `resourceUrl` can provide the direct app link and `message` an optional short note for the notification email. |
 | `unshare-resource`         | `resourceType, resourceId, principalType, principalId`                         | Revoke access.                            |
 | `list-resource-shares`     | `resourceType, resourceId`                                                     | Current visibility + all share grants.    |
-| `set-resource-visibility`  | `resourceType, resourceId, visibility`                                         | Change to `private` / `org` / `public`.  |
+| `set-resource-visibility`  | `resourceType, resourceId` (or `resourceIds`, up to 100), `visibility`, `role?` | Change to `private` / `org` / `public`. With `org`, `role` (`viewer` / `commenter` / `editor`) sets what members can do; with `public`, `role` (`viewer` / `commenter`) sets what signed-in people with the link can do. With `resourceIds`, every resource is checked first and none change if one can't; one approval covers the call. |
 
 Both the agent and the UI use these same actions. The agent calls them as tools;
 UI code should use `ShareButton` / `ShareDialog` or the action client hooks

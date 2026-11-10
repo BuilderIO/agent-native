@@ -20,6 +20,10 @@ import {
   type McpServerScope,
 } from "@agent-native/core/client/resources/use-mcp-servers";
 import {
+  listRegisteredSecrets,
+  type SecretStatus,
+} from "@agent-native/core/client/secrets";
+import {
   Alert,
   AlertDescription,
   AlertTitle,
@@ -55,18 +59,23 @@ import {
   IconPlugConnected,
 } from "@tabler/icons-react";
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
   useRef,
   useState,
   type FormEvent,
+  type ReactNode,
 } from "react";
 import { toast } from "sonner";
 
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
-import { saveApiKeyValue } from "../settings/api-keys/api-keys-client.js";
+import {
+  removeApiKeyValue,
+  saveApiKeyValue,
+} from "../settings/api-keys/api-keys-client.js";
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import {
   useSettingsPageHeader,
@@ -74,6 +83,7 @@ import {
 } from "../settings/shell/context.js";
 import type { SettingsPageContext } from "../settings/shell/registry.js";
 import { submitToAgent } from "../shared/index.js";
+import { connectedServerIntegrationId } from "./connected-server-id.js";
 import {
   BrandMark,
   BreadcrumbTitle,
@@ -87,7 +97,10 @@ import {
   catalogWithoutBuilderPublish,
   RemoveServerDialog,
 } from "./IntegrationsPage.js";
-import { useMcpIntegrationsController } from "./IntegrationsPanel.js";
+import {
+  startMcpOAuthReconnect,
+  useMcpIntegrationsController,
+} from "./IntegrationsPanel.js";
 
 const K = "agentChat.settingsShell.integrationDetail";
 const CH = "agentChat.settingsShell.channels";
@@ -306,10 +319,16 @@ function ConnectedRow({
   server,
   canRemove,
   onRemove,
+  onReconnect,
+  reconnecting,
+  reconnectError,
 }: {
   server: McpServer;
   canRemove: boolean;
   onRemove: () => void;
+  onReconnect: () => void;
+  reconnecting: boolean;
+  reconnectError: string | null;
 }) {
   const t = useT();
   const scope =
@@ -324,37 +343,163 @@ function ConnectedRow({
           : t("mcpIntegrations.connected")
       }
       description={
-        server.status.state === "connected"
-          ? [
-              scope,
-              t("mcpIntegrations.toolsAvailable", {
-                count: server.status.toolCount,
-              }),
-              ...(server.status.error
-                ? [
-                    t("mcpIntegrations.connectionErrorReason", {
-                      reason: server.status.error,
-                    }),
-                  ]
-                : []),
-            ].join(" · ")
-          : server.status.state === "error"
-            ? t("mcpIntegrations.connectionErrorReason", {
-                reason: server.status.error,
-              })
-            : scope
+        reconnectError
+          ? t("mcpIntegrations.reconnectFailed", { error: reconnectError })
+          : server.status.state === "connected"
+            ? [
+                scope,
+                t("mcpIntegrations.toolsAvailable", {
+                  count: server.status.toolCount,
+                }),
+                ...(server.status.error
+                  ? [
+                      t("mcpIntegrations.connectionErrorReason", {
+                        reason: server.status.error,
+                      }),
+                    ]
+                  : []),
+              ].join(" · ")
+            : server.status.state === "error"
+              ? t("mcpIntegrations.connectionErrorReason", {
+                  reason: server.status.error,
+                })
+              : scope
       }
       control={
-        canRemove ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onReconnect}
+            disabled={reconnecting}
+          >
+            {reconnecting ? <Spinner aria-hidden="true" /> : null}
+            {t("mcpIntegrations.reconnect")}
+          </Button>
+          {canRemove ? (
+            <Button
+              type="button"
+              variant="outline-destructive"
+              size="sm"
+              onClick={onRemove}
+            >
+              {t("agentChat.settingsShell.integrations.remove")}
+            </Button>
+          ) : null}
+        </div>
+      }
+    />
+  );
+}
+
+/**
+ * The saved token behind an API fallback lives in the secrets store, not in
+ * the MCP server list, so `connected` must read it from there.
+ */
+function useFallbackToken(secretKey: string | undefined) {
+  const [state, setState] = useState<{
+    key: string;
+    secret: SecretStatus | undefined;
+  } | null>(null);
+  const [failedKey, setFailedKey] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt((value) => value + 1), []);
+  useEffect(() => {
+    if (!secretKey) return;
+    let controller: AbortController | undefined;
+    const load = () => {
+      controller?.abort();
+      const current = new AbortController();
+      controller = current;
+      listRegisteredSecrets({ signal: current.signal })
+        .then((secrets) => {
+          if (current.signal.aborted) return;
+          const secret = secrets.find((entry) => entry.key === secretKey);
+          // A store that answers but cannot tell is as unreadable as one
+          // that fails, and gets the same retry.
+          if (secret?.status === "unknown") {
+            setState(null);
+            setFailedKey(secretKey);
+            return;
+          }
+          setFailedKey(null);
+          setState({ key: secretKey, secret });
+        })
+        .catch(() => {
+          // An unreadable store stays unknown: never offer "Add access
+          // token" over a token that may already be saved. Say so, with a
+          // retry, instead of leaving the page with no action at all.
+          if (current.signal.aborted) return;
+          setState(null);
+          setFailedKey(secretKey);
+        });
+    };
+    load();
+    window.addEventListener("agent-engine:configured-changed", load);
+    return () => {
+      controller?.abort();
+      window.removeEventListener("agent-engine:configured-changed", load);
+    };
+  }, [secretKey, attempt]);
+  const secret = state?.key === secretKey ? state?.secret : undefined;
+  return {
+    failed: Boolean(secretKey) && failedKey === secretKey,
+    retry,
+    known:
+      !secretKey || (state?.key === secretKey && secret?.status !== "unknown"),
+    secret:
+      secret?.status === "set" || secret?.status === "invalid"
+        ? secret
+        : undefined,
+  };
+}
+
+function TokenConnectedRow({
+  secret,
+  onRemove,
+}: {
+  secret: SecretStatus;
+  onRemove: () => Promise<void>;
+}) {
+  const t = useT();
+  const [pending, setPending] = useState(false);
+  return (
+    <SettingsRow
+      label={
+        secret.status === "invalid"
+          ? t("mcpIntegrations.connectionError")
+          : t("mcpIntegrations.connected")
+      }
+      description={
+        secret.scope === "user"
+          ? t("mcpIntegrations.personal")
+          : t("mcpIntegrations.sharedWithWorkspace")
+      }
+      control={
+        secret.managedHere === false ? null : (
           <Button
             type="button"
             variant="outline-destructive"
             size="sm"
-            onClick={onRemove}
+            disabled={pending}
+            onClick={() => {
+              setPending(true);
+              onRemove()
+                .catch((cause: unknown) =>
+                  toast.error(
+                    cause instanceof Error
+                      ? cause.message
+                      : t("mcpIntegrations.connectionError"),
+                  ),
+                )
+                .finally(() => setPending(false));
+            }}
           >
+            {pending ? <Spinner aria-hidden="true" /> : null}
             {t("agentChat.settingsShell.integrations.remove")}
           </Button>
-        ) : null
+        )
       }
     />
   );
@@ -383,6 +528,8 @@ export interface IntegrationDetailPageProps {
   id: string;
   appName: string;
   context: SettingsPageContext;
+  /** App-owned settings for this integration, kept within its shared page. */
+  extensionContent?: ReactNode;
 }
 
 /**
@@ -395,9 +542,21 @@ export function IntegrationDetailPage({
   id,
   appName,
   context,
+  extensionContent,
 }: IntegrationDetailPageProps) {
   const catalog = useMemo(catalogWithoutBuilderPublish, []);
   const integration = catalog.find((entry) => entry.id === id);
+  // A connected server that has no catalog entry (a custom integration added by URL) is
+  // still openable: the tile links to its slug, and this resolves the same slug back to
+  // the server, so every connected tile has a detail page rather than only the built-ins.
+  const mcp = useMcpIntegrationsController({ integrations: catalog });
+  const customServer = integration
+    ? undefined
+    : // Every server, not only the connected ones: an ERRORED connection still needs a
+      // page — that is exactly when a person goes looking for Reconnect.
+      mcp.servers.find(
+        (server) => connectedServerIntegrationId(server, catalog) === id,
+      );
   const { navigate } = useSettingsShell();
   const channelId = CHANNEL_ALIASES[id] ?? id;
   const isChannel =
@@ -409,6 +568,15 @@ export function IntegrationDetailPage({
   }, [channelId, isChannel, navigate]);
 
   if (isChannel) return null;
+  if (!integration && customServer) {
+    return (
+      <CustomServerDetail
+        server={customServer}
+        catalog={catalog}
+        integrationId={id}
+      />
+    );
+  }
   if (!integration) return <NotFound />;
   return (
     <IntegrationDetail
@@ -417,7 +585,69 @@ export function IntegrationDetailPage({
       catalog={catalog}
       appName={appName}
       context={context}
+      extensionContent={extensionContent}
     />
+  );
+}
+
+/**
+ * The detail page for a CONNECTED server that has no catalog entry — a custom
+ * integration added by URL. It shows the same facts as a built-in's page (status, scope,
+ * tools, error reason) and the same actions (Reconnect when the connection errored,
+ * Remove), so every connected tile in the grid opens a page worth opening.
+ */
+function CustomServerDetail({
+  server,
+  catalog,
+  integrationId,
+}: {
+  server: McpServer;
+  catalog: DefaultMcpIntegration[];
+  integrationId: string;
+}) {
+  const { navigate } = useSettingsShell();
+  const mcp = useMcpIntegrationsController({ integrations: catalog });
+  const [removing, setRemoving] = useState(false);
+  const canRemove =
+    server.scope === "user" ||
+    mcp.serversQuery.data?.role === "owner" ||
+    mcp.serversQuery.data?.role === "admin";
+  const reconnect = () => {
+    if (server.authMode === "oauth") {
+      startMcpOAuthReconnect(server);
+      return;
+    }
+    void mcp.reconnect(server);
+  };
+  return (
+    <div className="space-y-6" data-connected-server-detail={integrationId}>
+      <header className="space-y-1">
+        <h2 className="text-base font-medium text-foreground">{server.name}</h2>
+        <p className="truncate text-xs text-muted-foreground">{server.url}</p>
+      </header>
+      <ConnectedRow
+        server={server}
+        canRemove={canRemove}
+        onRemove={() => setRemoving(true)}
+        onReconnect={reconnect}
+        reconnecting={mcp.reconnectingKey === `${server.scope}:${server.id}`}
+        reconnectError={
+          mcp.reconnectError?.key === `${server.scope}:${server.id}`
+            ? mcp.reconnectError.message
+            : null
+        }
+      />
+      <RemoveServerDialog
+        server={removing ? server : null}
+        onOpenChange={(open) => {
+          if (!open) setRemoving(false);
+        }}
+        onRemove={async (target) => {
+          await mcp.removeServer(target);
+          navigate("integrations");
+        }}
+      />
+    </div>
   );
 }
 
@@ -426,11 +656,13 @@ function IntegrationDetail({
   catalog,
   appName,
   context,
+  extensionContent,
 }: {
   integration: DefaultMcpIntegration;
   catalog: DefaultMcpIntegration[];
   appName: string;
   context: SettingsPageContext;
+  extensionContent?: ReactNode;
 }) {
   const t = useT();
   const org = useOrg();
@@ -456,7 +688,11 @@ function IntegrationDetail({
   const servers = mcp.servers.filter((server) =>
     isMcpIntegrationUrl(integration, server.url),
   );
-  const serversKnown = mcp.serversQuery.isSuccess || mcp.serversQuery.isError;
+  const apiFallback = getMcpIntegrationApiFallback(integration);
+  const fallbackToken = useFallbackToken(apiFallback?.secretKey);
+  const serversKnown =
+    (mcp.serversQuery.isSuccess || mcp.serversQuery.isError) &&
+    fallbackToken.known;
 
   const connect = async () => {
     if (unavailable || signIn === "token") return;
@@ -506,11 +742,26 @@ function IntegrationDetail({
   connectRef.current = connect;
 
   const logoUrl = integration.logoUrl;
-  const connected = servers.length > 0;
+  const connected =
+    servers.length > 0 || fallbackToken.secret?.status === "set";
   const isAdmin = context.isAdmin;
+  const tokenCheckFailed = fallbackToken.failed;
+  const retryTokenCheck = fallbackToken.retry;
+  useEffect(() => {
+    if (tokenCheckFailed) toast.error(t(`${K}.tokenCheckFailed`));
+  }, [tokenCheckFailed, t]);
   const header = useMemo(() => {
     const action =
-      !serversKnown || connected || unavailable ? null : gate ===
+      tokenCheckFailed && !connected && !unavailable ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={retryTokenCheck}
+        >
+          {t(`${K}.tokenCheckRetry`)}
+        </Button>
+      ) : !serversKnown || connected || unavailable ? null : gate ===
         "workspace" ? (
         isAdmin ? (
           <Button type="button" size="sm" onClick={() => setSetupOpen(true)}>
@@ -557,9 +808,11 @@ function IntegrationDetail({
     isAdmin,
     logoUrl,
     name,
+    retryTokenCheck,
     serversKnown,
     signIn,
     t,
+    tokenCheckFailed,
     unavailable,
   ]);
   useSettingsPageHeader(header);
@@ -733,8 +986,26 @@ function IntegrationDetail({
               server.scope === "user" || role === "owner" || role === "admin"
             }
             onRemove={() => setRemoving(server)}
+            reconnecting={
+              mcp.reconnectingKey === `${server.scope}:${server.id}`
+            }
+            reconnectError={
+              mcp.reconnectError?.key === `${server.scope}:${server.id}`
+                ? mcp.reconnectError.message
+                : null
+            }
+            onReconnect={() => {
+              if (server.authMode === "oauth") startMcpOAuthReconnect(server);
+              else void mcp.reconnect(server);
+            }}
           />
         ))}
+        {apiFallback && fallbackToken.secret ? (
+          <TokenConnectedRow
+            secret={fallbackToken.secret}
+            onRemove={() => removeApiKeyValue(apiFallback.secretKey)}
+          />
+        ) : null}
         {whoRow}
         <SettingsRow
           id="sign-in"
@@ -752,6 +1023,8 @@ function IntegrationDetail({
           }
         />
       </SettingsGroup>
+
+      {extensionContent}
 
       <SettingsGroup id="information" title={t(`${CH}.information`)}>
         <SettingsRow

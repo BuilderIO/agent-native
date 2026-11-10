@@ -124,12 +124,14 @@ import {
   snapshotComposerValue,
   type AgentKitComposerSubmission,
 } from "./composer-submission.js";
+import { CoreFileStorageSetupContext } from "./core-file-storage.js";
 export type { AgentKitComposerSubmission } from "./composer-submission.js";
 
 import { splitAgentKitMessageContext } from "@agent-native/agentkit";
 import type { AgentThreadState } from "@agent-native/agentkit/client";
 import {
   AgentKitCapabilityError,
+  AgentKitUploadError,
   hasActiveAgentRuns,
   isCurrentAgentSuggestion,
   selectAgentSuggestions,
@@ -2266,18 +2268,21 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   messageId,
   foldedReasoningMessageId,
   summarizesTurn = false,
+  part,
 }: {
-  runId?: RunId;
-  afterSequence?: number;
-  throughSequence?: number;
-  excludeAgentActivities?: boolean;
-  isCurrentSegment?: boolean;
+  runId?: RunId | undefined;
+  afterSequence?: number | undefined;
+  throughSequence?: number | undefined;
+  excludeAgentActivities?: boolean | undefined;
+  isCurrentSegment?: boolean | undefined;
   /** The reply this work segment precedes. */
-  messageId?: string;
+  messageId?: string | undefined;
   /** A saved reply whose reasoning before its answer joins this group. */
-  foldedReasoningMessageId?: string;
+  foldedReasoningMessageId?: string | undefined;
   /** This segment is its run's whole turn, so it shows a row with no work. */
-  summarizesTurn?: boolean;
+  summarizesTurn?: boolean | undefined;
+  /** Only the steps' result cards, or only the work row; both by default. */
+  part?: "results" | "row" | undefined;
 }) {
   const {
     threadId,
@@ -2596,6 +2601,15 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
       minute: labels.durationMinuteShort,
       second: labels.durationSecondShort,
     });
+  const resultCards =
+    durableToolResults.length && part !== "row" ? (
+      <div data-agentkit-tool-results="true">
+        {durableToolResults.map(({ tool, Renderer }) => (
+          <Renderer key={tool.id} value={tool} threadId={threadId} />
+        ))}
+      </div>
+    ) : null;
+  if (part === "results") return resultCards;
   if (
     activityItems.length === 0 &&
     durableToolResults.length === 0 &&
@@ -2730,13 +2744,7 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   };
   return (
     <>
-      {durableToolResults.length ? (
-        <div data-agentkit-tool-results="true">
-          {durableToolResults.map(({ tool, Renderer }) => (
-            <Renderer key={tool.id} value={tool} threadId={threadId} />
-          ))}
-        </div>
-      ) : null}
+      {resultCards}
       {hasExpandableActivity || activelyWorking ? (
         <AgentWorkDisclosure
           label={baseSummaryLabel}
@@ -3351,7 +3359,13 @@ function AgentWorkDisclosure({
   children: ReactNode;
 }) {
   const { slots, labels, workedForRowLayout } = useAgentKit();
-  const [open, setOpen] = useState(false);
+  const row = useContext(AgentWorkRowOpenContext);
+  const [open, setOpen] = useState(() => row?.opened.has(row.key) ?? false);
+  useEffect(() => {
+    if (!row) return;
+    if (open) row.opened.add(row.key);
+    else row.opened.delete(row.key);
+  }, [open, row]);
   const contentId = useId();
   const Summary = slots.workedForSummary;
   const failed =
@@ -3366,9 +3380,7 @@ function AgentWorkDisclosure({
     ? failed.split("{{summary}}")
     : ["", ""];
   const fullLabel = failed ? failed.replace("{{summary}}", () => label) : label;
-  const footer = useAgentMessageWorkHost(running ? undefined : messageId);
-  const footerHost = footer?.element ?? null;
-  const handoff = useAgentWorkHandoff(running, footer, setOpen);
+  const footerHost = useAgentMessageWorkHost(messageId);
   const summaryLabel = label ? (
     <span className="agentkit-activities-label">
       {failedBefore || failedAfter ? (
@@ -3401,12 +3413,10 @@ function AgentWorkDisclosure({
   // work with nothing to expand is text, not a disabled button.
   const disclosure = (
     <div
-      ref={handoff.inPlaceRef}
       className="agentkit-activities"
       data-running={running ? "true" : undefined}
       data-expandable={expandable ? "true" : "false"}
       data-open={open ? "true" : "false"}
-      data-handoff={handoff.leavingHeight ? "enter" : undefined}
     >
       <AgentKitDisclosureSummary
         as={expandable || running ? "button" : "static"}
@@ -3435,92 +3445,9 @@ function AgentWorkDisclosure({
       </AgentKitDisclosureContent>
     </div>
   );
-  // Finished work joins its reply's controls under the reply; live work stays
-  // above it, where it is happening. On a live finish the space it left above
-  // the reply closes over the same beat as the row fades in below, so the
-  // reply glides up instead of jumping.
-  return (
-    <>
-      {handoff.leavingHeight ? (
-        <div
-          className="agentkit-work-handoff"
-          data-agentkit-work-handoff="leave"
-          aria-hidden="true"
-          inert
-          style={
-            {
-              "--agentkit-work-handoff-size": `${handoff.leavingHeight}px`,
-            } as CSSProperties
-          }
-        >
-          <AgentKitDisclosureSummary
-            as="static"
-            className="agentkit-activities-summary"
-            rowClassName="agentkit-activities-row"
-            open={false}
-            onToggle={noop}
-            expandable={false}
-            style={workedForRowSummaryStyle(workedForRowLayout)}
-            icon={icon}
-            label={summaryLabel}
-          >
-            {summaryContent}
-          </AgentKitDisclosureSummary>
-        </div>
-      ) : null}
-      {footerHost ? createPortal(disclosure, footerHost) : disclosure}
-    </>
-  );
-}
-
-const AGENT_WORK_HANDOFF_MS = 180;
-
-/**
- * Tracks a work row's move from above its reply to the reply's footer. Only
- * a finish seen live animates (the row ran, or its reply streamed): a saved
- * thread renders the row in place for one unpainted pass before its host
- * registers, and that must not read as a finish. A row opened to watch live
- * work closes as it moves, so its steps never land below the reply.
- */
-function useAgentWorkHandoff(
-  running: boolean | undefined,
-  footer: AgentMessageWorkHost | null,
-  setOpen: (open: boolean) => void,
-) {
-  const prefersReducedMotion = usePrefersReducedMotion();
-  const footerHost = footer?.element ?? null;
-  const live = footer?.live ?? false;
-  const inPlaceRef = useRef<HTMLDivElement>(null);
-  const sawRunningRef = useRef(false);
-  const inPlaceHeightRef = useRef(0);
-  const previousHostRef = useRef<HTMLElement | null>(null);
-  const [leavingHeight, setLeavingHeight] = useState(0);
-  // Measured on every in-place commit, because once the row portals away
-  // its old box is gone. The placeholder keeps the row's margins from the
-  // stylesheet, so only the border box is carried over.
-  useLayoutEffect(() => {
-    if (running) sawRunningRef.current = true;
-    if (footerHost || !inPlaceRef.current) return;
-    inPlaceHeightRef.current = inPlaceRef.current.offsetHeight;
-  });
-  useLayoutEffect(() => {
-    const previousHost = previousHostRef.current;
-    previousHostRef.current = footerHost;
-    if (!footerHost || previousHost) return;
-    if (!live && !sawRunningRef.current) return;
-    setOpen(false);
-    if (prefersReducedMotion || inPlaceHeightRef.current <= 0) return;
-    setLeavingHeight(inPlaceHeightRef.current);
-  }, [footerHost, live, prefersReducedMotion, setOpen]);
-  useEffect(() => {
-    if (!leavingHeight) return;
-    const timer = setTimeout(
-      () => setLeavingHeight(0),
-      AGENT_WORK_HANDOFF_MS + 60,
-    );
-    return () => clearTimeout(timer);
-  }, [leavingHeight]);
-  return { inPlaceRef, leavingHeight: footerHost ? leavingHeight : 0 };
+  // A reply's work sits on its footer line, live or finished, so the finish
+  // never moves it.
+  return footerHost ? createPortal(disclosure, footerHost) : disclosure;
 }
 
 function AgentReasoningPartDisclosure({
@@ -4901,38 +4828,29 @@ function selectedRunModel(
 /**
  * A finished reply's footer offers a host under its message id, and the
  * reply's work row portals into it so it shares the line with the controls.
- * `live` says the footer saw its reply stream, so the row arriving is a
- * finish the reader watched, not a saved reply loading.
  */
-interface AgentMessageWorkHost {
-  element: HTMLElement;
-  live: boolean;
-}
-
 interface AgentMessageWorkHosts {
-  get: (messageId: string) => AgentMessageWorkHost | undefined;
-  set: (messageId: string, host: AgentMessageWorkHost) => void;
+  get: (messageId: string) => HTMLElement | undefined;
+  set: (messageId: string, element: HTMLElement) => void;
   release: (messageId: string, element: HTMLElement) => void;
   subscribe: (listener: () => void) => () => void;
 }
 
 function createAgentMessageWorkHosts(): AgentMessageWorkHosts {
-  const hosts = new Map<string, AgentMessageWorkHost>();
+  const hosts = new Map<string, HTMLElement>();
   const listeners = new Set<() => void>();
   const notify = () => {
     for (const listener of listeners) listener();
   };
   return {
     get: (messageId) => hosts.get(messageId),
-    set(messageId, host) {
-      const current = hosts.get(messageId);
-      if (current?.element === host.element && current.live === host.live)
-        return;
-      hosts.set(messageId, host);
+    set(messageId, element) {
+      if (hosts.get(messageId) === element) return;
+      hosts.set(messageId, element);
       notify();
     },
     release(messageId, element) {
-      if (hosts.get(messageId)?.element !== element) return;
+      if (hosts.get(messageId) !== element) return;
       hosts.delete(messageId);
       notify();
     },
@@ -4943,6 +4861,16 @@ function createAgentMessageWorkHosts(): AgentMessageWorkHosts {
   };
 }
 
+/**
+ * The work rows the reader opened, by run and segment. A segment's row
+ * remounts when narration hides it and again when the run finishes, and an
+ * opened row comes back open.
+ */
+const AgentWorkRowOpenContext = createContext<{
+  key: string;
+  opened: Set<string>;
+} | null>(null);
+
 const AgentMessageWorkHostsContext =
   createContext<AgentMessageWorkHosts | null>(null);
 
@@ -4952,7 +4880,7 @@ function noopSubscribe() {
 
 function useAgentMessageWorkHost(
   messageId: string | undefined,
-): AgentMessageWorkHost | null {
+): HTMLElement | null {
   const hosts = useContext(AgentMessageWorkHostsContext);
   return useSyncExternalStore(
     hosts?.subscribe ?? noopSubscribe,
@@ -4961,23 +4889,17 @@ function useAgentMessageWorkHost(
   );
 }
 
-/**
- * A callback ref that offers its element as a reply's work row host once
- * the reply stops streaming.
- */
+/** A callback ref that offers its element as a reply's work row host. */
 function useAgentMessageWorkHostRef(
   messageId: string | undefined,
-  streaming: boolean,
 ): (element: HTMLElement | null) => void {
   const hosts = useContext(AgentMessageWorkHostsContext);
   const [element, setElement] = useState<HTMLElement | null>(null);
-  const sawStreamingRef = useRef(false);
   useLayoutEffect(() => {
-    if (streaming) sawStreamingRef.current = true;
-    if (!hosts || !messageId || !element || streaming) return;
-    hosts.set(messageId, { element, live: sawStreamingRef.current });
+    if (!hosts || !messageId || !element) return;
+    hosts.set(messageId, element);
     return () => hosts.release(messageId, element);
-  }, [element, hosts, messageId, streaming]);
+  }, [element, hosts, messageId]);
   return setElement;
 }
 
@@ -5374,10 +5296,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
   const { messageSeq, requestId, runId } = position;
   const isAssistant = message.role === "assistant";
   const isLastAssistantMessage = isAssistant && position.isLast;
-  // A streaming reply keeps its work above it until the answer is complete.
+  // The reply's work row sits on this footer line, live or finished.
   const workHostRef = useAgentMessageWorkHostRef(
     isAssistant ? message.id : undefined,
-    message.status === "streaming",
   );
   const [copied, setCopied] = useState(false);
   const [feedback, setFeedback] = useState<"positive" | "negative" | null>(
@@ -5545,7 +5466,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
     <MessageActionButton
       label={copied ? labels.copied : labels.copy}
       icon={
-        copied ? (
+        copyAction.pending ? (
+          <IconLoader2 aria-hidden="true" className="animate-spin" />
+        ) : copied ? (
           <IconCircleCheck aria-hidden="true" />
         ) : (
           <IconCopy aria-hidden="true" />
@@ -5553,8 +5476,13 @@ export const AgentMessageActions = memo(function AgentMessageActions({
       }
       size="compact"
       className="size-6"
-      pending={copyAction.pending}
-      onPress={() => void copyAction.execute().catch(() => undefined)}
+      // Copies stay enabled while they run: disabling the pressed button drops
+      // focus to the page, where Escape can no longer close the toolbar.
+      aria-busy={copyAction.pending || undefined}
+      onPress={() => {
+        if (copyAction.pending) return;
+        void copyAction.execute().catch(() => undefined);
+      }}
     />
   );
   const branchControls =
@@ -5623,6 +5551,19 @@ export const AgentMessageActions = memo(function AgentMessageActions({
         event.stopPropagation();
         setMoreActions(false, "toggle");
       }}
+      onMouseDown={(event) => {
+        // Safari does not focus a pressed button; it focuses the transcript
+        // instead, which blur below reads as leaving and collapses the set
+        // before the click lands. Keep focus on the button that was pressed.
+        const button =
+          event.target instanceof Element
+            ? event.target.closest("button")
+            : null;
+        if (!button || button.disabled) return;
+        if (!event.currentTarget.contains(button)) return;
+        event.preventDefault();
+        button.focus({ preventScroll: true });
+      }}
       onBlur={(event) => {
         const next = event.relatedTarget;
         if (!moreActionsOpen || !(next instanceof Node)) return;
@@ -5650,7 +5591,11 @@ export const AgentMessageActions = memo(function AgentMessageActions({
           {feedbackCapability.visible
             ? (["positive", "negative"] as const).map((value) => {
                 const chosen = feedback === value;
-                return (
+                const renderFeedbackButton = (
+                  toggle?: () => void,
+                  open?: boolean,
+                  contentId?: string,
+                ) => (
                   <MessageActionButton
                     key={value}
                     label={
@@ -5675,14 +5620,32 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                     className="size-6"
                     data-message-action={`feedback-${value}`}
                     aria-pressed={chosen}
+                    aria-haspopup={toggle ? "dialog" : undefined}
+                    aria-expanded={toggle ? open : undefined}
+                    aria-controls={toggle && open ? contentId : undefined}
                     disabled={
                       !feedbackCapability.enabled || feedbackAction.pending
                     }
                     {...(feedbackCapability.reason === undefined
                       ? {}
                       : { title: feedbackCapability.reason })}
-                    onPress={() => void rateResponse(value)}
+                    onPress={() => {
+                      toggle?.();
+                      // raw-sql-ok: This submits a UI feedback rating, not SQL.
+                      void rateResponse(value);
+                    }}
                   />
+                );
+                return value === "negative" && slots.feedbackNote ? (
+                  <slots.feedbackNote
+                    key={value}
+                    threadId={threadId}
+                    {...(runId ? { runId } : {})}
+                    {...(messageSeq >= 0 ? { messageSeq } : {})}
+                    renderTrigger={renderFeedbackButton}
+                  />
+                ) : (
+                  renderFeedbackButton()
                 );
               })
             : null}
@@ -5736,7 +5699,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
               <MessageActionButton
                 label={requestIdCopied ? labels.copied : labels.copyRequestId}
                 icon={
-                  requestIdCopied ? (
+                  requestIdAction.pending ? (
+                    <IconLoader2 aria-hidden="true" className="animate-spin" />
+                  ) : requestIdCopied ? (
                     <IconCircleCheck aria-hidden="true" />
                   ) : (
                     <IconId aria-hidden="true" />
@@ -5745,10 +5710,11 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                 size="compact"
                 className="size-6"
                 data-message-action="request-id"
-                pending={requestIdAction.pending}
-                onPress={() =>
-                  void requestIdAction.execute().catch(() => undefined)
-                }
+                aria-busy={requestIdAction.pending || undefined}
+                onPress={() => {
+                  if (requestIdAction.pending) return;
+                  void requestIdAction.execute().catch(() => undefined);
+                }}
               />
             ) : null}
           </div>
@@ -6119,7 +6085,7 @@ export function AgentRunFailure({
             </ActionButton>
           </div>
         ) : null}
-        {continueFailed ? (
+        {continueFailed && !superseded ? (
           <span className="agentkit-command-error" role="alert">
             {labels.continueRunUnavailable}
           </span>
@@ -6187,6 +6153,7 @@ export interface AgentKitComposerProps extends Omit<
     | "isReferenceTarget"
     | "submissionDisabled"
     | "onDisabledClick"
+    | "onSetupCardClick"
     | "initialText"
     | "initialTextKey"
     | "layoutVariant"
@@ -6219,6 +6186,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onRemoveContextItem"
     | "onInspectContextItem"
     | "onRetryContextItem"
+    | "onPasteContext"
     | "contextMenuItems"
     | "attachmentAdapter"
     | "inlineTextAttachments"
@@ -6229,8 +6197,12 @@ export interface AgentKitComposerProps extends Omit<
     | "interceptBuildRequestsForBuilder"
     | "stopButton"
   >,
-  "onSubmit"
+  "onSubmit" | "initialText" | "initialTextKey"
 > {
+  /** Programmatically seed the composer with plain text. */
+  initialText?: string | undefined;
+  /** Stable key used to re-apply `initialText` when the host picks a preset. */
+  initialTextKey?: string | number | undefined;
   /** Override the default AgentKit submit path when the host owns send options. */
   onSubmit?: PromptComposerProps["onSubmit"];
   /** Opt in to Agent-Native provider UI when this host owns that setup flow. */
@@ -6288,6 +6260,7 @@ export function AgentKitComposer({
   isReferenceTarget,
   submissionDisabled,
   onDisabledClick,
+  onSetupCardClick,
   placeholder,
   initialText,
   initialTextKey,
@@ -6329,6 +6302,7 @@ export function AgentKitComposer({
   stopButton,
   onInspectContextItem,
   onRetryContextItem,
+  onPasteContext,
   contextMenuItems,
   attachmentAdapter,
   // AgentKit always uploads attached files and the server reads their text,
@@ -6455,6 +6429,100 @@ export function AgentKitComposer({
     () => attachmentAdapter ?? createChatAttachmentAdapter(composerTranslate),
     [attachmentAdapter, composerTranslate],
   );
+  const formatUploadError = (error: unknown): string => {
+    const formatFailure = (failure: unknown): string => {
+      const code =
+        failure && typeof failure === "object" && "code" in failure
+          ? failure.code
+          : undefined;
+      const key =
+        code === "upload_too_large"
+          ? "agentChat.composer.fileTooLarge"
+          : code === "upload_session_expired"
+            ? "agentChat.composer.sessionExpired"
+            : code === "upload_unsupported_type"
+              ? "agentChat.composer.unsupportedFileType"
+              : code === "upload_network_error"
+                ? "agentChat.composer.uploadOffline"
+                : code === "upload_unavailable"
+                  ? "agentChat.composer.uploadUnavailable"
+                  : code === "upload_invalid_response"
+                    ? "agentChat.composer.uploadFailed"
+                    : undefined;
+      return key
+        ? composerTranslate(key, { size: 25 })
+        : formatAttachmentError(failure, labels.dropFileFailed);
+    };
+    return error instanceof AgentKitUploadError
+      ? error.failures
+          .map((failure) => `${failure.name}: ${formatFailure(failure.error)}`)
+          .join("\n")
+      : formatFailure(error);
+  };
+  const coreFileStorageSetup = useContext(CoreFileStorageSetupContext);
+  const storageAnchorRef = useRef<HTMLDivElement>(null);
+  const [storageState, setStorageState] = useState<
+    "unknown" | "pending" | "ready" | "missing" | "unavailable"
+  >("unknown");
+  const [storageOpen, setStorageOpen] = useState(false);
+  const storageOpenRef = useRef(false);
+  const changeStorageOpen = useCallback((open: boolean) => {
+    storageOpenRef.current = open;
+    setStorageOpen(open);
+  }, []);
+  const storageScope = useMemo(
+    () => ({ current: true }),
+    [controller, threadId, canUpload, coreFileStorageSetup?.scopeKey],
+  );
+  useEffect(() => {
+    storageScope.current = true;
+    return () => {
+      storageScope.current = false;
+    };
+  }, [storageScope, changeStorageOpen]);
+  useEffect(() => {
+    changeStorageOpen(false);
+    setStorageState("unknown");
+  }, [storageScope, changeStorageOpen]);
+  const storageReadRef = useRef<{
+    scope: typeof storageScope;
+    pending: Promise<{ configured: boolean }>;
+  } | null>(null);
+  const requestCoreAttachment = useCallback(async () => {
+    const isCurrentScope = () => storageScope.current;
+    if (!canUpload || !isCurrentScope() || !coreFileStorageSetup)
+      return "stale" as const;
+    setStorageState("pending");
+    changeStorageOpen(false);
+    const previous = storageReadRef.current;
+    const sharedRead =
+      previous?.scope === storageScope ? previous.pending : null;
+    const pending = sharedRead ?? coreFileStorageSetup.readStatus();
+    storageReadRef.current = { scope: storageScope, pending };
+    try {
+      const status = await pending;
+      if (!isCurrentScope()) return "stale" as const;
+      setStorageState(status.configured ? "ready" : "missing");
+      changeStorageOpen(!status.configured);
+      return status.configured ? ("ready" as const) : ("missing" as const);
+    } catch (error) {
+      if (!isCurrentScope()) return "stale" as const;
+      setStorageState("unavailable");
+      changeStorageOpen(true);
+      onAttachmentError?.(formatAttachmentError(error, labels.dropFileFailed));
+      return "unavailable" as const;
+    } finally {
+      const currentRead = () => storageReadRef.current;
+      if (currentRead()?.pending === pending) storageReadRef.current = null;
+    }
+  }, [
+    canUpload,
+    coreFileStorageSetup,
+    storageScope,
+    onAttachmentError,
+    labels.dropFileFailed,
+    changeStorageOpen,
+  ]);
   const starting = useAgentKitSubmissionStarting(threadId);
   const active = hasActiveRuns(thread) || starting;
   const composerInitialText = editingMessage
@@ -6487,10 +6555,12 @@ export function AgentKitComposer({
     return true;
   };
   const focusComposer = useCallback(() => {
-    if (!autoFocus) return;
+    if (!autoFocus || storageOpenRef.current) return;
     composerRef.current?.focus();
     if (typeof globalThis.requestAnimationFrame === "function") {
-      globalThis.requestAnimationFrame(() => composerRef.current?.focus());
+      globalThis.requestAnimationFrame(() => {
+        if (!storageOpenRef.current) composerRef.current?.focus();
+      });
     }
   }, [autoFocus]);
   const reportAttachmentError = useCallback(
@@ -6599,6 +6669,25 @@ export function AgentKitComposer({
     const onLocalSubmit = () => {
       options.onLocalSubmit?.();
     };
+    if (files.length && !uploadGateRef.current.enabled) {
+      throw new AgentKitCapabilityError(
+        "uploads",
+        "unavailable",
+        uploadGateRef.current.reason ?? labels.error,
+      );
+    }
+    if (files.length && coreFileStorageSetup) {
+      const status = await requestCoreAttachment();
+      if (status !== "ready") {
+        throw new Error(
+          composerTranslate(
+            status === "missing"
+              ? "onboarding.fileStorage.title"
+              : "onboarding.fileStorage.statusUnavailable",
+          ),
+        );
+      }
+    }
     if (!editingMessage && onSubmitOverride) {
       const readinessEngine = options.engine ?? selectedEngine;
       await controller.assertAiSetupReady({
@@ -6611,13 +6700,6 @@ export function AgentKitComposer({
       };
       await onSubmitOverride(text, files, references, submitOptions);
       return;
-    }
-    if (files.length && !uploadGateRef.current.enabled) {
-      throw new AgentKitCapabilityError(
-        "uploads",
-        "unavailable",
-        uploadGateRef.current.reason ?? labels.error,
-      );
     }
     const effort = options.effort;
     const executionMode = options.requestMode ?? "act";
@@ -6860,7 +6942,40 @@ export function AgentKitComposer({
   const suggestions = selectAgentSuggestions(thread);
   return (
     <ComposerNoticeScope>
-      <div className={`agentkit-composer-stack ${className ?? ""}`}>
+      <div
+        ref={storageAnchorRef}
+        className={`agentkit-composer-stack ${className ?? ""}`}
+      >
+        {coreFileStorageSetup && canUpload && (
+          <>
+            <coreFileStorageSetup.Setup
+              open={storageOpen}
+              anchorRef={storageAnchorRef}
+              onOpenChange={(open) => {
+                changeStorageOpen(open);
+                if (!open) composerRef.current?.focus();
+              }}
+              onConnected={() => {
+                void requestCoreAttachment();
+              }}
+              {...(storageState === "unavailable"
+                ? {
+                    status: "unavailable" as const,
+                    onRetry: () => {
+                      void requestCoreAttachment();
+                    },
+                  }
+                : { status: "missing" as const })}
+            />
+            {storageState === "pending" && (
+              <span role="status" className="text-sm text-foreground">
+                {composerTranslate("agentChat.common.loading", {
+                  defaultValue: "Loading...",
+                })}
+              </span>
+            )}
+          </>
+        )}
         {announcePendingSubmission && submissionPending ? (
           <span
             className="agentkit-visually-hidden"
@@ -7004,11 +7119,13 @@ export function AgentKitComposer({
             onRemoveContextItem,
             onInspectContextItem,
             onRetryContextItem,
+            onPasteContext,
             contextMenuItems,
             inlineTextAttachments,
             disabled,
             isReferenceTarget,
             onDisabledClick,
+            onSetupCardClick,
             onConnectProvider,
             onConnectLocalRuntime,
             imageModelMenu,
@@ -7082,6 +7199,10 @@ export function AgentKitComposer({
           stopButton={stopButton === undefined ? defaultStopButton : stopButton}
           noticeOutlet
           attachmentsEnabled={canUpload}
+          onAttachmentRequest={onAttachmentRequest}
+          contextButtonTooltipDisabled={
+            contextButtonTooltipDisabled || storageOpen
+          }
           includeDefaultSlashCommands={includeDefaultSlashCommands ?? false}
           includeDefaultSlashSkills={includeDefaultSlashSkills ?? false}
           plusMenuMode={plusMenuMode ?? "full"}
@@ -7118,7 +7239,7 @@ export function AgentKitComposer({
             dismissLabel={labels.dismissNotice}
           >
             <span {...SESSION_REPLAY_MASK_PROPS}>
-              {sendOrCommandError.message}
+              {formatUploadError(sendOrCommandError)}
             </span>
           </ComposerNotice>
         ) : null}
@@ -7602,6 +7723,7 @@ export function AgentKitChat({
     [editingMessage, messageEditEnabled, setEditingMessage],
   );
   const [messageWorkHosts] = useState(createAgentMessageWorkHosts);
+  const [openedWorkRows] = useState(() => new Set<string>());
   const hasConversation =
     thread.messages.length > 0 ||
     pendingSubmissions.length > 0 ||
@@ -8276,6 +8398,12 @@ export function AgentKitChat({
       return messageId ? [messageId] : [];
     }),
   );
+  // A saved reply's reasoning before its answer joins the work group above
+  // it, so the turn shows one disclosure; the stream did not place it there.
+  const foldsLeadingReasoning = (message: AgentMessage) =>
+    message.status !== "streaming" &&
+    !groupedReasoningMessageIds.has(message.id) &&
+    leadingReasoningMessage(message) !== undefined;
   const hasRunWork = (
     runId: RunId,
     afterSequence?: number,
@@ -8288,7 +8416,7 @@ export function AgentKitChat({
     );
   // A message the user sent into a running turn ends the run's work so far,
   // even when no reply was written before it.
-  const { runSegmentEnds, steerSequences } = useMemo(() => {
+  const { runSegmentEnds, runSegmentStarts, steerSequences } = useMemo(() => {
     const deliveredAt = new Map<string, number>();
     for (const event of thread.events) {
       if (
@@ -8300,15 +8428,19 @@ export function AgentKitChat({
       }
     }
     const ends = new Map<RunId, { id: string; sequence: number }>();
+    const starts = new Map<RunId, { id: string; sequence: number }>();
     const steers = new Map<string, number>();
+    const endSegment = (runId: RunId, id: string, sequence: number) => {
+      const previous = ends.get(runId);
+      if (previous) starts.set(runId, previous);
+      ends.set(runId, { id, sequence });
+    };
     for (const message of thread.messages) {
       const runId = messageRunIds.get(message.id);
       if (!runId) continue;
       if (message.role === "assistant") {
         const sequence = messageBoundarySequences.get(message.id);
-        if (sequence !== undefined) {
-          ends.set(runId, { id: message.id, sequence });
-        }
+        if (sequence !== undefined) endSegment(runId, message.id, sequence);
         continue;
       }
       const sequence =
@@ -8325,9 +8457,13 @@ export function AgentKitChat({
       );
       if (!workBefore) continue;
       steers.set(message.id, sequence);
-      ends.set(runId, { id: message.id, sequence });
+      endSegment(runId, message.id, sequence);
     }
-    return { runSegmentEnds: ends, steerSequences: steers };
+    return {
+      runSegmentEnds: ends,
+      runSegmentStarts: starts,
+      steerSequences: steers,
+    };
   }, [
     messageBoundarySequences,
     messageRunIds,
@@ -8365,19 +8501,40 @@ export function AgentKitChat({
     ]),
   );
   const pendingRuns = new Set(pendingRunIds);
-  // A running turn's work after its reply's latest text joins the row above
-  // that reply. As its own row below, the work before reads as finished while
-  // the run is still working, and the turn shows two rows until it ends.
-  const liveReplyRunIds = new Set(
-    pendingRunIds.filter((runId) => {
-      const reply = lastAssistantMessagesByRun.get(runId);
-      return (
-        thread.runs[runId]?.status === "running" &&
-        reply !== undefined &&
-        runSegmentEnds.get(runId)?.id === reply.id
-      );
-    }),
-  );
+  // While a run works on its reply, the reply's work is one row below its
+  // latest text, shown while work runs there: above the reply, narration
+  // pushes it out of view, and split at that text, the work before reads as
+  // finished while the run works. Result cards stay above the reply, where
+  // they sit once it finishes. A finished reply with nothing running after
+  // it keeps its row in its footer.
+  const liveReplies = new Map<
+    RunId,
+    {
+      replyId: string;
+      start: { id: string; sequence: number } | undefined;
+      foldsReasoning: boolean;
+    }
+  >();
+  for (const [runId, reply] of lastAssistantMessagesByRun) {
+    if (
+      thread.runs[runId]?.status !== "running" ||
+      runSegmentEnds.get(runId)?.id !== reply.id
+    ) {
+      continue;
+    }
+    const start = runSegmentStarts.get(runId);
+    const message = thread.messages.find(({ id }) => id === reply.id);
+    if (
+      (message?.status === "streaming" || pendingRuns.has(runId)) &&
+      hasRunWork(runId, start?.sequence)
+    ) {
+      liveReplies.set(runId, {
+        replyId: reply.id,
+        start,
+        foldsReasoning: message ? foldsLeadingReasoning(message) : false,
+      });
+    }
+  }
   const runRevision = (runId: RunId) =>
     `${runId}:${eventIndex.byRun.get(runId)?.length ?? 0}`;
   const renderRunFailure = (runId: RunId) => {
@@ -8431,6 +8588,7 @@ export function AgentKitChat({
     messageId,
     foldedReasoningMessageId,
     summarizesTurn,
+    part,
   }: {
     runId: RunId;
     anchor: string;
@@ -8439,8 +8597,10 @@ export function AgentKitChat({
     messageId?: string | undefined;
     foldedReasoningMessageId?: string | undefined;
     summarizesTurn?: boolean | undefined;
+    part?: "results" | "row" | undefined;
   }) => {
-    const key = `run-work:${threadId}:${runId}:${anchor}`;
+    const openKey = `${threadId}:${runId}:${anchor}`;
+    const key = `run-work:${openKey}${part === "row" ? ":row" : ""}`;
     const resetKey = `${anchor}:${runRevision(runId)}`;
     return cachedRowElement(
       key,
@@ -8451,10 +8611,12 @@ export function AgentKitChat({
         messageId,
         foldedReasoningMessageId,
         summarizesTurn,
+        part,
       ],
       () =>
         renderRunWorkElement({
           key,
+          openKey,
           resetKey,
           runId,
           afterSequence,
@@ -8462,11 +8624,13 @@ export function AgentKitChat({
           messageId,
           foldedReasoningMessageId,
           summarizesTurn,
+          part,
         }),
     );
   };
   const renderRunWorkElement = ({
     key,
+    openKey,
     resetKey,
     runId,
     afterSequence,
@@ -8474,8 +8638,10 @@ export function AgentKitChat({
     messageId,
     foldedReasoningMessageId,
     summarizesTurn,
+    part,
   }: {
     key: string;
+    openKey: string;
     resetKey: string;
     runId: RunId;
     afterSequence?: number | undefined;
@@ -8483,33 +8649,61 @@ export function AgentKitChat({
     messageId?: string | undefined;
     foldedReasoningMessageId?: string | undefined;
     summarizesTurn?: boolean | undefined;
+    part?: "results" | "row" | undefined;
   }) => (
     <AgentKitSurfaceBoundary key={key} surface="activity" resetKey={resetKey}>
-      <AgentCollaborationFeed
-        runId={runId}
-        afterSequence={afterSequence}
-        throughSequence={throughSequence}
-      />
-      <AgentTaskGroup
-        runId={runId}
-        afterSequence={afterSequence}
-        throughSequence={throughSequence}
-      />
-      <AgentActivityGroup
-        runId={runId}
-        afterSequence={afterSequence}
-        throughSequence={throughSequence}
-        excludeAgentActivities
-        isCurrentSegment={throughSequence === undefined}
-        messageId={messageId}
-        foldedReasoningMessageId={foldedReasoningMessageId}
-        summarizesTurn={summarizesTurn}
-      />
+      <AgentWorkRowOpenContext.Provider
+        value={{ key: openKey, opened: openedWorkRows }}
+      >
+        {part === "row" ? null : (
+          <>
+            <AgentCollaborationFeed
+              runId={runId}
+              afterSequence={afterSequence}
+              throughSequence={throughSequence}
+            />
+            <AgentTaskGroup
+              runId={runId}
+              afterSequence={afterSequence}
+              throughSequence={throughSequence}
+            />
+          </>
+        )}
+        <AgentActivityGroup
+          runId={runId}
+          afterSequence={afterSequence}
+          throughSequence={throughSequence}
+          excludeAgentActivities
+          isCurrentSegment={throughSequence === undefined}
+          messageId={messageId}
+          foldedReasoningMessageId={foldedReasoningMessageId}
+          summarizesTurn={summarizesTurn}
+          part={part}
+        />
+      </AgentWorkRowOpenContext.Provider>
     </AgentKitSurfaceBoundary>
   );
   const renderRunTail = (runId: RunId) => {
     const items: ReactNode[] = [];
-    if (pendingRuns.has(runId)) {
+    const liveReply = liveReplies.get(runId);
+    if (liveReply) {
+      // While the reply's text is the newest output the text is the focus,
+      // so the row shows only while work runs after it.
+      if (pendingRuns.has(runId)) {
+        items.push(
+          renderRunWork({
+            runId,
+            anchor: liveReply.start?.id ?? "start",
+            afterSequence: liveReply.start?.sequence,
+            messageId: liveReply.replyId,
+            foldedReasoningMessageId: liveReply.foldsReasoning
+              ? liveReply.replyId
+              : undefined,
+            part: "row",
+          }),
+        );
+      }
+    } else if (pendingRuns.has(runId)) {
       const boundary = runSegmentEnds.get(runId);
       items.push(
         renderRunWork({
@@ -8553,7 +8747,8 @@ export function AgentKitChat({
   }
   const tailRunIds = Array.from(
     new Set([
-      ...pendingRunIds.filter((runId) => !liveReplyRunIds.has(runId)),
+      ...pendingRunIds,
+      ...liveReplies.keys(),
       ...Array.from(failedRuns.keys()).filter(
         (runId) => !lastAssistantMessagesByRun.has(runId),
       ),
@@ -8687,10 +8882,8 @@ export function AgentKitChat({
       !hasRunWork(runId, sequence) &&
       !hasVisibleReasoning(message),
     );
-    const extendsLiveWork =
-      isAssistantBoundary &&
-      liveReplyRunIds.has(runId) &&
-      lastAssistantMessagesByRun.get(runId)?.id === message.id;
+    const isLiveReply =
+      isAssistantBoundary && liveReplies.get(runId)?.replyId === message.id;
     const rendersRunWork = Boolean(
       isAssistantBoundary &&
       runId &&
@@ -8698,26 +8891,21 @@ export function AgentKitChat({
         hasRunWork(
           runId,
           previousAssistant?.sequence,
-          extendsLiveWork ? undefined : sequence,
+          isLiveReply ? undefined : sequence,
         )),
     );
-    // A saved reply's reasoning before its answer joins the work group above
-    // it, so the turn shows one disclosure; the stream did not place it there.
-    const foldsReasoning =
-      rendersRunWork &&
-      message.status !== "streaming" &&
-      !groupedReasoningMessageIds.has(message.id) &&
-      leadingReasoningMessage(message) !== undefined;
+    const foldsReasoning = rendersRunWork && foldsLeadingReasoning(message);
     if (rendersRunWork && runId) {
       transcriptItems.push(
         renderRunWork({
           runId,
           anchor: previousAssistant?.id ?? "start",
           afterSequence: previousAssistant?.sequence,
-          throughSequence: extendsLiveWork ? undefined : sequence,
+          throughSequence: isLiveReply ? undefined : sequence,
           messageId: message.id,
           foldedReasoningMessageId: foldsReasoning ? message.id : undefined,
           summarizesTurn,
+          part: isLiveReply ? "results" : undefined,
         }),
       );
     }

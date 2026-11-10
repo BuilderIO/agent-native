@@ -28,9 +28,11 @@ import {
   type UseCollaborativeDocOptions,
   type UseCollaborativeDocResult,
 } from "./client.js";
+import {
+  COLLAB_OUTBOX_PREFIX as OUTBOX_PREFIX,
+  COLLAB_VERSIONED_OUTBOX_PREFIX as STRICT_OUTBOX_PREFIX,
+} from "./outbox-keys.js";
 
-const OUTBOX_PREFIX = "agent-native-collab-outbox-v1:";
-const STRICT_OUTBOX_PREFIX = "agent-native-collab-outbox-v2:";
 const USER = { name: "Ada", email: "ada@example.com", color: "#123456" };
 
 function Probe({
@@ -296,6 +298,58 @@ describe("collab durable updates", () => {
       expect(result().updatesRefused).toBe(false);
       await expect(result().flushUpdates()).resolves.toBe(true);
       expect(sentUpdates).toHaveLength(3);
+    },
+  );
+
+  it.each(["accepted", "refused"] as const)(
+    "handles an in-flight %s save across a case-only identity refresh",
+    async (outcome) => {
+      const ack = vi.fn();
+      const options = {
+        durableUpdates: true,
+        requireLiveCopyOutcome: true,
+        onUpdateAcknowledged: ack,
+      };
+      const first = await mountReady(options);
+      updateResponses = [
+        outcome === "refused"
+          ? "too_large"
+          : { ok: true, liveCopy: "unchanged" },
+      ];
+      const release = holdUpdateResponse();
+      onTestFinished(release);
+      const originalDoc = first().ydoc;
+      act(() => originalDoc?.getText("t").insert(0, "in-flight edit"));
+      const pending = first().flushUpdates();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(sentUpdates).toHaveLength(1);
+
+      const refreshed = await mountReady({
+        ...options,
+        user: { ...USER, email: " ADA@EXAMPLE.COM ", name: "Ada Updated" },
+      });
+      expect(refreshed().ydoc).toBe(originalDoc);
+      expect(refreshed().awareness?.getLocalState()?.user.name).toBe(
+        "Ada Updated",
+      );
+      await act(async () => {
+        release();
+        await pending;
+      });
+
+      expect(sentUpdates).toHaveLength(1);
+      if (outcome === "refused") {
+        await expect(pending).resolves.toBe(false);
+        expect(refreshed().updatesRefused).toBe(true);
+        expect(ack).not.toHaveBeenCalled();
+        expect(outboxKeys()).toHaveLength(1);
+      } else {
+        await expect(pending).resolves.toBe(true);
+        expect(ack).toHaveBeenCalledExactlyOnceWith({ liveCopy: "unchanged" });
+        expect(outboxKeys()).toEqual([]);
+      }
     },
   );
 
@@ -740,6 +794,20 @@ describe("collab durable updates", () => {
 
         expect(sentUpdates).toHaveLength(1);
         expect(outboxKeys()).toHaveLength(1);
+        const kept = new Y.Doc();
+        onTestFinished(() => kept.destroy());
+        for (const key of outboxKeys()) {
+          const raw = window.localStorage.getItem(key);
+          if (raw === null) throw new Error("The kept update is missing.");
+          const record = JSON.parse(raw) as {
+            version: number;
+            updates: Array<{ update: string }>;
+          };
+          expect(record.version).toBe(2);
+          for (const item of record.updates)
+            Y.applyUpdate(kept, decode(item.update));
+        }
+        expect(kept.getText("t").toString()).toBe("typed after a pasted page");
       },
     },
     {
@@ -1547,6 +1615,40 @@ describe("collab durable updates", () => {
         expect(outboxKeys()).toEqual([]);
         expect(server.getText("t").toString()).toBe("strict + ordinary");
         expect(oldAck).not.toHaveBeenCalled();
+      },
+    },
+    {
+      name: "keeps a refused update durable across a case-only identity refresh",
+      baseline:
+        "Regression: a case-only email refresh must not restart a refused update or release its custody.",
+      run: async () => {
+        const result = await mountReady({ durableUpdates: true });
+        updateResponses = ["too_large"];
+        const originalDoc = result().ydoc;
+        act(() => originalDoc?.getText("t").insert(0, "refused paste"));
+        await act(async () => {
+          await expect(result().flushUpdates()).resolves.toBe(false);
+        });
+        act(() => originalDoc?.getText("t").insert(13, " plus later typing"));
+        expect(originalDoc?.getText("t").toString()).toBe(
+          "refused paste plus later typing",
+        );
+        const storedBefore = outboxKeys().map((key) => [
+          key,
+          window.localStorage.getItem(key),
+        ]);
+
+        const refreshed = await mountReady({
+          durableUpdates: true,
+          user: { ...USER, email: " ADA@EXAMPLE.COM " },
+        });
+        expect(refreshed().ydoc).toBe(originalDoc);
+        expect(refreshed().updatesRefused).toBe(true);
+        await expect(refreshed().flushUpdates()).resolves.toBe(false);
+        expect(sentUpdates).toHaveLength(1);
+        expect(
+          outboxKeys().map((key) => [key, window.localStorage.getItem(key)]),
+        ).toEqual(storedBefore);
       },
     },
   ];

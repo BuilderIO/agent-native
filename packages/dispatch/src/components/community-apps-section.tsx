@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   IconArrowUpRight,
   IconCircleCheck,
@@ -17,6 +18,7 @@ import { COMMUNITY_APPS_LAB } from "../shared/labs.js";
 import { ActionQueryError } from "./action-query-error";
 import { AppIcon } from "./app-icon";
 import { AppList, AppListRow } from "./app-list-row";
+import { useNotifyBuildInBuilder } from "./build-in-builder";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
@@ -65,11 +67,15 @@ export function CommunityAppsSection() {
     includeAgentCards: false,
     includeArchived: true,
   });
+  const notifyBuildInBuilder = useNotifyBuildInBuilder();
   const install = useActionMutation("install-curated-community-app", {
     onSuccess: (result) => {
       const mode = (result as { mode?: string } | null)?.mode;
       const message = (result as { message?: string } | null)?.message;
-      if (mode === "builder") {
+      const url = (result as { url?: string } | null)?.url;
+      if (mode === "builder-managed" && url) {
+        notifyBuildInBuilder(url);
+      } else if (mode === "builder") {
         toast.success(t("dispatch.pages.communityAppsInstallStarted"));
       } else if (mode === "pending") {
         toast.info(t("dispatch.pages.communityAppsPending"));
@@ -105,9 +111,11 @@ export function CommunityAppsSection() {
       void catalogQuery.refetch();
       void workspaceAppsQuery.refetch();
     },
-    onError: () => {
+    onError: (error) => {
       setInstallingId(null);
-      toast.error(t("dispatch.pages.communityAppsInstallFailed"));
+      reportWriteFailure(error, {
+        label: t("dispatch.pages.communityAppsInstallFailed"),
+      });
     },
   });
 

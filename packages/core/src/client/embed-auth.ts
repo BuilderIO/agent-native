@@ -1,5 +1,6 @@
 import {
   EMBED_MODE_QUERY_PARAM,
+  EMBED_SESSION_RENEWAL_WINDOW_KEY,
   EMBED_START_PATH,
   EMBED_TARGET_HEADER,
   EMBED_TARGET_QUERY_PARAM,
@@ -23,11 +24,18 @@ import {
 } from "../shared/sign-in-journey.js";
 import {
   frameworkRoutePrefix,
+  isApiBaseUrl,
   isWorkspaceRuntime,
   resolveAppBasePath,
   resolveExternalEmbedTargetAppBasePath,
   WorkspaceAppMountResolutionError,
 } from "./api-path.js";
+import {
+  announceFetchTransportChange,
+  bearerTransport,
+  fetchTransport,
+  markFetchTransport,
+} from "./fetch-transport.js";
 
 let installed = false;
 const memoryTokens = new Map<string, string>();
@@ -289,7 +297,11 @@ function embedTokenTargetStorageKey(token: string): string | null {
 }
 
 function storeToken(token: string, win: Window, storageKey: string): void {
+  const changed = memoryTokens.get(storageKey) !== token;
   memoryTokens.set(storageKey, token);
+  // Requests through the interceptor now carry this token: a transport of
+  // their own.
+  if (changed && installed) announceFetchTransportChange();
   try {
     win.sessionStorage.setItem(storageKey, token);
   } catch {
@@ -633,7 +645,7 @@ function inputUrl(input: RequestInfo | URL, win: Window): URL | null {
 function sameOrigin(input: RequestInfo | URL, win: Window): boolean {
   const url = inputUrl(input, win);
   const origin = currentAppOrigin(win);
-  return !!url && !!origin && url.origin === origin;
+  return !!url && ((!!origin && url.origin === origin) || isApiBaseUrl(url));
 }
 
 function isAgentNativeRuntimePath(pathname: string): boolean {
@@ -821,9 +833,9 @@ function requestUrlAndKey(
       shouldGuard: boolean;
     }
   | undefined {
+  if (!sameOrigin(input, win)) return undefined;
   const url = inputUrl(input, win);
-  const origin = currentAppOrigin(win);
-  if (!url || !origin || url.origin !== origin) return undefined;
+  if (!url) return undefined;
   const method = requestMethod(input, init);
   return {
     key: authFailureKey(method, url),
@@ -833,6 +845,22 @@ function requestUrlAndKey(
 
 function requestWidgetSessionRenewal(win: Window): Promise<boolean> {
   if (pendingWidgetSessionRenewal) return pendingWidgetSessionRenewal;
+  const renewInPlace = (win as unknown as Record<string, unknown>)[
+    EMBED_SESSION_RENEWAL_WINDOW_KEY
+  ];
+  if (typeof renewInPlace === "function") {
+    const renewal = Promise.resolve()
+      .then(() => renewInPlace())
+      .then(
+        (renewed) => renewed === true,
+        () => false,
+      )
+      .finally(() => {
+        pendingWidgetSessionRenewal = null;
+      });
+    pendingWidgetSessionRenewal = renewal;
+    return renewal;
+  }
   if (!win.parent || win.parent === win) return Promise.resolve(false);
 
   widgetSessionRenewalRequestId += 1;
@@ -913,7 +941,10 @@ export function ensureEmbedAuthFetchInterceptor(): void {
 
   if (installed) return;
   if (typeof win.fetch !== "function") return;
-  const originalFetch = win.fetch.bind(win);
+  // Kept by identity, as the transport of requests sent without a token;
+  // calls go through the bound copy.
+  const pageFetch = Reflect.get(win, "fetch") as typeof fetch;
+  const originalFetch = pageFetch.bind(win);
   const patchedFetch = (async (
     input: RequestInfo | URL,
     init?: RequestInit,
@@ -980,6 +1011,12 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     }
     return response;
   }) as typeof fetch;
+  // A request carries the embed token when one is stored, and goes out as
+  // the page's own otherwise.
+  markFetchTransport(patchedFetch, () => {
+    const token = getEmbedAuthToken();
+    return token ? bearerTransport(token) : pageFetch;
+  });
   try {
     win.fetch = patchedFetch;
   } catch {
@@ -994,4 +1031,6 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     }
   }
   installed = true;
+  if (fetchTransport(patchedFetch) !== pageFetch)
+    announceFetchTransportChange();
 }

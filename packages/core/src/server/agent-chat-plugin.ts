@@ -52,6 +52,7 @@ import type {
   A2AConnectionRequestMetadata,
   Message as A2AMessage,
 } from "../a2a/types.js";
+import { ActionDefinitionError, isActionDefinitionError } from "../action.js";
 import {
   clientAbortReason,
   EXECUTION_LEASE_LOST_ABORT_REASON,
@@ -131,6 +132,7 @@ import {
   resolveProviderModelSelectionAtScope,
   type EffectiveProviderModelSelection,
 } from "../agent/provider-model-selection.js";
+import { isRunFailureRetryable } from "../agent/run-failure-retry.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
 import {
   callerHasRunAccess,
@@ -155,7 +157,9 @@ import {
   foldAgentChatRunCompletion,
   extractThreadMeta,
   foldUnstartedTurnFailure,
+  hasPrivateActionHistory,
   mergeThreadDataForClientSave,
+  sanitizeThreadDataForPrivateActions,
   type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
@@ -244,6 +248,7 @@ import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
 import { RECURRING_SWEEP_BUDGET_MS } from "../jobs/sweep-hooks.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
 import { getUserLabEnabled } from "../labs/store.js";
+import { workspaceIntegrationMessagesForUser } from "../localization/workspace-integration-messages.js";
 import {
   mcpToolsToActionEntries,
   mountMcpServersRoutes,
@@ -301,7 +306,8 @@ import {
   type SharedThreadRouteDependencies,
 } from "./agent-chat/shared-thread.js";
 import { sortResourceSkills } from "./agent-chat/skill-frontmatter.js";
-import { discoverAgents, getWorkspaceAppProfile } from "./agent-discovery.js";
+import { discoverAgentContextAgents } from "./agent-context-agents.js";
+import { getWorkspaceAppProfile } from "./agent-discovery.js";
 import {
   resolveAgentRunOrgId,
   resolveAgentRunOrgScope,
@@ -327,9 +333,8 @@ import { captureError } from "./capture-error.js";
 import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
 import type { CliWrapperFlags } from "./cli-wrapper-flags.js";
 import {
-  actionDefinition,
   discoveredActionMcpAnnotations,
-  filesystemActionEntry,
+  importDevActionEntry,
 } from "./filesystem-action-entry.js";
 import {
   getH3App,
@@ -363,6 +368,9 @@ export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
 const MAX_QUEUED_SUBMISSION_RETRIES = 5;
+// A run can stay active for minutes, so a receipt behind it keeps polling for
+// this long before it is left to the recurring sweep, with a logged error.
+const QUEUED_SUBMISSION_BUSY_RETRY_LIMIT_MS = 10 * 60_000;
 const QUEUED_SUBMISSION_CLAIM_RENEW_INTERVAL_MS = 20_000;
 const QUEUED_SUBMISSION_CLAIM_RENEW_MAX_DURATION_MS = 60_000;
 // Matches AgentKit's MAX_REORDER_QUEUED_MESSAGE_IDS; a queue never nears it.
@@ -816,13 +824,19 @@ export function resolveConfiguredAgentModel(
 export function resolveInteractiveAgentRunOptions(
   options?: Pick<
     AgentChatPluginOptions,
-    "runSoftTimeoutMs" | "runNoProgressTimeoutMs" | "durableBackgroundRuns"
+    | "runSoftTimeoutMs"
+    | "runNoProgressTimeoutMs"
+    | "durableBackgroundRuns"
+    | "reasoningEffort"
   >,
 ) {
   return {
     runSoftTimeoutMs: options?.runSoftTimeoutMs,
     runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
     durableBackgroundRuns: options?.durableBackgroundRuns,
+    ...(options?.reasoningEffort
+      ? { reasoningEffort: options.reasoningEffort }
+      : {}),
   };
 }
 
@@ -1786,7 +1800,8 @@ export function createAgentChatPlugin(
         try {
           const { autoDiscoverActions } = await import("./action-discovery.js");
           templateScriptsAll = await autoDiscoverActions("auto");
-        } catch {
+        } catch (error) {
+          if (isActionDefinitionError(error)) throw error;
           // Filesystem discovery unavailable (serverless bundle) — skip.
         }
       }
@@ -1888,6 +1903,7 @@ export function createAgentChatPlugin(
         // Auto-discover template action files and register as bash-based tools.
         // This ensures templates without a custom agent-chat plugin (e.g., analytics)
         // still have their domain actions available as tools.
+        const definitionErrors: ActionDefinitionError[] = [];
         try {
           const pathMod = await import("path");
           const cwd = process.cwd();
@@ -1904,16 +1920,21 @@ export function createAgentChatPlugin(
               // run function (not a shell wrapper). This makes HTTP endpoints
               // work correctly. Only fall back to shell wrapper if the import
               // fails (e.g., CLI-style scripts that throw at top level).
+              // A definition error is rethrown below, past the catch that
+              // skips unreadable discovery, so it fails the load instead.
               try {
-                const mod = await import(/* @vite-ignore */ filePath);
-                const def = actionDefinition(mod);
-                if (def) {
-                  discoveredActionsAll[name] = filesystemActionEntry(def);
+                const entry = await importDevActionEntry(filePath, name);
+                if (entry) {
+                  discoveredActionsAll[name] = entry;
                   continue;
                 }
-              } catch {
-                // Fall through to shell wrapper for CLI-style scripts
-                // (and .ts files Node can't parse natively).
+              } catch (error) {
+                if (isActionDefinitionError(error)) {
+                  definitionErrors.push(error);
+                  continue;
+                }
+                // Anything else falls through to the shell wrapper, as an
+                // unimportable CLI script does.
               }
 
               // Static-parse the source for `http`, `agentTool: false`,
@@ -2023,6 +2044,11 @@ export function createAgentChatPlugin(
               `[agent-chat] Auto-discovered ${Object.keys(discoveredActionsAll).length} action(s): ${Object.keys(discoveredActionsAll).join(", ")}`,
             );
         } catch {}
+        if (definitionErrors.length > 0) {
+          throw new ActionDefinitionError(
+            definitionErrors.map((error) => error.message).join("\n"),
+          );
+        }
       }
 
       // Agent-facing views of the discovered actions: actions that opted out of
@@ -2239,7 +2265,7 @@ export function createAgentChatPlugin(
         workspaceFileActions = createWorkspaceFileActionEntries();
       } catch {}
       let toolActions: Record<string, ActionEntry> =
-        createDataWidgetActionEntries();
+        createDataWidgetActionEntries(options?.validateDataWidget);
       if (extensionToolsEnabled) {
         try {
           const { createExtensionActionEntries } =
@@ -3990,6 +4016,11 @@ export function createAgentChatPlugin(
       } catch {
         // Ignore — templates without sharing still work.
       }
+      const privateChatHistoryActionNames = new Set(
+        Object.entries(httpActions)
+          .filter(([, action]) => action.persistInChatHistory === false)
+          .map(([name]) => name),
+      );
       reservedActionRegistries.push(httpActions);
       const { mountActionRoutes, mountWebMcpActionRoutes } =
         await import("./action-routes.js");
@@ -4470,7 +4501,12 @@ export function createAgentChatPlugin(
         if (!threadId) return;
         const ownerEmail =
           getRequestRunContext()?.owner ?? getRequestUserEmail();
-        if (!ownerEmail) return;
+        if (!ownerEmail) {
+          console.warn(
+            `[agent-chat] prompt not saved for run ${details.runId}: no owner on the request (thread ${threadId}, turn ${details.turnId})`,
+          );
+          return;
+        }
 
         const submissionId =
           details.queuedMessageId ?? details.agentKitMessageId;
@@ -5409,7 +5445,7 @@ When the user asks to add a feature, edit a component, fix a bug in the app itse
 
 1. Do NOT use dev shell/filesystem tools, write code inline, list source files, propose patches, or describe file-level implementation steps from this chat.
 2. For host-app source changes in Act mode, call \`connect-builder\` when that tool is available so a separate Builder/cloud agent can do the work. If Builder is unavailable, give a short handoff to the outer dev frame, Agent-Native Desktop, Claude Code, or Codex in the project directory.
-3. If the request is specifically to add or scaffold a new workspace app and no Builder handoff is available, mention \`npx @agent-native/core@latest add-app\` in this workspace directory as the CLI path.
+3. If the request is specifically to add or scaffold a new workspace app and no Builder handoff is available, mention \`pnpm exec agent-native add-app\` in this workspace directory as the CLI path.
 
 Non-code requests are still fine on this surface: read data, navigate the UI, summarize, search, create/update extensions (sandboxed Alpine.js mini-apps stored in SQL), and call template actions. The restriction is specifically about direct edits to the host app's own source files.
 </app-rendered-chat-no-direct-code-edits>`;
@@ -6906,12 +6942,33 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // a provider that searches `decks` (or any sharable resource)
           // would see every row regardless of ownership.
           const mentionsOwner = await getOwnerFromEvent(event).catch(
-            () => undefined,
+            (error: unknown) => {
+              if (
+                error &&
+                typeof error === "object" &&
+                (("statusCode" in error && error.statusCode === 401) ||
+                  ("status" in error && error.status === 401))
+              )
+                return undefined;
+              throw error;
+            },
+          );
+          const referenceMessages = await workspaceIntegrationMessagesForUser(
+            mentionsOwner ?? "",
           );
           const mentionsOrgId = await resolveResourceOrgId(
             event,
             options?.resolveOrgId,
           );
+          const mentionContext = {
+            ...(mentionsOwner ? { userEmail: mentionsOwner } : {}),
+            ...(mentionsOrgId ? { orgId: mentionsOrgId } : {}),
+            ...((mentionsOrgId === null ||
+              (mentionsOrgId === undefined &&
+                getRequestContext()?.orgScope === "personal")) && {
+              orgScope: "personal" as const,
+            }),
+          };
 
           const query = getQuery(event);
           const q = typeof query.q === "string" ? query.q.toLowerCase() : "";
@@ -6939,6 +6996,67 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             item.label.toLowerCase().includes(q) ||
             (item.description?.toLowerCase().includes(q) ?? false);
 
+          if (query.source !== undefined) {
+            const source = typeof query.source === "string" ? query.source : "";
+            const mentionErrorResponse = (
+              status: number,
+              code: string,
+              message: string,
+            ) =>
+              new Response(
+                JSON.stringify({ error: { code, message, source } }),
+                {
+                  status,
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Cache-Control": "no-cache",
+                  },
+                },
+              );
+            const provider = Object.prototype.hasOwnProperty.call(
+              mentionProviders,
+              source,
+            )
+              ? mentionProviders[source]
+              : undefined;
+            if (!provider)
+              return mentionErrorResponse(
+                404,
+                "mention_source_not_found",
+                referenceMessages.referenceUnknown,
+              );
+            if (!mentionsOwner)
+              return mentionErrorResponse(
+                401,
+                "unauthorized",
+                referenceMessages.referenceSignIn,
+              );
+            let items: Awaited<ReturnType<typeof provider.search>>;
+            try {
+              items = await runWithRequestContext(mentionContext, () =>
+                provider.search(q, event),
+              );
+            } catch {
+              return mentionErrorResponse(
+                503,
+                "mention_source_unavailable",
+                referenceMessages.referenceUnavailable,
+              );
+            }
+            setResponseHeader(event, "Content-Type", "application/x-ndjson");
+            setResponseHeader(event, "Cache-Control", "no-cache");
+            return (
+              JSON.stringify({
+                items: items.slice(0, 50).map((item) => ({
+                  ...item,
+                  source,
+                  section: provider.label,
+                  icon: item.icon || provider.icon || "file",
+                })),
+              }) + "\n"
+            );
+          }
+
           const enc = new TextEncoder();
 
           // Stream NDJSON — each source flushes its batch as soon as it's ready.
@@ -6952,18 +7070,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           const stream = new ReadableStream({
             start(controller) {
-              const inheritedPersonalScope =
-                mentionsOrgId === undefined &&
-                getRequestContext()?.orgScope === "personal";
-              return runWithRequestContext(
-                {
-                  userEmail: mentionsOwner,
-                  orgId: mentionsOrgId ?? undefined,
-                  ...((mentionsOrgId === null || inheritedPersonalScope) && {
-                    orgScope: "personal" as const,
-                  }),
-                },
-                () => mentionsStreamWork(controller),
+              return runWithRequestContext(mentionContext, () =>
+                mentionsStreamWork(controller),
               );
             },
             cancel() {
@@ -7013,6 +7121,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
             };
 
+            const reportSourceFailure = (source: string) => {
+              if (cancelled || mentionsAbort.signal.aborted) return;
+              try {
+                controller.enqueue(
+                  enc.encode(
+                    JSON.stringify({
+                      error: {
+                        code: "mention_source_unavailable",
+                        message: referenceMessages.referenceUnavailable,
+                        source,
+                      },
+                    }) + "\n",
+                  ),
+                );
+              } catch {
+                cancelled = true;
+              }
+            };
+
             // All sources run in parallel; each flushes independently.
             const sources: Promise<void>[] = [];
 
@@ -7051,7 +7178,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                       };
                     }),
                   );
-                } catch {}
+                } catch {
+                  reportSourceFailure("resources");
+                }
               })(),
             );
 
@@ -7066,7 +7195,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   }> = [];
                   try {
                     await collectFiles(process.cwd(), "", 0, codebaseFiles);
-                  } catch {}
+                  } catch {
+                    reportSourceFailure("codebase");
+                    return;
+                  }
                   flush(
                     codebaseFiles.map((f) => ({
                       id: `codebase:${f.path}`,
@@ -7111,6 +7243,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                       })),
                     );
                   } catch (e) {
+                    reportSourceFailure(key);
                     console.error(
                       `[agent-native] Mention provider "${key}" failed:`,
                       e,
@@ -7121,42 +7254,45 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             // 4. Custom workspace agents
-            sources.push(
-              (async () => {
-                try {
-                  const owner = await getOwnerFromEvent(event);
-                  const { listAccessibleCustomAgents } =
-                    await import("../resources/agents.js");
-                  const agents = await listAccessibleCustomAgents(owner);
-                  flush(
-                    agents.map((agent) => ({
-                      id: `custom-agent:${agent.id}`,
-                      label: agent.name,
-                      description: agent.description || agent.path,
-                      icon: "agent",
-                      source: "agent:custom",
-                      refType: "custom-agent",
-                      refPath: agent.path,
-                      refId: agent.id,
-                      section: "Agents",
-                    })),
-                  );
-                } catch (e) {
-                  console.error(
-                    "[agent-native] Custom agent discovery failed:",
-                    e,
-                  );
-                }
-              })(),
-            );
+            if (mentionsOwner)
+              sources.push(
+                (async () => {
+                  try {
+                    const owner = await getOwnerFromEvent(event);
+                    const { listAccessibleCustomAgents } =
+                      await import("../resources/agents.js");
+                    const agents = await listAccessibleCustomAgents(owner);
+                    flush(
+                      agents.map((agent) => ({
+                        id: `custom-agent:${agent.id}`,
+                        label: agent.name,
+                        description: agent.description || agent.path,
+                        icon: "agent",
+                        source: "agent:custom",
+                        refType: "custom-agent",
+                        refPath: agent.path,
+                        refId: agent.id,
+                        section: "Agents",
+                      })),
+                    );
+                  } catch (e) {
+                    reportSourceFailure("custom-agents");
+                    console.error(
+                      "[agent-native] Custom agent discovery failed:",
+                      e,
+                    );
+                  }
+                })(),
+              );
 
             // 5. Peer agent discovery (network call — often slowest)
             sources.push(
               (async () => {
                 try {
-                  const agents = await discoverAgents(options?.appId, {
-                    includePersonalAgents: true,
-                  });
+                  const agents = await discoverAgentContextAgents(
+                    options?.appId,
+                    { includePersonalAgents: true },
+                  );
                   flush(
                     agents.map((agent) => ({
                       id: `agent:${agent.id}`,
@@ -7171,6 +7307,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     })),
                   );
                 } catch (e) {
+                  reportSourceFailure("connected-agents");
                   console.error("[agent-native] Agent discovery failed:", e);
                 }
               })(),
@@ -7804,6 +7941,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // to `getActiveRunForThreadAsync`'s return type does NOT reach
               // the wire on its own; it must be listed here too.
               hasInFlightWork: run.hasInFlightWork === true,
+              // Whether sending the same prompt again can succeed. Null when
+              // the run has not errored or recorded no reason, so a client
+              // keeps its own default.
+              retryable:
+                run.status === "errored" && run.terminalReason
+                  ? isRunFailureRetryable(run.terminalReason)
+                  : null,
             };
           }
 
@@ -8360,7 +8504,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     : thread.messageCount;
                 let nextTitle =
                   typeof body.title === "string" ? body.title : thread.title;
-                const nextPreview =
+                let nextPreview =
                   typeof body.preview === "string"
                     ? body.preview
                     : thread.preview;
@@ -8379,6 +8523,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   }
                 };
                 let isSnapshotDelta = false;
+                let privateHistoryDetected = false;
                 let existing: unknown;
                 try {
                   existing = JSON.parse(thread.threadData);
@@ -8394,6 +8539,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   setResponseStatus(event, 500);
                   return { error: "Stored thread data is invalid JSON" };
                 }
+                privateHistoryDetected = hasPrivateActionHistory(
+                  existing,
+                  privateChatHistoryActionNames,
+                );
                 // Merge the incoming snapshot delta over the current SQL copy.
                 // Let updateThreadData apply delta markers to each latest
                 // revision if its compare-and-swap needs to retry.
@@ -8429,6 +8578,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                       retryable: false,
                     };
                   }
+                  privateHistoryDetected ||= hasPrivateActionHistory(
+                    incoming,
+                    privateChatHistoryActionNames,
+                    [existing],
+                  );
+                  incoming = sanitizeThreadDataForPrivateActions(
+                    incoming,
+                    privateChatHistoryActionNames,
+                    [existing],
+                  );
                   const incomingAgentKit = (incoming as Record<string, unknown>)
                     .agentKit;
                   isSnapshotDelta =
@@ -8438,11 +8597,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     (incomingAgentKit as Record<string, unknown>)
                       ._snapshotDelta === true;
                   if (isSnapshotDelta) {
+                    newThreadData = JSON.stringify(incoming);
                     preserveTitleOverride(existing);
                   } else {
                     const merged = mergeThreadDataForClientSave(
                       existing,
                       incoming,
+                      {
+                        privateActionNames: privateChatHistoryActionNames,
+                      },
                     );
                     newThreadData = JSON.stringify(merged);
                     if (Array.isArray(merged.messages)) {
@@ -8464,6 +8627,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     body.title !== thread.title)
                 ) {
                   assertThreadOwner(thread, owner);
+                }
+                if (privateHistoryDetected) {
+                  nextTitle = thread.title;
+                  nextPreview = thread.preview;
                 }
                 let updated: boolean;
                 try {
@@ -9259,7 +9426,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const drainQueuedSubmissionInbox = async (
         drainOptions: {
           threadId?: string;
-          followUpDepth?: number;
+          busySince?: number;
         } = {},
       ) => {
         const result = {
@@ -9281,22 +9448,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           result.deferred += 1;
           deferredThreads.add(threadId);
         };
-        const scheduleFollowUpDrain = (threadId: string) => {
-          const followUpDepth = drainOptions.followUpDepth ?? 0;
-          if (followUpDepth >= 2) return;
+        const deferBusyReceipt = (threadId: string) => {
+          deferReceipt(threadId);
+          const busySince = drainOptions.busySince ?? Date.now();
+          if (Date.now() - busySince >= QUEUED_SUBMISSION_BUSY_RETRY_LIMIT_MS) {
+            console.error(
+              `[agent-chat] queued submission for ${threadId} stayed behind a busy thread for ${QUEUED_SUBMISSION_BUSY_RETRY_LIMIT_MS}ms; leaving it to the recurring sweep`,
+            );
+            return;
+          }
           const waitUntil = getRequestRunContext()?.waitUntil;
           scheduleQueuedSubmissionInboxDrain({
             threadId,
             turnContinues: false,
             ...(waitUntil ? { waitUntil } : {}),
             drain: (input) =>
-              drainQueuedSubmissionInbox({
-                ...input,
-                followUpDepth: followUpDepth + 1,
-              }),
+              drainQueuedSubmissionInbox({ ...input, busySince }),
             onError: (error) => {
               console.error(
-                `[agent-chat] queued-submission release follow-up drain failed for ${threadId}:`,
+                `[agent-chat] busy-thread inbox drain failed for ${threadId}:`,
                 error,
               );
             },
@@ -9334,7 +9504,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             drainOptions.threadId &&
             !(await waitForStableIdle(drainOptions.threadId))
           ) {
-            deferReceipt(receipt.threadId);
+            deferBusyReceipt(receipt.threadId);
             break;
           }
           let claimId: string | undefined;
@@ -9639,8 +9809,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   claimId,
                 });
                 claimId = undefined;
-                deferReceipt(receipt.threadId);
-                scheduleFollowUpDrain(receipt.threadId);
+                deferBusyReceipt(receipt.threadId);
                 continue;
               }
               const recorded = await recordQueuedSubmissionInterruptRun({
@@ -9874,8 +10043,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 claimId,
               });
               claimId = undefined;
-              deferReceipt(receipt.threadId);
-              scheduleFollowUpDrain(receipt.threadId);
+              deferBusyReceipt(receipt.threadId);
               await stream?.cancel().catch(() => {});
               continue;
             }
@@ -9993,6 +10161,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ttlSeconds: AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS,
             };
           } catch (error) {
+            if (error && typeof error === "object" && "statusCode" in error) {
+              if (error.statusCode === 403) {
+                setResponseStatus(event, 403);
+                return { error: "Workspace membership required" };
+              }
+              if (error.statusCode === 503) {
+                setResponseStatus(event, 503);
+                return {
+                  error: "Organization scope is temporarily unavailable.",
+                };
+              }
+            }
             console.error("[agent-chat] stream token unavailable:", error);
             setResponseStatus(event, 503);
             return { error: "Agent-chat streaming is not configured" };
@@ -10066,7 +10246,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             processBody = await readBody(event);
           } catch {
             setResponseStatus(event, 400);
-            return { error: "Invalid request body" };
+            return {
+              error: "Invalid request body",
+              code: "invalid_request_body",
+            };
           }
 
           // Validate + HMAC-authenticate the self-dispatch and prepare the
@@ -10662,31 +10845,38 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 jobsSkippedReason: "unclaimed-background-sweep-failed",
               };
             }
+            const incompleteSteps = [
+              staleRunReapIncomplete && "staleRunsReaped",
+              agentHarnessFollowUpRecoveryIncomplete &&
+                "expiredAgentHarnessFollowUps",
+              agentHarnessApprovalRecoveryIncomplete &&
+                "expiredAgentHarnessApprovals",
+              appSweepHandlers.failed.length > 0 && "appSweepHandlers",
+              automationFailureAlerts === null && "automationFailureAlerts",
+              (queuedSubmissionDrain === null ||
+                queuedSubmissionDrain.failed > 0) &&
+                "queuedSubmissionDrain",
+              (staleAgentTeamRuns === null || staleAgentTeamRuns.failed > 0) &&
+                "staleAgentTeamRuns",
+            ].filter((step): step is string => typeof step === "string");
+            if (incompleteSteps.length > 0) {
+              console.error("[recurring-jobs] Sweep incomplete:", {
+                incompleteSteps,
+                staleRunsReaped,
+                expiredAgentHarnessFollowUps,
+                expiredAgentHarnessApprovals,
+                staleAgentTeamRuns,
+                queuedSubmissionDrain,
+                automationFailureAlerts,
+                appSweepHandlers,
+              });
+            }
             if (!triggerAvailability.available) {
-              if (
-                staleRunReapIncomplete ||
-                agentHarnessFollowUpRecoveryIncomplete ||
-                agentHarnessApprovalRecoveryIncomplete ||
-                appSweepHandlers.failed.length > 0 ||
-                automationFailureAlerts === null ||
-                queuedSubmissionDrain === null ||
-                queuedSubmissionDrain.failed > 0 ||
-                staleAgentTeamRuns === null ||
-                staleAgentTeamRuns.failed > 0
-              ) {
+              if (incompleteSteps.length > 0) {
                 setResponseStatus(event, 500);
               }
               return {
-                ok:
-                  !staleRunReapIncomplete &&
-                  !agentHarnessFollowUpRecoveryIncomplete &&
-                  !agentHarnessApprovalRecoveryIncomplete &&
-                  appSweepHandlers.failed.length === 0 &&
-                  automationFailureAlerts !== null &&
-                  queuedSubmissionDrain !== null &&
-                  queuedSubmissionDrain.failed === 0 &&
-                  staleAgentTeamRuns !== null &&
-                  staleAgentTeamRuns.failed === 0,
+                ok: incompleteSteps.length === 0,
                 staleRunsReaped,
                 expiredAgentHarnessFollowUps,
                 expiredAgentHarnessApprovals,
@@ -10702,17 +10892,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             try {
               await processRecurringJobs(schedulerDeps);
-              if (
-                staleRunReapIncomplete ||
-                agentHarnessFollowUpRecoveryIncomplete ||
-                agentHarnessApprovalRecoveryIncomplete ||
-                appSweepHandlers.failed.length > 0 ||
-                automationFailureAlerts === null ||
-                queuedSubmissionDrain === null ||
-                queuedSubmissionDrain.failed > 0 ||
-                staleAgentTeamRuns === null ||
-                staleAgentTeamRuns.failed > 0
-              ) {
+              if (incompleteSteps.length > 0) {
                 setResponseStatus(event, 500);
                 return {
                   ok: false,

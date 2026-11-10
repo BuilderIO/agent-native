@@ -1,4 +1,8 @@
-import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import {
+  appApiPath,
+  appBasePath,
+  appPath,
+} from "@agent-native/core/client/api-path";
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
 
 function stripBasePath(pathname: string): string {
@@ -10,11 +14,14 @@ function stripBasePath(pathname: string): string {
   return pathname;
 }
 
+function isApiPath(unmountedPathname: string): boolean {
+  return unmountedPathname === "/api" || unmountedPathname.startsWith("/api/");
+}
+
 function isAppLocalMediaPath(pathname: string): boolean {
   const unmountedPathname = stripBasePath(pathname);
   return (
-    unmountedPathname === "/api" ||
-    unmountedPathname.startsWith("/api/") ||
+    isApiPath(unmountedPathname) ||
     unmountedPathname.startsWith("/asset/") ||
     unmountedPathname.startsWith("/image/") ||
     unmountedPathname.startsWith("/library-presets/")
@@ -26,7 +33,9 @@ function mountAppLocalMediaPath(
   search = "",
   hash = "",
 ): string {
-  return appPath(`${stripBasePath(pathname)}${search}${hash}`);
+  const unmountedPathname = stripBasePath(pathname);
+  const path = `${unmountedPathname}${search}${hash}`;
+  return isApiPath(unmountedPathname) ? appApiPath(path) : appPath(path);
 }
 
 function isLocalDevHost(hostname: string): boolean {

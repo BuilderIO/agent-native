@@ -40,10 +40,14 @@ namespaced tables; this layer adds its own fixed tables.
 - **Content:** registers `documents`, installs change capture as migration
   117, and `search-documents` answers from the index when it's ready. When it
   isn't, the request falls back to the scan Content used before the index.
+  When a query finds nothing, `search-documents` runs a typo pass over the
+  words in titles and descriptions the caller can see (see
+  [Querying](#querying)).
 - **Not built yet:** the `searchResources` library call, `createSearchAction`,
   the per-app `search` action, cursors, chunks and passage snippets, audience
-  tokens, `ts_rank_cd` ordering, the typo fallback, the semantic lane, and
-  lifting the browser lane into core. Until the library call exists, an app
+  tokens, `ts_rank_cd` ordering, the `search_vocabulary` table and typo
+  correction of body words, the semantic lane, and lifting the browser lane
+  into core. Until the library call exists, an app
   composes the index into its own query (see [Querying](#querying)).
 
 ## Shape of the system
@@ -435,10 +439,24 @@ Cursors will encode the engine (fallback or index), `index_version`, offset,
 and signal snapshot time. A cursor from one engine is rejected by the other,
 and the search restarts.
 
-The typo fallback will draw suggestions only from vocabulary the caller may
-see. Vocabulary rows carry audience tokens, and "matched nothing" is decided
-after authorization, so a suggestion can't reveal a word from a document the
-caller can't open.
+Typo correction draws only on words the caller may see, and "matched
+nothing" is decided after authorization, so a correction can't reveal a word
+from a document the caller can't open. Content does this today without a
+vocabulary table: when an authorized search finds nothing, it reads the
+distinct words of the titles and descriptions that same search could return,
+and widens each query word that isn't among them to the closest words that
+are, using the browser lane's typo rule (one edit, two for words of eight or
+more characters, including the start of a longer word). A word inside
+punctuation is replaced in place, so "q3-roadmpa" also searches for
+"q3-roadmap". Each correction also searches for the word as stored, because
+the fallback scan compares stored text as written. Phrases, excluded words,
+and words under four characters are never corrected. The response's
+`spellingCorrections` lists what each word was matched as. The pass reads at
+most 50,000 distinct words; a library with more keeps its most-used ones, in
+a fixed order, so every page of a search sees the same corrections. That read
+scans the visible titles and descriptions on every search that finds nothing.
+Correcting body words needs `search_vocabulary`, whose rows will carry
+audience tokens.
 
 ## Library and actions
 
@@ -509,8 +527,10 @@ back a `CommandSearchProvider` when the shared command menu lands.
 
 - **PGlite (local):** the lexical lane and triggers work. PGlite never gathers
   table statistics, so the feed's statements find rows by primary key rather
-  than relying on the planner to pick a good join. The typo fallback will need
-  `pg_trgm`, which core's PGlite client must pass at construction. There is no
+  than relying on the planner to pick a good join. A trigram-backed
+  `search_vocabulary` will need `pg_trgm`, which core's PGlite client must
+  pass at construction; Content's title typo pass compares words in
+  JavaScript and needs no extension. There is no
   semantic lane; the action will report `semantic: "unavailable"`.
 - **Neon:** `pg_trgm` and `vector` are created at release when those lanes
   land. Each search reads the index state and pending changes in its own

@@ -1,21 +1,7 @@
+import { isPersistableAttachmentReferenceUrl } from "@agent-native/agentkit/protocol";
+
 import { isInlineDataUrl } from "./attachments.js";
 import { parseDataUrl } from "./data-url.js";
-
-function isPersistableAttachmentReferenceUrl(value: unknown): value is string {
-  if (typeof value !== "string" || !value.trim() || value.length > 8192) {
-    return false;
-  }
-  if (!URL.canParse(value)) return false;
-  const url = new URL(value);
-  return (
-    (url.protocol === "http:" || url.protocol === "https:") &&
-    Boolean(url.hostname) &&
-    !url.username &&
-    !url.password &&
-    !url.search &&
-    !url.hash
-  );
-}
 
 /**
  * Inline file bytes reached a SQL write with no durable URL to stand in for
@@ -79,8 +65,9 @@ const IMAGE_BYTE_FIELD_KEYS = new Set([
 ]);
 // URL schemes are case-insensitive: `DATA:image/png;base64,...` is still bytes.
 const DATA_SCHEME = /data:/i;
-const EMBEDDED_DATA_URL =
-  /\bdata:[\w.+-]+\/[\w.+-]+(?:;[^,;\s"'<>]*)*,[^\s"'<>)\]]*/gi;
+const EMBEDDED_URL_START =
+  /\b(?:data:((?:[\w.+-]+\/[\w.+-]+)?)(?=[;,])|(?<![a-z\d+.-])(?!data:)[a-z][a-z\d+.-]*:\/\/|(?:https?|mailto|tel|sms):)/gi;
+const URL_TOKEN_BOUNDARY = /[\s"'<>]/;
 
 function hasInlineByteProperty(json: string): boolean {
   for (const match of json.matchAll(/"((?:\\.|[^"\\])*)"\s*:/g)) {
@@ -166,14 +153,96 @@ function inlineMediaType(
   return undefined;
 }
 
-function scrubString(value: string): string {
-  return DATA_SCHEME.test(value)
-    ? value.replace(EMBEDDED_DATA_URL, (match) => {
-        const mediaType = /^data:([^;,]+)/i.exec(match)?.[1] ?? "unknown";
-        return `[inline ${mediaType.toLowerCase()} data omitted]`;
-      })
-    : value;
+function findUrlSpan(
+  value: string,
+  start: number,
+  opening: string,
+  isData: boolean,
+): { end: number; comma: number } {
+  const wrapped = opening === "(" || opening === "[";
+  const closing = opening === "(" ? ")" : "]";
+  let depth = 1;
+  let comma = -1;
+  let escaped = false;
+  let inQuery = false;
+  let markdownStart = -1;
+  for (let index = start; index < value.length; index += 1) {
+    const char = value.charAt(index);
+    if (URL_TOKEN_BOUNDARY.test(char)) return { end: index, comma };
+    if (!isData && !wrapped) {
+      if (char === "?" || char === "#") inQuery = true;
+      if (!inQuery) {
+        if (char === "[") {
+          markdownStart = index - (value.charAt(index - 1) === "!" ? 1 : 0);
+        } else if (char === "]" && markdownStart !== -1) {
+          if (
+            value.charAt(index + 1) === "(" &&
+            value.slice(index + 2, index + 7).toLowerCase() === "data:"
+          ) {
+            return { end: markdownStart, comma };
+          }
+          markdownStart = -1;
+        }
+      }
+    }
+    if (isData && comma === -1 && char === ",") {
+      comma = index;
+      continue;
+    }
+    if (!wrapped) continue;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === opening) depth += 1;
+    if (char === closing) {
+      depth -= 1;
+      if (depth === 0) return { end: index, comma };
+    }
+  }
+  return { end: value.length, comma };
 }
+
+function scrubString(value: string): string {
+  const parts: string[] = [];
+  let copiedThrough = 0;
+  if (DATA_SCHEME.test(value)) {
+    EMBEDDED_URL_START.lastIndex = 0;
+    for (
+      let match = EMBEDDED_URL_START.exec(value);
+      match !== null;
+      match = EMBEDDED_URL_START.exec(value)
+    ) {
+      const isData = match[0].slice(0, 5).toLowerCase() === "data:";
+      const span = findUrlSpan(
+        value,
+        EMBEDDED_URL_START.lastIndex,
+        value.charAt(match.index - 1),
+        isData,
+      );
+      // Skip inspected URL spans so embedded schemes cannot trigger rescans.
+      EMBEDDED_URL_START.lastIndex = span.end;
+      if (!isData || span.comma === -1 || span.end <= span.comma + 1) continue;
+
+      parts.push(
+        value.slice(copiedThrough, match.index),
+        `[inline ${(match[1] || "text/plain").toLowerCase()} data omitted]`,
+      );
+      copiedThrough = span.end;
+    }
+    if (parts.length > 0) {
+      parts.push(value.slice(copiedThrough));
+    }
+  }
+  // raw-sql-ok: this returns projected text with omission markers, not SQL syntax.
+  return parts.length === 0 ? value : parts.join("");
+}
+
+export { scrubString as stripInlineDataUrls };
 
 function sanitize(
   value: unknown,
@@ -227,11 +296,10 @@ function sanitize(
   const fallbackUrl =
     ownUrl ?? (hasAttachmentContext ? inheritedUrl : undefined);
   const inline = hasAttachmentContext ? inlineKeys(item) : [];
-  const unreferenced =
-    isAttachment &&
-    inline.length > 0 &&
-    !fallbackUrl &&
-    !(typeof item.fileId === "string" && item.fileId);
+  // A `fileId` names the attachment; nothing resolves it back to bytes, so it
+  // never stands in for bytes that need a URL. The dispatch serializer agrees
+  // for parts that carry bytes.
+  const unreferenced = isAttachment && inline.length > 0 && !fallbackUrl;
 
   if (unreferenced && policy === "reject") {
     throw new DurableAttachmentReferenceRequiredError();

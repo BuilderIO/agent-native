@@ -39,15 +39,20 @@ export function queueSuggestionAutosave(
   return true;
 }
 
+/** The wait before a failed save's retry, doubling while saves keep failing. */
+export function nextSuggestionAutosaveRetryDelay(retryDelay: number) {
+  return Math.min(
+    Math.max(retryDelay * 2, SUGGESTION_AUTOSAVE_RETRY_MS),
+    SUGGESTION_AUTOSAVE_MAX_RETRY_MS,
+  );
+}
+
 /** A save failed; try again after a growing backoff. */
 export function retrySuggestionAutosave(
   autosave: SuggestionAutosave,
   save: () => void,
 ) {
-  autosave.retryDelay = Math.min(
-    Math.max(autosave.retryDelay * 2, SUGGESTION_AUTOSAVE_RETRY_MS),
-    SUGGESTION_AUTOSAVE_MAX_RETRY_MS,
-  );
+  autosave.retryDelay = nextSuggestionAutosaveRetryDelay(autosave.retryDelay);
   if (autosave.disposed) return;
   // Replaces any typing timer queued while the failed save was in flight; it
   // would otherwise fire before the backoff.

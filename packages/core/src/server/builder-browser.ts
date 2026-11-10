@@ -2568,6 +2568,8 @@ function parseBuilderAccountProvisioningResponse(
 }
 
 export async function provisionBuilderAccount(input: {
+  /** Version 3 is rejected by older servers rather than connecting an existing account. */
+  newAccountOnly?: boolean;
   email: string;
   name?: string;
   agentNativeApp?: string;
@@ -2581,8 +2583,9 @@ export async function provisionBuilderAccount(input: {
     input.name?.trim().slice(0, 120) || email.slice(0, email.indexOf("@"));
   const agentNativeApp = cleanTrackingParam(input.agentNativeApp);
   const agentNativeTemplate = cleanTrackingParam(input.agentNativeTemplate);
-  const version =
-    agentNativeApp || agentNativeTemplate
+  const version = input.newAccountOnly
+    ? "agent-native-account-v3"
+    : agentNativeApp || agentNativeTemplate
       ? "agent-native-account-v2"
       : "agent-native-account-v1";
   const timestamp = String(Date.now());
@@ -2593,9 +2596,10 @@ export async function provisionBuilderAccount(input: {
     requestId,
     email,
     name,
-    ...(version === "agent-native-account-v2"
+    ...(version !== "agent-native-account-v1"
       ? [agentNativeApp ?? "", agentNativeTemplate ?? ""]
       : []),
+    ...(input.newAccountOnly ? ["new-account-only"] : []),
   ].join("\n");
   const signature = createHmac("sha256", builderAccountProvisioningSecret())
     .update(signaturePayload)
@@ -2614,6 +2618,7 @@ export async function provisionBuilderAccount(input: {
       body: JSON.stringify({
         email,
         name,
+        ...(input.newAccountOnly ? { newAccountOnly: true } : {}),
         ...(agentNativeApp ? { agentNativeApp } : {}),
         ...(agentNativeTemplate ? { agentNativeTemplate } : {}),
       }),
@@ -2871,6 +2876,25 @@ export async function createBuilderProject(args: {
     throw new Error("Builder project creation returned no project id");
   }
   return project;
+}
+
+/** Builder Workspace project id this deployment is linked to, if any. */
+export function getBuilderWorkspaceProjectId(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  return env.BUILDER_WORKSPACE_PROJECT_ID?.trim() || null;
+}
+
+/**
+ * Where a Builder-linked workspace is managed in Builder. Apps for a linked
+ * workspace are created there, not from Dispatch.
+ */
+export function getBuilderWorkspaceUrl(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const projectId = getBuilderWorkspaceProjectId(env);
+  if (!projectId) return null;
+  return `${getBuilderAppHost().replace(/\/$/, "")}/app/workspaces/${encodeURIComponent(projectId)}`;
 }
 
 /** @deprecated Repository-backed Builder projects are retained for compatibility. */

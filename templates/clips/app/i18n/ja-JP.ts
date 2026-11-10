@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "録画を参照…",
+    group: "録画",
+    authentication: "参照を追加するにはログインしてください。",
+    invalid: "送信する前に有効な参照を選択してください。",
+    unavailable:
+      "選択した参照は利用できなくなりました。削除するか、もう一度選択してください。",
+  },
   meetingAsk: {
     resizeOrDismissAnswers: "回答欄のサイズを変更、または閉じる",
   },
@@ -315,6 +323,48 @@ const messages = {
     clipsRestoreFailed: "{{count}} 件のクリップを復元できませんでした",
     clipsPermanentlyDeleted: "{{count}} 件のクリップを完全に削除しました",
     clipsDeleteFailed: "{{count}} 件のクリップを削除できませんでした",
+    deletedMediaPending:
+      "Clips から動画を削除しました。削除の確認を実行中です。",
+    deletedMediaBlocked:
+      "Clips から動画を削除しました。ファイルの削除を確認できませんでした。",
+    deletedMediaRetained:
+      "録画を削除しました。他の録画で使用中のメディアファイルは残しました。",
+    clipsDeletedMediaPending:
+      "Clips から削除した動画：{{count}} 件。削除の確認を実行中です。",
+    clipsDeletedMediaBlocked:
+      "Clips から削除した動画：{{count}} 件。ファイルの削除を確認できませんでした。",
+    clipsDeletedMediaRetained:
+      "削除した録画：{{count}} 件。他の録画で使用中のメディアファイルは残しました。",
+    deletedMediaFinalizing:
+      "Clips から動画を削除しました。ストレージ使用量の更新を再試行する必要があります。",
+    clipsDeletedMediaFinalizing:
+      "Clips から削除した動画：{{count}} 件。ストレージ使用量の更新を再試行する必要があります。",
+    mediaCleanupFinalizing: "ストレージ使用量の更新を再試行する必要があります",
+    mediaCleanupFinalizingHelp:
+      "ファイル削除の確認は終わりましたが、この動画がまだストレージ上限に算入されている可能性があります。使用量の更新を再試行して、ストレージ合計を更新してください。",
+    mediaCleanupListLabel: "メディアの削除",
+    mediaCleanupPending: "削除の確認を実行中",
+    mediaCleanupPendingHelp:
+      "Clips はバックグラウンドで確認を続けます。このページを離れて、ゴミ箱で更新を確認できます。",
+    mediaCleanupBlocked: "動画ファイルの削除を確認できませんでした",
+    mediaCleanupBlockedHelp:
+      "保存された動画ファイルが残っている可能性があります。「削除を再試行」で再度試行します。このページを離れて、ゴミ箱で結果を確認できます。",
+    mediaCleanupReconnect:
+      "削除した録画のメディアファイルを削除するには、ストレージを再接続してください",
+    mediaCleanupRetained:
+      "削除した録画の共有メディアファイルは、他の録画で使用されている間は保持されます",
+    mediaCleanupHelp: "詳細",
+    mediaCleanupRetryFiles: "削除を再試行",
+    mediaCleanupRetryingFiles: "動画ファイルの削除を再試行しています",
+    mediaCleanupRetryUsage: "使用量の更新を再試行",
+    mediaCleanupRetryingUsage: "ストレージ使用量の更新を再試行しています",
+    mediaCleanupRemoved: "メディアファイルを削除しました",
+    mediaCleanupUsageUpdated: "ストレージ使用量を更新しました",
+    mediaCleanupStillBlocked: "動画ファイルの削除をまだ確認できません",
+    mediaCleanupStillFinalizing: "ストレージ使用量の更新はまだ再試行が必要です",
+    mediaCleanupRetryFailed:
+      "再試行を開始できませんでした。もう一度お試しください。",
+    mediaCleanupLoadFailed: "メディアの削除状況を読み込めませんでした",
   },
   recordingRoute: {
     pageTitle: "クリップ録画 · Clips",
@@ -604,6 +654,14 @@ const messages = {
     desktopHint:
       "メモを開始するには、メニューバーから Clips Desktop を開いて Start Meeting Notes を選ぶか、リマインダーが表示されたら Start notes をクリックします。Clips はマイクとシステム音声を取り込み、ここに文字起こしを書き込みます。",
     getDesktopApp: "デスクトップアプリを入手",
+    earlierAudioAdded_one: "開始前の {{count}} 分を追加しました",
+    earlierAudioAdded_other: "開始前の {{count}} 分を追加しました",
+    earlierAudioUnreadable:
+      "この文字起こしに開始前の音声が含まれているか確認できませんでした",
+    removeEarlierAudioTitle: "開始前の音声を削除しますか?",
+    removeEarlierAudioDescription:
+      "文字起こしから削除し、要約、アクションアイテム、クリップの説明を作り直します。説明をご自身で書いた場合も作り直されます。自動生成タイトルも作り直されますが、ご自身で選んだタイトルはそのまま残ります。チャプターも削除されます。",
+    couldNotRemoveEarlierAudio: "開始前の音声を削除できませんでした",
     generateNotesFailed:
       "要約を生成できませんでした。もう一度やり直してください。",
     attendee_one: "{{count}} 出席者",
@@ -656,6 +714,8 @@ const messages = {
     noMatches: "一致はありません。",
     noTranscript: "まだトランスクリプトはありません。",
     noTranscriptCaptured: "記録はキャプチャされませんでした。",
+    partialTranscript:
+      "一部のみの文字起こし: 録画が途中で途切れたため、欠けている部分があるかもしれません。",
     backupFailed:
       "ローカルで音声がキャプチャされておらず、バックアップの文字起こしが完了していません。再試行するか、マイクと音声の許可を確認してください。",
     backupNotSetup:
@@ -763,7 +823,7 @@ const messages = {
     openInCodex: "Codex で開く",
     copyAgentPrompt: "エージェント用プロンプトをコピー",
     agentPrompt:
-      "このClipsエージェントコンテキストURLを読み取ってください: {{agentContextUrl}}。apis.transcriptから完全なトランスクリプトを読み、動画を確認するためrecommendedFrames[].url（またはatMsを指定したapis.frame.urlTemplate）を画像として取得します。idとagent_accessは指定されたとおり保持してください。エラー時はJSON応答のfailureKind、error、nextStepを確認します。failureKind=accessなら、このリンクではアクセスできないと説明し、非公開クリップでは所有者にClipsの共有メニューで{{shareWithAgents}}を選び、生成されたリンクを送ってもらいます。failureKind=mediaでトランスクリプトが読める場合は、保存されたメディアを取得できなかったと説明します。別のリンクでは解決しません。failureKind=processingならnextStepに従います。これはメディアが欠落している、またはリンクが無効であることを意味しません。failureKind=expiredなら、所有者に共有メニューでクリップの有効期限を延長または解除して保存し、その後{{shareWithAgents}}を選んで新しいリンクを送ってもらいます。バグ報告ではbrowserDiagnosticsがあれば確認してください。ツールが画像を返せない、またはこれらのリンクを開けない場合は、ツール側の制限であり、Clipsのエラーではないと伝えてください。",
+      "このClipsエージェントコンテキストURLを読み取ってください: {{agentContextUrl}}。apis.transcriptから完全なトランスクリプトを読み、動画を確認するためrecommendedFrames[].url（またはatMsを指定したapis.frame.urlTemplate）を画像として取得します。idとagent_accessは指定されたとおり保持してください。エラー時はJSON応答のfailureKind、error、nextStepを確認します。failureKind=accessなら、このリンクではアクセスできないと説明し、非公開クリップでは所有者にClipsの共有メニューで{{shareWithAgents}}を選び、生成されたリンクを送ってもらいます。failureKind=mediaでトランスクリプトが読める場合は、保存されたメディアを取得できなかったと説明します。別のリンクでは解決しません。failureKind=processingならnextStepに従います。これはメディアが欠落している、またはリンクが無効であることを意味しません。failureKind=expiredなら、所有者に共有メニューでクリップの有効期限を延長または解除して保存し、その後{{shareWithAgents}}を選んで新しいリンクを送ってもらいます。バグ報告ではbrowserDiagnosticsがあれば確認してください。フレームのURLを画像として開けない場合は、利用可能であれば、このコンテキストURLの録画IDを指定してClipsのget-recording-framesツールを呼び出してください。利用できない場合は、{{connectUrl}} でClipsを接続するとフレームを確認できるようになると、ユーザーに伝えてください。",
     agentTokenDescription:
       "このクリップは非公開のため、エージェント用の一時的な読み取り専用リンクです。2 時間で期限切れになります。",
     agentPublicDescription:
@@ -1490,6 +1550,7 @@ const messages = {
   transcriptBubbles: {
     listening: "聞き取り中…",
     noTranscript: "文字起こしはまだありません。",
+    unreadable: "この文字起こしを読み込めませんでした。",
     liveTranscriptDescription:
       "ノートが始まるとライブ文字起こしがここに表示されます。",
     me: "自分",
@@ -1984,6 +2045,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "無料クリップの残り {{count}} 本",
     freeClipsLeft_other: "無料クリップの残り {{count}} 本",
+    activateBuilder: "Builder.io を有効にする",
     hostedClipsExhaustedTitle: "Builder.io に無料で接続して録画を続ける",
     hostedClipsExhaustedDescription:
       "無料のホスト録画枠を使い切りました。Builder.io ストレージに接続すると、ライブラリへのクリップ保存を続けられます。",
@@ -2196,6 +2258,13 @@ const messages = {
     flowOriginalTranscript: "元の文字起こしを表示",
     flowCleanupSkipped: "テキストの整理を省略し、元の文章を保持しました",
     flowBacktrackSkipped: "テキスト編集を省略し、認識した文章を保持しました",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet は未ダウンロード",
+    flowAppleSpeechParakeetDownloading:
+      "Apple Speech · Parakeet をダウンロード中",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet を読み込み中",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet は使用中",
+    flowAppleSpeechParakeetFailed:
+      "Apple Speech · Parakeet を読み込めませんでした",
     flowCancelDictation: "音声入力をキャンセル",
     flowCopying: "文字起こしをコピーしています…",
     aiProcessed: "AI処理済み",

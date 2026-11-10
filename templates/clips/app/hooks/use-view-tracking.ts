@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { useEffect, useRef } from "react";
 
 import { getViewerSessionId } from "@/lib/viewer-session";
@@ -59,7 +59,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
       }
       openTrackedRecordingRef.current = recordingId;
       viewSessionRef.current = createViewSessionId(recordingId);
-      fetch(`${appBasePath()}/api/view-event`, {
+      fetch(appApiPath("/api/view-event"), {
         method: "POST",
         keepalive: true,
         headers: { "Content-Type": "application/json" },
@@ -101,7 +101,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
         maxPctRef.current,
         clampCompletionPct(completedPct),
       );
-      fetch(`${appBasePath()}/api/view-event`, {
+      fetch(appApiPath("/api/view-event"), {
         method: "POST",
         keepalive: kind === "watch-progress" || kind === "pause",
         headers: { "Content-Type": "application/json" },
@@ -181,7 +181,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
 
   return {
     reportCtaClick: () => {
-      fetch(`${appBasePath()}/api/view-event`, {
+      fetch(appApiPath("/api/view-event"), {
         method: "POST",
         keepalive: true,
         headers: { "Content-Type": "application/json" },
@@ -193,7 +193,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
       }).catch(() => {});
     },
     reportReaction: (emoji: string) => {
-      fetch(`${appBasePath()}/api/view-event`, {
+      fetch(appApiPath("/api/view-event"), {
         method: "POST",
         keepalive: true,
         headers: { "Content-Type": "application/json" },
