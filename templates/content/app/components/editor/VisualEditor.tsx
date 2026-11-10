@@ -3048,7 +3048,8 @@ export async function uploadAndInsertImageFiles(
   const saveBatch = async () => {
     try {
       return await persist();
-    } catch {
+    } catch (error) {
+      console.error("Could not save the dropped images:", error);
       return false;
     }
   };
