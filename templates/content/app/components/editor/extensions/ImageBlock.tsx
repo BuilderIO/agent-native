@@ -921,7 +921,7 @@ export function ImageBlock({
     nextSrc: string,
     nextAlt: string,
   ) {
-    if (assetCopyRef.current) return;
+    // A later pick replaces a copy still under way: the last image chosen wins.
     const copy = {};
     assetCopyRef.current = copy;
     let answer: unknown;
