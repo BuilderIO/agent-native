@@ -241,13 +241,13 @@ export default defineAction({
       transcript?.fullText?.trim() ||
       transcriptTextFromSegments(transcript?.segmentsJson);
 
-    // Without a model the AI attempt fails every time, and the full-video
-    // request has nothing to run it: both give way to the local title.
-    const modelUnavailable =
-      (await resolveChatModelAvailability()) === "unavailable";
+    // The full-video request is agent work and the queue refuses it unless a
+    // chat model is confirmed; an automatic request then takes the local title.
+    const chatModelAvailable =
+      (await resolveChatModelAvailability()) === "available";
     const includeFullVideoInAi = await readIncludeFullVideoInAi();
 
-    if (includeFullVideoInAi && !modelUnavailable) {
+    if (includeFullVideoInAi && chatModelAvailable) {
       if (await earlierAudioRemovedSinceRead()) {
         return {
           updated: false,
@@ -338,10 +338,7 @@ export default defineAction({
       purpose: "title",
     });
 
-    const noModel = new Error("No chat model is available");
-
     try {
-      if (modelUnavailable) throw noModel;
       const result = await cleanupTranscript.run({
         transcript: transcriptText,
         task: "title",
@@ -422,12 +419,10 @@ export default defineAction({
       builderCreditsPaused = isBuilderCreditsExhaustedMessage(
         (err as Error)?.message ?? String(err),
       );
-      if (err !== noModel) {
-        console.warn(
-          `[clips] AI title generation failed for ${args.recordingId}; falling back to local title:`,
-          (err as Error).message,
-        );
-      }
+      console.warn(
+        `[clips] AI title generation failed for ${args.recordingId}; falling back to local title:`,
+        (err as Error).message,
+      );
     }
 
     const fallbackTitle = fallbackTitleFromTranscript(transcriptText);

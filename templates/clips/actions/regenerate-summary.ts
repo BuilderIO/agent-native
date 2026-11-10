@@ -10,7 +10,6 @@ import { assertRecordingNotExpired } from "../server/lib/recording-read-access.j
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
 import cleanupTranscript from "./cleanup-transcript.js";
 import {
-  assertAiModelAvailable,
   queueAiRequest,
   withAiRequestStatusInstructions,
 } from "./lib/ai-request-status.js";
@@ -73,7 +72,6 @@ export default defineAction({
     }
 
     if (!includeFullVideoInAi) {
-      await assertAiModelAvailable();
       const result = await cleanupTranscript.run({
         transcript: transcript?.fullText ?? "",
         task: "summary",
