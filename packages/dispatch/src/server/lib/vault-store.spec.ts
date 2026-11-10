@@ -543,9 +543,13 @@ describe("vault writes keep the value out of vault_secrets", () => {
       );
     });
 
-    it("keeps the stored value of a key a vault row still owns", async () => {
+    it("puts the previous value back when an overwrite of a key a vault row owns fails", async () => {
       actAsOrgAdmin();
       fakeVaultDb([existingRow()], { failUpdate: new Error("update failed") });
+      mocks.readAppSecret.mockResolvedValue({
+        value: "sk-old",
+        last4: "••••-old",
+      });
 
       await expect(
         createSecret({
@@ -555,7 +559,27 @@ describe("vault writes keep the value out of vault_secrets", () => {
         }),
       ).rejects.toThrow("update failed");
 
+      expect(
+        mocks.writeAppSecret.mock.calls.map(([args]) => args.value),
+      ).toEqual(["sk-rotated", "sk-old"]);
       expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
+    });
+
+    it("puts the previous value back when an edit's row write fails", async () => {
+      actAsOrgAdmin();
+      fakeVaultDb([existingRow()], { failUpdate: new Error("update failed") });
+      mocks.readAppSecret.mockResolvedValue({
+        value: "sk-old",
+        last4: "••••-old",
+      });
+
+      await expect(
+        updateSecret("secret-1", { value: "sk-rotated" }),
+      ).rejects.toThrow("update failed");
+
+      expect(
+        mocks.writeAppSecret.mock.calls.map(([args]) => args.value),
+      ).toEqual(["sk-rotated", "sk-old"]);
     });
 
     it("removes the value copied to a new key when a rename's row write fails", async () => {
@@ -566,10 +590,10 @@ describe("vault writes keep the value out of vault_secrets", () => {
         selects: [[existingRow()], [], []],
         failUpdate: new Error("update failed"),
       });
-      mocks.readAppSecret.mockResolvedValue({
-        value: "sk-stored",
-        last4: "••••ored",
-      });
+      // Reads, in order: the old key's value, then what the new key holds now.
+      mocks.readAppSecret
+        .mockResolvedValueOnce({ value: "sk-stored", last4: "••••ored" })
+        .mockResolvedValueOnce(null);
 
       await expect(
         updateSecret("secret-1", { credentialKey: "OPENAI_KEY_V2" }),
@@ -578,6 +602,64 @@ describe("vault writes keep the value out of vault_secrets", () => {
       expect(mocks.deleteAppSecret).toHaveBeenCalledWith(
         orgStore("OPENAI_KEY_V2"),
       );
+    });
+
+    it("still saves over a copy this deployment cannot decrypt, and reports the row's error", async () => {
+      actAsOrgAdmin();
+      fakeVaultDb([existingRow()], { failUpdate: new Error("update failed") });
+      mocks.readAppSecret.mockRejectedValue(
+        Object.assign(new Error("unreadable"), {
+          errorCode: "app_secret_unreadable",
+        }),
+      );
+
+      await expect(
+        updateSecret("secret-1", { value: "sk-rotated" }),
+      ).rejects.toThrow("update failed");
+
+      // There is no old value to restore, so only the new one was written.
+      expect(
+        mocks.writeAppSecret.mock.calls.map(([args]) => args.value),
+      ).toEqual(["sk-rotated"]);
+    });
+
+    it("stores nothing when the key's current value cannot be checked", async () => {
+      actAsOrgAdmin();
+      const writes = fakeVaultDb([existingRow()]);
+      mocks.readAppSecret.mockRejectedValue(new Error("store unavailable"));
+
+      await expect(
+        updateSecret("secret-1", { value: "sk-rotated" }),
+      ).rejects.toThrow("store unavailable");
+
+      expect(mocks.writeAppSecret).not.toHaveBeenCalled();
+      expect(writes.updated).toEqual([]);
+    });
+
+    it("reports the row write's error even when restoring the previous value also fails", async () => {
+      actAsOrgAdmin();
+      fakeVaultDb([existingRow()], { failUpdate: new Error("update failed") });
+      mocks.readAppSecret.mockResolvedValue({
+        value: "sk-old",
+        last4: "••••-old",
+      });
+      mocks.writeAppSecret
+        .mockResolvedValueOnce("id-1")
+        .mockRejectedValueOnce(new Error("restore failed"));
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      try {
+        await expect(
+          updateSecret("secret-1", { value: "sk-rotated" }),
+        ).rejects.toThrow("update failed");
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining("OPENAI_API_KEY"),
+          "restore failed",
+        );
+        expect(JSON.stringify(warn.mock.calls)).not.toContain("sk-");
+      } finally {
+        warn.mockRestore();
+      }
     });
 
     it("reports the row write's error even when the cleanup also fails", async () => {

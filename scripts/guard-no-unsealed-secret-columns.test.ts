@@ -87,6 +87,39 @@ describe("added column detection", () => {
     ]);
   });
 
+  it("flags a Drizzle column the formatter wrapped onto its own lines", () => {
+    const source = [
+      'export const t = table("t", {',
+      "  accessToken: text(",
+      '    "access_token",',
+      "  ).notNull(),",
+      "  tokenHash: text(",
+      '    "token_hash",',
+      "  ),",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), ["3:access_token"]);
+    // Either line of the definition being new is enough to report it.
+    assert.deepEqual(flagged(source, new Set([2])), ["3:access_token"]);
+    assert.deepEqual(flagged(source, new Set([3])), ["3:access_token"]);
+    assert.deepEqual(flagged(source, new Set([4])), []);
+  });
+
+  it("honors the opt-out above a wrapped column", () => {
+    const source = [
+      "// guard:allow-plaintext-secret-column — public share id, not a credential",
+      "shareToken: text(",
+      '  "share_token",',
+      "),",
+      "otherToken: text(",
+      '  "other_token",',
+      "),",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), ["6:other_token"]);
+  });
+
   it("only reports lines this branch added", () => {
     const source = [
       'oldToken: text("old_token"),',

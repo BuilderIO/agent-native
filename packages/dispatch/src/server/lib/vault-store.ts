@@ -883,20 +883,16 @@ export async function getVaultSecretMetadata(
       ? vaultSecretMetadata(row, copy.last4, "stored")
       : vaultSecretMetadata(row, "", "missing");
   } catch (error) {
-    // Core does not export the error class; it is recognised by its code.
-    if (
-      (error as { errorCode?: unknown }).errorCode !== "app_secret_unreadable"
-    ) {
-      throw error;
-    }
+    if (!isUnreadableSecretError(error)) throw error;
     return vaultSecretMetadata(row, "", "unreadable");
   }
 }
 
 /**
  * Store a value, then write the vault row that owns it. If the row write fails,
- * drop the stored value when no vault row references its key, so a reported
- * failure never leaves a key that apps can read and the vault cannot manage.
+ * put the key back as it was: restore its previous value, or drop it when no
+ * vault row references it. A reported failure then never leaves apps reading a
+ * value the vault did not accept.
  */
 async function storeValueThenWriteRow(
   ctx: VaultCtx,
@@ -904,21 +900,49 @@ async function storeValueThenWriteRow(
   value: string,
   writeRow: () => Promise<void>,
 ): Promise<void> {
+  const previous = await readPreviousValue(ctx, secret.credentialKey);
   await storeSecretValue(ctx, secret, value);
   try {
     await writeRow();
   } catch (error) {
     try {
-      await cleanupSyncedCredentialKeysIfUnused(ctx, [secret.credentialKey]);
-    } catch (cleanupError) {
+      if (previous) await storeSecretValue(ctx, secret, previous);
+      else
+        await cleanupSyncedCredentialKeysIfUnused(ctx, [secret.credentialKey]);
+    } catch (rollbackError) {
       // The row write's error is the one to report; this only names the key.
       console.warn(
-        `[dispatch] could not remove the unreferenced stored value for ${secret.credentialKey}`,
-        cleanupError instanceof Error ? cleanupError.message : cleanupError,
+        `[dispatch] could not undo the stored value for ${secret.credentialKey}`,
+        rollbackError instanceof Error ? rollbackError.message : rollbackError,
       );
     }
     throw error;
   }
+}
+
+/** The value now stored for a key, or undefined when none exists or it cannot be decrypted. */
+async function readPreviousValue(
+  ctx: VaultCtx,
+  credentialKey: string,
+): Promise<string | undefined> {
+  try {
+    const current = await readAppSecret({
+      key: credentialKey,
+      ...credentialStoreScopeForVaultCtx(ctx),
+    });
+    return current?.value;
+  } catch (error) {
+    // Saving again is how an unreadable key gets fixed, so it must not block.
+    if (!isUnreadableSecretError(error)) throw error;
+    return undefined;
+  }
+}
+
+/** Core does not export `AppSecretDecryptionError`; it is recognised by its code. */
+function isUnreadableSecretError(error: unknown): boolean {
+  return (
+    (error as { errorCode?: unknown }).errorCode === "app_secret_unreadable"
+  );
 }
 
 /** Encrypt a vault secret's value into the credential store. */

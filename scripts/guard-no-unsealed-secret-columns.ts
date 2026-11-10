@@ -142,6 +142,12 @@ export function isUnsealedSecretColumnName(name: string): boolean {
   return !METADATA_LAST_WORDS.has(words[words.length - 1] ?? "");
 }
 
+function lineAt(source: string, index: number): number {
+  let line = 1;
+  for (let i = 0; i < index; i++) if (source.charCodeAt(i) === 10) line += 1;
+  return line;
+}
+
 export function findUnsealedSecretColumns(
   file: string,
   source: string,
@@ -149,24 +155,38 @@ export function findUnsealedSecretColumns(
 ): UnsealedSecretColumnFinding[] {
   const lines = source.split(/\r?\n/);
   const findings: UnsealedSecretColumnFinding[] = [];
-
-  for (const lineNumber of [...addedLines].sort((a, b) => a - b)) {
-    const text = lines[lineNumber - 1];
-    if (text === undefined) continue;
-    if (PRAGMA.test(text) || PRAGMA.test(lines[lineNumber - 2] ?? "")) continue;
-
-    const seen = new Set<string>();
-    for (const pattern of [DRIZZLE_COLUMN, DDL_COLUMN]) {
-      pattern.lastIndex = 0;
-      for (const match of text.matchAll(pattern)) {
-        const column = match[1];
-        if (seen.has(column) || !isUnsealedSecretColumnName(column)) continue;
-        seen.add(column);
-        findings.push({ file, line: lineNumber, column });
-      }
+  const seen = new Set<string>();
+  const optedOut = (lineNumber: number) =>
+    PRAGMA.test(lines[lineNumber - 1] ?? "") ||
+    PRAGMA.test(lines[lineNumber - 2] ?? "");
+  const report = (line: number, column: string) => {
+    if (seen.has(`${line}:${column}`) || !isUnsealedSecretColumnName(column)) {
+      return;
     }
+    seen.add(`${line}:${column}`);
+    findings.push({ file, line, column });
+  };
+
+  // The formatter can wrap a definition right after `text(`, so Drizzle columns
+  // are matched across the whole file and judged by both lines they span.
+  for (const match of source.matchAll(DRIZZLE_COLUMN)) {
+    const column = match[1];
+    const startLine = lineAt(source, match.index);
+    const nameLine = lineAt(
+      source,
+      match.index + match[0].length - column.length - 1,
+    );
+    if (!addedLines.has(startLine) && !addedLines.has(nameLine)) continue;
+    if (optedOut(startLine) || optedOut(nameLine)) continue;
+    report(nameLine, column);
   }
-  return findings;
+
+  for (const lineNumber of addedLines) {
+    const text = lines[lineNumber - 1];
+    if (text === undefined || optedOut(lineNumber)) continue;
+    for (const match of text.matchAll(DDL_COLUMN)) report(lineNumber, match[1]);
+  }
+  return findings.sort((a, b) => a.line - b.line);
 }
 
 function main() {
