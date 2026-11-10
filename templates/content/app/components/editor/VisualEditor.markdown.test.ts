@@ -4282,20 +4282,21 @@ describe("image upload previews", () => {
           );
         });
         await openEmptyBlockPicker(editor);
-        const request = picks[0];
-        expect(request?.pickerId).toMatch(/^image-picker-/);
-        expect(images(editor)[0]?.attrs?.uploadId).toBe(request?.pickerId);
+        const request = picks.shift();
+        if (!request) throw new Error("The block didn't open the file picker.");
+        expect(request.pickerId).toMatch(/^image-picker-/);
+        expect(images(editor)[0]?.attrs?.uploadId).toBe(request.pickerId);
 
         await act(async () => {
           expect(editor.commands.undo()).toBe(true);
         });
         expect(editor.getText()).not.toContain("Note");
-        expect(images(editor)[0]?.attrs?.uploadId).toBe(request?.pickerId);
+        expect(images(editor)[0]?.attrs?.uploadId).toBe(request.pickerId);
 
         // The file the user picks then uploads into the block.
         holdImageUploadPreview("image-upload-test", file, {});
         expect(
-          ensurePendingImageUpload(editor.view, request!, "image-upload-test"),
+          ensurePendingImageUpload(editor.view, request, "image-upload-test"),
         ).toBe(true);
         let outcome: Awaited<ReturnType<typeof runImageUpload>> | undefined;
         await act(async () => {
@@ -4303,7 +4304,7 @@ describe("image upload previews", () => {
             view: editor.view,
             file,
             uploadId: "image-upload-test",
-            request: request!,
+            request,
             upload: () => Promise.resolve(uploadedSrc),
             persist: () => true,
             messages,
@@ -4334,10 +4335,11 @@ describe("image upload previews", () => {
           );
         });
         await openEmptyBlockPicker(editor);
-        const request = picks[0];
-        expect(request?.pickerId).toMatch(/^image-picker-/);
+        const request = picks.shift();
+        if (!request) throw new Error("The block didn't open the file picker.");
+        expect(request.pickerId).toMatch(/^image-picker-/);
         await act(async () => {
-          expect(restorePendingImagePicker(editor.view, request!)).toBe(true);
+          expect(restorePendingImagePicker(editor.view, request)).toBe(true);
         });
         expect(images(editor)[0]?.attrs?.uploadId).toBeNull();
 
