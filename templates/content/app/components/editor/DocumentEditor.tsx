@@ -11219,8 +11219,10 @@ function PageEditorSessionBody({
                           !isGitHubSourceDocument &&
                           !collabInitializationFailed
                         }
-                        // A syncing body has no fields on screen to report it.
+                        // A syncing body, or a collection's own page, has no
+                        // fields on screen to report it.
                         leaveReadFailureToPage={
+                          !isDatabasePage &&
                           !mcpDirectoryWidgetReadOnly &&
                           !bodyHydrationPending &&
                           !bodyHydrationError
