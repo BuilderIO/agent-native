@@ -130,12 +130,13 @@ export function cosine(left: readonly number[], right: readonly number[]) {
   let dot = 0;
   let leftNorm = 0;
   let rightNorm = 0;
-  left.forEach((value, index) => {
-    const other = right.at(index) ?? 0;
+  const others = right.values();
+  for (const value of left) {
+    const other = others.next().value ?? 0;
     dot += value * other;
     leftNorm += value ** 2;
     rightNorm += other ** 2;
-  });
+  }
   return dot / (Math.sqrt(leftNorm * rightNorm) || 1);
 }
 

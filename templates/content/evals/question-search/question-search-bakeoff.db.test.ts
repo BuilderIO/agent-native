@@ -196,7 +196,7 @@ async function eachLimit<T>(
 
 /** The embedding at `index`, or an error naming what it was for. */
 function vectorAt(vectors: readonly number[][], index: number, what: string) {
-  const vector = vectors.at(index);
+  const vector = vectors.find((_, at) => at === index);
   if (!vector)
     throw new Error(`The embedding model returned no vector for ${what}.`);
   return vector;
