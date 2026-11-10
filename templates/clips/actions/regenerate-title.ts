@@ -391,13 +391,18 @@ export default defineAction({
           let summaryResult: Awaited<
             ReturnType<typeof regenerateSummary.run>
           > | null = null;
+          let summarySkippedReason: ModelRefusal | null = null;
           if (args.includeSummary && !rec.description.trim()) {
             try {
               summaryResult = await regenerateSummary.run({
                 recordingId: args.recordingId,
               });
             } catch (error) {
-              if (!modelRefusalCode(error)) throw error;
+              summarySkippedReason = modelRefusalCode(error);
+              if (!summarySkippedReason) throw error;
+              console.warn(
+                `[clips] summary not queued for ${args.recordingId}: ${summarySkippedReason}`,
+              );
             }
           }
 
@@ -410,6 +415,7 @@ export default defineAction({
             title: generatedTitle,
             provider: result.provider,
             summaryQueued: summaryResult?.queued === true,
+            ...(summarySkippedReason ? { summarySkippedReason } : {}),
           };
         }
 

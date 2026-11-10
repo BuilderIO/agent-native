@@ -245,6 +245,7 @@ describe("regenerate-title fallback refinement", () => {
       updated: true,
       title: "Generated title",
       summaryQueued: false,
+      summarySkippedReason: "ai_model_unavailable",
     });
   });
 
