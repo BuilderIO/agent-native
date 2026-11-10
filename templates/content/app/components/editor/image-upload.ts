@@ -8,6 +8,7 @@ interface UploadResponse {
   error?: unknown;
   message?: unknown;
   statusMessage?: unknown;
+  data?: unknown;
 }
 
 function normalizeImageFile(file: File): File | null {
@@ -177,6 +178,17 @@ export function pickedAssetImageFile(answer: unknown): File | null {
   });
 }
 
+/** The server's own answer for a page with no private storage connected. */
+function isStorageUnavailable(body: UploadResponse): boolean {
+  const data = body.data;
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { errorCode?: unknown }).errorCode ===
+      "PRIVATE_MEDIA_STORAGE_UNAVAILABLE"
+  );
+}
+
 function mediaUploadLabel(kind: MediaUploadKind) {
   if (kind === "image") return "Image";
   if (kind === "video") return "Video";
@@ -312,7 +324,7 @@ export async function uploadImageFile(
   });
   // coercion-ok: a body that isn't JSON still fails below, on the status or the missing URL.
   const body = (await response.json().catch(() => ({}))) as UploadResponse;
-  if (response.status === 503) {
+  if (response.status === 503 && isStorageUnavailable(body)) {
     throw new ImageStorageUnavailableError(
       uploadResponseMessage(response, body, "image"),
     );

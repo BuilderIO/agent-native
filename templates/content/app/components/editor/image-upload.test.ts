@@ -96,6 +96,7 @@ describe("image uploads", () => {
         status: 503,
         json: async () => ({
           statusMessage: "No private storage is connected.",
+          data: { errorCode: "PRIVATE_MEDIA_STORAGE_UNAVAILABLE" },
         }),
       }),
     );
@@ -107,6 +108,27 @@ describe("image uploads", () => {
 
     await expect(upload).rejects.toBeInstanceOf(ImageStorageUnavailableError);
     await expect(upload).rejects.toThrow("No private storage is connected.");
+  });
+
+  it("treats a 503 the server didn't mark as a failed upload", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        json: async () => ({ message: "Service Unavailable" }),
+      }),
+    );
+    const file = new File(["image-bytes"], "diagram.png", {
+      type: "image/png",
+    });
+
+    const upload = uploadImageFile(file, { documentId: "document-1" });
+
+    await expect(upload).rejects.not.toBeInstanceOf(
+      ImageStorageUnavailableError,
+    );
+    await expect(upload).rejects.toThrow("Service Unavailable");
   });
 
   it.each(["", "application/octet-stream"])(
