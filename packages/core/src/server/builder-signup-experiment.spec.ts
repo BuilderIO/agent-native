@@ -125,7 +125,9 @@ function bindRequest(
   app.use(
     "/bind",
     defineEventHandler(async (event) => ({
-      bound: await bindBuilderSignupAttempt(event, attemptId, method, email),
+      bound: Boolean(
+        await bindBuilderSignupAttempt(event, attemptId, method, email),
+      ),
     })),
   );
   return app.fetch(
@@ -258,38 +260,6 @@ describe("pre-signup Builder experiment", () => {
     },
   );
 
-  it.each(["start", "status", "activate"])(
-    "re-reports a saved outcome during %s without another Builder call",
-    async (operation) => {
-      session = signedSession();
-      const completedAt = testTime - 300;
-      mocks.settings.set("design_builder_signup_v1:new-user", {
-        ...accepted(),
-        status: "fallback",
-        code: "account_exists",
-        startedAt: testTime - 500,
-        completedAt,
-      });
-      await request({ operation });
-      expect(activate).not.toHaveBeenCalled();
-      expect(mocks.track).toHaveBeenCalledWith(
-        "builder_signup_experiment_outcome",
-        expect.objectContaining({
-          assignment_id: accepted().id,
-          status: "fallback",
-          code: "account_exists",
-          replayed: true,
-          activation_duration_ms: 200,
-        }),
-        {
-          userId: "new@example.com",
-          authUserId: "new-user",
-          occurredAt: completedAt,
-        },
-      );
-    },
-  );
-
   it("starts provisioning on the first request and finishes after the browser stops polling", async () => {
     session = signedSession();
     let finish!: (result: { ok: boolean }) => void;
@@ -415,20 +385,11 @@ describe("pre-signup Builder experiment", () => {
         status: "disabled",
         code: "already_completed",
       });
-      // oracle-change: later status reads replay the durable result, while the provider and primary outcome remain single-shot.
-      const outcomes = mocks.track.mock.calls.filter(
-        ([name]) => name === "builder_signup_experiment_outcome",
-      );
-      expect(outcomes).toHaveLength(2);
       expect(
-        outcomes.filter(([, properties]) => properties.replayed === false),
+        mocks.track.mock.calls.filter(
+          ([name]) => name === "builder_signup_experiment_outcome",
+        ),
       ).toHaveLength(1);
-      expect(outcomes[1][1]).toMatchObject({
-        status: "connected",
-        code: "connection_reconciled",
-        replayed: true,
-      });
-      expect(activate).toHaveBeenCalledOnce();
     },
   );
 

@@ -417,13 +417,13 @@ export async function recordBuilderSignupBinding(
     if (
       bound &&
       verifiedSession?.emailVerified === true &&
-      verifiedSession.userId &&
       verifiedSession.token &&
       verifiedSession.email.trim().toLowerCase() === email.trim().toLowerCase()
     ) {
       // The callback just issued this session; its cookie is in the response,
       // not the incoming request. Org/credential checks must see that identity.
-      event.context.__anSessionCache = Promise.resolve(verifiedSession);
+      const signupSession = { ...verifiedSession, userId: bound.userId };
+      event.context.__anSessionCache = Promise.resolve(signupSession);
       delete event.context.__anOrgContextCache;
       markRequestIdentityAuthenticatedAtMs(
         event,
@@ -431,7 +431,7 @@ export async function recordBuilderSignupBinding(
         Date.now(),
         verifiedSession.token,
       );
-      await startBuilderSignupForVerifiedSession(event, verifiedSession);
+      await startBuilderSignupForVerifiedSession(event, signupSession);
     }
   } catch (error) {
     captureAuthError(error, { route: "signup", email });
@@ -5974,7 +5974,6 @@ async function mountBetterAuthRoutes(
               email,
               {
                 email,
-                ...(signupUserId ? { userId: signupUserId } : {}),
                 ...(sessionToken ? { token: sessionToken } : {}),
                 ...(typeof user.name === "string" ? { name: user.name } : {}),
                 emailVerified: true,

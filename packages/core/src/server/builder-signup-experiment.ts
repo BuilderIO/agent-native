@@ -194,7 +194,7 @@ export async function bindBuilderSignupAttempt(
   attemptId: unknown,
   method: "password" | "magic-link" | "google",
   email: string,
-): Promise<boolean> {
+): Promise<{ userId: string } | false> {
   if (!isBuilderSignupExperimentEnabled()) return false;
   const assignment = decodeBuilderSignupAssignment(
     getCookie(event, builderSignupAssignmentCookieName()),
@@ -285,7 +285,7 @@ export async function bindBuilderSignupAttempt(
     maxAge: TTL,
     secure: getHeader(event, "host")?.includes("localhost") !== true,
   });
-  return true;
+  return { userId: identity.user.id };
 }
 
 export async function getBuilderSignupConnectError(
@@ -442,41 +442,6 @@ export function createBuilderSignupExperiment(dependencies: {
       ...(result.code ? { code: result.code } : {}),
     };
   };
-  const reportSavedOutcome = async (
-    existing: Record<string, unknown>,
-    assignment: Assignment,
-    session: AuthSession,
-  ) => {
-    if (
-      existing.id !== assignment.id ||
-      (existing.status !== "connected" && existing.status !== "fallback") ||
-      typeof existing.completedAt !== "number" ||
-      !Number.isFinite(existing.completedAt)
-    )
-      return;
-    track(
-      "builder_signup_experiment_outcome",
-      {
-        ...experimentProperties(assignment),
-        status: existing.status,
-        code:
-          typeof existing.code === "string" ? existing.code : existing.status,
-        replayed: true,
-        ...(typeof existing.startedAt === "number" &&
-        Number.isFinite(existing.startedAt)
-          ? {
-              activation_duration_ms: existing.completedAt - existing.startedAt,
-            }
-          : {}),
-      },
-      {
-        userId: session.email,
-        ...(session.userId ? { authUserId: session.userId } : {}),
-        occurredAt: existing.completedAt,
-      },
-    );
-    await flushTracking();
-  };
   const handle = async (
     event: H3Event,
     verifiedSignupSession?: AuthSession,
@@ -615,7 +580,6 @@ export function createBuilderSignupExperiment(dependencies: {
             )) ?? { status: "pending" as const }
           );
         }
-        if (assignment) await reportSavedOutcome(existing, assignment, session);
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "already_completed" };
       }
@@ -748,8 +712,6 @@ export function createBuilderSignupExperiment(dependencies: {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "control" };
       }
-      if (status !== "started")
-        await reportSavedOutcome(existing, assignment, session);
       if (status !== "started" && body.data.operation === "start") {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "already_completed" };

@@ -4,7 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthSession } from "./auth.js";
 const mocks = vi.hoisted(() => ({
   cookie: "",
-  bind: vi.fn(async () => true),
+  bind: vi.fn(
+    async (): Promise<{ userId: string } | false> => ({ userId: "qa-user" }),
+  ),
   start: vi.fn(async (_event: H3Event, _session: AuthSession) => {}),
 }));
 vi.mock("./builder-signup-experiment.js", () => ({
@@ -14,23 +16,30 @@ vi.mock("./builder-signup-experiment.js", () => ({
 }));
 import { getSession, recordBuilderSignupBinding } from "./auth.js";
 beforeEach(() => {
-  mocks.bind.mockReset().mockResolvedValue(true);
+  mocks.bind.mockReset().mockResolvedValue({ userId: "qa-user" });
   mocks.start.mockClear();
 });
 describe("signup callback experiment binding", () => {
-  it.each([true, false])(
-    "starts only a bound verified callback's own issued session (bound=%s)",
-    async (bound) => {
+  it.each([
+    { bound: true, hasAnalyticsId: true },
+    { bound: true, hasAnalyticsId: false },
+    { bound: false, hasAnalyticsId: false },
+  ])(
+    "starts only a bound callback using its canonical identity (%o)",
+    async ({ bound, hasAnalyticsId }) => {
       mocks.cookie = "an_builder_signup";
-      mocks.bind.mockResolvedValue(bound);
+      mocks.bind.mockResolvedValue(bound ? { userId: "qa-user" } : false);
       const signed = {
         email: "qa@example.invalid",
-        userId: "qa-user",
+        ...(hasAnalyticsId ? { userId: "qa-user" } : {}),
         token: "test-only-issued-session",
         emailVerified: true,
       };
       mocks.start.mockImplementationOnce(async (event) => {
-        expect(await getSession(event)).toEqual(signed);
+        expect(await getSession(event)).toEqual({
+          ...signed,
+          userId: "qa-user",
+        });
       });
       const server = createApp();
       server.use(
@@ -51,7 +60,10 @@ describe("signup callback experiment binding", () => {
           .status,
       ).toBe(200);
       if (bound)
-        expect(mocks.start).toHaveBeenCalledWith(expect.anything(), signed);
+        expect(mocks.start).toHaveBeenCalledWith(expect.anything(), {
+          ...signed,
+          userId: "qa-user",
+        });
       else expect(mocks.start).not.toHaveBeenCalled();
     },
   );
