@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { threeWayMergeContent } from "./three-way-merge";
+import {
+  mergeQueuedEdit,
+  mergeReplayedEdit,
+  threeWayMergeContent,
+} from "./three-way-merge";
 
 const BASE = [
   "<!doctype html>",
@@ -99,5 +103,38 @@ describe("threeWayMergeContent", () => {
     expect(
       threeWayMergeContent({ base: BASE, mine: edited, theirs: edited }),
     ).toBe(edited);
+  });
+});
+
+describe("mergeReplayedEdit", () => {
+  const base = "<p>a</p>";
+
+  it("refuses a copy whose insertion already sits inside the other side's", () => {
+    const mine = "<p>aM</p>";
+    const theirs = "<p>aTM</p>";
+    expect(mergeQueuedEdit({ base, mine, theirs })).toBe("<p>aTMM</p>");
+    expect(mergeReplayedEdit({ base, mine, theirs })).toBeNull();
+  });
+
+  it("refuses it the other way round too", () => {
+    expect(
+      mergeReplayedEdit({ base, mine: "<p>aTM</p>", theirs: "<p>aM</p>" }),
+    ).toBeNull();
+  });
+
+  it("still keeps two different insertions at one point, theirs first", () => {
+    const mine = BASE.replace("</body>", "<i>mine</i></body>");
+    const theirs = BASE.replace("</body>", "<b>theirs</b></body>");
+    expect(mergeReplayedEdit({ base: BASE, mine, theirs })).toBe(
+      BASE.replace("</body>", "<b>theirs</b><i>mine</i></body>"),
+    );
+  });
+
+  it("still merges edits to different elements", () => {
+    const mine = BASE.replace("#6366f1", "#ff0000");
+    const theirs = BASE.replace("#22c55e", "#111111");
+    expect(mergeReplayedEdit({ base: BASE, mine, theirs })).toBe(
+      BASE.replace("#6366f1", "#ff0000").replace("#22c55e", "#111111"),
+    );
   });
 });
