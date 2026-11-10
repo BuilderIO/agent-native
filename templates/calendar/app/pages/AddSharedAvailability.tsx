@@ -1,8 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { IconCalendarCheck, IconArrowLeft } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -82,12 +82,15 @@ export default function AddSharedAvailability() {
                       { email },
                       {
                         onSuccess: () => setJustAdded(true),
-                        onError: () =>
-                          toast.error(
-                            t("bookingLinks.overlayRequestPageAddFailed", {
-                              email,
-                            }),
-                          ),
+                        onError: (error) =>
+                          reportWriteFailure(error, {
+                            label: t(
+                              "bookingLinks.overlayRequestPageAddFailed",
+                              {
+                                email,
+                              },
+                            ),
+                          }),
                       },
                     )
                   }

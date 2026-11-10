@@ -342,7 +342,9 @@ export async function listGoogleDocsAccounts(owner: string): Promise<
 }
 
 export async function disconnectGoogleDocs(owner: string): Promise<void> {
-  const accounts = await listGoogleProviderAccounts(owner);
+  const accounts = await listGoogleProviderAccounts(owner, {
+    includeDuplicates: true,
+  });
   await Promise.all(
     accounts.map((account) =>
       deleteOAuthTokens(account.provider, account.accountId, owner),
@@ -398,7 +400,10 @@ export interface GoogleDocsAccessTokenOptions {
   requireDriveUploadScope?: boolean;
 }
 
-async function listGoogleProviderAccounts(owner: string): Promise<
+async function listGoogleProviderAccounts(
+  owner: string,
+  { includeDuplicates = false }: { includeDuplicates?: boolean } = {},
+): Promise<
   Array<{
     provider: string;
     accountId: string;
@@ -425,6 +430,7 @@ async function listGoogleProviderAccounts(owner: string): Promise<
     ) {
       return false;
     }
+    if (includeDuplicates) return true;
     const key = account.accountId.toLowerCase();
     if (seen.has(key)) return false;
     seen.add(key);

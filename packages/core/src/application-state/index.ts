@@ -7,9 +7,16 @@ export {
   appStateCompareAndSet,
   appStateCompareAndSetMany,
   appStateList,
+  appStateListUpdatedAt,
   appStateDeleteByPrefix,
   type AppStateCompareAndSetOperation,
 } from "./store.js";
+
+export {
+  browserTabUsedKey,
+  findLastUsedBrowserTab,
+  LAST_USED_BROWSER_TAB_MAX_AGE_MS,
+} from "./last-used-tab.js";
 
 export {
   getAppStateEmitter,
@@ -45,4 +52,5 @@ export {
   writeAppStateForCurrentTab,
   appStateKeyForBrowserTab,
   getCurrentRequestBrowserTabId,
+  resolveCurrentRequestStateTab,
 } from "./script-helpers.js";

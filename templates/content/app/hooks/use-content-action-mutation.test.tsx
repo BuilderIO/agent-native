@@ -22,6 +22,7 @@ import { useContentActionMutation } from "./use-content-action-mutation";
 import {
   useDuplicateDatabaseItem,
   useRemoveDatabaseItems,
+  useUpdateDatabaseItem,
 } from "./use-content-database";
 import { useRestoreTrashItem } from "./use-content-trash";
 import {
@@ -99,6 +100,7 @@ const keys = {
   trashedDatabases: ["action", "list-trashed-content-databases", {}],
   trash: ["action", "list-content-trash", {}],
   search: ["action", "search-documents", { query: "page" }],
+  titles: ["action", "list-document-titles", {}],
 } satisfies Record<string, QueryKey>;
 
 type ReadName = keyof typeof keys;
@@ -309,6 +311,7 @@ describe("sidebar writes refresh only the affected branch", () => {
       "search",
       "sectionChildren",
       "sectionChildrenPage2",
+      "titles",
       "trackerTable",
     ]);
     expect(queryClient.getQueryData<any>(keys.recent).entries[0].title).toBe(
@@ -316,7 +319,7 @@ describe("sidebar writes refresh only the affected branch", () => {
     );
   });
 
-  it("create refreshes the parent's children, the parent's row, and the new page's path", async () => {
+  it("create refreshes the parent's children, the parent's row, the new page's path, and search", async () => {
     await mountReads();
     actionResponses["create-document"] = {
       id: "new-page",
@@ -333,7 +336,9 @@ describe("sidebar writes refresh only the affected branch", () => {
     expect(await refetched()).toEqual([
       "newPath",
       "pageChildren",
+      "search",
       "sectionChildren",
+      "titles",
     ]);
   });
 
@@ -358,7 +363,7 @@ describe("sidebar writes refresh only the affected branch", () => {
     expect(await refetched()).toEqual(["root", "rootPage2"]);
   });
 
-  it("move refreshes the old branch, the new parent's children and row, and the Files collection", async () => {
+  it("move refreshes the old branch, the new parent's children and row, the Files collection, and search", async () => {
     await mountReads();
     actionResponses["move-document"] = { id: "sibling", parentId: "other" };
     const move = await renderHook(() => useMoveDocument());
@@ -372,9 +377,11 @@ describe("sidebar writes refresh only the affected branch", () => {
       "files",
       "otherChildren",
       "root",
+      "search",
       "sectionChildren",
       "sectionChildrenPage2",
       "siblingDoc",
+      "titles",
     ]);
   });
 
@@ -397,10 +404,12 @@ describe("sidebar writes refresh only the affected branch", () => {
       "files",
       "recent",
       "root",
+      "search",
       "sectionChildren",
       "sectionChildrenPage2",
       "siblingDoc",
       "space2Root",
+      "titles",
       "tracker",
     ]);
   });
@@ -428,6 +437,7 @@ describe("Trash writes", () => {
         "sectionChildrenPage2",
         "siblingDoc",
         "spaces",
+        "titles",
         "tracker",
         ...trashLists,
       ].sort(),
@@ -465,6 +475,7 @@ describe("Trash writes", () => {
           "sectionChildrenPage2",
           "siblingDoc",
           "space2Root",
+          "titles",
           "tracker",
           "trackerTable",
           ...trashLists,
@@ -494,7 +505,7 @@ describe("Trash writes", () => {
 });
 
 describe("collection row writes", () => {
-  it("duplicate refreshes the collection and its sorted table", async () => {
+  it("duplicate refreshes the collection, its sorted table and search", async () => {
     await mountReads();
     actionResponses["duplicate-database-item"] = {
       database: { id: "tracker-db" },
@@ -506,10 +517,61 @@ describe("collection row writes", () => {
 
     await act(() => duplicate.current.mutateAsync({ itemId: "item-page" }));
 
-    expect(await refetched()).toEqual(["documents", "tracker", "trackerTable"]);
+    expect(await refetched()).toEqual([
+      "documents",
+      "search",
+      "titles",
+      "tracker",
+      "trackerTable",
+    ]);
   });
 
-  it("bulk removal by item id refreshes the removed pages named in the response", async () => {
+  it("a row's title edit refreshes search, and its other cells leave search alone", async () => {
+    await mountReads();
+    actionResponses["update-database-item"] = {
+      receipt: { target: { databaseId: "tracker-db" } },
+    };
+    const updateRow = await renderHook(() =>
+      useUpdateDatabaseItem("tracker-page"),
+    );
+    const edit = {
+      target: {
+        authorityScope: { kind: "personal" as const, id: "owner" },
+        spaceId: "space",
+        databaseId: "tracker-db",
+        databaseDocumentId: "tracker-page",
+      },
+      expectedSchemaRevision: "schema-1",
+      itemId: "item-page",
+      documentId: "page",
+      expectedRowRevision: "row-1",
+    };
+
+    await act(() =>
+      updateRow.current.mutateAsync({
+        ...edit,
+        idempotencyKey: "status-edit",
+        propertyValues: { status: "Done" },
+      }),
+    );
+    const afterCellEdit = await refetched();
+    expect(afterCellEdit).not.toContain("search");
+    expect(afterCellEdit).not.toContain("titles");
+
+    reads.forEach((queryFn) => queryFn.mockClear());
+    await act(() =>
+      updateRow.current.mutateAsync({
+        ...edit,
+        idempotencyKey: "title-edit",
+        title: "Renamed",
+      }),
+    );
+    expect(await refetched()).toEqual(
+      expect.arrayContaining(["search", "titles"]),
+    );
+  });
+
+  it("bulk removal by item id refreshes the removed pages named in the response, and search", async () => {
     await mountReads();
     actionResponses["remove-database-items"] = {
       database: { id: "tracker-db" },
@@ -533,6 +595,8 @@ describe("collection row writes", () => {
       "pageDoc",
       "pagePath",
       "pageProperties",
+      "search",
+      "titles",
       "tracker",
       "trackerTable",
     ]);

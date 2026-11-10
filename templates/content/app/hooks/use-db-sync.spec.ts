@@ -1006,6 +1006,72 @@ describe("page open reads under sync", () => {
     }
   });
 
+  it("leaves a page's early reads alone for a comment on another page", () => {
+    const predicate = contentActionInvalidatePredicate(
+      "/home",
+      (query) => query === earlyRead || query === earlyDraftRead,
+    );
+    const on = (key: string, resourceId?: string) => ({
+      source: "action",
+      key,
+      ...(resourceId === undefined
+        ? {}
+        : { resourceType: "document", resourceId }),
+    });
+    for (const key of ["add-comment", "update-comment", "delete-comment"]) {
+      expect(predicate(earlyRead, [on(key, "other-page")])).toBe(false);
+      expect(predicate(earlyRead, [on(key, "next-page")])).toBe(true);
+      // A change that names no page may have touched this one.
+      expect(predicate(earlyRead, [on(key)])).toBe(true);
+    }
+    // A rollup on this page can read another page's body or when it was last
+    // edited, and a rename shows in its breadcrumb.
+    expect(predicate(earlyRead, [on("edit-document", "other-page")])).toBe(
+      true,
+    );
+    expect(predicate(earlyRead, [on("update-document", "other-page")])).toBe(
+      true,
+    );
+    expect(
+      predicate(earlyRead, [
+        on("add-comment", "other-page"),
+        on("edit-document", "next-page"),
+      ]),
+    ).toBe(true);
+    expect(
+      predicate(earlyDraftRead, [
+        on("update-preview-document-draft", "other-page"),
+      ]),
+    ).toBe(true);
+  });
+
+  it("leaves an open page's reads alone for a change only another page's reads carry", () => {
+    const predicate = contentActionInvalidatePredicate("/page/page-1");
+    const page = {
+      queryKey: ["action", "get-document", { id: "page-1" }],
+      isActive: () => true,
+    };
+    const comments = {
+      queryKey: ["action", "list-comments", { documentId: "page-1" }],
+      isActive: () => true,
+    };
+    const on = (key: string, resourceId: string) => ({
+      source: "action",
+      key,
+      resourceType: "document",
+      resourceId,
+    });
+    for (const query of [page, comments]) {
+      expect(predicate(query, [on("add-comment", "other-page")])).toBe(false);
+      expect(predicate(query, [on("add-comment", "page-1")])).toBe(true);
+      expect(predicate(query, [on("edit-document", "page-1")])).toBe(true);
+    }
+    expect(predicate(page, [on("edit-document", "other-page")])).toBe(true);
+    expect(predicate(comments, [on("edit-document", "other-page")])).toBe(
+      false,
+    );
+  });
+
   it("spoils a real pending early read through Content's sync predicate", async () => {
     const queryClient = new QueryClient();
     const queryKey = ["action", "get-document", { id: "next-page" }] as const;
