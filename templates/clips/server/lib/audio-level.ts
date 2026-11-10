@@ -97,10 +97,15 @@ export interface AudioLevelResult {
   detail?: string;
 }
 
+/** Index without assuming the item exists (lint and typecheck disagree on `[i]`). */
+export function itemAt<T>(items: readonly T[], index: number): T | undefined {
+  return index >= 0 && index < items.length ? items[index] : undefined;
+}
+
 function lastNumberAfter(text: string, label: RegExp): number | null {
   let value: number | null = null;
   for (const match of text.matchAll(label)) {
-    const raw = match[1];
+    const raw = itemAt(match, 1);
     if (raw === undefined) continue;
     const parsed = Number(raw);
     value = Number.isFinite(parsed) ? parsed : null;
@@ -219,7 +224,7 @@ async function runFfmpegCapturingStderr(
       reject(new Error(`ffmpeg audio level timed out\n${stderr}`));
     }, timeoutMs);
     timeout.unref();
-    child.stderr?.on("data", (chunk: Buffer) => {
+    child.stderr.on("data", (chunk: Buffer) => {
       stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_LIMIT);
     });
     child.on("error", (err) => {
@@ -271,7 +276,7 @@ async function probeFile(path: string): Promise<ProbedFile> {
       reject(new Error("ffmpeg probe timed out"));
     }, 60_000);
     timeout.unref();
-    child.stderr?.on("data", (chunk: Buffer) => {
+    child.stderr.on("data", (chunk: Buffer) => {
       text = (text + chunk.toString("utf8")).slice(-STDERR_LIMIT);
     });
     child.on("error", (err) => {
@@ -434,7 +439,7 @@ export async function ensureRecordingAudioLevel(params: {
 }): Promise<AudioLevelResult> {
   const { recordingId, ownerEmail, force = false } = params;
   const db = getDb();
-  const [rec] = await db
+  const recRows = await db
     .select({
       id: schema.recordings.id,
       status: schema.recordings.status,
@@ -455,6 +460,7 @@ export async function ensureRecordingAudioLevel(params: {
       ),
     );
 
+  const rec = itemAt(recRows, 0);
   if (!rec) return { recordingId, status: "not-found", changed: false };
   if (rec.status !== "ready") {
     return { recordingId, status: "skipped-not-ready", changed: false };
@@ -534,13 +540,14 @@ export async function ensureRecordingAudioLevel(params: {
   }
 
   // The clip may have been replaced (re-upload, edit burn-in) while ffmpeg ran.
-  const [current] = await db
+  const currentRows = await db
     .select({
       videoUrl: schema.recordings.videoUrl,
       mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId));
+  const current = itemAt(currentRows, 0);
   if (
     current?.videoUrl !== rec.videoUrl ||
     current.mediaUpdatedAt !== rec.mediaUpdatedAt

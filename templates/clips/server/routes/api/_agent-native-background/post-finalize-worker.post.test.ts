@@ -877,7 +877,9 @@ describe("post-finalize worker", () => {
       return { recordingId: "rec-1", status: "boosted", changed: true };
     });
 
-    await expect(handler({} as any)).resolves.toMatchObject({
+    await expect(
+      handler({} as Parameters<typeof handler>[0]),
+    ).resolves.toMatchObject({
       ok: true,
       kind: "seekable",
       result: { status: "optimized" },
@@ -904,7 +906,9 @@ describe("post-finalize worker", () => {
     });
     mockEnsureRecordingAudioLevel.mockRejectedValue(new Error("ffmpeg died"));
 
-    await expect(handler({} as any)).resolves.toMatchObject({
+    await expect(
+      handler({} as Parameters<typeof handler>[0]),
+    ).resolves.toMatchObject({
       ok: true,
       kind: "seekable",
       result: { status: "already-optimized" },
@@ -925,7 +929,9 @@ describe("post-finalize worker", () => {
       changed: false,
     });
 
-    await expect(handler({} as any)).resolves.toMatchObject({
+    await expect(
+      handler({} as Parameters<typeof handler>[0]),
+    ).resolves.toMatchObject({
       ok: true,
       kind: "audio-level",
       result: { status: "already-normal" },

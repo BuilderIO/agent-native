@@ -60,6 +60,10 @@ const cliBoolean = z.preprocess((value) => {
 const MAX_IDS_INPUT_CHARS = 8_000;
 const CURSOR_SEPARATOR = "|";
 
+function itemAt<T>(items: readonly T[], index: number): T | undefined {
+  return index >= 0 && index < items.length ? items[index] : undefined;
+}
+
 /** `nextBefore` is `<createdAt>|<id>`, so clips with the same time are not skipped. */
 export function encodeSweepCursor(createdAt: string, id: string): string {
   return `${createdAt}${CURSOR_SEPARATOR}${id}`;
@@ -82,7 +86,13 @@ export function isValidSweepCursor(value: string): boolean {
       createdAt,
     );
   if (!match) return false;
-  const [, y, mo, d, h, mi, se] = match.map(Number);
+  const parts = match.map(Number);
+  const y = itemAt(parts, 1);
+  const mo = itemAt(parts, 2);
+  const d = itemAt(parts, 3);
+  const h = itemAt(parts, 4);
+  const mi = itemAt(parts, 5);
+  const se = itemAt(parts, 6);
   if (
     y === undefined ||
     mo === undefined ||
