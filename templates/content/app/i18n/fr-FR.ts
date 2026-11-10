@@ -840,7 +840,6 @@ const editor = {
     image: "Images",
     imageAdded: "Image ajoutée",
     imageBroken: "L'image n'a pas pu être chargée",
-    imageCommentWithAlt: "Image : {{alt}}",
     imageCopied: "Image copiée.",
     imageDownloadStarted: "Le téléchargement de l'image a commencé.",
     imageLinkHint: "Fonctionne avec n'importe quelle image du Web",

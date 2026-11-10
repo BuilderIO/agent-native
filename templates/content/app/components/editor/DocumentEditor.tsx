@@ -43,6 +43,7 @@ import type {
   DocumentSyncStatus,
 } from "@shared/api";
 import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
+import type { CommentAiRequest } from "@shared/comment-ai";
 import { commentPropertyTarget } from "@shared/comment-property-target";
 import { DOCUMENT_FLUSH_PROTOCOL } from "@shared/document-flush-protocol";
 import {
@@ -232,7 +233,12 @@ import {
   type ClipCommentHost,
 } from "./clip-embed/clip-comments";
 import { flushBeforeSave } from "./collab-flush-before-save";
-import { isCommentAiWorkingOn, useCommentAiRequests } from "./comment-ai";
+import {
+  isCommentAiWorkingOn,
+  missingCommentAiReplyIds,
+  noteCommentAiPageChanges,
+  useCommentAiRequests,
+} from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
   commentThreadAt,
@@ -393,6 +399,10 @@ import {
 import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
 import { useRememberedEditorMode } from "./suggestions/editor-mode-memory";
 import {
+  readPageOnLiveCopyChange,
+  suggestionPageFollow,
+} from "./suggestions/follow-page";
+import {
   createDraftSuggestionPresentationTransition,
   createObservedSuggestionPresentationTransition,
   drawnSuggestionPresentationOperations,
@@ -440,6 +450,7 @@ import type {
 import { WidgetVisualEditorBoundary } from "./WidgetLoadDiagnostic";
 
 const NO_COMMENT_THREADS: CommentThread[] = [];
+const NO_DRAFT_SUGGESTIONS: DraftSuggestion[] = [];
 
 export function observeAcceptedCanonicalSettlement(args: {
   ydoc: YDoc;
@@ -736,6 +747,17 @@ export function sameSuggestionAnchorIds(
     current.length === next.length &&
     current.every((id) => next.includes(id))
   );
+}
+
+// The editor redraws its highlights whenever this list changes, and the
+// redraw renders the Page again, so a draft it can't map shares one empty
+// list instead of making a new one every render.
+export function previewDraftSuggestions(
+  preview: ReturnType<typeof previewSuggestionDraft>,
+) {
+  return preview.status === "ready"
+    ? preview.suggestions
+    : NO_DRAFT_SUGGESTIONS;
 }
 
 export function documentEditorReservesInlineReviewSpace(args: {
@@ -3257,6 +3279,7 @@ function PageEditorSessionBody({
   );
   const suggestionDraftRef = useRef(suggestionDraft);
   suggestionDraftRef.current = suggestionDraft;
+  const suggestionDraftChangedAtRef = useRef<number | null>(null);
   const suggestionDraftSaveFailedRef = useRef(suggestionDraftSaveFailed);
   suggestionDraftSaveFailedRef.current = suggestionDraftSaveFailed;
   const suggestionFlushRef = useRef<Promise<Map<
@@ -7121,6 +7144,7 @@ function PageEditorSessionBody({
     (next: string) => {
       if (next === suggestionDraftRef.current) return;
       suggestionDraftRef.current = next;
+      suggestionDraftChangedAtRef.current = Date.now();
       setSuggestionDraft(next);
       scheduleSuggestionAutosave();
     },
@@ -7316,6 +7340,98 @@ function PageEditorSessionBody({
     },
     [clearSuggestionAutosave],
   );
+
+  // Someone else's change moves the Page past the draft's start, and the
+  // server refuses a suggestion against an older Page. The draft moves to the
+  // new Page once everything typed here is saved and the typing has paused.
+  // A failed save keeps its own alert, which offers to discard and move.
+  useEffect(() => {
+    if (
+      !isSuggesting ||
+      isSubmittingSuggestions ||
+      suggestionDraftSaveFailed ||
+      suggestionAmendmentConflict ||
+      pendingSuggestionDecision ||
+      pendingProposalDecision
+    )
+      return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const check = () => {
+      timer = null;
+      const session = suggestionBaseRef.current;
+      const follow = suggestionPageFollow({
+        session,
+        page: {
+          content: document.content,
+          revision: canonicalSuggestionRevision(document),
+          updatedAt: document.updatedAt,
+        },
+        draftUpdatedAt: suggestionDraftUpdatedAt,
+        settled:
+          suggestionAutosaveRef.current.dirtySince === null &&
+          !suggestionFlushRef.current &&
+          !unresolvedProposalCreationRef.current &&
+          !suggestionDecisionInFlightRef.current &&
+          !proposalDecisionInFlightRef.current &&
+          decisionRefreshInFlightRef.current === null,
+        draftChangedAt: suggestionDraftChangedAtRef.current,
+        now: Date.now(),
+      });
+      if (follow.kind === "wait") timer = setTimeout(check, follow.ms);
+      else if (follow.kind === "rebase" && session)
+        suggestionBaseRef.current = {
+          ...session,
+          baseRevision: follow.baseRevision,
+        };
+      else if (follow.kind === "restart") {
+        // The editor reports typing to the draft on its next task, so a key
+        // pressed just before this check hasn't arrived yet. Move only after
+        // that report has had its turn and changed nothing.
+        const changedAt = suggestionDraftChangedAtRef.current;
+        timer = setTimeout(() => {
+          timer = null;
+          if (suggestionDraftChangedAtRef.current === changedAt)
+            continueSuggestionModeFrom(document);
+          else check();
+        }, 0);
+      }
+    };
+    check();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [
+    continueSuggestionModeFrom,
+    document,
+    isSubmittingSuggestions,
+    isSuggesting,
+    pendingProposalDecision,
+    pendingSuggestionDecision,
+    suggestionAmendmentConflict,
+    suggestionDraftSaveFailed,
+    suggestionDraftUpdatedAt,
+    suggestionPersistenceRevision,
+  ]);
+
+  // On a Page whose body is its live copy, someone else's typing reaches the
+  // server through the live copy, whose writes send no refresh event, and the
+  // suggesting editor isn't bound to it. The server saves the Page before it
+  // passes the update on, so read the Page again when the live copy changes.
+  useEffect(() => {
+    if (!isSuggesting || !bodyWritesThroughLiveCopy || !ydoc) return;
+    const filter = {
+      ...documentQueryFilter(documentId),
+      type: "active" as const,
+    };
+    return readPageOnLiveCopyChange({
+      subscribe: (changed) => {
+        ydoc.on("update", changed);
+        return () => ydoc.off("update", changed);
+      },
+      read: () => queryClient.refetchQueries(filter, { cancelRefetch: false }),
+      alreadyReading: () => queryClient.isFetching(filter) > 0,
+    });
+  }, [bodyWritesThroughLiveCopy, documentId, isSuggesting, queryClient, ydoc]);
 
   const refreshSuggestionDecisionDocument = useCallback(
     async (
@@ -7822,10 +7938,9 @@ function PageEditorSessionBody({
     suggestionDraft,
     suggestionPersistenceRevision,
   ]);
-  const sessionDraftSuggestions =
-    suggestionDraftPreview.status === "ready"
-      ? suggestionDraftPreview.suggestions
-      : [];
+  const sessionDraftSuggestions = previewDraftSuggestions(
+    suggestionDraftPreview,
+  );
   const draftSuggestions = useMemo(() => {
     if (suggestionBaseRef.current?.existingSuggestion) return [];
     return unpersistedDraftSuggestions(
@@ -8494,6 +8609,7 @@ function PageEditorSessionBody({
     isLoading: commentsLoading,
     isFetching: commentsFetching,
     isError: commentsError,
+    refetch: refetchComments,
   } = useComments(
     !isLocalFileDocument && !mcpDirectoryWidgetReadOnly ? documentId : null,
   );
@@ -8521,6 +8637,32 @@ function PageEditorSessionBody({
   const commentAi = useCommentAiRequests(documentId, {
     enabled: !isLocalFileDocument && canComment,
   });
+  // A request finishes on its own poll, before the reply or receipt it wrote
+  // is in this Page's comments, and the notice that would read them again
+  // can come late or not at all. Read them again then. Both reads follow the
+  // server's statuses, since a local error can show a run that went on to
+  // finish as needing review.
+  const missingRequestCommentIds = useMemo(
+    () => missingCommentAiReplyIds(commentAi.serverRequests, threads),
+    [commentAi.serverRequests, threads],
+  );
+  useEffect(() => {
+    if (missingRequestCommentIds) void refetchComments();
+  }, [missingRequestCommentIds, refetchComments]);
+  // So can the notice for a change AI made to the page, so read the page
+  // again when a run seen here finishes with one.
+  const commentAiStatusesRef = useRef(
+    new Map<string, CommentAiRequest["status"]>(),
+  );
+  useEffect(() => {
+    if (
+      noteCommentAiPageChanges(
+        commentAiStatusesRef.current,
+        commentAi.serverRequests,
+      )
+    )
+      void queryClient.invalidateQueries(documentQueryFilter(documentId));
+  }, [commentAi.serverRequests, documentId, queryClient]);
   // A request turns suggested on its own poll, often before the suggestion it
   // names is in this Page's list. Read the list again then; until that read
   // lands, its thread holds a placeholder rather than an empty status.
@@ -11539,10 +11681,15 @@ function PageEditorSessionBody({
                 )
               ) : null}
 
+              {/* translateZ(0) gives the card its own layer: Safari otherwise
+                  can paint the Blocks field's sticky tab row (z-10) across it.
+                  compositing-ok: it mounts only while a thread is open. Its
+                  menus portal to the body, so the new containing block for
+                  fixed children moves nothing. */}
               {showAnchoredCommentPopover ? (
                 <aside
                   ref={anchoredCommentRef}
-                  className="pointer-events-none absolute z-30"
+                  className="pointer-events-none absolute z-30 [transform:translateZ(0)]"
                   aria-label={t("comments.title")}
                   data-comments-anchored-popover
                   data-placement={anchoredCommentPosition?.placement}
