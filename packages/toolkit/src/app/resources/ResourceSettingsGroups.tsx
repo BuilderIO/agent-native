@@ -52,6 +52,7 @@ import {
   IconDots,
   IconDownload,
   IconExternalLink,
+  IconInfoCircle,
   IconLock,
   IconTrash,
   type Icon,
@@ -85,7 +86,7 @@ export interface ResourceSettingsGroupConfig {
   sources: readonly ResourceGroupSource[];
   /** Defaults to Personal, the organization name, or From Dispatch. */
   title?: string;
-  /** A line under the heading saying who the group is for. */
+  /** Who the group is for, in a tooltip beside the heading. */
   description?: string | undefined;
   emptyIcon: Icon;
   emptyTitle: string;
@@ -311,6 +312,9 @@ export function ResourceSettingsGroups({
               <h2 className="text-sm font-semibold text-foreground">
                 {group.title ?? sourceLabel(group.sources[0])}
               </h2>
+              {group.description ? (
+                <GroupHint hint={group.description} />
+              ) : null}
               {groupReadOnly && (
                 <ReadOnlyNote
                   label={t("agentChat.settingsResources.readOnly")}
@@ -337,11 +341,6 @@ export function ResourceSettingsGroups({
                 )}
               </div>
             </header>
-            {group.description ? (
-              <p className="-mt-1.5 mb-2.5 text-sm text-muted-foreground">
-                {group.description}
-              </p>
-            ) : null}
             <div className="overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
               {showsSkillColumns ? <SkillColumnHeadings /> : null}
               {rows.length > 0 ? (
@@ -490,6 +489,23 @@ function RemoveResourceDialog({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+function GroupHint({ hint }: { hint: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          aria-label={hint}
+          className="inline-flex items-center rounded text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          <IconInfoCircle className="size-3.5" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs">{hint}</TooltipContent>
+    </Tooltip>
   );
 }
 

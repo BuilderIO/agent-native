@@ -178,6 +178,12 @@ async function renderPage(Page: ComponentType) {
   }
 }
 
+function groupHint(id: string) {
+  return group(id)
+    .querySelector("header [aria-label]")
+    ?.getAttribute("aria-label");
+}
+
 function group(id: string) {
   const section = container.querySelector<HTMLElement>(
     `[data-resource-group="${id}"]`,
@@ -388,14 +394,16 @@ describe("Skills page", () => {
     // Each group adds its own skills, so the page header has no Add.
     expect(header?.action).toBeFalsy();
     expect(groupIds()).toEqual(["personal", "organization", "from-dispatch"]);
-    expect(group("personal").textContent).toContain("Only you have these.");
+    // Who a group is for sits in a tooltip beside its heading, not under it.
+    expect(groupHint("personal")).toBe("Only you have these.");
+    expect(group("personal").textContent).not.toContain("Only you have these.");
     expect(group("personal").textContent).toContain(
       "Save a workflow once and the agent can reuse it.",
     );
-    expect(group("organization").textContent).toContain(
+    expect(groupHint("organization")).toBe(
       "Shared with everyone at Acme. Your switches are just for you.",
     );
-    expect(group("from-dispatch").textContent).toContain(
+    expect(groupHint("from-dispatch")).toContain(
       "Switching one off here only changes",
     );
     expect(
@@ -548,7 +556,7 @@ describe("Skills page", () => {
       dispatch.querySelector('[aria-label="release-notes: For everyone"]')
         ?.textContent,
     ).toContain("Recommended");
-    expect(group("organization").textContent).toContain(
+    expect(groupHint("organization")).toContain(
       "You're an admin, so you choose how each one starts for people.",
     );
   });
