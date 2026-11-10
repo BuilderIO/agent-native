@@ -48,20 +48,20 @@ function generate(): string {
 // route wrote its `navigate` command under. Take it once and drop it from the
 // URL, so a copied link doesn't give a second tab the same ID.
 function takeIdFromUrl(): string | null {
+  const url = new URL(window.location.href);
+  const id = url.searchParams.get(BROWSER_TAB_QUERY_PARAM);
+  if (id === null) return null;
+  url.searchParams.delete(BROWSER_TAB_QUERY_PARAM);
   try {
-    const url = new URL(window.location.href);
-    const id = url.searchParams.get(BROWSER_TAB_QUERY_PARAM);
-    if (id === null) return null;
-    url.searchParams.delete(BROWSER_TAB_QUERY_PARAM);
     window.history.replaceState(
       window.history.state,
       "",
       `${url.pathname}${url.search}${url.hash}`,
     );
-    return SAFE_BROWSER_TAB_ID_RE.test(id) ? id : null;
   } catch {
-    return null;
+    // coercion-ok: a sandboxed frame can refuse history writes; the ID still applies and the parameter stays.
   }
+  return SAFE_BROWSER_TAB_ID_RE.test(id) ? id : null;
 }
 
 function newTabId(): string {
