@@ -433,6 +433,14 @@ export function useEditorFilesAndSaving({
     createOutboxRetryScheduler(() => void retryDesignSaveOutboxRef.current()),
   );
   const scheduleOutboxRetry = outboxRetryScheduler.schedule;
+  // A save that did not land leaves its journal entry for the replay to settle.
+  // Every kind of save (file content, frame geometry, tweaks) reports that here,
+  // so the replay clock starts and the indicator recounts instead of both
+  // waiting for a page event.
+  const noteSaveLeftQueued = useCallback(() => {
+    scheduleOutboxRetry();
+    void refreshUnsavedChangeCount();
+  }, [refreshUnsavedChangeCount, scheduleOutboxRetry]);
 
   const retryDesignSaveOutbox = useCallback(async () => {
     if (!id) return;
@@ -685,11 +693,8 @@ export function useEditorFilesAndSaving({
         outboxJournalPromise,
         onPersistedContent,
       );
-      // A save that did not land leaves its journal entry for the replay to
-      // settle; start the replay clock instead of waiting for a page event.
       if (completion === "retryable" || completion === "failed") {
-        scheduleOutboxRetry();
-        void refreshUnsavedChangeCount();
+        noteSaveLeftQueued();
       }
       return completion;
     },
@@ -698,12 +703,11 @@ export function useEditorFilesAndSaving({
       createFileSaveOutboxEntry,
       id,
       journalOutboxEntry,
+      noteSaveLeftQueued,
       readLiveFileContent,
-      refreshUnsavedChangeCount,
       rollbackPendingLocalFileContent,
       markPendingLocalFileContent,
       queryClient,
-      scheduleOutboxRetry,
       t,
       updateFileMutation,
       warnChangesWillRetry,
@@ -876,6 +880,7 @@ export function useEditorFilesAndSaving({
     designSaveActorScope,
     designSaveOperationSourceRef,
     id,
+    noteSaveLeftQueued,
     queryClient,
     t,
     warnChangesWillRetry,
@@ -1949,6 +1954,7 @@ export function useEditorFilesAndSaving({
     journalOutboxEntry,
     acknowledgeOutboxEntry,
     retryDesignSaveOutbox,
+    noteSaveLeftQueued,
     cancelQueuedFileContentSave,
     queueFileContentSave,
     publishCanonicalContent,

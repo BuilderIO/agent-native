@@ -6,6 +6,7 @@ import { expect, savedNodeMap, styleOf, test, type App } from "./rails";
 const OUTBOX_DATABASE = "agent-native-design-save-outbox";
 const OUTBOX_STORE = "entries";
 const UPDATE_FILE = /\/_agent-native\/actions\/update-file(\?|$)/;
+const UPDATE_DESIGN = /\/_agent-native\/actions\/update-design(\?|$)/;
 const STALE_NOTICE =
   "This screen changed elsewhere. Your last edit was not saved.";
 const SAVE_CHIP = '[data-save-status="unsaved"]';
@@ -419,4 +420,58 @@ test("another open tab leaves an editor's unsent copy to it until that tab close
   } finally {
     await otherTab.close();
   }
+});
+
+test("a refused frame resize shows Not saved at once and saves itself once the server recovers", async ({
+  app,
+  page,
+}) => {
+  test.setTimeout(120_000);
+  app.allowFailure(
+    /^http 500 POST \/_agent-native\/actions\/update-design$/,
+    "the scenario makes the server refuse the geometry save",
+  );
+  app.allowFailure(
+    /^console\.error Failed to load resource: the server responded with a status of 500/,
+    "the refused save is logged by Chromium",
+  );
+  app.allowFailure(
+    /^error toast /,
+    "the refused geometry save is reported in the editor",
+  );
+  const designId = await app.seed(ORIGINAL_HTML);
+  const fileId = await indexFileId(page, designId);
+  await app.open(designId);
+  const screenRow = page
+    .getByRole("tree", { name: "Layers" })
+    .locator('[role="treeitem"]')
+    .first();
+  await screenRow.locator("[data-layer-row-button]").click();
+  await expect(screenRow).toHaveAttribute("aria-selected", "true");
+
+  await page.route(UPDATE_DESIGN, (route) =>
+    route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Internal server error" }),
+    }),
+  );
+  const width = page.getByRole("textbox", { name: /^W(?: size in pixels)?$/ });
+  await width.fill("900");
+  await width.press("Enter");
+  // Shorter than the first 5 s retry, so the chip comes from the failed save
+  // itself, not from a replay that happens to run later.
+  await expect(page.locator(SAVE_CHIP)).toBeVisible({ timeout: 4_000 });
+
+  await page.unroute(UPDATE_DESIGN);
+  // No page event is sent: only the retry clock can save the resize now.
+  await expect(page.locator(SAVE_CHIP)).toHaveCount(0, { timeout: 30_000 });
+  await expect
+    .poll(async () => {
+      const data = (await app.savedRecord(designId)).data as {
+        canvasFrames?: Record<string, { width?: number }>;
+      };
+      return data.canvasFrames?.[fileId]?.width;
+    })
+    .toBe(900);
 });

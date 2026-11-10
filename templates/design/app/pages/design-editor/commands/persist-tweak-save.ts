@@ -27,6 +27,7 @@ export interface PersistTweakSaveArgs {
   ) => DesignSaveOutboxEntry | null;
   id: string | undefined;
   journalTweakOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
+  noteSaveLeftQueued: () => void;
   pendingTweakSaveRef: RefObject<PendingTweakSave | null>;
   queryClient: QueryClient;
   setTweakSaveActive: Dispatch<SetStateAction<boolean>>;
@@ -46,6 +47,7 @@ export function runPersistTweakSave(
     createTweakSaveOutboxEntry,
     id,
     journalTweakOutboxEntry,
+    noteSaveLeftQueued,
     pendingTweakSaveRef,
     queryClient,
     setTweakSaveActive,
@@ -154,6 +156,9 @@ export function runPersistTweakSave(
         } else {
           toast.error(t("designEditor.toasts.tweakSaveNotDurable"));
         }
+        // A conflict is the user's to redo; any other failure leaves the
+        // journaled entry for the replay.
+        if (journaled && failureKind !== "conflict") noteSaveLeftQueued();
       } finally {
         tweakSaveInFlightRef.current = false;
       }
