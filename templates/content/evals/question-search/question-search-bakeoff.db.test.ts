@@ -297,11 +297,16 @@ async function runBakeoff(models: BakeoffModels | null) {
     if (hasChat) {
       const summaries = new Map<string, string>();
       await eachLimit(visible, async (doc) => {
-        const reply = await models.chat(
-          ENRICH_PROMPT,
-          excerpt(doc, 6_000),
-          indexUsage.enrichment,
-        );
+        const reply = (
+          await models.chat(
+            ENRICH_PROMPT,
+            excerpt(doc, 6_000),
+            indexUsage.enrichment,
+          )
+        ).trim();
+        // A blank summary would score the title alone as enrichment.
+        if (!reply)
+          throw new Error(`The summary of ${doc.key} came back empty.`);
         summaries.set(doc.key, `${doc.title}\n${reply}`);
       });
       const keys = [...summaries.keys()];
@@ -363,17 +368,20 @@ async function runBakeoff(models: BakeoffModels | null) {
       ranked["hybrid + keywords"] = hybridKeywords.slice(0, 10);
 
       if (hasChat) {
-        const reply = replyJson(
+        // Each model step that misfires fails the run: a fallback would score
+        // as the method having worked.
+        const queries = replyJson(
           await models.chat(REWRITE_PROMPT, kase.query, usage.rewrite),
-        );
-        const rewrites = Array.isArray(reply?.queries)
-          ? reply.queries.map(String).slice(0, 3)
-          : [];
-        // A model-written search can be one search-documents rejects.
+        )?.queries;
+        if (!Array.isArray(queries))
+          throw new Error(`The rewrite of "${kase.query}" named no searches.`);
+        // search-documents refuses a blank search.
+        const rewrites = queries
+          .map((query) => String(query).trim())
+          .filter(Boolean)
+          .slice(0, 3);
         const rewritten = await Promise.all(
-          rewrites.map((query) =>
-            currentSearch(kase, query).catch(() => [] as string[]),
-          ),
+          rewrites.map((query) => currentSearch(kase, query)),
         );
         const rewriteLanes = Object.fromEntries(
           rewritten.map((keys, index) => [`rewrite-${index}`, keys]),
@@ -385,9 +393,13 @@ async function runBakeoff(models: BakeoffModels | null) {
           embedded,
         });
 
-        const passage =
-          (await models.chat(HYDE_PROMPT, kase.query, usage.hyde)) ||
-          kase.query;
+        const passage = (
+          await models.chat(HYDE_PROMPT, kase.query, usage.hyde)
+        ).trim();
+        if (!passage)
+          throw new Error(
+            `The answer passage for "${kase.query}" came back empty.`,
+          );
         const hydeVector = vectorAt(
           await models.embed([passage], "document", usage.hyde),
           0,
@@ -404,30 +416,31 @@ async function runBakeoff(models: BakeoffModels | null) {
         });
 
         const candidates = hybridKeywords;
-        const judged = candidates.length
-          ? replyJson(
-              await models.chat(
-                RERANK_PROMPT,
-                `Question: ${kase.query}\n\n${candidates
-                  .map((key, index) => {
-                    const doc = byKey.get(key);
-                    const text = doc
-                      ? titleOnly
-                        ? doc.title
-                        : excerpt(doc)
-                      : key;
-                    return `${index + 1}. ${text}`;
-                  })
-                  .join("\n")}`,
-                usage.rerank,
-              ),
-            )
-          : null;
-        const order = Array.isArray(judged?.ranking)
-          ? judged.ranking
-              .map((value) => candidates[Number(value) - 1])
-              .filter((key): key is string => Boolean(key))
-          : [];
+        let order: string[] = [];
+        if (candidates.length) {
+          const ranking = replyJson(
+            await models.chat(
+              RERANK_PROMPT,
+              `Question: ${kase.query}\n\n${candidates
+                .map((key, index) => {
+                  const doc = byKey.get(key);
+                  const text = doc
+                    ? titleOnly
+                      ? doc.title
+                      : excerpt(doc)
+                    : key;
+                  return `${index + 1}. ${text}`;
+                })
+                .join("\n")}`,
+              usage.rerank,
+            ),
+          )?.ranking;
+          if (!Array.isArray(ranking))
+            throw new Error(`The rerank of "${kase.query}" gave no ranking.`);
+          order = ranking
+            .map((value) => candidates[Number(value) - 1])
+            .filter((key): key is string => Boolean(key));
+        }
         ranked.rerank = [...new Set([...order, ...candidates])].slice(0, 10);
       }
     }

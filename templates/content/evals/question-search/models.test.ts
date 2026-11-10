@@ -75,6 +75,27 @@ describe("bake-off model client", () => {
     expect(usage).toMatchObject({ calls: 1, inputTokens: 3 });
   });
 
+  it("fails on embedding rows that repeat an index or hold no vector", async () => {
+    fetchMock.mockResolvedValueOnce(
+      json({
+        data: [
+          { index: 0, embedding: [0] },
+          { index: 0, embedding: [1] },
+        ],
+      }),
+    );
+    await expect(
+      models(OPENAI_ENV).embed(["a", "b"], "query", emptyUsage()),
+    ).rejects.toThrow("Embedding row 1 of 2 is malformed.");
+
+    fetchMock.mockResolvedValueOnce(
+      json({ data: [{ index: 0, embedding: [Number.NaN] }] }),
+    );
+    await expect(
+      models(OPENAI_ENV).embed(["a"], "query", emptyUsage()),
+    ).rejects.toThrow("Embedding row 0 of 1 is malformed.");
+  });
+
   it("retries a network error, a 503, and a body cut off mid-read", async () => {
     const cutOff = new Response("{");
     fetchMock

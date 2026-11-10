@@ -232,8 +232,19 @@ export function bakeoffModelsFromEnv(
           throw new Error(
             `Expected ${batch.length} embeddings, got ${rows.length}.`,
           );
-        for (const row of [...rows].sort((a, b) => a.index - b.index))
-          vectors.push(row.embedding);
+        [...rows]
+          .sort((a, b) => a.index - b.index)
+          .forEach((row, position) => {
+            if (
+              row.index !== position ||
+              !Array.isArray(row.embedding) ||
+              !row.embedding.every(Number.isFinite)
+            )
+              throw new Error(
+                `Embedding row ${position} of ${batch.length} is malformed.`,
+              );
+            vectors.push(row.embedding);
+          });
       }
       return vectors;
     };
