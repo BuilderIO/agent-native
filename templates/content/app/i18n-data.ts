@@ -979,7 +979,6 @@ const editorMediaMessages = {
   image: "Image",
   imageAdded: "Image added",
   imageBroken: "Image could not be loaded",
-  imageCommentWithAlt: "Image: {{alt}}",
   imageCopied: "Image copied.",
   imageDownloadStarted: "Image download started.",
   imageLinkHint: "Works with any image from the web",

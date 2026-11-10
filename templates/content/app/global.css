@@ -2791,13 +2791,15 @@ audio.media-block__content {
   text-decoration: line-through;
   text-decoration-color: hsl(var(--muted-foreground) / 0.8);
 }
+/* Removed text stays struck through while it's pointed at or selected, so it
+   never reads as the text that replaces it. */
 .content-editor .suggestion-delete:hover,
 .content-editor .suggestion-delete:focus-visible,
 .content-editor .suggestion-delete-widget:hover,
 .content-editor .suggestion-delete-widget:focus-visible {
   background: hsl(var(--muted));
   color: hsl(var(--foreground));
-  text-decoration: none;
+  text-decoration-color: hsl(var(--foreground) / 0.7);
 }
 
 .content-editor .suggestion-change {
@@ -2817,6 +2819,13 @@ audio.media-block__content {
   background: hsl(var(--suggestion) / 0.12);
   box-shadow: inset 0 -2px hsl(var(--suggestion) / 0.55);
   color: hsl(var(--suggestion));
+}
+
+/* New words after the struck words they replace start a little apart, so the
+   two runs don't read as one word. */
+.content-editor
+  .suggestion-inline-widget.suggestion-insert--spaced[data-suggestion-widget] {
+  margin-inline-start: 0.3em;
 }
 
 /* A whole suggested line is drawn as the block it adds or removes, marked by
@@ -2857,8 +2866,11 @@ audio.media-block__content {
 .content-editor .suggestion-delete.suggestion-highlight--active,
 .content-editor .suggestion-delete-widget.suggestion-highlight--active {
   background: hsl(var(--muted));
+  box-shadow: none;
   color: hsl(var(--foreground));
-  text-decoration: none;
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--foreground) / 0.7);
+  text-decoration-thickness: auto;
 }
 .content-editor .suggestion-delete-block.suggestion-highlight--active {
   background: hsl(var(--muted));

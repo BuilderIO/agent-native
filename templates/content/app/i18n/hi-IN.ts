@@ -790,7 +790,6 @@ const editor = {
     image: "छवि",
     imageAdded: "छवि जोड़ी गई",
     imageBroken: "छवि लोड नहीं हो सकी",
-    imageCommentWithAlt: "छवि: {{alt}}",
     imageCopied: "छवि कॉपी की गई.",
     imageDownloadStarted: "छवि डाउनलोड प्रारंभ हुआ.",
     imageLinkHint: "वेब से किसी भी छवि के साथ काम करता है",
