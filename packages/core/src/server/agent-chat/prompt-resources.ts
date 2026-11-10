@@ -899,6 +899,7 @@ async function loadResourceSkillsPromptBlock(
           `\`path: "${resource.path}"\` and \`scope: "${scope}"\` before starting a task it applies to`,
         )}`,
     );
+  if (lines.length === 0 && !inspectionNotice) return null;
   if (inspectionNotice) {
     lines.push(
       `- ${inspectionNotice} ${resourceToolHint("list", '`prefix: "skills/"` to inspect the full catalog')}`,
@@ -911,7 +912,6 @@ async function loadResourceSkillsPromptBlock(
       `- ...more skills omitted from the startup summary. ${resourceToolHint("list", '`prefix: "skills/"` to inspect the full catalog')}`,
     );
   }
-  if (lines.length === 0) return null;
   return `<resource-skills>\nThe following workspace skills are available in addition to codebase skills. They may come from SQL resources, Dispatch workspace resources, or local file mode. Read a matching skill before starting a task it applies to.\n\n${lines.join("\n")}\n</resource-skills>`;
 }
 

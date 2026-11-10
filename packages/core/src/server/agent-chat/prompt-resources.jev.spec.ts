@@ -302,6 +302,29 @@ describe("resource skill reference selection and bounded refill", () => {
     expect(prompt).not.toContain("more skills omitted");
   });
 
+  it.each([true, false])(
+    "omits an exhausted all-excluded skill catalog (runtime hints: %s)",
+    async (runtimeToolHints) => {
+      catalog(
+        Array.from({ length: 80 }, (_, index) =>
+          candidate(index, "scope: dev"),
+        ),
+      );
+      const prompt = await loadResourcesForPrompt(
+        "user@example.test",
+        true,
+        undefined,
+        null,
+        { runtimeToolHints, skillReadTool: null },
+      );
+      expect(skillNames(prompt)).toEqual([]);
+      expect(mocks.resourceGet).toHaveBeenCalledTimes(80);
+      expect(prompt).not.toContain("<resource-skills>");
+      expect(prompt).not.toContain("more skills omitted");
+      expect(prompt).not.toContain("inspection limit");
+    },
+  );
+
   it.each([0, 3])(
     "stops at 200 attempts and reports uninspected candidates with %i accepted skills",
     async (accepted) => {
