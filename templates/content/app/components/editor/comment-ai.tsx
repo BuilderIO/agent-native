@@ -17,7 +17,16 @@ import type {
 } from "@shared/comment-ai";
 import { IconCircleCheck } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type FocusEvent,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -286,6 +295,116 @@ export function useFreshAiResolutions(
     [requests],
   );
   return { freshResolutions, dismissResolution };
+}
+
+/** How long a fresh AI result stays open once it's left alone. */
+export const AI_RESULT_LEFT_ALONE_MS = 5_000;
+/**
+ * How long the Resolved by AI mark holds once left alone, then fades for. The
+ * fade matches the mark's `duration-1600` class.
+ */
+export const AI_RESOLVED_MARK_HOLD_MS = 3_200;
+export const AI_RESOLVED_MARK_FADE_MS = 1_600;
+
+/**
+ * Whether focus on `element` came from the keyboard. Tabbing to an AI result
+ * holds it open the way a pointer does; the focus a click leaves behind
+ * doesn't, or a result would never go once its card had been clicked.
+ */
+function isKeyboardFocus(element: Element) {
+  try {
+    return element.matches(":focus-visible");
+  } catch {
+    return true;
+  }
+}
+
+function isHovered(element: Element) {
+  try {
+    return element.matches(":hover");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Counts down while neither the pointer nor keyboard focus is on `ref`'s
+ * element: after `holdMs` it starts `fading`, and `fadeMs` later calls
+ * `onGone`. A pointer or focus that comes back at any point stops the count
+ * and brings the element back; leaving again starts it over. Spread
+ * `handlers` on the element. React counts a menu it opens in a portal as
+ * part of it.
+ */
+export function useLeftAloneCountdown({
+  ref,
+  enabled,
+  holdMs,
+  fadeMs = 0,
+  onGone,
+}: {
+  ref: RefObject<HTMLElement | null>;
+  enabled: boolean;
+  holdMs: number;
+  fadeMs?: number;
+  onGone: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState<Element | null>(null);
+  const [fading, setFading] = useState(false);
+  const onGoneRef = useRef(onGone);
+  useEffect(() => {
+    onGoneRef.current = onGone;
+  });
+  // A card the pointer or keyboard focus is already on when its result
+  // arrives, or a mark that appears under the pointer, starts out held.
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!enabled || !element) return;
+    setHovered(isHovered(element));
+    const active = document.activeElement;
+    setFocused(
+      active && element.contains(active) && isKeyboardFocus(active)
+        ? active
+        : null,
+    );
+    setFading(false);
+  }, [enabled, ref]);
+  useEffect(() => {
+    // Focus that leaves with its element sends no blur, so it holds only
+    // while that element is still on the page.
+    if (!enabled || hovered || focused?.isConnected) return;
+    let fadeTimer: ReturnType<typeof setTimeout> | undefined;
+    const holdTimer = setTimeout(() => {
+      if (fadeMs <= 0) {
+        onGoneRef.current();
+        return;
+      }
+      setFading(true);
+      fadeTimer = setTimeout(() => onGoneRef.current(), fadeMs);
+    }, holdMs);
+    return () => {
+      clearTimeout(holdTimer);
+      clearTimeout(fadeTimer);
+    };
+  }, [enabled, hovered, focused, holdMs, fadeMs]);
+  return {
+    fading: enabled && fading && !hovered && focused === null,
+    handlers: enabled
+      ? {
+          onPointerEnter: () => {
+            setHovered(true);
+            setFading(false);
+          },
+          onPointerLeave: () => setHovered(false),
+          onFocus: (event: FocusEvent<HTMLElement>) => {
+            if (!isKeyboardFocus(event.target)) return;
+            setFocused(event.target);
+            setFading(false);
+          },
+          onBlur: () => setFocused(null),
+        }
+      : {},
+  };
 }
 
 export function startCommentAiSubmission(

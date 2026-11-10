@@ -11,7 +11,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { CommentThread } from "@/hooks/use-comments";
 
-import type { CommentAiController } from "./comment-ai";
+import {
+  AI_RESOLVED_MARK_FADE_MS,
+  AI_RESOLVED_MARK_HOLD_MS,
+  AI_RESULT_LEFT_ALONE_MS,
+  type CommentAiController,
+} from "./comment-ai";
 import {
   richEditor,
   richEditorValue,
@@ -184,6 +189,7 @@ function SidebarOwner({
     onPendingDone?: (threadId?: string) => void;
     commentAi?: CommentAiController;
     onActivateThread?: (threadId: string) => void;
+    onSelectedThreadChange?: (threadId: string | null) => void;
     suggestions?: ResourceSuggestion[];
     awaitedSuggestionIds?: ReadonlySet<string>;
     unreadableSuggestionIds?: ReadonlySet<string>;
@@ -245,6 +251,7 @@ function SidebarOwner({
       presentation={presentation}
       commentAi={options.commentAi}
       onActivateThread={options.onActivateThread}
+      onSelectedThreadChange={options.onSelectedThreadChange}
     />
   );
 }
@@ -277,6 +284,7 @@ describe("comment review interactions", () => {
     container?.remove();
     queryClient.clear();
     vi.clearAllMocks();
+    vi.useRealTimers();
     window.localStorage.clear();
   });
   function render(
@@ -289,6 +297,7 @@ describe("comment review interactions", () => {
       onPendingDone?: (threadId?: string) => void;
       commentAi?: CommentAiController;
       onActivateThread?: (threadId: string) => void;
+      onSelectedThreadChange?: (threadId: string | null) => void;
       suggestions?: ResourceSuggestion[];
       awaitedSuggestionIds?: ReadonlySet<string>;
       unreadableSuggestionIds?: ReadonlySet<string>;
@@ -802,7 +811,8 @@ describe("comment review interactions", () => {
     },
   );
 
-  it("keeps a thread AI just resolved as a mark, then reopens its result", () => {
+  /** Thread one, which AI has just changed and resolved. */
+  function appliedResolution() {
     const applied: CommentAiRequest = {
       operationId: "request-one",
       requestId: "request-one",
@@ -830,7 +840,6 @@ describe("comment review interactions", () => {
       updatedAt: "2026-09-04T12:01:00Z",
     };
     const dismissResolution = vi.fn();
-    const onActivateThread = vi.fn();
     const commentAi = {
       requests: [applied],
       serverRequests: [applied],
@@ -848,7 +857,36 @@ describe("comment review interactions", () => {
       freshResolutions: new Map([["one", applied]]),
       dismissResolution,
     } satisfies CommentAiController;
-    const resolved = [thread("one", true)];
+    return { commentAi, dismissResolution, resolved: [thread("one", true)] };
+  }
+  const pointerOver = (element: Element) =>
+    act(() => {
+      element.dispatchEvent(
+        new PointerEvent("pointerover", {
+          bubbles: true,
+          pointerType: "mouse",
+        }),
+      );
+    });
+  const pointerOut = (element: Element) =>
+    act(() => {
+      element.dispatchEvent(
+        new PointerEvent("pointerout", {
+          bubbles: true,
+          pointerType: "mouse",
+          relatedTarget: document.body,
+        }),
+      );
+    });
+  const wait = (ms: number) =>
+    act(() => {
+      vi.advanceTimersByTime(ms);
+    });
+
+  it("keeps a thread AI just resolved as a mark, then reopens its result", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { commentAi, dismissResolution, resolved } = appliedResolution();
+    const onActivateThread = vi.fn();
 
     render(null, resolved, "inline", { commentAi, onActivateThread });
     const mark = container.querySelector<HTMLButtonElement>(
@@ -857,9 +895,7 @@ describe("comment review interactions", () => {
     expect(mark?.textContent).toContain("comments.aiResolvedByAi");
     act(() => mark!.click());
     expect(onActivateThread).toHaveBeenCalledWith("one");
-    act(() => {
-      mark!.dispatchEvent(new Event("animationend", { bubbles: true }));
-    });
+    wait(AI_RESOLVED_MARK_HOLD_MS + AI_RESOLVED_MARK_FADE_MS);
     expect(dismissResolution).toHaveBeenCalledWith("one");
 
     render("one", resolved, "inline", { commentAi, onActivateThread });
@@ -869,12 +905,93 @@ describe("comment review interactions", () => {
     expect(
       container.querySelector("[data-comment-ai-change]")?.textContent,
     ).toContain("blurry");
+    // Opening it from the mark took the mark's focus away, so the card has it.
+    expect(document.activeElement).toBe(
+      container.querySelector('[data-thread-card="one"]'),
+    );
     dismissResolution.mockClear();
     act(() =>
       container
         .querySelector<HTMLButtonElement>("[data-comment-ai-done]")!
         .click(),
     );
+    expect(dismissResolution).toHaveBeenCalledWith("one");
+  });
+
+  it("folds a result AI applied into its mark once the card is left alone", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { commentAi, resolved } = appliedResolution();
+    const onSelectedThreadChange = vi.fn();
+    // The card is open while AI works, then its result arrives.
+    render("one", [thread("one")], "inline", {
+      commentAi: { ...commentAi, freshResolutions: new Map() },
+      onSelectedThreadChange,
+    });
+    wait(AI_RESULT_LEFT_ALONE_MS * 3);
+    expect(onSelectedThreadChange).not.toHaveBeenCalled();
+    render("one", resolved, "inline", { commentAi, onSelectedThreadChange });
+    const card = container.querySelector('[data-thread-card="one"]')!;
+
+    wait(AI_RESULT_LEFT_ALONE_MS - 100);
+    expect(onSelectedThreadChange).not.toHaveBeenCalled();
+    // A pointer on the card holds it, and leaving starts the count over.
+    pointerOver(card);
+    wait(AI_RESULT_LEFT_ALONE_MS * 3);
+    expect(onSelectedThreadChange).not.toHaveBeenCalled();
+    pointerOut(card);
+    wait(AI_RESULT_LEFT_ALONE_MS - 100);
+    expect(onSelectedThreadChange).not.toHaveBeenCalled();
+    wait(100);
+    expect(onSelectedThreadChange).toHaveBeenCalledWith(null);
+
+    // Keyboard focus holds it the same way.
+    render(null, resolved, "inline", { commentAi, onSelectedThreadChange });
+    render("one", resolved, "inline", { commentAi, onSelectedThreadChange });
+    onSelectedThreadChange.mockClear();
+    const done = container.querySelector<HTMLButtonElement>(
+      "[data-comment-ai-done]",
+    )!;
+    act(() => done.focus());
+    wait(AI_RESULT_LEFT_ALONE_MS * 3);
+    expect(onSelectedThreadChange).not.toHaveBeenCalled();
+    act(() => done.blur());
+    wait(AI_RESULT_LEFT_ALONE_MS);
+    expect(onSelectedThreadChange).toHaveBeenCalledWith(null);
+  });
+
+  it("keeps a resolved thread someone opened, which AI didn't just resolve", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const onSelectedThreadChange = vi.fn();
+    render("one", [thread("one", true)], "inline", { onSelectedThreadChange });
+    wait(AI_RESULT_LEFT_ALONE_MS * 3);
+    expect(onSelectedThreadChange).not.toHaveBeenCalled();
+  });
+
+  it("brings a fading Resolved by AI mark back while the pointer is on it", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { commentAi, dismissResolution, resolved } = appliedResolution();
+    render(null, resolved, "inline", { commentAi });
+    const mark = container.querySelector<HTMLButtonElement>(
+      '[data-comment-ai-resolved-mark="one"]',
+    )!;
+
+    expect(mark.hasAttribute("data-fading")).toBe(false);
+    wait(AI_RESOLVED_MARK_HOLD_MS);
+    expect(mark.hasAttribute("data-fading")).toBe(true);
+    pointerOver(mark);
+    expect(mark.hasAttribute("data-fading")).toBe(false);
+    wait(AI_RESOLVED_MARK_HOLD_MS * 3);
+    expect(dismissResolution).not.toHaveBeenCalled();
+    expect(mark.hasAttribute("data-fading")).toBe(false);
+
+    // Leaving starts it over: it holds, fades, and goes.
+    pointerOut(mark);
+    wait(AI_RESOLVED_MARK_HOLD_MS - 100);
+    expect(mark.hasAttribute("data-fading")).toBe(false);
+    wait(100);
+    expect(mark.hasAttribute("data-fading")).toBe(true);
+    expect(dismissResolution).not.toHaveBeenCalled();
+    wait(AI_RESOLVED_MARK_FADE_MS);
     expect(dismissResolution).toHaveBeenCalledWith("one");
   });
 

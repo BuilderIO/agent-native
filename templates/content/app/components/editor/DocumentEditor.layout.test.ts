@@ -5,6 +5,7 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import type { CommentThread } from "@/hooks/use-comments";
 import { documentQueryKey } from "@/lib/document-query";
 import {
   documentReadFailure,
@@ -29,6 +30,7 @@ import {
   observeAcceptedCanonicalSettlement,
   documentEditorReservesInlineReviewSpace,
   documentEditorReviewReadsSettled,
+  documentEditorHasFreshAiResolution,
   documentEditorShowsInlineComments,
   documentEditorShowsUtilityPanelSheet,
   utilityPanelRegionShouldReceiveFocus,
@@ -1358,6 +1360,31 @@ describe("document editor layout", () => {
         hasPendingComment: false,
       }),
     ).toBe(true);
+  });
+
+  it("keeps the margin for a thread AI just resolved, even the page's last", () => {
+    const resolved = {
+      threadId: "quoted",
+      resolved: true,
+      quotedText: "soft labels",
+    } as CommentThread;
+    const onPage = {
+      threadId: "page",
+      resolved: true,
+      quotedText: null,
+    } as CommentThread;
+    const fresh = new Map([
+      ["quoted", {}],
+      ["page", {}],
+    ]);
+    expect(documentEditorHasFreshAiResolution([resolved], fresh)).toBe(true);
+    // Once its Resolved by AI mark fades, it no longer holds the margin.
+    expect(documentEditorHasFreshAiResolution([resolved], new Map())).toBe(
+      false,
+    );
+    // A comment on the whole page lives in Discussion, not the margin.
+    expect(documentEditorHasFreshAiResolution([onPage], fresh)).toBe(false);
+    expect(documentEditorHasFreshAiResolution(undefined, fresh)).toBe(false);
   });
 
   it("keeps history activation in browse mode instead of replacing the desktop list", () => {

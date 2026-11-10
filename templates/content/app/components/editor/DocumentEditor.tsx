@@ -2713,6 +2713,25 @@ export function documentEditorShowsInlineComments(args: {
   );
 }
 
+/**
+ * Whether the margin still shows a thread AI just resolved. Its Resolved by
+ * AI mark holds the margin open until it fades, even when AI resolved the
+ * page's last open thread.
+ */
+export function documentEditorHasFreshAiResolution(
+  threads: readonly CommentThread[] | null | undefined,
+  freshResolutions: ReadonlyMap<string, unknown>,
+) {
+  return (
+    threads?.some(
+      (thread) =>
+        thread.resolved &&
+        freshResolutions.has(thread.threadId) &&
+        !isPageCommentThread(thread),
+    ) ?? false
+  );
+}
+
 export function utilityPanelAfterCommentFocusDismissal(
   utilityPanel: DocumentUtilityPanel,
 ): DocumentUtilityPanel {
@@ -8746,7 +8765,10 @@ function PageEditorSessionBody({
     hasUtilityRailSpace: hasInlineCommentSpace,
     commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
     utilityPanel,
-    hasOpenCommentThreads: hasOpenCommentThreads || hasOpenSuggestions,
+    hasOpenCommentThreads:
+      hasOpenCommentThreads ||
+      hasOpenSuggestions ||
+      documentEditorHasFreshAiResolution(threads, commentAi.freshResolutions),
     hasSelectedCommentThread,
     hasPendingComment: !!pendingComment,
   });
