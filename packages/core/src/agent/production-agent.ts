@@ -10978,6 +10978,10 @@ export async function runAgentLoop(opts: {
             ),
           );
 
+          let raceInterruption: "abort" | "timeout" | undefined;
+          let timeoutError: Error | undefined;
+          let abortError: Error | undefined;
+
           // When the run is aborted (soft-timeout / user cancel) while this tool
           // call is in flight, Promise.race below will throw "Run aborted" and the
           // action's promise becomes a zombie — it keeps running but its result is
@@ -10985,15 +10989,16 @@ export async function runAgentLoop(opts: {
           // the result to the durable ledger keyed by (threadId, toolKey) so the
           // next continuation chunk can recover it instead of re-executing the
           // side effect.
-          if (opts.threadId) {
-            const ledgerThreadId = opts.threadId;
-            const ledgerArgumentsHash = argumentsHash;
-            const ledgerToolKey = preparedToolCallKey(
-              toolCall.name,
-              ledgerArgumentsHash,
-            );
-            const zombieLedgerPromise = actionPromise
-              .then(async (zombieRaw: unknown) => {
+          const ledgerThreadId = opts.threadId;
+          const ledgerArgumentsHash = argumentsHash;
+          const ledgerToolKey = preparedToolCallKey(
+            toolCall.name,
+            ledgerArgumentsHash,
+          );
+          const zombieLedgerPromise = actionPromise
+            .then(
+              async (zombieRaw: unknown) => {
+                if (!ledgerThreadId) return;
                 await new Promise<void>((resolve) => setTimeout(resolve, 0));
                 if (!toolResultLost) return;
                 // A call is recovered only when it may have written.
@@ -11079,8 +11084,28 @@ export async function runAgentLoop(opts: {
                     ledgerArgumentsHash,
                   );
                 }
-              })
-              .catch((error) => {
+              },
+              async (error: unknown) => {
+                // The race's catch must settle before we classify a rejection
+                // that arrives in the same turn as an abort or deadline.
+                await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                if (!raceInterruption || !actionInvoked) return;
+                const cancellation =
+                  raceInterruption === "abort" &&
+                  signal.aborted &&
+                  signal.reason !== undefined &&
+                  (error === signal.reason ||
+                    (error instanceof Error &&
+                      error.name === "AbortError" &&
+                      error.cause === signal.reason));
+                // Retry safety permits replay; it does not prove no write occurred.
+                if (
+                  cancellation &&
+                  !actionExecutionOutcome.evidence?.writeObserved &&
+                  ranEffect({ retrySafe: false, failed: { error } }).effect ===
+                    "none"
+                )
+                  return;
                 captureError(
                   isPrivateCall()
                     ? new Error("Private content omitted")
@@ -11093,34 +11118,63 @@ export async function runAgentLoop(opts: {
                     ...(opts.runId ? { aiTraceId: opts.runId } : {}),
                     tags: {
                       component: "agent-execution-step",
-                      phase: "late-outcome-persistence",
+                      phase: "late-action-failure",
+                      reportExpected: "true",
                       tool: toolCall.name,
                     },
                   },
                 );
-              });
+              },
+            )
+            .catch((error) => {
+              captureError(
+                isPrivateCall() ? new Error("Private content omitted") : error,
+                {
+                  ...(isPrivateCall()
+                    ? { errorMessagePolicy: "omit" as const }
+                    : {}),
+                  route: "/_agent-native/agent-chat",
+                  ...(opts.runId ? { aiTraceId: opts.runId } : {}),
+                  tags: {
+                    component: "agent-execution-step",
+                    phase: "late-outcome-persistence",
+                    reportExpected: "true",
+                    tool: toolCall.name,
+                  },
+                },
+              );
+            });
+          if (ledgerThreadId)
             void retainRequestDbPoolScope(zombieLedgerPromise);
-          }
 
           const raw = await Promise.race([
             actionPromise,
             new Promise<never>((_, reject) => {
-              timeoutSignal.addEventListener("abort", () =>
-                reject(new Error(timeoutMessage())),
-              );
+              timeoutSignal.addEventListener("abort", () => {
+                timeoutError = new Error(timeoutMessage());
+                reject(timeoutError);
+              });
             }),
             new Promise<never>((_, reject) => {
+              const abort = () => {
+                abortError = new Error("Run aborted");
+                reject(abortError);
+              };
               if (signal.aborted) {
-                reject(new Error("Run aborted"));
+                abort();
                 return;
               }
-              signal.addEventListener(
-                "abort",
-                () => reject(new Error("Run aborted")),
-                { once: true },
-              );
+              signal.addEventListener("abort", abort, { once: true });
             }),
-          ]);
+          ]).catch((error: unknown) => {
+            raceInterruption =
+              timeoutError !== undefined && error === timeoutError
+                ? "timeout"
+                : abortError !== undefined && error === abortError
+                  ? "abort"
+                  : undefined;
+            throw error;
+          });
           const mcpResult = isMcpActionResult(raw) ? raw : null;
           const rawForAgent = mcpResult ? mcpResult.text : raw;
           if (

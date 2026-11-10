@@ -662,8 +662,15 @@ export function classifyErrorNoise(
     isNetworkFailure: isNetworkFailureMessage(value),
   };
   const reportExpected = signal.tags?.[REPORT_EXPECTED_FAILURE_TAG] === "true";
+  const lateExecutionFailure =
+    signal.surface === "server" &&
+    reportExpected &&
+    signal.tags?.component === "agent-execution-step" &&
+    (signal.tags.phase === "late-action-failure" ||
+      signal.tags.phase === "late-outcome-persistence");
   for (const rule of RULES) {
     if (reportExpected && EXPECTED_FAILURE_REASONS.has(rule.reason)) continue;
+    if (lateExecutionFailure && rule.reason === "validation") continue;
     if (rule.surfaces.includes(signal.surface) && rule.test(ctx)) {
       return { drop: true, reason: rule.reason };
     }

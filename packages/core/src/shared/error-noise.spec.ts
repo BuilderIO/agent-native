@@ -425,6 +425,41 @@ describe("classifyErrorNoise — explicit captures that name their origin", () =
     );
   });
 
+  it("only retains validation failures from marked late execution steps", () => {
+    const validation = {
+      surface: "server",
+      type: "ValidationError",
+      value: "bad",
+    } as const;
+    const tags = {
+      reportExpected: "true",
+      component: "agent-execution-step",
+      phase: "late-action-failure",
+    };
+    expect(reason({ ...validation, tags })).toBeNull();
+    expect(
+      reason({
+        ...validation,
+        tags: { ...tags, phase: "late-outcome-persistence" },
+      }),
+    ).toBeNull();
+    expect(reason({ ...validation, tags: { ...tags, phase: "on-time" } })).toBe(
+      "validation",
+    );
+    expect(
+      reason({
+        ...validation,
+        tags: { ...tags, component: "another-component" },
+      }),
+    ).toBe("validation");
+    expect(
+      reason({ ...validation, tags: { ...tags, reportExpected: "false" } }),
+    ).toBe("validation");
+    expect(reason({ ...validation, surface: "browser", tags })).toBe(
+      "validation",
+    );
+  });
+
   it("reports an access-control or 4xx failure only when the caller marks it", () => {
     const forbidden = {
       surface: "server",
