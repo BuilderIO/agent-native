@@ -1475,7 +1475,7 @@ describe("EmailList keyboard navigation interactions", () => {
 
   it("pages focus down with Space and back up with Shift+Space", () => {
     render(<Harness />);
-    const scroller = rows()[0].closest(".overflow-y-auto") as HTMLElement;
+    const scroller = rows()[0]?.closest(".overflow-y-auto") as HTMLElement;
     Object.defineProperty(scroller, "clientHeight", {
       configurable: true,
       value: 3 * 38,

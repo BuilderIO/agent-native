@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { MAIL_ACTION_KEYS } from "./ActionTooltip";
+
 const source = readFileSync("app/components/email/EmailThread.tsx", "utf8");
 
 describe("EmailThread read state action", () => {
@@ -24,7 +26,7 @@ describe("EmailThread trash shortcuts", () => {
     expect(source).toContain(
       '{ key: "#", shift: "either", handler: handleTrash }',
     );
-    expect(source).toContain('t("mail.actions.moveToTrash")} (D / #)');
+    expect(MAIL_ACTION_KEYS.trash).toEqual(["#"]);
   });
 
   it("shows importance feedback in Inbox and the Filtered review view", () => {

@@ -28,7 +28,7 @@ export const MAIL_ACTION_KEYS = {
 export function ActionTooltip({
   label,
   keys,
-  side,
+  side = "top",
   children,
 }: {
   label: string;
