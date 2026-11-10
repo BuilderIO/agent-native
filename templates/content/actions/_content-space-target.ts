@@ -146,10 +146,10 @@ export async function resolveContentSpaceTarget(args: {
   }
   if (spaceName) {
     let candidates = await listAuthorizedContentSpaces(args.db, args.userEmail);
-    let match = matchContentSpaceByName(candidates, spaceName);
     // An organization the caller just joined has no workspace until it is
-    // created, so a name the setup pass would give a new one runs it first.
-    if (match.status === "not_found" && args.provision !== false) {
+    // created, so a name the setup pass would give a new one runs it first,
+    // even when an existing workspace has that name too.
+    if (args.provision !== false) {
       const existing = new Set(candidates.map((candidate) => candidate.id));
       const missing = (await contentSpacesFromSetup(args.userEmail)).filter(
         (space) => !existing.has(space.id),
@@ -157,9 +157,9 @@ export async function resolveContentSpaceTarget(args: {
       if (matchContentSpaceByName(missing, spaceName).status !== "not_found") {
         await provisionContentSpaces(args.db, args.userEmail);
         candidates = await listAuthorizedContentSpaces(args.db, args.userEmail);
-        match = matchContentSpaceByName(candidates, spaceName);
       }
     }
+    const match = matchContentSpaceByName(candidates, spaceName);
     if (match.status !== "matched") {
       const available = candidates
         .map((candidate) => candidate.name)

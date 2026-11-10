@@ -398,16 +398,21 @@ function isExpansionReadPending(
 
 const NO_EXPANDED_FOLDERS: ReadonlySet<string> = new Set();
 
-// The folders each mounted sidebar draws open under a Files page it reads. A
-// reader that doesn't draw folders, such as a breadcrumb menu, asks for all of
-// these, so a reread asks for the same folders whichever reader mounted last.
+// The folders each mounted sidebar draws open under a Files page it reads. Every
+// reader asks for all of these, its own first, so a reread asks for the same
+// folders whichever reader mounted last, such as a breadcrumb menu or the
+// second of two sidebars.
 const openFoldersByPage = new WeakMap<
   QueryClient,
   Map<string, Set<{ folders: ReadonlySet<string> }>>
 >();
 
-function openFoldersOnPage(queryClient: QueryClient, pageKey: string) {
-  const open = new Set<string>();
+function openFoldersOnPage(
+  queryClient: QueryClient,
+  pageKey: string,
+  expanded: ReadonlySet<string>,
+) {
+  const open = new Set(expanded);
   for (const { folders } of openFoldersByPage.get(queryClient)?.get(pageKey) ??
     [])
     for (const folder of folders) open.add(folder);
@@ -453,9 +458,12 @@ export function useFilesNavigationPage(
     queryKey,
     queryFn: ({ signal }) => {
       rootReadExpansion.current = expansionKey;
-      const open =
-        expanded.size > 0 ? expanded : openFoldersOnPage(queryClient, pageKey);
-      return readFilesNavigationPage(queryClient, params, open, signal);
+      return readFilesNavigationPage(
+        queryClient,
+        params,
+        openFoldersOnPage(queryClient, pageKey, expanded),
+        signal,
+      );
     },
     retry: false,
     enabled,

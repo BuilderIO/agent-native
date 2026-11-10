@@ -94,6 +94,35 @@ describe("readers of one Files page", () => {
     );
   });
 
+  it("ask for every sidebar's open folders when two are mounted", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <SidebarReader />
+          <SidebarReader folders={OTHER_OPEN_FOLDERS} />
+        </QueryClientProvider>,
+      );
+    });
+    callActionWithRetry.mockClear();
+
+    await act(async () => {
+      await queryClient.refetchQueries({
+        queryKey: filesNavigationQueryKey(ROOT),
+        exact: true,
+      });
+    });
+
+    expect(callActionWithRetry).toHaveBeenCalledWith(
+      "query-content-database-items",
+      expect.objectContaining({
+        navigation: expect.objectContaining({
+          expand: expect.arrayContaining(["folder", "other-folder"]),
+        }),
+      }),
+      expect.anything(),
+    );
+  });
+
   it("keep a sidebar's open folders after another sidebar unmounts", async () => {
     const render = (withOther: boolean) =>
       root.render(

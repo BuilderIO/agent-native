@@ -232,6 +232,36 @@ describe("creating in a workspace", () => {
     expect(provisionContentSpaces).toHaveBeenCalledTimes(1);
   });
 
+  it("finds a new organization that shares a name with an existing workspace", async () => {
+    const user = "shared-name@example.com";
+    const join = async (orgId: string) => {
+      await getDbExec().execute({
+        sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
+        args: [orgId, "Shared name", user, Date.now()],
+      });
+      await getDbExec().execute({
+        sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
+        args: [`member-${orgId}`, orgId, user, "member", Date.now()],
+      });
+    };
+    await join("org-shared-name-old");
+    await as(user, () => ensureContentSpacesAction.run({}));
+    await join("org-shared-name-new");
+    provisionContentSpaces.mockClear();
+
+    await expect(
+      as(user, () =>
+        createDocumentAction.run(
+          pageInput({
+            title: "Which one",
+            spaceName: "Shared name",
+          }),
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "SPACE_NAME_AMBIGUOUS" });
+    expect(provisionContentSpaces).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses an unknown workspace name without the setup pass", async () => {
     const user = "unknown-name@example.com";
     await as(user, () => ensureContentSpacesAction.run({}));
