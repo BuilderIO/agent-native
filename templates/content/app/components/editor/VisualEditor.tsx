@@ -2718,11 +2718,15 @@ export async function runImageUpload(
       releaseImageUploadPreview(uploadId);
       return { status: "failed", error };
     }
+    if (isBlocked?.()) {
+      // The editor stopped taking images, such as by starting to suggest:
+      // the block goes back as it was, with nothing to retry or report.
+      releaseImageUploadPreview(uploadId);
+      restorePendingImagePicker(view, request, uploadId);
+      return { status: "stopped" };
+    }
     const failedId = failedImageUploadId(uploadId);
-    // An editor that can't take the image now, such as while suggesting,
-    // gets its block back as it was rather than a failed block to retry.
     const kept =
-      !isBlocked?.() &&
       hasImageUploadPreview(uploadId) &&
       commitPendingImageUpload(view, request, uploadId, {
         src: request.attrs.src ?? null,

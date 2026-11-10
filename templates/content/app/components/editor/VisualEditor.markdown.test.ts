@@ -4367,7 +4367,7 @@ describe("image upload previews", () => {
           outcome = await done;
         });
 
-        expect(outcome?.status).toBe("failed");
+        expect(outcome?.status).toBe("stopped");
         expect(images(editor)[0]?.attrs).toMatchObject({
           src: oldSrc,
           uploadId: null,
