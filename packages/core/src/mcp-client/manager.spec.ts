@@ -406,7 +406,7 @@ describe("McpClientManager", () => {
     await mgr.stop();
   });
 
-  it("replays a bounded POST body across same-origin redirects", async () => {
+  it("replays an SDK-style POST body across same-origin redirects", async () => {
     const origin = "https://93.184.216.34";
     const received: Array<{ url: string; body: string; auth: string | null }> =
       [];
@@ -426,12 +426,12 @@ describe("McpClientManager", () => {
     }) as typeof fetch;
 
     const response = await fetchMcpOriginBound(
-      new Request(`${origin}/mcp`, {
+      `${origin}/mcp`,
+      {
         method: "POST",
         headers: { Authorization: "Bearer fake-token" },
         body: '{"method":"tools/list"}',
-      }),
-      undefined,
+      },
       origin,
     );
     expect(await response.text()).toBe("ok");
@@ -473,21 +473,90 @@ describe("McpClientManager", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects an oversized replay body before making a request", async () => {
+  it("sends normal MCP payloads larger than 8 MiB", async () => {
     const origin = "https://93.184.216.34";
+    const payload = "x".repeat(8 * 1024 * 1024 + 1);
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(init?.body).toBe(payload);
+        return new Response(null, { status: 204 });
+      },
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
     await expect(
       fetchMcpOriginBound(
-        new Request(`${origin}/mcp`, {
+        `${origin}/mcp`,
+        {
           method: "POST",
-          body: new Uint8Array(8 * 1024 * 1024 + 1).buffer,
-        }),
-        undefined,
+          body: payload,
+        },
         origin,
       ),
-    ).rejects.toThrow(
-      "MCP request body exceeds the 8 MiB redirect replay limit",
+    ).resolves.toMatchObject({ status: 204 });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it.each([307, 308])(
+    "streams Request bodies and refuses to replay them after a %s",
+    async (status) => {
+      const origin = "https://93.184.216.34";
+      const received: string[] = [];
+      const fetchMock = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          received.push(await new Request(input, init).text());
+          return new Response(null, {
+            status,
+            headers: { location: `${origin}/next` },
+          });
+        },
+      );
+      globalThis.fetch = fetchMock as typeof fetch;
+
+      await expect(
+        fetchMcpOriginBound(
+          new Request(`${origin}/mcp`, {
+            method: "POST",
+            body: "one-shot body",
+          }),
+          undefined,
+          origin,
+        ),
+      ).rejects.toThrow(/one-shot streamed request body/);
+      expect(received).toEqual(["one-shot body"]);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("sends a ReadableStream body without buffering it first", async () => {
+    const origin = "https://93.184.216.34";
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("streamed body"));
+        controller.close();
+      },
+    });
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(init?.body).toBeInstanceOf(ReadableStream);
+        expect(await new Request(input, init).text()).toBe("streamed body");
+        return new Response(null, { status: 204 });
+      },
     );
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(
+      fetchMcpOriginBound(
+        `${origin}/mcp`,
+        {
+          method: "POST",
+          body: stream,
+          duplex: "half",
+        } as RequestInit,
+        origin,
+      ),
+    ).resolves.toMatchObject({ status: 204 });
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("refreshes a saved OAuth request on its configured origin", async () => {
@@ -512,16 +581,75 @@ describe("McpClientManager", () => {
 
     const response = (await transport.fetchImpl!(origin + "/mcp", {
       headers: transport.requestInit?.headers,
+      method: "POST",
+      body: '{"method":"tools/list"}',
     })) as Response;
 
     expect(response.status).toBe(204);
     expect(refresh).toHaveBeenCalledOnce();
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     expect(
+      vi.mocked(globalThis.fetch).mock.calls.map(([, init]) => init?.body),
+    ).toEqual(['{"method":"tools/list"}', '{"method":"tools/list"}']);
+    expect(
       new Headers(vi.mocked(globalThis.fetch).mock.calls[1]?.[1]?.headers).get(
         "authorization",
       ),
     ).toBe("Bearer new-fake-token");
+    await mgr.stop();
+  });
+
+  it("retries a Request body after OAuth refresh without consuming the retry branch first", async () => {
+    const origin = "https://93.184.216.34";
+    const refresh = vi.fn().mockResolvedValue("new-fake-token");
+    const mgr = new McpClientManager({
+      servers: {
+        oauth: {
+          type: "http",
+          url: `${origin}/mcp`,
+          headers: { Authorization: "Bearer old-fake-token" },
+          oauthAccessRefresh: { identity: "grant-1", refresh },
+        },
+      },
+    });
+    await mgr.start();
+    const transport = fakeClients[0]!.getTransport() as FakeHttp;
+    const received: Array<{ body: string; authorization: string | null }> = [];
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const request = new Request(input, init);
+      received.push({
+        body: await request.text(),
+        authorization: request.headers.get("authorization"),
+      });
+      return new Response(null, { status: received.length === 1 ? 401 : 204 });
+    }) as typeof fetch;
+
+    const response = (await transport.fetchImpl!(
+      new Request(`${origin}/mcp`, {
+        method: "POST",
+        headers: { Authorization: "Bearer old-fake-token" },
+        body: "request body",
+      }),
+    )) as Response;
+
+    expect(response.status).toBe(204);
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(received).toEqual([
+      { body: "request body", authorization: "Bearer old-fake-token" },
+      { body: "request body", authorization: "Bearer new-fake-token" },
+    ]);
+
+    globalThis.fetch = vi.fn(
+      async () => new Response(null, { status: 204 }),
+    ) as typeof fetch;
+    await expect(
+      transport.fetchImpl!(
+        new Request(`${origin}/mcp`, {
+          method: "POST",
+          body: "unread request body",
+        }),
+      ),
+    ).resolves.toMatchObject({ status: 204 });
     await mgr.stop();
   });
 

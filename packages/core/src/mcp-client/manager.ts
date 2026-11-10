@@ -27,47 +27,26 @@ import {
 
 export const MCP_TOOL_PREFIX = "mcp__";
 
-const MAX_MCP_REQUEST_BODY_BYTES = 8 * 1024 * 1024;
+function replayableMcpBody(
+  body: BodyInit | null | undefined,
+): BodyInit | undefined {
+  if (
+    typeof body === "string" ||
+    body instanceof URLSearchParams ||
+    body instanceof Blob ||
+    body instanceof ArrayBuffer ||
+    ArrayBuffer.isView(body)
+  ) {
+    return body;
+  }
+  return undefined;
+}
 
-async function replayableMcpBody(
+function preparedMcpBody(
   request: Request,
-  origin: string,
-): Promise<Uint8Array<ArrayBuffer> | undefined> {
-  if (new URL(request.url).origin !== origin) {
-    throw new Error("MCP destination changed origin");
-  }
-  if (!request.body) return undefined;
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    for (
-      let chunk = await reader.read();
-      !chunk.done;
-      chunk = await reader.read()
-    ) {
-      const { value } = chunk;
-      size += value.byteLength;
-      if (size > MAX_MCP_REQUEST_BODY_BYTES) {
-        throw new Error(
-          "MCP request body exceeds the 8 MiB redirect replay limit",
-        );
-      }
-      chunks.push(value);
-    }
-  } catch (error) {
-    void reader.cancel().catch(() => {});
-    throw error;
-  } finally {
-    reader.releaseLock();
-  }
-  const body = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return body;
+  init?: RequestInit,
+): BodyInit | undefined {
+  return replayableMcpBody(init?.body) ?? request.body ?? undefined;
 }
 
 export async function fetchMcpOriginBound(
@@ -79,20 +58,31 @@ export async function fetchMcpOriginBound(
   return fetchPreparedMcpRequest(
     request,
     origin,
-    await replayableMcpBody(request, origin),
+    preparedMcpBody(request, init),
   );
 }
 
 function fetchPreparedMcpRequest(
   request: Request,
   origin: string,
-  body: Uint8Array<ArrayBuffer> | undefined,
+  body: BodyInit | undefined,
 ): Promise<Response> {
-  const requestOptions: RequestInit = {
+  if (new URL(request.url).origin !== origin) {
+    throw new Error("MCP destination changed origin");
+  }
+  const requestOptions: RequestInit & { duplex?: "half" } = {
     method: request.method,
     headers: request.headers,
-    ...(body ? { body: body.buffer } : {}),
+    ...(body !== undefined ? { body } : {}),
+    ...(body instanceof ReadableStream ? { duplex: "half" } : {}),
     signal: request.signal,
+    cache: request.cache,
+    credentials: request.credentials,
+    integrity: request.integrity,
+    keepalive: request.keepalive,
+    mode: request.mode,
+    referrer: request.referrer,
+    referrerPolicy: request.referrerPolicy,
   };
   const parsedOrigin = new URL(origin);
   const localRuntime = isLocalMcpRuntime();
@@ -619,14 +609,29 @@ export class McpClientManager {
             request.headers.set("Authorization", refreshedAuthorization);
           }
           const origin = new URL(cfg.url).origin;
-          const body = await replayableMcpBody(request, origin);
-          const response = await fetchPreparedMcpRequest(request, origin, body);
-          if (response.status !== 401) return response;
+          const retryRequest =
+            input instanceof Request && init?.body === undefined && request.body
+              ? request.clone()
+              : undefined;
+          const body = preparedMcpBody(request, init);
+          let response: Response;
+          try {
+            response = await fetchPreparedMcpRequest(request, origin, body);
+          } catch (error) {
+            void retryRequest?.body?.cancel().catch(() => {});
+            throw error;
+          }
+          if (response.status !== 401) {
+            void retryRequest?.body?.cancel().catch(() => {});
+            return response;
+          }
+          if (body instanceof ReadableStream && !retryRequest) return response;
 
           let accessToken: string | null;
           try {
             accessToken = await refreshAccessToken();
           } catch {
+            void retryRequest?.body?.cancel().catch(() => {});
             if (this.debug) {
               console.warn(
                 `[mcp-client] OAuth refresh failed for ${entry.id}; preserving 401`,
@@ -638,13 +643,19 @@ export class McpClientManager {
             !accessToken ||
             request.headers.get("authorization") === `Bearer ${accessToken}`
           ) {
+            void retryRequest?.body?.cancel().catch(() => {});
             return response;
           }
 
           await response.body?.cancel();
           refreshedAuthorization = `Bearer ${accessToken}`;
           request.headers.set("Authorization", refreshedAuthorization);
-          return fetchPreparedMcpRequest(request, origin, body);
+          const retryBody = retryRequest?.body ?? body;
+          return fetchPreparedMcpRequest(
+            request,
+            origin,
+            retryBody ?? undefined,
+          );
         };
       }
       transport = new sdk.StreamableHTTPClientTransport(

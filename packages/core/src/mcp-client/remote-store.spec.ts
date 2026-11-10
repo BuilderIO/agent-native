@@ -51,8 +51,8 @@ import {
   replaceOAuthRemoteServer,
   toHttpServerConfig,
   toHttpServerConfigAsync,
-  validateRemoteUrl,
 } from "./remote-store.js";
+import { validateRemoteUrl } from "./remote-url.js";
 
 const fetchOrgAppsMock = vi.hoisted(() => vi.fn());
 
