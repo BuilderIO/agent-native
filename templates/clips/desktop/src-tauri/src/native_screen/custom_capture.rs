@@ -14,11 +14,12 @@ const CAPTURE_VIDEO_BPP: f64 = 0.15;
 // when the screen changes, so a still screen never gets there.
 const FIRST_FRAGMENT_CLOSING_FRAMES: u64 = 2;
 // How long the writer gets to emit that fragment after accepting its closing
-// frame before startup counts it as stuck (about 50 ms on an M4).
+// frame before startup or the watchdog counts it as stuck (about 50 ms on an M4).
 const FIRST_FRAGMENT_LATENCY: Duration = Duration::from_millis(500);
 // A backed-up writer drops frames and may never accept a closing one, so being
-// offered this many frames past the boundary also counts as stuck: half a
-// second of frames at NATIVE_CAPTURE_FPS on top of the closing ones.
+// offered this many frames past the boundary without accepting one also counts
+// as stuck: half a second of frames at NATIVE_CAPTURE_FPS on top of the closing
+// ones.
 const FIRST_FRAGMENT_STUCK_OFFERED_FRAMES: u64 =
     FIRST_FRAGMENT_CLOSING_FRAMES + NATIVE_CAPTURE_FPS as u64 / 2;
 
@@ -3726,7 +3727,8 @@ fn await_segmented_capture_readiness(
         && first_fragment_awaits_screen_changes(frames_past_first_segment, closing_frame_age)
     {
         crate::logfile::diagnostic(&format!(
-            "[capture-health] segmented capture ready before its first media fragment: the writer has no closing frame yet ({frames_past_first_segment} video frame(s) offered after the first segment boundary; screen={screen}, usable_screen={usable_screen}); the fragment follows when the screen changes or the capture stops"
+            "[capture-health] segmented capture ready before its first media fragment ({frames_past_first_segment} video frame(s) offered after the first segment boundary, closing frame {}; screen={screen}, usable_screen={usable_screen}); the fragment follows when the screen changes or the capture stops, and the watchdog checks it until then",
+            describe_closing_frame(closing_frame_age)
         ));
         writer.await_first_fragment_after_startup();
         return Ok(());
@@ -3748,15 +3750,18 @@ fn await_segmented_capture_readiness(
     ))
 }
 
-// The fragment is overdue once the writer has held its closing frame for the
-// latency window, or was offered so many frames that a backed-up writer must have
-// dropped it. Anything less means the screen hasn't changed enough yet.
+// Once the writer has accepted its closing frame, it gets the latency window to
+// emit the fragment, however many frames it dropped before. Until then, being
+// offered so many frames means a backed-up writer is dropping them. Anything less
+// means the screen hasn't changed enough yet.
 fn first_fragment_awaits_screen_changes(
     video_frames_past_first_segment: u64,
     closing_frame_age: Option<Duration>,
 ) -> bool {
-    video_frames_past_first_segment < FIRST_FRAGMENT_STUCK_OFFERED_FRAMES
-        && closing_frame_age.is_none_or(|age| age < FIRST_FRAGMENT_LATENCY)
+    match closing_frame_age {
+        Some(age) => age < FIRST_FRAGMENT_LATENCY,
+        None => video_frames_past_first_segment < FIRST_FRAGMENT_STUCK_OFFERED_FRAMES,
+    }
 }
 
 fn describe_closing_frame(closing_frame_age: Option<Duration>) -> String {
@@ -4449,6 +4454,19 @@ mod fragment_fence_tests {
             2,
             Some(CAPTURE_FIRST_FRAGMENT_TIMEOUT)
         ));
+    }
+
+    #[test]
+    fn writer_that_caught_up_keeps_its_latency_window() {
+        // A writer that dropped frames while busy and then accepted its closing
+        // ones still gets the full window, however many it was offered.
+        let stuck = FIRST_FRAGMENT_STUCK_OFFERED_FRAMES;
+        let latency = FIRST_FRAGMENT_LATENCY;
+        let just_closed = Some(Duration::ZERO);
+        assert!(first_fragment_awaits_screen_changes(stuck, just_closed));
+        let in_window = Some(latency - Duration::from_millis(1));
+        assert!(first_fragment_awaits_screen_changes(2 * stuck, in_window));
+        assert!(!first_fragment_awaits_screen_changes(stuck, Some(latency)));
     }
 
     #[test]
