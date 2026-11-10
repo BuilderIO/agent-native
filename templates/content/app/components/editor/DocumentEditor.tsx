@@ -2716,19 +2716,20 @@ export function documentEditorShowsInlineComments(args: {
 /**
  * Whether the margin still shows a thread AI just resolved. Its Resolved by
  * AI mark holds the margin open until it fades, even when AI resolved the
- * page's last open thread.
+ * page's last open thread. Only the open tab's threads count: another tab's
+ * mark isn't on screen to fade, so it would hold an empty margin.
  */
 export function documentEditorHasFreshAiResolution(
   threads: readonly CommentThread[] | null | undefined,
+  openFieldId: string | null,
   freshResolutions: ReadonlyMap<string, unknown>,
 ) {
-  return (
-    threads?.some(
-      (thread) =>
-        thread.resolved &&
-        freshResolutions.has(thread.threadId) &&
-        !isPageCommentThread(thread),
-    ) ?? false
+  if (!threads || freshResolutions.size === 0) return false;
+  return commentRailThreads(threads, openFieldId).some(
+    (thread) =>
+      thread.resolved &&
+      freshResolutions.has(thread.threadId) &&
+      !isPageCommentThread(thread),
   );
 }
 
@@ -8760,18 +8761,6 @@ function PageEditorSessionBody({
           thread.threadId === selectedThreadId && !isPageCommentThread(thread),
       ) ??
         false));
-  const showInlineComments = documentEditorShowsInlineComments({
-    showIndicators: showCommentIndicators,
-    hasUtilityRailSpace: hasInlineCommentSpace,
-    commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
-    utilityPanel,
-    hasOpenCommentThreads:
-      hasOpenCommentThreads ||
-      hasOpenSuggestions ||
-      documentEditorHasFreshAiResolution(threads, commentAi.freshResolutions),
-    hasSelectedCommentThread,
-    hasPendingComment: !!pendingComment,
-  });
   // A failed read says nothing about whether the page still has open review,
   // so the remembered margin holds until both reads answer.
   const reviewReadsSettled = documentEditorReviewReadsSettled({
@@ -8786,23 +8775,6 @@ function PageEditorSessionBody({
   const pageHadOpenReview = useMemo(
     () => host === "page" && readPageShapeHint(documentId) === "review",
     [documentId, host],
-  );
-  const reserveInlineReviewSpace = documentEditorReservesInlineReviewSpace({
-    showInlineComments,
-    preserveInlineReviewSpace:
-      preserveInlineReviewSpace || (pageHadOpenReview && !reviewReadsSettled),
-    hasInlineCommentSpace,
-    isDatabasePage: Boolean(document.database),
-  });
-  const scrollContentRef = useRef<HTMLDivElement>(null);
-  const pageColumnRef = useRef<HTMLDivElement>(null);
-  useReviewMarginSlide(
-    {
-      scroller: scrollContainerRef,
-      content: scrollContentRef,
-      column: pageColumnRef,
-    },
-    reserveInlineReviewSpace,
   );
   const hasOpenReview = hasOpenCommentThreads || hasOpenSuggestions;
   useEffect(() => {
@@ -8981,6 +8953,39 @@ function PageEditorSessionBody({
   const clipRailThreads = useMemo(
     () => commentRailThreads(clipThreads, blockFieldComments.openFieldId),
     [blockFieldComments.openFieldId, clipThreads],
+  );
+  const showInlineComments = documentEditorShowsInlineComments({
+    showIndicators: showCommentIndicators,
+    hasUtilityRailSpace: hasInlineCommentSpace,
+    commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
+    utilityPanel,
+    hasOpenCommentThreads:
+      hasOpenCommentThreads ||
+      hasOpenSuggestions ||
+      documentEditorHasFreshAiResolution(
+        threads,
+        blockFieldComments.openFieldId,
+        commentAi.freshResolutions,
+      ),
+    hasSelectedCommentThread,
+    hasPendingComment: !!pendingComment,
+  });
+  const reserveInlineReviewSpace = documentEditorReservesInlineReviewSpace({
+    showInlineComments,
+    preserveInlineReviewSpace:
+      preserveInlineReviewSpace || (pageHadOpenReview && !reviewReadsSettled),
+    hasInlineCommentSpace,
+    isDatabasePage: Boolean(document.database),
+  });
+  const scrollContentRef = useRef<HTMLDivElement>(null);
+  const pageColumnRef = useRef<HTMLDivElement>(null);
+  useReviewMarginSlide(
+    {
+      scroller: scrollContainerRef,
+      content: scrollContentRef,
+      column: pageColumnRef,
+    },
+    reserveInlineReviewSpace,
   );
   const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
   const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;

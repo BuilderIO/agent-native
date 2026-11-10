@@ -1377,14 +1377,42 @@ describe("document editor layout", () => {
       ["quoted", {}],
       ["page", {}],
     ]);
-    expect(documentEditorHasFreshAiResolution([resolved], fresh)).toBe(true);
+    expect(documentEditorHasFreshAiResolution([resolved], null, fresh)).toBe(
+      true,
+    );
     // Once its Resolved by AI mark fades, it no longer holds the margin.
-    expect(documentEditorHasFreshAiResolution([resolved], new Map())).toBe(
+    expect(
+      documentEditorHasFreshAiResolution([resolved], null, new Map()),
+    ).toBe(false);
+    // A comment on the whole page lives in Discussion, not the margin.
+    expect(documentEditorHasFreshAiResolution([onPage], null, fresh)).toBe(
       false,
     );
-    // A comment on the whole page lives in Discussion, not the margin.
-    expect(documentEditorHasFreshAiResolution([onPage], fresh)).toBe(false);
-    expect(documentEditorHasFreshAiResolution(undefined, fresh)).toBe(false);
+    expect(documentEditorHasFreshAiResolution(undefined, null, fresh)).toBe(
+      false,
+    );
+  });
+
+  it("holds the margin only for a thread AI just resolved in the open tab", () => {
+    const inNotes = {
+      threadId: "notes",
+      resolved: true,
+      quotedText: "soft labels",
+      field: { fieldId: "notes-field", fieldName: "Notes" },
+    } as CommentThread;
+    const inBody = {
+      threadId: "body",
+      resolved: true,
+      quotedText: "soft labels",
+    } as CommentThread;
+    const fresh = new Map([["body", {}]]);
+    const threads = [inNotes, inBody];
+    expect(documentEditorHasFreshAiResolution(threads, null, fresh)).toBe(true);
+    // In another tab its mark isn't on screen to fade, so it would hold an
+    // empty margin until the body's tab came back.
+    expect(
+      documentEditorHasFreshAiResolution(threads, "notes-field", fresh),
+    ).toBe(false);
   });
 
   it("keeps history activation in browse mode instead of replacing the desktop list", () => {

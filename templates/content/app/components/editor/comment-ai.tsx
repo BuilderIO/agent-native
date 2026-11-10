@@ -19,6 +19,7 @@ import { IconCircleCheck } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import {
   type FocusEvent,
+  type PointerEvent,
   type RefObject,
   useCallback,
   useEffect,
@@ -339,6 +340,13 @@ export function useLeftAloneCountdown({
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState<Element | null>(null);
   const [fading, setFading] = useState(false);
+  // Where the element's events last put the pointer and keyboard focus,
+  // tracked while the count is off too: a menu it opened in a portal sits
+  // outside it on the page, so only its events can say presence is there.
+  const presence = useRef<{ pointer: Element | null; focus: Element | null }>({
+    pointer: null,
+    focus: null,
+  });
   const onGoneRef = useRef(onGone);
   useEffect(() => {
     onGoneRef.current = onGone;
@@ -348,18 +356,34 @@ export function useLeftAloneCountdown({
   useLayoutEffect(() => {
     const element = ref.current;
     if (!enabled || !element) return;
-    setHovered(element.matches(":hover"));
+    const { pointer, focus } = presence.current;
+    setHovered(
+      element.matches(":hover") ||
+        Boolean(pointer?.isConnected && pointer.matches(":hover")),
+    );
     const active = document.activeElement;
     setFocused(
-      active && element.contains(active) && isKeyboardFocus(active)
+      active &&
+        isKeyboardFocus(active) &&
+        (element.contains(active) || active === focus)
         ? active
         : null,
     );
     setFading(false);
   }, [enabled, ref]);
+  // Focus that leaves with its element sends no blur, so watch for the
+  // element going, and start the count over when it does.
   useEffect(() => {
-    // Focus that leaves with its element sends no blur, so it holds only
-    // while that element is still on the page.
+    if (!enabled || !focused) return;
+    const release = () => {
+      if (!focused.isConnected) setFocused(null);
+    };
+    const observer = new MutationObserver(release);
+    observer.observe(document.body, { childList: true, subtree: true });
+    release();
+    return () => observer.disconnect();
+  }, [enabled, focused]);
+  useEffect(() => {
     if (!enabled || hovered || focused?.isConnected) return;
     let fadeTimer: ReturnType<typeof setTimeout> | undefined;
     const holdTimer = setTimeout(() => {
@@ -377,21 +401,32 @@ export function useLeftAloneCountdown({
   }, [enabled, hovered, focused, holdMs, fadeMs]);
   return {
     fading: enabled && fading && !hovered && focused === null,
-    handlers: enabled
-      ? {
-          onPointerEnter: () => {
-            setHovered(true);
-            setFading(false);
-          },
-          onPointerLeave: () => setHovered(false),
-          onFocus: (event: FocusEvent<HTMLElement>) => {
-            if (!isKeyboardFocus(event.target)) return;
-            setFocused(event.target);
-            setFading(false);
-          },
-          onBlur: () => setFocused(null),
-        }
-      : {},
+    handlers: {
+      onPointerOver: (event: PointerEvent<HTMLElement>) => {
+        if (event.target instanceof Element)
+          presence.current.pointer = event.target;
+      },
+      onPointerEnter: () => {
+        if (!enabled) return;
+        setHovered(true);
+        setFading(false);
+      },
+      onPointerLeave: () => {
+        presence.current.pointer = null;
+        if (enabled) setHovered(false);
+      },
+      onFocus: (event: FocusEvent<HTMLElement>) => {
+        if (!isKeyboardFocus(event.target)) return;
+        presence.current.focus = event.target;
+        if (!enabled) return;
+        setFocused(event.target);
+        setFading(false);
+      },
+      onBlur: () => {
+        presence.current.focus = null;
+        if (enabled) setFocused(null);
+      },
+    },
   };
 }
 
