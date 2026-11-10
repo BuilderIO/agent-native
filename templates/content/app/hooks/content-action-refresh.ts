@@ -205,7 +205,7 @@ const CONTENT_MUTATIONS = new Set([
   ...DOCUMENT_MUTATIONS,
 ]);
 
-const SUGGESTION_MUTATIONS = new Set([
+export const SUGGESTION_MUTATIONS = new Set([
   "create-resource-suggestion",
   "create-resource-suggestion-proposal",
   "suggest-document-edit",

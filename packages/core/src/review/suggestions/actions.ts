@@ -200,6 +200,30 @@ async function supersedeSuggestions(
   }
 }
 
+// So a suggestion's change event reaches everyone who can read the resource,
+// not only the actor: their open page shows it without a reload.
+function suggestionChangeResource(
+  suggestion: ResourceSuggestion | null | undefined,
+) {
+  return suggestion
+    ? {
+        resourceType: suggestion.resourceType,
+        resourceId: suggestion.resourceId,
+      }
+    : null;
+}
+
+// A failed call reaches changeResource with no result, whatever its type says.
+function decisionChangeResource(
+  result:
+    | { suggestion?: ResourceSuggestion; suggestions?: ResourceSuggestion[] }
+    | undefined,
+) {
+  return suggestionChangeResource(
+    result?.suggestion ?? result?.suggestions?.[0],
+  );
+}
+
 export const createResourceSuggestion = defineAction({
   description:
     "Create a typed pending suggestion without changing the canonical resource. Pass supersedes to replace your own earlier pending suggestions on the same resource in the same step.",
@@ -233,6 +257,10 @@ export const createResourceSuggestion = defineAction({
     openWorldHint: true,
     idempotentHint: true,
   },
+  changeResource: ({ resourceType, resourceId }) => ({
+    resourceType,
+    resourceId,
+  }),
   run: async (args, ctx) => {
     const access = await assertReviewableResourceAccess(
       args.resourceType,
@@ -503,6 +531,7 @@ export const updateResourceSuggestion = defineAction({
       };
     },
   },
+  changeResource: (_input, result) => suggestionChangeResource(result),
 });
 
 export const listResourceSuggestions = defineAction({
@@ -768,6 +797,7 @@ export const decideResourceSuggestion = defineAction({
         : undefined;
     },
   },
+  changeResource: (_input, result) => decisionChangeResource(result),
 });
 
 const proposalCreationSchema = z.object({
@@ -849,6 +879,10 @@ export const createResourceSuggestionProposal = defineAction({
     openWorldHint: true,
     idempotentHint: true,
   },
+  changeResource: ({ resourceType, resourceId }) => ({
+    resourceType,
+    resourceId,
+  }),
   run: async (args, ctx) => {
     await assertReviewableResourceAccess(
       args.resourceType,
@@ -1350,4 +1384,5 @@ export const decideResourceSuggestionProposal = defineAction({
         : undefined;
     },
   },
+  changeResource: (_input, result) => decisionChangeResource(result),
 });
