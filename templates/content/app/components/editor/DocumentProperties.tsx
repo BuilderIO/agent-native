@@ -175,6 +175,7 @@ import {
   type DatabaseRowView,
   databaseRowPropertyLayout,
 } from "./database/row-view-layout";
+import { databaseSortDirectionLabel } from "./database/sort-direction";
 import type { DatabaseFilter, DatabaseSort } from "./database/types";
 import { EmojiPicker } from "./EmojiPicker";
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
@@ -1952,7 +1953,11 @@ export function PropertyManagementPopover({
                     }}
                   >
                     <span className="min-w-0 flex-1">
-                      {t("database.sortAscending")}
+                      {databaseSortDirectionLabel(
+                        "asc",
+                        columnKey,
+                        property.definition.type,
+                      )}
                     </span>
                     {columnSort?.direction === "asc" ? (
                       <IconCheck className="size-4 text-muted-foreground" />
@@ -1972,7 +1977,11 @@ export function PropertyManagementPopover({
                     }}
                   >
                     <span className="min-w-0 flex-1">
-                      {t("database.sortDescending")}
+                      {databaseSortDirectionLabel(
+                        "desc",
+                        columnKey,
+                        property.definition.type,
+                      )}
                     </span>
                     {columnSort?.direction === "desc" ? (
                       <IconCheck className="size-4 text-muted-foreground" />

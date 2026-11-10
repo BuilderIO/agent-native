@@ -166,6 +166,9 @@ beforeAll(async () => {
       )
     `),
   );
+  await execute(
+    "ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_revisions TEXT NOT NULL DEFAULT '{}'",
+  );
   await deleteCollabState("source-batch-table-init");
 });
 
