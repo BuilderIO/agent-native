@@ -398,13 +398,21 @@ function isExpansionReadPending(
 
 const NO_EXPANDED_FOLDERS: ReadonlySet<string> = new Set();
 
-// The folders the sidebar draws open under each Files page it reads. A reader
-// that doesn't draw folders, such as a breadcrumb menu, asks for these too, so
-// a reread asks for the same folders whichever reader mounted last.
+// The folders each mounted sidebar draws open under a Files page it reads. A
+// reader that doesn't draw folders, such as a breadcrumb menu, asks for all of
+// these, so a reread asks for the same folders whichever reader mounted last.
 const openFoldersByPage = new WeakMap<
   QueryClient,
-  Map<string, ReadonlySet<string>>
+  Map<string, Set<{ folders: ReadonlySet<string> }>>
 >();
+
+function openFoldersOnPage(queryClient: QueryClient, pageKey: string) {
+  const open = new Set<string>();
+  for (const { folders } of openFoldersByPage.get(queryClient)?.get(pageKey) ??
+    [])
+    for (const folder of folders) open.add(folder);
+  return open;
+}
 
 export function useFilesNavigationPage(
   params: FilesNavigationPageParams,
@@ -428,9 +436,17 @@ export function useFilesNavigationPage(
       pages = new Map();
       openFoldersByPage.set(queryClient, pages);
     }
-    pages.set(pageKey, expanded);
+    let readers = pages.get(pageKey);
+    if (!readers) {
+      readers = new Set();
+      pages.set(pageKey, readers);
+    }
+    const reader = { folders: expanded };
+    readers.add(reader);
     return () => {
-      if (pages.get(pageKey) === expanded) pages.delete(pageKey);
+      readers.delete(reader);
+      if (readers.size === 0 && pages.get(pageKey) === readers)
+        pages.delete(pageKey);
     };
   }, [expanded, pageKey, queryClient]);
   const query = useQuery({
@@ -438,9 +454,7 @@ export function useFilesNavigationPage(
     queryFn: ({ signal }) => {
       rootReadExpansion.current = expansionKey;
       const open =
-        expanded.size > 0
-          ? expanded
-          : (openFoldersByPage.get(queryClient)?.get(pageKey) ?? expanded);
+        expanded.size > 0 ? expanded : openFoldersOnPage(queryClient, pageKey);
       return readFilesNavigationPage(queryClient, params, open, signal);
     },
     retry: false,

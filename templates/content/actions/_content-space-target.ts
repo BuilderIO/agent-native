@@ -66,14 +66,19 @@ export async function listAuthorizedContentSpaces(
   return rows as ContentSpaceNameCandidate[];
 }
 
-/** Whether the setup pass creates this workspace for the caller. */
-async function setupCreatesContentSpace(userEmail: string, spaceId: string) {
+/** The workspaces the setup pass creates for the caller, named as when new. */
+async function contentSpacesFromSetup(
+  userEmail: string,
+): Promise<ContentSpaceNameCandidate[]> {
   const email = normalizeContentSpaceEmail(userEmail);
-  if (spaceId === personalContentSpaceId(email)) return true;
   const memberships = await listContentOrganizationMemberships(email);
-  return memberships.some(
-    (membership) => organizationContentSpaceId(membership.orgId) === spaceId,
-  );
+  return [
+    { id: personalContentSpaceId(email), name: "Personal" },
+    ...memberships.map((membership) => ({
+      id: organizationContentSpaceId(membership.orgId),
+      name: membership.name,
+    })),
+  ];
 }
 
 /**
@@ -101,7 +106,9 @@ export async function resolveProvisionedContentSpaceAccess(args: {
       args.provision === false ||
       !(error instanceof ActionContractError) ||
       error.errorCode !== "SPACE_NOT_FOUND" ||
-      !(await setupCreatesContentSpace(args.userEmail, args.spaceId))
+      !(await contentSpacesFromSetup(args.userEmail)).some(
+        (space) => space.id === args.spaceId,
+      )
     ) {
       throw error;
     }
@@ -141,11 +148,17 @@ export async function resolveContentSpaceTarget(args: {
     let candidates = await listAuthorizedContentSpaces(args.db, args.userEmail);
     let match = matchContentSpaceByName(candidates, spaceName);
     // An organization the caller just joined has no workspace until it is
-    // created.
+    // created, so a name the setup pass would give a new one runs it first.
     if (match.status === "not_found" && args.provision !== false) {
-      await provisionContentSpaces(args.db, args.userEmail);
-      candidates = await listAuthorizedContentSpaces(args.db, args.userEmail);
-      match = matchContentSpaceByName(candidates, spaceName);
+      const existing = new Set(candidates.map((candidate) => candidate.id));
+      const missing = (await contentSpacesFromSetup(args.userEmail)).filter(
+        (space) => !existing.has(space.id),
+      );
+      if (matchContentSpaceByName(missing, spaceName).status !== "not_found") {
+        await provisionContentSpaces(args.db, args.userEmail);
+        candidates = await listAuthorizedContentSpaces(args.db, args.userEmail);
+        match = matchContentSpaceByName(candidates, spaceName);
+      }
     }
     if (match.status !== "matched") {
       const available = candidates

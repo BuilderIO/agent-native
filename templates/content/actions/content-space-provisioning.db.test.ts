@@ -199,4 +199,54 @@ describe("creating in a workspace", () => {
     expect(page.spaceId).toBe(orgSpaceId);
     expect(provisionContentSpaces).toHaveBeenCalledTimes(1);
   });
+
+  it("sets up an organization the caller just joined when a page names it", async () => {
+    const user = "new-member-by-name@example.com";
+    await as(user, () => ensureContentSpacesAction.run({}));
+    await getDbExec().execute({
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
+      args: ["org-joined-by-name", "Joined by name", user, Date.now()],
+    });
+    await getDbExec().execute({
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
+      args: [
+        "member-joined-by-name",
+        "org-joined-by-name",
+        user,
+        "member",
+        Date.now(),
+      ],
+    });
+    provisionContentSpaces.mockClear();
+
+    const page = await as(user, () =>
+      createDocumentAction.run(
+        pageInput({
+          title: "In the organization named",
+          spaceName: "Joined by name",
+        }),
+      ),
+    );
+
+    expect(page.spaceId).toBe(organizationContentSpaceId("org-joined-by-name"));
+    expect(provisionContentSpaces).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses an unknown workspace name without the setup pass", async () => {
+    const user = "unknown-name@example.com";
+    await as(user, () => ensureContentSpacesAction.run({}));
+    provisionContentSpaces.mockClear();
+
+    await expect(
+      as(user, () =>
+        createDocumentAction.run(
+          pageInput({
+            title: "Nowhere",
+            spaceName: "No such workspace",
+          }),
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "SPACE_NAME_NOT_FOUND" });
+    expect(provisionContentSpaces).not.toHaveBeenCalled();
+  });
 });

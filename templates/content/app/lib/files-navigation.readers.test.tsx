@@ -21,6 +21,7 @@ import {
 const FILES = "files-db";
 const ROOT = filesNavigationPageParams({ databaseId: FILES, parentId: null });
 const OPEN_FOLDERS: ReadonlySet<string> = new Set(["folder"]);
+const OTHER_OPEN_FOLDERS: ReadonlySet<string> = new Set(["other-folder"]);
 
 function empty(): ContentDatabaseNavigationPageResponse {
   return {
@@ -29,8 +30,12 @@ function empty(): ContentDatabaseNavigationPageResponse {
   };
 }
 
-function SidebarReader() {
-  useFilesNavigationPage(ROOT, OPEN_FOLDERS);
+function SidebarReader({
+  folders = OPEN_FOLDERS,
+}: {
+  folders?: ReadonlySet<string>;
+}) {
+  useFilesNavigationPage(ROOT, folders);
   return null;
 }
 
@@ -71,6 +76,35 @@ describe("readers of one Files page", () => {
         </QueryClientProvider>,
       );
     });
+    callActionWithRetry.mockClear();
+
+    await act(async () => {
+      await queryClient.refetchQueries({
+        queryKey: filesNavigationQueryKey(ROOT),
+        exact: true,
+      });
+    });
+
+    expect(callActionWithRetry).toHaveBeenCalledWith(
+      "query-content-database-items",
+      expect.objectContaining({
+        navigation: expect.objectContaining({ expand: ["folder"] }),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("keep a sidebar's open folders after another sidebar unmounts", async () => {
+    const render = (withOther: boolean) =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <SidebarReader />
+          {withOther ? <SidebarReader folders={OTHER_OPEN_FOLDERS} /> : null}
+          <BreadcrumbReader />
+        </QueryClientProvider>,
+      );
+    await act(async () => render(true));
+    await act(async () => render(false));
     callActionWithRetry.mockClear();
 
     await act(async () => {
