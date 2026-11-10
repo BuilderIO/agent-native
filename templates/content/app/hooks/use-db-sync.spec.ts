@@ -657,7 +657,7 @@ describe("contentActionInvalidatePredicate", () => {
     ).toBe(true);
   });
 
-  it("refreshes only the active personal view and the Files tree it orders for personal presentation writes", () => {
+  it("refreshes only the active personal view, the Files tree it orders, and the open path for personal presentation writes", () => {
     const predicate = contentActionInvalidatePredicate("/page/database-page");
     const personalViewQuery = {
       queryKey: [
@@ -695,9 +695,64 @@ describe("contentActionInvalidatePredicate", () => {
     expect(
       predicate({ ...filesTreeQuery, isActive: () => false }, events),
     ).toBe(false);
+    const pathQuery = {
+      queryKey: [
+        "action",
+        "get-content-navigation-context",
+        { id: "other-page" },
+      ],
+      isActive: () => true,
+    };
+    expect(predicate(pathQuery, events)).toBe(true);
+    expect(predicate({ ...pathQuery, isActive: () => false }, events)).toBe(
+      false,
+    );
     expect(predicate(tableQuery, events)).toBe(false);
     expect(
       predicate(filesTreeQuery, [{ source: "action", key: "add-comment" }]),
+    ).toBe(false);
+  });
+
+  it.each([
+    "clone-creative-context-document",
+    "create-content-database",
+    "create-document",
+    "create-inline-content-database",
+    "delete-document",
+    "duplicate-page",
+    "import-content-source",
+    "move-document",
+    "restore-document",
+    "rollback-created-slash-document",
+    "set-resource-visibility",
+    "share-resource",
+    "sync-local-folder-source",
+    "undo-content-import",
+    "unshare-resource",
+    "update-content-database-view",
+  ])("refreshes the open path when %s runs elsewhere", (key) => {
+    const predicate = contentActionInvalidatePredicate("/page/page-1");
+    const pathQuery = {
+      queryKey: ["action", "get-content-navigation-context", { id: "page-1" }],
+      isActive: () => true,
+    };
+    const events = [{ source: "action", key }];
+
+    expect(predicate(pathQuery, events)).toBe(true);
+    expect(predicate({ ...pathQuery, isActive: () => false }, events)).toBe(
+      false,
+    );
+  });
+
+  it("leaves the open path alone for writes that can't change its arrows", () => {
+    const predicate = contentActionInvalidatePredicate("/page/page-1");
+    const pathQuery = {
+      queryKey: ["action", "get-content-navigation-context", { id: "page-1" }],
+      isActive: () => true,
+    };
+
+    expect(
+      predicate(pathQuery, [{ source: "action", key: "add-comment" }]),
     ).toBe(false);
   });
 

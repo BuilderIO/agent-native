@@ -402,6 +402,10 @@ import {
 } from "./row-open-target";
 import type { DatabaseRowView } from "./row-view-layout";
 import { scopedDatabaseRowTitleUpdateRequest } from "./scoped-row-write";
+import {
+  databaseSortDirectionLabel,
+  databaseSortPropertyType,
+} from "./sort-direction";
 import { DatabaseTimelineView } from "./TimelineView";
 import {
   normalizeClientColumnWrapOverrides,
@@ -7323,6 +7327,13 @@ function DatabaseInlineSortControl({
     onSortsChange([...sorts, { key, label, direction: "asc" }]);
   }
 
+  const sortType = databaseSortPropertyType(sort.key, properties);
+  const directionLabel = databaseSortDirectionLabel(
+    sort.direction,
+    sort.key,
+    sortType,
+  );
+
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
@@ -7336,11 +7347,12 @@ function DatabaseInlineSortControl({
           )}
         >
           {sort.direction === "asc" ? (
-            <IconArrowUp className="size-3.5 shrink-0" />
+            <IconArrowUp aria-hidden className="size-3.5 shrink-0" />
           ) : (
-            <IconArrowDown className="size-3.5 shrink-0" />
+            <IconArrowDown aria-hidden className="size-3.5 shrink-0" />
           )}
           <span className="min-w-0 truncate">{sort.label}</span>
+          <span className="sr-only">{`, ${directionLabel}`}</span>
           <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
           {showUnsavedIndicator ? (
             <span
@@ -7350,14 +7362,19 @@ function DatabaseInlineSortControl({
           ) : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[260px] p-0">
+      <DropdownMenuContent
+        align="start"
+        className="w-100 max-w-[calc(100vw-2rem)] p-0"
+      >
         <div
           className="grid gap-1 p-1"
           onKeyDown={(event) => event.stopPropagation()}
         >
-          <div className="flex items-center gap-0.5">
+          {/* The direction keeps its full label ("Unchecked → checked");
+              the property name truncates to make room. */}
+          <div className="flex min-w-0 items-center gap-0.5">
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="min-w-0 flex-1 [&>svg:last-child]:hidden">
+              <DropdownMenuSubTrigger className="min-w-22 flex-1 [&>span:last-child]:hidden">
                 <SortFieldIcon sort={sort} properties={properties} />
                 <span className="min-w-0 flex-1 truncate">{sort.label}</span>
                 <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
@@ -7371,13 +7388,13 @@ function DatabaseInlineSortControl({
             </DropdownMenuSub>
 
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="min-w-0 flex-1 [&>svg:last-child]:hidden">
+              <DropdownMenuSubTrigger className="min-w-0 flex-initial [&>span:last-child]:hidden">
                 <span className="min-w-0 flex-1 truncate">
-                  {databaseSortDirectionLabel(sort.direction)}
+                  {directionLabel}
                 </span>
                 <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-40">
+              <DropdownMenuSubContent className="min-w-40">
                 {(["asc", "desc"] as const).map((direction) => (
                   <DropdownMenuItem
                     key={direction}
@@ -7386,8 +7403,12 @@ function DatabaseInlineSortControl({
                       updateSort({ direction });
                     }}
                   >
-                    <span className="flex-1">
-                      {databaseSortDirectionLabel(direction)}
+                    <span className="flex-1 whitespace-nowrap">
+                      {databaseSortDirectionLabel(
+                        direction,
+                        sort.key,
+                        sortType,
+                      )}
                     </span>
                     {sort.direction === direction ? (
                       <IconCheck className="size-4 text-muted-foreground" />
@@ -16726,7 +16747,7 @@ function DatabaseNameHeader({
             Aa
           </span>
           <span className="truncate">Name</span>
-          <DatabaseColumnStateIndicators state={columnState} />
+          <DatabaseColumnStateIndicators state={columnState} columnKey="name" />
         </div>
       ) : (
         <>
@@ -16746,7 +16767,10 @@ function DatabaseNameHeader({
                   Aa
                 </span>
                 <span className="truncate">Name</span>
-                <DatabaseColumnStateIndicators state={columnState} />
+                <DatabaseColumnStateIndicators
+                  state={columnState}
+                  columnKey="name"
+                />
                 <IconChevronDown className="ml-auto size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-70 data-[state=open]:opacity-100" />
               </button>
             </DropdownMenuTrigger>
@@ -17561,7 +17585,11 @@ function DatabasePropertyHeader({
             <div className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded px-1 text-xs text-muted-foreground">
               <Icon className={cn("size-4 shrink-0", narrow && "hidden")} />
               <span className="truncate">{property.definition.name}</span>
-              <DatabaseColumnStateIndicators state={columnState} />
+              <DatabaseColumnStateIndicators
+                state={columnState}
+                columnKey={property.definition.id}
+                propertyType={property.definition.type}
+              />
             </div>
           ) : canEdit && !property.definition.systemRole ? (
             <PropertyManagementPopover
@@ -17577,7 +17605,11 @@ function DatabasePropertyHeader({
               )}
               iconClassName={narrow ? "hidden" : undefined}
               triggerTrailing={
-                <DatabaseColumnStateIndicators state={columnState} />
+                <DatabaseColumnStateIndicators
+                  state={columnState}
+                  columnKey={property.definition.id}
+                  propertyType={property.definition.type}
+                />
               }
               sourceField={sourceFieldMappingForColumn(
                 source,
@@ -17609,7 +17641,11 @@ function DatabasePropertyHeader({
                   <span className="truncate" data-property-label="">
                     {property.definition.name}
                   </span>
-                  <DatabaseColumnStateIndicators state={columnState} />
+                  <DatabaseColumnStateIndicators
+                    state={columnState}
+                    columnKey={property.definition.id}
+                    propertyType={property.definition.type}
+                  />
                 </button>
               </DropdownMenuTrigger>
               <ColumnHeaderMenuContent
@@ -17644,8 +17680,12 @@ function DatabasePropertyHeader({
 
 function DatabaseColumnStateIndicators({
   state,
+  columnKey,
+  propertyType,
 }: {
   state: ReturnType<typeof databaseColumnHeaderState>;
+  columnKey: ColumnKey;
+  propertyType?: DocumentPropertyType;
 }) {
   if (!state.sortDirection && state.activeFilterCount === 0) return null;
   const SortIcon =
@@ -17658,7 +17698,11 @@ function DatabaseColumnStateIndicators({
   return (
     <span
       className="flex shrink-0 items-center gap-0.5 text-muted-foreground"
-      aria-label={databaseColumnHeaderStateLabel(state)}
+      aria-label={databaseColumnHeaderStateLabel(
+        state,
+        columnKey,
+        propertyType,
+      )}
     >
       {SortIcon ? <SortIcon className="size-3.5" /> : null}
       {state.activeFilterCount > 0 ? (
@@ -17691,7 +17735,7 @@ function ColumnResizeHandle({
   );
 }
 
-function ColumnHeaderMenuContent({
+export function ColumnHeaderMenuContent({
   onMoveLeft,
   onMoveRight,
   canMove,
@@ -17785,9 +17829,7 @@ function ColumnHeaderMenuContent({
               }
             >
               <span className="flex-1">
-                {dbText(
-                  direction === "asc" ? "sortAscending" : "sortDescending",
-                )}
+                {databaseSortDirectionLabel(direction, columnKey, propertyType)}
               </span>
               {columnSort?.direction === direction ? (
                 <IconCheck className="size-4" />
@@ -18155,12 +18197,20 @@ export function databaseColumnHeaderState(
   };
 }
 
-function databaseColumnHeaderStateLabel(
+export function databaseColumnHeaderStateLabel(
   state: ReturnType<typeof databaseColumnHeaderState>,
+  columnKey: ColumnKey,
+  propertyType?: DocumentPropertyType,
 ) {
   const parts = [
     state.sortDirection
-      ? `Sorted ${state.sortDirection === "asc" ? "ascending" : "descending"}`
+      ? dbText("sortedInDirection", {
+          direction: databaseSortDirectionLabel(
+            state.sortDirection,
+            columnKey,
+            propertyType,
+          ),
+        })
       : "",
     state.activeFilterCount > 0
       ? `${state.activeFilterCount} active filter${state.activeFilterCount === 1 ? "" : "s"}`
@@ -18356,11 +18406,7 @@ function propertyNumberValue(property: DocumentProperty | null | undefined) {
   return Number.isFinite(value) ? value : Number.NaN;
 }
 
-function databaseSortDirectionLabel(direction: SortDirection) {
-  return direction === "asc" ? "Ascending" : "Descending";
-}
-
-function SortMenu({
+export function SortMenu({
   properties,
   sorts,
   onSortsChange,
@@ -18427,7 +18473,10 @@ function SortMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className={cn("w-[340px]", sorts.length === 0 && "w-64 p-0")}
+        className={cn(
+          "w-100 max-w-[calc(100vw-2rem)]",
+          sorts.length === 0 && "w-64 p-0",
+        )}
       >
         {sorts.length === 0 ? (
           <div onKeyDown={(event) => event.stopPropagation()}>
@@ -18466,10 +18515,14 @@ function SortMenu({
                   </DropdownMenuSub>
                   <button
                     type="button"
-                    className="flex h-8 items-center rounded px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className="flex h-8 items-center whitespace-nowrap rounded px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
                     onClick={() => toggleDirection(index)}
                   >
-                    {sort.direction === "asc" ? "Asc" : "Desc"}
+                    {databaseSortDirectionLabel(
+                      sort.direction,
+                      sort.key,
+                      databaseSortPropertyType(sort.key, properties),
+                    )}
                   </button>
                   <div className="flex items-center">
                     <button

@@ -356,6 +356,7 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "call-mcp-tool",
   // Connection setup UI needs the workspace prerequisite even in minimal apps.
   "get-managed-mcp-oauth-readiness",
+  "list-mcp-client-connections",
   // Any app calling a provider API needs to see which scopes its connection holds.
   "list-workspace-connection-scopes",
   "get-agentkit-capabilities",
@@ -925,6 +926,10 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
     [
       "create-org-service-token",
       () => import("../mcp/actions/create-org-service-token.js"),
+    ],
+    [
+      "list-mcp-client-connections",
+      () => import("../mcp/actions/list-mcp-client-connections.js"),
     ],
     [
       "list-org-service-tokens",
