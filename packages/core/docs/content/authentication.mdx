@@ -537,6 +537,20 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 | `ACCESS_TOKENS`                         | Comma-separated static bearer fallbacks for MCP/connect clients; not browser auth                                                                      |
 | `A2A_SECRET`                            | Shared secret for JWT-signed A2A cross-app identity verification and, when present, MCP OAuth access-token signing                                     |
 
+## Auth page customization
+
+The Chat template sets `marketing: false` in `server/plugins/auth.ts`. Replace it with a marketing object to enable the panel. It appears below the form on mobile. `AuthMarketingProps` describes the rendered page props, while the plugin accepts the `marketing` fields shown below. `authHeadHtml` appends trusted app-authored HTML after the built-in styles. Do not pass user input to it.
+
+```ts filename="server/plugins/auth.ts"
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
+
+export default createToolkitAuthPlugin({
+  rootAuth: true,
+  marketing: { appName: "My app", tagline: "Make work easier" },
+  authHeadHtml: "<style>.auth-root { font-family: sans-serif; }</style>",
+});
+```
+
 ## What's next
 
 - [**Organizations, Teams & Permissions**](/docs/organizations-teams-permissions) — the org-role vs. resource-role RBAC model, and a practical multi-user setup sequence

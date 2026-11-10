@@ -101,7 +101,7 @@ POST JSON to NOTIFICATIONS_WEBHOOK_URL
 PR
 PR push
 Provider registry
-publicMcp + publicAgent.expose required
+publicAgent.expose required
 pull · push
 RBAC
 React UI

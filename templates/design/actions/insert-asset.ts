@@ -1,10 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
-import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  pickAssetInsertFile,
+  resolveAssetInsertTarget,
+} from "../server/lib/asset-insert-target.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
@@ -64,12 +67,6 @@ const schemaInput = z.object({
         'Both "replace-src" and "background-fill" require targetNodeId.',
     ),
 });
-
-function stringFromState(state: unknown, key: string): string | undefined {
-  if (!state || typeof state !== "object") return undefined;
-  const value = (state as Record<string, unknown>)[key];
-  return typeof value === "string" && value ? value : undefined;
-}
 
 function escapeHtml(value: string): string {
   return value
@@ -245,46 +242,6 @@ function backgroundFillAtNode(
   return html.replace(tag, nextTag);
 }
 
-async function resolveTarget(args: z.infer<typeof schemaInput>) {
-  const [navigation, selection] = await Promise.all([
-    readAppStateForCurrentTab("navigation").catch(() => null),
-    readAppStateForCurrentTab("design-selection").catch(() => null),
-  ]);
-  const navigationDesignId = stringFromState(navigation, "designId");
-  const selectionDesignId = stringFromState(selection, "designId");
-  const selectionOwnerId = stringFromState(selection, "ownerId");
-  const selectionMatchesOwner =
-    Boolean(args.ownerId) && selectionOwnerId === args.ownerId;
-  const designId =
-    args.designId ??
-    (selectionMatchesOwner ? selectionDesignId : undefined) ??
-    navigationDesignId;
-  const canUseSelection =
-    selectionMatchesOwner &&
-    Boolean(designId) &&
-    selectionDesignId === designId;
-  const navigationActiveFileId =
-    designId && navigationDesignId === designId
-      ? stringFromState(navigation, "activeFileId")
-      : undefined;
-  return {
-    designId,
-    fileId:
-      args.fileId ??
-      (canUseSelection
-        ? stringFromState(selection, "activeFileId")
-        : undefined) ??
-      navigationActiveFileId,
-  };
-}
-
-function isHtmlFile(file: {
-  fileType: string | null;
-  filename: string | null;
-}): boolean {
-  return file.fileType === "html" || file.filename?.endsWith(".html") === true;
-}
-
 export default defineAction({
   description:
     "Insert a chosen Assets image or video URL into a Design file. Use this " +
@@ -302,7 +259,11 @@ export default defineAction({
   schema: schemaInput,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async (args, context) => {
-    const target = await resolveTarget(args);
+    const target = await resolveAssetInsertTarget({
+      designId: args.designId,
+      ownerId: args.ownerId,
+      fileIds: [args.fileId],
+    });
     if (!target.designId) {
       throw new Error(
         "No active design found. Open a design or pass designId.",
@@ -329,13 +290,7 @@ export default defineAction({
           accessFilter(schema.designs, schema.designShares),
         ),
       );
-    const requestedFile = files.find(
-      (candidate) => candidate.id === target.fileId,
-    );
-    const file =
-      requestedFile && isHtmlFile(requestedFile)
-        ? requestedFile
-        : (files.find(isHtmlFile) ?? null);
+    const file = pickAssetInsertFile(files, target);
     if (!file) throw new Error("No editable HTML design file found.");
     await assertAccess("design", file.designId, "editor");
     await snapshotDesignBeforeAgentEdit(file.designId, context);

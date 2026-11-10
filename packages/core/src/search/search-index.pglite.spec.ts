@@ -286,7 +286,40 @@ describe("the search index", () => {
       );
       await insertNote("long-word", "Long word", `alef ${LONG_WORD} omega`);
       await insertNote("no-long-word", "No long word", "alef omega");
+      await insertNote(
+        "fields",
+        "Mercantile ledger",
+        "zephyr quince",
+        "Covers tundra",
+      );
       await prepareFully();
+    });
+
+    it("matches each word in whichever field has it", async () => {
+      for (const query of [
+        "zephyr quince", // Both in the body.
+        "cantil zephyr", // Mid-word in the title, and in the body.
+        "tundra quince", // In the summary, and in the body.
+        "cantil tundra", // In the title, and in the summary.
+        "cantil tundra zephyr", // One in each.
+        "absentword OR zephyr quince", // Either word of a group will do.
+      ]) {
+        expect(await searchIds(query), query).toEqual(["fields"]);
+      }
+    });
+
+    it("needs every word somewhere, and no excluded word anywhere", async () => {
+      for (const query of [
+        "zephyr absentword",
+        "cantil absentword",
+        "cantil tundra absentword",
+        "zephyr -quince",
+        "cantil -zephyr",
+        "zephyr quince -tundra",
+        "zephyr quince -cantil",
+      ]) {
+        expect(await searchIds(query), query).toEqual([]);
+      }
     });
 
     it("ranks exact, prefix, word-prefix, substring, then summary matches", async () => {

@@ -714,6 +714,7 @@ const editor = {
     "Somente visualização. Esta página acompanha um arquivo no GitHub e é atualizada após cada push.",
   githubSourceOpenFile: "Abrir no GitHub",
   textColor: "Cor do texto",
+  resizeColumns: "Redimensionar colunas",
   backgroundColor: "Cor de fundo",
   defaultColor: "Padrão",
   color: {
@@ -840,7 +841,6 @@ const editor = {
     image: "Imagem",
     imageAdded: "Imagem adicionada",
     imageBroken: "Não foi possível carregar a imagem",
-    imageCommentWithAlt: "Imagem: {{alt}}",
     imageCopied: "Imagem copiada.",
     imageDownloadStarted: "O download da imagem foi iniciado.",
     imageLinkHint: "Funciona com qualquer imagem da web",
@@ -904,6 +904,7 @@ const editor = {
     addPropertyLink: "Adicionar link {{name}}",
     addPropertyPerson: "Adicionar pessoa {{name}}",
     addPropertyType: "Adicionar propriedade {{type}}",
+    alwaysHiddenCount: "{{count}} sempre ocultas",
     connectASource: "Conectar uma fonte",
     addQuoted: 'Adicionar "{{value}}"',
     backToColumnMenu: "Voltar para classificar e filtrar",
@@ -932,6 +933,8 @@ const editor = {
     duplicateProperty: "Propriedade duplicada",
     editField: "Editar campo",
     editEndDate: "Editar data de término do {{name}}",
+    moreProperties: "Mais {{count}} propriedades",
+    morePropertiesOne: "Mais 1 propriedade",
     moveColumnLeft: "Mover coluna para a esquerda",
     moveColumnRight: "Mover coluna para a direita",
     editProperty: "Editar {{name}}",
@@ -952,8 +955,6 @@ const editor = {
       video: "Vídeo",
     },
     fromSource: "De {{name}}",
-    hiddenInThisView: "Ocultas nesta visualização",
-    hiddenProperties: "Propriedades ocultas",
     imageUploaded_zero: "Imagens enviadas",
     imageUploaded_one: "Imagem enviada",
     imageUploaded_two: "Imagens enviadas",
@@ -1049,6 +1050,8 @@ const editor = {
     unchecked: "Desmarcado",
     upload: "Carregar",
     visibility: "Visibilidade",
+    visibilityScope:
+      "Em todas as linhas, para todos. Uma visualização ainda pode ocultá-la.",
   },
   slash: {
     audio: "Áudio",
@@ -1059,6 +1062,10 @@ const editor = {
     bulletedListDescription: "Lista não ordenada",
     callout: "Chamada",
     calloutDescription: "Bloco de informações destacado",
+    columnsDescription: "Colocar blocos lado a lado",
+    twoColumns: "2 colunas",
+    threeColumns: "3 colunas",
+    fourColumns: "4 colunas",
     codeBlock: "Bloco de código",
     codeBlockDescription: "Trecho de código",
     collapsibleBlockDescription: "Bloco dobrável",
@@ -1131,6 +1138,29 @@ const editor = {
     hideInSearch: "Ocultar na pesquisa",
     hideInSearchDescription:
       "Ocultar da organização e pesquisar. Pessoas com o link ainda poderão visualizar.",
+    sharePeopleTab: "Pessoas",
+    shareAgentsTab: "Agentes",
+    agentLevelHeading: "Agentes nesta página",
+    agentLevelMenuLabel: "O que os agentes podem fazer nesta página",
+    agentLevelDefault: "(padrão)",
+    agentLevelCommentDescription:
+      "Podem ler, comentar e sugerir edições. Somente pessoas podem aceitá-las.",
+    agentLevelEditDescription:
+      "Podem ler, comentar, sugerir, editar o texto, o título e as abas, e mover a página para a lixeira.",
+    agentLevelCommentConfirm:
+      "Agora os agentes podem comentar e sugerir edições nesta página, mas não editá-la.",
+    agentLevelEditConfirm: "Os agentes podem editar esta página novamente.",
+    agentLevelLimit:
+      "Um agente nunca tem mais permissões do que a pessoa para quem trabalha.",
+    agentLevelManagersOnly:
+      "Somente quem gerencia esta página pode alterar isso.",
+    agentLevelUpdateFailed:
+      "Não foi possível alterar o que os agentes podem fazer aqui.",
+    agentLevelNote: "Agentes podem comentar",
+    agentLevelNoteHint:
+      "Agentes podem comentar nesta página. Altere isso em Compartilhar.",
+    sendPageToAgent: "Enviar esta página para um agente",
+    connectAgentOverMcp: "Conectar um agente por MCP",
     importingFromNotion: "Importando do Notion...",
     lastSynced: "Última sincronização",
     linkedToNotion: "Vinculado à noção",
@@ -1664,6 +1694,7 @@ const overrides = {
     commandSearchHeading: "Buscar",
     searchScope: "Escopo",
     searchAllWorkspaces: "Todos os espaços",
+    searchThisPage: "Esta página",
     searchFields: "Campos de pesquisa",
     searchAllText: "Todo o texto",
     searchTitleOnly: "Somente título",

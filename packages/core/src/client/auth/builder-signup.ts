@@ -6,6 +6,7 @@ export type BuilderSignupAssignment =
       id: string;
       variant: "control" | "automatic";
       policy: string;
+      experimentId?: string;
     }
   | { status: "disabled" }
   | { status: "unavailable" };
@@ -25,6 +26,7 @@ async function request(
           }
         : {}),
       credentials: "same-origin",
+      keepalive: Boolean(body && body.operation !== "accept"),
       signal,
     },
   );
@@ -49,6 +51,9 @@ export async function getBuilderSignupAssignment(): Promise<BuilderSignupAssignm
       status: "assigned",
       id: result.id,
       policy: result.policy,
+      ...(typeof result.experimentId === "string"
+        ? { experimentId: result.experimentId }
+        : {}),
       variant: result.variant,
     };
   throw new Error("Invalid Builder signup assignment");
@@ -71,13 +76,32 @@ export async function acceptBuilderSignupAssignment(
     throw new Error("Builder signup acceptance was not recorded");
 }
 
+function activationEligibility(
+  result: Record<string, unknown>,
+  stage = "eligibility",
+): "eligible" | "disabled" {
+  if (
+    result.status === "pending" ||
+    result.status === "eligible" ||
+    (result.status === "disabled" && result.code === "activation_in_progress")
+  )
+    return "eligible";
+  if (["connected", "fallback", "disabled"].includes(String(result.status)))
+    return "disabled";
+  throw new Error(`Invalid Builder signup ${stage} response`);
+}
+
 export async function getBuilderSignupActivationStatus(): Promise<
   "eligible" | "disabled"
 > {
-  const result = await request({ operation: "status" });
-  if (result.status === "eligible" || result.status === "disabled")
-    return result.status;
-  throw new Error("Invalid Builder signup eligibility response");
+  return activationEligibility(await request({ operation: "status" }));
+}
+
+/** Starts only a consented, server-verified assignment; otherwise does nothing. */
+export async function startBuilderSignupActivation(): Promise<
+  "eligible" | "disabled"
+> {
+  return activationEligibility(await request({ operation: "start" }), "start");
 }
 
 export async function activateBuilderSignupAssignment(): Promise<

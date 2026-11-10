@@ -718,6 +718,7 @@ const editor = {
     "Nur Ansicht. Diese Seite folgt einer Datei in GitHub und wird nach jedem Push aktualisiert.",
   githubSourceOpenFile: "In GitHub öffnen",
   textColor: "Textfarbe",
+  resizeColumns: "Spaltenbreite ändern",
   backgroundColor: "Hintergrundfarbe",
   defaultColor: "Standard",
   color: {
@@ -847,7 +848,6 @@ const editor = {
     image: "Bild",
     imageAdded: "Bild hinzugefügt",
     imageBroken: "Bild konnte nicht geladen werden",
-    imageCommentWithAlt: "Bild: {{alt}}",
     imageCopied: "Bild kopiert.",
     imageDownloadStarted: "Bild-Download gestartet.",
     imageLinkHint: "Funktioniert mit jedem Bild aus dem Internet",
@@ -910,6 +910,7 @@ const editor = {
     addPropertyLink: "{{name}}-Link hinzufügen",
     addPropertyPerson: "{{name}}-Person hinzufügen",
     addPropertyType: "{{type}}-Eigenschaft hinzufügen",
+    alwaysHiddenCount: "{{count}} immer ausgeblendet",
     connectASource: "Datenquelle verbinden",
     addQuoted: '„{{value}}" hinzufügen',
     backToColumnMenu: "Zurück zu Sortieren & Filtern",
@@ -938,6 +939,8 @@ const editor = {
     duplicateProperty: "Doppelte Eigenschaft",
     editField: "Feld bearbeiten",
     editEndDate: "{{name}}-Enddatum bearbeiten",
+    moreProperties: "{{count}} weitere Eigenschaften",
+    morePropertiesOne: "1 weitere Eigenschaft",
     moveColumnLeft: "Spalte nach links verschieben",
     moveColumnRight: "Spalte nach rechts verschieben",
     editProperty: "Bearbeiten Sie {{name}}",
@@ -958,8 +961,6 @@ const editor = {
       video: "Video [de-DE]",
     },
     fromSource: "Von {{name}}",
-    hiddenInThisView: "In dieser Ansicht ausgeblendet",
-    hiddenProperties: "Versteckte Eigenschaften",
     imageUploaded_zero: "Bilder hochgeladen",
     imageUploaded_one: "Bild hochgeladen",
     imageUploaded_two: "Bilder hochgeladen",
@@ -1055,6 +1056,8 @@ const editor = {
     unchecked: "Ungeprüft",
     upload: "Hochladen",
     visibility: "Sichtbarkeit",
+    visibilityScope:
+      "In jeder Zeile, für alle. Eine Ansicht kann sie trotzdem ausblenden.",
   },
   slash: {
     audio: "Audio [de-DE]",
@@ -1065,6 +1068,10 @@ const editor = {
     bulletedListDescription: "Ungeordnete Liste",
     callout: "Hinweis",
     calloutDescription: "Hervorgehobener Infoblock",
+    columnsDescription: "Blöcke nebeneinander anordnen",
+    twoColumns: "2 Spalten",
+    threeColumns: "3 Spalten",
+    fourColumns: "4 Spalten",
     codeBlock: "Codeblock",
     codeBlockDescription: "Codeausschnitt",
     collapsibleBlockDescription: "Zusammenklappbarer Block",
@@ -1140,6 +1147,29 @@ const editor = {
     hideInSearch: "In der Suche verstecken",
     hideInSearchDescription:
       "Vor Organisation und Suche verbergen. Personen mit dem Link können ihn weiterhin ansehen.",
+    sharePeopleTab: "Personen",
+    shareAgentsTab: "Agenten",
+    agentLevelHeading: "Agenten auf dieser Seite",
+    agentLevelMenuLabel: "Was Agenten auf dieser Seite tun können",
+    agentLevelDefault: "(Standard)",
+    agentLevelCommentDescription:
+      "Können lesen, kommentieren und Änderungen vorschlagen. Nur Personen können sie annehmen.",
+    agentLevelEditDescription:
+      "Können lesen, kommentieren, vorschlagen, Text, Titel und Tabs bearbeiten und die Seite in den Papierkorb verschieben.",
+    agentLevelCommentConfirm:
+      "Agenten können auf dieser Seite jetzt kommentieren und Änderungen vorschlagen, sie aber nicht bearbeiten.",
+    agentLevelEditConfirm: "Agenten können diese Seite wieder bearbeiten.",
+    agentLevelLimit:
+      "Ein Agent bekommt nie mehr Rechte als die Person, für die er arbeitet.",
+    agentLevelManagersOnly:
+      "Nur Personen, die diese Seite verwalten, können das ändern.",
+    agentLevelUpdateFailed:
+      "Die Rechte der Agenten konnten hier nicht geändert werden.",
+    agentLevelNote: "Agenten können kommentieren",
+    agentLevelNoteHint:
+      "Agenten können auf dieser Seite kommentieren. Ändere das unter Teilen.",
+    sendPageToAgent: "Diese Seite an einen Agenten senden",
+    connectAgentOverMcp: "Agenten über MCP verbinden",
     importingFromNotion: "Aus Notion importieren...",
     lastSynced: "Zuletzt synchronisiert",
     linkedToNotion: "Mit Notion verknüpft",
@@ -1671,6 +1701,7 @@ const overrides = {
     commandSearchHeading: "Suchen",
     searchScope: "Bereich",
     searchAllWorkspaces: "Alle Bereiche",
+    searchThisPage: "Diese Seite",
     searchFields: "Suchfelder",
     searchAllText: "Gesamter Text",
     searchTitleOnly: "Nur Titel",

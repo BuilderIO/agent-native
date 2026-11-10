@@ -6,6 +6,7 @@ import {
   type ResourceMeta,
 } from "@agent-native/core/client/resources/use-resources";
 import { useUploadResource } from "@agent-native/core/client/uploads/use-upload-resource";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
@@ -187,10 +188,12 @@ export function useSeedResource(onCreated: (resource: ResourceMeta) => void) {
         },
         {
           onSuccess: onCreated,
-          onError: () => {
-            toast.error(
-              t("agentChat.settingsResources.saveFailed", { name: path }),
-            );
+          onError: (error) => {
+            reportWriteFailure(error, {
+              label: t("agentChat.settingsResources.saveFailed", {
+                name: path,
+              }),
+            });
           },
         },
       );
@@ -236,10 +239,12 @@ export function AddSkillMenu({
       },
       {
         onSuccess: onCreated,
-        onError: () => {
-          toast.error(
-            t("agentChat.settingsResources.uploadFailed", { name: file.name }),
-          );
+        onError: (error) => {
+          reportWriteFailure(error, {
+            label: t("agentChat.settingsResources.uploadFailed", {
+              name: file.name,
+            }),
+          });
         },
       },
     );
@@ -324,10 +329,12 @@ export function AddFileMenu({
       formData.append("file", file);
       formData.append("shared", scope === "shared" ? "true" : "false");
       upload.mutate(formData, {
-        onError: () => {
-          toast.error(
-            t("agentChat.settingsResources.uploadFailed", { name: file.name }),
-          );
+        onError: (error) => {
+          reportWriteFailure(error, {
+            label: t("agentChat.settingsResources.uploadFailed", {
+              name: file.name,
+            }),
+          });
         },
       });
     }

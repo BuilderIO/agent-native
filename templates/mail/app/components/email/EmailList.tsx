@@ -1,6 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
 import {
   AI_IMPORTANT_LABEL,
@@ -783,7 +784,7 @@ export function EmailList({
             },
           });
         })
-        .catch(() => {
+        .catch((error) => {
           setPriorityOrder(null);
           setPriorityScores((current) => {
             if (current.get(key) !== optimisticScore) return current;
@@ -796,7 +797,7 @@ export function EmailList({
             if (previousScore) rememberPriorityScore(cache, key, previousScore);
             else cache.delete(key);
           }
-          toast.error(t("mail.aiFilter.actionFailed"));
+          reportWriteFailure(error, { label: t("mail.aiFilter.actionFailed") });
         });
     },
     [
@@ -1846,13 +1847,13 @@ export function EmailList({
         );
       } catch (error) {
         if (error instanceof MoveEmailPartialFailure) {
-          toast.error(
-            t("mail.toasts.movePartialFailed", {
+          reportWriteFailure(error, {
+            label: t("mail.toasts.movePartialFailed", {
               succeeded: error.result.succeeded.length,
               total: error.result.requested.length,
               failed: error.result.failed.length,
             }),
-          );
+          });
         } else {
           toast.error(actionErrorMessage(error) ?? t("mail.toasts.moveFailed"));
         }
@@ -2232,7 +2233,10 @@ export function EmailList({
       if (!jobId) return;
       cancelScheduledJob.mutate(jobId, {
         onSuccess: () => toast(t("mail.toasts.scheduledCancelled")),
-        onError: () => toast.error(t("mail.toasts.scheduledCancelFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, {
+            label: t("mail.toasts.scheduledCancelFailed"),
+          }),
       });
     },
     [getScheduledJobId, cancelScheduledJob, t],
