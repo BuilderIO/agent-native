@@ -6,6 +6,7 @@ import {
   readClientAppState,
 } from "@agent-native/core/client/hooks";
 import { withShareLinkAttribution } from "@agent-native/core/client/sharing";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   parseCreativeContexts,
@@ -45,7 +46,6 @@ import {
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
-import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 
 import type {
   LiveScreenSnapshot,
@@ -707,9 +707,11 @@ export function useEditorFilesAndSaving({
         const nextSearch = postAuthIntent === "share" ? "?intent=share" : "";
         void navigate(`/design/${result.id}${nextSearch}`, { replace: true });
       })
-      .catch(() => {
+      .catch((error) => {
         postAuthSaveRef.current = null;
-        toast.error(t("designEditor.toasts.saveCopyError"));
+        reportWriteFailure(error, {
+          label: t("designEditor.toasts.saveCopyError"),
+        });
       });
   }, [
     canEditDesign,
@@ -748,7 +750,9 @@ export function useEditorFilesAndSaving({
           pinnedPackId: null,
         })
         .catch((error) => {
-          toast.error(t("creativeContext.stateSaveFailed"));
+          reportWriteFailure(error, {
+            label: t("creativeContext.stateSaveFailed"),
+          });
           throw error;
         });
     },
@@ -857,7 +861,7 @@ export function useEditorFilesAndSaving({
 
     updateDesignMutation.mutate({ id, title: next } as any, {
       onError: (error) => {
-        reportDesignWriteFailure(error);
+        reportWriteFailure(error);
         queryClient.setQueryData(designQueryKey, previousDesign);
         for (const [queryKey, data] of previousListDesignsQueries) {
           queryClient.setQueryData(queryKey, data);

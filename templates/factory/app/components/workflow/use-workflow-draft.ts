@@ -45,11 +45,11 @@ export function useWorkflowDraft({
 
   const { mutateAsync: writeDraft } = useActionMutation(
     "save-factory-workflow-draft",
-    { skipActionQueryInvalidation: true },
+    { skipActionQueryInvalidation: true, errorNotification: "caller" },
   );
   const { mutateAsync: discardDraft } = useActionMutation(
     "discard-factory-workflow-draft",
-    { skipActionQueryInvalidation: true },
+    { skipActionQueryInvalidation: true, errorNotification: "caller" },
   );
 
   const [sync] = useState(

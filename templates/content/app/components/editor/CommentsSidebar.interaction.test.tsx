@@ -161,6 +161,7 @@ function proposalSuggestion(
 }
 
 let panel: ReturnType<typeof useCommentPanelSession>;
+let replyState: ReturnType<typeof useCommentReplyDrafts>;
 let replyDraft: ReturnType<typeof useCommentDraft>;
 function PanelProbe() {
   replyDraft = useCommentDraft("reply:fixture:one");
@@ -196,10 +197,12 @@ function SidebarOwner({
       proposalId: string,
       decision: "accepted" | "rejected",
       members: ResourceSuggestion[],
+      exactMembers?: boolean,
     ) => void;
   };
 }) {
   const replies = useCommentReplyDrafts("fixture", "reviewer@example.test");
+  replyState = replies;
   const pending = usePendingCommentDraft("fixture");
   useEffect(() => {
     pending.setPendingComment(
@@ -299,6 +302,7 @@ describe("comment review interactions", () => {
         proposalId: string,
         decision: "accepted" | "rejected",
         members: ResourceSuggestion[],
+        exactMembers?: boolean,
       ) => void;
     } = {},
   ) {
@@ -408,6 +412,285 @@ describe("comment review interactions", () => {
       ]),
     );
     expect(onDecideSuggestionProposal.mock.calls[0]?.[2]).toHaveLength(2);
+  });
+  describe("review units", () => {
+    const source = "Teh team will recieve the files.";
+    const piece = (id: string, reviewUnit: string, find: string) => {
+      const from = source.indexOf(find);
+      return {
+        ...proposalSuggestion(id),
+        metadata: { reviewUnit },
+        operations: [
+          {
+            id: `operation-${id}`,
+            kind: "replace_text",
+            before: { markdown: source, changedText: find },
+            after: {
+              markdown: source.replace(find, find.toUpperCase()),
+              changedText: find.toUpperCase(),
+            },
+            anchor: { from, to: from + find.length },
+          },
+        ],
+      } as unknown as ResourceSuggestion;
+    };
+    const acceptIn = (id: string) => {
+      const accept = container.querySelector<HTMLButtonElement>(
+        `[data-suggestion-id='${id}'] [data-suggestion-decision='accepted']`,
+      );
+      if (!accept) throw new Error(`No Accept on ${id}`);
+      return accept;
+    };
+
+    it("shows a proposal that is one unit as one card with one Accept", () => {
+      const onDecideSuggestionProposal = vi.fn();
+      const members = [
+        piece("one", "k:0", "Teh"),
+        piece("two", "k:0", "recieve"),
+      ];
+      render(null, [], "inline", {
+        suggestions: members,
+        activeSuggestionId: "two",
+        alignToAnchors: false,
+        onDecideSuggestionProposal,
+      });
+      expect(container.querySelector("[data-suggestion-proposal]")).toBeNull();
+      expect(container.querySelectorAll("[data-suggestion-id]")).toHaveLength(
+        1,
+      );
+      expect(container.textContent).toContain("TEH team will RECIEVE");
+      act(() => acceptIn("one").click());
+      expect(onDecideSuggestionProposal).toHaveBeenCalledWith(
+        "proposal",
+        "accepted",
+        members,
+        true,
+      );
+    });
+
+    it("won't accept what's left of a unit with a stale piece, only reject it", () => {
+      const onDecideSuggestionProposal = vi.fn();
+      const stale = {
+        ...piece("one", "k:0", "Teh"),
+        status: "stale",
+      } as ResourceSuggestion;
+      const rest = [
+        piece("two", "k:0", "recieve"),
+        piece("three", "k:0", "files"),
+      ];
+      render(null, [], "inline", {
+        suggestions: [stale, ...rest],
+        activeSuggestionId: "two",
+        alignToAnchors: false,
+        onDecideSuggestionProposal,
+      });
+      expect(acceptIn("two").disabled).toBe(true);
+      expect(
+        container.querySelector("[data-suggestion-id='two'] [role='alert']"),
+      ).not.toBeNull();
+      const reject = container.querySelector<HTMLButtonElement>(
+        "[data-suggestion-id='two'] [data-suggestion-decision='rejected']",
+      );
+      if (!reject) throw new Error("No Reject on the unit's card");
+      act(() => reject.click());
+      expect(onDecideSuggestionProposal).toHaveBeenCalledWith(
+        "proposal",
+        "rejected",
+        rest,
+        true,
+      );
+    });
+
+    it("turns off Accept on a card the server refused", () => {
+      const pieces = [
+        piece("one", "k:0", "Teh"),
+        piece("two", "k:0", "recieve"),
+        piece("three", "k:1", "files"),
+      ];
+      const [first = null, second = null] = pieces;
+      if (!first || !second) throw new Error("The unit has two pieces");
+      render(null, [], "inline", {
+        suggestions: pieces,
+        activeSuggestionId: "one",
+        alignToAnchors: false,
+        unplaceableSuggestionRevisions: new Map([
+          [first.id, first.revision],
+          [second.id, second.revision],
+        ]),
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      expect(acceptIn("one").disabled).toBe(true);
+      expect(acceptIn("three").disabled).toBe(false);
+      expect(
+        container.querySelector<HTMLButtonElement>(
+          "[data-suggestion-id='one'] [data-suggestion-decision='rejected']",
+        )?.disabled,
+      ).toBe(false);
+    });
+
+    it("gives each unit of a proposal its own card, counted once", () => {
+      const onDecideSuggestionProposal = vi.fn();
+      const members = [
+        piece("one", "k:0", "Teh"),
+        piece("two", "k:0", "recieve"),
+        piece("three", "k:1", "files"),
+      ];
+      render(null, [], "inline", {
+        suggestions: members,
+        activeSuggestionId: "one",
+        alignToAnchors: false,
+        onDecideSuggestionProposal,
+      });
+      expect(
+        container.querySelector("[data-suggestion-proposal] > button")
+          ?.textContent,
+      ).toContain("comments.proposalEditCount:2");
+      expect(container.querySelectorAll("[data-suggestion-id]")).toHaveLength(
+        2,
+      );
+      act(() => acceptIn("one").click());
+      expect(onDecideSuggestionProposal).toHaveBeenCalledWith(
+        "proposal",
+        "accepted",
+        [members[0], members[1]],
+        true,
+      );
+    });
+
+    it("shows what a one-piece unit replaces, where cards would read alike", () => {
+      render(null, [], "inline", {
+        suggestions: [piece("one", "k:0", "Teh"), piece("two", "k:1", "files")],
+        activeSuggestionId: "one",
+        alignToAnchors: false,
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      const card = container.querySelector("[data-suggestion-id='one']");
+      expect(card?.textContent).toContain("comments.suggestionWith: “TEH”");
+      expect(card?.textContent).toContain("comments.suggestionReplace: “Teh”");
+    });
+
+    it("opens a unit's card when a later piece is commented on", () => {
+      render(null, [], "inline", {
+        suggestions: [
+          piece("one", "k:0", "Teh"),
+          piece("two", "k:0", "recieve"),
+          piece("three", "k:1", "files"),
+        ],
+        activeSuggestionId: "one",
+        alignToAnchors: false,
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      const closedCard = () =>
+        container.querySelector(
+          "[data-suggestion-id='one'].cursor-pointer, [data-suggestion-id='one'] .cursor-pointer",
+        );
+      expect(closedCard()).not.toBeNull();
+      act(() => replyState.setOpenReply("suggestion-two", "two"));
+      expect(closedCard()).toBeNull();
+    });
+
+    it("keeps a unit whole when a history search matches one of its pieces", () => {
+      const onDecideSuggestionProposal = vi.fn();
+      const members = [
+        piece("one", "k:0", "Teh"),
+        piece("two", "k:0", "recieve"),
+        piece("three", "k:1", "files"),
+      ];
+      render(null, [], "history", {
+        suggestions: members,
+        onDecideSuggestionProposal,
+      });
+      act(() => replyState.setHistoryFilters({ query: "Edit two" }));
+      expect(
+        container.querySelector("[data-suggestion-id='three']"),
+      ).toBeNull();
+      act(() => acceptIn("one").click());
+      expect(onDecideSuggestionProposal).toHaveBeenCalledWith(
+        "proposal",
+        "accepted",
+        members.slice(0, 2),
+        true,
+      );
+    });
+
+    it("won't accept all while a filter hides what's left of a stale unit", () => {
+      render(null, [], "history", {
+        suggestions: [
+          {
+            ...piece("one", "k:0", "Teh"),
+            status: "stale",
+          } as ResourceSuggestion,
+          piece("four", "k:0", "team"),
+          piece("two", "k:1", "recieve"),
+          piece("three", "k:2", "files"),
+        ],
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      act(() => replyState.setHistoryFilters({ query: "Edit t" }));
+      expect(container.querySelector("[data-suggestion-id='four']")).toBeNull();
+      const acceptAll = container.querySelector<HTMLButtonElement>(
+        "[data-suggestion-proposal-decision='accepted']",
+      );
+      if (!acceptAll) throw new Error("No Accept all on the group");
+      expect(acceptAll.disabled).toBe(true);
+    });
+
+    it("counts a proposal in units when history shows only some of them", () => {
+      const accepted = (id: string, reviewUnit: string, find: string) => ({
+        ...piece(id, reviewUnit, find),
+        status: "accepted" as const,
+      });
+      render(null, [], "history", {
+        suggestions: [
+          accepted("one", "k:0", "Teh"),
+          accepted("two", "k:0", "team"),
+          accepted("three", "k:1", "will"),
+          accepted("four", "k:1", "recieve"),
+          piece("five", "k:2", "the"),
+          piece("six", "k:2", "files"),
+        ],
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      act(() => replyState.setHistoryFilters({ status: "resolved" }));
+      expect(
+        container.querySelector("[data-suggestion-proposal] > button")
+          ?.textContent,
+      ).toContain("comments.proposalEditCount:3");
+    });
+
+    it("marks a unit's change by whole words", () => {
+      const rewrite = "Our plan for the launch is ready now.";
+      const swap = (id: string, find: string, replace: string) => {
+        const from = rewrite.indexOf(find);
+        const member = piece(id, "k:0", find);
+        const [operation = null] = member.operations;
+        if (!operation) throw new Error("A piece has an operation");
+        member.operations = [
+          {
+            ...operation,
+            before: { markdown: rewrite, changedText: find },
+            after: { markdown: rewrite, changedText: replace },
+            anchor: { from, to: from + find.length },
+          },
+        ];
+        return member;
+      };
+      render(null, [], "inline", {
+        suggestions: [
+          swap("one", "Our", "The"),
+          swap("two", "ready", "steady"),
+        ],
+        activeSuggestionId: "one",
+        alignToAnchors: false,
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      const marked = (selector: string) =>
+        [...container.querySelectorAll(selector)].map((span) =>
+          span.textContent.trim(),
+        );
+      expect(marked(".line-through")).toEqual(["Our", "ready"]);
+      expect(marked(".underline")).toEqual(["The", "steady"]);
+    });
   });
   it("keeps a proposal's Accept all off while one of its edits can't be placed", () => {
     const failed = proposalSuggestion("one");
@@ -550,6 +833,7 @@ describe("comment review interactions", () => {
     const onActivateThread = vi.fn();
     const commentAi = {
       requests: [applied],
+      serverRequests: [applied],
       startingThreadIds: new Set<string>(),
       stoppingRequestIds: new Set<string>(),
       continuations: new Map(),
@@ -624,6 +908,7 @@ describe("comment review interactions", () => {
     requests: CommentAiController["requests"],
   ): CommentAiController => ({
     requests,
+    serverRequests: requests,
     startingThreadIds: new Set<string>(),
     stoppingRequestIds: new Set<string>(),
     continuations: new Map(),
@@ -895,6 +1180,7 @@ describe("comment review interactions", () => {
   const commentAiWith = (start: CommentAiController["start"]) =>
     ({
       requests: [],
+      serverRequests: [],
       startingThreadIds: new Set<string>(),
       stoppingRequestIds: new Set<string>(),
       continuations: new Map(),
