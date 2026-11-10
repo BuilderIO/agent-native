@@ -34,10 +34,13 @@ describe("meetingRowForAgent", () => {
     expect(
       meetingRowForAgent({ ...emptyCalendarHusk, userNotesMd: " \n" }),
     ).toMatchObject({ summaryPreview: null, hasNotes: false });
-    expect(meetingRowForAgent({})).toMatchObject({
-      summaryPreview: null,
-      hasNotes: false,
-    });
+    expect(
+      meetingRowForAgent({
+        summaryMd: null,
+        userNotesMd: null,
+        actionItemsJson: null,
+      }),
+    ).toMatchObject({ summaryPreview: null, hasNotes: false });
   });
 });
 
@@ -65,7 +68,13 @@ describe("meetingRowForAgent action items", () => {
     expect(meetingRowForAgent(emptyCalendarHusk)).toMatchObject({
       actionItemCount: 0,
     });
-    expect(meetingRowForAgent({})).toMatchObject({ actionItemCount: 0 });
+    expect(
+      meetingRowForAgent({
+        summaryMd: null,
+        userNotesMd: null,
+        actionItemsJson: null,
+      }),
+    ).toMatchObject({ actionItemCount: 0 });
   });
 });
 

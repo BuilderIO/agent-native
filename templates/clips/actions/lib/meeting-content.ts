@@ -38,7 +38,18 @@ function countActionItems(raw: string | null | undefined): number | null {
  * bullets and action items can run long, and an MCP read isn't cut down, so
  * the row keeps a preview and counts, and get-meeting has the rest.
  */
-export function meetingRowForAgent<T extends MeetingContentFields>({
+/**
+ * The columns an agent row is made from. Each is required, since a column a
+ * query leaves out would read as an empty summary or no action items.
+ */
+interface MeetingAgentRowFields {
+  summaryMd: string | null;
+  userNotesMd: string | null;
+  bulletsJson?: string | null;
+  actionItemsJson: string | null;
+}
+
+export function meetingRowForAgent<T extends MeetingAgentRowFields>({
   summaryMd,
   userNotesMd,
   bulletsJson: _bulletsJson,

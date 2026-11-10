@@ -33,8 +33,19 @@ vi.mock("../server/db/index.js", () => {
   };
   return {
     getDb: () => ({
+      // Returns only the columns asked for, as the database would.
       select: (columns?: Record<string, unknown>) =>
-        query(columns && !("fullText" in columns) ? state.rows : []),
+        query(
+          columns && !("fullText" in columns)
+            ? state.rows.map((row) =>
+                Object.fromEntries(
+                  Object.keys(columns)
+                    .filter((column) => column in row)
+                    .map((column) => [column, row[column]]),
+                ),
+              )
+            : [],
+        ),
       selectDistinct: () => query([]),
     }),
     schema: {
@@ -65,6 +76,7 @@ describe("search-meetings", () => {
         actualStart: "2026-08-14T17:00:00.000Z",
         summaryMd,
         userNotesMd: "Private notes",
+        actionItemsJson: '[{"text":"send the deck"},{"text":"book the room"}]',
       },
     ];
   });
@@ -80,8 +92,10 @@ describe("search-meetings", () => {
         snippet: expect.stringContaining("renewal"),
         summaryPreview: "# Summary We talked about the renewal.",
         hasNotes: true,
+        actionItemCount: 2,
       });
       expect(meetings[0]).not.toHaveProperty("summaryMd");
+      expect(meetings[0]).not.toHaveProperty("actionItemsJson");
       expect(meetings[0]).not.toHaveProperty("userNotesMd");
     },
   );

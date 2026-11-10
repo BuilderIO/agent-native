@@ -40,6 +40,7 @@ const MEETING_COLUMNS = {
   transcriptStatus: schema.meetings.transcriptStatus,
   summaryMd: schema.meetings.summaryMd,
   userNotesMd: schema.meetings.userNotesMd,
+  actionItemsJson: schema.meetings.actionItemsJson,
   source: schema.meetings.source,
   platform: schema.meetings.platform,
   trashedAt: schema.meetings.trashedAt,
