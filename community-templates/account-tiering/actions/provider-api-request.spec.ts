@@ -4,6 +4,7 @@ const executeRequest = vi.fn();
 
 vi.mock("@agent-native/core/provider-api", () => ({
   createProviderApiRuntime: () => ({ executeRequest }),
+  registerProviderApiActionRuntime: vi.fn(),
 }));
 
 const { default: action, requiresProviderApiApproval } =

@@ -435,6 +435,44 @@ export function retainCommittedSuggestionPresentationTransitions(
   return next;
 }
 
+function placesOnResult(
+  operation: MarkdownOperation,
+  transition: SuggestionPresentationTransition,
+) {
+  const precise = dependentPresentationOperations(operation, transition);
+  return (
+    precise !== null &&
+    precise.every(
+      (span) =>
+        resolveSuggestionPresentationRange(
+          transition.after,
+          span,
+          transition,
+        ) !== null,
+    )
+  );
+}
+
+// A piece can depend on several accepted edits at once, such as the rest of its
+// own edit and a neighboring one. None of them alone explains the Page then, but
+// together they can. Records that only repeat one another add no proof.
+function jointTransition(
+  operation: MarkdownOperation,
+  transitions: SuggestionPresentationTransition[],
+) {
+  const [first = null, ...rest] = transitions;
+  if (!first || rest.length === 0) return null;
+  const joint = rest.reduce<SuggestionPresentationTransition | null>(
+    (all, transition) => all && combinePresentationTransitions(all, transition),
+    first,
+  );
+  return joint &&
+    transitions.every(({ changes }) => joint.changes.length > changes.length) &&
+    placesOnResult(operation, joint)
+    ? joint
+    : null;
+}
+
 export function hydrateSuggestionPresentationTransitions(
   current: SuggestionPresentationTransitions,
   suggestions: PendingSuggestion[],
@@ -486,22 +524,13 @@ export function hydrateSuggestionPresentationTransitions(
   let next: Map<string, SuggestionPresentationTransition> | undefined;
   for (const suggestion of missing) {
     const operation = suggestion.operations[0]!;
-    const matching = candidates.filter((transition) => {
-      const precise = dependentPresentationOperations(operation, transition);
-      return (
-        precise &&
-        precise.every(
-          (span) =>
-            resolveSuggestionPresentationRange(
-              transition.after,
-              span,
-              transition,
-            ) !== null,
-        )
-      );
-    });
-    if (matching.length !== 1) continue;
-    const transition = matching[0]!;
+    const matching = candidates.filter((transition) =>
+      placesOnResult(operation, transition),
+    );
+    const [only, ...others] = matching;
+    const transition =
+      others.length === 0 ? only : jointTransition(operation, matching);
+    if (!transition) continue;
     const precise = dependentPresentationOperations(operation, transition)!;
     if (
       canonical !== canonicalizeNfm(transition.before) &&

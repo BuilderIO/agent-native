@@ -4,13 +4,19 @@ import {
   type CollabUser,
 } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  SaveOverlapError,
+  type SaveOverlap,
+} from "@agent-native/core/save-conflict";
 import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
+import { useSaveConflictPrompt } from "@agent-native/toolkit/app/save-conflict";
 import {
   PresenceBar,
   RecentEditHighlights,
 } from "@agent-native/toolkit/collab-ui";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import { nextAutosaveRetryDelayMs } from "@shared/plan-autosave-retry";
+import { describeOverlappingBlock } from "@shared/plan-blocks-merge";
 import type { PlanFileTreeBlock } from "@shared/plan-content";
 import type {
   PlanAnnotation,
@@ -37,8 +43,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { usePlanPresence } from "@/hooks/use-plan-presence";
 import {
-  PlanBlocksOverlapError,
-  type PlanBlocksRevision,
+  documentHoldsTheirChanges,
+  type PlanBlocksOverlapResolver,
+  type SavedPlanBlocks,
 } from "@/lib/plan-block-save";
 import { cn } from "@/lib/utils";
 
@@ -87,7 +94,10 @@ type PlanContentRendererProps = {
   onContentChange?: (content: PlanContent) => Promise<void> | void;
   onContentPatch?: (
     patch: PlanContentPatch,
-    options?: { base?: PlanBlocksRevision | null },
+    options?: {
+      base?: SavedPlanBlocks | null;
+      resolveOverlap?: PlanBlocksOverlapResolver;
+    },
   ) => Promise<void> | void;
   onOptimisticBlocks?: (blocks: PlanBlock[]) => void;
   onMetadataChange?: (patch: {
@@ -174,12 +184,19 @@ export function PlanContentRenderer({
         : undefined,
     [collabUser?.email, collabUser?.name, collabUser?.color],
   );
-  const { activeUsers, agentPresent, agentActive, recentEdits, collabDoc } =
-    usePlanPresence({
-      planId,
-      enabled: !!planId && !isRecap,
-      user: presenceUser,
-    });
+  const {
+    activeUsers,
+    agentPresent,
+    agentActive,
+    anotherEditorIsLive,
+    collaboratorJustTyped,
+    recentEdits,
+    collabDoc,
+  } = usePlanPresence({
+    planId,
+    enabled: !!planId && !isRecap,
+    user: presenceUser,
+  });
   const documentRegionRef = useRef<HTMLDivElement>(null);
   const resolvePlanEditRect = useCallback(
     (edit: AttributedRecentEdit): DOMRect | null => {
@@ -303,23 +320,96 @@ export function PlanContentRenderer({
   const awaitingManualRetryRef = useRef(false);
   const [autosaveFailed, setAutosaveFailed] = useState(false);
 
+  const editorDocumentWriterRef = useRef<
+    | ((
+        documentAtSave: PlanBlock[],
+        chosen: PlanBlock[],
+        savedCopy: PlanBlock[],
+      ) => boolean)
+    | null
+  >(null);
   const editorBlocksRef = useRef<
     ((pending: PlanBlock[]) => PlanBlock[] | null) | null
   >(null);
   // The saved revision the pending blocks were edited on top of.
-  const pendingBaseRef = useRef<PlanBlocksRevision | null>(null);
+  const pendingBaseRef = useRef<SavedPlanBlocks | null>(null);
   const flushCollabUpdatesRef = useRef(collabDoc.flushUpdates);
   flushCollabUpdatesRef.current = collabDoc.flushUpdates;
   const persistBlocksRef = useRef<
-    (
-      blocks: PlanBlock[],
-      base: PlanBlocksRevision | null,
-    ) => void | Promise<void>
+    (blocks: PlanBlock[], base: SavedPlanBlocks | null) => void | Promise<void>
   >(() => {});
-  persistBlocksRef.current = (nextBlocks: PlanBlock[], base) =>
-    onContentPatch
-      ? onContentPatch({ op: "replace-blocks", blocks: nextBlocks }, { base })
-      : onContentChange?.({ ...content, blocks: nextBlocks });
+  const replaceBlocksRef = useRef<(blocks: PlanBlock[]) => void>(() => {});
+  const contentBlocksRef = useRef(content.blocks);
+  contentBlocksRef.current = content.blocks;
+  const saveConflictPrompt = useSaveConflictPrompt<PlanBlock[]>({
+    record: "plan_blocks",
+    describeField: describeOverlappingBlock,
+    onRestore: (restoreOnto) => {
+      const live = editorBlocksRef.current?.(contentBlocksRef.current);
+      if (!live) return;
+      const restored = restoreOnto(live);
+      editorDocumentWriterRef.current?.(live, restored, live);
+      replaceBlocksRef.current(restored);
+    },
+  });
+  // A save from someone else in the live document overlaps with a copy that
+  // already has their text, which can still be on its way here.
+  const documentSettledOverlap = async (overlap: SaveOverlap<PlanBlock[]>) => {
+    if (!anotherEditorIsLive) return false;
+    const sync = await collabDoc.requestSync();
+    // A document that couldn't catch up can't settle this, so the person decides.
+    if (sync.status !== "synced") return false;
+    // Someone idle has no typing here, so this overlap isn't with them.
+    if (!collaboratorJustTyped()) return false;
+    const live = editorBlocksRef.current?.(overlap.mine);
+    return !!live && documentHoldsTheirChanges(overlap, live);
+  };
+  // The version to keep goes into the live document first: nothing else would
+  // replace the text given up, and collaborators' editors must have it before
+  // the saved copy reaches them, or they insert the text twice.
+  const resolveOverlap = async (
+    overlap: SaveOverlap<PlanBlock[]>,
+    finished: Promise<boolean>,
+    documentAtSave: PlanBlock[],
+  ) => {
+    const chosen = (await documentSettledOverlap(overlap))
+      ? overlap.keepMine
+      : await saveConflictPrompt.resolveOverlap(overlap, finished);
+    const writeToDocument = editorDocumentWriterRef.current;
+    // Someone typed in the same place while this was being decided, so neither
+    // version holds their text. Nothing saves until the person retries and sees it.
+    if (
+      writeToDocument &&
+      !writeToDocument(documentAtSave, chosen, overlap.theirs)
+    ) {
+      throw new SaveOverlapError(overlap);
+    }
+    if (!(await flushCollabUpdatesRef.current())) {
+      throw new Error("Live edits have not reached the server yet.");
+    }
+    return chosen;
+  };
+  persistBlocksRef.current = (nextBlocks: PlanBlock[], base) => {
+    if (!onContentPatch) {
+      return onContentChange?.({ ...content, blocks: nextBlocks });
+    }
+    // A save can ask more than once, and each choice is what the next one replaces.
+    let documentAtSave = nextBlocks;
+    return onContentPatch(
+      { op: "replace-blocks", blocks: nextBlocks },
+      {
+        base,
+        resolveOverlap: async (overlap, finished) => {
+          documentAtSave = await resolveOverlap(
+            overlap,
+            finished,
+            documentAtSave,
+          );
+          return documentAtSave;
+        },
+      },
+    );
+  };
   const scheduleSaveRef = useRef<(delayMs?: number) => void>(() => {});
   scheduleSaveRef.current = (delayMs = AUTOSAVE_DEBOUNCE_MS) => {
     if (saveTimerRef.current !== null)
@@ -359,8 +449,7 @@ export function PlanContentRenderer({
       .catch((error) => {
         failed = true;
         consecutiveFailuresRef.current += 1;
-        awaitingManualRetryRef.current =
-          error instanceof PlanBlocksOverlapError;
+        awaitingManualRetryRef.current = error instanceof SaveOverlapError;
         if (pendingBlocksRef.current === null) {
           pendingBlocksRef.current = next;
           pendingBaseRef.current = base;
@@ -407,7 +496,7 @@ export function PlanContentRenderer({
   }, [autosaveFailed]);
   const replaceBlocks = async (
     nextBlocks: PlanBlock[],
-    base: PlanBlocksRevision | null = null,
+    base: SavedPlanBlocks | null = null,
   ) => {
     if (
       onOptimisticBlocks &&
@@ -419,6 +508,7 @@ export function PlanContentRenderer({
     pendingBaseRef.current = base;
     scheduleSaveRef.current(AUTOSAVE_DEBOUNCE_MS);
   };
+  replaceBlocksRef.current = (nextBlocks) => void replaceBlocks(nextBlocks);
   useEffect(
     () => () => {
       if (saveTimerRef.current !== null) {
@@ -680,6 +770,7 @@ export function PlanContentRenderer({
         data-plan-layout={documentLayout}
         data-recap-screenshot-theme={recapScreenshotTheme ?? undefined}
       >
+        {saveConflictPrompt.prompt}
         {autosaveFailed && (
           <div className="pointer-events-none absolute bottom-4 left-1/2 z-50 -translate-x-1/2">
             <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/80 bg-background/95 px-3 py-1.5 text-sm shadow-lg backdrop-blur-sm">
@@ -829,6 +920,7 @@ export function PlanContentRenderer({
                           editable
                           onBlocksChange={replaceBlocks}
                           blocksReaderRef={editorBlocksRef}
+                          documentWriterRef={editorDocumentWriterRef}
                           onVisualQuestionsSubmit={onVisualQuestionsSubmit}
                           sharedCollabDoc={collabDoc}
                         />

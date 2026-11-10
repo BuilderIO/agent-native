@@ -38,6 +38,8 @@ export interface Document {
   position: number;
   isFavorite: boolean;
   hideFromSearch: boolean;
+  /** A person has set agents to Can comment on this page. */
+  agentTextLocked?: boolean;
   notionPageId?: string | null;
   notionPageUrl?: string | null;
   visibility?: "private" | "org" | "public";

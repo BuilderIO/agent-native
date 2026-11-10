@@ -803,6 +803,8 @@ export function restoreQuerySnapshots(
   }
 }
 
+const DATABASE_ITEM_PREVIEW_PROPERTIES_READ_MS = 5_000;
+
 export function seedDatabaseItemDocumentCaches(
   queryClient: Pick<QueryClient, "getQueryData" | "setQueryData">,
   item: ContentDatabaseItem,
@@ -824,6 +826,44 @@ export function seedDatabaseItemDocumentCaches(
       { updatedAt: 0 },
     );
   }
+}
+
+// A row's panel starts its reads ahead of the switch, so a read that lands in
+// time lets the switch go straight to the finished page. A rest on a row may
+// never become a switch, so it leaves the review reads to the switch.
+export function startDatabaseItemPreviewReads(
+  queryClient: QueryClient,
+  item: ContentDatabaseItem,
+  databaseDocumentId: string,
+  { reviewReads = true }: { reviewReads?: boolean } = {},
+) {
+  seedDatabaseItemDocumentCaches(queryClient, item);
+  startPageOpenDocumentReads(
+    queryClient,
+    item.document.id,
+    { databaseId: item.databaseId, databaseDocumentId },
+    { reviewReads },
+  );
+  // Like the review reads, this read isn't tracked as the open's own, so one
+  // sent as someone else couldn't be dropped: it starts once the session this
+  // tab accepts is known.
+  whenReadIdentityCurrent(
+    queryClient,
+    sessionReadIdentity(),
+    () =>
+      void queryClient.prefetchQuery({
+        queryKey: documentPropertiesQueryKey(item.document.id, item.databaseId),
+        queryFn: ({ signal }) =>
+          callAction<DocumentPropertiesResponse>(
+            "list-document-properties",
+            { documentId: item.document.id, databaseId: item.databaseId },
+            { method: "GET", signal },
+          ),
+        staleTime: DATABASE_ITEM_PREVIEW_PROPERTIES_READ_MS,
+        retry: false,
+      }),
+    { documentId: item.document.id },
+  );
 }
 
 export function useDocuments(options?: { enabled?: boolean }) {
@@ -964,11 +1004,15 @@ export function startPageOpenDocumentReads(
   {
     fromLoad = false,
     databaseViewId = null,
+    reviewReads = true,
   }: {
     // A load's own open, whose read the document head may already have sent.
     fromLoad?: boolean;
     // The collection view the opened address names, if any.
     databaseViewId?: string | null;
+    // Off for a read ahead of a row that may never open: its comment and
+    // suggestion reads wait for the row's own open.
+    reviewReads?: boolean;
   } = {},
 ) {
   trackDocumentReadFailures(queryClient);
@@ -1110,6 +1154,7 @@ export function startPageOpenDocumentReads(
       { identity, ...(startedAt === undefined ? {} : { startedAt }) },
     );
   }
+  if (!reviewReads) return;
   // The review reads are not tracked as this open's reads, so one sent as
   // someone else could not be dropped: they start once the session this tab
   // accepts is the one the page read was sent as.
@@ -1300,6 +1345,7 @@ export function useUpdatePreviewDocumentDraft() {
       }
   >("update-preview-document-draft", {
     skipActionQueryInvalidation: true,
+    errorNotification: "caller",
     // This tab's own draft writes never come back through sync.
     onMutate: (variables) => {
       spoilPageOpenReads(queryClient, variables.documentId);

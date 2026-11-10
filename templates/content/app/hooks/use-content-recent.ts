@@ -5,6 +5,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import { scheduleAfterStartup } from "@agent-native/core/client/use-after-paint";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   CONTENT_RECENT_LIMIT,
   contentRecentTargetKey,
@@ -14,7 +15,6 @@ import {
 } from "@shared/content-personal-navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 
 const contentRecentRecoveries = new WeakMap<
   ReturnType<typeof useQueryClient>,
@@ -246,7 +246,7 @@ export function useRemoveContentRecent() {
             : current,
       );
       mutationRef.current.mutate(target, {
-        onError: () => {
+        onError: (error) => {
           for (const [
             cachedKey,
             data,
@@ -271,7 +271,9 @@ export function useRemoveContentRecent() {
             );
             queryClient.setQueryData(cachedKey, { ...data, entries });
           }
-          toast.error(t("sidebar.failedRemoveFromRecent"));
+          reportWriteFailure(error, {
+            label: t("sidebar.failedRemoveFromRecent"),
+          });
         },
         onSettled: () => {
           void queryClient.invalidateQueries({ queryKey });
@@ -364,8 +366,8 @@ export function useContentVisitRecorder() {
         void queryClient.invalidateQueries(recent);
       }
     },
-    onError: () => {
-      toast.error(t("sidebar.failedSaveSidebarState"));
+    onError: (error) => {
+      reportWriteFailure(error, { label: t("sidebar.failedSaveSidebarState") });
     },
   });
   const mutationRef = useRef(mutation);

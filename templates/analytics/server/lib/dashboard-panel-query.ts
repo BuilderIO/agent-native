@@ -8,6 +8,7 @@ import {
 import type { MissingKeyResponse } from "@agent-native/core/server";
 
 import type { SqlQueryExecutionMetadata } from "../../shared/sql-query-contract";
+import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import { getUserSegmentation, queryEvents } from "./amplitude";
 import { runQuery } from "./bigquery";
 import { runDemoPanel, serializeDemoDescriptorInput } from "./demo-source";
@@ -423,6 +424,8 @@ export async function runDashboardPanelQuery(args: {
   signal?: AbortSignal;
   /** Billed-byte cap for warehouse-backed sources; the others ignore it. */
   maxBytesBilled?: number;
+  /** First-party panels only; the other sources have no traffic to filter. */
+  trafficEnvironment?: TrafficEnvironment;
 }): Promise<
   DashboardPanelQueryResult | MissingKeyResponse | UnsupportedBackendResponse
 > {
@@ -434,6 +437,7 @@ export async function runDashboardPanelQuery(args: {
     forceRefresh,
     signal,
     maxBytesBilled,
+    trafficEnvironment,
   } = args;
 
   if (source === "bigquery") {
@@ -495,8 +499,10 @@ export async function runDashboardPanelQuery(args: {
         },
         {
           cache: true,
+          ...(signal ? { signal } : {}),
           ...(timeoutMs !== undefined ? { timeoutMs } : {}),
           ...(maxBytesBilled !== undefined ? { maxBytesBilled } : {}),
+          ...(trafficEnvironment ? { trafficEnvironment } : {}),
         },
       );
     } catch (error) {
