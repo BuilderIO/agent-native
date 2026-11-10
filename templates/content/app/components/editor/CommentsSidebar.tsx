@@ -104,9 +104,8 @@ import {
   type CommentAiDraft,
   type CommentAiSubmitPayload,
 } from "./CommentComposer";
-import { CommentEntry } from "./CommentEntry";
+import { AgentAttributionBadge, CommentEntry } from "./CommentEntry";
 import {
-  CommentAgentBadge,
   CommentAvatar,
   CommentIconButton,
   CommentRow,
@@ -4998,22 +4997,15 @@ function SuggestionThreadView({
         renderCommentBadge={(commentId) =>
           commentId === thread.comments[0]?.id &&
           suggestion.actorKind === "agent" ? (
-            <CommentAgentBadge
-              ariaLabel={`${t("comments.aiAttribution", {
-                name: suggestion.authorEmail ?? "",
-              })}. ${t("comments.aiSourceAgent")}`}
-              details={
-                <span className="grid gap-0.5">
-                  <span>
-                    {t("comments.aiAttribution", {
-                      name: suggestion.authorEmail ?? "",
-                    })}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {t("comments.aiSourceAgent")}
-                  </span>
-                </span>
+            <AgentAttributionBadge
+              source={suggestion.authorSource === "mcp" ? "mcp" : "agent"}
+              authorName={
+                suggestion.authorEmail
+                  ? (thread.comments[0]?.author_name ??
+                    suggestion.authorEmail.replace(/@.*$/, ""))
+                  : ""
               }
+              client={suggestion.authorClient}
             />
           ) : null
         }
