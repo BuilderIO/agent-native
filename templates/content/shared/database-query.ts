@@ -707,10 +707,11 @@ function addMonths(day: string, months: number) {
 /**
  * The order an ascending sort puts a property's values in, which the sort
  * controls name each direction after ("A → Z", "Old → new"). It follows
- * `itemSortValue`: text and option names sort alphabetically, numbers by
- * value, ISO dates by time, and checkboxes unchecked first. "other" covers
- * values with no order a person would name: a formula can return text, a
- * number or a date, and relations and files sort by stored IDs and links.
+ * `itemSortValue`: text and option names sort alphabetically with digit runs
+ * compared as numbers ("Step 2" before "Step 10"), numbers by value, ISO dates
+ * by time, and checkboxes unchecked first. "other" covers values with no
+ * order a person would name: a formula can return text, a number or a date,
+ * and relations and files sort by stored IDs and links.
  */
 export type ContentDatabaseSortOrder =
   | "text"
