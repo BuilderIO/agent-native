@@ -13,6 +13,8 @@ export interface JoinedShareControlProps {
   copiedLabel: string;
   onCopy: () => Promise<boolean | void> | boolean | void;
   size?: "default" | "sm";
+  /** `plain` sets the two apart, as quiet controls in a toolbar. */
+  appearance?: "joined" | "plain";
   disabled?: boolean;
   blocked?: boolean;
   className?: string;
@@ -29,6 +31,7 @@ export const JoinedShareControl = forwardRef<
     copiedLabel,
     onCopy,
     size = "default",
+    appearance = "joined",
     disabled,
     blocked,
     className,
@@ -55,6 +58,46 @@ export const JoinedShareControl = forwardRef<
   };
 
   const label = copied ? copiedLabel : copyLabel;
+  const plain = appearance === "plain";
+  const copyButton = (
+    // A click closes a tooltip, so the confirmation holds it open.
+    <Tooltip {...(copied ? { open: true } : {})}>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          size="sm"
+          variant={plain ? "ghost" : "default"}
+          className={cn(
+            "w-8 shrink-0 px-0 shadow-none",
+            plain && "text-muted-foreground hover:text-foreground",
+            blocked && "opacity-50",
+          )}
+          aria-label={label}
+          disabled={disabled}
+          data-blocked={blocked ? "" : undefined}
+          onClick={() => void copy()}
+        >
+          {copied ? (
+            <IconCheck aria-hidden="true" />
+          ) : (
+            <IconLink aria-hidden="true" />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+  if (plain) {
+    return (
+      <div
+        ref={ref}
+        className={cn("flex shrink-0 items-center gap-0.5", className)}
+      >
+        {trigger}
+        {copyButton}
+      </div>
+    );
+  }
   const segmentHeightClass =
     size === "sm"
       ? "[&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:!h-8"
@@ -69,30 +112,7 @@ export const JoinedShareControl = forwardRef<
       )}
     >
       {trigger}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            size="sm"
-            variant="default"
-            className={cn(
-              "w-8 shrink-0 px-0 shadow-none",
-              blocked && "opacity-50",
-            )}
-            aria-label={label}
-            disabled={disabled}
-            data-blocked={blocked ? "" : undefined}
-            onClick={() => void copy()}
-          >
-            {copied ? (
-              <IconCheck aria-hidden="true" />
-            ) : (
-              <IconLink aria-hidden="true" />
-            )}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">{label}</TooltipContent>
-      </Tooltip>
+      {copyButton}
     </ButtonGroup>
   );
 });

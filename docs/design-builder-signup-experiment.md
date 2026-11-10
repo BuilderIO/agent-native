@@ -132,3 +132,17 @@ join unknown cohorts; they never supply activity to production or beta cohorts.
 Employee classification uses authenticated assignment identity evidence before
 signup eligibility, primary-person ranking, or ambiguity exclusion. Any known Builder identity excludes
 the assignment from the external cohort.
+
+## Clips and Slides rollout
+
+Clips and Slides use the same pre-signup 50/50 assignment, Builder terms/privacy disclosure, verified consent, first-request background activation, and existing-account fallback. They use `clips_builder_signup_v1` and `slides_builder_signup_v1`, respectively. Design remains `design_builder_signup_v1`. Assignments, consent records and activation reservations are isolated by experiment ID, including the cookie signature. Exposure events carry the ID returned by the server rather than assuming Design.
+
+Their AppProviders startup gate defers first-run onboarding during eligibility lookup while keeping ordinary app content interactive. An inconclusive lookup shows a nonblocking Retry notice. Confirmed activation covers the app until its outcome, then refreshes connection queries. Controls and ineligible or fallback users retain the existing connection flow. Public and embedded routes do not provision accounts.
+
+Analyze each app separately using its experiment ID and production app identity; do not pool Clips or Slides into the Design dashboard. Use common exposure/enrollment/activation/outcome events for connection funnels, and the app's native creation events for activation.
+
+Design, Clips, and Slides now share the AppProviders activation gate and bounded retry UI. Pending reservations remain pending on hosts without background execution; uncertain reservations remain owned even after a timeout, so a late automatic result cannot race a manual connection. Bounded client recovery then offers Retry while the server outcome remains unknown. Manual setup resumes only after a recorded terminal fallback.
+
+Completed automatic credential writes carry an attempt-specific receipt on the final private-key write, after all other credential metadata has saved. A later authenticated status/start/activate request checks the same authorized user or organization scope and can reconcile a failed terminal outcome write from that receipt, without re-provisioning or releasing an active provider operation. Legacy unreceipted unknown attempts remain pending for explicit investigation. Command menus use actual startup interaction blocking, rather than mere onboarding deferral, so keyboard portals cannot escape confirmed activation.
+
+After an activation transport failure, a failed status query pauses automatic polling and keeps the confirmed cover with a manual Retry action. Signup canaries accept configured credentials in either supported user or organization scope; this connection check is distinct from the experiment’s recorded automatic-provisioning outcome.

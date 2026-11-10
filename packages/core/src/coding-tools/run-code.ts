@@ -484,7 +484,8 @@ async function describeSandboxExecutionForOwner(
     });
   }
 
-  let row = await getSandboxExecutionForOwner(executionId, owner);
+  const orgId = context?.orgId ?? getRequestContext()?.orgId ?? null;
+  let row = await getSandboxExecutionForOwner(executionId, owner, orgId);
   if (!row) {
     return structuredRunCodeError({
       executionId,
@@ -560,7 +561,20 @@ async function describeSandboxExecutionForOwner(
       `Executor lease expired after ${row.attemptCount} attempt(s); the execution environment was likely terminated before the code finished. Split the computation into smaller chunks or persist intermediate results (e.g. workspaceWrite) and run again.`,
       now,
     );
-    row = (await getSandboxExecutionForOwner(executionId, owner)) ?? row;
+    const refreshed = await getSandboxExecutionForOwner(
+      executionId,
+      owner,
+      orgId,
+    );
+    if (!refreshed) {
+      return structuredRunCodeError({
+        executionId,
+        code: "execution_not_found",
+        message: `No background execution "${executionId}" exists for this user.`,
+        guidance: "Check the executionId and your current organization access.",
+      });
+    }
+    row = refreshed;
   }
 
   return formatTerminalSandboxExecution(row);

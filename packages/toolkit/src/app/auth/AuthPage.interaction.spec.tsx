@@ -44,9 +44,13 @@ describe("AuthPage interactions", () => {
     vi.restoreAllMocks();
   });
 
-  it.each(["control", "automatic"] as const)(
-    "shows Builder legal disclosure before Google-only signup only for the %s assignment",
-    async (variant) => {
+  it.each(
+    ["design", "clips", "slides"].flatMap((app) =>
+      (["control", "automatic"] as const).map((variant) => ({ app, variant })),
+    ),
+  )(
+    "shows Builder legal disclosure before $app signup only for $variant",
+    async ({ app, variant }) => {
       vi.stubGlobal(
         "fetch",
         vi.fn(async (input: RequestInfo | URL) => ({
@@ -72,7 +76,7 @@ describe("AuthPage interactions", () => {
                 requestPath: "/signup",
               }),
             )}
-            trackingApp="design"
+            trackingApp={app}
             googleOnly
             showGoogle
             signupLegalNotice={{
@@ -249,7 +253,7 @@ describe("AuthPage interactions", () => {
     expect(toggle?.textContent?.trim()).toBe("Show full sign in options");
   });
 
-  it("uses a full-page Google redirect by default without opening a popup", async () => {
+  it("uses a full-page Google redirect without a popup or desktop flow id", async () => {
     const open = vi.spyOn(window, "open");
     const replace = vi
       .spyOn(window.location, "replace")
@@ -279,6 +283,7 @@ describe("AuthPage interactions", () => {
     expect(target.pathname).toBe("/_agent-native/google/auth-url");
     expect(target.searchParams.get("redirect")).toBe("1");
     expect(target.searchParams.get("return")).toBeTruthy();
+    expect(target.searchParams.has("flow_id")).toBe(false);
   });
 
   it("keeps automatic Google sign-in in a popup when embedded", async () => {

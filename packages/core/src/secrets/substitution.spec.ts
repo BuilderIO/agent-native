@@ -255,7 +255,7 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
     });
   });
 
-  it("returns null from getResolvedKeyAllowlist when the key has no allowlist or is missing", async () => {
+  it("uses provider policy when a resolved key has no stored allowlist", async () => {
     mockReadAppSecretMeta.mockResolvedValueOnce({ urlAllowlist: null });
     await expect(
       getResolvedKeyAllowlist({
@@ -263,7 +263,7 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
         scope: "org",
         scopeId: "org_123",
       }),
-    ).resolves.toBeNull();
+    ).resolves.toEqual(["https://api.github.com"]);
 
     mockReadAppSecretMeta.mockResolvedValueOnce(null);
     await expect(
@@ -272,7 +272,20 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
         scope: "org",
         scopeId: "org_123",
       }),
-    ).resolves.toBeNull();
+    ).resolves.toEqual(["https://api.github.com"]);
+  });
+
+  it("intersects a saved provider policy with its fixed destinations", async () => {
+    mockReadAppSecretMeta.mockResolvedValue({
+      urlAllowlist: ["https://api.github.com", "https://other.example.test"],
+    });
+    await expect(
+      getResolvedKeyAllowlist({
+        name: "GITHUB_TOKEN",
+        scope: "org",
+        scopeId: "org_123",
+      }),
+    ).resolves.toEqual(["https://api.github.com"]);
   });
 });
 
@@ -415,9 +428,9 @@ describe("resolveKeyReferences", () => {
 });
 
 describe("validateUrlAllowlist", () => {
-  it("is permissive when no allowlist is configured", () => {
-    expect(validateUrlAllowlist("https://anything.test/x", null)).toBe(true);
-    expect(validateUrlAllowlist("https://anything.test/x", [])).toBe(true);
+  it("blocks URLs when no allowlist is configured", () => {
+    expect(validateUrlAllowlist("https://anything.test/x", null)).toBe(false);
+    expect(validateUrlAllowlist("https://anything.test/x", [])).toBe(false);
   });
 
   it("allows a URL whose origin exactly matches an allowlist entry", () => {
@@ -445,17 +458,30 @@ describe("validateUrlAllowlist", () => {
     ).toBe(false);
   });
 
+  it("blocks saved public HTTP origins at request time while allowing loopback", () => {
+    expect(
+      validateUrlAllowlist("http://api.example.test/data", [
+        "http://api.example.test",
+      ]),
+    ).toBe(false);
+    expect(
+      validateUrlAllowlist("http://localhost:3000/data", [
+        "http://localhost:3000",
+      ]),
+    ).toBe(true);
+  });
+
   it("returns false for a malformed target URL", () => {
     expect(validateUrlAllowlist("not a url", ["https://api.test"])).toBe(false);
   });
 
-  it("skips malformed allowlist entries but still matches valid ones", () => {
+  it("rejects malformed allowlist entries even when another entry matches", () => {
     expect(
       validateUrlAllowlist("https://api.test/x", [
         "::::garbage",
         "https://api.test",
       ]),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       validateUrlAllowlist("https://api.test/x", ["::::garbage", "also bad"]),
     ).toBe(false);
@@ -479,10 +505,26 @@ describe("getKeyAllowlist", () => {
     ).resolves.toEqual(["https://api.openai.com"]);
   });
 
-  it("returns null when the key exists but has no allowlist", async () => {
+  it("does not return an added origin for a known provider key", async () => {
+    mockReadAppSecretMeta.mockResolvedValue({
+      urlAllowlist: ["https://api.openai.com", "https://other.example.test"],
+    });
+
+    await expect(
+      getKeyAllowlist("OPENAI_API_KEY", "user", "alice@example.test"),
+    ).resolves.toEqual(["https://api.openai.com"]);
+  });
+
+  it("uses the registered provider policy when the key has no stored allowlist", async () => {
     mockReadAppSecretMeta.mockResolvedValue({ urlAllowlist: null });
     await expect(
       getKeyAllowlist("OPENAI_API_KEY", "user", "alice@example.test"),
+    ).resolves.toEqual(["https://api.openai.com"]);
+  });
+
+  it("does not inherit a policy from an object prototype property", async () => {
+    await expect(
+      getKeyAllowlist("constructor", "user", "alice@example.test"),
     ).resolves.toBeNull();
   });
 
@@ -495,7 +537,7 @@ describe("getKeyAllowlist", () => {
 
     await expect(
       getKeyAllowlist("OPENAI_API_KEY", "user", "alice@example.test"),
-    ).resolves.toBeNull();
+    ).resolves.toEqual(["https://api.openai.com"]);
     // Only the user scope was consulted — the allowlist check stays aligned
     // with resolveKeyReferences so we never allow a URL the resolver refuses.
     expect(mockReadAppSecretMeta).toHaveBeenCalledTimes(1);
@@ -511,10 +553,10 @@ describe("getKeyAllowlist", () => {
     );
 
     await expect(
-      getKeyAllowlist("OPENAI_API_KEY", "user", "alice@example.test"),
+      getKeyAllowlist("CUSTOM_TOKEN", "user", "alice@example.test"),
     ).resolves.toEqual(["https://workspace.test"]);
     expect(mockReadAppSecretMeta).toHaveBeenCalledWith({
-      key: "OPENAI_API_KEY",
+      key: "CUSTOM_TOKEN",
       scope: "workspace",
       scopeId: "org_555",
     });
