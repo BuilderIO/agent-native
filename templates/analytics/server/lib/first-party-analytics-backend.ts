@@ -2143,6 +2143,9 @@ export async function queryFirstPartyAnalyticsInBigQuery(
     rows: result.rows,
     schema: result.schema,
     bytesProcessed: result.bytesProcessed,
+    ...(result.usageAccounting
+      ? { usageAccounting: result.usageAccounting }
+      : {}),
     ...(eventsSource ? { eventsSource } : {}),
     ...(result.sourceGeneration !== undefined
       ? { sourceGeneration: result.sourceGeneration }

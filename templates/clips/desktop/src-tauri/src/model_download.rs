@@ -7,6 +7,18 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Emitter};
 
+/// A model file at a fixed revision, with the size and SHA-256 it must have.
+// Only the macOS build downloads the files; elsewhere just their size is shown.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) struct PinnedFile {
+    pub url: &'static str,
+    pub filename: &'static str,
+    pub sha256: &'static str,
+    pub size_bytes: u64,
+    /// Decimal megabytes, the unit Finder and the download page use.
+    pub size_mb: u64,
+}
+
 /// One pinned model file and where its progress goes.
 pub(crate) struct VerifiedDownload<'a> {
     pub url: &'a str,

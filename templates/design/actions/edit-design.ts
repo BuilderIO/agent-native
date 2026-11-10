@@ -189,6 +189,8 @@ export function preCheckpointNoWriteError(error: unknown): NoWriteError {
 export default defineAction({
   description:
     "Edit ONE file in a design after reading it with get-design-snapshot. " +
+    "To move an element to another screen use move-design-element, not two " +
+    "edits here. " +
     '`mode` defaults to "search-replace" (apply edit blocks); use ' +
     '`mode: "replace-file"` with `replacementContent` only for the ' +
     "broad-replacement cases below. For small localized refinements, apply " +
