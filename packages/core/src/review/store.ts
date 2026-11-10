@@ -1629,11 +1629,12 @@ async function writeReviewCommentChange(
 ): Promise<ReviewComment | null> {
   const current = await lockLiveReviewComment(client, id, resource);
   if (!current) return null;
+  const revision = current.revision ?? 1;
   if (
     options.expectedRevision !== undefined &&
-    options.expectedRevision !== (current.revision ?? 1)
+    options.expectedRevision !== revision
   ) {
-    throw new ReviewCommentRevisionConflictError(id, current.revision ?? 1);
+    throw new ReviewCommentRevisionConflictError(id, revision);
   }
   const assignments: SqlFragment[] = [];
   if (input.body !== undefined) {
@@ -1667,17 +1668,13 @@ async function writeReviewCommentChange(
   if (!assignments.length) return current;
   // The row lock holds the revision inside a transaction. The update checks
   // it again, so a client without one can't write over a change made after
-  // its read.
-  const conditions = [sql`id = ${sql.value(id)}`];
-  if (options.expectedRevision !== undefined) {
-    conditions.push(sql`revision = ${sql.value(options.expectedRevision)}`);
-  }
+  // its read, whether or not the caller named a revision.
   const result = await client.execute(sql`UPDATE agent_review_comments
         SET ${sql.join(assignments, sql`, `)},
             revision = revision + 1,
             updated_at = ${sql.value(new Date().toISOString())}
-      WHERE ${sql.join(conditions, sql` AND `)}`);
-  if (options.expectedRevision !== undefined && result.rowsAffected < 1) {
+      WHERE id = ${sql.value(id)} AND revision = ${sql.value(revision)}`);
+  if (result.rowsAffected < 1) {
     const latest = await getReviewCommentByIdWithClient(client, id);
     throw new ReviewCommentRevisionConflictError(id, latest?.revision ?? 1);
   }
@@ -1765,7 +1762,7 @@ export async function resolveReviewThreadWithClient(
     : "";
   // raw-sql-ok: the resource clause is constant text; the ids are bound.
   const root = await client.execute({
-    sql: `SELECT metadata_json, resource_type, resource_id
+    sql: `SELECT metadata_json
        FROM agent_review_comments
       WHERE thread_id = ?
         AND parent_comment_id IS NULL
@@ -1796,20 +1793,30 @@ export async function resolveReviewThreadWithClient(
   // Only comments not already in this state change, so resolving a resolved
   // thread again moves no revision and fires no hook; a new resolution note
   // still rewrites the first comment, keeping who resolved it and when.
+  // A thread ID can repeat across resources, so a call that names none counts
+  // each resource apart and runs each changed one's hook.
   // raw-sql-ok: the resource clause is constant text; the ids are bound.
   const counts = await client.execute({
-    sql: `SELECT COUNT(*) AS live,
+    sql: `SELECT resource_type, resource_id, COUNT(*) AS live,
             COALESCE(SUM(CASE WHEN status <> ? THEN 1 ELSE 0 END), 0) AS changing
        FROM agent_review_comments
-      WHERE thread_id = ? AND deleted_at IS NULL ${resourceClause}`,
+      WHERE thread_id = ? AND deleted_at IS NULL ${resourceClause}
+      GROUP BY resource_type, resource_id
+      ORDER BY resource_type, resource_id`,
     args: [
       status,
       threadId,
       ...(resource ? [resource.resourceType, resource.resourceId] : []),
     ],
   });
-  const live = Number(counts.rows[0]?.live ?? 0);
-  const changing = Number(counts.rows[0]?.changing ?? 0);
+  const perResource = counts.rows.map((row) => ({
+    resourceType: String(row.resource_type),
+    resourceId: String(row.resource_id),
+    live: Number(row.live),
+    changing: Number(row.changing),
+  }));
+  const live = perResource.reduce((sum, row) => sum + row.live, 0);
+  const changing = perResource.reduce((sum, row) => sum + row.changing, 0);
   if (changing > 0 || noteChanges) {
     const metadataAssignment = noteChanges
       ? ", metadata_json = CASE WHEN parent_comment_id IS NULL THEN ? ELSE metadata_json END"
@@ -1850,14 +1857,14 @@ export async function resolveReviewThreadWithClient(
       ],
     });
   }
-  if (changing > 0) {
-    const resourceType = String(root.rows[0].resource_type);
+  for (const changed of perResource) {
+    if (changed.changing < 1) continue;
     await runReviewCommentWriteHook(
-      resourceType,
+      changed.resourceType,
       {
         type: status === "resolved" ? "resolved" : "reopened",
-        resourceType,
-        resourceId: String(root.rows[0].resource_id),
+        resourceType: changed.resourceType,
+        resourceId: changed.resourceId,
         threadId,
         actorEmail: resolvedBy ?? null,
       },

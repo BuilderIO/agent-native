@@ -1562,7 +1562,10 @@ describe("review writes on a client without transactions", () => {
     ).resolves.toMatchObject({ body: "Edited", status: "resolved" });
   });
 
-  it("refuses an edit whose revision changed after it was read", async () => {
+  it.each([
+    { label: "with", options: { expectedRevision: 1 } },
+    { label: "without", options: {} },
+  ])("refuses a stale edit, $label expectedRevision", async ({ options }) => {
     const comment = await insertReviewComment({
       resourceType: "doc",
       resourceId: "doc-1",
@@ -1587,9 +1590,7 @@ describe("review writes on a client without transactions", () => {
     });
     try {
       await expect(
-        updateReviewComment(comment.id, { body: "Edited" }, undefined, {
-          expectedRevision: 1,
-        }),
+        updateReviewComment(comment.id, { body: "Edited" }, undefined, options),
       ).rejects.toMatchObject({
         errorCode: "revision_conflict",
         currentRevision: 2,

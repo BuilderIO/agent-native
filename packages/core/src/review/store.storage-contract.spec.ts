@@ -485,6 +485,20 @@ describe.sequential("the review kit's storage contract", () => {
     ]);
   });
 
+  it("runs each resource's hook when a resolve names no resource", async () => {
+    const first = await insertReviewComment(comment(HOOKED, "doc-shared-a"));
+    // A thread ID can repeat across resources.
+    await insertReviewComment(
+      comment(HOOKED, "doc-shared-b", { threadId: first.threadId }),
+    );
+    hookEvents.length = 0;
+    await expect(resolveReviewThread(first.threadId, OWNER)).resolves.toBe(2);
+    expect(hookEvents).toEqual([
+      expect.objectContaining({ type: "resolved", resourceId: "doc-shared-a" }),
+      expect.objectContaining({ type: "resolved", resourceId: "doc-shared-b" }),
+    ]);
+  });
+
   it("rolls the write back when the hook refuses it", async () => {
     const before = await hookLog();
     await expect(
