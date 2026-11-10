@@ -453,7 +453,13 @@
     },
     {
       "name": "notionColumn",
-      "attrs": [],
+      "attrs": [
+        {
+          "name": "ratio",
+          "hasDefault": true,
+          "default": null
+        }
+      ],
       "content": "block+",
       "defining": true
     },

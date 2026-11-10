@@ -253,7 +253,7 @@ describe("AuthPage interactions", () => {
     expect(toggle?.textContent?.trim()).toBe("Show full sign in options");
   });
 
-  it("uses a full-page Google redirect by default without opening a popup", async () => {
+  it("uses a full-page Google redirect without a popup or desktop flow id", async () => {
     const open = vi.spyOn(window, "open");
     const replace = vi
       .spyOn(window.location, "replace")
@@ -283,6 +283,7 @@ describe("AuthPage interactions", () => {
     expect(target.pathname).toBe("/_agent-native/google/auth-url");
     expect(target.searchParams.get("redirect")).toBe("1");
     expect(target.searchParams.get("return")).toBeTruthy();
+    expect(target.searchParams.has("flow_id")).toBe(false);
   });
 
   it("keeps automatic Google sign-in in a popup when embedded", async () => {

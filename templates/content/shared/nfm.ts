@@ -1,4 +1,9 @@
 import {
+  formatColumnRatio,
+  normalizeColumnRatios,
+  parseColumnRatio,
+} from "./column-ratios.js";
+import {
   isEscapedInlineDelimiter,
   matchInlineMathAt,
   MAX_INLINE_MATH_LENGTH,
@@ -1617,7 +1622,10 @@ function serializeBlock(node: PMNode, indent: number): string[] {
     case "notionColumns":
       return serializeColumns(node, ind);
     case "notionColumn": {
-      const out = [indentStr(ind) + "<column>"];
+      const ratio = parseColumnRatio(node.attrs?.ratio);
+      const attrStr =
+        ratio === null ? "" : ` ratio="${formatColumnRatio(ratio)}"`;
+      const out = [indentStr(ind) + `<column${attrStr}>`];
       pushAll(out, serializeBlocks(node.content || [], ind + 1));
       out.push(indentStr(ind) + "</column>");
       return out;
@@ -2031,7 +2039,7 @@ const CONTAINER_CLOSE: Record<string, string> = {
   "<details": "</details>",
   "<callout": "</callout>",
   "<columns>": "</columns>",
-  "<column>": "</column>",
+  "<column": "</column>",
   "<table": "</table>",
   "<synced_block_reference": "</synced_block_reference>",
   "<synced_block": "</synced_block>",
@@ -3371,15 +3379,33 @@ function parseContainer(
       else if (last) appendBlocks((last.content ??= []), [child]);
       else columns.push({ type: "notionColumn", content: [child] });
     }
+    // A set that gives some columns a width gives one to all of them.
+    const ratios = normalizeColumnRatios(
+      columns.map((column) => column.attrs?.ratio as number | undefined),
+    );
+    columns.forEach((column, index) => {
+      const { ratio: _written, ...attrs } = column.attrs ?? {};
+      const ratio = ratios[index];
+      if (ratio !== null) attrs.ratio = ratio;
+      if (Object.keys(attrs).length > 0) column.attrs = attrs;
+      else delete column.attrs;
+    });
     const node: PMNode = { type: "notionColumns", content: columns };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
 
-  if (tagKey === "<column>") {
+  if (tagKey === "<column") {
+    const attrs = readContainerAttrs("column", openLine, COLUMN_ATTRS);
     const node: PMNode = {
       type: "notionColumn",
       content: parseContainerChildren(lines, childStart, closeIdx, indent),
     };
+    if ("ratio" in attrs) {
+      const ratio = parseColumnRatio(attrs.ratio);
+      if (ratio === null)
+        reportLoss("dropped-attribute", `<column ratio="${attrs.ratio}">`);
+      else node.attrs = { ratio };
+    }
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
 
@@ -3409,6 +3435,7 @@ function parseContainer(
 
 const DETAILS_ATTRS = new Set(["color", "open", "markdown"]);
 const CALLOUT_ATTRS = new Set(["icon", "color"]);
+const COLUMN_ATTRS = new Set(["ratio"]);
 const SYNCED_ATTRS = new Set(["url", "notice"]);
 
 function readContainerAttrs(
