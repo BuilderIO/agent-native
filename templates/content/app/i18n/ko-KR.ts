@@ -779,6 +779,8 @@ const editor = {
     altText: "대체 텍스트",
     altTextGenerationFailed: "대체 텍스트 생성을 시작할 수 없습니다.",
     assets: "자산",
+    assetsCopyFailed:
+      "자산에서 이 이미지를 복사하지 못했습니다. 다시 시도하거나 대신 파일을 업로드하세요.",
     assetsImagePicker: "자산 이미지 선택기",
     assetsMissingImageUrl: "자산이 이미지 URL을 반환하지 않았습니다.",
     audio: "오디오",
