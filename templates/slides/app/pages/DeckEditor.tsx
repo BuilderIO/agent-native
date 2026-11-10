@@ -29,6 +29,7 @@ import {
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { FirstOutputNextStepBar } from "@agent-native/toolkit/app-shell";
 import { useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
@@ -1556,7 +1557,9 @@ export default function DeckEditor() {
           emptyGenerationRecoveryRef.current = null;
         }
       })
-      .catch(() => toast.error(t("settings.saveFailed")));
+      .catch((error) =>
+        reportWriteFailure(error, { label: t("settings.saveFailed") }),
+      );
   }, [
     deck,
     flushDeckSave,
@@ -1650,7 +1653,9 @@ export default function DeckEditor() {
         generationFailureSlidesFingerprint: null,
       },
     });
-    void flushDeckSave(id).catch(() => toast.error(t("settings.saveFailed")));
+    void flushDeckSave(id).catch((error) =>
+      reportWriteFailure(error, { label: t("settings.saveFailed") }),
+    );
   }, [
     attemptObservedRun,
     flushDeckSave,
@@ -1913,9 +1918,9 @@ export default function DeckEditor() {
       try {
         updateDeck(id, { generationContext: retryContext });
         await flushDeckSave(id);
-      } catch {
+      } catch (error) {
         await restoreFailedRetry();
-        toast.error(t("settings.saveFailed"));
+        reportWriteFailure(error, { label: t("settings.saveFailed") });
         return;
       }
       let retryQuestionCheck: Awaited<
@@ -2069,8 +2074,8 @@ export default function DeckEditor() {
         ) {
           emptyGenerationRecoveryRef.current = null;
         }
-      } catch {
-        toast.error(t("settings.saveFailed"));
+      } catch (error) {
+        reportWriteFailure(error, { label: t("settings.saveFailed") });
       }
     } finally {
       retryEmptyGenerationInFlightRef.current = false;
@@ -2491,8 +2496,8 @@ export default function DeckEditor() {
         ) {
           emptyGenerationRecoveryRef.current = null;
         }
-      } catch {
-        toast.error(t("settings.saveFailed"));
+      } catch (error) {
+        reportWriteFailure(error, { label: t("settings.saveFailed") });
       }
     };
     void (async () => {
@@ -2632,8 +2637,10 @@ export default function DeckEditor() {
             ) {
               emptyGenerationRecoveryRef.current = null;
             }
-          } catch {
-            toast.error(t("editorSidebar.newSlideSaveFailed"));
+          } catch (error) {
+            reportWriteFailure(error, {
+              label: t("editorSidebar.newSlideSaveFailed"),
+            });
           }
           resumeSettlementAfterPausedSave();
           return;
@@ -2705,8 +2712,10 @@ export default function DeckEditor() {
             ) {
               emptyGenerationRecoveryRef.current = null;
             }
-          } catch {
-            toast.error(t("editorSidebar.newSlideSaveFailed"));
+          } catch (error) {
+            reportWriteFailure(error, {
+              label: t("editorSidebar.newSlideSaveFailed"),
+            });
           }
         }
         if (failureCode === "cancelled") {
@@ -2927,7 +2936,9 @@ export default function DeckEditor() {
               emptyGenerationRecoveryRef.current = null;
             }
           })
-          .catch(() => toast.error(t("settings.saveFailed")));
+          .catch((error) =>
+            reportWriteFailure(error, { label: t("settings.saveFailed") }),
+          );
       },
       Math.max(0, deadline - Date.now()),
     );

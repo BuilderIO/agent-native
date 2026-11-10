@@ -330,10 +330,10 @@ export function useChatThreadList(
           scope: options.scope,
         });
       } catch (error) {
-        // A newer refresh may have dropped a removed row because access was
-        // revoked, so the server decides whether it comes back.
-        if (hidden && !includeHidden) void refreshWithResult();
-        else if (previous)
+        // A refusal can mean access was revoked mid-request, and a removed row
+        // has nowhere to go back to, so the server decides what stays listed.
+        void refreshWithResult();
+        if (previous)
           setState((current) =>
             current.session === session
               ? {
