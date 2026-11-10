@@ -71,6 +71,9 @@ export function readPanelColumns<T extends { key: string }>(
         normalized[field] = column[field];
       }
     }
+    if (normalized.hidden === undefined && column.hidden) {
+      normalized.hidden = true;
+    }
     columns.push(normalized as T);
   }
   return columns;

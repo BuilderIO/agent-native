@@ -59,7 +59,7 @@ describe("panel columns strictness", () => {
   });
   it("retains valid settings when malformed optional properties are removed", () => {
     const stored = [
-      { key: "visible", label: 4, format: "pct", linkKey: {}, hidden: "yes" },
+      { key: "visible", label: 4, format: "pct", linkKey: {}, hidden: 0 },
       {
         key: "hidden",
         width: "wide",
@@ -87,6 +87,20 @@ describe("panel columns strictness", () => {
       label: "Private",
       formatt: "percent",
     });
+  });
+
+  it("reads a truthy legacy non-boolean hidden as hidden", () => {
+    const columns = readPanelColumns([
+      { key: "str", hidden: "true" },
+      { key: "num", hidden: 1 },
+      { key: "off", hidden: 0 },
+    ] as never);
+    expect(columns).toEqual([
+      { key: "str", hidden: true },
+      { key: "num", hidden: true },
+      { key: "off" },
+    ]);
+    expect(isValidPanelColumns([{ key: "a", hidden: "true" }])).toBe(false);
   });
 
   it("keeps the first keyed entry and ignores malformed or duplicate entries", () => {
