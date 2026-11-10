@@ -4705,6 +4705,56 @@ describe("image upload previews", () => {
     );
   });
 
+  it("puts back the page image's alt and Assets ID when a replacement fails to draw", async () => {
+    const oldSrc = "https://cdn.example.com/old.png";
+    const request = {
+      pickerId: "image-picker-test",
+      position: 0,
+      attrs: {
+        src: oldSrc,
+        alt: "Old diagram",
+        assetId: "asset-old",
+        uploadId: "image-picker-test",
+      },
+    };
+    await withMountedEditor(
+      async (editor) => {
+        Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", {
+          configurable: true,
+          get: () => 0,
+        });
+        const owner = {};
+        holdImageUploadPreview("image-upload-test", file, owner);
+        let outcome: Awaited<ReturnType<typeof runImageUpload>> | undefined;
+        await act(async () => {
+          expect(
+            ensurePendingImageUpload(editor.view, request, "image-upload-test"),
+          ).toBe(true);
+          outcome = await runImageUpload({
+            view: editor.view,
+            file,
+            uploadId: "image-upload-test",
+            request,
+            attrs: { alt: "New diagram", assetId: "asset-new" },
+            upload: () => Promise.resolve(uploadedSrc),
+            persist: () => true,
+            messages,
+          });
+        });
+
+        expect(outcome?.status).toBe("failed");
+        expect(images(editor)[0]?.attrs).toMatchObject({
+          src: oldSrc,
+          alt: "Old diagram",
+          assetId: "asset-old",
+          uploadId: "image-failed-test",
+        });
+        releaseImageUploadPreviewsFor(owner);
+      },
+      { type: "doc", content: [{ type: "image", attrs: request.attrs }] },
+    );
+  });
+
   it("keeps a picked image's Assets ID on its uploaded copy", async () => {
     const request = {
       pickerId: "image-picker-test",

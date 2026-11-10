@@ -2804,9 +2804,15 @@ export async function runImageUpload(
       return { status: "stopped" };
     }
     const failedId = failedImageUploadId(uploadId);
+    // The staged copy may already carry `attrs`, such as an Assets ID and its
+    // alt text, so each one goes back to what the block held.
+    const restored = Object.fromEntries(
+      Object.keys(attrs).map((key) => [key, request.attrs[key] ?? null]),
+    );
     const kept =
       hasImageUploadPreview(uploadId) &&
       commitPendingImageUpload(view, request, uploadId, {
+        ...restored,
         src: request.attrs.src ?? null,
         uploadId: failedId,
       });
