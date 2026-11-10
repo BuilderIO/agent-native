@@ -205,6 +205,8 @@ sendToAgentChat({
 });
 ```
 
+`sendToAgentChat()` renvoie un identifiant d’onglet, pas un accusé de réception. Pour confirmer un envoi local, utilisez `sendToAgentChatAndConfirm({ message, chatTarget: "local" })` et traitez `delivered: false` et `reason`. La fonction attend la confirmation et annule à expiration. Les brouillons et les destinations de code ne sont pas pris en charge.
+
 ### AgentChatMessage {#agentchatmessage}
 
 | Option         | Type       | Description                                                                                                                  |

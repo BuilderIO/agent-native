@@ -28,9 +28,11 @@ interface EnqueueOptions {
 
 const QUEUE_KEY = Symbol.for("@agent-native/core/tracking.queue");
 const TIMER_KEY = Symbol.for("@agent-native/core/tracking.timer");
+const IN_FLIGHT_KEY = Symbol.for("@agent-native/core/tracking.in-flight");
 
 interface GlobalWithQueue {
   [QUEUE_KEY]?: QueuedEvent[];
+  [IN_FLIGHT_KEY]?: Set<Promise<void>>;
   [TIMER_KEY]?: ReturnType<typeof setTimeout> | null;
 }
 
@@ -38,6 +40,11 @@ function getQueue(): QueuedEvent[] {
   const g = globalThis as unknown as GlobalWithQueue;
   if (!g[QUEUE_KEY]) g[QUEUE_KEY] = [];
   return g[QUEUE_KEY]!;
+}
+
+function getInFlight(): Set<Promise<void>> {
+  const global = globalThis as unknown as GlobalWithQueue;
+  return (global[IN_FLIGHT_KEY] ??= new Set());
 }
 
 function getTimer(): ReturnType<typeof setTimeout> | null {
@@ -77,22 +84,26 @@ function drainQueue(): Promise<void[]> {
   }
   const queue = getQueue();
   const batch = queue.splice(0, queue.length);
-  return Promise.all(
-    batch.map((item) =>
-      // Whichever call's frame drains the queue, the events are not its writes.
-      withoutWriteObservation(() =>
-        fetch(item.url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...item.headers },
-          body: item.body,
-          signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
-        }),
-      ).then(
-        () => undefined,
-        () => undefined,
-      ),
-    ),
-  );
+  const inFlight = getInFlight();
+  for (const item of batch) {
+    // Whichever call's frame drains the queue, the events are not its writes.
+    const send = withoutWriteObservation(() =>
+      fetch(item.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...item.headers },
+        body: item.body,
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      }),
+    ).then(
+      () => undefined,
+      () => undefined,
+    );
+    inFlight.add(send);
+    void send.finally(() => inFlight.delete(send));
+  }
+  // Serverless sends leave the queue immediately. A later flush must still
+  // hold the request's background lifetime until those sends settle.
+  return Promise.all([...inFlight]);
 }
 
 function isLocalhostUrl(value: string | undefined): boolean {

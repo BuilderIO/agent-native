@@ -221,6 +221,7 @@ import {
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { StaticDocumentBody } from "./StaticDocumentBody";
 import { suggestionPlacements } from "./suggestion-placement";
+import { caretAfterPageSwap } from "./suggestions/keep-caret";
 import {
   resolveSuggestionPresentationRange,
   type SuggestionPresentationTransition,
@@ -3692,6 +3693,35 @@ export function VisualEditor({
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
         findCommentQuote,
+      }),
+      Extension.create({
+        name: "suggestingCaretOnPageSwap",
+        addProseMirrorPlugins() {
+          return [
+            new Plugin({
+              // The suggestion draft starting over from a newer Page swaps the
+              // editor's content; the caret stays by the text around it.
+              appendTransaction(transactions, oldState, newState) {
+                if (
+                  !isSuggesting() ||
+                  !guardsRef.current?.isSettingContentRef.current ||
+                  !oldState.selection.empty ||
+                  !transactions.some((transaction) => transaction.docChanged)
+                )
+                  return null;
+                const at = caretAfterPageSwap(
+                  oldState.doc,
+                  oldState.selection.from,
+                  newState.doc,
+                );
+                if (at === null || at === newState.selection.from) return null;
+                return newState.tr.setSelection(
+                  TextSelection.create(newState.doc, at),
+                );
+              },
+            }),
+          ];
+        },
       }),
       Extension.create({
         name: "contentEditorEscape",
