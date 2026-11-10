@@ -120,6 +120,10 @@ describe("resource skill reference selection and bounded refill", () => {
     mocks.resourceList.mockResolvedValue([]);
     mocks.resourceGetByPath.mockResolvedValue(null);
     mocks.requestOrgId.mockReturnValue(null);
+    mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+      agents: [],
+      directory: { status: "available" },
+    });
   });
   afterEach(() => {
     resetAppConfigForTests();
@@ -282,6 +286,38 @@ describe("resource skill reference selection and bounded refill", () => {
     );
   });
 
+  it.each([60, 121])(
+    "retains readerless confirmed omissions with %i candidates",
+    async (count) => {
+      const entries = Array.from({ length: count }, (_, index) =>
+        candidate(index, index === 0 ? "scope: dev" : ""),
+      );
+      catalog(entries);
+      const prompt = await loadResourcesForPrompt(
+        "user@example.test",
+        true,
+        undefined,
+        null,
+        {
+          runtimeToolHints: false,
+          skillReadTool: null,
+        },
+      );
+      expect(prompt).toContain(
+        "<resource-skills>\n...more skills omitted from the startup summary.",
+      );
+      expect(prompt.includes("uninspected candidates remain")).toBe(count > 80);
+      expect(prompt.match(/scope="personal"/g)).toHaveLength(40);
+      for (const entry of entries.slice(1, 41))
+        expect(prompt).toContain(`Body ${entry.id}`);
+      expect(prompt).not.toContain(`Body ${entries[41].id}`);
+      expect(prompt).not.toContain("`resources`");
+      expect(prompt).not.toContain("docs-search");
+      expect(prompt).not.toContain("tool-search");
+      expect(mocks.resourceGet).toHaveBeenCalledTimes(Math.min(count, 80));
+    },
+  );
+
   it("retains the omission notice when the final hydrated batch fills the summary", async () => {
     const entries = Array.from({ length: 60 }, (_, index) =>
       candidate(index, index === 0 ? "scope: dev" : ""),
@@ -389,6 +425,8 @@ describe("resource skill reference selection and bounded refill", () => {
       else {
         expect(prompt.match(/scope="personal"/g)).toHaveLength(40);
         expect(prompt).not.toContain("`resources`");
+        expect(prompt).not.toContain("docs-search");
+        expect(prompt).not.toContain("tool-search");
       }
     },
   );
@@ -577,6 +615,9 @@ describe("resource skill reference selection and bounded refill", () => {
   it("fails closed on Lab resolution in a later batch after accepting an earlier skill even after the budget expires", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(0);
+    mocks.discoverAgentsWithDirectoryStatus.mockRejectedValue(
+      new Error("Early discovery failure"),
+    );
     const entries = Array.from({ length: 40 }, (_, index) =>
       candidate(index, index === 0 ? "" : "scope: dev"),
     );
@@ -595,11 +636,110 @@ describe("resource skill reference selection and bounded refill", () => {
       loadResourcesForPrompt("user@example.test", true),
     ).rejects.toThrow("Later Labs unavailable");
     expect(mocks.resourceGet).toHaveBeenCalledTimes(41);
+    expect(mocks.discoverAgentsWithDirectoryStatus).toHaveBeenCalledOnce();
     expect(mocks.getEnabledSkillLabsForUser).toHaveBeenCalledWith(
       ["later.lab"],
       "user@example.test",
     );
   });
+
+  it.each([false, true])(
+    "settles discovery during slow skill refill (discovery fails: %s)",
+    async (fails) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const entries = Array.from({ length: 41 }, (_, index) =>
+        candidate(index, index < 40 ? "scope: dev" : ""),
+      );
+      catalog(entries);
+      let releaseSkill: () => void = vi.fn();
+      const skillRead = new Promise<void>((resolve) => {
+        releaseSkill = resolve;
+      });
+      let notifySkillStarted: () => void = vi.fn();
+      const skillStarted = new Promise<void>((resolve) => {
+        notifySkillStarted = resolve;
+      });
+      mocks.resourceGet.mockImplementation(async (id: string) => {
+        if (id === entries[40].id) {
+          notifySkillStarted();
+          await skillRead;
+        }
+        return entries.find((entry) => entry.id === id);
+      });
+      mocks.discoverAgentsWithDirectoryStatus.mockImplementation(
+        () =>
+          new Promise((resolve, reject) => {
+            setTimeout(
+              () =>
+                fails
+                  ? reject(new Error("Directory failed"))
+                  : resolve({
+                      agents: [
+                        {
+                          id: "slides",
+                          name: "Slides",
+                          description: "Create slide decks",
+                          url: "https://slides.example.test",
+                        },
+                      ],
+                      directory: { status: "available" },
+                    }),
+              100,
+            );
+          }),
+      );
+      const loading = loadResourcesForPrompt(
+        "user@example.test",
+        true,
+        "chat",
+        null,
+        { promptPreloadDeadlineAt: 1_300 },
+      );
+      await skillStarted;
+      await vi.advanceTimersByTimeAsync(2_000);
+      releaseSkill();
+      const prompt = await loading;
+      expect(skillNames(prompt)).toEqual([entries[40].id]);
+      expect(mocks.resourceGet).toHaveBeenCalledTimes(41);
+      expect(
+        mocks.discoverAgentsWithDirectoryStatus,
+      ).toHaveBeenCalledExactlyOnceWith("chat", {
+        includePersonalAgents: false,
+      });
+      expect(prompt).toContain(
+        fails
+          ? "unavailable (discovery-failed)"
+          : "Org app directory status: available.",
+      );
+      if (!fails) expect(prompt).toContain("Slides (slides)");
+      expect(prompt.indexOf("<available-apps>")).toBeGreaterThan(
+        prompt.indexOf("</resource-skills>"),
+      );
+    },
+  );
+
+  it.each(["expired", "disabled"])(
+    "does not invoke %s discovery",
+    async (mode) => {
+      catalog([candidate(0)]);
+      const prompt = await loadResourcesForPrompt(
+        "user@example.test",
+        true,
+        undefined,
+        null,
+        {
+          promptPreloadDeadlineAt: mode === "expired" ? -1 : Date.now() + 1_300,
+          disabledFrameworkGroups:
+            mode === "disabled" ? new Set(["workspaceApps"]) : undefined,
+        },
+      );
+      expect(mocks.discoverAgentsWithDirectoryStatus).not.toHaveBeenCalled();
+      expect(prompt.includes("<available-apps>")).toBe(mode === "expired");
+      if (mode === "expired")
+        expect(prompt).toContain("unavailable (discovery-timed-out)");
+    },
+  );
 });
 
 describe("preloadJevContextForPrompt", () => {

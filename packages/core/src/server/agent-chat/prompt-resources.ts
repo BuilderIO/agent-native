@@ -890,8 +890,16 @@ async function loadResourceSkillsPromptBlock(
         }),
       )
       .filter(Boolean);
-    if (inspectionNotice)
-      blocks.push(`<resource-skills>\n${inspectionNotice}\n</resource-skills>`);
+    const notices = [
+      hasOmittedSkills
+        ? "...more skills omitted from the startup summary."
+        : null,
+      inspectionNotice,
+    ].filter(Boolean);
+    if (notices.length > 0)
+      blocks.push(
+        `<resource-skills>\n${notices.join("\n")}\n</resource-skills>`,
+      );
     return blocks.join("\n\n") || null;
   }
   const lines = entries
@@ -2127,6 +2135,35 @@ export async function loadResourcesForPrompt(
     }
   }
 
+  const appDiscoveryPromise = frameworkGroupEnabled(
+    opts?.disabledFrameworkGroups,
+    "workspaceApps",
+  )
+    ? (async (): Promise<DiscoveredAgentsWithDirectoryStatus> => {
+        try {
+          const appRead = await withinPromptBudget(
+            () =>
+              discoverAgentsWithDirectoryStatus(selfAppId, {
+                includePersonalAgents:
+                  owner !== SHARED_OWNER &&
+                  getRequestContext()?.userEmail === owner,
+              }),
+            promptPreloadDeadlineAt,
+          );
+          if (appRead.status === "completed") return appRead.value;
+          return {
+            agents: [],
+            directory: { status: "unavailable", reason: "discovery-timed-out" },
+          };
+        } catch {
+          return {
+            agents: [],
+            directory: { status: "unavailable", reason: "discovery-failed" },
+          };
+        }
+      })()
+    : undefined;
+
   const resourceSkillsBlock = await loadResourceSkillsPromptBlock(
     owner,
     orgId,
@@ -2229,35 +2266,8 @@ export async function loadResourcesForPrompt(
     }),
   );
 
-  if (frameworkGroupEnabled(opts?.disabledFrameworkGroups, "workspaceApps")) {
-    let discovery: DiscoveredAgentsWithDirectoryStatus = {
-      agents: [],
-      directory: { status: "unavailable", reason: "discovery-timed-out" },
-    };
-    try {
-      const appRead = await withinPromptBudget(
-        () =>
-          discoverAgentsWithDirectoryStatus(selfAppId, {
-            includePersonalAgents:
-              owner !== SHARED_OWNER &&
-              getRequestContext()?.userEmail === owner,
-          }),
-        promptPreloadDeadlineAt,
-      );
-      if (appRead.status === "completed") {
-        discovery = appRead.value;
-      } else {
-        discovery = {
-          agents: [],
-          directory: { status: "unavailable", reason: "discovery-timed-out" },
-        };
-      }
-    } catch {
-      discovery = {
-        agents: [],
-        directory: { status: "unavailable", reason: "discovery-failed" },
-      };
-    }
+  if (appDiscoveryPromise) {
+    const discovery = await appDiscoveryPromise;
     try {
       const selection = selectWorkspaceAppCandidates(
         discovery.agents,
