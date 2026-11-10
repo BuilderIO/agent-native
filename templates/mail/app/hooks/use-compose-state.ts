@@ -23,7 +23,12 @@ import { nanoid } from "nanoid";
 import { useState, useRef, useCallback, useEffect } from "react";
 
 import { aliasesQueryOptions } from "@/hooks/use-aliases";
-import { ALIAS_PREFIX, expandAliasTokens } from "@/lib/alias-utils";
+import {
+  ALIAS_PREFIX,
+  AliasResolutionError,
+  expandAliasTokens,
+  unresolvedAliasIds,
+} from "@/lib/alias-utils";
 import { TAB_ID } from "@/lib/tab-id";
 
 export const FOCUS_COMPOSE_DRAFT_EVENT = "mail:focus-compose-draft";
@@ -244,6 +249,14 @@ async function saveDraftToEmails(
   draft: ComposeState,
   aliases: Alias[],
 ): Promise<SavedDraftMetadata | undefined> {
+  const unresolved = [draft.to, draft.cc ?? "", draft.bcc ?? ""].flatMap(
+    (field) => unresolvedAliasIds(field, aliases),
+  );
+  if (unresolved.length > 0) {
+    throw new AliasResolutionError(
+      `Draft recipients use unknown aliases: ${unresolved.join(", ")}`,
+    );
+  }
   const result = await apiFetch<{
     draftId?: string;
     backend?: "gmail" | "local";
@@ -420,6 +433,14 @@ export function applyDraftSaveResult(
   };
 }
 
+export function failedOnAliasResolution(
+  result: DraftSaveResult | DraftSaveQueueResult,
+): boolean {
+  return (
+    result.status === "failed" && result.error instanceof AliasResolutionError
+  );
+}
+
 export function getDraftSaveMetadataUpdate(
   draft: ComposeState | undefined,
   result: DraftSaveQueueResult,
@@ -514,7 +535,12 @@ export function useComposeState() {
         const aliases = await qc.fetchQuery(aliasesQueryOptions);
         return saveDraftToEmailsBestEffort(draft, aliases);
       } catch (error) {
-        return { status: "failed", error };
+        return {
+          status: "failed",
+          error: new AliasResolutionError("Could not load recipient aliases", {
+            cause: error,
+          }),
+        };
       }
     },
     [qc],
@@ -822,9 +848,28 @@ export function useComposeState() {
 
       qc.setQueryData<ComposeState[]>(["compose-drafts"], remaining);
 
-      void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
-        deleteMutation.mutateAsync(id),
-      ).catch(() => undefined);
+      const removeLocalDraft = () =>
+        enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
+          deleteMutation.mutateAsync(id),
+        ).catch(() => undefined);
+
+      if (!savePromise || !draft) {
+        void removeLocalDraft();
+        return savePromise;
+      }
+
+      void savePromise.then(
+        (result) => {
+          if (!failedOnAliasResolution(result)) return removeLocalDraft();
+          delete removedDraftIdsRef.current[id];
+          qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
+            old?.some((d) => d.id === id)
+              ? old
+              : [...(old ?? []), applyDraftSaveResult(draft, result)],
+          );
+        },
+        () => removeLocalDraft(),
+      );
       return savePromise;
     },
     [qc, deleteMutation, resolvedActiveId, reportDraftSaveResult, saveDraft],

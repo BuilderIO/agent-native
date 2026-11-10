@@ -10,6 +10,26 @@ export function aliasIdFromToken(token: string): string {
   return token.slice(ALIAS_PREFIX.length);
 }
 
+export class AliasResolutionError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "AliasResolutionError";
+  }
+}
+
+export function unresolvedAliasIds(
+  recipients: string,
+  aliases: Alias[],
+): string[] {
+  const known = new Set(aliases.map((a) => a.id));
+  return recipients
+    .split(",")
+    .map((s) => s.trim())
+    .filter(isAliasToken)
+    .map(aliasIdFromToken)
+    .filter((id) => !known.has(id));
+}
+
 export function expandAliasTokens(
   recipients: string,
   aliases: Alias[],
