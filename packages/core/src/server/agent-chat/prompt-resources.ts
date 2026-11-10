@@ -162,6 +162,7 @@ const SHARED_RESOURCE_INDEX_LIMIT = 40;
 const PROMPT_SKILL_SUMMARY_LIMIT = 40;
 const PROMPT_SKILL_READ_BATCH_SIZE = 40;
 const PROMPT_SKILL_MAX_READ_BATCHES = 5;
+const PROMPT_SKILL_READ_BUDGET_MS = 2_000;
 const PROMPT_INSTRUCTION_SUMMARY_LIMIT = 20;
 const PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS = 180;
 const JEV_CONTEXT_ITEM_MAX_CHARS = 10_000;
@@ -772,6 +773,7 @@ async function loadResourceSkillPromptEntries(
   entries: ResourceSkillPromptEntry[];
   total: number;
   metadataRead: number;
+  hasOmittedSkills: boolean;
 }> {
   try {
     const resources =
@@ -790,11 +792,14 @@ async function loadResourceSkillPromptEntries(
     const seen = new Set<string>();
     const entries: ResourceSkillPromptEntry[] = [];
     let metadataRead = 0;
+    let hasOmittedSkills = false;
+    const deadlineAt = Date.now() + PROMPT_SKILL_READ_BUDGET_MS;
     for (
       let batch = 0;
       batch < PROMPT_SKILL_MAX_READ_BATCHES &&
       metadataRead < sorted.length &&
-      entries.length < PROMPT_SKILL_SUMMARY_LIMIT;
+      entries.length < PROMPT_SKILL_SUMMARY_LIMIT &&
+      (batch === 0 || Date.now() < deadlineAt);
       batch++
     ) {
       const skillCandidates = sorted.slice(
@@ -833,13 +838,16 @@ async function loadResourceSkillPromptEntries(
             })
         : new Set<string>();
       for (const { resource, full, meta } of parsed) {
-        if (entries.length >= PROMPT_SKILL_SUMMARY_LIMIT) break;
         if (!full?.content || !meta) continue;
         if (meta.userInvocable === false) continue;
         if (!isRuntimeVisibleScope(meta.scope)) continue;
         if (meta.requiresLab && !enabledLabs.has(meta.requiresLab)) continue;
         const name = meta.name || getSkillNameFromPath(resource.path);
         if (!name || seen.has(name)) continue;
+        if (entries.length >= PROMPT_SKILL_SUMMARY_LIMIT) {
+          hasOmittedSkills = true;
+          continue;
+        }
         seen.add(name);
         const scope = resourceScopeForOwner(resource.owner, owner);
         const description = compactPromptLine(
@@ -849,10 +857,10 @@ async function loadResourceSkillPromptEntries(
         entries.push({ resource, full, name, description, scope });
       }
     }
-    return { entries, total: sorted.length, metadataRead };
+    return { entries, total: sorted.length, metadataRead, hasOmittedSkills };
   } catch (error) {
     if (error instanceof RequiredSkillLabsReadError) throw error;
-    return { entries: [], total: 0, metadataRead: 0 };
+    return { entries: [], total: 0, metadataRead: 0, hasOmittedSkills: false };
   }
 }
 
@@ -862,15 +870,11 @@ async function loadResourceSkillsPromptBlock(
   runtimeToolHints = true,
   includeSupportingFiles = true,
 ): Promise<string | null> {
-  const { entries, total, metadataRead } = await loadResourceSkillPromptEntries(
-    owner,
-    orgId,
-    includeSupportingFiles,
-  );
-  const inspectionLimited =
-    total > metadataRead && entries.length < PROMPT_SKILL_SUMMARY_LIMIT;
+  const { entries, total, metadataRead, hasOmittedSkills } =
+    await loadResourceSkillPromptEntries(owner, orgId, includeSupportingFiles);
+  const inspectionLimited = total > metadataRead;
   const inspectionNotice = inspectionLimited
-    ? `Skill inspection limit reached after ${metadataRead} candidates; uninspected candidates remain.`
+    ? `Skill inspection is incomplete after ${metadataRead} candidate read attempts; uninspected candidates remain.`
     : null;
   if (!runtimeToolHints) {
     const blocks = entries
@@ -904,15 +908,17 @@ async function loadResourceSkillsPromptBlock(
     lines.push(
       `- ${inspectionNotice} ${resourceToolHint("list", '`prefix: "skills/"` to inspect the full catalog')}`,
     );
-  } else if (
-    total > metadataRead ||
-    metadataRead > PROMPT_SKILL_SUMMARY_LIMIT
-  ) {
+  }
+  if (hasOmittedSkills) {
     lines.push(
       `- ...more skills omitted from the startup summary. ${resourceToolHint("list", '`prefix: "skills/"` to inspect the full catalog')}`,
     );
   }
-  return `<resource-skills>\nThe following workspace skills are available in addition to codebase skills. They may come from SQL resources, Dispatch workspace resources, or local file mode. Read a matching skill before starting a task it applies to.\n\n${lines.join("\n")}\n</resource-skills>`;
+  const introduction =
+    entries.length > 0
+      ? "The following workspace skills are available in addition to codebase skills. They may come from SQL resources, Dispatch workspace resources, or local file mode. Read a matching skill before starting a task it applies to.\n\n"
+      : "";
+  return `<resource-skills>\n${introduction}${lines.join("\n")}\n</resource-skills>`;
 }
 
 async function loadResourceIndexForPrompt(

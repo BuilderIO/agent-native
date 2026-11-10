@@ -102,6 +102,7 @@ import {
   loadResourcesForPrompt,
   preloadJevContextForPrompt,
   preloadJevContextWithStatus,
+  promptResourceManifestSections,
 } from "./prompt-resources.js";
 
 describe("resource skill reference selection and bounded refill", () => {
@@ -120,7 +121,11 @@ describe("resource skill reference selection and bounded refill", () => {
     mocks.resourceGetByPath.mockResolvedValue(null);
     mocks.requestOrgId.mockReturnValue(null);
   });
-  afterEach(() => resetAppConfigForTests());
+  afterEach(() => {
+    resetAppConfigForTests();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 
   function candidate(
     index: number,
@@ -213,8 +218,8 @@ describe("resource skill reference selection and bounded refill", () => {
     const prompt = await loadResourcesForPrompt("user@example.test", true);
     expect(skillNames(prompt)).toEqual(eligible.map((entry) => entry.id));
     expect(mocks.resourceGet).toHaveBeenCalledTimes(121);
-    expect(prompt).toContain("more skills omitted");
-    expect(prompt).not.toContain("inspection limit");
+    expect(prompt).not.toContain("more skills omitted");
+    expect(prompt).not.toContain("uninspected candidates remain");
   });
 
   it("preserves scope priority and accepted-name deduplication across batches", async () => {
@@ -245,7 +250,7 @@ describe("resource skill reference selection and bounded refill", () => {
       workspace.id,
     ]);
     expect(prompt).not.toContain("Lower priority duplicate.");
-    expect(prompt).toContain("more skills omitted");
+    expect(prompt).not.toContain("more skills omitted");
     expect(mocks.resourceGet).toHaveBeenCalledTimes(43);
   });
 
@@ -262,9 +267,12 @@ describe("resource skill reference selection and bounded refill", () => {
       completed++;
       return entries.find((entry) => entry.id === id);
     });
-    expect(
-      skillNames(await loadResourcesForPrompt("user@example.test", true)),
-    ).toEqual(entries.slice(1, 41).map((entry) => entry.id));
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+    expect(skillNames(prompt)).toEqual(
+      entries.slice(1, 41).map((entry) => entry.id),
+    );
+    expect(prompt).toContain("more skills omitted");
+    expect(prompt).toContain("uninspected candidates remain");
     expect(mocks.resourceGet).toHaveBeenCalledTimes(80);
     expect(completedAtStart.slice(0, 40)).toEqual(Array(40).fill(0));
     expect(completedAtStart.slice(40)).toEqual(Array(40).fill(40));
@@ -285,7 +293,7 @@ describe("resource skill reference selection and bounded refill", () => {
     );
     expect(mocks.resourceGet).toHaveBeenCalledTimes(60);
     expect(prompt).toContain("more skills omitted");
-    expect(prompt).not.toContain("inspection limit");
+    expect(prompt).not.toContain("uninspected candidates remain");
   });
 
   it("exhausts a short catalog and counts failed and empty reads without inventing omissions", async () => {
@@ -298,9 +306,92 @@ describe("resource skill reference selection and bounded refill", () => {
     const prompt = await loadResourcesForPrompt("user@example.test", true);
     expect(skillNames(prompt)).toEqual([entries[2].id]);
     expect(mocks.resourceGet).toHaveBeenCalledTimes(3);
-    expect(prompt).not.toContain("inspection limit");
+    expect(prompt).not.toContain("uninspected candidates remain");
     expect(prompt).not.toContain("more skills omitted");
   });
+
+  it("does not infer omissions from 80 reads when all 40 eligible skills fit", async () => {
+    const entries = Array.from({ length: 80 }, (_, index) =>
+      candidate(index, index < 40 ? "scope: dev" : ""),
+    );
+    catalog(entries);
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+    expect(skillNames(prompt)).toEqual(
+      entries.slice(40).map((entry) => entry.id),
+    );
+    expect(mocks.resourceGet).toHaveBeenCalledTimes(80);
+    expect(prompt).not.toContain("more skills omitted");
+    expect(prompt).not.toContain("uninspected candidates remain");
+  });
+
+  it.each([false, true])(
+    "classifies the fetched tail without extra reads or Labs (eligible replacement: %s)",
+    async (eligibleReplacement) => {
+      const entries = Array.from({ length: 48 }, (_, index) =>
+        candidate(
+          index,
+          index === 0 || index === 41
+            ? "scope: dev"
+            : index === 42
+              ? "user-invocable: false"
+              : index === 43
+                ? "requires-lab: tail.lab"
+                : "",
+        ),
+      );
+      entries[44].content = entries[1].content;
+      entries[45].content = eligibleReplacement
+        ? entries[0].content.replace("scope: dev", "scope: runtime")
+        : "";
+      catalog(entries);
+      mocks.resourceGet.mockImplementation(async (id: string) => {
+        if (id === entries[46].id) return null;
+        if (id === entries[47].id) throw new Error("Optional tail read failed");
+        return entries.find((entry) => entry.id === id);
+      });
+      const prompt = await loadResourcesForPrompt("user@example.test", true);
+      expect(skillNames(prompt)).toEqual(
+        entries.slice(1, 41).map((entry) => entry.id),
+      );
+      expect(prompt.includes("more skills omitted")).toBe(eligibleReplacement);
+      expect(prompt).not.toContain("uninspected candidates remain");
+      expect(mocks.resourceGet).toHaveBeenCalledTimes(48);
+      expect(mocks.getEnabledSkillLabsForUser).toHaveBeenCalledExactlyOnceWith(
+        ["tail.lab"],
+        "user@example.test",
+      );
+    },
+  );
+
+  it.each([true, false])(
+    "reports an unread tail without claiming a proven omission (runtime hints: %s)",
+    async (runtimeToolHints) => {
+      const entries = Array.from({ length: 41 }, (_, index) =>
+        candidate(index),
+      );
+      catalog(entries);
+      const prompt = await loadResourcesForPrompt(
+        "user@example.test",
+        true,
+        undefined,
+        null,
+        { runtimeToolHints, skillReadTool: null },
+      );
+      expect(mocks.resourceGet).toHaveBeenCalledTimes(40);
+      expect(prompt).toContain(
+        "Skill inspection is incomplete after 40 candidate read attempts; uninspected candidates remain.",
+      );
+      expect(prompt).not.toContain("more skills omitted");
+      if (runtimeToolHints)
+        expect(skillNames(prompt)).toEqual(
+          entries.slice(0, 40).map((entry) => entry.id),
+        );
+      else {
+        expect(prompt.match(/scope="personal"/g)).toHaveLength(40);
+        expect(prompt).not.toContain("`resources`");
+      }
+    },
+  );
 
   it.each([true, false])(
     "omits an exhausted all-excluded skill catalog (runtime hints: %s)",
@@ -321,7 +412,7 @@ describe("resource skill reference selection and bounded refill", () => {
       expect(mocks.resourceGet).toHaveBeenCalledTimes(80);
       expect(prompt).not.toContain("<resource-skills>");
       expect(prompt).not.toContain("more skills omitted");
-      expect(prompt).not.toContain("inspection limit");
+      expect(prompt).not.toContain("uninspected candidates remain");
     },
   );
 
@@ -337,9 +428,18 @@ describe("resource skill reference selection and bounded refill", () => {
         entries.slice(0, accepted).map((entry) => entry.id),
       );
       expect(prompt).toContain(
-        "Skill inspection limit reached after 200 candidates; uninspected candidates remain.",
+        "Skill inspection is incomplete after 200 candidate read attempts; uninspected candidates remain.",
       );
       expect(mocks.resourceGet).toHaveBeenCalledTimes(200);
+      expect(
+        prompt.includes("The following workspace skills are available"),
+      ).toBe(accepted > 0);
+      expect(promptResourceManifestSections(prompt)).toContainEqual(
+        expect.objectContaining({
+          label: "Workspace resource skills",
+          governance: "inherited",
+        }),
+      );
       expect(mocks.resourceGet).not.toHaveBeenCalledWith(
         entries[200].id,
         expect.anything(),
@@ -362,7 +462,7 @@ describe("resource skill reference selection and bounded refill", () => {
         { runtimeToolHints: false, skillReadTool: null },
       );
       expect(prompt).toContain(
-        "Skill inspection limit reached after 200 candidates; uninspected candidates remain.",
+        "Skill inspection is incomplete after 200 candidate read attempts; uninspected candidates remain.",
       );
       expect(prompt.match(/scope="personal"/g) ?? []).toHaveLength(accepted);
       for (const entry of entries.slice(0, accepted))
@@ -374,11 +474,120 @@ describe("resource skill reference selection and bounded refill", () => {
     },
   );
 
-  it("fails closed on Lab resolution in a later batch after accepting an earlier skill", async () => {
+  it.each([
+    { accepted: 0, runtimeToolHints: true },
+    { accepted: 3, runtimeToolHints: true },
+    { accepted: 0, runtimeToolHints: false },
+    { accepted: 3, runtimeToolHints: false },
+  ])(
+    "finishes a slow first batch without refilling (accepted: $accepted, runtime hints: $runtimeToolHints)",
+    async ({ accepted, runtimeToolHints }) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(0);
+      const entries = Array.from({ length: 81 }, (_, index) =>
+        candidate(
+          index,
+          index < accepted ? "requires-lab: enabled.lab" : "scope: dev",
+        ),
+      );
+      catalog(entries);
+      mocks.resourceListAccessible.mockImplementation(async () => {
+        vi.setSystemTime(10_000);
+        return entries.map(({ content, ...metadata }) => metadata);
+      });
+      mocks.resourceGet.mockImplementation(async (id: string) => {
+        vi.setSystemTime(12_000);
+        return entries.find((entry) => entry.id === id);
+      });
+      mocks.getEnabledSkillLabsForUser.mockResolvedValue(
+        new Set(["enabled.lab"]),
+      );
+      const prompt = await loadResourcesForPrompt(
+        "user@example.test",
+        true,
+        undefined,
+        null,
+        { runtimeToolHints, skillReadTool: null, promptPreloadDeadlineAt: -1 },
+      );
+      expect(mocks.resourceGet).toHaveBeenCalledTimes(40);
+      expect(
+        prompt.includes("The following workspace skills are available"),
+      ).toBe(runtimeToolHints && accepted > 0);
+      expect(prompt).toContain(
+        "Skill inspection is incomplete after 40 candidate read attempts; uninspected candidates remain.",
+      );
+      if (runtimeToolHints) {
+        expect(skillNames(prompt)).toEqual(
+          entries.slice(0, accepted).map((entry) => entry.id),
+        );
+      } else {
+        expect(prompt.match(/scope="personal"/g) ?? []).toHaveLength(accepted);
+        for (const entry of entries.slice(0, accepted))
+          expect(prompt).toContain(`Body ${entry.id}`);
+        expect(prompt).not.toContain("`resources`");
+        expect(prompt).not.toContain("docs-search");
+      }
+      if (accepted > 0)
+        expect(mocks.getEnabledSkillLabsForUser).toHaveBeenCalledWith(
+          Array(accepted).fill("enabled.lab"),
+          "user@example.test",
+        );
+    },
+  );
+
+  it("guarantees the first batch even when the next clock observation reaches the deadline", async () => {
+    catalog([candidate(0)]);
+    let now = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => {
+      now += 2_000;
+      return now;
+    });
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+    expect(skillNames(prompt)).toEqual([candidate(0).id]);
+    expect(mocks.resourceGet).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a later batch started just before the deadline and stops at the deadline", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(0);
+    const entries = Array.from({ length: 121 }, (_, index) =>
+      candidate(
+        index,
+        index % 40 === 0 ? "requires-lab: enabled.lab" : "scope: dev",
+      ),
+    );
+    catalog(entries);
+    mocks.getEnabledSkillLabsForUser.mockImplementation(async () => {
+      vi.setSystemTime(
+        mocks.getEnabledSkillLabsForUser.mock.calls.length === 1
+          ? 1_999
+          : 2_000,
+      );
+      return new Set(["enabled.lab"]);
+    });
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+    expect(skillNames(prompt)).toEqual([entries[0].id, entries[40].id]);
+    expect(mocks.resourceGet).toHaveBeenCalledTimes(80);
+    expect(mocks.getEnabledSkillLabsForUser).toHaveBeenCalledTimes(2);
+    expect(prompt).toContain(
+      "Skill inspection is incomplete after 80 candidate read attempts; uninspected candidates remain.",
+    );
+  });
+
+  it("fails closed on Lab resolution in a later batch after accepting an earlier skill even after the budget expires", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(0);
     const entries = Array.from({ length: 40 }, (_, index) =>
       candidate(index, index === 0 ? "" : "scope: dev"),
     );
     catalog([...entries, candidate(40, "requires-lab: later.lab")]);
+    mocks.resourceGet.mockImplementation(async (id: string) => {
+      if (id === "candidate-040") {
+        vi.setSystemTime(2_001);
+        return candidate(40, "requires-lab: later.lab");
+      }
+      return entries.find((entry) => entry.id === id);
+    });
     mocks.getEnabledSkillLabsForUser.mockRejectedValue(
       new Error("Later Labs unavailable"),
     );
