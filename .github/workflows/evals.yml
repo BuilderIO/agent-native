@@ -199,11 +199,13 @@ jobs:
               {
                 echo "### Content question search"
                 echo ""
-                echo "Status: SKIPPED"
+                echo "Status: FAILED"
                 echo ""
                 echo "Reason: no OpenAI key is configured."
                 echo ""
               } >> "$GITHUB_STEP_SUMMARY"
+              # It runs only when asked for, so a missing key fails the run.
+              exit 1
             else
               report_dir="$RUNNER_TEMP/question-search"
               export SEARCH_QUESTION_BAKEOFF=1 SEARCH_QUESTION_BAKEOFF_REPORT="$report_dir"

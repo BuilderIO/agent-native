@@ -52,7 +52,7 @@ async function settle<T>(pending: Promise<T>) {
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ["setTimeout"] });
+  vi.useFakeTimers({ toFake: ["setTimeout", "performance"] });
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -103,11 +103,15 @@ describe("bake-off model client", () => {
       .mockResolvedValueOnce(json({ error: "busy" }, 503))
       .mockResolvedValueOnce(cutOff)
       .mockResolvedValueOnce(shuffledEmbeddings(1));
+    const usage = emptyUsage();
     const outcome = await settle(
-      models(OPENAI_ENV).embed(["a"], "query", emptyUsage()),
+      models(OPENAI_ENV).embed(["a"], "query", usage),
     );
     expect(outcome).toEqual({ value: [[0]] });
     expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(usage.calls).toBe(4);
+    // The 12 s of waits between the four attempts aren't model time.
+    expect(usage.milliseconds).toBeLessThan(1_000);
   });
 
   it("fails at once on an account out of quota or a 400", async () => {

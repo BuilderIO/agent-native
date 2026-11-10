@@ -91,16 +91,24 @@ interface ApiAnswer {
   choices?: { message?: { content?: string | null } }[];
 }
 
-/** Retries `run` while `retryable` says the failure may pass. */
+/**
+ * Retries `run` while `retryable` says the failure may pass. Each attempt is
+ * a call in `usage`, timed alone so the waits between them stay out.
+ */
 async function withRetry<T>(
+  usage: ModelUsage,
   run: () => Promise<T>,
   retryable: (error: unknown) => boolean,
 ): Promise<T> {
   for (let attempt = 1; ; attempt += 1) {
+    const started = performance.now();
     try {
       return await run();
     } catch (error) {
       if (attempt === ATTEMPTS || !retryable(error)) throw error;
+    } finally {
+      usage.calls += 1;
+      usage.milliseconds += performance.now() - started;
     }
     await new Promise((resolve) => setTimeout(resolve, attempt * 2_000));
   }
@@ -117,11 +125,13 @@ class HttpError extends Error {
 }
 
 async function postWithRetry(
+  usage: ModelUsage,
   url: string,
   headers: Record<string, string>,
   body: unknown,
 ): Promise<ApiAnswer> {
   return withRetry(
+    usage,
     async () => {
       const response = await fetch(url, {
         method: "POST",
@@ -157,16 +167,6 @@ function retryableBuilderError(error: unknown) {
   return error instanceof TypeError || error.message.endsWith("timed out.");
 }
 
-async function timed<T>(usage: ModelUsage, run: () => Promise<T>) {
-  const started = performance.now();
-  try {
-    return await run();
-  } finally {
-    usage.calls += 1;
-    usage.milliseconds += performance.now() - started;
-  }
-}
-
 /**
  * Embeddings through Builder's gateway when its key pair is set (what hosted
  * Agent-Native ships), else the chat provider's. Chat goes to OpenAI. Asking
@@ -196,15 +196,14 @@ export function bakeoffModelsFromEnv(
       const vectors: number[][] = [];
       for (let at = 0; at < texts.length; at += BUILDER_EMBEDDING_BATCH) {
         const batch = texts.slice(at, at + BUILDER_EMBEDDING_BATCH);
-        const embedded = await timed(usage, () =>
-          withRetry(
-            () =>
-              family.embed(
-                batch.map((text) => ({ text })),
-                purpose,
-              ),
-            retryableBuilderError,
-          ),
+        const embedded = await withRetry(
+          usage,
+          () =>
+            family.embed(
+              batch.map((text) => ({ text })),
+              purpose,
+            ),
+          retryableBuilderError,
         );
         usage.embeddedCharacters += batch.reduce((n, t) => n + t.length, 0);
         vectors.push(...embedded);
@@ -218,11 +217,11 @@ export function bakeoffModelsFromEnv(
       const vectors: number[][] = [];
       for (let at = 0; at < texts.length; at += OPENAI_EMBEDDING_BATCH) {
         const batch = texts.slice(at, at + OPENAI_EMBEDDING_BATCH);
-        const data = await timed(usage, () =>
-          postWithRetry(`${provider.url}/embeddings`, provider.headers, {
-            model,
-            input: batch,
-          }),
+        const data = await postWithRetry(
+          usage,
+          `${provider.url}/embeddings`,
+          provider.headers,
+          { model, input: batch },
         );
         usage.embeddedCharacters += batch.reduce((n, t) => n + t.length, 0);
         usage.inputTokens += data.usage?.prompt_tokens ?? 0;
@@ -260,15 +259,18 @@ export function bakeoffModelsFromEnv(
     embed,
     chat: async (system, user, usage) => {
       if (!provider) throw new Error("No chat model is configured.");
-      const data = await timed(usage, () =>
-        postWithRetry(`${provider.url}/chat/completions`, provider.headers, {
+      const data = await postWithRetry(
+        usage,
+        `${provider.url}/chat/completions`,
+        provider.headers,
+        {
           model: provider.model(chatModel),
           messages: [
             { role: "system", content: system },
             { role: "user", content: user },
           ],
           temperature: 0,
-        }),
+        },
       );
       usage.inputTokens += data.usage?.prompt_tokens ?? 0;
       usage.outputTokens += data.usage?.completion_tokens ?? 0;
