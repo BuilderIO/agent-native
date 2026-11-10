@@ -1126,6 +1126,25 @@ const editorToolbarMessages = {
   closeUtilityPanel: "Close panel",
   hideInSearchDescription:
     "Hide from Organization and search. People with the link can still view.",
+  sharePeopleTab: "People",
+  shareAgentsTab: "Agents",
+  agentLevelHeading: "Agents on this page",
+  agentLevelMenuLabel: "What agents can do on this page",
+  agentLevelDefault: "(default)",
+  agentLevelCommentDescription:
+    "Can read, comment and suggest edits. Only people can accept them.",
+  agentLevelEditDescription:
+    "Can read, comment, suggest and edit its text, title and tabs, and move it to Trash.",
+  agentLevelCommentConfirm:
+    "Agents can now comment and suggest edits on this page, but not edit it.",
+  agentLevelEditConfirm: "Agents can edit this page again.",
+  agentLevelLimit: "An agent never gets more than the person it works for.",
+  agentLevelManagersOnly: "Only people who manage this page can change this.",
+  agentLevelUpdateFailed: "Couldn't change what agents can do here.",
+  agentLevelNote: "Agents can comment",
+  agentLevelNoteHint: "Agents can comment on this page. Change it in Share.",
+  sendPageToAgent: "Send this page to an agent",
+  connectAgentOverMcp: "Connect an agent over MCP",
   importingFromNotion: "Importing from Notion...",
   lastSynced: "Last synced",
   linkedToNotion: "Linked to Notion",
@@ -1596,7 +1615,8 @@ const enUS = {
     previewDraftUseSaved: "Use saved version",
     previewDraftSaveSeparately: "Save mine as a separate page",
     previewDraftSavedToHistory: "Your edits were saved to Version History",
-    previewDraftSavedSeparately: "Your edits were saved as a separate page",
+    previewDraftSavedSeparately:
+      "Your edits were saved as a private page in your space",
     previewDraftOpenSavedPage: "Open page",
     previewDraftMoreOptions: "More options",
     previewDraftViewFullVersions: "View full versions",

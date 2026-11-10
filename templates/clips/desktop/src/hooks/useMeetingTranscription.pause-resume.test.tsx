@@ -62,7 +62,7 @@ vi.mock("../lib/transcription-engine", async () => {
 import { ClipsActionError } from "../lib/clips-action";
 import { useMeetingTranscription } from "./useMeetingTranscription";
 
-function Harness() {
+function Harness({ localModel = null }: { localModel?: "parakeet" | null }) {
   useMeetingTranscription({
     callClipsAction: async <T,>(
       name: string,
@@ -91,6 +91,7 @@ function Harness() {
     selectedMicId: null,
     selectedMicLabel: null,
     enabled: true,
+    localModel,
   });
   return null;
 }
@@ -118,15 +119,35 @@ async function dispatch(name: string, payload: unknown = {}) {
   });
 }
 
-function emitFinal(runId: number, text: string) {
+function emitFinal(
+  runId: number,
+  text: string,
+  source: "mic" | "system" = "mic",
+) {
   for (const listener of mocks.finalListeners) {
     listener({
       runId,
       text,
-      source: "mic",
+      source,
       segments: [{ startMs: 0, endMs: 100, text }],
     });
   }
+}
+
+function savedTranscripts() {
+  return mocks.actions
+    .filter((action) => action.name === "save-browser-transcript")
+    .map((action) => action.body);
+}
+
+function startedRunId(): number {
+  return (
+    mocks.startTranscriptionEngine.mock.lastCall?.[0] as { runId: number }
+  ).runId;
+}
+
+function resumedRunId(): number {
+  return mocks.restartTranscriptionEngine.mock.lastCall?.[4] as number;
 }
 
 describe("meeting transcription pause and resume", () => {
@@ -142,7 +163,9 @@ describe("meeting transcription pause and resume", () => {
     mocks.invoke.mockReset().mockResolvedValue(undefined);
     mocks.emit.mockReset().mockResolvedValue(undefined);
     mocks.startTranscriptionEngine.mockReset().mockResolvedValue("whisper");
-    mocks.stopTranscriptionEngine.mockReset().mockResolvedValue(undefined);
+    mocks.stopTranscriptionEngine
+      .mockReset()
+      .mockResolvedValue({ failure: null });
     mocks.restartTranscriptionEngine.mockReset().mockResolvedValue(undefined);
     mocks.getMeeting
       .mockReset()
@@ -865,6 +888,28 @@ describe("meeting transcription pause and resume", () => {
     warning.mockRestore();
   });
 
+  it("asks for Parakeet when the meeting starts and again when it resumes", async () => {
+    await act(async () => {
+      root.render(createElement(Harness, { localModel: "parakeet" }));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
+    expect(mocks.startTranscriptionEngine).toHaveBeenCalledWith(
+      expect.objectContaining({ localModel: "parakeet" }),
+    );
+
+    await dispatch("clips:recorder-pause");
+    await dispatch("clips:recorder-resume");
+    expect(mocks.restartTranscriptionEngine).toHaveBeenCalledWith(
+      "whisper",
+      expect.anything(),
+      true,
+      true,
+      expect.any(Number),
+      "parakeet",
+    );
+  });
+
   it("accepts paused-run finals through the settle window after resume", async () => {
     await act(async () => {
       root.render(createElement(Harness));
@@ -891,7 +936,7 @@ describe("meeting transcription pause and resume", () => {
 
     await dispatch("clips:recorder-resume");
     const resumedRunId = mocks.restartTranscriptionEngine.mock
-      .calls[0][5] as number;
+      .calls[0][4] as number;
     expect(resumedRunId).toEqual(expect.any(Number));
     expect(resumedRunId).not.toBe(pausedRunId);
 
@@ -942,7 +987,7 @@ describe("meeting transcription pause and resume", () => {
     await dispatch("clips:recorder-resume");
 
     const resumedRunId = mocks.restartTranscriptionEngine.mock
-      .calls[0][5] as number;
+      .calls[0][4] as number;
     expect(resumedRunId).not.toBe(pausedRunId);
     emitFinal(resumedRunId, "final during resume startup");
     resumeStart.resolve();
@@ -1064,7 +1109,7 @@ describe("meeting transcription pause and resume", () => {
   });
 
   it("keeps the active-run listener through the final stop window", async () => {
-    const engineStop = deferred<void>();
+    const engineStop = deferred<{ failure: string | null }>();
     mocks.stopTranscriptionEngine.mockReturnValueOnce(engineStop.promise);
 
     await act(async () => {
@@ -1078,7 +1123,7 @@ describe("meeting transcription pause and resume", () => {
     await dispatch("clips:pill-stop", { meetingId: "meeting-1" });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
-      engineStop.resolve();
+      engineStop.resolve({ failure: null });
       await settle();
     });
     expect(mocks.finalListeners.size).toBeGreaterThan(0);
@@ -1096,6 +1141,87 @@ describe("meeting transcription pause and resume", () => {
     );
     expect(savedTranscript?.body.fullText).toBe("Me: final phrase at stop");
     expect(mocks.finalListeners.size).toBe(0);
+  });
+
+  it.each([
+    [
+      "a microphone failure",
+      "Microphone MacBook Pro Microphone sent only silence.",
+    ],
+    ["no failure", null],
+  ])(
+    "saves the system lines with the stopped run's failure when it reports %s",
+    async (_label, failure) => {
+      mocks.stopTranscriptionEngine.mockResolvedValueOnce({ failure });
+      await act(async () => {
+        root.render(createElement(Harness));
+        await settle();
+      });
+      await dispatch("meetings:start-transcription", {
+        meetingId: "meeting-1",
+      });
+      await act(async () => {
+        emitFinal(startedRunId(), "The launch moves to Thursday.", "system");
+        await settle();
+      });
+      await dispatch("clips:pill-stop", { meetingId: "meeting-1" });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_500);
+        await settle();
+      });
+
+      expect(savedTranscripts()).toStrictEqual([
+        {
+          recordingId: "recording-1",
+          fullText: "Them: The launch moves to Thursday.",
+          segments: [
+            {
+              startMs: 0,
+              endMs: 100,
+              text: "The launch moves to Thursday.",
+              source: "system",
+            },
+          ],
+          source: "whisper",
+          overwriteReady: true,
+          ...(failure ? { failureReason: failure } : {}),
+        },
+      ]);
+    },
+  );
+
+  it("keeps a failure reported at pause in every later save", async () => {
+    const failure = "Microphone AirPods sent no audio in 4.0 s.";
+    mocks.stopTranscriptionEngine.mockResolvedValueOnce({ failure });
+    await act(async () => {
+      root.render(createElement(Harness));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
+    await act(async () => {
+      emitFinal(startedRunId(), "Before the break.", "system");
+      await settle();
+    });
+    await dispatch("clips:recorder-pause");
+    await dispatch("clips:recorder-resume");
+    await act(async () => {
+      emitFinal(resumedRunId(), "After the break.", "system");
+      await settle();
+    });
+    await dispatch("clips:pill-stop", { meetingId: "meeting-1" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+      await settle();
+    });
+
+    const saves = savedTranscripts();
+    expect(saves.length).toBeGreaterThan(1);
+    expect(saves.slice(-1).map((save) => save.fullText)).toEqual([
+      "Them: Before the break.\n\nThem: After the break.",
+    ]);
+    expect(saves.map((save) => save.failureReason)).toEqual(
+      saves.map(() => failure),
+    );
   });
 
   it.each(["speech-engine-busy-dictation", "speech-engine-start-superseded"])(
