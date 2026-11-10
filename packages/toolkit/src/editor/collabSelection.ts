@@ -62,17 +62,21 @@ function sameBlocks($a: ResolvedPos, $b: ResolvedPos) {
   return true;
 }
 
-function textblockPositions(
+/** Where a doc's textblocks match `isBlock`, and how many match `isLanded`. */
+function textblockCensus(
   doc: ProseMirrorNode,
-  matches: (node: ProseMirrorNode) => boolean,
+  isBlock: (node: ProseMirrorNode) => boolean,
+  isLanded: (node: ProseMirrorNode) => boolean,
 ) {
-  const found: number[] = [];
+  const blocks: number[] = [];
+  let landed = 0;
   doc.descendants((node, pos) => {
     if (!node.isTextblock) return true;
-    if (matches(node)) found.push(pos);
+    if (isBlock(node)) blocks.push(pos);
+    else if (isLanded(node)) landed += 1;
     return false;
   });
-  return found;
+  return { blocks, landed };
 }
 
 /** Matches textblocks with the same type, attributes and text, sizes first. */
@@ -90,8 +94,10 @@ function copiesOf(block: ProseMirrorNode) {
  * rewritten in place, and a rewrite keeps the cursor's character when the two
  * texts share it, such as a closing period. A move shows as the textblock the
  * Yjs position landed in now holding another textblock's old text, which a
- * collaborator typing in it doesn't produce. The cursor's old textblock, text
- * and attributes alike, must then sit in exactly one textblock elsewhere.
+ * collaborator typing in it doesn't produce. And a move only rearranges
+ * textblocks: the cursor's old textblock, text and attributes alike, must sit
+ * in exactly one textblock elsewhere, and the text it was replaced with must
+ * be no more common than before.
  */
 function positionInMovedBlock(
   oldDoc: ProseMirrorNode,
@@ -107,17 +113,11 @@ function positionInMovedBlock(
   // This runs on every keystroke a collaborator sends, so typing stops after
   // one pass over the old doc, and only a move reads the new one.
   const isLanded = copiesOf($resolved.parent);
-  let copies = 0;
-  let sources = 0;
-  oldDoc.descendants((node) => {
-    if (!node.isTextblock) return true;
-    if (isBlock(node)) copies += 1;
-    else if (isLanded(node)) sources += 1;
-    return false;
-  });
-  if (sources === 0 || copies !== 1) return null;
-  const found = textblockPositions(newDoc, isBlock);
-  const start = found.length === 1 ? found.at(0) : undefined;
+  const before = textblockCensus(oldDoc, isBlock, isLanded);
+  if (before.landed === 0 || before.blocks.length !== 1) return null;
+  const after = textblockCensus(newDoc, isBlock, isLanded);
+  if (after.landed !== before.landed || after.blocks.length !== 1) return null;
+  const start = after.blocks.at(0);
   return start === undefined ? null : start + 1 + $old.parentOffset;
 }
 

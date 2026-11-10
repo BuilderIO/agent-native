@@ -244,6 +244,35 @@ describe("cursor after a collaborator's change", () => {
     });
   });
 
+  it("stays in its block when a collaborator rewrites it as another block and adds a copy of its old text", () => {
+    // Like a move, the block now holds another block's text and its old text
+    // sits elsewhere, but that other block kept its text, so nothing moved.
+    const texts = ["Alpha one.", "Gamma three."];
+    const [a, b] = twoEditors(texts.join("\n\n"));
+    const toA = outbox(b.ydoc, a.ydoc);
+    placeCursor(a.editor, blockStart(a.editor, 1) + texts[1]!.length);
+
+    const copy = b.editor.state.doc.child(1);
+    const start = blockStart(b.editor, 1);
+    // Keeps the closing period, the character A's cursor sits after.
+    b.editor.view.dispatch(
+      b.editor.state.tr.insertText(
+        "Alpha one",
+        start,
+        start + "Gamma three".length,
+      ),
+    );
+    const { state } = b.editor;
+    b.editor.view.dispatch(state.tr.insert(state.doc.content.size, copy));
+    toA.deliverMerged();
+
+    expect(cursorBlock(a.editor)).toEqual({
+      index: 1,
+      text: texts[0],
+      offset: texts[0]!.length,
+    });
+  });
+
   it.each([
     ["at the start", 0],
     ["in the middle", 2],
