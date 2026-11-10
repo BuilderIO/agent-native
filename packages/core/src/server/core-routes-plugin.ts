@@ -49,8 +49,10 @@ import {
   writeAgentLoopSettings,
 } from "../agent/loop-settings.js";
 import {
-  createBuilderSignupExperimentHandler,
+  createBuilderSignupExperiment,
+  setBuilderSignupVerifiedStarter,
   getBuilderSignupConnectError,
+  getBuilderSignupTrackingIdentity,
 } from "./builder-signup-experiment.js";
 export {
   normalizeAgentEngineStatusModel,
@@ -296,6 +298,7 @@ import {
   CredentialStoreUnavailableError,
   builderCreditsRefusalStatus,
   getBuilderKeyConnections,
+  hasCompletedAutomaticBuilderSignup,
   prefetchSecrets,
   resolveSecret,
   resolveSecretDetailed,
@@ -2527,6 +2530,7 @@ export type BuilderAccountActivationResult =
 
 interface BuilderAccountActivationInput {
   newAccountOnly?: boolean;
+  signupActivationReceipt?: string;
   ownerEmail: string;
   session: AuthSession | null;
   provisioningToken: string | null | undefined;
@@ -2535,6 +2539,27 @@ interface BuilderAccountActivationInput {
   member: BuilderConnectMember | null;
   connectAttemptId: string | null;
   tracking: BuilderConnectTrackingParams;
+}
+
+/** Read the exact automatic-write receipt using the same membership policy as activation. */
+export async function reconcileBuilderSignupActivation(
+  event: H3Event,
+  session: AuthSession,
+  owner: { experimentId: string; attempt: string; startedAt: number },
+): Promise<boolean> {
+  const member = await resolveBuilderOrgMutation(event, {
+    allowMemberInitiation: true,
+  });
+  // Activation permits solo users at personal scope; only an unreadable
+  // membership prevents determining custody. Do not refuse an existing org
+  // connection here: that completed write is precisely what we are recovering.
+  if (member.deny === BUILDER_ORG_MEMBERSHIP_UNREADABLE) return false;
+  return hasCompletedAutomaticBuilderSignup(
+    session.email,
+    `${owner.experimentId}:${owner.attempt}`,
+    owner.startedAt,
+    member,
+  );
 }
 
 /**
@@ -2615,10 +2640,16 @@ export async function activateBuilderAccount(
       await import("./credential-provider.js");
     let written: Awaited<ReturnType<typeof writeBuilderCredentials>>;
     try {
+      const writeOptions = input.signupActivationReceipt
+        ? {
+            ...activationOrg,
+            automaticSignupReceipt: input.signupActivationReceipt,
+          }
+        : (activationOrg ?? undefined);
       written = await writeBuilderCredentials(
         ownerEmail,
         credentials,
-        activationOrg ?? undefined,
+        writeOptions,
       );
     } catch (error) {
       captureError(error, { route: "builder.provision.credential-write" });
@@ -5094,37 +5125,41 @@ export function createCoreRoutesPlugin(
         }),
       );
 
+      const builderSignupExperiment = createBuilderSignupExperiment({
+        getSession,
+        sameOrigin: isSameOriginConnect,
+        activate: async (event, session, owner) => {
+          const authorization = await authorizeBuilderConnectScope(
+            event,
+            session.email,
+            null,
+          );
+          if ("deny" in authorization)
+            return { ok: false, code: authorization.deny.reason };
+          return activateBuilderAccount(event, {
+            ownerEmail: session.email,
+            session,
+            provisioningToken: signBuilderProvisioningToken(
+              session.email,
+              session.token ?? "",
+            ),
+            requestedScope: null,
+            member: authorization.member,
+            connectAttemptId: null,
+            tracking: getBuilderSignupTrackingIdentity(),
+            newAccountOnly: true,
+            signupActivationReceipt: `${owner.experimentId}:${owner.attempt}`,
+          });
+        },
+
+        reconcile: reconcileBuilderSignupActivation,
+      });
+      setBuilderSignupVerifiedStarter(
+        builderSignupExperiment.startVerifiedSignup,
+      );
       getH3App(nitroApp).use(
         `${P}/auth/builder-signup-experiment`,
-        createBuilderSignupExperimentHandler({
-          getSession,
-          sameOrigin: isSameOriginConnect,
-          activate: async (event, session) => {
-            const authorization = await authorizeBuilderConnectScope(
-              event,
-              session.email,
-              null,
-            );
-            if ("deny" in authorization)
-              return { ok: false, code: authorization.deny.reason };
-            return activateBuilderAccount(event, {
-              ownerEmail: session.email,
-              session,
-              provisioningToken: signBuilderProvisioningToken(
-                session.email,
-                session.token ?? "",
-              ),
-              requestedScope: null,
-              member: authorization.member,
-              connectAttemptId: null,
-              tracking: {
-                agentNativeApp: "design",
-                agentNativeTemplate: "design",
-              },
-              newAccountOnly: true,
-            });
-          },
-        }),
+        builderSignupExperiment.handler,
       );
 
       getH3App(nitroApp).use(

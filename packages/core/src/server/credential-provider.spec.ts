@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockReadAppSecret = vi.fn();
+const mockReadAppSecretMeta = vi.fn();
 const mockReadAppSecrets = vi.fn();
 const mockWriteAppSecret = vi.fn();
 const mockDeleteAppSecret = vi.fn();
@@ -49,6 +50,7 @@ const MockBuilderOAuthScopeError = vi.hoisted(
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
+  readAppSecretMeta: (...args: any[]) => mockReadAppSecretMeta(...args),
   readAppSecrets: (...args: any[]) => mockReadAppSecrets(...args),
   writeAppSecret: (...args: any[]) => mockWriteAppSecret(...args),
   deleteAppSecret: (...args: any[]) => mockDeleteAppSecret(...args),
@@ -104,6 +106,7 @@ import {
   assertCredentialStoreReadable,
   getBuilderCredentialAuthFailure,
   getBuilderKeyConnections,
+  hasCompletedAutomaticBuilderSignup,
   gatewayLaneUnavailableMessage,
   getProviderCredentialAuthFailure,
   isBuilderGatewayDeployConfigured,
@@ -208,6 +211,7 @@ beforeEach(() => {
   delete process.env.SLACK_BOT_TOKEN;
   delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
+  mockReadAppSecretMeta.mockResolvedValue(null);
   mockReadAppSecrets.mockImplementation(
     async ({ keys, scope, scopeId }: any) => {
       const entries = await Promise.all(
@@ -275,6 +279,140 @@ describe("resolveCredentialWriteScope", () => {
 });
 
 describe("writeBuilderCredentials", () => {
+  it("commits an automatic signup receipt with the private key only after other writes finish", async () => {
+    let finish!: () => void;
+    mockWriteAppSecret.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = writeBuilderCredentials(
+      "a@b.com",
+      { privateKey: "bpk-auto-private", publicKey: "public" },
+      { automaticSignupReceipt: "clips_builder_signup_v1:attempt" },
+    );
+    await vi.waitFor(() => expect(mockWriteAppSecret).toHaveBeenCalledOnce());
+    expect(mockWriteAppSecret.mock.calls[0]?.[0].key).toBe(
+      "BUILDER_PUBLIC_KEY",
+    );
+    finish();
+    await pending;
+    expect(mockWriteAppSecret.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({
+        key: "BUILDER_PRIVATE_KEY",
+        scope: "user",
+        scopeId: "a@b.com",
+        description:
+          "Automatic Builder signup: clips_builder_signup_v1:attempt",
+      }),
+    );
+  });
+
+  it("settles every failed automatic batch before returning without a receipt", async () => {
+    let finish!: () => void;
+    mockWriteAppSecret.mockImplementation(({ key }) =>
+      key === "BUILDER_PUBLIC_KEY"
+        ? Promise.reject(new Error("write unavailable"))
+        : new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+    );
+    let settled = false;
+    const pending = writeBuilderCredentials(
+      "a@b.com",
+      {
+        privateKey: "bpk-auto-private",
+        publicKey: "public",
+        orgName: "Example",
+      },
+      { automaticSignupReceipt: "clips:attempt" },
+    ).catch((error) => {
+      settled = true;
+      return error;
+    });
+    await vi.waitFor(() => expect(mockWriteAppSecret).toHaveBeenCalledTimes(2));
+    expect(settled).toBe(false);
+    expect(
+      mockWriteAppSecret.mock.calls.some(
+        ([args]) => args.key === "BUILDER_PRIVATE_KEY",
+      ),
+    ).toBe(false);
+    finish();
+    expect(await pending).toBeInstanceOf(Error);
+    expect(
+      mockWriteAppSecret.mock.calls.some(([args]) => args.description),
+    ).toBe(false);
+  });
+
+  it("reconciles only the matching completed automatic attempt and a usable personal pair", async () => {
+    mockReadAppSecretMeta.mockResolvedValue({
+      description: "Automatic Builder signup: clips:attempt",
+      updatedAt: 200,
+      last4: "••••vate",
+    });
+    mockReadAppSecrets.mockResolvedValue(
+      new Map([
+        ["BUILDER_PRIVATE_KEY", { value: "bpk-private", updatedAt: 200 }],
+        ["BUILDER_PUBLIC_KEY", { value: "public", updatedAt: 100 }],
+      ]),
+    );
+    expect(
+      await hasCompletedAutomaticBuilderSignup("a@b.com", "clips:attempt", 150),
+    ).toBe(true);
+    expect(mockReadAppSecretMeta).toHaveBeenCalledWith({
+      key: "BUILDER_PRIVATE_KEY",
+      scope: "user",
+      scopeId: "a@b.com",
+    });
+    mockReadAppSecretMeta.mockClear();
+    mockReadAppSecrets.mockClear();
+    expect(
+      await hasCompletedAutomaticBuilderSignup(
+        "a@b.com",
+        "clips:attempt",
+        150,
+        { orgId: "qa-org", role: "owner" },
+      ),
+    ).toBe(true);
+    expect(mockReadAppSecretMeta).toHaveBeenCalledWith({
+      key: "BUILDER_PRIVATE_KEY",
+      scope: "org",
+      scopeId: "qa-org",
+    });
+    expect(mockReadAppSecrets).toHaveBeenCalledWith({
+      keys: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+      scope: "org",
+      scopeId: "qa-org",
+    });
+    expect(
+      await hasCompletedAutomaticBuilderSignup(
+        "a@b.com",
+        "slides:attempt",
+        150,
+      ),
+    ).toBe(false);
+    expect(
+      await hasCompletedAutomaticBuilderSignup("a@b.com", "clips:attempt", 201),
+    ).toBe(false);
+    mockReadAppSecrets.mockResolvedValue(
+      new Map([
+        ["BUILDER_PRIVATE_KEY", { value: "bpk-private", updatedAt: 200 }],
+      ]),
+    );
+    expect(
+      await hasCompletedAutomaticBuilderSignup("a@b.com", "clips:attempt", 150),
+    ).toBe(false);
+    mockReadAppSecretMeta.mockResolvedValue({
+      description: null,
+      updatedAt: 200,
+      last4: "••••vate",
+    });
+    expect(
+      await hasCompletedAutomaticBuilderSignup("a@b.com", "clips:attempt", 150),
+    ).toBe(false);
+  });
+
   it("writes at user scope without options (legacy callers)", async () => {
     const target = await writeBuilderCredentials("a@b.com", {
       privateKey: "bpk-test-private",

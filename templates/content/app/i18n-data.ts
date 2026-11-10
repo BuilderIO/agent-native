@@ -979,7 +979,6 @@ const editorMediaMessages = {
   image: "Image",
   imageAdded: "Image added",
   imageBroken: "Image could not be loaded",
-  imageCommentWithAlt: "Image: {{alt}}",
   imageCopied: "Image copied.",
   imageDownloadStarted: "Image download started.",
   imageLinkHint: "Works with any image from the web",
@@ -1126,6 +1125,25 @@ const editorToolbarMessages = {
   closeUtilityPanel: "Close panel",
   hideInSearchDescription:
     "Hide from Organization and search. People with the link can still view.",
+  sharePeopleTab: "People",
+  shareAgentsTab: "Agents",
+  agentLevelHeading: "Agents on this page",
+  agentLevelMenuLabel: "What agents can do on this page",
+  agentLevelDefault: "(default)",
+  agentLevelCommentDescription:
+    "Can read, comment and suggest edits. Only people can accept them.",
+  agentLevelEditDescription:
+    "Can read, comment, suggest and edit its text, title and tabs, and move it to Trash.",
+  agentLevelCommentConfirm:
+    "Agents can now comment and suggest edits on this page, but not edit it.",
+  agentLevelEditConfirm: "Agents can edit this page again.",
+  agentLevelLimit: "An agent never gets more than the person it works for.",
+  agentLevelManagersOnly: "Only people who manage this page can change this.",
+  agentLevelUpdateFailed: "Couldn't change what agents can do here.",
+  agentLevelNote: "Agents can comment",
+  agentLevelNoteHint: "Agents can comment on this page. Change it in Share.",
+  sendPageToAgent: "Send this page to an agent",
+  connectAgentOverMcp: "Connect an agent over MCP",
   importingFromNotion: "Importing from Notion...",
   lastSynced: "Last synced",
   linkedToNotion: "Linked to Notion",

@@ -2629,6 +2629,9 @@ const messages: ToolkitAgentChatTranslation = {
     "L’agent utilise le jeton d’accès que vous ajoutez, il voit donc ce que ce jeton peut voir.",
   "settingsShell.integrationDetail.accessToken": "Jeton d’accès",
   "settingsShell.integrationDetail.addAccessToken": "Ajouter un jeton d’accès",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Impossible de vérifier le jeton d'accès enregistré.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Réessayer",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "Un admin doit configurer ceci",
   "settingsShell.integrationDetail.callout.adminNeededBody":

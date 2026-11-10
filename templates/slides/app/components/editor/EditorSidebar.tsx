@@ -8,6 +8,7 @@ import {
   writeClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
 import { DEFAULT_AGENT_IDENTITY } from "@agent-native/toolkit/collab-ui";
 import {
@@ -28,7 +29,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
@@ -1282,7 +1282,9 @@ export default function EditorSidebar({
                   ) {
                     onRemoveFailedSlide?.(describeSlideId);
                   }
-                  toast.error(t("editorSidebar.newSlideSaveFailed"));
+                  reportWriteFailure(error, {
+                    label: t("editorSidebar.newSlideSaveFailed"),
+                  });
                   return false;
                 }
                 addSlideAgentSubmit(message, context, options);

@@ -2019,6 +2019,7 @@ const messages = {
     freeClipsLeft_few: "متبقية {{count}} مقاطع مجانية",
     freeClipsLeft_many: "متبقٍ {{count}} مقطعًا مجانيًا",
     freeClipsLeft_other: "متبقٍ {{count}} من المقاطع المجانية",
+    activateBuilder: "تفعيل Builder.io",
     hostedClipsExhaustedTitle: "اربط Builder.io مجانًا لمواصلة التسجيل",
     hostedClipsExhaustedDescription:
       "استخدمت كل المقاطع المجانية المستضافة. اربط مساحة تخزين Builder.io لمواصلة حفظ المقاطع في مكتبتك.",
