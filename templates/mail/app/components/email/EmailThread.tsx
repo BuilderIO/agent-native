@@ -1,5 +1,6 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import {
   findPlainTextLinkRanges,
@@ -330,8 +331,8 @@ export function EmailThread({
               ),
           },
         });
-      } catch {
-        toast.error(t("mail.aiFilter.actionFailed"));
+      } catch (error) {
+        reportWriteFailure(error, { label: t("mail.aiFilter.actionFailed") });
       }
     },
     [email, navigate, priorityFeedback, t],
@@ -1280,9 +1281,13 @@ export function EmailThread({
           toast.error(t("mail.toasts.couldNotUnsubscribe"));
         }
       }
-    } catch {
+    } catch (error) {
       if (unsubscribeInfo.url) {
         window.open(unsubscribeInfo.url, "_blank", "noopener,noreferrer");
+      } else {
+        reportWriteFailure(error, {
+          label: t("mail.toasts.couldNotUnsubscribe"),
+        });
       }
     } finally {
       setUnsubscribing(false);

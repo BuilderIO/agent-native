@@ -203,6 +203,8 @@ sendToAgentChat({
 });
 ```
 
+`sendToAgentChat()` टैब ID लौटाता है, डिलीवरी की पुष्टि नहीं। स्थानीय संदेश की पुष्टि के लिए `sendToAgentChatAndConfirm({ message, chatTarget: "local" })` का उपयोग करें और `delivered: false` तथा `reason` संभालें। यह पुष्टि की प्रतीक्षा करता है और समय समाप्त होने पर भेजना रद्द करता है। केवल ड्राफ़्ट और कोड लक्ष्य समर्थित नहीं हैं।
+
 ### AgentChatMessage {#agentchatmessage}
 
 | विकल्प         | प्रकार     | विवरण                                                                                                    |
