@@ -283,18 +283,17 @@ La galería de arriba describe _qué_ hace una extensión. Las ranuras describen
 
 De forma predeterminada, una extensión se encuentra en su propia página en la lista de Extensiones; ábrala como una aplicación pequeña. Esto está bien para paneles, calculadoras y widgets independientes.
 
-Pero el caso de uso más parecido a QBO es diferente: el usuario quiere que su widget se fije _dentro_ del UI de la plantilla, debajo de la información de contacto en la barra lateral de Mail, en la esquina de un panel de Analytics, en el lado derecho de un evento de Calendario. Para eso están las **tragamonedas**.
+Hay ranuras con nombre donde la aplicación host renderiza un `<ExtensionSlot>` y proporciona el contexto de la página actual. Los destinos de ranura y las instalaciones conectan extensiones con esas ubicaciones existentes. No crean un panel, una pestaña ni una ruta.
 
 Una ranura es un widget con nombre en el área que incluye una plantilla:
 
 | Plantilla      | Ejemplo de ranura              | Dónde aparece                                                           |
 | -------------- | ------------------------------ | ----------------------------------------------------------------------- |
 | **Correo**     | `mail.contact-sidebar.bottom`  | Debajo de la información de contacto en cada hilo de correo electrónico |
-| **Análisis**   | `analytics.dashboard.tiles`    | Junto a los paneles integrados del tablero                              |
 | **Calendario** | `calendar.event-detail.bottom` | Debajo del evento abierto                                               |
-| **Clips**      | `clips.right-panel.tabs`       | Una nueva pestaña en el panel de revisión de clips                      |
+| **Contenido**  | `content.sidebar.bottom`       | En la parte inferior de la barra lateral del documento                  |
 
-Cuando una extensión se **instala en una ranura**, el anfitrión inserta el contexto relevante (el correo electrónico del contacto, la identificación del panel, la identificación del evento) en el iframe. La extensión dice `window.slotContext` para saber qué está mirando el usuario.
+Cuando una extensión se **instala en una ranura**, el host envía al iframe el contexto que eligió, como el correo del contacto, el ID del evento o el ID del documento. La extensión lee `window.slotContext` para saber qué está viendo el usuario.
 
 <Diagram id="doc-block-1uwb6po" title="Las ranuras introducen contexto en el widget" summary={"La plantilla de host posee espacios con nombre; instalar una extensión en uno le proporciona window.slotContext para lo que el usuario esté viendo actualmente."}>
 

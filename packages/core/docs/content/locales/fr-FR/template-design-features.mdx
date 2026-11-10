@@ -89,31 +89,27 @@ par tâche.
 
 ### Importer {#import}
 
-Un seul panneau, cinq façons d'intégrer du contenu externe :
+Quatre façons d’importer du contenu externe :
 
 <Table
   id="doc-block-design-import-table"
   columns={["Méthode", "Comment ça fonctionne"]}
   rows={[
     [
-      "URL de cadre Figma",
-      "Collez un lien de partage Figma. Connectez votre compte Figma la première fois. S'importe comme un véritable écran modifiable.",
+      "Lien Figma",
+      "Collez dans le chat un lien vers une page ou un cadre Figma. Connectez votre compte Figma la première fois. L’import produit de vrais écrans modifiables et fonctionne pour les fichiers trop volumineux pour être importés depuis le disque.",
     ],
     [
       "Coller depuis Figma",
-      "Copiez un cadre dans Figma, puis collez (Cmd+V) directement sur le canevas Design. C'est un raccourci de canevas, pas un bouton séparé dans le panneau Importer.",
+      "Copiez un cadre dans Figma, puis collez-le (Cmd+V) sur le canevas Design.",
     ],
     [
-      "Importer un fichier .fig",
-      "Importez directement un fichier .fig. Un import distinct, au niveau du design, différent de l'import d'un .fig dans un système de conception.",
+      "Fichier → Importer…",
+      "Choisissez un fichier .fig ou .html. Design importe le fichier entier sur le canevas et affiche la progression dans une notification. Un .fig qui dépasse les limites du navigateur est refusé immédiatement ; utilisez plutôt un lien Figma. C’est distinct de l’import d’un .fig dans un design system.",
     ],
     [
-      "Importer du HTML",
-      "Collez du HTML brut dans une zone de texte, ou importez un fichier .html, pour l'intégrer comme écran.",
-    ],
-    [
-      "Application locale",
-      "Pas en libre-service depuis ce panneau. Il affiche des commandes d'installation et de connexion destinées à être collées dans un agent de codage externe, qui ouvre ensuite votre application en cours d'exécution dans Design sous forme d'écrans propres. Consultez /visual-edit dans le Guide développeur.",
+      "App locale",
+      "Fichier → Connecter une app locale ouvre la commande d’installation du skill /visual-edit. Votre agent de code ouvre ensuite votre app en cours d’exécution dans Design sous forme d’écrans. Voir /visual-edit dans le Guide du développeur.",
     ],
   ]}
 />

@@ -151,15 +151,15 @@ describe("design navigation state", () => {
     const command = {
       view: "editor",
       designId: "design_123",
-      leftPanel: "import" as const,
+      leftPanel: "tokens" as const,
     };
 
     const path = editorPathFromCommand(command);
 
-    expect(path).toBe("/design/design_123?panel=import");
+    expect(path).toBe("/design/design_123?panel=tokens");
     expect(editorCommandFromNavigate(command, path!)).toMatchObject({
       designId: "design_123",
-      leftPanel: "import",
+      leftPanel: "tokens",
       path,
     });
   });

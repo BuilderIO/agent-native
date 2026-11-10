@@ -16,6 +16,7 @@ import {
   useQueryClient,
   type InvalidateOptions,
   type InvalidateQueryFilters,
+  type Query,
   type QueryClient,
   type QueryKey,
 } from "@tanstack/react-query";
@@ -95,8 +96,14 @@ export type PageOpenReadOwner = {
 // collection part may not be cached yet, so the client's own requests are
 // recorded as well, by their filters.
 type InvalidationWatch = {
-  filters: InvalidateQueryFilters[];
+  invalidations: WatchedInvalidation[];
   queryHashes: Set<string>;
+};
+// A predicate decides by the query itself, so what it said of the page reads
+// the cache held when it was asked is kept with it, by query hash.
+type WatchedInvalidation = {
+  filters: InvalidateQueryFilters;
+  answers?: ReadonlyMap<string, boolean>;
 };
 const watchesByClient = new WeakMap<QueryClient, Set<InvalidationWatch>>();
 
@@ -110,7 +117,10 @@ function invalidationWatches(queryClient: QueryClient) {
     filters?: InvalidateQueryFilters,
     options?: InvalidateOptions,
   ) => {
-    for (const watch of watches) watch.filters.push(filters ?? {});
+    if (watches.size > 0) {
+      const invalidation = watchedInvalidation(queryClient, filters ?? {});
+      for (const watch of watches) watch.invalidations.push(invalidation);
+    }
     return invalidateQueries(filters, options);
   }) as QueryClient["invalidateQueries"];
   // A query invalidated directly, not through the client.
@@ -121,17 +131,56 @@ function invalidationWatches(queryClient: QueryClient) {
   return watches;
 }
 
-// Whether an invalidation asked with `filters` reaches `queryKey`. Filters
-// that decide by the query itself (its type, staleness, a predicate) are
-// taken to reach it, since the query may not exist to ask.
-function invalidationReaches(
+function watchedInvalidation(
+  queryClient: QueryClient,
   filters: InvalidateQueryFilters,
+): WatchedInvalidation {
+  const { predicate } = filters;
+  if (!predicate) return { filters };
+  const answers = new Map<string, boolean>();
+  for (const query of queryClient.getQueryCache().getAll()) {
+    if (predicateJudges(query.queryKey)) {
+      answers.set(query.queryHash, predicate(query));
+    }
+  }
+  return { filters, answers };
+}
+
+// Content's rule (`contentActionInvalidatePredicate`) knows a page open's
+// own reads, the page and its draft, and judges a change against them. A
+// collection part it judges by whether the page showing it is open, which a
+// part still being read for an open isn't yet, so its predicate is asked of
+// the page reads alone.
+function predicateJudges(queryKey: QueryKey) {
+  return (
+    queryKey[0] === "action" &&
+    (queryKey[1] === "get-document" ||
+      queryKey[1] === "get-preview-document-draft")
+  );
+}
+
+// Whether an invalidation reaches `queryKey`. For a page read, a predicate is
+// taken at what it said of the query the cache held for the key when it was
+// asked, or else is asked of the query held now. With no query to ask, or for
+// a collection part, it is taken to reach the key. Filters on a query's type
+// or staleness are taken to reach it too: its state has moved on since.
+function invalidationReaches(
+  { filters, answers }: WatchedInvalidation,
   queryKey: QueryKey,
+  query: Query | undefined,
 ) {
-  if (filters.queryKey === undefined) return true;
-  return filters.exact
-    ? hashKey(filters.queryKey) === hashKey(queryKey)
-    : partialMatchKey(queryKey, filters.queryKey);
+  if (
+    filters.queryKey !== undefined &&
+    !(filters.exact
+      ? hashKey(filters.queryKey) === hashKey(queryKey)
+      : partialMatchKey(queryKey, filters.queryKey))
+  ) {
+    return false;
+  }
+  if (!filters.predicate || !predicateJudges(queryKey)) return true;
+  return (
+    answers?.get(hashKey(queryKey)) ?? (query ? filters.predicate(query) : true)
+  );
 }
 
 export function pageOpenReadOwner(
@@ -149,7 +198,10 @@ export function pageOpenReadOwner(
   const binding = currentActionQueryCacheBinding();
   const read = trackedPageOpenRead(queryClient, queryKey);
   const watches = invalidationWatches(queryClient);
-  const watch: InvalidationWatch = { filters: [], queryHashes: new Set() };
+  const watch: InvalidationWatch = {
+    invalidations: [],
+    queryHashes: new Set(),
+  };
   watches.add(watch);
   let answered = false;
   return {
@@ -161,16 +213,18 @@ export function pageOpenReadOwner(
       // Unknown, as when the log no longer reaches back that far: every
       // part counts as changed.
       const replayed = syncInvalidationsAfter(queryClient, syncCursor) ?? [{}];
-      watch.filters.push(
-        ...replayed.map(({ queryKey }) => (queryKey ? { queryKey } : {})),
+      watch.invalidations.push(...replayed.map((filters) => ({ filters })));
+    },
+    invalidatedWhileOut: (partKey) => {
+      const partQuery = queryCache.find({ queryKey: partKey, exact: true });
+      return (
+        watch.queryHashes.has(hashKey(partKey)) ||
+        watch.invalidations.some((invalidation) =>
+          invalidationReaches(invalidation, partKey, partQuery),
+        ) ||
+        (!watchedSinceSent && partQuery?.state.isInvalidated === true)
       );
     },
-    invalidatedWhileOut: (partKey) =>
-      watch.queryHashes.has(hashKey(partKey)) ||
-      watch.filters.some((filters) => invalidationReaches(filters, partKey)) ||
-      (!watchedSinceSent &&
-        queryCache.find({ queryKey: partKey, exact: true })?.state
-          .isInvalidated === true),
     finished: () => {
       watches.delete(watch);
     },

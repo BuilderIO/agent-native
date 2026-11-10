@@ -17,7 +17,11 @@ export {
 } from "./registry.js";
 export { builderFileUploadProvider } from "./builder.js";
 export { getBuilderUploadCredentialStatus } from "./status.js";
-export { ensureS3FileUploadProvider, s3FileUploadProvider } from "./s3.js";
+export {
+  ensureS3FileUploadProvider,
+  S3RequestError,
+  s3FileUploadProvider,
+} from "./s3.js";
 export {
   cancelS3ResponseBody,
   fetchS3WithTimeout,
