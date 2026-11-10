@@ -340,11 +340,10 @@ async function emitTelemetry(
       durationMs: Date.now() - state.startedAt,
     });
   const flush = async () => {
-    await Promise.all([
-      flushTrackingEvents(state.trackingScope),
-      // Analytics sends still under way when the reply goes out.
-      flushTrackingSendsForResponse(),
-    ]);
+    await flushTrackingEvents(state.trackingScope);
+    // After the scope's tracking work, so the events it queues as it finishes
+    // are sent along with those still under way when the reply goes out.
+    await flushTrackingSendsForResponse();
     await flushObservability();
   };
   const exported = flush().catch((error: unknown) => {
