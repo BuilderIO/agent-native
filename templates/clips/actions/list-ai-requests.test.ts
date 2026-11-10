@@ -68,6 +68,25 @@ afterEach(async () => {
   await client.close();
 });
 
+describe("list-ai-requests title candidates", () => {
+  const seed = async () => {
+    await client.query(
+      `INSERT INTO recordings (id, owner_email, title, title_source, status, created_at)
+       VALUES ('rec_c', 'me@example.com', 'Untitled recording', 'default', 'ready', '2026-09-28T12:00:00.000Z')`,
+    );
+    await client.query(
+      `INSERT INTO recording_transcripts (recording_id, status, full_text, segments_json)
+       VALUES ('rec_c', 'ready', 'Hello world this is a clip', '[]')`,
+    );
+  };
+
+  it("lists candidates", async () => {
+    await seed();
+    const result = (await listAiRequests.run({})) as Record<string, unknown>;
+    expect(result.titleCandidates).toHaveLength(1);
+  });
+});
+
 describe("list-ai-requests", () => {
   it("fills each accessible request's current title from its recording", async () => {
     await insertRecording("rec_mine", "Quarterly planning", "me@example.com");

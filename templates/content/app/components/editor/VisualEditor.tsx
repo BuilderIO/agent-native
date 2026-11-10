@@ -12,6 +12,7 @@ import {
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { RegistryBlockDataProvider } from "@agent-native/toolkit/app/blocks";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
@@ -126,6 +127,7 @@ import {
   holdDroppedClipFile,
   watchClipUploadBlocks,
 } from "./clip-embed/clip-uploads";
+import { ColumnResizeControls } from "./ColumnResizeControls";
 import {
   buildDocText,
   resolveAnchor,
@@ -162,7 +164,7 @@ import {
 } from "./extensions/CommentHighlight";
 import { ContentReferenceNode } from "./extensions/ContentReferenceNode";
 import { DragHandle } from "./extensions/DragHandle";
-import { ImageNode } from "./extensions/ImageNode";
+import { ImageNode, type ContentImageOptions } from "./extensions/ImageNode";
 import {
   LOCAL_FILE_USER_EDIT_META,
   LocalMdxComponentNode,
@@ -204,6 +206,7 @@ import {
   completeImageFileUpload,
   createMediaUploadId,
   ImageRenderError,
+  ImageStorageUnavailableError,
   imageUploadErrorMessage,
   uploadAudioFile,
   uploadImageFile,
@@ -220,6 +223,7 @@ import {
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { StaticDocumentBody } from "./StaticDocumentBody";
 import { suggestionPlacements } from "./suggestion-placement";
+import { caretAfterPageSwap } from "./suggestions/keep-caret";
 import {
   resolveSuggestionPresentationRange,
   type SuggestionPresentationTransition,
@@ -2193,11 +2197,13 @@ interface VisualEditorExtensionOptions {
     email?: string;
     avatarUrl?: string;
   } | null;
-  onImageComment?: (quotedText: string, offsetTop: number) => void;
+  /** Starts a comment on the whole image or audio clip at `pos`. */
+  onMediaComment?: ContentImageOptions["onImageComment"];
   onVideoComment?: ContentVideoOptions["onVideoComment"];
   canCommentOnVideo?: ContentVideoOptions["canCommentOnVideo"];
   onImageFilePickerRequest?: (request: PendingImagePicker) => void;
   usesPrivateImageUploads?: () => boolean;
+  onPickedImageFile?: ContentImageOptions["onPickedImageFile"];
   canMutateMedia?: () => boolean;
   isSuggesting?: () => boolean;
   onJoinTitle?: (text: string) => void;
@@ -2859,11 +2865,12 @@ export function createVisualEditorExtensions({
   ydoc,
   localAwareness,
   user,
-  onImageComment,
+  onMediaComment,
   onVideoComment,
   canCommentOnVideo,
   onImageFilePickerRequest,
   usesPrivateImageUploads,
+  onPickedImageFile,
   canMutateMedia,
   isSuggesting,
   onJoinTitle,
@@ -2921,9 +2928,10 @@ export function createVisualEditorExtensions({
       ImageNode.configure({
         HTMLAttributes: { class: "content-image" },
         documentId,
-        onImageComment,
+        onImageComment: onMediaComment,
         onImageFilePickerRequest,
         usesPrivateImageUploads,
+        onPickedImageFile,
         canMutateMedia,
       }),
       VideoNode.configure({
@@ -2940,7 +2948,7 @@ export function createVisualEditorExtensions({
       AudioNode.configure({
         HTMLAttributes: { class: "content-audio" },
         documentId,
-        onAudioComment: onImageComment,
+        onAudioComment: onMediaComment,
         canMutateMedia,
       }),
       MediaSourceCommit.configure({ onMediaSourceCommitted }),
@@ -3393,6 +3401,21 @@ export function VisualEditor({
     (file: File) => uploadImageFile(file, privateImageTargetRef.current),
     [],
   );
+  // Set once the editor exists; the image extension needs a stable callback.
+  const uploadPendingImageFileRef =
+    useRef<ContentImageOptions["onPickedImageFile"]>(undefined);
+  const onPickedImageFile = useCallback<
+    NonNullable<ContentImageOptions["onPickedImageFile"]>
+  >(
+    (request, file, attrs, onStorageUnavailable) =>
+      uploadPendingImageFileRef.current?.(
+        request,
+        file,
+        attrs,
+        onStorageUnavailable,
+      ),
+    [],
+  );
   const clipsEnabled = useFeatureFlag(CLIP_EMBED_FLAG.key);
   const videosGoToClipsRef = useRef(false);
   videosGoToClipsRef.current = clipsEnabled && Boolean(documentId);
@@ -3568,6 +3591,28 @@ export function VisualEditor({
         : undefined,
     [canCommentOnBlocks, savesVideoIds],
   );
+  // An image or audio clip goes by an id derived from its file, which nothing
+  // writes down, so any tab that comments can start a thread on one.
+  const onMediaComment = useMemo<ContentImageOptions["onImageComment"]>(
+    () =>
+      canCommentOnBlocks
+        ? (view, pos, offsetTop) => {
+            const node = view.state.doc.nodeAt(pos);
+            const block = commentAnchorBlockAt(view.state.doc, pos);
+            if (!node || !block) return;
+            onBlockCommentRef.current?.(
+              {
+                blockId: block.blockId,
+                blockType: block.blockType,
+                from: pos,
+                to: pos + node.nodeSize,
+              },
+              offsetTop,
+            );
+          }
+        : undefined,
+    [canCommentOnBlocks],
+  );
   const findCommentQuote = useCallback(
     (threadId: string, doc: ProseMirrorNode) => {
       const thread = threadsRef.current?.find((t) => t.threadId === threadId);
@@ -3676,11 +3721,12 @@ export function VisualEditor({
         ydoc,
         localAwareness,
         user,
-        onImageComment: onComment,
+        onMediaComment,
         onVideoComment,
         canCommentOnVideo,
         onImageFilePickerRequest,
         usesPrivateImageUploads,
+        onPickedImageFile,
         canMutateMedia,
         isSuggesting,
         onJoinTitle,
@@ -3691,6 +3737,35 @@ export function VisualEditor({
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
         findCommentQuote,
+      }),
+      Extension.create({
+        name: "suggestingCaretOnPageSwap",
+        addProseMirrorPlugins() {
+          return [
+            new Plugin({
+              // The suggestion draft starting over from a newer Page swaps the
+              // editor's content; the caret stays by the text around it.
+              appendTransaction(transactions, oldState, newState) {
+                if (
+                  !isSuggesting() ||
+                  !guardsRef.current?.isSettingContentRef.current ||
+                  !oldState.selection.empty ||
+                  !transactions.some((transaction) => transaction.docChanged)
+                )
+                  return null;
+                const at = caretAfterPageSwap(
+                  oldState.doc,
+                  oldState.selection.from,
+                  newState.doc,
+                );
+                if (at === null || at === newState.selection.from) return null;
+                return newState.tr.setSelection(
+                  TextSelection.create(newState.doc, at),
+                );
+              },
+            }),
+          ];
+        },
       }),
       Extension.create({
         name: "contentEditorEscape",
@@ -3726,11 +3801,12 @@ export function VisualEditor({
       ydoc,
       localAwareness,
       user,
-      onComment,
+      onMediaComment,
       onVideoComment,
       canCommentOnVideo,
       onImageFilePickerRequest,
       usesPrivateImageUploads,
+      onPickedImageFile,
       canMutateMedia,
       isSuggesting,
       onJoinTitle,
@@ -3850,7 +3926,7 @@ export function VisualEditor({
         throw new Error(t("empty.genericError"));
       }
     } catch (error) {
-      toast.error(t("empty.genericError"));
+      reportWriteFailure(error, { label: t("empty.genericError") });
       console.error("Media source persistence error:", error);
     }
   };
@@ -4481,15 +4557,15 @@ export function VisualEditor({
     };
   }, [documentId]);
 
-  const handleImageFileInputChange = useCallback(
-    async (event: Event) => {
-      const input = event.currentTarget as HTMLInputElement;
-      const file = input.files?.[0];
-      input.value = "";
-      const request = pendingImagePickerRef.current;
-      pendingImagePickerRef.current = null;
+  // Uploads `file` as the image `request` placeholds, then sets `attrs` on it.
+  const uploadPendingImageFile = useCallback(
+    async (
+      request: PendingImagePicker,
+      file: File,
+      attrs: Record<string, unknown>,
+      onStorageUnavailable?: () => void,
+    ) => {
       if (suggestingRef.current) return;
-      if (!editor || !file || !request) return;
       if (
         !privateImageTargetRef.current &&
         fileStorageStateRef.current !== "configured"
@@ -4512,6 +4588,7 @@ export function VisualEditor({
           stageAttributes: (src) => {
             if (editor.isDestroyed || suggestingRef.current) return;
             staged = commitPendingImageUpload(editor.view, request, uploadId, {
+              ...attrs,
               src,
               uploadId,
             });
@@ -4528,7 +4605,7 @@ export function VisualEditor({
               editor.view,
               request,
               uploadId,
-              { src, uploadId: null },
+              { ...attrs, src, uploadId: null },
             );
           },
           persistCommittedImage: async () => {
@@ -4551,6 +4628,14 @@ export function VisualEditor({
         if (!committed) {
           restorePendingImagePicker(editor.view, request, uploadId);
         }
+        if (
+          error instanceof ImageStorageUnavailableError &&
+          onStorageUnavailable
+        ) {
+          toast.dismiss(toastId);
+          onStorageUnavailable();
+          return;
+        }
         toast.error(
           error instanceof ImageRenderError
             ? t("editor.media.imageBroken")
@@ -4560,6 +4645,30 @@ export function VisualEditor({
       }
     },
     [editor, persistEditorContent, t, uploadBodyImage],
+  );
+  useEffect(() => {
+    uploadPendingImageFileRef.current = (
+      request,
+      file,
+      attrs,
+      onStorageUnavailable,
+    ) => {
+      void uploadPendingImageFile(request, file, attrs, onStorageUnavailable);
+    };
+  }, [uploadPendingImageFile]);
+
+  const handleImageFileInputChange = useCallback(
+    async (event: Event) => {
+      const input = event.currentTarget as HTMLInputElement;
+      const file = input.files?.[0];
+      input.value = "";
+      const request = pendingImagePickerRef.current;
+      pendingImagePickerRef.current = null;
+      if (!file || !request) return;
+      // A file the author uploads replaces any image copied from Assets.
+      await uploadPendingImageFile(request, file, { assetId: null });
+    },
+    [uploadPendingImageFile],
   );
 
   const handleImageFileInputCancel = useCallback(() => {
@@ -5469,6 +5578,9 @@ export function VisualEditor({
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
       {editable && !suggesting ? <TableHoverControls editor={editor} /> : null}
+      {editable && !suggesting ? (
+        <ColumnResizeControls editor={editor} />
+      ) : null}
       {editable ? (
         <BlockActionsMenu
           editor={editor}

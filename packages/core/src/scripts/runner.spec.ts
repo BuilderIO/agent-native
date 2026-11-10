@@ -15,6 +15,17 @@ vi.mock("../audit/record.js", () => ({ recordActionAudit: approvalAudit }));
 vi.mock("node:readline/promises", () => ({
   createInterface: () => ({ question, close: closePrompt }),
 }));
+const orgLookup = vi.hoisted(() => ({ failure: null as Error | null }));
+vi.mock("../org/context.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../org/context.js")>();
+  return {
+    ...actual,
+    resolveOrgIdForEmail: async (email: string) => {
+      if (orgLookup.failure) throw orgLookup.failure;
+      return actual.resolveOrgIdForEmail(email);
+    },
+  };
+});
 
 import { defineAction } from "../action.js";
 import { openCliHandoff, runScript } from "./runner.js";
@@ -125,6 +136,23 @@ describe("runScript CLI approval", () => {
       throw error;
     });
   }
+
+  it("reports a failed org lookup as a failed action and never runs", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    vi.stubEnv("AGENT_ORG_ID", "");
+    vi.stubEnv("AGENT_ORG_SCOPE", "");
+    orgLookup.failure = new Error("org lookup down");
+    try {
+      await expect(invoke(false)).rejects.toThrow("exit:1");
+    } finally {
+      orgLookup.failure = null;
+    }
+    expect(error).toHaveBeenCalledWith(
+      'Action "fixture-action" failed:',
+      "org lookup down",
+    );
+    expect(run).not.toHaveBeenCalled();
+  });
 
   it("refuses a flat gate with a copy-pasteable command and never runs", async () => {
     await expect(invoke(true, ['{"action":"delete"}'])).rejects.toThrow(
@@ -708,6 +736,39 @@ describe("runScript package actions", () => {
       appId: "fixture-app",
     });
   }, 40_000);
+
+  it.each([
+    { personal: false, orgId: "org_from_env_file" },
+    { personal: true, orgId: null },
+  ])(
+    "keeps a personal caller out of an org from .env (personal=%j)",
+    ({ personal, orgId }) => {
+      // The agent's shell clears AGENT_ORG_ID for a personal request, but the
+      // runner loads `.env`, which can set it again.
+      fs.writeFileSync(
+        path.join(tmpDir, ".env"),
+        "AGENT_ORG_ID=org_from_env_file\n",
+      );
+      const env = { ...process.env, AGENT_USER_EMAIL: "owner@example.test" };
+      delete env.AGENT_ORG_ID;
+      delete env.AGENT_ORG_SCOPE;
+      if (personal) env.AGENT_ORG_SCOPE = "personal";
+
+      const result = spawnSync(
+        tsxCommand,
+        [...tsxLeadingArgs, "actions/run.ts", "package-context"],
+        { cwd: tmpDir, encoding: "utf8", env, timeout: spawnTimeoutMs },
+      );
+
+      expect(result.status).toBe(0);
+      expect(
+        JSON.parse(
+          fs.readFileSync(path.join(tmpDir, "package-context.json"), "utf8"),
+        ),
+      ).toMatchObject({ userEmail: "owner@example.test", orgId });
+    },
+    40_000,
+  );
 
   it("registers action authorization before dispatching a CLI action", () => {
     fs.writeFileSync(

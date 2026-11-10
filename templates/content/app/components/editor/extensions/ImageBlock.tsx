@@ -55,7 +55,7 @@ import {
 } from "@/components/ui/tooltip";
 
 import { deleteNodeFromMenu } from "../editor-transaction-meta";
-import { createImagePickerId } from "../image-upload";
+import { createImagePickerId, pickedAssetImageFile } from "../image-upload";
 import { imageDisplaySrc } from "../private-media-src";
 import { storedBodyImageFailed } from "../stored-body-images";
 import type { ContentImageOptions } from "./ImageNode";
@@ -74,7 +74,10 @@ const MIN_IMAGE_WIDTH = 160;
 const MAX_AGENT_IMAGE_DIMENSION = 1600;
 const ALT_TEXT_CONTEXT_WORD_LIMIT = 250;
 const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
+/** What the Assets picker answers with the file of an image chosen in it. */
+const ASSETS_IMAGE_FILE_REQUEST = "imageFile";
 interface PickedAssetImagePayload {
+  assetId?: unknown;
   url?: unknown;
   previewUrl?: unknown;
   downloadUrl?: unknown;
@@ -109,6 +112,11 @@ function pickedAssetImageAlt(payload: unknown) {
   if (!payload || typeof payload !== "object") return null;
   const image = payload as PickedAssetImagePayload;
   return pickedAssetString(image.altText) ?? pickedAssetString(image.title);
+}
+
+function pickedAssetId(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  return pickedAssetString((payload as PickedAssetImagePayload).assetId);
 }
 
 interface AssetsPickerDialogProps {
@@ -525,6 +533,9 @@ export function ImageBlock({
   const lightboxImageRef = useRef<HTMLImageElement>(null);
   const mediaBlockRef = useRef<HTMLDivElement>(null);
   const resizeStateRef = useRef<ImageResizeState | null>(null);
+  const assetsPickerRef = useRef<EmbeddedAppRef | null>(null);
+  // The copy of a picked image under way; closing the picker clears it.
+  const assetCopyRef = useRef<object | null>(null);
   const options = extension.options as ContentImageOptions;
   const canMutateMediaNow = () =>
     editor.isEditable && (options.canMutateMedia?.() ?? true);
@@ -594,9 +605,8 @@ export function ImageBlock({
   function handleComment() {
     if (!options.onImageComment) return;
     const position = typeof getPos === "function" ? getPos() : undefined;
-    const coords = editor.view.coordsAtPos(
-      typeof position === "number" ? position : editor.state.selection.from,
-    );
+    if (typeof position !== "number") return;
+    const coords = editor.view.coordsAtPos(position);
     const wrapper = editor.view.dom.closest(".visual-editor-wrapper");
     const scrollContainer = wrapper?.closest(".flex-1.min-h-0.overflow-auto");
     const containerTop = scrollContainer
@@ -604,12 +614,7 @@ export function ImageBlock({
       : 0;
     const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const offsetTop = coords.top - containerTop + scrollTop;
-    options.onImageComment(
-      alt.trim()
-        ? t("editor.media.imageCommentWithAlt", { alt: alt.trim() })
-        : t("editor.media.image"),
-      offsetTop,
-    );
+    options.onImageComment(editor.view, position, offsetTop);
   }
 
   function openAltEditor() {
@@ -723,6 +728,14 @@ export function ImageBlock({
       setIsGeneratingAlt(false);
     }
   }
+
+  // A block that goes away mid-copy drops the copy without an error.
+  useEffect(
+    () => () => {
+      assetCopyRef.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!altPopoverOpen) return;
@@ -847,7 +860,7 @@ export function ImageBlock({
       return;
     }
 
-    updateAttributes({ src: nextSrc, alt, uploadId: null });
+    updateAttributes({ src: nextSrc, alt, assetId: null, uploadId: null });
     setImageUrl("");
     setSourcePanelOpen(false);
   }
@@ -857,6 +870,7 @@ export function ImageBlock({
     _event: MessageEvent,
     ref: EmbeddedAppRef,
   ) {
+    assetsPickerRef.current = ref;
     ref.postMessage("configure", {
       prompt: alt.trim() || undefined,
       query: alt.trim() || undefined,
@@ -866,6 +880,7 @@ export function ImageBlock({
   function handleAssetsPickerMessage(name: string, payload: unknown) {
     if (!canMutateMediaNow()) return;
     if (name === "close") {
+      assetCopyRef.current = null;
       setAssetsPickerOpen(false);
       if (!src) {
         updateAttributes({ uploadId: null });
@@ -880,10 +895,85 @@ export function ImageBlock({
       toast.error(t("editor.media.assetsMissingImageUrl"));
       return;
     }
+    const nextAlt = pickedAssetImageAlt(payload) ?? alt;
+    const assetId = pickedAssetId(payload);
+    const picker = assetsPickerRef.current;
+    const canStoreImage =
+      fileStorageConfigured || Boolean(options.usesPrivateImageUploads?.());
+    if (assetId && picker && canStoreImage && options.onPickedImageFile) {
+      void copyPickedAssetImage(picker, assetId, nextSrc, nextAlt);
+      return;
+    }
+    linkPickedAssetImage(nextSrc, nextAlt, assetId);
+  }
 
+  // Assets' link only loads for people in that library, so the page keeps its
+  // own copy of the image, which follows the page's sharing like an upload.
+  async function copyPickedAssetImage(
+    picker: EmbeddedAppRef,
+    assetId: string,
+    nextSrc: string,
+    nextAlt: string,
+  ) {
+    // A later pick replaces a copy still under way: the last image chosen wins.
+    const copy = {};
+    assetCopyRef.current = copy;
+    let answer: unknown;
+    try {
+      answer = await picker.request(ASSETS_IMAGE_FILE_REQUEST, { assetId });
+    } catch {
+      // Closing the picker mid-copy cancels the copy without an error.
+      if (assetCopyRef.current === copy) {
+        assetCopyRef.current = null;
+        toast.error(t("editor.media.assetsCopyFailed"));
+      }
+      return;
+    }
+    if (assetCopyRef.current !== copy) return;
+    assetCopyRef.current = null;
+    const file = pickedAssetImageFile(answer);
+    // A picker from before Assets sent files: link the image, as it used to.
+    if (!file) {
+      linkPickedAssetImage(nextSrc, nextAlt, assetId);
+      return;
+    }
+    const target = pickedImageTarget();
+    if (!target) return;
+    const { position, current } = target;
+    setAssetsPickerOpen(false);
+    const pickerId = String(current.attrs.uploadId || createImagePickerId());
+    if (!current.attrs.uploadId) updateAttributes({ uploadId: pickerId });
+    options.onPickedImageFile?.(
+      { pickerId, position, attrs: { ...current.attrs, uploadId: pickerId } },
+      file,
+      { alt: nextAlt, assetId },
+      // With nowhere to keep a copy, link the image, as before Assets sent
+      // files; uploads don't work on such a page either.
+      () => linkPickedAssetImage(nextSrc, nextAlt, assetId),
+    );
+  }
+
+  // This image, while the author may still change it. A copy can finish after
+  // they start suggesting or the block is gone.
+  function pickedImageTarget() {
+    if (editor.isDestroyed || !canMutateMediaNow()) return null;
+    if (typeof getPos !== "function") return null;
+    const position = getPos();
+    if (typeof position !== "number") return null;
+    const current = editor.state.doc.nodeAt(position);
+    return current?.type.name === "image" ? { position, current } : null;
+  }
+
+  function linkPickedAssetImage(
+    nextSrc: string,
+    nextAlt: string,
+    assetId: string | null,
+  ) {
+    if (!pickedImageTarget()) return;
     updateAttributes({
       src: nextSrc,
-      alt: pickedAssetImageAlt(payload) ?? alt,
+      alt: nextAlt,
+      assetId,
       uploadId: null,
     });
     setAssetsPickerOpen(false);
@@ -891,6 +981,7 @@ export function ImageBlock({
   }
 
   function handleAssetsPickerOpenChange(open: boolean) {
+    if (!open) assetCopyRef.current = null;
     setAssetsPickerOpen(open);
     if (!open && !src) {
       updateAttributes({ uploadId: null });
@@ -1226,19 +1317,21 @@ export function ImageBlock({
                 event.preventDefault();
               }}
             >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={handleComment}
-                    className="media-block__toolbar-btn"
-                    aria-label={t("editor.media.commentOnImage")}
-                  >
-                    <IconMessageCircle size={16} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t("editor.comment")}</TooltipContent>
-              </Tooltip>
+              {options.onImageComment ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleComment}
+                      className="media-block__toolbar-btn"
+                      aria-label={t("editor.media.commentOnImage")}
+                    >
+                      <IconMessageCircle size={16} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("editor.comment")}</TooltipContent>
+                </Tooltip>
+              ) : null}
 
               <Tooltip>
                 <TooltipTrigger asChild>

@@ -328,10 +328,18 @@ export function useAutoTitleBridge(): void {
               const outcome = result as {
                 queued?: boolean;
                 updated?: boolean;
+                reason?: string;
+                queueSkippedReason?: string;
               } | null;
               if (outcome?.queued === true) {
                 bumpAiRequestRefresh();
-              } else if (outcome?.updated !== true) {
+              } else if (
+                // The local title is saved but its refinement was not queued;
+                // a failed model check is transient, a missing model is not.
+                outcome?.queueSkippedReason === "ai_model_lookup_unavailable" ||
+                (outcome?.updated !== true &&
+                  outcome?.reason !== "ai_model_unavailable")
+              ) {
                 retryTitleFallback(key);
               }
             })

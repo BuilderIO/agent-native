@@ -30,6 +30,10 @@ import { callAction } from "@agent-native/core/client/hooks";
 import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
+import {
   buildSettingsRoute,
   STANDARD_APP_ROUTES,
 } from "@agent-native/core/navigation";
@@ -2641,7 +2645,11 @@ export function EmailSectionInner({
         setSendgridKey("");
         setFromAddr("");
         setTimeout(() => setSaved(false), 2000);
+      } else {
+        reportWriteFailure(writeFailureFromResponse(res));
       }
+    } catch (error) {
+      reportWriteFailure(error);
     } finally {
       setSaving(false);
     }

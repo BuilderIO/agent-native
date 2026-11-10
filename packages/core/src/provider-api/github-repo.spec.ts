@@ -68,7 +68,11 @@ describe("GitHub repo tools", () => {
     });
     readAppSecret.mockResolvedValue(null);
     isBlockedExtensionUrlWithDns.mockResolvedValue(false);
-    createSsrfSafeDispatcher.mockResolvedValue(null);
+    createSsrfSafeDispatcher.mockResolvedValue({
+      dispatch: () => {
+        throw new Error("unexpected live transport");
+      },
+    });
     canUseDeployCredentialFallbackForRequest.mockReturnValue(false);
     readDeployCredentialEnv.mockReturnValue(undefined);
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({}));
