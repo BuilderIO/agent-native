@@ -99,8 +99,7 @@ function positionInMovedBlock(
   if (!block.isTextblock || !text || isBlock($resolved.parent)) return null;
   if (textblockPositions(oldDoc, isBlock).length !== 1) return null;
   const found = textblockPositions(newDoc, isBlock);
-  if (found.length !== 1) return null;
-  return found[0]! + 1 + $old.parentOffset;
+  return found.length === 1 ? found[0] + 1 + $old.parentOffset : null;
 }
 
 function endpointAfterRemoteChange(
@@ -148,7 +147,7 @@ export function collabSelectionPlugin(): Plugin {
   return new Plugin({
     key: new PluginKey("collabSelection"),
     appendTransaction(transactions, _oldState, newState) {
-      const index = transactions.findIndex((tr) => {
+      const change = transactions.find((tr) => {
         const meta = tr.getMeta(ySyncPluginKey) as
           | { isChangeOrigin?: boolean; isUndoRedoOperation?: boolean }
           | undefined;
@@ -159,7 +158,6 @@ export function collabSelectionPlugin(): Plugin {
           !meta.isUndoRedoOperation
         );
       });
-      const change = transactions[index];
       if (!change) return null;
       const binding = ySyncPluginKey.getState(newState)?.binding as
         | SyncBinding
@@ -187,7 +185,7 @@ export function collabSelectionPlugin(): Plugin {
       if (anchor === restored.anchor && head === restored.head) return null;
 
       // Plugins may have appended changes of their own since.
-      const later = transactions.slice(index + 1);
+      const later = transactions.slice(transactions.indexOf(change) + 1);
       const map = (pos: number) =>
         later.reduce((mapped, tr) => tr.mapping.map(mapped), pos);
       const { doc } = newState;
