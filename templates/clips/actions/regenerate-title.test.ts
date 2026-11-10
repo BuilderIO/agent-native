@@ -210,6 +210,44 @@ describe("regenerate-title fallback refinement", () => {
     ).resolves.toMatchObject({ updated: true, title: "Generated title" });
   });
 
+  it("keeps the saved title when the summary cannot be queued without a model", async () => {
+    const untitled = {
+      title: "Untitled recording",
+      titleSource: "default",
+      updatedAt: "one",
+    };
+    mockSelectRows.queue = [
+      [{ id: "rec_1", ...untitled, description: "" }],
+      [
+        {
+          status: "ready",
+          fullText: "A representative transcript for the recording.",
+          segmentsJson: "[]",
+        },
+      ],
+      [untitled],
+    ];
+    mockCleanupTranscriptRun.mockResolvedValueOnce({
+      title: "Generated title",
+      provider: "builder",
+    });
+    const { default: regenerateSummary } =
+      await import("./regenerate-summary.js");
+    vi.mocked(regenerateSummary.run).mockRejectedValueOnce(
+      Object.assign(new Error("No AI model"), {
+        errorCode: "ai_model_unavailable",
+      }),
+    );
+
+    await expect(
+      regenerateTitle.run({ recordingId: "rec_1", includeSummary: true }),
+    ).resolves.toMatchObject({
+      updated: true,
+      title: "Generated title",
+      summaryQueued: false,
+    });
+  });
+
   describe("when earlier audio is removed while the title generates", () => {
     const untitled = {
       title: "Untitled recording",

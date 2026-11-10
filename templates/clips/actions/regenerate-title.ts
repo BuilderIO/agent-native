@@ -80,7 +80,7 @@ export async function queueTitleRegenerationRequest({
   transcriptText: string;
   transcriptStatus?: string;
   segmentsJson?: string | null;
-  ownerEmail?: string | null;
+  ownerEmail?: string | null | undefined;
   includeFullVideoInAi?: boolean;
   includeSummary?: boolean;
 }) {
@@ -130,6 +130,16 @@ export async function queueTitleRegenerationRequest({
     request,
   });
   return request;
+}
+
+type ModelRefusal = "ai_model_unavailable" | "ai_model_lookup_unavailable";
+
+function modelRefusalCode(error: unknown): ModelRefusal | null {
+  const code = (error as { errorCode?: unknown } | null)?.errorCode;
+  return code === "ai_model_unavailable" ||
+    code === "ai_model_lookup_unavailable"
+    ? code
+    : null;
 }
 
 const queueRefusedResult = (recordingId: string, reason: string | null) => ({
@@ -187,22 +197,15 @@ export default defineAction({
     // The queue refuses when no model can run or the check could not be made.
     // An automatic request keeps the local title and reports why nothing was
     // queued; a manual one fails loudly so the caller sees it.
-    let queueRefusal:
-      | "ai_model_unavailable"
-      | "ai_model_lookup_unavailable"
-      | null = null;
+    let queueRefusal: ModelRefusal | null = null;
     const queueTitle = async (
       input: Parameters<typeof queueTitleRegenerationRequest>[0],
     ) => {
       try {
         return await queueTitleRegenerationRequest(input);
       } catch (error) {
-        const code = (error as { errorCode?: unknown }).errorCode;
-        if (
-          args.automatic &&
-          (code === "ai_model_unavailable" ||
-            code === "ai_model_lookup_unavailable")
-        ) {
+        const code = modelRefusalCode(error);
+        if (args.automatic && code) {
           queueRefusal = code;
           return null;
         }
@@ -383,12 +386,20 @@ export default defineAction({
           if (result.provider === "builder") {
             await clearBuilderCreditsExhausted();
           }
-          const summaryResult =
-            args.includeSummary && !rec.description?.trim()
-              ? await regenerateSummary.run({
-                  recordingId: args.recordingId,
-                })
-              : null;
+          // The title is saved; a summary that cannot be queued without a
+          // model must not turn that into a title failure.
+          let summaryResult: Awaited<
+            ReturnType<typeof regenerateSummary.run>
+          > | null = null;
+          if (args.includeSummary && !rec.description.trim()) {
+            try {
+              summaryResult = await regenerateSummary.run({
+                recordingId: args.recordingId,
+              });
+            } catch (error) {
+              if (!modelRefusalCode(error)) throw error;
+            }
+          }
 
           console.log(
             `Regenerated title for ${args.recordingId} via ${result.provider}: ${generatedTitle}`,
