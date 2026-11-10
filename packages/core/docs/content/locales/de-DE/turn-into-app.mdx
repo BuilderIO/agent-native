@@ -105,7 +105,7 @@ Screenshots werden in `.tmp/ui-review/out/` der App gespeichert, und der Abschlu
 
 ## Ausführen und bereitstellen {#run-deploy}
 
-Für die lokale Review setzt der Skill `AUTH_DISABLED=1` in der ignorierten `.env` der App, weil ein frischer Screenshot-Browser nicht angemeldet ist. Dies gilt nur für die Loopback-Entwicklung. Es wird vor dem abschließenden `pnpm build` entfernt und darf nie committet oder bereitgestellt werden. Nach dem Build startet der Skill die App noch einmal und öffnet sie in Ihrem Standardbrowser, wodurch Sie automatisch als lokales Dev-Konto angemeldet werden. Später geöffnete frische Browser zeigen eine Karte „Continue as local dev“.
+Für die lokale Review setzt der Skill `AUTH_DISABLED=1` in der ignorierten `.env` der App, weil ein frischer Screenshot-Browser nicht angemeldet ist. Dies gilt nur für die Loopback-Entwicklung. Es wird vor dem abschließenden `pnpm build` entfernt und darf nie committet oder bereitgestellt werden. Nach dem Build startet der Skill die App noch einmal und öffnet sie in Ihrem Standardbrowser. Bei einer neuen App werden Sie dadurch automatisch als lokales Dev-Konto angemeldet; hat die Datenbank bereits ein Konto (eine fortgesetzte App oder eine gemeinsame Workspace-Datenbank), sehen Sie stattdessen die Anmeldeseite. Später geöffnete frische Browser zeigen eine Karte „Continue as local dev“.
 
 So führen Sie die App selbst aus:
 

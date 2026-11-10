@@ -105,7 +105,7 @@ As capturas são salvas em `.tmp/ui-review/out/` do app, e o relatório final li
 
 ## Execução e deploy {#run-deploy}
 
-Para a revisão local, a skill define `AUTH_DISABLED=1` no `.env` ignorado do app, porque um navegador de captura novo não está autenticado. Isso é apenas para desenvolvimento em loopback. É removido antes do `pnpm build` final e nunca deve ser commitado nem implantado. Depois do build, a skill inicia o app mais uma vez e o abre no seu navegador padrão, que é autenticado automaticamente como a conta de desenvolvimento local. Navegadores novos abertos depois mostram um cartão "Continue as local dev".
+Para a revisão local, a skill define `AUTH_DISABLED=1` no `.env` ignorado do app, porque um navegador de captura novo não está autenticado. Isso é apenas para desenvolvimento em loopback. É removido antes do `pnpm build` final e nunca deve ser commitado nem implantado. Depois do build, a skill inicia o app mais uma vez e o abre no seu navegador padrão. Em um app novo, isso autentica você automaticamente como a conta de desenvolvimento local; se o banco de dados já tiver uma conta (um app retomado ou um banco de dados compartilhado do workspace), você verá a página de login. Navegadores novos abertos depois mostram um cartão "Continue as local dev".
 
 Para executar o app você mesmo:
 

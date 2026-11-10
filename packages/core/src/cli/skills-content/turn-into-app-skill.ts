@@ -297,8 +297,8 @@ headless run stops it.
 
 Lead with the app, in plain words:
 
-1. Local: "Your app is open at <URL>" (if nothing opened, where it is and how
-   to start it). Hosted: the Builder link or status Dispatch returned.
+1. Local: "Your app is open at <URL>" only if it opened; else where it
+   is and how to open it. Hosted: Dispatch's Builder link or status.
 2. How to change it: ask this agent, in this folder (hosted: in Builder).
 3. What each control does, what changed from the brief (assumptions, gaps,
    silent choices), and one precise pending step, if any.
