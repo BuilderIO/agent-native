@@ -223,8 +223,8 @@ describe("McpClientManager", () => {
     orgContextMocks.getOrgWorkspaceUrl.mockReset().mockResolvedValue(null);
     delete process.env.A2A_SECRET;
     delete process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS;
-    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
-      "https://directory.example.com";
+    // A public IP literal reaches the mocked fetch without a real DNS lookup.
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://93.184.216.34";
     globalThis.fetch = vi.fn(async (_input, init) => {
       if (String(_input).includes("/_agent-native/org/apps")) {
         return new Response(
