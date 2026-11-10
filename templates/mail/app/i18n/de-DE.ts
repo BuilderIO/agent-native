@@ -482,6 +482,15 @@ const messages = {
       scheduledCancelFailed: "Geplante E-Mail konnte nicht abgebrochen werden",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "Bild konnte nicht hochgeladen werden",
+      storageBuilderRefused:
+        "Builder.io hat die Dateispeicher-Verbindung von Mail abgelehnt, daher wurde die Datei nicht angehängt. Verbinde Builder.io neu oder nutze deinen eigenen Speicher und versuche es dann erneut.",
+      storageRefused:
+        "Dein Speicher-Bucket hat diesen Upload abgelehnt, daher wurde die Datei nicht angehängt. Prüfe den Bucket und seine Schlüssel und versuche es dann erneut.",
+      storageNotConfigured:
+        "Es ist kein Dateispeicher eingerichtet, daher wurde die Datei nicht angehängt. Verbinde Builder.io oder deinen eigenen Speicher-Bucket und versuche es dann erneut.",
+      openStorageSettings: "Speichereinstellungen öffnen",
+      reconnectBuilderStorage: "Builder.io neu verbinden",
+      useOwnStorage: "Eigenen Speicher verwenden",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Nachricht gesendet.",
       failedToSaveDraft: "Entwurf konnte nicht gespeichert werden.",

@@ -727,6 +727,8 @@ const messages = {
     noMatches: "Nenhuma correspondência.",
     noTranscript: "Nenhuma transcrição ainda.",
     noTranscriptCaptured: "Nenhuma transcrição foi capturada.",
+    unreadableDescription:
+      "A transcrição salva está corrompida. Gerar novamente cria uma nova a partir do áudio do clipe.",
     partialTranscript:
       "Transcrição parcial: a gravação foi cortada, então parte pode estar faltando.",
     backupFailed:

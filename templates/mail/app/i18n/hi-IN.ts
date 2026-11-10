@@ -461,6 +461,15 @@ const messages = {
       scheduledCancelFailed: "शेड्यूल ईमेल रद्द करने में विफल",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "छवि अपलोड करने में विफल",
+      storageBuilderRefused:
+        "Builder.io ने Mail के फ़ाइल स्टोरेज कनेक्शन को अस्वीकार कर दिया, इसलिए फ़ाइल अटैच नहीं हुई। Builder.io फिर से कनेक्ट करें या अपना स्टोरेज इस्तेमाल करें, फिर दोबारा कोशिश करें।",
+      storageRefused:
+        "आपके स्टोरेज बकेट ने यह अपलोड अस्वीकार कर दिया, इसलिए फ़ाइल अटैच नहीं हुई। बकेट और उसकी कुंजियाँ जाँचें, फिर दोबारा कोशिश करें।",
+      storageNotConfigured:
+        "फ़ाइल स्टोरेज सेट अप नहीं है, इसलिए फ़ाइल अटैच नहीं हुई। Builder.io या अपना स्टोरेज बकेट कनेक्ट करें, फिर दोबारा कोशिश करें।",
+      openStorageSettings: "स्टोरेज सेटिंग्स खोलें",
+      reconnectBuilderStorage: "Builder.io फिर से कनेक्ट करें",
+      useOwnStorage: "अपना स्टोरेज इस्तेमाल करें",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "संदेश भेज दिया गया।",
       failedToSaveDraft: "ड्राफ़्ट सहेजा नहीं जा सका।",

@@ -461,6 +461,15 @@ const messages = {
       uncertainScheduledRetryFailed: "Failed to retry scheduled email.",
       failedToAttachFile: "Failed to attach file",
       failedToUploadImage: "Failed to upload image",
+      storageBuilderRefused:
+        "Builder.io refused Mail's file storage connection, so the file wasn't attached. Reconnect Builder.io or use your own storage, then try again.",
+      storageRefused:
+        "Your storage bucket refused this upload, so the file wasn't attached. Check the bucket and its keys, then try again.",
+      storageNotConfigured:
+        "File storage isn't set up, so the file wasn't attached. Connect Builder.io or your own storage bucket, then try again.",
+      openStorageSettings: "Open storage settings",
+      reconnectBuilderStorage: "Reconnect Builder.io",
+      useOwnStorage: "Use your own storage",
       failedToSendEmail: "Failed to send email",
       messageSent: "Message sent.",
       failedToSaveDraft: "Failed to save draft.",

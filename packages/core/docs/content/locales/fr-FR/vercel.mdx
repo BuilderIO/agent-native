@@ -25,6 +25,8 @@ Vous avez aussi besoin d'un compte Vercel. Exécutez les commandes de ce guide
 sur votre propre ordinateur. La Vercel CLI envoie le build final vers Vercel à
 votre place.
 
+Les tours de l’agent sont soumis à la durée limite des Vercel Functions, streaming compris. Configurez Function Max Duration et vérifiez les réglages effectifs et les [limites Vercel](https://vercel.com/docs/functions/configuring-functions/duration). Une limite supérieure ne garantit pas la fin du tour.
+
 ## Étape 1 : Créer l'application {#step-1-create-the-app}
 
 Créez votre nouvelle application autonome. L'exemple ci-dessous crée une

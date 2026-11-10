@@ -98,6 +98,7 @@ import {
   loadRecordingMediaFile,
   loadRecordingMediaBytes,
   RecordingMediaFetchError,
+  transcriptStatusInstructions,
 } from "./public-agent-context";
 import { verifySharePassword } from "./share-password.js";
 
@@ -504,6 +505,30 @@ describe("describeAgentAccessFailure", () => {
       nextStep: expect.stringContaining("agent_access"),
     });
   });
+});
+
+describe("transcriptStatusInstructions", () => {
+  const transcript = (segmentsJson: string | null) =>
+    ({
+      status: "ready",
+      failureReason: null,
+      segmentsJson,
+    }) as unknown as Parameters<typeof transcriptStatusInstructions>[0];
+
+  it("tells agents when saved lines can't be read, so they don't report none", () => {
+    expect(transcriptStatusInstructions(transcript("[{"))).toEqual([
+      expect.stringContaining("couldn't be read, not that the clip has none"),
+    ]);
+  });
+
+  it.each(["[]", null])(
+    "adds nothing for a ready transcript whose lines read (%s)",
+    (segmentsJson) => {
+      expect(transcriptStatusInstructions(transcript(segmentsJson))).toEqual(
+        [],
+      );
+    },
+  );
 });
 
 const YOUTUBE_RECORDING = {

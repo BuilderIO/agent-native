@@ -451,6 +451,15 @@ const messages = {
       scheduledCancelFailed: "取消定时邮件失败",
       failedToAttachFile: "附加文件失败",
       failedToUploadImage: "上传图片失败",
+      storageBuilderRefused:
+        "Builder.io 拒绝了 Mail 的文件存储连接，因此未能附加文件。请重新连接 Builder.io 或使用自己的存储，然后重试。",
+      storageRefused:
+        "你的存储桶拒绝了此次上传，因此未能附加文件。请检查存储桶及其密钥，然后重试。",
+      storageNotConfigured:
+        "尚未设置文件存储，因此未能附加文件。请连接 Builder.io 或你自己的存储桶，然后重试。",
+      openStorageSettings: "打开存储设置",
+      reconnectBuilderStorage: "重新连接 Builder.io",
+      useOwnStorage: "使用自己的存储",
       failedToSendEmail: "发送邮件失败",
       messageSent: "邮件已发送。",
       failedToSaveDraft: "无法保存草稿。",

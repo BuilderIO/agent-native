@@ -257,6 +257,8 @@ vi.mock("@/hooks/use-comments", () => ({
 vi.mock("./comment-ai", () => ({
   useCommentAiRequests: () => ({ requests: [], freshResolutions: new Map() }),
   isCommentAiWorkingOn: () => false,
+  missingCommentAiReplyIds: () => "",
+  noteCommentAiPageChanges: () => false,
 }));
 vi.mock("./CommentsSidebar", () => ({
   CommentsSidebar: () => null,
