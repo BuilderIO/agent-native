@@ -452,12 +452,13 @@ export function skillSubfileDocsSlug(
 function generateSkillsPromptBlockForEntries(
   entries: Skill[],
   mode: "runtime" | "development",
+  includeSupportingFiles = true,
 ): string {
   if (entries.length === 0) return "";
 
   const lines = entries.map((s) => {
     let extras = "";
-    if (s.extraFiles.length > 0) {
+    if (includeSupportingFiles && s.extraFiles.length > 0) {
       if (mode === "runtime") {
         const readable = s.extraFiles.filter((f) => f in s.files);
         const unreadable = s.extraFiles.filter((f) => !(f in s.files));
@@ -504,8 +505,13 @@ ${lines.join("\n")}
 export function generateSkillsPromptBlock(
   bundle: AgentsBundle,
   runtimeSkills = getRuntimeSkills(bundle),
+  options?: { includeSupportingFiles?: boolean },
 ): string {
-  return generateSkillsPromptBlockForEntries(runtimeSkills, "runtime");
+  return generateSkillsPromptBlockForEntries(
+    runtimeSkills,
+    "runtime",
+    options?.includeSupportingFiles,
+  );
 }
 
 export function generateDevelopmentSkillsPromptBlock(

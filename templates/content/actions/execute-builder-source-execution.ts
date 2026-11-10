@@ -216,12 +216,10 @@ export interface ExecuteBuilderSourceExecutionDeps {
     request: BuilderCmsExecutionPayload["request"];
     expectedSourceSpace?: string | null;
     expectedSourceConnectionId?: string | null;
-    requireSourceBinding?: boolean;
   }) => ReturnType<typeof executeBuilderCmsWrite>;
   readLiveEntry: (args: {
     model: string;
     entryId: string;
-    fieldPaths: readonly string[];
     expectedSourceSpace?: string | null;
     expectedSourceConnectionId?: string | null;
   }) => Promise<BuilderCmsEntryLiveState>;
@@ -2286,8 +2284,6 @@ export async function executeBuilderSourceExecutionWithDeps(
         liveState = await deps.readLiveEntry({
           model: plan.payload.target.model,
           entryId: preflightEntryId,
-          fieldPaths: builderCmsWrittenSourceFields(plan.payload.request)
-            .fieldKeys,
           expectedSourceSpace: source.metadata.builderSpacePublicKey,
           expectedSourceConnectionId: source.metadata.connectionId,
         });
@@ -2394,7 +2390,6 @@ export async function executeBuilderSourceExecutionWithDeps(
           request: writePayload.request,
           expectedSourceSpace: source.metadata.builderSpacePublicKey,
           expectedSourceConnectionId: source.metadata.connectionId,
-          requireSourceBinding: true,
         }),
       );
     } catch (error) {

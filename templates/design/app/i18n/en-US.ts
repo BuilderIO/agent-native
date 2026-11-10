@@ -1565,31 +1565,18 @@ export default {
       editColor: "Edit color for {{name}}",
     },
     import: {
-      title: "Import",
       description:
         "Bring in Figma clipboard HTML or standalone HTML as Design screens.",
-      figmaUrlTitle: "Figma frame URL",
-      figmaUrlDescription: "Import a frame or file from a Figma link.",
       figmaUrlLabel: "Figma frame or file URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "Checking Figma connection…",
-      figmaConnected: "Figma connected",
-      figmaConnectedWithSuffix: "Figma connected · ••••{{suffix}}",
       figmaTokenLabel: "Figma access token",
       figmaTokenDocs: "Get a token",
       figmaTokenPlaceholder: "Paste your Figma personal access token",
-      figmaTokenDescription:
-        'Needs "File content" and "Current user" scopes. Saved securely — never added to chat.',
-      importFigmaUrl: "Import from Figma",
-      saveKeyAndImport: "Save key and import",
       figmaUrlSuccess: "Imported from Figma.",
       figmaImageFallbackWarning:
         "Image fallbacks: {{count}}. Appearance is preserved, but these layers are not fully editable.",
       figmaApproximationWarning:
         "Approximated layers: {{count}}. HTML/CSS cannot represent every Figma property exactly.",
-      figmaPasteTitle: "Paste from Figma",
-      figmaPasteDescription:
-        "Copy a frame or layer in Figma, then paste into the Design canvas. Design imports the visible clipboard HTML.",
       figmaPasteTarget: "Paste into the canvas",
       figmaPasteApiKeyHint:
         "Connect your Figma access token for exact node imports.",
@@ -1598,11 +1585,10 @@ export default {
       figmaPasteMatchGuidance:
         "Couldn't match this to specific Figma nodes. Paste a frame link instead for an exact import.",
       figmaPasteUnreadable:
-        "That clipboard has no copied Figma layers in it. Select a frame in Figma, copy it with Cmd+C, and paste again — or import a Figma link from the Import panel.",
+        "That clipboard has no copied Figma layers in it. Select a frame in Figma, copy it with Cmd+C, and paste again, or paste a link to the frame in the chat.",
       figmaPasteRestLabel: "Imported via Figma API",
       figmaPasteHtmlLabel: "Imported from clipboard preview",
-      figmaPasteLocalKiwiLabel:
-        "Imported without token — geometry and text only",
+      figmaPasteLocalKiwiLabel: "Imported from the Figma clipboard",
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} need Figma access to load.",
       figmaPasteImagesDontShowAgain: "Don't show again",
@@ -1634,74 +1620,29 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: "Upload .fig",
       figUploadDescription:
         "Local import using Figma's .fig format — no API quota. Embedded images are included. Format may change between Figma versions. Maximum {{max}} MB.",
-      chooseFigFile: "Choose .fig file",
       figUploadUploading: "Uploading {{progress}}%",
       figUploadProcessing: "Converting…",
-      figImportWarningTitle: "Large .fig import",
-      figImportWarningDescription:
-        "This file contains {{frames}} frames and {{nodes}} layers. Importing everything may slow the editor. Choose the pages you need.",
-      figImportFrameCount: "{{selected}} of {{total}} frames selected",
-      figImportSelectAll: "Select all",
-      figImportClearAll: "Clear all",
-      figImportCancel: "Cancel",
-      figImportSelected: "Import {{count}} selected",
-      figImportAll: "Import all",
       figImportAnalyzing: "Analyzing…",
       figImportSaving: "Saving {{saved}} of {{total}} frames",
-      figImportFrameLimit:
-        "Choose pages with {{max}} frames or fewer in total.",
       figImportFramesSkippedWarning:
         "Skipped {{count}} frames that were too complex to import: {{names}}",
-      figUploadLimits: "Up to {{size}} GB · {{frames}} frames per import",
-      figUploadDescriptionShort:
-        "Local import — no Figma API quota used. Supported embedded images are included.",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "Design paused this import",
-      quotaCooldownBody:
-        "Design is pacing its own Figma requests after hitting a quota limit. This resets automatically.",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "Import HTML",
       htmlDescription:
         "Paste or upload standalone HTML. Design stores it as a new screen without injecting it into this editor UI.",
-      htmlPlaceholder: "<main>Paste standalone HTML here...</main>",
-      importHtml: "Import HTML",
-      chooseHtmlFile: "Choose HTML file",
       allSupportedFiles: "All supported files",
-      githubTitle: "GitHub",
       githubDescription:
         "Coming soon: import screens and components directly from a repository.",
-      localTitle: "Local app",
       localDescription: "Connect any running local app with /visual-edit.",
-      visualEditGuidance:
-        "Install the /visual-edit skill, start any local app, then run the bridge command from that app repo so your agent can add URL-backed screens.",
-      comingSoon: "Coming soon",
       warningsToast: "Import completed with warnings",
       figmaSuccess: "Figma paste imported",
       htmlSuccess: "HTML imported",
       uploadSuccess: "File imported",
-      lastImport: "Last import",
       errors: {
         figmaTokenMustBeToken:
           "Paste a Figma access token, not a Figma file URL.",
-        figmaUrlRequired: "Paste a Figma frame or file URL.",
-        invalidFigmaUrl: "Enter a valid figma.com frame or file URL.",
         figmaImportFailed: "Couldn’t import from Figma",
         notHtml: "Paste or choose valid HTML to import.",
         importFailed: "Import failed",
@@ -1709,9 +1650,12 @@ export default {
         uploadFailed: "File upload failed",
         invalidFigFile: "Choose a file ending in .fig.",
         unsupportedFileType: "Choose a .fig, .html, or .htm file.",
-        importBusy: "Another import is in progress. Finish or cancel it first.",
+        importBusy:
+          "Another import is in progress. Try again when it finishes.",
         figFileTooLarge:
-          "That .fig is too large — uploads are limited to {{max}} MB. In Figma, copy just the frame you want into a new file and export that as .fig, or use Paste from Figma instead.",
+          "This file is too large to import here. Paste a link to the Figma page or frame instead.",
+        figFileUnreadable:
+          "This file can’t be read as a .fig file. Save a new local copy from Figma and import that.",
       },
     },
     generationMayHaveStopped:
@@ -1775,6 +1719,7 @@ export default {
       duplicate: "Duplicate",
       versionHistory: "Version history",
       import: "Import…",
+      connectLocalApp: "Connect local app",
       delete: "Delete",
       deleteError: "Could not delete this design",
     },
@@ -2561,6 +2506,8 @@ export default {
     changesDiscarded:
       "Some changes couldn't be saved because the file no longer exists and were discarded.",
     offline: "Offline",
+    unsaved: "Not saved",
+    saveRetrying: "Couldn't save your changes. Retrying automatically.",
     saving: "Saving...",
     clearedAllAnnotations: "Cleared all annotations",
     annotationsDiscardedOnViewChange:
@@ -2619,7 +2566,6 @@ export default {
     websiteReferenceMenu: "Add website…",
     websiteUrlLabel: "Website URL",
     websiteUrl: "Paste a website URL",
-    figmaUrlLabel: "Figma link",
     invalidFigmaUrl: "Enter a valid figma.com frame or file URL.",
     tooMany: "Choose up to 20 references.",
     invalidWebsiteUrl: "Enter a valid HTTP or HTTPS URL.",
@@ -2627,7 +2573,6 @@ export default {
     noSystems:
       "You don’t have a design system yet. Create one from website, files, or Figma.",
     searchSystems: "Search design systems…",
-    searchFrames: "Search Figma frames…",
     searchDesigns: "Search designs…",
     searchPresentations: "Search presentations…",
     searchDesign: "Search design…",
@@ -2635,8 +2580,6 @@ export default {
     notReady:
       "The prompt is not ready to submit. Check the selected context and connection, then try again.",
     search: "Search context…",
-    figmaUrl: "Paste a Figma link",
-    browse: "Browse frames",
     loadFailed: "Could not load this reference.",
     retry: "Retry",
     empty: "No matching references.",
@@ -2645,8 +2588,27 @@ export default {
     slides: "Slides",
     referenceDesign: "Reference a design",
     connectFigma: "Connect Figma",
-    figmaDisconnected: "Connect Figma to browse designs.",
-    figmaReference: "Figma design",
+    figmaReference: "Figma design…",
+    figmaDialogTitle: "Add Figma design",
+    figmaDropTitle: "Drop a .fig file",
+    figmaChooseFile: "Choose file",
+    figmaPasteHint:
+      "You can also paste a copied frame straight into the prompt.",
+    figmaAddToPrompt: "Add to prompt",
+    figmaLinkNeedsConnection:
+      "Links need a connected Figma account. Drop a .fig file or paste a copied frame instead.",
+    figmaReferenceMore: "{{name}} and {{count}} more",
+    figmaReferenceEmpty:
+      "No frames came through. Copy a frame in Figma and try again.",
+    figmaSelection: "Figma selection",
+    figmaFileTooLarge:
+      "This file is too large to read here. Paste a link to its page or frame instead.",
+    figmaSearch: "Search pages and frames",
+    figmaSelectedCount: "{{count}} selected",
+    figmaShowFrames: "Show frames in {{name}}",
+    figmaLinkNotFrame: "Link to a Figma page or frame.",
+    figmaPageFrameCap:
+      "Adds the first {{limit}} frames. Select frames to choose which ones.",
     referenceDeck: "Reference a presentation",
     quickSaas: "Create a SaaS landing page",
     quickDashboard: "Create a dashboard",
@@ -2812,7 +2774,6 @@ export default {
     import: "Import",
     importFromFigma: "Import from Figma",
     figmaFile: "Figma file (.fig)",
-    figmaFileMaxSize: "Up to {{max}} GB",
     openImport: "Open import",
     importSelectedFile: "Import selected file",
     starterSaasPrompt:

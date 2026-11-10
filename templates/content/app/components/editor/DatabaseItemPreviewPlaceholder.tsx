@@ -92,6 +92,8 @@ export function DatabaseItemPreviewPlaceholder({
               schemaRowsExpected={
                 collectionEditable && document.canEdit === true
               }
+              // A Retry here couldn't be clicked; the page brings its own.
+              leaveReadFailureToPage
               popoversPortalled={false}
             />
           </div>

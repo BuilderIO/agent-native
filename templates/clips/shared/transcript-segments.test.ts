@@ -6,7 +6,30 @@ import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
   readSegmentEntries,
+  storedSegmentsUnreadable,
 } from "./transcript-segments.js";
+
+describe("storedSegmentsUnreadable", () => {
+  it("is true for saved lines that can't be parsed", () => {
+    expect(storedSegmentsUnreadable("[{")).toBe(true);
+    expect(storedSegmentsUnreadable('{"startMs":0}')).toBe(true);
+  });
+
+  it("is false for no saved lines, which is having none", () => {
+    expect(storedSegmentsUnreadable(null)).toBe(false);
+    expect(storedSegmentsUnreadable(undefined)).toBe(false);
+    expect(storedSegmentsUnreadable("")).toBe(false);
+    expect(storedSegmentsUnreadable("[]")).toBe(false);
+  });
+
+  it("is false for saved lines that parse", () => {
+    expect(
+      storedSegmentsUnreadable(
+        JSON.stringify([{ startMs: 0, endMs: 1000, text: "Hi." }]),
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("readSegmentEntries", () => {
   it("reports a stored timing whose numeric conversion throws as unreadable", () => {

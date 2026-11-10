@@ -17,6 +17,7 @@ import {
   getBrowserTabId,
   isBrowserTabIdForCurrentDocument,
 } from "./browser-tab-id.js";
+import { useBrowserTabUse } from "./browser-tab-use.js";
 import {
   navigateWithAgentChatViewTransition,
   type AgentChatViewTransitionOptions,
@@ -422,6 +423,11 @@ export function useAgentRouteState<
       `${location.pathname}${location.search}${location.hash}`,
     );
   }, [location.hash, location.pathname, location.search, options.enabled]);
+
+  useBrowserTabUse(
+    `${location.pathname}${location.search}`,
+    options.enabled !== false,
+  );
 
   const navigationKeys = useMemo(() => {
     const scopedKey = appStateKeyForBrowserTab(navigationKey, browserTabId);
