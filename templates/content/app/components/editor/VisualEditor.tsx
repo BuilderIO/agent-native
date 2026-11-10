@@ -2485,9 +2485,12 @@ function updatePendingMediaNode(
   typeName: MediaNodeType,
   uploadId: string,
   attrs: Record<string, unknown>,
+  { addToHistory = true }: { addToHistory?: boolean } = {},
 ) {
   let found = false;
-  let tr = view.state.tr;
+  let tr = addToHistory
+    ? view.state.tr
+    : view.state.tr.setMeta("addToHistory", false);
 
   view.state.doc.descendants((node, pos) => {
     if (found) return false;
@@ -2587,8 +2590,10 @@ export function commitPendingImageUpload(
   request: PendingImagePicker,
   uploadId: string,
   attrs: Record<string, unknown>,
+  options: { addToHistory?: boolean } = {},
 ) {
-  if (updatePendingMediaNode(view, "image", uploadId, attrs)) return true;
+  if (updatePendingMediaNode(view, "image", uploadId, attrs, options))
+    return true;
   return insertImageNodeAtPendingPosition(view, request, attrs, false);
 }
 
@@ -2766,12 +2771,17 @@ export async function runImageUpload(
       return { status: "stopped" };
     }
     const failedId = failedImageUploadId(uploadId);
+    // Undo leaves the failure alone: taking it back would bring back an
+    // upload that has already ended, and lose the pick and its Retry.
     const kept =
       hasImageUploadPreview(uploadId) &&
-      commitPendingImageUpload(view, request, uploadId, {
-        src: request.attrs.src ?? null,
-        uploadId: failedId,
-      });
+      commitPendingImageUpload(
+        view,
+        request,
+        uploadId,
+        { src: request.attrs.src ?? null, uploadId: failedId },
+        { addToHistory: false },
+      );
     if (!kept) {
       releaseImageUploadPreview(uploadId);
       restorePendingImagePicker(view, request, uploadId);

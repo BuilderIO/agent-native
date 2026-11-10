@@ -4109,6 +4109,44 @@ describe("image upload previews", () => {
     });
   });
 
+  it("keeps a failed upload's pick and Retry when undo follows the failure", async () => {
+    await withMountedEditor(async (editor) => {
+      const upload = deferred<string>();
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(
+          editor.view,
+          [file],
+          0,
+          () => upload.promise,
+        );
+      });
+      // A later edit of the user's, which undo takes back on its own.
+      await act(async () => {
+        const { state } = editor.view;
+        expect(state.doc.lastChild?.type.name).toBe("paragraph");
+        editor.view.dispatch(
+          closeHistory(state.tr.insertText("Note", state.doc.content.size - 1)),
+        );
+      });
+      await act(async () => {
+        upload.reject(new Error("Network down"));
+        await done;
+      });
+
+      await act(async () => {
+        expect(editor.commands.undo()).toBe(true);
+      });
+      expect(editor.getText()).not.toContain("Note");
+      expect(images(editor)[0]?.attrs?.uploadId).toMatch(/^image-failed-/);
+      const dom = editor.view.dom;
+      expect(dom.querySelector("img[data-upload-preview]")).not.toBeNull();
+      expect(
+        dom.querySelectorAll(".media-block__upload-failure button"),
+      ).toHaveLength(2);
+    });
+  });
+
   it("keeps a Retry going when undo follows it", async () => {
     await withMountedEditor(async (editor) => {
       const attempts: Array<ReturnType<typeof deferred<string>>> = [];
