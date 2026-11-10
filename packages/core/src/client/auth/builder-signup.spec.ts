@@ -6,6 +6,8 @@ import {
   acceptBuilderSignupAssignment,
   activateBuilderSignupAssignment,
   getBuilderSignupAssignment,
+  getBuilderSignupActivationStatus,
+  startBuilderSignupActivation,
   hasPendingBuilderSignupAssignment,
 } from "./builder-signup.js";
 
@@ -24,6 +26,58 @@ afterEach(() => {
 });
 
 describe("Builder signup client contract", () => {
+  it.each([
+    { status: "pending" },
+    { status: "disabled", code: "activation_in_progress" },
+  ])("keeps activation pending for server response %j", async (body) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => response(body)),
+    );
+    expect(await startBuilderSignupActivation()).toBe("eligible");
+    expect(await getBuilderSignupActivationStatus()).toBe("eligible");
+  });
+
+  it("starts setup in a navigation-safe request and only covers a confirmed pending activation", async () => {
+    const fetch = vi.fn(async () => response({ status: "pending" }));
+    vi.stubGlobal("fetch", fetch);
+    expect(await startBuilderSignupActivation()).toBe("eligible");
+    expect(fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ operation: "start" }),
+        keepalive: true,
+      }),
+    );
+    fetch.mockResolvedValueOnce(response({ status: "eligible" }));
+    expect(await startBuilderSignupActivation()).toBe("eligible");
+    for (const status of ["connected", "fallback", "disabled"]) {
+      fetch.mockResolvedValueOnce(response({ status }));
+      expect(await startBuilderSignupActivation()).toBe("disabled");
+    }
+    fetch.mockResolvedValueOnce(response({ status: "unexpected" }));
+    await expect(startBuilderSignupActivation()).rejects.toThrow(
+      "Invalid Builder signup start response",
+    );
+  });
+
+  it("checks eligibility without treating a failed or unknown response as non-enrollment", async () => {
+    const fetch = vi.fn(async () => response({ status: "eligible" }));
+    vi.stubGlobal("fetch", fetch);
+    expect(await getBuilderSignupActivationStatus()).toBe("eligible");
+    fetch.mockResolvedValueOnce(
+      response({ status: "disabled", code: "not_enrolled" }),
+    );
+    expect(await getBuilderSignupActivationStatus()).toBe("disabled");
+    fetch.mockResolvedValueOnce(response({ status: "unknown" }));
+    await expect(getBuilderSignupActivationStatus()).rejects.toThrow(
+      "Invalid Builder signup eligibility response",
+    );
+    fetch.mockResolvedValueOnce(response({ status: "disabled" }, 503));
+    await expect(getBuilderSignupActivationStatus()).rejects.toThrow(/503/);
+  });
+
   it("reads the assigned arm without exposing an auth credential to the browser", async () => {
     const fetch = vi.fn(async () => response(assignment));
     vi.stubGlobal("fetch", fetch);
@@ -114,7 +168,7 @@ describe("Builder signup client contract", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("releases the one-time UI gate after an uncertain activation without retrying provisioning", async () => {
+  it("preserves the pending hint after an uncertain activation without retrying provisioning", async () => {
     vi.useFakeTimers();
     const browserDocument = { cookie: "an_builder_signup_pending=1" };
     vi.stubGlobal("document", browserDocument);
@@ -127,8 +181,8 @@ describe("Builder signup client contract", () => {
     );
     await vi.advanceTimersByTimeAsync(30000);
     await outcome;
-    expect(browserDocument.cookie).toContain("Max-Age=0");
-    expect(hasPendingBuilderSignupAssignment()).toBe(false);
+    expect(browserDocument.cookie).toBe("an_builder_signup_pending=1");
+    expect(hasPendingBuilderSignupAssignment()).toBe(true);
   });
 
   it("does not turn transport errors or unknown outcomes into a connected state", async () => {
@@ -137,7 +191,7 @@ describe("Builder signup client contract", () => {
     const fetch = vi.fn(async () => response({ status: "connected" }, 503));
     vi.stubGlobal("fetch", fetch);
     await expect(activateBuilderSignupAssignment()).rejects.toThrow(/503/);
-    expect(browserDocument.cookie).toContain("Max-Age=0");
+    expect(browserDocument.cookie).toBe("an_builder_signup_pending=1");
     expect(fetch).toHaveBeenCalledTimes(1);
     fetch.mockResolvedValueOnce(response({ status: "unknown" }));
     await expect(activateBuilderSignupAssignment()).rejects.toThrow(
