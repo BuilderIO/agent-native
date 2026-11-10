@@ -8530,10 +8530,12 @@ function PageEditorSessionBody({
   });
   // A request finishes on its own poll, before the reply or receipt it wrote
   // is in this Page's comments, and the notice that would read them again
-  // can come late or not at all. Read them again then.
+  // can come late or not at all. Read them again then. Both reads follow the
+  // server's statuses, since a local error can show a run that went on to
+  // finish as needing review.
   const missingRequestCommentIds = useMemo(
-    () => missingCommentAiReplyIds(commentAi.requests, threads),
-    [commentAi.requests, threads],
+    () => missingCommentAiReplyIds(commentAi.serverRequests, threads),
+    [commentAi.serverRequests, threads],
   );
   useEffect(() => {
     if (missingRequestCommentIds) void refetchComments();
@@ -8545,10 +8547,13 @@ function PageEditorSessionBody({
   );
   useEffect(() => {
     if (
-      noteCommentAiPageChanges(commentAiStatusesRef.current, commentAi.requests)
+      noteCommentAiPageChanges(
+        commentAiStatusesRef.current,
+        commentAi.serverRequests,
+      )
     )
       void queryClient.invalidateQueries(documentQueryFilter(documentId));
-  }, [commentAi.requests, documentId, queryClient]);
+  }, [commentAi.serverRequests, documentId, queryClient]);
   // A request turns suggested on its own poll, often before the suggestion it
   // names is in this Page's list. Read the list again then; until that read
   // lands, its thread holds a placeholder rather than an empty status.

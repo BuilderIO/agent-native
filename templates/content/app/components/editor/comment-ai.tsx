@@ -122,6 +122,12 @@ interface CommentAiDispatchRecovery {
 
 export interface CommentAiController {
   requests: CommentAiRequest[];
+  /**
+   * The requests as the server last reported them, before a local dispatch
+   * or continuation error shows one as needing review. What a run wrote to
+   * the page or its comments follows these.
+   */
+  serverRequests: CommentAiRequest[];
   startingThreadIds: ReadonlySet<string>;
   stoppingRequestIds: ReadonlySet<string>;
   continuations: ReadonlyMap<string, CommentAiContinuationState>;
@@ -1078,6 +1084,7 @@ export function useCommentAiRequests(
   return useMemo(
     () => ({
       requests,
+      serverRequests,
       startingThreadIds,
       stoppingRequestIds,
       continuations,
@@ -1094,6 +1101,7 @@ export function useCommentAiRequests(
     }),
     [
       requests,
+      serverRequests,
       startingThreadIds,
       stoppingRequestIds,
       continuations,

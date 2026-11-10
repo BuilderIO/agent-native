@@ -900,6 +900,8 @@ describe("comment AI controls", () => {
     act(() => root.render(createElement(Probe)));
 
     expect(controller!.requests[0]).toMatchObject({ status: "needs-review" });
+    // What the run writes is read from the server's status, not the shown one.
+    expect(controller!.serverRequests[0]).toMatchObject({ status: "queued" });
     await act(async () => {
       await controller!.start({
         threadId: "thread-1",
