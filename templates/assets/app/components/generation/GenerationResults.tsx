@@ -114,7 +114,9 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
   const canApprove = libraryAccess?.canApprove === true;
   const saveGenerated = useActionMutation("save-generated-image");
   const dismissSlot = useActionMutation("dismiss-variant-slots");
-  const refreshGeneration = useActionMutation("refresh-generation-run");
+  const refreshGeneration = useActionMutation("refresh-generation-run", {
+    errorNotification: "caller",
+  });
   const refreshingRunIds = useRef<Set<string>>(new Set());
   const libraryTitle = useMemo(() => {
     if (!variants?.libraryId) return null;

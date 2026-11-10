@@ -1,5 +1,45 @@
 # @agent-native/toolkit
 
+## 0.227.0
+
+### Minor Changes
+
+- a467c58: Show one shared toast when a save fails instead of failing silently. `useActionMutation` now announces a failed write that nothing else handles (`errorNotification: "auto" | "shared" | "caller"`, plus an `errorLabel` title), `@agent-native/core/client/write-failure` adds `reportWriteFailure` for writes that are not mutations, and `AppProviders` mounts the toast. A typed 4xx refusal shows its own message, offline, timeout and permission failures show translated text, and a 5xx stays generic. Background saves and mutations that render their own error opt out with `errorNotification: "caller"`.
+
+### Patch Changes
+
+- ba1a7d3: `AgentShareSection` fetches a fresh agent link when the one it holds is about to expire, on reopening or on Copy, the same as the Share panel's Send to menu.
+- 48d9de3: Place the optional Builder signup agreement alongside the existing terms and privacy footer.
+- d1fa5c5: Keep Builder.io reconnect available in chat and Settings when credentials expire or grant status cannot be read. Add reconnect controls to healthy and failed integrations without overlapping error messages.
+- 6e8b91a: Support app-scoped Builder signup experiments and consented activation before first-run onboarding.
+- cd176a0: A collaborator's selection is tinted in their colour, and the text inside it stays at full strength.
+- 0f27dbe: Every connected integration tile opens a detail page
+
+  A connected remote MCP server's tile was an inert element whose only control was a "…"
+  menu, so a connected integration (a remote MCP server or a custom one added by URL) could
+  not be opened, inspected or reconnected — while a catalog tile always could. Connected
+  tiles are now links to the same settings detail page, and the page resolves a connected
+  server that has no catalog entry (a custom integration) by the slug the tile links to,
+  showing status, scope, tools, the error reason, Reconnect and Remove. The id convention
+  lives in one module so the tile and the page cannot drift apart.
+
+- 17bf02d: Identify hosted auth shells before app configuration loads, and record Builder signup enrollment and fallback outcomes for end-to-end experiment tracking.
+- 4a3c8c7: Use full-page Google sign-in redirects by default in ordinary browsers, preserving popups for embedded apps and explicit popup overrides.
+- 7f5db5c: Fix Google sign-in failing with `Invalid desktop exchange challenge.` on apps with a stricter Google auth route, such as Clips. The browser redirect no longer carries a desktop `flow_id`.
+- f94438c: Keep an open editor's unsaved text when the page's timestamp moves but its body doesn't, as after a rename elsewhere. `useCollabReconcile` no longer treats that snapshot as newer than the doc, so it doesn't replace the doc with a body the editor already took in.
+- 46ed84c: A fresh server no longer loads React DOM's server renderer, the sign-in pages and their icon set before it can answer a request. `createToolkitAuthPlugin` loads them before the first page request instead: any GET outside the routes the server answers before the app's router (the framework routes, `/api`, `/mcp`, `/.well-known` and `/assets`), or a browser navigation. It reads each path as the auth guard does, with `getAuthGuardPath`, which core now exports from `@agent-native/core/server/auth-guard-path`. The server's agent-presence code no longer imports React. `renderSignInPage` and `renderResetPasswordPage` may now return `undefined`, which serves core's fallback markup for the auth client script to render in the browser. An app that passes the toolkit's `renderAuthPage` to core's `createAuthPlugin` or `createGoogleAuthPlugin` itself should `await loadAuthPageRenderers()` before serving a sign-in page, or it gets that fallback, cached like the full page. `createGoogleAuthPlugin` now renders its sign-in page for each request that shows it, rather than once at startup, so a renderer that loads later still reaches the page.
+- 3142f57: Show a working turn's live activity row below the reply's latest text instead of above it, so long narration no longer pushes it out of view while the agent is still working.
+- Release all public npm packages with a patch version bump.
+- ec21102: Failed resource uploads, resource saves, and community app installs now use the shared write-failure toast, so the notice says why the save failed, such as being offline or lacking permission.
+- 36106a3: Show a saved integration access token as connected on its Settings page, refresh composer integrations when a key is saved, and register Dispatch's provider API runtime so its connected integrations appear. Composers can now claim a paste as app context (`onPasteContext`). A checkbox set to `"indeterminate"` now shows a filled dash instead of a check mark. When the saved token cannot be read, the integration page says so and offers Try again instead of showing no action.
+- ba1a7d3: `ShareButton` takes `hideSendTo`, which leaves the Send to menu out of the Share panel for an app that offers those destinations in a tab of its own.
+- 36074ef: Fixes for hiding shared chats that fail. When the server refuses a hide, `useChatThreadList` and the toolkit's chat history now fetch the list again. Before, a chat whose access was revoked while the request was out came back and stayed listed until the next refresh. In the toolkit's chat history, a hide that fails after you switch views or close the list now replaces the "Hidden" toast with the error. Before, the toast kept saying the chat was hidden.
+- d4f3450: The composer shows one primary control while a run is active: Stop while the draft is empty, Send once you type. Send no longer appears beside Stop, and Escape still stops the run mid-draft. A stopped run also no longer says "This run can't be continued anymore" once a newer run has picked up the thread.
+- 6189d88: Keep the viewport anchored when reordering a block within the same editor.
+- 7c7bf12: `TooltipTrigger` opens its tooltip again when keyboard focus lands on a control inside the trigger, such as a column header's menu button. A click that hands focus back still leaves it closed.
+- Updated dependencies
+  - @agent-native/agentkit@0.227.0
+
 ## 0.226.0
 
 ### Patch Changes
@@ -1602,11 +1642,5 @@
 ### Patch Changes
 
 - 95ea873: Allow editor-owned controls outside TipTap's contenteditable surface to protect active edits from stale collaboration snapshots, and preserve a valid selection when collaborative documents initially hydrate block-only nodes.
-
-## 0.16.3
-
-### Patch Changes
-
-- 81fb79e: Keep shared composer labels theme-safe and translatable.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

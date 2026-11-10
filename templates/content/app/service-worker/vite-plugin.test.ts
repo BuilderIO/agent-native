@@ -77,6 +77,23 @@ describe("the build file", () => {
       /manifest-ec4917e9\.js/,
     );
   });
+
+  it("includes hash-named modules with numeric collision suffixes in the boot cache", () => {
+    const entry = "/assets/m-aB12_cdE2.js";
+    const file = createShellBuildFile(
+      { ...MANIFEST, entry: { module: entry, imports: [] } },
+      [
+        ...FILES,
+        entry,
+        "/assets/m-aB12_cdEx.js",
+        "/assets/backup-2026110917.pdf",
+        "/assets/script-2026110917.js",
+        "/assets/m-aB12_cdE2.css",
+      ],
+    );
+    expect(file.boot).toContain(entry);
+    expect(file.assets).toEqual([...FILES, entry].sort());
+  });
 });
 
 describe("writing the worker", () => {

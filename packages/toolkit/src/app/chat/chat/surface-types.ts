@@ -150,6 +150,11 @@ export interface AssistantChatComposerContext {
   onRemoveContextItem: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
+  /**
+   * Claims a paste as app context before the composer handles it. Return true
+   * when the paste was taken, so nothing is inserted or attached.
+   */
+  onPasteContext?: (clipboard: DataTransfer) => boolean;
   dialogs?: React.ReactNode;
   /** Revalidate only the captured app-owned items before dispatch. */
   prepareSubmission: (

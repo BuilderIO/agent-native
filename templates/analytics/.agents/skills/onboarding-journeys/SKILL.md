@@ -59,7 +59,7 @@ type JourneyExample = { sessionId: string; recordingId?: string | null; ts: stri
 type JourneyNode = { key: string; keyTruncated?: boolean; label: string; labelTruncated?: boolean; parentKey: string | null; depth: number; kind: "step" | "other"; n: number; pctOfRoot: number; pctOfParent: number; dropoffN: number; dropoffPct: number; deeperN: number; examples: JourneyExample[]; otherBranchCount?: number; otherBranchSummariesPartial?: true; otherBranches?: { path: string[]; pathTruncated?: boolean; key: string; keyTruncated?: boolean; sourceStepKey?: string; sourceStepKeyTruncated?: boolean; n: number; pctOfParent: number }[] };
 type JourneyFollowup = { status: "complete" | "incomplete"; incompleteReason?: "journey_event_read_truncated" | "journey_event_read_invalid" | "journey_event_read_may_have_shifted" | "terminal_cohort_query_too_large" | "followup_aggregate_truncated" | "followup_aggregate_invalid" | "followup_aggregate_cost_limited" | "followup_aggregate_query_timeout" | "followup_aggregate_query_failed" | "terminal_cohort_mismatch"; observationCutoff: string; observationFollowupDurationMs: { min: number; max: number; mean: number } | null; rightCensoredAtWindowEnd: true; coverage: { journeyEventRead: { rows: number; pages: number; truncated: boolean; paginationConsistency: "stable" | "may_have_shifted" }; followupAggregateRead: { rows: number | null; queries: number; truncated: boolean; status?: "incomplete"; backendStatus?: number | null; backendReason?: string | null; backendOperation?: "submit" | "poll" | "job" | null }; cohortSessions: number | null }; laterRecordedActivityWithinWindow: { total: number | null; byTerminalStepKey: Record<string, number> | null }; noLaterRecordedActivityWithinWindow: { total: number | null; byTerminalStepKey: Record<string, number> | null } };
 type JourneyPersonFollowupCounts = { canonicalPeople: number; laterActivityInSelectedSession: number; laterActivityOutsideSelectedSessionOrApp: number; laterActivityInBothSelectedAndOutside: number; laterActivityObservedAnywhere: number; noActivityObservedWithinHorizon: number; rightCensoredHorizon: number; fullyObservedCanonicalPeople: number; noActivityObservedWithinHorizonPctOfFullyObservedCanonicalPeople: number | null; identityUnavailableSessions: number; identityUnavailableSessionEvidence: { laterActivityInSelectedSession: number; laterActivityOutsideSelectedSessionOrApp: number } };
-type JourneyPersonFollowup = { status: "complete" | "incomplete"; incompleteReason?: "journey_event_read_truncated" | "journey_event_read_invalid" | "journey_event_read_may_have_shifted" | "terminal_cohort_too_large" | "terminal_cohort_invalid" | "person_followup_aggregate_truncated" | "person_followup_query_cost_limited" | "person_followup_query_timeout" | "person_followup_query_failed" | "person_followup_aggregate_invalid" | "person_followup_terminal_cohort_mismatch"; horizonDays: 30; horizonMs: number; observationWatermark: string; observationFollowupDurationMs: { min: number; max: number; mean: number } | null; coverage: { journeyEventRead: { rows: number; pages: number; truncated: boolean; paginationConsistency: "stable" | "may_have_shifted" }; followupAggregateRead: { status: "complete" | "truncated" | "incomplete" | "not_run"; rows: number | null; queries: number; truncated: boolean; backendStatus?: number | null; backendReason?: string | null; backendOperation?: "submit" | "poll" | "job" | null }; terminalSessions: number | null; sessionsWithoutSelectedStep: number | null; identityJoin: { status: "complete" | "partial" | "unavailable" | "not_applicable" | "unknown"; terminalSessions: number | null; sessionsWithCanonicalIdentity: number | null; sessionsWithoutCanonicalIdentity: number | null; uniqueCanonicalPeople: number | null; coveragePct: number | null } }; total: JourneyPersonFollowupCounts | null; byTerminalStepKey: Record<string, JourneyPersonFollowupCounts> | null };
+type JourneyPersonFollowup = { status: "complete" | "incomplete"; incompleteReason?: "journey_event_read_truncated" | "journey_event_read_invalid" | "journey_event_read_may_have_shifted" | "terminal_cohort_too_large" | "terminal_cohort_invalid" | "person_followup_aggregate_truncated" | "person_followup_query_cost_limited" | "person_followup_query_timeout" | "person_followup_query_failed" | "person_followup_aggregate_invalid" | "person_followup_terminal_cohort_mismatch"; horizonDays: 30; horizonMs: number; observationWatermark: string; observationFollowupDurationMs: { min: number; max: number; mean: number } | null; coverage: { journeyEventRead: { rows: number; pages: number; truncated: boolean; paginationConsistency: "stable" | "may_have_shifted" }; followupAggregateRead: { status: "complete" | "truncated" | "incomplete" | "not_run"; rows: number | null; queries: number; truncated: boolean; backendStatus?: number | null; backendReason?: string | null; backendOperation?: "submit" | "poll" | "job" | null }; terminalSessions: number | null; sessionsWithoutSelectedStep: number | null; identityJoin: { status: "complete" | "partial" | "unavailable" | "not_applicable" | "unknown"; terminalSessions: number | null; sessionsWithCanonicalIdentity: number | null; sessionsIdentifiedByEmail: number | null; sessionsIdentifiedBySignInIdOnly: number | null; sessionsWithoutCanonicalIdentity: number | null; uniqueCanonicalPeople: number | null; coveragePct: number | null } }; total: JourneyPersonFollowupCounts | null; byTerminalStepKey: Record<string, JourneyPersonFollowupCounts> | null };
 type JourneyTree = { window: { from: string; to: string }; app: string; rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number | null; truncated: boolean }; nodes: JourneyNode[]; followUp: JourneyFollowup; personFollowUp?: JourneyPersonFollowup; standaloneSetup?: { rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number | null; truncated: boolean }; nodes: JourneyNode[] }; notes?: string[] };
 ```
 
@@ -136,10 +136,15 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   `rightCensoredAtWindowEnd: true` means the no-later count is right-censored:
   no later event was recorded before the cutoff; this is not an abandonment or
   churn outcome. The aggregate contains counts only and does not expose the
-  session IDs or member identity keys used internally. The consistency field
-  reports `may_have_shifted` when the event read uses multiple `OFFSET` pages;
-  a late-arriving event can change page membership inside a historical window
-  too. The action reads 4,000-row pages up to `maxEventRows` (at most 200,000),
+  session IDs or member identity keys used internally. Every `OFFSET` page also
+  counts the whole read and fingerprints its rows (a sum of hashes of each
+  row's sort key and session email hash). The consistency field is `stable` for
+  one page, or for several pages that all saw the same count and fingerprint
+  and together returned exactly that many rows, or stopped at the row budget
+  (then `coverage.truncated` says so); otherwise it reports `may_have_shifted`,
+  because an event that arrived between pages can change page membership inside
+  a historical window too. A matching count alone is not enough: a late
+  duplicate can drop one event and settle another's ambiguous link. The action reads 4,000-row pages up to `maxEventRows` (at most 200,000),
   plus one overflow row to detect truncation. Each BigQuery page keeps a 25 GB
   billed-byte cap; by default, `maxTotalBytesBilled` reserves that cap for 11
   pages (275 GB), and can be raised deliberately to 1.275 TB (51 pages). Event
@@ -163,9 +168,17 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   count to `null`; it is not a zero. Read `status` and `coverage` before using
   either follow-up mode.
 - Set `followUpMode: "person"` to add `personFollowUp` without changing the
-  session tree or same-session `followUp`. Each direct `properties.auth_user_id`
-  is counted once and assigned to that person's latest terminal selected step
-  in the requested cohort. No email, anonymous, user-key, or organization
+  session tree or same-session `followUp`. A session is identified by its one
+  email, when every email its events carry agrees, and by its terminal step's
+  direct `properties.auth_user_id`. Sessions that share either one are one
+  person, counted once and assigned to that person's latest terminal selected
+  step in the requested cohort. Later events match the person by any email or
+  auth ID its sessions carried. Emails are compared as MD5 hashes computed in
+  the warehouse, so no address appears in query text, query results or the
+  query cache. An unmatched event in the person's own terminal session counts
+  only when it carries neither a sign-in ID nor an email.
+  `coverage.identityJoin` reports `sessionsIdentifiedByEmail` and
+  `sessionsIdentifiedBySignInIdOnly`. No anonymous, user-key, or organization
   pseudo-ID fallback is used for cross-session matching. The query searches
   later events across first-party apps under the same authenticated org,
   Builder.io email, and test-identity filters. Selected-session/app and
