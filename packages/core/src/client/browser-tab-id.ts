@@ -48,6 +48,7 @@ function generate(): string {
 // route wrote its `navigate` command under. Take it once and drop it from the
 // URL, so a copied link doesn't give a second tab the same ID.
 function takeIdFromUrl(): string | null {
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- a stubbed or non-browser window can lack a location
   const href = window.location?.href;
   if (!href || !URL.canParse(href)) return null;
   const url = new URL(href);
