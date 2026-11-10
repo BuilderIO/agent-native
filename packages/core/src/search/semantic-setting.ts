@@ -25,12 +25,21 @@ function parseSetting(
 
 /**
  * Reads whether semantic search is on for an organization. Throws when the
- * setting can't be read, so callers never embed on a guess.
+ * setting can't be read, so callers never embed on a guess. `fresh` skips the
+ * request's settings snapshot, for checks that must see another request
+ * turning it off.
  */
 export async function readSemanticSearchSetting(
   orgId: string,
+  options?: { fresh?: boolean },
 ): Promise<SemanticSearchSetting> {
-  return parseSetting(await getOrgSetting(orgId, SEMANTIC_SEARCH_SETTING_KEY));
+  return parseSetting(
+    await getOrgSetting(
+      orgId,
+      SEMANTIC_SEARCH_SETTING_KEY,
+      options?.fresh ? { bypassCache: true } : undefined,
+    ),
+  );
 }
 
 /** Turns semantic search on or off. Returns the setting before and after. */

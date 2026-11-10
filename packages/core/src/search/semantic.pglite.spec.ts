@@ -511,6 +511,180 @@ describe("an organization that turns semantic search off", () => {
   });
 });
 
+describe("when something fails part way", () => {
+  function keysFor(id: string) {
+    return store.keys().filter((key) => key.startsWith(`wiki/page/${id}/`));
+  }
+
+  function useStore(overrides: Partial<typeof store>) {
+    search.configureSemanticSearch({
+      vectorStore: { ...store, ...overrides },
+      resolveEmbeddingFamily: async () => family,
+    });
+  }
+
+  function restoreStore() {
+    search.configureSemanticSearch({
+      vectorStore: store,
+      resolveEmbeddingFamily: async (identity) =>
+        identity?.orgId === "org-no-provider" ? null : family,
+    });
+  }
+
+  it("sees the setting turned off by another request while it embeds", async () => {
+    await run(
+      `UPDATE pages SET body = 'Vacation requests go to your lead.' WHERE id = 'vacation'`,
+    );
+    await settle();
+    let release: () => void = () => {};
+    const paused = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started: () => void = () => {};
+    const embedding = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const embed = family.embed;
+    family.embed = async (inputs, purpose, options) => {
+      started();
+      await paused;
+      return embed(inputs, purpose, options);
+    };
+    try {
+      // A drain after a write runs in the writer's request.
+      const draining = context.runWithRequestContext(
+        { userEmail: "writer@a.com", orgId: "org-a" },
+        () => drain(),
+      );
+      await embedding;
+      await context.runWithRequestContext(
+        { userEmail: "admin@a.com", orgId: "org-a" },
+        () => turnSemanticSearch("org-a", false),
+      );
+      release();
+      await draining;
+    } finally {
+      family.embed = embed;
+    }
+    const leftover = keysFor("vacation");
+    await turnSemanticSearch("org-a", true);
+    await settle();
+    await drain();
+    expect(leftover).toEqual([]);
+    expect(keysFor("vacation")).toEqual(["wiki/page/vacation/0"]);
+  });
+
+  it("embeds a page again when storing its vectors failed", async () => {
+    await insertPage("unstored", "Laptop requests", "They go to IT.");
+    await settle();
+    let failUpsert = true;
+    useStore({
+      async upsert(target, input) {
+        if (failUpsert) {
+          failUpsert = false;
+          throw new Error("store down");
+        }
+        await store.upsert(target, input);
+      },
+    });
+    try {
+      await drain();
+      expect(await pendingIds()).toEqual(["unstored"]);
+      await settle();
+      await drain();
+    } finally {
+      restoreStore();
+    }
+    expect(await pendingIds()).toEqual([]);
+    expect(keysFor("unstored")).toEqual(["wiki/page/unstored/0"]);
+  });
+
+  it("still finds every chunk to delete when dropping a shorter page's chunks failed", async () => {
+    const long = Array.from(
+      { length: 6 },
+      () => `${"laptop ".repeat(59)}done.`,
+    ).join(" ");
+    await insertPage("shrinking", "Laptop guide", long);
+    await settle();
+    await drain();
+    expect(keysFor("shrinking")).toHaveLength(3);
+
+    await run(`UPDATE pages SET body = 'Short now.' WHERE id = 'shrinking'`);
+    await settle();
+    let failRemove = true;
+    useStore({
+      async remove(target, input) {
+        if (failRemove) {
+          failRemove = false;
+          throw new Error("store down");
+        }
+        await store.remove(target, input);
+      },
+    });
+    try {
+      await drain();
+      await settle();
+      await drain();
+    } finally {
+      restoreStore();
+    }
+    expect(keysFor("shrinking")).toEqual(["wiki/page/shrinking/0"]);
+
+    await run(`DELETE FROM pages WHERE id = 'shrinking'`);
+    await settle();
+    await drain();
+    expect(keysFor("shrinking")).toEqual([]);
+  });
+
+  it("retries a page never embedded when the organization turns semantic search back on", async () => {
+    failOn = "stubborn";
+    await insertPage("stubborn", "Stubborn laptop", "Hardware stubborn.");
+    await settle();
+    await drain();
+    const waiting = () =>
+      run(
+        `SELECT attempts, available_at > now() AS waiting FROM app_resource_changes
+         WHERE consumer = 'search-embeddings' AND resource_id = 'stubborn'`,
+      );
+    expect((await waiting()).rows).toEqual([{ attempts: 1, waiting: true }]);
+
+    failOn = null;
+    await search.requeueSemanticSearchForOrg("org-a");
+    expect((await waiting()).rows).toEqual([{ attempts: 0, waiting: false }]);
+    await settle();
+    await drain();
+    expect(keysFor("stubborn")).toEqual(["wiki/page/stubborn/0"]);
+  });
+
+  it("stops retrying a refused batch page by page once its time is up", async () => {
+    for (const id of ["slow-1", "slow-2", "slow-3"]) {
+      await insertPage(id, "Slow laptop", `Hardware ${id}.`);
+    }
+    await settle();
+    const embed = family.embed;
+    const signals: (AbortSignal | undefined)[] = [];
+    family.embed = async (_inputs, _purpose, options) => {
+      signals.push(options?.signal);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      throw new Error("provider down");
+    };
+    try {
+      await search.drainSemanticIndex(registration, Date.now() + 20);
+    } finally {
+      family.embed = embed;
+    }
+    // The batch failed after the deadline, so no page was tried alone; each
+    // call can time out.
+    expect(signals).toHaveLength(1);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+
+    await run(`DELETE FROM pages WHERE id LIKE 'slow-%'`);
+    await settle();
+    await drain();
+    expect(await pendingIds()).toEqual([]);
+  });
+});
+
 describe("without a vector store or provider", () => {
   it("says why the lane can't answer, and never throws", async () => {
     search.configureSemanticSearch({

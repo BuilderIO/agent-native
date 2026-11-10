@@ -717,6 +717,53 @@ describe("InfrastructureSettingsPage", () => {
     );
   });
 
+  it("shows what the server saved when finishing a change fails, and offers to finish it", async () => {
+    let failNext = true;
+    callActionMock.mockImplementation(
+      async (_name: string, params: { semanticSearch?: boolean }) => {
+        if (params?.semanticSearch === undefined) return servicesRead;
+        // The setting is saved, then deleting stored vectors fails.
+        servicesRead = {
+          ...servicesRead,
+          semanticSearch: {
+            enabled: params.semanticSearch,
+            updatedAt: "2026-11-10T12:00:00.000Z",
+            updatedBy: "owner@example.com",
+          },
+        };
+        if (failNext) {
+          failNext = false;
+          throw new Error(
+            "Semantic search is off, so nothing new is embedded or searched, but deleting stored embeddings failed. Try again to finish.",
+          );
+        }
+        return servicesRead;
+      },
+    );
+    await render();
+    const toggle = () =>
+      row("semantic-search").querySelector<HTMLButtonElement>(
+        '[role="switch"]',
+      )!;
+    act(() => toggle().click());
+    await flush();
+    await flush();
+    expect(toggle().getAttribute("aria-checked")).toBe("false");
+    const retry = button(row("semantic-search"), "Retry");
+    act(() => retry.click());
+    await flush();
+    expect(callActionMock).toHaveBeenLastCalledWith(
+      "manage-service-providers",
+      { semanticSearch: false },
+    );
+    expect(
+      [...row("semantic-search").querySelectorAll("button")].some(
+        (candidate) => candidate.textContent?.trim() === "Retry",
+      ),
+    ).toBe(false);
+    expect(toggle().getAttribute("aria-checked")).toBe("false");
+  });
+
   it("offers a retry when the semantic search setting can't be read", async () => {
     servicesRead = { ...servicesStatus(), semanticSearch: null };
     await render();

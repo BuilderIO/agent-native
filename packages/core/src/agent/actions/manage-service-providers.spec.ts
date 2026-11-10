@@ -282,6 +282,26 @@ describe("manage-service-providers", () => {
     expect(mocks.requeueSemanticSearchForOrg).toHaveBeenCalledWith("org-1");
   });
 
+  it("keeps semantic search off, and says so, when deleting its vectors fails", async () => {
+    mocks.forgetSemanticSearchForOrg.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+    await expect(
+      action.run({ semanticSearch: false }, ctx(ADMIN)),
+    ).rejects.toMatchObject({
+      statusCode: 500,
+      message: expect.stringContaining("deleting stored embeddings failed"),
+    });
+    expect((await action.run({}, ctx(ADMIN))).semanticSearch?.enabled).toBe(
+      false,
+    );
+
+    // Calling again finishes the deletion.
+    const again = await action.run({ semanticSearch: false }, ctx(ADMIN));
+    expect(again.changed).toBe(false);
+    expect(mocks.forgetSemanticSearchForOrg).toHaveBeenCalledTimes(2);
+  });
+
   it("refuses a member turning semantic search off, and records the refusal", async () => {
     await expect(
       action.run({ semanticSearch: false }, ctx(MEMBER)),

@@ -366,8 +366,21 @@ export default defineAction({
       }
       // Run on every call, not only on a change, so calling again finishes
       // a call that failed part way.
-      if (enabled) await requeueSemanticSearchForOrg(orgId);
-      else await forgetSemanticSearchForOrg(orgId);
+      try {
+        if (enabled) await requeueSemanticSearchForOrg(orgId);
+        else await forgetSemanticSearchForOrg(orgId);
+      } catch (cause) {
+        console.error(
+          `[manage-service-providers] Semantic search was turned ${enabled ? "on" : "off"}, but finishing that failed:`,
+          cause instanceof Error ? cause.message : String(cause),
+        );
+        fail(
+          enabled
+            ? "Semantic search is on, but queuing pages to embed again failed. Try again to finish."
+            : "Semantic search is off, so nothing new is embedded or searched, but deleting stored embeddings failed. Try again to finish.",
+          { statusCode: 500 },
+        );
+      }
       const [settings, states] = await Promise.all([
         readServiceProviderSettings(orgId),
         inContext(readProviderStates),

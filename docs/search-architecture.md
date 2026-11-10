@@ -63,11 +63,13 @@ namespaced tables; this layer adds its own fixed tables.
 | Lexical  | Server  | Substrings of titles and summaries; words and prefixes in bodies | After a short debounce      |
 | Semantic | Server  | Meaning, via chunk embeddings (Postgres with pgvector)           | Beside the lexical lane     |
 
-One ordering function defines results for every caller. Modes change only the
-latency budget, never the result set or its order. The last query term is
-always a prefix, for people and agents alike. The semantic lane is fused the
-same way for every caller. The UI may show lexical results
-first, but its final state equals what an agent gets for the same inputs.
+One ordering function defines results for every caller. Latency modes change
+only the latency budget, never the result set or its order. The last query
+term is always a prefix, for people and agents alike. The semantic lane is
+fused the same way for every caller; a search that asks for words only (see
+[Hybrid search in Content](#hybrid-search-in-content)) leaves it out, which
+changes its results. The UI may show lexical results first, but its final
+state equals what an agent gets for the same inputs.
 
 ## Registration
 
@@ -483,13 +485,18 @@ OpenAI's `text-embedding-3-small`.
   It takes a change only after it has settled for 60 seconds, so editing a
   page doesn't embed every save, and claims up to 16 at a time with a lease.
   It drains after writes and on the recurring tick, as the lexical index does.
-  An app adds the consumer with `semanticSearchMigration()`, which queues a
-  backfill.
+  Each embedding call times out after 15 seconds, and when a batch fails, the
+  drain retries its pages one at a time only until its deadline, so an outage
+  can't hold claims past their lease. An app adds the consumer with
+  `semanticSearchMigration()`, which queues a backfill.
 - **Chunks.** About 1,200 characters each, cut at sentence ends and led by the
   title and summary, with at most 12 per page. A page scores as its best chunk.
 - **Tables.** `search_embeddings` keeps one row per resource: its audience,
   embedding set, chunk count, a hash of its chunks, and the change it embedded.
-  An unchanged hash skips the embedding call. Vectors live in a
+  An unchanged hash skips the embedding call. Before storing vectors, the row
+  is marked pending with a count covering old and new chunks; it gets the hash
+  only after the vectors are stored and stale chunks removed. A failed store is
+  embedded again, and deleting the page finds every vector. Vectors live in a
   `SearchVectorStore`, by default pgvector's per-dimension tables under the
   `search` namespace. When the database offers `vector` but hasn't installed
   it, the store creates the extension.
@@ -503,9 +510,12 @@ OpenAI's `text-embedding-3-small`.
   admin turns it off, in Settings → Infrastructure or with
   `manage-service-providers` `{ semanticSearch: false }`. Turning it off
   deletes the organization's vectors and stops new ones. The drain checks the
-  setting before embedding, before storing and after storing, so a page in
-  flight when it turns off leaves nothing behind. Turning it on queues every
-  page again. Each change is audited.
+  setting before embedding, before storing and after storing, reading past the
+  request's settings snapshot, so a page in flight when another request turns
+  it off leaves nothing behind. Turning it on queues the organization's pages
+  again, along with any queued page never embedded. If deleting or queuing
+  fails, the setting stays changed and calling again finishes the job; the
+  settings page offers Retry. Each change is audited.
 - **Querying.** `searchSemanticIndex()` embeds the query (cached for 10
   minutes, with a 4-second timeout) and asks the store for the 100 nearest
   chunks in the searcher's audiences. It never throws. It returns `used` with

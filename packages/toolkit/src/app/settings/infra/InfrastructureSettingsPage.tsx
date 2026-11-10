@@ -282,6 +282,11 @@ function InfrastructurePageContent({
   const [environmentOpen, setEnvironmentOpen] =
     useState<EnvironmentDialogId | null>(null);
   const [semanticSearchSaving, setSemanticSearchSaving] = useState(false);
+  // The value a failed change tried to set. The server may have saved it
+  // before failing, so the row offers to finish the change.
+  const [semanticSearchRetry, setSemanticSearchRetry] = useState<
+    boolean | null
+  >(null);
 
   // Owners and admins connect Builder.io for the organization (open question
   // 8.1.1); a deploy-level key also powers every service.
@@ -357,6 +362,7 @@ function InfrastructurePageContent({
         { semanticSearch: enabled } as never,
       );
       queryClient.setQueryData(SERVICES_QUERY_KEY, result);
+      setSemanticSearchRetry(null);
       toast.success(
         t(
           enabled
@@ -366,6 +372,9 @@ function InfrastructurePageContent({
       );
     } catch (cause) {
       if (previous) queryClient.setQueryData(SERVICES_QUERY_KEY, previous);
+      // The server may have saved the setting before failing, so read it.
+      void queryClient.invalidateQueries({ queryKey: SERVICES_QUERY_KEY });
+      setSemanticSearchRetry(enabled);
       toast.error(t(`${K}semanticSearchSaveFailed`), {
         description: errorMessage(cause),
       });
@@ -653,12 +662,21 @@ function InfrastructurePageContent({
         setting.enabled ? `${K}semanticSearchOn` : `${K}semanticSearchOff`,
       ),
       control: (
-        <Switch
-          checked={setting.enabled}
-          disabled={!services.data.canManage || semanticSearchSaving}
-          aria-label={t(`${K}semanticSearch`)}
-          onCheckedChange={(checked) => void setSemanticSearch(checked)}
-        />
+        <span className="flex items-center gap-2">
+          {semanticSearchRetry === setting.enabled &&
+          services.data.canManage &&
+          !semanticSearchSaving ? (
+            <RowButton onClick={() => void setSemanticSearch(setting.enabled)}>
+              {t(`${K}retry`)}
+            </RowButton>
+          ) : null}
+          <Switch
+            checked={setting.enabled}
+            disabled={!services.data.canManage || semanticSearchSaving}
+            aria-label={t(`${K}semanticSearch`)}
+            onCheckedChange={(checked) => void setSemanticSearch(checked)}
+          />
+        </span>
       ),
     };
   };

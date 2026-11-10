@@ -83,6 +83,11 @@ const EMBED_BATCH = 32;
 const QUERY_CHUNK_LIMIT = 100;
 const QUERY_EMBED_TIMEOUT_MS = 4_000;
 /**
+ * A document embedding call that takes longer fails, so a stalled provider
+ * can't hold a claim past its lease.
+ */
+const DOCUMENT_EMBED_TIMEOUT_MS = 15_000;
+/**
  * Query vectors kept per process, so following pages of one search embed it
  * once and fuse the same matches.
  */
@@ -464,6 +469,8 @@ function semanticHash(
 const OFF_HASH = "off";
 /** Recorded for a resource first seen while its owner had no provider. */
 const NO_PROVIDER_HASH = "no-provider";
+/** Recorded before storing vectors, so a failed store is embedded again. */
+const PENDING_HASH = "pending";
 
 /**
  * A named migration that subscribes the meaning lane to the registration's
@@ -571,9 +578,13 @@ async function drain(
     if (!claimed.length) return;
     const fresh = claimed.filter((change) => change.attempts <= 1);
     const retries = claimed.filter((change) => change.attempts > 1);
-    if (fresh.length) await embedGroup(exec, store, registration, feed, fresh);
+    if (fresh.length) {
+      await embedGroup(exec, store, registration, feed, fresh, deadline);
+    }
     for (const change of retries) {
-      await embedGroup(exec, store, registration, feed, [change]);
+      // Changes left claimed are claimed again when their lease expires.
+      if (Date.now() >= deadline) return;
+      await embedGroup(exec, store, registration, feed, [change], deadline);
     }
   }
 }
@@ -588,6 +599,7 @@ async function embedGroup(
   registration: SearchableResourceRegistration,
   feed: ResourceChangeFeed,
   changes: ClaimedResourceChange[],
+  deadline: number,
 ): Promise<void> {
   const label = `${registration.app}/${registration.type}`;
   try {
@@ -601,7 +613,9 @@ async function embedGroup(
         message,
       );
       for (const change of changes) {
-        await embedGroup(exec, store, registration, feed, [change]);
+        // Changes left claimed are claimed again when their lease expires.
+        if (Date.now() >= deadline) return;
+        await embedGroup(exec, store, registration, feed, [change], deadline);
       }
       return;
     }
@@ -728,7 +742,10 @@ async function embedAudienceGroup(
 ): Promise<void> {
   const { orgId } = group.identity;
   // An unreadable setting throws, so nothing is sent until it reads as on.
-  if (orgId && !(await readSemanticSearchSetting(orgId)).enabled) {
+  if (
+    orgId &&
+    !(await readSemanticSearchSetting(orgId, { fresh: true })).enabled
+  ) {
     for (const { change } of group.items) {
       await recordOff(
         exec,
@@ -784,7 +801,10 @@ async function embedAudienceGroup(
   );
   // The organization may have turned the lane off while its text was being
   // embedded; then nothing is stored.
-  if (orgId && !(await readSemanticSearchSetting(orgId)).enabled) {
+  if (
+    orgId &&
+    !(await readSemanticSearchSetting(orgId, { fresh: true })).enabled
+  ) {
     for (const item of pending) {
       await recordOff(
         exec,
@@ -803,17 +823,36 @@ async function embedAudienceGroup(
   for (const item of pending) {
     const own = vectors.slice(offset, offset + item.chunks.length);
     offset += item.chunks.length;
-    const recorded = await recordEmbedding(exec, registration, {
+    const previous = item.stored;
+    // Vectors from a model with other dimensions live in another table.
+    if (
+      previous?.dimensions != null &&
+      previous.dimensions !== family.dimensions
+    ) {
+      await removeVectors(
+        exec,
+        store,
+        registration,
+        item.change.resourceId,
+        previous,
+      );
+    }
+    const kept =
+      previous?.dimensions === family.dimensions ? previous.chunkCount : 0;
+    // Recorded as pending first, counting every chunk that may exist, so if
+    // storing fails the retry embeds the page again, and deleting the page
+    // still finds all of its vectors.
+    const current = await recordEmbedding(exec, registration, {
       resourceId: item.change.resourceId,
       audienceId: group.audienceId,
       setId,
       dimensions: family.dimensions,
-      chunkCount: own.length,
-      hash: item.hash,
+      chunkCount: Math.max(own.length, kept),
+      hash: PENDING_HASH,
       seq: item.change.seq,
     });
     // A later change already recorded newer work for this resource.
-    if (!recorded) {
+    if (!current) {
       done.push(item.change);
       continue;
     }
@@ -829,22 +868,21 @@ async function embedAudienceGroup(
         vector,
       })),
     });
-    const previous = item.stored;
-    if (previous?.dimensions != null && previous.chunkCount > 0) {
-      const from = previous.dimensions === family.dimensions ? own.length : 0;
-      const stale = chunkKeys(
-        registration,
-        item.change.resourceId,
-        from,
-        previous.chunkCount,
-      );
-      if (stale.length) {
-        await store.remove(exec, {
-          dimensions: previous.dimensions,
-          keys: stale,
-        });
-      }
+    if (kept > own.length) {
+      await store.remove(exec, {
+        dimensions: family.dimensions,
+        keys: chunkKeys(registration, item.change.resourceId, own.length, kept),
+      });
     }
+    await recordEmbedding(exec, registration, {
+      resourceId: item.change.resourceId,
+      audienceId: group.audienceId,
+      setId,
+      dimensions: family.dimensions,
+      chunkCount: own.length,
+      hash: item.hash,
+      seq: item.change.seq,
+    });
     written.push({ change: item.change, chunkCount: own.length });
     done.push(item.change);
   }
@@ -854,7 +892,7 @@ async function embedAudienceGroup(
   if (
     orgId &&
     written.length &&
-    !(await readSemanticSearchSetting(orgId)).enabled
+    !(await readSemanticSearchSetting(orgId, { fresh: true })).enabled
   ) {
     for (const { change, chunkCount } of written) {
       await store.remove(exec, {
@@ -889,6 +927,7 @@ async function embedDocumentChunks(
     const embedded = await family.embed(
       batch.map((text) => ({ text })),
       "document",
+      { signal: AbortSignal.timeout(DOCUMENT_EMBED_TIMEOUT_MS) },
     );
     if (embedded.length !== batch.length) {
       throw new Error(
@@ -1098,7 +1137,9 @@ export async function forgetSemanticSearchForOrg(orgId: string): Promise<void> {
 
 /**
  * Queues an organization's resources to be embedded again: after it turns
- * semantic search back on, or changes the provider its embeddings use.
+ * semantic search back on, or changes the provider its embeddings use. Pages
+ * never embedded have no row to say whose they are, so every queued change
+ * without one is retried now too, whichever organization it belongs to.
  */
 export async function requeueSemanticSearchForOrg(
   orgId: string,
@@ -1112,8 +1153,23 @@ export async function requeueSemanticSearchForOrg(
       feedFor(registration),
       {
         sql: `SELECT resource_id FROM search_embeddings
-              WHERE app = ? AND resource_type = ? AND audience_id = ?`,
-        args: [registration.app, registration.type, `org:${orgId}`],
+              WHERE app = ? AND resource_type = ? AND audience_id = ?
+              UNION
+              SELECT c.resource_id FROM app_resource_changes AS c
+              WHERE c.consumer = ? AND c.app = ? AND c.resource_type = ?
+                AND NOT EXISTS (
+                  SELECT 1 FROM search_embeddings AS e
+                  WHERE e.app = c.app AND e.resource_type = c.resource_type
+                    AND e.resource_id = c.resource_id
+                )`,
+        args: [
+          registration.app,
+          registration.type,
+          `org:${orgId}`,
+          SEMANTIC_CHANGE_CONSUMER,
+          registration.app,
+          registration.type,
+        ],
       },
       "semantic-requeue",
     );
