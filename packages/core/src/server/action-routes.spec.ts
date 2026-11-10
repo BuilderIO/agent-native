@@ -668,6 +668,48 @@ describe("mountActionRoutes", () => {
 
       expect(result.error).toContain("a service identity can never give it");
     });
+
+    it.each([
+      [
+        { oauthClientId: "client-1" },
+        "codex-mcp-client/0.167.0",
+        { userAgent: "codex-mcp-client/0.167.0", oauthClientId: "client-1" },
+      ],
+      [{}, "claude-code/2.1.308", { userAgent: "claude-code/2.1.308" }],
+      [{ oauthClientId: "client-1" }, undefined, { oauthClientId: "client-1" }],
+    ])(
+      "hands an MCP bearer %o with User-Agent %s its client facts",
+      async (credential, userAgent, mcpClient) => {
+        const { mountActionRoutes } = await import("./action-routes.js");
+        const mounted: Array<{ path: string; handler: any }> = [];
+        const run = vi.fn(async (_args: unknown, ctx: any) => ({
+          mcpClient: ctx?.mcpClient,
+        }));
+        const owner = "owner@example.com";
+        mountActionRoutes(
+          {
+            use: vi.fn((path: string, handler: any) =>
+              mounted.push({ path, handler }),
+            ),
+          },
+          { "read-thing": { run } as any },
+          { getOwnerFromEvent: async () => owner },
+        );
+        const event: any = {
+          _method: "POST",
+          _headers: {
+            host: "app.example.com",
+            ...(userAgent ? { "user-agent": userAgent } : {}),
+          },
+          context: {
+            __anVerifiedMcpCredential: { userEmail: owner, ...credential },
+          },
+          req: { json: async () => ({}) },
+        };
+
+        expect(await mounted.at(0)?.handler(event)).toEqual({ mcpClient });
+      },
+    );
   });
 
   it.each([

@@ -102,6 +102,48 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpClientSetupDescription:
     "Elige un host para ver instrucciones paso a paso o pega la URL en cualquier cliente compatible con MCP.",
   mcpChooseAssistant: "Elige tu asistente de IA",
+  mcpCopyAndOpen: "Copiar URL y abrir {{host}}",
+  mcpManualSetup: "Configuración manual",
+  mcpTryPrompt: "Pruébalo en {{host}}",
+  mcpHelpConnecting: "¿Necesitas ayuda para conectar?",
+  mcpLocalAddressHint:
+    "Dirección local: {{host}} necesita una URL de servidor HTTPS accesible públicamente.",
+  mcpAuthentication: "Autenticación",
+  mcpTestPrompt:
+    "¿Qué herramientas están disponibles en el conector de {{app}}?",
+  mcpSetupIntro:
+    "Usa Claude, ChatGPT u otra app de IA para leer y actualizar datos en {{app}}.",
+  mcpStageOpen: "Abre {{host}}",
+  mcpStageAdd: "Añade un conector personalizado",
+  mcpStageDetails: "Introduce los datos de conexión",
+  mcpStageAuthorize: "Autoriza y prueba en {{host}}",
+  mcpStageEnable: "Activa y prueba en {{host}}",
+  mcpNameLabel: "Nombre",
+  mcpHostBenefit:
+    "Usa tus herramientas de Agent-Native directamente en {{host}}.",
+  mcpManualBenefit:
+    "Usa tus herramientas de Agent-Native en cualquier app compatible con MCP.",
+  mcpStageOpenSettings: "Abre los ajustes de conectores",
+
+  mcpReadyToTry: "Prueba la conexión",
+  mcpTestUnavailable: "Disponible al conectarse.",
+  mcpCopyTestPrompt: "Copiar mensaje",
+  mcpConnectionDocs: "Guía de configuración",
+  mcpServerUrl: "URL del servidor",
+  mcpCopyUrl: "Copiar URL",
+  mcpStageAddServer: "Añade el servidor MCP",
+  mcpSetupSteps: "Configuración",
+  mcpOpensNewTab: "Se abre en una pestaña nueva",
+  mcpOpensDesktopApp: "Abre la aplicación de escritorio",
+  mcpConnected: "Conectado",
+  mcpNotConnected: "No conectado",
+  mcpConnectionUnavailable: "Estado no disponible",
+  mcpStatusCheckFailed: "No se pudieron comprobar las conexiones MCP.",
+  mcpLastUsedLabel: "Último uso",
+  mcpLastUsed: "Último uso: {{time}}",
+  mcpNoActivity: "Sin actividad registrada",
+  mcpLegacyStatusUnknown:
+    "Las credenciales antiguas no incluyen información suficiente para verificar su estado actual.",
   mcpCommand: "Comando",
   mcpConfig: "Configuración MCP",
   mcpCopy: "Copiar",

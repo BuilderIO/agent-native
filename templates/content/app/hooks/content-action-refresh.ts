@@ -137,6 +137,26 @@ const DOCUMENT_DISCOVERY_MUTATIONS = new Set([
   "sync-github-folder",
 ]);
 
+// A path entry's `hasChildren` reads the same rows and view as the Files tree,
+// and any document write can add, move, or trash the pages a path counts.
+const NAVIGATION_CONTEXT_MUTATIONS = new Set([
+  ...DOCUMENT_MUTATIONS,
+  ...DATABASE_RESULT_MUTATIONS,
+  ...DATABASE_PRESENTATION_MUTATIONS,
+  ...DATABASE_LIFECYCLE_MUTATIONS,
+  ...DOCUMENT_DISCOVERY_MUTATIONS,
+  // These add or trash a page under a parent, and no list above names them.
+  "clone-creative-context-document",
+  "create-content-database",
+  "create-inline-content-database",
+  "duplicate-page",
+  "rollback-created-slash-document",
+  // `hasChildren` counts only the pages the caller can see.
+  "set-resource-visibility",
+  "share-resource",
+  "unshare-resource",
+]);
+
 /**
  * Writes from another tab or an agent that change which pages search can find,
  * or where they sit. They reload the title list even while the menu is open.
@@ -209,7 +229,7 @@ const CONTENT_MUTATIONS = new Set([
   ...DOCUMENT_MUTATIONS,
 ]);
 
-const SUGGESTION_MUTATIONS = new Set([
+export const SUGGESTION_MUTATIONS = new Set([
   "create-resource-suggestion",
   "create-resource-suggestion-proposal",
   "suggest-document-edit",
@@ -407,6 +427,14 @@ function queryReadsFilesNavigation(query: ActionQuery): boolean {
   return !!args && typeof args === "object" && "navigation" in args;
 }
 
+function queryIsActiveNavigationContext(query: ActionQuery): boolean {
+  return (
+    query.queryKey[0] === "action" &&
+    query.queryKey[1] === "get-content-navigation-context" &&
+    query.isActive?.() === true
+  );
+}
+
 function queryTargetsActiveNavigationOrRecent(query: ActionQuery): boolean {
   if (query.queryKey[0] !== "action" || query.isActive?.() !== true)
     return false;
@@ -433,11 +461,14 @@ function isDocumentListQuery(query: ActionQuery): boolean {
   );
 }
 
+// The Files tree and its breadcrumb menus carry no role: they read Files pages
+// by navigation, which only the Files collection answers.
 function isActiveFilesDatabaseQuery(query: ActionQuery): boolean {
   return (
     isDatabaseQuery(query) &&
     query.isActive?.() === true &&
-    query.meta?.contentDatabaseSystemRole === "files"
+    (query.meta?.contentDatabaseSystemRole === "files" ||
+      queryReadsFilesNavigation(query))
   );
 }
 
@@ -571,6 +602,12 @@ export function contentActionInvalidatePredicate(
     if (
       queryTargetsActiveDatabasePresentation(query) &&
       eventsIncludeMutation(events, DATABASE_PRESENTATION_MUTATIONS)
+    ) {
+      return true;
+    }
+    if (
+      queryIsActiveNavigationContext(query) &&
+      eventsIncludeMutation(events, NAVIGATION_CONTEXT_MUTATIONS)
     ) {
       return true;
     }

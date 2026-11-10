@@ -227,6 +227,28 @@ export function contentNavigationContextFilter(
 }
 
 /**
+ * Navigation contexts with a page in `databaseId`: a path entry's `hasChildren`
+ * follows that collection's view and rows. A read with no data yet could be in
+ * any collection, and may already have read the old view.
+ */
+export function contentNavigationContextInDatabaseFilter(
+  databaseId: string,
+): QueryFilters {
+  return {
+    queryKey: ["action", "get-content-navigation-context"],
+    predicate: (query) => {
+      const data = query.state.data as
+        | { path?: Array<{ databaseId?: string | null }> }
+        | undefined;
+      return (
+        !data ||
+        data.path?.some((entry) => entry.databaseId === databaseId) === true
+      );
+    },
+  };
+}
+
+/**
  * Reads of a space's Files collection as a collection: the local-files tree,
  * the Files page and its table views. Their Parent column follows every page's
  * placement, which the sidebar's paged branches do not cover.
@@ -257,21 +279,51 @@ export function contentSpaceFilesDatabaseId(
   return undefined;
 }
 
+/** The parents that cached branches and breadcrumb paths name for `documentIds`. */
+function cachedParents(
+  queryClient: Pick<QueryClient, "getQueryCache">,
+  documentIds: readonly string[],
+  branches: readonly NavigationBranch[],
+): string[] {
+  const ids = new Set(documentIds);
+  const parents = new Set<string>(
+    branches.flatMap((branch) =>
+      typeof branch.parentId === "string" ? [branch.parentId] : [],
+    ),
+  );
+  for (const query of queryClient
+    .getQueryCache()
+    .findAll({ queryKey: ["action", "get-content-navigation-context"] })) {
+    const data = query.state.data as
+      | { path?: Array<{ id?: string; parentId?: string | null }> }
+      | undefined;
+    for (const entry of data?.path ?? []) {
+      if (entry.id && ids.has(entry.id) && entry.parentId) {
+        parents.add(entry.parentId);
+      }
+    }
+  }
+  return [...parents];
+}
+
 /**
  * Targets for a write that changes pages where they stand (a rename, or a copy
  * placed beside them): every loaded page of the branches that list them, since
- * a sorted branch can move a row to another page, and any path through them.
+ * a sorted branch can move a row to another page, and any path through them or
+ * their parents, since a new title can change whether a page passes a name
+ * filter (a path entry carries `hasChildren`).
  */
 export function contentRowTargets(
   queryClient: Pick<QueryClient, "getQueryCache">,
   documentIds: readonly string[],
 ): ContentQueryTarget[] {
+  const branches = branchesListing(queryClient, documentIds);
   return [
-    contentNavigationBranchFilter({
-      documentIds,
-      branches: branchesListing(queryClient, documentIds),
-    }),
-    contentNavigationContextFilter(documentIds),
+    contentNavigationBranchFilter({ documentIds, branches }),
+    contentNavigationContextFilter([
+      ...documentIds,
+      ...cachedParents(queryClient, documentIds, branches),
+    ]),
   ];
 }
 
@@ -279,8 +331,9 @@ export function contentRowTargets(
  * Targets for a write that adds, removes, or reparents pages: every loaded
  * page of the branches that list them now, the children of each destination
  * parent, the rows of the old and new parents (their expand control follows
- * `hasChildren`), and any breadcrumb path through the pages. Call it before the
- * write's own cache updates take the pages out of their current branches.
+ * `hasChildren`), and any breadcrumb path through the pages or those parents
+ * (a path entry carries `hasChildren` too). Call it before the write's own
+ * cache updates take the pages out of their current branches.
  */
 export function contentPlacementTargets(
   queryClient: Pick<QueryClient, "getQueryCache">,
@@ -298,19 +351,17 @@ export function contentPlacementTargets(
   const currentDatabaseId = current.find(
     (branch) => typeof branch.databaseId === "string",
   )?.databaseId as string | undefined;
+  const parents = [
+    ...cachedParents(queryClient, documentIds, current),
+    ...parentIds.filter((id): id is string => id !== null),
+  ];
   return [
     contentNavigationBranchFilter({
-      documentIds: [
-        ...documentIds,
-        ...current.flatMap((branch) =>
-          typeof branch.parentId === "string" ? [branch.parentId] : [],
-        ),
-        ...parentIds.filter((id): id is string => id !== null),
-      ],
+      documentIds: [...documentIds, ...parents],
       parentIds,
       databaseId: databaseId ?? currentDatabaseId,
       branches: current,
     }),
-    contentNavigationContextFilter(documentIds),
+    contentNavigationContextFilter([...documentIds, ...parents]),
   ];
 }

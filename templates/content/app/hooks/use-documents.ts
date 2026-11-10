@@ -1,6 +1,7 @@
 import { isOpenAiMcpAppHost } from "@agent-native/core/client/agent-chat";
 import {
   callAction,
+  callActionWithRetry,
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
@@ -115,9 +116,12 @@ import {
   contentDatabaseNavigationQueryFilter,
   invalidateContentDatabaseNavigationQueries,
   removeOptimisticItemFromContentDatabase,
+  removeTrashedPagesFromCachedCollections,
   useRestoreContentDatabase,
 } from "./use-content-database";
 import { CONTENT_LINK_TARGETS_QUERY_KEY } from "./use-content-links";
+import { removeTrashedFromCachedRecent } from "./use-content-recent";
+import { DELETE_DOCUMENT_MUTATION_KEY } from "./use-pending-trash";
 
 export {
   documentQueryFilter,
@@ -658,8 +662,9 @@ const NAVIGATION_CONTEXT_QUERY_KEY = [
 /**
  * An optimistic page opens before the server has it, so its path read fails
  * and the sidebar would stop revealing the page's ancestors. Seed the path from
- * the parent's cached one and show the parent as expandable; the create's
- * refresh replaces both, and `removeCreatedDocumentNavigation` undoes them.
+ * the parent's cached one and show the parent as expandable, in its branch rows
+ * and in every cached path through it; the create's refresh replaces them, and
+ * `removeCreatedDocumentNavigation` undoes them.
  * The sidebar reveals a path only through its space's Files membership, so
  * the new entry claims that membership too.
  */
@@ -674,6 +679,20 @@ export function seedCreatedDocumentNavigation(
   const parentId = document.parentId ?? null;
   let parentPath: ContentNavigationPathEntry[] = [];
   if (parentId) {
+    queryClient.setQueriesData<ContentNavigationContext>(
+      { queryKey: NAVIGATION_CONTEXT_QUERY_KEY },
+      (current) =>
+        current?.path.some(
+          (entry) => entry.id === parentId && entry.hasChildren !== true,
+        )
+          ? {
+              ...current,
+              path: current.path.map((entry) =>
+                entry.id === parentId ? { ...entry, hasChildren: true } : entry,
+              ),
+            }
+          : current,
+    );
     for (const [
       ,
       context,
@@ -739,6 +758,7 @@ export function removeCreatedDocumentNavigation(
   if (document.parentId) {
     invalidateContentQueries(queryClient, [
       contentNavigationBranchFilter({ documentIds: [document.parentId] }),
+      contentNavigationContextFilter([document.parentId]),
     ]);
   }
 }
@@ -856,8 +876,10 @@ export function startDatabaseItemPreviewReads(
     () =>
       void queryClient.prefetchQuery({
         queryKey: documentPropertiesQueryKey(item.document.id, item.databaseId),
+        // The row's panel joins this read rather than starting its own, so
+        // this read has to retry the way the panel's would.
         queryFn: ({ signal }) =>
-          callAction<DocumentPropertiesResponse>(
+          callActionWithRetry<DocumentPropertiesResponse>(
             "list-document-properties",
             { documentId: item.document.id, databaseId: item.databaseId },
             { method: "GET", signal },
@@ -1977,6 +1999,20 @@ export function useDeleteDocument() {
     },
     { id: string; databaseDocumentId?: string; activeDocumentId?: string }
   >("delete-document", {
+    mutationKey: DELETE_DOCUMENT_MUTATION_KEY,
+    onSuccess: (data, variables) => {
+      // Taking a page out of Favorites deletes nothing; the page stays.
+      if (data.deleted > 0) {
+        removeTrashedFromCachedRecent(queryClient, {
+          documentIds: [variables.id],
+        });
+      }
+    },
+    onSettled: (data, _error, variables) => {
+      if (data && data.deleted > 0) {
+        removeTrashedPagesFromCachedCollections(queryClient, [variables.id]);
+      }
+    },
     invalidates: (_data, variables) => [
       ...contentPlacementTargets(queryClient, { documentIds: [variables.id] }),
       contentDatabaseItemsContainingDocumentFilter(variables.id),

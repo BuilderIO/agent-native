@@ -1,6 +1,13 @@
 import { z } from "zod";
 
 export const agentConfig = z.object({
+  promptSkills: z
+    .object({
+      includeSupportingFiles: z.boolean().default(true).meta({
+        doc: "Include supporting files, such as references and scripts, when presenting skills to the agent.",
+      }),
+    })
+    .prefault({}),
   engine: z
     .string()
     .min(1)

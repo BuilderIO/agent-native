@@ -2596,6 +2596,9 @@ export default {
     changesDiscarded:
       "Algumas alterações não puderam ser salvas porque o arquivo não existe mais e foram descartadas.",
     offline: "Off-line",
+    unsaved: "Não salvo",
+    saveRetrying:
+      "Não foi possível salvar suas alterações. Tentando novamente automaticamente.",
     saving: "Salvando...",
     clearedAllAnnotations: "Todas as anotações foram limpas",
     annotationsDiscardedOnViewChange:

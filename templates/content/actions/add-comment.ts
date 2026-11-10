@@ -11,6 +11,7 @@ import {
   getRequestUserEmail,
   getRequestUserName,
 } from "@agent-native/core/server";
+import { resolveMcpClientHostId } from "@agent-native/core/shared/mcp-connect-content";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -163,6 +164,7 @@ const RETRY_VARIABLE_KEYS = new Set([
   "submissionThreadId",
   "authorModel",
   "authorEffort",
+  "authorClient",
   "propertyName",
   "propertyValue",
   "fieldName",
@@ -509,6 +511,10 @@ export async function addCommentWithGuard(
     actorKind,
     authorModel,
     authorEffort,
+    authorClient:
+      actorKind === "agent" && submissionSource === "mcp"
+        ? (resolveMcpClientHostId(ctx?.mcpClient) ?? null)
+        : null,
   };
 
   let webhookEvents = 0;

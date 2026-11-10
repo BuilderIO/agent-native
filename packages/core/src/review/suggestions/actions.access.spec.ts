@@ -326,6 +326,34 @@ describe("suggestion action access", () => {
     expect(reviewStore.insertReviewCommentWithClient).not.toHaveBeenCalled();
   });
 
+  it("records that an MCP suggestion came over MCP and which client sent it", async () => {
+    const agentSuggestion = { ...suggestion, actorKind: "agent" as const };
+    vi.mocked(suggestionStore.insertSuggestion).mockResolvedValueOnce(
+      agentSuggestion,
+    );
+    vi.mocked(suggestionStore.recordSuggestionCreation).mockResolvedValueOnce({
+      ...creationReceipt,
+      suggestion: agentSuggestion,
+      actorKind: "agent",
+    });
+    validateProposal.mockResolvedValueOnce(createArgs.operations);
+
+    await createResourceSuggestion.run(createArgs, {
+      userEmail: suggestion.authorEmail,
+      caller: "mcp",
+      mcpClient: { userAgent: "codex-mcp-client/0.167.0" },
+    });
+
+    expect(suggestionStore.insertSuggestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorKind: "agent",
+        authorSource: "mcp",
+        authorClient: "codex",
+      }),
+      transaction,
+    );
+  });
+
   it.each([
     ["accepted", "another commenter", "other-commenter@example.com"],
     ["rejected", "another commenter", "other-commenter@example.com"],

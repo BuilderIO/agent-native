@@ -15,6 +15,7 @@ import {
 } from "h3";
 
 import { readBody } from "../server/h3-helpers.js";
+import { isLoopbackHost } from "../server/origin-allowlist.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import type { ResolvedAliasedSecret } from "../server/secret-key-aliases.js";
 
@@ -25,7 +26,7 @@ async function canMutateWorkspaceScope(
   if (scopeId.startsWith("solo:")) return true;
   const { getOrgContext } = await import("../org/context.js");
   const ctx = await getOrgContext(event).catch(() => null);
-  if (!ctx?.orgId) return true;
+  if (!ctx?.orgId || ctx.orgId !== scopeId) return false;
   return ctx.role === "owner" || ctx.role === "admin";
 }
 
@@ -65,6 +66,7 @@ import {
 } from "./register.js";
 import {
   writeAppSecret,
+  updateAppSecretUrlAllowlist,
   deleteAppSecret,
   last4,
   listAppSecretsForScope,
@@ -72,6 +74,10 @@ import {
   VAULT_SYNC_DESCRIPTION_PREFIX,
   type SecretMeta,
 } from "./storage.js";
+import {
+  registeredUrlAllowlist,
+  validateUrlAllowlist,
+} from "./substitution.js";
 import { describeSecretUsage } from "./usage.js";
 
 export type SecretSource = "personal" | "workspace" | "vault";
@@ -396,12 +402,26 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
   }
   const body = (await readBody(event).catch(() => ({}))) as {
     value?: unknown;
+    urlAllowlist?: unknown;
   };
 
   const value = typeof body.value === "string" ? body.value.trim() : "";
   if (!value) {
     setResponseStatus(event, 400);
     return { error: "value is required" };
+  }
+
+  let urlAllowlist: string | undefined;
+  if (body.urlAllowlist !== undefined) {
+    const normalized = normalizeUrlAllowlist(
+      body.urlAllowlist,
+      registeredUrlAllowlist(secret.key),
+    );
+    if (normalized.ok === false) {
+      setResponseStatus(event, 400);
+      return { error: normalized.error };
+    }
+    urlAllowlist = JSON.stringify(normalized.origins);
   }
 
   const { scopeId, reason } = await resolveScopeId(event, secret.scope);
@@ -488,6 +508,7 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
       value,
       scope: secret.scope,
       scopeId,
+      ...(urlAllowlist === undefined ? {} : { urlAllowlist }),
     });
   } catch (err) {
     setResponseStatus(event, 500);
@@ -714,6 +735,9 @@ export function createAdHocSecretHandler() {
     if (method === "POST" && !name) {
       return handleAdHocWrite(event);
     }
+    if (method === "PATCH" && name) {
+      return handleAdHocPolicyUpdate(event, name);
+    }
     if (method === "DELETE" && name) {
       return handleAdHocDelete(event, name);
     }
@@ -845,6 +869,72 @@ async function handleAdHocWrite(event: H3Event) {
   return { ok: true, key: name };
 }
 
+async function handleAdHocPolicyUpdate(event: H3Event, name: string) {
+  if (getRequiredSecret(name) || resolveSecretManagedBy(name)) {
+    setResponseStatus(event, 403);
+    return { error: "This key is managed by another settings surface" };
+  }
+  const rawBody: unknown = await readBody(event);
+  if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+    setResponseStatus(event, 400);
+    return { error: "A policy update body is required" };
+  }
+  const body = rawBody as {
+    scope?: unknown;
+    owner?: unknown;
+    urlAllowlist?: unknown;
+  };
+  if (
+    body.scope !== "user" &&
+    body.scope !== "org" &&
+    body.scope !== "workspace"
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "A saved key scope is required" };
+  }
+  if (
+    (body.owner !== "user" && body.owner !== "org") ||
+    (body.owner === "user" && body.scope === "org") ||
+    (body.owner === "org" && body.scope === "user")
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "A saved key owner is required" };
+  }
+  const normalized = normalizeUrlAllowlist(body.urlAllowlist);
+  if (normalized.ok === false) {
+    setResponseStatus(event, 400);
+    return { error: normalized.error };
+  }
+  const scope = body.scope;
+  const resolved = await resolveScopeId(
+    event,
+    scope === "workspace" && body.owner === "user" ? "user" : scope,
+  );
+  const scopeId =
+    resolved.scopeId && scope === "workspace" && body.owner === "user"
+      ? `solo:${resolved.scopeId}`
+      : resolved.scopeId;
+  if (!scopeId) {
+    setResponseStatus(event, 401);
+    return { error: resolved.reason ?? "Unable to resolve scope" };
+  }
+  if (body.owner === "org" && !(await canMutateOrgScope(event, scopeId))) {
+    setResponseStatus(event, 403);
+    return {
+      error: "Only organization owners and admins can edit shared keys",
+    };
+  }
+  const updated = await updateAppSecretUrlAllowlist(
+    { key: name, scope, scopeId },
+    normalized.origins,
+  );
+  if (!updated) {
+    setResponseStatus(event, 404);
+    return { error: "Saved key not found" };
+  }
+  return { ok: true, key: name, urlAllowlist: normalized.origins };
+}
+
 async function handleAdHocDelete(event: H3Event, name: string) {
   if (getRequiredSecret(name)) {
     setResponseStatus(event, 400);
@@ -926,6 +1016,7 @@ function extractAdHocName(event: H3Event): string | null {
 
 function normalizeUrlAllowlist(
   input: unknown,
+  maximum: readonly string[] | null = null,
 ): { ok: true; origins: string[] } | { ok: false; error: string } {
   if (!Array.isArray(input) || !input.every((v) => typeof v === "string")) {
     return { ok: false, error: "urlAllowlist must be an array of strings" };
@@ -944,13 +1035,31 @@ function normalizeUrlAllowlist(
         error: `urlAllowlist entry "${value}" is not a valid URL`,
       };
     }
-    if (url.protocol !== "https:" && url.protocol !== "http:") {
+    if (
+      url.protocol !== "https:" &&
+      !(url.protocol === "http:" && isLoopbackHost(url.host))
+    ) {
       return {
         ok: false,
-        error: `urlAllowlist entry "${value}" must use http or https`,
+        error: `urlAllowlist entry "${value}" must use https (or local loopback http)`,
+      };
+    }
+    if (url.username || url.password) {
+      return {
+        ok: false,
+        error: "urlAllowlist entries cannot contain credentials",
       };
     }
     if (!origins.includes(url.origin)) origins.push(url.origin);
+  }
+  if (
+    maximum &&
+    origins.some((origin) => !validateUrlAllowlist(origin, maximum))
+  ) {
+    return {
+      ok: false,
+      error: "urlAllowlist exceeds the registered provider policy",
+    };
   }
   return { ok: true, origins };
 }
