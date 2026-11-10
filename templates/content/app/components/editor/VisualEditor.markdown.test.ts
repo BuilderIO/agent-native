@@ -4109,6 +4109,52 @@ describe("image upload previews", () => {
     });
   });
 
+  it("keeps a Retry going when undo follows it", async () => {
+    await withMountedEditor(async (editor) => {
+      const attempts: Array<ReturnType<typeof deferred<string>>> = [];
+      const upload = vi.fn(() => {
+        const attempt = deferred<string>();
+        attempts.push(attempt);
+        return attempt.promise;
+      });
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(editor.view, [file], 0, upload);
+      });
+      await act(async () => {
+        attempts[0]?.reject(new Error("Network down"));
+        await done;
+      });
+      // A later edit of the user's, which undo takes back on its own.
+      await act(async () => {
+        const { state } = editor.view;
+        expect(state.doc.lastChild?.type.name).toBe("paragraph");
+        editor.view.dispatch(
+          closeHistory(state.tr.insertText("Note", state.doc.content.size - 1)),
+        );
+      });
+      const retry = editor.view.dom.querySelector<HTMLButtonElement>(
+        ".media-block__upload-failure button",
+      );
+      await act(async () => retry?.click());
+      expect(upload).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        expect(editor.commands.undo()).toBe(true);
+      });
+      expect(editor.getText()).not.toContain("Note");
+      expect(images(editor)[0]?.attrs?.uploadId).toMatch(/^image-upload-/);
+
+      await act(async () => attempts[1]?.resolve(uploadedSrc));
+      await vi.waitFor(() =>
+        expect(images(editor)[0]?.attrs).toMatchObject({
+          src: uploadedSrc,
+          uploadId: null,
+        }),
+      );
+    });
+  });
+
   // A later delete, which undo takes back on its own.
   function deleteFirstBlockAsUser(editor: Editor) {
     const { state } = editor.view;

@@ -2516,7 +2516,11 @@ function replacePendingMediaUploadId(
   nextUploadId: string,
 ) {
   let found = false;
-  let tr = view.state.tr.setMeta(IMAGE_UPLOAD_STEP_META, true);
+  // Undo leaves the id swap alone: taking it back would read as the user
+  // deleting the upload it starts.
+  let tr = view.state.tr
+    .setMeta(IMAGE_UPLOAD_STEP_META, true)
+    .setMeta("addToHistory", false);
 
   view.state.doc.descendants((node, pos) => {
     if (found) return false;
