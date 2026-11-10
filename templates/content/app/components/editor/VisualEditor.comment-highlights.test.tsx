@@ -16,7 +16,10 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT: () => (key: string) => key,
 }));
 
-import { derivedVideoBlockId } from "@shared/comment-block-anchor";
+import {
+  derivedCommentAnchorBlockId,
+  derivedVideoBlockId,
+} from "@shared/comment-block-anchor";
 
 import { commentHighlightKey } from "./extensions/CommentHighlight";
 import { VisualEditor } from "./VisualEditor";
@@ -636,6 +639,149 @@ After.`,
       );
       await settle();
       expect(highlighted("old")).toBe("Video");
+    });
+  });
+
+  describe("threads on an image or audio clip", () => {
+    const PNG = "https://example.com/demo.png";
+    const MP3 = "https://example.com/demo.mp3";
+    const IMAGE_ID = derivedCommentAnchorBlockId("image", PNG, 0);
+    const editorOf = () =>
+      (
+        container.querySelector(".ProseMirror") as HTMLElement & {
+          editor: Editor;
+        }
+      ).editor;
+    const savedIds = () => {
+      const ids: unknown[] = [];
+      editorOf().state.doc.descendants((node) => {
+        if (node.type.name === "image" || node.type.name === "audio")
+          ids.push(node.attrs.blockId);
+      });
+      return ids;
+    };
+
+    it("starts a thread on the whole image by the id its file gives it, writing nothing", async () => {
+      const onBlockComment = vi.fn();
+      const onChange = vi.fn();
+      await act(async () =>
+        render(
+          `Intro.
+![A painting](${PNG})
+After.`,
+          [],
+          "seed",
+          true,
+          {
+            onBlockComment,
+            onChange,
+          },
+        ),
+      );
+      await settle();
+      onChange.mockClear();
+      const button = container.querySelector<HTMLButtonElement>(
+        '[aria-label="editor.media.commentOnImage"]',
+      );
+      await act(async () => found(button).click());
+      await settle();
+
+      expect(onBlockComment).toHaveBeenCalledWith(
+        expect.objectContaining({ blockId: IMAGE_ID, blockType: "image" }),
+        expect.any(Number),
+      );
+      expect(savedIds()).toEqual([undefined]);
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("starts a thread on a second copy of a file by that copy's id", async () => {
+      const onBlockComment = vi.fn();
+      await act(async () =>
+        render(
+          `![](${PNG})
+Between.
+![](${PNG})`,
+          [],
+          "seed",
+          true,
+          {
+            onBlockComment,
+          },
+        ),
+      );
+      await settle();
+      const buttons = container.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="editor.media.commentOnImage"]',
+      );
+      await act(async () => found(buttons[1]).click());
+
+      expect(onBlockComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          blockId: derivedCommentAnchorBlockId("image", PNG, 1),
+          blockType: "image",
+        }),
+        expect.any(Number),
+      );
+    });
+
+    it("starts a thread on the whole audio clip", async () => {
+      const onBlockComment = vi.fn();
+      await act(async () =>
+        render(
+          `Intro.
+<audio src="${MP3}"></audio>`,
+          [],
+          "seed",
+          true,
+          {
+            onBlockComment,
+          },
+        ),
+      );
+      await settle();
+      const button = container.querySelector<HTMLButtonElement>(
+        '[aria-label="editor.media.commentOnAudio"]',
+      );
+      await act(async () => found(button).click());
+
+      expect(onBlockComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          blockId: derivedCommentAnchorBlockId("audio", MP3, 0),
+          blockType: "audio",
+        }),
+        expect.any(Number),
+      );
+      expect(savedIds()).toEqual([undefined]);
+    });
+
+    it("marks the image a thread is on", async () => {
+      await act(async () =>
+        render(
+          `Intro.
+![A painting](${PNG})`,
+          [
+            {
+              ...thread("i1", ""),
+              quotedText: null,
+              block: { blockId: IMAGE_ID, blockType: "image" },
+            },
+          ],
+        ),
+      );
+      await settle();
+      const element = container.querySelector<HTMLElement>(
+        '[data-comment-block-threads~="i1"]',
+      );
+      expect(element?.querySelector("img")).not.toBeNull();
+      expect(element?.className).toContain("comment-highlight--block");
+    });
+
+    it("shows no Comment button on an image where threads can't start on blocks", async () => {
+      await act(async () => render(`![A painting](${PNG})`, []));
+      await settle();
+      expect(
+        container.querySelector('[aria-label="editor.media.commentOnImage"]'),
+      ).toBeNull();
     });
   });
 });

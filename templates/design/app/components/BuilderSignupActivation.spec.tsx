@@ -10,12 +10,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
-  pending: false,
+  status: vi.fn<() => Promise<"eligible" | "disabled">>(),
   activate: vi.fn<() => Promise<"connected" | "fallback" | "disabled">>(),
 }));
 
 vi.mock("@agent-native/core/client/auth/builder-signup", () => ({
-  hasPendingBuilderSignupAssignment: () => mocks.pending,
+  startBuilderSignupActivation: mocks.status,
   activateBuilderSignupAssignment: mocks.activate,
 }));
 
@@ -68,8 +68,9 @@ async function clickCounter() {
 
 describe("BuilderSignupActivation", () => {
   beforeEach(() => {
-    mocks.pending = false;
+    mocks.status.mockResolvedValue("disabled");
     mocks.activate.mockReset();
+    queryClient.clear();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -90,7 +91,7 @@ describe("BuilderSignupActivation", () => {
   });
 
   it("covers children during a pending activation without remounting them", async () => {
-    mocks.pending = true;
+    mocks.status.mockResolvedValue("eligible");
     let finish: (value: "connected") => void = () => {};
     mocks.activate.mockReturnValue(
       new Promise((resolve) => {
@@ -102,6 +103,7 @@ describe("BuilderSignupActivation", () => {
     await render(undefined);
     await clickCounter();
     await render("user-2");
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledOnce());
 
     expect(container.querySelector("[role='status']")).not.toBeNull();
     expect(container.querySelector("button")?.textContent).toBe("count 1");
@@ -109,7 +111,27 @@ describe("BuilderSignupActivation", () => {
       container.querySelector("button")?.closest("[inert]"),
     ).not.toBeNull();
 
-    mocks.pending = false;
+    mocks.status.mockResolvedValue("disabled");
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        queryKey: [
+          "builder-signup-eligibility",
+          "design_builder_signup_v1",
+          "user-2",
+        ],
+      });
+    });
+    await vi.waitFor(() =>
+      expect(
+        queryClient.getQueryData([
+          "builder-signup-eligibility",
+          "design_builder_signup_v1",
+          "user-2",
+        ]),
+      ).toBe("disabled"),
+    );
+    await render("user-2");
+    expect(container.querySelector("[role='status']")).not.toBeNull();
     await act(async () => finish("connected"));
 
     expect(container.querySelector("[role='status']")).toBeNull();
@@ -120,7 +142,7 @@ describe("BuilderSignupActivation", () => {
   });
 
   it("refreshes queries when activation ends after its effect is disposed", async () => {
-    mocks.pending = true;
+    mocks.status.mockResolvedValue("eligible");
     let fail: (error: Error) => void = () => {};
     mocks.activate.mockReturnValue(
       new Promise((_resolve, reject) => {
@@ -130,8 +152,9 @@ describe("BuilderSignupActivation", () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
 
     await render("user-3");
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledOnce());
     await render(undefined);
-    mocks.pending = false;
+    mocks.status.mockResolvedValue("disabled");
     await act(async () => fail(new Error("activation failed")));
 
     expect(invalidate).toHaveBeenCalled();

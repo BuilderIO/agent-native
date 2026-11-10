@@ -2,9 +2,11 @@ import { fail } from "@agent-native/core/action";
 import { parseHTML } from "linkedom/worker";
 
 import {
+  matchSlideElementsAcross,
+  revealsAfterRootEdit,
+} from "../../app/lib/reveal-after-edit.js";
+import {
   animationElementKey,
-  findLegacyAnimationContainer,
-  getElementPath,
   getElementPreview,
   resolveRevealSteps,
   type AnimationTarget,
@@ -16,10 +18,15 @@ interface SlideAnimation extends AnimationTarget {
   id?: string;
 }
 
-/** The stored content and reveal list that a save replaces. */
+/**
+ * The stored content and reveal list that a save replaces. `steps` holds the
+ * content after each edit of a multi-edit save, so every edit is paired on its
+ * own instead of being diffed as one combined change.
+ */
 export interface SlideAnimationBaseline {
   content: string;
   animations: readonly SlideAnimation[];
+  steps?: readonly string[];
 }
 
 /**
@@ -103,88 +110,22 @@ function unresolvedIdentities(baseline: SlideAnimationBaseline): Set<string> {
   );
 }
 
-// Node.TEXT_NODE; the global Node is not defined where this validator runs.
-
-/** Each element's tag and class in document order. Text is not part of it. */
-function structureOf(root: Element): string {
-  return [root, ...Array.from(root.querySelectorAll("*"))]
-    .map(tagAndClass)
-    .join("|");
-}
-
-// Only top-level additions keep every baseline reveal path: a deeper or earlier
-// sibling shifts element indexes even when tags match, so tag/class alone cannot tell.
-function appendsOnlyAtSlideEnd(baselineRoot: Element, root: Element): boolean {
-  const before = Array.from(baselineRoot.children, (child) => child.outerHTML);
-  const after = Array.from(root.children, (child) => child.outerHTML);
-  return (
-    after.length >= before.length &&
-    before.every((html, index) => html === after[index])
-  );
-}
-
-function tagAndClass(element: Element): string {
-  return JSON.stringify([
-    element.tagName.toLowerCase(),
-    element.getAttribute("class") ?? "",
-  ]);
-}
-
-/**
- * Whether the target's text change is an edit of the target itself. Duplicate text,
- * before or after, makes the target ambiguous: another sibling's edit can remove one
- * occurrence just as an edit to the target does, so the save is refused. With unique
- * text, an edit leaves the old text nowhere among the elements of its tag and class,
- * while a move leaves it on another sibling.
- */
-function targetTextAccountedFor(
-  prior: Element,
-  baselineRoot: Element,
-  current: Element,
-  root: Element,
-): boolean {
-  const before = prior.textContent ?? "";
-  const after = current.textContent ?? "";
-  if (before === after) return true;
-  const key = tagAndClass(prior);
-  const occurrences = (scope: Element, text: string) =>
-    [scope, ...Array.from(scope.querySelectorAll("*"))].filter(
-      (element) =>
-        tagAndClass(element) === key && (element.textContent ?? "") === text,
-    ).length;
-  if (occurrences(baselineRoot, before) > 1 || occurrences(root, after) > 1) {
-    return false;
-  }
-  return occurrences(root, before) === 0;
-}
-
-// A reveal without an elementPath resolves through the slide's last multi-child
-// container, so an appended container retargets it even though no path shifts.
-function legacyContainerMoved(baselineRoot: Element, root: Element): boolean {
-  const pathOf = (slide: Element) => {
-    const container = findLegacyAnimationContainer(slide);
-    return container ? getElementPath(slide, container) : null;
-  };
-  return JSON.stringify(pathOf(baselineRoot)) !== JSON.stringify(pathOf(root));
-}
-
 /**
  * The index of the first kept reveal that may now target a different element, or -1.
- * A kept reveal has the same id, index, and path as a baseline reveal. When the
- * slide only gains top-level elements at its end (see appendsOnlyAtSlideEnd), a kept
- * path resolves to the same element, and a text change must be an edit of the target
- * itself (see targetTextAccountedFor). Any other structure change makes identity a
- * guess, so every kept reveal on the slide is refused. A baseline reveal that did not
- * resolve has no target to keep, so once it resolves under the same path, the content
- * moved in. A baseline with no slide root has no targets at all, so every such reveal
- * counts as unresolved.
+ * A kept reveal has the same id, index, and path as a baseline reveal; it stays
+ * valid while it resolves to the element its baseline target became (see
+ * matchSlideElements). A baseline reveal that did not resolve has no target to
+ * keep, so once it resolves under the same path, the content moved in. A baseline
+ * with no slide root has no targets at all, so every such reveal counts as
+ * unresolved.
  */
 function retargetedRevealIndex(
   baseline: SlideAnimationBaseline,
+  baselineRoot: Element | null,
+  matched: ReadonlyMap<Element, Element>,
   root: Element,
   animations: readonly SlideAnimation[],
 ): number {
-  const baselineRoot = slideRootOf(baseline.content);
   if (!baselineRoot) {
     const baselineIds = new Set(baseline.animations.map(revealIdentity));
     return resolveRevealSteps(root, animations).findIndex(
@@ -192,11 +133,6 @@ function retargetedRevealIndex(
         outcome.ok && baselineIds.has(revealIdentity(animations[index]!)),
     );
   }
-  const structureChanged =
-    (structureOf(baselineRoot) !== structureOf(root) &&
-      !appendsOnlyAtSlideEnd(baselineRoot, root)) ||
-    (animations.some((animation) => !Array.isArray(animation.elementPath)) &&
-      legacyContainerMoved(baselineRoot, root));
   // null marks a baseline reveal that did not resolve.
   const priorTargets = new Map<string, Element | null>();
   resolveRevealSteps(baselineRoot, baseline.animations).forEach(
@@ -211,9 +147,24 @@ function retargetedRevealIndex(
     if (!outcome.ok) return false;
     const prior = priorTargets.get(revealIdentity(animations[index]!));
     if (prior === undefined) return false;
-    if (prior === null || structureChanged) return true;
-    return !targetTextAccountedFor(prior, baselineRoot, outcome.element, root);
+    return prior === null || matched.get(prior) !== outcome.element;
   });
+}
+
+// A step without a slide root pairs nothing, so no reveal survives it.
+function matchAcrossSteps(
+  baselineRoot: Element,
+  steps: readonly string[],
+  root: Element,
+): Map<Element, Element> {
+  const roots = [baselineRoot];
+  for (const step of steps) {
+    const stepRoot = slideRootOf(step);
+    if (!stepRoot) return new Map();
+    roots.push(stepRoot);
+  }
+  roots.push(root);
+  return matchSlideElementsAcross(roots);
 }
 
 export function summarizeSlideAnimationTargets(
@@ -259,26 +210,63 @@ export function summarizeSlideAnimationTargets(
   );
 }
 
+/** A kept reveal a content-only save moved to the path its target now has. */
+export interface RepointedReveal {
+  slideId: string;
+  animationIndex: number;
+  animationId: string | null;
+  fromPath: number[] | null;
+  toPath: number[];
+}
+
 /**
- * Refuses a save whose reveal list introduces a reveal that does not resolve.
- * A reveal the baseline already had unresolved (same id, same target) may stay
- * or leave the list, so a partial repair saves; only a new unresolved reveal,
- * or one a content change strands or retargets, is refused.
+ * Returns the reveal list to save, refusing one that introduces a reveal that
+ * does not resolve. A reveal the baseline already had unresolved (same id, same
+ * target) may stay or leave the list, so a partial repair saves; only a new
+ * unresolved reveal, or one a content change strands or retargets, is refused.
+ * With `followContent` (the caller sent content but no reveal list), each kept
+ * reveal first moves to the path of the element its target became, and every
+ * such move is listed in `repointed` so the caller can report it.
  */
-export function assertSlideAnimationsResolve({
+export function assertSlideAnimationsResolve<T extends SlideAnimation>({
   slideId,
   content,
-  animations,
+  animations: requested,
   requireElementPaths = false,
   baseline,
+  followContent = false,
 }: {
   slideId: string;
   content: string;
-  animations: readonly SlideAnimation[];
+  animations: readonly T[];
   requireElementPaths?: boolean;
   baseline?: SlideAnimationBaseline;
-}): void {
-  if (animations.length === 0) return;
+  followContent?: boolean;
+}): { animations: T[]; repointed: RepointedReveal[] } {
+  const root = slideRootOf(content);
+  const baselineRoot = baseline && root ? slideRootOf(baseline.content) : null;
+  const matched =
+    baselineRoot && root
+      ? matchAcrossSteps(baselineRoot, baseline?.steps ?? [], root)
+      : new Map<Element, Element>();
+  const animations =
+    followContent && baselineRoot && root
+      ? revealsAfterRootEdit(baselineRoot, root, requested, matched)
+      : [...requested];
+  const repointed: RepointedReveal[] = [];
+  animations.forEach((animation, animationIndex) => {
+    const before = requested.at(animationIndex);
+    if (animation === before || !animation.elementPath) return;
+    repointed.push({
+      slideId,
+      animationIndex,
+      animationId: animation.id ?? null,
+      fromPath: before?.elementPath ?? null,
+      toPath: animation.elementPath,
+    });
+  });
+  const result = { animations, repointed };
+  if (animations.length === 0) return result;
 
   const repeatedIndex = firstRepeatedIdIndex(animations);
   if (repeatedIndex !== -1) {
@@ -312,7 +300,6 @@ export function assertSlideAnimationsResolve({
     }
   }
 
-  const root = slideRootOf(content);
   const alreadyUnresolved = baseline
     ? unresolvedIdentities(baseline)
     : new Set<string>();
@@ -322,8 +309,16 @@ export function assertSlideAnimationsResolve({
   );
   if (!failure) {
     const retargeted =
-      baseline && root ? retargetedRevealIndex(baseline, root, animations) : -1;
-    if (retargeted === -1) return;
+      baseline && root
+        ? retargetedRevealIndex(
+            baseline,
+            baselineRoot,
+            matched,
+            root,
+            animations,
+          )
+        : -1;
+    if (retargeted === -1) return result;
     const moved = animations[retargeted]!;
     refuse(
       "retargeted",

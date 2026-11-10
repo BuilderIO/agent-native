@@ -6186,6 +6186,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onRemoveContextItem"
     | "onInspectContextItem"
     | "onRetryContextItem"
+    | "onPasteContext"
     | "contextMenuItems"
     | "attachmentAdapter"
     | "inlineTextAttachments"
@@ -6301,6 +6302,7 @@ export function AgentKitComposer({
   stopButton,
   onInspectContextItem,
   onRetryContextItem,
+  onPasteContext,
   contextMenuItems,
   attachmentAdapter,
   // AgentKit always uploads attached files and the server reads their text,
@@ -7117,6 +7119,7 @@ export function AgentKitComposer({
             onRemoveContextItem,
             onInspectContextItem,
             onRetryContextItem,
+            onPasteContext,
             contextMenuItems,
             inlineTextAttachments,
             disabled,

@@ -22,6 +22,8 @@ Se requiere Node.js `22.22+`.
 También necesitas una cuenta de Vercel. Ejecuta los comandos de esta guía en tu propio
 equipo. La Vercel CLI sube la compilación terminada a Vercel por ti.
 
+Los turnos del agente están sujetos al límite de duración de Vercel Functions, incluido el streaming. Configura Function Max Duration y revisa los ajustes efectivos y los [límites de Vercel](https://vercel.com/docs/functions/configuring-functions/duration). Un límite mayor no garantiza que termine.
+
 ## Paso 1: Crea la aplicación {#step-1-create-the-app}
 
 Crea tu nueva aplicación independiente. El siguiente ejemplo crea una aplicación a partir de la plantilla Chat,

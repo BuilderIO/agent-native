@@ -256,15 +256,149 @@ describe("stripInlineBytes", () => {
 
   it("scrubs data URLs embedded in any other string", () => {
     const stored = stripInlineBytes(
-      { text: `before ${PIXELS} after`, metadata: "metadata: kept" },
+      {
+        text: `before ${PIXELS} after`,
+        metadata: "metadata: kept",
+        encodedParameter: "data:text/plain;name=report%3Aone;base64,QQ==",
+        colonParameter: "data:image/png;name=a:b;base64,QQ==",
+        schemeParameter: "data:image/png;name=data:note;base64,QQ==",
+        invalidPrefix: `data:invalid:${PIXELS} after`,
+      },
       "reject",
     );
 
     expect(stored).toEqual({
       text: "before [inline image/png data omitted] after",
       metadata: "metadata: kept",
+      encodedParameter: "[inline text/plain data omitted]",
+      colonParameter: "[inline image/png data omitted]",
+      schemeParameter: "[inline image/png data omitted]",
+      invalidPrefix: "data:invalid:[inline image/png data omitted] after",
     });
   });
+
+  it.each(["data:;", "data:;name="])(
+    "preserves repeated malformed %s prefixes without stalling",
+    (prefix) => {
+      const text = prefix.repeat(32_000);
+      const started = performance.now();
+      const stored = stripInlineBytes({ text }, "reject");
+      const elapsed = performance.now() - started;
+
+      expect(stored).toEqual({ text });
+      expect(elapsed).toBeLessThan(1_000);
+    },
+    30_000,
+  );
+
+  it.each([
+    "![chart](data:image/png;broken),following prose",
+    "[file](data:text/plain;name=broken),following prose",
+    "[data:text/plain;broken],following prose",
+  ])("preserves text after a closing Markdown header delimiter: %s", (text) => {
+    expect(stripInlineBytes({ text }, "reject")).toEqual({ text });
+  });
+
+  it("keeps raw, balanced and escaped closing characters in parameter values", () => {
+    expect(
+      stripInlineBytes(
+        {
+          raw: "data:image/png;name=a)b;base64,QQ==",
+          balanced: "![chart](data:image/png;name=(a);base64,QQ==),after",
+          escaped: "![chart](data:image/png;name=a\\)b;base64,QQ==),after",
+        },
+        "reject",
+      ),
+    ).toEqual({
+      raw: "[inline image/png data omitted]",
+      balanced: "![chart]([inline image/png data omitted]),after",
+      escaped: "![chart]([inline image/png data omitted]),after",
+    });
+  });
+
+  it.each([
+    "![x](data:text/plain,sample(one)tail)",
+    "![x](data:text/plain,sample[one]tail)",
+    "![x](data:text/plain,sample\\)tail)",
+  ])("scrubs the complete balanced or escaped payload: %s", (text) => {
+    expect(stripInlineBytes({ text }, "reject")).toEqual({
+      text: "![x]([inline text/plain data omitted])",
+    });
+  });
+
+  it.each([
+    ["data:text/plain,sample)tail", "[inline text/plain data omitted]"],
+    ["data:text/plain,sample]tail", "[inline text/plain data omitted]"],
+    [
+      "![x](data:text/plain,sample]tail) after",
+      "![x]([inline text/plain data omitted]) after",
+    ],
+    [
+      "[data:text/plain,sample)tail] after",
+      "[[inline text/plain data omitted]] after",
+    ],
+  ])(
+    "keeps payload closers distinct from the enclosing wrapper: %s",
+    (text, expected) => {
+      expect(stripInlineBytes({ text }, "reject")).toEqual({ text: expected });
+    },
+  );
+
+  it.each(["![chart]", "[chart]"])(
+    "scrubs an adjacent %s destination after a bare outer URL",
+    (label) => {
+      const text = `See https://example.com/${label}(${PIXELS}) end`;
+      expect(stripInlineBytes({ text }, "reject")).toEqual({
+        text: `See https://example.com/${label}([inline image/png data omitted]) end`,
+      });
+    },
+  );
+
+  it.each([
+    "https://a.com/?q=data:,foo&x=1",
+    "[site](https://a.com/?q=data:,foo&x=1)",
+    "ftp://a.test/?q=data:,foo&x=1",
+    "mailto:test@example.test?body=data:,foo&subject=kept",
+    "agentnative://page?q=data:,foo&x=1",
+    "https://a.test/?q=![chart](data:,foo)&x=1",
+    "https://a.test/#q=![chart](data:,foo)",
+    "https://[::1]/?q=data:,foo&x=1",
+  ])("preserves data URL text inside an outer URL: %s", (text) => {
+    expect(stripInlineBytes({ text }, "reject")).toEqual({ text });
+  });
+
+  it("keeps an outer URL while scrubbing a separate inline destination", () => {
+    const link = "[site](https://a.com/?q=data:,foo&x=1)";
+    expect(
+      stripInlineBytes({ text: link + " ![chart](" + PIXELS + ")" }, "reject"),
+    ).toEqual({
+      text: link + " ![chart]([inline image/png data omitted])",
+    });
+  });
+
+  it.each([
+    "[site](https://a.test/?q=data:,foo&x=1) ".repeat(10_000),
+    "data:, " + "a-".repeat(64_000),
+  ])(
+    "preserves outer URLs and non-URL text without repeated scans (%#)",
+    (text) => {
+      const started = performance.now();
+      expect(stripInlineBytes({ text }, "reject")).toEqual({ text });
+      expect(performance.now() - started).toBeLessThan(1_000);
+    },
+    30_000,
+  );
+
+  it.each(["(data:;broken)", "[data:;broken]"])(
+    "preserves repeated wrapped %s headers without rescanning the remaining text",
+    (prefix) => {
+      const text = prefix.repeat(32_000) + ",following";
+      const started = performance.now();
+      expect(stripInlineBytes({ text }, "reject")).toEqual({ text });
+      expect(performance.now() - started).toBeLessThan(1_000);
+    },
+    30_000,
+  );
 
   it("scrubs data URLs whatever the case of the scheme", () => {
     const upper = PIXELS.replace(/^data:/, "DATA:");
