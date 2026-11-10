@@ -10,7 +10,7 @@ import type { PlatformAdapter } from "./types.js";
 export type ChannelWebhookRegistration =
   | { ok: true; webhookUrl: string; result?: unknown }
   | { ok: true; message: string }
-  | { ok: false; statusCode: number; error: string };
+  | { ok: false; statusCode: number; error: string; upstreamStatus?: number };
 
 export interface MountedChannels {
   readonly adapters: readonly PlatformAdapter[];

@@ -941,6 +941,18 @@ describe("channel settings", () => {
       statusCode: 422,
       message: "Telegram setWebhook failed: Unauthorized",
     });
+
+    mounted.registerWebhook.mockResolvedValueOnce({
+      ok: false,
+      statusCode: 424,
+      error: "Telegram setWebhook failed: HTTP 502",
+    });
+    await expect(
+      registerMessagingChannelWebhook(OWNER, "telegram"),
+    ).rejects.toMatchObject({
+      statusCode: 424,
+      message: "Telegram setWebhook failed: HTTP 502",
+    });
   });
 
   it("fails loudly for a channel the app doesn't mount", async () => {

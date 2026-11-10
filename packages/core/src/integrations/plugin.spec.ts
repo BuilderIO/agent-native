@@ -969,7 +969,7 @@ describe("integrations plugin routes", () => {
     });
   });
 
-  it("surfaces non-JSON Telegram setWebhook failures as provider errors with 422", async () => {
+  it("surfaces upstream Telegram setWebhook 5xx outages as dependency failures with 424", async () => {
     getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
     resolveSecretMock.mockImplementation((key: string) =>
       key === "TELEGRAM_BOT_TOKEN"
@@ -999,9 +999,42 @@ describe("integrations plugin routes", () => {
       "POST",
     );
 
-    expect(result.status).toBe(422);
+    expect(result.status).toBe(424);
     expect(result.body).toEqual({
       error: "Telegram setWebhook failed: HTTP 502",
+      upstreamStatus: 502,
+    });
+  });
+
+  it("surfaces network failures reaching Telegram as dependency errors with 424", async () => {
+    getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
+    resolveSecretMock.mockImplementation((key: string) =>
+      key === "TELEGRAM_BOT_TOKEN"
+        ? "telegram-bot-token-example"
+        : key === "TELEGRAM_WEBHOOK_SECRET"
+          ? "telegram-webhook-secret-example"
+          : null,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("fetch failed: connect ECONNREFUSED");
+      }),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "telegram", label: "Telegram" }],
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/telegram/setup",
+      "POST",
+    );
+
+    expect(result.status).toBe(424);
+    expect(result.body).toEqual({
+      error: "fetch failed: connect ECONNREFUSED",
     });
   });
 

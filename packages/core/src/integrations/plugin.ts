@@ -1017,16 +1017,18 @@ export function createIntegrationsPlugin(
             console.error(
               `[telegram] setWebhook failed (${res.status}): ${data?.description ?? body}`,
             );
+            const isUpstreamOutage = res.status >= 500;
             return {
               ok: false,
-              statusCode: 422,
+              statusCode: isUpstreamOutage ? 424 : 422,
               error: `Telegram setWebhook failed: ${data?.description ?? `HTTP ${res.status}`}`,
+              ...(isUpstreamOutage ? { upstreamStatus: res.status } : {}),
             };
           }
           return { ok: true, webhookUrl, result: data };
         } catch (err: any) {
           console.error(`[telegram] setWebhook request error: ${err.message}`);
-          return { ok: false, statusCode: 500, error: err.message };
+          return { ok: false, statusCode: 424, error: err.message };
         }
       },
     };
@@ -3627,7 +3629,12 @@ export function createIntegrationsPlugin(
           );
           if (registration.ok === false) {
             setResponseStatus(event, registration.statusCode);
-            return { error: registration.error };
+            return {
+              error: registration.error,
+              ...(registration.upstreamStatus
+                ? { upstreamStatus: registration.upstreamStatus }
+                : {}),
+            };
           }
           return { platform, ...registration };
         }
