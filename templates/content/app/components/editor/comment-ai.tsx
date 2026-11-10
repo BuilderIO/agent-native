@@ -317,9 +317,9 @@ function isKeyboardFocus(element: Element) {
 }
 
 /**
- * Counts down while neither the pointer nor keyboard focus is on `ref`'s
- * element: after `holdMs` it starts `fading`, and `fadeMs` later calls
- * `onGone`. A pointer or focus that comes back at any point stops the count
+ * Counts down while neither the pointer, keyboard focus nor an open menu is
+ * on `ref`'s element: after `holdMs` it starts `fading`, and `fadeMs` later
+ * calls `onGone`. A pointer or focus that comes back at any point stops the count
  * and brings the element back; leaving again starts it over. Spread
  * `handlers` on the element. React counts a menu it opens in a portal as
  * part of it.
@@ -398,8 +398,29 @@ export function useLeftAloneCountdown({
     release();
     return () => observer.disconnect();
   }, [enabled, hovered, ref]);
+  // A menu opened by mouse stays open once the pointer leaves it, and the
+  // focus it takes isn't keyboard focus, so a trigger inside the element
+  // whose menu is open holds the count too.
+  const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => {
-    if (!enabled || hovered || focused?.isConnected) return;
+    const element = ref.current;
+    if (!enabled || !element) return;
+    const update = () =>
+      setMenuOpen(
+        element.querySelector('[aria-haspopup][aria-expanded="true"]') !== null,
+      );
+    const observer = new MutationObserver(update);
+    observer.observe(element, {
+      attributes: true,
+      attributeFilter: ["aria-expanded"],
+      childList: true,
+      subtree: true,
+    });
+    update();
+    return () => observer.disconnect();
+  }, [enabled, ref]);
+  useEffect(() => {
+    if (!enabled || hovered || menuOpen || focused?.isConnected) return;
     let fadeTimer: ReturnType<typeof setTimeout> | undefined;
     const holdTimer = setTimeout(() => {
       if (fadeMs <= 0) {
@@ -413,9 +434,9 @@ export function useLeftAloneCountdown({
       clearTimeout(holdTimer);
       clearTimeout(fadeTimer);
     };
-  }, [enabled, hovered, focused, holdMs, fadeMs]);
+  }, [enabled, hovered, menuOpen, focused, holdMs, fadeMs]);
   return {
-    fading: enabled && fading && !hovered && focused === null,
+    fading: enabled && fading && !hovered && !menuOpen && focused === null,
     handlers: {
       onPointerOver: (event: PointerEvent<HTMLElement>) => {
         if (event.target instanceof Element)

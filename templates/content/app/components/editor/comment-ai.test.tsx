@@ -1384,11 +1384,13 @@ describe("useLeftAloneCountdown", () => {
     onGone,
     showReply = true,
     showMenu = true,
+    menuOpen = false,
   }: {
     enabled: boolean;
     onGone: () => void;
     showReply?: boolean;
     showMenu?: boolean;
+    menuOpen?: boolean;
   }) {
     const ref = useRef<HTMLDivElement>(null);
     const { handlers } = useLeftAloneCountdown({
@@ -1400,6 +1402,9 @@ describe("useLeftAloneCountdown", () => {
     return (
       <div ref={ref} {...handlers}>
         {showReply ? <button data-reply="">Reply</button> : null}
+        <button aria-haspopup="menu" aria-expanded={menuOpen}>
+          More
+        </button>
         {showMenu
           ? createPortal(<button data-menu-item="">Edit</button>, document.body)
           : null}
@@ -1472,6 +1477,26 @@ describe("useLeftAloneCountdown", () => {
     await act(async () =>
       root.render(
         createElement(Card, { enabled: true, onGone, showMenu: false }),
+      ),
+    );
+    wait(HOLD_MS);
+    expect(onGone).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds while a menu it opened stays open after the pointer leaves", async () => {
+    const onGone = vi.fn();
+    act(() => root.render(createElement(Card, { enabled: true, onGone })));
+    await act(async () =>
+      root.render(
+        createElement(Card, { enabled: true, onGone, menuOpen: true }),
+      ),
+    );
+    wait(HOLD_MS * 3);
+    expect(onGone).not.toHaveBeenCalled();
+
+    await act(async () =>
+      root.render(
+        createElement(Card, { enabled: true, onGone, menuOpen: false }),
       ),
     );
     wait(HOLD_MS);
