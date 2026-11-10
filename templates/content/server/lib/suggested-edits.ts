@@ -509,17 +509,19 @@ async function openInEditor(tx: DbExec, documentId: string): Promise<boolean> {
 
 /**
  * Accepting an AI suggestion leaves the comment that asked for it open, so its
- * quote follows the rewritten text instead of losing its highlight.
- * `followedOnto` is the body a live-copy commit already moved the anchors of
- * intact quotes onto; such an anchor no longer describes `before`.
+ * quote follows the rewritten text instead of losing its highlight. `fieldId`
+ * is the tab the text is in, or null for the body. `followedOnto` is the body
+ * a live-copy commit already moved the anchors of intact quotes onto; such an
+ * anchor no longer describes `before`.
  */
-async function reanchorSourceComment(
+export async function reanchorSourceComment(
   tx: DbExec,
   documentId: string,
   suggestion: ResourceSuggestion,
   before: string,
   after: string,
   now: string,
+  fieldId: string | null,
   followedOnto?: string,
 ) {
   const threadId = suggestion.metadata?.sourceThreadId;
@@ -531,8 +533,9 @@ async function reanchorSourceComment(
     return;
   const root = (
     await tx.execute({
-      sql: "SELECT id,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset FROM document_comments WHERE document_id = ? AND thread_id = ? AND parent_id IS NULL AND field_id IS NULL ORDER BY created_at ASC LIMIT 1",
-      args: [documentId, threadId],
+      // The page body's comments have no field.
+      sql: "SELECT id,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset FROM document_comments WHERE document_id = ? AND thread_id = ? AND parent_id IS NULL AND COALESCE(field_id, '') = ? ORDER BY created_at ASC LIMIT 1",
+      args: [documentId, threadId, fieldId ?? ""],
     })
   ).rows[0];
   if (!root || root.quoted_text == null) return;
@@ -686,6 +689,7 @@ async function applyOnLiveCopy(
     before,
     placed,
     commit.updatedAt,
+    null,
     commit.after,
   );
   const revision = documentRevisionToken(commit.bodyRevision, commit.after);
@@ -994,6 +998,93 @@ async function commitAcceptedContent(input: {
   };
 }
 
+/**
+ * An Ask AI suggestion is bound to the request that made it: the request's
+ * own thread, unchanged since the AI read it, and the text that thread is on,
+ * the body or one tab. The UI reviews the suggestion in that thread, and
+ * accepting it re-anchors the thread's root comment.
+ */
+export async function assertCommentAiSuggestionBinding(
+  transaction: DbExec,
+  input: Pick<
+    Parameters<SuggestionAdapter["validateProposal"]>[0],
+    "resourceId" | "metadata" | "ctx"
+  >,
+  fieldId: string,
+) {
+  const commentAiRequestId = input.metadata?.commentAiRequestId;
+  const request =
+    typeof commentAiRequestId === "string"
+      ? (
+          await transaction.execute({
+            sql: `SELECT id,document_id,thread_id,field_id,requester_email,thread_digest
+                  FROM comment_ai_requests
+                  WHERE id = ? AND document_id = ? AND requester_email = ? AND intent = 'suggest'
+                  FOR UPDATE`,
+            args: [
+              commentAiRequestId,
+              input.resourceId,
+              typeof input.ctx?.userEmail === "string"
+                ? input.ctx.userEmail
+                : "",
+            ],
+          })
+        ).rows[0]
+      : undefined;
+  if (!request) throw new Error("The bound comment AI request is unavailable");
+  if (input.metadata?.sourceThreadId !== String(request.thread_id)) {
+    fail("The source thread does not match the comment AI request", {
+      statusCode: 409,
+      errorCode: "comment_ai_thread_conflict",
+    });
+  }
+  if (String(request.field_id) !== fieldId) {
+    fail("The suggestion edits text its comment AI request isn't on", {
+      statusCode: 409,
+      errorCode: "comment_ai_thread_conflict",
+    });
+  }
+  const comments = (
+    await transaction.execute({
+      sql: `SELECT id,parent_id,content,resolved,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset
+            FROM document_comments
+            WHERE document_id = ? AND thread_id = ?
+            FOR UPDATE`,
+      args: [request.document_id, request.thread_id],
+    })
+  ).rows.map((comment) => ({
+    id: String(comment.id),
+    parentId: comment.parent_id == null ? null : String(comment.parent_id),
+    content: String(comment.content),
+    resolved: Number(comment.resolved),
+    quotedText:
+      comment.quoted_text == null ? null : String(comment.quoted_text),
+    anchorPrefix:
+      comment.anchor_prefix == null ? null : String(comment.anchor_prefix),
+    anchorSuffix:
+      comment.anchor_suffix == null ? null : String(comment.anchor_suffix),
+    anchorStartOffset:
+      comment.anchor_start_offset == null
+        ? null
+        : Number(comment.anchor_start_offset),
+  }));
+  const receiptId = commentIdForIdempotency(
+    String(request.requester_email),
+    String(request.document_id),
+    `comment-ai:${commentAiRequestId}:receipt`,
+  );
+  if (
+    commentThreadDigest(
+      comments.filter((comment) => comment.id !== receiptId),
+    ) !== request.thread_digest
+  ) {
+    fail("The comment changed before this suggestion was committed.", {
+      statusCode: 409,
+      errorCode: "suggestion_conflict",
+    });
+  }
+}
+
 export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
   kind: CONTENT_DOCUMENT_SUGGESTION_ADAPTER,
   version: 1,
@@ -1021,78 +1112,8 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
             sourcePath: row.source_path,
           }
         : undefined;
-      const commentAiRequestId = input.metadata?.commentAiRequestId;
-      if (typeof commentAiRequestId === "string") {
-        const request = (
-          await transaction.execute({
-            sql: `SELECT id,document_id,thread_id,requester_email,thread_digest
-                  FROM comment_ai_requests
-                  WHERE id = ? AND document_id = ? AND requester_email = ? AND intent = 'suggest'
-                  FOR UPDATE`,
-            args: [
-              commentAiRequestId,
-              input.resourceId,
-              typeof input.ctx?.userEmail === "string"
-                ? input.ctx.userEmail
-                : "",
-            ],
-          })
-        ).rows[0];
-        if (!request)
-          throw new Error("The bound comment AI request is unavailable");
-        // The UI reviews the suggestion in this thread and accepting re-anchors
-        // its root comment, so the claimed thread must be the request's own.
-        if (input.metadata?.sourceThreadId !== String(request.thread_id)) {
-          fail("The source thread does not match the comment AI request", {
-            statusCode: 409,
-            errorCode: "comment_ai_thread_conflict",
-          });
-        }
-        const comments = (
-          await transaction.execute({
-            sql: `SELECT id,parent_id,content,resolved,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset
-                  FROM document_comments
-                  WHERE document_id = ? AND thread_id = ?
-                  FOR UPDATE`,
-            args: [request.document_id, request.thread_id],
-          })
-        ).rows.map((comment) => ({
-          id: String(comment.id),
-          parentId:
-            comment.parent_id == null ? null : String(comment.parent_id),
-          content: String(comment.content),
-          resolved: Number(comment.resolved),
-          quotedText:
-            comment.quoted_text == null ? null : String(comment.quoted_text),
-          anchorPrefix:
-            comment.anchor_prefix == null
-              ? null
-              : String(comment.anchor_prefix),
-          anchorSuffix:
-            comment.anchor_suffix == null
-              ? null
-              : String(comment.anchor_suffix),
-          anchorStartOffset:
-            comment.anchor_start_offset == null
-              ? null
-              : Number(comment.anchor_start_offset),
-        }));
-        const receiptId = commentIdForIdempotency(
-          String(request.requester_email),
-          String(request.document_id),
-          `comment-ai:${commentAiRequestId}:receipt`,
-        );
-        if (
-          commentThreadDigest(
-            comments.filter((comment) => comment.id !== receiptId),
-          ) !== request.thread_digest
-        ) {
-          fail("The comment changed before this suggestion was committed.", {
-            statusCode: 409,
-            errorCode: "suggestion_conflict",
-          });
-        }
-      }
+      if (input.metadata?.commentAiRequestId !== undefined)
+        await assertCommentAiSuggestionBinding(transaction, input, "body");
     }
     if (!document) throw new Error("Document access context is unavailable");
     if (document.trashedAt)
@@ -1294,6 +1315,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         currentContent,
         nextContent,
         now,
+        null,
       );
       const intermediateContents = placed?.intermediateContents ?? [];
       // Blocks IDs are matched edit by edit, as when each edit was saved.
@@ -1336,6 +1358,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
           currentContent,
           nextContent,
           now,
+          null,
         );
         await coordination.ydoc.persist(tx, collabContent);
         await coordination.sync.persist(tx);

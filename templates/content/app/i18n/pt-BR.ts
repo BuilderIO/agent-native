@@ -799,6 +799,8 @@ const editor = {
     altTextGenerationFailed:
       "Não foi possível iniciar a geração de texto alternativo.",
     assets: "Ativos",
+    assetsCopyFailed:
+      "Não foi possível copiar esta imagem dos ativos. Tente novamente ou envie o arquivo.",
     assetsImagePicker: "Seletor de imagens de ativos",
     assetsMissingImageUrl: "Os ativos não retornaram um URL de imagem.",
     audio: "Áudio",

@@ -30,6 +30,7 @@ import {
   appendMissingFinalResponseWarning,
   clearAssistantDraftContent,
   findApprovalToolCallIndex,
+  hasFailedOrUnknownToolResult,
   type ContentPart,
   type SSEEvent,
 } from "../sse-event-processor.js";
@@ -4983,6 +4984,8 @@ function mapAgentNativeEvent(
     }
     const warning =
       userStoppedRun ||
+      (ev.reason === "action_settled" &&
+        !hasFailedOrUnknownToolResult(input.message.content)) ||
       input.message.approvalPending ||
       input.message.connectionPending
         ? null

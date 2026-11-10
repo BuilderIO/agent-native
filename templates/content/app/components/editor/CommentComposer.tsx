@@ -107,6 +107,11 @@ interface CommentComposerProps {
   aiDraft?: CommentAiDraft | null;
   onAiDraftChange?: (draft: CommentAiDraft | null) => void;
   aiModelStorageKey?: string;
+  /**
+   * The AI can reply or suggest changes but not apply them, as in a Blocks
+   * field tab, whose changes are always suggested.
+   */
+  aiSuggestOnly?: boolean;
   /** Cancels the draft. Open menus close first. */
   onEscape?: () => void;
   /**
@@ -148,6 +153,14 @@ function providerMedia(selection: CommentAiSelection) {
     selection.engine,
     selection.provider,
   );
+}
+
+/**
+ * A draft can carry its mode over from text the AI could apply changes to;
+ * where it can only suggest, that mode lets the AI choose instead.
+ */
+function sendableAiMode(mode: CommentAiMode, suggestOnly = false) {
+  return suggestOnly && mode === "apply-resolve" ? "auto" : mode;
 }
 
 function aiReference(draft: CommentAiDraft) {
@@ -293,6 +306,7 @@ export const CommentComposer = forwardRef<
     aiDraft = null,
     onAiDraftChange,
     aiModelStorageKey,
+    aiSuggestOnly,
     onEscape,
     confirmEscape = false,
     onBlur,
@@ -598,7 +612,7 @@ export const CommentComposer = forwardRef<
     if (!aiDraft || !onAiSubmit || !canSend || !models.selectionReady) return;
     onAiSubmit({
       ...aiDraft.selection,
-      intent: aiDraft.mode,
+      intent: sendableAiMode(aiDraft.mode, aiSuggestOnly),
       effort: models.selectedEffort,
     });
   };
@@ -652,8 +666,9 @@ export const CommentComposer = forwardRef<
 
   const sendControl = aiDraft ? (
     <CommentAiSendControl
-      mode={aiDraft.mode}
+      mode={sendableAiMode(aiDraft.mode, aiSuggestOnly)}
       disabled={!canSend || !models.selectionReady}
+      suggestOnly={aiSuggestOnly}
       onModeChange={(mode) => onAiDraftChange?.({ ...aiDraft, mode })}
       onSubmit={submitAi}
     />
