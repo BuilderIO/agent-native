@@ -63,7 +63,7 @@ import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { openFilePicker, uploadFile, uploadFiles } from "@/lib/upload";
 import {
-  toastImageUploadFailure,
+  toastStorageSetupFailure,
   toastUploadFailure,
 } from "@/lib/upload-toast";
 import { cn } from "@/lib/utils";
@@ -784,6 +784,12 @@ export function ComposeModal({
     onUpdate(activeId, partial);
   };
 
+  const storageSetupLabels = {
+    openStorageSettings: t("mail.toasts.openStorageSettings"),
+    reconnectBuilder: t("mail.toasts.reconnectBuilderStorage"),
+    useOwnStorage: t("mail.toasts.useOwnStorage"),
+  };
+
   const handleAttachFiles = async (files: File[]) => {
     if (!activeId || !activeDraft || files.length === 0) return;
     try {
@@ -794,7 +800,7 @@ export function ComposeModal({
       toastUploadFailure(
         error,
         t("mail.toasts.failedToAttachFile"),
-        t("mail.draftQueue.openSettings"),
+        storageSetupLabels,
       );
     }
   };
@@ -804,11 +810,11 @@ export function ComposeModal({
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      toastImageUploadFailure(
-        err,
-        t("mail.toasts.failedToUploadImage"),
-        t("mail.draftQueue.openSettings"),
-      );
+      if (!toastStorageSetupFailure(err, storageSetupLabels)) {
+        reportWriteFailure(err, {
+          label: t("mail.toasts.failedToUploadImage"),
+        });
+      }
       throw err;
     }
   };

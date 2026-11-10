@@ -44,11 +44,31 @@ export interface StoredMediaUpload {
   provider?: string;
 }
 
-export const BUILDER_RECONNECT_MESSAGE =
-  "Builder.io rejected Mail's file storage connection, so this file wasn't attached. Open Settings > Model, choose Use Builder.io, then attach the file again.";
+// Each message names every way to fix it, so a workspace that would rather keep
+// files in its own bucket learns that it can.
+export const BUILDER_REFUSED_MESSAGE =
+  "Builder.io refused Mail's file storage connection, so this file wasn't attached. Reconnect Builder.io in Settings > Model, or use your own storage bucket in Settings > Infrastructure > File uploads and storage, then attach the file again.";
+
+export const STORAGE_REFUSED_MESSAGE =
+  "Your file storage bucket refused this upload, so the file wasn't attached. Check the bucket and its keys in Settings > Infrastructure > File uploads and storage, then attach the file again.";
+
+export const STORAGE_NOT_CONFIGURED_MESSAGE =
+  "File storage isn't set up, so this file wasn't attached. Connect Builder.io or your own S3-compatible bucket in Settings > Infrastructure > File uploads and storage, then attach the file again.";
+
+export type MediaStorageSetupReason =
+  | "builder-refused"
+  | "storage-refused"
+  | "not-configured";
 
 export class MediaStorageSetupError extends Error {
   readonly storageSetupRequired = true;
+
+  constructor(
+    readonly reason: MediaStorageSetupReason,
+    message: string,
+  ) {
+    super(message);
+  }
 }
 
 /**
@@ -69,6 +89,19 @@ function isBuilderReconnectFailure(error: unknown): boolean {
     ((details.status === 401 || details.status === 403) &&
       message.startsWith("Builder.io")) ||
     /sign in to builder\.io again/i.test(message)
+  );
+}
+
+/**
+ * The workspace's own S3-compatible bucket refused the write: wrong keys, a
+ * policy that denies it, or a bucket that doesn't exist. Retrying can't help
+ * until someone fixes the bucket's settings.
+ */
+function isOwnStorageRefusal(error: unknown): boolean {
+  const details = (error ?? {}) as { provider?: unknown; status?: unknown };
+  return (
+    details.provider === "s3" &&
+    (details.status === 401 || details.status === 403 || details.status === 404)
   );
 }
 
@@ -136,15 +169,28 @@ export async function storeMediaUpload(input: {
     }
   } catch (error) {
     if (process.env.NODE_ENV === "production") {
-      if (!isBuilderReconnectFailure(error)) throw error;
-      console.error("[media] Builder rejected the upload:", error);
-      throw new MediaStorageSetupError(BUILDER_RECONNECT_MESSAGE);
+      if (isBuilderReconnectFailure(error)) {
+        console.error("[media] Builder refused the upload:", error);
+        throw new MediaStorageSetupError(
+          "builder-refused",
+          BUILDER_REFUSED_MESSAGE,
+        );
+      }
+      if (isOwnStorageRefusal(error)) {
+        console.error("[media] The storage bucket refused the upload:", error);
+        throw new MediaStorageSetupError(
+          "storage-refused",
+          STORAGE_REFUSED_MESSAGE,
+        );
+      }
+      throw error;
     }
   }
 
   if (process.env.NODE_ENV === "production") {
     throw new MediaStorageSetupError(
-      "File storage is not configured. Use Builder.io (free tier available) or another upload provider before attaching files in hosted environments.",
+      "not-configured",
+      STORAGE_NOT_CONFIGURED_MESSAGE,
     );
   }
 

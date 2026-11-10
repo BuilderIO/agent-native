@@ -219,8 +219,11 @@ explicit-intent and human-approval gate.
 
 A failed PUT means the draft has no file. Tell the user the error it returned
 rather than saying the file is attached. A 503 with `storageSetupRequired` means
-Builder.io rejected Mail's storage connection, and only reconnecting in Settings
-fixes that, so don't retry the upload.
+the workspace's file storage needs fixing in Settings, so don't retry the upload.
+Its `error` says how, and `storageSetupReason` says why: `builder-refused`
+(reconnect Builder.io, or switch to the workspace's own bucket),
+`storage-refused` (the workspace's own bucket refused its keys), or
+`not-configured` (connect Builder.io or an S3-compatible bucket).
 
 Example:
 ```json

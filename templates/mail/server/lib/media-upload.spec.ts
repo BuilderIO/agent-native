@@ -82,17 +82,43 @@ describe("storeMediaUpload", () => {
 
   it("fails closed in production when durable file storage is unavailable", async () => {
     uploadFile.mockResolvedValue(null);
-    const { MediaStorageSetupError, storeMediaUpload } =
-      await import("./media-upload.js");
+    const {
+      MediaStorageSetupError,
+      STORAGE_NOT_CONFIGURED_MESSAGE,
+      storeMediaUpload,
+    } = await import("./media-upload.js");
 
-    await expect(
-      storeMediaUpload({
-        ownerEmail: "owner@example.com",
-        data: new Uint8Array([1]),
-        filename: "upload-1.txt",
-        originalName: "note.txt",
-      }),
-    ).rejects.toBeInstanceOf(MediaStorageSetupError);
+    const failure = storeMediaUpload({
+      ownerEmail: "owner@example.com",
+      data: new Uint8Array([1]),
+      filename: "upload-1.txt",
+      originalName: "note.txt",
+    });
+
+    await expect(failure).rejects.toBeInstanceOf(MediaStorageSetupError);
+    await expect(failure).rejects.toMatchObject({
+      reason: "not-configured",
+      message: STORAGE_NOT_CONFIGURED_MESSAGE,
+    });
+  });
+
+  it("names Builder.io and the workspace's own bucket wherever storage needs setup", async () => {
+    const {
+      BUILDER_REFUSED_MESSAGE,
+      STORAGE_NOT_CONFIGURED_MESSAGE,
+      STORAGE_REFUSED_MESSAGE,
+    } = await import("./media-upload.js");
+
+    for (const message of [
+      BUILDER_REFUSED_MESSAGE,
+      STORAGE_NOT_CONFIGURED_MESSAGE,
+    ]) {
+      expect(message).toContain("Builder.io");
+      expect(message).toMatch(/your own (S3-compatible|storage) bucket/);
+      expect(message).toContain("File uploads and storage");
+    }
+    expect(STORAGE_REFUSED_MESSAGE).toContain("File uploads and storage");
+    expect(STORAGE_REFUSED_MESSAGE).not.toContain("Builder.io");
   });
 
   it("records a file kept on local disk for its owner", async () => {
@@ -164,13 +190,45 @@ describe("storeMediaUpload", () => {
       ],
     ])("asks to reconnect after %s", async (_name, failure) => {
       uploadFile.mockRejectedValue(failure);
-      const { BUILDER_RECONNECT_MESSAGE, storeMediaUpload } =
+      const { BUILDER_REFUSED_MESSAGE, storeMediaUpload } =
         await import("./media-upload.js");
 
       await expect(storeMediaUpload(upload)).rejects.toMatchObject({
-        message: BUILDER_RECONNECT_MESSAGE,
+        message: BUILDER_REFUSED_MESSAGE,
+        reason: "builder-refused",
         storageSetupRequired: true,
       });
+    });
+
+    it.each([401, 403, 404])(
+      "points a bucket that answered %i at storage settings",
+      async (status) => {
+        uploadFile.mockRejectedValue(
+          Object.assign(
+            new Error(`S3 PutObject failed (${status}): AccessDenied`),
+            { provider: "s3", status },
+          ),
+        );
+        const { STORAGE_REFUSED_MESSAGE, storeMediaUpload } =
+          await import("./media-upload.js");
+
+        await expect(storeMediaUpload(upload)).rejects.toMatchObject({
+          message: STORAGE_REFUSED_MESSAGE,
+          reason: "storage-refused",
+          storageSetupRequired: true,
+        });
+      },
+    );
+
+    it("passes a bucket outage through unchanged", async () => {
+      const failure = Object.assign(
+        new Error("S3 PutObject failed (503): SlowDown"),
+        { provider: "s3", status: 503 },
+      );
+      uploadFile.mockRejectedValue(failure);
+      const { storeMediaUpload } = await import("./media-upload.js");
+
+      await expect(storeMediaUpload(upload)).rejects.toBe(failure);
     });
 
     it("doesn't blame the connection for an expired signed URL", async () => {
