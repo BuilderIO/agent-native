@@ -2365,6 +2365,31 @@ describe("incomplete evidence detection", () => {
     ).toBe(true);
   });
 
+  it("does not read a ruled-out write as a dashboard build", () => {
+    for (const request of [
+      "Read-only. Don't create, edit or duplicate any dashboard. Which data sources are connected for this workspace right now?",
+      "Read-only follow-up to a failed task. Please run the SELECT below exactly once more. If jobComplete is false, poll that same job; do not submit a new job. Don't run any other query, and don't save or create any dashboard, analysis, panel or staged dataset.\n\n```sql\nSELECT source, COUNT(DISTINCT user_id) AS users FROM signups WHERE DATE(createdDate) >= '2026-09-21' GROUP BY source\n```",
+      "Do not save, create, edit or duplicate any dashboard, analysis, or panel. Return every result row verbatim.",
+      "Without saving or creating a dashboard, count signups by week for October.",
+      "Never edit DevRel Leaderboard v3 or any dashboard Jason or Steve own. Count signups by source.",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+    }
+  });
+
+  it("keeps a dashboard build stated beside a ruled-out write", () => {
+    for (const request of [
+      "Don't create a new dashboard, just update the Revenue dashboard to show signups by plan",
+      "Don't make a new dashboard; update the Revenue dashboard to show signups by plan",
+      "Don't edit the Growth dashboard and build a new Sales dashboard instead",
+      "Without changing the layout, build a copy of the Revenue dashboard for EMEA",
+      "Build a signups dashboard without editing the existing Growth dashboard",
+      "Create a dashboard for signups and don't include test accounts",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
+    }
+  });
+
   it("does not treat an automation targeting a dashboard as dashboard construction", () => {
     const request =
       "Create an automation for the Revenue dashboard and run it every morning";

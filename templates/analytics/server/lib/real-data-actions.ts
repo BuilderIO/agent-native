@@ -147,6 +147,23 @@ const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
 const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
   /\b(dashboard|extension|panel|widget)\b/i;
 
+const WRITE_VERB =
+  "(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|save|delete|remove|add|write|touch|publish|archive|building|creating|making|replicating|cloning|copying|duplicating|adapting|updating|editing|changing|modifying|renaming|adjusting|refreshing|simplifying|switching|saving|deleting|removing|adding|writing|touching|publishing|archiving)\\b";
+
+// An instruction that rules a write out asks for none of it: "Read-only. Don't
+// save, create or edit any dashboard" keeps a question read-only, and read as a
+// build it swapped the answer for the template-clone reply. The ruled-out span
+// runs from the verbs to the clause's end, a contrast ("just", "instead") or a
+// new instruction (", add a panel", "and build one"), so a build stated beside
+// it still counts.
+const NEGATED_WRITE_INSTRUCTION_TERMS = new RegExp(
+  `\\b(?:do\\s+not|don['’]?t|never|without|not\\s+to|no\\s+need\\s+to|avoid|must\\s+not|mustn['’]?t|should\\s+not|shouldn['’]?t)\\s+` +
+    `(?:(?:actually|accidentally|ever|yet|try\\s+to|attempt\\s+to|need\\s+to)\\s+)*` +
+    `${WRITE_VERB}(?:\\s*,\\s*(?:(?:or|and|nor)\\s+)?${WRITE_VERB}|\\s+(?:or|and|nor)\\s+${WRITE_VERB})*` +
+    `(?:(?!,\\s*(?:(?:and|or|then)\\s+)?(?:please\\s+)?${WRITE_VERB}|\\s+and\\s+(?:then\\s+)?(?:please\\s+)?${WRITE_VERB}|,?\\s*\\b(?:but|instead|rather|just|only|then|so)\\b)[^.!?;\\n])*`,
+  "gi",
+);
+
 const DASHBOARD_CONSTRUCTION_OBJECT_TERMS =
   /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\s+(?:(?:a|an|the)\s+)?(?:(?:new|fresh|another|custom)\s+)?(?:(?!\b(?:and|or|then|plus)\b)[\w-]+\s+)*(?:dashboard|extension|panel|widget)(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?|job(?:s)?|schedule(?:s)?)\b)(?!\s+(?:via|using|with|on)\s+(?:a\s+)?cron(?:\s+(?:job|schedule))?\b)\b/gi;
 
@@ -270,8 +287,10 @@ export function looksLikeDashboardConstructionRequest(text: string): boolean {
   const requestText = boundAnalyticsClassificationText(
     stripInjectedAnalyticsGuardContext(text),
   );
-  const lower = requestText.toLowerCase();
-  if (!lower) return false;
+  const lower = requestText
+    .toLowerCase()
+    .replace(NEGATED_WRITE_INSTRUCTION_TERMS, " ");
+  if (!lower.trim()) return false;
   const constructionRequestText = lower
     .replace(/\bbut\b/g, " and ")
     .replace(DASHBOARD_AUTOMATION_REFRESH_TARGET_TERMS, " automation ")
