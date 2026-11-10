@@ -11681,10 +11681,15 @@ function PageEditorSessionBody({
                 )
               ) : null}
 
+              {/* translateZ(0) gives the card its own layer: Safari otherwise
+                  can paint the Blocks field's sticky tab row (z-10) across it.
+                  compositing-ok: it mounts only while a thread is open. Its
+                  menus portal to the body, so the new containing block for
+                  fixed children moves nothing. */}
               {showAnchoredCommentPopover ? (
                 <aside
                   ref={anchoredCommentRef}
-                  className="pointer-events-none absolute z-30"
+                  className="pointer-events-none absolute z-30 [transform:translateZ(0)]"
                   aria-label={t("comments.title")}
                   data-comments-anchored-popover
                   data-placement={anchoredCommentPosition?.placement}
