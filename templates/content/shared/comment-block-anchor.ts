@@ -47,8 +47,8 @@ export function derivedVideoBlockId(src: string, occurrence: number) {
 /**
  * The id a block saved without one goes by: its type, its source and how many
  * blocks of that type with that source come before it. Images and audio always
- * go by it, so replacing the file or removing an earlier copy of it moves the
- * id, and a thread on the block goes with it.
+ * go by it, so replacing the file, or adding or removing a copy of it above,
+ * moves the id, and a thread follows the id, not the block.
  */
 export function derivedCommentAnchorBlockId(
   type: CommentAnchorBlockType,
