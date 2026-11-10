@@ -2592,6 +2592,8 @@ const messages = {
     accountExists: "Este e-mail já tem uma conta do Builder.io.",
     signIn: "Entrar no Builder.io",
     setupFailed: "A configuração do Builder.io não foi concluída.",
+    storageCheckFailed:
+      "Não foi possível verificar seu armazenamento do Builder.io.",
     tryAgain: "Tentar novamente",
     consentPrefix: "Ao criar uma conta do Builder.io, você concorda com nossos",
     consentTerms: "Termos de Serviço",
@@ -2605,6 +2607,8 @@ const messages = {
       "Depois deste, continue gravando com uma conta grátis do Builder.io. Ela inclui transcrições, resumos e 2 GB de armazenamento.",
     lastClipRecord: "Gravar meu último clipe grátis",
     lastClipUpload: "Enviar meu último clipe grátis",
+    dropOverLimit:
+      "{{uploaded}} de {{total}} vídeos enviados. Conecte uma conta gratuita do Builder.io para enviar o restante.",
     storageTitle: "Salve seus clipes com o Builder.io",
     storageDescription:
       "Crie uma conta grátis do Builder.io para armazenar seus clipes e ter transcrições por IA e resumos dos clipes.",

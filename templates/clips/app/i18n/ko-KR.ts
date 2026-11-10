@@ -2538,6 +2538,7 @@ const messages = {
     accountExists: "이 이메일에는 이미 Builder.io 계정이 있습니다.",
     signIn: "Builder.io에 로그인",
     setupFailed: "Builder.io 설정을 완료하지 못했습니다.",
+    storageCheckFailed: "Builder.io 저장소를 확인하지 못했습니다.",
     tryAgain: "다시 시도",
     consentPrefix: "Builder.io 계정을 만들면",
     consentTerms: "서비스 약관",
@@ -2551,6 +2552,8 @@ const messages = {
       "이 클립 다음부터는 무료 Builder.io 계정으로 계속 녹화하세요. 스크립트, 요약, 2 GB 저장 공간이 포함됩니다.",
     lastClipRecord: "마지막 무료 클립 녹화하기",
     lastClipUpload: "마지막 무료 클립 업로드하기",
+    dropOverLimit:
+      "동영상 {{total}}개 중 {{uploaded}}개를 업로드했습니다. 나머지를 업로드하려면 무료 Builder.io 계정을 연결하세요.",
     storageTitle: "Builder.io로 클립 저장하기",
     storageDescription:
       "무료 Builder.io 계정을 만들면 클립을 저장하고 AI 스크립트와 클립 요약을 받을 수 있습니다.",

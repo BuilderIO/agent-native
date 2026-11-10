@@ -4184,7 +4184,7 @@ export default function RecordRoute() {
             builderOfferMilestone(
               storageQuery.data.hostedLimit - storageQuery.data.hostedRemaining,
               storageQuery.data.hostedLimit,
-            ) ?? "clips_left"
+            ) ?? "connect_request"
           }
           remaining={storageQuery.data.hostedRemaining}
           limit={storageQuery.data.hostedLimit}

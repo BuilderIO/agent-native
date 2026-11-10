@@ -95,19 +95,23 @@ export function ImportMenu({
   return (
     <>
       <DropdownMenu>
-        {iconOnly ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              {uploadGate.wrap(
-                <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>,
-                menuAlign,
-              )}
-            </TooltipTrigger>
-            <TooltipContent side={menuSide ?? "right"}>
-              {t("preRecord.import")}
-            </TooltipContent>
-          </Tooltip>
-        ) : null}
+        {iconOnly
+          ? uploadGate.root(
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  {uploadGate.anchor(
+                    <DropdownMenuTrigger asChild>
+                      {trigger}
+                    </DropdownMenuTrigger>,
+                  )}
+                </TooltipTrigger>
+                <TooltipContent side={menuSide ?? "right"}>
+                  {t("preRecord.import")}
+                </TooltipContent>
+              </Tooltip>,
+              menuAlign,
+            )
+          : null}
         {!iconOnly
           ? uploadGate.wrap(
               <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>,

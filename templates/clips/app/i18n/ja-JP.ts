@@ -2580,6 +2580,7 @@ const messages = {
       "このメールアドレスには Builder.io アカウントがすでにあります。",
     signIn: "Builder.io にサインイン",
     setupFailed: "Builder.io の設定が完了しませんでした。",
+    storageCheckFailed: "Builder.io のストレージを確認できませんでした。",
     tryAgain: "再試行",
     consentPrefix: "Builder.io アカウントを作成すると、",
     consentTerms: "利用規約",
@@ -2593,6 +2594,8 @@ const messages = {
       "このクリップの後は、無料の Builder.io アカウントで録画を続けられます。文字起こし、要約、2 GB のストレージが含まれます。",
     lastClipRecord: "最後の無料クリップを録画",
     lastClipUpload: "最後の無料クリップをアップロード",
+    dropOverLimit:
+      "{{total}} 本中 {{uploaded}} 本の動画をアップロードしました。残りをアップロードするには、無料の Builder.io アカウントを接続してください。",
     storageTitle: "Builder.io でクリップを保存",
     storageDescription:
       "無料の Builder.io アカウントを作成すると、クリップを保存でき、AI 文字起こしとクリップの要約も利用できます。",

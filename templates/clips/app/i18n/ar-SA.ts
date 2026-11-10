@@ -2531,6 +2531,7 @@ const messages = {
     accountExists: "هذا البريد الإلكتروني لديه حساب Builder.io بالفعل.",
     signIn: "تسجيل الدخول إلى Builder.io",
     setupFailed: "لم يكتمل إعداد Builder.io.",
+    storageCheckFailed: "تعذر التحقق من مساحة تخزين Builder.io الخاصة بك.",
     tryAgain: "أعد المحاولة",
     consentPrefix: "بإنشاء حساب Builder.io، فإنك توافق على",
     consentTerms: "شروط الخدمة",
@@ -2544,6 +2545,8 @@ const messages = {
       "بعد هذا المقطع، واصل التسجيل بحساب Builder.io مجاني. يتضمن نصوصًا مكتوبة وملخصات و2 GB من مساحة التخزين.",
     lastClipRecord: "سجّل آخر مقطع مجاني لي",
     lastClipUpload: "ارفع آخر مقطع مجاني لي",
+    dropOverLimit:
+      "تم رفع {{uploaded}} من {{total}} من الفيديوهات. اربط حساب Builder.io مجانيًا لرفع الباقي.",
     storageTitle: "احفظ مقاطعك مع Builder.io",
     storageDescription:
       "أنشئ حساب Builder.io مجانيًا لتخزين مقاطعك والحصول على نصوص مكتوبة بالذكاء الاصطناعي وملخصات للمقاطع.",

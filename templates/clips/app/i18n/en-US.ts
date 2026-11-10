@@ -2525,6 +2525,7 @@ const messages = {
     accountExists: "This email already has a Builder.io account.",
     signIn: "Sign in to Builder.io",
     setupFailed: "Builder.io setup didn’t finish.",
+    storageCheckFailed: "Couldn’t check your Builder.io storage.",
     tryAgain: "Try again",
     consentPrefix: "By creating a Builder.io account, you agree to our",
     consentTerms: "Terms of Service",
@@ -2538,6 +2539,8 @@ const messages = {
       "After this one, keep recording with a free Builder.io account. It includes transcripts, summaries and 2 GB of storage.",
     lastClipRecord: "Record my last free clip",
     lastClipUpload: "Upload my last free clip",
+    dropOverLimit:
+      "{{uploaded}} of {{total}} videos uploaded. Connect a free Builder.io account to upload the rest.",
     storageTitle: "Save your clips with Builder.io",
     storageDescription:
       "Create a free Builder.io account to store your clips and get AI transcripts and clip summaries.",

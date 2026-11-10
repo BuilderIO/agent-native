@@ -645,8 +645,26 @@ export function LibraryGrid({
       toast.error(t("recordRoute.uploadFailed"));
       return;
     }
-    if (dropGate.guard(() => uploadFiles(files))) return;
-    uploadFiles(files);
+    const uploadWithinFreeClips = () => {
+      // Each upload uses a free clip, so a batch bigger than what's left
+      // would queue files the server is about to refuse.
+      const status = storageStatus.data;
+      const allowed =
+        status?.mode === "hosted"
+          ? files.slice(0, Math.max(0, status.hostedRemaining))
+          : files;
+      if (allowed.length < files.length) {
+        toast(
+          t("freeClips.dropOverLimit", {
+            uploaded: allowed.length,
+            total: files.length,
+          }),
+        );
+      }
+      if (allowed.length > 0) uploadFiles(allowed);
+    };
+    if (dropGate.guard(uploadWithinFreeClips)) return;
+    uploadWithinFreeClips();
   };
 
   const retryStorageStatus = async () => {

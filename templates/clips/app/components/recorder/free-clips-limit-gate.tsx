@@ -4,6 +4,7 @@ import {
   useState,
   type MouseEvent,
   type ReactElement,
+  type ReactNode,
 } from "react";
 
 import {
@@ -46,7 +47,8 @@ export function markLastClipPromptSeen(): void {
  * the first time the last one would be used, which can still go ahead.
  *
  * `guard(proceed)` returns true when it took over; `wrap(anchor)` places the
- * popover against that control.
+ * popover against that control. When another Slot (a tooltip trigger) has to
+ * hold the control directly, render `root` outside it and `anchor` inside.
  */
 export function useFreeClipsGate(action: "record" | "upload") {
   const storage = useVideoStorageStatus();
@@ -67,8 +69,12 @@ export function useFreeClipsGate(action: "record" | "upload") {
     return true;
   };
 
-  const wrap = (
-    anchor: ReactElement,
+  const anchor = (control: ReactElement) => (
+    <PopoverAnchor asChild>{control}</PopoverAnchor>
+  );
+
+  const root = (
+    children: ReactNode,
     align: "start" | "center" | "end" = "end",
   ) => (
     <Popover
@@ -78,7 +84,7 @@ export function useFreeClipsGate(action: "record" | "upload") {
         if (!next) setPromptSeen(lastClipPromptSeen());
       }}
     >
-      <PopoverAnchor asChild>{anchor}</PopoverAnchor>
+      {children}
       {open && status ? (
         <PopoverContent
           align={align}
@@ -104,7 +110,12 @@ export function useFreeClipsGate(action: "record" | "upload") {
     </Popover>
   );
 
-  return { guard, wrap };
+  const wrap = (
+    control: ReactElement,
+    align: "start" | "center" | "end" = "end",
+  ) => root(anchor(control), align);
+
+  return { guard, wrap, root, anchor };
 }
 
 /** A record control gated by {@link useFreeClipsGate}. */

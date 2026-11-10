@@ -7,6 +7,7 @@ import { BuilderActivationAction } from "@/components/recorder/builder-activatio
 import {
   trackFreeClipsOffer,
   useBuilderStorageActivation,
+  type FreeClipsOfferMilestone,
 } from "@/components/recorder/use-builder-storage-activation";
 import {
   Dialog,
@@ -177,7 +178,7 @@ export function BuilderOfferDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   source: string;
-  milestone: string;
+  milestone: FreeClipsOfferMilestone;
   remaining: number;
   limit: number;
 }) {

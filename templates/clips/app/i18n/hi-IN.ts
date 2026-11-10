@@ -2508,6 +2508,7 @@ const messages = {
     accountExists: "इस ईमेल का पहले से एक Builder.io खाता है।",
     signIn: "Builder.io में साइन इन करें",
     setupFailed: "Builder.io सेटअप पूरा नहीं हुआ।",
+    storageCheckFailed: "आपका Builder.io स्टोरेज जाँचा नहीं जा सका।",
     tryAgain: "फिर से कोशिश करें",
     consentPrefix: "Builder.io खाता बनाकर, आप हमारी",
     consentTerms: "सेवा की शर्तों",
@@ -2521,6 +2522,8 @@ const messages = {
       "इसके बाद, मुफ़्त Builder.io खाते के साथ रिकॉर्ड करते रहें। इसमें ट्रांसक्रिप्ट, सारांश और 2 GB स्टोरेज शामिल है।",
     lastClipRecord: "मेरी आखिरी मुफ़्त क्लिप रिकॉर्ड करें",
     lastClipUpload: "मेरी आखिरी मुफ़्त क्लिप अपलोड करें",
+    dropOverLimit:
+      "{{total}} में से {{uploaded}} वीडियो अपलोड हुए। बाकी अपलोड करने के लिए एक मुफ़्त Builder.io खाता कनेक्ट करें।",
     storageTitle: "Builder.io के साथ अपनी क्लिप सेव करें",
     storageDescription:
       "अपनी क्लिप स्टोर करने और AI ट्रांसक्रिप्ट और क्लिप सारांश पाने के लिए मुफ़्त Builder.io खाता बनाएँ।",

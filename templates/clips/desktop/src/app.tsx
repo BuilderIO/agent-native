@@ -4708,6 +4708,18 @@ export function App({
         });
       return;
     }
+    // The last free clip asks once, wherever Start came from; the shortcut
+    // opens the popover on the same prompt Start shows.
+    if (
+      localRecordingMode === "off" &&
+      hostedClipsRemaining === 1 &&
+      !loadBool(LAST_CLIP_PROMPT_SEEN_KEY, false)
+    ) {
+      saveBool(LAST_CLIP_PROMPT_SEEN_KEY, true);
+      setLastClipPromptOpen(true);
+      invoke("show_popover").catch(() => {});
+      return;
+    }
 
     const canStartFromGlobalShortcut =
       mode === "camera" || nativeCaptureRecordingActive;

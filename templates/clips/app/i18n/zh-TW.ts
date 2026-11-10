@@ -2404,6 +2404,7 @@ const messages = {
     accountExists: "此電子郵件已有 Builder.io 帳號。",
     signIn: "登入 Builder.io",
     setupFailed: "Builder.io 設定未完成。",
+    storageCheckFailed: "無法檢查你的 Builder.io 儲存空間。",
     tryAgain: "重試",
     consentPrefix: "建立 Builder.io 帳號即表示你同意我們的",
     consentTerms: "服務條款",
@@ -2417,6 +2418,8 @@ const messages = {
       "錄完這個片段後，使用免費的 Builder.io 帳號繼續錄製。它包含逐字稿、摘要和 2 GB 儲存空間。",
     lastClipRecord: "錄製我的最後一個免費片段",
     lastClipUpload: "上傳我的最後一個免費片段",
+    dropOverLimit:
+      "已上傳 {{uploaded}}/{{total}} 部影片。連結免費的 Builder.io 帳戶即可上傳其餘影片。",
     storageTitle: "使用 Builder.io 保存你的片段",
     storageDescription:
       "建立免費的 Builder.io 帳號即可儲存你的片段，並取得 AI 逐字稿和片段摘要。",

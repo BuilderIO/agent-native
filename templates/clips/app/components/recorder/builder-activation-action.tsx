@@ -37,12 +37,14 @@ export function BuilderActivationAction({
       <Button type="button" className="flex-1" onClick={activation.signIn}>
         {t("freeClips.signIn")}
       </Button>
-    ) : state === "failed" ? (
+    ) : state === "failed" || state === "check-failed" ? (
       <Button
         type="button"
         variant="outline"
         className="flex-1"
-        onClick={activation.activate}
+        onClick={
+          state === "check-failed" ? activation.recheck : activation.activate
+        }
       >
         {t("freeClips.tryAgain")}
       </Button>
@@ -50,7 +52,12 @@ export function BuilderActivationAction({
       <Button
         type="button"
         className="flex-1"
-        disabled={busy || state === "connected" || state === "not-allowed"}
+        disabled={
+          busy ||
+          state === "loading" ||
+          state === "connected" ||
+          state === "not-allowed"
+        }
         aria-busy={busy}
         onClick={activation.activate}
       >
@@ -66,13 +73,15 @@ export function BuilderActivationAction({
           {t("freeClips.accountExists")}
         </p>
       ) : null}
-      {state === "failed" ? (
+      {state === "failed" || state === "check-failed" ? (
         <p
           role="alert"
           className="flex items-center gap-1.5 text-[13px] leading-[18px] text-amber-700 dark:text-amber-400"
         >
           <IconAlertTriangle className="size-4 shrink-0" aria-hidden />
-          {t("freeClips.setupFailed")}
+          {state === "check-failed"
+            ? t("freeClips.storageCheckFailed")
+            : t("freeClips.setupFailed")}
         </p>
       ) : null}
       {state === "not-allowed" ? (

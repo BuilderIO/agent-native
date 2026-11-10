@@ -20,12 +20,14 @@ const STORAGE_POLL_MS = 2000;
 const STORAGE_POLL_TIMEOUT_MS = 2 * 60_000;
 
 export type BuilderStorageActivationState =
+  | "loading"
   | "idle"
   | "creating"
   | "finishing"
   | "connected"
   | "account-exists"
   | "failed"
+  | "check-failed"
   | "not-allowed";
 
 export type FreeClipsOfferSurface =
@@ -34,6 +36,18 @@ export type FreeClipsOfferSurface =
   | "record_limit_card"
   | "library_limit_popover"
   | "record_last_clip_prompt";
+
+/**
+ * Why the offer showed: one free clip left or none left (library milestones),
+ * the first time the last clip would be used, the sidebar count opening the
+ * dialog, or a connect link from the desktop app or extension.
+ */
+export type FreeClipsOfferMilestone =
+  | "last_clip"
+  | "used_up"
+  | "last_clip_intent"
+  | "count"
+  | "connect_request";
 
 /**
  * Impressions and dismissals of the free clips offer. Clicks and conversions
@@ -45,7 +59,7 @@ export function trackFreeClipsOffer(
   name: "clips_free_clips_offer_viewed" | "clips_free_clips_offer_dismissed",
   properties: {
     surface: FreeClipsOfferSurface;
-    milestone: string;
+    milestone: FreeClipsOfferMilestone;
     remaining: number;
     limit: number;
     /** What the user was about to do, where the surface serves both. */
@@ -101,6 +115,9 @@ export function useBuilderStorageActivation({
   const [finishing, setFinishing] = useState(false);
   const [connected, setConnected] = useState(false);
   const [storageTimedOut, setStorageTimedOut] = useState(false);
+  // Set when the wait ended because storage couldn't be read, not because
+  // Builder.io setup failed; retrying then re-reads instead of setting up again.
+  const [storageCheckFailed, setStorageCheckFailed] = useState(false);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
   const isMounted = useCallback(() => mountedRef.current, []);
@@ -114,7 +131,9 @@ export function useBuilderStorageActivation({
     stopPoll();
     setFinishing(true);
     setStorageTimedOut(false);
+    setStorageCheckFailed(false);
     const startedAt = Date.now();
+    let lastReadFailed = false;
     const tick = async () => {
       if (!mountedRef.current) return;
       try {
@@ -131,12 +150,16 @@ export function useBuilderStorageActivation({
           queryClient.setQueryData(VIDEO_STORAGE_STATUS_KEY, status);
           return;
         }
+        lastReadFailed = false;
       } catch (err) {
+        if (!isMounted()) return;
+        lastReadFailed = true;
         console.warn("[builder-storage] storage status read failed:", err);
       }
       if (Date.now() - startedAt > STORAGE_POLL_TIMEOUT_MS) {
         setFinishing(false);
-        setStorageTimedOut(true);
+        if (lastReadFailed) setStorageCheckFailed(true);
+        else setStorageTimedOut(true);
         return;
       }
       pollRef.current = setTimeout(() => void tick(), STORAGE_POLL_MS);
@@ -200,15 +223,19 @@ export function useBuilderStorageActivation({
     ? "connected"
     : finishing
       ? "finishing"
-      : builder.connecting
-        ? "creating"
-        : builder.statusResolved && !scope
-          ? "not-allowed"
-          : accountExists
-            ? "account-exists"
-            : builder.error || storageTimedOut
-              ? "failed"
-              : "idle";
+      : storageCheckFailed
+        ? "check-failed"
+        : builder.connecting
+          ? "creating"
+          : !builder.statusResolved
+            ? "loading"
+            : !scope
+              ? "not-allowed"
+              : accountExists
+                ? "account-exists"
+                : builder.error || storageTimedOut
+                  ? "failed"
+                  : "idle";
 
   return {
     state,
@@ -216,6 +243,8 @@ export function useBuilderStorageActivation({
     createsAccount: canProvision && !accountExists,
     activate,
     signIn,
+    /** After "check-failed": read storage again without starting setup over. */
+    recheck: waitForStorage,
     cancel: builder.cancel,
   };
 }

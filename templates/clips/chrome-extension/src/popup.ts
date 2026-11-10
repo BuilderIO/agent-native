@@ -520,6 +520,8 @@ async function readAuthStatus(
  * The storage probe, plus the free clip limit once the server refuses
  * another free clip; null in every other state.
  */
+const STORAGE_STATUS_TIMEOUT_MS = 10_000;
+
 async function readVideoStorage(settings: ExtensionSettings): Promise<{
   probe: FileUploadStatusProbe;
   exhaustedLimit: number | null;
@@ -542,6 +544,7 @@ async function readVideoStorage(settings: ExtensionSettings): Promise<{
         headers,
         credentials: "include",
         cache: "no-store",
+        signal: AbortSignal.timeout(STORAGE_STATUS_TIMEOUT_MS),
       },
     );
     if (!response.ok) return unavailable;
@@ -1362,13 +1365,17 @@ async function init(): Promise<void> {
   await refreshAuth();
 
   // Out of free clips, Builder.io replaces the recorder instead of a Start
-  // that would only lead to the same wall in the Clips tab.
+  // that would only lead to the same wall in the Clips tab. The controls are
+  // wired without waiting on it, and Start reads storage again itself.
+  // A function, so the second read sees a recording started during the wait.
+  const recordingBusy = (): boolean => activeRecording !== null || arming;
   const showFreeClipsLimitIfUsedUp = async (): Promise<void> => {
-    if (authStatus !== "signed-in" || activeRecording || arming) return;
+    if (authStatus !== "signed-in" || recordingBusy()) return;
     const { exhaustedLimit } = await readVideoStorage(settings);
-    if (exhaustedLimit !== null) showFreeClipsLimit(exhaustedLimit);
+    if (exhaustedLimit === null || recordingBusy() || start.disabled) return;
+    showFreeClipsLimit(exhaustedLimit);
   };
-  await showFreeClipsLimitIfUsedUp();
+  void showFreeClipsLimitIfUsedUp();
   const openBuilderSetup = async (): Promise<void> => {
     await createTab(storageSetupUrl(settings));
     window.close();
