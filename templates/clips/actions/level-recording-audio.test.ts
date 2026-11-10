@@ -128,6 +128,9 @@ describe("level-recording-audio", () => {
     expect(isValidSweepCursor("")).toBe(false);
     expect(isValidSweepCursor("2026-11-09T10:00:00.000Z|")).toBe(false);
     expect(isValidSweepCursor("yesterday|rec-b")).toBe(false);
+    expect(isValidSweepCursor("2026-02-30T10:00:00.000Z|rec-b")).toBe(false);
+    expect(isValidSweepCursor("2026-11-09T25:00:00.000Z")).toBe(false);
+    expect(isValidSweepCursor("2026-11-09 10:00:00|rec-b")).toBe(true);
     await expect(
       levelRecordingAudio.run({ all: true, before: "not-a-cursor" }),
     ).rejects.toThrow();

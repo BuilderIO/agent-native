@@ -65,15 +65,41 @@ export function encodeSweepCursor(createdAt: string, id: string): string {
   return `${createdAt}${CURSOR_SEPARATOR}${id}`;
 }
 
-/** A cursor is an ISO time, optionally followed by `|<recording id>`. */
+/**
+ * A cursor is a timestamp, optionally followed by `|<recording id>`. The date
+ * and time parts are checked strictly, so an impossible day such as 30
+ * February is refused instead of rolled over. Both `T` and the space that SQL
+ * defaults write are accepted, since the cursor echoes the stored value.
+ */
 export function isValidSweepCursor(value: string): boolean {
   const at = value.lastIndexOf(CURSOR_SEPARATOR);
   const createdAt = at < 0 ? value : value.slice(0, at);
   const id = at < 0 ? null : value.slice(at + 1);
   if (id !== null && id.trim() === "") return false;
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?$/.exec(
+      createdAt,
+    );
+  if (!match) return false;
+  const [, y, mo, d, h, mi, se] = match.map(Number);
+  if (
+    y === undefined ||
+    mo === undefined ||
+    d === undefined ||
+    h === undefined ||
+    mi === undefined ||
+    se === undefined
+  ) {
+    return false;
+  }
+  const day = new Date(Date.UTC(y, mo - 1, d));
   return (
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(createdAt) &&
-    !Number.isNaN(Date.parse(createdAt))
+    day.getUTCFullYear() === y &&
+    day.getUTCMonth() === mo - 1 &&
+    day.getUTCDate() === d &&
+    h < 24 &&
+    mi < 60 &&
+    se < 60
   );
 }
 
