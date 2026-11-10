@@ -963,13 +963,13 @@ describe("integrations plugin routes", () => {
       "POST",
     );
 
-    expect(result.status).toBe(502);
+    expect(result.status).toBe(422);
     expect(result.body).toEqual({
       error: "Telegram setWebhook failed: Bad Request: webhook URL is invalid",
     });
   });
 
-  it("surfaces non-JSON Telegram setWebhook failures as provider errors", async () => {
+  it("surfaces non-JSON Telegram setWebhook failures as provider errors with 422", async () => {
     getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
     resolveSecretMock.mockImplementation((key: string) =>
       key === "TELEGRAM_BOT_TOKEN"
@@ -999,10 +999,40 @@ describe("integrations plugin routes", () => {
       "POST",
     );
 
-    expect(result.status).toBe(502);
+    expect(result.status).toBe(422);
     expect(result.body).toEqual({
       error: "Telegram setWebhook failed: HTTP 502",
     });
+  });
+
+  it("rejects Telegram webhook setup when TELEGRAM_WEBHOOK_SECRET contains invalid characters", async () => {
+    getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
+    resolveSecretMock.mockImplementation((key: string) =>
+      key === "TELEGRAM_BOT_TOKEN"
+        ? "telegram-bot-token-example"
+        : key === "TELEGRAM_WEBHOOK_SECRET"
+          ? "invalid<secret>,"
+          : null,
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "telegram", label: "Telegram" }],
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/telegram/setup",
+      "POST",
+    );
+
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({
+      error:
+        "TELEGRAM_WEBHOOK_SECRET must be 1–256 characters and contain only letters, digits, '_' and '-'.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("answers POST platform verification challenges before requiring enablement", async () => {

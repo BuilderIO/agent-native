@@ -977,6 +977,14 @@ export function createIntegrationsPlugin(
               "TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET must be configured before webhook setup.",
           };
         }
+        if (!/^[A-Za-z0-9_-]{1,256}$/.test(webhookSecret)) {
+          return {
+            ok: false,
+            statusCode: 400,
+            error:
+              "TELEGRAM_WEBHOOK_SECRET must be 1–256 characters and contain only letters, digits, '_' and '-'.",
+          };
+        }
         try {
           const res = await fetch(
             `https://api.telegram.org/bot${token}/setWebhook`,
@@ -1006,14 +1014,18 @@ export function createIntegrationsPlugin(
             data = null;
           }
           if (!res.ok || data?.ok !== true) {
+            console.error(
+              `[telegram] setWebhook failed (${res.status}): ${data?.description ?? body}`,
+            );
             return {
               ok: false,
-              statusCode: 502,
+              statusCode: 422,
               error: `Telegram setWebhook failed: ${data?.description ?? `HTTP ${res.status}`}`,
             };
           }
           return { ok: true, webhookUrl, result: data };
         } catch (err: any) {
+          console.error(`[telegram] setWebhook request error: ${err.message}`);
           return { ok: false, statusCode: 500, error: err.message };
         }
       },

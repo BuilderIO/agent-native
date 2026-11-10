@@ -533,3 +533,49 @@ describe("telegramAdapter sendMessageToTarget", () => {
     ).rejects.toThrow("chat not found");
   });
 });
+
+describe("telegramAdapter validateCredential", () => {
+  it("accepts valid alphanumeric, underscore, and hyphen secrets up to 256 characters", () => {
+    const adapter = telegramAdapter();
+    expect(
+      adapter.validateCredential?.(
+        "TELEGRAM_WEBHOOK_SECRET",
+        "valid-secret_123",
+      ),
+    ).toBeUndefined();
+    expect(
+      adapter.validateCredential?.("TELEGRAM_WEBHOOK_SECRET", "a".repeat(256)),
+    ).toBeUndefined();
+    expect(
+      adapter.validateCredential?.("TELEGRAM_BOT_TOKEN", "any:token"),
+    ).toBeUndefined();
+  });
+
+  it("rejects invalid webhook secret characters and empty or oversized values", () => {
+    const adapter = telegramAdapter();
+    expect(
+      adapter.validateCredential?.(
+        "TELEGRAM_WEBHOOK_SECRET",
+        "secret<with>angles",
+      ),
+    ).toContain("Telegram webhook secret must be 1–256 characters");
+    expect(
+      adapter.validateCredential?.(
+        "TELEGRAM_WEBHOOK_SECRET",
+        "secret,with,commas",
+      ),
+    ).toContain("Telegram webhook secret must be 1–256 characters");
+    expect(
+      adapter.validateCredential?.(
+        "TELEGRAM_WEBHOOK_SECRET",
+        "secret with spaces",
+      ),
+    ).toContain("Telegram webhook secret must be 1–256 characters");
+    expect(
+      adapter.validateCredential?.("TELEGRAM_WEBHOOK_SECRET", ""),
+    ).toContain("Telegram webhook secret must be 1–256 characters");
+    expect(
+      adapter.validateCredential?.("TELEGRAM_WEBHOOK_SECRET", "a".repeat(257)),
+    ).toContain("Telegram webhook secret must be 1–256 characters");
+  });
+});

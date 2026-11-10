@@ -220,6 +220,13 @@ function fakeAdapter(platform: string, keys: EnvKeyConfig[]): PlatformAdapter {
     platform,
     label: platform === "telegram" ? "Telegram" : "Google Docs",
     getRequiredEnvKeys: () => keys,
+    validateCredential: (key: string, value: string) => {
+      if (key === "TELEGRAM_WEBHOOK_SECRET") {
+        if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) {
+          return "Telegram webhook secret must be 1–256 characters and contain only letters, digits, '_' and '-'. Generate one with 'openssl rand -hex 32'.";
+        }
+      }
+    },
     getStatus: async () => ({
       platform,
       label: platform === "telegram" ? "Telegram" : "Google Docs",
@@ -680,6 +687,15 @@ describe("channel settings", () => {
         TELEGRAM_BOT_TOKEN: "   ",
       }),
     ).rejects.toMatchObject({ errorCode: "invalid_channel_credentials" });
+    await expect(
+      saveMessagingChannelCredentials(OWNER, "telegram", {
+        TELEGRAM_WEBHOOK_SECRET: "invalid<secret>,",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "invalid_channel_credentials",
+      message:
+        "Telegram webhook secret must be 1–256 characters and contain only letters, digits, '_' and '-'. Generate one with 'openssl rand -hex 32'.",
+    });
 
     roleRef.role = "member";
     await expect(
@@ -916,13 +932,13 @@ describe("channel settings", () => {
 
     mounted.registerWebhook.mockResolvedValueOnce({
       ok: false,
-      statusCode: 502,
+      statusCode: 422,
       error: "Telegram setWebhook failed: Unauthorized",
     });
     await expect(
       registerMessagingChannelWebhook(OWNER, "telegram"),
     ).rejects.toMatchObject({
-      statusCode: 502,
+      statusCode: 422,
       message: "Telegram setWebhook failed: Unauthorized",
     });
   });

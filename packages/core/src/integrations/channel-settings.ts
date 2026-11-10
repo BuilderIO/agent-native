@@ -754,6 +754,13 @@ export async function saveMessagingChannelCredentials(
         details: { key },
       });
     }
+    const validationError = adapter.validateCredential?.(key, value);
+    if (validationError) {
+      fail(validationError, {
+        errorCode: "invalid_channel_credentials",
+        details: { key },
+      });
+    }
     writes.push([key, value]);
   }
   const targets = await Promise.all(
