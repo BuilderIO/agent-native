@@ -130,6 +130,7 @@ const person = { caller: "frontend" as const, userEmail: OWNER };
 const agent = { caller: "mcp" as const, userEmail: OWNER };
 const ownAgent = { caller: "tool" as const, userEmail: OWNER };
 const locked = { errorCode: "AGENT_TEXT_LOCKED", statusCode: 403 };
+const viewOnly = { errorCode: "AGENT_VIEW_ONLY", statusCode: 403 };
 
 let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/index.js").schema;
@@ -141,6 +142,14 @@ let updateDocument: typeof import("./update-document.js").default;
 let deleteDocument: typeof import("./delete-document.js").default;
 let restoreVersion: typeof import("./restore-document-version.js").default;
 let addComment: typeof import("./add-comment.js").default;
+let updateComment: typeof import("./update-comment.js").default;
+let deleteComment: typeof import("./delete-comment.js").default;
+let reactToComment: typeof import("./react-to-comment.js").default;
+let syncNotionComments: typeof import("./sync-notion-comments.js").default;
+let createReviewComment: typeof import("@agent-native/core/review/actions/create-review-comment").default;
+let replyReviewComment: typeof import("@agent-native/core/review/actions/reply-review-comment").default;
+let reactToReviewComment: typeof import("@agent-native/core/review/actions/react-to-review-comment").default;
+let createSuggestion: typeof import("@agent-native/core/review/suggestions/actions/create-resource-suggestion").default;
 let suggestEdit: typeof import("./suggest-document-edit.js").default;
 let decideSuggestion: typeof import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion").default;
 let listSuggestions: typeof import("@agent-native/core/review/suggestions/actions/list-resource-suggestions").default;
@@ -192,6 +201,22 @@ beforeAll(async () => {
   deleteDocument = (await import("./delete-document.js")).default;
   restoreVersion = (await import("./restore-document-version.js")).default;
   addComment = (await import("./add-comment.js")).default;
+  updateComment = (await import("./update-comment.js")).default;
+  deleteComment = (await import("./delete-comment.js")).default;
+  reactToComment = (await import("./react-to-comment.js")).default;
+  syncNotionComments = (await import("./sync-notion-comments.js")).default;
+  createReviewComment = (
+    await import("@agent-native/core/review/actions/create-review-comment")
+  ).default;
+  replyReviewComment = (
+    await import("@agent-native/core/review/actions/reply-review-comment")
+  ).default;
+  reactToReviewComment = (
+    await import("@agent-native/core/review/actions/react-to-review-comment")
+  ).default;
+  createSuggestion = (
+    await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion")
+  ).default;
   suggestEdit = (await import("./suggest-document-edit.js")).default;
   decideSuggestion = (
     await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion")
@@ -271,6 +296,10 @@ async function readPage(id: string) {
     updatedAt: string;
     agentTextLocked: boolean;
   };
+}
+
+async function readIcon(id: string) {
+  return ((await getDocument.run({ id }, person)) as { icon?: unknown }).icon;
 }
 
 let rowSequence = 0;
@@ -602,13 +631,31 @@ describe("Agents set to Can comment on a page", () => {
     });
   });
 
-  it("still lets an agent change what isn't the text", async () => {
+  it("still lets an agent change what isn't the text or icon", async () => {
     await asOwner(async () => {
       const page = await lockedPage("Locked text");
-      await updateDocument.run({ id: page.id, icon: "🔒" }, agent);
-      const after = (await readPage(page.id)) as unknown as { icon: unknown };
-      expect(JSON.stringify(after.icon)).toContain("🔒");
+      await updateDocument.run({ id: page.id, isFavorite: true }, agent);
+      const after = (await readPage(page.id)) as unknown as {
+        isFavorite: unknown;
+      };
+      expect(after.isFavorite).toBe(true);
       expect((await readPage(page.id)).content).toContain("Locked text");
+    });
+  });
+
+  it("refuses an agent changing the icon, and keeps a person's", async () => {
+    await asOwner(async () => {
+      const page = await lockedPage("Locked text");
+      await expect(
+        updateDocument.run({ id: page.id, icon: "🔒" }, agent),
+      ).rejects.toMatchObject(locked);
+      await expect(
+        updateDocument.run({ id: page.id, icon: "🔒" }, ownAgent),
+      ).rejects.toMatchObject(locked);
+      expect(JSON.stringify(await readIcon(page.id))).not.toContain("🔒");
+
+      await updateDocument.run({ id: page.id, icon: "🔒" }, person);
+      expect(JSON.stringify(await readIcon(page.id))).toContain("🔒");
     });
   });
 
@@ -2391,6 +2438,408 @@ describe("Notion's text reaching a locked page", () => {
 
       await route(request(page.id, { cookie: "session=1" }));
       expect((await readPage(page.id)).content).toContain("Notion text");
+    });
+  });
+});
+
+async function viewOnlyPage(content: string) {
+  const { id } = (await createDocument.run(
+    { title: "View-only page", content },
+    person,
+  )) as { id: string };
+  await setLock.run({ id, level: "view" }, person);
+  return readPage(id);
+}
+
+async function storedLevel(id: string) {
+  const [row] = await getDb()
+    .select({ agentTextLocked: schema.documents.agentTextLocked })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, id));
+  return row?.agentTextLocked;
+}
+
+describe("Agents set to Can view on a page", () => {
+  it("stores each level, reports it, and keeps the text lock a yes for both limits", async () => {
+    await asOwner(async () => {
+      const { id } = (await createDocument.run(
+        { title: "Levels", content: "Text" },
+        person,
+      )) as { id: string };
+      const levelOf = async () =>
+        (await getDocument.run({ id }, person)) as {
+          agentLevel: string;
+          agentTextLocked: boolean;
+        };
+
+      for (const [level, stored, textLocked] of [
+        ["view", 2, true],
+        ["comment", 1, true],
+        ["edit", 0, false],
+      ] as const) {
+        await expect(setLock.run({ id, level }, person)).resolves.toMatchObject(
+          { agentLevel: level, agentTextLocked: textLocked },
+        );
+        expect(await storedLevel(id)).toBe(stored);
+        expect(await levelOf()).toMatchObject({
+          agentLevel: level,
+          agentTextLocked: textLocked,
+        });
+      }
+
+      // A page loaded before Can view still sends locked.
+      await setLock.run({ id, locked: true }, person);
+      expect(await storedLevel(id)).toBe(1);
+      await setLock.run({ id, locked: false }, person);
+      expect(await storedLevel(id)).toBe(0);
+    });
+  });
+
+  it("takes a level or the old lock, not both or neither, and only from a person", async () => {
+    await asOwner(async () => {
+      const { id } = (await createDocument.run(
+        { title: "Setter", content: "Text" },
+        person,
+      )) as { id: string };
+      await expect(setLock.run({ id } as never, person)).rejects.toBeTruthy();
+      await expect(
+        setLock.run({ id, level: "view", locked: true }, person),
+      ).rejects.toBeTruthy();
+      await expect(
+        setLock.run({ id, level: "view" }, agent),
+      ).rejects.toBeTruthy();
+      await expect(
+        setLock.run({ id, level: "view" }, ownAgent),
+      ).rejects.toBeTruthy();
+      expect(await storedLevel(id)).toBe(0);
+    });
+  });
+
+  it("reads a level it doesn't know as Can view", async () => {
+    await asOwner(async () => {
+      const { id } = (await createDocument.run(
+        { title: "Unknown level", content: "Text" },
+        person,
+      )) as { id: string };
+      await getDb()
+        .update(schema.documents)
+        .set({ agentTextLocked: 7 })
+        .where(eq(schema.documents.id, id));
+      expect(await getDocument.run({ id }, person)).toMatchObject({
+        agentLevel: "view",
+        agentTextLocked: true,
+      });
+      await expect(
+        addComment.run({ documentId: id, content: "Hi" }, agent),
+      ).rejects.toMatchObject(viewOnly);
+    });
+  });
+
+  it("refuses an agent's text and icon with its own message, and keeps a person's", async () => {
+    await asOwner(async () => {
+      const page = await viewOnlyPage("Read-only text");
+      await expect(
+        editDocument.run(
+          {
+            id: page.id,
+            baseRevision: page.revision,
+            idempotencyKey: `view-edit-${page.id}`,
+            find: "Read-only",
+            replace: "Changed",
+          },
+          agent,
+        ),
+      ).rejects.toMatchObject(viewOnly);
+      for (const change of [
+        { title: "Changed title" },
+        { description: "Changed description" },
+        { icon: "🔒" },
+      ]) {
+        await expect(
+          updateDocument.run({ id: page.id, ...change }, agent),
+        ).rejects.toMatchObject(viewOnly);
+      }
+      expect(JSON.stringify(await readIcon(page.id))).not.toContain("🔒");
+      await expect(
+        deleteDocument.run(
+          {
+            id: page.id,
+            expectedUpdatedAt: page.updatedAt,
+            idempotencyKey: `view-trash-${page.id}`,
+          },
+          agent,
+        ),
+      ).rejects.toMatchObject(viewOnly);
+
+      await updateDocument.run(
+        { id: page.id, title: "Person title", icon: "🔒" },
+        person,
+      );
+      const after = await readPage(page.id);
+      expect(after.title).toBe("Person title");
+      expect(after.content).toContain("Read-only text");
+      expect(JSON.stringify(await readIcon(page.id))).toContain("🔒");
+    });
+  });
+
+  it("refuses an agent's comments, replies, edits, resolves, deletions and reactions", async () => {
+    await asOwner(async () => {
+      const page = await viewOnlyPage("Comment here.");
+      const root = (await addComment.run(
+        { documentId: page.id, content: "A person's note." },
+        person,
+      )) as { id: string; threadId: string };
+
+      const refused = [
+        () => addComment.run({ documentId: page.id, content: "Hi" }, agent),
+        () =>
+          addComment.run(
+            {
+              documentId: page.id,
+              content: "A reply",
+              threadId: root.threadId,
+              parentId: root.id,
+            },
+            ownAgent,
+          ),
+        () =>
+          updateComment.run(
+            { id: root.id, documentId: page.id, content: "Edited" },
+            agent,
+          ),
+        () =>
+          updateComment.run(
+            { id: root.id, documentId: page.id, resolved: true },
+            agent,
+          ),
+        () => deleteComment.run({ id: root.id, documentId: page.id }, agent),
+        () =>
+          reactToComment.run(
+            {
+              documentId: page.id,
+              commentId: root.id,
+              reaction: "👍",
+              active: true,
+            },
+            agent,
+          ),
+      ];
+      for (const call of refused) {
+        await expect(call()).rejects.toMatchObject(viewOnly);
+      }
+      const comments = await getDb()
+        .select()
+        .from(schema.documentComments)
+        .where(eq(schema.documentComments.documentId, page.id));
+      expect(comments).toHaveLength(1);
+      expect(comments[0]).toMatchObject({
+        content: "A person's note.",
+        resolved: 0,
+      });
+    });
+  });
+
+  it("lets a person comment, reply, edit, react and delete there", async () => {
+    await asOwner(async () => {
+      const page = await viewOnlyPage("Comment here.");
+      const root = (await addComment.run(
+        { documentId: page.id, content: "A person's note." },
+        person,
+      )) as { id: string; threadId: string };
+      await addComment.run(
+        {
+          documentId: page.id,
+          content: "A person's reply",
+          threadId: root.threadId,
+          parentId: root.id,
+        },
+        person,
+      );
+      await updateComment.run(
+        { id: root.id, documentId: page.id, content: "Edited" },
+        person,
+      );
+      await reactToComment.run(
+        {
+          documentId: page.id,
+          commentId: root.id,
+          reaction: "👍",
+          active: true,
+        },
+        person,
+      );
+      await deleteComment.run({ id: root.id, documentId: page.id }, person);
+    });
+  });
+
+  it("refuses an agent's suggested edits by every path, and its review comments", async () => {
+    await asOwner(async () => {
+      const page = await viewOnlyPage("Keep the first draft.");
+      await expect(
+        suggestEdit.run(
+          {
+            id: page.id,
+            baseRevision: page.revision,
+            idempotencyKey: `view-suggest-${page.id}`,
+            find: "first draft",
+            replace: "second draft",
+          },
+          agent,
+        ),
+      ).rejects.toMatchObject(viewOnly);
+      // Core refuses before it reads the proposal.
+      await expect(
+        createSuggestion.run(
+          {
+            resourceType: "document",
+            resourceId: page.id,
+            adapterKind: "content-document",
+            baseRevision: page.revision,
+            summary: "Second draft",
+            idempotencyKey: `view-core-suggest-${page.id}`,
+            operations: [{ ordinal: 0, kind: "replace", schemaVersion: 1 }],
+          } as never,
+          agent,
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      const listed = (await listSuggestions.run(
+        { resourceType: "document", resourceId: page.id },
+        person,
+      )) as { suggestions: unknown[] };
+      expect(listed.suggestions).toEqual([]);
+
+      const review = { resourceType: "document", resourceId: page.id };
+      await expect(
+        createReviewComment.run({ ...review, body: "Agent note" }, agent),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      const thread = (await createReviewComment.run(
+        { ...review, body: "Person note" },
+        person,
+      )) as { id: string };
+      await expect(
+        replyReviewComment.run(
+          { ...review, commentId: thread.id, body: "Agent reply" },
+          agent,
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      await expect(
+        reactToReviewComment.run(
+          { ...review, commentId: thread.id, reaction: "👍", active: true },
+          agent,
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      await replyReviewComment.run(
+        { ...review, commentId: thread.id, body: "Person reply" },
+        person,
+      );
+    });
+  });
+
+  it("refuses an agent's Notion comment sync before reaching Notion, not a person's", async () => {
+    await asOwner(async () => {
+      const page = await viewOnlyPage("Synced page");
+      await expect(
+        syncNotionComments.run({ documentId: page.id }, agent),
+      ).rejects.toMatchObject(viewOnly);
+      // Unlinked, so a call that gets past the level stops here.
+      const unlinked = "Document is not linked to Notion. Link it first.";
+      await expect(
+        syncNotionComments.run({ documentId: page.id }, person),
+      ).resolves.toBe(unlinked);
+      await setLock.run({ id: page.id, level: "comment" }, person);
+      await expect(
+        syncNotionComments.run({ documentId: page.id }, agent),
+      ).resolves.toBe(unlinked);
+    });
+  });
+
+  it("lets agents comment, react, suggest and review at Can comment and Can edit", async () => {
+    await asOwner(async () => {
+      for (const level of ["comment", "edit"] as const) {
+        const { id } = (await createDocument.run(
+          { title: `Agents ${level}`, content: "Keep the first draft." },
+          person,
+        )) as { id: string };
+        await setLock.run({ id, level }, person);
+        const page = await readPage(id);
+
+        const root = (await addComment.run(
+          { documentId: id, content: "An agent's note." },
+          agent,
+        )) as { id: string; threadId: string };
+        await addComment.run(
+          {
+            documentId: id,
+            content: "An agent's reply",
+            threadId: root.threadId,
+            parentId: root.id,
+          },
+          ownAgent,
+        );
+        await updateComment.run(
+          { id: root.id, documentId: id, content: "Edited by an agent" },
+          agent,
+        );
+        await reactToComment.run(
+          { documentId: id, commentId: root.id, reaction: "👍", active: true },
+          agent,
+        );
+        await suggestEdit.run(
+          {
+            id,
+            baseRevision: page.revision,
+            idempotencyKey: `${level}-suggest-${id}`,
+            find: "first draft",
+            replace: "second draft",
+          },
+          agent,
+        );
+        const review = { resourceType: "document", resourceId: id };
+        const thread = (await createReviewComment.run(
+          { ...review, body: "Agent note" },
+          agent,
+        )) as { id: string };
+        await replyReviewComment.run(
+          { ...review, commentId: thread.id, body: "Agent reply" },
+          agent,
+        );
+        await reactToReviewComment.run(
+          { ...review, commentId: thread.id, reaction: "👍", active: true },
+          agent,
+        );
+        await deleteComment.run({ id: root.id, documentId: id }, agent);
+      }
+    });
+  });
+
+  it("still returns the receipt of a comment that landed before the switch", async () => {
+    await asOwner(async () => {
+      const { id } = (await createDocument.run(
+        { title: "Receipt", content: "Text" },
+        person,
+      )) as { id: string };
+      await setLock.run({ id, level: "comment" }, person);
+      const comment = {
+        documentId: id,
+        content: "Landed first",
+        clientOperationId: crypto.randomUUID(),
+      };
+      const first = (await addComment.run(comment, agent)) as { id: string };
+      await setLock.run({ id, level: "view" }, person);
+      await expect(addComment.run(comment, agent)).resolves.toMatchObject({
+        id: first.id,
+        replayed: true,
+      });
+      await expect(
+        addComment.run(
+          {
+            ...comment,
+            content: "New",
+            clientOperationId: crypto.randomUUID(),
+          },
+          agent,
+        ),
+      ).rejects.toMatchObject(viewOnly);
     });
   });
 });

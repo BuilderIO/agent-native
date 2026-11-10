@@ -1,5 +1,6 @@
 import type { IconValue } from "@agent-native/core/icons";
 
+import type { AgentLevel } from "./agent-level";
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
 import type {
   GitHubSourceProblemCode,
@@ -38,8 +39,10 @@ export interface Document {
   position: number;
   isFavorite: boolean;
   hideFromSearch: boolean;
-  /** A person has set agents to Can comment on this page. */
+  /** A person has set agents to Can comment or Can view on this page. */
   agentTextLocked?: boolean;
+  /** What agents can do on this page. */
+  agentLevel?: AgentLevel;
   notionPageId?: string | null;
   notionPageUrl?: string | null;
   visibility?: "private" | "org" | "public";

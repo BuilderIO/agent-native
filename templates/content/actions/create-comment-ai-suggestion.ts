@@ -28,6 +28,7 @@ import {
   findReplaceEditPieces,
   markdownSuggestionOperationSummary,
 } from "../shared/suggestion-diff.js";
+import { assertAgentsMayCommentOnPage } from "./_document-agent-lock.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 import { addCommentWithGuard, commentIdForIdempotency } from "./add-comment.js";
 
@@ -147,6 +148,7 @@ export default defineAction({
     }
     const verification = await verifyCommentAiAttempt(request, args.attemptId);
     try {
+      assertAgentsMayCommentOnPage(verification.source.document, ctx);
       const payload = payloadSchema.parse(
         await retainCommentAiAttemptPayload(request, args.attemptId, args),
       );

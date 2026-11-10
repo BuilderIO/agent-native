@@ -16,6 +16,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import { liveBodyWriterGate } from "../server/lib/live-body-writer.js";
+import { agentLevelFromStored } from "../shared/agent-level.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   getDatabaseByDocumentId,
@@ -447,6 +448,7 @@ export default defineAction({
       isFavorite: favoriteIds.has(doc.id),
       hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
       agentTextLocked: Boolean(doc.agentTextLocked),
+      agentLevel: agentLevelFromStored(doc.agentTextLocked),
       visibility: doc.visibility,
       source,
       accessRole: access.role,

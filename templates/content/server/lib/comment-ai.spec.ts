@@ -463,3 +463,26 @@ describe("comment AI request persistence", () => {
     });
   });
 });
+
+describe("comment AI on a page set to Can view", () => {
+  const setLevel = (agentTextLocked: number) =>
+    getDb()
+      .update(schema.documents)
+      .set({ agentTextLocked })
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+
+  it("refuses a person asking AI, and saves no request", async () => {
+    await setLevel(2);
+    await expect(
+      asUser(OWNER, () => commentAi.startCommentAiRequest(startArgs())),
+    ).rejects.toMatchObject({ errorCode: "AGENT_VIEW_ONLY", statusCode: 403 });
+    expect(await getDb().select().from(schema.commentAiRequests)).toEqual([]);
+  });
+
+  it("still starts at Can comment", async () => {
+    await setLevel(1);
+    await expect(
+      asUser(OWNER, () => commentAi.startCommentAiRequest(startArgs())),
+    ).resolves.toMatchObject({ outcome: "confirmed-start" });
+  });
+});

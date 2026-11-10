@@ -21,6 +21,7 @@ import {
 } from "drizzle-orm";
 import { z } from "zod";
 
+import { assertAiMayAnswerOnPage } from "../../actions/_document-agent-lock.js";
 import { documentRevisionToken } from "../../actions/_document-edit-mutation.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
 import {
@@ -629,6 +630,7 @@ export async function startCommentAiRequest(
       ...args,
       intent: resolvedIntent ?? "reply",
     });
+    assertAiMayAnswerOnPage(source.document);
     if (source.root.resolved)
       throw new Error("Reopen the comment before asking AI");
     if (source.root.fieldId) {
