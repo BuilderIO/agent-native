@@ -66,19 +66,35 @@ export async function listAuthorizedContentSpaces(
   return rows as ContentSpaceNameCandidate[];
 }
 
-/** The workspaces the setup pass creates for the caller, named as when new. */
-async function contentSpacesFromSetup(
+/**
+ * The caller's workspaces the setup pass would create, named as it names them:
+ * their Personal workspace and one per organization, each only while it has no
+ * row. A workspace with a row, even an archived one, is left as it is.
+ */
+async function contentSpacesSetupWouldCreate(
+  db: ReturnType<typeof getDb>,
   userEmail: string,
 ): Promise<ContentSpaceNameCandidate[]> {
   const email = normalizeContentSpaceEmail(userEmail);
   const memberships = await listContentOrganizationMemberships(email);
-  return [
+  const spaces = [
     { id: personalContentSpaceId(email), name: "Personal" },
     ...memberships.map((membership) => ({
       id: organizationContentSpaceId(membership.orgId),
       name: membership.name,
     })),
   ];
+  const rows: { id: string }[] = await db
+    .select({ id: schema.contentSpaces.id })
+    .from(schema.contentSpaces)
+    .where(
+      inArray(
+        schema.contentSpaces.id,
+        spaces.map((space) => space.id),
+      ),
+    );
+  const existing = new Set(rows.map((row) => row.id));
+  return spaces.filter((space) => !existing.has(space.id));
 }
 
 /**
@@ -106,7 +122,7 @@ export async function resolveProvisionedContentSpaceAccess(args: {
       args.provision === false ||
       !(error instanceof ActionContractError) ||
       error.errorCode !== "SPACE_NOT_FOUND" ||
-      !(await contentSpacesFromSetup(args.userEmail)).some(
+      !(await contentSpacesSetupWouldCreate(args.db, args.userEmail)).some(
         (space) => space.id === args.spaceId,
       )
     ) {
@@ -150,9 +166,9 @@ export async function resolveContentSpaceTarget(args: {
     // created, so a name the setup pass would give a new one runs it first,
     // even when an existing workspace has that name too.
     if (args.provision !== false) {
-      const existing = new Set(candidates.map((candidate) => candidate.id));
-      const missing = (await contentSpacesFromSetup(args.userEmail)).filter(
-        (space) => !existing.has(space.id),
+      const missing = await contentSpacesSetupWouldCreate(
+        args.db,
+        args.userEmail,
       );
       if (matchContentSpaceByName(missing, spaceName).status !== "not_found") {
         await provisionContentSpaces(args.db, args.userEmail);

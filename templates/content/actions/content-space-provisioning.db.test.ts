@@ -76,6 +76,9 @@ beforeEach(() => {
   provisionContentSpaces.mockClear();
 });
 
+// The pass's arguments include the database, too large to print on a failure,
+// so the tests count its calls.
+
 describe("creating in a workspace", () => {
   it("skips the workspace setup pass when the workspace already exists", async () => {
     const user = "provisioned@example.com";
@@ -116,7 +119,7 @@ describe("creating in a workspace", () => {
       personalSpaceId,
     ]);
     expect(database.database.spaceId).toBe(personalSpaceId);
-    expect(provisionContentSpaces).not.toHaveBeenCalled();
+    expect(provisionContentSpaces.mock.calls.length).toBe(0);
   });
 
   it("sets up a new account's workspaces on its first page", async () => {
@@ -127,7 +130,7 @@ describe("creating in a workspace", () => {
     );
 
     expect(page.spaceId).toBe(personalContentSpaceId(user));
-    expect(provisionContentSpaces).toHaveBeenCalledTimes(1);
+    expect(provisionContentSpaces.mock.calls.length).toBe(1);
   });
 
   it("sets up a new account's workspaces when its first page names one", async () => {
@@ -144,7 +147,7 @@ describe("creating in a workspace", () => {
     );
 
     expect(page.spaceId).toBe(personalSpaceId);
-    expect(provisionContentSpaces).toHaveBeenCalledTimes(1);
+    expect(provisionContentSpaces.mock.calls.length).toBe(1);
   });
 
   it("still refuses a workspace the caller cannot see", async () => {
@@ -164,7 +167,7 @@ describe("creating in a workspace", () => {
         ),
       ),
     ).rejects.toMatchObject({ errorCode: "SPACE_NOT_FOUND" });
-    expect(provisionContentSpaces).not.toHaveBeenCalled();
+    expect(provisionContentSpaces.mock.calls.length).toBe(0);
   });
 
   it("sets up the workspace of an organization the caller just joined", async () => {
@@ -197,7 +200,7 @@ describe("creating in a workspace", () => {
     );
 
     expect(page.spaceId).toBe(orgSpaceId);
-    expect(provisionContentSpaces).toHaveBeenCalledTimes(1);
+    expect(provisionContentSpaces.mock.calls.length).toBe(1);
   });
 
   it("sets up an organization the caller just joined when a page names it", async () => {
@@ -229,7 +232,7 @@ describe("creating in a workspace", () => {
     );
 
     expect(page.spaceId).toBe(organizationContentSpaceId("org-joined-by-name"));
-    expect(provisionContentSpaces).toHaveBeenCalledTimes(1);
+    expect(provisionContentSpaces.mock.calls.length).toBe(1);
   });
 
   it("finds a new organization that shares a name with an existing workspace", async () => {
@@ -259,7 +262,42 @@ describe("creating in a workspace", () => {
         ),
       ),
     ).rejects.toMatchObject({ errorCode: "SPACE_NAME_AMBIGUOUS" });
-    expect(provisionContentSpaces).toHaveBeenCalledTimes(1);
+    expect(provisionContentSpaces.mock.calls.length).toBe(1);
+  });
+
+  it("refuses an archived organization workspace without the setup pass", async () => {
+    const user = "archived-org@example.com";
+    await getDbExec().execute({
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
+      args: ["org-archived", "Archived organization", user, Date.now()],
+    });
+    await getDbExec().execute({
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
+      args: ["member-org-archived", "org-archived", user, "member", Date.now()],
+    });
+    await as(user, () => ensureContentSpacesAction.run({}));
+    const archivedSpaceId = organizationContentSpaceId("org-archived");
+    await getDbExec().execute({
+      sql: "UPDATE content_spaces SET archived_at = $1 WHERE id = $2",
+      args: [new Date().toISOString(), archivedSpaceId],
+    });
+    provisionContentSpaces.mockClear();
+
+    await expect(
+      as(user, () =>
+        createDocumentAction.run(
+          pageInput({ title: "By id", spaceId: archivedSpaceId }),
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "SPACE_NOT_FOUND" });
+    await expect(
+      as(user, () =>
+        createDocumentAction.run(
+          pageInput({ title: "By name", spaceName: "Archived organization" }),
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "SPACE_NAME_NOT_FOUND" });
+    expect(provisionContentSpaces.mock.calls.length).toBe(0);
   });
 
   it("refuses an unknown workspace name without the setup pass", async () => {
@@ -277,6 +315,6 @@ describe("creating in a workspace", () => {
         ),
       ),
     ).rejects.toMatchObject({ errorCode: "SPACE_NAME_NOT_FOUND" });
-    expect(provisionContentSpaces).not.toHaveBeenCalled();
+    expect(provisionContentSpaces.mock.calls.length).toBe(0);
   });
 });
