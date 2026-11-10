@@ -220,7 +220,10 @@ A browser opens per app. Sign in with the account this suite should run as —
 prefer a dedicated e2e account over a personal one. The command prints the
 values for `BETA_E2E_EMAIL` and `BETA_E2E_SESSION_TOKENS`. These are live
 sessions for that account: treat them as credentials, and re-run the command
-every 30 days when they expire.
+every 30 days when they expire. For an app using a different dedicated QA identity,
+set its exact email in `BETA_E2E_EMAILS` and replace only that app’s entry in the
+full session-token map. Preserve other apps’ identities and tokens. Every selected
+app needs either its own identity override or the fallback.
 
 **2. An OpenAI key.** Two options, and the run says out loud which one it used.
 
@@ -357,15 +360,17 @@ gap stays visible until someone uses Builder.io storage for the account. A statu
 cannot be read, or one that says ready while the upload is then refused, still
 fails.
 
-If `BETA_E2E_EMAIL` is not the dedicated `+autoz` identity, keep the run
-failed. The existing recovery command for the fleet run is:
+If the resolved identity (`BETA_E2E_EMAILS` entry, or the `BETA_E2E_EMAIL`
+fallback) is not the dedicated `+autoz` identity for that app, keep the run failed. The existing recovery command for the fleet run is:
 
 ```bash
 pnpm e2e:beta:capture
 ```
 
 Replace the `BETA_E2E_EMAIL` and `BETA_E2E_SESSION_TOKENS` repository secrets
-with the command's output, then rerun the authenticated lane. A targeted
+with the command's output for a full-fleet refresh, then rerun the authenticated lane.
+For an overridden app, update its `BETA_E2E_EMAILS` entry and matching token
+without replacing unrelated entries; changing the fallback does not change an override. A targeted
 `pnpm e2e:beta:capture design` refresh is valid only for a Design-only
 dispatch; it must not replace the fleet token map used by scheduled runs. Do
 not weaken the `+autoz` validation.

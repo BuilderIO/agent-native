@@ -72,7 +72,17 @@ async function globalSetup(): Promise<void> {
 
   if (!hasSessionCredentials()) throw new Error(missingCredentialsMessage());
 
-  expectedEmail();
+  const targets = authenticatableSites();
+  if (targets.length === 0) {
+    throw new Error(
+      `The authenticated lane was requested but the app selection (${selectedSites()
+        .map((site) => site.id)
+        .join(
+          ", ",
+        )}) contains no app this suite can sign in to. Google-only apps (mail, calendar) are excluded from authenticated runs; pick at least one other app or pass BETA_E2E_AUTHED=0.`,
+    );
+  }
+  for (const site of targets) expectedEmail(site.id);
   const needsProviderKey = providerKeyRequired();
   const resolvedKey = needsProviderKey ? resolveOpenAiKey() : undefined;
   if (needsProviderKey && !resolvedKey) {
@@ -97,16 +107,6 @@ async function globalSetup(): Promise<void> {
 
   if (apiKey) await validateOpenAiKey(apiKey);
 
-  const targets = authenticatableSites();
-  if (targets.length === 0) {
-    throw new Error(
-      `The authenticated lane was requested but the app selection (${selectedSites()
-        .map((site) => site.id)
-        .join(
-          ", ",
-        )}) contains no app this suite can sign in to. Google-only apps (mail, calendar) are excluded from authenticated runs; pick at least one other app or pass BETA_E2E_AUTHED=0.`,
-    );
-  }
   console.log(
     `[beta-e2e] establishing sessions on: ${targets.map((site) => `${site.id} (${expectedEmail(site.id)})`).join(", ")}`,
   );

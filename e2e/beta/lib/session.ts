@@ -120,18 +120,22 @@ export function expectedEmail(appId?: string): string {
       "BETA_E2E_EMAILS entries must be dedicated QA email strings.",
     );
   }
+  const identitySetting =
+    override !== undefined
+      ? `BETA_E2E_EMAILS entry for ${appId}`
+      : "BETA_E2E_EMAIL";
   const email =
     typeof override === "string"
       ? override.trim()
       : process.env.BETA_E2E_EMAIL?.trim();
   if (!email) {
     throw new Error(
-      "BETA_E2E_EMAIL is not set. Authenticated beta specs must assert which identity they are running as; without it a bootstrap that silently lands as the wrong user would pass.",
+      `${identitySetting} is not set. Authenticated beta specs must assert which identity they are running as; without it a bootstrap that silently lands as the wrong user would pass.`,
     );
   }
   if (!isAutozQaEmail(email)) {
     throw new Error(
-      "BETA_E2E_EMAIL must be a dedicated QA account whose email contains +autoz.",
+      `${identitySetting} must be a dedicated QA account whose email contains +autoz.`,
     );
   }
   return email;
