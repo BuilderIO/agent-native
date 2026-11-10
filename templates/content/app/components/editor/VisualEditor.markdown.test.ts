@@ -126,6 +126,7 @@ import { setSuggestionHighlights } from "./extensions/SuggestionHighlight";
 import {
   holdImageUploadPreview,
   releaseImageUploadPreviewsFor,
+  retryImageUpload,
 } from "./image-upload-previews";
 import { createPreviewDocumentSaveController } from "./previewDocumentSaveController";
 import { insertMediaPlaceholder } from "./SlashCommandMenu";
@@ -4222,6 +4223,72 @@ describe("image upload previews", () => {
         null,
         null,
       ]);
+    });
+  });
+
+  it("saves an image retried while its batch runs, even when the rest fail", async () => {
+    await withMountedEditor(async (editor) => {
+      const second = deferred<string>();
+      const upload = vi
+        .fn<(file: File) => Promise<string>>()
+        .mockRejectedValueOnce(new Error("Network down"))
+        .mockReturnValueOnce(second.promise)
+        .mockResolvedValueOnce(uploadedSrc);
+      const persist = vi.fn(() => true);
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(editor.view, [file, file], 0, upload, {
+          persist,
+        });
+      });
+      await act(async () => {
+        await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
+      });
+      const failedId = images(editor)[0]?.attrs?.uploadId;
+      expect(String(failedId)).toMatch(/^image-failed-/);
+
+      await act(async () => {
+        retryImageUpload(failedId);
+        await vi.waitFor(() =>
+          expect(images(editor)[0]?.attrs).toMatchObject({
+            src: uploadedSrc,
+            uploadId: null,
+          }),
+        );
+      });
+      expect(persist).not.toHaveBeenCalled();
+
+      await act(async () => {
+        second.reject(new Error("Network down"));
+        await done;
+      });
+      expect(persist).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("uploads none of a batch's waiting files once the editor is blocked", async () => {
+    await withMountedEditor(async (editor) => {
+      const first = deferred<string>();
+      const upload = vi.fn(() => first.promise);
+      let suggesting = false;
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(editor.view, [file, file], 0, upload, {
+          isBlocked: () => suggesting,
+        });
+      });
+
+      suggesting = true;
+      await act(async () => {
+        first.resolve(uploadedSrc);
+        await done;
+      });
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(images(editor).map((image) => image.attrs?.uploadId)).toEqual([
+        null,
+        null,
+      ]);
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-2");
     });
   });
 

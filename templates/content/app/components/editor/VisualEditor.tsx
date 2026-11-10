@@ -2665,6 +2665,15 @@ export async function runImageUpload(
     releaseImageUploadPreview(uploadId);
     return { status: "stopped" };
   }
+  // The editor stopped taking images, such as by starting to suggest, while
+  // this file waited: its block goes back as it was, and nothing uploads.
+  if (isBlocked?.()) {
+    releaseImageUploadPreview(uploadId);
+    if (!closed() && hasPendingImageNode(view, uploadId)) {
+      restorePendingImagePicker(view, request, uploadId);
+    }
+    return { status: "stopped" };
+  }
   let stagedSrc: string | null = null;
   // Set from the upload's callbacks, so it is read through the object.
   const progress = { committed: false };
@@ -2944,10 +2953,15 @@ export async function uploadAndInsertImageFiles(
   let failed = 0;
   let firstError: unknown = null;
   // A save skips the page while any of its blocks still waits for an upload,
-  // so the batch saves once its last upload has settled. A Retry after that
-  // saves for itself.
-  let settled = false;
-  const persistOnceSettled = () => (settled ? persist() : true);
+  // so the batch saves once its last upload has settled, for every image
+  // added meanwhile, a Retry's included. A Retry after that saves for itself.
+  // Set from the uploads' callbacks, so it is read through the object.
+  const batch = { settled: false, saveOwed: false };
+  const persistOnceSettled = () => {
+    if (batch.settled) return persist();
+    batch.saveOwed = true;
+    return true;
+  };
 
   for (const pending of pendingUploads) {
     if (!view.dom.isConnected) return;
@@ -2971,9 +2985,9 @@ export async function uploadAndInsertImageFiles(
       firstError ??= outcome.error;
     }
   }
-  settled = true;
+  batch.settled = true;
   if (!view.dom.isConnected) return;
-  if (added > 0 && !(await persist())) {
+  if (batch.saveOwed && !(await persist())) {
     toast.error(
       imageUploadFailureMessage(new ImagePersistenceError(), messages),
     );
