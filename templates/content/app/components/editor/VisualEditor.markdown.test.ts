@@ -124,6 +124,7 @@ import {
   NotionToggle,
 } from "./extensions/NotionExtensions";
 import { setSuggestionHighlights } from "./extensions/SuggestionHighlight";
+import { ImageStorageUnavailableError } from "./image-upload";
 import {
   holdImageUploadPreview,
   releaseImageUploadPreviewsFor,
@@ -4699,6 +4700,79 @@ describe("image upload previews", () => {
         });
         expect(serializeEditorDraftForPersistence(editor)).toContain(oldSrc);
         releaseImageUploadPreviewsFor(owner);
+      },
+      { type: "doc", content: [{ type: "image", attrs: request.attrs }] },
+    );
+  });
+
+  it("keeps a picked image's Assets ID on its uploaded copy", async () => {
+    const request = {
+      pickerId: "image-picker-test",
+      position: 0,
+      attrs: { src: null, alt: "", uploadId: "image-picker-test" },
+    };
+    await withMountedEditor(
+      async (editor) => {
+        holdImageUploadPreview("image-upload-test", file, {});
+        await act(async () => {
+          expect(
+            ensurePendingImageUpload(editor.view, request, "image-upload-test"),
+          ).toBe(true);
+          await runImageUpload({
+            view: editor.view,
+            file,
+            uploadId: "image-upload-test",
+            request,
+            attrs: { assetId: "asset-1" },
+            upload: () => Promise.resolve(uploadedSrc),
+            persist: () => true,
+            messages,
+          });
+        });
+
+        expect(images(editor)[0]?.attrs).toMatchObject({
+          src: uploadedSrc,
+          assetId: "asset-1",
+          uploadId: null,
+        });
+      },
+      { type: "doc", content: [{ type: "image", attrs: request.attrs }] },
+    );
+  });
+
+  it("hands a picked image back to its fallback when no storage takes the copy", async () => {
+    const request = {
+      pickerId: "image-picker-test",
+      position: 0,
+      attrs: { src: null, alt: "", uploadId: "image-picker-test" },
+    };
+    await withMountedEditor(
+      async (editor) => {
+        holdImageUploadPreview("image-upload-test", file, {});
+        const onStorageUnavailable = vi.fn();
+        let outcome: Awaited<ReturnType<typeof runImageUpload>> | undefined;
+        await act(async () => {
+          expect(
+            ensurePendingImageUpload(editor.view, request, "image-upload-test"),
+          ).toBe(true);
+          outcome = await runImageUpload({
+            view: editor.view,
+            file,
+            uploadId: "image-upload-test",
+            request,
+            attrs: { assetId: "asset-1" },
+            upload: () =>
+              Promise.reject(new ImageStorageUnavailableError("No storage")),
+            persist: () => true,
+            messages,
+            onStorageUnavailable,
+          });
+        });
+
+        expect(outcome?.status).toBe("stopped");
+        expect(onStorageUnavailable).toHaveBeenCalledOnce();
+        expect(images(editor)[0]?.attrs?.uploadId).toBeNull();
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1");
       },
       { type: "doc", content: [{ type: "image", attrs: request.attrs }] },
     );

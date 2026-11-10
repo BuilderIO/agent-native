@@ -8,6 +8,7 @@ interface UploadResponse {
   error?: unknown;
   message?: unknown;
   statusMessage?: unknown;
+  data?: unknown;
 }
 
 function normalizeImageFile(file: File): File | null {
@@ -48,6 +49,14 @@ export class ImagePersistenceError extends Error {
   constructor() {
     super("Image could not be saved.");
     this.name = "ImagePersistenceError";
+  }
+}
+
+/** The page has no private storage connected to keep an image in. */
+export class ImageStorageUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ImageStorageUnavailableError";
   }
 }
 
@@ -167,6 +176,35 @@ export function createImagePickerId(): string {
       ? crypto.randomUUID()
       : Math.random().toString(36).slice(2);
   return `image-picker-${random}`;
+}
+
+/**
+ * The file in the Assets picker's answer to a request for a chosen image, or
+ * null from a picker that sends none.
+ */
+export function pickedAssetImageFile(answer: unknown): File | null {
+  if (!answer || typeof answer !== "object") return null;
+  const { blob, filename, mimeType } = answer as {
+    blob?: unknown;
+    filename?: unknown;
+    mimeType?: unknown;
+  };
+  if (!(blob instanceof Blob)) return null;
+  const name = typeof filename === "string" ? filename.trim() : "";
+  return new File([blob], name || "image", {
+    type: typeof mimeType === "string" && mimeType ? mimeType : blob.type,
+  });
+}
+
+/** The server's own answer for a page with no private storage connected. */
+function isStorageUnavailable(body: UploadResponse): boolean {
+  const data = body.data;
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { errorCode?: unknown }).errorCode ===
+      "PRIVATE_MEDIA_STORAGE_UNAVAILABLE"
+  );
 }
 
 function mediaUploadLabel(kind: MediaUploadKind) {
@@ -304,6 +342,11 @@ export async function uploadImageFile(
   });
   // coercion-ok: a body that isn't JSON still fails below, on the status or the missing URL.
   const body = (await response.json().catch(() => ({}))) as UploadResponse;
+  if (response.status === 503 && isStorageUnavailable(body)) {
+    throw new ImageStorageUnavailableError(
+      uploadResponseMessage(response, body, "image"),
+    );
+  }
   if (!response.ok) {
     throw new Error(uploadResponseMessage(response, body, "image"));
   }

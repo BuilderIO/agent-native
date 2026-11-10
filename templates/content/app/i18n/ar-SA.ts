@@ -763,6 +763,8 @@ const editor = {
     altText: "نص بديل",
     altTextGenerationFailed: "تعذر بدء إنشاء النص البديل.",
     assets: "الأصول",
+    assetsCopyFailed:
+      "تعذّر نسخ هذه الصورة من الأصول. حاول مرة أخرى، أو ارفع الملف بدلاً من ذلك.",
     assetsImagePicker: "منتقي صورة الأصول",
     assetsMissingImageUrl: "لم تُرجع الأصول عنوان URL للصورة.",
     audio: "الصوت",

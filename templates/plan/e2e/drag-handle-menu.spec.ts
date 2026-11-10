@@ -95,7 +95,10 @@ function blockNode(page: Page, blockId: string) {
 }
 
 function grip(page: Page) {
-  return page.locator(".plan-document-editor .drag-handle").first();
+  // The grip for a whole block, not the one for the text inside a callout.
+  return page.locator(
+    ".plan-document-editor .drag-handle:not(.plan-block-node .drag-handle)",
+  );
 }
 
 function blockMenu(page: Page) {
@@ -127,7 +130,8 @@ async function revealGripFor(page: Page, target: ReturnType<typeof blockNode>) {
   await expect(target).toBeVisible({ timeout: 20_000 });
   const g = grip(page);
   await expect(async () => {
-    await target.hover();
+    // Further in than its edge, a callout shows the grip for the text inside it.
+    await target.hover({ position: { x: 40, y: 2 } });
     await expect(g).toBeVisible({ timeout: 1_500 });
     const gripBox = await g.boundingBox();
     const blockBox = await target.boundingBox();
@@ -421,7 +425,10 @@ test.describe("drag-handle single-click block menu", () => {
       gripBox!.y + gripBox!.height / 2,
     );
     await page.mouse.down();
-    await page.mouse.move(proseBox!.x + 40, proseBox!.y + 6, { steps: 14 });
+    // Clear of the left edge, where a drop makes columns.
+    await page.mouse.move(proseBox!.x + proseBox!.width / 2, proseBox!.y + 6, {
+      steps: 14,
+    });
     await page.mouse.up();
 
     await expect(blockMenu(page)).toHaveCount(0);

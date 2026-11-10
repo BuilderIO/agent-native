@@ -758,6 +758,8 @@ const editor = {
     altText: "वैकल्पिक पाठ",
     altTextGenerationFailed: "वैकल्पिक टेक्स्ट जनरेशन प्रारंभ नहीं किया जा सका.",
     assets: "संपत्ति",
+    assetsCopyFailed:
+      "इस छवि को एसेट से कॉपी नहीं किया जा सका. फिर से कोशिश करें, या इसके बजाय फ़ाइल अपलोड करें.",
     assetsImagePicker: "संपत्ति छवि चयनकर्ता",
     assetsMissingImageUrl: "एसेट ने कोई छवि URL नहीं लौटाया.",
     audio: "ऑडियो",

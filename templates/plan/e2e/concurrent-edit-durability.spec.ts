@@ -527,6 +527,198 @@ test("keeping my version of a block both writers changed saves it, and the other
   await expectPersisted(page, planId, { has: theirs, lacks: mine });
 });
 
+async function expectSaved(page: Page) {
+  await expect(page.getByText("Couldn't save")).toHaveCount(0);
+}
+
+// The grip for a whole block shows at its edge. Further in, it's for the text
+// inside a callout.
+async function deleteBlockWithItsGrip(page: Page, blockId: string) {
+  const box = await surface(page)
+    .locator(`.plan-block-node[data-block-id="${blockId}"]`)
+    .boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + 2);
+  await page.locator(".drag-handle:visible").click();
+  await page
+    .locator(".an-rich-md-drag-menu__item")
+    .filter({ hasText: /^Delete$/ })
+    .click();
+}
+
+test("emptying a text block saves, and so does what's typed after it", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Bravo block seed.");
+  await surface(page).getByText("Bravo block seed.").click({ clickCount: 3 });
+  await page.keyboard.press("Backspace");
+  await expect
+    .poll(
+      async () =>
+        (await persistedBlocks(page, planId)).map((block) => block.id),
+      { timeout: 20_000 },
+    )
+    .toEqual([ALPHA, "divider"]);
+  await expectSaved(page);
+
+  const after = ` AFTER${Date.now() % 100000}`;
+  await typeAtEndOf(page, "Alpha block seed.", after);
+  await expect
+    .poll(() => persistedText(page, planId), { timeout: 20_000 })
+    .toContain(after.trim());
+  await expectSaved(page);
+});
+
+test("deleting a block saves, and it stays deleted after a reload", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Separator callout.");
+  await deleteBlockWithItsGrip(page, "divider");
+  await expect(surface(page)).not.toContainText("Separator callout.");
+  await expect
+    .poll(
+      async () =>
+        (await persistedBlocks(page, planId)).map((block) => block.id),
+      { timeout: 20_000 },
+    )
+    .not.toContain("divider");
+  await expect(surface(page)).not.toContainText("Separator callout.");
+  await expectSaved(page);
+  await page.reload();
+  await expect(surface(page)).toContainText("Alpha block seed.", {
+    timeout: 25_000,
+  });
+  await expect(surface(page)).not.toContainText("Separator callout.");
+});
+
+test("undoing a deletion after it saved brings the block back with its content, and that saves", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Separator callout.");
+  const deletionSaved = page.waitForResponse(
+    (res) => res.url().includes("update-visual-plan") && res.ok(),
+    { timeout: 30_000 },
+  );
+  await deleteBlockWithItsGrip(page, "divider");
+  await deletionSaved;
+  await expect
+    .poll(
+      async () =>
+        (await persistedBlocks(page, planId)).map((block) => block.id),
+      { timeout: 20_000 },
+    )
+    .not.toContain("divider");
+  // The save's revision reaches the editor just after its response.
+  await page.waitForTimeout(500);
+
+  await surface(page).getByText("Alpha block seed.").click();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(surface(page)).toContainText("Separator callout.");
+  await expect
+    .poll(
+      async () =>
+        (await persistedBlocks(page, planId)).find(
+          (block) => block.id === "divider",
+        )?.markdown,
+      { timeout: 20_000 },
+    )
+    .toBe("Separator callout.");
+  await expectSaved(page);
+  await page.reload();
+  await expect(surface(page)).toContainText("Separator callout.", {
+    timeout: 25_000,
+  });
+});
+
+// Plans can hold text blocks in a row, as an agent can write them. The document
+// fuses them, so the first save carries one block in place of the two.
+const TEXT_BLOCKS_IN_A_ROW: SeedBlock[] = [
+  { id: ALPHA, markdown: "Alpha block seed." },
+  { id: BRAVO, markdown: "Bravo block seed." },
+];
+
+test("typing in a plan with text blocks in a row saves, keeping all the text", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TEXT_BLOCKS_IN_A_ROW);
+  await openEditable(page, planId, "Bravo block seed.");
+  const typed = ` TYPED${Date.now() % 100000}`;
+  await typeAtEndOf(page, "Alpha block seed.", typed);
+  await expect
+    .poll(() => persistedText(page, planId), { timeout: 20_000 })
+    .toContain(typed.trim());
+  const text = await persistedText(page, planId);
+  expect(text).toContain("Alpha block seed.");
+  expect(text).toContain("Bravo block seed.");
+  await expectSaved(page);
+});
+
+test("keeping mine in a plan with text blocks in a row saves it, and keeps it in the editor", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TEXT_BLOCKS_IN_A_ROW);
+  await openEditable(page, planId, "Bravo block seed.");
+  const { mine, theirs, prompt } = await overlapOnFirstBlock(page, planId);
+  await prompt.getByRole("button", { name: "Keep mine" }).click();
+  await expectPersisted(page, planId, { has: mine, lacks: theirs });
+  expect(await persistedText(page, planId)).toContain("Bravo block seed.");
+  await expectSaved(page);
+});
+
+test("deleting a block someone else just changed asks, and either answer saves", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Separator callout.");
+  // This tab hasn't heard about the other write when the block goes.
+  const refetches = "**/_agent-native/actions/get-visual-plan*";
+  await page.route(refetches, (route) => route.abort());
+  const theirs = `THEIRS${Date.now() % 100000}`;
+  const res = await page.request.post(
+    "/_agent-native/actions/update-visual-plan",
+    {
+      data: {
+        planId,
+        contentPatches: [
+          {
+            op: "update-block",
+            blockId: "divider",
+            patch: { data: { tone: "info", body: `Callout ${theirs}` } },
+          },
+        ],
+      },
+    },
+  );
+  expect(res.ok(), `update-block: ${await res.text()}`).toBeTruthy();
+  await deleteBlockWithItsGrip(page, "divider");
+
+  const prompt = page.getByRole("alertdialog");
+  await expect(prompt).toContainText("Someone else changed this too", {
+    timeout: 20_000,
+  });
+  await page.unroute(refetches);
+  await prompt.getByRole("button", { name: "Keep mine" }).click();
+  await expect
+    .poll(
+      async () =>
+        (await persistedBlocks(page, planId)).map((block) => block.id),
+      { timeout: 20_000 },
+    )
+    .not.toContain("divider");
+  await expectSaved(page);
+
+  await page
+    .getByRole("button", { name: "Get the other version back" })
+    .click();
+  await expect
+    .poll(() => persistedText(page, planId), { timeout: 20_000 })
+    .toContain(theirs);
+  await expectSaved(page);
+});
+
 test("deleting what a merged save brought in stays deleted", async ({
   page,
 }) => {

@@ -1183,7 +1183,7 @@ function compareDateToBound(
   );
 }
 
-function selectedFilterValues(value: string) {
+export function selectedFilterValues(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return [];
   try {
